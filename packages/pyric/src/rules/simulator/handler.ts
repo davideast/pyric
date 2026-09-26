@@ -19,7 +19,7 @@ import type {
 import type { FirestoreRules, MatchBlock, AllowRule, FunctionDef, Expression } from '../grammar/FirestoreAST.js';
 import { parseToAST } from '../grammar/FirestoreParser.js';
 import { assembleExpression } from '../grammar/FirestoreAssembler.js';
-import { resolveAuthoredSourceLoc } from '../modules/resolver-core.js';
+import { readAuthoredSourceMap, resolveAuthoredLoc, type AuthoredSourceMap } from '../modules/resolver-core.js';
 import { evaluate, UnsupportedError, TraceRecorder, type SimulationContext } from './evaluator.js';
 
 import { Timestamp } from './wrappers/timestamp.js';
@@ -110,7 +110,7 @@ function evaluateRules(
   block: MatchBlock,
   operation: string,
   ctx: SimulationContext,
-  source?: string,
+  sourceMap?: AuthoredSourceMap,
 ): RuleBlockOutcome {
   const ops = methodToOperations(operation);
   const trace: RuleEvaluation[] = [];
@@ -141,7 +141,7 @@ function evaluateRules(
   let sawUnsupported = false;
   const priorRecorder = ctx.trace;
   for (const { rule, index } of matchingRules) {
-    const entry = newEntry(rule, index, source);
+    const entry = newEntry(rule, index, sourceMap);
     const recorder = new TraceRecorder();
     ctx.trace = recorder;
     try {
@@ -209,7 +209,7 @@ function evaluateRules(
   return { decision: finalDecision, trace, notes };
 }
 
-function newEntry(rule: AllowRule, index: number, source?: string): RuleEvaluation {
+function newEntry(rule: AllowRule, index: number, sourceMap?: AuthoredSourceMap): RuleEvaluation {
   const condText = assembleExpression(rule.condition);
   const entry: RuleEvaluation = {
     ruleIndex: index,
@@ -231,9 +231,9 @@ function newEntry(rule: AllowRule, index: number, source?: string): RuleEvaluati
       entry.file = 'firestore.rules';
       entry.citation = `firestore.rules:${loc.line}:${loc.col}`;
     }
-    const hasSource = source !== undefined;
-    if (hasSource) {
-      const authored = resolveAuthoredSourceLoc(source!, loc.line, loc.col, loc.file, condText);
+    const hasSourceMap = sourceMap !== undefined;
+    if (hasSourceMap) {
+      const authored = resolveAuthoredLoc(sourceMap!, loc.line, loc.col, loc.file, condText);
       const hasAuthored = authored !== undefined;
       if (hasAuthored) {
         entry.line = authored!.line;
@@ -417,6 +417,21 @@ function buildContext(
 
 // ═══ Main handler ═══
 
+export interface SimulateOptions {
+  getDoc?: (path: string) => Record<string, unknown> | null;
+  /**
+   * getafter-batch fix — shared post-commit projection for a batch or
+   * transaction. Keyed by normalized relative path (same shape as
+   * `getDoc`'s input); value is the post-write document, or `null` for
+   * a path the batch/transaction deletes. Every per-op simulate() call
+   * for the SAME batch/transaction passes the SAME map, built once by
+   * the caller (LocalEnvironment.batch()/transaction()) up front —
+   * mirrors how the RTDB rules projection covers a multi-path update
+   * in one shared tree. Omit for single-op evaluation.
+   */
+  batchProjection?: Map<string, Record<string, unknown> | null>;
+}
+
 export class SimulateFirestoreRulesHandler {
   /**
    * Simulate Firestore rules evaluation locally.
@@ -425,20 +440,7 @@ export class SimulateFirestoreRulesHandler {
   simulate(
     source: string,
     testCases: TestCase[],
-    opts?: {
-      getDoc?: (path: string) => Record<string, unknown> | null;
-      /**
-       * getafter-batch fix — shared post-commit projection for a batch or
-       * transaction. Keyed by normalized relative path (same shape as
-       * `getDoc`'s input); value is the post-write document, or `null` for
-       * a path the batch/transaction deletes. Every per-op simulate() call
-       * for the SAME batch/transaction passes the SAME map, built once by
-       * the caller (LocalEnvironment.batch()/transaction()) up front —
-       * mirrors how the RTDB rules projection covers a multi-path update
-       * in one shared tree. Omit for single-op evaluation.
-       */
-      batchProjection?: Map<string, Record<string, unknown> | null>;
-    },
+    opts?: SimulateOptions,
   ): TestFirestoreRulesResult {
     // Parse rules. Give the empty-input case a distinct, actionable
     // error — agents that see "Failed to parse rules source" otherwise
@@ -465,7 +467,29 @@ export class SimulateFirestoreRulesHandler {
         error: { code: 'PARSE_FAILED', message: 'Failed to parse rules source', recoverable: true },
       };
     }
+    return this.simulateParsed(ast, source, testCases, opts);
+  }
 
+  /**
+   * Evaluate test cases against an already parsed ruleset. Callers that
+   * evaluate the same deployed rules on every request hold the parsed AST
+   * and pass it here, so a request costs evaluation only, not a parse.
+   *
+   * `ast` is read, never mutated, so one AST can serve any number of
+   * requests. `source` is the deployed source the AST came from: rule
+   * locations resolve through the source map it carries, unless
+   * `opts.sourceMap` supplies that map already read.
+   */
+  simulateParsed(
+    ast: FirestoreRules,
+    source: string,
+    testCases: TestCase[],
+    opts?: SimulateOptions & {
+      /** The source map read from `source`, when the caller keeps it. */
+      sourceMap?: AuthoredSourceMap;
+    },
+  ): TestFirestoreRulesResult {
+    const sourceMap = opts?.sourceMap ?? readAuthoredSourceMap(source);
     const results: TestResult[] = [];
     let passed = 0;
     let failed = 0;
@@ -606,7 +630,7 @@ export class SimulateFirestoreRulesHandler {
         const ctx = buildContext(tc, match.functions, pathVars, opts?.getDoc, opts?.batchProjection, lookupBudget);
 
         const blockPath = renderMatchBlockPath(match.block);
-        const res = evaluateRules(match.block, tc.method, ctx, source);
+        const res = evaluateRules(match.block, tc.method, ctx, sourceMap);
         for (const entry of res.trace) {
           entry.matchPath = blockPath;
         }

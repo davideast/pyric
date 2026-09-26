@@ -15,6 +15,7 @@ import { parseToASTOrError } from '../grammar/FirestoreParser.js';
 import { lintFirestoreRules } from '../linter/linter.js';
 import { validateFirestoreRules } from '../grammar/FirestoreValidator.js';
 import { SimulateFirestoreRulesHandler } from '../simulator/handler.js';
+import { readAuthoredSourceMap, type AuthoredSourceMap } from '../modules/resolver-core.js';
 import { projectEvaluatedRule } from '../test/spec.js';
 import type { TestCase, TestResult } from '../test/spec.js';
 import { RulesCompileError } from './errors.js';
@@ -75,10 +76,13 @@ function unrunnableResult(fc: FirestoreCase, message: string): CaseResult {
 
 class FirestoreRulesetImpl implements FirestoreRuleset {
   private readonly handler = new SimulateFirestoreRulesHandler();
+  private readonly sourceMap: AuthoredSourceMap;
   constructor(
     private readonly source: string,
     private readonly ast: FirestoreRules,
-  ) {}
+  ) {
+    this.sourceMap = readAuthoredSourceMap(source);
+  }
 
   lint(): RuleIssue[] {
     const issues: RuleIssue[] = [];
@@ -92,10 +96,13 @@ class FirestoreRulesetImpl implements FirestoreRuleset {
   }
 
   simulate(cases: FirestoreCase[]): SimulationSummary {
-    const result = this.handler.simulate(this.source, cases as TestCase[]);
+    const result = this.handler.simulateParsed(this.ast, this.source, cases as TestCase[], {
+      sourceMap: this.sourceMap,
+    });
     if (!result.success) {
-      // The source compiled in the constructor, so a parse failure here is
-      // not expected — but the front door must not throw. Report every case
+      // The source compiled in the constructor and the parsed AST is
+      // evaluated directly, so a failure here is not expected. The front
+      // door must not throw. Report every case
       // as failed with the engine's message.
       const message = result.error.message;
       const caseResults = cases.map((c) => unrunnableResult(c, message));

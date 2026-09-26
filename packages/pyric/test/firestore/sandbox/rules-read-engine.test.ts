@@ -137,6 +137,31 @@ describe('RulesReadEngine.silentReadDoc', () => {
   });
 });
 
+describe('RulesReadEngine parse reuse', () => {
+  test('silentReadDoc evaluates the cached AST with the deployed source on every read', () => {
+    const { engine, rules, simulator } = makeEngine(OPEN_RULES, { 'games/g1': { n: 1 } });
+    const received: { ast: unknown; source: string }[] = [];
+    const simulateParsed = simulator.simulateParsed.bind(simulator);
+    simulator.simulateParsed = (ast, source, cases, options) => {
+      received.push({ ast, source });
+      return simulateParsed(ast, source, cases, options);
+    };
+    simulator.simulate = () => {
+      throw new Error('simulate(source) parses the ruleset again');
+    };
+
+    for (let i = 0; i < 3; i++) {
+      expect(engine.silentReadDoc('games/g1', { uid: 'u1' }).allowed).toBe(true);
+    }
+
+    expect(received).toHaveLength(3);
+    for (const call of received) {
+      expect(call.ast).toBe(rules.ast()!);
+      expect(call.source).toBe(rules.source);
+    }
+  });
+});
+
 describe('RulesReadEngine.silentReadCollection', () => {
   test('captures request.time before the listener request event timestamp', () => {
     const { engine, events, simulator } = makeEngine(OPEN_RULES, {
@@ -144,11 +169,11 @@ describe('RulesReadEngine.silentReadCollection', () => {
     });
     const requests: RequestEvent[] = [];
     events.request.subscribe((event) => requests.push(event));
-    const originalSimulate = simulator.simulate.bind(simulator);
+    const originalSimulateParsed = simulator.simulateParsed.bind(simulator);
     let requestTime: string | undefined;
-    simulator.simulate = (source, cases, options) => {
+    simulator.simulateParsed = (ast, source, cases, options) => {
       requestTime = cases[0]?.requestTime;
-      return originalSimulate(source, cases, options);
+      return originalSimulateParsed(ast, source, cases, options);
     };
     const ticks = [1_000, 1_100, 2_000];
     const nowSpy = spyOn(Date, 'now').mockImplementation(() => ticks.shift() ?? 2_000);

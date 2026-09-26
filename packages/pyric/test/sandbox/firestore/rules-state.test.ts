@@ -3,9 +3,10 @@
  *
  * Pins the holder's contract directly: source get/set, the RULES-B11
  * per-source AST cache (hit on identical source, invalidation on a new
- * source), and null-AST behavior for unparseable source.
+ * source), null-AST behavior for unparseable source, and the per-source
+ * source-map cache.
  */
-import { describe, test, expect } from 'bun:test';
+import { describe, test, expect, spyOn } from 'bun:test';
 import { RulesState } from '../../../src/firestore/sandbox/rules-state.js';
 
 const OPEN_RULES = `rules_version = '2';
@@ -68,5 +69,43 @@ describe('RulesState', () => {
     expect(rules.ast()).toBeNull();
     // Cached null — repeat calls stay null without throwing.
     expect(rules.ast()).toBeNull();
+  });
+});
+
+describe('RulesState source map', () => {
+  const MAPPED_RULES = `${OPEN_RULES}\n// @pyric-source-map: [{"generatedLine":5,"authoredLine":12,"authoredCol":7,"authoredFile":"rules/games.rules"}]\n`;
+
+  test('sourceMap() reads the embedded source map by generated line', () => {
+    const rules = new RulesState(MAPPED_RULES);
+    expect(rules.sourceMap().get(5)).toMatchObject({
+      authoredLine: 12,
+      authoredCol: 7,
+      authoredFile: 'rules/games.rules',
+    });
+  });
+
+  test('sourceMap() parses the source map once per source', () => {
+    const rules = new RulesState(MAPPED_RULES);
+    const parse = spyOn(JSON, 'parse');
+    try {
+      const first = rules.sourceMap();
+      const second = rules.sourceMap();
+      rules.set(MAPPED_RULES);
+      const third = rules.sourceMap();
+      expect(second).toBe(first);
+      expect(third).toBe(first);
+      expect(parse).toHaveBeenCalledTimes(1);
+    } finally {
+      parse.mockRestore();
+    }
+  });
+
+  test('set() with new source reads the new source map', () => {
+    const rules = new RulesState(MAPPED_RULES);
+    const first = rules.sourceMap();
+    rules.set(OPEN_RULES);
+    const second = rules.sourceMap();
+    expect(second).not.toBe(first);
+    expect(second.size).toBe(0);
   });
 });

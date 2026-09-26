@@ -764,8 +764,72 @@ export interface AuthoredSourceLoc {
   expression?: string;
 }
 
+/**
+ * The source map a resolved ruleset carries on its `// @pyric-source-map:`
+ * line, keyed by generated line. The first entry for a line wins. Empty
+ * when the source has no source-map line or the line does not parse.
+ */
+export type AuthoredSourceMap = ReadonlyMap<number, RulesSourceMapEntry>;
+
+const SOURCE_MAP_MARKER = '// @pyric-source-map: ';
+
+/** Read the source map embedded in a resolved rules source. */
+export function readAuthoredSourceMap(sourceString: string): AuthoredSourceMap {
+  const byLine = new Map<number, RulesSourceMapEntry>();
+  const markerIdx = sourceString.indexOf(SOURCE_MAP_MARKER);
+  const hasMarker = markerIdx !== -1;
+  if (!hasMarker) {
+    return byLine;
+  }
+  const startIdx = markerIdx + SOURCE_MAP_MARKER.length;
+  const endIdx = sourceString.indexOf('\n', startIdx);
+  let jsonStr = '';
+  const hasNewLine = endIdx !== -1;
+  if (hasNewLine) {
+    jsonStr = sourceString.slice(startIdx, endIdx).trim();
+  } else {
+    jsonStr = sourceString.slice(startIdx).trim();
+  }
+  try {
+    const sourceMap = JSON.parse(jsonStr) as RulesSourceMapEntry[];
+    const isArray = Array.isArray(sourceMap);
+    if (isArray) {
+      for (const entry of sourceMap) {
+        const isFirstForLine = !byLine.has(entry.generatedLine);
+        if (isFirstForLine) {
+          byLine.set(entry.generatedLine, entry);
+        }
+      }
+    }
+  } catch (e) {
+    // ignore JSON parse errors
+  }
+  return byLine;
+}
+
 export function resolveAuthoredSourceLoc(
   sourceString: string,
+  generatedLine?: number,
+  generatedCol?: number,
+  fallbackFile?: string,
+  fallbackExpression?: string,
+): AuthoredSourceLoc | undefined {
+  const isLineUndefined = generatedLine === undefined;
+  if (isLineUndefined) {
+    return undefined;
+  }
+  return resolveAuthoredLoc(
+    readAuthoredSourceMap(sourceString),
+    generatedLine,
+    generatedCol,
+    fallbackFile,
+    fallbackExpression,
+  );
+}
+
+/** {@link resolveAuthoredSourceLoc} against a source map read once. */
+export function resolveAuthoredLoc(
+  sourceMap: AuthoredSourceMap,
   generatedLine?: number,
   generatedCol?: number,
   fallbackFile?: string,
@@ -795,45 +859,15 @@ export function resolveAuthoredSourceLoc(
     expression = fallbackExpression;
   }
 
-  const marker = '// @pyric-source-map: ';
-  const markerIdx = sourceString.indexOf(marker);
-  const hasMarker = markerIdx !== -1;
-  if (hasMarker) {
-    const startIdx = markerIdx + marker.length;
-    const endIdx = sourceString.indexOf('\n', startIdx);
-    let jsonStr = '';
-    const hasNewLine = endIdx !== -1;
-    if (hasNewLine) {
-      jsonStr = sourceString.slice(startIdx, endIdx).trim();
-    } else {
-      jsonStr = sourceString.slice(startIdx).trim();
-    }
-    try {
-      const sourceMap = JSON.parse(jsonStr) as Array<{
-        generatedLine: number;
-        authoredLine: number;
-        authoredCol: number;
-        authoredFile: string;
-        expression?: string;
-      }>;
-      const isArray = Array.isArray(sourceMap);
-      if (isArray) {
-        for (const entry of sourceMap) {
-          const isMatch = entry.generatedLine === line;
-          if (isMatch) {
-            line = entry.authoredLine;
-            col = entry.authoredCol;
-            file = entry.authoredFile;
-            const hasEntryExpr = entry.expression !== undefined;
-            if (hasEntryExpr) {
-              expression = entry.expression;
-            }
-            break;
-          }
-        }
-      }
-    } catch (e) {
-      // ignore JSON parse errors
+  const entry = sourceMap.get(line);
+  const hasEntry = entry !== undefined;
+  if (hasEntry) {
+    line = entry!.authoredLine;
+    col = entry!.authoredCol;
+    file = entry!.authoredFile;
+    const hasEntryExpr = entry!.expression !== undefined;
+    if (hasEntryExpr) {
+      expression = entry!.expression;
     }
   }
 

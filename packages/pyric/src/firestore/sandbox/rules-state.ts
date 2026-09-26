@@ -10,11 +10,18 @@
  * RULES-B11 — the AST cache exists because the query-proof gate needs
  * the matched `list` rule's condition AST on EVERY list read;
  * re-parsing the (unchanging) rules source per read would be O(source)
- * on the listener hot path. The cache is keyed on the exact source
+ * on the listener hot path. Writes, document reads and list residuals
+ * evaluate the same cached AST, and the source map beside it, through
+ * `simulateParsed`, so no request parses. The cache is keyed on the exact source
  * string so `deployRules` / `seed` invalidate it for free by calling
  * {@link set}.
  */
-import { parseToAST, type FirestoreRules } from 'pyric/rules/internal';
+import {
+  parseToAST,
+  readAuthoredSourceMap,
+  type AuthoredSourceMap,
+  type FirestoreRules,
+} from 'pyric/rules/internal';
 
 import type { TestResult } from 'pyric/rules/internal';
 import { captureRulesEvidence, captureQueryEvidence } from './rules-evidence.js';
@@ -45,6 +52,9 @@ export class RulesState {
    * then reports the failure on its own).
    */
   private parsedCache: { source: string; ast: FirestoreRules | null } | null = null;
+
+  /** The source map read from the source, cached on the same key. */
+  private sourceMapCache: { source: string; sourceMap: AuthoredSourceMap } | null = null;
 
   constructor(initialSource: string) {
     this.currentSource = initialSource;
@@ -78,5 +88,19 @@ export class RulesState {
       };
     }
     return this.parsedCache.ast;
+  }
+
+  /**
+   * The authored-location source map embedded in the current source,
+   * read once per source string. Empty when the source carries none.
+   */
+  sourceMap(): AuthoredSourceMap {
+    if (this.sourceMapCache?.source !== this.currentSource) {
+      this.sourceMapCache = {
+        source: this.currentSource,
+        sourceMap: readAuthoredSourceMap(this.currentSource),
+      };
+    }
+    return this.sourceMapCache.sourceMap;
   }
 }
