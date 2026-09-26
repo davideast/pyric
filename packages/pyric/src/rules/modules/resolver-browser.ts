@@ -99,7 +99,10 @@ export function resolveModulesWithFiles(
 
 export {
   resolveAuthoredSourceLoc,
+  resolveAuthoredLoc,
+  readAuthoredSourceMap,
   type AuthoredSourceLoc,
+  type AuthoredSourceMap,
 } from './resolver-core.js';
 export { STDLIB_INLINE };
 export type { ResolveResult, ResolveOptions };

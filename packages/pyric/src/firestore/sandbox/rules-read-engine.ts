@@ -36,6 +36,7 @@ import {
   unsupportedMessage,
 } from './rules-evaluation.js';
 import { buildRulesTestCase } from './rules-test-case.js';
+import { simulateDeployedRules } from './rules-simulator.js';
 import { EventLog } from './event-log.js';
 import { RulesOperationReader } from './rules-operation-reader.js';
 import { RulesListAuthorizer } from './rules-list-authorizer.js';
@@ -134,7 +135,7 @@ export class RulesReadEngine implements ListenerDispatchHost {
     // Time the simulate call for listener-origin RequestEvents.
     const evalAt = this.clock.now();
     const evalStart = performance.now();
-    const simResult = this.simulator.simulate(this.rules.source, [testCase], {
+    const simResult = simulateDeployedRules(this.rules, this.simulator, [testCase], {
       getDoc: (path) => this.state.get(path),
     });
     const evalMs = performance.now() - evalStart;

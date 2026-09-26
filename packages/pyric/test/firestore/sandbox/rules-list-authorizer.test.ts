@@ -1,5 +1,5 @@
 import { describe, expect, spyOn, test } from 'bun:test';
-import { SimulateFirestoreRulesHandler } from 'pyric/rules/internal';
+import { SimulateFirestoreRulesHandler, type FirestoreRules } from 'pyric/rules/internal';
 import { FirestoreEventBus } from '../../../src/firestore/sandbox/event-bus.js';
 import { LocalState } from '../../../src/firestore/sandbox/local-state.js';
 import { RulesListAuthorizer } from '../../../src/firestore/sandbox/rules-list-authorizer.js';
@@ -67,6 +67,44 @@ describe('RulesListAuthorizer', () => {
     expect(requests[0]).toMatchObject({ method: 'list', path: 'posts', result: 'allow', origin: 'user' });
   });
 
+  test('evaluates the proof AST with the deployed source instead of re-parsing assembled text', () => {
+    const state = new LocalState({ 'posts/public': { visibility: 'public' } });
+    const events = new FirestoreEventBus();
+    const requests: RequestEvent[] = [];
+    events.request.subscribe((event) => requests.push(event));
+    const rules = new RulesState(
+      `${OPEN_RULES}\n// @pyric-source-map: [{"generatedLine":4,"authoredLine":9,"authoredCol":5,"authoredFile":"rules/posts.rules"}]\n`,
+    );
+    const simulator = new SimulateFirestoreRulesHandler();
+    const received: { ast: FirestoreRules; source: string }[] = [];
+    const simulateParsed = simulator.simulateParsed.bind(simulator);
+    simulator.simulateParsed = (ast, source, cases, options) => {
+      received.push({ ast, source });
+      return simulateParsed(ast, source, cases, options);
+    };
+    simulator.simulate = () => {
+      throw new Error('simulate(source) parses the ruleset again');
+    };
+    const authorizer = new RulesListAuthorizer(events, rules, simulator, { get state() { return state; } });
+
+    for (let i = 0; i < 3; i++) {
+      expect(authorizer.authorize({ path: 'posts', auth: null, constraints: {}, origin: 'user' }))
+        .toEqual({ allowed: true });
+    }
+
+    const deployedRule = rules.ast()!.service.match.children[0]!.allows[0]!;
+    expect(received).toHaveLength(3);
+    for (const call of received) {
+      expect(call.source).toBe(rules.source);
+      expect(call.ast.service.match.children[0]!.allows[0]).toBe(deployedRule);
+    }
+    expect(requests[0]!.evaluatedRule).toMatchObject({
+      file: 'rules/posts.rules',
+      line: 9,
+      citation: 'rules/posts.rules:9:5',
+    });
+  });
+
   test('captures request.time before query proof work begins', () => {
     const ticks = [1_000, 1_100, 2_000];
     const nowSpy = spyOn(Date, 'now').mockImplementation(() => ticks.shift() ?? 2_000);
@@ -77,11 +115,11 @@ describe('RulesListAuthorizer', () => {
       events.request.subscribe((event) => requests.push(event));
       const rules = new RulesState(OPEN_RULES);
       const simulator = new SimulateFirestoreRulesHandler();
-      const originalSimulate = simulator.simulate.bind(simulator);
+      const originalSimulateParsed = simulator.simulateParsed.bind(simulator);
       let requestTime: string | undefined;
-      simulator.simulate = (source, cases, options) => {
+      simulator.simulateParsed = (ast, source, cases, options) => {
         requestTime = cases[0]?.requestTime;
-        return originalSimulate(source, cases, options);
+        return originalSimulateParsed(ast, source, cases, options);
       };
       const authorizer = new RulesListAuthorizer(
         events,

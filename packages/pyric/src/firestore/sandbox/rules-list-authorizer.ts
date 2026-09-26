@@ -5,7 +5,7 @@ import type {
   SimulateFirestoreRulesHandler,
   TestCase,
 } from 'pyric/rules/internal';
-import { assembleRules, projectEvaluatedRule, renderLegacyDebugMessages, Timestamp } from 'pyric/rules/internal';
+import { projectEvaluatedRule,renderLegacyDebugMessages, Timestamp } from 'pyric/rules/internal';
 import { proveGlobalCollectionGroupRules } from './collection-group-rule-proof.js';
 import type { FirestoreEventBus } from './event-bus.js';
 import { makeError, type FirestoreSimError } from './errors.js';
@@ -134,11 +134,10 @@ export class RulesListAuthorizer {
       return this.denyQuery(request, proof, evalAt, performance.now() - evalStart, detail);
     }
 
-    const evaluationSource = proof.kind === 'provable'
-      ? assembleRules(proof.evaluationAst)
-      : request.collectionGroup
-        ? assembleRules(evaluationAst!)
-        : this.rules.source;
+    // The residual runs on the proof's projected AST (or the collection-group
+    // projection) directly. Rule locations in that AST are the deployed
+    // source's, so the deployed source map resolves them to authored ones.
+    const residualAst = proof.kind === 'provable' ? proof.evaluationAst : evaluationAst;
 
     const testCase = buildRulesTestCase(
       this.host.state,
@@ -146,9 +145,13 @@ export class RulesListAuthorizer {
       requestTime!,
     );
     this.applyProof(testCase, proof, constraints);
-    const simulation = this.simulator.simulate(evaluationSource, [testCase], {
-      getDoc: (documentPath) => this.host.state.get(documentPath),
-    });
+    const getDoc = (documentPath: string) => this.host.state.get(documentPath);
+    const simulation = residualAst
+      ? this.simulator.simulateParsed(residualAst, this.rules.source, [testCase], {
+        getDoc,
+        sourceMap: this.rules.sourceMap(),
+      })
+      : this.simulator.simulate(this.rules.source, [testCase], { getDoc });
     const evalMs = performance.now() - evalStart;
     if (!simulation.success) {
       this.emitRequest({
