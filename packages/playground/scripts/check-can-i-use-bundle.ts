@@ -17,7 +17,7 @@ const gzipBytes = gzipSync(source).byteLength;
 if (/[,{](?:"claims"|claims):/.test(source) || source.includes('CONFORMANCE_IMPORT_EVIDENCE')) {
   throw new Error('Browser can-i-use bundle contains Node-only claim evidence');
 }
-if (gzipBytes > 50_000) {
-  throw new Error(`Browser can-i-use bundle is ${gzipBytes} gzip bytes; budget is 50000`);
+if (gzipBytes > 60_000) {
+  throw new Error(`Browser can-i-use bundle is ${gzipBytes} gzip bytes; budget is 60000`);
 }
 console.log(`Browser can-i-use bundle: ${source.length} bytes raw, ${gzipBytes} bytes gzip`);

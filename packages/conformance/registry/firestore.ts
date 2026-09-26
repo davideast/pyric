@@ -2246,6 +2246,23 @@ export const firestoreRegistry = {
           conformanceTests: ["packages/pyric/test/rules/simulator/handler.test.ts"],
         }),
         row22({
+          rowRef: "137a",
+          featureKeys: ["setRules", "updateDoc", "setDoc"],
+          behavior: "A single-document write exposes `request.resource.data` as the document the write stores. `updateDoc(ref, {'board.c1r1': 'x'})` shows rules a nested `board.c1r1` beside the existing `board` keys, not a top-level field named `\"board.c1r1\"`; a dotted `deleteField()` removes the nested leaf; `setDoc(ref, data, {merge: true})` deep-merges a nested map and keeps its sibling keys, and `{mergeFields}` writes only the listed paths. `resource.data` is unchanged by the projection.",
+          status: "unverified",
+          automation: "unverified",
+          evidence: "BORN UNVERIFIED, 2026-09-26: the sandbox builds the rule-visible document through the same field-path update and merge functions the store uses, and batched writes already evaluated the projected document. `oracle:firestore-updatedoc-dotpath-fieldpath` (row #33) pins only the stored result of a dotted update, not what rules read during it. The Firestore Rules Test API takes `request.resource.data` as input rather than deriving it from an update mask, so a rules-corpus scenario cannot observe this projection; verifying the row needs a client write against deployed rules that inspect `request.resource.data`. `unit:firestore/sandbox/rules-test-case.test.ts`, `unit:sandbox/firestore/simulator/local-environment.test.ts`, and `unit:sandbox/firestore/simulator/project-after-state.test.ts` pin the local behavior.",
+          risk: ["specific-field", "rules-denial"],
+          riskScore: 3,
+          riskReasons: ["asserts a specific field/property value", "asserts rules-denial behavior"],
+          conformanceTests: [
+            "packages/pyric/test/firestore/sandbox/rules-test-case.test.ts",
+            "packages/pyric/test/sandbox/firestore/simulator/local-environment.test.ts",
+            "packages/pyric/test/sandbox/firestore/simulator/project-after-state.test.ts",
+          ],
+          rowNumber: 137,
+        }),
+        row22({
           rowRef: "138",
           behavior: "Int/float distinction (`1.5 is int`→false, `1 is float`→false, `1.0 is float`→true) + integer division (`10 / 4 == 2`) + int div/mod-by-zero ERRORS (RULES-B5); strict `int('12abc')`/`float('abc')`/`bool('false')`/`bool('yes')` parsing (RULES-B6 rest); `string(1.0)`→\"1.0\" (RULES-B12 rest)",
           status: "conforms",
