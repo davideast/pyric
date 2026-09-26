@@ -28,6 +28,7 @@ import {
   RuleUnsupportedError,
   isAbsorbableEvalError,
 } from './rules-evaluation-error.js';
+import { StoragePath } from './rules-path.js';
 import {
   RuleError,
   describeRulesType as describeType,
@@ -388,7 +389,10 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
         case '>':  return cmp(l, r) > 0;
         case '<=': return cmp(l, r) <= 0;
         case '>=': return cmp(l, r) >= 0;
-        case '+':  return numOp(l, r, (a, b) => a + b);
+        case '+': {
+          if (typeof l === 'string' && typeof r === 'string') return l + r;
+          return numOp(l, r, (a, b) => a + b);
+        }
         case '-':  return numOp(l, r, (a, b) => a - b);
         case '*':  return numOp(l, r, (a, b) => a * b);
         // Division: int ÷ int TRUNCATES toward zero and an int zero divisor
@@ -483,6 +487,13 @@ function evalCall(expr: Extract<Expr, { kind: 'call' }>, ctx: EvalCtx): unknown 
   // COMPILE-reject failures in production (the ruleset never deploys), so
   // they are RuleUnsupportedError: unabsorbable by &&/||, always deny.
   if (!fn) {
+    if (expr.name === 'path' && expr.args.length === 1) {
+      const inner = evalExpr(expr.args[0], ctx);
+      if (isErr(inner)) return inner;
+      if (typeof inner === 'string') return new StoragePath(inner);
+      if (inner instanceof StoragePath) return inner;
+      return new RuleError(`path() expects a string, got ${describeType(inner)}.`);
+    }
     throw new RuleUnsupportedError(`undefined function ${expr.name}()`);
   }
   if (fn.unresolvedImport !== undefined) {
