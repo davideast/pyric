@@ -68,6 +68,17 @@ describe('rules parsing', () => {
     expect(parses).toBe(1);
   });
 
+  test('a later setRules call replaces the parse for the next request', async () => {
+    const sandbox = initializeSandbox();
+    const db = getFirestore(sandbox);
+    setRules(sandbox, RULES);
+    await setDoc(doc(db, 'notes/r1'), { owner: 'p0' });
+    setRules(sandbox, RULES.replace("allow write: if request.resource.data.owner == 'p0';", 'allow write: if false;'));
+    await expect(setDoc(doc(db, 'notes/r2'), { owner: 'p0' })).rejects.toThrow();
+    await expect(setDoc(doc(db, 'notes/r3'), { owner: 'p0' })).rejects.toThrow();
+    expect(parses).toBe(2);
+  });
+
   test('a compiled ruleset does not parse again when it simulates', () => {
     const ruleset = firestoreRules(RULES);
     parses = 0;
