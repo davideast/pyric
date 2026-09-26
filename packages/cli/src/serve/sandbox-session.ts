@@ -19,6 +19,7 @@ import {
   loadProjectStorageRules,
   prepareProjectRules,
   rulesHashOf,
+  RulesPrepareError,
 } from './rules.js';
 import { createEventHub, createPyricNamespace } from './namespace.js';
 import type { BeaconReport } from '../register/beacon.js';
@@ -93,8 +94,10 @@ export interface SandboxSession {
   handle(req: IncomingMessage, res: ServerResponse, url: URL): boolean | Promise<boolean>;
   reloadFirestoreRules(): Promise<RulesReloadResult>;
   reloadDatabaseRules(): Promise<RulesReloadResult>;
-  /** The Firestore rules source file and the module files it imports, as of
-   *  the last successful load. Empty when the project has no Firestore rules. */
+  /** The Firestore rules source file, the module files it imported at the
+   *  last successful load, and the module files a failed reload since then
+   *  asked for, found or not. A successful reload replaces the list. Empty
+   *  when the project has no Firestore rules. */
   firestoreRulesFiles(): readonly string[];
   close(): Promise<void>;
 }
@@ -373,6 +376,9 @@ export async function createSandboxSession(
       logger: options.logger,
     });
 
+    // Module files the latest failed reload asked for. Watched with the
+    // last-good module files so fixing or creating one reloads.
+    let attemptedModuleFiles: readonly string[] = [];
     const reloadFirestoreRules = async (): Promise<RulesReloadResult> => {
       const sourcePath = firestore.sourcePath;
       const hasNoSource = !sourcePath;
@@ -381,6 +387,7 @@ export async function createSandboxSession(
         const raw = await readFile(sourcePath, 'utf8');
         const { rules, moduleFiles } = prepareProjectRules(raw, sourcePath);
         firestore.moduleFiles = moduleFiles;
+        attemptedModuleFiles = [];
         const rulesHash = rulesHashOf(rules);
         options.deployHostedRules?.('firestore', rules);
         live.rules = rules;
@@ -388,10 +395,18 @@ export async function createSandboxSession(
         events.broadcast('rules-changed', { rules, rulesHash });
         return { kind: 'reloaded', rulesHash, clients: events.clientCount() };
       } catch (error) {
+        const isPrepareError = error instanceof RulesPrepareError;
+        attemptedModuleFiles = isPrepareError ? error.moduleFiles : [];
         const isError = error instanceof Error;
         const failure = isError ? error : new Error(String(error));
         return { kind: 'rejected', error: failure };
       }
+    };
+    const firestoreRulesFiles = (): readonly string[] => {
+      const sourcePath = firestore.sourcePath;
+      const hasNoSource = sourcePath === null;
+      if (hasNoSource) return [];
+      return [...new Set([sourcePath, ...firestore.moduleFiles, ...attemptedModuleFiles])];
     };
     const reloadDatabaseRules = async (): Promise<RulesReloadResult> => {
       try {
@@ -434,8 +449,7 @@ export async function createSandboxSession(
       },
       reloadFirestoreRules,
       reloadDatabaseRules,
-      firestoreRulesFiles: () =>
-        firestore.sourcePath === null ? [] : [firestore.sourcePath, ...firestore.moduleFiles],
+      firestoreRulesFiles,
       close,
     };
   } catch (error) {

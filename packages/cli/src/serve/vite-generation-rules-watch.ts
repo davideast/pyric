@@ -5,7 +5,9 @@ import type { SandboxSession } from './sandbox-session.js';
 /**
  * Adapt Vite's watcher to the session's last-good Firestore-rules reload
  * operation. A change to the rules source or to any module file it imports
- * reloads; files a reload newly imports are watched from then on.
+ * reloads, and so does creating a module file it imports. Files a reload
+ * newly imports are watched from then on, whether the reload succeeds or
+ * fails.
  */
 export function watchViteGenerationRules(input: {
   server: ViteDevServer;
@@ -44,9 +46,9 @@ export function watchViteGenerationRules(input: {
     debounce = setTimeout(() => {
       if (isFirestoreMatch) {
         void session.reloadFirestoreRules().then((result) => {
+          server.watcher.add([...session.firestoreRulesFiles()]);
           const isReloaded = result.kind === 'reloaded';
           if (isReloaded) {
-            server.watcher.add([...session.firestoreRulesFiles()]);
             server.config.logger.info(`  ↻ [pyric] rules reloaded (${result.rulesHash})`);
           } else {
             const isRejected = result.kind === 'rejected';
@@ -83,11 +85,13 @@ export function watchViteGenerationRules(input: {
     server.watcher.add(databaseFile);
   }
   server.watcher.on('change', onRulesChange);
+  server.watcher.on('add', onRulesChange);
   return () => {
     const hasDebounce = debounce !== null;
     if (hasDebounce) {
       clearTimeout(debounce as ReturnType<typeof setTimeout>);
     }
     server.watcher.off('change', onRulesChange);
+    server.watcher.off('add', onRulesChange);
   };
 }

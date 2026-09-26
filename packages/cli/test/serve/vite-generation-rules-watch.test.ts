@@ -8,7 +8,9 @@ const MAIN = '/project/firestore.modules.rules';
 const GAME = '/project/games/tictactoe.rules';
 const SHARED = '/project/games/shared.rules';
 
-function fakes(files: { current: string[] }) {
+type ReloadKind = 'reloaded' | 'rejected';
+
+function fakes(files: { current: string[] }, results: ReloadKind[] = []) {
   const watched = new Set<string>();
   const watcher = Object.assign(new EventEmitter(), {
     add(paths: string | readonly string[]) {
@@ -27,7 +29,9 @@ function fakes(files: { current: string[] }) {
     firestoreRulesFiles: () => [MAIN, ...files.current],
     reloadFirestoreRules: async () => {
       reloads += 1;
-      return { kind: 'reloaded', rulesHash: 'h', clients: 1 };
+      const kind = results.shift() ?? 'reloaded';
+      if (kind === 'rejected') return { kind, error: new Error('module resolution failed') };
+      return { kind, rulesHash: 'h', clients: 1 };
     },
     reloadDatabaseRules: async () => ({ kind: 'not-configured' }),
   } as unknown as SandboxSession;
@@ -63,6 +67,32 @@ describe('Vite rules watching', () => {
     f.watcher.emit('change', SHARED);
     await settle();
     expect(f.reloads()).toBe(2);
+    stop?.();
+  });
+
+  test('watches a module file a rejected reload imports, and reloads when it is fixed', async () => {
+    const files = { current: [GAME] };
+    const f = fakes(files, ['rejected']);
+    const stop = watchViteGenerationRules({ server: f.server, session: f.session });
+
+    files.current = [GAME, SHARED];
+    f.watcher.emit('change', MAIN);
+    await settle();
+    expect(f.reloads()).toBe(1);
+    expect(f.watched.has(SHARED)).toBe(true);
+
+    f.watcher.emit('change', SHARED);
+    await settle();
+    expect(f.reloads()).toBe(2);
+    stop?.();
+  });
+
+  test('reloads when a module file the rules import is created', async () => {
+    const f = fakes({ current: [GAME, SHARED] });
+    const stop = watchViteGenerationRules({ server: f.server, session: f.session });
+    f.watcher.emit('add', SHARED);
+    await settle();
+    expect(f.reloads()).toBe(1);
     stop?.();
   });
 

@@ -148,6 +148,49 @@ service cloud.firestore {
     await session.close();
   });
 
+  it('lists the modules a rejected Firestore reload imports, and releases them after the next good reload', async () => {
+    const root = project();
+    const sourcePath = join(root, 'firestore.modules.rules');
+    const modulePath = join(root, 'b.rules');
+    const importing = `rules_version = '2+modules';
+import { canRead } from './b';
+service cloud.firestore {
+  match /databases/{db}/documents { match /b/{id} { allow read: if canRead(); } }
+}`;
+    const standalone = `rules_version = '2+modules';
+service cloud.firestore {
+  match /databases/{db}/documents { match /a/{id} { allow read: if true; } }
+}`;
+    writeFileSync(sourcePath, standalone);
+
+    const session = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: { firestore: { rules: 'firestore.modules.rules' } },
+      sdk: { dir: join(root, 'sdk') },
+    });
+    expect(session.firestoreRulesFiles()).toEqual([sourcePath]);
+
+    writeFileSync(sourcePath, importing);
+    const rejected = await session.reloadFirestoreRules();
+    expect(rejected.kind).toBe('rejected');
+    expect(session.payload().rules).toContain('/a/{id}');
+    expect(session.firestoreRulesFiles()).toEqual([sourcePath, modulePath]);
+
+    writeFileSync(modulePath, `rules_version = '2+modules';
+export function canRead() { return true; }`);
+    const fixed = await session.reloadFirestoreRules();
+    expect(fixed.kind).toBe('reloaded');
+    expect(session.payload().rules).toContain('/b/{id}');
+    expect(session.firestoreRulesFiles()).toEqual([sourcePath, modulePath]);
+
+    writeFileSync(sourcePath, standalone);
+    const dropped = await session.reloadFirestoreRules();
+    expect(dropped.kind).toBe('reloaded');
+    expect(session.firestoreRulesFiles()).toEqual([sourcePath]);
+
+    await session.close();
+  });
+
   it('replaces valid Realtime Database rules and retains last-good rules after a broken edit', async () => {
     const root = project();
     const sourcePath = join(root, 'database.rules.json');
