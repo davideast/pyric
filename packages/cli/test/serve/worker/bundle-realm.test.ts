@@ -33,13 +33,10 @@
  * `fetch`) and deliberately WITHHOLD the node ambients it does not
  * (`process`, `global`, `Buffer`, `module`, `require`, `window`, …).
  *
- * Withholding is load-bearing, not hygiene: bundled dependencies sniff their
- * environment at init. js-md5 (pulled in by the rules evaluator) checks
- * `typeof process === 'object' && process.versions.node` and, if it sees Bun's
- * `process`, takes its node branch and dereferences `Buffer` — which the
- * browser-platform bundle never defines. Shadowing those names to `undefined`
- * makes the sniff resolve the way it does in a real browser worker, so what
- * runs here is the same code path the browser runs.
+ * Withholding keeps the realm honest: a bundled dependency that sniffs its
+ * environment at init (`typeof process === 'object'`, `typeof Buffer`) sees
+ * what it would see in a real browser worker rather than Bun's globals, so
+ * what runs here is the same code path the browser runs.
  *
  * `indexedDB` comes from fake-indexeddb (the worker attaches IDB persistence
  * on boot); `fetch` is a stub that 404s, which is the STANDALONE boot path —

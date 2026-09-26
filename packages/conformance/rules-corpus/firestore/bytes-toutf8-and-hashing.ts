@@ -104,6 +104,44 @@ service cloud.firestore {
       allow create: if request.auth != null
         && hashing.crc32c('123456789').toHexString() == '839206E3';
     }
+    // Multi-block, padding-boundary, Bytes, and non-ASCII digests. Each
+    // expected value is the uppercase hexadecimal digest of the UTF-8 input.
+    match /md5TwoBlockAllow/{id} {
+      allow create: if request.auth != null
+        && hashing.md5('12345678901234567890123456789012345678901234567890123456789012345678901234567890').toHexString() == '57EDF4A22BE3C955AC49DA2E2107B67A';
+    }
+    match /md5FiftyFiveBytesAllow/{id} {
+      allow create: if request.auth != null
+        && hashing.md5('xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx').toHexString() == '04364420E25C512FD958A70738AA8F72';
+    }
+    match /md5FiftySixBytesAllow/{id} {
+      allow create: if request.auth != null
+        && hashing.md5('xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx').toHexString() == '668A72D5BA17F08E62DABCAFAD6DB14B';
+    }
+    match /md5SixtyFourBytesInputAllow/{id} {
+      allow create: if request.auth != null
+        && hashing.md5('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'.toUtf8()).toHexString() == '014842D480B571495A4A0363793F7367';
+    }
+    match /md5NonAsciiAllow/{id} {
+      allow create: if request.auth != null
+        && hashing.md5('naïve café 日本語').toHexString() == '2204EF5849F3257174545026F61FFD01';
+    }
+    match /sha256FiftySixBytesAllow/{id} {
+      allow create: if request.auth != null
+        && hashing.sha256('abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq').toHexString() == '248D6A61D20638B8E5C026930C3E6039A33CE45964FF2167F6ECEDD419DB06C1';
+    }
+    match /sha256OneTwelveBytesAllow/{id} {
+      allow create: if request.auth != null
+        && hashing.sha256('abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu').toHexString() == 'CF5B16A778AF8380036CE59E7B0492370B249B11E8F07A51AFAC45037AFEE9D1';
+    }
+    match /sha256OneTwentyBytesInputAllow/{id} {
+      allow create: if request.auth != null
+        && hashing.sha256('xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'.toUtf8()).toHexString() == '13F05A0B594787F5ECD315EDC96141BD3243203D1B7D4F0836F37308B276BA98';
+    }
+    match /sha256NonAsciiAllow/{id} {
+      allow create: if request.auth != null
+        && hashing.sha256('naïve café 日本語').toHexString() == '7EDCE543470723527A9A231BD4C4EFA1B626CE8232318DCB1AA1AE9B43766867';
+    }
     // DENY witness — wrong digest
     match /md5WrongDeny/{id} {
       allow create: if request.auth != null
@@ -269,6 +307,78 @@ service cloud.firestore {
       expectation: 'DENY',
       method: 'create',
       path: 'md5WrongDeny/d11',
+      auth: { uid: 'alice' },
+      data: {},
+    },
+    {
+      description: 'md5 RFC 1321 two-block message ALLOW',
+      expectation: 'ALLOW',
+      method: 'create',
+      path: 'md5TwoBlockAllow/d19',
+      auth: { uid: 'alice' },
+      data: {},
+    },
+    {
+      description: 'md5 55-byte message ALLOW',
+      expectation: 'ALLOW',
+      method: 'create',
+      path: 'md5FiftyFiveBytesAllow/d20',
+      auth: { uid: 'alice' },
+      data: {},
+    },
+    {
+      description: 'md5 56-byte message ALLOW',
+      expectation: 'ALLOW',
+      method: 'create',
+      path: 'md5FiftySixBytesAllow/d21',
+      auth: { uid: 'alice' },
+      data: {},
+    },
+    {
+      description: 'md5 64-byte Bytes input ALLOW',
+      expectation: 'ALLOW',
+      method: 'create',
+      path: 'md5SixtyFourBytesInputAllow/d22',
+      auth: { uid: 'alice' },
+      data: {},
+    },
+    {
+      description: 'md5 non-ASCII string ALLOW',
+      expectation: 'ALLOW',
+      method: 'create',
+      path: 'md5NonAsciiAllow/d23',
+      auth: { uid: 'alice' },
+      data: {},
+    },
+    {
+      description: 'sha256 FIPS 180-4 448-bit message ALLOW',
+      expectation: 'ALLOW',
+      method: 'create',
+      path: 'sha256FiftySixBytesAllow/d24',
+      auth: { uid: 'alice' },
+      data: {},
+    },
+    {
+      description: 'sha256 FIPS 180-4 896-bit message ALLOW',
+      expectation: 'ALLOW',
+      method: 'create',
+      path: 'sha256OneTwelveBytesAllow/d25',
+      auth: { uid: 'alice' },
+      data: {},
+    },
+    {
+      description: 'sha256 120-byte Bytes input ALLOW',
+      expectation: 'ALLOW',
+      method: 'create',
+      path: 'sha256OneTwentyBytesInputAllow/d26',
+      auth: { uid: 'alice' },
+      data: {},
+    },
+    {
+      description: 'sha256 non-ASCII string ALLOW',
+      expectation: 'ALLOW',
+      method: 'create',
+      path: 'sha256NonAsciiAllow/d27',
       auth: { uid: 'alice' },
       data: {},
     },
