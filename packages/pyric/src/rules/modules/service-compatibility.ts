@@ -99,8 +99,13 @@ function ambientMethodReceiverIssue(
 ): string | null {
   const provenance = sourceProvenance(object, ctx);
   const receiverType = sourceReceiverType(object, ctx);
-  if (!receiverType) {
+  // Production does not type field values when it compiles rules; a method on
+  // a value of the wrong type is an evaluation error, which denies. Only a
+  // receiver whose type is known is checked against the method's contract.
+  if (!receiverType || service === 'cloud.firestore' &&
+      (receiverType === 'unknown' || receiverType === 'mixed')) {
     if (provenance === 'unknown-ambient') return "binding '<derived ambient receiver>'";
+    if (service === 'cloud.firestore') return null;
     let projectionSource: Expression = object;
     while (projectionSource.type === 'memberAccess' || projectionSource.type === 'bracketAccess' ||
       projectionSource.type === 'methodCall' && projectionSource.method === 'get') {

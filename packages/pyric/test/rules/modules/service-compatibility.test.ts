@@ -595,4 +595,40 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
       expect(result.success, key).toBe(true);
     }
   });
+  test('admits methods on Firestore receivers whose type the resolver cannot determine', () => {
+    const modules = [
+      "export function check() { let doc = request.resource.data; return doc.board.keys().hasOnly(['c0r0']); }",
+      'export function check(db) { return get(/databases/$(db)/documents/games/g).data.players.size() > 0; }',
+      'export function check(db) { return getAfter(/databases/$(db)/documents/games/g).data.players.size() > 0; }',
+      `function count(m) { return m.players.size() > 0; }
+       export function check(db) { return count(get(/databases/$(db)/documents/games/g).data); }`,
+      `function valid(shot) { return shot.keys().hasOnly(['dx', 'dy']); }
+       export function check() { return valid(request.resource.data.shot); }`,
+      `function count(tags) { return tags.size() > 0; }
+       export function check() { return count(request.resource.data.tags.toSet()); }`,
+      `export function check(db) {
+         let tags = db != null ? get(/databases/$(db)/documents/games/g).data.tags : [];
+         return tags.size() > 0;
+       }`,
+    ];
+    const rejected = modules.flatMap((module) => {
+      const result = resolveModules(makeSource("import { check } from './policy';"), {
+        modules: { './policy': module },
+      });
+      return result.success ? [] : [`${module}: ${result.error.message}`];
+    });
+    expect(rejected).toEqual([]);
+  });
+  test('rejects Firestore methods on a known wrong receiver type or with an unknown name', () => {
+    for (const module of [
+      "export function check() { return 'abc'.keys().size() > 0; }",
+      'export function check() { let doc = request.resource.data; return doc.board.foo(); }',
+    ]) {
+      const result = resolveModules(makeSource("import { check } from './policy';"), {
+        modules: { './policy': module },
+      });
+      expect(result.success, module).toBe(false);
+      if (!result.success) expect(result.error.code).toBe('INCOMPATIBLE_FUNCTION');
+    }
+  });
 });
