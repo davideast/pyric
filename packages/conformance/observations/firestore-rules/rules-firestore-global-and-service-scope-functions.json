@@ -4,33 +4,37 @@
   "rowIds": [
     "firestore-rules#186"
   ],
-  "description": "Firestore Rules Test API verdicts for corpus scenario \"global-and-service-scope-functions\" (Coverage: function scopes (global, service), shadowing). Production accepts and resolves functions declared at global and service scope, with match-scope shadowing; the old grammar rejected both placements and the simulator cannot yet resolve them.",
-  "observedAt": "2026-07-21T23:43:05.288Z",
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"global-and-service-scope-functions\" (Coverage: function scopes (global, service), shadowing). Production accepts and resolves functions declared at global and service scope, with match-scope shadowing, and compiles a 98-operand && or || chain declared at either scope.",
+  "observedAt": "2026-09-26T20:26:42.911Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "44cbcbd0fc8c7379cd50a0fd0a4dfba954cabb6148841420de5221a7a4dfbd86"
+    "value": "b5ea4ebe47f540e364e439b0766a824f6e2a8664f5457410afe8c6f23a074e2f"
   },
   "behavior": {
     "service-scope fn + match shadow of global → ALLOW": "ALLOW",
     "global fn gates create (alice) → ALLOW": "ALLOW",
     "global fn gates create (bob) → DENY": "DENY",
     "unshadowed call resolves the global fn → ALLOW": "ALLOW",
-    "anonymous fails service-scope isSignedIn() → DENY": "DENY"
+    "anonymous fails service-scope isSignedIn() → DENY": "DENY",
+    "global-scope 98-operand && chain holds for every operand → ALLOW": "ALLOW",
+    "global-scope 98-operand && chain fails on its last operand → DENY": "DENY",
+    "service-scope 98-operand || chain matches its last operand → ALLOW": "ALLOW",
+    "service-scope 98-operand || chain matches no operand → DENY": "DENY"
   },
   "diagnostics": {
     "anonymous fails service-scope isSignedIn() → DENY": {
       "notes": [
-        "Error: firestore.rules line [10], column [12]. Property auth is undefined on object."
+        "Error: firestore.rules line [13], column [12]. Property auth is undefined on object."
       ],
       "api": {
         "errorPosition": {
           "fileName": "firestore.rules",
-          "line": 10,
+          "line": 13,
           "column": 12,
-          "currentOffset": 178,
-          "endOffset": 184
+          "currentOffset": 1673,
+          "endOffset": 1679
         }
       }
     }

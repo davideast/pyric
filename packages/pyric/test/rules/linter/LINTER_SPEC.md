@@ -63,22 +63,27 @@ not N. This means the linter should count chain depth, not total nodes.
 ### RULE 2: CHAIN_DEPTH
 - **Severity**: error at >95, warning at >85
 - **Threshold**: max flat binary chain depth per function > 98
-- **Detection**: walk each function body, count the longest flat AND or OR chain
+- **Detection**: walk every function the ruleset declares (global scope,
+  service scope, and every match block), count the operands of the longest
+  flat AND or OR chain. A 98-operand chain compiles; 99 fails.
 - **Algorithm**:
   ```
   function maxChainDepth(expr, targetOp):
-    if expr.type == 'binaryOp' && expr.op == targetOp:
-      return 1 + maxChainDepth(expr.right, targetOp)
-      // Right-recursive because parser builds right-associative chains
-    return 0
+    if expr.type != 'binaryOp' || expr.op != targetOp: return 0
+    operands = 1
+    while expr.type == 'binaryOp' && expr.op == targetOp:
+      operands += 1
+      expr = expr.left
+      // Left spine because the parser builds left-associative chains
+    return operands
 
   for each function:
     andDepth = maxChainDepth(fn.body, '&&')
     orDepth = maxChainDepth(fn.body, '||')
     maxDepth = max(andDepth, orDepth)
   ```
-- **Message**: "Function '{name}' has a {op} chain of depth {depth}. Limit is 98. Split into nested groups or separate functions."
-- **Fix**: `a && b && c && d` → `(a && b) && (c && d)` (halves chain depth)
+- **Message**: "Function '{name}' has a {op} chain of depth {depth}. Limit is 98."
+- **Fix**: move part of the chain into its own function: `a && b && c && d` → `firstHalf() && c && d`
 - **Corpus**: 05-lets-13-fail.rules (also triggers LET_LIMIT, but chain depth is fine)
 
 ### RULE 3: LET_LIMIT

@@ -314,10 +314,15 @@ export const rulesRegistry = {
         row1({
           rowRef: "186",
           featureKeys: [],
-          behavior: "Function declarations at GLOBAL and SERVICE scope in a Firestore ruleset, with match-scope shadowing",
+          behavior: "Function declarations at GLOBAL and SERVICE scope in a Firestore ruleset, with match-scope shadowing, including a flat `&&` or `||` chain of up to 98 operands in a function at either scope. The linter and validator check functions at every scope, and the CHAIN_DEPTH limit error fires above 98 operands",
           status: "conforms",
-          evidence: "ROW CORRECTED, 2026-07-17 (same day): the simulator now seeds the match-tree walk with global- and service-scope function declarations (declaration order global → service → match preserves inner-shadows-outer), so the previously-abstaining cases evaluate. `oracle:rules-firestore-global-and-service-scope-functions` — production Firestore Rules Test API verdicts captured 2026-07-17 — now replays verdict-for-verdict against the local simulator with all 5 cases matching (shadowing included), asserted by `unit:rules/oracle-conformance.test.ts`. The prior unsupported row recorded the honest UNSUPPORTED abstention; that gap is closed (#346).",
+          evidence: "RECAPTURED, 2026-09-26: `oracle:rules-firestore-global-and-service-scope-functions` records 9 production Firestore Rules Test API verdicts: the 5 scope and shadowing cases, plus a 98-operand `&&` chain declared at global scope and a 98-operand `||` chain declared at service scope, each compiling and evaluating to ALLOW and DENY. The simulator seeds each match walk with global, then service, then match functions, so an inner declaration shadows an outer one, and `unit:rules/oracle-conformance.test.ts` replays all 9 verdicts. The same day, the Rules Test API rejected a 99-operand `&&` or `||` chain in a function at global, service, or match scope with \"Expression is too complex to evaluate safely.\" and compiled the 98-operand chain at each scope. A rejected ruleset returns no verdicts, so the 99-operand bound is not a replayable case. `unit:rules/linter/linter.test.ts` pins the lint side: functions at all three scopes count toward `functionCount` and `maxEstimatedExpressions`, CHAIN_DEPTH counts operands along the left-associative spine, 99 operands raise the limit error at every scope, 98 raise only the approaching-failure error, and a match-scope function shadows a service-scope one. `unit:rules/grammar/validator.test.ts` pins that a call to a global-scope or service-scope function is not reported as undefined and that SEC-3 follows the call into it.",
           oracleObservations: ["rules-firestore-global-and-service-scope-functions"],
+          conformanceTests: [
+            "packages/pyric/test/rules/oracle-conformance.test.ts",
+            "packages/pyric/test/rules/linter/linter.test.ts",
+            "packages/pyric/test/rules/grammar/validator.test.ts",
+          ],
           constructs: ["firestore.rule-kind.function"],
         }),
         row1({
