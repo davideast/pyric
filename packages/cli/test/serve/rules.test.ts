@@ -83,7 +83,7 @@ describe('loadProjectRules', () => {
 
     const empty = mkdtempSync(join(tmpdir(), 'pyric-serve-rules-'));
     const none = await loadProjectRules(empty, null);
-    expect(none).toEqual({ rules: null, rulesHash: null, sourcePath: null });
+    expect(none).toEqual({ rules: null, rulesHash: null, sourcePath: null, moduleFiles: [] });
   });
 
   it('throws when firebase.json names a missing file (explicit config = contract)', async () => {

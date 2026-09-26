@@ -23,6 +23,7 @@ import {
   embeddedWorkerVersion,
 } from '../serve/standalone-assets.js';
 import { hasSandboxBuildMarker } from '../serve/sandbox-marker.js';
+import { watchRulesFiles } from '../serve/rules-files-watch.js';
 import { formatBeaconReceipt } from '../serve/beacon-route.js';
 import type { InitPayload } from '../serve/namespace.js';
 import { formatAiStatusLine } from '../serve/ai-status.js';
@@ -523,38 +524,43 @@ async function startServeRuntime(opts: {
   const docsUrl = hasSiteUi ? `${handle.url}/__pyric/ui/docs/` : null;
 
   // Hot-reload: the static adapter observes the filesystem; the session owns
-  // read/prepare/last-good replacement and event broadcast.
+  // read/prepare/last-good replacement and event broadcast. The rules source
+  // and every module file it imports are watched.
   const rulesSourcePath = session.summary.rules.firestore.sourcePath;
   const isWatchEnabled = opts.watch ?? true;
   const hasRulesPath = rulesSourcePath !== null;
   const watching = isWatchEnabled && hasRulesPath;
   if (watching) {
     let debounce: ReturnType<typeof setTimeout> | null = null;
-    const watcher = watchFile(rulesSourcePath, () => {
-      const pendingReload = debounce;
-      const hasPendingReload = pendingReload !== null;
-      if (hasPendingReload) clearTimeout(pendingReload);
-      debounce = setTimeout(() => {
-        void session.reloadFirestoreRules().then((result) => {
-          const isReloaded = result.kind === 'reloaded';
-          const isRejected = result.kind === 'rejected';
-          if (isReloaded) {
-            logger.note(`  ↻ rules reloaded (hash ${result.rulesHash}) → ${result.clients} page(s)`);
-          } else if (isRejected) {
-            logger.note(`  ⚠ rules NOT reloaded (last-good stays live): ${result.error.message}`);
-          }
-        });
-      }, 150);
-    });
-    watcher.on('error', (error) => {
-      const message = serveErrorMessage(error);
-      logger.note(`  ⚠ rules watcher failed (hot reload off): ${message}`);
-    });
+    const rulesFiles = watchRulesFiles(
+      () => session.firestoreRulesFiles(),
+      () => {
+        const pendingReload = debounce;
+        const hasPendingReload = pendingReload !== null;
+        if (hasPendingReload) clearTimeout(pendingReload);
+        debounce = setTimeout(() => {
+          void session.reloadFirestoreRules().then((result) => {
+            const isReloaded = result.kind === 'reloaded';
+            const isRejected = result.kind === 'rejected';
+            if (isReloaded) {
+              rulesFiles.sync();
+              logger.note(`  ↻ rules reloaded (hash ${result.rulesHash}) → ${result.clients} page(s)`);
+            } else if (isRejected) {
+              logger.note(`  ⚠ rules NOT reloaded (last-good stays live): ${result.error.message}`);
+            }
+          });
+        }, 150);
+      },
+      (error) => {
+        const message = serveErrorMessage(error);
+        logger.note(`  ⚠ rules watcher failed (hot reload off): ${message}`);
+      },
+    );
     handle.server.once('close', () => {
       const pendingReload = debounce;
       const hasPendingReload = pendingReload !== null;
       if (hasPendingReload) clearTimeout(pendingReload);
-      watcher.close();
+      rulesFiles.close();
     });
   }
   const dbRulesSourcePath = session.summary.rules.database.sourcePath;
