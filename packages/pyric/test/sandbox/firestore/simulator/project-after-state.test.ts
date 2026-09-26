@@ -117,6 +117,19 @@ describe('projectAfterState — update (the 0.D trap)', () => {
       ),
     ).toEqual({ x: 2, profile: { name: 'new', email: 'e' } });
   });
+
+  test('dot-path leaves the existing document unchanged', () => {
+    const existing = { board: { c0r0: '', c1r1: '' }, meta: { a: { b: 1 } } };
+
+    const after = projectAfterState(
+      { kind: 'update' },
+      existing,
+      { 'board.c1r1': 'x', 'meta.a.b': 2 },
+    );
+
+    expect(after).toEqual({ board: { c0r0: '', c1r1: 'x' }, meta: { a: { b: 2 } } });
+    expect(existing).toEqual({ board: { c0r0: '', c1r1: '' }, meta: { a: { b: 1 } } });
+  });
 });
 
 describe('projectAfterState — delete', () => {

@@ -62,7 +62,9 @@ function recursiveMerge(existing: DocState, payload: DocState): DocState {
   return out;
 }
 
-/** Set a value at a nested path (mutates `obj`). Used by update dot-paths.
+/** Set a value at a nested path. Used by update dot-paths. Writes into
+ *  `obj`, and replaces each map along the path with a copy before writing
+ *  into it, so a map shared with the pre-write document is never mutated.
  *
  *  A field path that traverses a non-map intermediate REPLACES that prefix with
  *  a fresh map — this matches Firestore's updateDoc field-path semantics, where
@@ -77,17 +79,18 @@ function setNested(obj: DocState, path: string[], value: unknown): void {
     // Own-property read only: bare `cur[seg]` would resolve an unvalidated
     // segment to the shared object prototype.
     const next = Object.hasOwn(cur, seg) ? cur[seg] : undefined;
-    if (next === null || typeof next !== 'object' || Array.isArray(next)) {
-      cur[seg] = {};
-    }
-    cur = cur[seg] as DocState;
+    const isMap = next !== null && typeof next === 'object' && !Array.isArray(next);
+    const copy: DocState = isMap ? { ...(next as DocState) } : {};
+    cur[seg] = copy;
+    cur = copy;
   }
   const leaf = path[path.length - 1];
   assertSafeSegment(leaf);
   cur[leaf] = value;
 }
 
-/** Update mode: top-level keys replace; dot-paths patch nested maps. */
+/** Update mode: top-level keys replace; dot-paths patch copies of nested
+ *  maps, so `existing` is never mutated. */
 function updateMerge(existing: DocState, payload: DocState): DocState {
   const out: DocState = { ...existing };
   for (const [k, v] of Object.entries(payload)) {

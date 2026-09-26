@@ -135,6 +135,74 @@ describe('LocalEnvironment', () => {
     });
   });
 
+  describe('update with a nested field path', () => {
+    const MOVE_RULES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /games/{id} {
+      allow read: if true;
+      allow update: if request.auth.uid == resource.data.host
+        && resource.data.board[request.resource.data.lastMove] == ''
+        && request.resource.data.board[request.resource.data.lastMove] == 'host'
+        && request.resource.data.board.diff(resource.data.board).affectedKeys().hasOnly([request.resource.data.lastMove])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['board', 'lastMove']);
+    }
+    match /cells/{id} {
+      allow update: if request.resource.data.board.c1r1 == 'x'
+        && request.resource.data.board.c0r0 == '';
+    }
+  }
+}`;
+    const initial = { host: 'host-uid', lastMove: '', board: { c0r0: '', c1r1: '' } };
+
+    function seeded(): LocalEnvironment {
+      const env = new LocalEnvironment();
+      env.seed({
+        rules: MOVE_RULES,
+        documents: { 'games/g1': initial, 'cells/c1': { board: { c0r0: '', c1r1: '' } } },
+      });
+      return env;
+    }
+
+    test('a dotted update and the equivalent whole-map update are both allowed', () => {
+      const whole = seeded();
+      const wholeResult = whole.execute({
+        method: 'update', path: 'games/g1', auth: { uid: 'host-uid' },
+        data: { board: { c0r0: '', c1r1: 'host' }, lastMove: 'c1r1' },
+      });
+      const dotted = seeded();
+      const dottedResult = dotted.execute({
+        method: 'update', path: 'games/g1', auth: { uid: 'host-uid' },
+        data: { 'board.c1r1': 'host', lastMove: 'c1r1' },
+      });
+
+      expect(wholeResult.allowed).toBe(true);
+      expect(dottedResult.allowed).toBe(true);
+      expect(dotted.getDocument('games/g1')).toEqual(whole.getDocument('games/g1'));
+    });
+
+    test('a rule reads the nested value a dotted update writes', () => {
+      const env = seeded();
+
+      const result = env.execute({
+        method: 'update', path: 'cells/c1', auth: null, data: { 'board.c1r1': 'x' },
+      });
+
+      expect(result.allowed).toBe(true);
+    });
+
+    test('a rule reads sibling keys a nested merge set preserves', () => {
+      const env = seeded();
+
+      const result = env.execute({
+        method: 'update', path: 'cells/c1', auth: null, merge: true, data: { board: { c1r1: 'x' } },
+      });
+
+      expect(result.allowed).toBe(true);
+      expect(env.getDocument('cells/c1')).toEqual({ board: { c0r0: '', c1r1: 'x' } });
+    });
+  });
+
   describe('delete', () => {
     test('host can delete waiting game', () => {
       const env = new LocalEnvironment();
