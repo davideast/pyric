@@ -126,6 +126,153 @@ describe('Firestore Rules Linter', () => {
       const r = lint('02-lets-10-ok.rules');
       expect(r.metrics.maxLetBindings).toBe(10);
     });
+
+    test('estimated expressions include the body of a called function', () => {
+      const r = lintSource(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    match /games/{id} { allow read: if signedIn(); }
+  }
+}`);
+      expect(r.metrics.maxEstimatedExpressions).toBeGreaterThan(1);
+    });
+  });
+
+  describe('Function scope', () => {
+    const inMatch = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    match /games/{id} { allow read: if signedIn(); }
+  }
+}`;
+    const atServiceScope = `rules_version = '2';
+service cloud.firestore {
+  function signedIn() { return request.auth != null; }
+  match /databases/{database}/documents {
+    match /games/{id} { allow read: if signedIn(); }
+  }
+}`;
+    const atGlobalScope = `rules_version = '2';
+function signedIn() { return request.auth != null; }
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /games/{id} { allow read: if signedIn(); }
+  }
+}`;
+
+    function andChain(terms: number): string {
+      return Array.from({ length: terms }, (_, i) => `request.auth.token.f${i} == true`).join(' && ');
+    }
+
+    test('a function in a match block is counted', () => {
+      expect(lintSource(inMatch).metrics.functionCount).toBe(1);
+    });
+
+    test('a function at service scope is counted', () => {
+      expect(lintSource(atServiceScope).metrics.functionCount).toBe(1);
+    });
+
+    test('a function at global scope is counted', () => {
+      expect(lintSource(atGlobalScope).metrics.functionCount).toBe(1);
+    });
+
+    test('estimated expressions follow a call into service and global scope', () => {
+      const inline = lintSource(inMatch).metrics.maxEstimatedExpressions;
+      expect(inline).toBeGreaterThan(1);
+      expect(lintSource(atServiceScope).metrics.maxEstimatedExpressions).toBe(inline);
+      expect(lintSource(atGlobalScope).metrics.maxEstimatedExpressions).toBe(inline);
+    });
+
+    test('a 99-term && chain in a service-scope function raises CHAIN_DEPTH', () => {
+      const r = lintSource(`rules_version = '2';
+service cloud.firestore {
+  function wide() { return ${andChain(99)}; }
+  match /databases/{database}/documents {
+    match /games/{id} { allow read: if wide(); }
+  }
+}`);
+      const chain = r.warnings.filter(w => w.rule === 'CHAIN_DEPTH');
+      expect(chain.map(w => w.message)).toEqual([
+        "Function 'wide' has a && chain of depth 99. Limit is 98.",
+      ]);
+      expect(chain[0].severity).toBe('error');
+      expect(r.metrics.maxChainDepth).toBe(99);
+    });
+
+    test('a 98-term && chain compiles, so it is below the limit error', () => {
+      const r = lintSource(`rules_version = '2';
+service cloud.firestore {
+  function wide() { return ${andChain(98)}; }
+  match /databases/{database}/documents {
+    match /games/{id} { allow read: if wide(); }
+  }
+}`);
+      const chain = r.warnings.filter(w => w.rule === 'CHAIN_DEPTH');
+      expect(chain.map(w => w.message)).toEqual([
+        "Function 'wide' has a && chain of depth 98. Limit is 98. Approaching failure.",
+      ]);
+      expect(r.metrics.maxChainDepth).toBe(98);
+    });
+
+    test('a 99-term && chain in a match-scope function raises CHAIN_DEPTH', () => {
+      const r = lintSource(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function wide() { return ${andChain(99)}; }
+    match /games/{id} { allow read: if wide(); }
+  }
+}`);
+      expect(hasError(r, 'CHAIN_DEPTH')).toBe(true);
+    });
+
+    test('a chain split across two functions stays under the limit', () => {
+      const r = lintSource(`rules_version = '2';
+service cloud.firestore {
+  function firstHalf() { return ${andChain(50)}; }
+  function wide() { return firstHalf() && ${andChain(49)}; }
+  match /databases/{database}/documents {
+    match /games/{id} { allow read: if wide(); }
+  }
+}`);
+      expect(hasRule(r, 'CHAIN_DEPTH')).toBe(false);
+      expect(r.metrics.maxChainDepth).toBe(50);
+    });
+
+    test('a 99-term && chain in a global-scope function raises CHAIN_DEPTH', () => {
+      const r = lintSource(`rules_version = '2';
+function wide() { return ${andChain(99)}; }
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /games/{id} { allow read: if wide(); }
+  }
+}`);
+      expect(hasError(r, 'CHAIN_DEPTH')).toBe(true);
+    });
+
+    test('a short && chain in a service-scope function raises no CHAIN_DEPTH', () => {
+      const r = lintSource(`rules_version = '2';
+service cloud.firestore {
+  function narrow() { return ${andChain(10)}; }
+  match /databases/{database}/documents {
+    match /games/{id} { allow read: if narrow(); }
+  }
+}`);
+      expect(hasRule(r, 'CHAIN_DEPTH')).toBe(false);
+    });
+
+    test('a match-scope function shadows a service-scope function of the same name', () => {
+      const r = lintSource(`rules_version = '2';
+service cloud.firestore {
+  function gate() { return ${andChain(40)}; }
+  match /databases/{database}/documents {
+    function gate() { return request.auth != null; }
+    match /games/{id} { allow read: if gate(); }
+  }
+}`);
+      expect(r.metrics.maxEstimatedExpressions).toBe(lintSource(inMatch).metrics.maxEstimatedExpressions);
+    });
   });
 
   describe('GET_DUPLICATION', () => {

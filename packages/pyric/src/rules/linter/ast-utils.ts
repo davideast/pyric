@@ -4,7 +4,7 @@
  * These are low-level tree-walking primitives that the lint rules compose.
  * Each is independently testable against the linter corpus.
  */
-import type { Expression, FunctionDef, AllowRule, MatchBlock } from '../grammar/FirestoreAST.js';
+import type { Expression, FunctionDef, AllowRule, MatchBlock, FirestoreRules } from '../grammar/FirestoreAST.js';
 import { RULES_BUILTIN_FUNCTIONS } from '../grammar/builtin-functions.js';
 
 /**
@@ -13,16 +13,23 @@ import { RULES_BUILTIN_FUNCTIONS } from '../grammar/builtin-functions.js';
  * A flat chain `a && b && c` has depth 3 (three operands joined by &&).
  * Nested chains `(a && b) || (c && d)` have OR-depth 2 and AND-depth 2.
  *
- * The Firestore compilation limit is 98 for both AND and OR chains.
+ * The Firestore compilation limit is 98 operands for both AND and OR chains.
  *
- * The parser builds right-associative trees: `a && b && c` becomes
- * `binaryOp(&&, a, binaryOp(&&, b, c))`. So we count by following the
- * right branch while the operator matches.
+ * The grammar's `&&` and `||` rules are left-recursive, so the parser builds
+ * left-associative trees: `a && b && c` becomes
+ * `binaryOp(&&, binaryOp(&&, a, b), c)`. The count follows the left branch
+ * while the operator matches. A parenthesized group on the right, as in
+ * `a && (b && c)`, starts a separate chain.
  */
 export function maxChainDepth(expr: Expression, op: string): number {
   if (expr.type !== 'binaryOp' || expr.op !== op) return 0;
-  // Count: 1 for this node + continue down the right branch
-  return 1 + maxChainDepth(expr.right, op);
+  let operands = 1;
+  let node: Expression = expr;
+  while (node.type === 'binaryOp' && node.op === op) {
+    operands++;
+    node = node.left;
+  }
+  return operands;
 }
 
 /**
@@ -334,6 +341,20 @@ export function referencesRequestTime(
     }
   };
   return check(expr);
+}
+
+/**
+ * Collect every function a ruleset declares: global scope, then service
+ * scope, then the match tree. The order is outer to inner, so a name map
+ * built by inserting in this order resolves a name to its innermost
+ * declaration, the same inner-shadows-outer order the simulator uses.
+ */
+export function collectDeclaredFunctions(ast: FirestoreRules): FunctionDef[] {
+  return [
+    ...(ast.functions ?? []),
+    ...(ast.service.functions ?? []),
+    ...collectAllFunctions(ast.service.match),
+  ];
 }
 
 /**

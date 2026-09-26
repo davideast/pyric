@@ -88,6 +88,22 @@ describe('Firestore Validator', () => {
       })]);
       expect(findCode(ast, 'SEC-3').length).toBeGreaterThan(0);
     });
+
+    test('follows a call into a service-scope function that checks auth', () => {
+      const ast = makeRules([makeMatch('/items/{id}', {
+        allows: [makeAllow(['delete'], call('isAuth'))],
+      })]);
+      ast.service.functions = [makeFunction('isAuth', [], AUTH_CHECK)];
+      expect(findCode(ast, 'SEC-3')).toHaveLength(0);
+    });
+
+    test('follows a call into a global-scope function that checks auth', () => {
+      const ast = makeRules([makeMatch('/items/{id}', {
+        allows: [makeAllow(['delete'], call('isAuth'))],
+      })]);
+      ast.functions = [makeFunction('isAuth', [], AUTH_CHECK)];
+      expect(findCode(ast, 'SEC-3')).toHaveLength(0);
+    });
   });
 
   describe('SEC-4: Default deny missing', () => {
@@ -344,6 +360,32 @@ describe('Firestore Validator', () => {
       });
       const ast = makeRules([child], [fn]);
       expect(findCode(ast, 'SEM-4')).toHaveLength(0);
+    });
+
+    test('finds a function declared at service scope', () => {
+      const ast = makeRules([makeMatch('/items/{id}', {
+        allows: [makeAllow(['read'], call('isAuth'))],
+      })]);
+      ast.service.functions = [makeFunction('isAuth', [], AUTH_CHECK)];
+      expect(findCode(ast, 'SEM-4')).toHaveLength(0);
+    });
+
+    test('finds a function declared at global scope', () => {
+      const ast = makeRules([makeMatch('/items/{id}', {
+        allows: [makeAllow(['read'], call('isAuth'))],
+      })]);
+      ast.functions = [makeFunction('isAuth', [], AUTH_CHECK)];
+      expect(findCode(ast, 'SEM-4')).toHaveLength(0);
+    });
+
+    test('flags an undefined call when service scope declares other functions', () => {
+      const ast = makeRules([makeMatch('/items/{id}', {
+        allows: [makeAllow(['read'], call('nonExistent'))],
+      })]);
+      ast.service.functions = [makeFunction('isAuth', [], AUTH_CHECK)];
+      expect(findCode(ast, 'SEM-4').map(f => f.message)).toEqual([
+        "Rule at /items/{id} calls undefined function 'nonExistent'",
+      ]);
     });
   });
 

@@ -21,7 +21,7 @@ import {
   countFunctionCallSites,
   functionContainsGet,
   referencesRequestTime,
-  collectAllFunctions,
+  collectDeclaredFunctions,
   collectAllRules,
 } from './ast-utils.js';
 import { checkSyntaxHints, checkHallucinations } from './hallucinations.js';
@@ -82,7 +82,7 @@ const THRESHOLDS = {
   SOURCE_SIZE: 256 * 1024,           // 256 KB — exact, verified
   CHAIN_DEPTH_ERROR: 95,             // warn before the hard limit
   CHAIN_DEPTH_WARN: 85,
-  CHAIN_DEPTH_LIMIT: 98,             // exact compile limit, verified
+  CHAIN_DEPTH_LIMIT: 98,             // exact compile limit in operands, verified (99 fails)
   LET_LIMIT: 11,                     // exact, verified (12 fails)
   // Runtime budget is call-count-dependent and non-deterministic
   RUNTIME_BUDGET: {
@@ -139,13 +139,13 @@ function checkChainDepth(functions: FunctionDef[], warnings: LintWarning[]) {
       }
     }
 
-    if (chain.depth >= THRESHOLDS.CHAIN_DEPTH_LIMIT) {
+    if (chain.depth > THRESHOLDS.CHAIN_DEPTH_LIMIT) {
       warnings.push({
         rule: 'CHAIN_DEPTH',
         severity: 'error',
         message: `Function '${fn.name}' has a ${chain.op} chain of depth ${chain.depth}. Limit is ${THRESHOLDS.CHAIN_DEPTH_LIMIT}.`,
         location: { functionName: fn.name },
-        fix: `Split into nested groups: 'a && b && c && d' → '(a && b) && (c && d)' to halve chain depth.`,
+        fix: `Move part of the chain into its own function: 'a && b && c && d' → 'firstHalf() && c && d', where firstHalf() returns 'a && b'.`,
       });
     } else if (chain.depth >= THRESHOLDS.CHAIN_DEPTH_ERROR) {
       warnings.push({
@@ -153,7 +153,7 @@ function checkChainDepth(functions: FunctionDef[], warnings: LintWarning[]) {
         severity: 'error',
         message: `Function '${fn.name}' has a ${chain.op} chain of depth ${chain.depth}. Limit is ${THRESHOLDS.CHAIN_DEPTH_LIMIT}. Approaching failure.`,
         location: { functionName: fn.name },
-        fix: `Split the chain into nested groups to reduce depth.`,
+        fix: `Move part of the chain into its own function to reduce depth.`,
       });
     } else if (chain.depth >= THRESHOLDS.CHAIN_DEPTH_WARN) {
       warnings.push({
@@ -827,7 +827,7 @@ export function lintFirestoreRules(source: string, options: LintOptions = {}): L
   const ast = parsed.ast;
 
   // Collect all functions and rules from the AST
-  const allFunctions = collectAllFunctions(ast.service.match);
+  const allFunctions = collectDeclaredFunctions(ast);
   const allRules = collectAllRules(ast.service.match);
 
   // Rule 2: Chain depth
@@ -906,6 +906,8 @@ export function lintFirestoreRules(source: string, options: LintOptions = {}): L
   let maxExprs = 0;
   let maxGets = 0;
   for (const r of allRules) {
+    const { totalExprs } = estimateRuleBudget(r.rule.condition, fnMap);
+    if (totalExprs > maxExprs) maxExprs = totalExprs;
     const gets = countDocumentAccessCalls(r.rule.condition, fnMap);
     if (gets > maxGets) maxGets = gets;
   }

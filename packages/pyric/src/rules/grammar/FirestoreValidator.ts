@@ -3,6 +3,7 @@ import type {
 } from './FirestoreAST.js';
 import { RULES_BUILTIN_FUNCTIONS } from './builtin-functions.js';
 import { countDocumentAccessCalls } from './document-access-count.js';
+import { collectDeclaredFunctions } from '../linter/ast-utils.js';
 
 export interface ValidationFinding {
   code: string;
@@ -20,8 +21,10 @@ export function validateFirestoreRules(ast: FirestoreRules): ValidationFinding[]
   const findings: ValidationFinding[] = [];
   const rootMatch = ast.service.match;
 
-  // Collect all function names and calls
-  const allFunctions = collectAllFunctions(rootMatch);
+  // Collect all function names and calls. Global and service scope
+  // functions are visible in every match block.
+  const allFunctions = new Set(collectDeclaredFunctions(ast).map(fn => fn.name));
+  const outerScope = [...(ast.functions ?? []), ...(ast.service.functions ?? [])];
   const allCalls = collectAllCallsInRules(rootMatch);
 
   // SEC-4: Check for default deny
@@ -38,7 +41,7 @@ export function validateFirestoreRules(ast: FirestoreRules): ValidationFinding[]
   checkOverlappingPaths(rootMatch.children, findings);
 
   // Walk all match blocks
-  walkMatch(rootMatch, findings, allFunctions, rootMatch.functions);
+  walkMatch(rootMatch, findings, allFunctions, outerScope);
 
   return findings;
 }
@@ -334,16 +337,6 @@ function collectFunctionCalls(expr: Expression): string[] {
     if (e.type === 'functionCall') calls.push(e.name);
   });
   return calls;
-}
-
-function collectAllFunctions(match: MatchBlock): Set<string> {
-  const names = new Set<string>();
-  function walk(m: MatchBlock) {
-    for (const fn of m.functions) names.add(fn.name);
-    for (const child of m.children) walk(child);
-  }
-  walk(match);
-  return names;
 }
 
 // ---- QUA-3: Duplicate functions ----
