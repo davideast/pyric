@@ -14,6 +14,7 @@
  */
 import { describe, test, expect } from 'bun:test';
 import { Bytes } from '../../../../src/rules/simulator/wrappers/bytes.js';
+import { EvalError } from '../../../../src/rules/simulator/eval-error.js';
 import { NO_OP } from '../../../../src/rules/simulator/wrappers/base.js';
 import { SimulateFirestoreRulesHandler } from '../../../../src/rules/simulator/handler.js';
 import type { TestCase } from '../../../../../src/rules/firestore/test/spec.js';
@@ -34,8 +35,14 @@ describe('Bytes — construction', () => {
     expect(Bytes.fromHex('deadbeef').data).toEqual(new Uint8Array([0xDE, 0xAD, 0xBE, 0xEF]));
   });
 
-  test('fromHex on odd-length input throws', () => {
-    expect(() => Bytes.fromHex('abc')).toThrow();
+  test('fromHex on odd-length input throws EvalError', () => {
+    expect(() => Bytes.fromHex('abc')).toThrow(EvalError);
+  });
+
+  test('fromHex on non-hex characters throws EvalError', () => {
+    expect(() => Bytes.fromHex('zz')).toThrow(EvalError);
+    expect(() => Bytes.fromHex('1g')).toThrow(EvalError);
+    expect(() => Bytes.fromHex('0x12')).toThrow(EvalError);
   });
 });
 
