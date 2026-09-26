@@ -14,6 +14,13 @@ export const RULES_MODULE_CAPABILITIES_PATH = join(
   'rules-capabilities.generated.ts',
 );
 
+/**
+ * Function id segments that group global functions rather than name a
+ * namespace. `firestore.function.cast.string` is the global `string()`;
+ * rules source has no `cast` identifier.
+ */
+const GLOBAL_FUNCTION_CATEGORIES: ReadonlySet<string> = new Set(['cast']);
+
 function literal(values: readonly string[]): string {
   return `[${values.map((value) => JSON.stringify(value)).join(', ')}] as const`;
 }
@@ -45,6 +52,7 @@ function renderEngineCapabilities(engine: 'firestore' | 'storage'): string {
   for (const construct of callable.filter((candidate) => candidate.kind === 'function')) {
     const path = construct.id.replace(new RegExp(`^${engine}\\.function\\.`), '').split('.');
     if (path.length === 1) directFunctions.push(path[0]!);
+    else if (GLOBAL_FUNCTION_CATEGORIES.has(path[0]!)) directFunctions.push(path[1]!);
     else {
       const [namespace, method] = path;
       const values = namespaces.get(namespace!) ?? [];

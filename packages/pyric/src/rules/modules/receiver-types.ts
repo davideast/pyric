@@ -59,11 +59,6 @@ export function methodReturnType(expression: Expression): RulesReceiverType | nu
     if (expression.object.name === 'latlng') return 'latlng';
     if (expression.object.name === 'hashing') return 'bytes';
     if (expression.object.name === 'math') return 'number';
-    if (expression.object.name === 'cast') {
-      if (expression.method === 'string') return 'string';
-      if (expression.method === 'path') return 'path';
-      if (expression.method === 'int' || expression.method === 'float') return 'number';
-    }
   }
   if (['lower', 'upper', 'trim', 'replace', 'join', 'toBase64', 'toHexString']
     .includes(expression.method)) return 'string';

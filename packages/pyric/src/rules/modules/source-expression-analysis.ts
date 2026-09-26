@@ -1,9 +1,5 @@
 import type { Expression, FunctionDef } from '../grammar/FirestoreAST.js';
-import {
-  FIRESTORE_DIRECT_FUNCTIONS as GENERATED_FIRESTORE_DIRECT_FUNCTIONS,
-  FIRESTORE_NAMESPACE_METHODS,
-  STORAGE_NAMESPACE_METHODS,
-} from './rules-capabilities.generated.js';
+import { FIRESTORE_NAMESPACE_METHODS, STORAGE_NAMESPACE_METHODS } from './rules-capabilities.generated.js';
 import { ambientReceiverType, methodReturnType, type RulesReceiverType } from './receiver-types.js';
 import type { RulesServiceName } from './stdlib-service-compatibility.js';
 
@@ -31,7 +27,7 @@ export interface SourceExpressionContext {
   declarations?: ReadonlyMap<FunctionDef, SourceFunctionDeclaration>;
 }
 
-const FIRESTORE_DIRECT_FUNCTIONS = new Set<string>(GENERATED_FIRESTORE_DIRECT_FUNCTIONS);
+const FIRESTORE_LOOKUP_FUNCTIONS: ReadonlySet<string> = new Set(['exists', 'existsAfter', 'get', 'getAfter']);
 const FIRESTORE_NAMESPACES: Readonly<Record<string, ReadonlySet<string>>> = Object.fromEntries(
   Object.entries(FIRESTORE_NAMESPACE_METHODS).map(([namespace, methods]) => [namespace, new Set(methods)]),
 );
@@ -114,7 +110,8 @@ export function sourceProvenance(
     const arguments_ = expression.args.map((argument) => expressionFacts(argument, ctx));
     // Lookup results are Firestore-sourced; ambient path interpolation is
     // still walked by compatibility validation but does not taint the result.
-    if (!fn && FIRESTORE_DIRECT_FUNCTIONS.has(expression.name)) return null;
+    // Conversion functions such as string() derive from their arguments.
+    if (!fn && FIRESTORE_LOOKUP_FUNCTIONS.has(expression.name)) return null;
     if (!fn || ctx.stack.has(fn.name)) {
       return arguments_.some(({ provenance }) => provenance !== null)
         ? 'unknown-ambient'
@@ -258,6 +255,9 @@ export function sourceReceiverType(
       if (!fn && ctx.service === 'cloud.firestore') {
         if (expression.name === 'get' || expression.name === 'getAfter') return 'document';
         if (expression.name === 'exists') return 'boolean';
+        if (expression.name === 'string') return 'string';
+        if (expression.name === 'int' || expression.name === 'float') return 'number';
+        if (expression.name === 'path') return 'path';
       }
       if (!fn || ctx.stack.has(fn.name)) return null;
       const nested = functionContext(
