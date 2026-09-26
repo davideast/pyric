@@ -161,7 +161,6 @@ export function createViteModuleSwap(
       return {
         optimizeDeps: {
           exclude: excludedModules,
-          include: ['js-md5', 'js-sha256'],
           ...optimizer,
         },
       };

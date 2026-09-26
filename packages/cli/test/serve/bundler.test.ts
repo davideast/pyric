@@ -356,9 +356,9 @@ describe('the real wrapper entries (plan step 1.2)', () => {
     const { mkdtempSync } = await import('node:fs');
     const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-tier2-'));
     const result = await bundleSdk({ entries: defaultSdkEntries(), cacheRoot: join(dir, 'cache'), minify: false });
-    // The bundles are browser-platform (executing them under bun trips
-    // js-md5's environment sniff), so assert the NAMED EXPORTS — the thing
-    // a missing name would fail at import time — from the ESM export lists.
+    // The bundles are browser-platform and are not executed here, so assert
+    // the NAMED EXPORTS (what a missing name would fail on at import time)
+    // from the ESM export lists.
     const exportedNames = (file: string): Set<string> => {
       const src = readFileSync(file, 'utf8');
       const names = new Set<string>();

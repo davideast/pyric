@@ -34,16 +34,6 @@ console.log('1/3 building probe entry with Vite (browser target)...');
 await build({
   configFile: false,
   logLevel: 'error',
-  // Faithfully simulate a browser host: `process.versions.node` is
-  // undefined in browsers, so we hard-code it. Without this, libraries
-  // like js-md5 / js-sha256 — which sniff that global at module init to
-  // pick a Node-Buffer code path — would activate the Node branch when
-  // this probe is *executed* under Bun, producing a `Buffer.from`
-  // reference error that wouldn't happen in a real browser. The
-  // resulting bundle is a more faithful browser snapshot too.
-  define: {
-    'process.versions.node': 'undefined',
-  },
   build: {
     outDir: OUT_DIR,
     target: 'es2022',

@@ -51,7 +51,7 @@ describe('Vite module swap', () => {
       '@firebase/util',
       '@firebase/logger',
     ]);
-    expect(config.optimizeDeps?.include).toEqual(['js-md5', 'js-sha256']);
+    expect(config.optimizeDeps?.include).toBeUndefined();
     expect(config.optimizeDeps?.esbuildOptions?.plugins).toHaveLength(1);
   });
 
