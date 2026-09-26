@@ -73,8 +73,17 @@ function getValidatorSemantics(): Semantics {
       const name = this.sourceString;
       const dollar = _dollar.sourceString;
 
-      // Path variables (starting with $) are always valid
-      if (dollar === '$') return;
+      if (dollar === '$') {
+        const varName = name.slice(1);
+        const isDeclaredPathVar = ctx.pathVars.has(varName);
+        if (!isDeclaredPathVar) {
+          ctx.errors.push({
+            code: 'UNKNOWN_IDENTIFIER',
+            message: `Unknown identifier '${name}' in '${ctx.context}' context`,
+          });
+        }
+        return;
+      }
 
       const allowed = ALLOWED_IDENTIFIERS[ctx.context];
       if (!allowed) return;

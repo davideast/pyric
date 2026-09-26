@@ -1,4 +1,5 @@
 import { describe, test, expect } from 'bun:test';
+import { compileRtdbRules } from '../../../../src/rules/rtdb/compiled-rules.js';
 import { validateExpression } from '../../../../src/rules/rtdb/grammar/validator.js';
 
 describe('validateExpression', () => {
@@ -31,7 +32,6 @@ describe('validateExpression', () => {
 
   test('no error when path variable is in scope', () => {
     const errors = validateExpression('auth.uid == $userId', 'read', ['$userId']);
-    // $userId starts with $ so is always valid
     expect(errors.filter(e => e.code === 'UNKNOWN_IDENTIFIER' && e.message.includes('$userId')))
       .toHaveLength(0);
   });
@@ -67,3 +67,29 @@ describe('validateExpression', () => {
     expect(third.map(e => e.code)).toContain('NEWDATA_IN_READ');
   });
 });
+
+describe('04-rtdb-validator-undeclared-wildcard-variables', () => {
+  test('validateExpression rejects undeclared $wildcard identifiers not present in pathVariables', () => {
+    const undeclaredErrors = validateExpression('$undeclared == auth.uid', 'read', ['$userId']);
+    expect(undeclaredErrors.some((e) => e.code === 'UNKNOWN_IDENTIFIER')).toBe(true);
+
+    const noPathVarErrors = validateExpression('$uid == auth.uid', 'write', []);
+    expect(noPathVarErrors.some((e) => e.code === 'UNKNOWN_IDENTIFIER')).toBe(true);
+
+    const declaredErrors = validateExpression('$userId == auth.uid', 'read', ['$userId']);
+    expect(declaredErrors).toHaveLength(0);
+
+    const compiled = compileRtdbRules({
+      rules: {
+        users: {
+          $uid: {
+            '.read': '$typoUid == auth.uid',
+          },
+        },
+      },
+    });
+    const readRule = compiled.children[0]?.children[0]?.read;
+    expect(readRule?.parsed.errors.some((e) => e.code === 'UNKNOWN_IDENTIFIER')).toBe(true);
+  });
+});
+
