@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'bun:test';
 import { parseStorageRules } from '../../../src/storage/sandbox/rules.js';
 import { evaluateStorageRules } from '../../../src/storage/sandbox/rules-evaluator.js';
+import { typeMatches } from '../../../src/storage/sandbox/rules-operators.js';
+import { StorageLatLng } from '../../../src/storage/sandbox/rules-latlng.js';
+import { StoragePath } from '../../../src/storage/sandbox/rules-path.js';
 
 // ─── Operators over Timestamp, Duration, and Bytes values ────────
 //
@@ -71,3 +74,24 @@ describe('evaluateStorageRules — is over value types', () => {
     expect(evalRead('resource.size is latlng').allowed).toBe(false);
   });
 });
+
+describe('typeMatches — latlng, path, and null', () => {
+  it('supports null type check', () => {
+    expect(typeMatches(null, 'null')).toBe(true);
+    expect(typeMatches('not null', 'null')).toBe(false);
+    expect(typeMatches(undefined, 'null')).toBe(false);
+  });
+
+  it('supports path type check', () => {
+    const p = new StoragePath('users/alice');
+    expect(typeMatches(p, 'path')).toBe(true);
+    expect(typeMatches('users/alice', 'path')).toBe(false);
+  });
+
+  it('supports latlng type check', () => {
+    const ll = new StorageLatLng(37.7749, -122.4194);
+    expect(typeMatches(ll, 'latlng')).toBe(true);
+    expect(typeMatches({ latitude: 37.7749, longitude: -122.4194 }, 'latlng')).toBe(false);
+  });
+});
+
