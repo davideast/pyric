@@ -525,7 +525,8 @@ async function startServeRuntime(opts: {
 
   // Hot-reload: the static adapter observes the filesystem; the session owns
   // read/prepare/last-good replacement and event broadcast. The rules source
-  // and every module file it imports are watched.
+  // and every module file it imports are watched, including the module files
+  // a failed reload asked for, so fixing or creating one reloads.
   const rulesSourcePath = session.summary.rules.firestore.sourcePath;
   const isWatchEnabled = opts.watch ?? true;
   const hasRulesPath = rulesSourcePath !== null;
@@ -540,10 +541,10 @@ async function startServeRuntime(opts: {
         if (hasPendingReload) clearTimeout(pendingReload);
         debounce = setTimeout(() => {
           void session.reloadFirestoreRules().then((result) => {
+            rulesFiles.sync();
             const isReloaded = result.kind === 'reloaded';
             const isRejected = result.kind === 'rejected';
             if (isReloaded) {
-              rulesFiles.sync();
               logger.note(`  ↻ rules reloaded (hash ${result.rulesHash}) → ${result.clients} page(s)`);
             } else if (isRejected) {
               logger.note(`  ⚠ rules NOT reloaded (last-good stays live): ${result.error.message}`);

@@ -51,34 +51,54 @@ export function rulesHashOf(source: string): string {
 
 const MODULAR_SOURCE = /^\s*rules_version\s*=\s*['"]2\+modules['"]/m;
 
-/** Read `<basePath>/<moduleName>.rules` (or an explicit `.rules` path); null when unreadable. */
-function readProjectRulesFile(basePath: string, moduleName: string): string | null {
-  const fileName = moduleName.endsWith('.rules') ? moduleName : `${moduleName}.rules`;
-  try {
-    return readFileSync(join(basePath, fileName), 'utf8');
-  } catch {
-    return null;
-  }
+interface ProjectModulesResolution {
+  result: ResolveResult;
+  /** Every project file the resolver asked for, found or not, as absolute paths. */
+  moduleFiles: string[];
 }
 
-/** Resolve a modular source: the stdlib inlined, relative imports read from beside `sourcePath`. */
-function resolveProjectModules(raw: string, sourcePath: string, sourceFile?: string): ResolveResult {
+/**
+ * Resolve a modular source: the stdlib inlined, relative imports read from
+ * beside `sourcePath`. The resolver names nested imports relative to the
+ * source, so every file it asks for is under `sourcePath`'s directory.
+ */
+function resolveProjectModules(raw: string, sourcePath: string, sourceFile?: string): ProjectModulesResolution {
   const basePath = dirname(sourcePath);
-  return resolveModulesWithFiles(raw, readProjectRulesFile, sourceFile === undefined ? { basePath } : { basePath, sourceFile });
-}
-
-/** The project files among a resolution's modules, as absolute paths. */
-function projectModuleFiles(modules: readonly string[], sourcePath: string): string[] {
-  const basePath = dirname(sourcePath);
-  return modules
-    .filter((name) => name.startsWith('./') || name.startsWith('../'))
-    .map((name) => join(basePath, name.endsWith('.rules') ? name : `${name}.rules`));
+  const moduleFiles: string[] = [];
+  const readProjectRulesFile = (base: string, moduleName: string): string | null => {
+    const fileName = moduleName.endsWith('.rules') ? moduleName : `${moduleName}.rules`;
+    const file = join(base, fileName);
+    if (!moduleFiles.includes(file)) moduleFiles.push(file);
+    try {
+      return readFileSync(file, 'utf8');
+    } catch {
+      return null;
+    }
+  };
+  const options = sourceFile === undefined ? { basePath } : { basePath, sourceFile };
+  const result = resolveModulesWithFiles(raw, readProjectRulesFile, options);
+  return { result, moduleFiles };
 }
 
 export interface PreparedRules {
   rules: string;
   /** Rules files of the project's own that the source imports. */
   moduleFiles: string[];
+}
+
+/**
+ * A rules source that failed to resolve, parse or lint. `moduleFiles` lists
+ * the project files its resolution asked for, found or not, so a watcher can
+ * reload when one of them is fixed or created.
+ */
+export class RulesPrepareError extends Error {
+  readonly moduleFiles: readonly string[];
+
+  constructor(message: string, moduleFiles: readonly string[]) {
+    super(message);
+    this.name = 'RulesPrepareError';
+    this.moduleFiles = moduleFiles;
+  }
 }
 
 /**
@@ -89,32 +109,40 @@ export function prepareRulesSource(raw: string, sourcePath: string): string {
   return prepareProjectRules(raw, sourcePath).rules;
 }
 
-/** {@link prepareRulesSource}, also reporting the module files the source imports. */
+/**
+ * {@link prepareRulesSource}, also reporting the module files the source
+ * imports. Throws a {@link RulesPrepareError} that lists the module files the
+ * failed source asked for.
+ */
 export function prepareProjectRules(raw: string, sourcePath: string): PreparedRules {
   let source = raw;
   let moduleFiles: string[] = [];
   if (MODULAR_SOURCE.test(raw)) {
-    const resolved = resolveProjectModules(raw, sourcePath);
+    const resolution = resolveProjectModules(raw, sourcePath);
+    moduleFiles = resolution.moduleFiles;
+    const resolved = resolution.result;
     if (!resolved.success) {
-      throw new Error(
+      throw new RulesPrepareError(
         `pyric sandbox: ${sourcePath} uses 2+modules but module resolution failed: ${resolved.error.message}`,
+        moduleFiles,
       );
     }
     source = resolved.data.resolved;
-    moduleFiles = projectModuleFiles(resolved.data.modules, sourcePath);
   }
   const lint = lintFirestoreRules(source);
   if (lint.parseError) {
     const { line, column } = lint.parseError;
-    throw new Error(
+    throw new RulesPrepareError(
       `pyric sandbox: ${sourcePath} failed to parse (line ${line}, col ${column}). Fix the rules before serving.`,
+      moduleFiles,
     );
   }
   const errors = lint.warnings.filter((w) => w.severity === 'error');
   if (errors.length > 0) {
-    throw new Error(
+    throw new RulesPrepareError(
       `pyric sandbox: ${sourcePath} has ${errors.length} rules error(s):\n` +
         errors.map((e) => `  - ${e.message}`).join('\n'),
+      moduleFiles,
     );
   }
   return { rules: source, moduleFiles };
@@ -158,7 +186,7 @@ export async function loadProjectRules(
 export function prepareStorageRulesSource(raw: string, sourcePath: string): string {
   let source = raw;
   if (MODULAR_SOURCE.test(raw)) {
-    const resolved = resolveProjectModules(raw, sourcePath, sourcePath);
+    const resolved = resolveProjectModules(raw, sourcePath, sourcePath).result;
     if (!resolved.success) {
       throw new Error(
         `pyric sandbox: ${sourcePath} uses 2+modules but module resolution failed: ${resolved.error.message}`,
