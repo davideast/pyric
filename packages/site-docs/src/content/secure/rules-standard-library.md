@@ -38,6 +38,30 @@ Imports are flat: call `isAuthor(...)`, not `content.isAuthor(...)`. Resolution 
 
 `cooldownElapsed('updatedAt', 2)` compares the stored timestamp with `request.time`. Pairing it with `isServerTimestamp('updatedAt')` matters: without that second check, a client could submit an old timestamp and bypass the next cooldown. `cooldownElapsed` is for updates because it reads `resource.data`.
 
+## Split your own rules into modules
+
+A file of your own can hold functions for one part of the app and import what it calls, the same way the main file does. Put `rules_version = '2+modules';` and the imports before the first function, and mark the functions other files use with `export`:
+```rules
+// games/tictactoe.rules
+rules_version = '2+modules';
+
+import { validCreate } from 'lobby';
+import { isMyTurn, turnFlipped } from 'turns';
+
+export function ticTacToeCreate() {
+  return validCreate() && request.resource.data.moveCount == 0;
+}
+
+export function ticTacToeMove() {
+  return isMyTurn() && turnFlipped();
+}
+```
+Import it from the main file with a relative path:
+```rules
+import { ticTacToeCreate, ticTacToeMove } from './games/tictactoe';
+```
+A relative import inside a module resolves from that module's directory. Each module is included once, however many files import it. A module can call its own functions, the functions it imports, and the functions the main file imports; any other call to another module's function is rejected.
+
 ## Resolve to deployable Rules
 
 Firebase does not understand `2+modules`, so compile the imports away:

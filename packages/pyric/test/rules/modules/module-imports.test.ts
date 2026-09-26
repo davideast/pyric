@@ -124,6 +124,17 @@ describe('imports inside a module', () => {
     expect(result.error.message).toContain('not exported');
   });
 
+  test('an import inside a module must request at least one function', () => {
+    const result = resolveModules(
+      source("import { gameCreate } from './game';", 'allow create: if gameCreate();'),
+      { modules: { './game': "import { } from 'lobby';\nexport function gameCreate() { return true; }\n" } },
+    );
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.code).toBe('UNKNOWN_FUNCTION');
+    expect(result.error.message).toContain("in module './game'");
+  });
+
   test('modules that import each other are loaded once', () => {
     const result = resolveModules(
       source("import { first } from './a';", 'allow create: if first();'),

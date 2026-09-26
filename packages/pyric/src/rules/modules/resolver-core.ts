@@ -66,8 +66,14 @@ export interface ResolveOptions {
   sourceFile?: string;
 }
 
+/** An import declaration: the module specifier as written, and the names it requests. */
+export interface ModuleImport {
+  module: string;
+  functions: string[];
+}
+
 type LoadResult =
-  | { success: true; functions: FunctionDef[]; bundled: boolean }
+  | { success: true; functions: FunctionDef[]; imports: ModuleImport[]; bundled: boolean }
   | { success: false; error: { code: string; message: string } };
 
 // ---- Function call collection (for transitive deps) ----
@@ -91,13 +97,92 @@ function functionCallSites(
 
 // ---- Module loading ----
 
+const MODULE_TRIVIA = /^(?:\s+|\/\/[^\n]*|\/\*[\s\S]*?\*\/)/;
+const MODULE_VERSION = /^rules_version\s*=\s*(['"])([^'"]*)\1\s*;/;
+const MODULE_IMPORT = /^import\s*\{([^}]*)\}\s*from\s*(['"])([^'"]+)\2\s*;/;
+const MISPLACED_DECLARATION = /^\s*(?:import\s*\{|rules_version\b)/m;
+
+/** Replace every character except newlines with a space, so source locations stay put. */
+function blankOut(text: string): string {
+  return text.replace(/[^\n]/g, ' ');
+}
+
+/**
+ * Split a module file into its header (an optional rules_version line and
+ * import declarations, before any function) and its functions. The header is
+ * blanked out rather than removed, so function source lines are unchanged.
+ */
+function splitModuleHeader(
+  content: string,
+  moduleName: string,
+): { success: true; body: string; imports: ModuleImport[] } | { success: false; error: { code: string; message: string } } {
+  const imports: ModuleImport[] = [];
+  let body = content;
+  let cursor = 0;
+  for (;;) {
+    const rest = content.slice(cursor);
+    const trivia = MODULE_TRIVIA.exec(rest);
+    if (trivia) {
+      cursor += trivia[0].length;
+      continue;
+    }
+    const version = MODULE_VERSION.exec(rest);
+    if (version) {
+      if (version[2] !== '2+modules') {
+        return {
+          success: false,
+          error: {
+            code: 'NOT_MODULE_SOURCE',
+            message: `Module '${moduleName}' declares rules_version '${version[2]}'; a module's version is '2+modules'`,
+          },
+        };
+      }
+      body = body.slice(0, cursor) + blankOut(version[0]) + body.slice(cursor + version[0].length);
+      cursor += version[0].length;
+      continue;
+    }
+    const declaration = MODULE_IMPORT.exec(rest);
+    if (declaration) {
+      const functions = declaration[1].split(',').map((name) => name.trim()).filter((name) => name !== '');
+      imports.push({ module: declaration[3], functions });
+      body = body.slice(0, cursor) + blankOut(declaration[0]) + body.slice(cursor + declaration[0].length);
+      cursor += declaration[0].length;
+      continue;
+    }
+    return { success: true, body, imports };
+  }
+}
+
 function loadModuleFromContent(content: string, moduleName: string, bundled: boolean): LoadResult {
-  const functions = parseFunctions(content, moduleName);
+  const header = splitModuleHeader(content, moduleName);
+  if (!header.success) return header;
+  const functions = parseFunctions(header.body, moduleName);
   const isFunctionsNull = functions === null;
   if (isFunctionsNull) {
-    return { success: false, error: { code: 'PARSE_FAILED', message: `Failed to parse module '${moduleName}'` } };
+    const message = MISPLACED_DECLARATION.test(header.body)
+      ? `Failed to parse module '${moduleName}': a module puts rules_version and imports before its first function`
+      : `Failed to parse module '${moduleName}'`;
+    return { success: false, error: { code: 'PARSE_FAILED', message } };
   }
-  return { success: true, functions: functions!, bundled };
+  return { success: true, functions: functions!, imports: header.imports, bundled };
+}
+
+/**
+ * The specifier of a module imported from inside another module. A relative
+ * import resolves from the importing module's directory; stdlib names and
+ * imports written in the source are returned unchanged.
+ */
+function resolveSpecifier(importer: string | null, specifier: string): string {
+  if (importer === null || !isRelativeImport(specifier) || !isRelativeImport(importer)) return specifier;
+  const segments: string[] = [];
+  for (const part of [...importer.split('/').slice(0, -1), ...specifier.split('/')]) {
+    if (part === '.' || part === '') continue;
+    const canPop = segments.length > 0 && segments[segments.length - 1] !== '..';
+    if (part === '..' && canPop) segments.pop();
+    else segments.push(part);
+  }
+  const joined = segments.join('/');
+  return joined.startsWith('..') ? joined : `./${joined}`;
 }
 
 function isRelativeImport(moduleName: string): boolean {
@@ -250,96 +335,125 @@ export function resolveModulesWith(
   const bundledModulesUsed: string[] = [];
   const privateNamesPerModule = new Map<string, Set<string>>();
 
-  for (const imp of ast.imports) {
-    const loaded = loadModuleWith(reader, imp.module, options, bundledSuppliedModules);
-    if (!loaded.success) {
-      return { success: false, error: loaded.error };
-    }
-    if (!modulesUsed.includes(imp.module)) modulesUsed.push(imp.module);
-    if (loaded.bundled && !bundledModulesUsed.includes(imp.module)) {
-      bundledModulesUsed.push(imp.module);
+  // Imports written in the source come first. A module's own imports are
+  // queued when its file loads, and each module file loads once.
+  const exportsPerModule = new Map<string, Set<string>>();
+  const bundledPerModule = new Map<string, boolean>();
+  const importsPerModule = new Map<string, Set<string>>();
+  const pending: Array<ModuleImport & { importer: string | null }> = ast.imports
+    .map((imp) => ({ module: imp.module, functions: imp.functions, importer: null }));
+
+  for (let imp = pending.shift(); imp !== undefined; imp = pending.shift()) {
+    if (imp.importer !== null) {
+      const names = importsPerModule.get(imp.importer) ?? new Set<string>();
+      for (const name of imp.functions) names.add(name);
+      importsPerModule.set(imp.importer, names);
     }
 
-    const originalNames = new Set<string>();
-    const originalCollision = loaded.functions.find((fn) => {
-      if (originalNames.has(fn.name)) return true;
-      originalNames.add(fn.name);
-      return false;
-    });
-    if (originalCollision) {
-      return {
-        success: false,
-        error: {
-          code: 'DUPLICATE_FUNCTION',
-          message: `Module '${imp.module}' defines duplicate function '${originalCollision.name}'`,
-        },
-      };
-    }
+    if (!exportsPerModule.has(imp.module)) {
+      const loaded = loadModuleWith(reader, imp.module, options, bundledSuppliedModules);
+      if (!loaded.success) {
+        return { success: false, error: loaded.error };
+      }
+      modulesUsed.push(imp.module);
+      bundledPerModule.set(imp.module, loaded.bundled);
+      if (loaded.bundled) bundledModulesUsed.push(imp.module);
+      for (const nested of loaded.imports) {
+        if (nested.functions.length === 0) {
+          return {
+            success: false,
+            error: {
+              code: 'UNKNOWN_FUNCTION',
+              message: `Import from '${nested.module}' in module '${imp.module}' must request at least one function`,
+            },
+          };
+        }
+        pending.push({ ...nested, module: resolveSpecifier(imp.module, nested.module), importer: imp.module });
+      }
 
-    const builtinCollision = loaded.functions
-      .find((fn) => RULES_BUILTIN_FUNCTIONS.has(fn.name));
-    if (builtinCollision) {
-      return {
-        success: false,
-        error: {
-          code: 'DUPLICATE_FUNCTION',
-          message: `Function '${builtinCollision.name}' from module '${imp.module}' conflicts with a Rules builtin`,
-        },
-      };
-    }
-
-    // Track original private names before prefixing (for error messages)
-    const privateNames = new Set<string>();
-    for (const fn of loaded.functions) {
-      if (!fn.exported) privateNames.add(fn.name);
-    }
-    privateNamesPerModule.set(imp.module, privateNames);
-
-    const prefixed = prefixPrivateFunctions(loaded.functions, imp.module);
-    const namesInModule = new Set<string>();
-    for (const fn of prefixed) {
-      if (namesInModule.has(fn.name)) {
+      const originalNames = new Set<string>();
+      const originalCollision = loaded.functions.find((fn) => {
+        if (originalNames.has(fn.name)) return true;
+        originalNames.add(fn.name);
+        return false;
+      });
+      if (originalCollision) {
         return {
           success: false,
           error: {
             code: 'DUPLICATE_FUNCTION',
-            message: `Module '${imp.module}' defines conflicting function name '${fn.name}'`,
+            message: `Module '${imp.module}' defines duplicate function '${originalCollision.name}'`,
           },
         };
       }
-      namesInModule.add(fn.name);
-    }
-    const moduleExports = new Set(
-      prefixed.filter((fn) => fn.exported).map((fn) => fn.name),
-    );
-    for (const fn of prefixed) {
-      const existingOrigin = functionOrigin.get(fn.name);
-      if (existingOrigin && existingOrigin !== imp.module) {
+
+      const builtinCollision = loaded.functions
+        .find((fn) => RULES_BUILTIN_FUNCTIONS.has(fn.name));
+      if (builtinCollision) {
         return {
           success: false,
           error: {
             code: 'DUPLICATE_FUNCTION',
-            message: `Function '${fn.name}' from module '${imp.module}' conflicts with module '${existingOrigin}'`,
+            message: `Function '${builtinCollision.name}' from module '${imp.module}' conflicts with a Rules builtin`,
           },
         };
       }
-      functionOrigin.set(fn.name, imp.module);
-      allModuleFunctions.set(fn.name, fn);
 
-      if (fn.exported) {
-        if (exportedFunctions.has(fn.name) && moduleOrigin.get(fn.name) !== imp.module) {
+      // Track original private names before prefixing (for error messages)
+      const privateNames = new Set<string>();
+      for (const fn of loaded.functions) {
+        if (!fn.exported) privateNames.add(fn.name);
+      }
+      privateNamesPerModule.set(imp.module, privateNames);
+
+      const prefixed = prefixPrivateFunctions(loaded.functions, imp.module);
+      const namesInModule = new Set<string>();
+      for (const fn of prefixed) {
+        if (namesInModule.has(fn.name)) {
           return {
             success: false,
             error: {
               code: 'DUPLICATE_FUNCTION',
-              message: `Function '${fn.name}' exported by both '${moduleOrigin.get(fn.name)}' and '${imp.module}'`,
+              message: `Module '${imp.module}' defines conflicting function name '${fn.name}'`,
             },
           };
         }
-        exportedFunctions.set(fn.name, fn);
-        moduleOrigin.set(fn.name, imp.module);
+        namesInModule.add(fn.name);
       }
+      const moduleExports = new Set(
+        prefixed.filter((fn) => fn.exported).map((fn) => fn.name),
+      );
+      for (const fn of prefixed) {
+        const existingOrigin = functionOrigin.get(fn.name);
+        if (existingOrigin && existingOrigin !== imp.module) {
+          return {
+            success: false,
+            error: {
+              code: 'DUPLICATE_FUNCTION',
+              message: `Function '${fn.name}' from module '${imp.module}' conflicts with module '${existingOrigin}'`,
+            },
+          };
+        }
+        functionOrigin.set(fn.name, imp.module);
+        allModuleFunctions.set(fn.name, fn);
+
+        if (fn.exported) {
+          if (exportedFunctions.has(fn.name) && moduleOrigin.get(fn.name) !== imp.module) {
+            return {
+              success: false,
+              error: {
+                code: 'DUPLICATE_FUNCTION',
+                message: `Function '${fn.name}' exported by both '${moduleOrigin.get(fn.name)}' and '${imp.module}'`,
+              },
+            };
+          }
+          exportedFunctions.set(fn.name, fn);
+          moduleOrigin.set(fn.name, imp.module);
+        }
+      }
+      exportsPerModule.set(imp.module, moduleExports);
     }
+    const moduleExports = exportsPerModule.get(imp.module)!;
 
     // Verify all requested functions exist AND are exported
     for (const fnName of imp.functions) {
@@ -351,7 +465,7 @@ export function resolveModulesWith(
         return { success: false, error: { code: 'UNKNOWN_FUNCTION', message: msg } };
       }
       if (ast.service.name === 'cloud.firestore' || ast.service.name === 'firebase.storage') {
-        const message = loaded.bundled
+        const message = bundledPerModule.get(imp.module)
           ? incompatibleStdlibExport(ast.service.name, imp.module, fnName)
           : null;
         if (message) {
@@ -411,9 +525,10 @@ export function resolveModulesWith(
   for (const fn of injected) {
     const origin = functionOrigin.get(fn.name);
     const calls = [...fn.lets.flatMap(({ value }) => collectCalls(value)), ...collectCalls(fn.body)];
+    const ownImports = origin === undefined ? undefined : importsPerModule.get(origin);
     const foreignCall = calls.find((call) => {
       const calledOrigin = functionOrigin.get(call);
-      return calledOrigin && calledOrigin !== origin && !requestedNames.has(call);
+      return calledOrigin && calledOrigin !== origin && !requestedNames.has(call) && !ownImports?.has(call);
     });
     if (foreignCall) {
       return {
