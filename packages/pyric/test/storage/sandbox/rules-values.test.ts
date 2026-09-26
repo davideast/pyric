@@ -195,10 +195,10 @@ service firebase.storage {
 service firebase.storage {
   match /b/{bucket}/o {
     match /x/{fileId} {
-      allow read: if request.path is path;
+      allow read: if request.path is reference;
     }
   }
 }`),
-    ).toMatch(/'is path' is not supported by the storage evaluator/);
+    ).toMatch(/'is reference' is not supported by the storage evaluator/);
   });
 });

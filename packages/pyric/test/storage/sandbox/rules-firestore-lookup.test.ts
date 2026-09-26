@@ -164,4 +164,33 @@ describe('evaluateStorageRules — firestore.get / firestore.exists', () => {
       ).allowed,
     ).toBe(false);
   });
+
+  it('allows firestore.get with dynamic string-concatenated path expression', () => {
+    const r = evalFs(
+      "firestore.get('/databases/(default)/documents/users/' + request.auth.uid).data.role == 'admin'",
+      { 'users/alice': { role: 'admin' } },
+    );
+    expect(r.allowed).toBe(true);
+  });
+
+  it('allows firestore.exists with path() constructor expression', () => {
+    const r = evalFs(
+      "firestore.exists(path('/databases/(default)/documents/users/' + request.auth.uid))",
+      { 'users/alice': { role: 'admin' } },
+    );
+    expect(r.allowed).toBe(true);
+  });
+
+  it('wraps GeoPoint and Path in document data for type tests', () => {
+    const r = evalFs(
+      "firestore.get(/databases/(default)/documents/places/p1).data.loc is latlng && firestore.get(/databases/(default)/documents/places/p1).data.ref is path",
+      {
+        'places/p1': {
+          loc: { latitude: 37.7749, longitude: -122.4194 },
+          ref: { path: '/databases/(default)/documents/users/alice' },
+        },
+      },
+    );
+    expect(r.allowed).toBe(true);
+  });
 });

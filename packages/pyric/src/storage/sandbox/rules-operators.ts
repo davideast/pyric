@@ -8,7 +8,7 @@ import {
 } from './rules-values.js';
 
 /** The value types whose `is` test reads the value's own type name. */
-const VALUE_TYPE_NAMES = new Set(['timestamp', 'duration', 'bytes']);
+const VALUE_TYPE_NAMES = new Set(['timestamp', 'duration', 'bytes', 'latlng', 'path']);
 
 /**
  * `value is <type>` check. Numbers use the RULES-B5 model: a `RulesFloat`
@@ -28,6 +28,7 @@ export function typeMatches(v: unknown, typeName: string): boolean | RuleError {
     case 'number': return v instanceof RulesFloat || typeof v === 'number';
     case 'list': return Array.isArray(v);
     case 'map': return isRulesMap(v);
+    case 'null': return v === null;
   }
   if (VALUE_TYPE_NAMES.has(typeName)) {
     return v instanceof RulesValue && v.typeName === typeName;
