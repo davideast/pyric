@@ -335,6 +335,7 @@
         "builtins-time-and-math",
         "duration-and-latlng",
         "error-absorption-and-or",
+        "functions-verbs-and-recursive",
         "get-after-and-exists-after",
         "int-float-and-division",
         "list-and-string-methods",
@@ -370,6 +371,7 @@
         "builtins-time-and-math",
         "duration-and-latlng",
         "error-absorption-and-or",
+        "functions-verbs-and-recursive",
         "get-after-and-exists-after",
         "int-float-and-division",
         "list-and-string-methods",
@@ -634,6 +636,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "functions-verbs-and-recursive",
         "get-missing-doc"
       ],
       "verifiedByRows": [
@@ -1288,6 +1291,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "ast-strictness-and-unsupported-casts",
+        "functions-verbs-and-recursive",
         "list-and-string-methods",
         "required-fields-and-mapdiff"
       ],
@@ -1324,6 +1328,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "functions-verbs-and-recursive",
         "list-and-string-methods",
         "prototype-chain-keys",
         "required-fields-and-mapdiff"
@@ -1343,6 +1348,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "functions-verbs-and-recursive",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset"
       ],
@@ -1431,6 +1437,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "ast-strictness-and-unsupported-casts",
+        "functions-verbs-and-recursive",
         "prototype-chain-keys",
         "required-fields-and-mapdiff",
         "set-algebra-difference-union-intersection"
@@ -1467,6 +1474,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "functions-verbs-and-recursive",
         "globals-request-path-and-resource-id"
       ],
       "verifiedByRows": [],
@@ -2165,6 +2173,7 @@
         "common-auth-membership-firestore",
         "cross-type-operator-overloads",
         "duration-and-latlng",
+        "functions-verbs-and-recursive",
         "get-after-and-exists-after",
         "get-missing-doc",
         "global-and-service-scope-functions",
@@ -2752,6 +2761,7 @@
         "cross-type-operator-overloads",
         "duration-and-latlng",
         "error-absorption-and-or",
+        "functions-verbs-and-recursive",
         "get-after-and-exists-after",
         "get-missing-doc",
         "global-and-service-scope-functions",
