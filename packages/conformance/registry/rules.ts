@@ -266,10 +266,15 @@ export const rulesRegistry = {
         row1({
           rowRef: "182",
           featureKeys: ["function","let","allow","ternary","recursiveMatch"],
-          behavior: "User-defined `function`/`let`, granular `allow get/list/update/write` verbs, the ternary operator, and a recursive `{document=**}` match in rules",
+          behavior: "User-defined `function`/`let`, granular `allow get/list/update/write` verbs, the ternary operator, and a recursive `{document=**}` match in rules. A function may call a method on a parameter, on a field of a `get()` result, on a `let` bound to request data, or on a ternary whose branches have different types; the receiver's runtime type decides at evaluation, and a method the runtime value does not support denies. `2+modules` module functions resolve the same shapes",
           status: "conforms",
-          evidence: "NEW ROW, 2026-07-12: production capture proves the simulator matches the production Firestore Rules Test API verdict-for-verdict on all 7 cases (role-gated docs + public recursive subtree). `oracle:rules-firestore-functions-verbs-and-recursive` — replayed by `unit:rules/oracle-conformance.test.ts`.",
+          evidence: "NEW ROW, 2026-07-12: production capture proves the simulator matches the production Firestore Rules Test API verdict-for-verdict on all 7 cases (role-gated docs + public recursive subtree). `oracle:rules-firestore-functions-verbs-and-recursive` — replayed by `unit:rules/oracle-conformance.test.ts`. Extended 2026-09-26: the recapture adds 13 production verdicts (8 ALLOW, 5 DENY) proving production compiles method calls on receivers it cannot type at compile time: a `get()` result passed as a parameter, a method on a `get()` field, a map field passed as a parameter, a parameter passed from one function to another, a `let` bound to `request.resource.data`, and a ternary whose branches are a map and a string. A runtime value without the method denies with `Function not found error: Name: [size].` or `Name: [keys].`. The original 7 verdicts are unchanged, and the local simulator replays all 20. The module resolver tests prove `2+modules` admits the same shapes for `cloud.firestore` and `firebase.storage`, and still rejects a method on a receiver of known type that does not support it and a method name no receiver type defines.",
           oracleObservations: ["rules-firestore-functions-verbs-and-recursive"],
+          conformanceTests: [
+            "packages/pyric/test/rules/oracle-conformance.test.ts",
+            "packages/pyric/test/rules/modules/service-compatibility.test.ts",
+            "packages/pyric/test/rules/modules/resolver-call-sites.test.ts",
+          ],
         }),
         row1({
           rowRef: "183",

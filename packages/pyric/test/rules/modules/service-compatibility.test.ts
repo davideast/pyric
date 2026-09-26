@@ -521,33 +521,31 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
       expect(result.success, expression).toBe(false);
     }
   });
-  test('rejects direct and projected heterogeneous method receivers', () => {
+  test('admits direct and projected heterogeneous method receivers for evaluation to deny', () => {
     const bodies = [
       "let value = flag ? ['owner'] : 'owner'; return value.keys().hasAll(['owner']);",
       "let values = flag ? [{'owner': true}] : 'owner'; return values[0].keys().hasAll(['owner']);",
     ];
     for (const body of bodies) {
       const result = resolveModules(
-        makeStorageSource("import { broken } from './policy';", 'broken(request.auth != null)'),
-        { modules: { './policy': `export function broken(flag) { ${body} }` } },
+        makeStorageSource("import { mixed } from './policy';", 'mixed(request.auth != null)'),
+        { modules: { './policy': `export function mixed(flag) { ${body} }` } },
       );
-      expect(result.success, body).toBe(false);
-      if (!result.success) expect(result.error.code).toBe('INCOMPATIBLE_FUNCTION');
+      expect(result.success, result.success ? body : result.error.message).toBe(true);
     }
   });
-  test('rejects Map.get fallbacks that hide incompatible retrieved values', () => {
+  test('admits a Map.get whose retrieved value type is unresolved', () => {
     const result = resolveModules(
-      makeStorageSource("import { broken } from './policy';", "broken({'x': 'owner'})"),
+      makeStorageSource("import { retrieved } from './policy';", "retrieved({'x': 'owner'})"),
       {
         modules: { './policy': `
-          export function broken(value) {
+          export function retrieved(value) {
             return value.get('x', {}).keys().hasAll(['owner']);
           }
         ` },
       },
     );
-    expect(result.success).toBe(false);
-    if (!result.success) expect(result.error.code).toBe('INCOMPATIBLE_FUNCTION');
+    expect(result.success, result.success ? undefined : result.error.message).toBe(true);
   });
   test('enforces receiver types on direct Firestore lookup results and propagated values', () => {
     const modules = [
@@ -625,6 +623,42 @@ service cloud.firestore {
         } },
       );
       expect(result.success, key).toBe(true);
+    }
+  });
+  test('admits methods on Firestore receivers whose type the resolver cannot determine', () => {
+    const modules = [
+      "export function check() { let doc = request.resource.data; return doc.board.keys().hasOnly(['c0r0']); }",
+      'export function check(db) { return get(/databases/$(db)/documents/games/g).data.players.size() > 0; }',
+      'export function check(db) { return getAfter(/databases/$(db)/documents/games/g).data.players.size() > 0; }',
+      `function count(m) { return m.players.size() > 0; }
+       export function check(db) { return count(get(/databases/$(db)/documents/games/g).data); }`,
+      `function valid(shot) { return shot.keys().hasOnly(['dx', 'dy']); }
+       export function check() { return valid(request.resource.data.shot); }`,
+      `function count(tags) { return tags.size() > 0; }
+       export function check() { return count(request.resource.data.tags.toSet()); }`,
+      `export function check(db) {
+         let tags = db != null ? get(/databases/$(db)/documents/games/g).data.tags : [];
+         return tags.size() > 0;
+       }`,
+    ];
+    const rejected = modules.flatMap((module) => {
+      const result = resolveModules(makeSource("import { check } from './policy';"), {
+        modules: { './policy': module },
+      });
+      return result.success ? [] : [`${module}: ${result.error.message}`];
+    });
+    expect(rejected).toEqual([]);
+  });
+  test('rejects Firestore methods on a known wrong receiver type or with an unknown name', () => {
+    for (const module of [
+      "export function check() { return 'abc'.keys().size() > 0; }",
+      'export function check() { let doc = request.resource.data; return doc.board.foo(); }',
+    ]) {
+      const result = resolveModules(makeSource("import { check } from './policy';"), {
+        modules: { './policy': module },
+      });
+      expect(result.success, module).toBe(false);
+      if (!result.success) expect(result.error.code).toBe('INCOMPATIBLE_FUNCTION');
     }
   });
 });
