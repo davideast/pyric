@@ -582,6 +582,38 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
     expect(bind.success).toBe(true);
     expect(rejected.success).toBe(false);
   });
+  const castSource = `rules_version = '2+modules';
+import { check } from './policy';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /cards/{i} { allow read: if check(i); }
+  }
+}`;
+  test.each([
+    'string(1) == i',
+    'int(i) < 108',
+    'float(i) > 1.5',
+    "path('/databases/x/documents/a/b') == path('/databases/x/documents/a/b')",
+    'string(i).size() > 0 && int(i) + 1 > 0',
+    'string(request.resource.data).size() > 0',
+  ])('admits accepted conversion functions in a module function: %s', (expression) => {
+    const result = resolveModules(castSource, {
+      modules: { './policy': `export function check(i) { return ${expression}; }` },
+    });
+    expect(result.success, result.success ? '' : result.error.message).toBe(true);
+  });
+  test.each([
+    ['bool(1)', "function 'bool()'"],
+    ['debug(1)', "function 'debug()'"],
+    ['cast.string(1)', "namespace 'cast'"],
+    ['string(request.auth.uid)[0]', "binding '<derived ambient value>[...]'"],
+  ])('rejects %s in a module function', (expression, issue) => {
+    const result = resolveModules(castSource, {
+      modules: { './policy': `export function check(i) { return ${expression} == i; }` },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.message).toContain(issue);
+  });
   test('admits prototype-named metadata keys for runtime own-property enforcement', () => {
     for (const key of ['constructor', 'toString', 'hasOwnProperty']) {
       const result = resolveModules(

@@ -14,8 +14,18 @@ describe('rules module capability projection', () => {
     expect(source).toContain('"size": ["bytes", "list", "map", "set", "string"]');
     expect(source).toContain('firestore: ["exists", "get"]');
     expect(source).toContain('"request.resource.contentType"');
-    expect(source).toContain('FIRESTORE_DIRECT_FUNCTIONS = ["exists", "existsAfter", "get", "getAfter"]');
+    expect(source).toContain(
+      'FIRESTORE_DIRECT_FUNCTIONS = ["exists", "existsAfter", "float", "get", "getAfter", "int", "path", "string"]',
+    );
     expect(source).not.toContain('"request.resource.name"');
     expect(source).not.toContain('isInfinite');
+  });
+
+  test('emits accepted conversion functions as direct calls, not as a namespace', () => {
+    const source = renderRulesModuleCapabilities();
+
+    expect(source).not.toContain('cast:');
+    expect(source).not.toContain('"bool"');
+    expect(source).not.toContain('"debug"');
   });
 });
