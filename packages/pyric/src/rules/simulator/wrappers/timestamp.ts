@@ -78,7 +78,21 @@ export class Timestamp extends RulesValue {
    * (no nanosecond precision test exists for it).
    */
   static fromIsoString(iso: string): Timestamp {
-    return Timestamp.fromMillis(Date.parse(iso));
+    const fracMatch = iso.match(/\.(\d+)/);
+    if (!fracMatch) {
+      return Timestamp.fromMillis(Date.parse(iso));
+    }
+    const wholeSecMs = Date.parse(iso.replace(/\.\d+/, ''));
+    const seconds = Math.floor(wholeSecMs / 1000);
+    const fracDigits = fracMatch[1]!;
+    let nanoStr: string;
+    if (fracDigits.length >= 9) {
+      nanoStr = fracDigits.slice(0, 9);
+    } else {
+      nanoStr = fracDigits.padEnd(9, '0');
+    }
+    const nanos = parseInt(nanoStr, 10);
+    return new Timestamp(seconds, nanos);
   }
 
   toMillis(): number {

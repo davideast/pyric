@@ -387,3 +387,15 @@ describe('Timestamp — request.time flip (Risk 1)', () => {
     expect(r.success && r.data.passed).toBe(1);
   });
 });
+
+describe('Timestamp — fromIsoString nanos precision', () => {
+  test('Timestamp.fromIsoString preserves 9-digit nanosecond precision', () => {
+    const ts = Timestamp.fromIsoString('2026-09-25T12:00:00.123456789Z');
+    expect(ts.nanos).toBe(123456789);
+  });
+
+  test('Timestamp.fromIsoString preserves 6-digit microsecond precision', () => {
+    const ts = Timestamp.fromIsoString('2026-09-25T12:00:00.123456Z');
+    expect(ts.nanos).toBe(123456000);
+  });
+});

@@ -73,6 +73,53 @@ export function normalizeAuthState(auth: AuthState): AuthState {
   };
 }
 
+/**
+ * Project standard JWT token claims (sub, user_id, optional email, and firebase.sign_in_provider)
+ * onto an AuthState token, ensuring full fidelity for security rules simulation.
+ * Never mutates original input.
+ */
+export function normalizeAuthTokenClaims(auth: AuthState): Record<string, unknown> | null {
+  if (auth === null) return null;
+  const normalized = normalizeAuthState(auth);
+  if (normalized === null) return null;
+
+  const rawAuth = auth as Record<string, unknown>;
+  const token = (normalized.token ? { ...normalized.token } : {}) as Record<string, unknown>;
+  token.sub ??= normalized.uid;
+  token.user_id ??= normalized.uid;
+  if ('email' in rawAuth && typeof rawAuth.email === 'string') {
+    token.email ??= rawAuth.email;
+  }
+
+  const existingFirebase = token.firebase;
+  const normalizedFirebase: Record<string, unknown> = {};
+  if (
+    typeof existingFirebase === 'object' &&
+    existingFirebase !== null &&
+    !Array.isArray(existingFirebase)
+  ) {
+    Object.assign(normalizedFirebase, existingFirebase);
+  }
+
+  if (normalizedFirebase.sign_in_provider === undefined) {
+    normalizedFirebase.sign_in_provider = 'custom';
+  }
+
+  if (normalized.tenant !== undefined && normalizedFirebase.tenant === undefined) {
+    normalizedFirebase.tenant = normalized.tenant;
+  }
+  token.firebase = normalizedFirebase;
+
+  const result: Record<string, unknown> = {
+    uid: normalized.uid,
+    token,
+  };
+  if (normalized.tenant !== undefined) {
+    result.tenant = normalized.tenant;
+  }
+  return result;
+}
+
 function authLensFor(auth: AuthState): AuthLens {
   if (auth === null) return { mode: 'anon' };
   const lens: Extract<AuthLens, { mode: 'as' }> = { mode: 'as', uid: auth.uid };

@@ -22,17 +22,10 @@ import { assembleExpression } from '../grammar/FirestoreAssembler.js';
 import { readAuthoredSourceMap, resolveAuthoredLoc, type AuthoredSourceMap } from '../modules/resolver-core.js';
 import { evaluate, UnsupportedError, TraceRecorder, type SimulationContext } from './evaluator.js';
 
-import { Timestamp } from './wrappers/timestamp.js';
-import { Path } from './wrappers/path.js';
 import { LookupBudget } from './lookup-budget.js';
 import { ResourceLimitError } from './eval-error.js';
-import { projectAfterState } from './project-after-state.js';
 import { DOCUMENT_PATH_FORM, documentRelativePath } from './request-path.js';
-import {
-  requestQuery,
-  resolveServerTimestamps,
-  reviveFirestoreNumbers,
-} from './firestore-values.js';
+import { buildContext } from './handler-context.js';
 export { SERVER_TIMESTAMP, resolveServerTimestamps, reviveFirestoreNumbers } from './firestore-values.js';
 import {
   collectMatches,
@@ -251,169 +244,7 @@ function newEntry(rule: AllowRule, index: number, sourceMap?: AuthoredSourceMap)
   return entry;
 }
 
-// ═══ Build simulation context from TestCase ═══
-
-function buildContext(
-  tc: TestCase,
-  functions: FunctionDef[],
-  pathVariables: Record<string, string>,
-  getDoc?: (path: string) => Record<string, unknown> | null,
-  batchProjection?: Map<string, Record<string, unknown> | null>,
-  lookupBudget?: LookupBudget,
-): SimulationContext {
-  const fnMap = new Map<string, FunctionDef>();
-  for (const fn of functions) fnMap.set(fn.name, fn);
-
-  const mockDocs = new Map<string, Record<string, unknown>>();
-  const identitylessFunctionMocks = new Set<string>();
-  if (tc.functionMocks) {
-    for (const mock of tc.functionMocks) {
-      if (mock.function === 'get' && typeof mock.result === 'object' && mock.result !== null) {
-        mockDocs.set(mock.path, reviveFirestoreNumbers(mock.result) as Record<string, unknown>);
-        identitylessFunctionMocks.add(mock.path);
-      } else if (mock.function === 'exists') {
-        if (mock.result === true) {
-          mockDocs.set(mock.path, {});
-          identitylessFunctionMocks.add(mock.path);
-        }
-      }
-    }
-  }
-
-  // request.time defaults to wallclock; tc.requestTime (Item 0.F) lets
-  // tests pin a deterministic value for date-gated rules. Item 1.3
-  // flipped the in-evaluator type from ISO string to Timestamp wrapper
-  // (REBUILD_PLAN Risk 1) — `tc.requestTime` stays an ISO string for
-  // backwards-compat with the prod Test API, parsed here.
-  const serverTime = tc.requestTime
-    ? Timestamp.fromIsoString(tc.requestTime)
-    : Timestamp.fromMillis(Date.now());
-
-  // Item 6: build the full document path for request.path / __name__.
-  // tc.path arrives as a relative path like "users/alice"; the spec form
-  // is /databases/(default)/documents/<rel>. Strip a leading slash so we
-  // don't end up with a double slash.
-  const relPath = tc.path.startsWith('/') ? tc.path.slice(1) : tc.path;
-  const fullPathSegs = ['databases', '(default)', 'documents', ...relPath.split('/').filter(Boolean)];
-  // Pass pathVariables as bindings so `request.path.<name>` (where <name> is
-  // a wildcard from the matched rule, e.g. {uid}) returns the bound segment
-  // value instead of null. Without this, named-field access on request.path
-  // silently DENYs any rule that reads it.
-  const fullPath = new Path(fullPathSegs, pathVariables);
-  // NOTE: no document id is derived here. Production does not expose one on
-  // `resource` (see the `resource` construction below, RULES-B12) — the id a
-  // rule can legitimately read comes from the match-path wildcard (`/{id}`).
-
-  // Item 7 — project the after-state.
-  //
-  // If tc.writeMode is set (Item 0.D), run projectAfterState to derive both
-  // request.resource.data and what getAfter() returns. Otherwise preserve
-  // legacy behavior where tc.data IS the after-state for create/update,
-  // tc.resource for read methods, and null for delete. The legacy fallback
-  // keeps every existing test passing while letting new tests opt into
-  // proper merge semantics.
-  const payload = reviveFirestoreNumbers(tc.data ?? {}) as Record<string, unknown>;
-  const existing = tc.resource === undefined || tc.resource === null
-    ? null
-    : reviveFirestoreNumbers(tc.resource) as Record<string, unknown>;
-  let afterState: Record<string, unknown> | null;
-  let existsAfter: boolean;
-  if (tc.writeMode) {
-    afterState = projectAfterState(tc.writeMode, existing, payload);
-    existsAfter = afterState !== null;
-  } else {
-    switch (tc.method) {
-      case 'create':
-      case 'update':
-        // RULES-B10: the prod-faithful update post-state is `existing` merged
-        // with the payload. That merge IS implemented and correct on the
-        // `writeMode: { kind: 'update' }` path above (`projectAfterState`),
-        // which agent-facing `simulate()` callers should use. The legacy
-        // no-writeMode default keeps `afterState = payload`: the sandbox
-        // LocalEnvironment path ALREADY pre-merges + pre-applies deleteField()
-        // and hands us the FULL post-write doc, so re-merging here would
-        // resurrect deleted keys (RULES-B10 step doc records this cross-track
-        // coupling — making merge the unconditional default needs a coordinated
-        // T2 change to have LocalEnvironment declare its writeMode).
-        afterState = payload;
-        existsAfter = true;
-        break;
-      case 'delete':
-        afterState = null;
-        existsAfter = false;
-        break;
-      case 'get':
-      case 'list':
-      default:
-        afterState = existing; // no write happens
-        existsAfter = existing !== null;
-        break;
-    }
-  }
-  const projectedAfter = afterState !== null
-    ? reviveFirestoreNumbers(resolveServerTimestamps(afterState, serverTime)) as Record<string, unknown>
-    : null;
-
-  // request.resource.data: for non-write methods (get/list) Firestore exposes
-  // null. For writes, it's the projected after-state. We keep the legacy
-  // shape (`{}` when tc.data is absent) for backwards-compat — the parity
-  // scenarios that exercise this surface explicitly set tc.data.
-  const reqResourceData = projectedAfter ?? {};
-
-  return {
-    request: {
-      auth: tc.auth ? { uid: tc.auth.uid, token: tc.auth.token ?? {} } : null,
-      resource: { data: reqResourceData },
-      method: tc.method,
-      path: fullPath,        // Item 6: Path wrapper, full /databases/.../documents/... form
-      ...(requestQuery(tc) ? { query: requestQuery(tc) } : {}),
-      time: serverTime,
-    },
-    // `resource` is the PRE-WRITE stored document. When the request target does
-    // not exist, production makes `resource` a null error value — reading or
-    // comparing it then errors → DENY. Synthesizing a resource here (the
-    // previous behavior) was a FALSE-ALLOW for common ownership/existence
-    // idioms (`resource.data.owner == request.auth.uid`, `resource != null`).
-    //
-    // RULES-B12: for get/list/update/delete the resource carries `data` ONLY.
-    // Production builds `resource` from the stored document alone and does NOT
-    // derive an identity from the request path, so `resource.id` /
-    // `resource.__name__` are ABSENT and reading either errors:
-    //   "Property id is undefined on object."
-    //   "Property __name__ is undefined on object."
-    // → DENY (surviving negation, absorbed only by a determining `||`).
-    // Synthesizing `id`/`__name__` from tc.path made `resource.id == id` ALLOW
-    // where production DENIES — an OVER-PERMISSIVE divergence. Omitting the
-    // keys hands the evaluator's absent-key error path the same verdict prod
-    // gives. Note: `request.resource` (proposed data) is built separately above
-    // and is likewise `{ data }` only — `request.resource.id` errors in prod too.
-    resource: tc.method === 'create' || existing === null
-      ? null
-      : { data: reviveFirestoreNumbers(existing) as Record<string, unknown> },  // NOT resolved — resource is pre-write, no sentinels
-    mockDocuments: mockDocs,
-    identitylessFunctionMocks,
-    getDoc,
-    pathVariables,
-    functions: fnMap,
-    database: '(default)',
-    // Item 7 — projected post-write state for the request target.
-    //   afterStatePath: full Path being written to (matches request.path)
-    //   afterState: post-write doc data, or null when deleted
-    //   existsAfter: false when method is delete (or projectAfterState → null)
-    afterStatePath: fullPath,
-    afterState: projectedAfter,
-    existsAfter,
-    // getafter-batch fix — shared batch/transaction projection, when the
-    // caller supplied one. Absent for single-op evaluation.
-    ...(batchProjection ? { batchProjection } : {}),
-    // Per-request document access budget (10 distinct lookups). The SAME
-    // instance is threaded into every match block's context for one test
-    // case, because production's budget spans overlapping match blocks and
-    // OR'd allow rules within one request evaluation. An absent budget and
-    // an `undefined` one mean the same thing here: no budget is enforced.
-    lookupBudget,
-  };
-}
+// Context assembly delegated to handler-context.ts (buildContext)
 
 // ═══ Main handler ═══
 
