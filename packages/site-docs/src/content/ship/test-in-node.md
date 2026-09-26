@@ -17,7 +17,7 @@ One sandbox at module scope, contexts derived once, reset in `beforeEach`. This 
 ```ts
 import { describe, it, beforeEach, expect } from 'bun:test';
 import { initializeSandbox, SandboxError } from 'pyric/sandbox';
-import { getFirestore } from 'pyric-admin';
+import { getFirestore } from 'pyric-admin/firestore';
 
 const RULES = `rules_version = '2';
 service cloud.firestore {

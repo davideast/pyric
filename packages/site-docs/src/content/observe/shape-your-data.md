@@ -22,7 +22,7 @@ A fixture carries documents and auth users, so the app opens onto a populated ba
 In tests, seed in code. Rules first, then documents, because writes before rules evaluate against default-deny:
 ```ts
 import { initializeSandbox } from 'pyric/sandbox';
-import { getFirestore } from 'pyric-admin';
+import { getFirestore } from 'pyric-admin/firestore';
 
 const sandbox = initializeSandbox();
 const adminDb = getFirestore(sandbox.withAuth({ uid: 'admin', token: { admin: true } }));

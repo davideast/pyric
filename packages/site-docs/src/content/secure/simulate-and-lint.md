@@ -43,10 +43,11 @@ pyric rules lint --service firestore
 ```
 Or in code:
 ```ts
-import { lintFirestoreRules } from 'pyric/rules';
+import { lint } from 'pyric/rules';
 
-const { warnings, metrics } = lintFirestoreRules(source);
+const issues = lint(source);
 ```
+`lint` never throws. Parse errors, lint warnings, and structural findings come back in one list, each with a `code`, a `severity`, a `message`, and a `fix` when the linter has one.
 The linter checks two different kinds of failure.
 
 **The production limits.** The rules compiler enforces hard caps: a 256 KB source ceiling, a boolean chain depth of 98, 11 `let` bindings per function, `get()` call counts, and a runtime evaluation budget that fails as a silent `permission-denied` under load. The linter carries each cap as an exact threshold, measured by probing the production engine. The numbers live in [the measured Firestore Rules limits](./firestore-rules-limits.md).
@@ -77,10 +78,9 @@ The syntax-level catches (`===`, `?.`, `??`, arrow functions, backtick strings) 
 
 ## Block shipping on Rules errors
 
-Warnings carry a severity. Gate CI (and refuse to `firebase deploy`) when any finding has `severity: 'error'`:
+Gate CI (and refuse to `firebase deploy`) when any issue has `severity: 'error'`:
 ```ts
-const errors = lintFirestoreRules(source).warnings
-  .filter((w) => w.severity === 'error');
+const errors = lint(source).filter((issue) => issue.severity === 'error');
 if (errors.length > 0) process.exit(1);
 ```
 A hallucinated method is always an error, because the named method literally does not exist. Blocking on it is never a false alarm.

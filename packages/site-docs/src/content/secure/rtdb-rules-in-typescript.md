@@ -16,11 +16,11 @@ Realtime Database rules are strings inside a JSON tree. Pyric lets you write the
 ## Define the rules in code
 ```ts
 import {
-  defineRtdbRules, all, authenticated,
-  fieldOwnerOnly, ownerOrNew, immutable,
-} from 'pyric/rules/rtdb/constraints';
+  rtdbRules, defineRtdbRules,
+  authenticated, ownerOrNew, immutable,
+} from 'pyric/rules';
 
-const rules = defineRtdbRules({
+const rules = rtdbRules(defineRtdbRules({
   paths: {
     '/notes/$noteId': {
       read: authenticated(),
@@ -28,34 +28,49 @@ const rules = defineRtdbRules({
       validate: immutable('createdAt'),
     },
   },
-});
+}));
 ```
-`$noteId` is a real wildcard. `ownerOrNew('ownerId')` compiles to the signed-in-and-owner-or-new expression you would have written by hand, and `immutable('createdAt')` pins a field after creation. Every builder's output is pinned by tests, so what you compose is what deploys.
+`defineRtdbRules` builds the ruleset; `rtdbRules` wraps it in a handle that lints, simulates, and compiles. `$noteId` is a real wildcard. `ownerOrNew('ownerId')` compiles to the signed-in-and-owner-or-new expression you would have written by hand, and `immutable('createdAt')` pins a field after creation. Every builder's output is pinned by tests, so what you compose is what deploys.
 
 ## Check it before anything runs
 ```ts
-const result = rules.check();
-// { ok: true, errors: [], warnings: [] }
+const issues = rules.lint();
+// []
 ```
-`check()` parses, validates, and lints every expression in the tree. A `==` where you meant `===` comes back as a `LOOSE_EQUALITY` warning with its path and rule. An unsupported schema type is a `COMPILE_ERROR`. No deploy, no network.
+`lint()` parses and validates every expression in the tree and returns each problem as an issue with a `code`, a `severity`, and the path it applies to. A definition that cannot compile comes back as a `COMPILE_ERROR`. No deploy, no network.
 
 ## Simulate a request
 ```ts
-const verdict = rules.simulate({
-  operation: 'write',
-  path: '/notes/n1',
-  auth: 'alice',
-  data: { ownerId: 'alice', createdAt: 1 },
-  newData: { ownerId: 'alice', createdAt: 1, title: 'edited' },
-});
+const summary = rules.simulate([
+  {
+    description: 'the owner edits their note',
+    expectation: 'ALLOW',
+    operation: 'write',
+    path: '/notes/n1',
+    auth: 'alice',
+    data: { notes: { n1: { ownerId: 'alice', createdAt: 1 } } },
+    newData: { ownerId: 'alice', createdAt: 1, title: 'edited' },
+  },
+  {
+    description: 'another user cannot edit it',
+    expectation: 'DENY',
+    operation: 'write',
+    path: '/notes/n1',
+    auth: 'mallory',
+    data: { notes: { n1: { ownerId: 'alice', createdAt: 1 } } },
+    newData: { ownerId: 'alice', createdAt: 1, title: 'edited' },
+  },
+]);
+// summary.passed === 2
 ```
-The simulator runs in-process against the same grammar the sandbox enforces. `auth: 'alice'` is shorthand for `{ uid: 'alice', token: {} }`. Ask the denial question the same way: change `auth` to `'mallory'` and read the verdict.
+The simulator runs in-process against the same grammar the sandbox enforces. `data` is the database tree before the write, from the root; `newData` is the value written at `path`. `auth: 'alice'` is shorthand for `{ uid: 'alice', token: {} }`. Each case result carries the `decision`, whether it `passed`, and the `matchedPath` and `matchedRule` that decided it.
 
 ## Ship the JSON
 ```ts
 import { writeFileSync } from 'node:fs';
 writeFileSync('database.rules.json', JSON.stringify(rules.toJSON(), null, 2));
-``````bash
+```
+```bash
 pyric rules lint --service database
 # or: pyric database rules generate
 firebase deploy --only database

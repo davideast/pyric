@@ -85,12 +85,11 @@ Sub-millisecond per case once the rules are parsed. There is no reason not to ru
 
 The hosted Rules Test API evaluates your cases on Google's servers, in the same engine production uses, without deploying anything. It takes the same `TestCase` objects and returns the same result shape. It needs a real project and credentials:
 ```ts
-import { TestFirestoreRulesHandler } from 'pyric/rules';
+import { executeHostedRulesTest } from '@pyric/cli/verify';
 import { fromServiceAccount } from '@pyric/cli/credentials/node';
 
 const scope = await fromServiceAccount('./service-account.json');
-const remote = await new TestFirestoreRulesHandler()
-  .execute(scope, source, testCases);
+const remote = await executeHostedRulesTest(scope, source, testCases);
 ```
 The practical pattern is local-first: run everything through the simulator, then send only the `UNSUPPORTED` cases to the hosted engine.
 ```ts
@@ -98,8 +97,7 @@ const escalate = testCases.filter(
   (_, i) => result.cases[i].unsupported,
 );
 if (escalate.length > 0) {
-  const remote = await new TestFirestoreRulesHandler()
-    .execute(scope, source, escalate);
+  const remote = await executeHostedRulesTest(scope, source, escalate);
 }
 ```
 Each hosted call is one HTTP round-trip, tens to hundreds of milliseconds. The simulator itself is held to that engine's answers by a parity corpus that runs in CI, so for most suites the local verdicts are the same verdicts, sooner.
