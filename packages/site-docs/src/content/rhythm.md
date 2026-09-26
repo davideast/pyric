@@ -54,10 +54,9 @@ The paragraph after the list sits at the group beat (`ul + p`).
 This paragraph introduces a code block at the group beat (`p + pre`
 uses the default, since code blocks are their own block group):
 ```ts
-import { lintFirestoreRules } from 'pyric/rules';
+import { lint } from 'pyric/rules';
 
-const result = lintFirestoreRules(source);
-for (const finding of result.findings) {
+for (const finding of lint(source)) {
   console.log(finding.code, finding.severity);
 }
 ```
