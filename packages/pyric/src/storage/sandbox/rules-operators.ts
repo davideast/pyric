@@ -1,9 +1,8 @@
 import { NO_OP, RulesValue } from '../../rules/simulator/wrappers/base.js';
 import { RulesFloat } from '../../rules/simulator/wrappers/float.js';
+import { describeRulesType as describeType, isRulesMap } from '../../rules/simulator/rules-type.js';
 import {
   RuleError,
-  describeRulesType as describeType,
-  isRulesMap,
   numericValue as numVal,
 } from './rules-values.js';
 

@@ -90,6 +90,21 @@ describe('evaluateStorageRules: int(), string(), and float()', () => {
     expect(allows("string(float('1e20')) == '1.0E20'")).toBe(true);
     expect(allows("string(float('1.7976931348623157e308')) == '1.7976931348623157E308'")).toBe(true);
     expect(allows("string(float('NaN')) == 'NaN' && string(float('-Infinity')) == '-Infinity'")).toBe(true);
+    expect(allows("string(float('1e21')) == '1.0E21' && string(1.0 / 3.0) == '0.3333333333333333'")).toBe(true);
+  });
+
+  it('string() of a subnormal float prints the closest two-digit form when the shortest has one digit', () => {
+    expect(allows("string(float('4.9e-324')) == '4.9E-324' && string(float('-4.9e-324')) == '-4.9E-324'")).toBe(true);
+    expect(allows("string(float('4.9e-324')) == '5.0E-324'")).toBe(false);
+    expect(allows("string(float('1e-323')) == '9.9E-324' && string(float('2e-323')) == '2.0E-323'")).toBe(true);
+    expect(allows("string(float('1e-322')) == '9.9E-323' && string(float('1e-310')) == '1.0E-310'")).toBe(true);
+    expect(allows("string(float('2.2250738585072014e-308')) == '2.2250738585072014E-308'")).toBe(true);
+  });
+
+  it('int() rejects an exponent string and keeps the int64 maximum', () => {
+    expect(allows("int('1e3') != 0")).toBe(false);
+    expect(allows('int(9223372036854775807) == 9223372036854775807')).toBe(true);
+    expect(allows("int(float('9.3e18')) == 9223372036854775807")).toBe(true);
   });
 
   it('float() parses the forms production accepts', () => {
@@ -120,7 +135,7 @@ describe('evaluateStorageRules: int(), string(), and float()', () => {
       ],
       ["string({'a': 1}) != ''", 'Received: string(map).'],
       ["string('abc'.toUtf8()) != ''", 'Received: string(bytes).'],
-    ];
+      ["string(duration.value(1, 's')) != ''", 'Received: string(duration).'],    ];
     for (const [cond, message] of cases) {
       const r = evalCreate(cond);
       expect(r.allowed).toBe(false);

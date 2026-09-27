@@ -11,7 +11,10 @@
  * exponent forms, surrounding whitespace, `NaN`, `Infinity`, hex float, and an
  * `f` or `d` suffix, and rejects `inf`, `nan`, and other text. `string()`
  * accepts int, float, null, string, bool, and path. A float stringifies with
- * at least one fractional digit, in scientific notation outside [1e-3, 1e7).
+ * at least one fractional digit, in scientific notation outside [1e-3, 1e7),
+ * as Java's `Double.toString` prints it: when the shortest form has one
+ * significant digit, the closest two-digit form wins, so the smallest
+ * subnormal prints as `4.9E-324`, not `5.0E-324`.
  * Any other argument type is an "Unsupported operation error".
  *
  * Every conversion failure is an error value: it denies through `!=` and `!`,
@@ -38,6 +41,8 @@ const conversions: ConversionCase[] = [
   { key: 'intFromFloatNotRounded', condition: 'int(2.9) == 3', expectation: 'DENY' },
   { key: 'intFromComputedFloat', condition: 'int(request.resource.size + 0.9) == 2', expectation: 'ALLOW' },
   { key: 'intFromFloatSaturates', condition: "int(float('1e20')) == 9223372036854775807 && int(float('-1e20')) == -9223372036854775808 && int(float('NaN')) == 0", expectation: 'ALLOW' },
+  { key: 'intInt64Max', condition: "int(9223372036854775807) == 9223372036854775807 && int(float('9.3e18')) == 9223372036854775807 && int(float('-9.3e18')) == -9223372036854775808", expectation: 'ALLOW' },
+  { key: 'intExponentString', condition: "int('1e3') != 0", expectation: 'DENY' },
   { key: 'intOverflow', condition: "int('9223372036854775808') != 0", expectation: 'DENY', note: 'out of int64 range' },
   { key: 'intTrailingText', condition: 'int(request.resource.metadata.bad) != 12', expectation: 'DENY', note: "'12abc'" },
   { key: 'intText', condition: "int('x') != 0", expectation: 'DENY' },
@@ -57,6 +62,10 @@ const conversions: ConversionCase[] = [
   { key: 'stringFromFloat', condition: "string(1.5) == '1.5' && string(2.0) == '2.0' && string(0.1 + 0.2) == '0.30000000000000004' && string(-0.0) == '-0.0'", expectation: 'ALLOW' },
   { key: 'stringFromFloatNoIntForm', condition: "string(2.0) == '2'", expectation: 'DENY' },
   { key: 'stringFromFloatScientific', condition: "string(float('1e7')) == '1.0E7' && string(float('1e6')) == '1000000.0' && string(float('9999999.0')) == '9999999.0' && string(float('1e-3')) == '0.001' && string(float('1e-4')) == '1.0E-4' && string(123456789.0) == '1.23456789E8' && string(float('-1.5e10')) == '-1.5E10' && string(float('1e20')) == '1.0E20' && string(float('1.7976931348623157e308')) == '1.7976931348623157E308'", expectation: 'ALLOW' },
+  { key: 'stringFromFloatDigits', condition: "string(1.0) == '1.0' && string(1.0 / 3.0) == '0.3333333333333333' && string(float('1e21')) == '1.0E21' && string(float('1.0e23')) == '1.0E23' && string(float('2.82879384806159e17')) == '2.82879384806159E17' && string(float('2.2250738585072014e-308')) == '2.2250738585072014E-308'", expectation: 'ALLOW' },
+  { key: 'stringFromFloatSubnormal', condition: "string(float('4.9e-324')) == '4.9E-324' && string(float('-4.9e-324')) == '-4.9E-324' && string(float('1e-323')) == '9.9E-324' && string(float('2e-323')) == '2.0E-323' && string(float('1e-322')) == '9.9E-323' && string(float('1e-310')) == '1.0E-310'", expectation: 'ALLOW' },
+  { key: 'stringFromFloatSubnormalNot', condition: "string(float('4.9e-324')) != '4.9E-324'", expectation: 'DENY' },
+  { key: 'stringFromFloatSubnormalShortest', condition: "string(float('4.9e-324')) == '5.0E-324'", expectation: 'DENY' },
   { key: 'stringFromFloatSpecial', condition: "string(float('NaN')) == 'NaN' && string(float('-Infinity')) == '-Infinity'", expectation: 'ALLOW' },
   { key: 'stringFromBoolNullString', condition: "string(true) == 'true' && string(null) == 'null' && string('s') == 's' && string(request.resource.metadata.t) == 'true'", expectation: 'ALLOW' },
   { key: 'stringFromPath', condition: "string(path('a/b')) == '/a/b' && string(path('/a/b')) == '/a/b'", expectation: 'ALLOW' },
@@ -64,6 +73,8 @@ const conversions: ConversionCase[] = [
   { key: 'stringFromListOrTrue', condition: "(string([1, 2]) == '') || true", expectation: 'ALLOW' },
   { key: 'stringFromMap', condition: "string({'a': 1}) != ''", expectation: 'DENY' },
   { key: 'stringFromBytes', condition: "string('abc'.toUtf8()) != ''", expectation: 'DENY' },
+  { key: 'stringFromDuration', condition: "string(duration.value(1, 's')) != ''", expectation: 'DENY' },
+  { key: 'stringFromLatLng', condition: "string(latlng.value(1, 2)) != ''", expectation: 'DENY' },
   { key: 'floatFromString', condition: "float('2.0') == 2.0 && float(request.resource.metadata.fl) == 1.5 && float('1.5') is float", expectation: 'ALLOW' },
   { key: 'floatFromInt', condition: 'float(2) == 2.0 && float(2) is float && float(float(2)) == 2.0', expectation: 'ALLOW' },
   { key: 'floatStringForms', condition: "float('1e3') == 1000.0 && float('.5') == 0.5 && float('5.') == 5.0 && float('1.5f') == 1.5 && float('1.5d') == 1.5 && float('0x1p3') == 8.0 && float(' 2.5') == 2.5 && float('2.5 ') == 2.5", expectation: 'ALLOW' },

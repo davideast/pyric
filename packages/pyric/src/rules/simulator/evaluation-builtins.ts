@@ -10,39 +10,13 @@ import { Bytes } from './wrappers/bytes.js';
 import { Path } from './wrappers/path.js';
 import { RulesFloat } from './wrappers/float.js';
 import { EvalError } from './eval-error.js';
+import { ConversionFailure, applyConversion, conversionFor } from './conversions.js';
 import { UnsupportedError } from './unsupported-error.js';
 import { isDocumentPath, makeGetResource, normalizeDocumentPath, resolveExists, resolveGet } from './document-lookups.js';
 import { chargeLookup } from './lookup-budget.js';
 import type { SimulationContext } from './evaluation-context.js';
 import { evaluate, isKnownGlobal, resolveIdentifier } from './evaluator.js';
 import { evaluateHashingMethod } from './hashing-builtins.js';
-
-function rulesInt(v: unknown): number {
-  if (typeof v === 'number') return Math.trunc(v);
-  if (v instanceof RulesFloat) return Math.trunc(v.value);
-  if (typeof v === 'boolean') return v ? 1 : 0;
-  if (typeof v === 'string') {
-    // CEL parses the WHOLE string as an integer; a trailing non-digit (or any
-    // float/garbage) is an error, not a salvaged prefix like parseInt gives.
-    if (/^[+-]?\d+$/.test(v.trim())) return parseInt(v.trim(), 10);
-    throw new EvalError(`int() cannot convert string '${v}' to an integer`);
-  }
-  throw new EvalError(`int() cannot convert ${typeof v} to an integer`);
-}
-
-/** `float(x)` — produce a FLOAT (tagged) from a number, float, or numeric string. */
-function rulesFloatBuiltin(v: unknown): RulesFloat {
-  if (v instanceof RulesFloat) return v;
-  if (typeof v === 'number') return new RulesFloat(v);
-  if (typeof v === 'string') {
-    const trimmed = v.trim();
-    // Strict numeric form (optional sign, digits, optional fraction). Rejects
-    // `'1.2.3'`, `'abc'`, trailing junk — all errors in prod.
-    if (/^[+-]?(\d+\.?\d*|\.\d+)$/.test(trimmed)) return new RulesFloat(parseFloat(trimmed));
-    throw new EvalError(`float() cannot convert string '${v}' to a float`);
-  }
-  throw new EvalError(`float() cannot convert ${typeof v} to a float`);
-}
 
 // ═══ Function calls ═══
 
@@ -136,13 +110,15 @@ export function evaluateFunctionCall(
     // user-defined lookup below yields `EvalError('Unknown function: debug')`,
     // the exact message the conformance rejection-signature normalizer maps
     // to `function-not-found:debug`.
-    // RULES-B5 / RULES-B6: type-conversion builtins follow CEL's strict
-    // semantics, not JS coercion. `String()` routes a RulesFloat through its
-    // `.toString()` so `string(1.0)` → "1.0" (decimal preserved); bare ints
-    // and other types stringify normally.
-    case 'string': return String(evaluate(args[0], ctx, scope));
-    case 'int': return rulesInt(evaluate(args[0], ctx, scope));
-    case 'float': return rulesFloatBuiltin(evaluate(args[0], ctx, scope));
+    // The conversion builtins share their semantics and error messages with
+    // Storage rules; a failure is an absorbable evaluation error.
+    case 'string':
+    case 'int':
+    case 'float': {
+      const converted = applyConversion(conversionFor(name)!, args.map((arg) => evaluate(arg, ctx, scope)));
+      if (converted instanceof ConversionFailure) throw new EvalError(converted.message);
+      return converted;
+    }
     case 'path': {
       // Item 5.4 — `path('users/alice')` returns a Path wrapper. Production
       // accepts only strings; passing an existing Path is a type error.

@@ -5,7 +5,7 @@
     "storage-rules#124"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"conversion-functions\" (Coverage: int(), string(), float() conversions). int() parses a whole int64 decimal string and truncates or saturates a float, float() parses a string with Java double syntax, string() formats int, float, null, bool, string, and path, and every conversion failure, undefined function, and wrong argument count is an error value that || true absorbs; a ruleset function named int shadows the global one.",
-  "observedAt": "2026-09-27T15:39:55.136Z",
+  "observedAt": "2026-09-27T20:55:12.355Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "behavior": {
@@ -17,6 +17,8 @@
     "int(2.9) == 3 → DENY": "DENY",
     "int(request.resource.size + 0.9) == 2 → ALLOW": "ALLOW",
     "int(float('1e20')) == 9223372036854775807 && int(float('-1e20')) == -9223372036854775808 && int(float('NaN')) == 0 → ALLOW": "ALLOW",
+    "int(9223372036854775807) == 9223372036854775807 && int(float('9.3e18')) == 9223372036854775807 && int(float('-9.3e18')) == -9223372036854775808 → ALLOW": "ALLOW",
+    "int('1e3') != 0 → DENY": "DENY",
     "int('9223372036854775808') != 0 (out of int64 range) → DENY": "DENY",
     "int(request.resource.metadata.bad) != 12 ('12abc') → DENY": "DENY",
     "int('x') != 0 → DENY": "DENY",
@@ -36,6 +38,10 @@
     "string(1.5) == '1.5' && string(2.0) == '2.0' && string(0.1 + 0.2) == '0.30000000000000004' && string(-0.0) == '-0.0' → ALLOW": "ALLOW",
     "string(2.0) == '2' → DENY": "DENY",
     "string(float('1e7')) == '1.0E7' && string(float('1e6')) == '1000000.0' && string(float('9999999.0')) == '9999999.0' && string(float('1e-3')) == '0.001' && string(float('1e-4')) == '1.0E-4' && string(123456789.0) == '1.23456789E8' && string(float('-1.5e10')) == '-1.5E10' && string(float('1e20')) == '1.0E20' && string(float('1.7976931348623157e308')) == '1.7976931348623157E308' → ALLOW": "ALLOW",
+    "string(1.0) == '1.0' && string(1.0 / 3.0) == '0.3333333333333333' && string(float('1e21')) == '1.0E21' && string(float('1.0e23')) == '1.0E23' && string(float('2.82879384806159e17')) == '2.82879384806159E17' && string(float('2.2250738585072014e-308')) == '2.2250738585072014E-308' → ALLOW": "ALLOW",
+    "string(float('4.9e-324')) == '4.9E-324' && string(float('-4.9e-324')) == '-4.9E-324' && string(float('1e-323')) == '9.9E-324' && string(float('2e-323')) == '2.0E-323' && string(float('1e-322')) == '9.9E-323' && string(float('1e-310')) == '1.0E-310' → ALLOW": "ALLOW",
+    "string(float('4.9e-324')) != '4.9E-324' → DENY": "DENY",
+    "string(float('4.9e-324')) == '5.0E-324' → DENY": "DENY",
     "string(float('NaN')) == 'NaN' && string(float('-Infinity')) == '-Infinity' → ALLOW": "ALLOW",
     "string(true) == 'true' && string(null) == 'null' && string('s') == 's' && string(request.resource.metadata.t) == 'true' → ALLOW": "ALLOW",
     "string(path('a/b')) == '/a/b' && string(path('/a/b')) == '/a/b' → ALLOW": "ALLOW",
@@ -43,6 +49,8 @@
     "(string([1, 2]) == '') || true → ALLOW": "ALLOW",
     "string({'a': 1}) != '' → DENY": "DENY",
     "string('abc'.toUtf8()) != '' → DENY": "DENY",
+    "string(duration.value(1, 's')) != '' → DENY": "DENY",
+    "string(latlng.value(1, 2)) != '' → DENY": "DENY",
     "float('2.0') == 2.0 && float(request.resource.metadata.fl) == 1.5 && float('1.5') is float → ALLOW": "ALLOW",
     "float(2) == 2.0 && float(2) is float && float(float(2)) == 2.0 → ALLOW": "ALLOW",
     "float('1e3') == 1000.0 && float('.5') == 0.5 && float('5.') == 5.0 && float('1.5f') == 1.5 && float('1.5d') == 1.5 && float('0x1p3') == 8.0 && float(' 2.5') == 2.5 && float('2.5 ') == 2.5 → ALLOW": "ALLOW",
@@ -185,59 +193,88 @@
         ]
       }
     },
-    "int('9223372036854775808') != 0 (out of int64 range) → DENY": {
-      "notes": [
-        "Error: storage.rules line [30], column [24]. Type conversion error. Argument: [9223372036854775808], From type: [string], To type: [int]."
-      ],
+    "int(9223372036854775807) == 9223372036854775807 && int(float('9.3e18')) == 9223372036854775807 && int(float('-9.3e18')) == -9223372036854775808 → ALLOW": {
       "api": {
-        "errorPosition": {
-          "fileName": "storage.rules",
-          "line": 30,
-          "column": 24,
-          "currentOffset": 1153,
-          "endOffset": 1155
-        }
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 30,
+              "column": 24,
+              "currentOffset": 1153,
+              "endOffset": 1155
+            },
+            "value": true
+          }
+        ]
       }
     },
-    "int(request.resource.metadata.bad) != 12 ('12abc') → DENY": {
+    "int('1e3') != 0 → DENY": {
       "notes": [
-        "Error: storage.rules line [33], column [24]. Type conversion error. Argument: [12abc], From type: [string], To type: [int]."
+        "Error: storage.rules line [33], column [24]. Type conversion error. Argument: [1e3], From type: [string], To type: [int]."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
           "line": 33,
           "column": 24,
-          "currentOffset": 1251,
-          "endOffset": 1253
+          "currentOffset": 1365,
+          "endOffset": 1367
         }
       }
     },
-    "int('x') != 0 → DENY": {
+    "int('9223372036854775808') != 0 (out of int64 range) → DENY": {
       "notes": [
-        "Error: storage.rules line [36], column [24]. Type conversion error. Argument: [x], From type: [string], To type: [int]."
+        "Error: storage.rules line [36], column [24]. Type conversion error. Argument: [9223372036854775808], From type: [string], To type: [int]."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
           "line": 36,
           "column": 24,
-          "currentOffset": 1350,
-          "endOffset": 1352
+          "currentOffset": 1443,
+          "endOffset": 1445
         }
       }
     },
-    "!(int('x') == 0) → DENY": {
+    "int(request.resource.metadata.bad) != 12 ('12abc') → DENY": {
       "notes": [
-        "Error: storage.rules line [39], column [26]. Type conversion error. Argument: [x], From type: [string], To type: [int]."
+        "Error: storage.rules line [39], column [24]. Type conversion error. Argument: [12abc], From type: [string], To type: [int]."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
           "line": 39,
+          "column": 24,
+          "currentOffset": 1541,
+          "endOffset": 1543
+        }
+      }
+    },
+    "int('x') != 0 → DENY": {
+      "notes": [
+        "Error: storage.rules line [42], column [24]. Type conversion error. Argument: [x], From type: [string], To type: [int]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 42,
+          "column": 24,
+          "currentOffset": 1640,
+          "endOffset": 1642
+        }
+      }
+    },
+    "!(int('x') == 0) → DENY": {
+      "notes": [
+        "Error: storage.rules line [45], column [26]. Type conversion error. Argument: [x], From type: [string], To type: [int]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 45,
           "column": 26,
-          "currentOffset": 1427,
-          "endOffset": 1429
+          "currentOffset": 1717,
+          "endOffset": 1719
         }
       }
     },
@@ -246,10 +283,10 @@
         "visitedExpressions": [
           {
             "sourcePosition": {
-              "line": 42,
+              "line": 48,
               "column": 24,
-              "currentOffset": 1506,
-              "endOffset": 1506
+              "currentOffset": 1796,
+              "endOffset": 1796
             },
             "value": true
           }
@@ -258,85 +295,85 @@
     },
     "int('1.5') != 0 → DENY": {
       "notes": [
-        "Error: storage.rules line [45], column [24]. Type conversion error. Argument: [1.5], From type: [string], To type: [int]."
-      ],
-      "api": {
-        "errorPosition": {
-          "fileName": "storage.rules",
-          "line": 45,
-          "column": 24,
-          "currentOffset": 1621,
-          "endOffset": 1623
-        }
-      }
-    },
-    "int(request.resource.metadata.sp) == 12 (' 12') → DENY": {
-      "notes": [
-        "Error: storage.rules line [48], column [24]. Type conversion error. Argument: [ 12], From type: [string], To type: [int]."
-      ],
-      "api": {
-        "errorPosition": {
-          "fileName": "storage.rules",
-          "line": 48,
-          "column": 24,
-          "currentOffset": 1703,
-          "endOffset": 1705
-        }
-      }
-    },
-    "int('12 ') == 12 → DENY": {
-      "notes": [
-        "Error: storage.rules line [51], column [24]. Type conversion error. Argument: [12 ], From type: [string], To type: [int]."
+        "Error: storage.rules line [51], column [24]. Type conversion error. Argument: [1.5], From type: [string], To type: [int]."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
           "line": 51,
           "column": 24,
-          "currentOffset": 1810,
-          "endOffset": 1812
+          "currentOffset": 1911,
+          "endOffset": 1913
         }
       }
     },
-    "int('0x10') != 0 → DENY": {
+    "int(request.resource.metadata.sp) == 12 (' 12') → DENY": {
       "notes": [
-        "Error: storage.rules line [54], column [24]. Type conversion error. Argument: [0x10], From type: [string], To type: [int]."
+        "Error: storage.rules line [54], column [24]. Type conversion error. Argument: [ 12], From type: [string], To type: [int]."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
           "line": 54,
           "column": 24,
-          "currentOffset": 1890,
-          "endOffset": 1892
+          "currentOffset": 1993,
+          "endOffset": 1995
         }
       }
     },
-    "int('') != 0 → DENY": {
+    "int('12 ') == 12 → DENY": {
       "notes": [
-        "Error: storage.rules line [57], column [24]. Type conversion error. Argument: [], From type: [string], To type: [int]."
+        "Error: storage.rules line [57], column [24]. Type conversion error. Argument: [12 ], From type: [string], To type: [int]."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
           "line": 57,
           "column": 24,
-          "currentOffset": 1972,
-          "endOffset": 1974
+          "currentOffset": 2100,
+          "endOffset": 2102
         }
       }
     },
-    "int(true) != 0 → DENY": {
+    "int('0x10') != 0 → DENY": {
       "notes": [
-        "Error: storage.rules line [60], column [24]. Unsupported operation error. Received: int(bool). Expected: int(int), int(float), int(string)."
+        "Error: storage.rules line [60], column [24]. Type conversion error. Argument: [0x10], From type: [string], To type: [int]."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
           "line": 60,
           "column": 24,
-          "currentOffset": 2043,
-          "endOffset": 2045
+          "currentOffset": 2180,
+          "endOffset": 2182
+        }
+      }
+    },
+    "int('') != 0 → DENY": {
+      "notes": [
+        "Error: storage.rules line [63], column [24]. Type conversion error. Argument: [], From type: [string], To type: [int]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 63,
+          "column": 24,
+          "currentOffset": 2262,
+          "endOffset": 2264
+        }
+      }
+    },
+    "int(true) != 0 → DENY": {
+      "notes": [
+        "Error: storage.rules line [66], column [24]. Unsupported operation error. Received: int(bool). Expected: int(int), int(float), int(string)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 66,
+          "column": 24,
+          "currentOffset": 2333,
+          "endOffset": 2335
         }
       }
     },
@@ -345,10 +382,10 @@
         "visitedExpressions": [
           {
             "sourcePosition": {
-              "line": 63,
+              "line": 69,
               "column": 24,
-              "currentOffset": 2122,
-              "endOffset": 2122
+              "currentOffset": 2412,
+              "endOffset": 2412
             },
             "value": true
           }
@@ -357,29 +394,29 @@
     },
     "int(null) != 0 → DENY": {
       "notes": [
-        "Error: storage.rules line [66], column [24]. Unsupported operation error. Received: int(null). Expected: int(int), int(float), int(string)."
+        "Error: storage.rules line [72], column [24]. Unsupported operation error. Received: int(null). Expected: int(int), int(float), int(string)."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
-          "line": 66,
+          "line": 72,
           "column": 24,
-          "currentOffset": 2205,
-          "endOffset": 2207
+          "currentOffset": 2495,
+          "endOffset": 2497
         }
       }
     },
     "int('1', 2) == 1 → DENY": {
       "notes": [
-        "Error: storage.rules line [69], column [24]. Incorrect number of arguments. Received: 2. Expected: int(int), int(float), int(string)."
+        "Error: storage.rules line [75], column [24]. Incorrect number of arguments. Received: 2. Expected: int(int), int(float), int(string)."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
-          "line": 69,
+          "line": 75,
           "column": 24,
-          "currentOffset": 2281,
-          "endOffset": 2283
+          "currentOffset": 2571,
+          "endOffset": 2573
         }
       }
     },
@@ -388,10 +425,10 @@
         "visitedExpressions": [
           {
             "sourcePosition": {
-              "line": 72,
+              "line": 78,
               "column": 24,
-              "currentOffset": 2365,
-              "endOffset": 2367
+              "currentOffset": 2655,
+              "endOffset": 2657
             },
             "value": true
           }
@@ -403,10 +440,10 @@
         "visitedExpressions": [
           {
             "sourcePosition": {
-              "line": 75,
+              "line": 81,
               "column": 24,
-              "currentOffset": 2454,
-              "endOffset": 2459
+              "currentOffset": 2744,
+              "endOffset": 2749
             },
             "value": true
           }
@@ -418,10 +455,10 @@
         "visitedExpressions": [
           {
             "sourcePosition": {
-              "line": 78,
+              "line": 84,
               "column": 24,
-              "currentOffset": 2625,
-              "endOffset": 2630
+              "currentOffset": 2915,
+              "endOffset": 2920
             },
             "value": true
           }
@@ -433,10 +470,10 @@
         "visitedExpressions": [
           {
             "sourcePosition": {
-              "line": 81,
+              "line": 87,
               "column": 24,
-              "currentOffset": 2817,
-              "endOffset": 2822
+              "currentOffset": 3107,
+              "endOffset": 3112
             },
             "value": false
           }
@@ -448,12 +485,72 @@
         "visitedExpressions": [
           {
             "sourcePosition": {
-              "line": 84,
+              "line": 90,
               "column": 24,
-              "currentOffset": 2912,
-              "endOffset": 2917
+              "currentOffset": 3202,
+              "endOffset": 3207
             },
             "value": true
+          }
+        ]
+      }
+    },
+    "string(1.0) == '1.0' && string(1.0 / 3.0) == '0.3333333333333333' && string(float('1e21')) == '1.0E21' && string(float('1.0e23')) == '1.0E23' && string(float('2.82879384806159e17')) == '2.82879384806159E17' && string(float('2.2250738585072014e-308')) == '2.2250738585072014E-308' → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 93,
+              "column": 24,
+              "currentOffset": 3653,
+              "endOffset": 3658
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "string(float('4.9e-324')) == '4.9E-324' && string(float('-4.9e-324')) == '-4.9E-324' && string(float('1e-323')) == '9.9E-324' && string(float('2e-323')) == '2.0E-323' && string(float('1e-322')) == '9.9E-323' && string(float('1e-310')) == '1.0E-310' → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 96,
+              "column": 24,
+              "currentOffset": 4008,
+              "endOffset": 4013
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "string(float('4.9e-324')) != '4.9E-324' → DENY": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 99,
+              "column": 24,
+              "currentOffset": 4335,
+              "endOffset": 4340
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "string(float('4.9e-324')) == '5.0E-324' → DENY": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 102,
+              "column": 24,
+              "currentOffset": 4458,
+              "endOffset": 4463
+            },
+            "value": false
           }
         ]
       }
@@ -463,10 +560,10 @@
         "visitedExpressions": [
           {
             "sourcePosition": {
-              "line": 87,
+              "line": 105,
               "column": 24,
-              "currentOffset": 3364,
-              "endOffset": 3369
+              "currentOffset": 4571,
+              "endOffset": 4576
             },
             "value": true
           }
@@ -478,10 +575,10 @@
         "visitedExpressions": [
           {
             "sourcePosition": {
-              "line": 90,
+              "line": 108,
               "column": 24,
-              "currentOffset": 3514,
-              "endOffset": 3519
+              "currentOffset": 4721,
+              "endOffset": 4726
             },
             "value": true
           }
@@ -493,10 +590,10 @@
         "visitedExpressions": [
           {
             "sourcePosition": {
-              "line": 93,
+              "line": 111,
               "column": 24,
-              "currentOffset": 3699,
-              "endOffset": 3704
+              "currentOffset": 4906,
+              "endOffset": 4911
             },
             "value": true
           }
@@ -505,15 +602,15 @@
     },
     "string([1, 2]) != '' → DENY": {
       "notes": [
-        "Error: storage.rules line [96], column [24]. Unsupported operation error. Received: string(list). Expected: string(int), string(float), string(null), string(string), string(bool), string(path)."
+        "Error: storage.rules line [114], column [24]. Unsupported operation error. Received: string(list). Expected: string(int), string(float), string(null), string(string), string(bool), string(path)."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
-          "line": 96,
+          "line": 114,
           "column": 24,
-          "currentOffset": 3828,
-          "endOffset": 3833
+          "currentOffset": 5035,
+          "endOffset": 5040
         }
       }
     },
@@ -522,10 +619,10 @@
         "visitedExpressions": [
           {
             "sourcePosition": {
-              "line": 99,
+              "line": 117,
               "column": 24,
-              "currentOffset": 3920,
-              "endOffset": 3920
+              "currentOffset": 5127,
+              "endOffset": 5127
             },
             "value": true
           }
@@ -534,29 +631,57 @@
     },
     "string({'a': 1}) != '' → DENY": {
       "notes": [
-        "Error: storage.rules line [102], column [24]. Unsupported operation error. Received: string(map). Expected: string(int), string(float), string(null), string(string), string(bool), string(path)."
+        "Error: storage.rules line [120], column [24]. Unsupported operation error. Received: string(map). Expected: string(int), string(float), string(null), string(string), string(bool), string(path)."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
-          "line": 102,
+          "line": 120,
           "column": 24,
-          "currentOffset": 4015,
-          "endOffset": 4020
+          "currentOffset": 5222,
+          "endOffset": 5227
         }
       }
     },
     "string('abc'.toUtf8()) != '' → DENY": {
       "notes": [
-        "Error: storage.rules line [105], column [24]. Unsupported operation error. Received: string(bytes). Expected: string(int), string(float), string(null), string(string), string(bool), string(path)."
+        "Error: storage.rules line [123], column [24]. Unsupported operation error. Received: string(bytes). Expected: string(int), string(float), string(null), string(string), string(bool), string(path)."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
-          "line": 105,
+          "line": 123,
           "column": 24,
-          "currentOffset": 4104,
-          "endOffset": 4109
+          "currentOffset": 5311,
+          "endOffset": 5316
+        }
+      }
+    },
+    "string(duration.value(1, 's')) != '' → DENY": {
+      "notes": [
+        "Error: storage.rules line [126], column [24]. Unsupported operation error. Received: string(duration). Expected: string(int), string(float), string(null), string(string), string(bool), string(path)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 126,
+          "column": 24,
+          "currentOffset": 5409,
+          "endOffset": 5414
+        }
+      }
+    },
+    "string(latlng.value(1, 2)) != '' → DENY": {
+      "notes": [
+        "Error: storage.rules line [129], column [24]. Unsupported operation error. Received: string(latlng). Expected: string(int), string(float), string(null), string(string), string(bool), string(path)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 129,
+          "column": 24,
+          "currentOffset": 5513,
+          "endOffset": 5518
         }
       }
     },
@@ -565,10 +690,10 @@
         "visitedExpressions": [
           {
             "sourcePosition": {
-              "line": 108,
+              "line": 132,
               "column": 24,
-              "currentOffset": 4199,
-              "endOffset": 4203
+              "currentOffset": 5612,
+              "endOffset": 5616
             },
             "value": true
           }
@@ -580,10 +705,10 @@
         "visitedExpressions": [
           {
             "sourcePosition": {
-              "line": 111,
+              "line": 135,
               "column": 24,
-              "currentOffset": 4353,
-              "endOffset": 4357
+              "currentOffset": 5766,
+              "endOffset": 5770
             },
             "value": true
           }
@@ -595,10 +720,10 @@
         "visitedExpressions": [
           {
             "sourcePosition": {
-              "line": 114,
+              "line": 138,
               "column": 24,
-              "currentOffset": 4483,
-              "endOffset": 4487
+              "currentOffset": 5896,
+              "endOffset": 5900
             },
             "value": true
           }
@@ -610,10 +735,10 @@
         "visitedExpressions": [
           {
             "sourcePosition": {
-              "line": 117,
+              "line": 141,
               "column": 24,
-              "currentOffset": 4740,
-              "endOffset": 4744
+              "currentOffset": 6153,
+              "endOffset": 6157
             },
             "value": true
           }
@@ -622,15 +747,15 @@
     },
     "float('abc') != 0.0 → DENY": {
       "notes": [
-        "Error: storage.rules line [120], column [24]. Type conversion error. Argument: [abc], From type: [string], To type: [float]."
+        "Error: storage.rules line [144], column [24]. Type conversion error. Argument: [abc], From type: [string], To type: [float]."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
-          "line": 120,
+          "line": 144,
           "column": 24,
-          "currentOffset": 4912,
-          "endOffset": 4916
+          "currentOffset": 6325,
+          "endOffset": 6329
         }
       }
     },
@@ -639,10 +764,10 @@
         "visitedExpressions": [
           {
             "sourcePosition": {
-              "line": 123,
+              "line": 147,
               "column": 24,
-              "currentOffset": 4998,
-              "endOffset": 4998
+              "currentOffset": 6411,
+              "endOffset": 6411
             },
             "value": true
           }
@@ -651,113 +776,113 @@
     },
     "float('inf') > 1.0 → DENY": {
       "notes": [
-        "Error: storage.rules line [126], column [24]. Type conversion error. Argument: [inf], From type: [string], To type: [float]."
+        "Error: storage.rules line [150], column [24]. Type conversion error. Argument: [inf], From type: [string], To type: [float]."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
-          "line": 126,
+          "line": 150,
           "column": 24,
-          "currentOffset": 5109,
-          "endOffset": 5113
+          "currentOffset": 6522,
+          "endOffset": 6526
         }
       }
     },
     "float('nan') != 0.0 → DENY": {
       "notes": [
-        "Error: storage.rules line [129], column [24]. Type conversion error. Argument: [nan], From type: [string], To type: [float]."
+        "Error: storage.rules line [153], column [24]. Type conversion error. Argument: [nan], From type: [string], To type: [float]."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
-          "line": 129,
+          "line": 153,
           "column": 24,
-          "currentOffset": 5196,
-          "endOffset": 5200
+          "currentOffset": 6609,
+          "endOffset": 6613
         }
       }
     },
     "float('1.2.3') != 0.0 → DENY": {
       "notes": [
-        "Error: storage.rules line [132], column [24]. Type conversion error. Argument: [1.2.3], From type: [string], To type: [float]."
+        "Error: storage.rules line [156], column [24]. Type conversion error. Argument: [1.2.3], From type: [string], To type: [float]."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
-          "line": 132,
+          "line": 156,
           "column": 24,
-          "currentOffset": 5279,
-          "endOffset": 5283
+          "currentOffset": 6692,
+          "endOffset": 6696
         }
       }
     },
     "float('1_000') != 0.0 → DENY": {
       "notes": [
-        "Error: storage.rules line [135], column [24]. Type conversion error. Argument: [1_000], From type: [string], To type: [float]."
+        "Error: storage.rules line [159], column [24]. Type conversion error. Argument: [1_000], From type: [string], To type: [float]."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
-          "line": 135,
+          "line": 159,
           "column": 24,
-          "currentOffset": 5367,
-          "endOffset": 5371
+          "currentOffset": 6780,
+          "endOffset": 6784
         }
       }
     },
     "float('') != 0.0 → DENY": {
       "notes": [
-        "Error: storage.rules line [138], column [24]. Type conversion error. Argument: [], From type: [string], To type: [float]."
+        "Error: storage.rules line [162], column [24]. Type conversion error. Argument: [], From type: [string], To type: [float]."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
-          "line": 138,
+          "line": 162,
           "column": 24,
-          "currentOffset": 5456,
-          "endOffset": 5460
+          "currentOffset": 6869,
+          "endOffset": 6873
         }
       }
     },
     "float(true) != 0.0 → DENY": {
       "notes": [
-        "Error: storage.rules line [141], column [24]. Unsupported operation error. Received: float(bool). Expected: float(int), float(float), float(string)."
+        "Error: storage.rules line [165], column [24]. Unsupported operation error. Received: float(bool). Expected: float(int), float(float), float(string)."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
-          "line": 141,
+          "line": 165,
           "column": 24,
-          "currentOffset": 5533,
-          "endOffset": 5537
+          "currentOffset": 6946,
+          "endOffset": 6950
         }
       }
     },
     "float(null) != 0.0 → DENY": {
       "notes": [
-        "Error: storage.rules line [144], column [24]. Unsupported operation error. Received: float(null). Expected: float(int), float(float), float(string)."
+        "Error: storage.rules line [168], column [24]. Unsupported operation error. Received: float(null). Expected: float(int), float(float), float(string)."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
-          "line": 144,
+          "line": 168,
           "column": 24,
-          "currentOffset": 5612,
-          "endOffset": 5616
+          "currentOffset": 7025,
+          "endOffset": 7029
         }
       }
     },
     "foo(1) != 1 → DENY": {
       "notes": [
-        "Error: storage.rules line [147], column [24]. Function not found error: Name: [foo]."
+        "Error: storage.rules line [171], column [24]. Function not found error: Name: [foo]."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
-          "line": 147,
+          "line": 171,
           "column": 24,
-          "currentOffset": 5699,
-          "endOffset": 5701
+          "currentOffset": 7112,
+          "endOffset": 7114
         },
         "functionCalls": [
           {
@@ -782,10 +907,10 @@
         "visitedExpressions": [
           {
             "sourcePosition": {
-              "line": 150,
+              "line": 174,
               "column": 24,
-              "currentOffset": 5785,
-              "endOffset": 5787
+              "currentOffset": 7198,
+              "endOffset": 7200
             },
             "value": true
           }
@@ -805,10 +930,10 @@
         "visitedExpressions": [
           {
             "sourcePosition": {
-              "line": 153,
+              "line": 177,
               "column": 24,
-              "currentOffset": 5881,
-              "endOffset": 5881
+              "currentOffset": 7294,
+              "endOffset": 7294
             },
             "value": true
           }
@@ -817,15 +942,15 @@
     },
     "isOne(1, 2) → DENY": {
       "notes": [
-        "Error: storage.rules line [156], column [24]. Incorrect number of arguments. Received: 2. Expected: isOne(n)."
+        "Error: storage.rules line [180], column [24]. Incorrect number of arguments. Received: 2. Expected: isOne(n)."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
-          "line": 156,
+          "line": 180,
           "column": 24,
-          "currentOffset": 5970,
-          "endOffset": 5974
+          "currentOffset": 7383,
+          "endOffset": 7387
         }
       }
     },
@@ -834,10 +959,10 @@
         "visitedExpressions": [
           {
             "sourcePosition": {
-              "line": 159,
+              "line": 183,
               "column": 24,
-              "currentOffset": 6058,
-              "endOffset": 6062
+              "currentOffset": 7471,
+              "endOffset": 7475
             },
             "value": true
           }
@@ -849,10 +974,10 @@
         "visitedExpressions": [
           {
             "sourcePosition": {
-              "line": 163,
+              "line": 187,
               "column": 24,
-              "currentOffset": 6173,
-              "endOffset": 6175
+              "currentOffset": 7586,
+              "endOffset": 7588
             },
             "value": true
           }
@@ -864,10 +989,10 @@
         "visitedExpressions": [
           {
             "sourcePosition": {
-              "line": 167,
+              "line": 191,
               "column": 24,
-              "currentOffset": 6285,
-              "endOffset": 6287
+              "currentOffset": 7698,
+              "endOffset": 7700
             },
             "value": false
           }

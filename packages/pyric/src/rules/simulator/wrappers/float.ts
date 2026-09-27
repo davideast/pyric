@@ -26,6 +26,40 @@
  */
 import { RulesValue, NO_OP, type NoOp } from './base.js';
 
+/**
+ * The digits and exponent of a float in scientific form, as Java's
+ * `Double.toString` chooses them: the shortest decimal that rounds to the
+ * value, except that when the shortest has one significant digit, the
+ * two-digit decimal closest to the value wins. That exception only changes
+ * subnormals: `4.9e-324` for the smallest one, whose shortest form is `5e-324`.
+ */
+function scientificDigits(value: number): string {
+  const shortest = value.toExponential();
+  if (shortest.includes('.')) return shortest;
+  const twoDigits = value.toExponential(1);
+  return Number(twoDigits) === value ? twoDigits : shortest;
+}
+
+/**
+ * A float as the rules `string()` function prints it: at least one
+ * fractional digit, plain decimal for a magnitude in [1e-3, 1e7), and
+ * `<digits>E<exponent>` outside that range.
+ */
+export function formatRulesFloat(value: number): string {
+  if (Number.isNaN(value)) return 'NaN';
+  if (value === Infinity) return 'Infinity';
+  if (value === -Infinity) return '-Infinity';
+  if (value === 0) return Object.is(value, -0) ? '-0.0' : '0.0';
+  const magnitude = Math.abs(value);
+  if (magnitude >= 1e-3 && magnitude < 1e7) {
+    const text = String(value);
+    return text.includes('.') ? text : `${text}.0`;
+  }
+  const [digits, exponent] = scientificDigits(value).split('e');
+  const mantissa = digits.includes('.') ? digits : `${digits}.0`;
+  return `${mantissa}E${Number(exponent)}`;
+}
+
 export class RulesFloat extends RulesValue {
   readonly typeName = 'float';
   readonly value: number;
@@ -40,13 +74,9 @@ export class RulesFloat extends RulesValue {
     return this.value;
   }
 
-  /**
-   * `string()` of a float keeps a decimal point so the int/float
-   * distinction survives the cast: `string(1.0)` → "1.0", not "1".
-   * Non-integral floats stringify naturally (`string(1.5)` → "1.5").
-   */
+  /** The float as `string()` prints it; see `formatRulesFloat`. */
   toString(): string {
-    return Number.isInteger(this.value) ? `${this.value}.0` : String(this.value);
+    return formatRulesFloat(this.value);
   }
 
   toJSON(): unknown {

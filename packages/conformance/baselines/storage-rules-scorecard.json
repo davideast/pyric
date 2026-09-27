@@ -716,6 +716,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "conversion-functions",
         "resource-object-identity",
         "stdlib-storage-modules",
         "stdlib-timestamp-duration",
@@ -1175,6 +1176,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "arithmetic-operand-types",
+        "conversion-functions",
         "error-absorption-and-direction",
         "float-modulo-unary-minus",
         "metadata-verbs-and-arithmetic"

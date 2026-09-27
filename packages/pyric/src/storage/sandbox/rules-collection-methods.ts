@@ -11,10 +11,9 @@ import {
   type ReceiverMethod,
   type ReceiverMethods,
 } from './rules-method-calls.js';
+import { describeRulesType as describeType, isRulesMap } from '../../rules/simulator/rules-type.js';
 import {
-  describeRulesType as describeType,
   isRuleError as isErr,
-  isRulesMap,
   rulesEquals,
 } from './rules-values.js';
 

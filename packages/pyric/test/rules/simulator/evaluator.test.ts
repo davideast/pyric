@@ -924,17 +924,67 @@ describe('RULES-B5: int/float distinction + integer division', () => {
 // Docs: rules.Integer / rules.Boolean string converters require a valid literal.
 describe('RULES-B6 remainder: strict int()/bool()/float() parsing', () => {
   test("int('12abc') ERRORS (no parseInt prefix grab)", () => {
-    expect(() => evaluate(call('int', [lit('12abc')]), baseCtx())).toThrow(/cannot convert/);
+    expect(() => evaluate(call('int', [lit('12abc')]), baseCtx())).toThrow(
+      'Type conversion error. Argument: [12abc], From type: [string], To type: [int].',
+    );
   });
   test("int('12') == 12 (valid integer string)", () => {
     expect(evaluate(call('int', [lit('12')]), baseCtx())).toBe(12);
   });
   test('int(1.9) == 1 (float truncates toward zero)', () => {
     expect(evaluate(call('int', [litFloat(1.9)]), baseCtx())).toBe(1);
+    expect(evaluate(call('int', [litFloat(-1.9)]), baseCtx())).toBe(-1);
   });
-  test('int(true) == 1, int(false) == 0', () => {
-    expect(evaluate(call('int', [lit(true)]), baseCtx())).toBe(1);
-    expect(evaluate(call('int', [lit(false)]), baseCtx())).toBe(0);
+  test('int(float) saturates at the int64 bounds and maps NaN to 0', () => {
+    expect(evaluate(call('int', [call('float', [lit('9.3e18')])]), baseCtx())).toBe(2 ** 63);
+    expect(evaluate(call('int', [call('float', [lit('-9.3e18')])]), baseCtx())).toBe(-(2 ** 63));
+    expect(evaluate(call('int', [call('float', [lit('NaN')])]), baseCtx())).toBe(0);
+  });
+  test('int(string) rejects surrounding spaces, an exponent, hex, and an int64 overflow', () => {
+    for (const text of [' 1 ', '1e3', '0x10', '1.5', '9223372036854775808']) {
+      expect(() => evaluate(call('int', [lit(text)]), baseCtx())).toThrow(
+        `Type conversion error. Argument: [${text}], From type: [string], To type: [int].`,
+      );
+    }
+  });
+  test('int(bool) and int(null) have no overload', () => {
+    expect(() => evaluate(call('int', [lit(true)]), baseCtx())).toThrow(
+      'Unsupported operation error. Received: int(bool). Expected: int(int), int(float), int(string).',
+    );
+    expect(() => evaluate(call('int', [lit(null)]), baseCtx())).toThrow('Received: int(null).');
+  });
+  test('int() with two arguments is an argument-count error', () => {
+    expect(() => evaluate(call('int', [lit('1'), lit(2)]), baseCtx())).toThrow(
+      'Incorrect number of arguments. Received: 2. Expected: int(int), int(float), int(string).',
+    );
+  });
+  test('float(string) parses Java double syntax', () => {
+    const cases: Array<[string, number]> = [
+      ['1e3', 1000], ['.5', 0.5], ['5.', 5], ['1.5f', 1.5], ['1.5d', 1.5], ['0x1p3', 8], [' 2.5', 2.5], ['Infinity', Infinity],
+    ];
+    for (const [text, value] of cases) {
+      expect(Number(evaluate(call('float', [lit(text)]), baseCtx()))).toBe(value);
+    }
+    expect(Number.isNaN(Number(evaluate(call('float', [lit('NaN')]), baseCtx())))).toBe(true);
+    for (const text of ['inf', 'nan', 'abc']) {
+      expect(() => evaluate(call('float', [lit(text)]), baseCtx())).toThrow(
+        `Type conversion error. Argument: [${text}], From type: [string], To type: [float].`,
+      );
+    }
+  });
+  test('string() prints a float as production does', () => {
+    const cases: Array<[string, string]> = [
+      ['1e7', '1.0E7'], ['1e-4', '1.0E-4'], ['1e21', '1.0E21'], ['2e-3', '0.002'], ['-0.0', '-0.0'],
+      ['4.9e-324', '4.9E-324'], ['1e-323', '9.9E-324'], ['2e-323', '2.0E-323'], ['1e-310', '1.0E-310'],
+    ];
+    for (const [text, printed] of cases) {
+      expect(evaluate(call('string', [call('float', [lit(text)])]), baseCtx())).toBe(printed);
+    }
+  });
+  test('string() has no overload for a list', () => {
+    expect(() => evaluate(call('string', [listLit([lit(1)])]), baseCtx())).toThrow(
+      'Unsupported operation error. Received: string(list). Expected: string(int), string(float), string(null), string(string), string(bool), string(path).',
+    );
   });
   test("bool() is an unsupported function in production Firestore rules", () => {
     expect(() => evaluate(call('bool', [lit('false')]), baseCtx())).toThrow(/Unknown function: bool/);
@@ -944,6 +994,6 @@ describe('RULES-B6 remainder: strict int()/bool()/float() parsing', () => {
     expect(evaluate(isType(call('float', [lit('1.5')]), 'float'), baseCtx())).toBe(true);
   });
   test("float('abc') ERRORS", () => {
-    expect(() => evaluate(call('float', [lit('abc')]), baseCtx())).toThrow(/cannot convert/);
+    expect(() => evaluate(call('float', [lit('abc')]), baseCtx())).toThrow(/Type conversion error/);
   });
 });

@@ -4,17 +4,291 @@
   "rowIds": [
     "firestore-rules#180"
   ],
-  "description": "Firestore Rules Test API verdicts for corpus scenario \"time-math-and-casts\" (Coverage: Timestamp methods + math builtins + casts). Production must accept request.time.<accessor>() Timestamp methods, math.floor/round/sqrt/pow/isNaN, int/float/string casts, request.method, and >= / * operators.",
-  "observedAt": "2026-07-21T23:43:07.340Z",
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"time-math-and-casts\" (Coverage: Timestamp methods + math builtins + casts). Production must accept request.time.<accessor>() Timestamp methods, math.floor/round/sqrt/pow/isNaN, int/float/string casts, request.method, and >= / * operators; int() parses a whole int64 decimal string and truncates or saturates a float, float() parses Java double syntax, string() prints a float as Java Double.toString does, and every conversion failure is an error value that || true absorbs.",
+  "observedAt": "2026-09-27T20:55:12.909Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "37ae5eaf3bdc9a5b6f6bf8781f74aaea9f531238e12d9bb7cdb36823204b7a9b"
+    "value": "5b653048af1f0a1266cd6d9b3475efa53110a61da2f98b544cc7e3a8b099248d"
   },
   "behavior": {
     "valid event within all bounds ALLOW": "ALLOW",
     "qty too small so qty*2 < 2 DENY (mul + gte)": "DENY",
-    "negative area so sqrt precondition fails DENY (math.sqrt)": "DENY"
+    "negative area so sqrt precondition fails DENY (math.sqrt)": "DENY",
+    "int('12') == 12 && int('-3') == -3 && int('+3') == 3 && int('-0') == 0 && int('12') is int → ALLOW": "ALLOW",
+    "int(1.9) == 1 && int(-1.9) == -1 && int(2.5) is int → ALLOW": "ALLOW",
+    "int(float('9.3e18')) == 9223372036854775807 && int(float('-9.3e18')) == -9223372036854775808 && int(float('NaN')) == 0 → ALLOW": "ALLOW",
+    "int(9223372036854775807) == 9223372036854775807 → ALLOW": "ALLOW",
+    "int('1.5') != 0 → DENY": "DENY",
+    "(int('1.5') == 0) || true → ALLOW": "ALLOW",
+    "int('0x10') != 0 → DENY": "DENY",
+    "int(' 1 ') != 1 → DENY": "DENY",
+    "int('1e3') != 0 → DENY": "DENY",
+    "int('9223372036854775808') != 0 → DENY": "DENY",
+    "int(true) != 0 → DENY": "DENY",
+    "(int(true) == 1) || true → ALLOW": "ALLOW",
+    "int(null) != 0 → DENY": "DENY",
+    "int('1', 2) == 1 → DENY": "DENY",
+    "float('1e3') == 1000.0 && float('.5') == 0.5 && float('5.') == 5.0 && float('1.5f') == 1.5 && float('1.5d') == 1.5 && float('0x1p3') == 8.0 && float(' 2.5') == 2.5 && float('2.5 ') == 2.5 → ALLOW": "ALLOW",
+    "float('NaN') != float('NaN') && float('Infinity') > 1.0 && float('-Infinity') < 1.0 → ALLOW": "ALLOW",
+    "float(2) is float && float(2) == 2.0 && float(1.5) is float && float(1.5) == 1.5 → ALLOW": "ALLOW",
+    "float('inf') > 1.0 → DENY": "DENY",
+    "float('nan') != 0.0 → DENY": "DENY",
+    "float('abc') != 0.0 → DENY": "DENY",
+    "(float('abc') == 0.0) || true → ALLOW": "ALLOW",
+    "float(true) != 0.0 → DENY": "DENY",
+    "float(null) != 0.0 → DENY": "DENY",
+    "string(true) == 'true' && string(null) == 'null' && string('s') == 's' && string(12) == '12' && string(path('a/b')) == '/a/b' → ALLOW": "ALLOW",
+    "string(1.0) == '1.0' && string(float(2)) == '2.0' && string(0.1 + 0.2) == '0.30000000000000004' && string(1.0 / 3.0) == '0.3333333333333333' && string(-0.0) == '-0.0' → ALLOW": "ALLOW",
+    "string(float('1e7')) == '1.0E7' && string(float('1e-4')) == '1.0E-4' && string(123456789.0) == '1.23456789E8' && string(float('1e21')) == '1.0E21' && string(float('2e-3')) == '0.002' && string(float('NaN')) == 'NaN' && string(float('-Infinity')) == '-Infinity' → ALLOW": "ALLOW",
+    "string(float('4.9e-324')) == '4.9E-324' && string(float('-4.9e-324')) == '-4.9E-324' && string(float('1e-323')) == '9.9E-324' && string(float('2e-323')) == '2.0E-323' && string(float('1e-322')) == '9.9E-323' && string(float('1e-310')) == '1.0E-310' → ALLOW": "ALLOW",
+    "string(float('4.9e-324')) != '4.9E-324' → DENY": "DENY",
+    "string(float('4.9e-324')) == '5.0E-324' → DENY": "DENY",
+    "string([1]) != '' → DENY": "DENY",
+    "(string([1]) == '') || true → ALLOW": "ALLOW",
+    "string({'a': 1}) != '' → DENY": "DENY",
+    "string(b'abc') != '' → DENY": "DENY",
+    "string(duration.value(1, 's')) != '' → DENY": "DENY"
+  },
+  "diagnostics": {
+    "int('1.5') != 0 → DENY": {
+      "notes": [
+        "Error: firestore.rules line [42], column [24]. Type conversion error. Argument: [1.5], From type: [string], To type: [int]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 42,
+          "column": 24,
+          "currentOffset": 1823,
+          "endOffset": 1825
+        }
+      }
+    },
+    "int('0x10') != 0 → DENY": {
+      "notes": [
+        "Error: firestore.rules line [48], column [24]. Type conversion error. Argument: [0x10], From type: [string], To type: [int]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 48,
+          "column": 24,
+          "currentOffset": 1997,
+          "endOffset": 1999
+        }
+      }
+    },
+    "int(' 1 ') != 1 → DENY": {
+      "notes": [
+        "Error: firestore.rules line [51], column [24]. Type conversion error. Argument: [ 1 ], From type: [string], To type: [int]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 51,
+          "column": 24,
+          "currentOffset": 2083,
+          "endOffset": 2085
+        }
+      }
+    },
+    "int('1e3') != 0 → DENY": {
+      "notes": [
+        "Error: firestore.rules line [54], column [24]. Type conversion error. Argument: [1e3], From type: [string], To type: [int]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 54,
+          "column": 24,
+          "currentOffset": 2165,
+          "endOffset": 2167
+        }
+      }
+    },
+    "int('9223372036854775808') != 0 → DENY": {
+      "notes": [
+        "Error: firestore.rules line [57], column [24]. Type conversion error. Argument: [9223372036854775808], From type: [string], To type: [int]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 57,
+          "column": 24,
+          "currentOffset": 2241,
+          "endOffset": 2243
+        }
+      }
+    },
+    "int(true) != 0 → DENY": {
+      "notes": [
+        "Error: firestore.rules line [60], column [24]. Unsupported operation error. Received: int(bool). Expected: int(int), int(float), int(string)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 60,
+          "column": 24,
+          "currentOffset": 2329,
+          "endOffset": 2331
+        }
+      }
+    },
+    "int(null) != 0 → DENY": {
+      "notes": [
+        "Error: firestore.rules line [66], column [24]. Unsupported operation error. Received: int(null). Expected: int(int), int(float), int(string)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 66,
+          "column": 24,
+          "currentOffset": 2487,
+          "endOffset": 2489
+        }
+      }
+    },
+    "int('1', 2) == 1 → DENY": {
+      "notes": [
+        "Error: firestore.rules line [69], column [24]. Incorrect number of arguments. Received: 2. Expected: int(int), int(float), int(string)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 69,
+          "column": 24,
+          "currentOffset": 2561,
+          "endOffset": 2563
+        }
+      }
+    },
+    "float('inf') > 1.0 → DENY": {
+      "notes": [
+        "Error: firestore.rules line [81], column [24]. Type conversion error. Argument: [inf], From type: [string], To type: [float]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 81,
+          "column": 24,
+          "currentOffset": 3185,
+          "endOffset": 3189
+        }
+      }
+    },
+    "float('nan') != 0.0 → DENY": {
+      "notes": [
+        "Error: firestore.rules line [84], column [24]. Type conversion error. Argument: [nan], From type: [string], To type: [float]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 84,
+          "column": 24,
+          "currentOffset": 3270,
+          "endOffset": 3274
+        }
+      }
+    },
+    "float('abc') != 0.0 → DENY": {
+      "notes": [
+        "Error: firestore.rules line [87], column [24]. Type conversion error. Argument: [abc], From type: [string], To type: [float]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 87,
+          "column": 24,
+          "currentOffset": 3348,
+          "endOffset": 3352
+        }
+      }
+    },
+    "float(true) != 0.0 → DENY": {
+      "notes": [
+        "Error: firestore.rules line [93], column [24]. Unsupported operation error. Received: float(bool). Expected: float(int), float(float), float(string)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 93,
+          "column": 24,
+          "currentOffset": 3520,
+          "endOffset": 3524
+        }
+      }
+    },
+    "float(null) != 0.0 → DENY": {
+      "notes": [
+        "Error: firestore.rules line [96], column [24]. Unsupported operation error. Received: float(null). Expected: float(int), float(float), float(string)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 96,
+          "column": 24,
+          "currentOffset": 3597,
+          "endOffset": 3601
+        }
+      }
+    },
+    "string([1]) != '' → DENY": {
+      "notes": [
+        "Error: firestore.rules line [117], column [24]. Unsupported operation error. Received: string(list). Expected: string(int), string(float), string(null), string(string), string(bool), string(path)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 117,
+          "column": 24,
+          "currentOffset": 4996,
+          "endOffset": 5001
+        }
+      }
+    },
+    "string({'a': 1}) != '' → DENY": {
+      "notes": [
+        "Error: firestore.rules line [123], column [24]. Unsupported operation error. Received: string(map). Expected: string(int), string(float), string(null), string(string), string(bool), string(path)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 123,
+          "column": 24,
+          "currentOffset": 5173,
+          "endOffset": 5178
+        }
+      }
+    },
+    "string(b'abc') != '' → DENY": {
+      "notes": [
+        "Error: firestore.rules line [126], column [24]. Unsupported operation error. Received: string(bytes). Expected: string(int), string(float), string(null), string(string), string(bool), string(path)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 126,
+          "column": 24,
+          "currentOffset": 5260,
+          "endOffset": 5265
+        }
+      }
+    },
+    "string(duration.value(1, 's')) != '' → DENY": {
+      "notes": [
+        "Error: firestore.rules line [129], column [24]. Unsupported operation error. Received: string(duration). Expected: string(int), string(float), string(null), string(string), string(bool), string(path)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 129,
+          "column": 24,
+          "currentOffset": 5348,
+          "endOffset": 5353
+        }
+      }
+    }
   }
 }

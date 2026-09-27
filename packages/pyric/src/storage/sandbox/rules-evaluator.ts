@@ -12,7 +12,6 @@ import {
   type StorageRules,
 } from './rules.js';
 import { buildRequestObject, buildResourceObject } from './rules-bindings.js';
-import { applyConversion, conversionFor } from './rules-conversions.js';
 import { evalMethodCall } from './rules-methods.js';
 import {
   evalArithmetic,
@@ -29,11 +28,11 @@ import {
   isAbsorbableEvalError,
 } from './rules-evaluation-error.js';
 import { StoragePath } from './rules-path.js';
+import { ConversionFailure, applyConversion, conversionFor } from '../../rules/simulator/conversions.js';
+import { describeRulesType as describeType, isRulesMap } from '../../rules/simulator/rules-type.js';
 import {
   RuleError,
-  describeRulesType as describeType,
   isRuleError as isErr,
-  isRulesMap,
   rulesEquals,
 } from './rules-values.js';
 
@@ -530,5 +529,6 @@ function evalGlobalCall(expr: Extract<Expr, { kind: 'call' }>, ctx: EvalCtx): un
     if (isErr(value)) return value;
     args.push(value);
   }
-  return applyConversion(conversion, args);
+  const converted = applyConversion(conversion, args);
+  return converted instanceof ConversionFailure ? new RuleError(converted.message) : converted;
 }
