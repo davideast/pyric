@@ -1,0 +1,373 @@
+{
+  "name": "rules-storage-bytes-literal",
+  "matrixRow": "",
+  "rowIds": [
+    "storage-rules#storage.stdlib.bytes-hashing"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"bytes-literal\" (Coverage: bytes literal). A bytes literal b'...' or B\"...\" is the UTF-8 encoding of its characters, with \\x hex and \\ooo octal escapes that each produce one byte; it equals only bytes, orders lexicographically, and hashes like its string, and + and [] on bytes are error values that || true absorbs.",
+  "observedAt": "2026-09-27T16:56:49.444Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "b'abc' == 'abc'.toUtf8() → ALLOW": "ALLOW",
+    "b\"abc\" == 'abc'.toUtf8() && b\"it's\" == 'it\\'s'.toUtf8() → ALLOW": "ALLOW",
+    "B'abc' == b\"abc\" → ALLOW": "ALLOW",
+    "b''.size() == 0 && b'' == ''.toUtf8() → ALLOW": "ALLOW",
+    "b'\\x00\\x01'.size() == 2 → ALLOW": "ALLOW",
+    "b'\\x00\\x01'.size() == 8 → DENY": "DENY",
+    "b'\\x00\\x01'.toHexString() == '0001' && b'\\xFf\\xfF'.toHexString() == 'FFFF' → ALLOW": "ALLOW",
+    "b'\\x411' == b'A1' → ALLOW": "ALLOW",
+    "b'\\101' == 'A'.toUtf8() && b'\\012' == b'\\n' && b'\\377' == b'\\xff' → ALLOW": "ALLOW",
+    "b'\\\\\\'\\\"\\n\\r\\t\\b\\f'.toHexString() == '5C27220A0D09080C' → ALLOW": "ALLOW",
+    "b'é' == 'é'.toUtf8() && b'é' == b'\\xc3\\xa9' && b'日本'.size() == 6 → ALLOW": "ALLOW",
+    "b'\\xe9' == 'é'.toUtf8() → DENY": "DENY",
+    "b'abc' is bytes → ALLOW": "ALLOW",
+    "b'\\xff'.toBase64() == '_w==' → ALLOW": "ALLOW",
+    "b'abc' == 'abc' → DENY": "DENY",
+    "b'abc' == b'abd' → DENY": "DENY",
+    "b'abc' < b'abd' && b'abc' > b'ab' && b'\\x00' < b'\\xff' → ALLOW": "ALLOW",
+    "b'abc' in [b'abc'] && !(b'abd' in [b'abc']) → ALLOW": "ALLOW",
+    "hashing.md5(b'abc') == hashing.md5('abc') → ALLOW": "ALLOW",
+    "b'abc' + b'd' == b'abcd' → DENY": "DENY",
+    "(b'abc' + b'd' == b'abcd') || true → ALLOW": "ALLOW",
+    "b'abc'[0] == 97 → DENY": "DENY"
+  },
+  "diagnostics": {
+    "b'abc' == 'abc'.toUtf8() → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 24,
+              "currentOffset": 128,
+              "endOffset": 133
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "b\"abc\" == 'abc'.toUtf8() && b\"it's\" == 'it\\'s'.toUtf8() → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 8,
+              "column": 24,
+              "currentOffset": 216,
+              "endOffset": 221
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "B'abc' == b\"abc\" → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 11,
+              "column": 24,
+              "currentOffset": 334,
+              "endOffset": 339
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "b''.size() == 0 && b'' == ''.toUtf8() → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 14,
+              "column": 24,
+              "currentOffset": 414,
+              "endOffset": 416
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "b'\\x00\\x01'.size() == 2 → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 17,
+              "column": 24,
+              "currentOffset": 516,
+              "endOffset": 526
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "b'\\x00\\x01'.size() == 8 → DENY": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 20,
+              "column": 24,
+              "currentOffset": 607,
+              "endOffset": 617
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "b'\\x00\\x01'.toHexString() == '0001' && b'\\xFf\\xfF'.toHexString() == 'FFFF' → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 23,
+              "column": 24,
+              "currentOffset": 696,
+              "endOffset": 706
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "b'\\x411' == b'A1' → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 26,
+              "column": 24,
+              "currentOffset": 840,
+              "endOffset": 847
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "b'\\101' == 'A'.toUtf8() && b'\\012' == b'\\n' && b'\\377' == b'\\xff' → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 29,
+              "column": 24,
+              "currentOffset": 920,
+              "endOffset": 926
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "b'\\\\\\'\\\"\\n\\r\\t\\b\\f'.toHexString() == '5C27220A0D09080C' → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 32,
+              "column": 24,
+              "currentOffset": 1050,
+              "endOffset": 1068
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "b'é' == 'é'.toUtf8() && b'é' == b'\\xc3\\xa9' && b'日本'.size() == 6 → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 35,
+              "column": 24,
+              "currentOffset": 1169,
+              "endOffset": 1172
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "b'\\xe9' == 'é'.toUtf8() → DENY": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 38,
+              "column": 24,
+              "currentOffset": 1300,
+              "endOffset": 1306
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "b'abc' is bytes → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 41,
+              "column": 24,
+              "currentOffset": 1382,
+              "endOffset": 1387
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "b'\\xff'.toBase64() == '_w==' → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 44,
+              "column": 24,
+              "currentOffset": 1457,
+              "endOffset": 1463
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "b'abc' == 'abc' → DENY": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 47,
+              "column": 24,
+              "currentOffset": 1551,
+              "endOffset": 1556
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "b'abc' == b'abd' → DENY": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 50,
+              "column": 24,
+              "currentOffset": 1631,
+              "endOffset": 1636
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "b'abc' < b'abd' && b'abc' > b'ab' && b'\\x00' < b'\\xff' → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 53,
+              "column": 24,
+              "currentOffset": 1707,
+              "endOffset": 1712
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "b'abc' in [b'abc'] && !(b'abd' in [b'abc']) → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 56,
+              "column": 24,
+              "currentOffset": 1819,
+              "endOffset": 1824
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "hashing.md5(b'abc') == hashing.md5('abc') → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 59,
+              "column": 24,
+              "currentOffset": 1921,
+              "endOffset": 1927
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "b'abc' + b'd' == b'abcd' → DENY": {
+      "notes": [
+        "Error: storage.rules line [62], column [31]. Unsupported operation error. Received: bytes + bytes. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 62,
+          "column": 31,
+          "currentOffset": 2032,
+          "endOffset": 2032
+        }
+      }
+    },
+    "(b'abc' + b'd' == b'abcd') || true → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 65,
+              "column": 24,
+              "currentOffset": 2118,
+              "endOffset": 2118
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "b'abc'[0] == 97 → DENY": {
+      "notes": [
+        "Error: storage.rules line [68], column [24]. Function not found error: Name: [[]]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 68,
+          "column": 24,
+          "currentOffset": 2214,
+          "endOffset": 2219
+        },
+        "functionCalls": [
+          {
+            "function": "[]",
+            "args": [
+              0
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

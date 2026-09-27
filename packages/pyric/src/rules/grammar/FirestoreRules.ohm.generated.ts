@@ -167,6 +167,7 @@ export const FIRESTORE_RULES_OHM_SOURCE = `FirestoreRules {
 
   literal
     = number
+    | bytes
     | string
     | bool
     | null
@@ -193,6 +194,28 @@ export const FIRESTORE_RULES_OHM_SOURCE = `FirestoreRules {
   // sim strict here prevents over-permissive acceptance that masks model
   // output that would crash at deploy.
   stringEscapeChar = "\\\\" | "'" | "\\"" | "n" | "r" | "t" | "/"
+
+  // Bytes literal: a \`b\` or \`B\` prefix directly before a quoted body. A plain
+  // character is its UTF-8 encoding. \`\\x\` takes exactly two hexadecimal
+  // digits and \`\\\` takes three octal digits up to \`\\377\`; each is one byte.
+  // Production rejects \`\\/\`, \`\\u\`, \`\\U\`, \`\\a\`, \`\\v\`, a raw line break, and
+  // any other escape in a bytes literal.
+  bytes
+    = ("b" | "B") "'" singleBytesChar* "'"    -- single
+    | ("b" | "B") "\\"" doubleBytesChar* "\\""  -- double
+
+  singleBytesChar
+    = "\\\\" bytesEscape  -- escape
+    | ~"\\\\" ~"'" ~"\\n" any  -- char
+
+  doubleBytesChar
+    = "\\\\" bytesEscape  -- escape
+    | ~"\\\\" ~"\\"" ~"\\n" any  -- char
+
+  bytesEscape
+    = "x" hexDigit hexDigit          -- hex
+    | "0".."3" "0".."7" "0".."7"     -- octal
+    | ("\\\\" | "'" | "\\"" | "n" | "r" | "t" | "b" | "f")  -- simple
 
   ListLiteral = "[" ListOf<Expr, ","> ","? "]"
 

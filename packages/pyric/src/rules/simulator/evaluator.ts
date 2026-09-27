@@ -62,6 +62,8 @@ function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<st
       if (typeof expr.value === 'number' && expr.raw.includes('.')) {
         return new RulesFloat(expr.value);
       }
+      // A bytes literal (`b'...'`) evaluates to the same Bytes value as `toUtf8()`.
+      if (expr.value instanceof Uint8Array) return new Bytes(expr.value);
       return expr.value;
 
     case 'identifier':
