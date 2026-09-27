@@ -68,6 +68,8 @@ export const _eventSubs = new Map<string, {
   next: (events: readonly SandboxEvent[]) => void;
   message: InboundMessage;
   error?: (error: Error & { code: string }) => void;
+  /** Called when the subscription is sent again; the host replies with its whole history. */
+  restored?: () => void;
 }>();
 const disconnectedPorts = new WeakSet<ClientPort>();
 const runtimeReloadListeners = new Set<(message: RuntimeReloadMessage) => void>();
@@ -113,10 +115,11 @@ export function openEventSubscription(
   next: (events: readonly SandboxEvent[]) => void,
   message: InboundMessage,
   error?: (error: Error & { code: string }) => void,
+  restored?: () => void,
 ): boolean {
   const isDeleted = disconnectedPorts.has(port);
   if (isDeleted) { error?.(appDeletedError()); return false; }
-  _eventSubs.set(subId, { port, next, error, message });
+  _eventSubs.set(subId, { port, next, error, message, restored });
   port.postMessage(message);
   return true;
 }
@@ -171,6 +174,7 @@ export function restoreObservationSubscriptions(
   for (const [subId, subscription] of _eventSubs) {
     const ownsSubscription = subscription.port === port;
     if (!ownsSubscription) continue;
+    subscription.restored?.();
     postMessage({ t: 'unsub', subId });
     postMessage(subscription.message);
   }
