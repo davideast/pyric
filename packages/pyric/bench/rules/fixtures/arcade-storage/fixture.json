@@ -1,0 +1,64 @@
+{
+  "id": "arcade-storage",
+  "service": "storage",
+  "source": {
+    "repo": "davideast/arcade (local checkout pyric-games)",
+    "rulesCommit": "b48a98b",
+    "rules": "app/storage.rules",
+    "requests": "games/sokoban/src/logic.ts solveWrites for level 1 with the stored solution, as games/sokoban/src/rules.test.ts uploads it"
+  },
+  "rules": {
+    "file": "storage.rules"
+  },
+  "firestoreDocs": {
+    "sokoban/1/scores/alice-uid": {
+      "uid": "alice-uid",
+      "level": "1",
+      "moves": 33,
+      "pushes": 8,
+      "solve": "Solve000000000000000",
+      "object": "sokoban/alice-uid/1/Solve000000000000000-33-8.txt",
+      "createdAt": {
+        "$timestamp": "2026-09-01T12:00:00.000Z"
+      }
+    }
+  },
+  "requests": [
+    {
+      "label": "Sokoban upload",
+      "expect": "ALLOW",
+      "input": {
+        "request": {
+          "auth": {
+            "uid": "alice-uid"
+          },
+          "method": "create",
+          "path": "/b/pyric-sandbox.appspot.com/o/sokoban/alice-uid/1/Solve000000000000000-33-8.txt",
+          "resource": {
+            "size": 33,
+            "contentType": "text/plain",
+            "metadata": {
+              "level": "1",
+              "moves": "33",
+              "pushes": "8"
+            },
+            "name": "sokoban/alice-uid/1/Solve000000000000000-33-8.txt",
+            "bucket": "pyric-sandbox.appspot.com"
+          }
+        },
+        "resource": null
+      },
+      "e2e": {
+        "uid": "alice-uid",
+        "path": "sokoban/alice-uid/1/Solve000000000000000-33-8.txt",
+        "text": "dlUrrrdLullddrUluRuulDrddrruLdlUU",
+        "contentType": "text/plain",
+        "customMetadata": {
+          "level": "1",
+          "moves": "33",
+          "pushes": "8"
+        }
+      }
+    }
+  ]
+}

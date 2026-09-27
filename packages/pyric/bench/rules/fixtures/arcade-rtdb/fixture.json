@@ -1,0 +1,143 @@
+{
+  "id": "arcade-rtdb",
+  "service": "rtdb",
+  "source": {
+    "repo": "davideast/arcade (local checkout pyric-games)",
+    "rulesCommit": "7799ebc",
+    "rules": "app/database.rules.json",
+    "requests": "games/air-hockey/src/logic.ts frameOp (a set of one frame) over the playing tree games/air-hockey/src/rtdb-rules.test.ts uses"
+  },
+  "rules": {
+    "file": "database.rules.json"
+  },
+  "requests": [
+    {
+      "label": "Air Hockey frame",
+      "expect": "ALLOW",
+      "input": {
+        "operation": "write",
+        "path": "/airhockey/m1/host-uid/frame",
+        "auth": {
+          "uid": "host-uid",
+          "token": {}
+        },
+        "mockData": {
+          "airhockey": {
+            "m1": {
+              "host-uid": {
+                "meta": {
+                  "guest": "guest-uid",
+                  "status": "playing",
+                  "winner": ""
+                },
+                "frame": {
+                  "puck": {
+                    "x": 48,
+                    "y": 64,
+                    "vx": 0,
+                    "vy": 0,
+                    "t": 1
+                  },
+                  "host": {
+                    "x": 48,
+                    "y": 112
+                  },
+                  "guest": {
+                    "x": 48,
+                    "y": 16
+                  }
+                },
+                "score": {
+                  "host": 0,
+                  "guest": 0
+                },
+                "presence": {
+                  "host": true,
+                  "guest": true
+                }
+              }
+            }
+          }
+        },
+        "newData": {
+          "puck": {
+            "x": 48,
+            "y": 64,
+            "vx": 0,
+            "vy": 0,
+            "t": 2
+          },
+          "host": {
+            "x": 48,
+            "y": 112
+          },
+          "guest": {
+            "x": 48,
+            "y": 16
+          }
+        }
+      },
+      "e2e": {
+        "uid": "host-uid",
+        "op": "set",
+        "path": "airhockey/m1/host-uid/frame",
+        "value": {
+          "puck": {
+            "x": 48,
+            "y": 64,
+            "vx": 0,
+            "vy": 0,
+            "t": 2
+          },
+          "host": {
+            "x": 48,
+            "y": 112
+          },
+          "guest": {
+            "x": 48,
+            "y": 16
+          }
+        },
+        "tree": {
+          "airhockey": {
+            "m1": {
+              "host-uid": {
+                "meta": {
+                  "guest": "guest-uid",
+                  "status": "playing",
+                  "winner": ""
+                },
+                "frame": {
+                  "puck": {
+                    "x": 48,
+                    "y": 64,
+                    "vx": 0,
+                    "vy": 0,
+                    "t": 1
+                  },
+                  "host": {
+                    "x": 48,
+                    "y": 112
+                  },
+                  "guest": {
+                    "x": 48,
+                    "y": 16
+                  }
+                },
+                "score": {
+                  "host": 0,
+                  "guest": 0
+                },
+                "presence": {
+                  "host": true,
+                  "guest": true
+                }
+              }
+            }
+          }
+        },
+        "tick": "puck.t"
+      }
+    }
+  ]
+}

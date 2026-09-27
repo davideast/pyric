@@ -21,6 +21,7 @@
     "build:pyric-admin": "bun run --cwd packages/pyric-admin build",
     "build:cli": "bun run --cwd packages/cli build",
     "build:ui": "bun run --cwd packages/ui build",
+    "bench:rules": "bun run --cwd packages/pyric bench:rules",
     "pretest": "bash scripts/build.sh --packages-only",
     "test": "bun test --cwd packages/pyric && bun test --cwd packages/pyric-admin && bun test --cwd packages/create-pyric && bun test --cwd packages/cli && bun run test:chat-template && bun run --cwd packages/ui test && bun run --cwd packages/studio test && bun test --cwd packages/conformance && bun test scripts/tool-parity.test.mjs scripts/check-cloud-only-agent-install.test.mjs scripts/check-publish-version.test.mjs scripts/deploy-site.test.mjs scripts/publish-alpha.test.ts scripts/audit-packed-cli.test.ts scripts/lib/package-artifact-manifest.test.ts scripts/ci/library-split.test.ts scripts/ci/dist-cache.test.ts scripts/ci/conformance-coupling-gate.test.ts",
     "test:ci:cli": "bun test --cwd packages/cli",

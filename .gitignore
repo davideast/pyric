@@ -126,3 +126,6 @@ examples/**/macos/Flutter/Flutter-Release.xcconfig
 examples/**/macos/Runner.xcodeproj/project.xcworkspace/
 examples/**/macos/Runner.xcworkspace/
 
+
+# Rules benchmark CPU profiles (bench:rules --profile).
+packages/pyric/bench/rules/profiles/

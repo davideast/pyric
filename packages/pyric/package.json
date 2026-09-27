@@ -195,7 +195,9 @@
     "prebuild": "(bun run inline-grammar 2>/dev/null || true) && bun run inline-stdlib",
     "build": "tsc && bun run scripts/copy-assets.ts 2>/dev/null || tsc",
     "test": "bun test",
-    "typecheck": "bun x tsc -p tsconfig.json --noEmit"
+    "typecheck": "bun x tsc -p tsconfig.json --noEmit",
+    "bench:rules": "bun bench/rules/run.ts",
+    "bench:rules:capture": "bun bench/rules/capture.ts"
   },
   "dependencies": {
     "@inbrowser/agent": "0.4.2",
