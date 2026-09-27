@@ -368,9 +368,9 @@ async function applyStorage(
  * Whether a captured Storage ruleset is one a target can be given.
  *
  * A sandbox captured while Storage ran without rules carries null. There is no
- * source to install, so a null source leaves the target's ruleset as it is.
- * Both writers read this: the total replace below, and the delta a branch
- * promotion writes.
+ * source to install and no way to un-install one, so a null source means no
+ * change. Both writers read this: the total replace below, and the delta a
+ * branch promotion writes.
  */
 export function installsStorageRules(source: string | null): source is string {
   return source !== null;
