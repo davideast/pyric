@@ -511,7 +511,7 @@ Compile the constraints into the JSON that Pyric and Firebase load:
 
 ```bash
 pyric database rules generate
-pyric rules lint --service database
+pyric rules lint --service database --rules-file database.rules.json
 ```
 
 The TypeScript file is the source people edit. `database.rules.json` is the generated deployment artifact. The schema compiler currently supports objects composed from strings, numbers, booleans, enums, literals, unions, nested objects, and optional fields. Unsupported shapes fail generation instead of becoming weaker Rules.

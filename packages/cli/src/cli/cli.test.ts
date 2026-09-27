@@ -101,16 +101,27 @@ describe('runRulesValidate', () => {
 // ── database rules ───────────────────────────────────────────────────
 
 describe('runDatabaseRulesValidate', () => {
-  it('reports RTDB expression parse errors', async () => {
+  it('reports RTDB expression parse errors and exits 2', async () => {
     const io = bufferIo();
     const code = await runDatabaseRulesValidate(serviceArgs(['database', 'rules', 'validate', 'database.rules.json']), {
       ...io,
       cwd: '/tmp',
-      readFile: (async () => '{"rules":{".read":"auth.uid =="}}') as never,
+      readFile: (async () => '{"rules":{"notes":{"$id":{".write":"auth != null && ("}}}}') as never,
+    });
+    expect(code).toBe(2);
+    const out = JSON.parse(io.getOut()) as { errors: Array<{ code: string; path: string; rule: string }> };
+    expect(out.errors).toEqual([expect.objectContaining({ code: 'PARSE_ERROR', path: '/notes/$id', rule: '.write' })]);
+  });
+
+  it('exits 0 with no errors on rules whose expressions all parse', async () => {
+    const io = bufferIo();
+    const code = await runDatabaseRulesValidate(serviceArgs(['database', 'rules', 'validate', 'database.rules.json']), {
+      ...io,
+      cwd: '/tmp',
+      readFile: (async () => '{"rules":{"notes":{"$id":{".write":"auth != null"}}}}') as never,
     });
     expect(code).toBe(0);
-    const out = JSON.parse(io.getOut()) as { errors: Array<{ code: string }> };
-    expect(out.errors.some((finding) => finding.code === 'PARSE_ERROR')).toBe(true);
+    expect(JSON.parse(io.getOut())).toEqual({ errors: [] });
   });
 });
 

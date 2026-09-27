@@ -114,6 +114,32 @@ function collectFindings(node: RtdbNode, kind: 'errors' | 'warnings'): RtdbRules
   return findings;
 }
 
+/**
+ * The findings a compiled ruleset carries: every parse, validation, and lint
+ * finding on its `.read`, `.write`, and `.validate` expressions. A ruleset
+ * that does not compile is one COMPILE_ERROR at the root.
+ */
+export function checkRtdbRules(compile: () => CompiledRtdbRules): RtdbRulesCheckResult {
+  let compiled: CompiledRtdbRules;
+  try {
+    compiled = compile();
+  } catch (e) {
+    return {
+      ok: false,
+      errors: [{
+        path: '/',
+        rule: 'ruleset',
+        code: 'COMPILE_ERROR',
+        message: e instanceof Error ? e.message : String(e),
+      }],
+      warnings: [],
+    };
+  }
+  const errors = collectFindings(compiled, 'errors');
+  const warnings = collectFindings(compiled, 'warnings');
+  return { ok: errors.length === 0, errors, warnings };
+}
+
 class DefinedRtdbRulesDocument implements RtdbRulesDocumentInternal {
   constructor(private readonly definition: RtdbRulesDefinition) {}
 
@@ -126,27 +152,7 @@ class DefinedRtdbRulesDocument implements RtdbRulesDocumentInternal {
   }
 
   check(): RtdbRulesCheckResult {
-    try {
-      const compiled = this.compile();
-      const errors = collectFindings(compiled, 'errors');
-      const warnings = collectFindings(compiled, 'warnings');
-      return {
-        ok: errors.length === 0,
-        errors,
-        warnings,
-      };
-    } catch (e) {
-      return {
-        ok: false,
-        errors: [{
-          path: '/',
-          rule: 'ruleset',
-          code: 'COMPILE_ERROR',
-          message: e instanceof Error ? e.message : String(e),
-        }],
-        warnings: [],
-      };
-    }
+    return checkRtdbRules(() => this.compile());
   }
 
   simulate(input: RtdbRulesSimulationInput): SimulateResult {

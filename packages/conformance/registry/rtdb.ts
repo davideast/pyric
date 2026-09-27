@@ -558,7 +558,12 @@ export const rtdbRegistry = {
           rowRef: "89",
           featureKeys: ["compileRtdbRules"],
           api: "compileRtdbRules",
-          behavior: "`compileRtdbRules(rulesJson)` produces an environment-independent tree where each node carries its path, parsed expressions, and child nodes",
+          behavior: "`compileRtdbRules(rulesJson)` produces an environment-independent tree where each node carries its path, parsed expressions, and child nodes; `rtdbRules(rulesJson).lint()` reports the parse, validation, and lint findings those expressions carry, the same issues `lint()` reports on the definition the JSON was generated from",
+          evidence: "`unit:compiled-rules.test.ts`, `unit:rules/public-api.test.ts` (\"lint() on compiled { rules } JSON reports an expression that does not parse\", \"lint() on compiled { rules } JSON reports what lint() on the definition it came from reports\")",
+          conformanceTests: [
+            "packages/pyric/test/rules/rtdb/compiled-rules.test.ts",
+            "packages/pyric/test/rules/public-api.test.ts",
+          ],
         }),
         row4({
           rowRef: "90",

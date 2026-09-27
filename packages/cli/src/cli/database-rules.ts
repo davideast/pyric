@@ -9,7 +9,12 @@
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve as resolvePath } from 'node:path';
-import { compileRtdbRules, type CompiledRtdbRules, type RtdbNode } from 'pyric/rules/internal/rtdb';
+import {
+  checkRtdbRules,
+  compileRtdbRules,
+  type CompiledRtdbRules,
+  type RtdbRulesFinding,
+} from 'pyric/rules/internal/rtdb';
 import type { ParsedArgs } from './parse-args.js';
 import { readFirebaseJson, type FirebaseJson } from './firebase-json.js';
 import {
@@ -29,38 +34,8 @@ export interface DatabaseRulesDeps {
   stderr?: { write(s: string): void };
 }
 
-interface RuleFinding {
-  path: string;
-  rule: '.read' | '.write' | '.validate';
-  code: string;
-  message: string;
-}
-
 function parseRulesJson(raw: string): CompiledRtdbRules {
   return compileRtdbRules(JSON.parse(stripJsonComments(raw)));
-}
-
-function collectFindings(node: RtdbNode, kind: 'errors' | 'warnings'): RuleFinding[] {
-  const findings: RuleFinding[] = [];
-  const rules = [
-    ['.read', node.read],
-    ['.write', node.write],
-    ['.validate', node.validate],
-  ] as const;
-  for (const [rule, expr] of rules) {
-    for (const finding of expr?.parsed[kind] ?? []) {
-      findings.push({
-        path: node.path,
-        rule,
-        code: finding.code,
-        message: finding.message,
-      });
-    }
-  }
-  for (const child of node.children) {
-    findings.push(...collectFindings(child, kind));
-  }
-  return findings;
 }
 
 async function readRulesFile(
@@ -76,13 +51,20 @@ async function readRulesFile(
   }
 }
 
-function jsonError(code: string, message: string): { errors: RuleFinding[]; warnings: RuleFinding[] } {
+function jsonError(code: string, message: string): { errors: RtdbRulesFinding[]; warnings: RtdbRulesFinding[] } {
   return {
-    errors: [{ path: '/', rule: '.read', code, message }],
+    errors: [{ path: '/', rule: 'ruleset', code, message }],
     warnings: [],
   };
 }
 
+/**
+ * `pyric database rules validate <path>`
+ *
+ * Prints the error findings on every expression in a rules JSON file. Exits 0
+ * when there are none, 1 on a usage or file-read error, and 2 when the file is
+ * not rules JSON or any expression has an error finding.
+ */
 export async function runDatabaseRulesValidate(
   parsed: ParsedArgs,
   deps: DatabaseRulesDeps = {},
@@ -101,14 +83,16 @@ export async function runDatabaseRulesValidate(
     return 1;
   }
 
+  let compiled: CompiledRtdbRules;
   try {
-    const compiled = parseRulesJson(file.raw);
-    out.write(`${JSON.stringify({ errors: collectFindings(compiled, 'errors') }, null, 2)}\n`);
-    return 0;
+    compiled = parseRulesJson(file.raw);
   } catch (e) {
     out.write(`${JSON.stringify(jsonError('INVALID_RULES_JSON', e instanceof Error ? e.message : String(e)), null, 2)}\n`);
     return 2;
   }
+  const { errors } = checkRtdbRules(() => compiled);
+  out.write(`${JSON.stringify({ errors }, null, 2)}\n`);
+  return errors.length === 0 ? 0 : 2;
 }
 
 /**

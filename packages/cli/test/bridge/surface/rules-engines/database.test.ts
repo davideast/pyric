@@ -45,6 +45,26 @@ describe('lint', () => {
     expect(result.data).toHaveProperty('issues');
   });
 
+  it('fails a supplied ruleset whose expression does not parse, reporting the error as a lint finding', async () => {
+    const broken = JSON.stringify({ rules: { notes: { $id: { '.write': 'auth != null && (' } } } });
+    const result = await DATABASE_RULES.lint(freshContext(), broken);
+    expect(result.ok).toBe(false);
+    expect(result.summary).toBe('1 findings, 1 errors');
+    const data = result.data as { code: string; issues: Array<{ code: string; severity: string; path: string }> };
+    expect(data.code).toBe('lint_findings');
+    expect(data.issues).toEqual([
+      expect.objectContaining({ code: 'PARSE_ERROR', severity: 'error', path: '/notes/$id' }),
+    ]);
+  });
+
+  it('passes a supplied ruleset whose findings are warnings only', async () => {
+    const result = await DATABASE_RULES.lint(freshContext(), OPEN_RULES);
+    expect(result.ok).toBe(true);
+    const issues = (result.data as { issues: Array<{ severity: string }> }).issues;
+    expect(issues.length).toBeGreaterThan(0);
+    expect(issues.every((issue) => issue.severity === 'warning')).toBe(true);
+  });
+
   it('lints the ruleset already installed when none is supplied', async () => {
     const ctx = freshContext();
     await DATABASE_RULES.install(ctx, OPEN_RULES);
