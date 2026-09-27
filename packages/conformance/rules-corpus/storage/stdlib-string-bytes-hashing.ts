@@ -12,8 +12,58 @@
  * for the whole request, so no case pins it. Negative controls pin the
  * receiver and argument types: an int has no string methods and does not
  * hash, and an uncompilable pattern is an error.
+ *
+ * The string-escape cases cover the escapes production accepts in a string
+ * literal, one `allow get` condition per path, the same cases and verdicts as
+ * the stringEscape cases of the Firestore scenario string-literals-and-regex.
+ * A backslash escapes a backslash, either quote, `n`, `r`, `t`, `b`, or `f`.
+ * `\x` takes exactly two hexadecimal digits of either case and `\` takes three
+ * octal digits up to `\377`; each is the code point of that value, not a
+ * byte. `\u` takes exactly four hexadecimal digits of either case and is one
+ * UTF-16 code unit: two `\u` escapes form a surrogate pair, and `size()`
+ * counts code units. A raw tab is a plain character.
+ *
+ * Production rejects these forms when the ruleset is submitted, so they
+ * cannot appear in a scenario: `'\/'` ("Missing 'match' keyword before
+ * path"), `'\a'`, `'\v'`, `'\?'`, `'\d'`, `'\.'`, a backslash before a
+ * backtick, `'\0'`, `'\12'`, `'\400'`, `'\x4'`, `'\x4g'`, `'\X41'`, `\u` with
+ * fewer than four hexadecimal digits or none, `'\u{41}'`, `'\U0001F600'`, and
+ * a raw line feed or carriage return inside the quotes.
  */
 import type { StorageScenarioRecord } from './types.ts';
+
+interface StringEscapeCase {
+  key: string;
+  condition: string;
+  expectation: 'ALLOW' | 'DENY';
+}
+
+const stringEscapes: StringEscapeCase[] = [
+  { key: 'hexEscape', condition: "'\\x41' == 'A' && '\\x4a' == 'J' && '\\x4A' == 'J'", expectation: 'ALLOW' },
+  { key: 'hexEscapeTwoDigits', condition: "'\\x411' == 'A1' && '\\x41'.size() == 1", expectation: 'ALLOW' },
+  { key: 'hexEscapeCodePoint', condition: "'\\xe9' == 'é' && '\\xe9'.toUtf8() == b'\\xc3\\xa9'", expectation: 'ALLOW' },
+  { key: 'hexEscapeNotUtf8', condition: "'\\xc3\\xa9' == 'é'", expectation: 'DENY' },
+  { key: 'hexEscapeSize', condition: "'\\xc3\\xa9'.size() == 2", expectation: 'ALLOW' },
+  { key: 'unicodeEscape', condition: "'\\u0041' == 'A' && \"\\u0041\" == 'A' && '\\u00411' == 'A1'", expectation: 'ALLOW' },
+  { key: 'unicodeEscapeNonAscii', condition: "'\\u00e9' == 'é' && '\\u00E9' == 'é' && '\\u00e9'.size() == 1", expectation: 'ALLOW' },
+  { key: 'unicodeEscapeUtf8', condition: "'\\u00e9'.toUtf8().toHexString() == 'C3A9'", expectation: 'ALLOW' },
+  { key: 'unicodeEscapeOneUnit', condition: "'\\u00e9'.size() == 2", expectation: 'DENY' },
+  { key: 'unicodeEscapeCjk', condition: "'\\u65e5\\u672c' == '日本'", expectation: 'ALLOW' },
+  { key: 'unicodeSurrogatePair', condition: "'\\ud83d\\ude00' == '😀' && '\\ud83d\\ude00'.size() == 2", expectation: 'ALLOW' },
+  { key: 'octalEscape', condition: "'\\101' == 'A' && '\\101'.size() == 1 && '\\012' == '\\n'", expectation: 'ALLOW' },
+  { key: 'octalEscapeMax', condition: "'\\377' == '\\u00ff' && '\\377' == '\\xff' && '\\377'.toUtf8().toHexString() == 'C3BF'", expectation: 'ALLOW' },
+  { key: 'octalEscapeZero', condition: "'\\000'.size() == 1 && '\\000' == '\\u0000'", expectation: 'ALLOW' },
+  { key: 'backspaceFormFeed', condition: "'\\b' == '\\u0008' && '\\f' == '\\u000c' && '\\b\\f'.toUtf8().toHexString() == '080C'", expectation: 'ALLOW' },
+  { key: 'simpleEscapes', condition: "'\\\\\\'\\\"\\n\\r\\t'.toUtf8().toHexString() == '5C27220A0D09'", expectation: 'ALLOW' },
+  { key: 'doubleQuotedMix', condition: "\"\\x41\\u0041\\101\" == 'AAA'", expectation: 'ALLOW' },
+  { key: 'rawTab', condition: "'a\tb'.size() == 3 && 'a\tb' == 'a\\tb'", expectation: 'ALLOW' },
+];
+
+const stringEscapeBlocks = stringEscapes
+  .map(({ key, condition }) => `    match /string-escape/${key}/{id} {
+      allow get: if ${condition};
+    }`)
+  .join('\n');
 
 const ALICE_SHA256_HEX = '2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6e90';
 
@@ -36,7 +86,7 @@ function getCase(description: string, expectation: 'ALLOW' | 'DENY', path: strin
 export const scenario: StorageScenarioRecord = {
   fm: 'STORAGE-STDLIB-STRING',
   rationale:
-    'String case, trim, regular-expression replace-all, and toUtf8, plus Bytes encodings and equality and the md5/sha256/crc32/crc32c digests, with int receivers, int hash input, and an invalid pattern as negative controls.',
+    'String case, trim, regular-expression replace-all, and toUtf8, plus Bytes encodings and equality and the md5/sha256/crc32/crc32c digests, with int receivers, int hash input, and an invalid pattern as negative controls. String literals decode the escapes production accepts: \\x and octal as code points, \\u as one UTF-16 code unit, and \\b and \\f.',
   rules: `rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
@@ -102,6 +152,7 @@ service firebase.storage {
     match /hash-int/{id} {
       allow get: if hashing.md5(resource.size).size() == 16;
     }
+${stringEscapeBlocks}
   }
 }`,
   cases: [
@@ -124,5 +175,7 @@ service firebase.storage {
     getCase('sha256 of the caller uid against metadata', 'ALLOW', 'owner-hash/a'),
     getCase('int receiver has no lower() method', 'DENY', 'int-string-method/a'),
     getCase('hashing an int is an error', 'DENY', 'hash-int/a'),
+    ...stringEscapes.map(({ key, condition, expectation }) =>
+      getCase(`${condition} → ${expectation}`, expectation, `string-escape/${key}/a`)),
   ],
 };

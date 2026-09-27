@@ -4,18 +4,36 @@
   "rowIds": [
     "firestore-rules#175"
   ],
-  "description": "Firestore Rules Test API verdicts for corpus scenario \"string-literals-and-regex\" (Class B). Pre-fix the simulator forwarded raw `\\\\.` to RegExp without unescaping; production-style `.matches('...\\\\.com')` denied silently.",
-  "observedAt": "2026-07-21T23:43:07.250Z",
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"string-literals-and-regex\" (Class B). Pre-fix the simulator forwarded raw `\\\\.` to RegExp without unescaping; production-style `.matches('...\\\\.com')` denied silently. String literals decode the escapes production accepts: \\x and octal as code points, \\u as one UTF-16 code unit, and \\b and \\f.",
+  "observedAt": "2026-09-27T17:34:53.710Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "bd3468490be5e0faddc24542287131ef71e76309c6277ed4afbd96dc0e168e7e"
+    "value": "a969eb1d5e512df2fa6e705a50a2cfad4a28764942afc1268635c2b9f002291d"
   },
   "behavior": {
     "matches('.*@acme\\\\.com') vs alice@acme.com → ALLOW": "ALLOW",
     "matches('.*@acme\\\\.com') vs bob@other.com → DENY": "DENY",
     "matches('.*@acme.com') vs alice@acme.com → ALLOW (no-escape control)": "ALLOW",
-    "!matches('.*\\t.*') vs name without tab → ALLOW (tab escape literal)": "ALLOW"
+    "!matches('.*\\t.*') vs name without tab → ALLOW (tab escape literal)": "ALLOW",
+    "'\\x41' == 'A' && '\\x4a' == 'J' && '\\x4A' == 'J' → ALLOW": "ALLOW",
+    "'\\x411' == 'A1' && '\\x41'.size() == 1 → ALLOW": "ALLOW",
+    "'\\xe9' == 'é' && '\\xe9'.toUtf8() == b'\\xc3\\xa9' → ALLOW": "ALLOW",
+    "'\\xc3\\xa9' == 'é' → DENY": "DENY",
+    "'\\xc3\\xa9'.size() == 2 → ALLOW": "ALLOW",
+    "'\\u0041' == 'A' && \"\\u0041\" == 'A' && '\\u00411' == 'A1' → ALLOW": "ALLOW",
+    "'\\u00e9' == 'é' && '\\u00E9' == 'é' && '\\u00e9'.size() == 1 → ALLOW": "ALLOW",
+    "'\\u00e9'.toUtf8().toHexString() == 'C3A9' → ALLOW": "ALLOW",
+    "'\\u00e9'.size() == 2 → DENY": "DENY",
+    "'\\u65e5\\u672c' == '日本' → ALLOW": "ALLOW",
+    "'\\ud83d\\ude00' == '😀' && '\\ud83d\\ude00'.size() == 2 → ALLOW": "ALLOW",
+    "'\\101' == 'A' && '\\101'.size() == 1 && '\\012' == '\\n' → ALLOW": "ALLOW",
+    "'\\377' == '\\u00ff' && '\\377' == '\\xff' && '\\377'.toUtf8().toHexString() == 'C3BF' → ALLOW": "ALLOW",
+    "'\\000'.size() == 1 && '\\000' == '\\u0000' → ALLOW": "ALLOW",
+    "'\\b' == '\\u0008' && '\\f' == '\\u000c' && '\\b\\f'.toUtf8().toHexString() == '080C' → ALLOW": "ALLOW",
+    "'\\\\\\'\\\"\\n\\r\\t'.toUtf8().toHexString() == '5C27220A0D09' → ALLOW": "ALLOW",
+    "\"\\x41\\u0041\\101\" == 'AAA' → ALLOW": "ALLOW",
+    "'a\tb'.size() == 3 && 'a\tb' == 'a\\tb' → ALLOW": "ALLOW"
   }
 }

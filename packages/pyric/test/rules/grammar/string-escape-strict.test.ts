@@ -1,13 +1,15 @@
 /**
- * String-escape strictness tests — `matches-string-escape-strict` from
- * REBUILD_PLAN.md (Class B Bugs). The grammar restricts the set of
- * characters that may follow a backslash in a string literal to match
- * production semantics: production raises a syntax error on `\d`, `\.`,
- * `\w`, etc. Pre-fix the simulator silently accepted these — that masked
- * model output that would crash at deploy.
+ * String literal escapes. The accepted and rejected forms match the
+ * production Rules Test API, captured through the string escape cases of the
+ * Firestore corpus scenario string-literals-and-regex and the Storage corpus
+ * scenario stdlib-string-bytes-hashing and probed form by form.
  *
- * The valid set is `\\ \' \" \n \r \t \/`. Anything else is rejected at
- * parse time with a structured ParseError.
+ * A backslash escapes a backslash, either quote, `n`, `r`, `t`, `b`, or `f`.
+ * `\x` takes exactly two hexadecimal digits and `\` takes three octal digits
+ * up to `\377`; each is the code point of that value, not a byte. `\u` takes
+ * exactly four hexadecimal digits and is one UTF-16 code unit. Every other
+ * escape is a parse error, including `\/`, and so is a raw line break inside
+ * the quotes.
  */
 import { describe, expect, test } from 'bun:test';
 import {
@@ -24,92 +26,106 @@ service cloud.firestore {
 }`;
 }
 
-describe('string escapes — accepted (production-valid)', () => {
-  // These are the seven escape sequences the grammar's stringEscapeChar
-  // rule whitelists. Each must round-trip through parse → AST → runtime
-  // without diagnostic.
+function stringOf(source: string): string {
+  const parsed = parseToASTOrError(rules(`x == ${source}`));
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  const condition = parsed.ast.service.match.children[0]!.allows[0]!.condition;
+  if (condition.type !== 'binaryOp') throw new Error(`unexpected condition ${condition.type}`);
+  const literal = condition.right;
+  if (literal.type !== 'literal' || typeof literal.value !== 'string') {
+    throw new Error(`${source} did not parse to a string literal`);
+  }
+  return literal.value;
+}
+
+describe('string escapes: accepted forms', () => {
   const accepted: Array<[string, string, string]> = [
-    ['backslash',     "'a\\\\b'",  'a\\b'],   // source `\\`  → value `\`
-    ['single-quote',  "'a\\'b'",   "a'b"],    // source `\'`  → value `'`
-    ['double-quote',  "'a\\\"b'",  'a"b'],    // source `\"`  → value `"`
-    ['newline',       "'a\\nb'",   'a\nb'],
-    ['carriage ret',  "'a\\rb'",   'a\rb'],
-    ['tab',           "'a\\tb'",   'a\tb'],
-    ['forward slash', "'a\\/b'",   'a/b'],
+    ['backslash', "'a\\\\b'", 'a\\b'],
+    ['single quote', "'a\\'b'", "a'b"],
+    ['double quote', "'a\\\"b'", 'a"b'],
+    ['newline', "'a\\nb'", 'a\nb'],
+    ['carriage return', "'a\\rb'", 'a\rb'],
+    ['tab', "'a\\tb'", 'a\tb'],
+    ['backspace', "'a\\bb'", 'a\bb'],
+    ['form feed', "'a\\fb'", 'a\fb'],
+    ['hex escape', "'\\x41'", 'A'],
+    ['hex escape, either case', "'\\x4a\\x4A'", 'JJ'],
+    ['hex escape takes two digits', "'\\x411'", 'A1'],
+    ['hex escape is a code point', "'\\xe9'", String.fromCharCode(0xe9)],
+    ['hex escapes are not UTF-8 decoded', "'\\xc3\\xa9'", String.fromCharCode(0xc3, 0xa9)],
+    ['unicode escape', "'\\u0041'", 'A'],
+    ['unicode escape, either case', "'\\u00e9\\u00E9'", String.fromCharCode(0xe9, 0xe9)],
+    ['unicode escape takes four digits', "'\\u00411'", 'A1'],
+    ['unicode escape outside Latin-1', "'\\u65e5\\u672c'", String.fromCharCode(0x65e5, 0x672c)],
+    ['unicode surrogate pair', "'\\ud83d\\ude00'", String.fromCharCode(0xd83d, 0xde00)],
+    ['unicode NUL', "'\\u0000'", String.fromCharCode(0)],
+    ['octal escape', "'\\101'", 'A'],
+    ['octal escape for a line feed', "'\\012'", '\n'],
+    ['octal NUL', "'\\000'", String.fromCharCode(0)],
+    ['largest octal escape', "'\\377'", String.fromCharCode(0xff)],
+    ['double-quoted mix', '"\\x41\\u0041\\101"', 'AAA'],
+    ['raw tab', "'a\tb'", 'a\tb'],
+    ['non-ASCII character', "'日本'", '日本'],
   ];
 
-  for (const [name, src, expected] of accepted) {
-    test(`${name}: ${src} parses and decodes to ${JSON.stringify(expected)}`, () => {
-      const r = parseExpression(src);
-      expect(r.valid).toBe(true);
-      // Confirm the runtime value (after escape processing) matches.
-      const ast = parseToASTOrError(rules(`x == ${src}`));
-      expect(ast.ok).toBe(true);
-      if (ast.ok) {
-        const cond = ast.ast.service.match.children[0]!.allows[0]!.condition;
-        // condition is binaryOp ==; right side is the string literal.
-        expect((cond as any).right.value).toBe(expected);
-      }
+  for (const [name, source, expected] of accepted) {
+    test(`${name}: ${source} decodes to ${JSON.stringify(expected)}`, () => {
+      expect(parseExpression(source).valid).toBe(true);
+      expect(stringOf(source)).toBe(expected);
     });
   }
 
-  test('double-quoted form accepts the same escape set', () => {
-    expect(parseExpression('"a\\nb"').valid).toBe(true);
-    expect(parseExpression('"a\\\\b"').valid).toBe(true);
-    expect(parseExpression('"a\\"b"').valid).toBe(true);
+  test('the literal keeps its source text for printers', () => {
+    const parsed = parseToASTOrError(rules("x == '\\x41\\u0041'"));
+    if (!parsed.ok) throw new Error(parsed.error.message);
+    const condition = parsed.ast.service.match.children[0]!.allows[0]!.condition;
+    expect(condition.type === 'binaryOp' && condition.right.type === 'literal' && condition.right.raw)
+      .toBe("'\\x41\\u0041'");
   });
 
-  test('regression: `.matches(\'.*@acme\\\\.com\')` still parses', () => {
-    // The matches-string-escape scenario source. Source `\\.` → value `\.`.
-    const r = parseToASTOrError(rules(
-      "request.auth.token.email.matches('.*@acme\\\\.com')",
-    ));
-    expect(r.ok).toBe(true);
+  test("matches('.*@acme\\\\.com') parses: source `\\\\.` is the value `\\.`", () => {
+    expect(parseToASTOrError(rules("request.auth.token.email.matches('.*@acme\\\\.com')")).ok).toBe(true);
+    expect(stringOf("'.*@acme\\\\.com'")).toBe('.*@acme\\.com');
   });
 });
 
-describe('string escapes — rejected (production-invalid)', () => {
-  // Any backslash NOT followed by one of the whitelisted chars must fail
-  // the parse with a structured ParseError. These are the cases that
-  // pre-fix slipped through silently.
-  const rejected = ['.', 'd', 'w', 's', 'D', 'W', 'S', 'b', 'f', 'v', 'x', '0', 'a'];
+describe('string escapes: forms production rejects', () => {
+  const rejected: Array<[string, string]> = [
+    ['escaped slash', "'\\/'"],
+    ['bell', "'\\a'"],
+    ['vertical tab', "'\\v'"],
+    ['question mark', "'\\?'"],
+    ['backtick', "'\\`'"],
+    ['regex digit class', "'\\d'"],
+    ['regex dot', "'\\.'"],
+    ['regex word class', "'\\w'"],
+    ['one octal digit', "'\\0'"],
+    ['two octal digits', "'\\12'"],
+    ['octal above 377', "'\\400'"],
+    ['hex with one digit', "'\\x4'"],
+    ['hex with a non-hex digit', "'\\x4g'"],
+    ['uppercase X', "'\\X41'"],
+    ['bare u', "'\\u'"],
+    ['unicode with three digits', "'\\u041'"],
+    ['unicode with non-hex digits', "'\\uzzzz'"],
+    ['braced unicode', "'\\u{41}'"],
+    ['uppercase U with eight digits', "'\\U0001F600'"],
+    ['uppercase U for A', "'\\U00000041'"],
+    ['raw line feed, single-quoted', "'a\nb'"],
+    ['raw line feed, double-quoted', '"a\nb"'],
+    ['raw carriage return', "'a\rb'"],
+    ['lone backslash before the end', "'a\\"],
+  ];
 
-  for (const ch of rejected) {
-    test(`'\\${ch}' is rejected at parse time`, () => {
-      const src = `'a\\${ch}b'`;
-      const r = parseExpression(src);
-      expect(r.valid).toBe(false);
-      expect(r.parseError).toBeDefined();
-      // Diagnostic should point near the offending escape character.
-      // Offset is into the trimmed source; the escape lives at index 2
-      // (after the opening quote and the leading 'a').
-      expect(r.parseError!.offset).toBeGreaterThanOrEqual(2);
+  for (const [name, source] of rejected) {
+    test(`${name}: ${JSON.stringify(source)} is a parse error`, () => {
+      expect(parseToASTOrError(rules(`${source}.size() == 1`)).ok).toBe(false);
     });
   }
 
-  test('full rules file with `\\.` in matches() fails to parse', () => {
-    // This is the regex-style escape models sometimes emit. Pre-fix the
-    // simulator silently accepted it; production rejects at parse time.
-    const r = parseToASTOrError(rules(
-      "request.auth.token.email.matches('.*@acme\\.com')",
-    ));
-    expect(r.ok).toBe(false);
-    if (!r.ok) {
-      // Should pinpoint inside the string literal, not at end-of-file.
-      expect(r.error.line).toBeGreaterThanOrEqual(4);
-    }
-  });
-
-  test('double-quoted form rejects the same set', () => {
-    expect(parseExpression('"a\\db"').valid).toBe(false);
-    expect(parseExpression('"a\\.b"').valid).toBe(false);
-  });
-
-  test('lone trailing backslash before close quote is rejected', () => {
-    // `'a\'` — the `\'` is a valid escape, but then the string never
-    // closes. `'a\\'` is fine (escaped backslash + close). `'a\X'` for
-    // any disallowed X is rejected as above. This test covers the
-    // pathological `'a\\` where the escape consumes the would-be close.
-    expect(parseExpression("'a\\").valid).toBe(false);
+  test('the diagnostic points inside the string literal', () => {
+    const parsed = parseToASTOrError(rules("request.auth.token.email.matches('.*@acme\\.com')"));
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.error.line).toBeGreaterThanOrEqual(4);
   });
 });

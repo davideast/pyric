@@ -1220,6 +1220,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "list-and-string-methods",
+        "string-literals-and-regex",
         "time-math-and-casts"
       ],
       "verifiedByRows": [],
@@ -1271,7 +1272,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "bytes-toutf8-and-hashing"
+        "bytes-toutf8-and-hashing",
+        "string-literals-and-regex"
       ],
       "verifiedByRows": [
         "firestore-rules#161"
@@ -1830,7 +1832,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "bytes-toutf8-and-hashing"
+        "bytes-toutf8-and-hashing",
+        "string-literals-and-regex"
       ],
       "verifiedByRows": [
         "firestore-rules#161"
@@ -2191,6 +2194,7 @@
         "resource-missing-document",
         "set-algebra-difference-union-intersection",
         "strict-boolean-control-flow",
+        "string-literals-and-regex",
         "time-math-and-casts",
         "timestamp-component-accessors",
         "undefined-field-access"
@@ -2438,6 +2442,7 @@
         "resource-document-identity",
         "set-algebra-difference-union-intersection",
         "strict-boolean-control-flow",
+        "string-literals-and-regex",
         "time-math-and-casts",
         "timestamp-component-accessors"
       ],
@@ -2726,6 +2731,7 @@
         "hierarchical-match-cascade",
         "resource-document-identity",
         "resource-missing-document",
+        "string-literals-and-regex",
         "timestamp-component-accessors"
       ],
       "verifiedByRows": [],
