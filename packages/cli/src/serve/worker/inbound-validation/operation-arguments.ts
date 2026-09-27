@@ -400,12 +400,6 @@ export function assertOperationArguments(message: Record<string, unknown>): void
     case 'storage.getMetadata':
     case 'storage.getDownloadURL':
     case 'storage.getBlob':
-    case 'storage.setMetadata':
-    case 'storage.getBytes':
-    case 'storage.beginUpload':
-    case 'storage.putPart':
-    case 'storage.finishUpload':
-    case 'storage.abortUpload':
     case 'storage.deleteObject':
     case 'getRuntimeEpoch':
     case 'retireRuntime':
