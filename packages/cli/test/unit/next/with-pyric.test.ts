@@ -111,6 +111,45 @@ describe('withPyric Next.js configuration wrapper', () => {
     expect(clientResult.output.environment.asyncFunction).toBe(true);
   });
 
+  it('puts the React hook first in the client entries, before React evaluates', async () => {
+    const res = withPyric({}) as Record<string, any>;
+    const clientConfig: any = {
+      entry: async () => ({
+        'main-app': ['next/dist/client/app-next.js'],
+        main: { import: ['next/dist/client/next.js'] },
+        'app/page': ['./app/page.tsx'],
+      }),
+    };
+    const clientResult = res.webpack(clientConfig, { isServer: false });
+    const entries = await clientResult.entry();
+    expect(entries['main-app']).toEqual(['@pyric/cli/next/internal/react-hook', 'next/dist/client/app-next.js']);
+    expect(entries.main).toEqual({ import: ['@pyric/cli/next/internal/react-hook', 'next/dist/client/next.js'] });
+    expect(entries['app/page']).toEqual(['./app/page.tsx']);
+    // A second pass over the same entries does not add the hook twice.
+    clientResult.entry = res.webpack({ entry: async () => entries }, { isServer: false }).entry;
+    expect((await clientResult.entry())['main-app']).toEqual(['@pyric/cli/next/internal/react-hook', 'next/dist/client/app-next.js']);
+
+    const serverResult = res.webpack({ entry: async () => ({ 'main-app': ['server.js'] }) }, { isServer: true });
+    expect((await serverResult.entry())['main-app']).toEqual(['server.js']);
+  });
+
+  it('installs the React hook when its entry evaluates, and keeps an existing one', async () => {
+    const host = globalThis as { __REACT_DEVTOOLS_GLOBAL_HOOK__?: unknown };
+    const previous = host.__REACT_DEVTOOLS_GLOBAL_HOOK__;
+    delete host.__REACT_DEVTOOLS_GLOBAL_HOOK__;
+    try {
+      await import('../../../src/next/react-hook-entry.ts?install=1');
+      const hook = host.__REACT_DEVTOOLS_GLOBAL_HOOK__ as { supportsFiber?: boolean; inject?: unknown };
+      expect(hook.supportsFiber).toBe(true);
+      expect(typeof hook.inject).toBe('function');
+      await import('../../../src/next/react-hook-entry.ts?install=2');
+      expect(host.__REACT_DEVTOOLS_GLOBAL_HOOK__).toBe(hook);
+    } finally {
+      host.__REACT_DEVTOOLS_GLOBAL_HOOK__ = previous;
+      if (previous === undefined) delete host.__REACT_DEVTOOLS_GLOBAL_HOOK__;
+    }
+  });
+
   it('configures Turbopack aliases for client SDKs', () => {
     const res = withPyric({
       turbopack: { resolveAlias: { modern: 'alias' } },

@@ -103,7 +103,15 @@ export function createListenerObservation(document: Document, commits: ReactComm
   };
 }
 
-const pageObservations = new WeakMap<Document, ListenerObservation>();
+/**
+ * One observation per page, even when the SDK entry and the chip load separate
+ * copies of this module: a second copy would install a second commit observer
+ * and split the startup evidence between them.
+ */
+const OBSERVATIONS_KEY = Symbol.for('pyric.listener-observations');
+const observationStore = globalThis as { [OBSERVATIONS_KEY]?: WeakMap<Document, ListenerObservation> };
+const pageObservations = observationStore[OBSERVATIONS_KEY]
+  ?? (observationStore[OBSERVATIONS_KEY] = new WeakMap<Document, ListenerObservation>());
 
 /** Called during SDK initialization, before async configuration or application code. */
 export function pageListenerObservation(document: Document): ListenerObservation | null {

@@ -4,8 +4,9 @@
  * render, and the boxes that come out of the fiber walk.
  *
  * React is not a dependency of this package. It is a dependency of `@pyric/ui`
- * in the same workspace, so the test reaches it there and skips itself when it
- * is not installed. Everything else here is pyric's own code.
+ * in the same workspace, so the test reaches it there. A checkout without it
+ * fails here, naming the missing install, rather than skipping the only test
+ * of Flow against a real React. Everything else here is pyric's own code.
  */
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -62,7 +63,11 @@ function installPageGlobals(dom: JSDOM): () => void {
   };
 }
 
-describe.if(reactInstalled)('the Flow path against a real React', () => {
+describe('the Flow path against a real React', () => {
+  it('finds React installed for @pyric/ui', () => {
+    if (!reactInstalled) throw new Error(`React is not installed at ${reactDir}. Run bun install at the repository root.`);
+  });
+
   it('paints the components that rendered after a delivery', async () => {
     const dom = new JSDOM('<!doctype html><body><div id="root"></div></body>', { url: 'http://localhost/' });
     const restoreGlobals = installPageGlobals(dom);

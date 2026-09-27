@@ -158,7 +158,8 @@
     "./next/internal/database",
     "./next/internal/messaging",
     "./next/internal/messaging-sw",
-    "./next/internal/storage"
+    "./next/internal/storage",
+    "./next/internal/react-hook"
   ],
   "allowedFirebaseSdkImportEdges": [
     "dist/register/app-bridge.js -> firebase/app",

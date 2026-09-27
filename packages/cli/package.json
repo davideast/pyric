@@ -138,6 +138,9 @@
     },
     "./next/internal/storage": {
       "import": "./dist/serve/entries/storage.js"
+    },
+    "./next/internal/react-hook": {
+      "import": "./dist/next/react-hook-entry.js"
     }
   },
   "bin": {
