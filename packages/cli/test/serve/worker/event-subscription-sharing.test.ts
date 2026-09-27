@@ -1,12 +1,12 @@
 /**
- * A page shares one event-stream subscription per port. The host replays its
- * whole history to every event subscription it receives, so four local
- * subscribers used to cost four history replays on one socket; in hosted mode
- * that exceeded the socket's output backlog and the connection was closed.
+ * A page holds one event-stream subscription per port and shares it among its
+ * local subscribers. The host replays its whole history to each event
+ * subscription it receives, so the port receives that replay once.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import type { SandboxEvent } from 'pyric/sandbox';
 import * as client from '../../../src/serve/worker/client.js';
+import { restoreObservationSubscriptions } from '../../../src/serve/worker/client/core.js';
 import type { InboundMessage } from '../../../src/serve/worker/protocol.js';
 import { connectClient, sleep } from './integration-support.js';
 
@@ -47,14 +47,14 @@ describe('event subscriptions share one stream per port', () => {
     const historyLength = ctx.sandbox.history().length;
     const posted = recordPosts(db);
 
-    const firsts: number[] = [];
+    const firstBatchLengths: number[] = [];
     const unsubscribers = [0, 1, 2, 3].map((i) => client.subscribeEvents(db, (events) => {
-      if (firsts[i] === undefined) firsts[i] = events.length;
+      if (firstBatchLengths[i] === undefined) firstBatchLengths[i] = events.length;
     }));
     await sleep();
 
     expect(eventSubs(posted)).toHaveLength(1);
-    expect(firsts).toEqual([historyLength, historyLength, historyLength, historyLength]);
+    expect(firstBatchLengths).toEqual([historyLength, historyLength, historyLength, historyLength]);
     for (const unsubscribe of unsubscribers) unsubscribe();
   });
 
@@ -122,6 +122,60 @@ describe('event subscriptions share one stream per port', () => {
     await sleep();
     expect(batches.length).toBeGreaterThan(1);
     unsubscribe();
+  });
+
+  it('a subscriber that joins after a reset receives only the history since the reset', async () => {
+    const { ctx, db } = await connectClient();
+    await seed(ctx, 'before');
+    const unsubscribeEarly = client.subscribeEvents(db, () => {});
+    await sleep();
+
+    ctx.sandbox.reset();
+    await seed(ctx, 'after');
+    await sleep();
+    const hostHistoryIds = ctx.sandbox.history().map((e) => e.id);
+
+    let lateHistory: SandboxEvent[] | undefined;
+    const unsubscribeLate = client.subscribeEvents(db, (events) => { lateHistory ??= [...events]; });
+    await sleep();
+    expect(lateHistory!.map((e) => e.id)).toEqual(hostHistoryIds);
+    expect(lateHistory!.some((e) => e.kind === 'session_boundary')).toBe(false);
+    unsubscribeEarly();
+    unsubscribeLate();
+  });
+
+  it('restoring the port re-sends one subscription, and its history replaces the page copy', async () => {
+    const { ctx, db } = await connectClient();
+    await seed(ctx, 'a');
+    const unsubscribers = [0, 1, 2, 3].map(() => client.subscribeEvents(db, () => {}));
+    await sleep();
+    const posted = recordPosts(db);
+
+    // A replacement host starts with its own history; stand one in by clearing this host's.
+    (ctx.sandbox as unknown as { eventHistory: { clear(): void } }).eventHistory.clear();
+    restoreObservationSubscriptions(db.port);
+    await sleep();
+    expect(eventSubs(posted)).toHaveLength(1);
+    expect(unsubs(posted)).toHaveLength(1);
+
+    let lateHistory: SandboxEvent[] | undefined;
+    const late = client.subscribeEvents(db, (events) => { lateHistory ??= [...events]; });
+    await sleep();
+    expect(lateHistory!.map((e) => e.id)).toEqual(ctx.sandbox.history().map((e) => e.id));
+    expect(lateHistory!.some((e) => e.kind === 'operation' && JSON.stringify(e).includes('seed/a'))).toBe(false);
+    for (const unsubscribe of [...unsubscribers, late]) unsubscribe();
+  });
+
+  it('a subscriber removed during a delivery does not receive that batch', async () => {
+    const { ctx, db } = await connectClient();
+    await seed(ctx, 'a');
+    let secondBatches = 0;
+    let unsubscribeSecond = () => {};
+    const unsubscribeFirst = client.subscribeEvents(db, () => { unsubscribeSecond(); });
+    unsubscribeSecond = client.subscribeEvents(db, () => { secondBatches++; });
+    await sleep();
+    expect(secondBatches).toBe(0);
+    unsubscribeFirst();
   });
 
   it('a subscriber that throws does not stop the others from receiving the batch', async () => {
