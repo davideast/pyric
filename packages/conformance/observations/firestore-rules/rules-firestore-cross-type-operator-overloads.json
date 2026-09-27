@@ -5,12 +5,12 @@
     "firestore-rules#162"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"cross-type-operator-overloads\" (Item 2). Wrapper binaryOp must produce typed results for Timestamp/Duration cross-type ops; numeric coercion would silently lose type identity and (post-Risk 2 guard) silently DENY.",
-  "observedAt": "2026-07-21T23:43:01.996Z",
+  "observedAt": "2026-09-27T19:38:01.331Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "4e1c900d648b619e870441d14441f340951e39ba615a50780bfcff338cea2cae"
+    "value": "2eabda71910c4b1bb91fcf5143d9442c342362d0dc8ffdcc991cdef16c749c5e"
   },
   "behavior": {
     "Timestamp + Duration → Timestamp ALLOW": "ALLOW",
@@ -19,6 +19,174 @@
     "Duration + Duration → Duration ALLOW": "ALLOW",
     "Duration - Duration → Duration ALLOW": "ALLOW",
     "Timestamp < Timestamp via field compare ALLOW": "ALLOW",
-    "wrong arithmetic — Timestamp + Duration ≠ original Timestamp DENY": "DENY"
+    "wrong arithmetic — Timestamp + Duration ≠ original Timestamp DENY": "DENY",
+    "plusOperand listLiteralEq: [1] + [2] == [1, 2] → DENY": "DENY",
+    "plusOperand listLiteralNeq: [1] + [2] != [9] → DENY": "DENY",
+    "plusOperand listLiteralOrTrue: ([1] + [2] == [1, 2]) || true → ALLOW": "ALLOW",
+    "plusOperand listDataEq: request.resource.data.a + request.resource.data.b == ['a', 'b', 'c', 'd'] → DENY": "DENY",
+    "plusOperand listDataNeq: request.resource.data.a + request.resource.data.b != ['z'] → DENY": "DENY",
+    "plusOperand listDataOrTrue: (request.resource.data.a + request.resource.data.b == ['a', 'b', 'c', 'd']) || true → ALLOW": "ALLOW",
+    "plusOperand listStringNeq: request.resource.data.a + request.resource.data.s != ['z'] → DENY": "DENY",
+    "plusOperand listStringOrTrue: (request.resource.data.a + request.resource.data.s != ['z']) || true → ALLOW": "ALLOW",
+    "plusOperand stringListNeq: request.resource.data.s + request.resource.data.a != 'z' → DENY": "DENY",
+    "plusOperand stringListOrTrue: (request.resource.data.s + request.resource.data.a != 'z') || true → ALLOW": "ALLOW",
+    "plusOperand stringIntNeq: request.resource.data.s + request.resource.data.n != 'z' → DENY": "DENY",
+    "plusOperand stringIntOrTrue: (request.resource.data.s + request.resource.data.n != 'z') || true → ALLOW": "ALLOW",
+    "plusOperand stringIntLiteralNeq: 'a' + 1 != 'x' → DENY": "DENY",
+    "plusOperand intStringNeq: request.resource.data.n + request.resource.data.s != 'z' → DENY": "DENY",
+    "plusOperand intStringOrTrue: (request.resource.data.n + request.resource.data.s != 'z') || true → ALLOW": "ALLOW",
+    "plusOperand mapMapNeq: request.resource.data.m + {'b': 'c'} != {} → DENY": "DENY",
+    "plusOperand mapMapOrTrue: (request.resource.data.m + {'b': 'c'} != {}) || true → ALLOW": "ALLOW",
+    "plusOperand stringStringEq: request.resource.data.s + '/x' == 'ab/x' && 'a' + 'b' == 'ab' → ALLOW": "ALLOW",
+    "plusOperand stringStringNeq: request.resource.data.s + 'c' != 'abc' → DENY": "DENY",
+    "plusOperand stringStringOrTrue: (request.resource.data.s + 'c' != 'abc') || true → ALLOW": "ALLOW",
+    "plusOperand intFloatEq: request.resource.data.n + 1.5 == 4.5 && 1.5 + 1 == 2.5 → ALLOW": "ALLOW",
+    "plusOperand intFloatNeq: request.resource.data.n + 1.5 != 4.5 → DENY": "DENY",
+    "plusOperand intFloatOrTrue: (request.resource.data.n + 1.5 != 4.5) || true → ALLOW": "ALLOW",
+    "plusOperand concatDataEq: request.resource.data.a.concat(request.resource.data.b) == ['a', 'b', 'c', 'd'] → ALLOW": "ALLOW",
+    "plusOperand concatLiteralEq: [1].concat([2]) == [1, 2] → ALLOW": "ALLOW",
+    "plusOperand concatLiteralNeq: [1].concat([2]) != [1, 2] → DENY": "DENY"
+  },
+  "diagnostics": {
+    "plusOperand listLiteralEq: [1] + [2] == [1, 2] → DENY": {
+      "notes": [
+        "Error: firestore.rules line [40], column [28]. Unsupported operation error. Received: list + list. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 40,
+          "column": 28,
+          "currentOffset": 1648,
+          "endOffset": 1648
+        }
+      }
+    },
+    "plusOperand listLiteralNeq: [1] + [2] != [9] → DENY": {
+      "notes": [
+        "Error: firestore.rules line [43], column [28]. Unsupported operation error. Received: list + list. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 43,
+          "column": 28,
+          "currentOffset": 1743,
+          "endOffset": 1743
+        }
+      }
+    },
+    "plusOperand listDataEq: request.resource.data.a + request.resource.data.b == ['a', 'b', 'c', 'd'] → DENY": {
+      "notes": [
+        "Error: firestore.rules line [49], column [48]. Unsupported operation error. Received: list + list. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 49,
+          "column": 48,
+          "currentOffset": 1959,
+          "endOffset": 1959
+        }
+      }
+    },
+    "plusOperand listDataNeq: request.resource.data.a + request.resource.data.b != ['z'] → DENY": {
+      "notes": [
+        "Error: firestore.rules line [52], column [48]. Unsupported operation error. Received: list + list. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 52,
+          "column": 48,
+          "currentOffset": 2105,
+          "endOffset": 2105
+        }
+      }
+    },
+    "plusOperand listStringNeq: request.resource.data.a + request.resource.data.s != ['z'] → DENY": {
+      "notes": [
+        "Error: firestore.rules line [58], column [48]. Unsupported operation error. Received: list + string. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 58,
+          "column": 48,
+          "currentOffset": 2397,
+          "endOffset": 2397
+        }
+      }
+    },
+    "plusOperand stringListNeq: request.resource.data.s + request.resource.data.a != 'z' → DENY": {
+      "notes": [
+        "Error: firestore.rules line [64], column [48]. Unsupported operation error. Received: string + list. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 64,
+          "column": 48,
+          "currentOffset": 2676,
+          "endOffset": 2676
+        }
+      }
+    },
+    "plusOperand stringIntNeq: request.resource.data.s + request.resource.data.n != 'z' → DENY": {
+      "notes": [
+        "Error: firestore.rules line [70], column [48]. Unsupported operation error. Received: string + int. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 70,
+          "column": 48,
+          "currentOffset": 2950,
+          "endOffset": 2950
+        }
+      }
+    },
+    "plusOperand stringIntLiteralNeq: 'a' + 1 != 'x' → DENY": {
+      "notes": [
+        "Error: firestore.rules line [76], column [28]. Unsupported operation error. Received: string + int. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 76,
+          "column": 28,
+          "currentOffset": 3210,
+          "endOffset": 3210
+        }
+      }
+    },
+    "plusOperand intStringNeq: request.resource.data.n + request.resource.data.s != 'z' → DENY": {
+      "notes": [
+        "Error: firestore.rules line [79], column [48]. Unsupported operation error. Received: int + string. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 79,
+          "column": 48,
+          "currentOffset": 3318,
+          "endOffset": 3318
+        }
+      }
+    },
+    "plusOperand mapMapNeq: request.resource.data.m + {'b': 'c'} != {} → DENY": {
+      "notes": [
+        "Error: firestore.rules line [85], column [48]. Unsupported operation error. Received: map + map. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 85,
+          "column": 48,
+          "currentOffset": 3588,
+          "endOffset": 3588
+        }
+      }
+    }
   }
 }

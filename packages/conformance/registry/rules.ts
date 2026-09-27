@@ -86,10 +86,14 @@ export const rulesRegistry = {
         row1({
           rowRef: "162",
           featureKeys: ["Timestamp","Duration","crossTypeOperators"],
-          behavior: "Typed cross-type operator overloads for `Timestamp`/`Duration` (Item 2) in rules — no silent numeric coercion / type-identity loss",
+          behavior: "Typed cross-type operator overloads for `Timestamp`/`Duration` (Item 2) in rules — no silent numeric coercion / type-identity loss. `+` accepts int + int, float + float, string + string, and the duration and timestamp pairs; list + list, list + string, string + list, string + int, int + string, and map + map are error values that deny and that `|| true` absorbs. `list.concat(list)` joins lists.",
           status: "conforms",
-          evidence: "`oracle:rules-firestore-cross-type-operator-overloads` — production Firestore Rules Test API verdicts for corpus scenario \"cross-type-operator-overloads\", replayed verdict-for-verdict against the local rules simulator by `unit:rules/oracle-conformance.test.ts`; all cases match production.",
+          evidence: "`oracle:rules-firestore-cross-type-operator-overloads` — production Firestore Rules Test API verdicts for corpus scenario \"cross-type-operator-overloads\", replayed verdict-for-verdict against the local rules simulator by `unit:rules/oracle-conformance.test.ts`; all cases match production. The 2026-09-27 recapture adds 26 plusOperand cases: production reports \"Unsupported operation error. Received: list + list. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration.\" for `[1] + [2]` and for two request-data lists, and the same error for list + string, string + list, string + int (literal and data), int + string, and map + map. Each pair denies as a bare `==` or `!=` comparison and allows under `|| true`; string + string, int + float, and `list.concat(list)` evaluate. `unit:rules/simulator/evaluator.test.ts` pins the simulator's list + list error value and its `&&`/`||` absorption.",
           oracleObservations: ["rules-firestore-cross-type-operator-overloads"],
+          conformanceTests: [
+            "packages/pyric/test/rules/oracle-conformance.test.ts",
+            "packages/pyric/test/rules/simulator/evaluator.test.ts",
+          ],
         }),
         row1({
           rowRef: "163",
