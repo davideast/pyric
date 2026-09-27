@@ -5,27 +5,44 @@ import {
   RuleResourceLimitError,
   RuleUnsupportedError,
 } from './rules-evaluation-error.js';
-import { RuleError, describeRulesType as describeType } from './rules-values.js';
+import { StorageLatLng } from './rules-latlng.js';
+import { StoragePath } from './rules-path.js';
+import {
+  RuleError,
+  describeRulesType as describeType,
+  isRuleError as isErr,
+} from './rules-values.js';
 
 type MethodCall = Extract<Expr, { kind: 'methodcall' }>;
 
 /**
- * Evaluate `firestore.get(path)` / `firestore.exists(path)`.
- *
- * Requires an injected {@link FirestoreLookup} (the enforcement layer
- * supplies one from the sandbox's Firestore data). With NO capability —
- * pure/test usage without a sandbox — this denies with an "unsupported"
- * reason rather than ever a false allow, preserving the pre-lookup posture.
- *
- * Semantics (production-honest, deny-on-error):
- *   - `firestore.get(path)` → a resource `{ data: <fields> }`. Member access
- *     `.data.<field>` then reads the doc's fields. On a NONEXISTENT doc,
- *     production `get()` is itself an error, so this denies with a reason.
- *   - `firestore.exists(path)` → boolean.
- *   - Malformed path (missing `/databases/<db>/documents/` prefix, odd
- *     segment count), a non-string interpolation, wrong arg count, or a
- *     non-path argument → deny with a reason.
+ * Wrap raw Firestore document data values into Storage rules values
+ * (wrapping GeoPoint as latlng and DocumentReference/Path as path).
  */
+function wrapFirestoreValue(val: unknown): unknown {
+  if (val === null || val === undefined) return val;
+  if (typeof val === 'object') {
+    if (Array.isArray(val)) {
+      return val.map(wrapFirestoreValue);
+    }
+    const obj = val as Record<string, unknown>;
+    const lat = obj.latitude ?? obj._latitude;
+    const lng = obj.longitude ?? obj._longitude;
+    if (typeof lat === 'number' && typeof lng === 'number') {
+      return new StorageLatLng(lat, lng);
+    }
+    if (typeof obj.path === 'string' && obj.path.startsWith('/')) {
+      return new StoragePath(obj.path);
+    }
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(obj)) {
+      out[k] = wrapFirestoreValue(v);
+    }
+    return out;
+  }
+  return val;
+}
+
 export function evalFirestoreBuiltin(expr: MethodCall, ctx: EvalCtx): unknown {
   if (expr.method !== 'get' && expr.method !== 'exists') {
     // Unknown namespace method, compile-reject class, never absorbed.
@@ -43,10 +60,22 @@ export function evalFirestoreBuiltin(expr: MethodCall, ctx: EvalCtx): unknown {
     throw new RuleUnsupportedError(`firestore.${expr.method}() expects a single path argument`);
   }
   const arg = expr.args[0];
-  if (arg.kind !== 'path') {
-    throw new RuleUnsupportedError(`firestore.${expr.method}() requires a /databases/.../documents/... path literal`);
+  let docPath: string;
+  if (arg.kind === 'path') {
+    docPath = buildFirestoreDocPath(arg, ctx);
+  } else {
+    const val = evalExpr(arg, ctx);
+    if (isErr(val)) return val;
+    if (typeof val === 'string' || val instanceof StoragePath) {
+      const pathString = val instanceof StoragePath ? val.path : val;
+      const segments = pathString.split('/').filter(Boolean).map((value) => ({ kind: 'literal' as const, value }));
+      docPath = buildFirestoreDocPath({ kind: 'path', segments }, ctx);
+    } else {
+      throw new RuleUnsupportedError(
+        `firestore.${expr.method}() requires a /databases/.../documents/... path literal`,
+      );
+    }
   }
-  const docPath = buildFirestoreDocPath(arg, ctx);
   if (!ctx.firestoreAccesses.has(docPath)) {
     if (ctx.firestoreAccesses.size >= 2) {
       // Resource-limit class, the same posture as the Firestore lookup
@@ -67,7 +96,7 @@ export function evalFirestoreBuiltin(expr: MethodCall, ctx: EvalCtx): unknown {
     // see the tri-state operand handling in rules-evaluator.ts).
     return new RuleError(`firestore.get() targeted a nonexistent document: ${docPath}`);
   }
-  return { data: fields };
+  return { data: wrapFirestoreValue(fields) as Record<string, unknown> };
 }
 
 /**

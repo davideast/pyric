@@ -1,0 +1,322 @@
+{
+  "name": "rules-storage-arithmetic-operand-types",
+  "matrixRow": "",
+  "rowIds": [
+    "storage-rules#123"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"arithmetic-operand-types\" (Coverage: + and arithmetic operand types). String + string concatenates and int + float promotes, while list + list, string + int, int + string, list + string, map + map, and non-numeric -, *, /, % are error values that deny through != and ! and absorb through || true.",
+  "observedAt": "2026-09-27T14:10:51.121Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "'users/' + uid + '/' + file == 'users/alice/a.txt' on create → ALLOW": "ALLOW",
+    "string + string concatenates (binding and literal) → ALLOW": "ALLOW",
+    "'users/' + request.auth.uid != 'users/alice' → DENY": "DENY",
+    "int + float promotes to float; int + int stays int → ALLOW": "ALLOW",
+    "[1] + [2] == [1, 2] (list + list is an error) → DENY": "DENY",
+    "split() + ['z'] != ['zzz'] (list + list is an error) → DENY": "DENY",
+    "([1] + [2] == [1, 2]) || true absorbs the error → ALLOW": "ALLOW",
+    "fileId + resource.size != 'zzz' (string + int) → DENY": "DENY",
+    "!(fileId + resource.size == 'zzz') (string + int) → DENY": "DENY",
+    "(fileId + resource.size == 'zzz') || true absorbs the error → ALLOW": "ALLOW",
+    "'a' + 1 != 'x' (string + int literal compiles, errors) → DENY": "DENY",
+    "resource.size + fileId != 'zzz' (int + string) → DENY": "DENY",
+    "(resource.size + fileId == 'zzz') || true absorbs the error → ALLOW": "ALLOW",
+    "split() + fileId != ['zzz'] (list + string) → DENY": "DENY",
+    "fileId + split() != 'zzz' (string + list) → DENY": "DENY",
+    "resource.metadata + {'b': 'c'} != {} (map + map) → DENY": "DENY",
+    "fileId - 'a' != 'zzz' (string - string) → DENY": "DENY",
+    "fileId * 2 != 'zzz' (string * int) → DENY": "DENY",
+    "fileId / fileId != 1 (string / string) → DENY": "DENY",
+    "fileId % fileId != 1 (string % string) → DENY": "DENY"
+  },
+  "diagnostics": {
+    "'users/' + uid + '/' + file == 'users/alice/a.txt' on create → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 24,
+              "currentOffset": 127,
+              "endOffset": 134
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "string + string concatenates (binding and literal) → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 8,
+              "column": 22,
+              "currentOffset": 237,
+              "endOffset": 242
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "'users/' + request.auth.uid != 'users/alice' → DENY": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 11,
+              "column": 22,
+              "currentOffset": 345,
+              "endOffset": 352
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "int + float promotes to float; int + int stays int → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 14,
+              "column": 22,
+              "currentOffset": 449,
+              "endOffset": 456
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "[1] + [2] == [1, 2] (list + list is an error) → DENY": {
+      "notes": [
+        "Error: storage.rules line [18], column [26]. Unsupported operation error. Received: list + list. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 18,
+          "column": 26,
+          "currentOffset": 631,
+          "endOffset": 631
+        }
+      }
+    },
+    "split() + ['z'] != ['zzz'] (list + list is an error) → DENY": {
+      "notes": [
+        "Error: storage.rules line [21], column [42]. Unsupported operation error. Received: list + list. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 21,
+          "column": 42,
+          "currentOffset": 729,
+          "endOffset": 729
+        }
+      }
+    },
+    "([1] + [2] == [1, 2]) || true absorbs the error → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 24,
+              "column": 22,
+              "currentOffset": 809,
+              "endOffset": 809
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "fileId + resource.size != 'zzz' (string + int) → DENY": {
+      "notes": [
+        "Error: storage.rules line [27], column [29]. Unsupported operation error. Received: string + int. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 27,
+          "column": 29,
+          "currentOffset": 909,
+          "endOffset": 909
+        }
+      }
+    },
+    "!(fileId + resource.size == 'zzz') (string + int) → DENY": {
+      "notes": [
+        "Error: storage.rules line [30], column [31]. Unsupported operation error. Received: string + int. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 30,
+          "column": 31,
+          "currentOffset": 1006,
+          "endOffset": 1006
+        }
+      }
+    },
+    "(fileId + resource.size == 'zzz') || true absorbs the error → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 33,
+              "column": 22,
+              "currentOffset": 1094,
+              "endOffset": 1094
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "'a' + 1 != 'x' (string + int literal compiles, errors) → DENY": {
+      "notes": [
+        "Error: storage.rules line [36], column [26]. Unsupported operation error. Received: string + int. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 36,
+          "column": 26,
+          "currentOffset": 1207,
+          "endOffset": 1207
+        }
+      }
+    },
+    "resource.size + fileId != 'zzz' (int + string) → DENY": {
+      "notes": [
+        "Error: storage.rules line [39], column [36]. Unsupported operation error. Received: int + string. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 39,
+          "column": 36,
+          "currentOffset": 1295,
+          "endOffset": 1295
+        }
+      }
+    },
+    "(resource.size + fileId == 'zzz') || true absorbs the error → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 42,
+              "column": 22,
+              "currentOffset": 1375,
+              "endOffset": 1375
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "split() + fileId != ['zzz'] (list + string) → DENY": {
+      "notes": [
+        "Error: storage.rules line [45], column [42]. Unsupported operation error. Received: list + string. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 45,
+          "column": 42,
+          "currentOffset": 1501,
+          "endOffset": 1501
+        }
+      }
+    },
+    "fileId + split() != 'zzz' (string + list) → DENY": {
+      "notes": [
+        "Error: storage.rules line [48], column [29]. Unsupported operation error. Received: string + list. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 48,
+          "column": 29,
+          "currentOffset": 1592,
+          "endOffset": 1592
+        }
+      }
+    },
+    "resource.metadata + {'b': 'c'} != {} (map + map) → DENY": {
+      "notes": [
+        "Error: storage.rules line [51], column [40]. Unsupported operation error. Received: map + map. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 51,
+          "column": 40,
+          "currentOffset": 1701,
+          "endOffset": 1701
+        }
+      }
+    },
+    "fileId - 'a' != 'zzz' (string - string) → DENY": {
+      "notes": [
+        "Error: storage.rules line [54], column [29]. Unsupported operation error. Received: string - string. Expected: int - int, float - float, duration - duration, timestamp - duration, timestamp - timestamp."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 54,
+          "column": 29,
+          "currentOffset": 1790,
+          "endOffset": 1790
+        }
+      }
+    },
+    "fileId * 2 != 'zzz' (string * int) → DENY": {
+      "notes": [
+        "Error: storage.rules line [57], column [29]. Unsupported operation error. Received: string * int. Expected: int * int, float * float."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 57,
+          "column": 29,
+          "currentOffset": 1875,
+          "endOffset": 1875
+        }
+      }
+    },
+    "fileId / fileId != 1 (string / string) → DENY": {
+      "notes": [
+        "Error: storage.rules line [60], column [29]. Unsupported operation error. Received: string / string. Expected: int / int, float / float."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 60,
+          "column": 29,
+          "currentOffset": 1958,
+          "endOffset": 1958
+        }
+      }
+    },
+    "fileId % fileId != 1 (string % string) → DENY": {
+      "notes": [
+        "Error: storage.rules line [63], column [29]. Unsupported operation error. Received: string % string. Expected: int % int, float % float."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 63,
+          "column": 29,
+          "currentOffset": 2042,
+          "endOffset": 2042
+        }
+      }
+    }
+  }
+}

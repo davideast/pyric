@@ -8,7 +8,7 @@ import {
 } from './rules-values.js';
 
 /** The value types whose `is` test reads the value's own type name. */
-const VALUE_TYPE_NAMES = new Set(['timestamp', 'duration', 'bytes']);
+const VALUE_TYPE_NAMES = new Set(['timestamp', 'duration', 'bytes', 'latlng', 'path']);
 
 /**
  * `value is <type>` check. Numbers use the RULES-B5 model: a `RulesFloat`
@@ -28,6 +28,7 @@ export function typeMatches(v: unknown, typeName: string): boolean | RuleError {
     case 'number': return v instanceof RulesFloat || typeof v === 'number';
     case 'list': return Array.isArray(v);
     case 'map': return isRulesMap(v);
+    case 'null': return v === null;
   }
   if (VALUE_TYPE_NAMES.has(typeName)) {
     return v instanceof RulesValue && v.typeName === typeName;
@@ -63,14 +64,54 @@ export function evalValueOperator(op: string, left: unknown, right: unknown): un
     const result = right.binaryOp(op, left);
     if (result !== NO_OP) return result;
   }
+  return unsupportedOperation(op, left, right);
+}
+
+/** Production's error value for an operand pair an operator does not accept. */
+function unsupportedOperation(op: string, left: unknown, right: unknown): RuleError {
   return new RuleError(
     `Unsupported operation error. Received: ${describeType(left)} ${op} ${describeType(right)}.`,
   );
 }
 
 /** True for a float (RulesFloat); ints are bare numbers. */
-export function isFloatNum(v: unknown): boolean {
+function isFloatNum(v: unknown): boolean {
   return v instanceof RulesFloat;
+}
+
+/** The arithmetic operators `evalArithmetic` answers. */
+export type ArithmeticOperator = '+' | '-' | '*' | '/' | '%';
+
+/**
+ * `+`, `-`, `*`, `/`, and `%` over operands that are not Timestamp, Duration,
+ * or Bytes values. `+` concatenates two strings. Ints and floats compute
+ * numerically, and the result is a float when either operand is one. Int
+ * division truncates toward zero, and an int zero divisor for `/` or `%` is
+ * an error. A float zero divisor yields Infinity or NaN. Every other operand
+ * pair, including list + list, is production's "Unsupported operation error",
+ * an error value that `&&` and `||` absorb.
+ */
+export function evalArithmetic(op: ArithmeticOperator, left: unknown, right: unknown): unknown {
+  if (op === '+' && typeof left === 'string' && typeof right === 'string') return left + right;
+  const l = numVal(left);
+  const r = numVal(right);
+  if (l === undefined || r === undefined) return unsupportedOperation(op, left, right);
+  const float = isFloatNum(left) || isFloatNum(right);
+  let result: number;
+  switch (op) {
+    case '+': result = l + r; break;
+    case '-': result = l - r; break;
+    case '*': result = l * r; break;
+    case '/':
+      if (!float && r === 0) return new RuleError('Division by zero.');
+      result = float ? l / r : Math.trunc(l / r);
+      break;
+    case '%':
+      if (!float && r === 0) return new RuleError('Modulo by zero.');
+      result = l % r;
+      break;
+  }
+  return float ? new RulesFloat(result) : result;
 }
 
 export function cmp(a: unknown, b: unknown): number {
@@ -80,14 +121,4 @@ export function cmp(a: unknown, b: unknown): number {
   if (an !== undefined && bn !== undefined) return an - bn;
   if (typeof a === 'string' && typeof b === 'string') return a < b ? -1 : a > b ? 1 : 0;
   return Number.NaN; // mismatched types → NaN → all comparisons return false
-}
-
-/** Arithmetic over ints and floats: unwraps, computes, and RE-TAGS the result
- *  as a float when either operand was one (int op float promotes to float). */
-export function numOp(a: unknown, b: unknown, fn: (x: number, y: number) => number): unknown {
-  const an = numVal(a);
-  const bn = numVal(b);
-  if (an === undefined || bn === undefined) return undefined;
-  const result = fn(an, bn);
-  return isFloatNum(a) || isFloatNum(b) ? new RulesFloat(result) : result;
 }

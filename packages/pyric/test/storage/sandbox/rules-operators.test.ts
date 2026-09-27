@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'bun:test';
 import { parseStorageRules } from '../../../src/storage/sandbox/rules.js';
 import { evaluateStorageRules } from '../../../src/storage/sandbox/rules-evaluator.js';
+import { typeMatches } from '../../../src/storage/sandbox/rules-operators.js';
+import { StorageLatLng } from '../../../src/storage/sandbox/rules-latlng.js';
+import { StoragePath } from '../../../src/storage/sandbox/rules-path.js';
 
 // ─── Operators over Timestamp, Duration, and Bytes values ────────
 //
@@ -56,6 +59,68 @@ describe('evaluateStorageRules — value operators', () => {
   });
 });
 
+// ─── Arithmetic operators over every operand pair ────────────────
+//
+// rules-storage-arithmetic-operand-types captures production's `+`: string +
+// string concatenates, int and float add with float promotion, and every
+// other pair (list + list, string + int, int + string, list + string,
+// map + map) is "Unsupported operation error. Received: <left> + <right>.",
+// an error value that `||` absorbs and that survives `!=` and `!`. `-`, `*`,
+// `/`, and `%` on strings or lists are the same error.
+
+describe('evaluateStorageRules arithmetic over operand types', () => {
+  it('concatenates two strings, including a path built from bindings', () => {
+    expect(evalRead("'a' + 'b' == 'ab'").allowed).toBe(true);
+    expect(evalRead("'docs/' + docId == 'docs/d1.json'").allowed).toBe(true);
+    expect(evalRead("'docs/' + docId != 'docs/d1.json'").allowed).toBe(false);
+  });
+
+  it('adds ints and promotes an int plus a float to a float', () => {
+    expect(evalRead('1 + 2 == 3 && (resource.size + 1) is int').allowed).toBe(true);
+    expect(evalRead('resource.size + 1.5 == 11.5 && (resource.size + 1.5) is float').allowed).toBe(true);
+    expect(evalRead('1.5 + 1 == 2.5 && (1.5 + 1) is float').allowed).toBe(true);
+  });
+
+  const unsupported: Array<[string, string]> = [
+    ['[1] + [2]', 'list + list'],
+    ["docId + resource.size", 'string + int'],
+    ["resource.size + docId", 'int + string'],
+    ["docId.split('[.]') + docId", 'list + string'],
+    ["docId + docId.split('[.]')", 'string + list'],
+    ["{'a': 1} + {'b': 2}", 'map + map'],
+    ['docId + null', 'string + null'],
+    ['true + true', 'bool + bool'],
+  ];
+
+  for (const [sum, received] of unsupported) {
+    it(`denies ${received} as an unsupported operation, through != and !`, () => {
+      const neq = evalRead(`${sum} != 'zzz'`);
+      expect(neq.allowed).toBe(false);
+      expect(neq.reasons.join(' ')).toContain(`Unsupported operation error. Received: ${received}.`);
+      expect(evalRead(`!(${sum} == 'zzz')`).allowed).toBe(false);
+    });
+
+    it(`absorbs the ${received} error through ||`, () => {
+      expect(evalRead(`(${sum} == 'zzz') || true`).allowed).toBe(true);
+    });
+  }
+
+  it('denies -, *, /, and % on operands that are not numbers', () => {
+    for (const [expr, received] of [
+      ["docId - 'a'", 'string - string'],
+      ['docId * 2', 'string * int'],
+      ['docId / docId', 'string / string'],
+      ['docId % docId', 'string % string'],
+      ['[1, 2] - [1]', 'list - list'],
+      ["docId / 0", 'string / int'],
+    ]) {
+      const r = evalRead(`${expr} != 'zzz'`);
+      expect(r.allowed).toBe(false);
+      expect(r.reasons.join(' ')).toContain(`Unsupported operation error. Received: ${received}.`);
+    }
+  });
+});
+
 describe('evaluateStorageRules — is over value types', () => {
   it('types timestamps, durations, and bytes', () => {
     expect(evalRead("request.time is timestamp && duration.value(1, 's') is duration && 'a'.toUtf8() is bytes").allowed)
@@ -71,3 +136,24 @@ describe('evaluateStorageRules — is over value types', () => {
     expect(evalRead('resource.size is latlng').allowed).toBe(false);
   });
 });
+
+describe('typeMatches — latlng, path, and null', () => {
+  it('supports null type check', () => {
+    expect(typeMatches(null, 'null')).toBe(true);
+    expect(typeMatches('not null', 'null')).toBe(false);
+    expect(typeMatches(undefined, 'null')).toBe(false);
+  });
+
+  it('supports path type check', () => {
+    const p = new StoragePath('users/alice');
+    expect(typeMatches(p, 'path')).toBe(true);
+    expect(typeMatches('users/alice', 'path')).toBe(false);
+  });
+
+  it('supports latlng type check', () => {
+    const ll = new StorageLatLng(37.7749, -122.4194);
+    expect(typeMatches(ll, 'latlng')).toBe(true);
+    expect(typeMatches({ latitude: 37.7749, longitude: -122.4194 }, 'latlng')).toBe(false);
+  });
+});
+

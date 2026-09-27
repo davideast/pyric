@@ -15,10 +15,9 @@ import { buildRequestObject, buildResourceObject } from './rules-bindings.js';
 import { evalMethodCall } from './rules-methods.js';
 import {
   cmp,
+  evalArithmetic,
   evalValueOperator,
-  isFloatNum,
   isValueTypeOperand,
-  numOp,
   typeMatches,
 } from './rules-operators.js';
 import { formatPath, matchSegments, splitPath } from './rules-path-match.js';
@@ -28,12 +27,12 @@ import {
   RuleUnsupportedError,
   isAbsorbableEvalError,
 } from './rules-evaluation-error.js';
+import { StoragePath } from './rules-path.js';
 import {
   RuleError,
   describeRulesType as describeType,
   isRuleError as isErr,
   isRulesMap,
-  numericValue as numVal,
   rulesEquals,
 } from './rules-values.js';
 
@@ -388,24 +387,12 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
         case '>':  return cmp(l, r) > 0;
         case '<=': return cmp(l, r) <= 0;
         case '>=': return cmp(l, r) >= 0;
-        case '+':  return numOp(l, r, (a, b) => a + b);
-        case '-':  return numOp(l, r, (a, b) => a - b);
-        case '*':  return numOp(l, r, (a, b) => a * b);
-        // Division: int ÷ int TRUNCATES toward zero and an int zero divisor
-        // ERRORS (deny; `10 / 0 || true` still absorbs to allow) — JS float
-        // division would yield 2.5 / Infinity, and Infinity leaks through
-        // comparisons as a false-ALLOW. Float division stays float (÷ 0 →
-        // ±Infinity/NaN, the simulator's CEL-pinned behavior).
-        case '/': {
-          if (isFloatNum(l) || isFloatNum(r)) return numOp(l, r, (a, b) => a / b);
-          return numVal(r) === 0
-            ? new RuleError('Division by zero.')
-            : numOp(l, r, (a, b) => Math.trunc(a / b));
-        }
-        case '%': {
-          if (isFloatNum(l) || isFloatNum(r)) return numOp(l, r, (a, b) => a % b);
-          return numVal(r) === 0 ? new RuleError('Modulo by zero.') : numOp(l, r, (a, b) => a % b);
-        }
+        case '+':
+        case '-':
+        case '*':
+        case '/':
+        case '%':
+          return evalArithmetic(expr.op, l, r);
       }
     }
   }
@@ -483,6 +470,13 @@ function evalCall(expr: Extract<Expr, { kind: 'call' }>, ctx: EvalCtx): unknown 
   // COMPILE-reject failures in production (the ruleset never deploys), so
   // they are RuleUnsupportedError: unabsorbable by &&/||, always deny.
   if (!fn) {
+    if (expr.name === 'path' && expr.args.length === 1) {
+      const inner = evalExpr(expr.args[0], ctx);
+      if (isErr(inner)) return inner;
+      if (typeof inner === 'string') return new StoragePath(inner);
+      if (inner instanceof StoragePath) return inner;
+      return new RuleError(`path() expects a string, got ${describeType(inner)}.`);
+    }
     throw new RuleUnsupportedError(`undefined function ${expr.name}()`);
   }
   if (fn.unresolvedImport !== undefined) {
