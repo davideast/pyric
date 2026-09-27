@@ -108,7 +108,7 @@ class DocumentRtdbRuleset implements RtdbRuleset {
         passed: false,
         unsupported: true,
         matchedPath: c.path,
-        matchedRule: c.operation,
+        matchedRule: '',
         reason: result.error.message,
       };
     }

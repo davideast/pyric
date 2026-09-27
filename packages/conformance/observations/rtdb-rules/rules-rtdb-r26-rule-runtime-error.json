@@ -1,0 +1,26 @@
+{
+  "name": "rules-rtdb-r26-rule-runtime-error",
+  "matrixRow": "rtdb-rules#17",
+  "rowIds": [
+    "rtdb-rules#17"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r26-rule-runtime-error\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). a .read, .write, or .validate rule that errors at evaluation fails as that rule, so the simulator must deny where production denies and keep evaluating the other rules on the path, never report the request as beyond the simulator.",
+  "observedAt": "2026-09-27T16:54:09.610Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "read rule calling a string method on a number": "DENY",
+    "read rule calling a string method on a string": "ALLOW",
+    "erroring ancestor read rule, read of the ancestor": "DENY",
+    "erroring ancestor read rule, descendant read rule grants": "ALLOW",
+    "write rule calling a string method on a number": "DENY",
+    "write rule calling a string method on a string": "ALLOW",
+    "erroring ancestor write rule, write of the ancestor": "DENY",
+    "erroring ancestor write rule, descendant write rule grants": "ALLOW",
+    "error on the left of || with a true right side": "DENY",
+    "left of || true for a string": "ALLOW",
+    "error under !": "DENY",
+    "negation of a false comparison on a string": "ALLOW",
+    "string method on a missing child value": "DENY"
+  }
+}

@@ -1,14 +1,28 @@
 import { compileRtdbRules, simulateRtdbRules } from '../../pyric/src/rules/rtdb/compiled-rules.ts';
-import type { SimulationInput } from '../../pyric/src/rules/rtdb/simulation/spec.ts';
+import type { SimulateResult, SimulationInput } from '../../pyric/src/rules/rtdb/simulation/spec.ts';
 import type { RtdbScenario, RtdbTestCase } from '../rules-corpus/rtdb/types.ts';
 
 const REPLAY_UID = 'THP041EPnYbzh9c8GGBniSDoUKc2';
 export type RtdbVerdict = 'ALLOW' | 'DENY';
 
+/**
+ * The simulator's answer for one case. `UNSUPPORTED` is a rule the engine
+ * abstained on and `ERROR` is an engine error. Neither is a verdict, so
+ * neither matches a production ALLOW or DENY.
+ */
+export type RtdbSimulatorOutcome = RtdbVerdict | 'UNSUPPORTED' | 'ERROR';
+
 export interface RtdbReplayResult {
   caseKey: string;
   production: RtdbVerdict;
-  simulator: RtdbVerdict;
+  simulator: RtdbSimulatorOutcome;
+}
+
+/** The simulator outcome of one simulate result. */
+function outcomeOf(result: SimulateResult): RtdbSimulatorOutcome {
+  if (!result.success) return 'ERROR';
+  if (result.data.unsupported) return 'UNSUPPORTED';
+  return result.data.allowed ? 'ALLOW' : 'DENY';
 }
 
 function substituteUid<T>(value: T, uid: string): T {
@@ -59,7 +73,7 @@ function buildSimMock(
   return root;
 }
 
-function simulatorVerdict(scenario: RtdbScenario, testCase: RtdbTestCase): RtdbVerdict {
+function simulatorVerdict(scenario: RtdbScenario, testCase: RtdbTestCase): RtdbSimulatorOutcome {
   const subtree = JSON.parse(scenario.rules) as Record<string, unknown>;
   const compiled = compileRtdbRules(
     {
@@ -86,25 +100,23 @@ function simulatorVerdict(scenario: RtdbScenario, testCase: RtdbTestCase): RtdbV
 
   if (testCase.operation === 'update') {
     // An update writes each patch location; it is allowed only when every
-    // location's write is, each evaluated against the whole update.
+    // location's write is, each evaluated against the whole update. An engine
+    // error or an abstention at any location is reported as such.
     const updates = Object.entries(newData as Record<string, unknown>).map(([key, value]) => ({
       path: `${simPath}/${key}`.replace(/\/+/g, '/'),
       value,
     }));
-    const allowed = updates.every((update) => {
-      const result = simulateRtdbRules(compiled, {
-        operation: 'write', path: update.path, auth, mockData: simMock, newData: update.value, updates,
-      });
-      return result.success && result.data.allowed;
-    });
-    return allowed ? 'ALLOW' : 'DENY';
+    const outcomes = updates.map((update) => outcomeOf(simulateRtdbRules(compiled, {
+      operation: 'write', path: update.path, auth, mockData: simMock, newData: update.value, updates,
+    })));
+    if (outcomes.includes('ERROR')) return 'ERROR';
+    if (outcomes.includes('UNSUPPORTED')) return 'UNSUPPORTED';
+    return outcomes.every((outcome) => outcome === 'ALLOW') ? 'ALLOW' : 'DENY';
   }
 
-  const result = simulateRtdbRules(compiled, {
+  return outcomeOf(simulateRtdbRules(compiled, {
     operation: testCase.operation, path: simPath, auth, mockData: simMock, newData,
-  });
-  if (!result.success) return 'DENY';
-  return result.data.allowed ? 'ALLOW' : 'DENY';
+  }));
 }
 
 export function replayRtdbScenario(scenario: RtdbScenario): RtdbReplayResult[] {

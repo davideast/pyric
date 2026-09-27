@@ -1162,12 +1162,17 @@ export const rulesRegistry = {
         row3({
           rowRef: "17",
           featureKeys: [],
-          behavior: "A `.validate` expression that errors at evaluation, such as `.length` or a string method on a number, denies the write",
-          evidence: "`oracle:rules-rtdb-r17-validate-runtime-error` — production DENIES a number written under `newData.val().length > 2` and under `newData.val().toUpperCase() == 'OK'`, ALLOWS strings that satisfy them, and DENIES under a type guard that short-circuits first. The simulator matches all 5 cases.",
+          behavior: "A `.read`, `.write`, or `.validate` expression that errors at evaluation, such as `.length` or a string method on a number or on null, fails as that rule: the error fails the whole expression, including on the left of `||` and under `!`. A `.validate` that errors denies the write, and a `.read` or `.write` that errors does not grant, so a descendant rule on the path can still grant",
+          evidence: "`oracle:rules-rtdb-r17-validate-runtime-error`: production DENIES a number written under `newData.val().length > 2` and under `newData.val().toUpperCase() == 'OK'`, ALLOWS strings that satisfy them, and DENIES under a type guard that short-circuits first. The simulator matches all 5 cases. `oracle:rules-rtdb-r26-rule-runtime-error` (captured 2026-09-27) extends this to `.read` and `.write`: production DENIES a read and a write whose rule calls `toUpperCase()` on a number, ALLOWS a read and a write under a descendant rule that grants below an ancestor rule that errors, DENIES `newData.val().toUpperCase() == 'OK' || newData.isNumber()` and `!(newData.val().toUpperCase() == 'OK')` for the number 5, and DENIES `toUpperCase()` on a missing child value. `simulate` counts such an error as the rule failing, the verdict the sandbox returns, and matches all 13 cases.",
           risk: ["rules-denial"],
           riskScore: 2,
           riskReasons: ["asserts rules-denial behavior"],
-          oracleObservations: ["rules-rtdb-r17-validate-runtime-error"],
+          oracleObservations: ["rules-rtdb-r17-validate-runtime-error", "rules-rtdb-r26-rule-runtime-error"],
+          conformanceTests: [
+            "packages/pyric/test/rules/rtdb/rules-conformance.test.ts",
+            "packages/pyric/test/rules/rtdb/simulation/handler.test.ts",
+            "packages/pyric/test/rules/rtdb/simulate-sandbox-agreement.test.ts",
+          ],
           constructs: ["rtdb.rule-kind.validate"],
         }),
         row3({

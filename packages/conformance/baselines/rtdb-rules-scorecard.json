@@ -127,6 +127,7 @@
         "r23-validate-sibling-scope",
         "r24-deny-without-rule",
         "r25-loose-equality-types",
+        "r26-rule-runtime-error",
         "r3-data-exists",
         "r4-validate-structure",
         "r5-cascade-root-grant",
@@ -177,6 +178,7 @@
         "r20-priority-values",
         "r23-validate-sibling-scope",
         "r25-loose-equality-types",
+        "r26-rule-runtime-error",
         "r3-data-exists",
         "r9-quota-arithmetic"
       ],
@@ -203,6 +205,7 @@
         "r23-validate-sibling-scope",
         "r24-deny-without-rule",
         "r25-loose-equality-types",
+        "r26-rule-runtime-error",
         "r4-validate-structure",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -263,6 +266,7 @@
         "r23-validate-sibling-scope",
         "r24-deny-without-rule",
         "r25-loose-equality-types",
+        "r26-rule-runtime-error",
         "r8-combined-check",
         "r9-quota-arithmetic"
       ],
@@ -283,6 +287,7 @@
         "r20-priority-values",
         "r23-validate-sibling-scope",
         "r24-deny-without-rule",
+        "r26-rule-runtime-error",
         "r8-combined-check"
       ],
       "verifiedByRows": [
@@ -372,6 +377,7 @@
         "r21-validate-on-delete",
         "r23-validate-sibling-scope",
         "r24-deny-without-rule",
+        "r26-rule-runtime-error",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -485,7 +491,8 @@
       "classification": "conformant",
       "verifiedBy": [
         "r11-string-validation",
-        "r17-validate-runtime-error"
+        "r17-validate-runtime-error",
+        "r26-rule-runtime-error"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -549,6 +556,7 @@
         "r20-priority-values",
         "r23-validate-sibling-scope",
         "r25-loose-equality-types",
+        "r26-rule-runtime-error",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -577,6 +585,7 @@
         "r23-validate-sibling-scope",
         "r24-deny-without-rule",
         "r25-loose-equality-types",
+        "r26-rule-runtime-error",
         "r3-data-exists",
         "r4-validate-structure",
         "r5-cascade-root-grant",
@@ -730,6 +739,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "r26-rule-runtime-error",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -742,6 +752,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "r26-rule-runtime-error",
         "r3-data-exists"
       ],
       "verifiedByRows": [],
@@ -823,6 +834,7 @@
         "r20-priority-values",
         "r22-strict-equality-types",
         "r24-deny-without-rule",
+        "r26-rule-runtime-error",
         "r3-data-exists",
         "r4-validate-structure",
         "r5-cascade-root-grant",
@@ -859,6 +871,7 @@
         "r23-validate-sibling-scope",
         "r24-deny-without-rule",
         "r25-loose-equality-types",
+        "r26-rule-runtime-error",
         "r3-data-exists",
         "r4-validate-structure",
         "r5-cascade-root-grant",
@@ -892,6 +905,7 @@
         "r23-validate-sibling-scope",
         "r24-deny-without-rule",
         "r25-loose-equality-types",
+        "r26-rule-runtime-error",
         "r4-validate-structure",
         "r9-quota-arithmetic"
       ],
