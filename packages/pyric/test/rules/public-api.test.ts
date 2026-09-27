@@ -346,6 +346,33 @@ describe('rtdbRules constructor', () => {
     for (const issue of issues) expect(issue.origin).toBe('validate');
   });
 
+  test('lint() on compiled { rules } JSON reports an expression that does not parse', () => {
+    const json = { rules: { notes: { $id: { '.write': 'auth != null && (' } } } };
+    const issues = rtdbRules(json).lint();
+    expect(issues).toContainEqual(expect.objectContaining({
+      code: 'PARSE_ERROR',
+      severity: 'error',
+      path: '/notes/$id',
+    }));
+  });
+
+  test('lint() on compiled { rules } JSON reports what lint() on the definition it came from reports', () => {
+    const withFindings = {
+      paths: {
+        '/notes/$noteId': { read: expr('true'), write: expr('auth != null && (') },      },
+    };
+    const fromDefinition = rtdbRules(withFindings).lint();
+    const fromJson = rtdbRules(rtdbRules(withFindings).toJSON()).lint();
+    expect(fromDefinition.some((issue) => issue.severity === 'error')).toBe(true);
+    expect(fromDefinition.some((issue) => issue.severity === 'warning')).toBe(true);
+    expect(fromJson).toEqual(fromDefinition);
+  });
+
+  test('lint() on JSON whose rules key is not an object reports a compile error', () => {
+    const issues = rtdbRules({ rules: 5 as unknown as Record<string, unknown> }).lint();
+    expect(issues).toEqual([expect.objectContaining({ code: 'COMPILE_ERROR', severity: 'error', path: '/' })]);
+  });
+
   test('simulate() runs RTDB cases and never throws', () => {
     const ruleset = rtdbRules(def);
     const cases: RtdbCase[] = [

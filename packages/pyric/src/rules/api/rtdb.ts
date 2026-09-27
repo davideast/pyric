@@ -11,8 +11,9 @@
  * step before simulation. `toJSON` always returns compiled `rules.json`.
  */
 
-import { defineRtdbRules } from '../rtdb/constraints/document.js';
+import { checkRtdbRules, defineRtdbRules } from '../rtdb/constraints/document.js';
 import type {
+  RtdbRulesCheckResult,
   RtdbRulesDefinition,
   RtdbRulesDocument,
   RtdbRulesDocumentInternal,
@@ -171,26 +172,21 @@ function normalizeAuth(auth: RtdbRulesSimulationAuth | undefined): SimulationInp
 
 /** Internal document adapter for already-compiled Firebase rules JSON. */
 class CompiledRtdbRulesDocument implements RtdbRulesDocumentInternal {
-  private readonly compiled: CompiledRtdbRules;
+  private compiled: CompiledRtdbRules | undefined;
 
-  constructor(private readonly json: RtdbRulesJson) {
-    this.compiled = compileRtdbRules(json);
-  }
+  constructor(private readonly json: RtdbRulesJson) {}
 
   toJSON(): RtdbRulesJson {
     return this.json;
   }
 
   compile(): CompiledRtdbRules {
+    this.compiled ??= compileRtdbRules(this.json);
     return this.compiled;
   }
 
-  check() {
-    return {
-      ok: true,
-      errors: [],
-      warnings: [],
-    };
+  check(): RtdbRulesCheckResult {
+    return checkRtdbRules(() => this.compile());
   }
 
   simulate(input: RtdbRulesSimulationInput): SimulateResult {
@@ -202,7 +198,7 @@ class CompiledRtdbRulesDocument implements RtdbRulesDocumentInternal {
     };
     if (input.newData !== undefined) simulation.newData = input.newData;
     if (input.now !== undefined) simulation.now = input.now;
-    return simulateRtdbRules(this.compiled, simulation);
+    return simulateRtdbRules(this.compile(), simulation);
   }
 }
 

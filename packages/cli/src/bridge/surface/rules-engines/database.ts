@@ -4,6 +4,7 @@ import type { RtdbCase, RtdbRulesJson } from 'pyric/rules';
 import { getActiveRules, setRules, snapshotState } from 'pyric/sandbox/database';
 import { callSandboxTool, operationFailure } from '../context.js';
 import { requestInstant } from '../request-instant.js';
+import { markLintFindings } from '../rules-verdict.js';
 import type { SurfaceContext } from '../types.js';
 import type { RulesEngine, RulesRequest, RulesSourceProblem } from './types.js';
 
@@ -99,11 +100,11 @@ export const DATABASE_RULES: RulesEngine = {
     }
     const issues = rtdbRules(ruleset).lint();
     const errors = issues.filter((issue) => issue.severity === 'error').length;
-    return {
-      ok: true,
+    return markLintFindings({
+      ok: errors === 0,
       summary: `${issues.length} findings, ${errors} errors`,
       data: { issues },
-    };
+    });
   },
 
   async simulate(ctx, request) {

@@ -37,7 +37,7 @@ const rules = rtdbRules(defineRtdbRules({
 const issues = rules.lint();
 // []
 ```
-`lint()` parses and validates every expression in the tree and returns each problem as an issue with a `code`, a `severity`, and the path it applies to. A definition that cannot compile comes back as a `COMPILE_ERROR`. No deploy, no network.
+`lint()` parses and validates every expression in the tree and returns each problem as an issue with a `code`, a `severity`, and the path it applies to. A definition that cannot compile comes back as a `COMPILE_ERROR`. `rtdbRules` also takes the compiled `{ rules }` JSON, and `lint()` on it returns the same issues as `lint()` on the definition it came from. No deploy, no network.
 
 ## Simulate a request
 ```ts
@@ -71,11 +71,17 @@ import { writeFileSync } from 'node:fs';
 writeFileSync('database.rules.json', JSON.stringify(rules.toJSON(), null, 2));
 ```
 ```bash
-pyric rules lint --service database
 # or: pyric database rules generate
+pyric rules lint --service database --rules-file database.rules.json
 firebase deploy --only database
 ```
-`toJSON()` emits the `{ rules: ... }` document Firebase expects. Generate or write that file locally (`pyric database rules generate`), then ship it with `firebase-tools` (or the Console) using the path your `firebase.json` points at. The CLI's `rules lint --service database`, `database rules validate`, and `rules simulate --service database` operations run the same checks against the JSON file, so CI can gate on them without TypeScript in the loop.
+`toJSON()` emits the `{ rules: ... }` document Firebase expects. Generate or write that file locally (`pyric database rules generate`), then ship it with `firebase-tools` (or the Console) using the path your `firebase.json` points at.
+
+The CLI checks the JSON file itself, so CI can gate on it without TypeScript in the loop:
+
+- `pyric rules lint --service database --rules-file database.rules.json` prints every issue, errors and warnings, the same list `rtdbRules(json).lint()` returns for the file's contents. It exits `2` when any issue is an error and `0` otherwise. Without `--rules-file`, it lints the rules the sandbox is running.
+- `pyric database rules validate database.rules.json` prints the error findings only. It exits `2` when there is one or when the file is not rules JSON, `1` when the file can't be read, and `0` otherwise.
+- `pyric rules simulate --service database --rules-file database.rules.json --operation read --path /notes/n1` evaluates one request against the file.
 
 ## Turn enforcement, from a deployed game
 

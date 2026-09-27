@@ -91,6 +91,7 @@ export {
   ruleset,
   defineRtdbRules,
 } from '../rtdb/constraints/index.js';
+export { checkRtdbRules } from '../rtdb/constraints/document.js';
 export type {
   Expr,
   PathDef,

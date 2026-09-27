@@ -10,7 +10,7 @@
  */
 import 'fake-indexeddb/auto';
 import { afterAll, describe, expect, it } from 'bun:test';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -159,6 +159,37 @@ describe('pyric <tool> <method>', () => {
     // Exit 1 is a usage error, which is what a word read as JSON would be.
     expect(linted.stderr).not.toContain('JSON');
     expect(linted.code).not.toBe(1);
+  });
+
+  it('exits 2 and prints the findings when a database rules file has an error', async () => {
+    const rulesFile = join(workDir, 'broken.database.rules.json');
+    writeFileSync(rulesFile, JSON.stringify({ rules: { notes: { $id: { '.write': 'auth != null && (' } } } }));
+    const linted = await run('rules.lint', [
+      'rules',
+      'lint',
+      '--service',
+      'database',
+      '--rules-file',
+      rulesFile,
+    ]);
+    expect(linted.code).toBe(2);
+    expect(linted.stdout).toContain('1 findings, 1 errors');
+    expect(linted.stdout).toContain('PARSE_ERROR');
+  });
+
+  it('exits 0 when a database rules file has no errors', async () => {
+    const rulesFile = join(workDir, 'clean.database.rules.json');
+    writeFileSync(rulesFile, JSON.stringify({ rules: { notes: { $id: { '.write': 'auth != null' } } } }));
+    const linted = await run('rules.lint', [
+      'rules',
+      'lint',
+      '--service',
+      'database',
+      '--rules-file',
+      rulesFile,
+    ]);
+    expect(linted.code).toBe(0);
+    expect(linted.stdout).toContain('0 findings, 0 errors');
   });
 
   it('refuses an object argument that is not JSON', async () => {
