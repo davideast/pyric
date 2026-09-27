@@ -1213,3 +1213,75 @@ describe('SimulateHandler — atomic multi-path update projection', () => {
     });
   });
 });
+
+describe('SimulateHandler .validate scope: the nodes a write carries', () => {
+  const handler = new SimulateHandler();
+  const authed = { uid: 'alice', token: {} };
+  // `count` fails whenever it is evaluated without growing by one, and a
+  // stored string `tag` fails whenever it is evaluated at all.
+  const rules = compileRtdbRules({
+    rules: {
+      rooms: {
+        $room: {
+          '.write': 'auth != null',
+          title: { '.validate': 'newData.isString()' },
+          count: { '.validate': 'newData.val() == data.val() + 1' },
+          tag: { '.validate': 'newData.isNumber()' },
+        },
+      },
+    },
+  });
+
+  function write(path: string, newData: unknown, mockData: Record<string, unknown>) {
+    const result = handler.execute(rules, { operation: 'write', path, auth: authed, mockData, newData });
+    if (!result.success) throw new Error(result.error.message);
+    return result.data;
+  }
+
+  function update(root: string, patch: Record<string, unknown>, mockData: Record<string, unknown>) {
+    const updates = Object.entries(patch).map(([key, value]) => ({ path: `${root}/${key}`, value }));
+    return updates.map((u) => {
+      const result = handler.execute(rules, {
+        operation: 'write', path: u.path, auth: authed, mockData, newData: u.value, updates,
+      });
+      if (!result.success) throw new Error(result.error.message);
+      return result.data;
+    });
+  }
+
+  test('a set of one child does not run an unchanged sibling .validate', () => {
+    expect(write('/rooms/r1/title', 'lobby', { rooms: { r1: { count: 1 } } }).allowed).toBe(true);
+  });
+
+  test('a set of one child is allowed next to a sibling whose stored value fails its .validate', () => {
+    expect(write('/rooms/r1/title', 'lobby', { rooms: { r1: { tag: 'bad' } } }).allowed).toBe(true);
+  });
+
+  test('a set under one wildcard key does not run another key\'s .validate', () => {
+    expect(write('/rooms/r1/title', 'lobby', { rooms: { r2: { tag: 'bad', count: 1 } } }).allowed).toBe(true);
+  });
+
+  test('a delete of one child does not run an unchanged sibling .validate', () => {
+    expect(write('/rooms/r1/title', null, { rooms: { r1: { title: 'lobby', count: 1 } } }).allowed).toBe(true);
+  });
+
+  test('an update, single or multi-path, runs only the .validate rules of the locations it writes', () => {
+    const mockData = { rooms: { r1: { count: 1, tag: 'bad' }, r2: { tag: 'bad' } } };
+    expect(update('/rooms/r1', { title: 'lobby' }, mockData).every((r) => r.allowed)).toBe(true);
+    expect(update('/rooms', { 'r1/title': 'a', 'r2/title': 'b' }, mockData).every((r) => r.allowed)).toBe(true);
+  });
+
+  test('a written child runs its .validate even when its value is unchanged', () => {
+    const denied = write('/rooms/r1', { title: 'lobby', count: 1 }, { rooms: { r1: { count: 1 } } });
+    expect(denied.allowed).toBe(false);
+    expect(denied.matchedPath).toBe('/rooms/$room/count');
+    expect(write('/rooms/r1', { title: 'lobby', tag: 'bad' }, { rooms: { r1: { tag: 'bad' } } }).allowed).toBe(false);
+    expect(update('/rooms/r1', { count: 1 }, { rooms: { r1: { count: 1 } } })[0].allowed).toBe(false);
+    expect(update('/rooms/r1', { tag: 'bad' }, { rooms: { r1: { tag: 'bad' } } })[0].allowed).toBe(false);
+  });
+
+  test('the written child\'s own .validate still decides', () => {
+    expect(write('/rooms/r1/count', 2, { rooms: { r1: { count: 1 } } }).allowed).toBe(true);
+    expect(write('/rooms/r1/count', 3, { rooms: { r1: { count: 1 } } }).allowed).toBe(false);
+  });
+});

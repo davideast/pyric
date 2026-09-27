@@ -3,6 +3,7 @@ import {
   createRtdbExpressionSemantics,
   matchRtdbExpression,
 } from '../expression-engine.js';
+import type { RtdbRuleExpression } from '../types.js';
 
 export interface SimulatedAuth {
   uid: string;
@@ -397,10 +398,40 @@ function getEvalSemantics(): Semantics {
   return semantics;
 }
 
-export function evaluateRtdbExpression(raw: string, ctx: EvalContext): unknown {
+/** A parsed expression wrapped for the evaluation semantics. */
+interface EvaluationTree {
+  eval(ctx: EvalContext): unknown;
+}
+
+/** The parsed tree of `raw`, wrapped for the evaluation semantics. */
+function parseForEvaluation(raw: string): EvaluationTree {
   const match = matchRtdbExpression(raw);
   if (match.failed()) {
     throw new Error(match.message ?? 'RTDB expression failed to parse');
   }
-  return (getEvalSemantics()(match) as any).eval(ctx);
+  return getEvalSemantics()(match) as unknown as EvaluationTree;
+}
+
+/** Evaluates expression text, parsing it on every call. */
+export function evaluateRtdbExpression(raw: string, ctx: EvalContext): unknown {
+  return parseForEvaluation(raw).eval(ctx);
+}
+
+/**
+ * Each compiled rule's parsed tree, made on its first evaluation. Keyed by
+ * the rule object, so a parse lives exactly as long as the compiled ruleset
+ * holding it. The wrapped tree keeps its child wrappers between evaluations,
+ * and each evaluation passes its context as an operation argument, so one
+ * tree serves every evaluation, nested ones included.
+ */
+const parsedRules = new WeakMap<RtdbRuleExpression, EvaluationTree>();
+
+/** Evaluates a compiled rule, parsing its text once for the life of the rule. */
+export function evaluateRtdbRule(rule: RtdbRuleExpression, ctx: EvalContext): unknown {
+  let parsed = parsedRules.get(rule);
+  if (parsed === undefined) {
+    parsed = parseForEvaluation(rule.raw);
+    parsedRules.set(rule, parsed);
+  }
+  return parsed.eval(ctx);
 }

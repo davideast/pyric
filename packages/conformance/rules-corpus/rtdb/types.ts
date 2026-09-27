@@ -34,11 +34,15 @@ export interface RtdbTestCase {
   /** The PRODUCTION verdict recorded in the agreement observation for this op.
    *  Source of truth for the replay assertion. */
   expectation: 'ALLOW' | 'DENY';
-  operation: 'read' | 'write';
+  /** `write` is a `set()` of `newData` at `opPath`. `update` is an `update()` at
+   *  `opPath` whose `newData` is the patch: an object keyed by paths relative to
+   *  `opPath`, each one a location the update writes. */
+  operation: 'read' | 'write' | 'update';
   /** Path relative to the scenario's mount key. May contain the `<UID>` token. */
   opPath: string;
   authPresent: boolean;
-  /** The value written (write ops). `<UID>` tokens inside are substituted. */
+  /** The value written (write ops) or the patch (update ops). `<UID>` tokens
+   *  inside are substituted. */
   newData?: unknown;
   /** The pre-existing value at the op path (governs `data.exists()` etc.). For
    *  the simulator this becomes the mock snapshot at the op path; for prod the

@@ -131,7 +131,11 @@ service cloud.firestore {
       expect(snap.val()).toBe(49.99);
     });
 
-    test('Scenario 2.2: Multi-path update attempting to delete payment while items survive is rejected with PERMISSION_DENIED', async () => {
+    // Production validates only the nodes an update writes, so deleting
+    // `payment` does not run the unwritten `items` rule that reads it
+    // (rules-rtdb-r23-validate-sibling-scope). Requiring `payment` belongs in
+    // the order's own `.validate`, which the deletion reaches.
+    test('Scenario 2.2: Multi-path update deleting payment is allowed by a rule on the unwritten items sibling', async () => {
       const sandbox = initializeSandbox();
       const db = getDatabase(sandbox.withAuth({ uid: 'customer-1' }));
 
@@ -160,18 +164,38 @@ service cloud.firestore {
         payment: { method: 'card', amount: 49.99 },
       });
 
-      // Customer attempts to update order by clearing payment
-      let updateError: unknown = null;
-      try {
-        await update(dbRef(db, '/orders/ord-100'), {
-          payment: null,
-        });
-      } catch (err) {
-        updateError = err;
-      }
+      // Customer updates the order by clearing payment
+      await update(dbRef(db, '/orders/ord-100'), {
+        payment: null,
+      });
 
-      expect(updateError).toBeInstanceOf(Error);
-      expect((updateError as Error).message).toContain('PERMISSION_DENIED');
+      const snap = await get(dbRef(db, '/orders/ord-100'));
+      expect(snap.val()).toEqual({ items: { item1: { qty: 2 } } });
+    });
+
+    test('Scenario 2.3: An order-level validate requiring payment rejects the deletion with PERMISSION_DENIED', async () => {
+      const sandbox = initializeSandbox();
+      const db = getDatabase(sandbox.withAuth({ uid: 'customer-1' }));
+
+      rtdbSandbox.setRules(db, {
+        rules: {
+          orders: {
+            $orderId: {
+              ".read": "auth != null",
+              ".write": "auth != null",
+              ".validate": "newData.hasChildren(['items', 'payment'])",
+            },
+          },
+        },
+      });
+
+      const adminDb = getAdminDatabase(sandbox);
+      await set(dbRef(adminDb, '/orders/ord-100'), {
+        items: { item1: { qty: 2 } },
+        payment: { method: 'card', amount: 49.99 },
+      });
+
+      await expect(update(dbRef(db, '/orders/ord-100'), { payment: null })).rejects.toThrow('PERMISSION_DENIED');
     });
   });
 

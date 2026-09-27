@@ -1,4 +1,4 @@
-import { DataSnapshot, evaluateRtdbExpression } from '../grammar/simulator.js';
+import { DataSnapshot, evaluateRtdbRule } from '../grammar/simulator.js';
 import type { EvalContext, SimulatedAuth } from '../grammar/simulator.js';
 import type { RtdbNode, RtdbRuleExpression } from '../types.js';
 import { SimulationInputSchema, type SimulationInput } from './spec.js';
@@ -58,12 +58,21 @@ function simulatedAuthOf(auth: NonNullable<SimulationInput['auth']>): SimulatedA
   return simulated;
 }
 
+/** True when `n` or any node below it carries a `.validate` rule. */
+function hasValidateRule(n: RtdbNode): boolean {
+  if (n.validate) return true;
+  return n.children.some(hasValidateRule);
+}
+
 /**
  * `.validate` enforcement for a write. RTDB evaluates every rule on the path
- * from the root to the write location, then every descendant rule present in
- * the written value. Each rule sees the merged post-write snapshot rooted at
- * its own location. Unlike `.read`/`.write`, validation never grants: ALL
- * applicable rules must evaluate true. Null proposed values are skipped.
+ * from the root to each write location (every path of a multi-path update),
+ * then every descendant rule present in the written value, whether or not
+ * that value differs from the stored one. A sibling node the write does not
+ * carry is not validated, even when its stored value fails its rule. Each
+ * rule sees the merged post-write snapshot rooted at its own location.
+ * Unlike `.read`/`.write`, validation never grants: ALL applicable rules must
+ * evaluate true. Null proposed values are skipped.
  *
  * An unparseable `.validate` expression is a simulator gap, not a pass:
  * production would still evaluate it and may reject the write, so treating
@@ -76,23 +85,6 @@ function simulatedAuthOf(auth: NonNullable<SimulationInput['auth']>): SimulatedA
  * the first unsupported node, else `null` when every applicable `.validate`
  * passes.
  */
-function hasValidateRule(n: RtdbNode): boolean {
-  if (n.validate) return true;
-  return n.children.some(hasValidateRule);
-}
-
-function shouldValidateSiblingSubtree(
-  currentSegments: readonly string[],
-  hasLocalDeletion: boolean,
-  allWritePaths: readonly string[][],
-): boolean {
-  return (
-    currentSegments.length > 0 ||
-    hasLocalDeletion ||
-    allWritePaths.some((wp) => wp.length === 1)
-  );
-}
-
 function findFailingValidate(
   node: RtdbNode,
   data: DataSnapshot,
@@ -119,7 +111,6 @@ function findFailingValidate(
     newData: DataSnapshot,
     bindings: Record<string, string>,
     currentSegments: string[],
-    isUnderModifiedSubtree: boolean,
   ): ValidateFailure | null {
     if (newData.exists()) {
       const rule = node.validate;
@@ -129,140 +120,53 @@ function findFailingValidate(
             firstUnsupported = { node, rule, bindings, unsupported: true };
           }
         } else {
-          const result = evaluateRtdbExpression(rule.raw, buildContext(data, newData, bindings));
+          const result = evaluateRtdbRule(rule, buildContext(data, newData, bindings));
           if (!result) return { node, rule, bindings };
         }
       }
     }
 
+    // At or below a write location the written value is present in full, so
+    // every child it carries is visited. Above one, only the children on a
+    // write path are: a sibling the write does not carry is never validated.
     const isAtOrBelowWriteTarget = allWritePaths.some(
       (wp) => wp.length <= currentSegments.length && wp.every((seg, idx) => seg === currentSegments[idx]),
     );
+    const childKeys = isAtOrBelowWriteTarget
+      ? snapshotChildKeys(newData)
+      : writeKeysBelow(currentSegments);
 
-    const hasLocalDeletion = snapshotChildKeys(data).some((k) => !newData.child(k).exists());
-    const literalKeys = literalChildKeys(node);
-
-    for (const child of node.children) {
-      const childSegments = child.path.split('/').filter(Boolean);
-      if (childSegments.length === 0) continue;
-
-      const lastSegment = childSegments[childSegments.length - 1];
-      const isPathVar = lastSegment.startsWith('$');
-
-      if (isAtOrBelowWriteTarget || isUnderModifiedSubtree) {
-        if (isPathVar) {
-          for (const key of snapshotChildKeys(newData)) {
-            if (literalKeys.has(key)) continue;
-            const failure = walk(
-              child,
-              data.child(key),
-              newData.child(key),
-              { ...bindings, [lastSegment]: key },
-              [...currentSegments, key],
-              true,
-            );
-            if (failure) return failure;
-          }
-        } else {
-          if (newData.child(lastSegment).exists()) {
-            const failure = walk(
-              child,
-              data.child(lastSegment),
-              newData.child(lastSegment),
-              bindings,
-              [...currentSegments, lastSegment],
-              true,
-            );
-            if (failure) return failure;
-          }
-        }
-      } else {
-        // We are at an ancestor of write path(s)
-        if (isPathVar) {
-          const writeKeys = new Set<string>();
-          for (const wp of allWritePaths) {
-            if (
-              wp.length > currentSegments.length &&
-              currentSegments.every((seg, idx) => seg === wp[idx])
-            ) {
-              writeKeys.add(wp[currentSegments.length]);
-            }
-          }
-          for (const key of writeKeys) {
-            if (literalKeys.has(key)) continue;
-            const failure = walk(
-              child,
-              data.child(key),
-              newData.child(key),
-              { ...bindings, [lastSegment]: key },
-              [...currentSegments, key],
-              false,
-            );
-            if (failure) return failure;
-          }
-
-          if (
-            hasValidateRule(child) &&
-            shouldValidateSiblingSubtree(currentSegments, hasLocalDeletion, allWritePaths)
-          ) {
-            for (const key of snapshotChildKeys(newData)) {
-              if (writeKeys.has(key) || literalKeys.has(key)) continue;
-              const failure = walk(
-                child,
-                data.child(key),
-                newData.child(key),
-                { ...bindings, [lastSegment]: key },
-                [...currentSegments, key],
-                true,
-              );
-              if (failure) return failure;
-            }
-          }
-        } else {
-          const key = lastSegment;
-          const isChildOnWritePath = allWritePaths.some(
-            (wp) =>
-              wp.length > currentSegments.length &&
-              wp[currentSegments.length] === key &&
-              currentSegments.every((seg, idx) => seg === wp[idx]),
-          );
-
-          if (isChildOnWritePath) {
-            const failure = walk(
-              child,
-              data.child(key),
-              newData.child(key),
-              bindings,
-              [...currentSegments, key],
-              false,
-            );
-            if (failure) return failure;
-          } else {
-            // Sibling branch
-            if (
-              newData.child(key).exists() &&
-              hasValidateRule(child) &&
-              shouldValidateSiblingSubtree(currentSegments, hasLocalDeletion, allWritePaths)
-            ) {
-              const failure = walk(
-                child,
-                data.child(key),
-                newData.child(key),
-                bindings,
-                [...currentSegments, key],
-                true,
-              );
-              if (failure) return failure;
-            }
-          }
-        }
-      }
+    for (const key of childKeys) {
+      const matched = childFor(node, key);
+      if (matched === undefined) continue;
+      const childBindings = matched.variable === undefined
+        ? bindings
+        : { ...bindings, [matched.variable]: key };
+      const failure = walk(
+        matched.child,
+        data.child(key),
+        newData.child(key),
+        childBindings,
+        [...currentSegments, key],
+      );
+      if (failure) return failure;
     }
 
     return null;
   }
 
-  const realFailure = walk(node, data, newData, bindings, [], false);
+  /** The next key of every write path that passes through `currentSegments`. */
+  function writeKeysBelow(currentSegments: readonly string[]): Set<string> {
+    const keys = new Set<string>();
+    for (const wp of allWritePaths) {
+      const passesThrough = wp.length > currentSegments.length &&
+        currentSegments.every((seg, idx) => seg === wp[idx]);
+      if (passesThrough) keys.add(wp[currentSegments.length]);
+    }
+    return keys;
+  }
+
+  const realFailure = walk(node, data, newData, bindings, []);
   return realFailure ?? firstUnsupported;
 }
 
@@ -294,17 +198,6 @@ function collectAncestors(
 function keyOf(node: RtdbNode): string | undefined {
   const segments = node.path.split('/').filter(Boolean);
   return segments[segments.length - 1];
-}
-
-/** The keys a node's literal children name. A `$wildcard` sibling never matches them. */
-function literalChildKeys(node: RtdbNode): Set<string> {
-  const keys = new Set<string>();
-  for (const child of node.children) {
-    const key = keyOf(child);
-    const isLiteral = key !== undefined && !key.startsWith('$');
-    if (isLiteral) keys.add(key);
-  }
-  return keys;
 }
 
 /**
@@ -542,8 +435,8 @@ export class SimulateHandler {
         const dataAtAncestor = rootData.child(ancestorSegments);
         const newDataAtAncestor = mergedRootData.child(ancestorSegments);
 
-        const result = evaluateRtdbExpression(
-          ruleExpr.raw,
+        const result = evaluateRtdbRule(
+          ruleExpr,
           buildContext(dataAtAncestor, newDataAtAncestor, ancestor.pathVariableBindings),
         );
 

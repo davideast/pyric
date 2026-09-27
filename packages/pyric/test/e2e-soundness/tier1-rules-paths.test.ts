@@ -104,7 +104,11 @@ describe('Tier 1: Feature Coverage (Paths & Deletion Validation)', () => {
       }
     });
 
-    test('F3.3: RTDB Simulator - subtree deletion violating sibling parent validate fails closed', () => {
+    // Production does not run the `.validate` of a sibling the write does not
+    // carry, even one that reads the deleted node
+    // (rules-rtdb-r23-validate-sibling-scope). A required child is enforced
+    // by the parent's `.validate`, which the deletion does reach.
+    test('F3.3: RTDB Simulator - deleting a child does not run an unwritten sibling validate that requires it', () => {
       const rules = compileRtdbRules({
         rules: {
           entities: {
@@ -138,7 +142,7 @@ describe('Tier 1: Feature Coverage (Paths & Deletion Validation)', () => {
 
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data.allowed).toBe(false);
+        expect(result.data.allowed).toBe(true);
       }
     });
 
@@ -183,7 +187,7 @@ describe('Tier 1: Feature Coverage (Paths & Deletion Validation)', () => {
       }
     });
 
-    test('F3.5: RTDB WritePlane - update() deleting a required sibling is rejected with PERMISSION_DENIED', async () => {
+    test('F3.5: RTDB WritePlane - update() deleting a child an unwritten sibling validate requires is allowed, as in production', async () => {
       const sandbox = initializeSandbox();
       const db = getDatabase(sandbox.withAuth({ uid: 'client-user' }));
 
@@ -210,18 +214,13 @@ describe('Tier 1: Feature Coverage (Paths & Deletion Validation)', () => {
         content: 'hello',
       });
 
-      // Now client attempts shallow or deep update deleting content while meta survives
-      let updateError: unknown = null;
-      try {
-        await update(dbRef(db, '/docs/doc1'), {
-          content: null,
-        });
-      } catch (err) {
-        updateError = err;
-      }
+      // The update writes only `content`, so `meta`'s `.validate` does not run.
+      await update(dbRef(db, '/docs/doc1'), {
+        content: null,
+      });
 
-      expect(updateError).toBeInstanceOf(Error);
-      expect((updateError as Error).message).toContain('PERMISSION_DENIED');
+      const snap = await get(dbRef(db, '/docs/doc1'));
+      expect(snap.val()).toEqual({ meta: 'info' });
     });
 
     test('F3.6: RTDB WritePlane - update() modifying non-required fields while preserving siblings succeeds', async () => {
