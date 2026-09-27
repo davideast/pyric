@@ -11,9 +11,7 @@ import type { FirestoreRules, FunctionDef, Expression, AllowRule, MatchBlock, Pa
 import { parseToASTOrError, type ParseError } from '../grammar/FirestoreParser.js';
 import type { TestCase } from '../test/spec.js';
 import {
-  maxChainDepth,
   deepestChain,
-  countExpressionNodes,
   expressionFingerprint,
   extractFirstExpression,
   buildCallGraph,
@@ -26,6 +24,7 @@ import {
 } from './ast-utils.js';
 import { checkSyntaxHints, checkHallucinations } from './hallucinations.js';
 import { countDocumentAccessCalls } from '../grammar/document-access-count.js';
+import { EXPRESSION_LIMIT, estimateExpressionCosts, type RuleCostEstimate } from './expression-cost.js';
 
 // ═══ Types ═══
 
@@ -84,12 +83,6 @@ const THRESHOLDS = {
   CHAIN_DEPTH_WARN: 85,
   CHAIN_DEPTH_LIMIT: 98,             // exact compile limit in operands, verified (99 fails)
   LET_LIMIT: 11,                     // exact, verified (12 fails)
-  // Runtime budget is call-count-dependent and non-deterministic
-  RUNTIME_BUDGET: {
-    low: { calls: 2, warn: 100, error: 120 },
-    mid: { calls: 4, warn: 60, error: 90 },
-    high: { calls: Infinity, warn: 40, error: 60 },
-  },
   CALL_DEPTH_WARN: 6,
   CALL_DEPTH_ERROR: 10,
   GET_COUNT_WARN: 5,
@@ -203,97 +196,25 @@ function checkSharedGates(
 }
 
 /**
- * Count function calls and total expressions for a SINGLE rule's condition,
- * following function calls transitively. Skips already-visited functions
- * to avoid double-counting shared helpers (like cfg()).
+ * EXPRESSION_BUDGET: production stops a request at 1000 evaluated
+ * expressions and denies it, so a rule that grants only after an expensive
+ * evaluation silently returns permission-denied. The estimate is the most
+ * expensive evaluation path of a request the rule grants, including the
+ * earlier rules for the same method that deny it first
+ * (`expression-cost.ts`). It never fell below production on the measured
+ * requests, so a rule under the limit here stayed under it there; a rule at
+ * or over it can exceed the limit for some documents.
  */
-function estimateRuleBudget(
-  condition: Expression,
-  fnMap: Map<string, FunctionDef>,
-): { totalExprs: number; callCount: number } {
-  let totalExprs = countExpressionNodes(condition);
-  const visited = new Set<string>();
-
-  function walkForCalls(expr: Expression) {
-    if (expr.type === 'functionCall' && fnMap.has(expr.name) && !visited.has(expr.name)) {
-      visited.add(expr.name);
-      const fn = fnMap.get(expr.name)!;
-      totalExprs += countExpressionNodes(fn.body);
-      for (const b of fn.lets) totalExprs += countExpressionNodes(b.value);
-      walkForCalls(fn.body);
-      for (const b of fn.lets) walkForCalls(b.value);
-    }
-    // Walk children to find nested function calls
-    switch (expr.type) {
-      case 'binaryOp': walkForCalls(expr.left); walkForCalls(expr.right); break;
-      case 'unaryOp': walkForCalls(expr.operand); break;
-      case 'methodCall': walkForCalls(expr.object); expr.args.forEach(walkForCalls); break;
-      case 'memberAccess': walkForCalls(expr.object); break;
-      case 'bracketAccess': walkForCalls(expr.object); walkForCalls(expr.index); break;
-      case 'ternary': walkForCalls(expr.condition); walkForCalls(expr.consequent); walkForCalls(expr.alternate); break;
-      case 'inExpr': walkForCalls(expr.element); walkForCalls(expr.collection); break;
-      case 'isExpr': walkForCalls(expr.value); break;
-      case 'listLiteral': expr.elements.forEach(walkForCalls); break;
-      case 'mapLiteral': expr.entries.forEach(e => { walkForCalls(e.key); walkForCalls(e.value); }); break;
-      case 'functionCall': expr.args.forEach(walkForCalls); break;
-    }
-  }
-  walkForCalls(condition);
-
-  return { totalExprs, callCount: visited.size };
-}
-
-function checkExpressionBudget(
-  rules: { rule: { condition: Expression }; matchFunctions: FunctionDef[] }[],
-  allFunctions: FunctionDef[],
-  warnings: LintWarning[],
-) {
-  const fnMap = new Map<string, FunctionDef>();
-  for (const fn of allFunctions) fnMap.set(fn.name, fn);
-
-  for (let i = 0; i < rules.length; i++) {
-    const { totalExprs, callCount } = estimateRuleBudget(rules[i].rule.condition, fnMap);
-
-    // The runtime budget depends on function call count.
-    // With unique gates (SHARED_GATE check handles this separately),
-    // only this rule's expressions are evaluated. The budget model
-    // accounts for per-call overhead making the available budget
-    // decrease with more calls.
-    //
-    // However, the total node count is a WORST-CASE estimate (assumes
-    // all branches evaluate). Firestore short-circuits && and ||.
-    // For rules with many OR branches where only 1 matches, the actual
-    // evaluated count is much lower than the tree size.
-    //
-    // To avoid false positives on rules with large but well-gated trees
-    // (like chess check detection with 16 OR branches), we use a
-    // conservative multiplier: if the rule has many OR branches at the
-    // top level, discount the estimate.
-    const topLevelOrs = maxChainDepth(rules[i].rule.condition, '||');
-    const discountFactor = topLevelOrs > 5 ? 0.3 : topLevelOrs > 2 ? 0.5 : 1.0;
-    const adjustedExprs = Math.round(totalExprs * discountFactor);
-
-    const budget = callCount <= THRESHOLDS.RUNTIME_BUDGET.low.calls
-      ? THRESHOLDS.RUNTIME_BUDGET.low
-      : callCount <= THRESHOLDS.RUNTIME_BUDGET.mid.calls
-        ? THRESHOLDS.RUNTIME_BUDGET.mid
-        : THRESHOLDS.RUNTIME_BUDGET.high;
-
-    // Expression budget is always a WARNING, never an error, because:
-    // 1. We count the full tree but Firestore short-circuits && and ||
-    // 2. The runtime budget is non-deterministic (has a flaky zone)
-    // 3. The actual evaluated expressions depend on data at runtime
-    // Hard structural errors (chain depth, let limit) catch compilation failures.
-    // This check catches POTENTIAL runtime issues as advisory warnings.
-    if (adjustedExprs >= budget.warn) {
-      warnings.push({
-        rule: 'EXPRESSION_BUDGET',
-        severity: 'warning',
-        message: `Rule #${i} has ~${totalExprs} expression nodes across ${callCount} function calls. Runtime budget is non-deterministic; actual evaluation depends on short-circuit behavior.`,
-        location: { ruleIndex: i },
-        fix: 'If this rule fails at runtime (403), reduce function calls or expression count.',
-      });
-    }
+function checkExpressionBudget(estimates: RuleCostEstimate[], warnings: LintWarning[]) {
+  for (const estimate of estimates) {
+    if (estimate.grantCost === null || estimate.grantCost < EXPRESSION_LIMIT) continue;
+    warnings.push({
+      rule: 'EXPRESSION_BUDGET',
+      severity: 'warning',
+      message: `Rule #${estimate.ruleIndex} in '${estimate.blockPath}' can evaluate up to ~${estimate.grantCost} expressions for a request it grants, counting the earlier rules that deny it first. Production denies a request that reaches ${EXPRESSION_LIMIT}.`,
+      location: { ruleIndex: estimate.ruleIndex, matchPath: estimate.blockPath },
+      fix: 'Put a cheap discriminator first in each rule so earlier rules fail at their gate, split expensive checks so a request evaluates only the branch it needs, or move lookup work into documents.',
+    });
   }
 }
 
@@ -840,7 +761,8 @@ export function lintFirestoreRules(source: string, options: LintOptions = {}): L
   checkSharedGates(allRules, warnings);
 
   // Rule 5: Expression budget
-  checkExpressionBudget(allRules, allFunctions, warnings);
+  const costEstimates = estimateExpressionCosts(ast);
+  checkExpressionBudget(costEstimates.rules, warnings);
 
   // Rule 6: Call depth
   checkCallDepth(allRules, allFunctions, warnings);
@@ -904,10 +826,11 @@ export function lintFirestoreRules(source: string, options: LintOptions = {}): L
   const fnMap = new Map<string, FunctionDef>();
   for (const fn of allFunctions) fnMap.set(fn.name, fn);
   let maxExprs = 0;
+  for (const estimate of costEstimates.rules) {
+    if (estimate.grantCost !== null && estimate.grantCost > maxExprs) maxExprs = estimate.grantCost;
+  }
   let maxGets = 0;
   for (const r of allRules) {
-    const { totalExprs } = estimateRuleBudget(r.rule.condition, fnMap);
-    if (totalExprs > maxExprs) maxExprs = totalExprs;
     const gets = countDocumentAccessCalls(r.rule.condition, fnMap);
     if (gets > maxGets) maxGets = gets;
   }

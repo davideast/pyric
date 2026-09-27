@@ -889,6 +889,32 @@ behaves as pinned. A changed file means cloud behavior MOVED, and the affected
 rows need review before you commit. Never commit a changed observation without
 reading what changed.
 
+### Measure Security Rules evaluation cost
+
+Production denies a Firestore request whose rules evaluation reaches 1000
+expressions, but the Rules Test API reports no count for a request that stays
+under the limit. `capture-rules-expression-cost.ts` measures it by padding:
+it inserts an always-false rule whose cost grows with
+`request.auth.token.pyric_pad` before the request's own rules and finds the
+smallest padding that reaches the limit. It uses `projects.test` only, with
+the same credentials as the Firestore rules oracle, and deploys nothing.
+
+```sh
+bun run packages/conformance/src/capture-rules-expression-cost.ts
+bun run packages/conformance/src/capture-rules-expression-cost.ts --suite chess
+bun run packages/conformance/src/capture-rules-expression-cost.ts --reports
+PYRIC_ARCADE_RULES=/path/to/firestore.rules bun run packages/conformance/src/capture-rules-expression-cost.ts
+```
+
+`--suite` recaptures the named suites and keeps the stored padding anchors.
+`--reports` refreshes the unpadded decisions and the simulator columns and
+keeps the stored thresholds. The suites live in
+`rules-expression-cost-suites.ts`; the output is
+`packages/pyric/test/rules/linter/fixtures/expression-cost/`, which the
+linter's EXPRESSION_BUDGET test reads. A full run sends about 500 test cases.
+Review the diff of `captures.json` before committing it, as with any
+observation.
+
 ### The scheduled re-capture lane
 
 A manual re-run is the only thing that keeps a capture honest, and nobody

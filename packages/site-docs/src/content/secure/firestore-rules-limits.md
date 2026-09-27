@@ -117,11 +117,22 @@ function grants() {
 }
 allow write: if request.auth.uid in grants().editors;
 ```
-## Too much runtime evaluation
+## More than 1000 evaluated expressions
 
-The runtime expression budget does not fail at deploy. An expensive rule returns `permission-denied`, which looks like a denial you intended. Measurements show the budget depends heavily on function-call count: two functions with 120 total expressions passed consistently, while three functions with 60 expressions already failed intermittently.
+Production stops a request when its evaluation reaches 1000 expressions and returns `permission-denied`, which looks like a denial you intended. The Rules Test API names the cause in its debug message: `Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.`
 
-Invalid: every allow rule starts by calling the same expensive gate, so a request pays for it repeatedly while Firestore evaluates possible rules.
+The limit is per request. Allow rules for the request's method run in source order until one grants, and every rule evaluated on the way counts. Within a rule, measurements against the Rules Test API show what one expression is:
+
+- Each evaluated identifier, literal, field or index access, method or function call, comparison, `!` or `in` costs 1.
+- `&&` and `||` cost 1, plus 1 when they evaluate their right side. A short-circuited side costs nothing.
+- A ternary costs 2 plus its condition and the branch it takes.
+- A path such as `/databases/$(database)/documents/config/game` costs 1 plus 1 per segment.
+- A function's `let` values are evaluated on every call, even when the body does not read them.
+- Every call pays again; a helper called five times costs five times.
+
+Twenty comparisons like `resource.data.a == 1` joined by `&&` cost about 135. A chess move validator with board, path and check detection measured 810 to 990 per move, and its checkmating queen move reached the limit.
+
+Invalid: every allow rule starts by calling the same expensive gate, so a request pays for it once for each rule evaluated before the one that grants.
 ```rules
 allow update: if expensiveSharedGate() && isTitleEdit();
 allow update: if expensiveSharedGate() && isStatusEdit();
@@ -133,7 +144,7 @@ allow update: if isTitleEdit() && expensiveSharedGate();
 allow update: if isStatusEdit() && expensiveSharedGate();
 allow update: if isOwnerEdit() && expensiveSharedGate();
 ```
-The linter reports this repeated-prefix hazard as `SHARED_GATE`. Its conservative expression warnings begin at 100 expressions for one or two function calls, 60 for three or four, and 40 for five or more.
+The linter reports the repeated prefix as `SHARED_GATE`. It reports `EXPRESSION_BUDGET` when the most expensive request a rule can grant, counting the earlier rules that deny it first, reaches 1000. That estimate never fell below production on the measured requests. Where the path depends on document values, it assumes the expensive branch, so a warning means some document can take the request over the limit, not that every request will.
 
 ## Oversized indexed configuration documents
 

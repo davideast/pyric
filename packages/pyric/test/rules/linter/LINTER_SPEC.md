@@ -1,6 +1,6 @@
 # Firestore Rules Linter — Specification
 
-## Verified Limits (production-tested 2026-04-07)
+## Verified Limits (compilation limits production-tested 2026-04-07; runtime limit 2026-09-27)
 
 ### Compilation limits (400 INVALID_ARGUMENT)
 
@@ -10,38 +10,77 @@
 | Binary chain depth per function | 98 (AND and OR) | Flat chain, 1 function, 1 rule |
 | Let bindings per function | 11 | Isolated function |
 | Method call chains (.diff().keys().hasOnly()) | 90+ per function | Compile-only test |
+| Nesting depth of a right-nested `&&` chain | 40 compiles, 50 fails ("Expression is too complex to evaluate safely.") | `n > 0 && (n > 1 && (...))`, 2026-09-27; boundary not bisected |
 
-### Runtime limits (403 PERMISSION_DENIED, silent)
+### Runtime evaluation limit (production-measured 2026-09-27)
 
-Verified with deploy-once-test-5x methodology (10s propagation wait).
+Production stops a request when its evaluation reaches 1000 expressions and denies it. The Rules Test API reports the stop as a debug message on the test result: `Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.` The limit belongs to the request, not to a rule. Allow rules for the request's method run in source order until one grants, and every rule evaluated on the way counts toward the same 1000.
 
-| Configuration | Total exprs | Result |
-|--------------|-------------|--------|
-| 1 fn × 98 | 98 | 5/5 pass |
-| 2 fns × 60 | 120 | 5/5 pass |
-| 2 fns × 65 | 130 | 2/5 pass (FLAKY) |
-| 2 fns × 70 | 140 | 1/5 pass (FLAKY) |
-| 3 fns × 20 | 60 | 2/5 pass (FLAKY) |
-| 3 fns × 30 | 90 | 4/5 pass (FLAKY) |
-| 3 fns × 40 | 120 | 1/5 pass (FLAKY) |
-| 3 fns × 50 | 150 | 0/5 pass |
+The Rules Test API does not report the count for a request that stays under the limit. Its `expressionReports` omit literals and repeat each earlier rule's counts for every later rule, so their totals are not the limit's count: a chess knight move that cost 927 reports 1121. The count is measured by padding instead:
 
-**Key finding**: The runtime budget is NOT purely total expressions.
-Function calls have significant overhead. 3 calls with 60 total exprs
-is flaky, while 2 calls with 120 total exprs always passes.
+1. `packages/conformance/src/capture-rules-expression-cost.ts` inserts a rule as the first `allow` of the block the request resolves to. The rule is always false, and its cost grows by about 4.93 expressions for each step of an integer the test case supplies as `request.auth.token.pyric_pad`.
+2. The capture finds the smallest step `n*` at which the request reaches the limit. The cost `X` of everything else the request evaluates satisfies `P(n* - 1) + X < 1000 <= P(n*) + X`, a window of about 5 expressions.
+3. The padding cost `P(n)` is fitted from six anchor requests that evaluate the padding before a second padding of known length, not assumed.
 
-**Budget model**: `available = base - (call_count × call_overhead)`
-The exact values of `base` and `call_overhead` are not deterministic —
-Firestore's evaluation has a flaky zone where results are non-deterministic.
+The capture uses `projects.test` only and deploys nothing. The fixture in `fixtures/expression-cost/` took about 600 test cases, including the anchors and two refreshes of the unpadded reports.
 
-**Safe thresholds for the linter**:
-- 1-2 function calls: warn at 100 total expressions, error at 120
-- 3+ function calls: warn at 60 total, error at 90
-- These are CONSERVATIVE — some rules in the flaky zone will work in
-  practice but the linter flags them to prevent production surprises
+#### What the limit counts
 
-**Cross-rule budget**: shared gates exhaust the budget (chess debugging).
-Exact model unknown — use SHARED_GATE warning.
+Each ladder shape is 20 repetitions of one expression in its own match block. The model column applies the rules below; it sits about 3.5 expressions above production on every fixed-path shape, which is the padding fit's offset, not a per-node cost.
+
+| Shape | Production | Model |
+|-------|-----------|-------|
+| `resource.data.a == 1` × 20, joined by `&&` | 131.6 to 136.5 | 138 |
+| `id == 'x'` × 20 | 92.2 to 97.1 | 98 |
+| `true` × 20 | 52.7 to 57.7 | 58 |
+| `g(id)` × 20, `g(x) = x == 'x'` | 131.6 to 136.5 | 138 |
+| `lt(id)` × 20, `lt(x) { let v = x; return v == 'x'; }` | 171 to 176 | 178 |
+| `!lu()`, a `let` of 10 comparisons the short-circuited body never reads | 72.5 to 77.4 | 77 |
+| `id in ['x', 'y']` × 20 | 131.6 to 136.5 | 138 |
+| `resource.data.keys().size() > 0` × 20 | 151.3 to 156.2 | 158 |
+| `r[f] == 1` × 20 inside one call | 136.5 to 141.5 | 142 |
+| `id[0:1] == 'x'` × 20 | 151.3 to 156.2 | 158 |
+| `!(id == 'y')` × 20 | 111.9 to 116.8 | 118 |
+| `(id == 'x' ? true : false)` × 20 | 151.3 to 156.2 | 158 |
+| `resource.data.m == {'k': 1}` × 10 | 82.3 to 87.2 | 88 |
+| 20 disjuncts, only the last true | 92.2 to 97.1 | 98 |
+| a false first conjunct before 19 more | 18.2 to 23.2 | 23 |
+| `get(/databases/$(database)/documents/cfg/c).data.on == true` × 5 | 57.7 to 62.6 | 63 |
+| three rules of 20 conjuncts, the first two false at their last conjunct | 407.6 to 412.5 | 410 |
+
+From the ladder:
+
+- Every evaluated node costs 1, literals included: identifiers, literals, member, index and slice access, method calls, function calls, comparisons, arithmetic, `!`, `in`, `is`, and list and map literals.
+- `&&` and `||` cost 1, plus 1 when they go on to evaluate their right operand. A short-circuited operand costs nothing, so a false first conjunct stops the chain.
+- A ternary costs 2 plus its condition and the branch it takes.
+- A path literal costs 1 plus 1 per segment; an interpolated segment costs its expression.
+- A `let` costs 1 plus its value, and the value is evaluated when the function is called whether or not the body reads it.
+- A user function call costs 1 plus its arguments, its lets and its body, on every call. Calls are not memoized; a `get()` of a cached path still pays for its call and path.
+- A denied rule's cost stays in the request's total when a later rule grants.
+
+The 2026-04-07 sweep deployed each ruleset once and tested it five times through a client. It reported non-deterministic failures from 60 to 150 expressions and a per-call overhead. The Rules Test API measurements reproduce neither: two functions of 90 comparisons each (about 900 expressions) evaluated to ALLOW on every run, each measured request reached the limit at the same padding step in every round, and a function call costs 1. The call-count thresholds that sweep produced are replaced by the limit above.
+
+#### Measured requests
+
+The chess showcase and an externally authored resolved ruleset for several turn-based games (`arcade`) give the real-world rows. The simulator column counts the expressions Pyric's simulator traced as evaluated. It counts each evaluated node once, without the second unit a logical operator or ternary pays, `let` bindings or path segments, so it runs 7 to 13 percent under production on these rows. The previous estimator counted each called function's nodes once per rule and discounted wide `||` trees by 0.3 or 0.5.
+
+| Request | Production decision | Production cost | Simulator | Previous estimate | Estimate | Estimate / production |
+|---------|--------------------|-----------------|-----------|-------------------|----------|-----------------------|
+| chess pawn forward | ALLOW | 811.7 to 816.6 | 714 | 2366 | 1472 | 1.81 |
+| chess pawn double | ALLOW | 865.9 to 870.9 | 763 | 2380 | 1530 | 1.76 |
+| chess knight | ALLOW | 925.1 to 930 | 819 | 2461 | 1676 | 1.81 |
+| chess bishop | ALLOW | 984.2 to 989.1 | 872 | 2461 | 1676 | 1.70 |
+| chess queen d8 to h4, checkmate | DENY, limit reached | 1000 or more | 892 | 2461 | 1676 | 1.68 |
+| chess queen takes f7, checkmate | ALLOW | 974.4 to 979.3 | 864 | 2478 | 1709 | 1.75 |
+| chess castle kingside | ALLOW | 856.1 to 861 | 767 | 2324 | 1534 | 1.79 |
+| chess en passant | ALLOW | 865.9 to 870.9 | 772 | 2376 | 1549 | 1.78 |
+| chess promotion, nearly empty board | ALLOW | 599.8 to 604.7 | 522 | 2438 | 1603 | 2.66 |
+| chess illegal pawn leap | DENY | 338.6 to 343.5 | 316 | not estimated | 1790 (deny) | 5.25 |
+| arcade tic-tac-toe move | ALLOW | 141.5 to 146.4 | 132 | 151 | 162 | 1.13 |
+| arcade tic-tac-toe win | ALLOW | 195.7 to 200.6 | 179 | 232 | 394 | 1.99 |
+| arcade chess e2 to e4 | DENY, runtime error | 304.1 to 309 | 274 | 409 | 469 | 1.53 |
+| arcade reversi opening | ALLOW | 511.1 to 516 | 454 | 792 | 2611 | 5.08 |
+| arcade reversi, three two-square rays | ALLOW | 752.6 to 757.5 | 661 | 792 | 2611 | 3.46 |
 
 ### Key insight: binary chain depth, not expression count
 
@@ -114,36 +153,27 @@ not N. This means the linter should count chain depth, not total nodes.
 - **Corpus**: 08-shared-gates-12.rules (triggers), 09-unique-gates-12.rules (does not)
 
 ### RULE 5: EXPRESSION_BUDGET
-- **Severity**: warning/error depends on function call count
-- **Threshold**: depends on call depth:
-  - 1-2 function calls: warn at 100, error at 120
-  - 3-4 function calls: warn at 60, error at 90
-  - 5+ function calls: warn at 40, error at 60
-- **Detection**: for each allow rule, count:
-  1. Total expression nodes across rule condition + all called functions
-  2. Number of distinct function calls (transitively)
-  Apply thresholds based on call count.
-- **Algorithm**:
+- **Severity**: warning
+- **Threshold**: a rule's estimated grant cost is 1000 or more
+- **Detection**: `estimateExpressionCosts(ast)` in `src/rules/linter/expression-cost.ts`. For each allow rule, the grant cost is the most expensive evaluation of a request the rule grants: its condition evaluated to true, plus every earlier rule in the same block for the same method evaluated to false. Node costs are the ones measured above.
+- **Algorithm**: `cost(expr, want, facts)` returns the most expensive evaluation of `expr` that yields `want` (true, false or either), or null when none exists.
   ```
-  function estimateBudget(rule, functionDefs):
-    totalExprs = countNodes(rule.condition)
-    callCount = 0
-    for each functionCall in rule.condition (transitively):
-      callCount++
-      fn = functionDefs[call.name]
-      totalExprs += countNodes(fn.body)
-      totalExprs += sum(countNodes(let.value) for let in fn.lets)
-    return { totalExprs, callCount }
-
-  // Apply threshold based on call count
-  if callCount <= 2: warnAt 100, errorAt 120
-  elif callCount <= 4: warnAt 60, errorAt 90
-  else: warnAt 40, errorAt 60
+  a && b, want true:   2 + cost(a, T) + cost(b, T, facts + factsOf(a))
+  a && b, want false:  max(1 + cost(a, F), 2 + cost(a, T) + cost(b, F, facts + factsOf(a)))
+  a || b, want true:   max(1 + cost(a, T), 2 + cost(a, F, facts + factsOf(b)) + cost(b, T))
+  a || b, want false:  2 + max over whether b's first conjunct holds:
+                         fails: cost(a, F) + cost(b fails at its first conjunct)
+                         holds: cost(a, F, facts + gate) + cost(b, F, facts + gate)
+  !a:                  1 + cost(a, not want)
+  c ? x : y:           2 + max(cost(c, T) + cost(x, want), cost(c, F) + cost(y, want))
+  f(args):             1 + args + sum(1 + let value) + cost(body, want)
+  anything else:       1 + children
   ```
-- **Message**: "Rule at line {line} evaluates ~{exprs} expressions across {calls} function calls. With {calls} calls, safe limit is ~{threshold}."
-- **Fix**: reduce function call count by inlining, or reduce expression count per function
-- **Corpus**: chess.rules (passes — ~94 exprs, ~8 calls but with short-circuit)
-- **IMPORTANT**: Firestore's runtime budget is non-deterministic in the "flaky zone." The thresholds above are CONSERVATIVE. Some rules in the flaky zone will work most of the time but may intermittently fail under load. The linter should flag these as warnings, not errors, with a note about non-determinism.
+  `facts` are equalities between a `request` or `resource` path and a literal that the path being costed requires. A comparison or `in` list that the facts decide cannot take the other outcome, so a granting rule gated on `request.resource.data.moveType == 'normal'` costs an earlier rule gated on `moveType == 'pawn_forward'` as failing at that gate. Where the rules do not decide a branch, the estimate takes the expensive side, so it is an upper bound over documents, not a prediction for one.
+- **Accuracy** (`expression-cost.test.ts`, against `fixtures/expression-cost/captures.json`): never below production's lower bound on all 34 measured requests; within 10 percent above production on the 17 whose evaluated path the rules fix; at most 6 times production where the path depends on document values (measured 1.13 to 5.25). A rule under 1000 here stayed under the limit in production.
+- **Message**: "Rule #{i} in '{block}' can evaluate up to ~{cost} expressions for a request it grants, counting the earlier rules that deny it first. Production denies a request that reaches 1000."
+- **Fix**: put a cheap, mutually exclusive discriminator first in each rule so earlier rules fail at their gate; split expensive checks so a request evaluates only the branch it needs; move lookup work into documents.
+- **Corpus**: `fixtures/expression-cost/` (ladder, chess, arcade rulesets and the captured costs). The chess rules warn: their queen checkmate move reached the limit in production.
 
 ### RULE 6: CALL_DEPTH
 - **Severity**: warning at depth >6, error at depth >10
@@ -214,8 +244,9 @@ interface RulesMetrics {
 1. **`maxChainDepth(expr: Expression, op: string): number`**
    Walk expression, count longest flat binary chain of given operator.
 
-2. **`countExpressionNodes(expr: Expression): number`**
-   Walk expression tree, count total nodes (for budget estimation).
+2. **`estimateExpressionCosts(ast: FirestoreRules): ExpressionCostEstimates`**
+   Grant cost per allow rule and deny cost per block and method, in the
+   units of production's 1000-expression limit (`expression-cost.ts`).
 
 3. **`expressionFingerprint(expr: Expression): string`**
    Produce a structural hash/fingerprint for expression comparison.
@@ -247,14 +278,13 @@ interface RulesMetrics {
 
 1. Run each lint rule against the corpus
 2. Verify: rules that trigger should trigger, rules that don't shouldn't
-3. For EXPRESSION_BUDGET: verify against chess.rules (should be warning-free)
+3. For EXPRESSION_BUDGET: compare every estimate with the captured production costs in `fixtures/expression-cost/`; recapture with `bun run packages/conformance/src/capture-rules-expression-cost.ts`
 4. For SHARED_GATE: verify 08 triggers but 09 doesn't
 5. For CHAIN_DEPTH: verify 05/06b trigger, 01-04/06 don't
 
 ## Open Questions (for future probing)
 
-1. **Exact cross-rule budget**: Is there a fixed total? Or is it per-rule with overhead per non-matching rule?
-2. **Method call cost at runtime**: Does `.diff().affectedKeys().hasOnly()` count as 1 or 3+ toward the ~120 runtime budget?
-3. **Nested match block scope**: Does chain depth limit apply per-match-block or globally?
-4. **get() path deduplication**: Does Firestore actually cache get() by path? At what scope?
-5. **Ternary expression cost**: Does `a ? b : c` count as 1 or 3 in the chain?
+1. **Nested match block scope**: Does chain depth limit apply per-match-block or globally?
+2. **get() path deduplication**: Does Firestore actually cache get() by path? At what scope?
+3. **Overlapping match blocks**: In which order does production evaluate two blocks that match one request, and does a grant in the first skip the second's cost?
+4. **Nesting depth limit**: Where between 40 and 50 levels does a nested expression stop compiling?
