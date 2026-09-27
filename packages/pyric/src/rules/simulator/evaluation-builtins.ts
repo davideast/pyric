@@ -457,7 +457,7 @@ function evaluateNamespaceMethod(ns: string, method: string, args: unknown[]): u
   // hashing.* takes Bytes/String — no numeric args — so it's left untouched.
   const a = ns === 'hashing' ? args : args.map(unwrapFloat);
   switch (ns) {
-    case 'math': return evaluateMathMethod(method, a);
+    case 'math': return evaluateMathMethod(method, args);
     case 'timestamp': return evaluateTimestampMethod(method, a);
     case 'duration': return evaluateDurationMethod(method, a);
     case 'latlng': return evaluateLatLngMethod(method, a);
@@ -493,15 +493,59 @@ function evaluateLatLngMethod(method: string, args: unknown[]): unknown {
   throw new UnsupportedError(`Unknown latlng method '${method}'`);
 }
 
+function requireMathNumber(val: unknown, method: string): [number, boolean] {
+  if (val instanceof RulesFloat) return [val.value, true];
+  if (typeof val === 'number') return [val, false];
+  throw new EvalError(`math.${method}() requires a numeric argument`);
+}
+
+function requireFiniteIntResult(result: number, method: string): number {
+  const isFiniteNum = Number.isFinite(result);
+  if (!isFiniteNum) {
+    throw new EvalError(`math.${method}() cannot convert non-finite value to int`);
+  }
+  return result;
+}
+
+function toRulesNumeric(value: number, isFloatOperand: boolean): number | RulesFloat {
+  const shouldWrapFloat = isFloatOperand || !Number.isInteger(value);
+  if (shouldWrapFloat) {
+    return new RulesFloat(value);
+  }
+  return value;
+}
+
 function evaluateMathMethod(method: string, args: unknown[]): unknown {
   switch (method) {
-    case 'abs': return Math.abs(args[0] as number);
-    case 'ceil': return Math.ceil(args[0] as number);
-    case 'floor': return Math.floor(args[0] as number);
-    case 'round': return Math.round(args[0] as number);
-    case 'sqrt': return Math.sqrt(args[0] as number);
-    case 'pow': return Math.pow(args[0] as number, args[1] as number);
-    case 'isNaN': return Number.isNaN(args[0] as number);
+    case 'abs': {
+      const [n, isFloat] = requireMathNumber(args[0], method);
+      return toRulesNumeric(Math.abs(n), isFloat);
+    }
+    case 'ceil': {
+      const [n] = requireMathNumber(args[0], method);
+      return requireFiniteIntResult(Math.ceil(n), method);
+    }
+    case 'floor': {
+      const [n] = requireMathNumber(args[0], method);
+      return requireFiniteIntResult(Math.floor(n), method);
+    }
+    case 'round': {
+      const [n] = requireMathNumber(args[0], method);
+      return requireFiniteIntResult(Math.round(n), method);
+    }
+    case 'sqrt': {
+      const [n, isFloat] = requireMathNumber(args[0], method);
+      return toRulesNumeric(Math.sqrt(n), isFloat);
+    }
+    case 'pow': {
+      const [base, isBaseFloat] = requireMathNumber(args[0], method);
+      const [exp, isExpFloat] = requireMathNumber(args[1], method);
+      return toRulesNumeric(Math.pow(base, exp), isBaseFloat || isExpFloat);
+    }
+    case 'isNaN': {
+      const [n] = requireMathNumber(args[0], method);
+      return Number.isNaN(n);
+    }
   }
   throw new EvalError(`Unknown math method '${method}'`);
 }
