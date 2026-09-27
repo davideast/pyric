@@ -338,6 +338,110 @@ describe('workerEventFeed (F1 live-feed adapter)', () => {
   });
 });
 
+describe('feed-driven refreshes over a history replay', () => {
+  let restore: (() => void) | null = null;
+  afterEach(() => {
+    restore?.();
+    restore = null;
+    resetWorkerLens(undefined);
+  });
+
+  function authMutation(id: string): SandboxEvent {
+    return {
+      kind: 'service_mutation',
+      id,
+      at: Date.now(),
+      service: 'auth',
+      op: 'sign_in',
+    } as unknown as SandboxEvent;
+  }
+
+  /** 600 events: 300 writes, then auth mutations interleaved with writes. */
+  function historyBatch(): SandboxEvent[] {
+    const events: SandboxEvent[] = [];
+    for (let i = 0; i < 300; i++) events.push(fakeWrite(`w${i}`));
+    for (let i = 0; i < 300; i++) {
+      events.push(i % 3 === 0 ? authMutation(`a${i}`) : fakeWrite(`x${i}`));
+    }
+    return events;
+  }
+
+  function opsFor(sent: unknown[], method: string): { id: string }[] {
+    return sent.filter(
+      (m): m is { t: 'op'; id: string; method: string } =>
+        (m as { t?: string }).t === 'op' && (m as { method?: string }).method === method,
+    );
+  }
+
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it('keeps one listRootCollections and one auth.listUsers in flight, then sends one follow-up', async () => {
+    const sw = controllableSharedWorker();
+    restore = sw.restore;
+    const plane = connectWorkerLive('worker://test')!;
+
+    // Two root-collection subscribers (the shell's status cluster and the Auth
+    // page each hold one) and the Auth page's users subscriber. Each refreshes
+    // on mount and on every event it receives.
+    const refreshRoots = () => void plane.listRootCollections().catch(() => {});
+    const listUsers = plane.authApi.listUsers as unknown as () => Promise<unknown>;
+    const relist = () => void listUsers().catch(() => {});
+    refreshRoots();
+    plane.feed.subscribe(() => refreshRoots());
+    refreshRoots();
+    plane.feed.subscribe(() => refreshRoots());
+    relist();
+    plane.authApi.subscribeUsers(plane.auth, relist);
+
+    const subMsg = sw.port.sent.find(
+      (m): m is { t: 'sub'; subId: string } =>
+        (m as { t?: string }).t === 'sub' && (m as { target?: string }).target === 'events',
+    )!;
+    sw.deliver({ t: 'event', subId: subMsg.subId, events: historyBatch() });
+
+    expect(opsFor(sw.port.sent, 'listRootCollections')).toHaveLength(1);
+    expect(opsFor(sw.port.sent, 'auth.listUsers')).toHaveLength(1);
+
+    // The first requests resolve: one follow-up each covers every event that
+    // arrived while they were in flight.
+    const roots = opsFor(sw.port.sent, 'listRootCollections')[0]!;
+    const users = opsFor(sw.port.sent, 'auth.listUsers')[0]!;
+    sw.deliver({ t: 'res', id: roots.id, ok: true, value: { ids: ['moves'] } });
+    sw.deliver({ t: 'res', id: users.id, ok: true, value: [] });
+    await settle();
+    expect(opsFor(sw.port.sent, 'listRootCollections')).toHaveLength(2);
+    expect(opsFor(sw.port.sent, 'auth.listUsers')).toHaveLength(2);
+
+    // The follow-ups resolve with no new events: nothing more is sent.
+    const followRoots = opsFor(sw.port.sent, 'listRootCollections')[1]!;
+    const followUsers = opsFor(sw.port.sent, 'auth.listUsers')[1]!;
+    sw.deliver({ t: 'res', id: followRoots.id, ok: true, value: { ids: ['moves'] } });
+    sw.deliver({ t: 'res', id: followUsers.id, ok: true, value: [] });
+    await settle();
+    expect(opsFor(sw.port.sent, 'listRootCollections')).toHaveLength(2);
+    expect(opsFor(sw.port.sent, 'auth.listUsers')).toHaveLength(2);
+  });
+
+  it('delivers the follow-up result to every caller that asked while a request was in flight', async () => {
+    const sw = controllableSharedWorker();
+    restore = sw.restore;
+    const plane = connectWorkerLive('worker://test')!;
+
+    const first = plane.listRootCollections();
+    const second = plane.listRootCollections();
+    const third = plane.listRootCollections();
+    const [initial] = opsFor(sw.port.sent, 'listRootCollections');
+    sw.deliver({ t: 'res', id: initial!.id, ok: true, value: { ids: ['a'] } });
+    expect(await first).toEqual(['a']);
+
+    await settle();
+    const [, followUp] = opsFor(sw.port.sent, 'listRootCollections');
+    sw.deliver({ t: 'res', id: followUp!.id, ok: true, value: { ids: ['a', 'b'] } });
+    expect(await second).toEqual(['a', 'b']);
+    expect(await third).toEqual(['a', 'b']);
+  });
+});
+
 describe('listDocuments (F2 phantom-inclusive browse)', () => {
   let restore: (() => void) | null = null;
   afterEach(() => {

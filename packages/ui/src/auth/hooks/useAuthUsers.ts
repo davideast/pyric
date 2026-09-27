@@ -73,6 +73,7 @@ export function useAuthUsers(auth: Auth): UseAuthUsersResult {
     const applyUsers = (u: AuthUserRecord[]) => {
       if (cancelled) return;
       setAll(u);
+      setError(undefined);
       setIsLoading(false);
     };
     const applyErr = (e: unknown) => {
