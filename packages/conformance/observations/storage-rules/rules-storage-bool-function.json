@@ -1,0 +1,585 @@
+{
+  "name": "rules-storage-bool-function",
+  "matrixRow": "",
+  "rowIds": [
+    "storage-rules#124"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"bool-function\" (Coverage: bool() is not a global function). Storage rules have no global bool() function: a call with any argument type is a Function not found error value that denies through == and !, that || true and && false absorb, and that a ruleset function named bool replaces.",
+  "observedAt": "2026-09-27T19:16:49.122Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "bool('true') == true → DENY": "DENY",
+    "!(bool('true') == true) → DENY": "DENY",
+    "bool('false') == false → DENY": "DENY",
+    "!(bool('false') == false) → DENY": "DENY",
+    "bool('TRUE') == true → DENY": "DENY",
+    "!(bool('TRUE') == true) → DENY": "DENY",
+    "bool('1') == true → DENY": "DENY",
+    "!(bool('1') == true) → DENY": "DENY",
+    "bool(1) == true → DENY": "DENY",
+    "!(bool(1) == true) → DENY": "DENY",
+    "bool(0) == false → DENY": "DENY",
+    "!(bool(0) == false) → DENY": "DENY",
+    "bool(true) == true → DENY": "DENY",
+    "!(bool(true) == true) → DENY": "DENY",
+    "bool(null) == false → DENY": "DENY",
+    "!(bool(null) == false) → DENY": "DENY",
+    "bool([]) == false → DENY": "DENY",
+    "!(bool([]) == false) → DENY": "DENY",
+    "bool(request.resource.metadata.t) == true → DENY": "DENY",
+    "!(bool(request.resource.metadata.t) == true) → DENY": "DENY",
+    "bool('true') → DENY": "DENY",
+    "bool('true') is bool → DENY": "DENY",
+    "bool('true') == true || true → ALLOW": "ALLOW",
+    "!(bool('true') && false) → ALLOW": "ALLOW",
+    "a ruleset function bool(x) is callable: bool('yes') → ALLOW": "ALLOW"
+  },
+  "diagnostics": {
+    "bool('true') == true → DENY": {
+      "notes": [
+        "Error: storage.rules line [5], column [24]. Function not found error: Name: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 5,
+          "column": 24,
+          "currentOffset": 130,
+          "endOffset": 133
+        },
+        "functionCalls": [
+          {
+            "function": "bool",
+            "args": [
+              "true"
+            ]
+          }
+        ]
+      }
+    },
+    "!(bool('true') == true) → DENY": {
+      "notes": [
+        "Error: storage.rules line [8], column [26]. Function not found error: Name: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 8,
+          "column": 26,
+          "currentOffset": 221,
+          "endOffset": 224
+        },
+        "functionCalls": [
+          {
+            "function": "bool",
+            "args": [
+              "true"
+            ]
+          }
+        ]
+      }
+    },
+    "bool('false') == false → DENY": {
+      "notes": [
+        "Error: storage.rules line [11], column [24]. Function not found error: Name: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 11,
+          "column": 24,
+          "currentOffset": 309,
+          "endOffset": 312
+        },
+        "functionCalls": [
+          {
+            "function": "bool",
+            "args": [
+              "false"
+            ]
+          }
+        ]
+      }
+    },
+    "!(bool('false') == false) → DENY": {
+      "notes": [
+        "Error: storage.rules line [14], column [26]. Function not found error: Name: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 14,
+          "column": 26,
+          "currentOffset": 403,
+          "endOffset": 406
+        },
+        "functionCalls": [
+          {
+            "function": "bool",
+            "args": [
+              "false"
+            ]
+          }
+        ]
+      }
+    },
+    "bool('TRUE') == true → DENY": {
+      "notes": [
+        "Error: storage.rules line [17], column [24]. Function not found error: Name: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 17,
+          "column": 24,
+          "currentOffset": 493,
+          "endOffset": 496
+        },
+        "functionCalls": [
+          {
+            "function": "bool",
+            "args": [
+              "TRUE"
+            ]
+          }
+        ]
+      }
+    },
+    "!(bool('TRUE') == true) → DENY": {
+      "notes": [
+        "Error: storage.rules line [20], column [26]. Function not found error: Name: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 20,
+          "column": 26,
+          "currentOffset": 585,
+          "endOffset": 588
+        },
+        "functionCalls": [
+          {
+            "function": "bool",
+            "args": [
+              "TRUE"
+            ]
+          }
+        ]
+      }
+    },
+    "bool('1') == true → DENY": {
+      "notes": [
+        "Error: storage.rules line [23], column [24]. Function not found error: Name: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 23,
+          "column": 24,
+          "currentOffset": 671,
+          "endOffset": 674
+        },
+        "functionCalls": [
+          {
+            "function": "bool",
+            "args": [
+              "1"
+            ]
+          }
+        ]
+      }
+    },
+    "!(bool('1') == true) → DENY": {
+      "notes": [
+        "Error: storage.rules line [26], column [26]. Function not found error: Name: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 26,
+          "column": 26,
+          "currentOffset": 758,
+          "endOffset": 761
+        },
+        "functionCalls": [
+          {
+            "function": "bool",
+            "args": [
+              "1"
+            ]
+          }
+        ]
+      }
+    },
+    "bool(1) == true → DENY": {
+      "notes": [
+        "Error: storage.rules line [29], column [24]. Function not found error: Name: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 29,
+          "column": 24,
+          "currentOffset": 838,
+          "endOffset": 841
+        },
+        "functionCalls": [
+          {
+            "function": "bool",
+            "args": [
+              1
+            ]
+          }
+        ]
+      }
+    },
+    "!(bool(1) == true) → DENY": {
+      "notes": [
+        "Error: storage.rules line [32], column [26]. Function not found error: Name: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 32,
+          "column": 26,
+          "currentOffset": 920,
+          "endOffset": 923
+        },
+        "functionCalls": [
+          {
+            "function": "bool",
+            "args": [
+              1
+            ]
+          }
+        ]
+      }
+    },
+    "bool(0) == false → DENY": {
+      "notes": [
+        "Error: storage.rules line [35], column [24]. Function not found error: Name: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 35,
+          "column": 24,
+          "currentOffset": 999,
+          "endOffset": 1002
+        },
+        "functionCalls": [
+          {
+            "function": "bool",
+            "args": [
+              0
+            ]
+          }
+        ]
+      }
+    },
+    "!(bool(0) == false) → DENY": {
+      "notes": [
+        "Error: storage.rules line [38], column [26]. Function not found error: Name: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 38,
+          "column": 26,
+          "currentOffset": 1083,
+          "endOffset": 1086
+        },
+        "functionCalls": [
+          {
+            "function": "bool",
+            "args": [
+              0
+            ]
+          }
+        ]
+      }
+    },
+    "bool(true) == true → DENY": {
+      "notes": [
+        "Error: storage.rules line [41], column [24]. Function not found error: Name: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 41,
+          "column": 24,
+          "currentOffset": 1160,
+          "endOffset": 1163
+        },
+        "functionCalls": [
+          {
+            "function": "bool",
+            "args": [
+              true
+            ]
+          }
+        ]
+      }
+    },
+    "!(bool(true) == true) → DENY": {
+      "notes": [
+        "Error: storage.rules line [44], column [26]. Function not found error: Name: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 44,
+          "column": 26,
+          "currentOffset": 1243,
+          "endOffset": 1246
+        },
+        "functionCalls": [
+          {
+            "function": "bool",
+            "args": [
+              true
+            ]
+          }
+        ]
+      }
+    },
+    "bool(null) == false → DENY": {
+      "notes": [
+        "Error: storage.rules line [47], column [24]. Function not found error: Name: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 47,
+          "column": 24,
+          "currentOffset": 1322,
+          "endOffset": 1325
+        },
+        "functionCalls": [
+          {
+            "function": "bool",
+            "args": [
+              null
+            ]
+          }
+        ]
+      }
+    },
+    "!(bool(null) == false) → DENY": {
+      "notes": [
+        "Error: storage.rules line [50], column [26]. Function not found error: Name: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 50,
+          "column": 26,
+          "currentOffset": 1406,
+          "endOffset": 1409
+        },
+        "functionCalls": [
+          {
+            "function": "bool",
+            "args": [
+              null
+            ]
+          }
+        ]
+      }
+    },
+    "bool([]) == false → DENY": {
+      "notes": [
+        "Error: storage.rules line [53], column [24]. Function not found error: Name: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 53,
+          "column": 24,
+          "currentOffset": 1486,
+          "endOffset": 1489
+        },
+        "functionCalls": [
+          {
+            "function": "bool",
+            "args": [
+              []
+            ]
+          }
+        ]
+      }
+    },
+    "!(bool([]) == false) → DENY": {
+      "notes": [
+        "Error: storage.rules line [56], column [26]. Function not found error: Name: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 56,
+          "column": 26,
+          "currentOffset": 1568,
+          "endOffset": 1571
+        },
+        "functionCalls": [
+          {
+            "function": "bool",
+            "args": [
+              []
+            ]
+          }
+        ]
+      }
+    },
+    "bool(request.resource.metadata.t) == true → DENY": {
+      "notes": [
+        "Error: storage.rules line [59], column [24]. Function not found error: Name: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 59,
+          "column": 24,
+          "currentOffset": 1650,
+          "endOffset": 1653
+        },
+        "functionCalls": [
+          {
+            "function": "bool",
+            "args": [
+              "true"
+            ]
+          }
+        ]
+      }
+    },
+    "!(bool(request.resource.metadata.t) == true) → DENY": {
+      "notes": [
+        "Error: storage.rules line [62], column [26]. Function not found error: Name: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 62,
+          "column": 26,
+          "currentOffset": 1760,
+          "endOffset": 1763
+        },
+        "functionCalls": [
+          {
+            "function": "bool",
+            "args": [
+              "true"
+            ]
+          }
+        ]
+      }
+    },
+    "bool('true') → DENY": {
+      "notes": [
+        "Error: storage.rules line [65], column [24]. Function not found error: Name: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 65,
+          "column": 24,
+          "currentOffset": 1862,
+          "endOffset": 1865
+        },
+        "functionCalls": [
+          {
+            "function": "bool",
+            "args": [
+              "true"
+            ]
+          }
+        ]
+      }
+    },
+    "bool('true') is bool → DENY": {
+      "notes": [
+        "Error: storage.rules line [68], column [24]. Function not found error: Name: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 68,
+          "column": 24,
+          "currentOffset": 1936,
+          "endOffset": 1939
+        },
+        "functionCalls": [
+          {
+            "function": "bool",
+            "args": [
+              "true"
+            ]
+          }
+        ]
+      }
+    },
+    "bool('true') == true || true → ALLOW": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "bool",
+            "args": [
+              "true"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 71,
+              "column": 24,
+              "currentOffset": 2018,
+              "endOffset": 2021
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "!(bool('true') && false) → ALLOW": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "bool",
+            "args": [
+              "true"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 74,
+              "column": 24,
+              "currentOffset": 2110,
+              "endOffset": 2110
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "a ruleset function bool(x) is callable: bool('yes') → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 78,
+              "column": 24,
+              "currentOffset": 2240,
+              "endOffset": 2243
+            },
+            "value": true
+          }
+        ]
+      }
+    }
+  }
+}

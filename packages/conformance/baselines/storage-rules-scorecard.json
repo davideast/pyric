@@ -133,6 +133,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "arithmetic-operand-types",
+        "bool-function",
         "common-auth-membership",
         "conversion-functions",
         "firestore-lookup",
@@ -240,6 +241,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "bool-function",
         "conversion-functions",
         "float-modulo-unary-minus",
         "function-scopes-and-shadowing",
@@ -318,6 +320,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "bool-function",
         "conversion-functions",
         "in-membership-and-proto-keys",
         "metadata-verbs-and-arithmetic",
@@ -503,6 +506,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "arithmetic-operand-types",
+        "bool-function",
         "bytes-literal",
         "common-auth-membership",
         "conversion-functions",
@@ -934,6 +938,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "arithmetic-operand-types",
+        "bool-function",
         "bytes-literal",
         "common-auth-membership",
         "conversion-functions",
@@ -1193,6 +1198,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "arithmetic-operand-types",
+        "bool-function",
         "bytes-literal",
         "common-auth-membership",
         "conversion-functions",
@@ -1231,6 +1237,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "arithmetic-operand-types",
+        "bool-function",
         "bytes-literal",
         "conversion-functions",
         "error-absorption-and-direction",
@@ -1260,6 +1267,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "arithmetic-operand-types",
+        "bool-function",
         "bytes-literal",
         "conversion-functions",
         "error-absorption-and-direction",
@@ -1287,6 +1295,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "arithmetic-operand-types",
+        "bool-function",
         "common-auth-membership",
         "conversion-functions",
         "firestore-lookup",
@@ -1544,6 +1553,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "arithmetic-operand-types",
+        "bool-function",
         "bytes-literal",
         "common-auth-membership",
         "conversion-functions",
@@ -1634,6 +1644,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "arithmetic-operand-types",
+        "bool-function",
         "bytes-literal",
         "common-auth-membership",
         "conversion-functions",
@@ -1675,6 +1686,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "bool-function",
         "common-auth-membership",
         "conversion-functions",
         "function-scopes-and-shadowing",
@@ -1719,6 +1731,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "arithmetic-operand-types",
+        "bool-function",
         "bytes-literal",
         "common-auth-membership",
         "conversion-functions",
