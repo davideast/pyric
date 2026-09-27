@@ -263,8 +263,10 @@ function getEvalSemantics(): Semantics {
     Comparison_lte(left, _op, right) { return (left as any).eval(this.args.ctx) <= (right as any).eval(this.args.ctx); },
     Comparison_gt(left, _op, right) { return (left as any).eval(this.args.ctx) > (right as any).eval(this.args.ctx); },
     Comparison_lt(left, _op, right) { return (left as any).eval(this.args.ctx) < (right as any).eval(this.args.ctx); },
-    Comparison_looseEq(left, _op, right) { return (left as any).eval(this.args.ctx) == (right as any).eval(this.args.ctx); },
-    Comparison_looseNeq(left, _op, right) { return (left as any).eval(this.args.ctx) != (right as any).eval(this.args.ctx); },
+    // RTDB `==` and `!=` do not convert types: the number 5 does not equal the
+    // string '5', and the number 1 does not equal true.
+    Comparison_looseEq(left, _op, right) { return (left as any).eval(this.args.ctx) === (right as any).eval(this.args.ctx); },
+    Comparison_looseNeq(left, _op, right) { return (left as any).eval(this.args.ctx) !== (right as any).eval(this.args.ctx); },
     Comparison(node) { return (node as any).eval(this.args.ctx); },
 
     Additive_add(left, _op, right) { return (left as any).eval(this.args.ctx) as number + ((right as any).eval(this.args.ctx) as number); },

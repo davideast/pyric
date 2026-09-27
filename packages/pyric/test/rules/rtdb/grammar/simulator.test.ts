@@ -159,6 +159,31 @@ describe('evaluateRtdbExpression', () => {
     expect(evalExpr('auth === null', baseCtx)).toBe(true);
   });
 
+  test('== and != compare without type conversion', () => {
+    expect(evalExpr("5 == '5'", baseCtx)).toBe(false);
+    expect(evalExpr("5 != '5'", baseCtx)).toBe(true);
+    expect(evalExpr('1 == true', baseCtx)).toBe(false);
+    expect(evalExpr('1 != true', baseCtx)).toBe(true);
+    expect(evalExpr('0 == false', baseCtx)).toBe(false);
+    expect(evalExpr("'' == false", baseCtx)).toBe(false);
+    expect(evalExpr("true == '1'", baseCtx)).toBe(false);
+    expect(evalExpr("true != '1'", baseCtx)).toBe(true);
+    expect(evalExpr("'5' == '5'", baseCtx)).toBe(true);
+    expect(evalExpr("'5' != '5'", baseCtx)).toBe(false);
+    expect(evalExpr('true == true', baseCtx)).toBe(true);
+    expect(evalExpr('0 == 0', baseCtx)).toBe(true);
+    expect(evalExpr('1 == 1.0', baseCtx)).toBe(true);
+  });
+
+  test('== and != compare data.val() with null for missing data and for a stored value', () => {
+    expect(evalExpr('auth == null', baseCtx)).toBe(true);
+    expect(evalExpr('data.val() == null', baseCtx)).toBe(true);
+    expect(evalExpr('data.val() != null', baseCtx)).toBe(false);
+    const stored = { ...baseCtx, data: new DataSnapshot('stored') };
+    expect(evalExpr('data.val() == null', stored)).toBe(false);
+    expect(evalExpr('data.val() != null', stored)).toBe(true);
+  });
+
   test('$uid === auth.uid binds the path variable against the signed-in uid', () => {
     const ctx = { ...baseCtx, auth: { uid: 'alice', token: {} }, pathVariableBindings: { $uid: 'alice' } };
     expect(evalExpr('$uid === auth.uid', ctx)).toBe(true);
@@ -261,6 +286,35 @@ describe('rtdbRules().simulate with strict equality', () => {
         { expectation: 'DENY', operation: 'write', path: '/users/bob', auth: 'alice', newData: { name: 'Bob' } },
       ]);
       expect(cases.map((c) => c.decision)).toEqual(['ALLOW', 'DENY']);
+    });
+  }
+});
+
+describe('rtdbRules().simulate with == and != across types', () => {
+  // Production verdicts from a deploy-observe-restore capture: a `.validate`
+  // that compares newData with a literal of another type denies the write.
+  const cases: Array<[validate: string, value: unknown, expected: 'ALLOW' | 'DENY']> = [
+    ["newData.val() == '5'", 5, 'DENY'],
+    ["newData.val() == '5'", '5', 'ALLOW'],
+    ["newData.val() != '5'", 5, 'ALLOW'],
+    ["newData.val() != '5'", '5', 'DENY'],
+    ['newData.val() == true', 1, 'DENY'],
+    ['newData.val() == true', true, 'ALLOW'],
+    ['newData.val() != true', 1, 'ALLOW'],
+    ['newData.val() == 0', false, 'DENY'],
+    ["newData.val() == ''", false, 'DENY'],
+    ["newData.val() == '1'", true, 'DENY'],
+    ["newData.val() != '1'", true, 'ALLOW'],
+    ['newData.val() == 1.0', 1, 'ALLOW'],
+  ];
+
+  for (const [validate, value, expected] of cases) {
+    test(`${validate} with ${JSON.stringify(value)} is ${expected}`, () => {
+      const rules = { rules: { a: { '.write': 'auth != null', '.validate': validate } } };
+      const [result] = rtdbRules(rules).simulate([
+        { expectation: expected, operation: 'write', path: '/a', auth: 'u', newData: value },
+      ]).cases;
+      expect(result.decision).toBe(expected);
     });
   }
 });

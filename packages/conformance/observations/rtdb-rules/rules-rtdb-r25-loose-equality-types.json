@@ -1,0 +1,32 @@
+{
+  "name": "rules-rtdb-r25-loose-equality-types",
+  "matrixRow": "rtdb-rules#9",
+  "rowIds": [
+    "rtdb-rules#9"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r25-loose-equality-types\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). `==` and `!=` must compare a number with a string, a number with a boolean, and a string with a boolean without converting either operand, so a rule that expects one type rejects a value of another type as production does.",
+  "observedAt": "2026-09-27T16:26:41.855Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "number 5 does not equal string 5 under ==": "DENY",
+    "string 5 equals string 5 under ==": "ALLOW",
+    "number 5 differs from string 5 under !=": "ALLOW",
+    "string 5 does not differ from string 5 under !=": "DENY",
+    "number 1 does not equal true under ==": "DENY",
+    "true equals true under ==": "ALLOW",
+    "number 1 differs from true under !=": "ALLOW",
+    "true does not differ from true under !=": "DENY",
+    "false does not equal number 0 under ==": "DENY",
+    "number 0 equals number 0 under ==": "ALLOW",
+    "false does not equal the empty string under ==": "DENY",
+    "true does not equal string 1 under ==": "DENY",
+    "string 1 equals string 1 under ==": "ALLOW",
+    "true differs from string 1 under !=": "ALLOW",
+    "number 1 equals 1.0 under ==": "ALLOW",
+    "missing data equals null under ==": "ALLOW",
+    "stored value does not equal null under ==": "DENY",
+    "missing data does not differ from null under !=": "DENY",
+    "stored value differs from null under !=": "ALLOW"
+  }
+}
