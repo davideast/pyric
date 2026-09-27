@@ -29,17 +29,10 @@ function precedenceOf(expr: Expression): number {
 
 function assembleExprInner(expr: Expression): string {
   switch (expr.type) {
-    case 'literal': {
-      if (typeof expr.value === 'string') {
-        // Use raw (preserves escapes) but normalize double quotes to single
-        if (expr.raw.startsWith('"') && expr.raw.endsWith('"')) {
-          const inner = expr.raw.slice(1, -1);
-          return `'${inner}'`;
-        }
-        return expr.raw;
-      }
+    case 'literal':
+      // The source text, with its quote style and escapes, parses back to
+      // the same value.
       return expr.raw;
-    }
     case 'identifier':
       return expr.name;
 
