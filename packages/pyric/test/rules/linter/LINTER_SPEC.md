@@ -50,7 +50,7 @@ Each ladder shape is 20 repetitions of one expression in its own match block. Th
 
 From the ladder:
 
-- Every evaluated node costs 1, literals included: identifiers, literals, member, index and slice access, method calls, function calls, comparisons, arithmetic, `!`, `in`, `is`, and list and map literals.
+- Every evaluated node costs 1, literals included: identifiers, literals, member, index and slice access, method calls, function calls, comparisons, arithmetic, `!`, `in`, and list and map literals. `is` costs 2 plus its value: the type name counts as one expression. The standard library measurement found it: `validString` evaluates one `is` check and `boundedNumber` two, and each measured one expression more per check than a cost of 1 gives.
 - `&&` and `||` cost 1, plus 1 when they go on to evaluate their right operand. A short-circuited operand costs nothing, so a false first conjunct stops the chain.
 - A ternary costs 2 plus its condition and the branch it takes.
 - A path literal costs 1 plus 1 per segment; an interpolated segment costs its expression.
@@ -175,6 +175,14 @@ not N. This means the linter should count chain depth, not total nodes.
 - **Fix**: put a cheap, mutually exclusive discriminator first in each rule so earlier rules fail at their gate; split expensive checks so a request evaluates only the branch it needs; move lookup work into documents.
 - **Corpus**: `fixtures/expression-cost/` (ladder, chess, arcade rulesets and the captured costs). The chess rules warn: their queen checkmate move reached the limit in production.
 
+### RULE 5b: EXPRESSION_LIBRARY_CALLS
+- **Severity**: info. It never blocks a write or a deploy.
+- **Threshold**: none. It reports every allow rule that calls at least one standard library function.
+- **Detection**: `countRuleFunctionCalls(ast)` in `src/rules/linter/expression-cost.ts` walks each rule the way the estimator does: through every argument, `let` value and called function body in the rule's scope, counting each call it reaches. Calls are not memoized, so a library function reached through two callers counts twice. `libraryFunctionFor(fn)` in `src/rules/linter/library-calls.ts` treats a declared function as a library function only when the modules resolver emits the same function for an import of it: same name, parameters, `let` bindings and body. A project function that reuses a library name with different text is not one.
+- **Cost**: each call's cost is the catalog entry's measured production cost per call (`cost` in `stdlib-modules.ts`, measured by `packages/conformance/src/measure-stdlib-cost.ts`). Calls are ranked by `cost.max × count` and the first three are listed.
+- **Message**: "Rule #{i} in '{block}' spends most on these library calls: {fn} ({module}): {n} calls, {min} to {max} expressions per call; .... Calls are not memoized: each call pays again."
+- **Corpus**: `fixtures/library-calls/arcade.rules`, the arcade repository's resolved `app/firestore.rules`; 42 of its rules report.
+
 ### RULE 6: CALL_DEPTH
 - **Severity**: warning at depth >6, error at depth >10
 - **Threshold**: maximum function call chain depth > ~10-20 (not precisely verified)
@@ -217,7 +225,7 @@ interface LintResult {
 
 interface LintWarning {
   rule: string;           // 'CHAIN_DEPTH', 'SHARED_GATE', etc.
-  severity: 'warning' | 'error';
+  severity: 'info' | 'warning' | 'error';
   message: string;
   location?: {
     functionName?: string;

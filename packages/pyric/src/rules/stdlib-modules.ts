@@ -53,6 +53,16 @@ export interface StdlibEntry {
    * carry the correction while the signature field stays a signature.
    */
   acceptance?: 'rejected';
+  /**
+   * Measured production cost of one call to a user-module function: the
+   * expressions the call, its `let` bindings and its body count toward the
+   * 1000-expression request limit, not counting arguments, on the cheapest and
+   * the most expensive measured path. Calls are not memoized, so each call
+   * pays again. Mirrors the module's test-file cost record.
+   */
+  cost?: { min: number; max: number };
+  /** get() and exists() calls one call can spend. Set with `cost`. */
+  reads?: number;
   /** One-line summary the agent reads first. */
   description: string;
   /** ~1–3 lines of real rule fragments. Optional. */
@@ -542,10 +552,14 @@ const AUTH_MODULE: StdlibModuleDefinition = {
   entries: [
     {
       signature: 'isAuthenticated(): bool',
+      cost: { min: 5, max: 5 },
+      reads: 0,
       description: '`request.auth != null`.',
     },
     {
       signature: 'isOwner(userId: string): bool',
+      cost: { min: 7, max: 13 },
+      reads: 0,
       description: '`request.auth.uid == userId`. Pass a field path like `resource.data.ownerId`.',
       examples: [`allow update: if isAuthenticated() && isOwner(resource.data.ownerId);`],
     },
@@ -568,10 +582,14 @@ const VALIDATION_MODULE: StdlibModuleDefinition = {
   entries: [
     {
       signature: 'hasRequired(fields: list<string>): bool',
+      cost: { min: 7, max: 7 },
+      reads: 0,
       description: '`request.resource.data.keys().hasAll(fields)`.',
     },
     {
       signature: 'hasOnly(fields: list<string>): bool',
+      cost: { min: 7, max: 7 },
+      reads: 0,
       description: '`request.resource.data.keys().hasOnly(fields)`.',
       examples: [
         // Imports resolve to FLAT names — call `hasRequired(...)`, never `validation.hasRequired(...)`.
@@ -580,12 +598,16 @@ const VALIDATION_MODULE: StdlibModuleDefinition = {
     },
     {
       signature: 'validString(field: string, min: int, max: int): bool',
+      cost: { min: 10, max: 28 },
+      reads: 0,
       description:
         'The incoming field is a string with size in [min, max] (inclusive). Uses dynamic access, so a MISSING field reads null and fails the type check instead of erroring — safe on optional fields.',
       examples: [`allow create: if validString('title', 1, 100);`],
     },
     {
       signature: 'isOneOf(field: string, values: list): bool',
+      cost: { min: 8, max: 8 },
+      reads: 0,
       description:
         "Enum check: the incoming field value is in the allowed list (`request.resource.data[field] in values`). The rules idiom for what JS would write as `.includes()` — which does not exist here.",
       examples: [`allow create: if isOneOf('status', ['draft', 'published']);`],
@@ -606,14 +628,20 @@ const LOBBY_MODULE: StdlibModuleDefinition = {
   entries: [
     {
       signature: 'validCreate(): bool',
+      cost: { min: 8, max: 31 },
+      reads: 0,
       description: 'Host is the auth user, guest is empty, status is "waiting".',
     },
     {
       signature: 'validJoin(): bool',
+      cost: { min: 10, max: 57 },
+      reads: 0,
       description: 'Guest slot is empty, joiner is not the host, status transitions to "playing".',
     },
     {
       signature: 'canCancel(): bool',
+      cost: { min: 7, max: 21 },
+      reads: 0,
       description: 'Status is "waiting" and the requester is the host.',
     },
   ],
@@ -632,10 +660,14 @@ const TURNS_MODULE: StdlibModuleDefinition = {
   entries: [
     {
       signature: 'isMyTurn(): bool',
+      cost: { min: 16, max: 23 },
+      reads: 0,
       description: 'Current player matches the auth uid (matches against `host` or `guest`).',
     },
     {
       signature: 'turnFlipped(): bool',
+      cost: { min: 15, max: 22 },
+      reads: 0,
       description: 'After the write, `currentTurn` has switched from host to guest (or vice-versa).',
     },
   ],
@@ -652,13 +684,22 @@ const STATE_MODULE: StdlibModuleDefinition = {
   whenToUse:
     'Reach for `state` on per-move updates to assert the move actually advanced the game and did not change the players.',
   entries: [
-    { signature: 'isPlaying(): bool', description: '`resource.data.status == "playing"`.' },
+    {
+      signature: 'isPlaying(): bool',
+      cost: { min: 6, max: 6 },
+      reads: 0,
+      description: '`resource.data.status == "playing"`.',
+    },
     {
       signature: 'moveIncremented(): bool',
+      cost: { min: 11, max: 11 },
+      reads: 0,
       description: '`request.resource.data.moveCount == resource.data.moveCount + 1`.',
     },
     {
       signature: 'participantsUnchanged(): bool',
+      cost: { min: 10, max: 19 },
+      reads: 0,
       description: 'Host and guest fields are identical pre- and post-write.',
     },
   ],
@@ -677,18 +718,26 @@ const MEMBERSHIP_MODULE: StdlibModuleDefinition = {
   entries: [
     {
       signature: 'hasClaim(claim: string): bool',
+      cost: { min: 6, max: 14 },
+      reads: 0,
       description: 'Auth token has a non-null value for the named claim.',
     },
     {
       signature: 'hasClaimRole(claim: string, role: string): bool',
+      cost: { min: 6, max: 14 },
+      reads: 0,
       description: 'Auth token claim equals the named role value.',
     },
     {
       signature: 'isMemberOf(membersMap: map): bool',
+      cost: { min: 6, max: 12 },
+      reads: 0,
       description: 'Auth uid is a key in the members map.',
     },
     {
       signature: 'hasRole(membersMap: map, role: string): bool',
+      cost: { min: 6, max: 14 },
+      reads: 0,
       description: 'Auth uid is in the members map with the named role.',
     },
   ],
@@ -707,25 +756,35 @@ const LIFECYCLE_MODULE: StdlibModuleDefinition = {
   entries: [
     {
       signature: 'fieldUnchanged(field: string): bool',
+      cost: { min: 11, max: 11 },
+      reads: 0,
       description: 'The named field is byte-identical before and after the write.',
     },
     {
       signature: 'immutableFields(fields: list<string>): bool',
+      cost: { min: 10, max: 10 },
+      reads: 0,
       description:
         'All listed fields are unchanged. Implemented via MapDiff so it is cheaper than chaining `fieldUnchanged` calls.',
     },
     {
       signature: 'isServerTimestamp(field: string): bool',
+      cost: { min: 9, max: 9 },
+      reads: 0,
       description: 'The named field equals `request.time` (i.e. the client wrote `FieldValue.serverTimestamp()`).',
     },
     {
       signature: 'onlyFieldsChanged(fields: list<string>): bool',
+      cost: { min: 10, max: 10 },
+      reads: 0,
       description:
         'The dual of immutableFields: every CHANGED field is in the allowed list, so unlisted fields are implicitly immutable (adds and removes count as changes). The single most common update guard — "users may edit title/body and nothing else". Top-level keys only; nested-map diffs are unreliable in production.',
       examples: [`allow update: if onlyFieldsChanged(['title', 'body']);`],
     },
     {
       signature: 'nFieldsChanged(n: int): bool',
+      cost: { min: 11, max: 11 },
+      reads: 0,
       description:
         'Exactly n top-level fields changed in this write. `nFieldsChanged(1)` is the board-integrity / edit-one-field-per-write guard.',
     },
@@ -745,14 +804,20 @@ const TRANSITIONS_MODULE: StdlibModuleDefinition = {
   entries: [
     {
       signature: 'validTransition(field: string, from: string, to: string): bool',
+      cost: { min: 8, max: 16 },
+      reads: 0,
       description: 'Field was `from` before and is `to` after.',
     },
     {
       signature: 'statusIs(field: string, value: string): bool',
+      cost: { min: 7, max: 7 },
+      reads: 0,
       description: 'Pre-write field equals `value`.',
     },
     {
       signature: 'newStatusIs(field: string, value: string): bool',
+      cost: { min: 8, max: 8 },
+      reads: 0,
       description: 'Post-write field equals `value`.',
     },
   ],
@@ -771,10 +836,14 @@ const GEOMETRY_MODULE: StdlibModuleDefinition = {
   entries: [
     {
       signature: 'validSimpleMove(cfg: map): bool',
+      cost: { min: 26, max: 26 },
+      reads: 0,
       description: '`cfg.moves[piece][from][to] == true`.',
     },
     {
       signature: 'validJumpMove(cfg: map): bool',
+      cost: { min: 31, max: 31 },
+      reads: 0,
       description: '`cfg.jumps[piece][from][to] == capturedCell`.',
     },
   ],
@@ -795,18 +864,24 @@ const COUNTERS_MODULE: StdlibModuleDefinition = {
   entries: [
     {
       signature: 'incrementedBy(field: string, n: int): bool',
+      cost: { min: 13, max: 13 },
+      reads: 0,
       description:
         'The field changed by EXACTLY n vs the existing document (n may be negative). Update rules only.',
       examples: [`allow update: if incrementedBy('moveCount', 1);`],
     },
     {
       signature: 'changedBy(field: string, min: int, max: int): bool',
+      cost: { min: 14, max: 27 },
+      reads: 0,
       description:
         'The field\'s delta is within [min, max] inclusive; a zero delta passes when the range spans 0.',
       examples: [`allow update: if changedBy('likeCount', -1, 1);`],
     },
     {
       signature: 'boundedNumber(field: string, min: number, max: number): bool',
+      cost: { min: 19, max: 35 },
+      reads: 0,
       description:
         'The incoming value is an int or float within [min, max]. Missing field reads null (dynamic access) and fails closed.',
       examples: [`allow write: if boundedNumber('rating', 1, 5);`],
@@ -827,6 +902,8 @@ const TIMING_MODULE: StdlibModuleDefinition = {
   entries: [
     {
       signature: 'cooldownElapsed(field: string, seconds: int): bool',
+      cost: { min: 12, max: 12 },
+      reads: 0,
       description:
         "`request.time > resource.data[field] + duration.value(seconds, 's')` — the stored timestamp is STRICTLY older than the window. Update rules only (needs `resource`); a missing or non-timestamp field errors, which denies (fail-closed).",
       examples: [
@@ -849,23 +926,31 @@ const CONTENT_MODULE: StdlibModuleDefinition = {
   entries: [
     {
       signature: 'validAuthorCreate(authorField: string): bool',
+      cost: { min: 6, max: 16 },
+      reads: 0,
       description:
         'Create guard: signed in AND the incoming doc\'s author field is the caller\'s uid.',
       examples: [`allow create: if validAuthorCreate('author');`],
     },
     {
       signature: 'isAuthor(authorField: string): bool',
+      cost: { min: 6, max: 15 },
+      reads: 0,
       description: 'The caller is the EXISTING document\'s author. Update/delete rules.',
       examples: [`allow update: if isAuthor('author') && onlyFieldsChanged(['title', 'body']);`],
     },
     {
       signature: 'canReadContent(statusField: string, authorField: string): bool',
+      cost: { min: 8, max: 23 },
+      reads: 0,
       description:
         "Published content is public; anything else is visible to its author only. `get` rules — a bare collection `list` will be denied unless the query proves `status == 'published'` via filters (rules are not filters).",
       examples: [`allow read: if canReadContent('status', 'author') && notDeleted();`],
     },
     {
       signature: 'notDeleted(): bool',
+      cost: { min: 7, max: 7 },
+      reads: 0,
       description:
         "Soft-delete guard: `resource.data['deleted'] != true`. Bracket access is the null-on-miss idiom, so a document WITHOUT the field passes.",
     },
@@ -885,18 +970,24 @@ const SPACES_MODULE: StdlibModuleDefinition = {
   entries: [
     {
       signature: 'isSpaceMember(spaceData: map): bool',
+      cost: { min: 6, max: 13 },
+      reads: 0,
       description:
         "The caller's uid is in `spaceData.members`. `in` covers BOTH shapes: list membership (`members: ['a','b']`) and map keys (`members: {a: 'admin'}`). Missing field / non-member / missing parent doc all fail closed.",
       examples: [`allow read: if isSpaceMember(space());`],
     },
     {
       signature: 'hasSpaceRole(spaceData: map, role: string): bool',
+      cost: { min: 6, max: 15 },
+      reads: 0,
       description:
         "The caller's role in a MAP-shaped members field equals `role` (`spaceData.members[request.auth.uid] == role`). List-shaped members carry no roles — denies.",
       examples: [`allow delete: if hasSpaceRole(space(), 'admin');`],
     },
     {
       signature: 'validMemberCreate(spaceData: map, authorField: string): bool',
+      cost: { min: 9, max: 26 },
+      reads: 0,
       description:
         'Member-gated authored create: caller is a member AND the incoming child doc\'s author field is the caller. The "post a message / add a task" guard.',
       examples: [`allow create: if validMemberCreate(space(), 'author');`],
@@ -917,6 +1008,8 @@ const JOINING_MODULE: StdlibModuleDefinition = {
   entries: [
     {
       signature: 'onlyAddedSelf(membersField: string, role: string): bool',
+      cost: { min: 20, max: 53 },
+      reads: 0,
       description:
         "The write adds EXACTLY the caller to the members map at EXACTLY `role` — changing nobody, removing nobody; a no-op write denies (uses set equality `diff.addedKeys() == [uid].toSet()`, not hasOnly, which passes on an empty diff). Update rules only.",
       examples: [
@@ -925,6 +1018,8 @@ const JOINING_MODULE: StdlibModuleDefinition = {
     },
     {
       signature: 'onlyRemovedSelf(membersField: string): bool',
+      cost: { min: 19, max: 40 },
+      reads: 0,
       description:
         'The write removes EXACTLY the caller — adding nobody, changing nobody. Self-service leave. Update rules only.',
     },
@@ -944,6 +1039,8 @@ const ATOMIC_MODULE: StdlibModuleDefinition = {
   entries: [
     {
       signature: 'companionChangedBy(before: map, after: map, field: string, n: int): bool',
+      cost: { min: 10, max: 10 },
+      reads: 0,
       description:
         "The companion doc's field changed by EXACTLY n in this batch (`after[field] == before[field] + n`). A solo write denies: without a companion write, getAfter == get, so the delta is 0.",
       examples: [
@@ -952,6 +1049,8 @@ const ATOMIC_MODULE: StdlibModuleDefinition = {
     },
     {
       signature: 'consumedFlag(before: map, after: map, flagField: string): bool',
+      cost: { min: 7, max: 13 },
+      reads: 0,
       description:
         'A single-use flag was consumed IN THIS BATCH: pre-batch false AND post-batch true. Replays deny (already true before the batch); solo writes deny (false != true when getAfter == get). Pair with an allow rule on the flag doc itself (e.g. invitee-only, resource.used == false).',
       examples: [
@@ -974,19 +1073,27 @@ const STORAGE_UPLOADS_MODULE: StdlibModuleDefinition = {
   entries: [
     {
       signature: 'sizeAtMost(maxBytes: int): bool',
+      cost: { min: 6, max: 6 },
+      reads: 0,
       description: 'The incoming object size is at most the inclusive byte limit.',
     },
     {
       signature: 'sizeBetween(minBytes: int, maxBytes: int): bool',
+      cost: { min: 7, max: 13 },
+      reads: 0,
       description: 'The incoming object size is inside the inclusive byte range.',
     },
     {
       signature: 'contentTypeMatches(pattern: string): bool',
+      cost: { min: 6, max: 6 },
+      reads: 0,
       description: 'The incoming content-type metadata matches the entire RE2 pattern.',
       notes: 'This checks declared metadata, not the uploaded bytes.',
     },
     {
       signature: 'contentTypeIsOneOf(types: list): bool',
+      cost: { min: 6, max: 6 },
+      reads: 0,
       description: 'The incoming content-type metadata equals one allowlisted value.',
       notes: 'This checks declared metadata, not the uploaded bytes.',
     },
@@ -1006,18 +1113,26 @@ const STORAGE_METADATA_MODULE: StdlibModuleDefinition = {
   entries: [
     {
       signature: 'hasRequiredMetadata(keys: list): bool',
+      cost: { min: 7, max: 7 },
+      reads: 0,
       description: 'The incoming custom metadata contains every required key.',
     },
     {
       signature: 'metadataString(key: string, min: int, max: int): bool',
+      cost: { min: 28, max: 28 },
+      reads: 0,
       description: 'The incoming metadata value is a string within the inclusive size range.',
     },
     {
       signature: 'incomingMetadataOwner(key: string): bool',
+      cost: { min: 6, max: 16 },
+      reads: 0,
       description: 'The incoming metadata value equals the authenticated UID.',
     },
     {
       signature: 'existingMetadataOwner(key: string): bool',
+      cost: { min: 6, max: 15 },
+      reads: 0,
       description: 'The existing metadata value equals the authenticated UID.',
     },
   ],
@@ -1036,14 +1151,20 @@ const STORAGE_OBJECTS_MODULE: StdlibModuleDefinition = {
   entries: [
     {
       signature: 'isCreate(): bool',
+      cost: { min: 5, max: 5 },
+      reads: 0,
       description: "The Storage request method is 'create'.",
     },
     {
       signature: 'isUpdate(): bool',
+      cost: { min: 5, max: 5 },
+      reads: 0,
       description: "The Storage request method is 'update'.",
     },
     {
       signature: 'isDelete(): bool',
+      cost: { min: 5, max: 5 },
+      reads: 0,
       description: "The Storage request method is 'delete'.",
     },
   ],
@@ -1062,11 +1183,15 @@ const STORAGE_TIME_MODULE: StdlibModuleDefinition = {
   entries: [
     {
       signature: 'createdWithin(seconds: int): bool',
+      cost: { min: 10, max: 10 },
+      reads: 0,
       description: 'Request time is strictly before creation time plus the window.',
       notes: 'Equality with the deadline denies. Requires an existing object.',
     },
     {
       signature: 'updatedWithin(seconds: int): bool',
+      cost: { min: 10, max: 10 },
+      reads: 0,
       description: 'Request time is strictly before update time plus the window.',
       notes: 'Equality with the deadline denies. Requires an existing object.',
     },

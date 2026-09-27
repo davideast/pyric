@@ -1,9 +1,15 @@
 // @pyric-services cloud.firestore,firebase.storage
 // @pyric-evidence storage-rules#125,firestore-rules#189
+// Costs are production expressions per call, not counting arguments. Calls
+// are not memoized: every call pays its full cost again, and a let inside a
+// function is paid on every call.
+//
+// cost 5 to 5 expressions per call
 export function isAuthenticated() {
   return request.auth != null;
 }
 
+// cost 7 to 13 expressions per call
 export function isOwner(userId) {
   return isAuthenticated() && request.auth.uid == userId;
 }

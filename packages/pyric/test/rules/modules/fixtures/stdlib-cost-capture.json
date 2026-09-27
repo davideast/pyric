@@ -1,0 +1,3441 @@
+{
+  "schema": "pyric.stdlib-cost.v1",
+  "capturedAt": "2026-09-27T21:50:19.916Z",
+  "projects": {
+    "firestore": "digame-mas",
+    "storage": "digame-mas"
+  },
+  "method": "padding: pad(a, v) + X >= D; per call = X(call) - X(reference with the same arguments) + 2",
+  "calibration": {
+    "firestore": {
+      "d": 986,
+      "checks": [
+        {
+          "condition": "false",
+          "cost": 1,
+          "d": 986
+        },
+        {
+          "condition": "true && false",
+          "cost": 4,
+          "d": 986
+        },
+        {
+          "condition": "true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true",
+          "cost": 58,
+          "d": 986
+        }
+      ]
+    },
+    "storage": {
+      "d": 986,
+      "checks": [
+        {
+          "condition": "false",
+          "cost": 1,
+          "d": 986
+        },
+        {
+          "condition": "true && false",
+          "cost": 4,
+          "d": 986
+        },
+        {
+          "condition": "true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true",
+          "cost": 58,
+          "d": 986
+        }
+      ]
+    }
+  },
+  "requests": 60,
+  "testCases": 2303,
+  "functions": [
+    {
+      "module": "atomic",
+      "function": "companionChangedBy",
+      "cost": {
+        "min": 10,
+        "max": 10
+      },
+      "reads": 0,
+      "cheapestCase": "companionChangedBy allows an exact +1 delta",
+      "mostExpensiveCase": "companionChangedBy allows an exact +1 delta"
+    },
+    {
+      "module": "atomic",
+      "function": "consumedFlag",
+      "cost": {
+        "min": 7,
+        "max": 13
+      },
+      "reads": 0,
+      "cheapestCase": "consumedFlag denies a replay (already consumed before the batch)",
+      "mostExpensiveCase": "consumedFlag allows false -> true consumption"
+    },
+    {
+      "module": "auth",
+      "function": "isAuthenticated",
+      "cost": {
+        "min": 5,
+        "max": 5
+      },
+      "reads": 0,
+      "cheapestCase": "isAuthenticated allows authenticated user",
+      "mostExpensiveCase": "isAuthenticated allows authenticated user"
+    },
+    {
+      "module": "auth",
+      "function": "isOwner",
+      "cost": {
+        "min": 7,
+        "max": 13
+      },
+      "reads": 0,
+      "cheapestCase": "isOwner denies unauthenticated user",
+      "mostExpensiveCase": "isOwner allows when uid matches"
+    },
+    {
+      "module": "content",
+      "function": "validAuthorCreate",
+      "cost": {
+        "min": 6,
+        "max": 16
+      },
+      "reads": 0,
+      "cheapestCase": "validAuthorCreate denies unauthenticated",
+      "mostExpensiveCase": "validAuthorCreate allows when author is the caller"
+    },
+    {
+      "module": "content",
+      "function": "isAuthor",
+      "cost": {
+        "min": 6,
+        "max": 15
+      },
+      "reads": 0,
+      "cheapestCase": "isAuthor denies unauthenticated",
+      "mostExpensiveCase": "isAuthor allows the existing doc's author"
+    },
+    {
+      "module": "content",
+      "function": "canReadContent",
+      "cost": {
+        "min": 8,
+        "max": 23
+      },
+      "reads": 0,
+      "cheapestCase": "canReadContent allows anyone to read published",
+      "mostExpensiveCase": "canReadContent allows the author to read a draft"
+    },
+    {
+      "module": "content",
+      "function": "notDeleted",
+      "cost": {
+        "min": 7,
+        "max": 7
+      },
+      "reads": 0,
+      "cheapestCase": "notDeleted allows when deleted flag is false",
+      "mostExpensiveCase": "notDeleted allows when deleted flag is false"
+    },
+    {
+      "module": "counters",
+      "function": "incrementedBy",
+      "cost": {
+        "min": 13,
+        "max": 13
+      },
+      "reads": 0,
+      "cheapestCase": "incrementedBy allows exact +1",
+      "mostExpensiveCase": "incrementedBy allows exact +1"
+    },
+    {
+      "module": "counters",
+      "function": "changedBy",
+      "cost": {
+        "min": 14,
+        "max": 27
+      },
+      "reads": 0,
+      "cheapestCase": "changedBy denies delta below min",
+      "mostExpensiveCase": "changedBy allows delta at min bound"
+    },
+    {
+      "module": "counters",
+      "function": "boundedNumber",
+      "cost": {
+        "min": 19,
+        "max": 35
+      },
+      "reads": 0,
+      "cheapestCase": "boundedNumber denies non-numeric value",
+      "mostExpensiveCase": "boundedNumber allows float within range"
+    },
+    {
+      "module": "geometry",
+      "function": "validSimpleMove",
+      "cost": {
+        "min": 26,
+        "max": 26
+      },
+      "reads": 0,
+      "cheapestCase": "validSimpleMove allows valid forward move",
+      "mostExpensiveCase": "validSimpleMove allows valid forward move"
+    },
+    {
+      "module": "geometry",
+      "function": "validJumpMove",
+      "cost": {
+        "min": 31,
+        "max": 31
+      },
+      "reads": 0,
+      "cheapestCase": "validJumpMove allows valid jump with correct captured cell",
+      "mostExpensiveCase": "validJumpMove allows valid jump with correct captured cell"
+    },
+    {
+      "module": "joining",
+      "function": "onlyAddedSelf",
+      "cost": {
+        "min": 20,
+        "max": 53
+      },
+      "reads": 0,
+      "cheapestCase": "onlyAddedSelf denies an unauthenticated join",
+      "mostExpensiveCase": "onlyAddedSelf allows adding exactly yourself at the granted role"
+    },
+    {
+      "module": "joining",
+      "function": "onlyRemovedSelf",
+      "cost": {
+        "min": 19,
+        "max": 40
+      },
+      "reads": 0,
+      "cheapestCase": "onlyRemovedSelf denies an unauthenticated leave",
+      "mostExpensiveCase": "onlyRemovedSelf allows removing exactly yourself"
+    },
+    {
+      "module": "lifecycle",
+      "function": "fieldUnchanged",
+      "cost": {
+        "min": 11,
+        "max": 11
+      },
+      "reads": 0,
+      "cheapestCase": "fieldUnchanged allows when field value is same",
+      "mostExpensiveCase": "fieldUnchanged allows when field value is same"
+    },
+    {
+      "module": "lifecycle",
+      "function": "immutableFields",
+      "cost": {
+        "min": 10,
+        "max": 10
+      },
+      "reads": 0,
+      "cheapestCase": "immutableFields allows when all listed fields unchanged",
+      "mostExpensiveCase": "immutableFields allows when all listed fields unchanged"
+    },
+    {
+      "module": "lifecycle",
+      "function": "isServerTimestamp",
+      "cost": {
+        "min": 9,
+        "max": 9
+      },
+      "reads": 0,
+      "cheapestCase": "isServerTimestamp allows when field equals request.time",
+      "mostExpensiveCase": "isServerTimestamp allows when field equals request.time"
+    },
+    {
+      "module": "lifecycle",
+      "function": "onlyFieldsChanged",
+      "cost": {
+        "min": 10,
+        "max": 10
+      },
+      "reads": 0,
+      "cheapestCase": "onlyFieldsChanged allows when only listed fields changed",
+      "mostExpensiveCase": "onlyFieldsChanged allows when only listed fields changed"
+    },
+    {
+      "module": "lifecycle",
+      "function": "nFieldsChanged",
+      "cost": {
+        "min": 11,
+        "max": 11
+      },
+      "reads": 0,
+      "cheapestCase": "nFieldsChanged allows when exactly one field changed",
+      "mostExpensiveCase": "nFieldsChanged allows when exactly one field changed"
+    },
+    {
+      "module": "lobby",
+      "function": "validCreate",
+      "cost": {
+        "min": 8,
+        "max": 31
+      },
+      "reads": 0,
+      "cheapestCase": "validCreate denies an unauthenticated create",
+      "mostExpensiveCase": "validCreate allows host to open lobby"
+    },
+    {
+      "module": "lobby",
+      "function": "validJoin",
+      "cost": {
+        "min": 10,
+        "max": 57
+      },
+      "reads": 0,
+      "cheapestCase": "validJoin denies an unauthenticated join",
+      "mostExpensiveCase": "validJoin allows a second player to join a waiting lobby"
+    },
+    {
+      "module": "lobby",
+      "function": "canCancel",
+      "cost": {
+        "min": 7,
+        "max": 21
+      },
+      "reads": 0,
+      "cheapestCase": "canCancel denies an unauthenticated cancel",
+      "mostExpensiveCase": "canCancel allows the host to cancel a waiting lobby"
+    },
+    {
+      "module": "membership",
+      "function": "hasClaim",
+      "cost": {
+        "min": 6,
+        "max": 14
+      },
+      "reads": 0,
+      "cheapestCase": "hasClaim denies unauthenticated",
+      "mostExpensiveCase": "hasClaim allows when token has the claim"
+    },
+    {
+      "module": "membership",
+      "function": "hasClaimRole",
+      "cost": {
+        "min": 6,
+        "max": 14
+      },
+      "reads": 0,
+      "cheapestCase": "hasClaimRole denies an unauthenticated request",
+      "mostExpensiveCase": "hasClaimRole allows when claim matches role"
+    },
+    {
+      "module": "membership",
+      "function": "isMemberOf",
+      "cost": {
+        "min": 6,
+        "max": 12
+      },
+      "reads": 0,
+      "cheapestCase": "isMemberOf denies an unauthenticated request",
+      "mostExpensiveCase": "isMemberOf allows when uid is in members map"
+    },
+    {
+      "module": "membership",
+      "function": "hasRole",
+      "cost": {
+        "min": 6,
+        "max": 14
+      },
+      "reads": 0,
+      "cheapestCase": "hasRole denies unauthenticated",
+      "mostExpensiveCase": "hasRole allows when uid has matching role"
+    },
+    {
+      "module": "spaces",
+      "function": "isSpaceMember",
+      "cost": {
+        "min": 6,
+        "max": 13
+      },
+      "reads": 0,
+      "cheapestCase": "isSpaceMember denies unauthenticated",
+      "mostExpensiveCase": "isSpaceMember allows a list-shaped member"
+    },
+    {
+      "module": "spaces",
+      "function": "hasSpaceRole",
+      "cost": {
+        "min": 6,
+        "max": 15
+      },
+      "reads": 0,
+      "cheapestCase": "hasSpaceRole denies an unauthenticated request",
+      "mostExpensiveCase": "hasSpaceRole allows the matching role"
+    },
+    {
+      "module": "spaces",
+      "function": "validMemberCreate",
+      "cost": {
+        "min": 9,
+        "max": 26
+      },
+      "reads": 0,
+      "cheapestCase": "validMemberCreate denies an unauthenticated create",
+      "mostExpensiveCase": "validMemberCreate allows a member creating an author-stamped doc"
+    },
+    {
+      "module": "state",
+      "function": "isPlaying",
+      "cost": {
+        "min": 6,
+        "max": 6
+      },
+      "reads": 0,
+      "cheapestCase": "isPlaying allows when status is playing",
+      "mostExpensiveCase": "isPlaying allows when status is playing"
+    },
+    {
+      "module": "state",
+      "function": "moveIncremented",
+      "cost": {
+        "min": 11,
+        "max": 11
+      },
+      "reads": 0,
+      "cheapestCase": "moveIncremented allows 0 to 1",
+      "mostExpensiveCase": "moveIncremented allows 0 to 1"
+    },
+    {
+      "module": "state",
+      "function": "participantsUnchanged",
+      "cost": {
+        "min": 10,
+        "max": 19
+      },
+      "reads": 0,
+      "cheapestCase": "participantsUnchanged denies when host changes",
+      "mostExpensiveCase": "participantsUnchanged allows a move that keeps both players"
+    },
+    {
+      "module": "timing",
+      "function": "cooldownElapsed",
+      "cost": {
+        "min": 12,
+        "max": 12
+      },
+      "reads": 0,
+      "cheapestCase": "cooldownElapsed allows when the stored timestamp is older than the window",
+      "mostExpensiveCase": "cooldownElapsed allows when the stored timestamp is older than the window"
+    },
+    {
+      "module": "transitions",
+      "function": "validTransition",
+      "cost": {
+        "min": 8,
+        "max": 16
+      },
+      "reads": 0,
+      "cheapestCase": "validTransition denies wrong from value",
+      "mostExpensiveCase": "validTransition allows correct from->to"
+    },
+    {
+      "module": "transitions",
+      "function": "statusIs",
+      "cost": {
+        "min": 7,
+        "max": 7
+      },
+      "reads": 0,
+      "cheapestCase": "statusIs allows when current value matches",
+      "mostExpensiveCase": "statusIs allows when current value matches"
+    },
+    {
+      "module": "transitions",
+      "function": "newStatusIs",
+      "cost": {
+        "min": 8,
+        "max": 8
+      },
+      "reads": 0,
+      "cheapestCase": "newStatusIs allows when incoming value matches",
+      "mostExpensiveCase": "newStatusIs allows when incoming value matches"
+    },
+    {
+      "module": "turns",
+      "function": "isMyTurn",
+      "cost": {
+        "min": 16,
+        "max": 23
+      },
+      "reads": 0,
+      "cheapestCase": "isMyTurn allows host when currentTurn is host",
+      "mostExpensiveCase": "isMyTurn denies guest when currentTurn is host"
+    },
+    {
+      "module": "turns",
+      "function": "turnFlipped",
+      "cost": {
+        "min": 15,
+        "max": 22
+      },
+      "reads": 0,
+      "cheapestCase": "turnFlipped allows host to guest transition",
+      "mostExpensiveCase": "turnFlipped denies same turn value"
+    },
+    {
+      "module": "validation",
+      "function": "hasRequired",
+      "cost": {
+        "min": 7,
+        "max": 7
+      },
+      "reads": 0,
+      "cheapestCase": "hasRequired allows when field present",
+      "mostExpensiveCase": "hasRequired allows when field present"
+    },
+    {
+      "module": "validation",
+      "function": "hasOnly",
+      "cost": {
+        "min": 7,
+        "max": 7
+      },
+      "reads": 0,
+      "cheapestCase": "hasOnly denies when extra field present",
+      "mostExpensiveCase": "hasOnly denies when extra field present"
+    },
+    {
+      "module": "validation",
+      "function": "validString",
+      "cost": {
+        "min": 10,
+        "max": 28
+      },
+      "reads": 0,
+      "cheapestCase": "validString denies non-string value",
+      "mostExpensiveCase": "validString allows string within bounds"
+    },
+    {
+      "module": "validation",
+      "function": "isOneOf",
+      "cost": {
+        "min": 8,
+        "max": 8
+      },
+      "reads": 0,
+      "cheapestCase": "isOneOf allows a listed value",
+      "mostExpensiveCase": "isOneOf allows a listed value"
+    },
+    {
+      "module": "storage/metadata",
+      "function": "hasRequiredMetadata",
+      "cost": {
+        "min": 7,
+        "max": 7
+      },
+      "reads": 0,
+      "cheapestCase": "required metadata keys permit extras",
+      "mostExpensiveCase": "required metadata keys permit extras"
+    },
+    {
+      "module": "storage/metadata",
+      "function": "metadataString",
+      "cost": {
+        "min": 28,
+        "max": 28
+      },
+      "reads": 0,
+      "cheapestCase": "bounded metadata string and incoming owner allow",
+      "mostExpensiveCase": "bounded metadata string and incoming owner allow"
+    },
+    {
+      "module": "storage/metadata",
+      "function": "incomingMetadataOwner",
+      "cost": {
+        "min": 6,
+        "max": 16
+      },
+      "reads": 0,
+      "cheapestCase": "unauthenticated upload denies an incoming owner check",
+      "mostExpensiveCase": "bounded metadata string and incoming owner allow"
+    },
+    {
+      "module": "storage/metadata",
+      "function": "existingMetadataOwner",
+      "cost": {
+        "min": 6,
+        "max": 15
+      },
+      "reads": 0,
+      "cheapestCase": "unauthenticated update denies an existing owner check",
+      "mostExpensiveCase": "existing metadata owner allows owner update"
+    },
+    {
+      "module": "storage/objects",
+      "function": "isCreate",
+      "cost": {
+        "min": 5,
+        "max": 5
+      },
+      "reads": 0,
+      "cheapestCase": "create method is identified without reading missing resource",
+      "mostExpensiveCase": "create method is identified without reading missing resource"
+    },
+    {
+      "module": "storage/objects",
+      "function": "isUpdate",
+      "cost": {
+        "min": 5,
+        "max": 5
+      },
+      "reads": 0,
+      "cheapestCase": "update method is identified",
+      "mostExpensiveCase": "update method is identified"
+    },
+    {
+      "module": "storage/objects",
+      "function": "isDelete",
+      "cost": {
+        "min": 5,
+        "max": 5
+      },
+      "reads": 0,
+      "cheapestCase": "delete method is identified without reading missing request.resource",
+      "mostExpensiveCase": "delete method is identified without reading missing request.resource"
+    },
+    {
+      "module": "storage/time",
+      "function": "createdWithin",
+      "cost": {
+        "min": 10,
+        "max": 10
+      },
+      "reads": 0,
+      "cheapestCase": "object is within strict creation window just before boundary",
+      "mostExpensiveCase": "object is within strict creation window just before boundary"
+    },
+    {
+      "module": "storage/time",
+      "function": "updatedWithin",
+      "cost": {
+        "min": 10,
+        "max": 10
+      },
+      "reads": 0,
+      "cheapestCase": "object is within strict updated window",
+      "mostExpensiveCase": "object is within strict updated window"
+    },
+    {
+      "module": "storage/uploads",
+      "function": "sizeAtMost",
+      "cost": {
+        "min": 6,
+        "max": 6
+      },
+      "reads": 0,
+      "cheapestCase": "exact inclusive upload limit allows",
+      "mostExpensiveCase": "exact inclusive upload limit allows"
+    },
+    {
+      "module": "storage/uploads",
+      "function": "sizeBetween",
+      "cost": {
+        "min": 7,
+        "max": 13
+      },
+      "reads": 0,
+      "cheapestCase": "size below the lower bound denies",
+      "mostExpensiveCase": "size inside inclusive bounds allows"
+    },
+    {
+      "module": "storage/uploads",
+      "function": "contentTypeMatches",
+      "cost": {
+        "min": 6,
+        "max": 6
+      },
+      "reads": 0,
+      "cheapestCase": "whole-string MIME and allowlist policy composes",
+      "mostExpensiveCase": "whole-string MIME and allowlist policy composes"
+    },
+    {
+      "module": "storage/uploads",
+      "function": "contentTypeIsOneOf",
+      "cost": {
+        "min": 6,
+        "max": 6
+      },
+      "reads": 0,
+      "cheapestCase": "whole-string MIME and allowlist policy composes",
+      "mostExpensiveCase": "whole-string MIME and allowlist policy composes"
+    }
+  ],
+  "probes": [
+    {
+      "module": "atomic",
+      "function": "companionChangedBy",
+      "case": "companionChangedBy allows an exact +1 delta",
+      "call": "companionChangedBy({'taskCount': 3}, {'taskCount': 4}, 'taskCount', 1)",
+      "measured": {
+        "call": 18,
+        "reference": 10,
+        "perCall": 10
+      },
+      "estimated": {
+        "call": 18,
+        "reference": 10,
+        "perCall": 10
+      }
+    },
+    {
+      "module": "atomic",
+      "function": "companionChangedBy",
+      "case": "companionChangedBy allows an exact negative delta",
+      "call": "companionChangedBy({'n': 2}, {'n': 1}, 'n', -1)",
+      "measured": {
+        "call": 19,
+        "reference": 11,
+        "perCall": 10
+      },
+      "estimated": {
+        "call": 19,
+        "reference": 11,
+        "perCall": 10
+      }
+    },
+    {
+      "module": "atomic",
+      "function": "companionChangedBy",
+      "case": "companionChangedBy denies a wrong delta",
+      "call": "companionChangedBy({'taskCount': 3}, {'taskCount': 5}, 'taskCount', 1)",
+      "measured": {
+        "call": 18,
+        "reference": 10,
+        "perCall": 10
+      },
+      "estimated": {
+        "call": 18,
+        "reference": 10,
+        "perCall": 10
+      }
+    },
+    {
+      "module": "atomic",
+      "function": "companionChangedBy",
+      "case": "companionChangedBy denies an unchanged companion (solo write: after == before)",
+      "call": "companionChangedBy({'taskCount': 3}, {'taskCount': 3}, 'taskCount', 1)",
+      "measured": {
+        "call": 18,
+        "reference": 10,
+        "perCall": 10
+      },
+      "estimated": {
+        "call": 18,
+        "reference": 10,
+        "perCall": 10
+      }
+    },
+    {
+      "module": "atomic",
+      "function": "companionChangedBy",
+      "case": "companionChangedBy denies a missing companion field (null-on-miss)",
+      "call": "companionChangedBy({'other': 1}, {'other': 1}, 'taskCount', 1)",
+      "measured": {
+        "call": 18,
+        "reference": 10,
+        "perCall": 10
+      },
+      "estimated": {
+        "call": 18,
+        "reference": 10,
+        "perCall": 10
+      }
+    },
+    {
+      "module": "atomic",
+      "function": "consumedFlag",
+      "case": "consumedFlag allows false -> true consumption",
+      "call": "consumedFlag({'used': false}, {'used': true}, 'used')",
+      "measured": {
+        "call": 20,
+        "reference": 9,
+        "perCall": 13
+      },
+      "estimated": {
+        "call": 20,
+        "reference": 9,
+        "perCall": 13
+      }
+    },
+    {
+      "module": "atomic",
+      "function": "consumedFlag",
+      "case": "consumedFlag denies a replay (already consumed before the batch)",
+      "call": "consumedFlag({'used': true}, {'used': true}, 'used')",
+      "measured": {
+        "call": 14,
+        "reference": 9,
+        "perCall": 7
+      },
+      "estimated": {
+        "call": 20,
+        "reference": 9,
+        "perCall": 13
+      }
+    },
+    {
+      "module": "atomic",
+      "function": "consumedFlag",
+      "case": "consumedFlag denies a solo write (after == before == false)",
+      "call": "consumedFlag({'used': false}, {'used': false}, 'used')",
+      "measured": {
+        "call": 20,
+        "reference": 9,
+        "perCall": 13
+      },
+      "estimated": {
+        "call": 20,
+        "reference": 9,
+        "perCall": 13
+      }
+    },
+    {
+      "module": "atomic",
+      "function": "consumedFlag",
+      "case": "consumedFlag denies un-consuming (true -> false)",
+      "call": "consumedFlag({'used': true}, {'used': false}, 'used')",
+      "measured": {
+        "call": 14,
+        "reference": 9,
+        "perCall": 7
+      },
+      "estimated": {
+        "call": 20,
+        "reference": 9,
+        "perCall": 13
+      }
+    },
+    {
+      "module": "atomic",
+      "function": "consumedFlag",
+      "case": "consumedFlag denies a missing flag field",
+      "call": "consumedFlag({}, {}, 'used')",
+      "measured": {
+        "call": 16,
+        "reference": 5,
+        "perCall": 13
+      },
+      "estimated": {
+        "call": 16,
+        "reference": 5,
+        "perCall": 13
+      }
+    },
+    {
+      "module": "auth",
+      "function": "isAuthenticated",
+      "case": "isAuthenticated allows authenticated user",
+      "call": "isAuthenticated()",
+      "measured": {
+        "call": 5,
+        "reference": 2,
+        "perCall": 5
+      },
+      "estimated": {
+        "call": 5,
+        "reference": 2,
+        "perCall": 5
+      }
+    },
+    {
+      "module": "auth",
+      "function": "isAuthenticated",
+      "case": "isAuthenticated denies unauthenticated user",
+      "call": "isAuthenticated()",
+      "measured": {
+        "call": 5,
+        "reference": 2,
+        "perCall": 5
+      },
+      "estimated": {
+        "call": 5,
+        "reference": 2,
+        "perCall": 5
+      }
+    },
+    {
+      "module": "auth",
+      "function": "isOwner",
+      "case": "isOwner allows when uid matches",
+      "call": "isOwner(userId)",
+      "measured": {
+        "call": 14,
+        "reference": 3,
+        "perCall": 13
+      },
+      "estimated": {
+        "call": 14,
+        "reference": 3,
+        "perCall": 13
+      }
+    },
+    {
+      "module": "auth",
+      "function": "isOwner",
+      "case": "isOwner denies when uid does not match",
+      "call": "isOwner(userId)",
+      "measured": {
+        "call": 14,
+        "reference": 3,
+        "perCall": 13
+      },
+      "estimated": {
+        "call": 14,
+        "reference": 3,
+        "perCall": 13
+      }
+    },
+    {
+      "module": "auth",
+      "function": "isOwner",
+      "case": "isOwner denies unauthenticated user",
+      "call": "isOwner(userId)",
+      "measured": {
+        "call": 8,
+        "reference": 3,
+        "perCall": 7
+      },
+      "estimated": {
+        "call": 14,
+        "reference": 3,
+        "perCall": 13
+      }
+    },
+    {
+      "module": "content",
+      "function": "validAuthorCreate",
+      "case": "validAuthorCreate allows when author is the caller",
+      "call": "validAuthorCreate('author')",
+      "measured": {
+        "call": 17,
+        "reference": 3,
+        "perCall": 16
+      },
+      "estimated": {
+        "call": 17,
+        "reference": 3,
+        "perCall": 16
+      }
+    },
+    {
+      "module": "content",
+      "function": "validAuthorCreate",
+      "case": "validAuthorCreate denies when author is someone else",
+      "call": "validAuthorCreate('author')",
+      "measured": {
+        "call": 17,
+        "reference": 3,
+        "perCall": 16
+      },
+      "estimated": {
+        "call": 17,
+        "reference": 3,
+        "perCall": 16
+      }
+    },
+    {
+      "module": "content",
+      "function": "validAuthorCreate",
+      "case": "validAuthorCreate denies unauthenticated",
+      "call": "validAuthorCreate('author')",
+      "measured": {
+        "call": 7,
+        "reference": 3,
+        "perCall": 6
+      },
+      "estimated": {
+        "call": 17,
+        "reference": 3,
+        "perCall": 16
+      }
+    },
+    {
+      "module": "content",
+      "function": "validAuthorCreate",
+      "case": "validAuthorCreate denies missing author field",
+      "call": "validAuthorCreate('author')",
+      "measured": {
+        "call": 17,
+        "reference": 3,
+        "perCall": 16
+      },
+      "estimated": {
+        "call": 17,
+        "reference": 3,
+        "perCall": 16
+      }
+    },
+    {
+      "module": "content",
+      "function": "isAuthor",
+      "case": "isAuthor allows the existing doc's author",
+      "call": "isAuthor('author')",
+      "measured": {
+        "call": 16,
+        "reference": 3,
+        "perCall": 15
+      },
+      "estimated": {
+        "call": 16,
+        "reference": 3,
+        "perCall": 15
+      }
+    },
+    {
+      "module": "content",
+      "function": "isAuthor",
+      "case": "isAuthor denies a non-author",
+      "call": "isAuthor('author')",
+      "measured": {
+        "call": 16,
+        "reference": 3,
+        "perCall": 15
+      },
+      "estimated": {
+        "call": 16,
+        "reference": 3,
+        "perCall": 15
+      }
+    },
+    {
+      "module": "content",
+      "function": "isAuthor",
+      "case": "isAuthor denies unauthenticated",
+      "call": "isAuthor('author')",
+      "measured": {
+        "call": 7,
+        "reference": 3,
+        "perCall": 6
+      },
+      "estimated": {
+        "call": 16,
+        "reference": 3,
+        "perCall": 15
+      }
+    },
+    {
+      "module": "content",
+      "function": "canReadContent",
+      "case": "canReadContent allows anyone to read published",
+      "call": "canReadContent('status', 'author')",
+      "measured": {
+        "call": 10,
+        "reference": 4,
+        "perCall": 8
+      },
+      "estimated": {
+        "call": 25,
+        "reference": 4,
+        "perCall": 23
+      }
+    },
+    {
+      "module": "content",
+      "function": "canReadContent",
+      "case": "canReadContent allows unauthenticated read of published",
+      "call": "canReadContent('status', 'author')",
+      "measured": {
+        "call": 10,
+        "reference": 4,
+        "perCall": 8
+      },
+      "estimated": {
+        "call": 25,
+        "reference": 4,
+        "perCall": 23
+      }
+    },
+    {
+      "module": "content",
+      "function": "canReadContent",
+      "case": "canReadContent allows the author to read a draft",
+      "call": "canReadContent('status', 'author')",
+      "measured": {
+        "call": 25,
+        "reference": 4,
+        "perCall": 23
+      },
+      "estimated": {
+        "call": 25,
+        "reference": 4,
+        "perCall": 23
+      }
+    },
+    {
+      "module": "content",
+      "function": "canReadContent",
+      "case": "canReadContent denies a stranger reading a draft",
+      "call": "canReadContent('status', 'author')",
+      "measured": {
+        "call": 25,
+        "reference": 4,
+        "perCall": 23
+      },
+      "estimated": {
+        "call": 25,
+        "reference": 4,
+        "perCall": 23
+      }
+    },
+    {
+      "module": "content",
+      "function": "canReadContent",
+      "case": "canReadContent denies unauthenticated read of a draft",
+      "call": "canReadContent('status', 'author')",
+      "measured": {
+        "call": 16,
+        "reference": 4,
+        "perCall": 14
+      },
+      "estimated": {
+        "call": 25,
+        "reference": 4,
+        "perCall": 23
+      }
+    },
+    {
+      "module": "content",
+      "function": "notDeleted",
+      "case": "notDeleted allows when deleted flag is false",
+      "call": "notDeleted()",
+      "measured": {
+        "call": 7,
+        "reference": 2,
+        "perCall": 7
+      },
+      "estimated": {
+        "call": 7,
+        "reference": 2,
+        "perCall": 7
+      }
+    },
+    {
+      "module": "content",
+      "function": "notDeleted",
+      "case": "notDeleted allows when the field is absent (null-on-miss)",
+      "call": "notDeleted()",
+      "measured": {
+        "call": 7,
+        "reference": 2,
+        "perCall": 7
+      },
+      "estimated": {
+        "call": 7,
+        "reference": 2,
+        "perCall": 7
+      }
+    },
+    {
+      "module": "content",
+      "function": "notDeleted",
+      "case": "notDeleted denies a soft-deleted doc",
+      "call": "notDeleted()",
+      "measured": {
+        "call": 7,
+        "reference": 2,
+        "perCall": 7
+      },
+      "estimated": {
+        "call": 7,
+        "reference": 2,
+        "perCall": 7
+      }
+    },
+    {
+      "module": "counters",
+      "function": "incrementedBy",
+      "case": "incrementedBy allows exact +1",
+      "call": "incrementedBy('count', 1)",
+      "measured": {
+        "call": 15,
+        "reference": 4,
+        "perCall": 13
+      },
+      "estimated": {
+        "call": 15,
+        "reference": 4,
+        "perCall": 13
+      }
+    },
+    {
+      "module": "counters",
+      "function": "incrementedBy",
+      "case": "incrementedBy allows exact negative step",
+      "call": "incrementedBy('count', -1)",
+      "measured": {
+        "call": 16,
+        "reference": 5,
+        "perCall": 13
+      },
+      "estimated": {
+        "call": 16,
+        "reference": 5,
+        "perCall": 13
+      }
+    },
+    {
+      "module": "counters",
+      "function": "incrementedBy",
+      "case": "incrementedBy denies wrong step",
+      "call": "incrementedBy('count', 1)",
+      "measured": {
+        "call": 15,
+        "reference": 4,
+        "perCall": 13
+      },
+      "estimated": {
+        "call": 15,
+        "reference": 4,
+        "perCall": 13
+      }
+    },
+    {
+      "module": "counters",
+      "function": "incrementedBy",
+      "case": "incrementedBy denies unchanged value",
+      "call": "incrementedBy('count', 1)",
+      "measured": {
+        "call": 15,
+        "reference": 4,
+        "perCall": 13
+      },
+      "estimated": {
+        "call": 15,
+        "reference": 4,
+        "perCall": 13
+      }
+    },
+    {
+      "module": "counters",
+      "function": "changedBy",
+      "case": "changedBy allows delta at min bound",
+      "call": "changedBy('likes', -1, 1)",
+      "measured": {
+        "call": 31,
+        "reference": 6,
+        "perCall": 27
+      },
+      "estimated": {
+        "call": 31,
+        "reference": 6,
+        "perCall": 27
+      }
+    },
+    {
+      "module": "counters",
+      "function": "changedBy",
+      "case": "changedBy allows delta at max bound",
+      "call": "changedBy('likes', -1, 1)",
+      "measured": {
+        "call": 31,
+        "reference": 6,
+        "perCall": 27
+      },
+      "estimated": {
+        "call": 31,
+        "reference": 6,
+        "perCall": 27
+      }
+    },
+    {
+      "module": "counters",
+      "function": "changedBy",
+      "case": "changedBy allows zero delta when range spans zero",
+      "call": "changedBy('likes', -1, 1)",
+      "measured": {
+        "call": 31,
+        "reference": 6,
+        "perCall": 27
+      },
+      "estimated": {
+        "call": 31,
+        "reference": 6,
+        "perCall": 27
+      }
+    },
+    {
+      "module": "counters",
+      "function": "changedBy",
+      "case": "changedBy denies delta above max",
+      "call": "changedBy('likes', -1, 1)",
+      "measured": {
+        "call": 31,
+        "reference": 6,
+        "perCall": 27
+      },
+      "estimated": {
+        "call": 31,
+        "reference": 6,
+        "perCall": 27
+      }
+    },
+    {
+      "module": "counters",
+      "function": "changedBy",
+      "case": "changedBy denies delta below min",
+      "call": "changedBy('likes', -1, 1)",
+      "measured": {
+        "call": 18,
+        "reference": 6,
+        "perCall": 14
+      },
+      "estimated": {
+        "call": 31,
+        "reference": 6,
+        "perCall": 27
+      }
+    },
+    {
+      "module": "counters",
+      "function": "boundedNumber",
+      "case": "boundedNumber allows int within range on create",
+      "call": "boundedNumber('rating', 1, 5)",
+      "measured": {
+        "call": 30,
+        "reference": 5,
+        "perCall": 27
+      },
+      "estimated": {
+        "call": 38,
+        "reference": 5,
+        "perCall": 35
+      }
+    },
+    {
+      "module": "counters",
+      "function": "boundedNumber",
+      "case": "boundedNumber allows float within range",
+      "call": "boundedNumber('rating', 1, 5)",
+      "measured": {
+        "call": 38,
+        "reference": 5,
+        "perCall": 35
+      },
+      "estimated": {
+        "call": 38,
+        "reference": 5,
+        "perCall": 35
+      }
+    },
+    {
+      "module": "counters",
+      "function": "boundedNumber",
+      "case": "boundedNumber allows boundary values",
+      "call": "boundedNumber('rating', 1, 5)",
+      "measured": {
+        "call": 30,
+        "reference": 5,
+        "perCall": 27
+      },
+      "estimated": {
+        "call": 38,
+        "reference": 5,
+        "perCall": 35
+      }
+    },
+    {
+      "module": "counters",
+      "function": "boundedNumber",
+      "case": "boundedNumber denies out-of-range value",
+      "call": "boundedNumber('rating', 1, 5)",
+      "measured": {
+        "call": 30,
+        "reference": 5,
+        "perCall": 27
+      },
+      "estimated": {
+        "call": 38,
+        "reference": 5,
+        "perCall": 35
+      }
+    },
+    {
+      "module": "counters",
+      "function": "boundedNumber",
+      "case": "boundedNumber denies non-numeric value",
+      "call": "boundedNumber('rating', 1, 5)",
+      "measured": {
+        "call": 22,
+        "reference": 5,
+        "perCall": 19
+      },
+      "estimated": {
+        "call": 38,
+        "reference": 5,
+        "perCall": 35
+      }
+    },
+    {
+      "module": "counters",
+      "function": "boundedNumber",
+      "case": "boundedNumber denies missing field (null-on-miss)",
+      "call": "boundedNumber('rating', 1, 5)",
+      "measured": {
+        "call": 38,
+        "reference": 5,
+        "perCall": 35
+      },
+      "estimated": {
+        "call": 38,
+        "reference": 5,
+        "perCall": 35
+      }
+    },
+    {
+      "module": "counters",
+      "function": "boundedNumber",
+      "case": "boundedNumber denies a string value",
+      "call": "boundedNumber('rating', 1, 5)",
+      "measured": {
+        "call": 22,
+        "reference": 5,
+        "perCall": 19
+      },
+      "estimated": {
+        "call": 38,
+        "reference": 5,
+        "perCall": 35
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "validSimpleMove",
+      "case": "validSimpleMove allows valid forward move",
+      "call": "validSimpleMove(get(/databases/$(database)/documents/gameConfig/checkers).data)",
+      "measured": {
+        "call": 34,
+        "reference": 10,
+        "perCall": 26
+      },
+      "estimated": {
+        "call": 34,
+        "reference": 10,
+        "perCall": 26
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "validSimpleMove",
+      "case": "validSimpleMove denies invalid move (not in config)",
+      "call": "validSimpleMove(get(/databases/$(database)/documents/gameConfig/checkers).data)",
+      "measured": {
+        "call": 34,
+        "reference": 10,
+        "perCall": 26
+      },
+      "estimated": {
+        "call": 34,
+        "reference": 10,
+        "perCall": 26
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "validJumpMove",
+      "case": "validJumpMove allows valid jump with correct captured cell",
+      "call": "validJumpMove(get(/databases/$(database)/documents/gameConfig/checkers).data)",
+      "measured": {
+        "call": 39,
+        "reference": 10,
+        "perCall": 31
+      },
+      "estimated": {
+        "call": 39,
+        "reference": 10,
+        "perCall": 31
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "validJumpMove",
+      "case": "validJumpMove denies jump with wrong captured cell",
+      "call": "validJumpMove(get(/databases/$(database)/documents/gameConfig/checkers).data)",
+      "measured": {
+        "call": 39,
+        "reference": 10,
+        "perCall": 31
+      },
+      "estimated": {
+        "call": 39,
+        "reference": 10,
+        "perCall": 31
+      }
+    },
+    {
+      "module": "joining",
+      "function": "onlyAddedSelf",
+      "case": "onlyAddedSelf allows adding exactly yourself at the granted role",
+      "call": "onlyAddedSelf('members', 'editor')",
+      "measured": {
+        "call": 55,
+        "reference": 4,
+        "perCall": 53
+      },
+      "estimated": {
+        "call": 55,
+        "reference": 4,
+        "perCall": 53
+      }
+    },
+    {
+      "module": "joining",
+      "function": "onlyAddedSelf",
+      "case": "onlyAddedSelf denies self-granting a different role",
+      "call": "onlyAddedSelf('members', 'editor')",
+      "measured": {
+        "call": 55,
+        "reference": 4,
+        "perCall": 53
+      },
+      "estimated": {
+        "call": 55,
+        "reference": 4,
+        "perCall": 53
+      }
+    },
+    {
+      "module": "joining",
+      "function": "onlyAddedSelf",
+      "case": "onlyAddedSelf denies adding yourself plus someone else",
+      "call": "onlyAddedSelf('members', 'editor')",
+      "measured": {
+        "call": 31,
+        "reference": 4,
+        "perCall": 29
+      },
+      "estimated": {
+        "call": 55,
+        "reference": 4,
+        "perCall": 53
+      }
+    },
+    {
+      "module": "joining",
+      "function": "onlyAddedSelf",
+      "case": "onlyAddedSelf denies changing another member's role while joining",
+      "call": "onlyAddedSelf('members', 'editor')",
+      "measured": {
+        "call": 37,
+        "reference": 4,
+        "perCall": 35
+      },
+      "estimated": {
+        "call": 55,
+        "reference": 4,
+        "perCall": 53
+      }
+    },
+    {
+      "module": "joining",
+      "function": "onlyAddedSelf",
+      "case": "onlyAddedSelf denies removing a member while joining",
+      "call": "onlyAddedSelf('members', 'editor')",
+      "measured": {
+        "call": 43,
+        "reference": 4,
+        "perCall": 41
+      },
+      "estimated": {
+        "call": 55,
+        "reference": 4,
+        "perCall": 53
+      }
+    },
+    {
+      "module": "joining",
+      "function": "onlyAddedSelf",
+      "case": "onlyAddedSelf denies a no-op members write (empty diff)",
+      "call": "onlyAddedSelf('members', 'editor')",
+      "measured": {
+        "call": 31,
+        "reference": 4,
+        "perCall": 29
+      },
+      "estimated": {
+        "call": 55,
+        "reference": 4,
+        "perCall": 53
+      }
+    },
+    {
+      "module": "joining",
+      "function": "onlyAddedSelf",
+      "case": "onlyAddedSelf denies an existing member escalating their own role",
+      "call": "onlyAddedSelf('members', 'editor')",
+      "measured": {
+        "call": 31,
+        "reference": 4,
+        "perCall": 29
+      },
+      "estimated": {
+        "call": 55,
+        "reference": 4,
+        "perCall": 53
+      }
+    },
+    {
+      "module": "joining",
+      "function": "onlyRemovedSelf",
+      "case": "onlyRemovedSelf allows removing exactly yourself",
+      "call": "onlyRemovedSelf('members')",
+      "measured": {
+        "call": 41,
+        "reference": 3,
+        "perCall": 40
+      },
+      "estimated": {
+        "call": 41,
+        "reference": 3,
+        "perCall": 40
+      }
+    },
+    {
+      "module": "joining",
+      "function": "onlyRemovedSelf",
+      "case": "onlyRemovedSelf denies removing someone else",
+      "call": "onlyRemovedSelf('members')",
+      "measured": {
+        "call": 29,
+        "reference": 3,
+        "perCall": 28
+      },
+      "estimated": {
+        "call": 41,
+        "reference": 3,
+        "perCall": 40
+      }
+    },
+    {
+      "module": "joining",
+      "function": "onlyRemovedSelf",
+      "case": "onlyRemovedSelf denies a stranger removing a member",
+      "call": "onlyRemovedSelf('members')",
+      "measured": {
+        "call": 29,
+        "reference": 3,
+        "perCall": 28
+      },
+      "estimated": {
+        "call": 41,
+        "reference": 3,
+        "perCall": 40
+      }
+    },
+    {
+      "module": "joining",
+      "function": "onlyRemovedSelf",
+      "case": "onlyRemovedSelf denies removing yourself AND another member",
+      "call": "onlyRemovedSelf('members')",
+      "measured": {
+        "call": 29,
+        "reference": 3,
+        "perCall": 28
+      },
+      "estimated": {
+        "call": 41,
+        "reference": 3,
+        "perCall": 40
+      }
+    },
+    {
+      "module": "joining",
+      "function": "onlyAddedSelf",
+      "case": "onlyAddedSelf denies an unauthenticated join",
+      "call": "onlyAddedSelf('members', 'editor')",
+      "measured": {
+        "call": 22,
+        "reference": 4,
+        "perCall": 20
+      },
+      "estimated": {
+        "call": 55,
+        "reference": 4,
+        "perCall": 53
+      }
+    },
+    {
+      "module": "joining",
+      "function": "onlyRemovedSelf",
+      "case": "onlyRemovedSelf denies an unauthenticated leave",
+      "call": "onlyRemovedSelf('members')",
+      "measured": {
+        "call": 20,
+        "reference": 3,
+        "perCall": 19
+      },
+      "estimated": {
+        "call": 41,
+        "reference": 3,
+        "perCall": 40
+      }
+    },
+    {
+      "module": "lifecycle",
+      "function": "fieldUnchanged",
+      "case": "fieldUnchanged allows when field value is same",
+      "call": "fieldUnchanged('createdBy')",
+      "measured": {
+        "call": 12,
+        "reference": 3,
+        "perCall": 11
+      },
+      "estimated": {
+        "call": 12,
+        "reference": 3,
+        "perCall": 11
+      }
+    },
+    {
+      "module": "lifecycle",
+      "function": "fieldUnchanged",
+      "case": "fieldUnchanged denies when field value changed",
+      "call": "fieldUnchanged('createdBy')",
+      "measured": {
+        "call": 12,
+        "reference": 3,
+        "perCall": 11
+      },
+      "estimated": {
+        "call": 12,
+        "reference": 3,
+        "perCall": 11
+      }
+    },
+    {
+      "module": "lifecycle",
+      "function": "fieldUnchanged",
+      "case": "fieldUnchanged works with timestamp fields",
+      "call": "fieldUnchanged('createdAt')",
+      "measured": {
+        "call": 12,
+        "reference": 3,
+        "perCall": 11
+      },
+      "estimated": {
+        "call": 12,
+        "reference": 3,
+        "perCall": 11
+      }
+    },
+    {
+      "module": "lifecycle",
+      "function": "immutableFields",
+      "case": "immutableFields allows when all listed fields unchanged",
+      "call": "immutableFields(['createdBy', 'ownerId'])",
+      "measured": {
+        "call": 13,
+        "reference": 5,
+        "perCall": 10
+      },
+      "estimated": {
+        "call": 13,
+        "reference": 5,
+        "perCall": 10
+      }
+    },
+    {
+      "module": "lifecycle",
+      "function": "immutableFields",
+      "case": "immutableFields denies when one listed field changed",
+      "call": "immutableFields(['createdBy', 'ownerId'])",
+      "measured": {
+        "call": 13,
+        "reference": 5,
+        "perCall": 10
+      },
+      "estimated": {
+        "call": 13,
+        "reference": 5,
+        "perCall": 10
+      }
+    },
+    {
+      "module": "lifecycle",
+      "function": "isServerTimestamp",
+      "case": "isServerTimestamp allows when field equals request.time",
+      "call": "isServerTimestamp('createdAt')",
+      "measured": {
+        "call": 10,
+        "reference": 3,
+        "perCall": 9
+      },
+      "estimated": {
+        "call": 10,
+        "reference": 3,
+        "perCall": 9
+      }
+    },
+    {
+      "module": "lifecycle",
+      "function": "onlyFieldsChanged",
+      "case": "onlyFieldsChanged allows when only listed fields changed",
+      "call": "onlyFieldsChanged(['title', 'body'])",
+      "measured": {
+        "call": 13,
+        "reference": 5,
+        "perCall": 10
+      },
+      "estimated": {
+        "call": 13,
+        "reference": 5,
+        "perCall": 10
+      }
+    },
+    {
+      "module": "lifecycle",
+      "function": "onlyFieldsChanged",
+      "case": "onlyFieldsChanged allows a subset of listed fields changing",
+      "call": "onlyFieldsChanged(['title', 'body'])",
+      "measured": {
+        "call": 13,
+        "reference": 5,
+        "perCall": 10
+      },
+      "estimated": {
+        "call": 13,
+        "reference": 5,
+        "perCall": 10
+      }
+    },
+    {
+      "module": "lifecycle",
+      "function": "onlyFieldsChanged",
+      "case": "onlyFieldsChanged denies when an unlisted field changed",
+      "call": "onlyFieldsChanged(['title', 'body'])",
+      "measured": {
+        "call": 13,
+        "reference": 5,
+        "perCall": 10
+      },
+      "estimated": {
+        "call": 13,
+        "reference": 5,
+        "perCall": 10
+      }
+    },
+    {
+      "module": "lifecycle",
+      "function": "onlyFieldsChanged",
+      "case": "onlyFieldsChanged denies when an unlisted field is ADDED",
+      "call": "onlyFieldsChanged(['title'])",
+      "measured": {
+        "call": 12,
+        "reference": 4,
+        "perCall": 10
+      },
+      "estimated": {
+        "call": 12,
+        "reference": 4,
+        "perCall": 10
+      }
+    },
+    {
+      "module": "lifecycle",
+      "function": "onlyFieldsChanged",
+      "case": "onlyFieldsChanged denies when an unlisted field is REMOVED",
+      "call": "onlyFieldsChanged(['title'])",
+      "measured": {
+        "call": 12,
+        "reference": 4,
+        "perCall": 10
+      },
+      "estimated": {
+        "call": 12,
+        "reference": 4,
+        "perCall": 10
+      }
+    },
+    {
+      "module": "lifecycle",
+      "function": "nFieldsChanged",
+      "case": "nFieldsChanged allows when exactly one field changed",
+      "call": "nFieldsChanged(1)",
+      "measured": {
+        "call": 12,
+        "reference": 3,
+        "perCall": 11
+      },
+      "estimated": {
+        "call": 12,
+        "reference": 3,
+        "perCall": 11
+      }
+    },
+    {
+      "module": "lifecycle",
+      "function": "nFieldsChanged",
+      "case": "nFieldsChanged denies when two fields changed",
+      "call": "nFieldsChanged(1)",
+      "measured": {
+        "call": 12,
+        "reference": 3,
+        "perCall": 11
+      },
+      "estimated": {
+        "call": 12,
+        "reference": 3,
+        "perCall": 11
+      }
+    },
+    {
+      "module": "lifecycle",
+      "function": "nFieldsChanged",
+      "case": "nFieldsChanged denies when zero fields changed",
+      "call": "nFieldsChanged(1)",
+      "measured": {
+        "call": 12,
+        "reference": 3,
+        "perCall": 11
+      },
+      "estimated": {
+        "call": 12,
+        "reference": 3,
+        "perCall": 11
+      }
+    },
+    {
+      "module": "lobby",
+      "function": "validCreate",
+      "case": "validCreate allows host to open lobby",
+      "call": "validCreate()",
+      "measured": {
+        "call": 31,
+        "reference": 2,
+        "perCall": 31
+      },
+      "estimated": {
+        "call": 31,
+        "reference": 2,
+        "perCall": 31
+      }
+    },
+    {
+      "module": "lobby",
+      "function": "validCreate",
+      "case": "validCreate denies impersonation",
+      "call": "validCreate()",
+      "measured": {
+        "call": 17,
+        "reference": 2,
+        "perCall": 17
+      },
+      "estimated": {
+        "call": 31,
+        "reference": 2,
+        "perCall": 31
+      }
+    },
+    {
+      "module": "lobby",
+      "function": "validCreate",
+      "case": "validCreate denies pre-filled guest",
+      "call": "validCreate()",
+      "measured": {
+        "call": 24,
+        "reference": 2,
+        "perCall": 24
+      },
+      "estimated": {
+        "call": 31,
+        "reference": 2,
+        "perCall": 31
+      }
+    },
+    {
+      "module": "lobby",
+      "function": "validJoin",
+      "case": "validJoin allows a second player to join a waiting lobby",
+      "call": "validJoin()",
+      "measured": {
+        "call": 57,
+        "reference": 2,
+        "perCall": 57
+      },
+      "estimated": {
+        "call": 57,
+        "reference": 2,
+        "perCall": 57
+      }
+    },
+    {
+      "module": "lobby",
+      "function": "validJoin",
+      "case": "validJoin denies the host joining their own lobby",
+      "call": "validJoin()",
+      "measured": {
+        "call": 41,
+        "reference": 2,
+        "perCall": 41
+      },
+      "estimated": {
+        "call": 57,
+        "reference": 2,
+        "perCall": 57
+      }
+    },
+    {
+      "module": "lobby",
+      "function": "validJoin",
+      "case": "validJoin denies an unauthenticated join",
+      "call": "validJoin()",
+      "measured": {
+        "call": 10,
+        "reference": 2,
+        "perCall": 10
+      },
+      "estimated": {
+        "call": 57,
+        "reference": 2,
+        "perCall": 57
+      }
+    },
+    {
+      "module": "lobby",
+      "function": "canCancel",
+      "case": "canCancel allows the host to cancel a waiting lobby",
+      "call": "canCancel()",
+      "measured": {
+        "call": 21,
+        "reference": 2,
+        "perCall": 21
+      },
+      "estimated": {
+        "call": 21,
+        "reference": 2,
+        "perCall": 21
+      }
+    },
+    {
+      "module": "lobby",
+      "function": "canCancel",
+      "case": "canCancel denies cancelling a game in play",
+      "call": "canCancel()",
+      "measured": {
+        "call": 13,
+        "reference": 2,
+        "perCall": 13
+      },
+      "estimated": {
+        "call": 21,
+        "reference": 2,
+        "perCall": 21
+      }
+    },
+    {
+      "module": "lobby",
+      "function": "validCreate",
+      "case": "validCreate denies an unauthenticated create",
+      "call": "validCreate()",
+      "measured": {
+        "call": 8,
+        "reference": 2,
+        "perCall": 8
+      },
+      "estimated": {
+        "call": 31,
+        "reference": 2,
+        "perCall": 31
+      }
+    },
+    {
+      "module": "lobby",
+      "function": "canCancel",
+      "case": "canCancel denies an unauthenticated cancel",
+      "call": "canCancel()",
+      "measured": {
+        "call": 7,
+        "reference": 2,
+        "perCall": 7
+      },
+      "estimated": {
+        "call": 21,
+        "reference": 2,
+        "perCall": 21
+      }
+    },
+    {
+      "module": "membership",
+      "function": "hasClaim",
+      "case": "hasClaim allows when token has the claim",
+      "call": "hasClaim('workspace')",
+      "measured": {
+        "call": 15,
+        "reference": 3,
+        "perCall": 14
+      },
+      "estimated": {
+        "call": 15,
+        "reference": 3,
+        "perCall": 14
+      }
+    },
+    {
+      "module": "membership",
+      "function": "hasClaim",
+      "case": "hasClaim denies when token lacks the claim",
+      "call": "hasClaim('workspace')",
+      "measured": {
+        "call": 15,
+        "reference": 3,
+        "perCall": 14
+      },
+      "estimated": {
+        "call": 15,
+        "reference": 3,
+        "perCall": 14
+      }
+    },
+    {
+      "module": "membership",
+      "function": "hasClaim",
+      "case": "hasClaim denies unauthenticated",
+      "call": "hasClaim('workspace')",
+      "measured": {
+        "call": 7,
+        "reference": 3,
+        "perCall": 6
+      },
+      "estimated": {
+        "call": 15,
+        "reference": 3,
+        "perCall": 14
+      }
+    },
+    {
+      "module": "membership",
+      "function": "hasClaimRole",
+      "case": "hasClaimRole allows when claim matches role",
+      "call": "hasClaimRole('role', 'admin')",
+      "measured": {
+        "call": 16,
+        "reference": 4,
+        "perCall": 14
+      },
+      "estimated": {
+        "call": 16,
+        "reference": 4,
+        "perCall": 14
+      }
+    },
+    {
+      "module": "membership",
+      "function": "hasClaimRole",
+      "case": "hasClaimRole denies when claim has wrong role",
+      "call": "hasClaimRole('role', 'admin')",
+      "measured": {
+        "call": 16,
+        "reference": 4,
+        "perCall": 14
+      },
+      "estimated": {
+        "call": 16,
+        "reference": 4,
+        "perCall": 14
+      }
+    },
+    {
+      "module": "membership",
+      "function": "isMemberOf",
+      "case": "isMemberOf allows when uid is in members map",
+      "call": "isMemberOf(resource.data.members)",
+      "measured": {
+        "call": 15,
+        "reference": 5,
+        "perCall": 12
+      },
+      "estimated": {
+        "call": 15,
+        "reference": 5,
+        "perCall": 12
+      }
+    },
+    {
+      "module": "membership",
+      "function": "isMemberOf",
+      "case": "isMemberOf denies when uid is not in members map",
+      "call": "isMemberOf(resource.data.members)",
+      "measured": {
+        "call": 15,
+        "reference": 5,
+        "perCall": 12
+      },
+      "estimated": {
+        "call": 15,
+        "reference": 5,
+        "perCall": 12
+      }
+    },
+    {
+      "module": "membership",
+      "function": "hasRole",
+      "case": "hasRole allows when uid has matching role",
+      "call": "hasRole(resource.data.members, 'admin')",
+      "measured": {
+        "call": 18,
+        "reference": 6,
+        "perCall": 14
+      },
+      "estimated": {
+        "call": 18,
+        "reference": 6,
+        "perCall": 14
+      }
+    },
+    {
+      "module": "membership",
+      "function": "hasRole",
+      "case": "hasRole denies when uid has different role",
+      "call": "hasRole(resource.data.members, 'admin')",
+      "measured": {
+        "call": 18,
+        "reference": 6,
+        "perCall": 14
+      },
+      "estimated": {
+        "call": 18,
+        "reference": 6,
+        "perCall": 14
+      }
+    },
+    {
+      "module": "membership",
+      "function": "hasRole",
+      "case": "hasRole denies unauthenticated",
+      "call": "hasRole(resource.data.members, 'admin')",
+      "measured": {
+        "call": 10,
+        "reference": 6,
+        "perCall": 6
+      },
+      "estimated": {
+        "call": 18,
+        "reference": 6,
+        "perCall": 14
+      }
+    },
+    {
+      "module": "membership",
+      "function": "hasClaimRole",
+      "case": "hasClaimRole denies an unauthenticated request",
+      "call": "hasClaimRole('role', 'admin')",
+      "measured": {
+        "call": 8,
+        "reference": 4,
+        "perCall": 6
+      },
+      "estimated": {
+        "call": 16,
+        "reference": 4,
+        "perCall": 14
+      }
+    },
+    {
+      "module": "membership",
+      "function": "isMemberOf",
+      "case": "isMemberOf denies an unauthenticated request",
+      "call": "isMemberOf(resource.data.members)",
+      "measured": {
+        "call": 9,
+        "reference": 5,
+        "perCall": 6
+      },
+      "estimated": {
+        "call": 15,
+        "reference": 5,
+        "perCall": 12
+      }
+    },
+    {
+      "module": "spaces",
+      "function": "isSpaceMember",
+      "case": "isSpaceMember allows a list-shaped member",
+      "call": "isSpaceMember(get(/databases/$(database)/documents/spaces/s1).data)",
+      "measured": {
+        "call": 21,
+        "reference": 10,
+        "perCall": 13
+      },
+      "estimated": {
+        "call": 21,
+        "reference": 10,
+        "perCall": 13
+      }
+    },
+    {
+      "module": "spaces",
+      "function": "isSpaceMember",
+      "case": "isSpaceMember denies a non-member (list shape)",
+      "call": "isSpaceMember(get(/databases/$(database)/documents/spaces/s1).data)",
+      "measured": {
+        "call": 21,
+        "reference": 10,
+        "perCall": 13
+      },
+      "estimated": {
+        "call": 21,
+        "reference": 10,
+        "perCall": 13
+      }
+    },
+    {
+      "module": "spaces",
+      "function": "isSpaceMember",
+      "case": "isSpaceMember allows a map-shaped member",
+      "call": "isSpaceMember(get(/databases/$(database)/documents/spaces/s1).data)",
+      "measured": {
+        "call": 21,
+        "reference": 10,
+        "perCall": 13
+      },
+      "estimated": {
+        "call": 21,
+        "reference": 10,
+        "perCall": 13
+      }
+    },
+    {
+      "module": "spaces",
+      "function": "isSpaceMember",
+      "case": "isSpaceMember denies a non-member (map shape)",
+      "call": "isSpaceMember(get(/databases/$(database)/documents/spaces/s1).data)",
+      "measured": {
+        "call": 21,
+        "reference": 10,
+        "perCall": 13
+      },
+      "estimated": {
+        "call": 21,
+        "reference": 10,
+        "perCall": 13
+      }
+    },
+    {
+      "module": "spaces",
+      "function": "isSpaceMember",
+      "case": "isSpaceMember denies unauthenticated",
+      "call": "isSpaceMember(get(/databases/$(database)/documents/spaces/s1).data)",
+      "measured": {
+        "call": 14,
+        "reference": 10,
+        "perCall": 6
+      },
+      "estimated": {
+        "call": 21,
+        "reference": 10,
+        "perCall": 13
+      }
+    },
+    {
+      "module": "spaces",
+      "function": "isSpaceMember",
+      "case": "isSpaceMember denies when the members field is missing (fail-closed)",
+      "call": "isSpaceMember(get(/databases/$(database)/documents/spaces/s1).data)",
+      "measured": {
+        "call": 21,
+        "reference": 10,
+        "perCall": 13
+      },
+      "estimated": {
+        "call": 21,
+        "reference": 10,
+        "perCall": 13
+      }
+    },
+    {
+      "module": "spaces",
+      "function": "hasSpaceRole",
+      "case": "hasSpaceRole allows the matching role",
+      "call": "hasSpaceRole(get(/databases/$(database)/documents/spaces/s1).data, 'admin')",
+      "measured": {
+        "call": 24,
+        "reference": 11,
+        "perCall": 15
+      },
+      "estimated": {
+        "call": 24,
+        "reference": 11,
+        "perCall": 15
+      }
+    },
+    {
+      "module": "spaces",
+      "function": "hasSpaceRole",
+      "case": "hasSpaceRole denies a different role",
+      "call": "hasSpaceRole(get(/databases/$(database)/documents/spaces/s1).data, 'admin')",
+      "measured": {
+        "call": 24,
+        "reference": 11,
+        "perCall": 15
+      },
+      "estimated": {
+        "call": 24,
+        "reference": 11,
+        "perCall": 15
+      }
+    },
+    {
+      "module": "spaces",
+      "function": "hasSpaceRole",
+      "case": "hasSpaceRole denies a non-member",
+      "call": "hasSpaceRole(get(/databases/$(database)/documents/spaces/s1).data, 'admin')",
+      "measured": {
+        "call": 24,
+        "reference": 11,
+        "perCall": 15
+      },
+      "estimated": {
+        "call": 24,
+        "reference": 11,
+        "perCall": 15
+      }
+    },
+    {
+      "module": "spaces",
+      "function": "hasSpaceRole",
+      "case": "hasSpaceRole denies on a list-shaped members field (no roles)",
+      "call": "hasSpaceRole(get(/databases/$(database)/documents/spaces/s1).data, 'admin')",
+      "measured": {
+        "call": 24,
+        "reference": 11,
+        "perCall": 15
+      },
+      "estimated": {
+        "call": 24,
+        "reference": 11,
+        "perCall": 15
+      }
+    },
+    {
+      "module": "spaces",
+      "function": "validMemberCreate",
+      "case": "validMemberCreate allows a member creating an author-stamped doc",
+      "call": "validMemberCreate(get(/databases/$(database)/documents/spaces/s1).data, 'author')",
+      "measured": {
+        "call": 35,
+        "reference": 11,
+        "perCall": 26
+      },
+      "estimated": {
+        "call": 35,
+        "reference": 11,
+        "perCall": 26
+      }
+    },
+    {
+      "module": "spaces",
+      "function": "validMemberCreate",
+      "case": "validMemberCreate denies a member stamping someone else as author",
+      "call": "validMemberCreate(get(/databases/$(database)/documents/spaces/s1).data, 'author')",
+      "measured": {
+        "call": 35,
+        "reference": 11,
+        "perCall": 26
+      },
+      "estimated": {
+        "call": 35,
+        "reference": 11,
+        "perCall": 26
+      }
+    },
+    {
+      "module": "spaces",
+      "function": "validMemberCreate",
+      "case": "validMemberCreate denies a non-member",
+      "call": "validMemberCreate(get(/databases/$(database)/documents/spaces/s1).data, 'author')",
+      "measured": {
+        "call": 25,
+        "reference": 11,
+        "perCall": 16
+      },
+      "estimated": {
+        "call": 35,
+        "reference": 11,
+        "perCall": 26
+      }
+    },
+    {
+      "module": "spaces",
+      "function": "validMemberCreate",
+      "case": "validMemberCreate denies a missing author field",
+      "call": "validMemberCreate(get(/databases/$(database)/documents/spaces/s1).data, 'author')",
+      "measured": {
+        "call": 35,
+        "reference": 11,
+        "perCall": 26
+      },
+      "estimated": {
+        "call": 35,
+        "reference": 11,
+        "perCall": 26
+      }
+    },
+    {
+      "module": "spaces",
+      "function": "hasSpaceRole",
+      "case": "hasSpaceRole denies an unauthenticated request",
+      "call": "hasSpaceRole(get(/databases/$(database)/documents/spaces/s1).data, 'admin')",
+      "measured": {
+        "call": 15,
+        "reference": 11,
+        "perCall": 6
+      },
+      "estimated": {
+        "call": 24,
+        "reference": 11,
+        "perCall": 15
+      }
+    },
+    {
+      "module": "spaces",
+      "function": "validMemberCreate",
+      "case": "validMemberCreate denies an unauthenticated create",
+      "call": "validMemberCreate(get(/databases/$(database)/documents/spaces/s1).data, 'author')",
+      "measured": {
+        "call": 18,
+        "reference": 11,
+        "perCall": 9
+      },
+      "estimated": {
+        "call": 35,
+        "reference": 11,
+        "perCall": 26
+      }
+    },
+    {
+      "module": "state",
+      "function": "isPlaying",
+      "case": "isPlaying allows when status is playing",
+      "call": "isPlaying()",
+      "measured": {
+        "call": 6,
+        "reference": 2,
+        "perCall": 6
+      },
+      "estimated": {
+        "call": 6,
+        "reference": 2,
+        "perCall": 6
+      }
+    },
+    {
+      "module": "state",
+      "function": "isPlaying",
+      "case": "isPlaying denies when status is waiting",
+      "call": "isPlaying()",
+      "measured": {
+        "call": 6,
+        "reference": 2,
+        "perCall": 6
+      },
+      "estimated": {
+        "call": 6,
+        "reference": 2,
+        "perCall": 6
+      }
+    },
+    {
+      "module": "state",
+      "function": "moveIncremented",
+      "case": "moveIncremented allows 0 to 1",
+      "call": "moveIncremented()",
+      "measured": {
+        "call": 11,
+        "reference": 2,
+        "perCall": 11
+      },
+      "estimated": {
+        "call": 11,
+        "reference": 2,
+        "perCall": 11
+      }
+    },
+    {
+      "module": "state",
+      "function": "moveIncremented",
+      "case": "moveIncremented denies skip from 0 to 5",
+      "call": "moveIncremented()",
+      "measured": {
+        "call": 11,
+        "reference": 2,
+        "perCall": 11
+      },
+      "estimated": {
+        "call": 11,
+        "reference": 2,
+        "perCall": 11
+      }
+    },
+    {
+      "module": "state",
+      "function": "participantsUnchanged",
+      "case": "participantsUnchanged denies when host changes",
+      "call": "participantsUnchanged()",
+      "measured": {
+        "call": 10,
+        "reference": 2,
+        "perCall": 10
+      },
+      "estimated": {
+        "call": 19,
+        "reference": 2,
+        "perCall": 19
+      }
+    },
+    {
+      "module": "state",
+      "function": "participantsUnchanged",
+      "case": "participantsUnchanged allows a move that keeps both players",
+      "call": "participantsUnchanged()",
+      "measured": {
+        "call": 19,
+        "reference": 2,
+        "perCall": 19
+      },
+      "estimated": {
+        "call": 19,
+        "reference": 2,
+        "perCall": 19
+      }
+    },
+    {
+      "module": "timing",
+      "function": "cooldownElapsed",
+      "case": "cooldownElapsed allows when the stored timestamp is older than the window",
+      "call": "cooldownElapsed('lastMoveAt', 60)",
+      "measured": {
+        "call": 14,
+        "reference": 4,
+        "perCall": 12
+      },
+      "estimated": {
+        "call": 15,
+        "reference": 4,
+        "perCall": 13
+      }
+    },
+    {
+      "module": "timing",
+      "function": "cooldownElapsed",
+      "case": "cooldownElapsed denies inside the window",
+      "call": "cooldownElapsed('lastMoveAt', 60)",
+      "measured": {
+        "call": 14,
+        "reference": 4,
+        "perCall": 12
+      },
+      "estimated": {
+        "call": 15,
+        "reference": 4,
+        "perCall": 13
+      }
+    },
+    {
+      "module": "timing",
+      "function": "cooldownElapsed",
+      "case": "cooldownElapsed denies at the exact boundary (strict comparison)",
+      "call": "cooldownElapsed('lastMoveAt', 60)",
+      "measured": {
+        "call": 14,
+        "reference": 4,
+        "perCall": 12
+      },
+      "estimated": {
+        "call": 15,
+        "reference": 4,
+        "perCall": 13
+      }
+    },
+    {
+      "module": "timing",
+      "function": "cooldownElapsed",
+      "case": "cooldownElapsed denies (fail-closed) when the field is missing",
+      "call": "cooldownElapsed('lastMoveAt', 60)",
+      "measured": {
+        "call": 14,
+        "reference": 4,
+        "perCall": 12
+      },
+      "estimated": {
+        "call": 15,
+        "reference": 4,
+        "perCall": 13
+      }
+    },
+    {
+      "module": "timing",
+      "function": "cooldownElapsed",
+      "case": "cooldownElapsed denies (fail-closed) when the field is not a timestamp",
+      "call": "cooldownElapsed('lastMoveAt', 60)",
+      "measured": {
+        "call": 14,
+        "reference": 4,
+        "perCall": 12
+      },
+      "estimated": {
+        "call": 15,
+        "reference": 4,
+        "perCall": 13
+      }
+    },
+    {
+      "module": "transitions",
+      "function": "validTransition",
+      "case": "validTransition allows correct from->to",
+      "call": "validTransition('status', 'open', 'in_progress')",
+      "measured": {
+        "call": 19,
+        "reference": 5,
+        "perCall": 16
+      },
+      "estimated": {
+        "call": 19,
+        "reference": 5,
+        "perCall": 16
+      }
+    },
+    {
+      "module": "transitions",
+      "function": "validTransition",
+      "case": "validTransition denies wrong from value",
+      "call": "validTransition('status', 'open', 'in_progress')",
+      "measured": {
+        "call": 11,
+        "reference": 5,
+        "perCall": 8
+      },
+      "estimated": {
+        "call": 19,
+        "reference": 5,
+        "perCall": 16
+      }
+    },
+    {
+      "module": "transitions",
+      "function": "validTransition",
+      "case": "validTransition denies wrong to value",
+      "call": "validTransition('status', 'open', 'in_progress')",
+      "measured": {
+        "call": 19,
+        "reference": 5,
+        "perCall": 16
+      },
+      "estimated": {
+        "call": 19,
+        "reference": 5,
+        "perCall": 16
+      }
+    },
+    {
+      "module": "transitions",
+      "function": "statusIs",
+      "case": "statusIs allows when current value matches",
+      "call": "statusIs('status', 'active')",
+      "measured": {
+        "call": 9,
+        "reference": 4,
+        "perCall": 7
+      },
+      "estimated": {
+        "call": 9,
+        "reference": 4,
+        "perCall": 7
+      }
+    },
+    {
+      "module": "transitions",
+      "function": "statusIs",
+      "case": "statusIs denies when current value differs",
+      "call": "statusIs('status', 'active')",
+      "measured": {
+        "call": 9,
+        "reference": 4,
+        "perCall": 7
+      },
+      "estimated": {
+        "call": 9,
+        "reference": 4,
+        "perCall": 7
+      }
+    },
+    {
+      "module": "transitions",
+      "function": "newStatusIs",
+      "case": "newStatusIs allows when incoming value matches",
+      "call": "newStatusIs('status', 'completed')",
+      "measured": {
+        "call": 10,
+        "reference": 4,
+        "perCall": 8
+      },
+      "estimated": {
+        "call": 10,
+        "reference": 4,
+        "perCall": 8
+      }
+    },
+    {
+      "module": "transitions",
+      "function": "newStatusIs",
+      "case": "newStatusIs denies when incoming value differs",
+      "call": "newStatusIs('status', 'completed')",
+      "measured": {
+        "call": 10,
+        "reference": 4,
+        "perCall": 8
+      },
+      "estimated": {
+        "call": 10,
+        "reference": 4,
+        "perCall": 8
+      }
+    },
+    {
+      "module": "turns",
+      "function": "isMyTurn",
+      "case": "isMyTurn allows host when currentTurn is host",
+      "call": "isMyTurn()",
+      "measured": {
+        "call": 16,
+        "reference": 2,
+        "perCall": 16
+      },
+      "estimated": {
+        "call": 23,
+        "reference": 2,
+        "perCall": 23
+      }
+    },
+    {
+      "module": "turns",
+      "function": "isMyTurn",
+      "case": "isMyTurn denies guest when currentTurn is host",
+      "call": "isMyTurn()",
+      "measured": {
+        "call": 23,
+        "reference": 2,
+        "perCall": 23
+      },
+      "estimated": {
+        "call": 23,
+        "reference": 2,
+        "perCall": 23
+      }
+    },
+    {
+      "module": "turns",
+      "function": "isMyTurn",
+      "case": "isMyTurn allows guest when currentTurn is guest",
+      "call": "isMyTurn()",
+      "measured": {
+        "call": 23,
+        "reference": 2,
+        "perCall": 23
+      },
+      "estimated": {
+        "call": 23,
+        "reference": 2,
+        "perCall": 23
+      }
+    },
+    {
+      "module": "turns",
+      "function": "isMyTurn",
+      "case": "isMyTurn denies unauthenticated",
+      "call": "isMyTurn()",
+      "measured": {
+        "call": 23,
+        "reference": 2,
+        "perCall": 23
+      },
+      "estimated": {
+        "call": 23,
+        "reference": 2,
+        "perCall": 23
+      }
+    },
+    {
+      "module": "turns",
+      "function": "turnFlipped",
+      "case": "turnFlipped allows host to guest transition",
+      "call": "turnFlipped()",
+      "measured": {
+        "call": 15,
+        "reference": 2,
+        "perCall": 15
+      },
+      "estimated": {
+        "call": 22,
+        "reference": 2,
+        "perCall": 22
+      }
+    },
+    {
+      "module": "turns",
+      "function": "turnFlipped",
+      "case": "turnFlipped denies same turn value",
+      "call": "turnFlipped()",
+      "measured": {
+        "call": 22,
+        "reference": 2,
+        "perCall": 22
+      },
+      "estimated": {
+        "call": 22,
+        "reference": 2,
+        "perCall": 22
+      }
+    },
+    {
+      "module": "validation",
+      "function": "hasRequired",
+      "case": "hasRequired allows when field present",
+      "call": "hasRequired(['name'])",
+      "measured": {
+        "call": 9,
+        "reference": 4,
+        "perCall": 7
+      },
+      "estimated": {
+        "call": 9,
+        "reference": 4,
+        "perCall": 7
+      }
+    },
+    {
+      "module": "validation",
+      "function": "hasRequired",
+      "case": "hasRequired denies when field missing",
+      "call": "hasRequired(['name'])",
+      "measured": {
+        "call": 9,
+        "reference": 4,
+        "perCall": 7
+      },
+      "estimated": {
+        "call": 9,
+        "reference": 4,
+        "perCall": 7
+      }
+    },
+    {
+      "module": "validation",
+      "function": "hasOnly",
+      "case": "hasOnly denies when extra field present",
+      "call": "hasOnly(['name', 'email'])",
+      "measured": {
+        "call": 10,
+        "reference": 5,
+        "perCall": 7
+      },
+      "estimated": {
+        "call": 10,
+        "reference": 5,
+        "perCall": 7
+      }
+    },
+    {
+      "module": "validation",
+      "function": "validString",
+      "case": "validString allows string within bounds",
+      "call": "validString('title', 1, 10)",
+      "measured": {
+        "call": 31,
+        "reference": 5,
+        "perCall": 28
+      },
+      "estimated": {
+        "call": 31,
+        "reference": 5,
+        "perCall": 28
+      }
+    },
+    {
+      "module": "validation",
+      "function": "validString",
+      "case": "validString allows at exact min and max boundary",
+      "call": "validString('title', 5, 5)",
+      "measured": {
+        "call": 31,
+        "reference": 5,
+        "perCall": 28
+      },
+      "estimated": {
+        "call": 31,
+        "reference": 5,
+        "perCall": 28
+      }
+    },
+    {
+      "module": "validation",
+      "function": "validString",
+      "case": "validString denies empty string below min",
+      "call": "validString('title', 1, 10)",
+      "measured": {
+        "call": 22,
+        "reference": 5,
+        "perCall": 19
+      },
+      "estimated": {
+        "call": 31,
+        "reference": 5,
+        "perCall": 28
+      }
+    },
+    {
+      "module": "validation",
+      "function": "validString",
+      "case": "validString denies string over max",
+      "call": "validString('title', 1, 4)",
+      "measured": {
+        "call": 31,
+        "reference": 5,
+        "perCall": 28
+      },
+      "estimated": {
+        "call": 31,
+        "reference": 5,
+        "perCall": 28
+      }
+    },
+    {
+      "module": "validation",
+      "function": "validString",
+      "case": "validString denies non-string value",
+      "call": "validString('title', 1, 10)",
+      "measured": {
+        "call": 13,
+        "reference": 5,
+        "perCall": 10
+      },
+      "estimated": {
+        "call": 31,
+        "reference": 5,
+        "perCall": 28
+      }
+    },
+    {
+      "module": "validation",
+      "function": "validString",
+      "case": "validString denies MISSING field (null-on-miss, not error)",
+      "call": "validString('title', 1, 10)",
+      "measured": {
+        "call": 31,
+        "reference": 5,
+        "perCall": 28
+      },
+      "estimated": {
+        "call": 31,
+        "reference": 5,
+        "perCall": 28
+      }
+    },
+    {
+      "module": "validation",
+      "function": "isOneOf",
+      "case": "isOneOf allows a listed value",
+      "call": "isOneOf('status', ['draft', 'published'])",
+      "measured": {
+        "call": 12,
+        "reference": 6,
+        "perCall": 8
+      },
+      "estimated": {
+        "call": 12,
+        "reference": 6,
+        "perCall": 8
+      }
+    },
+    {
+      "module": "validation",
+      "function": "isOneOf",
+      "case": "isOneOf denies an unlisted value",
+      "call": "isOneOf('status', ['draft', 'published'])",
+      "measured": {
+        "call": 12,
+        "reference": 6,
+        "perCall": 8
+      },
+      "estimated": {
+        "call": 12,
+        "reference": 6,
+        "perCall": 8
+      }
+    },
+    {
+      "module": "validation",
+      "function": "isOneOf",
+      "case": "isOneOf denies a missing field",
+      "call": "isOneOf('status', ['draft', 'published'])",
+      "measured": {
+        "call": 12,
+        "reference": 6,
+        "perCall": 8
+      },
+      "estimated": {
+        "call": 12,
+        "reference": 6,
+        "perCall": 8
+      }
+    },
+    {
+      "module": "storage/metadata",
+      "function": "hasRequiredMetadata",
+      "case": "required metadata keys permit extras",
+      "call": "hasRequiredMetadata(['owner', 'purpose'])",
+      "measured": {
+        "call": 10,
+        "reference": 5,
+        "perCall": 7
+      },
+      "estimated": {
+        "call": 10,
+        "reference": 5,
+        "perCall": 7
+      }
+    },
+    {
+      "module": "storage/metadata",
+      "function": "hasRequiredMetadata",
+      "case": "missing required metadata key denies",
+      "call": "hasRequiredMetadata(['owner', 'purpose'])",
+      "measured": {
+        "call": 10,
+        "reference": 5,
+        "perCall": 7
+      },
+      "estimated": {
+        "call": 10,
+        "reference": 5,
+        "perCall": 7
+      }
+    },
+    {
+      "module": "storage/metadata",
+      "function": "metadataString",
+      "case": "bounded metadata string and incoming owner allow",
+      "call": "metadataString('purpose', 3, 12)",
+      "measured": {
+        "call": 31,
+        "reference": 5,
+        "perCall": 28
+      },
+      "estimated": {
+        "call": 31,
+        "reference": 5,
+        "perCall": 28
+      }
+    },
+    {
+      "module": "storage/metadata",
+      "function": "incomingMetadataOwner",
+      "case": "bounded metadata string and incoming owner allow",
+      "call": "incomingMetadataOwner('owner')",
+      "measured": {
+        "call": 17,
+        "reference": 3,
+        "perCall": 16
+      },
+      "estimated": {
+        "call": 17,
+        "reference": 3,
+        "perCall": 16
+      }
+    },
+    {
+      "module": "storage/metadata",
+      "function": "existingMetadataOwner",
+      "case": "existing metadata owner allows owner update",
+      "call": "existingMetadataOwner('owner')",
+      "measured": {
+        "call": 16,
+        "reference": 3,
+        "perCall": 15
+      },
+      "estimated": {
+        "call": 16,
+        "reference": 3,
+        "perCall": 15
+      }
+    },
+    {
+      "module": "storage/metadata",
+      "function": "metadataString",
+      "case": "missing metadata key denies a bounded string check",
+      "call": "metadataString('purpose', 3, 12)",
+      "measured": {
+        "call": 31,
+        "reference": 5,
+        "perCall": 28
+      },
+      "estimated": {
+        "call": 31,
+        "reference": 5,
+        "perCall": 28
+      }
+    },
+    {
+      "module": "storage/metadata",
+      "function": "incomingMetadataOwner",
+      "case": "unauthenticated upload denies an incoming owner check",
+      "call": "incomingMetadataOwner('owner')",
+      "measured": {
+        "call": 7,
+        "reference": 3,
+        "perCall": 6
+      },
+      "estimated": {
+        "call": 17,
+        "reference": 3,
+        "perCall": 16
+      }
+    },
+    {
+      "module": "storage/metadata",
+      "function": "existingMetadataOwner",
+      "case": "unauthenticated update denies an existing owner check",
+      "call": "existingMetadataOwner('owner')",
+      "measured": {
+        "call": 7,
+        "reference": 3,
+        "perCall": 6
+      },
+      "estimated": {
+        "call": 16,
+        "reference": 3,
+        "perCall": 15
+      }
+    },
+    {
+      "module": "storage/objects",
+      "function": "isCreate",
+      "case": "create method is identified without reading missing resource",
+      "call": "isCreate()",
+      "measured": {
+        "call": 5,
+        "reference": 2,
+        "perCall": 5
+      },
+      "estimated": {
+        "call": 5,
+        "reference": 2,
+        "perCall": 5
+      }
+    },
+    {
+      "module": "storage/objects",
+      "function": "isUpdate",
+      "case": "update method is identified",
+      "call": "isUpdate()",
+      "measured": {
+        "call": 5,
+        "reference": 2,
+        "perCall": 5
+      },
+      "estimated": {
+        "call": 5,
+        "reference": 2,
+        "perCall": 5
+      }
+    },
+    {
+      "module": "storage/objects",
+      "function": "isDelete",
+      "case": "delete method is identified without reading missing request.resource",
+      "call": "isDelete()",
+      "measured": {
+        "call": 5,
+        "reference": 2,
+        "perCall": 5
+      },
+      "estimated": {
+        "call": 5,
+        "reference": 2,
+        "perCall": 5
+      }
+    },
+    {
+      "module": "storage/objects",
+      "function": "isCreate",
+      "case": "create predicate denies an update",
+      "call": "isCreate()",
+      "measured": {
+        "call": 5,
+        "reference": 2,
+        "perCall": 5
+      },
+      "estimated": {
+        "call": 5,
+        "reference": 2,
+        "perCall": 5
+      }
+    },
+    {
+      "module": "storage/time",
+      "function": "createdWithin",
+      "case": "object is within strict creation window just before boundary",
+      "call": "createdWithin(60)",
+      "measured": {
+        "call": 11,
+        "reference": 3,
+        "perCall": 10
+      },
+      "estimated": {
+        "call": 12,
+        "reference": 3,
+        "perCall": 11
+      }
+    },
+    {
+      "module": "storage/time",
+      "function": "createdWithin",
+      "case": "creation window denies at exact boundary",
+      "call": "createdWithin(60)",
+      "measured": {
+        "call": 11,
+        "reference": 3,
+        "perCall": 10
+      },
+      "estimated": {
+        "call": 12,
+        "reference": 3,
+        "perCall": 11
+      }
+    },
+    {
+      "module": "storage/time",
+      "function": "updatedWithin",
+      "case": "object is within strict updated window",
+      "call": "updatedWithin(30)",
+      "measured": {
+        "call": 11,
+        "reference": 3,
+        "perCall": 10
+      },
+      "estimated": {
+        "call": 12,
+        "reference": 3,
+        "perCall": 11
+      }
+    },
+    {
+      "module": "storage/uploads",
+      "function": "sizeAtMost",
+      "case": "exact inclusive upload limit allows",
+      "call": "sizeAtMost(10)",
+      "measured": {
+        "call": 7,
+        "reference": 3,
+        "perCall": 6
+      },
+      "estimated": {
+        "call": 7,
+        "reference": 3,
+        "perCall": 6
+      }
+    },
+    {
+      "module": "storage/uploads",
+      "function": "sizeAtMost",
+      "case": "one byte over upload limit denies",
+      "call": "sizeAtMost(10)",
+      "measured": {
+        "call": 7,
+        "reference": 3,
+        "perCall": 6
+      },
+      "estimated": {
+        "call": 7,
+        "reference": 3,
+        "perCall": 6
+      }
+    },
+    {
+      "module": "storage/uploads",
+      "function": "contentTypeMatches",
+      "case": "whole-string MIME and allowlist policy composes",
+      "call": "contentTypeMatches('image/(png|jpeg)')",
+      "measured": {
+        "call": 7,
+        "reference": 3,
+        "perCall": 6
+      },
+      "estimated": {
+        "call": 7,
+        "reference": 3,
+        "perCall": 6
+      }
+    },
+    {
+      "module": "storage/uploads",
+      "function": "contentTypeIsOneOf",
+      "case": "whole-string MIME and allowlist policy composes",
+      "call": "contentTypeIsOneOf(['image/png'])",
+      "measured": {
+        "call": 8,
+        "reference": 4,
+        "perCall": 6
+      },
+      "estimated": {
+        "call": 8,
+        "reference": 4,
+        "perCall": 6
+      }
+    },
+    {
+      "module": "storage/uploads",
+      "function": "contentTypeIsOneOf",
+      "case": "parameterized MIME does not pass exact allowlist",
+      "call": "contentTypeIsOneOf(['image/png'])",
+      "measured": {
+        "call": 8,
+        "reference": 4,
+        "perCall": 6
+      },
+      "estimated": {
+        "call": 8,
+        "reference": 4,
+        "perCall": 6
+      }
+    },
+    {
+      "module": "storage/uploads",
+      "function": "sizeBetween",
+      "case": "size inside inclusive bounds allows",
+      "call": "sizeBetween(1, 10)",
+      "measured": {
+        "call": 15,
+        "reference": 4,
+        "perCall": 13
+      },
+      "estimated": {
+        "call": 15,
+        "reference": 4,
+        "perCall": 13
+      }
+    },
+    {
+      "module": "storage/uploads",
+      "function": "sizeBetween",
+      "case": "size below the lower bound denies",
+      "call": "sizeBetween(1, 10)",
+      "measured": {
+        "call": 9,
+        "reference": 4,
+        "perCall": 7
+      },
+      "estimated": {
+        "call": 15,
+        "reference": 4,
+        "perCall": 13
+      }
+    }
+  ]
+}

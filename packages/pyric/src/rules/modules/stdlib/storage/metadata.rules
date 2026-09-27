@@ -1,22 +1,30 @@
 // @pyric-services firebase.storage
 // @pyric-evidence storage-rules#132
+// Costs are production expressions per call, not counting arguments. Calls
+// are not memoized: every call pays its full cost again, and a let inside a
+// function is paid on every call.
+//
 // Storage custom-metadata policies. Custom metadata is a flat string map.
 
+// cost 7 to 7 expressions per call
 export function hasRequiredMetadata(keys) {
   return request.resource.metadata.keys().hasAll(keys);
 }
 
+// cost 28 to 28 expressions per call
 export function metadataString(key, min, max) {
   return request.resource.metadata[key] is string
     && request.resource.metadata[key].size() >= min
     && request.resource.metadata[key].size() <= max;
 }
 
+// cost 6 to 16 expressions per call
 export function incomingMetadataOwner(key) {
   return request.auth != null
     && request.resource.metadata[key] == request.auth.uid;
 }
 
+// cost 6 to 15 expressions per call
 export function existingMetadataOwner(key) {
   return request.auth != null
     && resource.metadata[key] == request.auth.uid;

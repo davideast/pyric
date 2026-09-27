@@ -1,32 +1,160 @@
-[
-  {
-    "description": "validCreate allows host to open lobby",
-    "expectation": "ALLOW",
-    "method": "create",
-    "path": "test/room1",
-    "auth": { "uid": "host1" },
-    "data": { "host": "host1", "guest": "", "status": "waiting" },
-    "wrapFunction": "validCreate",
-    "wrapOperation": "create"
-  },
-  {
-    "description": "validCreate denies impersonation",
-    "expectation": "DENY",
-    "method": "create",
-    "path": "test/room1",
-    "auth": { "uid": "attacker" },
-    "data": { "host": "host1", "guest": "", "status": "waiting" },
-    "wrapFunction": "validCreate",
-    "wrapOperation": "create"
-  },
-  {
-    "description": "validCreate denies pre-filled guest",
-    "expectation": "DENY",
-    "method": "create",
-    "path": "test/room1",
-    "auth": { "uid": "host1" },
-    "data": { "host": "host1", "guest": "sneaky", "status": "waiting" },
-    "wrapFunction": "validCreate",
-    "wrapOperation": "create"
-  }
-]
+{
+  "costs": [
+    { "function": "validCreate", "cost": { "min": 8, "max": 31 }, "reads": 0 },
+    { "function": "validJoin", "cost": { "min": 10, "max": 57 }, "reads": 0 },
+    { "function": "canCancel", "cost": { "min": 7, "max": 21 }, "reads": 0 }
+  ],
+  "cases": [
+    {
+      "description": "validCreate allows host to open lobby",
+      "expectation": "ALLOW",
+      "method": "create",
+      "path": "test/room1",
+      "auth": { "uid": "host1" },
+      "data": { "host": "host1", "guest": "", "status": "waiting" },
+      "wrapFunction": "validCreate",
+      "wrapOperation": "create"
+    },
+    {
+      "description": "validCreate denies impersonation",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "test/room1",
+      "auth": { "uid": "attacker" },
+      "data": { "host": "host1", "guest": "", "status": "waiting" },
+      "wrapFunction": "validCreate",
+      "wrapOperation": "create"
+    },
+    {
+      "description": "validCreate denies pre-filled guest",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "test/room1",
+      "auth": { "uid": "host1" },
+      "data": { "host": "host1", "guest": "sneaky", "status": "waiting" },
+      "wrapFunction": "validCreate",
+      "wrapOperation": "create"
+    },
+    {
+      "description": "validJoin allows a second player to join a waiting lobby",
+      "expectation": "ALLOW",
+      "method": "update",
+      "path": "test/room1",
+      "auth": {
+        "uid": "guest1"
+      },
+      "resource": {
+        "host": "host1",
+        "guest": "",
+        "status": "waiting"
+      },
+      "data": {
+        "host": "host1",
+        "guest": "guest1",
+        "status": "playing"
+      },
+      "wrapFunction": "validJoin",
+      "wrapOperation": "update"
+    },
+    {
+      "description": "validJoin denies the host joining their own lobby",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/room1",
+      "auth": {
+        "uid": "host1"
+      },
+      "resource": {
+        "host": "host1",
+        "guest": "",
+        "status": "waiting"
+      },
+      "data": {
+        "host": "host1",
+        "guest": "host1",
+        "status": "playing"
+      },
+      "wrapFunction": "validJoin",
+      "wrapOperation": "update"
+    },
+    {
+      "description": "validJoin denies an unauthenticated join",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/room1",
+      "auth": null,
+      "resource": {
+        "host": "host1",
+        "guest": "",
+        "status": "waiting"
+      },
+      "data": {
+        "host": "host1",
+        "guest": "guest1",
+        "status": "playing"
+      },
+      "wrapFunction": "validJoin",
+      "wrapOperation": "update"
+    },
+    {
+      "description": "canCancel allows the host to cancel a waiting lobby",
+      "expectation": "ALLOW",
+      "method": "delete",
+      "path": "test/room1",
+      "auth": {
+        "uid": "host1"
+      },
+      "resource": {
+        "host": "host1",
+        "guest": "",
+        "status": "waiting"
+      },
+      "wrapFunction": "canCancel",
+      "wrapOperation": "delete"
+    },
+    {
+      "description": "canCancel denies cancelling a game in play",
+      "expectation": "DENY",
+      "method": "delete",
+      "path": "test/room1",
+      "auth": {
+        "uid": "host1"
+      },
+      "resource": {
+        "host": "host1",
+        "guest": "guest1",
+        "status": "playing"
+      },
+      "wrapFunction": "canCancel",
+      "wrapOperation": "delete"
+    },
+    {
+      "description": "validCreate denies an unauthenticated create",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "test/room1",
+      "auth": null,
+      "data": {
+        "host": "host1",
+        "guest": "",
+        "status": "waiting"
+      },
+      "wrapFunction": "validCreate",
+      "wrapOperation": "create"
+    },
+    {
+      "description": "canCancel denies an unauthenticated cancel",
+      "expectation": "DENY",
+      "method": "delete",
+      "path": "test/room1",
+      "auth": null,
+      "resource": {
+        "host": "host1",
+        "guest": "",
+        "status": "waiting"
+      },
+      "wrapFunction": "canCancel",
+      "wrapOperation": "delete"
+    }
+  ]
+}

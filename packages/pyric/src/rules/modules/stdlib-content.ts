@@ -10,6 +10,10 @@
 
 export const STDLIB_INLINE: Record<string, string> = {
   "atomic": `// @pyric-services cloud.firestore
+// Costs are production expressions per call, not counting arguments. Calls
+// are not memoized: every call pays its full cost again, and a let inside a
+// function is paid on every call.
+//
 // Atomic module — cross-document integrity for BATCH writes, via the
 // get()/getAfter() pair. Firestore evaluates every write in a batch
 // against rules, and getAfter() returns another document's POST-BATCH
@@ -52,6 +56,7 @@ export const STDLIB_INLINE: Record<string, string> = {
 
 // The companion doc's field changed by EXACTLY n in this batch.
 // before/after are the SAME doc's get()/getAfter() data.
+// cost 10 to 10 expressions per call
 export function companionChangedBy(before, after, field, n) {
   return after[field] == before[field] + n;
 }
@@ -59,21 +64,32 @@ export function companionChangedBy(before, after, field, n) {
 // A single-use flag was consumed IN THIS BATCH: pre-batch false,
 // post-batch true. Replays deny (pre-batch is already true), and a
 // solo write denies (getAfter == get, so false != true).
+// cost 7 to 13 expressions per call
 export function consumedFlag(before, after, flagField) {
   return before[flagField] == false && after[flagField] == true;
 }
 `,
   "auth": `// @pyric-services cloud.firestore,firebase.storage
 // @pyric-evidence storage-rules#125,firestore-rules#189
+// Costs are production expressions per call, not counting arguments. Calls
+// are not memoized: every call pays its full cost again, and a let inside a
+// function is paid on every call.
+//
+// cost 5 to 5 expressions per call
 export function isAuthenticated() {
   return request.auth != null;
 }
 
+// cost 7 to 13 expressions per call
 export function isOwner(userId) {
   return isAuthenticated() && request.auth.uid == userId;
 }
 `,
   "content": `// @pyric-services cloud.firestore
+// Costs are production expressions per call, not counting arguments. Calls
+// are not memoized: every call pays its full cost again, and a let inside a
+// function is paid on every call.
+//
 // Content module for author-owned documents — the most common
 // Firebase app shape (posts, notes, docs, comments, tasks).
 //
@@ -97,6 +113,7 @@ export function isOwner(userId) {
 
 // Create guard: signed in, and the incoming doc's author field is the
 // caller. Use on \`create\` (reads request.resource).
+// cost 6 to 16 expressions per call
 export function validAuthorCreate(authorField) {
   return request.auth != null
     && request.resource.data[authorField] == request.auth.uid;
@@ -104,6 +121,7 @@ export function validAuthorCreate(authorField) {
 
 // The caller is the EXISTING document's author. Use on update/delete
 // (reads resource).
+// cost 6 to 15 expressions per call
 export function isAuthor(authorField) {
   return request.auth != null
     && resource.data[authorField] == request.auth.uid;
@@ -113,6 +131,7 @@ export function isAuthor(authorField) {
 // visible to its author only. Works for get; for list queries the
 // client must filter (rules are not filters — a bare collection query
 // will be denied unless it proves status == 'published').
+// cost 8 to 23 expressions per call
 export function canReadContent(statusField, authorField) {
   return resource.data[statusField] == 'published'
     || (request.auth != null && resource.data[authorField] == request.auth.uid);
@@ -121,11 +140,16 @@ export function canReadContent(statusField, authorField) {
 // Soft-delete guard: the document is not marked deleted. Reads the
 // EXISTING doc; a doc without the field passes — bracket access is
 // the null-on-miss idiom (dotted access of a missing key ERRORS).
+// cost 7 to 7 expressions per call
 export function notDeleted() {
   return resource.data['deleted'] != true;
 }
 `,
   "counters": `// @pyric-services cloud.firestore
+// Costs are production expressions per call, not counting arguments. Calls
+// are not memoized: every call pays its full cost again, and a let inside a
+// function is paid on every call.
+//
 // Counters module for denormalized numeric integrity.
 //
 // The recurring shape: a client-maintained count (likes, votes, moves,
@@ -148,12 +172,14 @@ export function notDeleted() {
 
 // The field changed by EXACTLY n relative to the existing document.
 // n may be negative (decrement). Update rules only (needs resource).
+// cost 13 to 13 expressions per call
 export function incrementedBy(field, n) {
   return request.resource.data[field] == resource.data[field] + n;
 }
 
 // The field's delta is within [min, max] (inclusive) — and it is NOT
 // required to change (delta 0 passes when min <= 0 <= max).
+// cost 14 to 27 expressions per call
 export function changedBy(field, min, max) {
   return request.resource.data[field] - resource.data[field] >= min
     && request.resource.data[field] - resource.data[field] <= max;
@@ -162,6 +188,7 @@ export function changedBy(field, min, max) {
 // The incoming value is a number within [min, max] (inclusive).
 // Works on create and update. Missing field reads null (dynamic
 // access) and fails the type check rather than erroring.
+// cost 19 to 35 expressions per call
 export function boundedNumber(field, min, max) {
   return (request.resource.data[field] is int || request.resource.data[field] is float)
     && request.resource.data[field] >= min
@@ -169,6 +196,10 @@ export function boundedNumber(field, min, max) {
 }
 `,
   "geometry": `// @pyric-services cloud.firestore
+// Costs are production expressions per call, not counting arguments. Calls
+// are not memoized: every call pays its full cost again, and a let inside a
+// function is paid on every call.
+//
 // Geometry module for movement game validation via config document lookup.
 //
 // Caller must pass the config document data as an explicit parameter.
@@ -195,6 +226,7 @@ export function boundedNumber(field, min, max) {
 // Validate a simple (non-capture) move via config document lookup.
 // Uses 3-level dynamic nesting: cfg.moves[piece][from][to].
 // piece comes from resource.data (pre-write board) so client can't fake it.
+// cost 26 to 26 expressions per call
 export function validSimpleMove(cfg) {
   let mf = request.resource.data.moveFrom;
   let mt = request.resource.data.moveTo;
@@ -205,6 +237,7 @@ export function validSimpleMove(cfg) {
 // Validate a jump (capture) move via config document lookup.
 // cfg.jumps[piece][from][to] returns the expected captured cell name.
 // Caller must separately verify the captured piece is an opponent piece.
+// cost 31 to 31 expressions per call
 export function validJumpMove(cfg) {
   let mf = request.resource.data.moveFrom;
   let mt = request.resource.data.moveTo;
@@ -214,6 +247,10 @@ export function validJumpMove(cfg) {
 }
 `,
   "joining": `// @pyric-services cloud.firestore
+// Costs are production expressions per call, not counting arguments. Calls
+// are not memoized: every call pays its full cost again, and a let inside a
+// function is paid on every call.
+//
 // Joining module — how membership CHANGES, safely. The connective
 // tissue between content/spaces: spaces gates children behind a
 // members field; joining lets users enter and leave that field
@@ -245,6 +282,7 @@ export function validJumpMove(cfg) {
 
 // The write adds EXACTLY the caller to the members map, at EXACTLY
 // \`role\`, changing and removing nobody. Update rules only.
+// cost 20 to 53 expressions per call
 export function onlyAddedSelf(membersField, role) {
   let diff = request.resource.data[membersField].diff(resource.data[membersField]);
   return request.auth != null
@@ -256,6 +294,7 @@ export function onlyAddedSelf(membersField, role) {
 
 // The write removes EXACTLY the caller from the members map, adding
 // and changing nobody. Self-service leave. Update rules only.
+// cost 19 to 40 expressions per call
 export function onlyRemovedSelf(membersField) {
   let diff = request.resource.data[membersField].diff(resource.data[membersField]);
   return request.auth != null
@@ -265,6 +304,10 @@ export function onlyRemovedSelf(membersField) {
 }
 `,
   "lifecycle": `// @pyric-services cloud.firestore
+// Costs are production expressions per call, not counting arguments. Calls
+// are not memoized: every call pays its full cost again, and a let inside a
+// function is paid on every call.
+//
 // Lifecycle module for field immutability and timestamp enforcement.
 //
 // Common pattern: certain fields must never change after document creation
@@ -286,18 +329,21 @@ export function onlyRemovedSelf(membersField) {
 
 // Ensure a field's value is identical between existing and incoming document.
 // Use on update rules to enforce immutability.
+// cost 11 to 11 expressions per call
 export function fieldUnchanged(field) {
   return resource.data[field] == request.resource.data[field];
 }
 
 // Ensure multiple fields are unchanged between existing and incoming document.
 // Uses MapDiff — one expression instead of N chained fieldUnchanged() calls.
+// cost 10 to 10 expressions per call
 export function immutableFields(fields) {
   return request.resource.data.diff(resource.data).unchangedKeys().hasAll(fields);
 }
 
 // Ensure a field is set to the server timestamp.
 // Use on create or update rules to enforce server-side time.
+// cost 9 to 9 expressions per call
 export function isServerTimestamp(field) {
   return request.resource.data[field] == request.time;
 }
@@ -306,6 +352,7 @@ export function isServerTimestamp(field) {
 // list (fields NOT listed are implicitly immutable). Top-level keys
 // only — nested-map diffs are unreliable in production; flatten the
 // schema instead of reaching for a nested diff.
+// cost 10 to 10 expressions per call
 export function onlyFieldsChanged(fields) {
   return request.resource.data.diff(resource.data).affectedKeys().hasOnly(fields);
 }
@@ -313,11 +360,16 @@ export function onlyFieldsChanged(fields) {
 // Exactly n top-level fields changed in this write. n == 1 is the
 // board-integrity / edit-one-field-per-write guard (Pattern 5,
 // generalized beyond games).
+// cost 11 to 11 expressions per call
 export function nFieldsChanged(n) {
   return request.resource.data.diff(resource.data).affectedKeys().size() == n;
 }
 `,
   "lobby": `// @pyric-services cloud.firestore
+// Costs are production expressions per call, not counting arguments. Calls
+// are not memoized: every call pays its full cost again, and a let inside a
+// function is paid on every call.
+//
 // Lobby module for 2-participant coordination.
 //
 // Convention: documents must have these fields:
@@ -339,6 +391,7 @@ function isWaiting() {
 }
 
 // Create: caller is host, seat empty, status waiting
+// cost 8 to 31 expressions per call
 export function validCreate() {
   return request.auth != null
     && request.resource.data.host == request.auth.uid
@@ -347,6 +400,7 @@ export function validCreate() {
 }
 
 // Join: fill empty seat, transition to next status, no self-join
+// cost 10 to 57 expressions per call
 export function validJoin() {
   return request.auth != null
     && isWaiting()
@@ -357,6 +411,7 @@ export function validJoin() {
 }
 
 // Cancel: only host, only while waiting
+// cost 7 to 21 expressions per call
 export function canCancel() {
   return request.auth != null
     && resource.data.status == 'waiting'
@@ -365,6 +420,10 @@ export function canCancel() {
 `,
   "membership": `// @pyric-services cloud.firestore,firebase.storage
 // @pyric-evidence storage-rules#125,firestore-rules#189
+// Costs are production expressions per call, not counting arguments. Calls
+// are not memoized: every call pays its full cost again, and a let inside a
+// function is paid on every call.
+//
 // Membership module for role-based and claims-based access control.
 //
 // Two access patterns:
@@ -383,30 +442,38 @@ export function canCancel() {
 //   allow update: if hasRole(resource.data.members, 'admin');
 
 // Check if the auth token has a non-null value for a claim key.
+// cost 6 to 14 expressions per call
 export function hasClaim(claim) {
   return request.auth != null
     && request.auth.token[claim] != null;
 }
 
 // Check if the auth token has a specific value for a claim key.
+// cost 6 to 14 expressions per call
 export function hasClaimRole(claim, role) {
   return request.auth != null
     && request.auth.token[claim] == role;
 }
 
 // Check if the caller's UID exists as a key in a members map.
+// cost 6 to 12 expressions per call
 export function isMemberOf(membersMap) {
   return request.auth != null
     && request.auth.uid in membersMap;
 }
 
 // Check if the caller has a specific role in a members map.
+// cost 6 to 14 expressions per call
 export function hasRole(membersMap, role) {
   return request.auth != null
     && membersMap[request.auth.uid] == role;
 }
 `,
   "spaces": `// @pyric-services cloud.firestore
+// Costs are production expressions per call, not counting arguments. Calls
+// are not memoized: every call pays its full cost again, and a let inside a
+// function is paid on every call.
+//
 // Spaces module — cross-document membership gating for shared spaces
 // (teams, rooms, groups, projects, parties). The second-most-common
 // app shape after author-owned content: a PARENT document defines who
@@ -436,12 +503,14 @@ export function hasRole(membersMap, role) {
 
 // The caller is in the space's members field. \`in\` covers both
 // shapes: list membership and map keys.
+// cost 6 to 13 expressions per call
 export function isSpaceMember(spaceData) {
   return request.auth != null && request.auth.uid in spaceData.members;
 }
 
 // The caller's role in a MAP-shaped members field equals \`role\`.
 // List-shaped members carry no roles — this denies on them.
+// cost 6 to 15 expressions per call
 export function hasSpaceRole(spaceData, role) {
   return request.auth != null && spaceData.members[request.auth.uid] == role;
 }
@@ -449,12 +518,17 @@ export function hasSpaceRole(spaceData, role) {
 // Member-gated authored create: the caller is a member AND the
 // incoming child doc's author field is the caller. The "post a
 // message / add a task" guard.
+// cost 9 to 26 expressions per call
 export function validMemberCreate(spaceData, authorField) {
   return isSpaceMember(spaceData)
     && request.resource.data[authorField] == request.auth.uid;
 }
 `,
   "state": `// @pyric-services cloud.firestore
+// Costs are production expressions per call, not counting arguments. Calls
+// are not memoized: every call pays its full cost again, and a let inside a
+// function is paid on every call.
+//
 // Game state machine helpers.
 //
 // Convention: documents must have these fields:
@@ -469,16 +543,19 @@ export function validMemberCreate(spaceData, authorField) {
 //   allow update: if isPlaying() && moveIncremented() && participantsUnchanged();
 
 // Is the game actively in play?
+// cost 6 to 6 expressions per call
 export function isPlaying() {
   return resource.data.status == 'playing';
 }
 
 // Did moveCount increment by exactly 1?
+// cost 11 to 11 expressions per call
 export function moveIncremented() {
   return request.resource.data.moveCount == resource.data.moveCount + 1;
 }
 
 // Are host and guest unchanged? (prevents mid-game identity swap)
+// cost 10 to 19 expressions per call
 export function participantsUnchanged() {
   return request.resource.data.host == resource.data.host
       && request.resource.data.guest == resource.data.guest;
@@ -486,23 +563,31 @@ export function participantsUnchanged() {
 `,
   "storage/metadata": `// @pyric-services firebase.storage
 // @pyric-evidence storage-rules#132
+// Costs are production expressions per call, not counting arguments. Calls
+// are not memoized: every call pays its full cost again, and a let inside a
+// function is paid on every call.
+//
 // Storage custom-metadata policies. Custom metadata is a flat string map.
 
+// cost 7 to 7 expressions per call
 export function hasRequiredMetadata(keys) {
   return request.resource.metadata.keys().hasAll(keys);
 }
 
+// cost 28 to 28 expressions per call
 export function metadataString(key, min, max) {
   return request.resource.metadata[key] is string
     && request.resource.metadata[key].size() >= min
     && request.resource.metadata[key].size() <= max;
 }
 
+// cost 6 to 16 expressions per call
 export function incomingMetadataOwner(key) {
   return request.auth != null
     && request.resource.metadata[key] == request.auth.uid;
 }
 
+// cost 6 to 15 expressions per call
 export function existingMetadataOwner(key) {
   return request.auth != null
     && resource.metadata[key] == request.auth.uid;
@@ -510,57 +595,82 @@ export function existingMetadataOwner(key) {
 `,
   "storage/objects": `// @pyric-services firebase.storage
 // @pyric-evidence storage-rules#132
+// Costs are production expressions per call, not counting arguments. Calls
+// are not memoized: every call pays its full cost again, and a let inside a
+// function is paid on every call.
+//
 // Storage operation identity. Use request.method rather than null checks:
 // production treats missing resource/request.resource bindings as errors.
 
+// cost 5 to 5 expressions per call
 export function isCreate() {
   return request.method == 'create';
 }
 
+// cost 5 to 5 expressions per call
 export function isUpdate() {
   return request.method == 'update';
 }
 
+// cost 5 to 5 expressions per call
 export function isDelete() {
   return request.method == 'delete';
 }
 `,
   "storage/time": `// @pyric-services firebase.storage
 // @pyric-evidence storage-rules#132
+// Costs are production expressions per call, not counting arguments. Calls
+// are not memoized: every call pays its full cost again, and a let inside a
+// function is paid on every call.
+//
 // Freshness checks over server-owned Storage object timestamps. Boundaries are
 // strict: equality with the deadline is not "within" the window.
 
+// cost 10 to 10 expressions per call
 export function createdWithin(seconds) {
   return request.time < resource.timeCreated + duration.value(seconds, 's');
 }
 
+// cost 10 to 10 expressions per call
 export function updatedWithin(seconds) {
   return request.time < resource.updated + duration.value(seconds, 's');
 }
 `,
   "storage/uploads": `// @pyric-services firebase.storage
 // @pyric-evidence storage-rules#132
+// Costs are production expressions per call, not counting arguments. Calls
+// are not memoized: every call pays its full cost again, and a let inside a
+// function is paid on every call.
+//
 // Storage upload request primitives. These inspect declared object metadata;
 // MIME helpers do not inspect or authenticate the uploaded bytes.
 
+// cost 6 to 6 expressions per call
 export function sizeAtMost(maxBytes) {
   return request.resource.size <= maxBytes;
 }
 
+// cost 7 to 13 expressions per call
 export function sizeBetween(minBytes, maxBytes) {
   return request.resource.size >= minBytes
     && request.resource.size <= maxBytes;
 }
 
+// cost 6 to 6 expressions per call
 export function contentTypeMatches(pattern) {
   return request.resource.contentType.matches(pattern);
 }
 
+// cost 6 to 6 expressions per call
 export function contentTypeIsOneOf(types) {
   return request.resource.contentType in types;
 }
 `,
   "timing": `// @pyric-services cloud.firestore
+// Costs are production expressions per call, not counting arguments. Calls
+// are not memoized: every call pays its full cost again, and a let inside a
+// function is paid on every call.
+//
 // Timing module for cooldown / rate-limit enforcement.
 //
 // Rules CAN rate-limit (contrary to a common assumption — jrpg
@@ -578,11 +688,16 @@ export function contentTypeIsOneOf(types) {
 // The stored timestamp is more than \`seconds\` old (strict). Update
 // rules only — needs \`resource\`. The field must be a Timestamp; a
 // missing field errors, which denies (fail-closed).
+// cost 12 to 12 expressions per call
 export function cooldownElapsed(field, seconds) {
   return request.time > resource.data[field] + duration.value(seconds, 's');
 }
 `,
   "transitions": `// @pyric-services cloud.firestore
+// Costs are production expressions per call, not counting arguments. Calls
+// are not memoized: every call pays its full cost again, and a let inside a
+// function is paid on every call.
+//
 // Transitions module for state machine enforcement.
 //
 // Validates that a field transitions from one known value to another.
@@ -603,22 +718,29 @@ export function cooldownElapsed(field, seconds) {
 //     || validTransition('status', 'completed', 'archived');
 
 // Check that a field transitions from one value to another.
+// cost 8 to 16 expressions per call
 export function validTransition(field, from, to) {
   return resource.data[field] == from
     && request.resource.data[field] == to;
 }
 
 // Check the current (existing) value of a field.
+// cost 7 to 7 expressions per call
 export function statusIs(field, value) {
   return resource.data[field] == value;
 }
 
 // Check the incoming (new) value of a field.
+// cost 8 to 8 expressions per call
 export function newStatusIs(field, value) {
   return request.resource.data[field] == value;
 }
 `,
   "turns": `// @pyric-services cloud.firestore
+// Costs are production expressions per call, not counting arguments. Calls
+// are not memoized: every call pays its full cost again, and a let inside a
+// function is paid on every call.
+//
 // Turn enforcement for 2-participant games/sessions.
 //
 // Convention: documents must have these fields:
@@ -632,6 +754,7 @@ export function newStatusIs(field, value) {
 //   allow update: if isMyTurn() && turnFlipped();
 
 // Is the caller the participant whose turn it is?
+// cost 16 to 23 expressions per call
 export function isMyTurn() {
   return (resource.data.currentTurn == 'host'
             && request.auth.uid == resource.data.host)
@@ -640,6 +763,7 @@ export function isMyTurn() {
 }
 
 // Did the turn alternate?
+// cost 15 to 22 expressions per call
 export function turnFlipped() {
   return (resource.data.currentTurn == 'host'
             && request.resource.data.currentTurn == 'guest')
@@ -648,6 +772,10 @@ export function turnFlipped() {
 }
 `,
   "validation": `// @pyric-services cloud.firestore
+// Costs are production expressions per call, not counting arguments. Calls
+// are not memoized: every call pays its full cost again, and a let inside a
+// function is paid on every call.
+//
 // Validation module for document field shape and value checks.
 //
 // Usage:
@@ -657,10 +785,12 @@ export function turnFlipped() {
 //     && validString('title', 1, 100)
 //     && isOneOf('status', ['draft', 'published']);
 
+// cost 7 to 7 expressions per call
 export function hasRequired(fields) {
   return request.resource.data.keys().hasAll(fields);
 }
 
+// cost 7 to 7 expressions per call
 export function hasOnly(fields) {
   return request.resource.data.keys().hasOnly(fields);
 }
@@ -668,6 +798,7 @@ export function hasOnly(fields) {
 // Incoming field is a string with size in [min, max] (inclusive).
 // Uses dynamic access, so a MISSING field reads as null (not an
 // error) and fails the \`is string\` check — safe on optional fields.
+// cost 10 to 28 expressions per call
 export function validString(field, min, max) {
   return request.resource.data[field] is string
     && request.resource.data[field].size() >= min
@@ -676,6 +807,7 @@ export function validString(field, min, max) {
 
 // Enum check: the incoming field value is one of the allowed values.
 // (\`in\` on a list — NOT \`.includes()\`, which does not exist in rules.)
+// cost 8 to 8 expressions per call
 export function isOneOf(field, values) {
   return request.resource.data[field] in values;
 }

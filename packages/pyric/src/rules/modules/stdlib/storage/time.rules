@@ -1,12 +1,18 @@
 // @pyric-services firebase.storage
 // @pyric-evidence storage-rules#132
+// Costs are production expressions per call, not counting arguments. Calls
+// are not memoized: every call pays its full cost again, and a let inside a
+// function is paid on every call.
+//
 // Freshness checks over server-owned Storage object timestamps. Boundaries are
 // strict: equality with the deadline is not "within" the window.
 
+// cost 10 to 10 expressions per call
 export function createdWithin(seconds) {
   return request.time < resource.timeCreated + duration.value(seconds, 's');
 }
 
+// cost 10 to 10 expressions per call
 export function updatedWithin(seconds) {
   return request.time < resource.updated + duration.value(seconds, 's');
 }

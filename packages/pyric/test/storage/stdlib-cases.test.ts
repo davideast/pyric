@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { resolveModulesBrowser } from '../../src/rules/modules/resolver-browser.ts';
 import { parseStorageRules, type StorageAuth, type StorageResource } from '../../src/storage/sandbox/rules.ts';
 import { evaluateStorageRules } from '../../src/storage/sandbox/rules-evaluator.ts';
+import { parseStdlibTestFile } from '../../src/rules/modules/stdlib-cost.ts';
 
 const FIXTURE_DIR = join(import.meta.dir, '..', '..', 'src', 'rules', 'modules', 'stdlib', 'storage');
 
@@ -28,7 +29,7 @@ it('discovers every shipped Storage stdlib module fixture', () => {
 
 for (const file of fixtureFiles) {
   const moduleName = `storage/${file.replace(/\.test\.json$/, '')}`;
-  const cases = JSON.parse(readFileSync(join(FIXTURE_DIR, file), 'utf8')) as StorageStdlibCase[];
+  const { cases } = parseStdlibTestFile<StorageStdlibCase>(readFileSync(join(FIXTURE_DIR, file), 'utf8'), file);
   describe(`Storage stdlib semantics: ${moduleName}`, () => {
     for (const testCase of cases) {
       it(testCase.description, () => {

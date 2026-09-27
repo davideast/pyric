@@ -17,7 +17,7 @@ interface AdaptedWarning {
 }
 
 function adaptLintWarning(w: FsLintWarning): AdaptedWarning {
-  const severity: AdaptedWarning['severity'] = w.severity === 'error' ? 'error' : 'warn';
+  const severity: AdaptedWarning['severity'] = w.severity === 'error' ? 'error' : w.severity === 'info' ? 'info' : 'warn';
   const loc = w.location;
   const where = loc?.functionName
     ? `in ${loc.functionName}: `

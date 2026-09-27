@@ -1,21 +1,29 @@
 // @pyric-services firebase.storage
 // @pyric-evidence storage-rules#132
+// Costs are production expressions per call, not counting arguments. Calls
+// are not memoized: every call pays its full cost again, and a let inside a
+// function is paid on every call.
+//
 // Storage upload request primitives. These inspect declared object metadata;
 // MIME helpers do not inspect or authenticate the uploaded bytes.
 
+// cost 6 to 6 expressions per call
 export function sizeAtMost(maxBytes) {
   return request.resource.size <= maxBytes;
 }
 
+// cost 7 to 13 expressions per call
 export function sizeBetween(minBytes, maxBytes) {
   return request.resource.size >= minBytes
     && request.resource.size <= maxBytes;
 }
 
+// cost 6 to 6 expressions per call
 export function contentTypeMatches(pattern) {
   return request.resource.contentType.matches(pattern);
 }
 
+// cost 6 to 6 expressions per call
 export function contentTypeIsOneOf(types) {
   return request.resource.contentType in types;
 }
