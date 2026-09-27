@@ -121,6 +121,74 @@ describe('evaluateStorageRules arithmetic over operand types', () => {
   });
 });
 
+// ─── Ordering operators over every operand pair ──────────────────
+//
+// rules-storage-ordering-operand-types captures production's `<`, `>`, `<=`,
+// and `>=`: int and float order by value, strings order lexicographically,
+// and every other pair (int < string, bool < bool, list < list, map < map,
+// int < null) is "Unsupported operation error. Received: <left> <op>
+// <right>.", an error value that survives `!`, that `|| true` and
+// `&& false` absorb, and that denies on its own. `==` and `!=` across types
+// are false and true, not errors.
+
+describe('evaluateStorageRules ordering over operand types', () => {
+  it('orders ints and floats by value and strings lexicographically', () => {
+    expect(evalRead('resource.size < 10.5 && 9.5 <= resource.size && resource.size >= 10').allowed).toBe(true);
+    expect(evalRead("docId < 'e' && docId >= 'd'").allowed).toBe(true);
+    expect(evalRead("docId > 'e'").allowed).toBe(false);
+  });
+
+  const unsupported: Array<[string, string]> = [
+    ['resource.size < docId', 'int < string'],
+    ['docId >= resource.size', 'string >= int'],
+    ['docId > 2', 'string > int'],
+    ["1 < 'a'", 'int < string'],
+    ["'a' >= 2", 'string >= int'],
+    ["false < (docId == 'd1.json')", 'bool < bool'],
+    ["(docId == 'd1.json') <= resource.size", 'bool <= int'],
+    ["docId.split('[.]') < ['z']", 'list < list'],
+    ["{'k': 'v'} > {'k': 'w'}", 'map > map'],
+    ['resource.size < null', 'int < null'],
+    ['null >= null', 'null >= null'],
+    ['1.5 < docId', 'float < string'],
+  ];
+
+  for (const [comparison, received] of unsupported) {
+    it(`denies ${received} as an unsupported operation, through !`, () => {
+      const bare = evalRead(comparison);
+      expect(bare.allowed).toBe(false);
+      expect(bare.reasons.join(' ')).toContain(`Unsupported operation error. Received: ${received}.`);
+      const negated = evalRead(`!(${comparison})`);
+      expect(negated.allowed).toBe(false);
+      expect(negated.reasons.join(' ')).toContain(`Unsupported operation error. Received: ${received}.`);
+    });
+
+    it(`absorbs the ${received} error through || true and && false`, () => {
+      expect(evalRead(`(${comparison}) || true`).allowed).toBe(true);
+      expect(evalRead(`!((${comparison}) && false)`).allowed).toBe(true);
+      expect(evalRead(`!((${comparison}) && true)`).allowed).toBe(false);
+    });
+  }
+
+  it('denies a timestamp ordered against an int in either position', () => {
+    expect(evalRead('!(request.time > resource.size)').reasons.join(' '))
+      .toContain('Unsupported operation error. Received: timestamp > int.');
+    expect(evalRead('!(resource.size <= request.time)').reasons.join(' '))
+      .toContain('Unsupported operation error. Received: int <= timestamp.');
+  });
+
+  it('evaluates == and != across types as false and true, not an error', () => {
+    expect(evalRead('resource.size == docId').allowed).toBe(false);
+    expect(evalRead('resource.size != docId').allowed).toBe(true);
+    expect(evalRead('!(resource.size == docId)').allowed).toBe(true);
+    expect(evalRead("1 != '1'").allowed).toBe(true);
+    expect(evalRead("(docId == 'd1.json') != 1").allowed).toBe(true);
+    expect(evalRead('request.time != resource.size').allowed).toBe(true);
+    expect(evalRead("docId.split('[.]') != {'k': 'v'}").allowed).toBe(true);
+    expect(evalRead('null != resource.size').allowed).toBe(true);
+  });
+});
+
 describe('evaluateStorageRules — is over value types', () => {
   it('types timestamps, durations, and bytes', () => {
     expect(evalRead("request.time is timestamp && duration.value(1, 's') is duration && 'a'.toUtf8() is bytes").allowed)

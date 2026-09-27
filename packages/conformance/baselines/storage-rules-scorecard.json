@@ -143,6 +143,7 @@
         "matches-regex",
         "metadata-access",
         "metadata-verbs-and-arithmetic",
+        "ordering-operand-types",
         "request-time-timestamp",
         "resource-object-identity",
         "stdlib-sets-and-mapdiff",
@@ -343,6 +344,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "ordering-operand-types",
         "request-time-timestamp",
         "resource-object-identity",
         "stdlib-storage-modules",
@@ -408,6 +410,7 @@
         "arithmetic-operand-types",
         "metadata-access",
         "metadata-verbs-and-arithmetic",
+        "ordering-operand-types",
         "resource-object-identity",
         "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
@@ -435,6 +438,7 @@
       "verifiedBy": [
         "arithmetic-operand-types",
         "metadata-verbs-and-arithmetic",
+        "ordering-operand-types",
         "stdlib-string-bytes-hashing",
         "stdlib-timestamp-duration",
         "upload-primitives-boundaries"
@@ -473,6 +477,7 @@
       "verifiedBy": [
         "arithmetic-operand-types",
         "metadata-access",
+        "ordering-operand-types",
         "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
         "stdlib-string-bytes-hashing",
@@ -512,6 +517,7 @@
         "matches-regex",
         "metadata-access",
         "metadata-verbs-and-arithmetic",
+        "ordering-operand-types",
         "request-time-timestamp",
         "resource-object-identity",
         "stdlib-sets-and-mapdiff",
@@ -941,6 +947,7 @@
         "list-map-literals-and-slice",
         "metadata-access",
         "metadata-verbs-and-arithmetic",
+        "ordering-operand-types",
         "resource-object-identity",
         "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
@@ -973,12 +980,15 @@
         "conversion-functions",
         "function-scopes-and-shadowing",
         "metadata-verbs-and-arithmetic",
+        "ordering-operand-types",
         "resource-object-identity",
         "stdlib-storage-modules",
         "stdlib-string-bytes-hashing",
         "verbs-umbrella-granular"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "storage-rules#123"
+      ],
       "divergedByRows": []
     },
     "storage.operator.lt": {
@@ -998,13 +1008,16 @@
         "float-modulo-unary-minus",
         "functions-let-scope",
         "metadata-verbs-and-arithmetic",
+        "ordering-operand-types",
         "request-time-timestamp",
         "resource-object-identity",
         "stdlib-storage-modules",
         "stdlib-timestamp-duration",
         "upload-primitives-boundaries"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "storage-rules#123"
+      ],
       "divergedByRows": []
     },
     "storage.operator.gt": {
@@ -1022,10 +1035,13 @@
         "bytes-literal",
         "conversion-functions",
         "functions-let-scope",
+        "ordering-operand-types",
         "request-time-timestamp",
         "stdlib-timestamp-duration"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "storage-rules#123"
+      ],
       "divergedByRows": []
     },
     "storage.operator.lte": {
@@ -1041,10 +1057,13 @@
       "classification": "conformant",
       "verifiedBy": [
         "metadata-verbs-and-arithmetic",
+        "ordering-operand-types",
         "stdlib-storage-modules",
         "upload-primitives-boundaries"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "storage-rules#123"
+      ],
       "divergedByRows": []
     },
     "storage.operator.gte": {
@@ -1061,9 +1080,12 @@
       "verifiedBy": [
         "list-map-literals-and-slice",
         "metadata-verbs-and-arithmetic",
+        "ordering-operand-types",
         "stdlib-storage-modules"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "storage-rules#123"
+      ],
       "divergedByRows": []
     },
     "storage.operator.add": {
@@ -1181,6 +1203,7 @@
         "functions-let-scope",
         "in-membership-and-proto-keys",
         "metadata-verbs-and-arithmetic",
+        "ordering-operand-types",
         "resource-object-identity",
         "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
@@ -1213,6 +1236,7 @@
         "error-absorption-and-direction",
         "firestore-lookup-budget",
         "metadata-verbs-and-arithmetic",
+        "ordering-operand-types",
         "stdlib-timestamp-duration",
         "ternary-and-error-absorption"
       ],
@@ -1242,6 +1266,7 @@
         "float-modulo-unary-minus",
         "functions-let-scope",
         "in-membership-and-proto-keys",
+        "ordering-operand-types",
         "stdlib-sets-and-mapdiff",
         "stdlib-timestamp-duration",
         "type-checks-is"
@@ -1273,6 +1298,7 @@
         "matches-regex",
         "metadata-access",
         "metadata-verbs-and-arithmetic",
+        "ordering-operand-types",
         "request-time-timestamp",
         "resource-object-identity",
         "stdlib-sets-and-mapdiff",
@@ -1432,6 +1458,7 @@
         "function-scopes-and-shadowing",
         "list-map-literals-and-slice",
         "metadata-verbs-and-arithmetic",
+        "ordering-operand-types",
         "ternary-and-error-absorption",
         "verbs-umbrella-granular"
       ],
@@ -1621,6 +1648,7 @@
         "matches-regex",
         "metadata-access",
         "metadata-verbs-and-arithmetic",
+        "ordering-operand-types",
         "request-time-timestamp",
         "resource-object-identity",
         "stdlib-sets-and-mapdiff",
@@ -1705,6 +1733,7 @@
         "matches-regex",
         "metadata-access",
         "metadata-verbs-and-arithmetic",
+        "ordering-operand-types",
         "request-time-timestamp",
         "resource-object-identity",
         "stdlib-sets-and-mapdiff",
@@ -1737,6 +1766,7 @@
         "function-scopes-and-shadowing",
         "list-map-literals-and-slice",
         "metadata-verbs-and-arithmetic",
+        "ordering-operand-types",
         "ternary-and-error-absorption",
         "verbs-umbrella-granular"
       ],

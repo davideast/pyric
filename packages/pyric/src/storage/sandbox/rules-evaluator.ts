@@ -15,8 +15,8 @@ import { buildRequestObject, buildResourceObject } from './rules-bindings.js';
 import { applyConversion, conversionFor } from './rules-conversions.js';
 import { evalMethodCall } from './rules-methods.js';
 import {
-  cmp,
   evalArithmetic,
+  evalOrdering,
   evalValueOperator,
   isValueTypeOperand,
   typeMatches,
@@ -384,10 +384,11 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
         // false). Everything else is strict equality.
         case '==': return rulesEquals(l, r);
         case '!=': return !rulesEquals(l, r);
-        case '<':  return cmp(l, r) < 0;
-        case '>':  return cmp(l, r) > 0;
-        case '<=': return cmp(l, r) <= 0;
-        case '>=': return cmp(l, r) >= 0;
+        case '<':
+        case '>':
+        case '<=':
+        case '>=':
+          return evalOrdering(expr.op, l, r);
         case '+':
         case '-':
         case '*':
