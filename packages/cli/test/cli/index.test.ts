@@ -133,9 +133,12 @@ describe('service command hierarchy', () => {
     const rulesPath = join(PACKAGE_ROOT, 'test', 'e2e', 'fixture', 'firestore.rules');
     const result = await runDispatch(['firestore', 'rules', 'validate', rulesPath]);
 
-    expect(result.code).toBe(0);
+    // The fixture's recursive wildcard allows signed-in reads and writes,
+    // a high-severity finding (SEC-5), so the command exits 2.
+    expect(result.code).toBe(2);
     expect(result.stderr).toBe('');
-    expect(JSON.parse(result.stdout)).toBeArray();
+    const findings = JSON.parse(result.stdout) as Array<{ code: string; severity: string }>;
+    expect(findings.map((finding) => [finding.code, finding.severity])).toContainEqual(['SEC-5', 'high']);
   });
 
   it('resolves Firestore rules modules through the namespaced command', async () => {

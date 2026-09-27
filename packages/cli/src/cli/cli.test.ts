@@ -96,6 +96,69 @@ describe('runRulesValidate', () => {
     expect(code).toBe(2);
     expect(io.getErr()).toContain('failed to parse');
   });
+
+  const validateSource = async (source: string) => {
+    const io = bufferIo();
+    const code = await runRulesValidate(serviceArgs(['firestore', 'rules', 'validate', 'firestore.rules']), {
+      ...io,
+      cwd: '/tmp',
+      readFile: (async () => source) as never,
+    });
+    const findings = JSON.parse(io.getOut()) as Array<{ code: string; severity: string }>;
+    return { code, findings };
+  };
+
+  it('prints the findings and exits 2 when one has severity high', async () => {
+    const { code, findings } = await validateSource(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /notes/{id} { allow read: if notDefined(); }
+    match /{document=**} { allow read, write: if false; }
+  }
+}
+`);
+    expect(findings.map((finding) => [finding.code, finding.severity])).toContainEqual(['SEM-4', 'high']);
+    expect(code).toBe(2);
+  });
+
+  it('prints the findings and exits 2 when one has severity critical', async () => {
+    const { code, findings } = await validateSource(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /notes/{id} { allow write: if true; }
+    match /{document=**} { allow read, write: if false; }
+  }
+}
+`);
+    expect(findings.map((finding) => [finding.code, finding.severity])).toContainEqual(['SEC-1', 'critical']);
+    expect(code).toBe(2);
+  });
+
+  it('prints medium and low findings and exits 0 when none is high or critical', async () => {
+    const { code, findings } = await validateSource(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /notes/{id} { allow read: if request.auth != null; }
+  }
+}
+`);
+    expect(findings.map((finding) => finding.code)).toEqual(['SEC-4']);
+    expect(findings.every((finding) => finding.severity === 'medium' || finding.severity === 'low')).toBe(true);
+    expect(code).toBe(0);
+  });
+
+  it('exits 1 when the rules file cannot be read', async () => {
+    const io = bufferIo();
+    const code = await runRulesValidate(serviceArgs(['firestore', 'rules', 'validate', 'missing.rules']), {
+      ...io,
+      cwd: '/tmp',
+      readFile: (async () => {
+        throw new Error('ENOENT: no such file');
+      }) as never,
+    });
+    expect(code).toBe(1);
+    expect(io.getErr()).toContain('ENOENT');
+  });
 });
 
 // ── database rules ───────────────────────────────────────────────────

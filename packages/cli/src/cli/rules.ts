@@ -12,7 +12,8 @@
  * shared with `pyric mcp`. They are not implemented here.
  *
  * Both remaining commands exit 0 on success, 1 on usage / file-read error, 2
- * on library failure (parse error etc.).
+ * on library failure (parse error etc.). `validate` also exits 2 when a
+ * finding has severity critical or high.
  */
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -70,8 +71,11 @@ export async function runRulesValidate(parsed: ParsedArgs, deps: RulesDeps = {})
   }
   const findings: ValidationFinding[] = validateFn(ast);
   out.write(`${JSON.stringify(findings, null, 2)}\n`);
-  return 0;
+  return findings.some((finding) => FAILING_SEVERITIES.has(finding.severity)) ? 2 : 0;
 }
+
+/** Findings at these severities fail `firestore rules validate`; medium and low ones are informational. */
+const FAILING_SEVERITIES: ReadonlySet<ValidationFinding['severity']> = new Set(['critical', 'high']);
 
 export async function runRulesResolve(
   parsed: ParsedArgs,
