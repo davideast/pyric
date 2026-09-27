@@ -34,7 +34,7 @@ const NON_RECORD_FILES = new Set(['types.ts', 'load.ts', 'index.ts']);
 const FILENAME_SAFE_ID = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 const EXPECTATIONS = new Set(['ALLOW', 'DENY']);
-const OPERATIONS = new Set(['read', 'write']);
+const OPERATIONS = new Set(['read', 'write', 'update']);
 
 /** Structural validation for one authored record. Returns problems found
  *  (empty = valid). */
@@ -89,7 +89,11 @@ function recordProblems(file: string, id: string, value: unknown): string[] {
       fail(`cases[${i}] ('${c.description ?? i}'): invalid 'expectation' (${JSON.stringify(c.expectation)}) — must be 'ALLOW' or 'DENY'`);
     }
     if (typeof c.operation !== 'string' || !OPERATIONS.has(c.operation)) {
-      fail(`cases[${i}] ('${c.description ?? i}'): invalid 'operation' (${JSON.stringify(c.operation)}) — must be 'read' or 'write'`);
+      fail(`cases[${i}] ('${c.description ?? i}'): invalid 'operation' (${JSON.stringify(c.operation)}): must be 'read', 'write' or 'update'`);
+    }
+    const isPatch = typeof c.newData === 'object' && c.newData !== null && !Array.isArray(c.newData);
+    if (c.operation === 'update' && !isPatch) {
+      fail(`cases[${i}] ('${c.description ?? i}'): an 'update' case's 'newData' must be a patch object keyed by relative paths`);
     }
     if (typeof c.opPath !== 'string' || !c.opPath.startsWith('/')) {
       fail(`cases[${i}] ('${c.description ?? i}'): 'opPath' must be a string starting with '/'`);

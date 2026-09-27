@@ -279,7 +279,13 @@ async function capture(scenarios: readonly RtdbScenario[]): Promise<void> {
   // preview stays dependency-light and always runnable.
   const { initializeApp, deleteApp } = await import('firebase/app');
   const { getAuth, signInAnonymously, signOut } = await import('firebase/auth');
-  const { getDatabase, ref: rtdbRef, get: rtdbGet, set: rtdbSet } = await import('firebase/database');
+  const {
+    getDatabase,
+    ref: rtdbRef,
+    get: rtdbGet,
+    set: rtdbSet,
+    update: rtdbUpdate,
+  } = await import('firebase/database');
   const {
     cert: adminCert,
     initializeApp: adminInitializeApp,
@@ -420,6 +426,8 @@ async function capture(scenarios: readonly RtdbScenario[]): Promise<void> {
         try {
           if (tc.operation === 'read') {
             await rtdbGet(rtdbRef(rtdb, fullPath));
+          } else if (tc.operation === 'update') {
+            await rtdbUpdate(rtdbRef(rtdb, fullPath), newData as Record<string, unknown>);
           } else {
             await rtdbSet(rtdbRef(rtdb, fullPath), newData ?? null);
           }

@@ -1,0 +1,29 @@
+{
+  "name": "rules-rtdb-r23-validate-sibling-scope",
+  "matrixRow": "rtdb-rules#15",
+  "rowIds": [
+    "rtdb-rules#15"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r23-validate-sibling-scope\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). a write must not be denied by the `.validate` rule of a sibling node it does not write, and a node the write does carry must still run its `.validate`.",
+  "observedAt": "2026-09-27T14:22:20.786Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "set of title next to a count that did not change": "ALLOW",
+    "set of title next to a stored tag that fails its validate": "ALLOW",
+    "set of title next to another room whose stored tag fails its validate": "ALLOW",
+    "update of title alone next to an unchanged count and a failing tag": "ALLOW",
+    "multi-path update of two titles next to an unchanged count and a failing tag": "ALLOW",
+    "deletion of title next to a count that did not change": "ALLOW",
+    "set of the room carrying count with its stored value": "DENY",
+    "set of the room carrying tag with its stored failing value": "DENY",
+    "update of count alone with its stored value": "DENY",
+    "update of tag alone with its stored failing value": "DENY",
+    "set of count one higher": "ALLOW",
+    "set of count two higher": "DENY",
+    "deletion of content that an unwritten sibling meta requires": "ALLOW",
+    "update deleting content that an unwritten sibling meta requires": "ALLOW",
+    "multi-path update from the mount deleting content that an unwritten sibling meta requires": "ALLOW",
+    "set of the doc carrying meta without content": "DENY"
+  }
+}

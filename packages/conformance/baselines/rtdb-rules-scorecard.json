@@ -124,6 +124,7 @@
         "r2-own-uid",
         "r21-validate-on-delete",
         "r22-strict-equality-types",
+        "r23-validate-sibling-scope",
         "r3-data-exists",
         "r4-validate-structure",
         "r5-cascade-root-grant",
@@ -172,6 +173,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "r20-priority-values",
+        "r23-validate-sibling-scope",
         "r3-data-exists",
         "r9-quota-arithmetic"
       ],
@@ -195,6 +197,7 @@
         "r20-priority-values",
         "r21-validate-on-delete",
         "r22-strict-equality-types",
+        "r23-validate-sibling-scope",
         "r4-validate-structure",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -252,6 +255,7 @@
         "r17-validate-runtime-error",
         "r20-priority-values",
         "r22-strict-equality-types",
+        "r23-validate-sibling-scope",
         "r8-combined-check",
         "r9-quota-arithmetic"
       ],
@@ -270,6 +274,7 @@
         "r14-root-lookup",
         "r18-child-dot-segments",
         "r20-priority-values",
+        "r23-validate-sibling-scope",
         "r8-combined-check"
       ],
       "verifiedByRows": [
@@ -284,7 +289,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "r10-snapshot-type-guards"
+        "r10-snapshot-type-guards",
+        "r23-validate-sibling-scope"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -325,6 +331,7 @@
       "verifiedBy": [
         "r14-root-lookup",
         "r18-child-dot-segments",
+        "r23-validate-sibling-scope",
         "r3-data-exists"
       ],
       "verifiedByRows": [],
@@ -355,6 +362,7 @@
         "r10-snapshot-type-guards",
         "r12-server-time-and-token",
         "r21-validate-on-delete",
+        "r23-validate-sibling-scope",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -370,7 +378,8 @@
         "r10-snapshot-type-guards",
         "r11-string-validation",
         "r17-validate-runtime-error",
-        "r21-validate-on-delete"
+        "r21-validate-on-delete",
+        "r23-validate-sibling-scope"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -529,6 +538,7 @@
         "r16-auth-provider-and-tenant",
         "r17-validate-runtime-error",
         "r20-priority-values",
+        "r23-validate-sibling-scope",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -554,6 +564,7 @@
         "r20-priority-values",
         "r21-validate-on-delete",
         "r22-strict-equality-types",
+        "r23-validate-sibling-scope",
         "r3-data-exists",
         "r4-validate-structure",
         "r5-cascade-root-grant",
@@ -623,6 +634,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "r23-validate-sibling-scope",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -828,6 +840,7 @@
         "r20-priority-values",
         "r21-validate-on-delete",
         "r22-strict-equality-types",
+        "r23-validate-sibling-scope",
         "r3-data-exists",
         "r4-validate-structure",
         "r5-cascade-root-grant",
@@ -858,6 +871,7 @@
         "r20-priority-values",
         "r21-validate-on-delete",
         "r22-strict-equality-types",
+        "r23-validate-sibling-scope",
         "r4-validate-structure",
         "r9-quota-arithmetic"
       ],
@@ -892,6 +906,7 @@
         "r2-own-uid",
         "r21-validate-on-delete",
         "r22-strict-equality-types",
+        "r23-validate-sibling-scope",
         "r7-pathvar-binding"
       ],
       "verifiedByRows": [

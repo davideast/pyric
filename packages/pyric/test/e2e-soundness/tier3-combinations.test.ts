@@ -321,7 +321,10 @@ service firebase.storage {
 
   // ─── Combination 6: F3 (Multi-Path Update) + F5 (RTDB Admin Bypass) ─
   describe('Combination F3 + F5: Admin Seeding under Default Deny followed by Sibling Invariant Checks', () => {
-    test('F3+F5.1: Admin seeds data tree under default deny; client update deleting required field is denied', async () => {
+    // Production validates only the nodes an update writes, so deleting `sku`
+    // does not run the unwritten `stock` rule that reads it
+    // (rules-rtdb-r23-validate-sibling-scope).
+    test('F3+F5.1: Admin seeds data tree under default deny; client update deleting a field another field reads is allowed', async () => {
       const sandbox = initializeSandbox();
       const adminDb = getAdminDatabase(sandbox);
 
@@ -346,18 +349,13 @@ service firebase.storage {
         },
       });
 
-      // Client tries multi-path update deleting sku while stock remains
-      let updateError: unknown = null;
-      try {
-        await update(dbRef(db, '/inventory/item1'), {
-          sku: null,
-        });
-      } catch (err) {
-        updateError = err;
-      }
+      // Client updates only sku, deleting it while stock remains
+      await update(dbRef(db, '/inventory/item1'), {
+        sku: null,
+      });
 
-      expect(updateError).toBeInstanceOf(Error);
-      expect((updateError as Error).message).toContain('PERMISSION_DENIED');
+      const snap = await get(dbRef(db, '/inventory/item1'));
+      expect(snap.val()).toEqual({ stock: 50 });
     });
   });
 

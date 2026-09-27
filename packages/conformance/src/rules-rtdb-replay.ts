@@ -76,19 +76,33 @@ function simulatorVerdict(scenario: RtdbScenario, testCase: RtdbTestCase): RtdbV
   const mockData = testCase.mockData !== undefined
     ? substituteUid(testCase.mockData, uid)
     : undefined;
-  const input: SimulationInput = {
-    operation: testCase.operation,
-    path: simPath,
-    auth: testCase.authPresent
-      ? { uid, token: { firebase: { sign_in_provider: 'anonymous' }, provider_id: 'anonymous' } }
-      : null,
-    mockData: buildSimMock(scenario, simPath, mockData, testCase.seed, uid),
-    newData: testCase.newData !== undefined
-      ? substituteUid(testCase.newData, uid)
-      : undefined,
-  };
+  const auth: SimulationInput['auth'] = testCase.authPresent
+    ? { uid, token: { firebase: { sign_in_provider: 'anonymous' }, provider_id: 'anonymous' } }
+    : null;
+  const simMock = buildSimMock(scenario, simPath, mockData, testCase.seed, uid);
+  const newData = testCase.newData !== undefined
+    ? substituteUid(testCase.newData, uid)
+    : undefined;
 
-  const result = simulateRtdbRules(compiled, input);
+  if (testCase.operation === 'update') {
+    // An update writes each patch location; it is allowed only when every
+    // location's write is, each evaluated against the whole update.
+    const updates = Object.entries(newData as Record<string, unknown>).map(([key, value]) => ({
+      path: `${simPath}/${key}`.replace(/\/+/g, '/'),
+      value,
+    }));
+    const allowed = updates.every((update) => {
+      const result = simulateRtdbRules(compiled, {
+        operation: 'write', path: update.path, auth, mockData: simMock, newData: update.value, updates,
+      });
+      return result.success && result.data.allowed;
+    });
+    return allowed ? 'ALLOW' : 'DENY';
+  }
+
+  const result = simulateRtdbRules(compiled, {
+    operation: testCase.operation, path: simPath, auth, mockData: simMock, newData,
+  });
   if (!result.success) return 'DENY';
   return result.data.allowed ? 'ALLOW' : 'DENY';
 }

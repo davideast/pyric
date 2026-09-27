@@ -12,6 +12,7 @@ import { compileRtdbRules } from '../../src/rules/rtdb/compiled-rules.js';
 import {
   getDatabase,
   getAdminDatabase,
+  get,
   set,
   update,
   ref as dbRef,
@@ -440,7 +441,10 @@ service firebase.storage {
       }
     });
 
-    test('F3.B6: atomic multi-path update with root-level slash paths properly evaluates sibling invariants', async () => {
+    // Production validates only the nodes an update writes, so deleting
+    // `billing` does not run the unwritten `items` rule that reads it
+    // (rules-rtdb-r23-validate-sibling-scope).
+    test('F3.B6: atomic multi-path update with root-level slash paths validates only the written paths', async () => {
       const sandbox = initializeSandbox();
       const db = getDatabase(sandbox.withAuth({ uid: 'client' }));
 
@@ -464,17 +468,12 @@ service firebase.storage {
       });
 
       // Slash-separated multi-path update targeting root
-      let updateError: unknown = null;
-      try {
-        await update(dbRef(db), {
-          '/orders/o1/billing': null, // deleting billing
-        });
-      } catch (err) {
-        updateError = err;
-      }
+      await update(dbRef(db), {
+        '/orders/o1/billing': null, // deleting billing
+      });
 
-      expect(updateError).toBeInstanceOf(Error);
-      expect((updateError as Error).message).toContain('PERMISSION_DENIED');
+      const snap = await get(dbRef(db, '/orders/o1'));
+      expect(snap.val()).toEqual({ items: 'item-list' });
     });
   });
 
