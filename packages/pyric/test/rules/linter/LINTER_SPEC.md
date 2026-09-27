@@ -1,6 +1,6 @@
 # Firestore Rules Linter — Specification
 
-## Verified Limits (compilation limits production-tested 2026-04-07; runtime limit 2026-09-27)
+## Verified Limits (compilation limits production-tested 2026-04-07 and 2026-09-27; runtime limit 2026-09-27)
 
 ### Compilation limits (400 INVALID_ARGUMENT)
 
@@ -8,9 +8,13 @@
 |-------|----------------|-------------|
 | Source text size | 256 KB | Single string equality (isolated) |
 | Binary chain depth per function | 98 (AND and OR) | Flat chain, 1 function, 1 rule |
-| Let bindings per function | 11 | Isolated function |
+| Let bindings per function | 11 compiles, 12 fails ("Maximum allowed variable count of 10 for a given function has been reached."), Firestore and Storage | Isolated function, 2026-09-27 |
+| Functions on one call stack | 21 compiles, 22 fails ("Maximum allowed call depth of 20 is reached for [f1->...->f21] call stack."), Firestore and Storage; checked at compile time, even for a chain no rule calls | `f1()` calls `f2()` ... calls `fN()`, 2026-09-27 |
 | Method call chains (.diff().keys().hasOnly()) | 90+ per function | Compile-only test |
-| Nesting depth of a right-nested `&&` chain | 40 compiles, 50 fails ("Expression is too complex to evaluate safely.") | `n > 0 && (n > 1 && (...))`, 2026-09-27; boundary not bisected |
+| Terms in a right-nested `&&` chain | 49 compiles, 50 fails ("Expression is too complex to evaluate safely."), Firestore and Storage | `t1 && (t2 && (... && (t49)))`, 2026-09-27 |
+| Parentheses around one comparison | 97 pairs compile, 98 fail ("Expression is too complex to evaluate safely."), Firestore and Storage | `((((a == b))))`, 2026-09-27 |
+
+The 2026-09-27 rows come from `packages/conformance/src/capture-rules-compile-limits.ts`, which submits one generated ruleset per probe to the Rules Test API and deploys nothing. `fixtures/compile-limits/captures.json` records each probe: whether it compiled, the verbatim issues with severity and position, and each case's decision. The production messages count differently from the measured boundaries: the call-depth message says 20 and names a stack of 21 functions for a 22-function chain, and the variable-count message says 10 while 11 bindings compile.
 
 ### Runtime evaluation limit (production-measured 2026-09-27)
 
@@ -88,6 +92,8 @@ The compilation limit is the depth of the top-level binary chain
 (`a && b && c && ...`), NOT the total number of comparisons. Nesting
 reduces chain depth: `(a && b) || (c && d)` has OR-chain depth of N/2,
 not N. This means the linter should count chain depth, not total nodes.
+
+The three "too complex" boundaries fit one nesting-depth limit in which each `&&` or `||` node and each parenthesized group is one level: 97 levels compile and 98 fail. A flat chain of 98 operands has 97 `&&` nodes on its left spine. A right-nested chain of 49 terms has 48 `&&` nodes and 48 groups, 96 levels, and 50 terms reach 98. 97 parentheses compile and 98 fail. The measurements do not show whether other nodes, such as `!`, a ternary or a method call, also count. CHAIN_DEPTH counts only the left spine of one operator, so it does not report a right-nested chain or deep parentheses; the linter has no nesting-depth rule.
 
 ## Lint Rules
 
@@ -176,8 +182,8 @@ not N. This means the linter should count chain depth, not total nodes.
 - **Corpus**: `fixtures/expression-cost/` (ladder, chess, arcade rulesets and the captured costs). The chess rules warn: their queen checkmate move reached the limit in production.
 
 ### RULE 6: CALL_DEPTH
-- **Severity**: warning at depth >6, error at depth >10
-- **Threshold**: maximum function call chain depth > ~10-20 (not precisely verified)
+- **Severity**: warning at depth 18 to 21, error at depth >21
+- **Threshold**: 21 functions on one call stack (22 fails to compile in Firestore and Storage, 2026-09-27)
 - **Detection**: build call graph, find longest path from any allow rule to a leaf function
 - **Algorithm**:
   ```
@@ -189,9 +195,10 @@ not N. This means the linter should count chain depth, not total nodes.
       maxChild = max(maxChild, maxCallDepth(callee, callGraph, visited))
     return 1 + maxChild
   ```
-- **Message**: "Call chain from rule at line {line} reaches depth {depth}: {chain}. Deep chains may exceed function call budget."
+- **Message**: "Rule #{i} has a function call chain of depth {depth}. Limit is 21."
+- **Scope**: the linter measures chains reachable from allow rules. Production also rejects an over-deep chain that no rule calls.
 - **Fix**: inline intermediate functions
-- **Corpus**: 10-deep-call-chain.rules
+- **Corpus**: 10-deep-call-chain.rules (6 functions, no report); `linter.test.ts` generates the 21- and 22-function boundary cases
 
 ### RULE 7: GET_COUNT
 - **Severity**: error at >10 get() calls, warning at >5
@@ -287,4 +294,4 @@ interface RulesMetrics {
 1. **Nested match block scope**: Does chain depth limit apply per-match-block or globally?
 2. **get() path deduplication**: Does Firestore actually cache get() by path? At what scope?
 3. **Overlapping match blocks**: In which order does production evaluate two blocks that match one request, and does a grant in the first skip the second's cost?
-4. **Nesting depth limit**: Where between 40 and 50 levels does a nested expression stop compiling?
+4. **Nesting depth model**: Do nodes other than `&&`, `||` and parentheses, such as `!`, ternaries and method calls, count toward the 97-level nesting limit?

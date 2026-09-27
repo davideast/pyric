@@ -70,6 +70,16 @@ describe('Firestore Rules Linter', () => {
       const r = lint('05-lets-13-fail.rules');
       expect(hasError(r, 'LET_LIMIT')).toBe(true);
     });
+
+    test('captured boundary is 11 compiles, 12 rejected, in Firestore and Storage', () => {
+      const captured = JSON.parse(readFileSync(join(__dirname, 'fixtures/compile-limits/captures.json'), 'utf-8')) as {
+        boundaries: { service: string; shape: string; largestPass: number; smallestFail: number }[];
+      };
+      for (const service of ['firestore', 'storage']) {
+        const b = captured.boundaries.find(x => x.service === service && x.shape === 'let-count')!;
+        expect([b.largestPass, b.smallestFail]).toEqual([11, 12]);
+      }
+    });
   });
 
   describe('CHAIN_DEPTH', () => {
@@ -102,9 +112,52 @@ describe('Firestore Rules Linter', () => {
   });
 
   describe('CALL_DEPTH', () => {
-    test('6-level call chain — warning', () => {
+    // Production compiles a chain of 21 functions and rejects 22 with
+    // "Maximum allowed call depth of 20 is reached"
+    // (fixtures/compile-limits/captures.json).
+    function callChain(n: number): string {
+      const fns = Array.from({ length: n }, (_, k) =>
+        `      function f${k + 1}() { return ${k + 1 === n ? "request.auth.uid == 'a'" : `f${k + 2}()`}; }`);
+      return `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /p/{d} {
+${fns.join('\n')}
+      allow read: if f1();
+    }
+  }
+}`;
+    }
+
+    test('6-level call chain: no CALL_DEPTH', () => {
       const r = lint('10-deep-call-chain.rules');
-      expect(hasRule(r, 'CALL_DEPTH')).toBe(true);
+      expect(hasRule(r, 'CALL_DEPTH')).toBe(false);
+    });
+
+    test('17 functions: no CALL_DEPTH', () => {
+      expect(hasRule(lintSource(callChain(17)), 'CALL_DEPTH')).toBe(false);
+    });
+
+    const captured = JSON.parse(readFileSync(join(__dirname, 'fixtures/compile-limits/captures.json'), 'utf-8')) as {
+      boundaries: { service: string; shape: string; largestPass: number; smallestFail: number }[];
+    };
+    const depth = captured.boundaries.find(b => b.service === 'firestore' && b.shape === 'call-depth')!;
+
+    test('captured boundary is 21 compiles, 22 rejected', () => {
+      expect([depth.largestPass, depth.smallestFail]).toEqual([21, 22]);
+    });
+
+    test('21 functions: warning only, at the limit', () => {
+      const r = lintSource(callChain(depth.largestPass));
+      expect(hasWarning(r, 'CALL_DEPTH')).toBe(true);
+      expect(hasError(r, 'CALL_DEPTH')).toBe(false);
+      expect(r.metrics.maxCallDepth).toBe(21);
+    });
+
+    test('22 functions: error, one over the limit', () => {
+      const r = lintSource(callChain(depth.smallestFail));
+      expect(hasError(r, 'CALL_DEPTH')).toBe(true);
+      expect(r.warnings.find(w => w.rule === 'CALL_DEPTH')?.message).toContain('Limit is 21.');
     });
   });
 
