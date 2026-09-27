@@ -316,6 +316,42 @@ service firebase.storage {
     expect(getStorageRulesResolution(storage)?.source).toBe(OPEN_RULES);
   });
 
+  it('a null source removes the ruleset, so every client operation is denied', async () => {
+    const sandbox = initializeSandbox({});
+    const storage = getStorageSandbox(sandbox, {
+      dbName: uniqueDbName('remove-rules'),
+      rules: OPEN_RULES,
+    });
+    const other = getStorageSandbox(sandbox, { bucket: 'other-bucket' });
+    await uploadBytes(storageRef(storage, 'uploads/before.txt'), new Uint8Array([1]));
+
+    await replaceStorageRules(sandbox, null);
+
+    expect((await getStorageService(storage)).rules).toBeNull();
+    expect((await getStorageService(other)).rules).toBeNull();
+    expect(getStorageRulesResolution(storage)).toBeNull();
+    let thrown: unknown = null;
+    try {
+      await uploadBytes(storageRef(storage, 'uploads/after.txt'), new Uint8Array([1]));
+    } catch (error) {
+      thrown = error;
+    }
+    expect((thrown as { code?: string } | null)?.code).toBe('storage/unauthorized');
+
+    await replaceStorageRules(sandbox, OPEN_RULES);
+    await uploadBytes(storageRef(storage, 'uploads/again.txt'), new Uint8Array([1]));
+    expect(getStorageRulesResolution(storage)?.source).toBe(OPEN_RULES);
+  });
+
+  it('a null source on a service that is not open yet leaves it to open without rules', async () => {
+    const sandbox = initializeSandbox({});
+    await replaceStorageRules(sandbox, null);
+    const storage = getStorageSandbox(sandbox, { dbName: uniqueDbName('remove-before-open'), rules: OPEN_RULES });
+    await getStorageService(storage);
+
+    expect(getStorageRulesResolution(storage)?.source).toBe(OPEN_RULES);
+  });
+
   it('still refuses a late differing rules option on the factory', async () => {
     const sandbox = initializeSandbox({});
     const storage = getStorageSandbox(sandbox, {

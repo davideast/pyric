@@ -173,6 +173,81 @@ describe('rules files that do not exist at startup', () => {
   }, 15_000);
 });
 
+const storageRules = (path: string): string => `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o { match /${path}/{file} { allow read: if true; } }
+}`;
+
+type StoragePayload = { storageRules: string | null; storageRulesHash: string | null };
+
+describe('Storage rules hot-reload', () => {
+  it('loads storage.rules created after startup and broadcasts storage-rules-update', async () => {
+    const cwd = projectWithoutRules();
+    const { logger, notes } = capturingLogger();
+    const r = await startServe({ cwd, port: 0, cacheRoot: join(cwd, '.c'), logger });
+    stops.push(r);
+    const stream = await fetch(r.handle.url + '/__pyric/events');
+    const reader = stream.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    const eventArrived = (async () => {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) return null;
+        buffer += decoder.decode(value);
+        const m = buffer.match(/event: storage-rules-update\ndata: (.*)\n\n/);
+        if (m) return JSON.parse(m[1]!) as { rules: string | null; rulesHash: string | null };
+      }
+    })();
+    await new Promise((res) => setTimeout(res, 100));
+    writeFileSync(join(cwd, 'storage.rules'), storageRules('created'));
+
+    const note = await waitForNote(notes, 'storage rules reloaded');
+    expect(note).not.toBeNull();
+    const event = await eventArrived;
+    expect(event?.rules).toContain('/created/{file}');
+    const payload = (await (await fetch(r.handle.url + '/__pyric/init.json')).json()) as StoragePayload;
+    expect(payload.storageRules).toContain('/created/{file}');
+    expect(payload.storageRulesHash).toBe(event?.rulesHash ?? null);
+    await reader.cancel().catch(() => {});
+  }, 15_000);
+
+  it('reloads a changed storage.rules, and keeps the last-good rules when a change does not parse', async () => {
+    const cwd = projectWithoutRules();
+    writeFileSync(join(cwd, 'storage.rules'), storageRules('first'));
+    const { logger, notes } = capturingLogger();
+    const r = await startServe({ cwd, port: 0, cacheRoot: join(cwd, '.c'), logger });
+    stops.push(r);
+    await new Promise((res) => setTimeout(res, 100));
+    writeFileSync(join(cwd, 'storage.rules'), storageRules('second'));
+    expect(await waitForNote(notes, 'storage rules reloaded')).not.toBeNull();
+
+    writeFileSync(join(cwd, 'storage.rules'), 'service firebase.storage { match /b/{bucket}/o {');
+    const warning = await waitForNote(notes, 'storage rules NOT reloaded');
+    expect(warning).toContain('last-good stays live');
+    const payload = (await (await fetch(r.handle.url + '/__pyric/init.json')).json()) as StoragePayload;
+    expect(payload.storageRules).toContain('/second/{file}');
+  }, 15_000);
+
+  it('returns Storage to deny-all with a notice when storage.rules is deleted, and loads it again when it returns', async () => {
+    const cwd = projectWithoutRules();
+    writeFileSync(join(cwd, 'storage.rules'), storageRules('kept'));
+    const { logger, notes } = capturingLogger();
+    const r = await startServe({ cwd, port: 0, cacheRoot: join(cwd, '.c'), logger });
+    stops.push(r);
+    await new Promise((res) => setTimeout(res, 100));
+    rmSync(join(cwd, 'storage.rules'));
+
+    const notice = await waitForNote(notes, 'storage rules removed');
+    expect(notice).toContain('DENY');
+    const payload = (await (await fetch(r.handle.url + '/__pyric/init.json')).json()) as StoragePayload;
+    expect(payload.storageRules).toBeNull();
+
+    writeFileSync(join(cwd, 'storage.rules'), storageRules('returned'));
+    expect(await waitForNote(notes, 'storage rules reloaded')).not.toBeNull();
+  }, 15_000);
+});
+
 describe('--seed', () => {
   it('valid seed lands in the init payload', async () => {
     const cwd = project();

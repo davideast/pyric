@@ -48,7 +48,7 @@ The child receives `PYRIC_SANDBOX` and a `NODE_OPTIONS` import for `@pyric/cli/r
 | `--seed <file>` | Load a JSON document map or a Pyric state file. |
 | `--persist` | Save documents and auth users to `.pyric/state/state.json`. |
 | `--fresh` | With `--persist`, discard existing saved state before startup. |
-| `--no-watch` | Disable Firestore Rules hot reload. |
+| `--no-watch` | Disable Firestore, Realtime Database, and Storage rules hot reload. |
 | `--no-capture` | Do not write `.pyric/last-session.json`. |
 | `--no-cache` | Rebuild browser SDK bundles. |
 | `--no-run` | Do not run an explicit or configured child command. |

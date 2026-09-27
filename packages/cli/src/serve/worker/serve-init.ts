@@ -34,6 +34,7 @@ import { seedDocuments, setRules, snapshotDocuments } from 'pyric/sandbox/firest
 import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database';
 import { getAuth, sandbox as authOps, type SeedUser } from 'pyric/auth';
 import { getStorageSandbox } from 'pyric/storage';
+import { replaceStorageRules } from 'pyric/storage/internal';
 import type { PersistenceBackend } from 'pyric/sandbox';
 import { createSandboxRoot, EventHistory } from 'pyric/sandbox/internal';
 import {
@@ -136,6 +137,23 @@ export function setupWorkerHotReload(
       console.error('[pyric worker] database rules hot-reload failed:', errorMessage);
     }
   });
+  events.addEventListener('storage-rules-update', (ev) => {
+    // Null rules mean the rules file was deleted: Storage then denies every
+    // client operation, as it does when the worker starts without rules.
+    void (async () => {
+      const { rules } = JSON.parse(ev.data) as { rules: string | null; rulesHash?: string | null };
+      await replaceStorageRules(ctx.sandbox, rules);
+      const notice = rules === null
+        ? 'storage.rules removed; client Storage operations default to deny'
+        : 'storage.rules hot-reloaded';
+      // eslint-disable-next-line no-console
+      console.info(`[pyric worker] ${notice}`);
+    })().catch((err: unknown) => {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      // eslint-disable-next-line no-console
+      console.error('[pyric worker] storage rules hot-reload failed:', errorMessage);
+    });
+  });
   return () => events.close();
 }
 
@@ -143,12 +161,11 @@ export function setupWorkerHotReload(
  *  stops the capture event subscription (worker teardown / re-init). */
 export interface ServeInitResult {
   rulesDeployed: boolean;
-  /** Whether storage rules were deployed at boot. Storage rules are
-   *  honored only on the FIRST `pyric/storage` call per Sandbox
-   *  (see `getStorageSandbox`'s `StorageOptions.rules` doc) — so unlike
-   *  `rulesDeployed`/database rules this never flips true→false→true
-   *  across a session; it is decided once, here, before any storage op
-   *  runs. */
+  /** Whether storage rules were deployed at boot. The `rules` option is
+   *  honored only on the FIRST `pyric/storage` call per Sandbox (see
+   *  `getStorageSandbox`'s `StorageOptions.rules` doc), so it is decided
+   *  here, before any storage op runs. Later rules file changes arrive over
+   *  `storage-rules-update` and replace the ruleset in place. */
   storageRulesDeployed: boolean;
   seededDocs: number;
   seededUsers: number;
@@ -271,7 +288,7 @@ export function applyServeInit(
     rtdbSandbox.setDefaultPolicy(rtdb, 'deny');
   }
 
-  // 1b. Storage rules — deployed ONCE, here, before any storage op can run.
+  // 1b. Storage rules — deployed here, before any storage op can run.
   //     `pyric/storage`'s `getStorageSandbox` only honors a `rules` option on
   //     the FIRST call per Sandbox (later differing rules throw — a
   //     deliberate silent-rules-wipe guard, see StorageOptions.rules). This
@@ -280,6 +297,8 @@ export function applyServeInit(
   //     the service first wins — making this the sanctioned place to
   //     configure it. `payload.storageRules` is null when the project has no
   //     storage.rules, so the storage sandbox retains its fail-closed default.
+  //     A later rules file change replaces the ruleset through
+  //     `setupWorkerHotReload`, which does not reopen the service.
   //     The open ALSO claims the project-scoped IDB name
   //     (`pyric-storage:<projectKey>`, issue #359) — which is why it now runs
   //     unconditionally: a lazy first open from `ensureStorage`/`lensStorage`

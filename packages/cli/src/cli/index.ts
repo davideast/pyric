@@ -157,7 +157,8 @@ CORE FLAGS (sandbox)
                      Also accepts a pyric state file (from \`pyric snapshot\`,
                      detected by its version key). Seeds documents and auth users
                      before application code runs.
-  --no-watch         Disable firestore.rules hot-reload (on by default).
+  --no-watch         Disable Firestore, RTDB, and Storage rules hot-reload
+                     (on by default).
   --no-open          Don't auto-open the browser. sandbox opens the served page
                      by default (the sandbox is browser-resident); auto-open
                      is already suppressed under --json, no TTY, and CI.

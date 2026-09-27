@@ -56,8 +56,8 @@ export interface BridgeMountOptions {
 }
 
 export interface BridgeMount {
-  /** A null database source clears the rules, so the default policy applies. */
-  deployHostedRules(service: 'firestore' | 'database', source: string | null): void;
+  /** A null database or Storage source clears the rules, so the default policy applies. */
+  deployHostedRules(service: 'firestore' | 'database' | 'storage', source: string | null): Promise<void>;
   startHostedSandbox(payload: InitPayload, baseUrl: string | (() => string), ai?: HostedRuntimeOptions): Promise<void>;
   /** Stable per-process identity (mirrors `/__pyric/health`'s instanceId).
    *  The pointer writer records this so the proxy can verify it reached this
@@ -244,11 +244,11 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
   };
 
   const mount: BridgeMount = {
-    deployHostedRules(service, source) {
+    async deployHostedRules(service, source) {
       const runtime = hostedRuntime;
       const isMissing = runtime === undefined;
       if (isMissing) throw new Error('The hosted sandbox is not running.');
-      runtime.deployRules(service, source);
+      await runtime.deployRules(service, source);
     },
     async startHostedSandbox(payload, baseUrl, ai) {
       if (closed) throw new Error('pyric bridge: cannot start a closed mount');

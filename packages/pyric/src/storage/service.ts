@@ -242,13 +242,18 @@ function rejectDifferingLateConfig(
  * ruleset in force untouched, and the factory guard is unchanged, so the
  * served-app path still refuses a late differing option.
  *
+ * A null source removes the ruleset, the state a service opened without
+ * rules is in: every client operation is denied. A service that is not open
+ * yet is left to open as its first storage call configures it.
+ *
  * The new ruleset reaches the root service and every per-bucket scoped
  * service, because each holds its own reference to the parsed rules.
  */
-export async function replaceStorageRules(sandbox: Sandbox, source: string): Promise<void> {
-  const compiled = compileStorageRules(source);
+export async function replaceStorageRules(sandbox: Sandbox, source: string | null): Promise<void> {
+  const compiled = source === null ? { rules: null, resolution: null } : compileStorageRules(source);
   const open = OPEN_SERVICES.get(sandbox);
   if (open === undefined) {
+    if (source === null) return;
     await ensureService(sandbox, { rules: source }, 'replaceStorageRules');
     return;
   }

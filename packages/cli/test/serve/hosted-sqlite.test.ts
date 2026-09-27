@@ -104,6 +104,10 @@ test('the Node host recovers acknowledged writes without modifying existing JSON
   expect(await runNodeFixture('runtime')).toBe('Hosted restart passed');
 });
 
+test('the Node host replaces and removes Storage rules that a rules file reload deploys', async () => {
+  expect(await runNodeFixture('storage-rules')).toBe('Hosted Storage rules reload passed');
+});
+
 test('malformed Auth state refuses hosted startup instead of losing accounts', async () => {
   expect(await runNodeFixture('malformed')).toBe('Malformed state refused');
 });

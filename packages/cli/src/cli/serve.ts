@@ -24,7 +24,7 @@ import {
 } from '../serve/standalone-assets.js';
 import { hasSandboxBuildMarker } from '../serve/sandbox-marker.js';
 import { watchRulesFiles } from '../serve/rules-files-watch.js';
-import { formatDatabaseRulesRemoved } from '../serve/rules.js';
+import { formatDatabaseRulesRemoved, formatStorageRulesRemoved } from '../serve/rules.js';
 import { formatBeaconReceipt } from '../serve/beacon-route.js';
 import type { InitPayload } from '../serve/namespace.js';
 import { formatAiStatusLine } from '../serve/ai-status.js';
@@ -599,6 +599,41 @@ async function startServeRuntime(opts: {
       dbRulesFiles.close();
     });
   }
+  // The Storage rules file is watched the same way. A deleted file returns
+  // Storage to denying every client operation, the state the server starts
+  // in without the file.
+  if (isWatchEnabled) {
+    let debounceStorage: ReturnType<typeof setTimeout> | null = null;
+    const storageRulesFiles = watchRulesFiles(
+      () => [session.storageRulesFile()],
+      () => {
+        const pendingReload = debounceStorage;
+        const hasPendingReload = pendingReload !== null;
+        if (hasPendingReload) clearTimeout(pendingReload);
+        debounceStorage = setTimeout(() => {
+          void session.reloadStorageRules().then((result) => {
+            if (result.kind === 'reloaded') {
+              logger.note(`  ↻ storage rules reloaded (hash ${result.rulesHash}) → ${result.clients} page(s)`);
+            } else if (result.kind === 'rejected') {
+              logger.note(`  ⚠ storage rules NOT reloaded (last-good stays live): ${result.error.message}`);
+            } else if (result.kind === 'removed') {
+              logger.note(`  ⚠ ${formatStorageRulesRemoved(session.storageRulesFile())} → ${result.clients} page(s)`);
+            }
+          });
+        }, 150);
+      },
+      (error) => {
+        const message = serveErrorMessage(error);
+        logger.note(`  ⚠ storage rules watcher failed (hot reload off): ${message}`);
+      },
+    );
+    handle.server.once('close', () => {
+      const pendingReload = debounceStorage;
+      const hasPendingReload = pendingReload !== null;
+      if (hasPendingReload) clearTimeout(pendingReload);
+      storageRulesFiles.close();
+    });
+  }
 
   logger.info(`=== Serving from '${opts.cwd}'...`);
   logger.info('');
@@ -627,10 +662,7 @@ async function startServeRuntime(opts: {
   }
   const hasStorageRules = Boolean(session.payload().storageRules);
   if (hasStorageRules) {
-    logger.info(
-      `✔ rules    ${session.summary.rules.storage.sourcePath} → deployed to the storage sandbox (hash ${session.summary.rules.storage.hash}; ` +
-      'edits require a restart — storage rules do not hot-reload)',
-    );
+    logger.info(`✔ rules    ${session.summary.rules.storage.sourcePath} → deployed to the storage sandbox (hash ${session.summary.rules.storage.hash})`);
   } else {
     logger.info('• rules    no storage.rules — storage sandbox denies client operations by default');
   }
@@ -701,6 +733,7 @@ async function startServeRuntime(opts: {
     const [firestoreRulesFile] = session.firestoreRulesFiles();
     logger.info(`✔ watch    hot-reloading ${firestoreRulesFile} over /__pyric/events`);
     logger.info(`✔ watch    hot-reloading ${session.databaseRulesFile()} over /__pyric/events`);
+    logger.info(`✔ watch    hot-reloading ${session.storageRulesFile()} over /__pyric/events`);
   }
   // Browser-honesty: the sandbox is browser-resident — firestore/auth and
   // persistence run IN the served page. With no page open, data ops silently

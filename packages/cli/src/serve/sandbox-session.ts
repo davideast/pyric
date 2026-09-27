@@ -20,6 +20,8 @@ import {
   loadProjectRules,
   loadProjectStorageRules,
   prepareProjectRules,
+  prepareStorageRulesSource,
+  storageRulesPath,
   rulesHashOf,
   RulesPrepareError,
 } from './rules.js';
@@ -51,9 +53,9 @@ export interface SandboxSessionOptions {
   studio?: false | { siteUiDir?: string };
   bridgeUrl?: () => string | null;
   hosted?: boolean;
-  /** Deploys file rules to the Node sandbox. A null database source clears the
-   *  rules, so the sandbox's default policy applies. */
-  deployHostedRules?: (service: 'firestore' | 'database', source: string | null) => void;
+  /** Deploys file rules to the Node sandbox. A null database or Storage source
+   *  clears the rules, so the sandbox's default policy applies. */
+  deployHostedRules?: (service: 'firestore' | 'database' | 'storage', source: string | null) => Promise<void>;
   ai?: InitPayload['ai'];
   aiProxyUpstream?: string;
   /** Resolved `avatars` option (already reduced by `avatars-config.ts` from
@@ -98,6 +100,7 @@ export interface SandboxSession {
   handle(req: IncomingMessage, res: ServerResponse, url: URL): boolean | Promise<boolean>;
   reloadFirestoreRules(): Promise<RulesReloadResult>;
   reloadDatabaseRules(): Promise<RulesReloadResult>;
+  reloadStorageRules(): Promise<RulesReloadResult>;
   /** The Firestore rules source file, the module files it imported at the
    *  last successful load, and the module files a failed reload since then
    *  asked for, found or not. A successful reload replaces the list. The
@@ -107,6 +110,8 @@ export interface SandboxSession {
   /** The Realtime Database rules file the rules load from, whether or not it
    *  exists. */
   databaseRulesFile(): string;
+  /** The Storage rules file the rules load from, whether or not it exists. */
+  storageRulesFile(): string;
   close(): Promise<void>;
 }
 
@@ -190,6 +195,8 @@ export async function createSandboxSession(
     rulesHash: firestore.rulesHash,
     databaseRules: database.rules,
     databaseRulesHash: database.rulesHash,
+    storageRules: storage.rules,
+    storageRulesHash: storage.rulesHash,
   };
   const hasNoDatabaseRules = !database.sourcePath;
   if (hasNoDatabaseRules) {
@@ -309,8 +316,8 @@ export async function createSandboxSession(
         databaseRules: live.databaseRules,
         databaseRulesHash: live.databaseRulesHash,
         databaseUrl: database.databaseUrl,
-        storageRules: storage.rules,
-        storageRulesHash: storage.rulesHash,
+        storageRules: live.storageRules,
+        storageRulesHash: live.storageRulesHash,
         projectKey: options.projectDir,
         bridgeUrl: options.bridgeUrl?.() ?? null,
         hosted: options.hosted,
@@ -411,7 +418,7 @@ export async function createSandboxSession(
         firestore.moduleFiles = moduleFiles;
         attemptedModuleFiles = [];
         const rulesHash = rulesHashOf(rules);
-        options.deployHostedRules?.('firestore', rules);
+        await options.deployHostedRules?.('firestore', rules);
         live.rules = rules;
         live.rulesHash = rulesHash;
         events.broadcast('rules-changed', { rules, rulesHash });
@@ -430,10 +437,10 @@ export async function createSandboxSession(
     const databaseRulesFile = (): string => databaseSourcePath;
     // Without a rules file, RTDB reads and writes follow the default policy:
     // deny, as in production, unless the session is permissive.
-    const removeDatabaseRules = (): RulesReloadResult => {
+    const removeDatabaseRules = async (): Promise<RulesReloadResult> => {
       const hasNoLoadedRules = live.databaseRules === null;
       if (hasNoLoadedRules) return { kind: 'not-configured' };
-      options.deployHostedRules?.('database', null);
+      await options.deployHostedRules?.('database', null);
       database.sourcePath = null;
       live.databaseRules = null;
       live.databaseRulesHash = null;
@@ -450,7 +457,7 @@ export async function createSandboxSession(
         if (isMissingUpdatedRules) {
           return removeDatabaseRules();
         }
-        options.deployHostedRules?.('database', JSON.stringify(updated.rules));
+        await options.deployHostedRules?.('database', JSON.stringify(updated.rules));
         database.sourcePath = updated.sourcePath;
         live.databaseRules = updated.rules;
         live.databaseRulesHash = updated.rulesHash;
@@ -463,6 +470,36 @@ export async function createSandboxSession(
           errorResult = error as Error;
         }
         return { kind: 'rejected', error: errorResult };
+      }
+    };
+    const storageSourcePath = storageRulesPath(options.projectDir, options.firebaseConfig);
+    const storageRulesFile = (): string => storageSourcePath;
+    // Without a rules file, Storage denies every client operation, as in
+    // production. Permissive mode does not open Storage, so a deleted file
+    // returns Storage to that state rather than keeping the last-good rules.
+    const reloadStorageRules = async (): Promise<RulesReloadResult> => {
+      const isSourceMissing = !existsSync(storageSourcePath);
+      if (isSourceMissing) {
+        const hasNoLoadedRules = live.storageRules === null;
+        if (hasNoLoadedRules) return { kind: 'not-configured' };
+        await options.deployHostedRules?.('storage', null);
+        live.storageRules = null;
+        live.storageRulesHash = null;
+        events.broadcast('storage-rules-update', { rules: null, rulesHash: null });
+        return { kind: 'removed', policy: 'deny', clients: events.clientCount() };
+      }
+      try {
+        const raw = await readFile(storageSourcePath, 'utf8');
+        const rules = prepareStorageRulesSource(raw, storageSourcePath);
+        const rulesHash = rulesHashOf(rules);
+        await options.deployHostedRules?.('storage', rules);
+        live.storageRules = rules;
+        live.storageRulesHash = rulesHash;
+        events.broadcast('storage-rules-update', { rules, rulesHash });
+        return { kind: 'reloaded', rulesHash, clients: events.clientCount() };
+      } catch (error) {
+        const failure = error instanceof Error ? error : new Error(String(error));
+        return { kind: 'rejected', error: failure };
       }
     };
 
@@ -484,8 +521,10 @@ export async function createSandboxSession(
       },
       reloadFirestoreRules,
       reloadDatabaseRules,
+      reloadStorageRules,
       firestoreRulesFiles,
       databaseRulesFile,
+      storageRulesFile,
       close,
     };
   } catch (error) {

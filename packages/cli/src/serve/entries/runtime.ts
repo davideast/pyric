@@ -22,6 +22,7 @@ import { getFirestore } from 'pyric/firestore';
 import { seedDocuments, setRules, snapshotDocuments } from 'pyric/sandbox/firestore';
 import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database';
 import { getStorageSandbox } from 'pyric/storage';
+import { replaceStorageRules } from 'pyric/storage/internal';
 import { getAuth, sandbox as authOps, type SeedUser } from 'pyric/auth';
 import {
   callTool as workerCallTool,
@@ -627,5 +628,27 @@ if (!useWorker && typeof EventSource !== 'undefined') {
       runtimeStatus.reportError(err, 'runtime');
       console.error('[pyric sandbox] database rules hot-reload failed:', err instanceof Error ? err.message : String(err));
     }
+  });
+  events.addEventListener('storage-rules-update', (e) => {
+    // Null rules mean the rules file was deleted: Storage then denies every
+    // client operation, as it does when the page starts without rules.
+    void (async () => {
+      const { rules, rulesHash } = JSON.parse((e as MessageEvent).data as string) as {
+        rules: string | null;
+        rulesHash: string | null;
+      };
+      await replaceStorageRules(sandbox, rules);
+      const isRemoved = rules === null;
+      diagnostics.storageRulesDeployed = !isRemoved;
+      diagnostics.storageRulesHash = rulesHash ?? null;
+      if (isRemoved) {
+        console.info('[pyric sandbox] storage.rules removed; client Storage operations default to deny');
+      } else {
+        console.info(`[pyric sandbox] storage.rules hot-reloaded (hash ${rulesHash})`);
+      }
+    })().catch((err: unknown) => {
+      runtimeStatus.reportError(err, 'runtime');
+      console.error('[pyric sandbox] storage rules hot-reload failed:', err instanceof Error ? err.message : String(err));
+    });
   });
 }
