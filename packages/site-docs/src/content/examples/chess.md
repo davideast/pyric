@@ -12,7 +12,7 @@ example: chess
 
 Choose a piece and its destination. `e2 → e4` is allowed. `e2 → e5` is denied and leaves the board unchanged. Switch the identity to see turn ownership enforced.
 
-Choose a scenario to run a complete sequence through the Rules. Fool's Mate and Scholar's Mate end in checkmate. The opening remains in progress. The illegal pawn leap is denied without changing the board.
+Choose a scenario to run a complete sequence through the Rules. Fool's Mate and Scholar's Mate end in checkmate. The opening remains in progress. The illegal pawn leap is denied without changing the board. In the blocked long file, a pawn stands between a queen and the king it faces from seven squares away, so the Rules allow the next move. In the promotion scenario, a pawn captures on the last rank, becomes a queen, and the opponent can still move.
 
 ## A move is a Firestore write
 
@@ -56,8 +56,10 @@ Before writing the proposed game document, the board labels each available move 
 | Pawn moving one square to an empty square | `pawn_forward` |
 | Pawn moving two squares to an empty square | `double_pawn` |
 | Pawn moving to an occupied square | `pawn_capture` |
+| Pawn moving to an empty square on the last rank | `promotion` |
+| Pawn moving to an occupied square on the last rank | `promotion_capture` |
 
-The board stores the label in the proposed `/chess-v2/{gameId}` document. The matching Rules branch then checks whether the move is legal. In the Rules, `resource.data` is the current game and `request.resource.data` is that proposed next game.
+A pawn that reaches the last rank becomes a queen. The board stores the label in the proposed `/chess-v2/{gameId}` document. The matching Rules branch then checks whether the move is legal. In the Rules, `resource.data` is the current game and `request.resource.data` is that proposed next game.
 
 The `allow update` clauses inside this match block are alternatives. Firestore allows the update when any one of them returns `true`. Because a proposed document has one `moveType`, only its matching branch can get past the first comparison.
 
