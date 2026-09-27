@@ -287,7 +287,7 @@ for (const runtime of ['inpage', 'worker']) {
   test(`${runtime}: signed-in project denials explain ownership, roles and validation`, async ({ page }) => {
     await page.setViewportSize({ width: 1500, height: 1100 });
     await page.goto(`${server.url}/?runtime=${runtime}`);
-    for (const [scenario, expected] of [['ownership', 'bob'], ['role', 'editor'], ['validation', '-250']]) {
+    for (const [scenario, expected, path] of [['ownership', 'bob', 'projects/bobs-launch'], ['role', 'editor', 'projects/publishing'], ['validation', '-250', 'projects/budget']]) {
       await page.locator('#security-scenario').selectOption(scenario!);
       await page.locator('[data-security-load]').click();
       await expect(page.locator('[data-security-result]')).toContainText('North launch');
@@ -296,7 +296,13 @@ for (const runtime of ['inpage', 'worker']) {
       await page.getByRole('tab', { name: 'Traffic' }).click();
       const back = page.locator('[data-clear-traffic-source]');
       if (await back.count()) await back.click();
-      const row = page.locator('[data-request-row]').filter({ hasText: 'projects/' }).filter({ hasText: 'Denied' }).first();
+      // The previous scenario's request detail stays open; return to the list.
+      const detailBack = page.locator('[data-request-back]');
+      if (await detailBack.count()) await detailBack.click();
+      // Inspecting a request pins the list; the next scenario's requests arrive after it.
+      const resume = page.locator('[data-request-pause][aria-label^="Resume live"]');
+      if (await resume.count()) await resume.click();
+      const row = page.locator('[data-traffic-rows] [data-request-row]').filter({ hasText: path! }).filter({ hasText: 'Denied' }).first();
       await row.click();
       await expect(page.locator('[data-traffic-detail]')).toContainText('alice');
         await expect(page.locator('.rule-comparison')).not.toHaveCount(0);

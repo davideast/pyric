@@ -376,6 +376,12 @@ jobs:
       - name: Runtime Flow treatments
         run: bun run --cwd packages/cli test:flow-treatments --output=test-results/flow-treatments --trace=retain-on-failure
 
+      - name: Runtime listener contract
+        # The Data tab, Overview, and Flow on React, plain DOM, and canvas
+        # pages over SharedWorker and hosted, plus the in-page and worker
+        # source history, treatment picker, and denial marks.
+        run: bun run --cwd packages/cli test:listener-contract --output=test-results/listener-contract --trace=retain-on-failure
+
       - name: CLI-hosted Studio
         run: bun run --cwd packages/cli test:site-cli --output=test-results/site-cli --trace=retain-on-failure
 
