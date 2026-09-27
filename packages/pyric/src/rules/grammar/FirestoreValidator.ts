@@ -282,6 +282,11 @@ function foldConstants(expr: Expression): Expression {
 
 // ---- Expression tree walkers ----
 
+/** Every expression a function evaluates: each let value, then the return expression. */
+function functionExpressions(fn: FunctionDef): Expression[] {
+  return [...fn.lets.map(l => l.value), fn.body];
+}
+
 function referencesAuth(expr: Expression): boolean {
   return exprContains(expr, e =>
     e.type === 'memberAccess' && e.property === 'auth' &&
@@ -297,7 +302,7 @@ function referencesAuthTransitive(expr: Expression, fns: Map<string, FunctionDef
     if (found) return;
     if (e.type === 'functionCall' && fns.has(e.name) && !visited.has(e.name)) {
       visited.add(e.name);
-      if (referencesAuthTransitive(fns.get(e.name)!.body, fns, visited)) found = true;
+      if (functionExpressions(fns.get(e.name)!).some(x => referencesAuthTransitive(x, fns, visited))) found = true;
     }
   });
   return found;
@@ -318,7 +323,7 @@ function referencesRequestDataTransitive(expr: Expression, fns: Map<string, Func
     if (found) return;
     if (e.type === 'functionCall' && fns.has(e.name) && !visited.has(e.name)) {
       visited.add(e.name);
-      if (referencesRequestDataTransitive(fns.get(e.name)!.body, fns, visited)) found = true;
+      if (functionExpressions(fns.get(e.name)!).some(x => referencesRequestDataTransitive(x, fns, visited))) found = true;
     }
   });
   return found;
@@ -409,7 +414,9 @@ function collectAllCallsInRules(match: MatchBlock): Set<string> {
       for (const name of collectFunctionCalls(allow.condition)) calls.add(name);
     }
     for (const fn of m.functions) {
-      for (const name of collectFunctionCalls(fn.body)) calls.add(name);
+      for (const expr of functionExpressions(fn)) {
+        for (const name of collectFunctionCalls(expr)) calls.add(name);
+      }
     }
     for (const child of m.children) walkM(child);
   }

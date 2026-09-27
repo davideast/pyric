@@ -172,6 +172,55 @@ service cloud.firestore {
     });
   });
 
+  describe('let bindings in called functions', () => {
+    const oneFunction = (fn: string) => `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    ${fn}
+    match /games/{id} { allow create: if valid(); }
+  }
+}`;
+
+    test('request.resource.data bound by a let → no SEC-6', () => {
+      const findings = validateRules(oneFunction(`function valid() {
+      let d = request.resource.data;
+      return request.auth != null && d.keys().hasOnly(['a']) && d.a == 1;
+    }`));
+      expect(hasFinding(findings, 'SEC-6')).toBe(false);
+      expect(hasFinding(findings, 'SEC-3')).toBe(false);
+    });
+
+    test('request.auth bound by a let → no SEC-3', () => {
+      const findings = validateRules(oneFunction(`function valid() {
+      let uid = request.auth.uid;
+      return uid != null && request.resource.data.keys().hasOnly(['a']);
+    }`));
+      expect(hasFinding(findings, 'SEC-3')).toBe(false);
+      expect(hasFinding(findings, 'SEC-6')).toBe(false);
+    });
+
+    test('helper called only from a let value → no SEC-3, SEC-6, or QUA-4', () => {
+      const findings = validateRules(oneFunction(`function helper() {
+      return request.auth != null && request.resource.data.keys().hasOnly(['a']);
+    }
+    function valid() {
+      let ok = helper();
+      return ok;
+    }`));
+      expect(hasFinding(findings, 'SEC-3')).toBe(false);
+      expect(hasFinding(findings, 'SEC-6')).toBe(false);
+      expect(hasFinding(findings, 'QUA-4')).toBe(false);
+    });
+
+    test('a function with lets that never reads request data → SEC-6', () => {
+      const findings = validateRules(oneFunction(`function valid() {
+      let uid = request.auth.uid;
+      return uid != null;
+    }`));
+      expect(hasFinding(findings, 'SEC-6')).toBe(true);
+    });
+  });
+
   describe('check interactions', () => {
     test('multiple findings on insecure + unused fn', () => {
       const findings = validateRules(`rules_version = '2';
