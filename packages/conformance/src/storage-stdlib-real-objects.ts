@@ -14,6 +14,9 @@ export interface GcsObject {
   etag: string;
   timeCreated: string;
   updated: string;
+  contentType?: string;
+  contentDisposition?: string;
+  contentEncoding?: string;
   metadata?: Record<string, string>;
 }
 
@@ -81,6 +84,25 @@ export async function firebaseStorageMetadata(
       `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucket)}/o/${encodeURIComponent(path)}`,
     );
     return clientDecision(response);
+  } catch (error) {
+    return storageDecision(error);
+  }
+}
+
+/** The object resource the Firebase Storage endpoint returns to an unauthenticated client read. */
+export async function firebaseStorageObject(
+  bucket: string,
+  path: string,
+  budget: RequestBudget,
+  request: FetchRequest = fetch,
+): Promise<Record<string, unknown> | StorageDecision> {
+  budget.take('storage');
+  try {
+    const response = await request(
+      `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucket)}/o/${encodeURIComponent(path)}`,
+    );
+    if (!response.ok) return clientDecision(response);
+    return await response.json() as Record<string, unknown>;
   } catch (error) {
     return storageDecision(error);
   }

@@ -1,3 +1,4 @@
+import { clientContentEncoding, uploadContentDisposition } from '../content-defaults.js';
 import type { StorageRequestResource, StorageResource } from './rules.js';
 
 export function resourceFromStored(
@@ -102,10 +103,10 @@ export type StorageWrite = 'upload' | 'metadataUpdate';
  * Build the `request.resource` binding for a write from the object it would
  * store. See {@link StorageRequestResource} for the production shape.
  *
- * An upload gets the defaults the Firebase Storage upload endpoint applies to
- * an unset `contentDisposition` (`inline; filename*=utf-8''<last path
- * segment>`) and `contentEncoding` (`identity`), and `null` versions and
- * `etag`, which the object has not been assigned yet. A metadata update reads
+ * An upload gets the default `contentDisposition` a client upload stores, and
+ * `null` versions and `etag`, which the object has not been assigned yet. Both
+ * writes report an unset `contentEncoding` as `identity`, as the Firebase
+ * Storage endpoint does (see content-defaults.ts). A metadata update reads
  * `generation` and `metageneration` from `object`, so the caller passes the
  * stored metageneration: production does not show the rule the advance the
  * write makes.
@@ -118,9 +119,10 @@ export function requestResourceFor(object: WrittenObject, write: StorageWrite): 
     bucket: object.bucket,
     size: object.size,
     contentType: object.contentType,
-    contentDisposition: object.contentDisposition
-      ?? (upload ? `inline; filename*=utf-8''${name?.split('/').pop() ?? ''}` : null),
-    contentEncoding: object.contentEncoding ?? (upload ? 'identity' : null),
+    contentDisposition: upload
+      ? uploadContentDisposition(object.contentDisposition, name ?? '')
+      : object.contentDisposition ?? null,
+    contentEncoding: clientContentEncoding(object.contentEncoding),
     contentLanguage: object.contentLanguage ?? null,
     cacheControl: object.cacheControl ?? null,
     metadata: object.customMetadata ?? null,

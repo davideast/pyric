@@ -106,6 +106,43 @@ service firebase.storage {
     expect(read.ok).toBe(false);
   });
 
+  it('evaluates a chunked upload over an existing object as create, at begin and at commit', async () => {
+    const { ctx } = makeCtx(`rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /owned/{file} {
+      allow read: if true;
+      allow create: if request.resource.size == 2048;
+      allow update: if false;
+    }
+  }
+}`);
+    const first = await chunked(ctx, 'owned/e.wav', BYTES);
+    expect(first.ok).toBe(true);
+    const overwrite = await chunked(ctx, 'owned/e.wav', BYTES);
+    if (!overwrite.ok) throw new Error(`${overwrite.error.code}: ${overwrite.error.message}`);
+  });
+
+  it('applies the upload content defaults at begin and stores them at commit', async () => {
+    const { ctx } = makeCtx(`rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /defaults/{file} {
+      allow read: if true;
+      allow create: if request.resource.contentDisposition == "inline; filename*=utf-8''" + file
+        && request.resource.contentEncoding == 'identity';
+    }
+  }
+}`);
+    const { uploadId } = await ok<{ uploadId: string }>(ctx, {
+      method: 'storage.beginUpload', path: 'defaults/f.wav', size: BYTES.byteLength, contentType: 'audio/wav',
+    });
+    await ok(ctx, { method: 'storage.putPart', uploadId, partIndex: 0, dataB64: bytesToBase64(BYTES) });
+    const stored = await ok<Metadata>(ctx, { method: 'storage.finishUpload', uploadId });
+    expect(stored.contentDisposition).toBe("inline; filename*=utf-8''f.wav");
+    expect(stored.contentEncoding).toBe('identity');
+  });
+
   it('emits one object_put event shaped like a single-frame upload', async () => {
     const { ctx, events } = makeCtx();
     await single(ctx, 'single/d.wav', BYTES);

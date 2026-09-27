@@ -21,6 +21,7 @@ import type { EventProvenance } from 'pyric/sandbox';
 import { getStorageService, storageAuth, storageOperationProvenance, targetOf } from './service.js';
 import { enforceRules } from './enforce.js';
 import { resourceFromStored, requestResourceFor } from './sandbox/rules-resources.js';
+import { clientContentEncoding, planeOf, type StoragePlane } from './content-defaults.js';
 import { objectNotFound, invalidRootOperation } from './errors.js';
 import type { StoredMetadata } from './persistence.js';
 import type { StorageReference } from './reference.js';
@@ -67,13 +68,14 @@ export interface UploadResult {
 }
 
 /**
- * Project a `StoredMetadata` (persistence-layer shape) onto the
- * public `FullMetadata`. Currently a 1:1 cast — the shapes match —
- * but kept as a function so future divergence (e.g. lazy `ref`
- * computation) has a single seam.
+ * Project a `StoredMetadata` (persistence-layer shape) onto the public
+ * `FullMetadata` a caller on `plane` reads. A client reads an unset
+ * `contentEncoding` as `identity`, as the Firebase Storage endpoint reports
+ * it; the admin plane reads the stored record as is.
  */
-export function toFullMetadata(stored: StoredMetadata): FullMetadata {
-  return { ...stored };
+export function toFullMetadata(stored: StoredMetadata, plane: StoragePlane): FullMetadata {
+  if (plane === 'admin') return { ...stored };
+  return { ...stored, contentEncoding: clientContentEncoding(stored.contentEncoding) };
 }
 
 /**
@@ -142,7 +144,7 @@ export async function getMetadata(ref: StorageReference): Promise<FullMetadata> 
   if (!stored) {
     throw objectNotFound(ref.fullPath);
   }
-  return toFullMetadata(stored);
+  return toFullMetadata(stored, planeOf(target));
 }
 
 /**
@@ -264,7 +266,7 @@ async function rewriteMetadata(
   } catch {
     // Observational — never let event emission break a metadata update.
   }
-  return toFullMetadata(next);
+  return toFullMetadata(next, planeOf(target));
 }
 
 function guardNonRoot(ref: StorageReference, op: string): void {

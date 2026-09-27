@@ -29,6 +29,7 @@ import { getStorageService, storageAuth, storageOperationProvenance, targetOf } 
 import { enforceRules } from './enforce.js';
 import { resourceFromStored, requestResourceFor } from './sandbox/rules-resources.js';
 import { toFullMetadata, type SettableMetadata, type UploadResult } from './metadata.js';
+import { planeOf, uploadContentDisposition } from './content-defaults.js';
 import { invalidRootOperation, invalidFormat } from './errors.js';
 import type { StoredMetadata } from './persistence.js';
 import type { StorageReference } from './reference.js';
@@ -73,10 +74,10 @@ export async function uploadBytes(
   enforceRules(service, {
     request: {
       auth: storageAuth(target),
-      // A write to a nonexistent object is a `create`; a write over an
-      // existing one is an `update`. The resource-exists fact (`existing`)
-      // makes the distinction the granular verbs need.
-      method: existing ? 'update' : 'create',
+      // Every upload is a `create`, whether or not an object exists at the
+      // path; `resource` is the stored object when one does. `update` is a
+      // metadata update.
+      method: 'create',
       path: ref.fullPath,
       resource: requestResourceFor(stored, 'upload'),
     },
@@ -108,7 +109,7 @@ export async function uploadBytes(
   } catch {
     // Observational — never let event emission break a storage write.
   }
-  return { ref, metadata: toFullMetadata(stored) };
+  return { ref, metadata: toFullMetadata(stored, planeOf(target)) };
 }
 
 /**
@@ -142,7 +143,9 @@ export async function uploadString(
  * Slice 6's `getMetadata` reads a consistent shape.
  *
  * The rules check builds `request.resource` from this record before
- * the write lands.
+ * the write lands. A client upload stores the default `contentDisposition`
+ * when it sets none; an admin-plane write stores only what it sets (see
+ * content-defaults.ts).
  */
 export function buildStoredMetadata(args: {
   ref: StorageReference;
@@ -154,6 +157,7 @@ export function buildStoredMetadata(args: {
   const now = (args.now ?? new Date()).toISOString();
   const generation = generationFromTime(args.now ?? new Date());
   const name = ref.name;
+  const client = planeOf(targetOf(ref.storage)) === 'client';
   return {
     fullPath: ref.fullPath,
     name,
@@ -170,7 +174,9 @@ export function buildStoredMetadata(args: {
     // `application/octet-stream` default.
     contentType: settable?.contentType || blob.type || OCTET,
     cacheControl: settable?.cacheControl,
-    contentDisposition: settable?.contentDisposition,
+    contentDisposition: client
+      ? uploadContentDisposition(settable?.contentDisposition, ref.fullPath)
+      : settable?.contentDisposition,
     contentEncoding: settable?.contentEncoding,
     contentLanguage: settable?.contentLanguage,
     customMetadata: settable?.customMetadata,

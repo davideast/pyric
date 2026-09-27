@@ -17,7 +17,9 @@ import { RequestBudget, runCleanupSteps } from './storage-stdlib-real-budget.ts'
 import {
   deleteStorageObjects,
   firebaseStorageMetadataUpdate,
+  firebaseStorageObject,
   firebaseStorageUpload,
+  gcsMetadata,
   gcsUpload,
   type StorageDecision,
 } from './storage-stdlib-real-objects.ts';
@@ -39,14 +41,21 @@ import {
   PROBE_PAYLOAD,
   PROBE_REPLACEMENT,
   SETTABLE_FIELDS,
+  STORED_UPDATE_PROBES,
+  STORED_UPDATE_SEEDS,
+  STORED_UPLOADS,
   probePath,
   probeWrite,
   requestResourceRules,
+  storedSeedPath,
+  storedUpdatePath,
+  storedUploadPath,
   type ProbeGroup,
+  type StoredUpdateSeed,
 } from './storage-request-resource-probes.ts';
 
-const PROBE_LIMITS = { storage: 300, firestoreWrite: 0, rules: 12, iam: 0 };
-const CLEANUP_LIMITS = { storage: 340, firestoreWrite: 0, rules: 8, iam: 0 };
+const PROBE_LIMITS = { storage: 340, firestoreWrite: 0, rules: 12, iam: 0 };
+const CLEANUP_LIMITS = { storage: 380, firestoreWrite: 0, rules: 8, iam: 0 };
 
 /** The project a capture targets and an OAuth access token for it. */
 export interface ProbeAccess {
@@ -88,6 +97,8 @@ export async function runStorageRequestResourceFields(access: ProbeAccess): Prom
   const createdObjects = new Set<string>();
   const behavior: Record<ProbeGroup, Record<string, 'ALLOW' | 'DENY'>> = { create: {}, update: {}, overwrite: {} };
   const diagnostics: Record<string, StorageDecision> = {};
+  const storedObjects: Record<string, StoredObjectViews | StorageDecision> = {};
+  const storedUpdateBehavior: Record<StoredUpdateSeed, Record<string, 'ALLOW' | 'DENY'>> = { client: {}, gcs: {} };
   let releaseRestored = false;
   let objectsRemoved = false;
 
@@ -132,6 +143,45 @@ export async function runStorageRequestResourceFields(access: ProbeAccess): Prom
         diagnostics[`${group}/${probe.id}`] = result;
       }
     }
+
+    // Read back what production stores for client uploads that set or leave
+    // unset the content fields, and for an object written through the GCS JSON
+    // API: the GCS object resource, and the Firebase Storage object resource a
+    // client getMetadata reads.
+    const readBack = async (path: string): Promise<StoredObjectViews> => ({
+      gcs: storedContentFields(await gcsMetadata(config.storageBucket, path, headers, budget)),
+      client: clientContentFields(await firebaseStorageObject(config.storageBucket, path, budget)),
+    });
+    for (const upload of STORED_UPLOADS) {
+      const path = storedUploadPath(prefix, upload);
+      createdObjects.add(path);
+      const result = await firebaseStorageUpload(config.storageBucket, path, PROBE_PAYLOAD, budget, fetch, upload.fields);
+      storedObjects[upload.id] = result.allowed ? await readBack(path) : result;
+    }
+    const seedPath = storedSeedPath(prefix);
+    createdObjects.add(seedPath);
+    await gcsUpload(config.storageBucket, seedPath, PROBE_PAYLOAD, headers, budget);
+    storedObjects['gcs-json-api-seed'] = await readBack(seedPath);
+
+    // A metadata update that sets only custom metadata, over an object a
+    // client upload or the GCS JSON API wrote with no content fields.
+    for (const seed of STORED_UPDATE_SEEDS) {
+      for (const probe of STORED_UPDATE_PROBES) {
+        const path = storedUpdatePath(prefix, seed, probe.id);
+        createdObjects.add(path);
+        if (seed === 'gcs') {
+          await gcsUpload(config.storageBucket, path, PROBE_PAYLOAD, headers, budget);
+        } else {
+          const seeded = await firebaseStorageUpload(
+            config.storageBucket, path, PROBE_PAYLOAD, budget, fetch, { contentType: SETTABLE_FIELDS.contentType },
+          );
+          if (!seeded.allowed) throw new Error(`stored-update seed upload denied: ${seeded.code} ${seeded.message}`);
+        }
+        const result = await firebaseStorageMetadataUpdate(config.storageBucket, path, { ...CUSTOM_METADATA }, budget);
+        storedUpdateBehavior[seed][probe.id] = result.allowed ? 'ALLOW' : 'DENY';
+        diagnostics[`stored-update/${seed}/${probe.id}`] = result;
+      }
+    }
   } finally {
     await runCleanupSteps([
       { label: 'restore Storage release', run: async () => { releaseRestored = await restoreStorageRelease(headers, cleanupBudget, snapshot); } },
@@ -157,6 +207,35 @@ export async function runStorageRequestResourceFields(access: ProbeAccess): Prom
       createFields: { ...SETTABLE_FIELDS, metadata: CUSTOM_METADATA, size: PROBE_PAYLOAD.byteLength },
       updateFields: { ...SETTABLE_FIELDS, metadata: CUSTOM_METADATA },
       overwriteFields: { contentType: SETTABLE_FIELDS.contentType, size: PROBE_REPLACEMENT.byteLength },
+      storedUploads: STORED_UPLOADS,
+      storedObjects,
+      storedUpdateBehavior,
     },
   )]);
+}
+
+/** The content fields of a stored object; a field the object does not carry is `null`. */
+interface StoredContentFields {
+  contentType: string | null;
+  contentDisposition: string | null;
+  contentEncoding: string | null;
+}
+
+/** A stored object as the GCS JSON API and a Firebase Storage client read it. */
+interface StoredObjectViews {
+  gcs: StoredContentFields;
+  client: StoredContentFields | StorageDecision;
+}
+
+function storedContentFields(object: Partial<Record<keyof StoredContentFields, unknown>>): StoredContentFields {
+  const field = (value: unknown): string | null => (typeof value === 'string' ? value : null);
+  return {
+    contentType: field(object.contentType),
+    contentDisposition: field(object.contentDisposition),
+    contentEncoding: field(object.contentEncoding),
+  };
+}
+
+function clientContentFields(object: Record<string, unknown> | StorageDecision): StoredContentFields | StorageDecision {
+  return 'allowed' in object ? object as StorageDecision : storedContentFields(object);
 }
