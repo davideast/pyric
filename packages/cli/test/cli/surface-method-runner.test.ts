@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { IN_PROCESS_STATE_RELATIVE } from '../../src/bridge/server/in-process.js';
+import { runDatabaseRulesValidate } from '../../src/cli/database-rules.js';
 import { parseArgs } from '../../src/cli/parse-args.js';
 import { runSurfaceMethod } from '../../src/cli/surface-method-runner.js';
 
@@ -49,6 +50,18 @@ async function run(key: string, argv: string[], serve: Discovery = null): Promis
     discover: async () => found,
   });
   return { code, stdout, stderr };
+}
+
+/** `pyric database rules validate <file>`, which reads the same rules files as `rules lint`. */
+async function validate(file: string): Promise<{ code: number; stdout: string }> {
+  let stdout = '';
+  const parsed = parseArgs(['database', 'rules', 'validate', file]);
+  const code = await runDatabaseRulesValidate({ ...parsed, positional: parsed.positional.slice(2) }, {
+    cwd: workDir,
+    stdout: { write: (text) => void (stdout += text) },
+    stderr: { write: (text) => void (stdout += text) },
+  });
+  return { code, stdout };
 }
 
 describe('which sandbox a command acts on', () => {
@@ -190,6 +203,82 @@ describe('pyric <tool> <method>', () => {
     ]);
     expect(linted.code).toBe(0);
     expect(linted.stdout).toContain('0 findings, 0 errors');
+  });
+
+  it('lints and simulates a database rules file with comments as it does the same file without them', async () => {
+    const plainFile = join(workDir, 'plain.database.rules.json');
+    writeFileSync(
+      plainFile,
+      JSON.stringify({ rules: { notes: { $uid: { '.read': 'auth != null && auth.uid == $uid', '.write': 'auth != null && auth.uid == $uid' } } } }),
+    );
+    const commentedFile = join(workDir, 'commented.database.rules.json');
+    writeFileSync(
+      commentedFile,
+      `/* Notes rules. */
+{
+  // Each user reads and writes their own notes.
+  "rules": {
+    "notes": {
+      "$uid": {
+        ".read": "auth != null && auth.uid == $uid", // the owner only
+        ".write": "auth != null && auth.uid == $uid"
+      }
+    }
+  }
+}
+`,
+    );
+    const lint = (file: string) =>
+      run('rules.lint', ['rules', 'lint', '--service', 'database', '--rules-file', file]);
+    const simulate = (file: string, uid: string) =>
+      run('rules.simulate', [
+        'rules',
+        'simulate',
+        '--service',
+        'database',
+        '--operation',
+        'read',
+        '--path',
+        'notes/alice',
+        '--uid',
+        uid,
+        '--rules-file',
+        file,
+      ]);
+
+    const lintedCommented = await lint(commentedFile);
+    const lintedPlain = await lint(plainFile);
+    expect(lintedCommented.code).toBe(0);
+    expect(lintedCommented.stdout).toContain('0 findings, 0 errors');
+    expect(lintedCommented).toEqual(lintedPlain);
+
+    for (const [uid, decision] of [['alice', 'ALLOW'], ['bob', 'DENY']] as const) {
+      const simulatedCommented = await simulate(commentedFile, uid);
+      const simulatedPlain = await simulate(plainFile, uid);
+      expect(simulatedCommented.stdout).toContain(decision);
+      expect(simulatedCommented).toEqual(simulatedPlain);
+    }
+
+    expect(await validate(commentedFile)).toEqual({ code: 0, stdout: '{\n  "errors": []\n}\n' });
+  });
+
+  it('refuses a database rules file with comments that is still not JSON', async () => {
+    const brokenFile = join(workDir, 'commented-broken.database.rules.json');
+    writeFileSync(brokenFile, '{\n  // An unterminated object.\n  "rules": { "notes": { ".read": true }\n');
+    const linted = await run('rules.lint', [
+      'rules',
+      'lint',
+      '--service',
+      'database',
+      '--rules-file',
+      brokenFile,
+    ]);
+    expect(linted.code).toBe(2);
+    expect(`${linted.stdout}${linted.stderr}`).toContain('not valid JSON');
+
+    const validated = await validate(brokenFile);
+    expect(validated.code).toBe(2);
+    expect(validated.stdout).toContain('INVALID_RULES_JSON');
   });
 
   it('refuses an object argument that is not JSON', async () => {

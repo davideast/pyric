@@ -16,6 +16,30 @@ const CLOSED_RULES = JSON.stringify({ rules: { '.read': false, '.write': false }
 const GATE_INSTANT = Date.parse('2026-01-01T00:00:00.000Z');
 const NOW_GATED_RULES = JSON.stringify({ rules: { '.read': `now > ${GATE_INSTANT}` } });
 
+/** A rules file as written by hand: line and block comments around and inside the object. */
+const OWNER_RULES = `{
+  "rules": { "notes": { "$uid": { ".read": "auth != null && auth.uid == $uid", ".write": "auth != null && auth.uid == $uid" } } }
+}`;
+const COMMENTED_OWNER_RULES = `/* Notes rules. */
+{
+  // Each user reads and writes their own notes.
+  "rules": {
+    "notes": {
+      /* One entry per user id. */
+      "$uid": {
+        ".read": "auth != null && auth.uid == $uid", // the owner only
+        ".write": "auth != null && auth.uid == $uid"
+      }
+    }
+  }
+}
+`;
+/** A comment does not make broken JSON parse. */
+const COMMENTED_BROKEN_RULES = `{
+  // An unterminated object.
+  "rules": { "notes": { ".read": true }
+`;
+
 function freshContext() {
   return createSurfaceContext(initializeSandbox());
 }
@@ -65,6 +89,19 @@ describe('lint', () => {
     expect(issues.every((issue) => issue.severity === 'warning')).toBe(true);
   });
 
+  it('lints a supplied ruleset with line and block comments as it lints the same ruleset without them', async () => {
+    const commented = await DATABASE_RULES.lint(freshContext(), COMMENTED_OWNER_RULES);
+    const plain = await DATABASE_RULES.lint(freshContext(), OWNER_RULES);
+    expect(commented.ok).toBe(true);
+    expect(commented).toEqual(plain);
+  });
+
+  it('rejects a supplied source with comments that is still not valid JSON', async () => {
+    const result = await DATABASE_RULES.lint(freshContext(), COMMENTED_BROKEN_RULES);
+    expect(result.ok).toBe(false);
+    expect(result.summary).toContain('not valid JSON');
+  });
+
   it('lints the ruleset already installed when none is supplied', async () => {
     const ctx = freshContext();
     await DATABASE_RULES.install(ctx, OPEN_RULES);
@@ -85,6 +122,16 @@ describe('install', () => {
     expect(result.ok).toBe(true);
     expect(result.summary).toBe('Database rules installed.');
   });
+
+  it('installs a ruleset with comments, the source check accepting it', async () => {
+    expect(DATABASE_RULES.parseFailure(COMMENTED_OWNER_RULES)).toBeNull();
+    expect(DATABASE_RULES.parseFailure(COMMENTED_BROKEN_RULES)).not.toBeNull();
+    const ctx = freshContext();
+    const result = await DATABASE_RULES.install(ctx, COMMENTED_OWNER_RULES);
+    expect(result.ok).toBe(true);
+    const owner = await DATABASE_RULES.simulate(ctx, { operation: 'read', path: 'notes/alice', uid: 'alice' });
+    expect((owner.data as { decision: string }).decision).toBe('ALLOW');
+  });
 });
 
 describe('simulate', () => {
@@ -93,6 +140,26 @@ describe('simulate', () => {
       operation: 'read',
       path: 'rooms/lobby',
       rules: 'not json',
+    });
+    expect(result.ok).toBe(false);
+    expect(result.summary).toContain('not valid JSON');
+  });
+
+  it('evaluates a supplied ruleset with line and block comments as it evaluates the same ruleset without them', async () => {
+    for (const [uid, decision] of [['alice', 'ALLOW'], ['bob', 'DENY']] as const) {
+      const request = { operation: 'read', path: 'notes/alice', uid } as const;
+      const commented = await DATABASE_RULES.simulate(freshContext(), { ...request, rules: COMMENTED_OWNER_RULES });
+      const plain = await DATABASE_RULES.simulate(freshContext(), { ...request, rules: OWNER_RULES });
+      expect((commented.data as { decision: string }).decision).toBe(decision);
+      expect(commented).toEqual(plain);
+    }
+  });
+
+  it('rejects a supplied source with comments that is still not valid JSON', async () => {
+    const result = await DATABASE_RULES.simulate(freshContext(), {
+      operation: 'read',
+      path: 'notes/alice',
+      rules: COMMENTED_BROKEN_RULES,
     });
     expect(result.ok).toBe(false);
     expect(result.summary).toContain('not valid JSON');

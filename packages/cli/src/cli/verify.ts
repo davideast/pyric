@@ -19,7 +19,7 @@ import { readFirebaseJson, type FirebaseJson } from './firebase-json.js';
 import type { FlagValue, ParsedArgs } from './parse-args.js';
 import { resolveScope } from '../credentials/node/scope.js';
 import { CAPTURE_RELATIVE_PATH } from '../serve/capture-store.js';
-import { parseRtdbRulesJson, stripJsonComments } from '../rtdb/rules-json.js';
+import { parseRtdbRulesText } from '../rtdb/rules-json.js';
 
 export type Fixture = PyricVerifyFixture;
 
@@ -355,15 +355,9 @@ async function readFirebaseJsonOrNull(cwd: string): Promise<FirebaseJson | null>
 }
 
 function parseRtdbRulesFile(path: string): { rules: Record<string, unknown> } {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(stripJsonComments(readFileSync(path, 'utf8')));
-  } catch (e) {
-    throw new Error(`failed to parse RTDB rules JSON at ${path}: ${messageOf(e)}`);
-  }
-  return parseRtdbRulesJson(
-    parsed,
-    () => new Error(`RTDB rules file must contain a top-level "rules" object: ${path}`),
+  return parseRtdbRulesText(
+    readFileSync(path, 'utf8'),
+    (reason) => new Error(`RTDB rules file ${path} did not parse: ${reason.message}`),
   );
 }
 

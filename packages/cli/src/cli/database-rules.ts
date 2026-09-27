@@ -21,7 +21,7 @@ import {
   loadRtdbRulesDocument,
   type LoadRtdbRulesDocumentResult,
 } from '../rtdb/load-rules-document.js';
-import { stripJsonComments } from '../rtdb/rules-json.js';
+import { parseRtdbRulesText } from '../rtdb/rules-json.js';
 
 export interface DatabaseRulesDeps {
   readFile?: typeof readFile;
@@ -35,7 +35,7 @@ export interface DatabaseRulesDeps {
 }
 
 function parseRulesJson(raw: string): CompiledRtdbRules {
-  return compileRtdbRules(JSON.parse(stripJsonComments(raw)));
+  return compileRtdbRules(parseRtdbRulesText(raw, (reason) => reason));
 }
 
 async function readRulesFile(

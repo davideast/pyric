@@ -50,4 +50,9 @@ describe('RTDB rules JSON parser', () => {
       },
     });
   });
+
+  test('says why rules text is not a rules document', () => {
+    expect(() => parseRtdbRulesText('{\n  // open\n  "rules": {', (reason) => reason)).toThrow(/^not valid JSON: /);
+    expect(() => parseRtdbRulesText('/* no rules */ {}', (reason) => reason)).toThrow('no top-level "rules" object');
+  });
 });
