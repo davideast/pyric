@@ -458,16 +458,16 @@ describe('evaluateStorageRules — user-defined functions', () => {
     expect(r.reasons.join(' ')).toContain('isOwner');
   });
 
-  it('recursion depth cap → deny with reason (never loops)', () => {
+  it('a recursive function is rejected at parse time, so evaluation never loops', () => {
     const src = `service firebase.storage {
       function loop() { return loop(); }
       match /b/{bucket}/o {
         match /files/{fileId} { allow read: if loop(); }
       }
     }`;
-    const r = evalRule(src, { auth: { uid: 'alice' } });
-    expect(r.allowed).toBe(false);
-    expect(r.reasons.join(' ')).toContain('loop');
+    expect(() => parseStorageRules(src)).toThrow(
+      `Maximum allowed call depth of 20 is reached for [${Array(21).fill('loop').join('->')}] call stack.`,
+    );
   });
 
   it('an error inside a function body denies rather than false-allows', () => {
@@ -501,7 +501,7 @@ type StorageResourceLike = { size: number; contentType?: string; metadata?: Reco
 // AND thrown RuleEvalErrors (e.g. firestore.get without a capability),
 // including an undefined function and a wrong argument count.
 // It must NOT apply to:
-//   - resource-limit exhaustion (the 2-lookup Firestore cap, call depth):
+//   - resource-limit exhaustion (the 2-lookup Firestore cap):
 //     production fails the whole evaluation closed (budget precedent), and
 //   - constructs the evaluator cannot model (an unresolved import), so no
 //     local verdict may absorb them into an allow.
@@ -619,18 +619,13 @@ describe('evaluateStorageRules: CEL error absorption in && and ||', () => {
     expect(r.reasons.join(' ')).toContain('Function not found error: Name: [missing].');
   });
 
-  it('(g3) call-depth exhaustion (resource class) is NOT absorbed by && false', () => {
-    const rules = parseStorageRules(`service firebase.storage {
+  it('(g3) a recursive call is rejected at compile time, so && false never absorbs it', () => {
+    expect(() => parseStorageRules(`service firebase.storage {
       function loop() { return loop(); }
       match /b/{bucket}/o {
         match /docs/{docId} { allow read: if !(loop() && false); }
       }
-    }`);
-    const r = evaluateStorageRules(rules, {
-      request: { auth: { uid: 'alice' }, method: 'read' as never, path },
-      resource: { size: 1 },
-    });
-    expect(r.allowed).toBe(false);
+    }`)).toThrow('Maximum allowed call depth of 20 is reached');
   });
 
   // Strict-boolean operands (RULES-B6, captured:

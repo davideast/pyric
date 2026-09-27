@@ -95,7 +95,7 @@ The compilation limit is the depth of the top-level binary chain
 reduces chain depth: `(a && b) || (c && d)` has OR-chain depth of N/2,
 not N. This means the linter should count chain depth, not total nodes.
 
-The three "too complex" boundaries fit one nesting-depth limit in which each `&&` or `||` node and each parenthesized group is one level: 97 levels compile and 98 fail. A flat chain of 98 operands has 97 `&&` nodes on its left spine. A right-nested chain of 49 terms has 48 `&&` nodes and 48 groups, 96 levels, and 50 terms reach 98. 97 parentheses compile and 98 fail. The measurements do not show whether other nodes, such as `!`, a ternary or a method call, also count. CHAIN_DEPTH counts only the left spine of one operator, so it does not report a right-nested chain or deep parentheses; the linter has no nesting-depth rule.
+The three "too complex" boundaries, and the positions production reports them at, fit one nesting limit. The root of an allow condition, a function body or a `let` value is level 1; each parenthesized group and each binary operator (`&&`, `||`, a comparison) puts what it encloses one level deeper; a node at level 100 is rejected, reported once, and its operands are not visited. With 98 parentheses around `request.auth.uid == 'a'` production reports two issues, at the two operands of `==`; with 99 it reports one, at the `==`; with 100 or more one, at the hundredth parenthesis. 97 parentheses put the operands at level 99 and compile. A right-nested chain of 49 terms puts the innermost operands at level 98 and compiles; 50 terms reach 100 at the two operands of the innermost comparison. A flat chain of 98 comparisons has 97 `&&` nodes on its left spine and its operands at level 99; 99 comparisons reach 100. A member access such as `request.auth.uid` adds no level, since 97 parentheses around a comparison of it compile. The capture does not measure `!`, the ternary, method or function calls, index access, or list and map literals; `grammar/compile-limits.ts` counts them like member access, adding no level. For a chain of comparisons the count agrees with a simpler reading in which only `&&`, `||` and groups count and 97 of them compile; the two differ for a bare operand such as `true`, which sits one level shallower than a comparison, so 98 parentheses around `true` compile under the measured model. NESTING_DEPTH (Rule 2b) reports the limit; CHAIN_DEPTH counts only the left spine of one operator.
 
 ## Lint Rules
 
@@ -133,9 +133,17 @@ The three "too complex" boundaries fit one nesting-depth limit in which each `&&
 - **Fix**: move part of the chain into its own function: `a && b && c && d` → `firstHalf() && c && d`
 - **Corpus**: 05-lets-13-fail.rules (also triggers LET_LIMIT, but chain depth is fine)
 
+### RULE 2b: NESTING_DEPTH
+- **Severity**: error
+- **Threshold**: an expression node at nesting level 100 or deeper (99 is the deepest that compiles)
+- **Detection**: `nestingViolations` in `src/rules/grammar/compile-limits.ts`, the count the Firestore simulator and the Storage evaluator enforce when a ruleset loads. Parentheses are not AST nodes; the parser records the groups around each node in a side table (`parenthesizedGroups`).
+- **Message**: "Function '{name}' nests an expression deeper than 99 levels. Production rejects the ruleset: \"Expression is too complex to evaluate safely.\"", or "The rule at line {line} ..." for an allow condition. One warning per function or rule.
+- **Fix**: remove redundant parentheses, or move a nested group into its own function and call it
+- **Corpus**: `linter.test.ts` replays every and-nesting and paren-nesting probe in `fixtures/compile-limits/captures.json` up to 150 groups, plus the 98- and 99-term flat chains
+
 ### RULE 3: LET_LIMIT
 - **Severity**: error
-- **Threshold**: fn.lets.length > 11
+- **Threshold**: fn.lets.length > 11 (`LET_LIMIT` in `src/rules/grammar/compile-limits.ts`)
 - **Detection**: count let bindings per function definition
 - **Message**: "Function '{name}' has {count} let bindings. Limit is 11."
 - **Fix**: inline some let expressions, or split function into two
@@ -193,7 +201,7 @@ The three "too complex" boundaries fit one nesting-depth limit in which each `&&
 
 ### RULE 6: CALL_DEPTH
 - **Severity**: warning at depth 18 to 21, error at depth >21
-- **Threshold**: 21 functions on one call stack (22 fails to compile in Firestore and Storage, 2026-09-27)
+- **Threshold**: 21 functions on one call stack (22 fails to compile in Firestore and Storage, 2026-09-27; `CALL_DEPTH_LIMIT` in `src/rules/grammar/compile-limits.ts`)
 - **Detection**: resolve each call by declaration scope, then find the longest path from each chain root (a function no other function calls) to a leaf function
 - **Algorithm**:
   ```
@@ -206,7 +214,7 @@ The three "too complex" boundaries fit one nesting-depth limit in which each `&&
     return 1 + maxChild
   ```
 - **Message**: "Function '{name}' starts a function call chain of depth {depth}. Limit is 21."
-- **Scope**: every chain in the ruleset, called or not. Production rejects an over-deep chain that no rule calls.
+- **Scope**: every chain in the ruleset, called or not. Production rejects an over-deep chain that no rule calls, and so do the Firestore simulator and the Storage evaluator when a ruleset loads (`compileLimitViolations`).
 - **Fix**: inline intermediate functions
 - **Corpus**: 10-deep-call-chain.rules (6 functions, no report); `linter.test.ts` generates the 21- and 22-function boundary cases
 
@@ -304,4 +312,4 @@ interface RulesMetrics {
 1. **Nested match block scope**: Does chain depth limit apply per-match-block or globally?
 2. **get() path deduplication**: Does Firestore actually cache get() by path? At what scope?
 3. **Overlapping match blocks**: In which order does production evaluate two blocks that match one request, and does a grant in the first skip the second's cost?
-4. **Nesting depth model**: Do nodes other than `&&`, `||` and parentheses, such as `!`, ternaries and method calls, count toward the 97-level nesting limit?
+4. **Nesting depth model**: Do nodes other than binary operators and parentheses, such as `!`, ternaries and method calls, add a level toward the 99-level nesting limit? Does a bare operand such as `true` in 98 parentheses compile, as the measured model predicts?

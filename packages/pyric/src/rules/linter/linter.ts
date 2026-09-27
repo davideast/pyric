@@ -27,6 +27,13 @@ import { countDocumentAccessCalls } from '../grammar/document-access-count.js';
 import { callChainDepths, collectRulesetScopes, functionReferences } from '../grammar/function-scopes.js';
 import { EXPRESSION_LIMIT, estimateExpressionCosts, type RuleCostEstimate } from './expression-cost.js';
 import { ruleLibraryCalls } from './library-calls.js';
+import {
+  CALL_DEPTH_LIMIT,
+  LET_LIMIT,
+  NESTING_LEVEL_LIMIT,
+  NESTING_MESSAGE,
+  compileLimitViolations,
+} from '../grammar/compile-limits.js';
 
 // ═══ Types ═══
 
@@ -85,12 +92,11 @@ const THRESHOLDS = {
   CHAIN_DEPTH_ERROR: 95,             // warn before the hard limit
   CHAIN_DEPTH_WARN: 85,
   CHAIN_DEPTH_LIMIT: 98,             // exact compile limit in operands, verified (99 fails)
-  LET_LIMIT: 11,                     // exact, verified (12 fails)
-  // Functions on one call stack. Production compiles a chain of 21 and
-  // rejects 22 at compile time with "Maximum allowed call depth of 20 is
-  // reached", in Firestore and Storage (fixtures/compile-limits).
+  // Production's compile limits, shared with the Firestore simulator and
+  // the Storage evaluator (grammar/compile-limits.ts).
+  LET_LIMIT,
   CALL_DEPTH_WARN: 18,
-  CALL_DEPTH_LIMIT: 21,
+  CALL_DEPTH_LIMIT,
   GET_COUNT_WARN: 5,
   // Production allows EXACTLY 10 document access calls per request
   // evaluation; the 11th fails (site-docs secure/firestore-rules-limits.md).
@@ -162,6 +168,32 @@ function checkChainDepth(functions: FunctionDef[], warnings: LintWarning[]) {
         location: { functionName: fn.name },
       });
     }
+  }
+}
+
+/**
+ * NESTING_DEPTH: production rejects a ruleset with an expression nested past
+ * 99 levels ("Expression is too complex to evaluate safely."). The
+ * count is the one the Firestore simulator and the Storage evaluator enforce
+ * (grammar/compile-limits.ts); one warning per function or rule.
+ */
+function checkNestingDepth(ast: FirestoreRules, warnings: LintWarning[]) {
+  const reported = new Set<string>();
+  for (const violation of compileLimitViolations(ast)) {
+    if (violation.code !== 'NESTING_DEPTH') continue;
+    const key = `${violation.functionName ?? ''}@${violation.line ?? ''}`;
+    if (reported.has(key)) continue;
+    reported.add(key);
+    const subject = violation.functionName !== undefined
+      ? `Function '${violation.functionName}'`
+      : violation.line !== undefined ? `The rule at line ${violation.line}` : 'An allow rule';
+    warnings.push({
+      rule: 'NESTING_DEPTH',
+      severity: 'error',
+      message: `${subject} nests an expression deeper than ${NESTING_LEVEL_LIMIT} levels. Production rejects the ruleset: "${NESTING_MESSAGE}"`,
+      ...(violation.functionName !== undefined ? { location: { functionName: violation.functionName } } : {}),
+      fix: 'Remove redundant parentheses, or move a nested group into its own function and call it.',
+    });
   }
 }
 
@@ -762,6 +794,9 @@ export function lintFirestoreRules(source: string, options: LintOptions = {}): L
 
   // Rule 2: Chain depth
   checkChainDepth(allFunctions, warnings);
+
+  // Rule 2b: Nesting depth
+  checkNestingDepth(ast, warnings);
 
   // Rule 3: Let bindings
   checkLetBindings(allFunctions, warnings);

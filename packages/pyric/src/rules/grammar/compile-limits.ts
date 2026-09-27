@@ -1,0 +1,303 @@
+/**
+ * Production's compile-time structural limits for Firestore and Storage
+ * rulesets. Production rejects a ruleset that breaks one of them before any
+ * request is evaluated, so the Firestore simulator, the Storage evaluator
+ * and the linter read them from here and report production's own messages.
+ *
+ * The boundaries come from the Rules Test API capture in
+ * `test/rules/linter/fixtures/compile-limits/captures.json`, identical for
+ * Firestore and Storage:
+ *
+ * - Call depth: a chain of 21 functions on one call stack compiles and 22 is
+ *   rejected with "Maximum allowed call depth of 20 is reached for
+ *   [f1->...->f21] call stack.", also when no rule calls the chain.
+ * - `let` bindings: 11 in one function compile and 12 are rejected with
+ *   "Maximum allowed variable count of 10 for a given function has been
+ *   reached."
+ * - Nesting: 97 parentheses around one comparison and a right-nested `&&`
+ *   chain of 49 terms compile; 98 parentheses and 50 terms are rejected with
+ *   "Expression is too complex to evaluate safely." A flat chain of 98
+ *   comparisons compiles and 99 is rejected with the same message.
+ *
+ * The production messages count one lower than the boundaries: the call
+ * depth message says 20 and names 21 functions, the variable count message
+ * says 10 while 11 bindings compile.
+ */
+import type { Expression, FirestoreRules, FunctionDef, MatchBlock } from './FirestoreAST.js';
+import { parenthesizedGroups } from './FirestoreParser.js';
+
+/** Most functions one call stack may hold; 22 is rejected. */
+export const CALL_DEPTH_LIMIT = 21;
+
+/** Most `let` bindings one function may declare; 12 is rejected. */
+export const LET_LIMIT = 11;
+
+/**
+ * Deepest nesting level an expression node may sit at; a node at level 100
+ * is rejected. See {@link nestingViolations} for how levels count.
+ */
+export const NESTING_LEVEL_LIMIT = 99;
+
+export const LET_LIMIT_MESSAGE = 'Maximum allowed variable count of 10 for a given function has been reached.';
+export const NESTING_MESSAGE = 'Expression is too complex to evaluate safely.';
+
+/** Production's call depth message for a stack of {@link CALL_DEPTH_LIMIT} function names. */
+export function callDepthMessage(stack: readonly string[]): string {
+  return `Maximum allowed call depth of 20 is reached for [${stack.join('->')}] call stack.`;
+}
+
+export type CompileLimitCode = 'CALL_DEPTH' | 'LET_LIMIT' | 'NESTING_DEPTH';
+
+/** One compile rejection, carrying production's message verbatim. */
+export interface CompileLimitViolation {
+  code: CompileLimitCode;
+  message: string;
+  /** 1-indexed line of the declaration, allow rule, or function the rejection applies to, when known. */
+  line?: number;
+  /** The function the rejection applies to, when it applies to one. */
+  functionName?: string;
+}
+
+/**
+ * Every compile rejection production reports for the ruleset, in source
+ * order. Empty when the ruleset is within every limit.
+ */
+export function compileLimitViolations(ast: FirestoreRules): CompileLimitViolation[] {
+  const graph = buildCallGraph(ast);
+  const out: CompileLimitViolation[] = [];
+  for (const node of graph) {
+    const fn = node.fn;
+    if (fn.lets.length > LET_LIMIT) {
+      // Production reports this at the return expression, which the AST
+      // gives no position; the line is the function declaration's.
+      out.push({ code: 'LET_LIMIT', message: LET_LIMIT_MESSAGE, ...lineOf(fn.loc), functionName: fn.name });
+    }
+    for (const binding of fn.lets) pushNesting(out, binding.value, binding.loc?.line ?? fn.loc?.line, fn.name);
+    pushNesting(out, fn.body, fn.loc?.line, fn.name);
+  }
+  const visitRules = (match: MatchBlock) => {
+    for (const rule of match.allows) pushNesting(out, rule.condition, rule.loc?.line);
+    for (const child of match.children) visitRules(child);
+  };
+  visitRules(ast.service.match);
+  out.push(...callDepthViolations(graph));
+  return out.sort((a, b) => (a.line ?? 0) - (b.line ?? 0));
+}
+
+/** Every rejection, each prefixed with its line when known: `Line 26: Maximum allowed call depth ...`. */
+export function describeCompileLimitViolations(violations: readonly CompileLimitViolation[]): string {
+  return violations.map((v) => (v.line === undefined ? v.message : `Line ${v.line}: ${v.message}`)).join(' ');
+}
+
+function lineOf(loc: { line: number } | undefined): { line?: number } {
+  return loc === undefined ? {} : { line: loc.line };
+}
+
+function pushNesting(out: CompileLimitViolation[], expr: Expression, line: number | undefined, functionName?: string): void {
+  const count = nestingViolations(expr);
+  for (let i = 0; i < count; i++) {
+    out.push({
+      code: 'NESTING_DEPTH',
+      message: NESTING_MESSAGE,
+      ...(line === undefined ? {} : { line }),
+      ...(functionName === undefined ? {} : { functionName }),
+    });
+  }
+}
+
+// ── Nesting ─────────────────────────────────────────────────────────────
+
+/**
+ * How many nodes of one expression production reports as too complex.
+ *
+ * The root of an allow condition, a function body, or a `let` value sits at
+ * level 1. Each parenthesized group and each binary operator (`&&`, `||`,
+ * comparisons, arithmetic, `in`, `is`) puts what it encloses one level
+ * deeper. A node past {@link NESTING_LEVEL_LIMIT} is reported once and its
+ * operands are not visited.
+ *
+ * The capture fixes this model, including where production reports: with 98
+ * parentheses around `request.auth.uid == 'a'` it reports two issues, at the
+ * two operands of `==` (level 100); with 99 it reports one, at the `==`; with
+ * 100 or more it reports one, at the hundredth parenthesis. A right-nested
+ * chain of 50 terms reports the two operands of the innermost comparison, and
+ * of 52 or 60 terms the two operands of the fiftieth `&&`. 97 parentheses and
+ * 49 terms put the deepest operand at level 99 and compile. A flat chain of
+ * 98 comparisons has 97 `&&` nodes on its left spine, and its operands reach
+ * level 99; 99 comparisons reach 100.
+ *
+ * A member access such as `request.auth.uid` adds no level: 97 parentheses
+ * around a comparison of it compile, which one more level would reject.
+ *
+ * The capture does not measure `!`, the ternary, method and function calls,
+ * index and slice access, or list and map literals. They are counted like
+ * member access, adding no level, because the only operand-taking nodes the
+ * capture shows adding a level are binary operators and parenthesized groups.
+ * A bare operand is counted like the measured ones: 98 parentheses around
+ * `true` put `true` at level 99, which compiles under this model.
+ */
+export function nestingViolations(expr: Expression): number {
+  return countTooComplex(expr, 1);
+}
+
+function countTooComplex(expr: Expression, level: number): number {
+  const at = level + parenthesizedGroups(expr);
+  if (at > NESTING_LEVEL_LIMIT) return 1;
+  const inner = addsLevel(expr) ? at + 1 : at;
+  let count = 0;
+  for (const child of children(expr)) count += countTooComplex(child, inner);
+  return count;
+}
+
+function addsLevel(expr: Expression): boolean {
+  return expr.type === 'binaryOp' || expr.type === 'inExpr' || expr.type === 'isExpr';
+}
+
+function children(expr: Expression): Expression[] {
+  switch (expr.type) {
+    case 'literal':
+    case 'identifier':
+      return [];
+    case 'memberAccess': return [expr.object];
+    case 'methodCall': return [expr.object, ...expr.args];
+    case 'bracketAccess': return [expr.object, expr.index];
+    case 'sliceAccess': return [expr.object, expr.start, expr.end];
+    case 'binaryOp': return [expr.left, expr.right];
+    case 'unaryOp': return [expr.operand];
+    case 'ternary': return [expr.condition, expr.consequent, expr.alternate];
+    case 'inExpr': return [expr.element, expr.collection];
+    case 'isExpr': return [expr.value];
+    case 'listLiteral': return expr.elements;
+    case 'mapLiteral': return expr.entries.flatMap((e) => [e.key, e.value]);
+    case 'pathLiteral': return expr.segments.filter((s): s is Expression => typeof s !== 'string');
+    case 'functionCall': return expr.args;
+  }
+}
+
+// ── Call depth ──────────────────────────────────────────────────────────
+
+interface CallNode {
+  fn: FunctionDef;
+  /** The declared functions this function calls, in call order. */
+  callees: CallNode[];
+}
+
+/**
+ * Every declared function with the declared functions it calls. A call
+ * resolves by declaration scope: the functions of the declaring match block
+ * and each enclosing one, then service, then global scope, the innermost
+ * declaration winning. A name no scope declares is a built-in or an
+ * undefined function and is not an edge.
+ */
+function buildCallGraph(ast: FirestoreRules): CallNode[] {
+  interface Scope { names: Map<string, CallNode>; parent: Scope | undefined }
+  const nodes: CallNode[] = [];
+  const pending: { node: CallNode; scope: Scope }[] = [];
+  const declare = (fns: readonly FunctionDef[], parent: Scope | undefined): Scope => {
+    const scope: Scope = { names: new Map(), parent };
+    for (const fn of fns) {
+      const node: CallNode = { fn, callees: [] };
+      nodes.push(node);
+      scope.names.set(fn.name, node);
+      pending.push({ node, scope });
+    }
+    return scope;
+  };
+  const serviceScope = declare(ast.service.functions ?? [], declare(ast.functions ?? [], undefined));
+  const walk = (match: MatchBlock, parent: Scope) => {
+    const scope = declare(match.functions, parent);
+    for (const child of match.children) walk(child, scope);
+  };
+  walk(ast.service.match, serviceScope);
+
+  for (const { node, scope } of pending) {
+    const seen = new Set<CallNode>();
+    const visit = (expr: Expression) => {
+      if (expr.type === 'functionCall') {
+        for (let s: Scope | undefined = scope; s; s = s.parent) {
+          const callee = s.names.get(expr.name);
+          if (callee === undefined) continue;
+          if (!seen.has(callee)) {
+            seen.add(callee);
+            node.callees.push(callee);
+          }
+          break;
+        }
+      }
+      for (const child of children(expr)) visit(child);
+    };
+    for (const binding of node.fn.lets) visit(binding.value);
+    visit(node.fn.body);
+  }
+  return nodes;
+}
+
+/**
+ * One rejection per call chain longer than {@link CALL_DEPTH_LIMIT},
+ * reported from the chain's first function: one no other function calls.
+ * Production checks every chain at compile time, called by a rule or not.
+ * The message names the first 21 functions of the deepest chain and the
+ * line is the 22nd function's declaration, where production reports it.
+ *
+ * A recursive call has no bounded depth, so a function that reaches a cycle
+ * is reported like a chain over the limit, its stack repeating the cycle.
+ * The capture does not include a recursive ruleset, so production's message
+ * for one is not measured.
+ */
+function callDepthViolations(nodes: readonly CallNode[]): CompileLimitViolation[] {
+  const depth = new Map<CallNode, number>();
+  const onStack = new Set<CallNode>();
+  const longest = (node: CallNode): number => {
+    const known = depth.get(node);
+    if (known !== undefined) return known;
+    if (onStack.has(node)) return Infinity;
+    onStack.add(node);
+    let deepest = 0;
+    for (const callee of node.callees) deepest = Math.max(deepest, longest(callee));
+    onStack.delete(node);
+    depth.set(node, deepest + 1);
+    return deepest + 1;
+  };
+
+  const called = new Set<CallNode>();
+  for (const node of nodes) for (const callee of node.callees) if (callee !== node) called.add(callee);
+  const covered = new Set<CallNode>();
+  const cover = (node: CallNode) => {
+    if (covered.has(node)) return;
+    covered.add(node);
+    for (const callee of node.callees) cover(callee);
+  };
+  const starts: CallNode[] = [];
+  for (const node of nodes) {
+    if (called.has(node)) continue;
+    starts.push(node);
+    cover(node);
+  }
+  // A cycle every member of which another function calls has no first
+  // function; start from its first declared member.
+  for (const node of nodes) {
+    if (covered.has(node) || longest(node) !== Infinity) continue;
+    starts.push(node);
+    cover(node);
+  }
+
+  const out: CompileLimitViolation[] = [];
+  for (const start of starts) {
+    if (longest(start) <= CALL_DEPTH_LIMIT) continue;
+    const chain = [start];
+    while (chain.length <= CALL_DEPTH_LIMIT) {
+      const tail = chain[chain.length - 1]!;
+      let next = tail.callees[0]!;
+      for (const callee of tail.callees) if (longest(callee) > longest(next)) next = callee;
+      chain.push(next);
+    }
+    const over = chain[CALL_DEPTH_LIMIT]!;
+    out.push({
+      code: 'CALL_DEPTH',
+      message: callDepthMessage(chain.slice(0, CALL_DEPTH_LIMIT).map((n) => n.fn.name)),
+      ...lineOf(over.fn.loc),
+      functionName: over.fn.name,
+    });
+  }
+  return out;
+}

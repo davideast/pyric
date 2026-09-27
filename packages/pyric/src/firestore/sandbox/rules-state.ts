@@ -17,6 +17,7 @@
  * {@link set}.
  */
 import {
+  compileLimitViolations,
   parseToAST,
   readAuthoredSourceMap,
   type AuthoredSourceMap,
@@ -48,8 +49,9 @@ export class RulesState {
 
   /**
    * RULES-B11 — parsed-AST cache, keyed on the exact source string.
-   * `ast` is `null` when the source doesn't parse (the simulate() call
-   * then reports the failure on its own).
+   * `ast` is `null` when the source doesn't parse or breaks one of
+   * production's compile limits (the simulate() call then reports the
+   * failure on its own).
    */
   private parsedCache: { source: string; ast: FirestoreRules | null } | null = null;
 
@@ -78,13 +80,15 @@ export class RulesState {
 
   /**
    * The parsed rules AST for the current source, cached per source
-   * string. Returns `null` when the source doesn't parse.
+   * string. Returns `null` when the source doesn't parse or production
+   * would reject it at compile time, so no request evaluates it.
    */
   ast(): FirestoreRules | null {
     if (this.parsedCache?.source !== this.currentSource) {
+      const parsed = parseToAST(this.currentSource);
       this.parsedCache = {
         source: this.currentSource,
-        ast: parseToAST(this.currentSource),
+        ast: parsed && compileLimitViolations(parsed).length === 0 ? parsed : null,
       };
     }
     return this.parsedCache.ast;

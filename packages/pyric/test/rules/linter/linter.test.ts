@@ -3,6 +3,7 @@ import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { lintFirestoreRules } from '../../../src/rules/linter/linter.js';
+import { compileLimitProbes } from '../compile-limits-probes.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CORPUS = join(__dirname, 'corpus');
@@ -91,6 +92,49 @@ describe('Firestore Rules Linter', () => {
     test('10 functions — no chain warning', () => {
       const r = lint('03-functions-10.rules');
       expect(hasRule(r, 'CHAIN_DEPTH')).toBe(false);
+    });
+  });
+
+  describe('NESTING_DEPTH', () => {
+    // Production rejects an expression nested past 99 levels with
+    // "Expression is too complex to evaluate safely."
+    // (fixtures/compile-limits/captures.json, shapes and-nesting and
+    // paren-nesting, Firestore and Storage).
+    const nesting = compileLimitProbes().filter(p => p.shape === 'and-nesting' || p.shape === 'paren-nesting');
+
+    for (const probe of nesting) {
+      test(`${probe.label}: ${probe.compiles ? 'no NESTING_DEPTH' : 'NESTING_DEPTH error'}, as production ${probe.compiles ? 'compiles' : 'rejects'} it`, () => {
+        const r = lintSource(probe.source);
+        expect(hasError(r, 'NESTING_DEPTH')).toBe(!probe.compiles);
+        if (!probe.compiles) {
+          expect(r.warnings.find(w => w.rule === 'NESTING_DEPTH')!.message).toContain('Expression is too complex to evaluate safely.');
+        }
+      });
+    }
+
+    test('a nested expression in a function body names the function', () => {
+      const r = lintSource(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function deep() { return ${'('.repeat(98)}request.auth.uid == 'a'${')'.repeat(98)}; }
+    match /p/{d} { allow read: if deep(); }
+  }
+}`);
+      const found = r.warnings.filter(w => w.rule === 'NESTING_DEPTH');
+      expect(found).toHaveLength(1);
+      expect(found[0].location?.functionName).toBe('deep');
+    });
+
+    test('a 98-term flat && chain compiles; 99 terms reach the nesting limit', () => {
+      const chain = (n: number) => Array.from({ length: n }, (_, i) => `request.auth.uid != 'x${i}'`).join(' && ');
+      const source = (n: number) => `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /p/{d} { allow read: if ${chain(n)}; }
+  }
+}`;
+      expect(hasRule(lintSource(source(98)), 'NESTING_DEPTH')).toBe(false);
+      expect(hasError(lintSource(source(99)), 'NESTING_DEPTH')).toBe(true);
     });
   });
 

@@ -19,6 +19,7 @@ import type {
 } from '../test/spec.js';
 import type { FirestoreRules, MatchBlock, AllowRule, FunctionDef, Expression } from '../grammar/FirestoreAST.js';
 import { parseToAST } from '../grammar/FirestoreParser.js';
+import { compileLimitViolations, describeCompileLimitViolations } from '../grammar/compile-limits.js';
 import { assembleExpression } from '../grammar/FirestoreAssembler.js';
 import { readAuthoredSourceMap, resolveAuthoredLoc, type AuthoredSourceMap } from '../modules/resolver-core.js';
 import { evaluate, requireBoolean, UnsupportedError, TraceRecorder, type SimulationContext } from './evaluator.js';
@@ -485,6 +486,19 @@ export class SimulateFirestoreRulesHandler {
       return {
         success: false,
         error: { code: 'PARSE_FAILED', message: 'Failed to parse rules source', recoverable: true },
+      };
+    }
+    // Production rejects a ruleset past its compile limits (call depth,
+    // `let` count, nesting) before evaluating any request.
+    const violations = compileLimitViolations(ast);
+    if (violations.length > 0) {
+      return {
+        success: false,
+        error: {
+          code: 'PARSE_FAILED',
+          message: `Rules source does not compile: ${describeCompileLimitViolations(violations)}`,
+          recoverable: true,
+        },
       };
     }
     return this.simulateParsed(ast, source, testCases, opts);

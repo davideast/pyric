@@ -2,7 +2,8 @@
  * `firestoreRules(source)` — the deep, safe-by-default handle on a Firestore
  * ruleset.
  *
- * The constructor compiles once. If the source does not parse it throws
+ * The constructor compiles once. If the source does not parse, or breaks one
+ * of production's compile limits (call depth, `let` count, nesting), it throws
  * {@link RulesCompileError} (with `.issues`); past that point the handle is
  * known-good and its verbs never throw on rule outcomes. `simulate` returns
  * a summary whether cases pass, fail, or hit an unimplemented feature;
@@ -12,6 +13,7 @@
 
 import type { FirestoreRules } from '../grammar/FirestoreAST.js';
 import { parseToASTOrError } from '../grammar/FirestoreParser.js';
+import { compileLimitViolations, describeCompileLimitViolations } from '../grammar/compile-limits.js';
 import { lintFirestoreRules } from '../linter/linter.js';
 import { validateFirestoreRules } from '../grammar/FirestoreValidator.js';
 import { SimulateFirestoreRulesHandler } from '../simulator/handler.js';
@@ -21,6 +23,7 @@ import type { TestCase, TestResult } from '../test/spec.js';
 import { RulesCompileError } from './errors.js';
 import type { RuleIssue } from './issue.js';
 import {
+  compileLimitViolationToIssue,
   parseErrorToIssue,
   lintWarningToIssue,
   validationFindingToIssue,
@@ -169,8 +172,9 @@ function toEngineResult(r: CaseResult) {
 /**
  * Compile Firestore rules source into a deep, safe-by-default handle.
  *
- * @throws {RulesCompileError} when the source does not parse. The thrown
- *   error carries the compile-blocking issues on `.issues`.
+ * @throws {RulesCompileError} when the source does not parse or breaks one
+ *   of production's compile limits. The thrown error carries the
+ *   compile-blocking issues on `.issues`.
  */
 export function firestoreRules(source: string): FirestoreRuleset {
   const parsed = parseToASTOrError(source);
@@ -179,6 +183,15 @@ export function firestoreRules(source: string): FirestoreRuleset {
     throw new RulesCompileError(
       'Firestore rules source failed to compile',
       issues,
+    );
+  }
+  // Production rejects a ruleset past its compile limits (call depth, `let`
+  // count, nesting) before evaluating any request.
+  const violations = compileLimitViolations(parsed.ast);
+  if (violations.length > 0) {
+    throw new RulesCompileError(
+      `Firestore rules source failed to compile: ${describeCompileLimitViolations(violations)}`,
+      violations.map(compileLimitViolationToIssue),
     );
   }
   return new FirestoreRulesetImpl(source, parsed.ast);

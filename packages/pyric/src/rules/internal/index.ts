@@ -39,6 +39,8 @@ export {
 export type { ParseError, ParseResult } from '../grammar/FirestoreParser.js';
 export { assembleRules, assembleExpression as printExpression } from '../grammar/FirestoreAssembler.js';
 export { validateFirestoreRules } from '../grammar/FirestoreValidator.js';
+export { compileLimitViolations } from '../grammar/compile-limits.js';
+export type { CompileLimitViolation } from '../grammar/compile-limits.js';
 export type { ValidationFinding } from '../grammar/FirestoreValidator.js';
 export type {
   FirestoreRules,

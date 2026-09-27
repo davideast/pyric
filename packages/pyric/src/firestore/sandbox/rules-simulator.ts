@@ -10,8 +10,9 @@ import { adminBypassResult } from './rules-evaluation.js';
 /**
  * Evaluate test cases against the deployed rules through the AST and
  * source map that {@link RulesState} caches per source, so a request does
- * not parse the ruleset. A source that does not parse goes through
- * `simulate(source)`, which reports the empty-source or parse failure.
+ * not parse the ruleset. A source that does not parse, or that breaks a
+ * production compile limit, goes through `simulate(source)`, which reports
+ * the empty-source, parse, or compile failure.
  */
 export function simulateDeployedRules(
   rules: RulesState,

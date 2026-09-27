@@ -59,7 +59,8 @@
  *     optional `export`). Lexically scoped (visible
  *     within the declaring block and nested blocks; inner shadows
  *     outer), may call other functions, support `let` bindings, and are
- *     depth-capped. Any function-eval failure denies with a reason.
+ *     rejected at parse time past production's call depth limit. Any
+ *     function-eval failure denies with a reason.
  *
  *   - The object-identity / time fields of `resource`: `name` (the FULL object
  *     path, GCS convention — not the client SDK's last-segment `name`),
@@ -88,6 +89,7 @@
 
 import { parseToASTOrError } from '../../rules/grammar/FirestoreParser.js';
 import { parseErrorWording } from '../../rules/grammar/parse-error-wording.js';
+import { compileLimitViolations, describeCompileLimitViolations } from '../../rules/grammar/compile-limits.js';
 // RULES-B5 float model, shared with the Firestore simulator: a FLOAT value is
 // tagged with this wrapper while a bare JS `number` means INT (see the
 // wrapper's header for why floats are the wrapped case). The storage evaluator
@@ -515,6 +517,12 @@ export function parseStorageRules(source: string): StorageRules {
     throw new SyntaxError(
       `Expected 'service firebase.storage', got 'service ${ast.service.name}'.`,
     );
+  }
+  // Production rejects a ruleset past its compile limits (call depth, `let`
+  // count, nesting) before evaluating any request.
+  const violations = compileLimitViolations(ast);
+  if (violations.length > 0) {
+    throw new SyntaxError(`Storage rules do not compile: ${describeCompileLimitViolations(violations)}`);
   }
   // The service's own DocumentsMatch (`match /b/{bucket}/o`) becomes a child
   // of a synthetic path-less root so path matching starts at the request
