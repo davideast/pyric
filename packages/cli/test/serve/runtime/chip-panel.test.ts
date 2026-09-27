@@ -70,7 +70,7 @@ function setup(options: { rememberedTab?: string; withListeners?: boolean } = {}
     dom.window.localStorage.setItem(CHIP_TAB_KEY, options.rememberedTab);
   }
   const runtime = createPyricRuntimeStatus(manifest);
-  let deliver: ((events: readonly SandboxEvent[]) => void) | null = null;
+  let deliver: ((events: readonly SandboxEvent[], batch: { history: boolean }) => void) | null = null;
   const chip = mountPyricRuntimeChip({
     runtime,
     document: doc,
@@ -101,7 +101,7 @@ function setup(options: { rememberedTab?: string; withListeners?: boolean } = {}
     runtime,
     chip,
     root,
-    push: (events: readonly SandboxEvent[]) => deliver?.(events),
+    push: (events: readonly SandboxEvent[]) => deliver?.(events, { history: false }),
     open() {
       root.querySelector<HTMLButtonElement>('[data-expand]')!.click();
       return root.querySelector('[data-chip-view]')?.getAttribute('data-chip-view');

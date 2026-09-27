@@ -30,18 +30,24 @@ export function incidentsFromEvents(events: readonly SandboxEvent[]): readonly A
 /** Preserve the monitor across batches; historical hydration uses the same fold. */
 export function createListenerIncidents() {
   let observe: (event: SandboxEvent) => void = () => {};
-  const monitor = monitorFirebaseActivity({
+  const start = () => monitorFirebaseActivity({
     history: () => [],
     subscribe(listener) {
       observe = listener;
       return () => { observe = () => {}; };
     },
   }, () => {});
+  let monitor = start();
   return {
     append(events: readonly SandboxEvent[]) {
       for (const event of events) observe(event);
     },
     read: () => monitor.report().incidents,
+    /** Forget every event, before a replacement history is appended. */
+    reset() {
+      monitor.dispose();
+      monitor = start();
+    },
     dispose: () => monitor.dispose(),
   };
 }

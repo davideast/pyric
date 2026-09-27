@@ -33,6 +33,7 @@ import { createListenerIncidents } from './listener-incidents.js';
 import { studioSectionUrl } from './studio-links.js';
 import { createFlowMode, type FlowModeOptions } from './listener-flow-mode.js';
 import type { ListenerObservation } from './listener-observation.js';
+import type { SandboxEventSource } from './listener-event-source.js';
 
 import {
   installReactCommitSource,
@@ -69,11 +70,12 @@ export interface ListenerModeOptions {
   treatmentStorage?: Pick<Storage, 'getItem' | 'setItem'> | null;
   document: Document;
   /**
-   * The page's sandbox event source. The first delivery carries history, each
-   * later delivery carries the events since the last one, which is exactly
-   * the shape the worker client's `subscribeEvents` already has.
+   * The page's sandbox event source. A batch marked `history` is the host's
+   * whole retained history, which keeps every listener it still holds
+   * attached, and replaces the fold; other batches carry the events since the
+   * last one.
    */
-  subscribeEvents: (callback: (events: readonly SandboxEvent[]) => void) => () => void;
+  subscribeEvents: SandboxEventSource;
   /** Whether listener attribution is recording owners. */
   attributionEnabled?: () => boolean;
   /** Incident source. Defaults to raising them from the page's own history. */
@@ -378,7 +380,15 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
   // The mode observes from the moment it exists: the chip's count and summary
   // read the fold whether or not anything is painted. Enabling the mode only
   // adds the overlay on top of a fold that is already current.
-  unsubscribe = options.subscribeEvents((batch) => {
+  unsubscribe = options.subscribeEvents((batch, { history: replacesState }) => {
+    // The host's history keeps every listener it still holds attached, so a
+    // history batch is the current listener set: fold it from empty rather than
+    // on top of what the page folded before a reconnect.
+    if (replacesState) {
+      listeners.clear();
+      incidents.reset();
+      customIncidentEvents.length = 0;
+    }
     const usesCustomIncidents = options.incidents !== undefined;
     if (usesCustomIncidents) customIncidentEvents.push(...batch);
     incidents.append(batch);

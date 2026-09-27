@@ -166,6 +166,27 @@ describe('event subscriptions share one stream per port', () => {
     for (const unsubscribe of [...unsubscribers, late]) unsubscribe();
   });
 
+  it('marks the first history and the history a restored subscription replays, and no live batch', async () => {
+    const { ctx, db } = await connectClient();
+    await seed(ctx, 'a');
+    const marks: boolean[] = [];
+    const unsubscribe = client.subscribeEvents(db, (_events, batch) => marks.push(batch.history));
+    await sleep();
+    await seed(ctx, 'b');
+    await sleep();
+    restoreObservationSubscriptions(db.port);
+    await sleep();
+    await seed(ctx, 'c');
+    await sleep();
+    expect(marks[0]).toBe(true);
+    expect(marks.filter(mark => mark)).toHaveLength(2);
+    const restored = marks.indexOf(true, 1);
+    expect(marks.slice(1, restored).every(mark => !mark)).toBe(true);
+    expect(marks.slice(restored + 1).length).toBeGreaterThan(0);
+    expect(marks.slice(restored + 1).every(mark => !mark)).toBe(true);
+    unsubscribe();
+  });
+
   it('a subscriber removed during a delivery does not receive that batch', async () => {
     const { ctx, db } = await connectClient();
     await seed(ctx, 'a');

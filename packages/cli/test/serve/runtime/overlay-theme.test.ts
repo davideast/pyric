@@ -51,7 +51,7 @@ function mode(options: {
   overlayTheme?: Record<string, string> | null;
   themeStorage?: ReturnType<typeof memoryStorage> | null;
 }) {
-  let push: (events: readonly SandboxEvent[]) => void = () => {};
+  let push: (events: readonly SandboxEvent[], batch: { history: boolean }) => void = () => {};
   const listenerMode = createListenerMode({
     document: options.doc,
     subscribeEvents: (callback) => {
@@ -71,7 +71,7 @@ function mode(options: {
     overlayTheme: options.overlayTheme ?? null,
   });
   listenerMode.setEnabled(true);
-  push([attach]);
+  push([attach], { history: false });
   const container = options.doc.querySelector<HTMLElement>('[data-pyric-listener-overlay]')!;
   return { listenerMode, container };
 }
