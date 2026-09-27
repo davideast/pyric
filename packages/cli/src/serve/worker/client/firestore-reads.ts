@@ -13,6 +13,7 @@ import type {
 import { closeSubscription, nextId, nextSubId, dataRpc, _defaultLens, subscribeLens, openSnapshotSubscription, stampIssuer } from './core.js';
 import type { ClientDb, DocRefHandle, CollRefHandle, QueryHandle, Unsubscribe } from './handles.js';
 import { pageListenerOwners } from './listener-owners.js';
+import { deliverWithRegions } from './listener-delivery.js';
 import { makeDocSnapshot, makeQuerySnapshot, makeSnapshot } from './snapshots.js';
 import { beginWorkerFirestoreActivity } from './sdk-activity.js';
 import { finishSdkRead, type UsageEvidence } from 'pyric/sandbox/internal';
@@ -209,7 +210,7 @@ export function onSnapshot(
       // listener id, immediately before the application's callback runs.
       const result = raw as { usage?: UsageEvidence };
       activity.delivered(snapshot, result.usage);
-      callback(snapshot);
+      deliverWithRegions(activity.id, () => callback(snapshot));
     },
     error: (error: unknown) => { activity.fail(); errorCallback?.(error); },
     close: () => activity.close(),

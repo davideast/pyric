@@ -61,6 +61,7 @@ function harness(options: {
   attributionEnabled?: boolean;
   react?: boolean;
   paintStorage?: Parameters<typeof createListenerMode>[0]['paintStorage'];
+  deliveredRegions?: Parameters<typeof createListenerMode>[0]['deliveredRegions'];
 } = {}) {
   const dom = new JSDOM(
     '<!doctype html><body><div id="todos"><span id="row">a</span></div><div id="profile"></div></body>',
@@ -88,6 +89,7 @@ function harness(options: {
     attributionEnabled: () => options.attributionEnabled ?? true,
     commits: commits.source,
     paintStorage: options.paintStorage ?? null,
+    ...(options.deliveredRegions ? { deliveredRegions: options.deliveredRegions } : {}),
     flow: {
       subscribeDeliveries: (listener) => {
         delivered = listener;
@@ -639,6 +641,36 @@ it('preserves interleaved commit sources and rejects removed history regions', (
   page.mode.clearActivityHistory?.();
   expect(history.snapshot().entries).toHaveLength(0);
   expect(page.activity.records()).toHaveLength(2);
+  page.mode.dispose(); page.activity.dispose();
+});
+
+it('outlines a served listener where its callback changed the page, without React or an owner', () => {
+  const regions = new Map<string, readonly string[]>();
+  let notify = () => {};
+  const page = harness({ react: false, deliveredRegions: {
+    regions: id => regions.get(id) ?? [],
+    subscribe: listener => { notify = listener; return () => { notify = () => {}; }; },
+  } });
+  const listener = page.activity.begin({ app: {}, method: 'onSnapshot', kind: 'subscription', owners: [{ kind: 'frame', file: '/src/main.js', line: 7 }], source: { service: 'firestore', target: 'scores', key: 'scores', isQuery: true } });
+  const outline = () => page.mode.outlines().find(candidate => candidate.listenerId === listener.id)!;
+  expect(page.mode.placementReason(outline())).toBe('Pass { owner } to onSnapshot to locate this listener.');
+  page.mode.setEnabled(true);
+  expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(0);
+  listener.delivered({ docs: [] }, {});
+  regions.set(listener.id, ['#profile']);
+  notify();
+  expect(outline().selectors).toEqual(['#profile']);
+  expect(page.mode.placementReason(outline())).toBeNull();
+  expect(page.doc.querySelectorAll('[data-pyric-listener-box][data-listener-target="scores"]')).toHaveLength(1);
+  page.mode.dispose(); page.activity.dispose();
+});
+
+it('says a read on a page without React renders has no page position', () => {
+  const page = harness({ react: false });
+  const read = page.activity.begin({ app: {}, method: 'getDocs', kind: 'operation', source: { service: 'firestore', target: 'reads', key: 'reads', isQuery: true } });
+  read.delivered({ docs: [] }, {}); read.complete();
+  const outline = page.mode.outlines().find(candidate => candidate.listenerId === read.id)!;
+  expect(page.mode.placementReason(outline)).toBe('Reads are located from React renders, and this page has none.');
   page.mode.dispose(); page.activity.dispose();
 });
 

@@ -306,6 +306,30 @@ describe('the Listeners view', () => {
     expect(page.root.querySelector('.view')!.textContent).not.toContain('Waiting for the next delivery');
   });
 
+  it('marks a row with no page position, disables its eye, and says how to locate it', () => {
+    const page = setup();
+    page.push([
+      attach('a1', 'L1', { kind: 'query', collection: 'scores' }, [{ kind: 'frame', file: '/src/game.js', line: 9 }]),
+      attach('a2', 'L2', { kind: 'query', collection: 'todos' }, [owner]),
+    ]);
+    const unplaced = page.root.querySelector('[data-listener-row="L1"]')!.closest('.source-row')!;
+    expect(unplaced.querySelector<HTMLButtonElement>('[data-highlight-source]')!.disabled).toBe(true);
+    expect(unplaced.querySelector('[data-listener-unplaced]')!.textContent).toBe('Pass { owner } to onSnapshot to locate this listener.');
+    expect(unplaced.querySelector<HTMLButtonElement>('[data-highlight-source]')!.title).toBe('Pass { owner } to onSnapshot to locate this listener.');
+    const placed = page.root.querySelector('[data-listener-row="L2"]')!.closest('.source-row')!;
+    expect(placed.querySelector<HTMLButtonElement>('[data-highlight-source]')!.disabled).toBe(false);
+    expect(placed.querySelector('[data-listener-unplaced]')).toBeNull();
+  });
+
+  it('clears the unplaced mark once a delivery records a page region', () => {
+    const page = setup();
+    page.push([attach('a1', 'L1', { kind: 'query', collection: 'todos' }, [{ kind: 'frame', file: '/src/list.js', line: 3 }])]);
+    expect(page.root.querySelector('[data-listener-unplaced]')).not.toBeNull();
+    page.push([{ ...(delivery('d1', 'L1', { kind: 'query', collection: 'todos' }) as object), owners: [{ kind: 'regions', selectors: ['#todos'] }] } as unknown as SandboxEvent]);
+    expect(page.root.querySelector('[data-listener-unplaced]')).toBeNull();
+    expect(page.root.querySelector<HTMLButtonElement>('[data-highlight-source="L1"]')!.disabled).toBe(false);
+  });
+
   it('says why nothing paints while listener attribution is off', () => {
     const page = setup({ attributionEnabled: false });
     bar(page.root, 'overview').click();

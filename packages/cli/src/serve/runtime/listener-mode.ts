@@ -27,7 +27,8 @@ import type { SandboxEvent } from 'pyric/sandbox';
 import type { ActivityIncident } from 'pyric/firestore/internal';
 import { activityOutlines, createListenerOutlineState, type ListenerOutline } from './listener-outline-model.js';
 import { sdkActivity, sdkMethodCoverage, observationService, type SdkActivityRecord } from 'pyric/sandbox/internal';
-import { createListenerOverlay, type ListenerOverlay } from './listener-overlay.js';
+import { createListenerOverlay, ownedElements, type ListenerOverlay } from './listener-overlay.js';
+import { deliveredRegions, onDeliveredRegions } from '../worker/client/listener-delivery.js';
 import { createListenerIncidents } from './listener-incidents.js';
 import { studioSectionUrl } from './studio-links.js';
 import { createFlowMode, type FlowModeOptions } from './listener-flow-mode.js';
@@ -100,6 +101,14 @@ export interface ListenerModeOptions {
   overlayTheme?: OverlayTheme | null;
   /** Where the page's overrides are kept. Defaults to the page's storage. */
   themeStorage?: OverlayThemeStorage | null;
+  /**
+   * The page regions served listener callbacks changed. Defaults to the
+   * page's own record, which the served SDK client writes.
+   */
+  deliveredRegions?: {
+    regions(activityId: string): readonly string[];
+    subscribe(listener: () => void): () => void;
+  };
   /** How the Flow mode watches the page. Passed through for tests. */
   flow?: Partial<Pick<Parameters<typeof createFlowMode>[0], 'changedNodes' | 'subscribeDeliveries' | 'windowMs' | 'fadeMs'>>;
 }
@@ -135,6 +144,11 @@ export interface ListenerMode {
   outlines(): readonly ListenerOutline[];
   /** The listeners nothing on the page could be outlined for. */
   unattributed(): readonly ListenerOutline[];
+  /**
+   * Why Overview cannot outline this listener on the page right now, or null
+   * when some element on the page belongs to it.
+   */
+  placementReason(outline: ListenerOutline): string | null;
   /** `false` when this listener's paint is hidden in both modes. */
   isListenerVisible(listenerId: string): boolean;
   /** Show or hide one listener's paint. Remembered for this page session. */
@@ -150,6 +164,17 @@ export interface ListenerMode {
 }
 
 const NO_REACT_REASON = 'Flow needs a React renderer on this page.';
+
+/** Why a listener or read has no page position, in the call the developer wrote. */
+function unplacedReason(outline: ListenerOutline, rendersObserved: boolean): string {
+  const isSubscription = outline.activity === undefined || outline.activity.kind === 'subscription';
+  if (isSubscription) {
+    const method = outline.activity?.method ?? (outline.service === 'database' ? 'onValue' : 'onSnapshot');
+    return `Pass { owner } to ${method} to locate this listener.`;
+  }
+  if (rendersObserved) return 'No render has followed this read yet.';
+  return 'Reads are located from React renders, and this page has none.';
+}
 const LATE_HOOK_REASON = 'React loaded before pyric could watch its renders, so Flow has nothing to follow.';
 
 /**
@@ -200,6 +225,7 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
   // Only an explicitly supplied historical reader needs the raw event sequence.
   const customIncidentEvents: SandboxEvent[] = [];
   const activity = options.activity ?? sdkActivity;
+  const delivered = options.deliveredRegions ?? { regions: deliveredRegions, subscribe: onDeliveredRegions };
   let current: readonly ListenerOutline[] = [];
   let overlay: ListenerOverlay | null = null;
   let stopFollowing: (() => void) | null = null;
@@ -259,7 +285,7 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
   const recompute = (): void => {
     const previous = current;
     const marks = options.incidents?.(customIncidentEvents) ?? incidents.read();
-    current = activityOutlines(listeners.read(marks), activity.records().filter(isDataActivity), observed);
+    current = activityOutlines(listeners.read(marks), activity.records().filter(isDataActivity), observed, delivered.regions);
     // A detached listener keeps no paint. Flow holds its last subtree until
     // the next delivery, and for a listener that is gone there will not be
     // one.
@@ -365,12 +391,24 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
     pruneRegions();
     recompute();
   });
+  // A served callback's regions are known only after it returns, which is
+  // after the journal reported its delivery.
+  const stopDeliveredRegions = delivered.subscribe(recompute);
   // Refresh the explicitly named rolling window even on idle pages.
   const historyClock = setInterval(() => options.onChange?.(current), 1000);
   const isNodeTimer = typeof historyClock === 'object' && 'unref' in historyClock;
   if (isNodeTimer) historyClock.unref();
   recompute();
   options.observation?.attach(flowOptions);
+
+  /** The connected elements React rendered after this listener's latest delivery. */
+  const renderedElements = (outline: ListenerOutline): Element[] => {
+    const latest = [...regions.values()].reverse().find(region => region.paint.listenerId === outline.listenerId);
+    return latest?.nodes.flatMap(node => {
+      const element = node.element.deref();
+      return element?.isConnected ? [element] : [];
+    }) ?? [];
+  };
 
   const hidePainting = (): void => {
     stopFlow();
@@ -382,13 +420,7 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
     overlay = createListenerOverlay({
       document: documentLike,
       onSelect: inspect,
-      observedElements: (outline) => {
-        const latest = [...regions.values()].reverse().find(region => region.paint.listenerId === outline.listenerId);
-        return latest?.nodes.flatMap(node => {
-          const element = node.element.deref();
-          return element?.isConnected ? [element] : [];
-        }) ?? [];
-      },
+      observedElements: renderedElements,
       theme: effectiveTheme(),
       mode: paintMode,
     });
@@ -513,6 +545,11 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
     unattributed() {
       return current.filter((outline) => outline.selectors.length === 0);
     },
+    placementReason(outline) {
+      const isPlaced = ownedElements(documentLike, outline).length > 0 || renderedElements(outline).length > 0;
+      if (isPlaced) return null;
+      return unplacedReason(outline, flowAvailable());
+    },
     isListenerVisible(listenerId) {
       return !hidden.has(listenerId);
     },
@@ -548,6 +585,7 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
       else flow.dispose();
       unsubscribe?.();
       stopActivity();
+      stopDeliveredRegions();
       unsubscribe = null;
       incidents.dispose();
       listeners.clear();

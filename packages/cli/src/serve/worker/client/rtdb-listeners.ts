@@ -13,6 +13,7 @@ import {
 } from './core.js';
 import type { ClientPort, RtdbDataSnapshot, Unsubscribe } from './handles.js';
 import { pageListenerOwners } from './listener-owners.js';
+import { deliverWithRegions } from './listener-delivery.js';
 import { observeRtdbConnection } from './rtdb-connection-lifecycle.js';
 import { beginWorkerDatabaseActivity } from './sdk-activity.js';
 import type { SdkActivityHandle } from 'pyric/sandbox/internal';
@@ -191,7 +192,7 @@ export function rtdbOnValue(
   const deliver = (snapshot: RtdbDataSnapshot): void => {
     try {
       activity.delivered(snapshot);
-      next(snapshot);
+      deliverWithRegions(activity.id, () => next(snapshot));
     } catch {
       // Firebase isolates listener exceptions from sibling deliveries.
     } finally {
@@ -364,7 +365,10 @@ function subscribeChild(
     : cancelCallbackOrOptions;
   const activity = beginWorkerDatabaseActivity(target, `onChild${kind[0]!.toUpperCase()}${kind.slice(1)}`, 'subscription', pageListenerOwners(listenOptions));
   const callback = next;
-  next = (snapshot, previous) => { activity.delivered(snapshot); callback(snapshot, previous); };
+  next = (snapshot, previous) => {
+    activity.delivered(snapshot);
+    deliverWithRegions(activity.id, () => callback(snapshot, previous));
+  };
   const eventType = `child_${kind}` as RtdbEventType;
   if (!listenOptions?.onlyOnce) {
     return registerListener(target, eventType, registryCallback, onChildEvent(target, kind, next, error, activity));

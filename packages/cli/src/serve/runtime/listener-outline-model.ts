@@ -83,11 +83,18 @@ export interface ListenerOutline {
   readonly incident: ListenerOutlineIncident | null;
 }
 
-/** Public SDK activity takes precedence over its matching backend registration. */
+/**
+ * Public SDK activity takes precedence over its matching backend registration.
+ *
+ * A record's geometry is its startup owners' selectors, then the regions its
+ * backend delivery recorded (an in-page sandbox observes the callback it
+ * runs), then the regions the page recorded around a served callback.
+ */
 export function activityOutlines(
   legacy: readonly ListenerOutline[],
   records: readonly SdkActivityRecord[],
   observed: ReadonlySet<string>,
+  deliveredRegions: (activityId: string) => readonly string[] = () => [],
 ): readonly ListenerOutline[] {
   const ids = new Set(records.flatMap(record => [record.id, record.transportId]));
   const unmatched = legacy.filter(outline => !ids.has(outline.clientListenerId ?? outline.listenerId));
@@ -99,7 +106,8 @@ export function activityOutlines(
       label: outlineLabel(owners, record.method), labelIsOwner: labelIsOwner(owners),
       target: record.target, isQuery: record.isQuery, service: record.service,
       deliveryCount: record.deliveryCount, lastDeliveryAt: record.lastProgressAt === undefined ? record.lastDeliveryAt : Math.max(record.lastDeliveryAt ?? 0, record.lastProgressAt),
-      selectors: outlineSelectors(owners), incident: backend?.incident ?? null,
+      selectors: [...new Set([...outlineSelectors(owners), ...(backend?.selectors ?? []), ...deliveredRegions(record.id)])],
+      incident: backend?.incident ?? null,
       activity: record, observedRender: observed.has(record.id),
     };
   })];
