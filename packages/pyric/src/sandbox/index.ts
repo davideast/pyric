@@ -61,6 +61,7 @@ export { SandboxError, MUTATION_EVENT_SERVICES, SERVICE_EVENT_RECORDS } from './
 export {
   SandboxContextImpl,
   normalizeAuthState,
+  normalizeAuthTokenClaims,
   validateAuthState,
 } from './sandbox-context.js';
 // The sandbox clock: the one source of time every service on the sandbox

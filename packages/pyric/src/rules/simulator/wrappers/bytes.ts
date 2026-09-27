@@ -20,6 +20,7 @@
  * return.
  */
 import { RulesValue, NO_OP, type NoOp } from './base.js';
+import { EvalError } from '../eval-error.js';
 
 // Base64url + hex encoders. Browser-safe — no Buffer, no node:crypto.
 // Behavior pinned by bytes.test.ts to match the previous Buffer-based
@@ -72,7 +73,10 @@ export class Bytes extends RulesValue {
   /** Construct from a hex string (e.g. 'deadbeef'). */
   static fromHex(hex: string): Bytes {
     if (hex.length % 2 !== 0) {
-      throw new Error(`Invalid hex string length: ${hex.length}`);
+      throw new EvalError(`Invalid hex string length: ${hex.length}`);
+    }
+    if (!/^[0-9a-fA-F]*$/.test(hex)) {
+      throw new EvalError(`Invalid hex string: '${hex}' contains non-hex characters`);
     }
     const out = new Uint8Array(hex.length / 2);
     for (let i = 0; i < out.length; i++) {
