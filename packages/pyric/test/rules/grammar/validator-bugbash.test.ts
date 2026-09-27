@@ -221,6 +221,47 @@ service cloud.firestore {
     });
   });
 
+  // The `2+modules` resolver writes imported functions at service scope,
+  // and production makes service-scope functions visible in every match
+  // block. A rule reaches them through a match-scope helper.
+  describe('service-scope functions called from a nested match', () => {
+    const resolvedShape = (authFn: string, deleteCondition = 'isMyTurn()') => `rules_version = '2';
+service cloud.firestore {
+  function isAuthenticated() { return ${authFn}; }
+  function isMyTurn() { return resource.data.turn == request.auth.uid; }
+  match /databases/{database}/documents {
+    match /{d=**} { allow read, write: if false; }
+    match /games/{gameId} {
+      function baseMoveChecks() { return isAuthenticated(); }
+      allow update: if baseMoveChecks() && request.resource.data.move is string;
+      allow delete: if ${deleteCondition};
+    }
+  }
+}`;
+
+    test('auth check only inside a service-scope function reached through a helper → no SEC-3', () => {
+      const findings = validateRules(resolvedShape('request.auth != null'));
+      expect(hasFinding(findings, 'SEC-3')).toBe(false);
+    });
+
+    test('service-scope function called from a nested match → no SEM-4', () => {
+      const findings = validateRules(resolvedShape('request.auth != null'));
+      expect(hasFinding(findings, 'SEM-4')).toBe(false);
+    });
+
+    test('a helper chain that never reaches request.auth → SEC-3', () => {
+      const findings = validateRules(resolvedShape('resource.data.open == true'));
+      expect(findings.filter(f => f.code === 'SEC-3').map(f => f.operation)).toEqual(['update']);
+    });
+
+    test('a call to a function no scope declares → SEM-4', () => {
+      const findings = validateRules(resolvedShape('request.auth != null', 'isMyTurn() && notDeclared()'));
+      expect(findings.filter(f => f.code === 'SEM-4').map(f => f.message)).toEqual([
+        "Rule at /games/{gameId} calls undefined function 'notDeclared'",
+      ]);
+    });
+  });
+
   describe('check interactions', () => {
     test('multiple findings on insecure + unused fn', () => {
       const findings = validateRules(`rules_version = '2';
