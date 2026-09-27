@@ -17,7 +17,7 @@ function loadFiles(dir: string): Array<{ name: string; content: string }> {
 
 /**
  * Deep structural comparison of two ASTs, ignoring `raw` fields
- * (whitespace/quote normalization means raw strings differ) and `loc`
+ * (whitespace normalization means raw strings can differ) and `loc`
  * fields (the reassembled source has a different line layout, so source
  * positions are expected to differ — they're not structural).
  */
