@@ -116,9 +116,6 @@ function rtRun(probe: RtProbe): { classification: Classification; detail: string
   }
   if (!res.success) {
     const { code, message } = res.error;
-    // NO_MATCHING_RULE is a genuine deny outcome (deny-by-default), not an
-    // engine error — the simulator ran and found no governing rule.
-    if (code === 'NO_MATCHING_RULE') return { classification: 'implemented', detail: `DENY (no matching rule): ${message}` };
     // The engine refusing an unknown/unsupported method is the unimplemented
     // set, not a malformed probe.
     if (code === 'EVALUATION_ERROR' && /unknown|unsupported|not supported/i.test(message)) {

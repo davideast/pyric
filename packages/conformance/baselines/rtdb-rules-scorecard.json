@@ -125,6 +125,7 @@
         "r21-validate-on-delete",
         "r22-strict-equality-types",
         "r23-validate-sibling-scope",
+        "r24-deny-without-rule",
         "r3-data-exists",
         "r4-validate-structure",
         "r5-cascade-root-grant",
@@ -198,6 +199,7 @@
         "r21-validate-on-delete",
         "r22-strict-equality-types",
         "r23-validate-sibling-scope",
+        "r24-deny-without-rule",
         "r4-validate-structure",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -256,6 +258,7 @@
         "r20-priority-values",
         "r22-strict-equality-types",
         "r23-validate-sibling-scope",
+        "r24-deny-without-rule",
         "r8-combined-check",
         "r9-quota-arithmetic"
       ],
@@ -275,6 +278,7 @@
         "r18-child-dot-segments",
         "r20-priority-values",
         "r23-validate-sibling-scope",
+        "r24-deny-without-rule",
         "r8-combined-check"
       ],
       "verifiedByRows": [
@@ -363,6 +367,7 @@
         "r12-server-time-and-token",
         "r21-validate-on-delete",
         "r23-validate-sibling-scope",
+        "r24-deny-without-rule",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -565,6 +570,7 @@
         "r21-validate-on-delete",
         "r22-strict-equality-types",
         "r23-validate-sibling-scope",
+        "r24-deny-without-rule",
         "r3-data-exists",
         "r4-validate-structure",
         "r5-cascade-root-grant",
@@ -582,6 +588,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "r24-deny-without-rule",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -701,6 +708,7 @@
         "r17-validate-runtime-error",
         "r20-priority-values",
         "r22-strict-equality-types",
+        "r24-deny-without-rule",
         "r7-pathvar-binding",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -807,6 +815,7 @@
         "r2-own-uid",
         "r20-priority-values",
         "r22-strict-equality-types",
+        "r24-deny-without-rule",
         "r3-data-exists",
         "r4-validate-structure",
         "r5-cascade-root-grant",
@@ -841,6 +850,7 @@
         "r21-validate-on-delete",
         "r22-strict-equality-types",
         "r23-validate-sibling-scope",
+        "r24-deny-without-rule",
         "r3-data-exists",
         "r4-validate-structure",
         "r5-cascade-root-grant",
@@ -872,6 +882,7 @@
         "r21-validate-on-delete",
         "r22-strict-equality-types",
         "r23-validate-sibling-scope",
+        "r24-deny-without-rule",
         "r4-validate-structure",
         "r9-quota-arithmetic"
       ],
@@ -907,6 +918,7 @@
         "r21-validate-on-delete",
         "r22-strict-equality-types",
         "r23-validate-sibling-scope",
+        "r24-deny-without-rule",
         "r7-pathvar-binding"
       ],
       "verifiedByRows": [

@@ -8004,8 +8004,7 @@ const probes: Probe[] = [
       for (const r of testRules) {
         // The simulator descends from root. Build a rules JSON where
         // the root has deny-all and ALL rule subtrees are mounted by
-        // id at the top level. (This avoids `NO_MATCHING_RULE`
-        // surprises if the root lacks any rule for the operation.)
+        // id at the top level.
         const simRulesJson = {
           rules: {
             '.read': false,
@@ -8141,9 +8140,8 @@ const probes: Probe[] = [
               simReason = simRes.data.reason ?? null;
             } else {
               simErrorCode = simRes.error.code;
-              // Treat NO_MATCHING_RULE / RULES_NOT_COMPILED as "deny
-              // by default" for comparison purposes — but capture
-              // the actual code so we can see it in the observation.
+              // An engine error counts as a denial for comparison, and
+              // its code is recorded in the observation.
               simAllowed = false;
             }
           }

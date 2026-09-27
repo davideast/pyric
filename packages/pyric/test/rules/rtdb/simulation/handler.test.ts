@@ -1285,3 +1285,79 @@ describe('SimulateHandler .validate scope: the nodes a write carries', () => {
     expect(write('/rooms/r1/count', 3, { rooms: { r1: { count: 1 } } }).allowed).toBe(false);
   });
 });
+
+describe('SimulateHandler denial when no .read or .write rule grants', () => {
+  const handler = new SimulateHandler();
+  const alice = { uid: 'alice', token: {} };
+  const rules = compileRtdbRules({
+    rules: {
+      '.read': false,
+      '.write': false,
+      rooms: {
+        $id: {
+          '.read': 'auth != null',
+          '.write': "auth != null && newData.child('n').val() < 10",
+          n: { '.validate': 'newData.isNumber()' },
+        },
+      },
+      reports: { $id: { '.read': 'auth != null' } },
+    },
+  });
+
+  function run(compiled: RtdbNode, operation: 'read' | 'write', path: string, newData?: unknown) {
+    const result = handler.execute(compiled, { operation, path, auth: alice, mockData: {}, newData });
+    if (!result.success) throw new Error(`${result.error.code}: ${result.error.message}`);
+    return result.data;
+  }
+
+  test('a write under a node with only .validate is denied by the ancestor .write that evaluated false', () => {
+    const data = run(rules, 'write', '/rooms/r1/n', 50);
+    expect(data.allowed).toBe(false);
+    expect(data.unsupported).toBeUndefined();
+    expect(data.matchedPath).toBe('/rooms/$id');
+    expect(data.matchedRule).toBe("auth != null && newData.child('n').val() < 10");
+    expect(data.pathVariableBindings).toEqual({ $id: 'r1' });
+    expect(data.reason).toContain("No 'write' rule grants");
+  });
+
+  test('a write under a node with only .read is denied by the root .write', () => {
+    const data = run(rules, 'write', '/reports/x', 1);
+    expect(data.allowed).toBe(false);
+    expect(data.matchedPath).toBe('/');
+    expect(data.matchedRule).toBe('false');
+  });
+
+  test('a read of a node with only children is denied by the root .read', () => {
+    const data = run(rules, 'read', '/rooms');
+    expect(data.allowed).toBe(false);
+    expect(data.matchedPath).toBe('/');
+    expect(data.matchedRule).toBe('false');
+    expect(data.reason).toContain("No 'read' rule grants");
+  });
+
+  test('a path below every rules node is denied by the deepest rule on it', () => {
+    const data = run(rules, 'write', '/elsewhere', 1);
+    expect(data.allowed).toBe(false);
+    expect(data.matchedPath).toBe('/');
+    expect(data.matchedRule).toBe('false');
+  });
+
+  test('with no rule of the kind on the path, the request is denied by default', () => {
+    const readOnly = compileRtdbRules({ rules: { rooms: { $id: { '.read': true, n: { '.validate': 'newData.isNumber()' } } } } });
+    const data = run(readOnly, 'write', '/rooms/r1/n', 5);
+    expect(data.allowed).toBe(false);
+    expect(data.unsupported).toBeUndefined();
+    expect(data.matchedPath).toBe('');
+    expect(data.matchedRule).toBe('');
+    expect(data.reason).toContain("No 'write' rule on '/rooms/r1/n' or its ancestors");
+    expect(run(compileRtdbRules({ rules: {} }), 'read', '/a').allowed).toBe(false);
+  });
+
+  test('an unparseable ancestor rule with no grant stays unsupported', () => {
+    const gap = compileRtdbRules({ rules: { rooms: { '.write': 'auth.uid.nope(', n: { '.validate': 'newData.isNumber()' } } } });
+    const data = run(gap, 'write', '/rooms/n', 5);
+    expect(data.allowed).toBe(false);
+    expect(data.unsupported).toBe(true);
+    expect(data.matchedPath).toBe('/rooms');
+  });
+});

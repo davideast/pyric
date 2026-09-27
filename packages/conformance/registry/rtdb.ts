@@ -472,15 +472,18 @@ export const rtdbRegistry = {
         }),
         row2({
           rowRef: "68",
-          behavior: "When no ancestor rule allows, the result is `{ allowed: false }` with `matchedPath` set to the deepest matched node",
+          behavior: "When no `.read`/`.write` rule on the path allows, the result is `{ allowed: false }` with `matchedPath` and `matchedRule` naming the deepest node that carries a rule of the operation's kind, which is an ancestor when the deepest rules node on the path has only children, only a `.validate`, or only the other operation's rule",
           status: "conforms",
-          evidence: "`unit:simulation/handler.test.ts`",
+          evidence: "`unit:simulation/handler.test.ts`; `unit:simulate-sandbox-agreement.test.ts` checks that `simulate` and the sandbox return the same verdict for each such request; `oracle:rules-rtdb-r24-deny-without-rule` records the production denials",
           automation: "unit-backed",
-          conformanceTests: ["packages/pyric/test/rules/rtdb/simulation/handler.test.ts"],
+          conformanceTests: [
+            "packages/pyric/test/rules/rtdb/simulation/handler.test.ts",
+            "packages/pyric/test/rules/rtdb/simulate-sandbox-agreement.test.ts",
+          ],
         }),
         row2({
           rowRef: "69",
-          behavior: "When NO ancestor has a rule for the operation at all, returns `{ success: false, error: { code: 'NO_MATCHING_RULE' } }`",
+          behavior: "When no node on the path carries a rule for the operation, the result is `{ allowed: false }` with empty `matchedPath` and `matchedRule` and a reason stating that no rule grants access: the request is denied by default",
           status: "conforms",
           evidence: "`unit:simulation/handler.test.ts`",
           automation: "unit-backed",

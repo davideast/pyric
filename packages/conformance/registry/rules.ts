@@ -1059,15 +1059,20 @@ export const rulesRegistry = {
         row3({
           rowRef: "6",
           featureKeys: ["denyByDefault"],
-          behavior: "Literal `.read`/`.write: false` — the deny-all baseline denies every op, authed or anonymous, read or write",
-          evidence: "`oracle:rules-rtdb-r6-deny-everything` — production verdicts captured by deploy-observe-restore, replayed verdict-for-verdict; all 3 cases DENY in production and in the simulator.",
-          oracleObservations: ["rules-rtdb-r6-deny-everything"],
+          behavior: "Literal `.read`/`.write: false`: the deny-all baseline denies every op, authed or anonymous, read or write, and a request no `.read` or `.write` rule on its path grants is denied, including where the deepest rules node on the path has only children, only a `.validate`, or only the other operation's rule",
+          evidence: "`oracle:rules-rtdb-r6-deny-everything`: production verdicts captured by deploy-observe-restore, replayed verdict-for-verdict; all 3 cases DENY in production and in the simulator. `oracle:rules-rtdb-r24-deny-without-rule` (captured 2026-09-27) deploys a subtree whose root `.read` and `.write` are false: production denies a write under a node with only a `.validate` when the room `.write` is false, a write under a node with only a `.read`, and a read and a write of a node with only children, and allows the room-granted write and reads. All 7 cases match production, and `simulate` reports each denial as DENY naming the deepest `.read` or `.write` rule on the path, the verdict the sandbox returns for the same request.",
+          oracleObservations: ["rules-rtdb-r6-deny-everything", "rules-rtdb-r24-deny-without-rule"],
+          conformanceTests: [
+            "packages/pyric/test/rules/rtdb/rules-conformance.test.ts",
+            "packages/pyric/test/rules/rtdb/simulation/handler.test.ts",
+            "packages/pyric/test/rules/rtdb/simulate-sandbox-agreement.test.ts",
+          ],
         }),
         row3({
           rowRef: "7",
           featureKeys: ["pathVariables"],
           behavior: "Nested path variable in an expression (`$sessionId === auth.uid`) — the matching session allows, a mismatched session denies, and an unmatched anonymous op denies with no matching rule",
-          evidence: "`oracle:rules-rtdb-r7-pathvar-binding` — production verdicts captured by deploy-observe-restore, replayed verdict-for-verdict; all 4 cases match. The simulator binds the nested variable identically and returns NO_MATCHING_RULE (read as deny) where production denies for want of a rule.",
+          evidence: "`oracle:rules-rtdb-r7-pathvar-binding`: production verdicts captured by deploy-observe-restore, replayed verdict-for-verdict; all 4 cases match. The simulator binds the nested variable identically and denies the anonymous read of `sessions`, a node with only children and no ancestor `.read` that grants, as production does.",
           oracleObservations: ["rules-rtdb-r7-pathvar-binding"],
         }),
         row3({
