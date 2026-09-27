@@ -11,6 +11,12 @@ export interface RulesFilesWatch {
   close(): void;
 }
 
+/** The file-system calls a missing-file watch makes, replaceable in tests. */
+export interface WatchFileSystem {
+  watch(path: string, listener: (event: string, name: string | Buffer | null) => void): FSWatcher;
+  existsSync(path: string): boolean;
+}
+
 function isMissing(error: unknown): boolean {
   return (error as NodeJS.ErrnoException | null)?.code === 'ENOENT';
 }
@@ -21,7 +27,7 @@ function isMissing(error: unknown): boolean {
  * the watch moves down to it, and `listener` fires when the file itself
  * appears. From then on the file is watched directly.
  */
-const watchFileOrWhenCreated: WatchFile = (file, listener) => {
+export const watchFileOrWhenCreatedWith = (fileSystem: WatchFileSystem): WatchFile => (file, listener) => {
   const events = new EventEmitter();
   let current: FSWatcher | null = null;
   let closed = false;
@@ -34,12 +40,17 @@ const watchFileOrWhenCreated: WatchFile = (file, listener) => {
       const next = target === file ? null : descendantOf(target);
       try {
         current = next === null
-          ? watch(file, listener)
-          : watch(target, (_event, name) => {
+          ? fileSystem.watch(file, listener)
+          : fileSystem.watch(target, (_event, name) => {
             const isNext = name !== null && String(name) === basename(next);
-            if (!isNext || !existsSync(next) || closed) return;
-            attach();
-            if (next === file) listener();
+            if (!isNext || !fileSystem.existsSync(next) || closed) return;
+            // Move the watch after this callback returns: attach() closes the
+            // watcher that is delivering this event.
+            setImmediate(() => {
+              if (closed) return;
+              attach();
+              if (next === file) listener();
+            });
           });
         break;
       } catch (error) {
@@ -72,6 +83,8 @@ const watchFileOrWhenCreated: WatchFile = (file, listener) => {
   };
   return handle as unknown as Pick<FSWatcher, 'close' | 'on'>;
 };
+
+const watchFileOrWhenCreated = watchFileOrWhenCreatedWith({ watch, existsSync });
 
 /**
  * Watch a set of rules files that can change as the rules change: the rules
