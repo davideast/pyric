@@ -49,7 +49,7 @@ export function firestoreDocumentName(projectId: string, database: string, runId
 }
 
 export async function storageConfig(
-  sa: ServiceAccount,
+  sa: Pick<ServiceAccount, 'project_id'>,
   headers: AccessHeaders,
 ): Promise<{ projectId: string; storageBucket: string }> {
   return jsonRequest(

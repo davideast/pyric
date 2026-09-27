@@ -3,6 +3,7 @@ import { RequestBudget } from '../../src/storage-stdlib-real-budget.ts';
 import {
   deleteStorageObjects,
   firebaseStorageMetadata,
+  firebaseStorageMetadataUpdate,
   firebaseStorageUpload,
   storageDecision,
 } from '../../src/storage-stdlib-real-objects.ts';
@@ -59,6 +60,21 @@ describe('storage stdlib real object support', () => {
       'Content-Type': 'multipart/related; boundary=pyric-storage-probe',
       'X-Goog-Upload-Protocol': 'multipart',
     });
+  });
+
+  test('client writes send the resource fields a probe sets', async () => {
+    const budget = new RequestBudget({ storage: 2, firestoreWrite: 0, rules: 0, iam: 0 });
+    const bodies: string[] = [];
+    const request = async (_input: string | URL | Request, init?: RequestInit) => {
+      bodies.push(init?.body instanceof Blob ? await init.body.text() : String(init?.body));
+      return new Response('{}');
+    };
+    await firebaseStorageUpload('bucket', 'run/a.bin', new Uint8Array([1]), budget, request, {
+      contentType: 'text/plain', contentLanguage: 'en', metadata: { probe: 'value' },
+    });
+    await firebaseStorageMetadataUpdate('bucket', 'run/a.bin', { probe: 'value' }, budget, request, { contentDisposition: 'inline' });
+    expect(bodies[0]).toContain('{"name":"run/a.bin","contentType":"text/plain","contentLanguage":"en","metadata":{"probe":"value"}}');
+    expect(JSON.parse(bodies[1]!)).toEqual({ contentDisposition: 'inline', metadata: { probe: 'value' } });
   });
 
   test('retries failed deletes while continuing through later objects and final verification', async () => {

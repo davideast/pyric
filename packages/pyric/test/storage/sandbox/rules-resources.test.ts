@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'bun:test';
 import { parseStorageRules } from '../../../src/storage/sandbox/rules.js';
 import { evaluateStorageRules } from '../../../src/storage/sandbox/rules-evaluator.js';
+import { requestResourceFor, resourceFromStored } from '../../../src/storage/sandbox/rules-resources.js';
 
 const METADATA_RULES = `
 service firebase.storage {
@@ -189,5 +190,140 @@ service firebase.storage {
     });
     expect(result.allowed).toBe(false);
     expect(result.reasons.join(' ')).toMatch(/Null value error/);
+  });
+});
+
+describe('request.resource carries the fields production builds for a write', () => {
+  const stored = {
+    fullPath: 'users/alice/a.txt',
+    name: 'a.txt',
+    bucket: 'pyric-default',
+    size: 2,
+    contentType: 'text/plain',
+    generation: '1700000000000000',
+    metageneration: '3',
+    timeCreated: '2025-03-01T00:00:00.000Z',
+    updated: '2025-03-02T00:00:00.000Z',
+  };
+
+  it('an upload carries identity, settable fields with upload defaults, and null version fields', () => {
+    expect(requestResourceFor(stored, 'upload')).toEqual({
+      name: 'users/alice/a.txt',
+      bucket: 'pyric-default',
+      size: 2,
+      contentType: 'text/plain',
+      contentDisposition: "inline; filename*=utf-8''a.txt",
+      contentEncoding: 'identity',
+      contentLanguage: null,
+      cacheControl: null,
+      metadata: null,
+      generation: null,
+      metageneration: null,
+      etag: null,
+    });
+  });
+
+  it('an upload keeps the settable fields the client sets', () => {
+    const resource = requestResourceFor({
+      ...stored,
+      contentDisposition: 'attachment',
+      contentEncoding: 'gzip',
+      contentLanguage: 'en',
+      cacheControl: 'no-cache',
+      customMetadata: { owner: 'alice' },
+    }, 'upload');
+    expect(resource).toMatchObject({
+      contentDisposition: 'attachment',
+      contentEncoding: 'gzip',
+      contentLanguage: 'en',
+      cacheControl: 'no-cache',
+      metadata: { owner: 'alice' },
+    });
+  });
+
+  it('a metadata update carries the stored generation and metageneration and null for unset settable fields', () => {
+    expect(requestResourceFor(stored, 'metadataUpdate')).toEqual({
+      name: 'users/alice/a.txt',
+      bucket: 'pyric-default',
+      size: 2,
+      contentType: 'text/plain',
+      contentDisposition: null,
+      contentEncoding: null,
+      contentLanguage: null,
+      cacheControl: null,
+      metadata: null,
+      generation: 1700000000000000,
+      metageneration: 3,
+    });
+  });
+
+  it('neither write carries timeCreated or updated', () => {
+    for (const write of ['upload', 'metadataUpdate'] as const) {
+      const resource = requestResourceFor(stored, write);
+      expect(Object.hasOwn(resource, 'timeCreated')).toBe(false);
+      expect(Object.hasOwn(resource, 'updated')).toBe(false);
+    }
+  });
+
+  const rules = parseStorageRules(`rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{uid}/{file} {
+      allow create: if request.resource.name == 'users/alice/a.txt'
+        && request.resource.name.split('/')[1] == request.auth.uid
+        && request.resource.bucket == bucket
+        && request.resource.generation == null
+        && request.resource.metadata == null;
+      allow update: if request.resource.name == resource.name
+        && request.resource.bucket == resource.bucket
+        && request.resource.generation == resource.generation
+        && request.resource.metageneration == resource.metageneration;
+    }
+    match /times/{file} {
+      allow create, update: if request.resource.timeCreated != request.time;
+    }
+  }
+}`);
+
+  it('a create rule reads request.resource.name and .bucket', () => {
+    const result = evaluateStorageRules(rules, {
+      request: {
+        auth: { uid: 'alice' }, method: 'create', path: '/b/pyric-default/o/users/alice/a.txt',
+        resource: requestResourceFor(stored, 'upload'),
+      },
+      resource: null,
+    });
+    expect(result.reasons).toEqual([]);
+    expect(result.allowed).toBe(true);
+  });
+
+  it('a metadata update rule compares request.resource identity and versions with resource', () => {
+    const result = evaluateStorageRules(rules, {
+      request: {
+        auth: { uid: 'alice' }, method: 'update', path: '/b/pyric-default/o/users/alice/a.txt',
+        resource: requestResourceFor(stored, 'metadataUpdate'),
+      },
+      resource: resourceFromStored(stored),
+    });
+    expect(result.reasons).toEqual([]);
+    expect(result.allowed).toBe(true);
+  });
+
+  it('reading request.resource.timeCreated errors and denies, even under negation', () => {
+    const timed = { ...stored, fullPath: 'times/t.txt' };
+    for (const [method, write, existing] of [
+      ['create', 'upload', null],
+      ['update', 'metadataUpdate', resourceFromStored(timed)],
+    ] as const) {
+      const result = evaluateStorageRules(rules, {
+        request: {
+          auth: { uid: 'alice' }, method, path: '/b/pyric-default/o/times/t.txt',
+          resource: requestResourceFor(timed, write),
+        },
+        resource: existing,
+      });
+      expect(result.allowed).toBe(false);
+      expect(result.reasons.join(' ')).toMatch(/Property timeCreated is undefined/);
+    }
   });
 });

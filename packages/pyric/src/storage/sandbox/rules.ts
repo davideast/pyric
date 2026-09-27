@@ -67,6 +67,11 @@
  *     are sourced from the persisted object record (see `resourceFromStored`),
  *     which already carries every one of them. There is no `resource.timeUpdated`
  *     in the language; the update-time field is `updated`.
+ *   - The fields of `request.resource` that production builds for a write:
+ *     `name`, `bucket`, `size`, the settable content fields, `metadata`,
+ *     `generation`, `metageneration`, and `etag` on an upload (see
+ *     {@link StorageRequestResource} and `requestResourceFor`). It carries no
+ *     `timeCreated` or `updated`.
  *
  * ERROR SEMANTICS (live-probed against the production Rules Test API — see
  * `RuleError`): reading a property that is ABSENT, or dereferencing a null,
@@ -74,8 +79,9 @@
  * it as a plain `undefined` would false-allow `resource.name != 'x'` on an
  * object with no `name`; production denies it.
  *
- * Still out of scope: the content-hash fields (`md5Hash`, `crc32c`, `etag`) and
- * the remaining content-* fields. Unknown builtins deny with a reason rather
+ * Still out of scope: `md5Hash` and `crc32c` on both bindings, `etag` except
+ * the upload's `null`, `storageClass` on `request.resource`, and the content-*
+ * fields on `resource`. Unknown builtins deny with a reason rather
  * than false-allow. Hooks for adding more live at the obvious extension seams in
  * the parser + evaluator.
  */
@@ -156,7 +162,40 @@ export interface StorageRequest {
   /** Per-Firebase: on writes, `request.resource` describes the
    *  about-to-write object. Omit for reads (the rules language
    *  treats `request.resource` as unset there). */
-  resource?: { size: number; contentType?: string; metadata?: Record<string, string> };
+  resource?: StorageRequestResource;
+}
+
+/**
+ * The `request.resource` binding: the object a write would store.
+ *
+ * Production builds it without `timeCreated` or `updated`, so reading either
+ * is an absent-property error that denies. `name` and `bucket` carry the same
+ * object-name semantics as {@link StorageResource}. A settable field the
+ * object does not carry is `null`, not absent. On an upload `generation`,
+ * `metageneration`, and `etag` are `null`; on a metadata update
+ * `generation` and `metageneration` are the stored object's values, with
+ * `metageneration` not yet advanced. Only `size` is required so a caller can
+ * build the binding for a rules check that reads nothing else.
+ *
+ * Production also carries `md5Hash` and `crc32c` on every write, `etag` and
+ * `storageClass` on a metadata update, and `storageClass` (`null`) on an
+ * upload. The sandbox does not model them, so they stay absent here and a
+ * rule that reads one denies.
+ */
+export interface StorageRequestResource {
+  size: number;
+  contentType?: string;
+  metadata?: Record<string, string> | null;
+  /** Full object path within the bucket, e.g. `uploads/pic.png`. */
+  name?: string;
+  bucket?: string;
+  contentDisposition?: string | null;
+  contentEncoding?: string | null;
+  contentLanguage?: string | null;
+  cacheControl?: string | null;
+  generation?: number | null;
+  metageneration?: number | null;
+  etag?: null;
 }
 
 /**

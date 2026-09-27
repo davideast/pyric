@@ -242,6 +242,26 @@ describe('storage worker ops — chunked transfer protocol (ADR 0015)', () => {
     expect(denied.code).toBe('storage/unauthorized');
   });
 
+  it('evaluates beginUpload rules against the object name and bucket on request.resource', async () => {
+    const ctx = makeCtx(`rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /named/{file} {
+      allow write: if request.resource.name == 'named/a.dat'
+        && request.resource.bucket == bucket
+        && request.resource.generation == null;
+    }
+  }
+}`);
+    const allowed = (await opOk(ctx, {
+      method: 'storage.beginUpload',
+      path: 'named/a.dat',
+      size: 4,
+      contentType: 'application/octet-stream',
+    })) as { uploadId: string };
+    expect(allowed.uploadId).toBeDefined();
+  });
+
   it('rejects beginUpload exceeding MAX_STORAGE_OBJECT_BYTES (512 MiB) with storage/quota-exceeded', async () => {
     const ctx = makeCtx();
     const overLimit = MAX_STORAGE_OBJECT_BYTES + 1;

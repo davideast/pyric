@@ -78,11 +78,7 @@ export async function uploadBytes(
       // makes the distinction the granular verbs need.
       method: existing ? 'update' : 'create',
       path: ref.fullPath,
-      resource: requestResourceFor({
-        size: stored.size,
-        contentType: stored.contentType,
-        customMetadata: stored.customMetadata,
-      }),
+      resource: requestResourceFor(stored, 'upload'),
     },
     resource: resourceFromStored(existing),
   }, target, operationProvenance);
@@ -145,10 +141,8 @@ export async function uploadString(
  * blob. Server-set fields are populated here in one place so
  * Slice 6's `getMetadata` reads a consistent shape.
  *
- * Exported for the rare cases where Slice 8's rule pre-check needs
- * to materialize the about-to-write metadata to feed into the
- * evaluator (specifically `request.resource.size` /
- * `.contentType`).
+ * The rules check builds `request.resource` from this record before
+ * the write lands.
  */
 export function buildStoredMetadata(args: {
   ref: StorageReference;

@@ -34,7 +34,7 @@ export function selectRulesFile(ruleset: Ruleset): RulesFile {
 }
 
 export async function storageRulesSnapshot(
-  sa: ServiceAccount,
+  sa: Pick<ServiceAccount, 'project_id'>,
   bucket: string,
   headers: AccessHeaders,
   budget: RequestBudget,
@@ -52,7 +52,7 @@ export async function storageRulesSnapshot(
 }
 
 export async function preflightStorageSource(
-  sa: ServiceAccount,
+  sa: Pick<ServiceAccount, 'project_id'>,
   bucket: string,
   headers: AccessHeaders,
   budget: RequestBudget,
@@ -82,7 +82,7 @@ export async function preflightStorageSource(
 }
 
 export async function activateStorageSource(
-  sa: ServiceAccount,
+  sa: Pick<ServiceAccount, 'project_id'>,
   headers: AccessHeaders,
   budget: RequestBudget,
   snapshot: Awaited<ReturnType<typeof storageRulesSnapshot>>,

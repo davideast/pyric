@@ -40,10 +40,11 @@ export async function firebaseStorageUpload(
   payload: Uint8Array,
   budget: RequestBudget,
   request: FetchRequest = fetch,
+  resource: Record<string, unknown> = {},
 ): Promise<StorageDecision> {
   budget.take('storage');
   const boundary = 'pyric-storage-probe';
-  const metadata = JSON.stringify({ name: path, contentType: 'application/octet-stream' });
+  const metadata = JSON.stringify({ name: path, contentType: 'application/octet-stream', ...resource });
   const body = new Blob([
     `--${boundary}\r\nContent-Type: application/json; charset=utf-8\r\n\r\n${metadata}`,
     `\r\n--${boundary}\r\nContent-Type: application/octet-stream\r\n\r\n`,
@@ -91,12 +92,13 @@ export async function firebaseStorageMetadataUpdate(
   metadata: Record<string, string>,
   budget: RequestBudget,
   request: FetchRequest = fetch,
+  fields: Record<string, unknown> = {},
 ): Promise<StorageDecision> {
   budget.take('storage');
   try {
     const response = await request(
       `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucket)}/o/${encodeURIComponent(path)}`,
-      { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ metadata }) },
+      { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...fields, metadata }) },
     );
     return clientDecision(response);
   } catch (error) {
