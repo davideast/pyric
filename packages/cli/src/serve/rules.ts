@@ -149,6 +149,15 @@ export function prepareProjectRules(raw: string, sourcePath: string): PreparedRu
 }
 
 /**
+ * The Firestore rules file the project deploys: `firebase.json`'s
+ * `firestore.rules`, else `firestore.rules` in `cwd`. The file may not exist.
+ */
+export function firestoreRulesPath(cwd: string, config: FirebaseJson | null): string {
+  const rel = config?.firestore?.rules ?? 'firestore.rules';
+  return isAbsolute(rel) ? rel : join(cwd, rel);
+}
+
+/**
  * Load the project rules per `firebase.json` (`firestore.rules` path,
  * defaulting to `firestore.rules` in cwd when the key is absent but the file
  * exists). Missing file with no explicit config → `{ rules: null }` (serving
@@ -160,8 +169,7 @@ export async function loadProjectRules(
   config: FirebaseJson | null,
 ): Promise<LoadedRules> {
   const configured = config?.firestore?.rules;
-  const rel = configured ?? 'firestore.rules';
-  const path = isAbsolute(rel) ? rel : join(cwd, rel);
+  const path = firestoreRulesPath(cwd, config);
   let raw: string;
   try {
     raw = await readFile(path, 'utf8');
@@ -260,6 +268,23 @@ function hasConfiguredUrl(entry: Record<string, unknown>): entry is Record<strin
   return typeof entry.url === 'string';
 }
 
+/**
+ * The Realtime Database rules file the project deploys: the first
+ * `firebase.json` `database` entry with a `rules` path, else
+ * `database.rules.json` in `cwd`. The file may not exist.
+ */
+export function databaseRulesPath(cwd: string, config: FirebaseJson | null): string {
+  const rel = normalizeDatabaseEntries(config?.database).find(hasConfiguredRules)?.rules ?? 'database.rules.json';
+  return isAbsolute(rel) ? rel : join(cwd, rel);
+}
+
+/** The notice a dev server logs when the Realtime Database rules file it
+ *  loaded is deleted and RTDB returns to its default policy. */
+export function formatDatabaseRulesRemoved(path: string, policy: 'allow' | 'deny'): string {
+  const access = policy === 'allow' ? 'are open (permissive mode)' : 'default to DENY (matching production Firebase)';
+  return `rtdb rules removed: ${path} does not exist, client RTDB reads/writes ${access}`;
+}
+
 export async function loadProjectDatabaseRules(
   cwd: string,
   config: FirebaseJson | null,
@@ -267,8 +292,7 @@ export async function loadProjectDatabaseRules(
   const entries = normalizeDatabaseEntries(config?.database);
   const configuredEntry = entries.find(hasConfiguredRules);
   const configured = configuredEntry?.rules;
-  const rel = configured ?? 'database.rules.json';
-  const path = isAbsolute(rel) ? rel : join(cwd, rel);
+  const path = databaseRulesPath(cwd, config);
   const urlEntry = entries.find(hasConfiguredUrl);
   const databaseUrl = urlEntry?.url ?? null;
   let raw: string;

@@ -75,3 +75,28 @@ test('a watch moves to a new directory and to the new file after the callback th
   expect(closedDuringOwnCallback).toEqual([]);
   watch.close();
 });
+
+test('a watched file that is deleted is watched through its directory until it is created again', async () => {
+  const file = '/q/b.rules';
+  existing.add('/q');
+  existing.add(file);
+  const changed: string[] = [];
+  const watch = watchRulesFiles(() => [file], (f) => changed.push(f), (e) => { throw e; }, watchFileOrWhenCreatedWith(fileSystem));
+  const open = () => watchers.filter((w) => !w.closed && w.path.startsWith('/q')).map((w) => w.path);
+  expect(open()).toEqual([file]);
+
+  existing.delete(file);
+  fire(file, 'b.rules');
+  await tick();
+  expect(open()).toEqual(['/q']);
+  expect(changed).toEqual([file]);
+
+  existing.add(file);
+  fire('/q', 'b.rules');
+  await tick();
+  expect(open()).toEqual([file]);
+  expect(changed).toEqual([file, file]);
+
+  expect(closedDuringOwnCallback).toEqual([]);
+  watch.close();
+});

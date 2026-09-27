@@ -56,7 +56,8 @@ export interface BridgeMountOptions {
 }
 
 export interface BridgeMount {
-  deployHostedRules(service: 'firestore' | 'database', source: string): void;
+  /** A null database source clears the rules, so the default policy applies. */
+  deployHostedRules(service: 'firestore' | 'database', source: string | null): void;
   startHostedSandbox(payload: InitPayload, baseUrl: string | (() => string), ai?: HostedRuntimeOptions): Promise<void>;
   /** Stable per-process identity (mirrors `/__pyric/health`'s instanceId).
    *  The pointer writer records this so the proxy can verify it reached this

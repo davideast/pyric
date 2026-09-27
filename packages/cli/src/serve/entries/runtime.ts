@@ -607,14 +607,22 @@ if (!useWorker && typeof EventSource !== 'undefined') {
   });
   events.addEventListener('rtdb-rules-update', (e) => {
     try {
-      const { rules, rulesHash } = JSON.parse((e as MessageEvent).data as string) as {
-        rules: { rules: Record<string, unknown> };
-        rulesHash: string;
+      // Null rules mean the rules file was deleted: `policy` then governs
+      // every read and write, as it does when the page starts without rules.
+      const { rules, rulesHash, policy } = JSON.parse((e as MessageEvent).data as string) as {
+        rules: { rules: Record<string, unknown> } | null;
+        rulesHash: string | null;
+        policy?: 'allow' | 'deny';
       };
-      databaseRules.deploy(rules);
-      diagnostics.databaseRulesDeployed = true;
+      databaseRules.deploy(rules, policy ?? 'deny');
+      const isRemoved = rules === null;
+      diagnostics.databaseRulesDeployed = !isRemoved;
       diagnostics.databaseRulesHash = rulesHash ?? null;
-      console.info(`[pyric sandbox] database.rules.json hot-reloaded (hash ${rulesHash})`);
+      if (isRemoved) {
+        console.info(`[pyric sandbox] database.rules.json removed; RTDB reads/writes default to ${policy ?? 'deny'}`);
+      } else {
+        console.info(`[pyric sandbox] database.rules.json hot-reloaded (hash ${rulesHash})`);
+      }
     } catch (err) {
       runtimeStatus.reportError(err, 'runtime');
       console.error('[pyric sandbox] database rules hot-reload failed:', err instanceof Error ? err.message : String(err));

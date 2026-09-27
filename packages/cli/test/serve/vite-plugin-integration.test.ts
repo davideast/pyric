@@ -201,7 +201,7 @@ describe('integration — configureServer rules prelude + the /__pyric middlewar
     expect(response.writableEnded).toBe(true);
   });
 
-  it('reconfiguration and server close remove all Functions watcher listeners', async () => {
+  it('reconfiguration and server close remove all Functions and rules watcher listeners', async () => {
     tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-reconfigure-'));
     mkdirSync(path.join(tmp, 'functions'));
     writeFileSync(path.join(tmp, 'firebase.json'), JSON.stringify({ functions: { source: 'functions' } }));
@@ -227,10 +227,11 @@ describe('integration — configureServer rules prelude + the /__pyric middlewar
       return { watcher, httpServer, server };
     };
 
+    // The Functions watcher and the rules watcher each listen for all three.
     const first = await configure();
-    expect(first.watcher.listenerCount('change')).toBe(1);
-    expect(first.watcher.listenerCount('add')).toBe(1);
-    expect(first.watcher.listenerCount('unlink')).toBe(1);
+    expect(first.watcher.listenerCount('change')).toBe(2);
+    expect(first.watcher.listenerCount('add')).toBe(2);
+    expect(first.watcher.listenerCount('unlink')).toBe(2);
 
     const second = await configure();
     expect(first.watcher.listenerCount('change')).toBe(0);

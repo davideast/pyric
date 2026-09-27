@@ -18,8 +18,8 @@ type Middleware = (
 function harness(options: { functions?: boolean; rulesFile?: string | null; databaseRulesFile?: string | null } = {}) {
   const events: string[] = [];
   const warnings: string[] = [];
-  const watcher = new EventEmitter() as EventEmitter & { add(path: string): void };
-  watcher.add = (file) => { events.push(`watch:${file}`); };
+  const watcher = new EventEmitter() as EventEmitter & { add(path: string | readonly string[]): void };
+  watcher.add = (files) => { for (const file of [files].flat()) events.push(`watch:${file}`); };
   const httpServer = new EventEmitter() as EventEmitter & Pick<HttpServer, 'address'>;
   httpServer.address = () => ({ address: '127.0.0.1', family: 'IPv4', port: 5173 });
   let middleware: Middleware | null = null;
@@ -42,7 +42,8 @@ function harness(options: { functions?: boolean; rulesFile?: string | null; data
     handle: () => { handled += 1; return false; },
     reloadFirestoreRules: async () => ({ kind: 'not-configured' }),
     reloadDatabaseRules: async () => ({ kind: 'not-configured' }),
-    firestoreRulesFiles: () => (options.rulesFile ? [options.rulesFile] : []),
+    firestoreRulesFiles: () => [options.rulesFile ?? '/project/firestore.rules'],
+    databaseRulesFile: () => options.databaseRulesFile ?? '/project/database.rules.json',
     close: async () => { events.push('close:session'); },
   };
   const bridgeAttachment = { close: async () => { events.push('close:bridge-host'); } };
