@@ -4,8 +4,8 @@
  * (`auth != null && $sessionId === auth.uid`). The matching-session path
  * allows read and write; a mismatching session and an anonymous request deny.
  * Decomposed from ruleset `r7-pathvar-binding`; expectations are the recorded
- * production verdicts. The anonymous case denied in production with no matching
- * rule — the simulator likewise returns NO_MATCHING_RULE (treated as deny).
+ * production verdicts. The anonymous case denied in production with no granting
+ * rule, and the simulator denies it too.
  */
 import type { RtdbScenarioRecord } from './types.ts';
 

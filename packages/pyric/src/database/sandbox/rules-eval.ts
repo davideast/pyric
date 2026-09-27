@@ -328,16 +328,8 @@ export class RulesEvaluator {
       now: this.clock.now(),
     });
     if (!result.success) {
-      if (result.error.code === 'NO_MATCHING_RULE') {
-        return {
-          check: 'no-rule',
-          reasons: [result.error.message],
-          errorCode: result.error.code,
-          errorMessage: result.error.message,
-        };
-      }
-      // INVALID_INPUT / EVALUATION_ERROR — treat as
-      // no-rule (user-mode callers fold to deny).
+      // An engine error is reported as no-rule; user-mode callers fold it
+      // to deny.
       return {
         check: 'no-rule',
         reasons: [result.error.message],

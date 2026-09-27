@@ -490,29 +490,34 @@ export class SimulateHandler {
         };
       }
 
-      // Use the deepest match for the denial.
-      const deepest = ancestors[ancestors.length - 1];
-      const deepestRule = deepest.node[operation];
-
-      if (!deepestRule) {
+      // No rule on the path grants, so RTDB denies. The denial names the
+      // deepest node that carries a rule of this kind, which may be an
+      // ancestor of the deepest rules node on the path: that node can hold
+      // only children, a `.validate`, or the other operation's rule. With no
+      // rule of this kind anywhere on the path, the request is denied by
+      // default and no node is named.
+      const deciding = [...ancestors].reverse().find((a) => a.node[operation] !== undefined);
+      if (deciding === undefined) {
         return {
-          success: false,
-          error: {
-            code: 'NO_MATCHING_RULE',
-            message: `No '${operation}' rule found for path '${path}'`,
-            recoverable: true,
+          success: true,
+          data: {
+            allowed: false,
+            matchedPath: '',
+            matchedRule: '',
+            reason: `No '${operation}' rule on '${path}' or its ancestors grants access; denied by default`,
+            pathVariableBindings: ancestors[ancestors.length - 1].pathVariableBindings,
           },
         };
       }
-
+      const decidingRule = deciding.node[operation] as RtdbRuleExpression;
       return {
         success: true,
         data: {
           allowed: false,
-          matchedPath: deepest.node.path,
-          matchedRule: deepestRule.raw,
-          reason: 'Rule expression evaluated to false',
-          pathVariableBindings: deepest.pathVariableBindings,
+          matchedPath: deciding.node.path,
+          matchedRule: decidingRule.raw,
+          reason: `No '${operation}' rule grants access; the deepest, at '${deciding.node.path}', evaluated to false`,
+          pathVariableBindings: deciding.pathVariableBindings,
         },
       };
     } catch (e) {
