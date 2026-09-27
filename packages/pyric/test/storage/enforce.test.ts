@@ -6,6 +6,7 @@ import {
   getStorageSandbox, ref, uploadBytes, getBlob, deleteObject,
   getMetadata, updateMetadata,
 } from '../../src/storage/index.js';
+import { getAdminStorageSandbox } from '../../src/storage/internal.js';
 
 function uniqueDbName(label: string): string {
   return `pyric-storage-test-${label}-${Math.random().toString(36).slice(2, 10)}`;
@@ -261,14 +262,15 @@ describe('metadata-based authorization threads through real ops (#764)', () => {
 });
 
 describe('granular verbs thread through real ops (create vs update)', () => {
-  // Only `create` is granted: the first upload to a fresh path (a
-  // create) succeeds; a second upload over the now-existing object (an
-  // update) is denied. The caller classifies the op by object existence.
+  // Every upload is a `create`, whether or not an object exists at the path;
+  // `update` is a metadata update. On an upload over an existing object,
+  // `resource` is the stored object.
   const CREATE_ONLY = `
 service firebase.storage {
   match /b/{bucket}/o {
     match /files/{fileId} {
       allow create: if request.auth != null;
+      allow update: if false;
       allow read: if request.auth != null;
     }
   }
@@ -276,16 +278,55 @@ service firebase.storage {
 
   const path = 'files/f1.json';
 
-  it('allows the initial create but denies an overwrite update', async () => {
+  it('allows an upload over an existing object under a create-only grant', async () => {
     const sandbox = initializeSandbox({});
     const dbName = uniqueDbName('granular-create-only');
     const alice = getStorageSandbox(sandbox.withAuth({ uid: 'alice' }), { dbName, rules: CREATE_ONLY });
-    // First upload = create → allowed.
     await uploadBytes(ref(alice, path), new Blob(['{}']), { contentType: 'application/json' });
-    // Second upload over the existing object = update → denied.
+    const overwritten = await uploadBytes(ref(alice, path), new Blob(['{"v":2}']), { contentType: 'application/json' });
+    expect(overwritten.metadata.size).toBe(7);
+  });
+
+  it('denies an upload over an existing object under an update-only grant', async () => {
+    const sandbox = initializeSandbox({});
+    const dbName = uniqueDbName('granular-update-only');
+    const rules = `
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /files/{fileId} {
+      allow update: if true;
+    }
+  }
+}`;
+    const admin = getAdminStorageSandbox(sandbox, { dbName, rules });
+    const alice = getStorageSandbox(sandbox.withAuth({ uid: 'alice' }), { dbName, rules });
+    await uploadBytes(ref(admin, path), new Blob(['{}']), { contentType: 'application/json' });
     await expect(
       uploadBytes(ref(alice, path), new Blob(['{"v":2}']), { contentType: 'application/json' }),
     ).rejects.toThrow(/unauthorized/);
+  });
+
+  it('binds resource to the stored object and request.resource to the new one on an overwrite', async () => {
+    const sandbox = initializeSandbox({});
+    const dbName = uniqueDbName('granular-overwrite-sizes');
+    const alice = getStorageSandbox(sandbox.withAuth({ uid: 'alice' }), {
+      dbName,
+      rules: `
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /files/{fileId} {
+      allow create: if request.resource.size == 2
+        || (resource.size == 2 && request.resource.size == 5);
+    }
+  }
+}`,
+    });
+    const target = ref(alice, path);
+    await uploadBytes(target, new Blob(['hi']));
+    // Stored size 2, new size 5: allowed.
+    await uploadBytes(target, new Blob(['hello']));
+    // Stored size is now 5, so the same write is denied.
+    await expect(uploadBytes(target, new Blob(['hello']))).rejects.toThrow(/unauthorized/);
   });
 
   it('denies a delete when only create/read are granted', async () => {
@@ -587,5 +628,83 @@ service firebase.storage {
     const target = ref(alice, 'users/alice/a.txt');
     await uploadBytes(target, new Blob(['hi']), { contentType: 'text/plain' });
     await expect(updateMetadata(target, { customMetadata: { label: 'x' } })).rejects.toThrow(/unauthorized/);
+  });
+});
+
+describe('an upload stores the content fields a client reads back', () => {
+  const RULES = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{uid}/{file} {
+      allow read, create: if request.auth.uid == uid;
+      allow update: if request.auth.uid == uid && request.resource.contentEncoding == 'identity';
+    }
+    match /defaults/{file} {
+      allow read, create: if true;
+      allow update: if request.resource.contentDisposition == "inline; filename*=utf-8''" + file;
+    }
+  }
+}`;
+
+  function storages(label: string) {
+    const sandbox = initializeSandbox({});
+    const dbName = uniqueDbName(label);
+    return {
+      admin: getAdminStorageSandbox(sandbox, { dbName, rules: RULES }),
+      alice: getStorageSandbox(sandbox.withAuth({ uid: 'alice' }), { dbName, rules: RULES }),
+    };
+  }
+
+  it('defaults an unset contentDisposition and contentEncoding, and a metadata update sees them', async () => {
+    const { alice } = storages('content-defaults');
+    const target = ref(alice, 'users/alice/a.txt');
+    const uploaded = await uploadBytes(target, new Blob(['hi']), { contentType: 'text/plain' });
+    expect(uploaded.metadata.contentDisposition).toBe("inline; filename*=utf-8''a.txt");
+    expect(uploaded.metadata.contentEncoding).toBe('identity');
+    const stored = await getMetadata(target);
+    expect(stored.contentDisposition).toBe("inline; filename*=utf-8''a.txt");
+    expect(stored.contentEncoding).toBe('identity');
+    const updated = await updateMetadata(target, { customMetadata: { note: 'x' } });
+    expect(updated.customMetadata).toEqual({ note: 'x' });
+  });
+
+  it('percent-encodes the default filename outside the RFC 5987 attr-char set', async () => {
+    const { alice } = storages('content-defaults-encoded');
+    const target = ref(alice, "users/alice/naïve 'q' 1+1%;x.txt");
+    await uploadBytes(target, new Blob(['hi']), { contentType: 'text/plain' });
+    expect((await getMetadata(target)).contentDisposition)
+      .toBe("inline; filename*=utf-8''na%C3%AFve%20%27q%27%201+1%25%3Bx.txt");
+  });
+
+  it('keeps contentDisposition and contentEncoding an upload sets', async () => {
+    const { alice } = storages('content-explicit');
+    const target = ref(alice, 'users/alice/a.txt');
+    await uploadBytes(target, new Blob(['hi']), {
+      contentType: 'text/plain',
+      contentDisposition: 'attachment; filename="report.txt"',
+      contentEncoding: 'gzip',
+    });
+    const stored = await getMetadata(target);
+    expect(stored.contentDisposition).toBe('attachment; filename="report.txt"');
+    expect(stored.contentEncoding).toBe('gzip');
+    await expect(updateMetadata(target, { customMetadata: { note: 'x' } })).rejects.toThrow(/unauthorized/);
+  });
+
+  it('a metadata update of a client upload sees the stored default contentDisposition', async () => {
+    const { alice } = storages('content-defaults-update');
+    const target = ref(alice, 'defaults/b.txt');
+    await uploadBytes(target, new Blob(['hi']), { contentType: 'text/plain' });
+    const updated = await updateMetadata(target, { customMetadata: { note: 'x' } });
+    expect(updated.contentDisposition).toBe("inline; filename*=utf-8''b.txt");
+  });
+
+  it('an admin-plane write stores no contentDisposition, and a client still reads contentEncoding identity', async () => {
+    const { admin, alice } = storages('content-admin');
+    await uploadBytes(ref(admin, 'defaults/c.txt'), new Blob(['hi']), { contentType: 'text/plain' });
+    const stored = await getMetadata(ref(alice, 'defaults/c.txt'));
+    expect(stored.contentDisposition).toBeUndefined();
+    expect(stored.contentEncoding).toBe('identity');
+    await expect(updateMetadata(ref(alice, 'defaults/c.txt'), { customMetadata: { note: 'x' } }))
+      .rejects.toThrow(/unauthorized/);
   });
 });

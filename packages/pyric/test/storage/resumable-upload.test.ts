@@ -204,4 +204,29 @@ describe('getDownloadURL and resumable uploads', () => {
     // Only the immediate initial snapshot event fired upon registration; subsequent events were silenced
     expect(callbackCount).toBe(1);
   });
+
+  it('evaluates a resumable upload over an existing object as create and stores the content defaults', async () => {
+    const sandbox = initializeSandbox({});
+    const storage = getStorageSandbox(sandbox, {
+      dbName: uniqueDbName('resumable-overwrite'),
+      rules: `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{file} {
+      allow read, create: if true;
+      allow update: if false;
+    }
+  }
+}`,
+    });
+    const fileRef = ref(storage, 'clip.txt');
+    await uploadBytesResumable(fileRef, new Blob(['one']));
+    const task = uploadBytesResumable(fileRef, new Blob(['two!']));
+    expect(task.snapshot.metadata?.contentDisposition).toBe("inline; filename*=utf-8''clip.txt");
+    const done = await task;
+    expect(done.metadata?.size).toBe(4);
+    const stored = await getMetadata(fileRef);
+    expect(stored.contentDisposition).toBe("inline; filename*=utf-8''clip.txt");
+    expect(stored.contentEncoding).toBe('identity');
+  });
 });

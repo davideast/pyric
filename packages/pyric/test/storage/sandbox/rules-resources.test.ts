@@ -241,14 +241,14 @@ describe('request.resource carries the fields production builds for a write', ()
     });
   });
 
-  it('a metadata update carries the stored generation and metageneration and null for unset settable fields', () => {
+  it('a metadata update carries the stored versions, identity for an unset contentEncoding, and null for other unset settable fields', () => {
     expect(requestResourceFor(stored, 'metadataUpdate')).toEqual({
       name: 'users/alice/a.txt',
       bucket: 'pyric-default',
       size: 2,
       contentType: 'text/plain',
       contentDisposition: null,
-      contentEncoding: null,
+      contentEncoding: 'identity',
       contentLanguage: null,
       cacheControl: null,
       metadata: null,

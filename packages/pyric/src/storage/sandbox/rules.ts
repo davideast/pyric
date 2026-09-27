@@ -114,10 +114,11 @@ export type StorageMethod = 'read' | 'write';
  *  exactly one of these:
  *    download / getMetadata      → get
  *    list                        → list
- *    upload to NONEXISTENT path  → create
- *    upload / updateMetadata over
- *      an EXISTING object        → update
+ *    upload, whether or not an
+ *      object exists at the path → create
+ *    updateMetadata              → update
  *    delete                      → delete
+ *  On an upload over an existing object, `resource` is the stored object.
  */
 export type StorageVerb = 'get' | 'list' | 'create' | 'update' | 'delete';
 

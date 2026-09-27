@@ -405,7 +405,9 @@ export async function handleStorageOp(
         enforceRules(service, {
           request: {
             auth: storageAuth(target),
-            method: existing ? 'update' : 'create',
+            // An upload is a `create` whether or not an object exists; `resource`
+            // is the stored object when one does.
+            method: 'create',
             path: r.fullPath,
             resource: requestResourceFor({
               ...settable,

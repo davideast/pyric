@@ -144,7 +144,58 @@ export const OVERWRITE_PROBES: Probe[] = [
   { id: 'verb-create', verb: 'create', condition: () => 'true' },
   { id: 'verb-update', verb: 'update', condition: () => 'true' },
   { id: 'resource-existing', condition: () => 'resource.size == 5' },
+  { id: 'create-stored-and-new-size', verb: 'create', condition: () => 'resource.size == 5 && request.resource.size == 6' },
 ];
+
+/**
+ * A client upload whose stored object is read back through the GCS JSON API,
+ * to record which content fields production stores when the upload sets them
+ * and when it leaves them unset. `file` is the last path segment.
+ */
+export interface StoredUpload { id: string; file: string; fields: Record<string, unknown> }
+
+export const STORED_UPLOADS: StoredUpload[] = [
+  { id: 'unset-plain-name', file: 'plain.txt', fields: { contentType: 'text/plain' } },
+  { id: 'unset-encoded-name', file: "naïve 'q' 1+1%;x.txt", fields: { contentType: 'text/plain' } },
+  {
+    id: 'explicit',
+    file: 'explicit.txt',
+    fields: { contentType: 'text/plain', contentDisposition: 'attachment; filename="report.txt"', contentEncoding: 'gzip' },
+  },
+];
+
+/** Object path of a stored-upload capture under `prefix`. */
+export function storedUploadPath(prefix: string, upload: StoredUpload): string {
+  return `${prefix}/stored/${upload.file}`;
+}
+
+/** Object path of the object the capture seeds through the GCS JSON API and reads back. */
+export function storedSeedPath(prefix: string): string {
+  return `${prefix}/stored-seed/seed.bin`;
+}
+
+/**
+ * How the object a stored-update probe updates was written: a client upload
+ * that sets only contentType, or the GCS JSON API.
+ */
+export type StoredUpdateSeed = 'client' | 'gcs';
+export const STORED_UPDATE_SEEDS: readonly StoredUpdateSeed[] = ['client', 'gcs'];
+
+/** A metadata update that sets only custom metadata, over an object seeded one of the two ways. */
+export const STORED_UPDATE_PROBES: Probe[] = [
+  { id: 'encoding-identity', condition: () => "request.resource.contentEncoding == 'identity'" },
+  { id: 'encoding-null', condition: () => 'request.resource.contentEncoding == null' },
+  {
+    id: 'disposition-default',
+    condition: (name) => `request.resource.contentDisposition == ${JSON.stringify(`inline; filename*=utf-8''${name.split('/').pop()}`)}`,
+  },
+  { id: 'disposition-null', condition: () => 'request.resource.contentDisposition == null' },
+];
+
+/** Object path of a stored-update probe under `prefix`. */
+export function storedUpdatePath(prefix: string, seed: StoredUpdateSeed, id: string): string {
+  return `${prefix}/stored-update/${seed}/${id}.txt`;
+}
 
 export type ProbeGroup = 'create' | 'update' | 'overwrite';
 
@@ -192,6 +243,14 @@ export function probeWrite(group: ProbeGroup, id: string): ProbeWrite {
 export function requestResourceRules(prefix: string): string {
   const lines = [`\n    // @pyric/storage-request-resource-fields/${prefix}`];
   lines.push(`    match /${prefix}/canary.bin { allow create: if true; }`);
+  lines.push(`    match /${prefix}/stored/{file} { allow create, get: if true; }`);
+  lines.push(`    match /${prefix}/stored-seed/{file} { allow get: if true; }`);
+  for (const seed of STORED_UPDATE_SEEDS) {
+    for (const probe of STORED_UPDATE_PROBES) {
+      const name = storedUpdatePath(prefix, seed, probe.id);
+      lines.push(`    match /${name} { allow create: if true; allow update: if ${probe.condition(name)}; }`);
+    }
+  }
   for (const probe of CREATE_PROBES) {
     const name = probePath(prefix, 'create', probe.id);
     lines.push(`    match /${name} { allow create: if ${probe.condition(name)}; }`);

@@ -13,6 +13,8 @@ import type { EventProvenance } from 'pyric/sandbox';
 import type { StorageReference } from './reference.js';
 import type { SettableMetadata, FullMetadata } from './metadata.js';
 import { toFullMetadata } from './metadata.js';
+import { planeOf } from './content-defaults.js';
+import { targetOf } from './service.js';
 import { uploadBytes, buildStoredMetadata } from './upload.js';
 import { deleteObject } from './download.js';
 import { invalidRootOperation, uploadCanceled, type StorageError } from './errors.js';
@@ -111,7 +113,7 @@ class UploadTaskImpl implements UploadTask {
 
     this._blob = normalizeBlob(data, hint);
     const stored = buildStoredMetadata({ ref, blob: this._blob, settable: metadata });
-    const fullMetadata = toFullMetadata(stored);
+    const fullMetadata = toFullMetadata(stored, planeOf(targetOf(ref.storage)));
 
     this._promise = new Promise<UploadTaskSnapshot>((resolve, reject) => {
       this._resolve = resolve;
