@@ -39,8 +39,8 @@ describe('rules benchmark gate', () => {
   });
 
   test('a count row regresses on any increase', () => {
-    const count = (n: number): StageRow => ({ subject: 'a', stage: 'simulator nodes', kind: 'count', count: n });
-    expect(compareToBaseline(report([count(10)]), report([count(11)])).regressions).toEqual(['a :: simulator nodes: 10 -> 11']);
+    const count = (n: number): StageRow => ({ subject: 'a', stage: 'expressions', kind: 'count', count: n });
+    expect(compareToBaseline(report([count(10)]), report([count(11)])).regressions).toEqual(['a :: expressions: 10 -> 11']);
     expect(compareToBaseline(report([count(10)]), report([count(9)])).improvements).toHaveLength(1);
   });
 

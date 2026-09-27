@@ -15,6 +15,7 @@ import type {
   RuleEvaluation,
   PathResolutionEntry,
   PathResolutionTrace,
+  RulesResourceLimit,
 } from '../test/spec.js';
 import type { FirestoreRules, MatchBlock, AllowRule, FunctionDef, Expression } from '../grammar/FirestoreAST.js';
 import { parseToAST } from '../grammar/FirestoreParser.js';
@@ -24,8 +25,9 @@ import { evaluate, UnsupportedError, TraceRecorder, type SimulationContext } fro
 
 import { Timestamp } from './wrappers/timestamp.js';
 import { Path } from './wrappers/path.js';
-import { LookupBudget } from './lookup-budget.js';
-import { ResourceLimitError } from './eval-error.js';
+import { DOCUMENT_LOOKUP_LIMIT, LookupBudget } from './lookup-budget.js';
+import { EXPRESSION_LIMIT, ExpressionBudget } from './expression-budget.js';
+import { ExpressionLimitError, ResourceLimitError } from './eval-error.js';
 import { projectAfterState } from './project-after-state.js';
 import { DOCUMENT_PATH_FORM, documentRelativePath } from './request-path.js';
 import {
@@ -80,15 +82,23 @@ function methodToOperations(method: string): string[] {
 
 /**
  * One match block's contribution to the request verdict. `resourceLimit`
- * carries a per-request resource limit (the document access budget) that
- * the block ran into: it is not this block's private failure, so the caller
- * stops evaluating siblings and denies the whole request.
+ * carries a per-request resource limit (the document access budget or the
+ * expression budget) that the block ran into: it is not this block's
+ * private failure, so the caller stops evaluating siblings and denies the
+ * whole request.
  */
 interface RuleBlockOutcome {
   decision: Decision;
   trace: RuleEvaluation[];
   notes: string[];
-  resourceLimit?: string;
+  resourceLimit?: RulesResourceLimit;
+}
+
+function describeResourceLimit(e: ResourceLimitError): RulesResourceLimit {
+  if (e instanceof ExpressionLimitError) {
+    return { kind: 'expressions', limit: EXPRESSION_LIMIT, message: e.message };
+  }
+  return { kind: 'document-lookups', limit: DOCUMENT_LOOKUP_LIMIT, message: e.message };
 }
 
 /**
@@ -176,7 +186,7 @@ function evaluateRules(
           decision: 'DENY',
           trace,
           notes,
-          resourceLimit: (e as ResourceLimitError).message,
+          resourceLimit: describeResourceLimit(e as ResourceLimitError),
         };
       }
       const isUnsupported = e instanceof UnsupportedError;
@@ -260,6 +270,7 @@ function buildContext(
   getDoc?: (path: string) => Record<string, unknown> | null,
   batchProjection?: Map<string, Record<string, unknown> | null>,
   lookupBudget?: LookupBudget,
+  expressionBudget?: ExpressionBudget,
 ): SimulationContext {
   const fnMap = new Map<string, FunctionDef>();
   for (const fn of functions) fnMap.set(fn.name, fn);
@@ -412,6 +423,8 @@ function buildContext(
     // OR'd allow rules within one request evaluation. An absent budget and
     // an `undefined` one mean the same thing here: no budget is enforced.
     lookupBudget,
+    // Per-request expression budget (1000 expressions), shared the same way.
+    expressionBudget,
   };
 }
 
@@ -584,6 +597,7 @@ export class SimulateFirestoreRulesHandler {
           expectation: tc.expectation,
           state,
           decision: 'DENY',
+          evaluatedExpressions: 0,
           trace: [],
           notes: [
             `No match block found for path '${requestPath}', so the request is denied by default.`,
@@ -616,7 +630,7 @@ export class SimulateFirestoreRulesHandler {
       const notes: string[] = [];
       let sawUnsupported = false;
       let grantingBlockPath: string | undefined;
-      let hitResourceLimit = false;
+      let resourceLimit: RulesResourceLimit | undefined;
       // One lookup budget per test case (one request evaluation), shared
       // across every matching block below and reset here between requests.
       // Production's single-request budget is 10 distinct document
@@ -625,9 +639,13 @@ export class SimulateFirestoreRulesHandler {
       // simulate() call in a batch (see WriteRuntime.buildBatchProjection)
       // gets its own fresh per-op budget of 10.
       const lookupBudget = new LookupBudget();
+      // One expression budget per request, shared the same way: production
+      // counts every allow rule and match block the request evaluates
+      // toward one limit of 1000.
+      const expressionBudget = new ExpressionBudget((message) => new ExpressionLimitError(message));
       for (const match of matches) {
         const pathVars = { ...rootBindings, ...match.pathVariables };
-        const ctx = buildContext(tc, match.functions, pathVars, opts?.getDoc, opts?.batchProjection, lookupBudget);
+        const ctx = buildContext(tc, match.functions, pathVars, opts?.getDoc, opts?.batchProjection, lookupBudget, expressionBudget);
 
         const blockPath = renderMatchBlockPath(match.block);
         const res = evaluateRules(match.block, tc.method, ctx, sourceMap);
@@ -642,7 +660,7 @@ export class SimulateFirestoreRulesHandler {
         const isResourceLimit = res.resourceLimit !== undefined;
         if (isResourceLimit) {
           decision = 'DENY';
-          hitResourceLimit = true;
+          resourceLimit = res.resourceLimit;
           break;
         }
         const isResAllow = res.decision === 'ALLOW';
@@ -658,7 +676,7 @@ export class SimulateFirestoreRulesHandler {
       }
       // A resource limit is a definite production DENY, so it outranks an
       // UNSUPPORTED abstention recorded by an earlier block.
-      const isEscalatable = decision !== 'ALLOW' && !hitResourceLimit;
+      const isEscalatable = decision !== 'ALLOW' && resourceLimit === undefined;
       if (isEscalatable) {
         if (sawUnsupported) {
           decision = 'UNSUPPORTED';
@@ -699,6 +717,8 @@ export class SimulateFirestoreRulesHandler {
         expectation: tc.expectation,
         state,
         decision,
+        evaluatedExpressions: expressionBudget.evaluated,
+        ...(resourceLimit ? { resourceLimit } : {}),
         trace,
         notes,
         pathResolution,

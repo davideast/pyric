@@ -14,8 +14,8 @@
  *  - production.cost: bounds on the count production's 1000-expression limit
  *    uses, measured by padding (see `rules-expression-cost-pad.ts`). A case
  *    that reaches the limit without padding has `{ low: 1000, high: null }`;
- *  - simulator: the decision, granting rule and number of expressions Pyric's
- *    simulator traced as evaluated.
+ *  - simulator: the decision, granting rule and `evaluatedExpressions`, the
+ *    count Pyric's simulator enforces the same limit with.
  *
  * Output: packages/pyric/test/rules/linter/fixtures/expression-cost/
  *   captures.json and one `<suite>.rules` per suite.
@@ -196,9 +196,7 @@ function simulatorRecord(suite: ExpressionCostSuite, tc: TestCase, simulate: Sim
   });
   if (!res.success) throw new Error(`simulator failed: ${res.error.message}`);
   const result = res.data.results[0];
-  const evaluated = result.trace
-    .flatMap((t: any) => t.expressionTrace ?? [])
-    .filter((e: any) => !e.skipped).length;
+  const evaluated = result.evaluatedExpressions as number;
   const granted = result.trace.find((t: any) => t.verdict === 'ALLOW');
   const grantingRule: RuleRef | null = granted ? { matchPath: granted.matchPath, index: granted.ruleIndex } : null;
   return { decision: result.decision as string, grantingRule, evaluated };
@@ -309,7 +307,7 @@ async function capture(options: { selected: string[] | null; reportsOnly: boolea
       const predictedStep = (cost: number) => Math.round((EXPRESSION_LIMIT - cost - pad.base) / pad.perStep) - 1;
       const measured = await thresholds(handler, scope, padded, cases.map((c, i) => ({
         testCase: c.testCase,
-        predicted: Math.max(0, Math.min(PAD_MAX, predictedStep(sims[i]!.evaluated * 1.25))),
+        predicted: Math.max(0, Math.min(PAD_MAX, predictedStep(sims[i]!.evaluated))),
       })));
       totalCases += measured.cases;
       stored = measured.thresholds;

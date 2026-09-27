@@ -56,6 +56,8 @@ function resultToCaseResult(fc: FirestoreCase, r: TestResult): CaseResult {
     trace: r.trace,
     notes: r.notes,
     ...(r.pathResolution ? { pathResolution: r.pathResolution } : {}),
+    evaluatedExpressions: r.evaluatedExpressions ?? 0,
+    ...(r.resourceLimit ? { resourceLimit: r.resourceLimit } : {}),
   };
 }
 
@@ -71,6 +73,7 @@ function unrunnableResult(fc: FirestoreCase, message: string): CaseResult {
     unsupported: false,
     trace: [],
     notes: [message],
+    evaluatedExpressions: 0,
   };
 }
 
@@ -135,7 +138,9 @@ class FirestoreRulesetImpl implements FirestoreRuleset {
       unsupported: r.unsupported,
       trace: r.trace,
       notes: r.notes,
+      evaluatedExpressions: r.evaluatedExpressions,
     };
+    if (r.resourceLimit) explanation.resourceLimit = r.resourceLimit;
     if (deciding) explanation.deciding = deciding;
     if (r.pathResolution) explanation.pathResolution = r.pathResolution;
     return explanation;

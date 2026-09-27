@@ -23,10 +23,12 @@ import {
 import { formatPath, matchSegments, splitPath } from './rules-path-match.js';
 import {
   RuleEvalError,
+  RuleExpressionLimitError,
   RuleResourceLimitError,
   RuleUnsupportedError,
   isAbsorbableEvalError,
 } from './rules-evaluation-error.js';
+import { EXPRESSION_LIMIT, ExpressionBudget } from '../../rules/simulator/expression-budget.js';
 import { StoragePath } from './rules-path.js';
 import { ConversionFailure, applyConversion, conversionFor } from '../../rules/simulator/conversions.js';
 import { describeRulesType as describeType, isRulesMap } from '../../rules/simulator/rules-type.js';
@@ -50,6 +52,10 @@ export function evaluateStorageRules(
   const pathSegments = splitPath(input.request.path);
   const reasons: string[] = [];
   const firestoreAccesses = new Set<string>();
+  // One expression budget for the request, shared by every allow rule and
+  // match block, in the unit the Firestore simulator counts.
+  const expressionBudget = new ExpressionBudget((message) => new RuleExpressionLimitError(message));
+  let expressionLimit: string | undefined;
 
   // The operation's verb, reduced to its granular set. A coarse
   // request method expands to its sub-verbs so umbrella semantics are
@@ -67,6 +73,7 @@ export function evaluateStorageRules(
     remaining: string[],
     params: Record<string, string | string[]>,
   ): boolean {
+    if (expressionLimit !== undefined) return false;
     // Match this block's segments against the start of `remaining`.
     const match = matchSegments(block.segments, remaining, params);
     if (!match) return false;
@@ -96,6 +103,7 @@ export function evaluateStorageRules(
               depth: 0,
               firestoreLookup,
               firestoreAccesses,
+              expressionBudget,
             });
           }
           if (typeof value === 'boolean') {
@@ -123,6 +131,13 @@ export function evaluateStorageRules(
             continue;
           }
         } catch (err) {
+          // The expression limit ends the request: production evaluates no
+          // later allow rule or match block once it is reached.
+          if (err instanceof RuleExpressionLimitError) {
+            expressionLimit = err.message;
+            reasons.push(`match ${formatPath(block.segments)} ${input.request.method}: ${err.message}`);
+            return false;
+          }
           // Any thrown evaluation failure (depth exceeded, an unresolved
           // import, an error inside a body) denies this rule with a reason
           // that names the function, never a false allow.
@@ -151,7 +166,14 @@ export function evaluateStorageRules(
   if (!allowed && reasons.length === 0) {
     reasons.push(`no rule matches ${input.request.method} /${pathSegments.join('/')}`);
   }
-  return { allowed, reasons };
+  return {
+    allowed,
+    reasons,
+    evaluatedExpressions: expressionBudget.evaluated,
+    ...(expressionLimit !== undefined
+      ? { resourceLimit: { kind: 'expressions' as const, limit: EXPRESSION_LIMIT, message: expressionLimit } }
+      : {}),
+  };
 }
 
 /** Property read against `obj`, with production's absent-property semantics:
@@ -203,6 +225,8 @@ export interface EvalCtx {
   firestoreLookup?: FirestoreLookup;
   /** Distinct Firestore document paths charged during this evaluation. */
   firestoreAccesses: Set<string>;
+  /** Per-request expression budget; absent in direct evaluator use. */
+  expressionBudget?: ExpressionBudget;
 }
 
 /**
@@ -222,6 +246,7 @@ export interface EvalCtx {
  * potentially truthy value.
  */
 export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
+  ctx.expressionBudget?.node();
   switch (expr.kind) {
     case 'literal':
       return expr.value;
@@ -286,6 +311,7 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       return undefined;
     }
     case 'ternary': {
+      ctx.expressionBudget?.ternary();
       const c = evalExpr(expr.cond, ctx);
       // An error condition denies the whole conditional; it must not fall
       // through to the alternate branch and potentially allow.
@@ -298,7 +324,9 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       if (typeof c !== 'boolean') {
         return new RuleError(`Ternary condition expected bool, got ${describeType(c)}.`);
       }
-      return c ? evalExpr(expr.then, ctx) : evalExpr(expr.else, ctx);
+      if (c) return evalExpr(expr.then, ctx);
+      ctx.expressionBudget?.ternaryElse();
+      return evalExpr(expr.else, ctx);
     }
     case 'in': {
       const el = evalExpr(expr.element, ctx);
@@ -419,6 +447,7 @@ function evalAbsorbingOperator(
 ): boolean | RuleError {
   const l = evalLogicalOperand(left, ctx);
   if (l === determining) return determining; // left determines; right unevaluated
+  ctx.expressionBudget?.logicalRight();
   const r = evalLogicalOperand(right, ctx);
   if (r === determining) return determining; // right determines and absorbs any left error
   if (isErr(l)) return l;                    // left errored and nothing determined
@@ -503,10 +532,12 @@ function evalCall(expr: Extract<Expr, { kind: 'call' }>, ctx: EvalCtx): unknown 
     depth,
     firestoreLookup: ctx.firestoreLookup,
     firestoreAccesses: ctx.firestoreAccesses,
+    expressionBudget: ctx.expressionBudget,
   };
   // `let` bindings evaluated in order; each is visible to the next and
   // to the return expression (they share the `locals` object).
   for (const b of fn.lets) {
+    bodyCtx.expressionBudget?.letBinding();
     locals[b.name] = evalExpr(b.value, bodyCtx);
   }
   return evalExpr(fn.body, bodyCtx);

@@ -21,4 +21,15 @@ export class ResourceLimitError extends EvalError {
   }
 }
 
+/**
+ * The request reached production's limit of 1000 evaluated expressions
+ * (see ExpressionBudget). A resource limit: the whole request denies.
+ */
+export class ExpressionLimitError extends ResourceLimitError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ExpressionLimitError';
+  }
+}
+
 export { EvalError as RuleEvalError };

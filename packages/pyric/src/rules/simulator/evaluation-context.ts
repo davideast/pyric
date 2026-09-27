@@ -1,4 +1,5 @@
 import type { FunctionDef } from '../grammar/FirestoreAST.js';
+import type { ExpressionBudget } from './expression-budget.js';
 import type { LookupBudget } from './lookup-budget.js';
 import type { TraceRecorder } from './trace-recorder.js';
 import { Path } from './wrappers/path.js';
@@ -120,6 +121,15 @@ export interface SimulationContext {
    * semantics and the in-repo production evidence.
    */
   lookupBudget?: LookupBudget;
+  /**
+   * Per-request expression budget (production: 1000 evaluated expressions
+   * per request, counted in the unit ExpressionBudget documents). The
+   * handler creates one per test case and shares it across every match
+   * block and allow rule evaluated for that request. Reaching the limit
+   * throws a ResourceLimitError, which fails the request closed. Optional
+   * so non-handler evaluation paths count nothing.
+   */
+  expressionBudget?: ExpressionBudget;
   /** Optional per-rule expression-trace recorder. When set, the evaluator
    *  wraps every `evaluate()` call and records the sub-expression tree;
    *  when absent (the default), the evaluator is unchanged. The handler

@@ -56,7 +56,7 @@ From the ladder:
 
 - Every evaluated node costs 1, literals included: identifiers, literals, member, index and slice access, method calls, function calls, comparisons, arithmetic, `!`, `in`, `is`, and list and map literals.
 - `&&` and `||` cost 1, plus 1 when they go on to evaluate their right operand. A short-circuited operand costs nothing, so a false first conjunct stops the chain.
-- A ternary costs 2 plus its condition and the branch it takes.
+- A ternary costs 2 plus its condition and the branch it takes when the condition is true. When it takes the false branch it costs 2 more. The ladder measures only the true branch; the chess promotion and the two Reversi rows take false branches, and a false-branch cost of 2 more is the only value that fits all three windows. The estimator charges 2 for either branch.
 - A path literal costs 1 plus 1 per segment; an interpolated segment costs its expression.
 - A `let` costs 1 plus its value, and the value is evaluated when the function is called whether or not the body reads it.
 - A user function call costs 1 plus its arguments, its lets and its body, on every call. Calls are not memoized; a `get()` of a cached path still pays for its call and path.
@@ -66,7 +66,7 @@ The 2026-04-07 sweep deployed each ruleset once and tested it five times through
 
 #### Measured requests
 
-The chess showcase and an externally authored resolved ruleset for several turn-based games (`arcade`) give the real-world rows. The simulator column counts the expressions Pyric's simulator traced as evaluated. It counts each evaluated node once, without the second unit a logical operator or ternary pays, `let` bindings or path segments, so it runs 7 to 13 percent under production on these rows. The previous estimator counted each called function's nodes once per rule and discounted wide `||` trees by 0.3 or 0.5.
+The chess showcase and an externally authored resolved ruleset for several turn-based games (`arcade`) give the real-world rows. The simulator column is the count Pyric's simulator traced when the fixture was captured. That count took each evaluated node once, without the second unit a logical operator or ternary pays, `let` bindings or path segments, and ran 7 to 13 percent under production on these rows. The simulator now counts in production's unit as it evaluates, reports the count as `evaluatedExpressions` on each result, and denies a request past the limit with production's message. `test/rules/simulator/expression-budget-fixture.test.ts` replays the padding thresholds through the simulator and places that count inside production's window on 33 of the 34 requests. The previous estimator counted each called function's nodes once per rule and discounted wide `||` trees by 0.3 or 0.5.
 
 | Request | Production decision | Production cost | Simulator | Previous estimate | Estimate | Estimate / production |
 |---------|--------------------|-----------------|-----------|-------------------|----------|-----------------------|

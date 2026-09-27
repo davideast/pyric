@@ -70,6 +70,7 @@ export type {
   PathResolutionTrace,
   EvaluatedRuleInfo,
   FirestoreMethod,
+  RulesResourceLimit,
 } from './test/spec.js';
 export type { ExprTraceEntry } from './simulator/evaluator.js';
 

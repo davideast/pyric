@@ -50,6 +50,9 @@ export function evaluate(expr: Expression, ctx: SimulationContext, scope: Record
 }
 
 function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<string, unknown>): unknown {
+  // One unit per evaluated node, charged inside the trace capture so the
+  // node that reaches the limit records the limit as its error.
+  ctx.expressionBudget?.node();
   switch (expr.type) {
     // ═══ Layer 1: Literals, identifiers, binary ops ═══
 
@@ -87,8 +90,11 @@ function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<st
     }
 
     case 'ternary': {
+      ctx.expressionBudget?.ternary();
       const cond = requireBoolean(evaluate(expr.condition, ctx, scope), expr.condition);
-      return cond ? evaluate(expr.consequent, ctx, scope) : evaluate(expr.alternate, ctx, scope);
+      if (cond) return evaluate(expr.consequent, ctx, scope);
+      ctx.expressionBudget?.ternaryElse();
+      return evaluate(expr.alternate, ctx, scope);
     }
 
     // ═══ Layer 2: Member access, bracket access, `in` ═══
@@ -297,6 +303,7 @@ function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<st
       const parts: string[] = [];
       for (const seg of expr.segments) {
         if (typeof seg === 'string') {
+          ctx.expressionBudget?.pathSegment();
           parts.push(seg);
         } else {
           parts.push(String(evaluate(seg, ctx, scope)));
@@ -366,6 +373,7 @@ function evaluateShortCircuitOp(
     return determiningValue;
   }
 
+  ctx.expressionBudget?.logicalRight();
   let rv: unknown, rErr: unknown;
   try {
     rv = requireBoolean(evaluate(right, ctx, scope), right);

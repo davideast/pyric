@@ -153,6 +153,7 @@ export function evaluateFunctionCall(
     // bound name so the agent can attribute "this subtree was the
     // value of `<name>`" without re-walking the function AST.
     for (const binding of fn.lets) {
+      ctx.expressionBudget?.letBinding();
       const bindingRootIdx = ctx.trace ? ctx.trace.entries.length : -1;
       fnScope[binding.name] = evaluate(binding.value, ctx, fnScope);
       if (bindingRootIdx >= 0) {
@@ -182,6 +183,9 @@ export function evaluateMethodCall(
   if (objectExpr.type === 'identifier') {
     const name = objectExpr.name;
     if (isBuiltinNamespace(name) && !(name in scope) && !(name in ctx.pathVariables)) {
+      // The namespace identifier is an evaluated node in production's unit,
+      // although the simulator resolves it without evaluate().
+      ctx.expressionBudget?.node();
       const argValues = args.map(a => evaluate(a, ctx, scope));
       return evaluateNamespaceMethod(name, method, argValues);
     }

@@ -11,7 +11,7 @@ export interface StageSummary {
   samples: number;
 }
 
-/** A stage row in a report: timing, or a count (the simulator node axis). */
+/** A stage row in a report: timing, or a count (the expressions a request evaluated). */
 export interface StageRow extends Partial<StageSummary> {
   /** `fixture / request` the row belongs to. */
   subject: string;
