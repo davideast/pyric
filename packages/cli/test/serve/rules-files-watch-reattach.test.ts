@@ -1,9 +1,9 @@
 /**
- * A missing rules file is watched through its nearest existing ancestor. When
- * the next path segment appears, the watch moves down to it, after the
- * directory watcher's callback returns, so a watcher is never closed from
- * inside its own callback. A fake file system keeps real fs.watch out of the
- * shared test process.
+ * A rules file is watched through its directory. A missing directory is
+ * watched through its nearest existing ancestor. When the next path segment
+ * appears, the watch moves down to it, after the directory watcher's callback
+ * returns, so a watcher is never closed from inside its own callback. A fake
+ * file system keeps real fs.watch out of the shared test process.
  */
 import { expect, test } from 'bun:test';
 import type { FSWatcher } from 'node:fs';
@@ -54,23 +54,64 @@ function fire(path: string, name: string): void {
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
-test('a watch moves to a new directory and to the new file after the callback that saw them returns', async () => {
+const openUnder = (root: string) => watchers.filter((w) => !w.closed && w.path.startsWith(root)).map((w) => w.path);
+
+test('a watch moves down to a new directory after the callback that saw it returns, and reports the file when it is created there', async () => {
   const file = '/p/games/a.rules';
   existing.add('/p');
   const changed: string[] = [];
   const watch = watchRulesFiles(() => [file], (f) => changed.push(f), (e) => { throw e; }, watchFileOrWhenCreatedWith(fileSystem));
-  expect(watchers.map((w) => w.path)).toEqual(['/p']);
+  expect(openUnder('/p')).toEqual(['/p']);
 
   existing.add('/p/games');
   fire('/p', 'games');
   await tick();
-  expect(watchers.filter((w) => !w.closed).map((w) => w.path)).toEqual(['/p/games']);
+  expect(openUnder('/p')).toEqual(['/p/games']);
+  expect(changed).toEqual([]);
 
   existing.add(file);
   fire('/p/games', 'a.rules');
   await tick();
-  expect(watchers.filter((w) => !w.closed).map((w) => w.path)).toEqual([file]);
+  expect(openUnder('/p')).toEqual(['/p/games']);
   expect(changed).toEqual([file]);
+
+  fire('/p/games', 'other.rules');
+  expect(changed).toEqual([file]);
+
+  expect(closedDuringOwnCallback).toEqual([]);
+  watch.close();
+});
+
+test('a file created with its directory is reported when the watch moves down', async () => {
+  const file = '/r/games/c.rules';
+  existing.add('/r');
+  const changed: string[] = [];
+  const watch = watchRulesFiles(() => [file], (f) => changed.push(f), (e) => { throw e; }, watchFileOrWhenCreatedWith(fileSystem));
+  existing.add('/r/games');
+  existing.add(file);
+  fire('/r', 'games');
+  await tick();
+  expect(openUnder('/r')).toEqual(['/r/games']);
+  expect(changed).toEqual([file]);
+  watch.close();
+});
+
+test('a watched file that is deleted and created again is reported both times', async () => {
+  const file = '/q/b.rules';
+  existing.add('/q');
+  existing.add(file);
+  const changed: string[] = [];
+  const watch = watchRulesFiles(() => [file], (f) => changed.push(f), (e) => { throw e; }, watchFileOrWhenCreatedWith(fileSystem));
+  expect(openUnder('/q')).toEqual(['/q']);
+
+  existing.delete(file);
+  fire('/q', 'b.rules');
+  expect(changed).toEqual([file]);
+
+  existing.add(file);
+  fire('/q', 'b.rules');
+  expect(changed).toEqual([file, file]);
+  expect(openUnder('/q')).toEqual(['/q']);
 
   expect(closedDuringOwnCallback).toEqual([]);
   watch.close();

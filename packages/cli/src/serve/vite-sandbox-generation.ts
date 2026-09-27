@@ -326,9 +326,7 @@ export async function createViteSandboxGeneration(
     functionsAttachment = attachViteGenerationFunctions(functionsAttachmentInput);
 
     const rulesWatchInput = { server, session };
-    const stopRulesWatch = watchViteGenerationRules(rulesWatchInput);
-    const watchesRules = stopRulesWatch !== null;
-    if (watchesRules) listenerDisposers.push(stopRulesWatch);
+    listenerDisposers.push(watchViteGenerationRules(rulesWatchInput));
 
     const httpServer = server.httpServer;
     const hasHttpServer = httpServer !== undefined && httpServer !== null;

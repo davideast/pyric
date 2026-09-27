@@ -92,12 +92,28 @@ export function setupWorkerHotReload(
   });
   events.addEventListener('rtdb-rules-update', (ev) => {
     try {
-      const { rules } = JSON.parse(ev.data) as { rules: { rules: Record<string, unknown> }; rulesHash?: string };
+      const { rules, policy } = JSON.parse(ev.data) as {
+        rules: { rules: Record<string, unknown> } | null;
+        rulesHash?: string | null;
+        policy?: 'allow' | 'deny';
+      };
       const isRtdbMissing = ctx.rtdb === undefined;
       if (isRtdbMissing) {
         ctx.rtdb = getDatabase(ctx.sandbox);
       }
-      rtdbSandbox.setRules(ctx.rtdb as ReturnType<typeof getDatabase>, rules);
+      const rtdb = ctx.rtdb as ReturnType<typeof getDatabase>;
+      // Null rules mean the rules file was deleted: `policy` then governs
+      // every read and write, as it does when the worker starts without rules.
+      const isRemoved = rules === null;
+      if (isRemoved) {
+        rtdbSandbox.setDefaultPolicy(rtdb, policy ?? 'deny');
+        rtdbSandbox.setRules(rtdb, null);
+        if (ctx.activeRules) delete ctx.activeRules.database;
+        // eslint-disable-next-line no-console
+        console.info(`[pyric worker] database.rules.json removed; RTDB reads/writes default to ${policy ?? 'deny'}`);
+        return;
+      }
+      rtdbSandbox.setRules(rtdb, rules);
       const isActiveRulesMissing = ctx.activeRules === undefined;
       if (isActiveRulesMissing) {
         ctx.activeRules = {};

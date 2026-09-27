@@ -329,16 +329,20 @@ export async function createHostedRuntime(
     storageHttp(req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> {
       return storageBytes(req, res, url);
     },
-    deployRules(service: 'firestore' | 'database', source: string): void {
+    /** A null database source clears the rules, so the default policy applies. */
+    deployRules(service: 'firestore' | 'database', source: string | null): void {
       if (closed) throw new Error('The hosted sandbox is closed.');
       const isFirestore = service === 'firestore';
-      const method = isFirestore ? 'setFirestoreRules' : 'setDatabaseRules';
+      if (isFirestore && source === null) throw new Error('Firestore rules source is required.');
+      const op = isFirestore
+        ? { t: 'op' as const, id: 'file-rules-reload', method: 'setFirestoreRules' as const, source: source as string }
+        : { t: 'op' as const, id: 'file-rules-reload', method: 'setDatabaseRules' as const, source };
       handleRulesOp(ctx, {
         postMessage(reply) {
           const failed = reply.t === 'res' && !reply.ok;
           if (failed) throw new Error(reply.error.message);
         },
-      }, { t: 'op', id: 'file-rules-reload', method, source }, ctx.db);
+      }, op, ctx.db);
     },
     instanceId,
     toolNames: SANDBOX_TOOL_NAMES,

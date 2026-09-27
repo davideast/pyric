@@ -27,6 +27,7 @@ function fakes(files: { current: string[] }, results: ReloadKind[] = []) {
   const session = {
     summary: { rules: { firestore: { sourcePath: MAIN }, database: { sourcePath: null } } },
     firestoreRulesFiles: () => [MAIN, ...files.current],
+    databaseRulesFile: () => '/project/database.rules.json',
     reloadFirestoreRules: async () => {
       reloads += 1;
       const kind = results.shift() ?? 'reloaded';
@@ -45,7 +46,7 @@ describe('Vite rules watching', () => {
     const files = { current: [GAME, SHARED] };
     const f = fakes(files);
     const stop = watchViteGenerationRules({ server: f.server, session: f.session });
-    expect([...f.watched].sort()).toEqual([GAME, MAIN, SHARED].sort());
+    expect([...f.watched].sort()).toEqual([GAME, MAIN, SHARED, '/project/database.rules.json'].sort());
 
     f.watcher.emit('change', SHARED);
     await settle();
@@ -102,6 +103,105 @@ describe('Vite rules watching', () => {
     f.watcher.emit('change', '/project/src/main.ts');
     await settle();
     expect(f.reloads()).toBe(0);
+    stop?.();
+  });
+});
+
+const FIRESTORE = '/project/firestore.rules';
+const DATABASE = '/project/database.rules.json';
+
+type DatabaseResult =
+  | { kind: 'reloaded'; rulesHash: string; clients: number }
+  | { kind: 'removed'; policy: 'allow' | 'deny'; clients: number }
+  | { kind: 'not-configured' };
+
+/** A session started with no rules files: the paths the rules would load from
+ *  are known, and nothing was loaded from them. */
+function missingFilesFakes(databaseResults: DatabaseResult[]) {
+  const f = fakes({ current: [] });
+  const logs: string[] = [];
+  (f.server.config as unknown as { logger: unknown }).logger = {
+    info: (m: string) => logs.push(m),
+    warn: (m: string) => logs.push(m),
+  };
+  let firestoreReloads = 0;
+  let databaseReloads = 0;
+  const session = {
+    summary: { rules: { firestore: { sourcePath: null }, database: { sourcePath: null } } },
+    firestoreRulesFiles: () => [FIRESTORE],
+    databaseRulesFile: () => DATABASE,
+    reloadFirestoreRules: async () => {
+      firestoreReloads += 1;
+      return { kind: 'reloaded', rulesHash: 'fh', clients: 1 };
+    },
+    reloadDatabaseRules: async () => {
+      databaseReloads += 1;
+      return databaseResults.shift() ?? { kind: 'not-configured' };
+    },
+  } as unknown as SandboxSession;
+  return {
+    ...f,
+    session,
+    logs,
+    firestoreReloads: () => firestoreReloads,
+    databaseReloads: () => databaseReloads,
+  };
+}
+
+describe('Vite rules watching when a rules file does not exist at startup', () => {
+  test('watches the paths the rules would load from', () => {
+    const f = missingFilesFakes([]);
+    const stop = watchViteGenerationRules({ server: f.server, session: f.session });
+    expect(stop).not.toBeNull();
+    expect(f.watched.has(FIRESTORE)).toBe(true);
+    expect(f.watched.has(DATABASE)).toBe(true);
+    stop?.();
+  });
+
+  test('loads database rules created after startup', async () => {
+    const f = missingFilesFakes([{ kind: 'reloaded', rulesHash: 'dh', clients: 1 }]);
+    const stop = watchViteGenerationRules({ server: f.server, session: f.session });
+    f.watcher.emit('add', DATABASE);
+    await settle();
+    expect(f.databaseReloads()).toBe(1);
+    expect(f.logs.some((line) => line.includes('rtdb rules reloaded (dh)'))).toBe(true);
+    stop?.();
+  });
+
+  test('returns RTDB to deny-all with a notice when the database rules file is deleted', async () => {
+    const f = missingFilesFakes([
+      { kind: 'reloaded', rulesHash: 'dh', clients: 1 },
+      { kind: 'removed', policy: 'deny', clients: 1 },
+    ]);
+    const stop = watchViteGenerationRules({ server: f.server, session: f.session });
+    f.watcher.emit('add', DATABASE);
+    await settle();
+    f.watcher.emit('unlink', DATABASE);
+    await settle();
+    expect(f.databaseReloads()).toBe(2);
+    const notice = f.logs.find((line) => line.includes('rtdb rules removed'));
+    expect(notice).toBeDefined();
+    expect(notice).toContain(DATABASE);
+    expect(notice).toContain('DENY');
+    stop?.();
+  });
+
+  test('loads Firestore rules created after startup', async () => {
+    const f = missingFilesFakes([]);
+    const stop = watchViteGenerationRules({ server: f.server, session: f.session });
+    f.watcher.emit('add', FIRESTORE);
+    await settle();
+    expect(f.firestoreReloads()).toBe(1);
+    expect(f.logs.some((line) => line.includes('rules reloaded (fh)'))).toBe(true);
+    stop?.();
+  });
+
+  test('reloads Firestore rules when the rules file is deleted', async () => {
+    const f = missingFilesFakes([]);
+    const stop = watchViteGenerationRules({ server: f.server, session: f.session });
+    f.watcher.emit('unlink', FIRESTORE);
+    await settle();
+    expect(f.firestoreReloads()).toBe(1);
     stop?.();
   });
 });

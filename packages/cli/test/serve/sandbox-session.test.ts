@@ -246,6 +246,75 @@ export function canRead() { return true; }`);
     await session.close();
   });
 
+  it('names the rules file paths the rules would load from before the files exist', async () => {
+    const root = project();
+    const session = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: null,
+      sdk: { dir: join(root, 'sdk') },
+    });
+    expect(session.firestoreRulesFiles()).toEqual([join(root, 'firestore.rules')]);
+    expect(session.databaseRulesFile()).toBe(join(root, 'database.rules.json'));
+    await session.close();
+  });
+
+  it('loads Firestore rules created after startup', async () => {
+    const root = project();
+    const session = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: null,
+      sdk: { dir: join(root, 'sdk') },
+    });
+    expect(session.payload().rules).toBeNull();
+    writeFileSync(join(root, 'firestore.rules'), `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents { match /created/{id} { allow read: if true; } }
+}`);
+    const reloaded = await session.reloadFirestoreRules();
+    expect(reloaded.kind).toBe('reloaded');
+    expect(session.payload().rules).toContain('/created/{id}');
+    await session.close();
+  });
+
+  it('returns RTDB to the default deny policy when the database rules file is deleted', async () => {
+    const root = project();
+    const rulesPath = join(root, 'database.rules.json');
+    writeFileSync(rulesPath, JSON.stringify({ rules: { '.read': true } }));
+    const session = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: { database: { rules: 'database.rules.json' } },
+      sdk: { dir: join(root, 'sdk') },
+    });
+    rmSync(rulesPath);
+    const removed = await session.reloadDatabaseRules();
+    expect(removed).toEqual({ kind: 'removed', policy: 'deny', clients: 0 });
+    expect(session.payload().databaseRules).toBeNull();
+    expect(session.payload().databaseRulesHash).toBeNull();
+
+    const again = await session.reloadDatabaseRules();
+    expect(again.kind).toBe('not-configured');
+    await session.close();
+  });
+
+  it('keeps last-good Firestore rules when the rules file is deleted', async () => {
+    const root = project();
+    const rulesPath = join(root, 'firestore.rules');
+    writeFileSync(rulesPath, `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents { match /kept/{id} { allow read: if true; } }
+}`);
+    const session = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: null,
+      sdk: { dir: join(root, 'sdk') },
+    });
+    rmSync(rulesPath);
+    const rejected = await session.reloadFirestoreRules();
+    expect(rejected.kind).toBe('rejected');
+    expect(session.payload().rules).toContain('/kept/{id}');
+    await session.close();
+  });
+
   it('supports multi-database array configs in firebase.json', async () => {
     const root = project();
     const rulesPath = join(root, 'main-db.rules.json');

@@ -14,6 +14,8 @@ import type { FirebaseJson } from '../cli/firebase-json.js';
 import { createCaptureStore, type CaptureStore } from './capture-store.js';
 import type { InitPayload } from './init-payload.js';
 import {
+  databaseRulesPath,
+  firestoreRulesPath,
   loadProjectDatabaseRules,
   loadProjectRules,
   loadProjectStorageRules,
@@ -49,7 +51,9 @@ export interface SandboxSessionOptions {
   studio?: false | { siteUiDir?: string };
   bridgeUrl?: () => string | null;
   hosted?: boolean;
-  deployHostedRules?: (service: 'firestore' | 'database', source: string) => void;
+  /** Deploys file rules to the Node sandbox. A null database source clears the
+   *  rules, so the sandbox's default policy applies. */
+  deployHostedRules?: (service: 'firestore' | 'database', source: string | null) => void;
   ai?: InitPayload['ai'];
   aiProxyUpstream?: string;
   /** Resolved `avatars` option (already reduced by `avatars-config.ts` from
@@ -96,9 +100,13 @@ export interface SandboxSession {
   reloadDatabaseRules(): Promise<RulesReloadResult>;
   /** The Firestore rules source file, the module files it imported at the
    *  last successful load, and the module files a failed reload since then
-   *  asked for, found or not. A successful reload replaces the list. Empty
-   *  when the project has no Firestore rules. */
+   *  asked for, found or not. A successful reload replaces the list. The
+   *  source file is the path the rules load from, listed whether or not it
+   *  exists, so creating it loads the rules. */
   firestoreRulesFiles(): readonly string[];
+  /** The Realtime Database rules file the rules load from, whether or not it
+   *  exists. */
+  databaseRulesFile(): string;
   close(): Promise<void>;
 }
 
@@ -116,7 +124,10 @@ export class SandboxSeedError extends Error {
 export type RulesReloadResult =
   | { kind: 'not-configured' }
   | { kind: 'reloaded'; rulesHash: string; clients: number }
-  | { kind: 'rejected'; error: Error };
+  | { kind: 'rejected'; error: Error }
+  /** The rules file was deleted. The service is back to the state it starts
+   *  in without a rules file: no rules, and `policy` for every read and write. */
+  | { kind: 'removed'; policy: 'allow' | 'deny'; clients: number };
 
 /** The generated fallback every avatars configuration falls back to when a
  *  cache entry, pool, or configured source doesn't answer for a key: the
@@ -379,13 +390,24 @@ export async function createSandboxSession(
     // Module files the latest failed reload asked for. Watched with the
     // last-good module files so fixing or creating one reloads.
     let attemptedModuleFiles: readonly string[] = [];
+    const firestoreSourcePath = firestoreRulesPath(options.projectDir, options.firebaseConfig);
+    const databaseSourcePath = databaseRulesPath(options.projectDir, options.firebaseConfig);
     const reloadFirestoreRules = async (): Promise<RulesReloadResult> => {
-      const sourcePath = firestore.sourcePath;
-      const hasNoSource = !sourcePath;
-      if (hasNoSource) return { kind: 'not-configured' };
+      const sourcePath = firestoreSourcePath;
+      const isSourceMissing = !existsSync(sourcePath);
+      // A deleted source keeps the last-good rules. Without a rules file the
+      // sandbox runs its default rules, which the SharedWorker sets to a
+      // permissive starter ruleset, so a deletion does not open access
+      // mid-session.
+      const hasLoadedRules = live.rules !== null;
+      if (isSourceMissing && !hasLoadedRules) return { kind: 'not-configured' };
+      if (isSourceMissing) {
+        return { kind: 'rejected', error: new Error(`pyric sandbox: ${sourcePath} does not exist.`) };
+      }
       try {
         const raw = await readFile(sourcePath, 'utf8');
         const { rules, moduleFiles } = prepareProjectRules(raw, sourcePath);
+        firestore.sourcePath = sourcePath;
         firestore.moduleFiles = moduleFiles;
         attemptedModuleFiles = [];
         const rulesHash = rulesHashOf(rules);
@@ -403,17 +425,30 @@ export async function createSandboxSession(
       }
     };
     const firestoreRulesFiles = (): readonly string[] => {
-      const sourcePath = firestore.sourcePath;
-      const hasNoSource = sourcePath === null;
-      if (hasNoSource) return [];
-      return [...new Set([sourcePath, ...firestore.moduleFiles, ...attemptedModuleFiles])];
+      return [...new Set([firestoreSourcePath, ...firestore.moduleFiles, ...attemptedModuleFiles])];
+    };
+    const databaseRulesFile = (): string => databaseSourcePath;
+    // Without a rules file, RTDB reads and writes follow the default policy:
+    // deny, as in production, unless the session is permissive.
+    const removeDatabaseRules = (): RulesReloadResult => {
+      const hasNoLoadedRules = live.databaseRules === null;
+      if (hasNoLoadedRules) return { kind: 'not-configured' };
+      options.deployHostedRules?.('database', null);
+      database.sourcePath = null;
+      live.databaseRules = null;
+      live.databaseRulesHash = null;
+      const policy = options.permissive ? 'allow' : 'deny';
+      events.broadcast('rtdb-rules-update', { rules: null, rulesHash: null, policy });
+      return { kind: 'removed', policy, clients: events.clientCount() };
     };
     const reloadDatabaseRules = async (): Promise<RulesReloadResult> => {
+      const isSourceMissing = !existsSync(databaseSourcePath);
+      if (isSourceMissing) return removeDatabaseRules();
       try {
         const updated = await loadProjectDatabaseRules(options.projectDir, options.firebaseConfig);
         const isMissingUpdatedRules = updated.rules === null || updated.rulesHash === null;
         if (isMissingUpdatedRules) {
-          return { kind: 'not-configured' };
+          return removeDatabaseRules();
         }
         options.deployHostedRules?.('database', JSON.stringify(updated.rules));
         database.sourcePath = updated.sourcePath;
@@ -450,6 +485,7 @@ export async function createSandboxSession(
       reloadFirestoreRules,
       reloadDatabaseRules,
       firestoreRulesFiles,
+      databaseRulesFile,
       close,
     };
   } catch (error) {

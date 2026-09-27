@@ -11,8 +11,8 @@
  * version) → static server with the `/__pyric/` namespace + HTML injection.
  */
 import { randomBytes } from 'node:crypto';
-import { basename, dirname, join, relative, resolve } from 'node:path';
-import { existsSync, watch as watchFile } from 'node:fs';
+import { join, relative, resolve } from 'node:path';
+import { existsSync } from 'node:fs';
 import type { ParsedArgs } from './parse-args.js';
 import { readFirebaseJson, readFirebaseRc, type FirebaseJson } from './firebase-json.js';
 import { bundleSdk, bundleWorker, defaultSdkEntries, resolveSiteUiDir } from '../serve/bundler.js';
@@ -24,6 +24,7 @@ import {
 } from '../serve/standalone-assets.js';
 import { hasSandboxBuildMarker } from '../serve/sandbox-marker.js';
 import { watchRulesFiles } from '../serve/rules-files-watch.js';
+import { formatDatabaseRulesRemoved } from '../serve/rules.js';
 import { formatBeaconReceipt } from '../serve/beacon-route.js';
 import type { InitPayload } from '../serve/namespace.js';
 import { formatAiStatusLine } from '../serve/ai-status.js';
@@ -526,12 +527,11 @@ async function startServeRuntime(opts: {
   // Hot-reload: the static adapter observes the filesystem; the session owns
   // read/prepare/last-good replacement and event broadcast. The rules source
   // and every module file it imports are watched, including the module files
-  // a failed reload asked for, so fixing or creating one reloads.
-  const rulesSourcePath = session.summary.rules.firestore.sourcePath;
+  // a failed reload asked for, so fixing or creating one reloads. The source
+  // is the path the rules load from, watched whether or not it exists at
+  // startup, so a rules file created later loads.
   const isWatchEnabled = opts.watch ?? true;
-  const hasRulesPath = rulesSourcePath !== null;
-  const watching = isWatchEnabled && hasRulesPath;
-  if (watching) {
+  if (isWatchEnabled) {
     let debounce: ReturnType<typeof setTimeout> | null = null;
     const rulesFiles = watchRulesFiles(
       () => session.firestoreRulesFiles(),
@@ -564,47 +564,39 @@ async function startServeRuntime(opts: {
       rulesFiles.close();
     });
   }
-  const dbRulesSourcePath = session.summary.rules.database.sourcePath;
-  const isDatabaseWatchEnabled = opts.watch !== false;
-  const hasDbRulesPath = dbRulesSourcePath !== null;
-  const watchingDb = isDatabaseWatchEnabled && hasDbRulesPath;
-  if (watchingDb) {
+  // The Realtime Database rules file is watched the same way: created, changed,
+  // and deleted files all reload. A deleted file returns RTDB to the default
+  // policy, the state the server starts in without the file.
+  if (isWatchEnabled) {
     let debounceDb: ReturnType<typeof setTimeout> | null = null;
-    // Follow atomic replacements as well as writes to the current rules file.
-    const dbRulesFile = dbRulesSourcePath;
-    const dbWatcher = watchFile(dirname(dbRulesFile), (_event, filename) => {
-      const isOtherFile = filename !== null && String(filename) !== basename(dbRulesFile);
-      if (isOtherFile) return;
-      const pendingReload = debounceDb;
-      const hasDebounceDb = pendingReload !== null;
-      if (hasDebounceDb) {
-        clearTimeout(pendingReload);
-      }
-      debounceDb = setTimeout(() => {
-        void session.reloadDatabaseRules().then((result) => {
-          const isReloaded = result.kind === 'reloaded';
-          if (isReloaded) {
-            logger.note(`  ↻ rtdb rules reloaded (hash ${result.rulesHash}) → ${result.clients} page(s)`);
-          } else {
-            const isRejected = result.kind === 'rejected';
-            if (isRejected) {
+    const dbRulesFiles = watchRulesFiles(
+      () => [session.databaseRulesFile()],
+      () => {
+        const pendingReload = debounceDb;
+        const hasPendingReload = pendingReload !== null;
+        if (hasPendingReload) clearTimeout(pendingReload);
+        debounceDb = setTimeout(() => {
+          void session.reloadDatabaseRules().then((result) => {
+            if (result.kind === 'reloaded') {
+              logger.note(`  ↻ rtdb rules reloaded (hash ${result.rulesHash}) → ${result.clients} page(s)`);
+            } else if (result.kind === 'rejected') {
               logger.note(`  ⚠ rtdb rules NOT reloaded (last-good stays live): ${result.error.message}`);
+            } else if (result.kind === 'removed') {
+              logger.note(`  ⚠ ${formatDatabaseRulesRemoved(session.databaseRulesFile(), result.policy)} → ${result.clients} page(s)`);
             }
-          }
-        });
-      }, 150);
-    });
-    dbWatcher.on('error', (error) => {
-      const errorMsg = serveErrorMessage(error);
-      logger.note(`  ⚠ rtdb rules watcher failed (hot reload off): ${errorMsg}`);
-    });
+          });
+        }, 150);
+      },
+      (error) => {
+        const message = serveErrorMessage(error);
+        logger.note(`  ⚠ rtdb rules watcher failed (hot reload off): ${message}`);
+      },
+    );
     handle.server.once('close', () => {
       const pendingReload = debounceDb;
-      const hasDebounceDb = pendingReload !== null;
-      if (hasDebounceDb) {
-        clearTimeout(pendingReload);
-      }
-      dbWatcher.close();
+      const hasPendingReload = pendingReload !== null;
+      if (hasPendingReload) clearTimeout(pendingReload);
+      dbRulesFiles.close();
     });
   }
 
@@ -705,11 +697,10 @@ async function startServeRuntime(opts: {
   if (hasCapture) {
     logger.info(`✔ capture  session → ${session.summary.capturePath} (run \`pyric verify\` to replay it)`);
   }
-  if (watching) {
-    logger.info(`✔ watch    hot-reloading ${rulesSourcePath} over /__pyric/events`);
-  }
-  if (watchingDb) {
-    logger.info(`✔ watch    hot-reloading ${dbRulesSourcePath} over /__pyric/events`);
+  if (isWatchEnabled) {
+    const [firestoreRulesFile] = session.firestoreRulesFiles();
+    logger.info(`✔ watch    hot-reloading ${firestoreRulesFile} over /__pyric/events`);
+    logger.info(`✔ watch    hot-reloading ${session.databaseRulesFile()} over /__pyric/events`);
   }
   // Browser-honesty: the sandbox is browser-resident — firestore/auth and
   // persistence run IN the served page. With no page open, data ops silently
