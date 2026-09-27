@@ -4,7 +4,10 @@
  * String. Pre-fix the simulator threw a parse error on slice syntax (the
  * grammar's `bracketAccess` only matched a single Expr). This scenario
  * exercises the documented surface: j-exclusive sub-list / substring,
- * OOB rejection behavior, empty slice (i==j), and DENY witnesses.
+ * OOB rejection behavior, empty slice (i==j), and DENY witnesses. The bounds
+ * cases separate the three production checks: `start` must be an index,
+ * `end - 1` must be an index (so `[0:0]` and any slice of an empty value are
+ * errors), and `start` must not exceed `end`.
  */
 import type { ScenarioRecord } from './types.ts';
 
@@ -63,6 +66,47 @@ service cloud.firestore {
     match /listSliceDeny/{id} {
       allow create: if request.auth != null
         && request.resource.data.arr[0:2].size() == 5;
+    }
+    // Bounds: start must be an index, end - 1 must be an index, and start
+    // must not exceed end.
+    match /listZeroZero/{id} {
+      allow create: if request.resource.data.arr[0:0].size() == 0;
+    }
+    match /listLenLen/{id} {
+      allow create: if request.resource.data.arr[4:4].size() == 0;
+    }
+    match /listLastEmpty/{id} {
+      allow create: if request.resource.data.arr[3:3].size() == 0;
+    }
+    match /listLastElement/{id} {
+      allow create: if request.resource.data.arr[3:4] == ['d'];
+    }
+    match /listEndBeforeFirst/{id} {
+      allow create: if request.resource.data.arr[1:0].size() == 0;
+    }
+    match /listStartAfterEnd/{id} {
+      allow create: if request.resource.data.arr[3:1].size() == 0;
+    }
+    match /listEmptyZeroZero/{id} {
+      allow create: if [][0:0] == [];
+    }
+    match /strZeroZero/{id} {
+      allow create: if request.resource.data.s[0:0] == '';
+    }
+    match /strOneOne/{id} {
+      allow create: if request.resource.data.s[1:1] == '';
+    }
+    match /strLastEmpty/{id} {
+      allow create: if request.resource.data.s[4:4] == '';
+    }
+    match /strLenLen/{id} {
+      allow create: if request.resource.data.s[5:5] == '';
+    }
+    match /strStartAfterEnd/{id} {
+      allow create: if request.resource.data.s[2:1] == '';
+    }
+    match /strEmptyZeroZero/{id} {
+      allow create: if ''[0:0] == '';
     }
   }
 }`,
@@ -151,6 +195,31 @@ service cloud.firestore {
       auth: { uid: 'alice' },
       data: { arr: ['a', 'b', 'c'] },
     },
+    ...([
+      ['list slice [0:0] is an index error DENY', 'DENY', 'listZeroZero'],
+      ['list slice [n:n] is an index error DENY', 'DENY', 'listLenLen'],
+      ['list slice [n-1:n-1] → empty ALLOW', 'ALLOW', 'listLastEmpty'],
+      ['list slice [n-1:n] → last element ALLOW', 'ALLOW', 'listLastElement'],
+      ['list slice [1:0] is an index error DENY', 'DENY', 'listEndBeforeFirst'],
+      ['list slice start after end is a range error DENY', 'DENY', 'listStartAfterEnd'],
+      ['empty list slice [0:0] is an index error DENY', 'DENY', 'listEmptyZeroZero'],
+    ] as const).map(([description, expectation, match], i) => ({
+      description, expectation, method: 'create' as const,
+      path: `${match}/d${11 + i}`, auth: { uid: 'alice' },
+      data: { arr: ['a', 'b', 'c', 'd'] },
+    })),
+    ...([
+      ['string slice [0:0] is an index error DENY', 'DENY', 'strZeroZero'],
+      ['string slice [1:1] → empty string ALLOW', 'ALLOW', 'strOneOne'],
+      ['string slice [n-1:n-1] → empty string ALLOW', 'ALLOW', 'strLastEmpty'],
+      ['string slice [n:n] is an index error DENY', 'DENY', 'strLenLen'],
+      ['string slice start after end is a range error DENY', 'DENY', 'strStartAfterEnd'],
+      ['empty string slice [0:0] is an index error DENY', 'DENY', 'strEmptyZeroZero'],
+    ] as const).map(([description, expectation, match], i) => ({
+      description, expectation, method: 'create' as const,
+      path: `${match}/d${18 + i}`, auth: { uid: 'alice' },
+      data: { s: 'hello' },
+    })),
   ],
   group: 'stress',
 };

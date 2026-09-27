@@ -4,7 +4,9 @@
  * intersection. The hosted production Test API accepts the ruleset but reports
  * Function-not-found evaluation errors when the receiver is Map.keys() (a
  * List), while explicit List.toSet() receivers implement all three methods.
- * The paired shapes make the receiver-type boundary distinguishable.
+ * The paired shapes make the receiver-type boundary distinguishable. The
+ * membership cases test `in` over Sets from toSet(), union(), and the MapDiff
+ * key-set accessors, with present, absent, and negated elements.
  */
 import type { ScenarioRecord } from './types.ts';
 
@@ -66,6 +68,49 @@ service cloud.firestore {
     }
     match /toSetDiffDeny/{id} {
       allow create: if [1, 2].toSet().difference([1].toSet()).size() == 99;
+    }
+    // Membership: \`in\` over a Set compares elements by value.
+    match /setInAllow/{id} {
+      allow create: if 'k' in ['k'].toSet();
+    }
+    match /setInAbsentDeny/{id} {
+      allow create: if 'z' in ['k'].toSet();
+    }
+    match /setNotInAllow/{id} {
+      allow create: if !('z' in ['k'].toSet());
+    }
+    match /setNotInPresentDeny/{id} {
+      allow create: if !('k' in ['k'].toSet());
+    }
+    match /setIntInAllow/{id} {
+      allow create: if 1 in [1, 2].toSet();
+    }
+    match /setUnionInAllow/{id} {
+      allow create: if 'j' in ['k'].toSet().union(['j'].toSet());
+    }
+    match /affectedInAllow/{id} {
+      allow update: if 'k' in request.resource.data.board.diff(resource.data.board).affectedKeys();
+    }
+    match /changedInAllow/{id} {
+      allow update: if 'k' in request.resource.data.board.diff(resource.data.board).changedKeys();
+    }
+    match /addedInAllow/{id} {
+      allow update: if 'a' in request.resource.data.board.diff(resource.data.board).addedKeys();
+    }
+    match /removedInAllow/{id} {
+      allow update: if 'r' in request.resource.data.board.diff(resource.data.board).removedKeys();
+    }
+    match /unchangedInAllow/{id} {
+      allow update: if 'u' in request.resource.data.board.diff(resource.data.board).unchangedKeys();
+    }
+    match /affectedInAbsentDeny/{id} {
+      allow update: if 'u' in request.resource.data.board.diff(resource.data.board).affectedKeys();
+    }
+    match /affectedNotInAllow/{id} {
+      allow update: if !('u' in request.resource.data.board.diff(resource.data.board).affectedKeys());
+    }
+    match /affectedNotInPresentDeny/{id} {
+      allow update: if !('k' in request.resource.data.board.diff(resource.data.board).affectedKeys());
     }
   }
 }`,
@@ -150,6 +195,32 @@ service cloud.firestore {
       description: 'explicit toSet difference wrong size DENY', expectation: 'DENY', method: 'create',
       path: 'toSetDiffDeny/d12', auth: null, data: {},
     },
+    ...([
+      ['string in toSet() holding it ALLOW', 'ALLOW', 'setInAllow'],
+      ['string in toSet() lacking it DENY', 'DENY', 'setInAbsentDeny'],
+      ['negated in toSet() lacking it ALLOW', 'ALLOW', 'setNotInAllow'],
+      ['negated in toSet() holding it DENY', 'DENY', 'setNotInPresentDeny'],
+      ['int in toSet() holding it ALLOW', 'ALLOW', 'setIntInAllow'],
+      ['string in union() result ALLOW', 'ALLOW', 'setUnionInAllow'],
+    ] as const).map(([description, expectation, match], i) => ({
+      description, expectation, method: 'create' as const,
+      path: `${match}/d${13 + i}`, auth: null, data: {},
+    })),
+    ...([
+      ['changed key in affectedKeys() ALLOW', 'ALLOW', 'affectedInAllow'],
+      ['changed key in changedKeys() ALLOW', 'ALLOW', 'changedInAllow'],
+      ['added key in addedKeys() ALLOW', 'ALLOW', 'addedInAllow'],
+      ['removed key in removedKeys() ALLOW', 'ALLOW', 'removedInAllow'],
+      ['unchanged key in unchangedKeys() ALLOW', 'ALLOW', 'unchangedInAllow'],
+      ['unchanged key in affectedKeys() DENY', 'DENY', 'affectedInAbsentDeny'],
+      ['negated unchanged key in affectedKeys() ALLOW', 'ALLOW', 'affectedNotInAllow'],
+      ['negated changed key in affectedKeys() DENY', 'DENY', 'affectedNotInPresentDeny'],
+    ] as const).map(([description, expectation, match], i) => ({
+      description, expectation, method: 'update' as const,
+      path: `${match}/d${19 + i}`, auth: { uid: 'alice' },
+      resource: { board: { k: 1, u: 0, r: 5 } },
+      data: { board: { k: 2, u: 0, a: 3 } },
+    })),
   ],
   group: 'stress',
 };

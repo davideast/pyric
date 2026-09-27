@@ -727,8 +727,8 @@ service cloud.firestore {
     });
 
     test('ERROR verdict — runtime error in the expression (negative slice)', () => {
-      // `obj[0:-1]` throws EvalError per evaluator.ts:192 (negative slice
-      // indices rejected). EvalError ≠ UnsupportedError, so it maps to
+      // `obj[0:-1]` throws EvalError (`end - 1` is not an index).
+      // EvalError ≠ UnsupportedError, so it maps to
       // verdict='ERROR' and the overall decision is DENY (matching
       // production: runtime errors deny the request).
       const RULES = `rules_version = '2';
@@ -751,7 +751,7 @@ service cloud.firestore {
       expect(result.decision).toBe('DENY');
       const entry = result.trace[0];
       expect(entry.verdict).toBe('ERROR');
-      expect(entry.message).toMatch(/non-negative/);
+      expect(entry.message).toBe('Index out of bound error. Index: [-2] , size: [6].');
     });
 
     test('UNSUPPORTED entries still carry conditionText + line', () => {

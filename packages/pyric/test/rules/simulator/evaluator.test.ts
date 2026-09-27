@@ -140,11 +140,11 @@ describe('Layer 1: Basics', () => {
 
   test('firestore#138a requires boolean control-flow operands', () => {
     expect(() => evaluate(binOp('&&', lit(1), lit(true)), baseCtx()))
-      .toThrow(/boolean/);
+      .toThrow('Expected: [bool]');
     expect(() => evaluate(binOp('||', lit(0), lit(false)), baseCtx()))
-      .toThrow(/boolean/);
+      .toThrow('Expected: [bool]');
     expect(() => evaluate(ternary(lit(1), lit('yes'), lit('no')), baseCtx()))
-      .toThrow(/boolean/);
+      .toThrow('Expected: [bool]');
   });
 });
 

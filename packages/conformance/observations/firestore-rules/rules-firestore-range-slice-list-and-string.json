@@ -5,12 +5,12 @@
     "firestore-rules#173"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"range-slice-list-and-string\" (Item 4). Sim must parse and evaluate range slice [i:j] for List and String; pre-fix grammar rejected the syntax outright.",
-  "observedAt": "2026-07-22T01:09:35.575Z",
+  "observedAt": "2026-09-27T23:24:15.566Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "fa5ca9b9cf22057145c13c8a8dcdbebcc8bbeaacee0a6ca2f48f1da07041054e"
+    "value": "eeea6a6c62ca55dd97d595956878e8afab7e3b8545d289c11a58742844718dc6"
   },
   "behavior": {
     "list mid-slice → sub-list of size 2 ALLOW": "ALLOW",
@@ -22,7 +22,20 @@
     "string prefix substring ALLOW": "ALLOW",
     "string slice [i:i] → empty string ALLOW": "ALLOW",
     "string slice end OOB clamps to length DENY": "DENY",
-    "list slice with wrong expected size DENY": "DENY"
+    "list slice with wrong expected size DENY": "DENY",
+    "list slice [0:0] is an index error DENY": "DENY",
+    "list slice [n:n] is an index error DENY": "DENY",
+    "list slice [n-1:n-1] → empty ALLOW": "ALLOW",
+    "list slice [n-1:n] → last element ALLOW": "ALLOW",
+    "list slice [1:0] is an index error DENY": "DENY",
+    "list slice start after end is a range error DENY": "DENY",
+    "empty list slice [0:0] is an index error DENY": "DENY",
+    "string slice [0:0] is an index error DENY": "DENY",
+    "string slice [1:1] → empty string ALLOW": "ALLOW",
+    "string slice [n-1:n-1] → empty string ALLOW": "ALLOW",
+    "string slice [n:n] is an index error DENY": "DENY",
+    "string slice start after end is a range error DENY": "DENY",
+    "empty string slice [0:0] is an index error DENY": "DENY"
   },
   "diagnostics": {
     "list slice end OOB clamps to length DENY": {
@@ -50,6 +63,132 @@
           "column": 12,
           "currentOffset": 1593,
           "endOffset": 1599
+        }
+      }
+    },
+    "list slice [0:0] is an index error DENY": {
+      "notes": [
+        "Error: firestore.rules line [57], column [24]. Index out of bound error. Index: [-1] , size: [4]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 57,
+          "column": 24,
+          "currentOffset": 1993,
+          "endOffset": 1999
+        }
+      }
+    },
+    "list slice [n:n] is an index error DENY": {
+      "notes": [
+        "Error: firestore.rules line [60], column [24]. Index out of bound error. Index: [4] , size: [4]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 60,
+          "column": 24,
+          "currentOffset": 2095,
+          "endOffset": 2101
+        }
+      }
+    },
+    "list slice [1:0] is an index error DENY": {
+      "notes": [
+        "Error: firestore.rules line [69], column [24]. Index out of bound error. Index: [-1] , size: [4]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 69,
+          "column": 24,
+          "currentOffset": 2414,
+          "endOffset": 2420
+        }
+      }
+    },
+    "list slice start after end is a range error DENY": {
+      "notes": [
+        "Error: firestore.rules line [72], column [24]. Illegal range error. From index: [3] , To index: [1]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 72,
+          "column": 24,
+          "currentOffset": 2523,
+          "endOffset": 2529
+        }
+      }
+    },
+    "empty list slice [0:0] is an index error DENY": {
+      "notes": [
+        "Error: firestore.rules line [75], column [24]. Index out of bound error. Index: [0] , size: [0]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 75,
+          "column": 24,
+          "currentOffset": 2632,
+          "endOffset": 2632
+        }
+      }
+    },
+    "string slice [0:0] is an index error DENY": {
+      "notes": [
+        "Error: firestore.rules line [78], column [24]. Index out of bound error. Index: [-1] , size: [5]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 78,
+          "column": 24,
+          "currentOffset": 2706,
+          "endOffset": 2712
+        }
+      }
+    },
+    "string slice [n:n] is an index error DENY": {
+      "notes": [
+        "Error: firestore.rules line [87], column [24]. Index out of bound error. Index: [5] , size: [5]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 87,
+          "column": 24,
+          "currentOffset": 2988,
+          "endOffset": 2994
+        }
+      }
+    },
+    "string slice start after end is a range error DENY": {
+      "notes": [
+        "Error: firestore.rules line [90], column [24]. Illegal range error. From index: [2] , To index: [1]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 90,
+          "column": 24,
+          "currentOffset": 3088,
+          "endOffset": 3094
+        }
+      }
+    },
+    "empty string slice [0:0] is an index error DENY": {
+      "notes": [
+        "Error: firestore.rules line [93], column [24]. Index out of bound error. Index: [0] , size: [0]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 93,
+          "column": 24,
+          "currentOffset": 3188,
+          "endOffset": 3189
         }
       }
     }
