@@ -1,0 +1,69 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /eq-field/{id} {
+      allow get: if resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1;
+    }
+    match /eq-wildcard/{id} {
+      allow get: if id == 'x' && id == 'x' && id == 'x' && id == 'x' && id == 'x' && id == 'x' && id == 'x' && id == 'x' && id == 'x' && id == 'x' && id == 'x' && id == 'x' && id == 'x' && id == 'x' && id == 'x' && id == 'x' && id == 'x' && id == 'x' && id == 'x' && id == 'x';
+    }
+    match /literal-true/{id} {
+      allow get: if true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true;
+    }
+    match /parameter/{id} {
+      function allOf(b) { return b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b && b; }
+      allow get: if allOf(true);
+    }
+    match /call/{id} {
+      function g(x) { return x == 'x'; }
+      allow get: if g(id) && g(id) && g(id) && g(id) && g(id) && g(id) && g(id) && g(id) && g(id) && g(id) && g(id) && g(id) && g(id) && g(id) && g(id) && g(id) && g(id) && g(id) && g(id) && g(id);
+    }
+    match /let/{id} {
+      function lt(x) { let v = x; return v == 'x'; }
+      allow get: if lt(id) && lt(id) && lt(id) && lt(id) && lt(id) && lt(id) && lt(id) && lt(id) && lt(id) && lt(id) && lt(id) && lt(id) && lt(id) && lt(id) && lt(id) && lt(id) && lt(id) && lt(id) && lt(id) && lt(id);
+    }
+    match /let-unused/{id} {
+      function lu() { let v = resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1; return id == 'y' && v; }
+      allow get: if !lu();
+    }
+    match /in-list/{id} {
+      allow get: if id in ['x', 'y'] && id in ['x', 'y'] && id in ['x', 'y'] && id in ['x', 'y'] && id in ['x', 'y'] && id in ['x', 'y'] && id in ['x', 'y'] && id in ['x', 'y'] && id in ['x', 'y'] && id in ['x', 'y'] && id in ['x', 'y'] && id in ['x', 'y'] && id in ['x', 'y'] && id in ['x', 'y'] && id in ['x', 'y'] && id in ['x', 'y'] && id in ['x', 'y'] && id in ['x', 'y'] && id in ['x', 'y'] && id in ['x', 'y'];
+    }
+    match /method/{id} {
+      allow get: if resource.data.keys().size() > 0 && resource.data.keys().size() > 0 && resource.data.keys().size() > 0 && resource.data.keys().size() > 0 && resource.data.keys().size() > 0 && resource.data.keys().size() > 0 && resource.data.keys().size() > 0 && resource.data.keys().size() > 0 && resource.data.keys().size() > 0 && resource.data.keys().size() > 0 && resource.data.keys().size() > 0 && resource.data.keys().size() > 0 && resource.data.keys().size() > 0 && resource.data.keys().size() > 0 && resource.data.keys().size() > 0 && resource.data.keys().size() > 0 && resource.data.keys().size() > 0 && resource.data.keys().size() > 0 && resource.data.keys().size() > 0 && resource.data.keys().size() > 0;
+    }
+    match /bracket/{id} {
+      function at(r, f) { return r[f] == 1 && r[f] == 1 && r[f] == 1 && r[f] == 1 && r[f] == 1 && r[f] == 1 && r[f] == 1 && r[f] == 1 && r[f] == 1 && r[f] == 1 && r[f] == 1 && r[f] == 1 && r[f] == 1 && r[f] == 1 && r[f] == 1 && r[f] == 1 && r[f] == 1 && r[f] == 1 && r[f] == 1 && r[f] == 1; }
+      allow get: if at(resource.data, 'a');
+    }
+    match /slice/{id} {
+      allow get: if id[0:1] == 'x' && id[0:1] == 'x' && id[0:1] == 'x' && id[0:1] == 'x' && id[0:1] == 'x' && id[0:1] == 'x' && id[0:1] == 'x' && id[0:1] == 'x' && id[0:1] == 'x' && id[0:1] == 'x' && id[0:1] == 'x' && id[0:1] == 'x' && id[0:1] == 'x' && id[0:1] == 'x' && id[0:1] == 'x' && id[0:1] == 'x' && id[0:1] == 'x' && id[0:1] == 'x' && id[0:1] == 'x' && id[0:1] == 'x';
+    }
+    match /not/{id} {
+      allow get: if !(id == 'y') && !(id == 'y') && !(id == 'y') && !(id == 'y') && !(id == 'y') && !(id == 'y') && !(id == 'y') && !(id == 'y') && !(id == 'y') && !(id == 'y') && !(id == 'y') && !(id == 'y') && !(id == 'y') && !(id == 'y') && !(id == 'y') && !(id == 'y') && !(id == 'y') && !(id == 'y') && !(id == 'y') && !(id == 'y');
+    }
+    match /ternary/{id} {
+      allow get: if (id == 'x' ? true : false) && (id == 'x' ? true : false) && (id == 'x' ? true : false) && (id == 'x' ? true : false) && (id == 'x' ? true : false) && (id == 'x' ? true : false) && (id == 'x' ? true : false) && (id == 'x' ? true : false) && (id == 'x' ? true : false) && (id == 'x' ? true : false) && (id == 'x' ? true : false) && (id == 'x' ? true : false) && (id == 'x' ? true : false) && (id == 'x' ? true : false) && (id == 'x' ? true : false) && (id == 'x' ? true : false) && (id == 'x' ? true : false) && (id == 'x' ? true : false) && (id == 'x' ? true : false) && (id == 'x' ? true : false);
+    }
+    match /map-eq/{id} {
+      allow get: if resource.data.m == {'k': 1} && resource.data.m == {'k': 1} && resource.data.m == {'k': 1} && resource.data.m == {'k': 1} && resource.data.m == {'k': 1} && resource.data.m == {'k': 1} && resource.data.m == {'k': 1} && resource.data.m == {'k': 1} && resource.data.m == {'k': 1} && resource.data.m == {'k': 1};
+    }
+    match /or-false/{id} {
+      allow get: if id == 'y' || id == 'y' || id == 'y' || id == 'y' || id == 'y' || id == 'y' || id == 'y' || id == 'y' || id == 'y' || id == 'y' || id == 'y' || id == 'y' || id == 'y' || id == 'y' || id == 'y' || id == 'y' || id == 'y' || id == 'y' || id == 'y' || id == 'x';
+    }
+    match /and-short-circuit/{id} {
+      allow get: if !(id == 'y' && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1);
+    }
+    match /or-short-circuit/{id} {
+      allow get: if id == 'x' || resource.data.a == 1 || resource.data.a == 1 || resource.data.a == 1 || resource.data.a == 1 || resource.data.a == 1 || resource.data.a == 1 || resource.data.a == 1 || resource.data.a == 1 || resource.data.a == 1 || resource.data.a == 1 || resource.data.a == 1 || resource.data.a == 1 || resource.data.a == 1 || resource.data.a == 1 || resource.data.a == 1 || resource.data.a == 1 || resource.data.a == 1 || resource.data.a == 1 || resource.data.a == 1;
+    }
+    match /get-cached/{id} {
+      allow get: if get(/databases/$(database)/documents/cfg/c).data.on == true && get(/databases/$(database)/documents/cfg/c).data.on == true && get(/databases/$(database)/documents/cfg/c).data.on == true && get(/databases/$(database)/documents/cfg/c).data.on == true && get(/databases/$(database)/documents/cfg/c).data.on == true;
+    }
+    match /rule-order/{id} {
+      allow get: if resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && id == 'y';
+      allow get: if resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && id == 'y';
+      allow get: if resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1 && resource.data.a == 1;
+    }
+  }
+}

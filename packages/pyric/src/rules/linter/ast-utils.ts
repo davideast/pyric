@@ -72,56 +72,6 @@ export function deepestChain(expr: Expression): { op: string; depth: number } {
 }
 
 /**
- * Count total expression nodes in an expression tree.
- * Used for runtime budget estimation.
- */
-export function countExpressionNodes(expr: Expression): number {
-  let count = 1; // this node
-  switch (expr.type) {
-    case 'binaryOp':
-      count += countExpressionNodes(expr.left) + countExpressionNodes(expr.right);
-      break;
-    case 'unaryOp':
-      count += countExpressionNodes(expr.operand);
-      break;
-    case 'methodCall':
-      count += countExpressionNodes(expr.object);
-      for (const a of expr.args) count += countExpressionNodes(a);
-      break;
-    case 'memberAccess':
-      count += countExpressionNodes(expr.object);
-      break;
-    case 'bracketAccess':
-      count += countExpressionNodes(expr.object) + countExpressionNodes(expr.index);
-      break;
-    case 'ternary':
-      count += countExpressionNodes(expr.condition) + countExpressionNodes(expr.consequent) + countExpressionNodes(expr.alternate);
-      break;
-    case 'inExpr':
-      count += countExpressionNodes(expr.element) + countExpressionNodes(expr.collection);
-      break;
-    case 'isExpr':
-      count += countExpressionNodes(expr.value);
-      break;
-    case 'listLiteral':
-      for (const el of expr.elements) count += countExpressionNodes(el);
-      break;
-    case 'mapLiteral':
-      for (const en of expr.entries) count += countExpressionNodes(en.key) + countExpressionNodes(en.value);
-      break;
-    case 'functionCall':
-      for (const a of expr.args) count += countExpressionNodes(a);
-      break;
-    case 'pathLiteral':
-      for (const seg of expr.segments) {
-        if (typeof seg !== 'string') count += countExpressionNodes(seg);
-      }
-      break;
-  }
-  return count;
-}
-
-/**
  * Produce a structural fingerprint of an expression for comparison.
  * Used by SHARED_GATE to detect identical first expressions across allow rules.
  *
