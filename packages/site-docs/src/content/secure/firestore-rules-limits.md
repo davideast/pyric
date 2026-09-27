@@ -15,6 +15,23 @@ pyric rules lint --service firestore
 ```
 The examples below show the shape that fails and the change that fixes it.
 
+## Measured limits
+
+The Firebase documentation gives different values for some limits on different pages. The table records what production does. Each value was measured on 2026-09-27 by submitting generated rulesets to the Rules Test API, which compiles and evaluates a ruleset without deploying it. Firestore and Storage rulesets gave the same result for every row.
+
+| Limit | Documented | Measured | Production error at the first failing size |
+|-------|-----------|----------|--------------------------------------------|
+| Functions on one call stack, `f1()` calling `f2()` ... calling `fN()` | 10: Firestore and Storage "Writing conditions" pages. 20: Firestore "Structuring rules" limits table and the "Rules language" page. | 21 compile, 22 fail | `Maximum allowed call depth of 20 is reached for [f1->f2->...->f21] call stack.` |
+| `let` bindings in one function | 10: Firestore "Structuring rules" limits table, Firestore "Writing conditions" page and the "Rules language" page. Any number: Storage "Writing conditions" page. | 11 compile, 12 fail | `Maximum allowed variable count of 10 for a given function has been reached.` |
+| Terms in a right-nested `&&` chain, `t1 && (t2 && (...))` | Not documented | 49 compile, 50 fail | `Expression is too complex to evaluate safely.` |
+| Parentheses around one comparison | Not documented | 97 pairs compile, 98 fail | `Expression is too complex to evaluate safely.` |
+
+Both structural limits are compile-time checks. A ruleset over either limit is rejected before any request is evaluated, and a call chain over the limit is rejected even when no rule calls it. The error messages count differently from the measured boundaries: a 22-function chain reports a depth of 20, and 12 bindings report a count of 10.
+
+The nesting boundaries, together with the 98-operand flat chain below, fit one limit in which each `&&` or `||` and each parenthesized group is one level: 97 levels compile and 98 fail. The linter reports call depth and `let` count. It does not report nesting depth, so keep nested groups shallow and split deep conditions into functions.
+
+The runtime limit on evaluated expressions is a separate budget with its own cost model. See [More than 1000 evaluated expressions](#more-than-1000-evaluated-expressions).
+
 ## Source larger than 256 KB
 
 Production accepts a rules source below 256 KB and rejects one at the ceiling. Generated lookup tables and repeated helpers are common causes.
@@ -68,7 +85,7 @@ Grouping reduces chain depth. Splitting into functions also consumes evaluation 
 
 ## More than 11 `let` bindings in one function
 
-Eleven bindings compile; twelve fail.
+Eleven bindings compile; twelve fail, in Firestore and Storage rulesets.
 
 Invalid:
 ```rules

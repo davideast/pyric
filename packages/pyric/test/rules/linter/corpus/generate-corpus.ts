@@ -243,9 +243,9 @@ const deepChain = wrap(`
       allow update: if level0();`);
 save({
   filename: '10-deep-call-chain.rules',
-  description: '6-level function call chain — tests call depth limits',
+  description: '6-level function call chain, below the 21-function call depth limit',
   compiles: true, runtime: 'pass', failureReason: '',
-  lintRules: ['CALL_DEPTH'],
+  lintRules: [],
   source: deepChain,
   metrics: { sizeBytes: deepChain.length, lines: deepChain.split('\n').length, functions: 6, maxLetsPerFunction: 0, allowRules: 1, sharedGates: false, estimatedMaxExprPerRule: 12 },
 });

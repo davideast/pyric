@@ -1,0 +1,979 @@
+{
+  "schema": "pyric.rules-compile-limits.v1",
+  "capturedAt": "2026-09-27T20:35:28.442Z",
+  "projectId": "digame-mas",
+  "method": "Rules Test API projects.test, one generated ruleset per probe; each case is a get with uid a (granted when the ruleset works) and uid b (denied). probeBlock() in packages/conformance/src/capture-rules-compile-limits.ts generates each shape.",
+  "calls": 46,
+  "boundaries": [
+    {
+      "service": "firestore",
+      "shape": "call-depth",
+      "largestPass": 21,
+      "smallestFail": 22
+    },
+    {
+      "service": "firestore",
+      "shape": "call-depth-uncalled",
+      "largestPass": 21,
+      "smallestFail": 22
+    },
+    {
+      "service": "firestore",
+      "shape": "let-count",
+      "largestPass": 11,
+      "smallestFail": 12
+    },
+    {
+      "service": "firestore",
+      "shape": "and-nesting",
+      "largestPass": 49,
+      "smallestFail": 50
+    },
+    {
+      "service": "firestore",
+      "shape": "paren-nesting",
+      "largestPass": 97,
+      "smallestFail": 98
+    },
+    {
+      "service": "storage",
+      "shape": "call-depth",
+      "largestPass": 21,
+      "smallestFail": 22
+    },
+    {
+      "service": "storage",
+      "shape": "call-depth-uncalled",
+      "largestPass": 21,
+      "smallestFail": 22
+    },
+    {
+      "service": "storage",
+      "shape": "let-count",
+      "largestPass": 11,
+      "smallestFail": 12
+    },
+    {
+      "service": "storage",
+      "shape": "and-nesting",
+      "largestPass": 49,
+      "smallestFail": 50
+    },
+    {
+      "service": "storage",
+      "shape": "paren-nesting",
+      "largestPass": 97,
+      "smallestFail": 98
+    }
+  ],
+  "probes": [
+    {
+      "service": "firestore",
+      "shape": "call-depth",
+      "n": 24,
+      "range": [
+        8,
+        24
+      ],
+      "compiles": false,
+      "issues": [
+        {
+          "severity": "ERROR",
+          "description": "Maximum allowed call depth of 20 is reached for [c22_1->c22_2->c22_3->c22_4->c22_5->c22_6->c22_7->c22_8->c22_9->c22_10->c22_11->c22_12->c22_13->c22_14->c22_15->c22_16->c22_17->c22_18->c22_19->c22_20->c22_21] call stack.",
+          "line": 271,
+          "column": 16
+        },
+        {
+          "severity": "ERROR",
+          "description": "Maximum allowed call depth of 20 is reached for [c23_1->c23_2->c23_3->c23_4->c23_5->c23_6->c23_7->c23_8->c23_9->c23_10->c23_11->c23_12->c23_13->c23_14->c23_15->c23_16->c23_17->c23_18->c23_19->c23_20->c23_21] call stack.",
+          "line": 296,
+          "column": 16
+        },
+        {
+          "severity": "ERROR",
+          "description": "Maximum allowed call depth of 20 is reached for [c24_1->c24_2->c24_3->c24_4->c24_5->c24_6->c24_7->c24_8->c24_9->c24_10->c24_11->c24_12->c24_13->c24_14->c24_15->c24_16->c24_17->c24_18->c24_19->c24_20->c24_21] call stack.",
+          "line": 322,
+          "column": 16
+        }
+      ],
+      "cases": []
+    },
+    {
+      "service": "firestore",
+      "shape": "call-depth",
+      "n": 8,
+      "compiles": true,
+      "issues": [],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "service": "firestore",
+      "shape": "call-depth",
+      "n": 24,
+      "compiles": false,
+      "issues": [
+        {
+          "severity": "ERROR",
+          "description": "Maximum allowed call depth of 20 is reached for [f1->f2->f3->f4->f5->f6->f7->f8->f9->f10->f11->f12->f13->f14->f15->f16->f17->f18->f19->f20->f21] call stack.",
+          "line": 26,
+          "column": 16
+        }
+      ],
+      "cases": []
+    },
+    {
+      "service": "firestore",
+      "shape": "call-depth",
+      "n": 16,
+      "compiles": true,
+      "issues": [],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "service": "firestore",
+      "shape": "call-depth",
+      "n": 20,
+      "compiles": true,
+      "issues": [],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "service": "firestore",
+      "shape": "call-depth",
+      "n": 22,
+      "compiles": false,
+      "issues": [
+        {
+          "severity": "ERROR",
+          "description": "Maximum allowed call depth of 20 is reached for [f1->f2->f3->f4->f5->f6->f7->f8->f9->f10->f11->f12->f13->f14->f15->f16->f17->f18->f19->f20->f21] call stack.",
+          "line": 26,
+          "column": 16
+        }
+      ],
+      "cases": []
+    },
+    {
+      "service": "firestore",
+      "shape": "call-depth",
+      "n": 21,
+      "compiles": true,
+      "issues": [],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "service": "firestore",
+      "shape": "call-depth-uncalled",
+      "n": 21,
+      "compiles": true,
+      "issues": [
+        {
+          "severity": "WARNING",
+          "description": "Unused function: f1.",
+          "line": 5,
+          "column": 16
+        },
+        {
+          "severity": "WARNING",
+          "description": "Invalid variable name: request.",
+          "line": 25,
+          "column": 31
+        }
+      ],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "service": "firestore",
+      "shape": "call-depth-uncalled",
+      "n": 22,
+      "compiles": false,
+      "issues": [
+        {
+          "severity": "WARNING",
+          "description": "Unused function: f1.",
+          "line": 5,
+          "column": 16
+        },
+        {
+          "severity": "ERROR",
+          "description": "Maximum allowed call depth of 20 is reached for [f1->f2->f3->f4->f5->f6->f7->f8->f9->f10->f11->f12->f13->f14->f15->f16->f17->f18->f19->f20->f21] call stack.",
+          "line": 26,
+          "column": 16
+        },
+        {
+          "severity": "WARNING",
+          "description": "Invalid variable name: request.",
+          "line": 26,
+          "column": 31
+        }
+      ],
+      "cases": []
+    },
+    {
+      "service": "firestore",
+      "shape": "let-count",
+      "n": 11,
+      "compiles": true,
+      "issues": [],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "service": "firestore",
+      "shape": "let-count",
+      "n": 12,
+      "compiles": false,
+      "issues": [
+        {
+          "severity": "ERROR",
+          "description": "Maximum allowed variable count of 10 for a given function has been reached.",
+          "line": 18,
+          "column": 16
+        }
+      ],
+      "cases": []
+    },
+    {
+      "service": "firestore",
+      "shape": "and-nesting",
+      "n": 30,
+      "compiles": true,
+      "issues": [],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "service": "firestore",
+      "shape": "and-nesting",
+      "n": 60,
+      "compiles": false,
+      "issues": [
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 5,
+          "column": 1483
+        },
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 5,
+          "column": 1512
+        }
+      ],
+      "cases": []
+    },
+    {
+      "service": "firestore",
+      "shape": "and-nesting",
+      "n": 45,
+      "compiles": true,
+      "issues": [],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "service": "firestore",
+      "shape": "and-nesting",
+      "n": 52,
+      "compiles": false,
+      "issues": [
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 5,
+          "column": 1483
+        },
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 5,
+          "column": 1512
+        }
+      ],
+      "cases": []
+    },
+    {
+      "service": "firestore",
+      "shape": "and-nesting",
+      "n": 48,
+      "compiles": true,
+      "issues": [],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "service": "firestore",
+      "shape": "and-nesting",
+      "n": 50,
+      "compiles": false,
+      "issues": [
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 5,
+          "column": 1483
+        },
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 5,
+          "column": 1503
+        }
+      ],
+      "cases": []
+    },
+    {
+      "service": "firestore",
+      "shape": "and-nesting",
+      "n": 49,
+      "compiles": true,
+      "issues": [],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "service": "firestore",
+      "shape": "paren-nesting",
+      "n": 30,
+      "compiles": true,
+      "issues": [],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "service": "firestore",
+      "shape": "paren-nesting",
+      "n": 60,
+      "compiles": true,
+      "issues": [],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "service": "firestore",
+      "shape": "paren-nesting",
+      "n": 200,
+      "compiles": false,
+      "issues": [
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 5,
+          "column": 121
+        }
+      ],
+      "cases": []
+    },
+    {
+      "service": "storage",
+      "shape": "call-depth",
+      "n": 24,
+      "range": [
+        8,
+        24
+      ],
+      "compiles": false,
+      "issues": [
+        {
+          "severity": "ERROR",
+          "description": "Maximum allowed call depth of 20 is reached for [c22_1->c22_2->c22_3->c22_4->c22_5->c22_6->c22_7->c22_8->c22_9->c22_10->c22_11->c22_12->c22_13->c22_14->c22_15->c22_16->c22_17->c22_18->c22_19->c22_20->c22_21] call stack.",
+          "line": 271,
+          "column": 16
+        },
+        {
+          "severity": "ERROR",
+          "description": "Maximum allowed call depth of 20 is reached for [c23_1->c23_2->c23_3->c23_4->c23_5->c23_6->c23_7->c23_8->c23_9->c23_10->c23_11->c23_12->c23_13->c23_14->c23_15->c23_16->c23_17->c23_18->c23_19->c23_20->c23_21] call stack.",
+          "line": 296,
+          "column": 16
+        },
+        {
+          "severity": "ERROR",
+          "description": "Maximum allowed call depth of 20 is reached for [c24_1->c24_2->c24_3->c24_4->c24_5->c24_6->c24_7->c24_8->c24_9->c24_10->c24_11->c24_12->c24_13->c24_14->c24_15->c24_16->c24_17->c24_18->c24_19->c24_20->c24_21] call stack.",
+          "line": 322,
+          "column": 16
+        }
+      ],
+      "cases": []
+    },
+    {
+      "service": "storage",
+      "shape": "call-depth",
+      "n": 8,
+      "compiles": true,
+      "issues": [],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "service": "storage",
+      "shape": "call-depth",
+      "n": 24,
+      "compiles": false,
+      "issues": [
+        {
+          "severity": "ERROR",
+          "description": "Maximum allowed call depth of 20 is reached for [f1->f2->f3->f4->f5->f6->f7->f8->f9->f10->f11->f12->f13->f14->f15->f16->f17->f18->f19->f20->f21] call stack.",
+          "line": 26,
+          "column": 16
+        }
+      ],
+      "cases": []
+    },
+    {
+      "service": "storage",
+      "shape": "call-depth",
+      "n": 16,
+      "compiles": true,
+      "issues": [],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "service": "storage",
+      "shape": "call-depth",
+      "n": 20,
+      "compiles": true,
+      "issues": [],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "service": "storage",
+      "shape": "call-depth",
+      "n": 22,
+      "compiles": false,
+      "issues": [
+        {
+          "severity": "ERROR",
+          "description": "Maximum allowed call depth of 20 is reached for [f1->f2->f3->f4->f5->f6->f7->f8->f9->f10->f11->f12->f13->f14->f15->f16->f17->f18->f19->f20->f21] call stack.",
+          "line": 26,
+          "column": 16
+        }
+      ],
+      "cases": []
+    },
+    {
+      "service": "storage",
+      "shape": "call-depth",
+      "n": 21,
+      "compiles": true,
+      "issues": [],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "service": "storage",
+      "shape": "call-depth-uncalled",
+      "n": 21,
+      "compiles": true,
+      "issues": [
+        {
+          "severity": "WARNING",
+          "description": "Unused function: f1.",
+          "line": 5,
+          "column": 16
+        },
+        {
+          "severity": "WARNING",
+          "description": "Invalid variable name: request.",
+          "line": 25,
+          "column": 31
+        }
+      ],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "service": "storage",
+      "shape": "call-depth-uncalled",
+      "n": 22,
+      "compiles": false,
+      "issues": [
+        {
+          "severity": "WARNING",
+          "description": "Unused function: f1.",
+          "line": 5,
+          "column": 16
+        },
+        {
+          "severity": "ERROR",
+          "description": "Maximum allowed call depth of 20 is reached for [f1->f2->f3->f4->f5->f6->f7->f8->f9->f10->f11->f12->f13->f14->f15->f16->f17->f18->f19->f20->f21] call stack.",
+          "line": 26,
+          "column": 16
+        },
+        {
+          "severity": "WARNING",
+          "description": "Invalid variable name: request.",
+          "line": 26,
+          "column": 31
+        }
+      ],
+      "cases": []
+    },
+    {
+      "service": "storage",
+      "shape": "let-count",
+      "n": 11,
+      "compiles": true,
+      "issues": [],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "service": "storage",
+      "shape": "let-count",
+      "n": 12,
+      "compiles": false,
+      "issues": [
+        {
+          "severity": "ERROR",
+          "description": "Maximum allowed variable count of 10 for a given function has been reached.",
+          "line": 18,
+          "column": 16
+        }
+      ],
+      "cases": []
+    },
+    {
+      "service": "storage",
+      "shape": "and-nesting",
+      "n": 49,
+      "compiles": true,
+      "issues": [],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "service": "storage",
+      "shape": "and-nesting",
+      "n": 50,
+      "compiles": false,
+      "issues": [
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 5,
+          "column": 1483
+        },
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 5,
+          "column": 1503
+        }
+      ],
+      "cases": []
+    },
+    {
+      "service": "storage",
+      "shape": "paren-nesting",
+      "n": 30,
+      "compiles": true,
+      "issues": [],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "service": "storage",
+      "shape": "paren-nesting",
+      "n": 60,
+      "compiles": true,
+      "issues": [],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "service": "storage",
+      "shape": "paren-nesting",
+      "n": 200,
+      "compiles": false,
+      "issues": [
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 5,
+          "column": 121
+        }
+      ],
+      "cases": []
+    },
+    {
+      "service": "firestore",
+      "shape": "paren-nesting",
+      "n": 90,
+      "compiles": true,
+      "issues": [],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "service": "firestore",
+      "shape": "paren-nesting",
+      "n": 100,
+      "compiles": false,
+      "issues": [
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 5,
+          "column": 121
+        }
+      ],
+      "cases": []
+    },
+    {
+      "service": "firestore",
+      "shape": "paren-nesting",
+      "n": 130,
+      "compiles": false,
+      "issues": [
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 5,
+          "column": 121
+        }
+      ],
+      "cases": []
+    },
+    {
+      "service": "firestore",
+      "shape": "paren-nesting",
+      "n": 95,
+      "compiles": true,
+      "issues": [],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "service": "firestore",
+      "shape": "paren-nesting",
+      "n": 97,
+      "compiles": true,
+      "issues": [],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "service": "firestore",
+      "shape": "paren-nesting",
+      "n": 98,
+      "compiles": false,
+      "issues": [
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 5,
+          "column": 120
+        },
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 5,
+          "column": 140
+        }
+      ],
+      "cases": []
+    },
+    {
+      "service": "firestore",
+      "shape": "paren-nesting",
+      "n": 99,
+      "compiles": false,
+      "issues": [
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 5,
+          "column": 121
+        }
+      ],
+      "cases": []
+    },
+    {
+      "service": "storage",
+      "shape": "paren-nesting",
+      "n": 97,
+      "compiles": true,
+      "issues": [],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "service": "storage",
+      "shape": "paren-nesting",
+      "n": 98,
+      "compiles": false,
+      "issues": [
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 5,
+          "column": 120
+        },
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 5,
+          "column": 140
+        }
+      ],
+      "cases": []
+    }
+  ]
+}

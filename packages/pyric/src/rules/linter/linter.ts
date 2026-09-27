@@ -83,8 +83,11 @@ const THRESHOLDS = {
   CHAIN_DEPTH_WARN: 85,
   CHAIN_DEPTH_LIMIT: 98,             // exact compile limit in operands, verified (99 fails)
   LET_LIMIT: 11,                     // exact, verified (12 fails)
-  CALL_DEPTH_WARN: 6,
-  CALL_DEPTH_ERROR: 10,
+  // Functions on one call stack. Production compiles a chain of 21 and
+  // rejects 22 at compile time with "Maximum allowed call depth of 20 is
+  // reached", in Firestore and Storage (fixtures/compile-limits).
+  CALL_DEPTH_WARN: 18,
+  CALL_DEPTH_LIMIT: 21,
   GET_COUNT_WARN: 5,
   // Production allows EXACTLY 10 document access calls per request
   // evaluation; the 11th fails (site-docs secure/firestore-rules-limits.md).
@@ -247,11 +250,11 @@ function checkCallDepth(
     };
     findDepth(rules[i].rule.condition);
 
-    if (maxDepth >= THRESHOLDS.CALL_DEPTH_ERROR) {
+    if (maxDepth > THRESHOLDS.CALL_DEPTH_LIMIT) {
       warnings.push({
         rule: 'CALL_DEPTH',
         severity: 'error',
-        message: `Rule #${i} has a function call chain of depth ${maxDepth}. May exceed call budget.`,
+        message: `Rule #${i} has a function call chain of depth ${maxDepth}. Limit is ${THRESHOLDS.CALL_DEPTH_LIMIT}.`,
         location: { ruleIndex: i },
         fix: 'Inline intermediate functions to reduce call depth.',
       });
@@ -259,7 +262,7 @@ function checkCallDepth(
       warnings.push({
         rule: 'CALL_DEPTH',
         severity: 'warning',
-        message: `Rule #${i} has a function call chain of depth ${maxDepth}.`,
+        message: `Rule #${i} has a function call chain of depth ${maxDepth}. Limit is ${THRESHOLDS.CALL_DEPTH_LIMIT}.`,
         location: { ruleIndex: i },
       });
     }
