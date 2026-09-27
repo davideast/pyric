@@ -12,6 +12,7 @@ import {
   type StorageRules,
 } from './rules.js';
 import { buildRequestObject, buildResourceObject } from './rules-bindings.js';
+import { applyConversion, conversionFor } from './rules-conversions.js';
 import { evalMethodCall } from './rules-methods.js';
 import {
   cmp,
@@ -123,9 +124,9 @@ export function evaluateStorageRules(
             continue;
           }
         } catch (err) {
-          // Any function-evaluation failure (undefined function, wrong
-          // arity, depth exceeded, error inside a body) denies this rule
-          // with a reason that names the function — never a false allow.
+          // Any thrown evaluation failure (depth exceeded, an unresolved
+          // import, an error inside a body) denies this rule with a reason
+          // that names the function, never a false allow.
           if (err instanceof RuleEvalError) {
             reasons.push(
               `match ${formatPath(block.segments)} ${input.request.method}: ${err.message}`,
@@ -457,36 +458,27 @@ function evalLogicalOperand(expr: Expr, ctx: EvalCtx): boolean | RuleError {
 }
 
 /**
- * Evaluate a user-defined function call. Arguments are evaluated in the
+ * Evaluate a bare function call. A function the ruleset declares in scope
+ * wins over a global of the same name. Arguments are evaluated in the
  * CALLER's context, then bound to the function's parameters; the body
  * (with any `let` bindings) is evaluated in the function's own lexical
- * scope with fresh locals — caller path wildcards are not visible except
- * through the arguments passed. Every failure mode throws `RuleEvalError`
- * so the caller denies with a function-naming reason.
+ * scope with fresh locals, so caller path wildcards are not visible except
+ * through the arguments passed. An undefined function and a wrong argument
+ * count are error values that `&&` and `||` can absorb, as in production.
  */
 function evalCall(expr: Extract<Expr, { kind: 'call' }>, ctx: EvalCtx): unknown {
   const fn = ctx.funcs.get(expr.name);
-  // Undefined functions, unresolved imports, and arity mismatches are
-  // COMPILE-reject failures in production (the ruleset never deploys), so
-  // they are RuleUnsupportedError: unabsorbable by &&/||, always deny.
-  if (!fn) {
-    if (expr.name === 'path' && expr.args.length === 1) {
-      const inner = evalExpr(expr.args[0], ctx);
-      if (isErr(inner)) return inner;
-      if (typeof inner === 'string') return new StoragePath(inner);
-      if (inner instanceof StoragePath) return inner;
-      return new RuleError(`path() expects a string, got ${describeType(inner)}.`);
-    }
-    throw new RuleUnsupportedError(`undefined function ${expr.name}()`);
-  }
+  if (!fn) return evalGlobalCall(expr, ctx);
+  // An unresolved import is a construct the evaluator cannot model, so it
+  // always fails closed.
   if (fn.unresolvedImport !== undefined) {
     throw new RuleUnsupportedError(
       `function ${expr.name}() is imported from '${fn.unresolvedImport}', but import module resolution is not implemented`,
     );
   }
   if (fn.params.length !== expr.args.length) {
-    throw new RuleUnsupportedError(
-      `function ${expr.name}() expects ${fn.params.length} argument(s), got ${expr.args.length}`,
+    return new RuleError(
+      `Incorrect number of arguments. Received: ${expr.args.length}. Expected: ${expr.name}(${fn.params.join(', ')}).`,
     );
   }
   const depth = ctx.depth + 1;
@@ -518,4 +510,24 @@ function evalCall(expr: Extract<Expr, { kind: 'call' }>, ctx: EvalCtx): unknown 
     locals[b.name] = evalExpr(b.value, bodyCtx);
   }
   return evalExpr(fn.body, bodyCtx);
+}
+
+/** Evaluate a call to a global function: `path()` or a conversion. */
+function evalGlobalCall(expr: Extract<Expr, { kind: 'call' }>, ctx: EvalCtx): unknown {
+  if (expr.name === 'path' && expr.args.length === 1) {
+    const inner = evalExpr(expr.args[0], ctx);
+    if (isErr(inner)) return inner;
+    if (typeof inner === 'string') return new StoragePath(inner);
+    if (inner instanceof StoragePath) return inner;
+    return new RuleError(`path() expects a string, got ${describeType(inner)}.`);
+  }
+  const conversion = conversionFor(expr.name);
+  if (!conversion) return new RuleError(`Function not found error: Name: [${expr.name}].`);
+  const args: unknown[] = [];
+  for (const arg of expr.args) {
+    const value = evalExpr(arg, ctx);
+    if (isErr(value)) return value;
+    args.push(value);
+  }
+  return applyConversion(conversion, args);
 }

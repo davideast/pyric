@@ -1,0 +1,878 @@
+{
+  "name": "rules-storage-conversion-functions",
+  "matrixRow": "",
+  "rowIds": [
+    "storage-rules#124"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"conversion-functions\" (Coverage: int(), string(), float() conversions). int() parses a whole int64 decimal string and truncates or saturates a float, float() parses a string with Java double syntax, string() formats int, float, null, bool, string, and path, and every conversion failure, undefined function, and wrong argument count is an error value that || true absorbs; a ruleset function named int shadows the global one.",
+  "observedAt": "2026-09-27T15:39:55.136Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "int('12') == 12 && int('12') is int → ALLOW": "ALLOW",
+    "int(request.resource.metadata.moves) == 12 → ALLOW": "ALLOW",
+    "int('-3') == -3 && int('+3') == 3 && int('007') == 7 && int('-0') == 0 → ALLOW": "ALLOW",
+    "int('-9223372036854775808') == -9223372036854775808 → ALLOW": "ALLOW",
+    "int(2.0) == 2 && int(2.9) == 2 && int(-2.9) == -2 && int(2.5) is int → ALLOW": "ALLOW",
+    "int(2.9) == 3 → DENY": "DENY",
+    "int(request.resource.size + 0.9) == 2 → ALLOW": "ALLOW",
+    "int(float('1e20')) == 9223372036854775807 && int(float('-1e20')) == -9223372036854775808 && int(float('NaN')) == 0 → ALLOW": "ALLOW",
+    "int('9223372036854775808') != 0 (out of int64 range) → DENY": "DENY",
+    "int(request.resource.metadata.bad) != 12 ('12abc') → DENY": "DENY",
+    "int('x') != 0 → DENY": "DENY",
+    "!(int('x') == 0) → DENY": "DENY",
+    "(int(request.resource.metadata.x) == 0) || true → ALLOW": "ALLOW",
+    "int('1.5') != 0 → DENY": "DENY",
+    "int(request.resource.metadata.sp) == 12 (' 12') → DENY": "DENY",
+    "int('12 ') == 12 → DENY": "DENY",
+    "int('0x10') != 0 → DENY": "DENY",
+    "int('') != 0 → DENY": "DENY",
+    "int(true) != 0 → DENY": "DENY",
+    "(int(true) == 1) || true → ALLOW": "ALLOW",
+    "int(null) != 0 → DENY": "DENY",
+    "int('1', 2) == 1 → DENY": "DENY",
+    "int('1', 2) == 1 || true → ALLOW": "ALLOW",
+    "string(12) == '12' && string(-5) == '-5' && string(12) is string && string(request.resource.size) == '2' → ALLOW": "ALLOW",
+    "string(1.5) == '1.5' && string(2.0) == '2.0' && string(0.1 + 0.2) == '0.30000000000000004' && string(-0.0) == '-0.0' → ALLOW": "ALLOW",
+    "string(2.0) == '2' → DENY": "DENY",
+    "string(float('1e7')) == '1.0E7' && string(float('1e6')) == '1000000.0' && string(float('9999999.0')) == '9999999.0' && string(float('1e-3')) == '0.001' && string(float('1e-4')) == '1.0E-4' && string(123456789.0) == '1.23456789E8' && string(float('-1.5e10')) == '-1.5E10' && string(float('1e20')) == '1.0E20' && string(float('1.7976931348623157e308')) == '1.7976931348623157E308' → ALLOW": "ALLOW",
+    "string(float('NaN')) == 'NaN' && string(float('-Infinity')) == '-Infinity' → ALLOW": "ALLOW",
+    "string(true) == 'true' && string(null) == 'null' && string('s') == 's' && string(request.resource.metadata.t) == 'true' → ALLOW": "ALLOW",
+    "string(path('a/b')) == '/a/b' && string(path('/a/b')) == '/a/b' → ALLOW": "ALLOW",
+    "string([1, 2]) != '' → DENY": "DENY",
+    "(string([1, 2]) == '') || true → ALLOW": "ALLOW",
+    "string({'a': 1}) != '' → DENY": "DENY",
+    "string('abc'.toUtf8()) != '' → DENY": "DENY",
+    "float('2.0') == 2.0 && float(request.resource.metadata.fl) == 1.5 && float('1.5') is float → ALLOW": "ALLOW",
+    "float(2) == 2.0 && float(2) is float && float(float(2)) == 2.0 → ALLOW": "ALLOW",
+    "float('1e3') == 1000.0 && float('.5') == 0.5 && float('5.') == 5.0 && float('1.5f') == 1.5 && float('1.5d') == 1.5 && float('0x1p3') == 8.0 && float(' 2.5') == 2.5 && float('2.5 ') == 2.5 → ALLOW": "ALLOW",
+    "float('NaN') != float('NaN') && float('Infinity') > 1.0 && float('+Infinity') > 1.0 && float('-Infinity') < 1.0 → ALLOW": "ALLOW",
+    "float('abc') != 0.0 → DENY": "DENY",
+    "(float(request.resource.metadata.x) == 0.0) || true → ALLOW": "ALLOW",
+    "float('inf') > 1.0 → DENY": "DENY",
+    "float('nan') != 0.0 → DENY": "DENY",
+    "float('1.2.3') != 0.0 → DENY": "DENY",
+    "float('1_000') != 0.0 → DENY": "DENY",
+    "float('') != 0.0 → DENY": "DENY",
+    "float(true) != 0.0 → DENY": "DENY",
+    "float(null) != 0.0 → DENY": "DENY",
+    "foo(1) != 1 → DENY": "DENY",
+    "foo(1) == 1 || true → ALLOW": "ALLOW",
+    "!(foo(1) && false) → ALLOW": "ALLOW",
+    "isOne(1, 2) → DENY": "DENY",
+    "isOne(1, 2) || true → ALLOW": "ALLOW",
+    "a ruleset function int(x) returning 5 shadows the global: int('1') == 5 → ALLOW": "ALLOW",
+    "a ruleset function int(x) returning 5 shadows the global: int('1') == 1 → DENY": "DENY"
+  },
+  "diagnostics": {
+    "int('12') == 12 && int('12') is int → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 6,
+              "column": 24,
+              "currentOffset": 170,
+              "endOffset": 172
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "int(request.resource.metadata.moves) == 12 → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 9,
+              "column": 24,
+              "currentOffset": 272,
+              "endOffset": 274
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "int('-3') == -3 && int('+3') == 3 && int('007') == 7 && int('-0') == 0 → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 12,
+              "column": 24,
+              "currentOffset": 382,
+              "endOffset": 384
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "int('-9223372036854775808') == -9223372036854775808 → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 15,
+              "column": 24,
+              "currentOffset": 515,
+              "endOffset": 517
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "int(2.0) == 2 && int(2.9) == 2 && int(-2.9) == -2 && int(2.5) is int → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 18,
+              "column": 24,
+              "currentOffset": 639,
+              "endOffset": 641
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "int(2.9) == 3 → DENY": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 21,
+              "column": 24,
+              "currentOffset": 781,
+              "endOffset": 783
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "int(request.resource.size + 0.9) == 2 → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 24,
+              "column": 24,
+              "currentOffset": 866,
+              "endOffset": 868
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "int(float('1e20')) == 9223372036854775807 && int(float('-1e20')) == -9223372036854775808 && int(float('NaN')) == 0 → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 27,
+              "column": 24,
+              "currentOffset": 976,
+              "endOffset": 978
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "int('9223372036854775808') != 0 (out of int64 range) → DENY": {
+      "notes": [
+        "Error: storage.rules line [30], column [24]. Type conversion error. Argument: [9223372036854775808], From type: [string], To type: [int]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 30,
+          "column": 24,
+          "currentOffset": 1153,
+          "endOffset": 1155
+        }
+      }
+    },
+    "int(request.resource.metadata.bad) != 12 ('12abc') → DENY": {
+      "notes": [
+        "Error: storage.rules line [33], column [24]. Type conversion error. Argument: [12abc], From type: [string], To type: [int]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 33,
+          "column": 24,
+          "currentOffset": 1251,
+          "endOffset": 1253
+        }
+      }
+    },
+    "int('x') != 0 → DENY": {
+      "notes": [
+        "Error: storage.rules line [36], column [24]. Type conversion error. Argument: [x], From type: [string], To type: [int]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 36,
+          "column": 24,
+          "currentOffset": 1350,
+          "endOffset": 1352
+        }
+      }
+    },
+    "!(int('x') == 0) → DENY": {
+      "notes": [
+        "Error: storage.rules line [39], column [26]. Type conversion error. Argument: [x], From type: [string], To type: [int]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 39,
+          "column": 26,
+          "currentOffset": 1427,
+          "endOffset": 1429
+        }
+      }
+    },
+    "(int(request.resource.metadata.x) == 0) || true → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 42,
+              "column": 24,
+              "currentOffset": 1506,
+              "endOffset": 1506
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "int('1.5') != 0 → DENY": {
+      "notes": [
+        "Error: storage.rules line [45], column [24]. Type conversion error. Argument: [1.5], From type: [string], To type: [int]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 45,
+          "column": 24,
+          "currentOffset": 1621,
+          "endOffset": 1623
+        }
+      }
+    },
+    "int(request.resource.metadata.sp) == 12 (' 12') → DENY": {
+      "notes": [
+        "Error: storage.rules line [48], column [24]. Type conversion error. Argument: [ 12], From type: [string], To type: [int]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 48,
+          "column": 24,
+          "currentOffset": 1703,
+          "endOffset": 1705
+        }
+      }
+    },
+    "int('12 ') == 12 → DENY": {
+      "notes": [
+        "Error: storage.rules line [51], column [24]. Type conversion error. Argument: [12 ], From type: [string], To type: [int]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 51,
+          "column": 24,
+          "currentOffset": 1810,
+          "endOffset": 1812
+        }
+      }
+    },
+    "int('0x10') != 0 → DENY": {
+      "notes": [
+        "Error: storage.rules line [54], column [24]. Type conversion error. Argument: [0x10], From type: [string], To type: [int]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 54,
+          "column": 24,
+          "currentOffset": 1890,
+          "endOffset": 1892
+        }
+      }
+    },
+    "int('') != 0 → DENY": {
+      "notes": [
+        "Error: storage.rules line [57], column [24]. Type conversion error. Argument: [], From type: [string], To type: [int]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 57,
+          "column": 24,
+          "currentOffset": 1972,
+          "endOffset": 1974
+        }
+      }
+    },
+    "int(true) != 0 → DENY": {
+      "notes": [
+        "Error: storage.rules line [60], column [24]. Unsupported operation error. Received: int(bool). Expected: int(int), int(float), int(string)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 60,
+          "column": 24,
+          "currentOffset": 2043,
+          "endOffset": 2045
+        }
+      }
+    },
+    "(int(true) == 1) || true → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 63,
+              "column": 24,
+              "currentOffset": 2122,
+              "endOffset": 2122
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "int(null) != 0 → DENY": {
+      "notes": [
+        "Error: storage.rules line [66], column [24]. Unsupported operation error. Received: int(null). Expected: int(int), int(float), int(string)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 66,
+          "column": 24,
+          "currentOffset": 2205,
+          "endOffset": 2207
+        }
+      }
+    },
+    "int('1', 2) == 1 → DENY": {
+      "notes": [
+        "Error: storage.rules line [69], column [24]. Incorrect number of arguments. Received: 2. Expected: int(int), int(float), int(string)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 69,
+          "column": 24,
+          "currentOffset": 2281,
+          "endOffset": 2283
+        }
+      }
+    },
+    "int('1', 2) == 1 || true → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 72,
+              "column": 24,
+              "currentOffset": 2365,
+              "endOffset": 2367
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "string(12) == '12' && string(-5) == '-5' && string(12) is string && string(request.resource.size) == '2' → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 75,
+              "column": 24,
+              "currentOffset": 2454,
+              "endOffset": 2459
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "string(1.5) == '1.5' && string(2.0) == '2.0' && string(0.1 + 0.2) == '0.30000000000000004' && string(-0.0) == '-0.0' → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 78,
+              "column": 24,
+              "currentOffset": 2625,
+              "endOffset": 2630
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "string(2.0) == '2' → DENY": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 81,
+              "column": 24,
+              "currentOffset": 2817,
+              "endOffset": 2822
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "string(float('1e7')) == '1.0E7' && string(float('1e6')) == '1000000.0' && string(float('9999999.0')) == '9999999.0' && string(float('1e-3')) == '0.001' && string(float('1e-4')) == '1.0E-4' && string(123456789.0) == '1.23456789E8' && string(float('-1.5e10')) == '-1.5E10' && string(float('1e20')) == '1.0E20' && string(float('1.7976931348623157e308')) == '1.7976931348623157E308' → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 84,
+              "column": 24,
+              "currentOffset": 2912,
+              "endOffset": 2917
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "string(float('NaN')) == 'NaN' && string(float('-Infinity')) == '-Infinity' → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 87,
+              "column": 24,
+              "currentOffset": 3364,
+              "endOffset": 3369
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "string(true) == 'true' && string(null) == 'null' && string('s') == 's' && string(request.resource.metadata.t) == 'true' → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 90,
+              "column": 24,
+              "currentOffset": 3514,
+              "endOffset": 3519
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "string(path('a/b')) == '/a/b' && string(path('/a/b')) == '/a/b' → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 93,
+              "column": 24,
+              "currentOffset": 3699,
+              "endOffset": 3704
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "string([1, 2]) != '' → DENY": {
+      "notes": [
+        "Error: storage.rules line [96], column [24]. Unsupported operation error. Received: string(list). Expected: string(int), string(float), string(null), string(string), string(bool), string(path)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 96,
+          "column": 24,
+          "currentOffset": 3828,
+          "endOffset": 3833
+        }
+      }
+    },
+    "(string([1, 2]) == '') || true → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 99,
+              "column": 24,
+              "currentOffset": 3920,
+              "endOffset": 3920
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "string({'a': 1}) != '' → DENY": {
+      "notes": [
+        "Error: storage.rules line [102], column [24]. Unsupported operation error. Received: string(map). Expected: string(int), string(float), string(null), string(string), string(bool), string(path)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 102,
+          "column": 24,
+          "currentOffset": 4015,
+          "endOffset": 4020
+        }
+      }
+    },
+    "string('abc'.toUtf8()) != '' → DENY": {
+      "notes": [
+        "Error: storage.rules line [105], column [24]. Unsupported operation error. Received: string(bytes). Expected: string(int), string(float), string(null), string(string), string(bool), string(path)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 105,
+          "column": 24,
+          "currentOffset": 4104,
+          "endOffset": 4109
+        }
+      }
+    },
+    "float('2.0') == 2.0 && float(request.resource.metadata.fl) == 1.5 && float('1.5') is float → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 108,
+              "column": 24,
+              "currentOffset": 4199,
+              "endOffset": 4203
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "float(2) == 2.0 && float(2) is float && float(float(2)) == 2.0 → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 111,
+              "column": 24,
+              "currentOffset": 4353,
+              "endOffset": 4357
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "float('1e3') == 1000.0 && float('.5') == 0.5 && float('5.') == 5.0 && float('1.5f') == 1.5 && float('1.5d') == 1.5 && float('0x1p3') == 8.0 && float(' 2.5') == 2.5 && float('2.5 ') == 2.5 → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 114,
+              "column": 24,
+              "currentOffset": 4483,
+              "endOffset": 4487
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "float('NaN') != float('NaN') && float('Infinity') > 1.0 && float('+Infinity') > 1.0 && float('-Infinity') < 1.0 → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 117,
+              "column": 24,
+              "currentOffset": 4740,
+              "endOffset": 4744
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "float('abc') != 0.0 → DENY": {
+      "notes": [
+        "Error: storage.rules line [120], column [24]. Type conversion error. Argument: [abc], From type: [string], To type: [float]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 120,
+          "column": 24,
+          "currentOffset": 4912,
+          "endOffset": 4916
+        }
+      }
+    },
+    "(float(request.resource.metadata.x) == 0.0) || true → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 123,
+              "column": 24,
+              "currentOffset": 4998,
+              "endOffset": 4998
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "float('inf') > 1.0 → DENY": {
+      "notes": [
+        "Error: storage.rules line [126], column [24]. Type conversion error. Argument: [inf], From type: [string], To type: [float]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 126,
+          "column": 24,
+          "currentOffset": 5109,
+          "endOffset": 5113
+        }
+      }
+    },
+    "float('nan') != 0.0 → DENY": {
+      "notes": [
+        "Error: storage.rules line [129], column [24]. Type conversion error. Argument: [nan], From type: [string], To type: [float]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 129,
+          "column": 24,
+          "currentOffset": 5196,
+          "endOffset": 5200
+        }
+      }
+    },
+    "float('1.2.3') != 0.0 → DENY": {
+      "notes": [
+        "Error: storage.rules line [132], column [24]. Type conversion error. Argument: [1.2.3], From type: [string], To type: [float]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 132,
+          "column": 24,
+          "currentOffset": 5279,
+          "endOffset": 5283
+        }
+      }
+    },
+    "float('1_000') != 0.0 → DENY": {
+      "notes": [
+        "Error: storage.rules line [135], column [24]. Type conversion error. Argument: [1_000], From type: [string], To type: [float]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 135,
+          "column": 24,
+          "currentOffset": 5367,
+          "endOffset": 5371
+        }
+      }
+    },
+    "float('') != 0.0 → DENY": {
+      "notes": [
+        "Error: storage.rules line [138], column [24]. Type conversion error. Argument: [], From type: [string], To type: [float]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 138,
+          "column": 24,
+          "currentOffset": 5456,
+          "endOffset": 5460
+        }
+      }
+    },
+    "float(true) != 0.0 → DENY": {
+      "notes": [
+        "Error: storage.rules line [141], column [24]. Unsupported operation error. Received: float(bool). Expected: float(int), float(float), float(string)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 141,
+          "column": 24,
+          "currentOffset": 5533,
+          "endOffset": 5537
+        }
+      }
+    },
+    "float(null) != 0.0 → DENY": {
+      "notes": [
+        "Error: storage.rules line [144], column [24]. Unsupported operation error. Received: float(null). Expected: float(int), float(float), float(string)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 144,
+          "column": 24,
+          "currentOffset": 5612,
+          "endOffset": 5616
+        }
+      }
+    },
+    "foo(1) != 1 → DENY": {
+      "notes": [
+        "Error: storage.rules line [147], column [24]. Function not found error: Name: [foo]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 147,
+          "column": 24,
+          "currentOffset": 5699,
+          "endOffset": 5701
+        },
+        "functionCalls": [
+          {
+            "function": "foo",
+            "args": [
+              1
+            ]
+          }
+        ]
+      }
+    },
+    "foo(1) == 1 || true → ALLOW": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "foo",
+            "args": [
+              1
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 150,
+              "column": 24,
+              "currentOffset": 5785,
+              "endOffset": 5787
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "!(foo(1) && false) → ALLOW": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "foo",
+            "args": [
+              1
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 153,
+              "column": 24,
+              "currentOffset": 5881,
+              "endOffset": 5881
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "isOne(1, 2) → DENY": {
+      "notes": [
+        "Error: storage.rules line [156], column [24]. Incorrect number of arguments. Received: 2. Expected: isOne(n)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 156,
+          "column": 24,
+          "currentOffset": 5970,
+          "endOffset": 5974
+        }
+      }
+    },
+    "isOne(1, 2) || true → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 159,
+              "column": 24,
+              "currentOffset": 6058,
+              "endOffset": 6062
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "a ruleset function int(x) returning 5 shadows the global: int('1') == 5 → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 163,
+              "column": 24,
+              "currentOffset": 6173,
+              "endOffset": 6175
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "a ruleset function int(x) returning 5 shadows the global: int('1') == 1 → DENY": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 167,
+              "column": 24,
+              "currentOffset": 6285,
+              "endOffset": 6287
+            },
+            "value": false
+          }
+        ]
+      }
+    }
+  }
+}

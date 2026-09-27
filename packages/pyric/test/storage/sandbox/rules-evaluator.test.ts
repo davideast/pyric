@@ -498,13 +498,13 @@ type StorageResourceLike = { size: number; contentType?: string; metadata?: Reco
 // CONSUMES the operator's result (`!(...)`, `(...) == false`).
 //
 // Absorption applies to genuine rule-evaluation errors: RuleError values
-// AND thrown RuleEvalErrors (e.g. firestore.get without a capability).
+// AND thrown RuleEvalErrors (e.g. firestore.get without a capability),
+// including an undefined function and a wrong argument count.
 // It must NOT apply to:
 //   - resource-limit exhaustion (the 2-lookup Firestore cap, call depth):
 //     production fails the whole evaluation closed (budget precedent), and
-//   - unsupported / compile-reject constructs (undefined function, wrong
-//     arity, unresolved import): production rejects the ruleset at deploy,
-//     so no local verdict may absorb them into an allow.
+//   - constructs the evaluator cannot model (an unresolved import), so no
+//     local verdict may absorb them into an allow.
 describe('evaluateStorageRules: CEL error absorption in && and ||', () => {
   const path = 'b/pyric-default/o/docs/d1.json';
 
@@ -612,10 +612,11 @@ describe('evaluateStorageRules: CEL error absorption in && and ||', () => {
     expect(r.reasons.join(' ')).toMatch(/limit/i);
   });
 
-  it('(g2) undefined function (compile-reject class) is NOT absorbed by && false', () => {
-    const r = evalCond('!(missing() && false)');
+  it('(g2) an undefined function is an error value that && false absorbs', () => {
+    expect(evalCond('!(missing() && false)').allowed).toBe(true);
+    const r = evalCond('!(missing() && true)');
     expect(r.allowed).toBe(false);
-    expect(r.reasons.join(' ')).toContain('missing');
+    expect(r.reasons.join(' ')).toContain('Function not found error: Name: [missing].');
   });
 
   it('(g3) call-depth exhaustion (resource class) is NOT absorbed by && false', () => {

@@ -3,8 +3,8 @@ export class RuleEvalError extends Error {}
 
 /**
  * A construct whose production verdict is unknowable locally: either
- * production rejects the ruleset at deploy time (undefined function, wrong
- * arity, unresolved import, unknown namespace method) or the simulator
+ * production rejects the ruleset at deploy time (unresolved import, unknown
+ * namespace method) or the simulator
  * cannot model the construct at all. Its effect is EVALUATION-WIDE in
  * production, where a determining `&&`/`||` operand cannot rescue it, so it is
  * never absorbed and always fails closed.

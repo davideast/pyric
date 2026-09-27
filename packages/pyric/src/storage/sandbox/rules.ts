@@ -306,8 +306,8 @@ export interface FunctionDef {
   body: Expr;
   /** Set for a name brought in by an `import` declaration: the module
    *  specifier. The syntax parses, but module resolution is not implemented,
-   *  so calling the function denies with a reason naming the import — not a
-   *  bare "undefined function". A same-named locally-declared function
+   *  so calling the function denies with a reason naming the import, not a
+   *  "Function not found error". A same-named locally-declared function
    *  shadows the stub (stubs are registered first). */
   unresolvedImport?: string;
   /** Lexical scope: the functions visible from this function's body
