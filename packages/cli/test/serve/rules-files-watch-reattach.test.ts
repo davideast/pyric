@@ -1,9 +1,9 @@
 /**
  * A missing rules file is watched through its nearest existing ancestor. When
- * the next path segment appears, the watch moves down to it. The move must
- * happen after the directory watcher's callback returns: closing a watcher
- * from inside its own callback left later Bun.build and child-process work in
- * the same test process hanging on Linux CI.
+ * the next path segment appears, the watch moves down to it, after the
+ * directory watcher's callback returns, so a watcher is never closed from
+ * inside its own callback. A fake file system keeps real fs.watch out of the
+ * shared test process.
  */
 import { expect, test } from 'bun:test';
 import type { FSWatcher } from 'node:fs';
