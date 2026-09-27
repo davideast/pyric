@@ -1,8 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { EventEmitter } from 'node:events';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { watchRulesFiles, type WatchFile } from '../../src/serve/rules-files-watch.js';
 
 function fakeWatch() {
@@ -57,37 +55,24 @@ describe('watching the rules source and its module files', () => {
   });
 });
 
+// Real fs.watch runs in its own process: on the Linux CI runner, watchers in the
+// shared test process left later Bun.build and child-process work hanging.
 describe('watching a module file that does not exist yet', () => {
-  async function until(condition: () => boolean): Promise<void> {
-    for (let waited = 0; waited < 3000 && !condition(); waited += 25) {
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
-  }
+  const outcomes = (() => {
+    const fixture = new URL('./fixtures/rules-files-watch-real-fs.ts', import.meta.url).pathname;
+    const result = spawnSync(process.execPath, [fixture], { encoding: 'utf8', timeout: 20_000 });
+    if (result.status !== 0) throw new Error(`real fs watch fixture failed (${result.status}): ${result.stderr}`);
+    return JSON.parse(result.stdout) as Record<'missingFile' | 'missingDirectory', { changed: string[]; errors: string[]; file: string }>;
+  })();
 
-  test('creating the file reports it', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-rules-files-watch-'));
-    const file = join(dir, 'b.rules');
-    const changed: string[] = [];
-    const errors: unknown[] = [];
-    const watch = watchRulesFiles(() => [file], (f) => changed.push(f), (e) => errors.push(e));
-    writeFileSync(file, 'rules_version = \'2+modules\';');
-    await until(() => changed.length > 0);
-    watch.close();
+  test('creating the file reports it', () => {
+    const { changed, errors, file } = outcomes.missingFile;
     expect(errors).toEqual([]);
     expect(changed[0]).toBe(file);
   });
 
-  test('creating the file inside a directory that does not exist yet reports it', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-rules-files-watch-'));
-    const file = join(dir, 'games', 'pool', 'pool.rules');
-    const changed: string[] = [];
-    const errors: unknown[] = [];
-    const watch = watchRulesFiles(() => [file], (f) => changed.push(f), (e) => errors.push(e));
-    mkdirSync(join(dir, 'games', 'pool'), { recursive: true });
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    writeFileSync(file, 'rules_version = \'2+modules\';');
-    await until(() => changed.length > 0);
-    watch.close();
+  test('creating the file inside a directory that does not exist yet reports it', () => {
+    const { changed, errors, file } = outcomes.missingDirectory;
     expect(errors).toEqual([]);
     expect(changed[0]).toBe(file);
   });
