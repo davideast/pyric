@@ -24,6 +24,7 @@ import {
 } from './ast-utils.js';
 import { checkSyntaxHints, checkHallucinations } from './hallucinations.js';
 import { countDocumentAccessCalls } from '../grammar/document-access-count.js';
+import { callChainDepths, collectRulesetScopes, functionReferences } from '../grammar/function-scopes.js';
 import { EXPRESSION_LIMIT, estimateExpressionCosts, type RuleCostEstimate } from './expression-cost.js';
 import { ruleLibraryCalls } from './library-calls.js';
 
@@ -246,51 +247,31 @@ function checkLibraryCalls(ast: FirestoreRules, warnings: LintWarning[]) {
   }
 }
 
-function checkCallDepth(
-  rules: { rule: { condition: Expression }; matchFunctions: FunctionDef[] }[],
-  allFunctions: FunctionDef[],
-  warnings: LintWarning[],
-) {
-  const callGraph = buildCallGraph(allFunctions);
-  const fnMap = new Map<string, FunctionDef>();
-  for (const fn of allFunctions) fnMap.set(fn.name, fn);
-
-  for (let i = 0; i < rules.length; i++) {
-    let maxDepth = 0;
-    const findDepth = (expr: Expression) => {
-      if (expr.type === 'functionCall' && fnMap.has(expr.name)) {
-        const depth = maxCallDepth(expr.name, callGraph);
-        if (depth > maxDepth) maxDepth = depth;
-      }
-      switch (expr.type) {
-        case 'binaryOp': findDepth(expr.left); findDepth(expr.right); break;
-        case 'unaryOp': findDepth(expr.operand); break;
-        case 'methodCall': findDepth(expr.object); expr.args.forEach(findDepth); break;
-        case 'memberAccess': findDepth(expr.object); break;
-        case 'bracketAccess': findDepth(expr.object); findDepth(expr.index); break;
-        case 'ternary': findDepth(expr.condition); findDepth(expr.consequent); findDepth(expr.alternate); break;
-        case 'inExpr': findDepth(expr.element); findDepth(expr.collection); break;
-        case 'functionCall': expr.args.forEach(findDepth); break;
-      }
-    };
-    findDepth(rules[i].rule.condition);
-
-    if (maxDepth > THRESHOLDS.CALL_DEPTH_LIMIT) {
-      warnings.push({
-        rule: 'CALL_DEPTH',
-        severity: 'error',
-        message: `Rule #${i} has a function call chain of depth ${maxDepth}. Limit is ${THRESHOLDS.CALL_DEPTH_LIMIT}.`,
-        location: { ruleIndex: i },
-        fix: 'Inline intermediate functions to reduce call depth.',
-      });
-    } else if (maxDepth >= THRESHOLDS.CALL_DEPTH_WARN) {
-      warnings.push({
-        rule: 'CALL_DEPTH',
-        severity: 'warning',
-        message: `Rule #${i} has a function call chain of depth ${maxDepth}. Limit is ${THRESHOLDS.CALL_DEPTH_LIMIT}.`,
-        location: { ruleIndex: i },
-      });
-    }
+/**
+ * CALL_DEPTH: production checks every call chain at compile time, including
+ * one no rule calls (fixtures/compile-limits, shape call-depth-uncalled).
+ * Each chain is reported once, at its root: a function no other function
+ * calls. Calls resolve by declaration scope.
+ */
+function checkCallDepth(ast: FirestoreRules, warnings: LintWarning[]) {
+  const scopes = collectRulesetScopes(ast);
+  const depths = callChainDepths(scopes);
+  const calledByFunction = new Set<FunctionDef>();
+  for (const scoped of scopes.functions) {
+    for (const callee of functionReferences(scoped).callees) if (callee !== scoped.fn) calledByFunction.add(callee);
+  }
+  for (const scoped of scopes.functions) {
+    if (calledByFunction.has(scoped.fn)) continue;
+    const depth = depths.get(scoped.fn) ?? 1;
+    if (depth < THRESHOLDS.CALL_DEPTH_WARN) continue;
+    const over = depth > THRESHOLDS.CALL_DEPTH_LIMIT;
+    warnings.push({
+      rule: 'CALL_DEPTH',
+      severity: over ? 'error' : 'warning',
+      message: `Function '${scoped.fn.name}' starts a function call chain of depth ${depth}. Limit is ${THRESHOLDS.CALL_DEPTH_LIMIT}.`,
+      location: { functionName: scoped.fn.name, matchPath: scoped.label },
+      ...(over ? { fix: 'Inline intermediate functions to reduce call depth.' } : {}),
+    });
   }
 }
 
@@ -796,7 +777,7 @@ export function lintFirestoreRules(source: string, options: LintOptions = {}): L
   checkLibraryCalls(ast, warnings);
 
   // Rule 6: Call depth
-  checkCallDepth(allRules, allFunctions, warnings);
+  checkCallDepth(ast, warnings);
 
   // Rule 7: Get count
   checkGetCount(allRules, allFunctions, warnings);

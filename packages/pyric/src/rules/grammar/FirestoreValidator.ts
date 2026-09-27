@@ -1,9 +1,11 @@
 import type {
   FirestoreRules, MatchBlock, AllowRule, FunctionDef, Expression, Operation,
 } from './FirestoreAST.js';
-import { RULES_BUILTIN_FUNCTIONS } from './builtin-functions.js';
 import { countDocumentAccessCalls } from './document-access-count.js';
-import { collectDeclaredFunctions } from '../linter/ast-utils.js';
+import {
+  collectRulesetScopes, functionReferences, ruleReferences,
+  type NameReferences, type RulesetScopes,
+} from './function-scopes.js';
 
 export interface ValidationFinding {
   code: string;
@@ -21,11 +23,9 @@ export function validateFirestoreRules(ast: FirestoreRules): ValidationFinding[]
   const findings: ValidationFinding[] = [];
   const rootMatch = ast.service.match;
 
-  // Collect all function names and calls. Global and service scope
-  // functions are visible in every match block.
-  const allFunctions = new Set(collectDeclaredFunctions(ast).map(fn => fn.name));
+  // Global and service scope functions are visible in every match block.
   const outerScope = [...(ast.functions ?? []), ...(ast.service.functions ?? [])];
-  const allCalls = collectAllCallsInRules(rootMatch);
+  const scopes = collectRulesetScopes(ast);
 
   // SEC-4: Check for default deny
   checkDefaultDeny(rootMatch, findings);
@@ -34,14 +34,14 @@ export function validateFirestoreRules(ast: FirestoreRules): ValidationFinding[]
   // rejection, so critical). Nested shadowing is legal and is not flagged.
   checkDuplicateFunctions(ast, findings);
 
-  // QUA-4: Unused functions
-  checkUnusedFunctions(rootMatch, allCalls, findings);
+  // SEM-4, SEM-5, QUA-4: names resolved by declaration scope
+  checkNameResolution(scopes, findings);
 
   // STR-3: Overlapping match paths
   checkOverlappingPaths(rootMatch.children, findings);
 
   // Walk all match blocks
-  walkMatch(rootMatch, findings, allFunctions, outerScope);
+  walkMatch(rootMatch, findings, outerScope);
 
   return findings;
 }
@@ -49,7 +49,6 @@ export function validateFirestoreRules(ast: FirestoreRules): ValidationFinding[]
 function walkMatch(
   match: MatchBlock,
   findings: ValidationFinding[],
-  allFunctions: Set<string>,
   scopeFunctions: FunctionDef[],
 ) {
   const isRecursiveWildcard = match.path.segments.some(s => s.type === 'recursive');
@@ -141,17 +140,6 @@ function walkMatch(
       });
     }
 
-    // SEM-4: Undefined function call
-    const calls = collectFunctionCalls(cond);
-    for (const fnName of calls) {
-      if (!allFunctions.has(fnName) && !RULES_BUILTIN_FUNCTIONS.has(fnName)) {
-        findings.push({
-          code: 'SEM-4', severity: 'high', path: pathStr, operation: opStr,
-          message: `Rule at ${pathStr} calls undefined function '${fnName}'`,
-        });
-      }
-    }
-
     // QUA-1: Hardcoded true
     if (isLiteralTrue) {
       const severity = isWrite ? 'critical' as const : 'low' as const;
@@ -197,7 +185,7 @@ function walkMatch(
 
   // Recurse into children
   for (const child of match.children) {
-    walkMatch(child, findings, allFunctions, localScope);
+    walkMatch(child, findings, localScope);
   }
 }
 
@@ -336,14 +324,6 @@ function referencesResourceData(expr: Expression): boolean {
   );
 }
 
-function collectFunctionCalls(expr: Expression): string[] {
-  const calls: string[] = [];
-  walkExpr(expr, e => {
-    if (e.type === 'functionCall') calls.push(e.name);
-  });
-  return calls;
-}
-
 // ---- QUA-3: Duplicate functions ----
 //
 // Production REJECTS two declarations of one function name in the SAME
@@ -390,38 +370,49 @@ function checkDupsInScope(fns: readonly FunctionDef[], scope: string, findings: 
   }
 }
 
-// ---- QUA-4: Unused functions ----
+// ---- SEM-4, SEM-5, QUA-4: name resolution ----
+//
+// Every rule condition and every function body resolves its names against
+// the scopes in effect where it is declared (`function-scopes.ts`), not
+// against every function in the ruleset. Production compiles an unresolved
+// function or variable name with a warning ("Invalid function name: s.",
+// "Invalid variable name: d.") and evaluating it is an error, so a rule
+// that reaches it denies: SEM-4 and SEM-5 are high. A function that no
+// resolved call reaches draws production's "Unused function: f." warning,
+// at any scope: QUA-4 is low. A call from an unused function still counts,
+// as it does in production.
 
-function checkUnusedFunctions(rootMatch: MatchBlock, allCalls: Set<string>, findings: ValidationFinding[]) {
-  function walk(match: MatchBlock) {
-    for (const fn of match.functions) {
-      if (!allCalls.has(fn.name)) {
-        findings.push({
-          code: 'QUA-4', severity: 'low', path: match.path.raw,
-          message: `Function '${fn.name}' is defined but never called`,
-        });
-      }
+function checkNameResolution(scopes: RulesetScopes, findings: ValidationFinding[]) {
+  const called = new Set<FunctionDef>();
+  const report = (refs: NameReferences, subject: string, path: string, operation?: string) => {
+    for (const callee of refs.callees) called.add(callee);
+    const op = operation === undefined ? {} : { operation };
+    for (const name of refs.undefinedCalls) {
+      findings.push({
+        code: 'SEM-4', severity: 'high', path, ...op,
+        message: `${subject} calls undefined function '${name}'`,
+      });
     }
-    for (const child of match.children) walk(child);
+    for (const name of refs.unboundVariables) {
+      findings.push({
+        code: 'SEM-5', severity: 'high', path, ...op,
+        message: `${subject} reads unbound variable '${name}'. No let binding, function parameter, path capture, or rules global has that name, so evaluating it is an error and the request is denied`,
+      });
+    }
+  };
+  for (const scoped of scopes.rules) {
+    report(ruleReferences(scoped), `Rule at ${scoped.label}`, scoped.label, scoped.rule.operations.join(', '));
   }
-  walk(rootMatch);
-}
-
-function collectAllCallsInRules(match: MatchBlock): Set<string> {
-  const calls = new Set<string>();
-  function walkM(m: MatchBlock) {
-    for (const allow of m.allows) {
-      for (const name of collectFunctionCalls(allow.condition)) calls.add(name);
-    }
-    for (const fn of m.functions) {
-      for (const expr of functionExpressions(fn)) {
-        for (const name of collectFunctionCalls(expr)) calls.add(name);
-      }
-    }
-    for (const child of m.children) walkM(child);
+  for (const scoped of scopes.functions) {
+    report(functionReferences(scoped), `Function '${scoped.fn.name}' in ${scoped.label}`, scoped.label);
   }
-  walkM(match);
-  return calls;
+  for (const scoped of scopes.functions) {
+    if (called.has(scoped.fn)) continue;
+    findings.push({
+      code: 'QUA-4', severity: 'low', path: scoped.label,
+      message: `Unused function '${scoped.fn.name}': no rule or function calls it`,
+    });
+  }
 }
 
 // ---- STR-3: Overlapping paths ----

@@ -192,7 +192,7 @@ The three "too complex" boundaries fit one nesting-depth limit in which each `&&
 ### RULE 6: CALL_DEPTH
 - **Severity**: warning at depth 18 to 21, error at depth >21
 - **Threshold**: 21 functions on one call stack (22 fails to compile in Firestore and Storage, 2026-09-27)
-- **Detection**: build call graph, find longest path from any allow rule to a leaf function
+- **Detection**: resolve each call by declaration scope, then find the longest path from each chain root (a function no other function calls) to a leaf function
 - **Algorithm**:
   ```
   function maxCallDepth(fnName, callGraph, visited):
@@ -203,8 +203,8 @@ The three "too complex" boundaries fit one nesting-depth limit in which each `&&
       maxChild = max(maxChild, maxCallDepth(callee, callGraph, visited))
     return 1 + maxChild
   ```
-- **Message**: "Rule #{i} has a function call chain of depth {depth}. Limit is 21."
-- **Scope**: the linter measures chains reachable from allow rules. Production also rejects an over-deep chain that no rule calls.
+- **Message**: "Function '{name}' starts a function call chain of depth {depth}. Limit is 21."
+- **Scope**: every chain in the ruleset, called or not. Production rejects an over-deep chain that no rule calls.
 - **Fix**: inline intermediate functions
 - **Corpus**: 10-deep-call-chain.rules (6 functions, no report); `linter.test.ts` generates the 21- and 22-function boundary cases
 

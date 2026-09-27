@@ -159,6 +159,34 @@ ${fns.join('\n')}
       expect(hasError(r, 'CALL_DEPTH')).toBe(true);
       expect(r.warnings.find(w => w.rule === 'CALL_DEPTH')?.message).toContain('Limit is 21.');
     });
+
+    // Production rejects an over-deep chain that no rule calls, with an
+    // "Unused function: f1." warning beside the call-depth error.
+    const uncalled = captured.boundaries.find(b => b.service === 'firestore' && b.shape === 'call-depth-uncalled')!;
+    const uncalledChain = (n: number) => callChain(n).replace('allow read: if f1();', "allow read: if request.auth.uid == 'a';");
+
+    test('uncalled chain: captured boundary is 21 compiles, 22 rejected', () => {
+      expect([uncalled.largestPass, uncalled.smallestFail]).toEqual([21, 22]);
+    });
+
+    test('uncalled chain of 22 functions: error naming the chain root', () => {
+      const r = lintSource(uncalledChain(uncalled.smallestFail));
+      const found = r.warnings.filter(w => w.rule === 'CALL_DEPTH');
+      expect(found.map(w => [w.severity, w.location?.functionName, w.message])).toEqual([
+        ['error', 'f1', "Function 'f1' starts a function call chain of depth 22. Limit is 21."],
+      ]);
+    });
+
+    test('uncalled chain of 21 functions: warning only', () => {
+      const r = lintSource(uncalledChain(uncalled.largestPass));
+      expect(hasWarning(r, 'CALL_DEPTH')).toBe(true);
+      expect(hasError(r, 'CALL_DEPTH')).toBe(false);
+    });
+
+    test('a called chain is reported once, at its root', () => {
+      const r = lintSource(callChain(depth.smallestFail));
+      expect(r.warnings.filter(w => w.rule === 'CALL_DEPTH').map(w => w.location?.functionName)).toEqual(['f1']);
+    });
   });
 
   describe('Metrics', () => {
