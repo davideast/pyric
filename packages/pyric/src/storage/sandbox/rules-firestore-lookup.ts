@@ -7,9 +7,9 @@ import {
 } from './rules-evaluation-error.js';
 import { StorageLatLng } from './rules-latlng.js';
 import { StoragePath } from './rules-path.js';
+import { describeRulesType as describeType } from '../../rules/simulator/rules-type.js';
 import {
   RuleError,
-  describeRulesType as describeType,
   isRuleError as isErr,
 } from './rules-values.js';
 

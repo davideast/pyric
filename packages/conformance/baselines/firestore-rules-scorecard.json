@@ -913,7 +913,8 @@
       "verifiedBy": [
         "builtins-time-and-math",
         "cross-type-operator-overloads",
-        "duration-and-latlng"
+        "duration-and-latlng",
+        "time-math-and-casts"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -1133,7 +1134,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "path-constructor-and-bind"
+        "path-constructor-and-bind",
+        "time-math-and-casts"
       ],
       "verifiedByRows": [
         "firestore-rules#171"
@@ -2256,7 +2258,8 @@
       "classification": "conformant",
       "verifiedBy": [
         "bytes-toutf8-and-hashing",
-        "cross-type-operator-overloads"
+        "cross-type-operator-overloads",
+        "time-math-and-casts"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -2333,7 +2336,8 @@
       "classification": "conformant",
       "verifiedBy": [
         "bytes-toutf8-and-hashing",
-        "cross-type-operator-overloads"
+        "cross-type-operator-overloads",
+        "time-math-and-casts"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -2385,7 +2389,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "int-float-and-division"
+        "int-float-and-division",
+        "time-math-and-casts"
       ],
       "verifiedByRows": [
         "firestore-rules#167"
@@ -2474,6 +2479,7 @@
         "int-float-and-division",
         "resource-document-identity",
         "strict-boolean-control-flow",
+        "time-math-and-casts",
         "undefined-field-access"
       ],
       "verifiedByRows": [
@@ -2564,7 +2570,8 @@
         "globals-request-path-and-resource-id",
         "int-float-and-division",
         "path-constructor-and-bind",
-        "resource-document-identity"
+        "resource-document-identity",
+        "time-math-and-casts"
       ],
       "verifiedByRows": [
         "firestore-rules#167"
@@ -2585,6 +2592,7 @@
       "verifiedBy": [
         "duration-and-latlng",
         "int-float-and-division",
+        "time-math-and-casts",
         "timestamp-component-accessors"
       ],
       "verifiedByRows": [],
