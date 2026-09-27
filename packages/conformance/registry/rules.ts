@@ -1018,8 +1018,14 @@ export const rulesRegistry = {
           rowRef: "2",
           featureKeys: ["pathVariables","auth.uid"],
           behavior: "`$uid` path-variable ownership (`$uid === auth.uid`) — the owner path allows, a foreign uid and an anonymous request deny",
-          evidence: "`oracle:rules-rtdb-r2-own-uid` — production verdicts captured by deploy-observe-restore, replayed verdict-for-verdict against the in-process simulator; all 5 cases match production, so the simulator binds the path variable against `auth.uid` exactly as production does.",
-          oracleObservations: ["rules-rtdb-r2-own-uid"],
+          evidence: "`oracle:rules-rtdb-r2-own-uid`: production verdicts captured by deploy-observe-restore, replayed verdict-for-verdict against the in-process simulator; all 5 cases match production, so the simulator binds the path variable against `auth.uid` exactly as production does. `oracle:rules-rtdb-r22-strict-equality-types` (captured 2026-09-27) deploys the same ownership rule as `$uid === auth.uid` and a `$name !== 'nobody'` key guard: production allows the owner read and write, denies a foreign uid and an anonymous read, and denies the sentinel key. It also records strict typing: `newData.val() === 5` denies the string `'5'`, and `newData.val() !== '5'` allows the number 5. The expression grammar parses `===` and `!==`, the simulator evaluates them without type conversion, and all 11 cases match production.",
+          oracleObservations: ["rules-rtdb-r2-own-uid", "rules-rtdb-r22-strict-equality-types"],
+          conformanceTests: [
+            "packages/pyric/test/rules/rtdb/rules-conformance.test.ts",
+            "packages/pyric/test/rules/rtdb/grammar/RtdbExprParser.test.ts",
+            "packages/pyric/test/rules/rtdb/grammar/simulator.test.ts",
+            "packages/pyric/test/database/sandbox-controls.test.ts",
+          ],
         }),
         row3({
           rowRef: "3",
@@ -1070,9 +1076,9 @@ export const rulesRegistry = {
         row3({
           rowRef: "9",
           featureKeys: ["arithmetic","comparison","ternary"],
-          behavior: "Arithmetic and comparison operators in quota rules — `+` `-` `*` `/` `%`, `>` `>=` `<` `<=`, `!==`, loose `==`, `||`, the ternary, and unary minus",
-          evidence: "NEW ROW, 2026-07-12: production capture proves the simulator evaluates every arithmetic and ordering operator as production does, across increment-only counters, doubling and halving deltas, a parity check, inclusive and exclusive range caps, a negative sentinel, loose equality against zero, a disjunction, and a ternary tier bound. `oracle:rules-rtdb-r9-quota-arithmetic` matches production verdict-for-verdict on all 23 cases.",
-          oracleObservations: ["rules-rtdb-r9-quota-arithmetic"],
+          behavior: "Arithmetic and comparison operators in quota rules: `+` `-` `*` `/` `%`, `>` `>=` `<` `<=`, `===` `!==`, `==`, `||`, the ternary, and unary minus",
+          evidence: "NEW ROW, 2026-07-12: production capture proves the simulator evaluates every arithmetic and ordering operator as production does, across increment-only counters, doubling and halving deltas, a parity check, inclusive and exclusive range caps, a negative sentinel, loose equality against zero, a disjunction, and a ternary tier bound. `oracle:rules-rtdb-r9-quota-arithmetic` matches production verdict-for-verdict on all 23 cases. The corpus rules are the ones that capture deployed, with `===` and `!==` in the delta, parity, sentinel, and disjunction checks. `oracle:rules-rtdb-r22-strict-equality-types` adds mixed-type operands: production treats the number 5 and the string `'5'` as unequal under both `===` and `!==`, and the simulator agrees.",
+          oracleObservations: ["rules-rtdb-r9-quota-arithmetic", "rules-rtdb-r22-strict-equality-types"],
         }),
         row3({
           rowRef: "10",

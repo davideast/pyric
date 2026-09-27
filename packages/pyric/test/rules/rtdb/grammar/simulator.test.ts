@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'bun:test';
 import { DataSnapshot, evaluateRtdbExpression } from '../../../../src/rules/rtdb/grammar/simulator.js';
+import { rtdbRules } from '../../../../src/rules/api/rtdb.js';
 
 function evalExpr(raw: string, ctx: Parameters<typeof evaluateRtdbExpression>[1]) {
   return evaluateRtdbExpression(raw, ctx);
@@ -150,6 +151,22 @@ describe('evaluateRtdbExpression', () => {
     expect(evalExpr('1 <= 1', baseCtx)).toBe(true);
   });
 
+  test('=== and !== compare without type conversion', () => {
+    expect(evalExpr('5 === 5', baseCtx)).toBe(true);
+    expect(evalExpr("5 === '5'", baseCtx)).toBe(false);
+    expect(evalExpr("5 !== '5'", baseCtx)).toBe(true);
+    expect(evalExpr("'a' !== 'a'", baseCtx)).toBe(false);
+    expect(evalExpr('auth === null', baseCtx)).toBe(true);
+  });
+
+  test('$uid === auth.uid binds the path variable against the signed-in uid', () => {
+    const ctx = { ...baseCtx, auth: { uid: 'alice', token: {} }, pathVariableBindings: { $uid: 'alice' } };
+    expect(evalExpr('$uid === auth.uid', ctx)).toBe(true);
+    expect(evalExpr('$uid !== "nobody" && $uid == auth.uid', ctx)).toBe(true);
+    const foreign = { ...ctx, pathVariableBindings: { $uid: 'bob' } };
+    expect(evalExpr('$uid === auth.uid', foreign)).toBe(false);
+  });
+
   test('evaluates unary not', () => {
     expect(evalExpr('!false', baseCtx)).toBe(true);
     expect(evalExpr('!true', baseCtx)).toBe(false);
@@ -158,10 +175,6 @@ describe('evaluateRtdbExpression', () => {
   test('null auth does not throw when accessing .uid', () => {
     // auth.uid when auth is null returns null (member access on null)
     expect(() => evalExpr('auth.uid == "x"', baseCtx)).not.toThrow();
-  });
-
-  test('strict equality === is rejected at parse time', () => {
-    expect(() => evalExpr('auth.uid === "x"', baseCtx)).toThrow();
   });
 
   test('array literal evaluates to a JS array', () => {
@@ -231,4 +244,23 @@ describe('evaluateRtdbExpression', () => {
       expect(evalExpr("data.val() == '\\z'", unrecognized)).toBe(true);
     });
   });
+});
+
+describe('rtdbRules().simulate with strict equality', () => {
+  const ownerRules = [
+    '$uid == auth.uid',
+    '$uid === auth.uid',
+    '$uid !== "nobody" && $uid == auth.uid',
+  ];
+
+  for (const rule of ownerRules) {
+    test(`the owner writes /users/alice under ${JSON.stringify(rule)}`, () => {
+      const rules = { rules: { users: { $uid: { '.read': rule, '.write': rule } } } };
+      const { cases } = rtdbRules(rules).simulate([
+        { expectation: 'ALLOW', operation: 'write', path: '/users/alice', auth: 'alice', newData: { name: 'Alice' } },
+        { expectation: 'DENY', operation: 'write', path: '/users/bob', auth: 'alice', newData: { name: 'Bob' } },
+      ]);
+      expect(cases.map((c) => c.decision)).toEqual(['ALLOW', 'DENY']);
+    });
+  }
 });

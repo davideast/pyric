@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { get, getDatabase, ref } from 'pyric/database';
+import { get, getDatabase, ref, set } from 'pyric/database';
 import { initializeSandbox } from 'pyric/sandbox';
 import {
   getActiveRules,
@@ -39,5 +39,23 @@ describe('pyric/sandbox/database', () => {
 
     setRules(sandbox, { rules: { '.read': true } });
     await expect(get(ref(db, '/notes/n1'))).resolves.toBeDefined();
+  });
+
+  test('per-user rules written with === and !== allow the owner and deny everyone else', async () => {
+    const sandbox = initializeSandbox();
+    const rule = '$uid !== "nobody" && $uid === auth.uid';
+    setRules(sandbox, { rules: { users: { $uid: { '.read': rule, '.write': rule } } } });
+
+    const alice = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+    await set(ref(alice, '/users/alice'), { name: 'Alice' });
+    expect((await get(ref(alice, '/users/alice'))).val()).toEqual({ name: 'Alice' });
+    await expect(set(ref(alice, '/users/bob'), { name: 'Bob' })).rejects.toMatchObject({
+      code: 'PERMISSION_DENIED',
+    });
+
+    const nobody = getDatabase(sandbox.withAuth({ uid: 'nobody' }));
+    await expect(set(ref(nobody, '/users/nobody'), { name: 'Nobody' })).rejects.toMatchObject({
+      code: 'PERMISSION_DENIED',
+    });
   });
 });

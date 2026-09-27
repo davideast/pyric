@@ -22,6 +22,7 @@ describe('Unified rules scorecard gate CLI reporter', () => {
     expect(out).not.toContain('acceptance-mismatch] firestore.function.debug');
     expect(out).toContain('[unprobeable] firestore.semantic.get-budget');
     expect(out).toContain('[diverged] storage.function.firestore.get');
-    expect(out).toContain('[local-unsupported] rtdb.operator.strictEq');
+    expect(out).toContain('--- RTDB Rules Breakdown ---');
+    expect(out).toContain('All constructs conform cleanly.');
   });
 });

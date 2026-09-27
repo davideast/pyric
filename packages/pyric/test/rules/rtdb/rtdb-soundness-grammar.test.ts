@@ -129,16 +129,9 @@ describe('RTDB Soundness & Grammar Alignment (Track A)', () => {
   });
 
   describe('Finding 2: Grammar & Linter Alignment', () => {
-    test('rejects strict equality (===) as syntax error', () => {
-      const parsed = parseExpression('auth.uid === "user123"');
-      expect(parsed.valid).toBe(false);
-      expect(parsed.errors.length).toBeGreaterThan(0);
-    });
-
-    test('rejects strict inequality (!==) as syntax error', () => {
-      const parsed = parseExpression('auth !== null');
-      expect(parsed.valid).toBe(false);
-      expect(parsed.errors.length).toBeGreaterThan(0);
+    test('accepts strict equality (===) and strict inequality (!==)', () => {
+      expect(parseExpression('auth.uid === "user123"').valid).toBe(true);
+      expect(parseExpression('auth !== null').valid).toBe(true);
     });
 
     test('accepts standard equality (==) without errors or warnings', () => {

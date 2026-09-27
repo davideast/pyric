@@ -39,9 +39,16 @@ describe('parseExpression', () => {
     expect(result.valid).toBe(false);
   });
 
-  test('returns valid=false for strict equality === and !==', () => {
-    expect(parseExpression('auth.uid === $userId').valid).toBe(false);
-    expect(parseExpression('auth !== null').valid).toBe(false);
+  test('parses strict equality === and !==', () => {
+    expect(parseExpression('auth.uid === $userId').valid).toBe(true);
+    expect(parseExpression('auth !== null').valid).toBe(true);
+    expect(parseExpression('$uid !== "nobody" && $uid == auth.uid').valid).toBe(true);
+  });
+
+  test('rejects a strict operator with a missing operand', () => {
+    expect(parseExpression('auth.uid ===').valid).toBe(false);
+    expect(parseExpression('!== null').valid).toBe(false);
+    expect(parseExpression('a === = b').valid).toBe(false);
   });
 
   test('extracts referencedIdentifiers', () => {

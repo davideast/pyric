@@ -256,6 +256,8 @@ function getEvalSemantics(): Semantics {
     Logical_or(left, _op, right) { return (left as any).eval(this.args.ctx) || (right as any).eval(this.args.ctx); },
     Logical(node) { return (node as any).eval(this.args.ctx); },
 
+    Comparison_strictEq(left, _op, right) { return (left as any).eval(this.args.ctx) === (right as any).eval(this.args.ctx); },
+    Comparison_strictNeq(left, _op, right) { return (left as any).eval(this.args.ctx) !== (right as any).eval(this.args.ctx); },
     Comparison_gte(left, _op, right) { return (left as any).eval(this.args.ctx) >= (right as any).eval(this.args.ctx); },
     Comparison_lte(left, _op, right) { return (left as any).eval(this.args.ctx) <= (right as any).eval(this.args.ctx); },
     Comparison_gt(left, _op, right) { return (left as any).eval(this.args.ctx) > (right as any).eval(this.args.ctx); },
