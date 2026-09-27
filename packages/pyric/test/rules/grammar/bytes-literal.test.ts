@@ -107,6 +107,7 @@ describe('bytes literal: forms production rejects', () => {
     "b'\\400'",
     "b'\\777'",
     "b'a\nb'",
+    "b'a\rb'",
     "b 'abc'",
     "rb'abc'",
     "br'abc'",

@@ -5,8 +5,8 @@
     "storage-rules#storage.stdlib.string-methods",
     "storage-rules#storage.stdlib.bytes-hashing"
   ],
-  "description": "Storage Rules Test API verdicts for corpus scenario \"stdlib-string-bytes-hashing\" (STORAGE-STDLIB-STRING). String case, trim, regular-expression replace-all, and toUtf8, plus Bytes encodings and equality and the md5/sha256/crc32/crc32c digests, with int receivers, int hash input, and an invalid pattern as negative controls.",
-  "observedAt": "2026-09-24T11:54:08.014Z",
+  "description": "Storage Rules Test API verdicts for corpus scenario \"stdlib-string-bytes-hashing\" (STORAGE-STDLIB-STRING). String case, trim, regular-expression replace-all, and toUtf8, plus Bytes encodings and equality and the md5/sha256/crc32/crc32c digests, with int receivers, int hash input, and an invalid pattern as negative controls. String literals decode the escapes production accepts: \\x and octal as code points, \\u as one UTF-16 code unit, and \\b and \\f.",
+  "observedAt": "2026-09-27T17:34:54.157Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "behavior": {
@@ -28,7 +28,25 @@
     "hashing a string equals hashing its UTF-8 bytes": "ALLOW",
     "sha256 of the caller uid against metadata": "ALLOW",
     "int receiver has no lower() method": "DENY",
-    "hashing an int is an error": "DENY"
+    "hashing an int is an error": "DENY",
+    "'\\x41' == 'A' && '\\x4a' == 'J' && '\\x4A' == 'J' → ALLOW": "ALLOW",
+    "'\\x411' == 'A1' && '\\x41'.size() == 1 → ALLOW": "ALLOW",
+    "'\\xe9' == 'é' && '\\xe9'.toUtf8() == b'\\xc3\\xa9' → ALLOW": "ALLOW",
+    "'\\xc3\\xa9' == 'é' → DENY": "DENY",
+    "'\\xc3\\xa9'.size() == 2 → ALLOW": "ALLOW",
+    "'\\u0041' == 'A' && \"\\u0041\" == 'A' && '\\u00411' == 'A1' → ALLOW": "ALLOW",
+    "'\\u00e9' == 'é' && '\\u00E9' == 'é' && '\\u00e9'.size() == 1 → ALLOW": "ALLOW",
+    "'\\u00e9'.toUtf8().toHexString() == 'C3A9' → ALLOW": "ALLOW",
+    "'\\u00e9'.size() == 2 → DENY": "DENY",
+    "'\\u65e5\\u672c' == '日本' → ALLOW": "ALLOW",
+    "'\\ud83d\\ude00' == '😀' && '\\ud83d\\ude00'.size() == 2 → ALLOW": "ALLOW",
+    "'\\101' == 'A' && '\\101'.size() == 1 && '\\012' == '\\n' → ALLOW": "ALLOW",
+    "'\\377' == '\\u00ff' && '\\377' == '\\xff' && '\\377'.toUtf8().toHexString() == 'C3BF' → ALLOW": "ALLOW",
+    "'\\000'.size() == 1 && '\\000' == '\\u0000' → ALLOW": "ALLOW",
+    "'\\b' == '\\u0008' && '\\f' == '\\u000c' && '\\b\\f'.toUtf8().toHexString() == '080C' → ALLOW": "ALLOW",
+    "'\\\\\\'\\\"\\n\\r\\t'.toUtf8().toHexString() == '5C27220A0D09' → ALLOW": "ALLOW",
+    "\"\\x41\\u0041\\101\" == 'AAA' → ALLOW": "ALLOW",
+    "'a\tb'.size() == 3 && 'a\tb' == 'a\\tb' → ALLOW": "ALLOW"
   },
   "diagnostics": {
     "lower, upper, and trim": {
@@ -316,6 +334,276 @@
           "currentOffset": 2242,
           "endOffset": 2244
         }
+      }
+    },
+    "'\\x41' == 'A' && '\\x4a' == 'J' && '\\x4A' == 'J' → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 67,
+              "column": 21,
+              "currentOffset": 2343,
+              "endOffset": 2348
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "'\\x411' == 'A1' && '\\x41'.size() == 1 → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 70,
+              "column": 21,
+              "currentOffset": 2469,
+              "endOffset": 2475
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "'\\xe9' == 'é' && '\\xe9'.toUtf8() == b'\\xc3\\xa9' → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 73,
+              "column": 21,
+              "currentOffset": 2585,
+              "endOffset": 2590
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "'\\xc3\\xa9' == 'é' → DENY": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 76,
+              "column": 21,
+              "currentOffset": 2709,
+              "endOffset": 2718
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "'\\xc3\\xa9'.size() == 2 → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 79,
+              "column": 21,
+              "currentOffset": 2800,
+              "endOffset": 2809
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "'\\u0041' == 'A' && \"\\u0041\" == 'A' && '\\u00411' == 'A1' → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 82,
+              "column": 21,
+              "currentOffset": 2896,
+              "endOffset": 2903
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "'\\u00e9' == 'é' && '\\u00E9' == 'é' && '\\u00e9'.size() == 1 → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 85,
+              "column": 21,
+              "currentOffset": 3033,
+              "endOffset": 3040
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "'\\u00e9'.toUtf8().toHexString() == 'C3A9' → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 88,
+              "column": 21,
+              "currentOffset": 3169,
+              "endOffset": 3176
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "'\\u00e9'.size() == 2 → DENY": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 91,
+              "column": 21,
+              "currentOffset": 3291,
+              "endOffset": 3298
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "'\\u65e5\\u672c' == '日本' → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 94,
+              "column": 21,
+              "currentOffset": 3388,
+              "endOffset": 3401
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "'\\ud83d\\ude00' == '😀' && '\\ud83d\\ude00'.size() == 2 → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 97,
+              "column": 21,
+              "currentOffset": 3491,
+              "endOffset": 3504
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "'\\101' == 'A' && '\\101'.size() == 1 && '\\012' == '\\n' → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 100,
+              "column": 21,
+              "currentOffset": 3614,
+              "endOffset": 3619
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "'\\377' == '\\u00ff' && '\\377' == '\\xff' && '\\377'.toUtf8().toHexString() == 'C3BF' → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 103,
+              "column": 21,
+              "currentOffset": 3742,
+              "endOffset": 3747
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "'\\000'.size() == 1 && '\\000' == '\\u0000' → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 106,
+              "column": 21,
+              "currentOffset": 3899,
+              "endOffset": 3904
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "'\\b' == '\\u0008' && '\\f' == '\\u000c' && '\\b\\f'.toUtf8().toHexString() == '080C' → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 109,
+              "column": 21,
+              "currentOffset": 4017,
+              "endOffset": 4020
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "'\\\\\\'\\\"\\n\\r\\t'.toUtf8().toHexString() == '5C27220A0D09' → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 112,
+              "column": 21,
+              "currentOffset": 4170,
+              "endOffset": 4183
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "\"\\x41\\u0041\\101\" == 'AAA' → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 115,
+              "column": 21,
+              "currentOffset": 4301,
+              "endOffset": 4316
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "'a\tb'.size() == 3 && 'a\tb' == 'a\\tb' → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 118,
+              "column": 21,
+              "currentOffset": 4393,
+              "endOffset": 4397
+            },
+            "value": true
+          }
+        ]
       }
     }
   }

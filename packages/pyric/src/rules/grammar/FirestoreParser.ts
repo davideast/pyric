@@ -291,10 +291,10 @@ semantics.addOperation<any>('toAST', {
     return { type: 'literal', value: parseInt(this.sourceString, 10), raw: this.sourceString };
   },
   string_single(_q1, chars, _q2) {
-    return { type: 'literal', value: processStringEscapes(chars.sourceString), raw: this.sourceString };
+    return { type: 'literal', value: decodeStringLiteral(chars.sourceString), raw: this.sourceString };
   },
   string_double(_q1, chars, _q2) {
-    return { type: 'literal', value: processStringEscapes(chars.sourceString), raw: this.sourceString };
+    return { type: 'literal', value: decodeStringLiteral(chars.sourceString), raw: this.sourceString };
   },
   bytes_single(_prefix, _q1, chars, _q2) {
     return { type: 'literal', value: decodeBytesLiteral(chars.sourceString), raw: this.sourceString };
@@ -313,69 +313,56 @@ semantics.addOperation<any>('toAST', {
   _terminal() { return this.sourceString; },
 });
 
-// ---- String escape processing ----
-// Process standard escape sequences in string literals so the resulting
-// runtime value matches what production Firestore Rules produces. The
-// grammar's `stringEscapeChar` rule restricts the escape character set, so
-// the `default` branch below is unreachable from a successful parse. It is
-// kept as defense in depth — if grammar and parser ever drift, an unknown
-// escape silently preserving the raw backslash is the safer failure mode
-// than a thrown exception during AST construction.
-function processStringEscapes(raw: string): string {
-  let out = '';
-  for (let i = 0; i < raw.length; i++) {
-    const c = raw[i];
-    if (c !== '\\' || i === raw.length - 1) {
-      out += c;
-      continue;
-    }
-    const next = raw[i + 1];
-    switch (next) {
-      case '\\': out += '\\'; i++; break;
-      case '\'': out += '\''; i++; break;
-      case '"':  out += '"';  i++; break;
-      case 'n':  out += '\n'; i++; break;
-      case 'r':  out += '\r'; i++; break;
-      case 't':  out += '\t'; i++; break;
-      case '/':  out += '/';  i++; break;
-      default:   out += c; // unreachable under current grammar
-    }
-  }
-  return out;
-}
-
-// ---- Bytes literal decoding ----
-// The body of a bytes literal, after the grammar's `bytesEscape` rule has
-// accepted it. A plain character contributes its UTF-8 encoding; `\xHH` and
-// `\ooo` contribute one byte each; a simple escape contributes the byte of
-// the character it names.
-const BYTES_SIMPLE_ESCAPES: Readonly<Record<string, number>> = {
+// ---- String and bytes literal decoding ----
+// The body of a string or bytes literal, after the grammar's `stringEscape`
+// or `literalEscape` rule has accepted it. `readLiteralBody` splits the body
+// into plain text and escape values: `\xHH` and `\ooo` are the value of their
+// digits, `\uHHHH` is one UTF-16 code unit, and a simple escape is the code of
+// the character it names. A string literal takes each value as a UTF-16 code
+// unit; a bytes literal encodes plain text as UTF-8 and takes each escape
+// value as one byte.
+const SIMPLE_ESCAPES: Readonly<Record<string, number>> = {
   '\\': 0x5c, '\'': 0x27, '"': 0x22, n: 0x0a, r: 0x0d, t: 0x09, b: 0x08, f: 0x0c,
 };
+
+function readLiteralBody(body: string, onText: (text: string) => void, onEscape: (value: number) => void): void {
+  let textStart = 0;
+  let i = 0;
+  while (i < body.length) {
+    if (body[i] !== '\\') {
+      i++;
+      continue;
+    }
+    if (i > textStart) onText(body.slice(textStart, i));
+    const next = body[i + 1]!;
+    if (next === 'x') {
+      onEscape(parseInt(body.slice(i + 2, i + 4), 16));
+      i += 4;
+    } else if (next === 'u') {
+      onEscape(parseInt(body.slice(i + 2, i + 6), 16));
+      i += 6;
+    } else if (next >= '0' && next <= '3') {
+      onEscape(parseInt(body.slice(i + 1, i + 4), 8));
+      i += 4;
+    } else {
+      onEscape(SIMPLE_ESCAPES[next]!);
+      i += 2;
+    }
+    textStart = i;
+  }
+  if (body.length > textStart) onText(body.slice(textStart));
+}
+
+function decodeStringLiteral(body: string): string {
+  let out = '';
+  readLiteralBody(body, (text) => { out += text; }, (value) => { out += String.fromCharCode(value); });
+  return out;
+}
 
 function decodeBytesLiteral(body: string): Uint8Array {
   const out: number[] = [];
   const encoder = new TextEncoder();
-  let i = 0;
-  while (i < body.length) {
-    if (body[i] !== '\\') {
-      const char = String.fromCodePoint(body.codePointAt(i)!);
-      out.push(...encoder.encode(char));
-      i += char.length;
-      continue;
-    }
-    const next = body[i + 1]!;
-    if (next === 'x') {
-      out.push(parseInt(body.slice(i + 2, i + 4), 16));
-      i += 4;
-    } else if (next >= '0' && next <= '3') {
-      out.push(parseInt(body.slice(i + 1, i + 4), 8));
-      i += 4;
-    } else {
-      out.push(BYTES_SIMPLE_ESCAPES[next]!);
-      i += 2;
-    }
-  }
+  readLiteralBody(body, (text) => { out.push(...encoder.encode(text)); }, (value) => { out.push(value); });
   return new Uint8Array(out);
 }
 

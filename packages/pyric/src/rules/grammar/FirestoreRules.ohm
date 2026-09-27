@@ -172,43 +172,35 @@ FirestoreRules {
     = digit+ "." digit+  -- float
     | digit+              -- int
 
+  // String and bytes literals share one body rule and one escape rule. A raw
+  // line feed or carriage return inside the quotes is a parse error, as in
+  // production; a raw tab is a plain character.
   string
-    = "'" singleStringChar* "'"    -- single
-    | "\"" doubleStringChar* "\""  -- double
-
-  singleStringChar
-    = "\\" stringEscapeChar  -- escape
-    | ~"\\" ~"'" any         -- char
-
-  doubleStringChar
-    = "\\" stringEscapeChar  -- escape
-    | ~"\\" ~"\"" any        -- char
-
-  // Valid escape characters following a backslash. Anything else is rejected
-  // at parse time to match production semantics — production Firestore Rules
-  // raises a syntax error on unknown escapes (e.g. `\d`, `\.`). Keeping the
-  // sim strict here prevents over-permissive acceptance that masks model
-  // output that would crash at deploy.
-  stringEscapeChar = "\\" | "'" | "\"" | "n" | "r" | "t" | "/"
+    = "'" literalChar<"'", stringEscape>* "'"      -- single
+    | "\"" literalChar<"\"", stringEscape>* "\""   -- double
 
   // Bytes literal: a `b` or `B` prefix directly before a quoted body. A plain
-  // character is its UTF-8 encoding. `\x` takes exactly two hexadecimal
-  // digits and `\` takes three octal digits up to `\377`; each is one byte.
-  // Production rejects `\/`, `\u`, `\U`, `\a`, `\v`, a raw line break, and
-  // any other escape in a bytes literal.
+  // character is its UTF-8 encoding and a hex or octal escape is one byte.
   bytes
-    = ("b" | "B") "'" singleBytesChar* "'"    -- single
-    | ("b" | "B") "\"" doubleBytesChar* "\""  -- double
+    = ("b" | "B") "'" literalChar<"'", literalEscape>* "'"      -- single
+    | ("b" | "B") "\"" literalChar<"\"", literalEscape>* "\""   -- double
 
-  singleBytesChar
-    = "\\" bytesEscape  -- escape
-    | ~"\\" ~"'" ~"\n" any  -- char
+  literalChar<quote, escape>
+    = "\\" escape                    -- escape
+    | ~"\\" ~quote ~"\n" ~"\r" any  -- char
 
-  doubleBytesChar
-    = "\\" bytesEscape  -- escape
-    | ~"\\" ~"\"" ~"\n" any  -- char
+  // `\u` with exactly four hexadecimal digits is one UTF-16 code unit. Only a
+  // string literal takes it; production rejects it in a bytes literal.
+  stringEscape
+    = "u" hexDigit hexDigit hexDigit hexDigit  -- unicode
+    | literalEscape
 
-  bytesEscape
+  // The escapes production accepts in both string and bytes literals. `\x`
+  // takes exactly two hexadecimal digits and `\` takes three octal digits up
+  // to `\377`. In a string each is the code point of that value; in bytes
+  // each is one byte. Production rejects every other escape, including `\/`,
+  // `\a`, `\v`, `\?`, `\0`, `\U`, and `\X`.
+  literalEscape
     = "x" hexDigit hexDigit          -- hex
     | "0".."3" "0".."7" "0".."7"     -- octal
     | ("\\" | "'" | "\"" | "n" | "r" | "t" | "b" | "f")  -- simple

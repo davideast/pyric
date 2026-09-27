@@ -29,7 +29,7 @@ Status: Working reference. Gaps marked with `[VERIFY]`.
 
 ### `string`
 - Literals: `'single'`, `"double"`
-- Escape sequences: `\\`, `\'`, `\"`, `\n`, `\t` [VERIFY full set]
+- Escape sequences: `\\`, `\'`, `\"`, `\n`, `\r`, `\t`, `\b`, `\f`; `\x` with two hex digits and `\` with three octal digits up to `\377`, each a code point; `\u` with four hex digits, one UTF-16 code unit. Any other escape, including `\/`, and a raw line break are parse errors (production capture, scenario string-literals-and-regex)
 
 **Methods:**
 | Method | Signature | Returns | Corpus file |
