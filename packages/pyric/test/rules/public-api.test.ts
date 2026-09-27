@@ -342,8 +342,10 @@ describe('rtdbRules constructor', () => {
   test('lint() surfaces check findings as unified issues', () => {
     const ruleset = rtdbRules(def);
     const issues = ruleset.lint();
-    expect(Array.isArray(issues)).toBe(true);
-    for (const issue of issues) expect(issue.origin).toBe('validate');
+    expect(issues).toEqual([
+      expect.objectContaining({ code: 'HARDCODED_TRUE', origin: 'lint', path: '/notes/$noteId', rule: '.read' }),
+      expect.objectContaining({ code: 'HARDCODED_FALSE', origin: 'lint', path: '/notes/$noteId', rule: '.write' }),
+    ]);
   });
 
   test('simulate() runs RTDB cases and never throws', () => {

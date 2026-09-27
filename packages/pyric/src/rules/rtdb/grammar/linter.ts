@@ -43,16 +43,6 @@ function getLinterSemantics(): Semantics {
       if (name === 'newData') ctx.hasNewData = true;
     },
 
-    bool_true(_true) {
-      const ctx = this.args.ctx as LintContext;
-      ctx.warnings.push({ code: 'HARDCODED_TRUE', message: 'Rule expression is hardcoded to true' });
-    },
-
-    bool_false(_false) {
-      const ctx = this.args.ctx as LintContext;
-      ctx.warnings.push({ code: 'HARDCODED_FALSE', message: 'Rule expression is hardcoded to false' });
-    },
-
     Comparison_looseEq(left, _op, right) {
       (left as any).lint(this.args.ctx);
       (right as any).lint(this.args.ctx);
@@ -61,6 +51,30 @@ function getLinterSemantics(): Semantics {
     Comparison_looseNeq(left, _op, right) {
       (left as any).lint(this.args.ctx);
       (right as any).lint(this.args.ctx);
+    },
+  });
+  // The boolean an expression is, when the whole expression is a `true` or
+  // `false` literal (parentheses allowed); undefined otherwise. A literal that
+  // is only an operand, such as `data.child('open').val() == false`, is not
+  // the whole expression.
+  semantics.addOperation('literalBoolean', {
+    _nonterminal(...children) {
+      return children.length === 1 ? (children[0] as any).literalBoolean() : undefined;
+    },
+    _iter() {
+      return undefined;
+    },
+    _terminal() {
+      return undefined;
+    },
+    Primary_paren(_open, inner, _close) {
+      return (inner as any).literalBoolean();
+    },
+    bool_true(_true) {
+      return true;
+    },
+    bool_false(_false) {
+      return false;
     },
   });
   linterSemantics = semantics;
@@ -81,7 +95,18 @@ export function lintExpression(
     hasDataChildAccess: false,
   };
 
-  (getLinterSemantics()(match) as any).lint(ctx);
+  const node = getLinterSemantics()(match) as any;
+  node.lint(ctx);
+
+  // A `.read` or `.write` that is a literal grants or denies every request at
+  // its path. A `.validate` literal is not reported: `true` checks nothing and
+  // `false` is how a ruleset rejects children it does not name (`$other`).
+  const literal = context === 'validate' ? undefined : node.literalBoolean() as boolean | undefined;
+  if (literal === true) {
+    ctx.warnings.push({ code: 'HARDCODED_TRUE', message: 'Rule expression is hardcoded to true' });
+  } else if (literal === false) {
+    ctx.warnings.push({ code: 'HARDCODED_FALSE', message: 'Rule expression is hardcoded to false' });
+  }
 
   if (context === 'write' && ctx.hasData && !ctx.hasNewData && !ctx.hasDataChildAccess) {
     ctx.warnings.push({
