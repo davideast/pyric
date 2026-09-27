@@ -178,9 +178,9 @@ describe('Adversarial Verification — Challenger 1', () => {
   // ──────────────────────────────────────────────────────────────────────────
   // TRACK A — R2: Production Equality Syntax & Linter Alignment
   // ──────────────────────────────────────────────────────────────────────────
-  describe('R2: Strict Equality Rejection & Linter Alignment', () => {
-    describe('Parser strictly rejects === in all syntactic positions', () => {
-      const strictEqExpressions = [
+  describe('R2: Equality Syntax & Linter Alignment', () => {
+    describe('Parser accepts === and !== in all syntactic positions', () => {
+      const strictExpressions = [
         // Root / basic positions
         'auth.uid === "user123"',
         '"user123" === auth.uid',
@@ -188,92 +188,54 @@ describe('Adversarial Verification — Challenger 1', () => {
         'true === true',
         'null === null',
         'data.val() === 42',
+        'auth.uid !== "user123"',
+        'auth !== null',
+        '1 !== 2',
         // Parenthesized
         '(auth.uid === "user123")',
-        '((auth.uid === "user123"))',
+        '((data.val() !== 0))',
         // Logical AND / OR compositions
         'auth != null && auth.uid === "user123"',
-        'auth.uid === "user123" && data.exists()',
-        'auth == null || auth.uid === "user123"',
         'auth.uid === "user123" || auth.uid === "admin"',
+        'data.val() !== null || newData.val() !== null',
         // Ternary operators
         'auth != null ? auth.uid === "user123" : false',
-        'auth.uid === "user123" ? true : false',
         'true ? 1 === 1 : 2 === 2',
+        'auth !== null ? true : false',
         // Method argument positions
         "data.child(auth.uid === 'admin' ? 'admin' : 'user').exists()",
         "newData.val().contains(auth.uid === 'x' ? 'a' : 'b')",
-        // Chained / compound comparisons
+        // Chained comparisons with the loose operators
         'a === b === c',
         'a == b === c',
-        'a === b == c',
-        // Arithmetic combinations
+        'a !== b != c',
+        // Arithmetic and unary operands
         'data.val() + 1 === 2',
-        'now - 1000 === 0',
         'data.val() === 2 * 3',
-        // Unary operand combinations
-        '!data.val() === false',
-        '-data.val() === -1',
-        // Malformed / boundary operators
-        '=== a',
-        'a ===',
-        '!=== a',
-        'a === = b',
+        '-data.val() !== -1',
         // Whitespace variations
         'auth.uid=== "user123"',
-        'auth.uid ===  "user123"',
-        'auth.uid   ===   "user123"',
         'auth.uid \n === \n "user123"',
-        'auth.uid \t === \t "user123"',
+        'auth!== null',
+        'auth \t !== \t null',
       ];
 
-      for (const expr of strictEqExpressions) {
-        test(`rejects strict equality syntax: ${JSON.stringify(expr)}`, () => {
+      for (const expr of strictExpressions) {
+        test(`accepts strict comparison syntax: ${JSON.stringify(expr)}`, () => {
           const parsed = parseExpression(expr);
-          expect(parsed.valid).toBe(false);
-          expect(parsed.errors.length).toBeGreaterThan(0);
-          expect(parsed.errors[0].code).toBe('PARSE_ERROR');
+          expect(parsed.valid).toBe(true);
+          expect(parsed.errors).toHaveLength(0);
         });
       }
     });
 
-    describe('Parser strictly rejects !== in all syntactic positions', () => {
-      const strictNeqExpressions = [
-        // Root / basic positions
-        'auth.uid !== "user123"',
-        'auth !== null',
-        'data.val() !== null',
-        '1 !== 2',
-        // Parenthesized
-        '(auth !== null)',
-        '((data.val() !== 0))',
-        // Logical AND / OR compositions
-        'auth != null && auth.uid !== "banned"',
-        'data.val() !== null || newData.val() !== null',
-        // Ternary operators
-        'auth !== null ? true : false',
-        'true ? auth !== null : false',
-        // Method argument positions
-        "data.child(auth !== null ? 'user' : 'guest').exists()",
-        // Chained comparisons
-        'a !== b !== c',
-        'a != b !== c',
-        'a !== b != c',
-        // Malformed operators
-        '!== a',
-        'a !==',
-        'a !== = b',
-        // Whitespace variations
-        'auth!== null',
-        'auth !==  null',
-        'auth \n !== \n null',
-      ];
+    describe('Parser rejects malformed strict operators', () => {
+      const malformedExpressions = ['=== a', 'a ===', '!=== a', 'a === = b', '!== a', 'a !==', 'a !== = b', 'a ==== b'];
 
-      for (const expr of strictNeqExpressions) {
-        test(`rejects strict inequality syntax: ${JSON.stringify(expr)}`, () => {
+      for (const expr of malformedExpressions) {
+        test(`rejects malformed operator: ${JSON.stringify(expr)}`, () => {
           const parsed = parseExpression(expr);
           expect(parsed.valid).toBe(false);
-          expect(parsed.errors.length).toBeGreaterThan(0);
           expect(parsed.errors[0].code).toBe('PARSE_ERROR');
         });
       }

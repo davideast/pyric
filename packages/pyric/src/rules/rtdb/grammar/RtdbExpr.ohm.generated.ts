@@ -15,7 +15,9 @@ export const RTDB_EXPR_OHM_SOURCE = `RtdbExpr {
     | Comparison
 
   Comparison
-    = Comparison ">=" Additive   -- gte
+    = Comparison "===" Additive  -- strictEq
+    | Comparison "!==" Additive  -- strictNeq
+    | Comparison ">=" Additive   -- gte
     | Comparison "<=" Additive   -- lte
     | Comparison ">" Additive    -- gt
     | Comparison "<" Additive    -- lt

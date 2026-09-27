@@ -65,10 +65,10 @@
     ]
   },
   "score": {
-    "numerator": 54,
+    "numerator": 56,
     "denominator": 56,
-    "ratio": 0.9642857142857143,
-    "percent": 96.4
+    "ratio": 1,
+    "percent": 100
   },
   "axes": {
     "productionAcceptance": {
@@ -78,28 +78,28 @@
       "unprobeable": 0
     },
     "localAcceptance": {
-      "accepted": 54,
+      "accepted": 56,
       "rejected": 0,
-      "unsupported": 2,
+      "unsupported": 0,
       "unprobeable": 0
     },
     "localCapability": {
-      "implemented": 54,
-      "unsupported": 2,
+      "implemented": 56,
+      "unsupported": 0,
       "error": 0,
       "unprobeable": 0
     },
     "productionEvidence": {
-      "verified": 53,
+      "verified": 55,
       "diverged": 0,
-      "unverified": 3
+      "unverified": 1
     }
   },
   "counts": {
-    "conformant": 54,
+    "conformant": 56,
     "diverged": 0,
     "unknown": 0,
-    "local-unsupported": 2,
+    "local-unsupported": 0,
     "local-error": 0,
     "unprobeable": 0
   },
@@ -123,6 +123,7 @@
         "r18-child-dot-segments",
         "r2-own-uid",
         "r21-validate-on-delete",
+        "r22-strict-equality-types",
         "r3-data-exists",
         "r4-validate-structure",
         "r5-cascade-root-grant",
@@ -143,6 +144,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "r2-own-uid",
+        "r22-strict-equality-types",
         "r7-pathvar-binding",
         "r8-combined-check"
       ],
@@ -192,6 +194,7 @@
         "r18-child-dot-segments",
         "r20-priority-values",
         "r21-validate-on-delete",
+        "r22-strict-equality-types",
         "r4-validate-structure",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -231,6 +234,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "r2-own-uid",
+        "r22-strict-equality-types",
         "r7-pathvar-binding"
       ],
       "verifiedByRows": [],
@@ -247,6 +251,7 @@
         "r12-server-time-and-token",
         "r17-validate-runtime-error",
         "r20-priority-values",
+        "r22-strict-equality-types",
         "r8-combined-check",
         "r9-quota-arithmetic"
       ],
@@ -482,21 +487,35 @@
     },
     "rtdb.operator.strictEq": {
       "productionAcceptance": "accepted",
-      "localAcceptance": "unsupported",
-      "localCapability": "unsupported",
-      "productionEvidence": "unverified",
-      "classification": "local-unsupported",
-      "verifiedBy": [],
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r11-string-validation",
+        "r12-server-time-and-token",
+        "r13-priority-and-index-directive",
+        "r14-root-lookup",
+        "r2-own-uid",
+        "r22-strict-equality-types",
+        "r7-pathvar-binding",
+        "r8-combined-check",
+        "r9-quota-arithmetic"
+      ],
       "verifiedByRows": [],
       "divergedByRows": []
     },
     "rtdb.operator.strictNeq": {
       "productionAcceptance": "accepted",
-      "localAcceptance": "unsupported",
-      "localCapability": "unsupported",
-      "productionEvidence": "unverified",
-      "classification": "local-unsupported",
-      "verifiedBy": [],
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r13-priority-and-index-directive",
+        "r22-strict-equality-types",
+        "r9-quota-arithmetic"
+      ],
       "verifiedByRows": [],
       "divergedByRows": []
     },
@@ -507,16 +526,9 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "r11-string-validation",
-        "r12-server-time-and-token",
-        "r13-priority-and-index-directive",
-        "r14-root-lookup",
         "r16-auth-provider-and-tenant",
         "r17-validate-runtime-error",
-        "r2-own-uid",
         "r20-priority-values",
-        "r7-pathvar-binding",
-        "r8-combined-check",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -541,6 +553,7 @@
         "r18-child-dot-segments",
         "r20-priority-values",
         "r21-validate-on-delete",
+        "r22-strict-equality-types",
         "r3-data-exists",
         "r4-validate-structure",
         "r5-cascade-root-grant",
@@ -675,6 +688,7 @@
         "r12-server-time-and-token",
         "r17-validate-runtime-error",
         "r20-priority-values",
+        "r22-strict-equality-types",
         "r7-pathvar-binding",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -742,6 +756,7 @@
         "r16-auth-provider-and-tenant",
         "r17-validate-runtime-error",
         "r2-own-uid",
+        "r22-strict-equality-types",
         "r7-pathvar-binding",
         "r8-combined-check"
       ],
@@ -779,6 +794,7 @@
         "r19-literal-and-wildcard-siblings",
         "r2-own-uid",
         "r20-priority-values",
+        "r22-strict-equality-types",
         "r3-data-exists",
         "r4-validate-structure",
         "r5-cascade-root-grant",
@@ -811,6 +827,7 @@
         "r2-own-uid",
         "r20-priority-values",
         "r21-validate-on-delete",
+        "r22-strict-equality-types",
         "r3-data-exists",
         "r4-validate-structure",
         "r5-cascade-root-grant",
@@ -840,6 +857,7 @@
         "r19-literal-and-wildcard-siblings",
         "r20-priority-values",
         "r21-validate-on-delete",
+        "r22-strict-equality-types",
         "r4-validate-structure",
         "r9-quota-arithmetic"
       ],
@@ -873,6 +891,7 @@
         "r19-literal-and-wildcard-siblings",
         "r2-own-uid",
         "r21-validate-on-delete",
+        "r22-strict-equality-types",
         "r7-pathvar-binding"
       ],
       "verifiedByRows": [
