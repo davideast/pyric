@@ -1,0 +1,963 @@
+{
+  "version": 1,
+  "recordedAt": "2026-09-27T20:49:53.902Z",
+  "machine": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Pro",
+    "memoryGiB": 18,
+    "bun": "1.3.9"
+  },
+  "settings": {
+    "warmup": 50,
+    "iterations": 300,
+    "coldSamples": 10,
+    "rounds": 3
+  },
+  "rows": [
+    {
+      "subject": "chess",
+      "stage": "resolve",
+      "kind": "timed",
+      "median": 94900.04,
+      "p95": 126316,
+      "p99": 134701.04,
+      "samples": 30,
+      "note": "2+modules import resolution and flattening"
+    },
+    {
+      "subject": "chess",
+      "stage": "parse.cold",
+      "kind": "timed",
+      "median": 161964,
+      "p95": 203774.42,
+      "p99": 203774.42,
+      "samples": 10,
+      "note": "fresh process: parser module load, grammar build, first parse"
+    },
+    {
+      "subject": "chess",
+      "stage": "parse.warm",
+      "kind": "timed",
+      "median": 89438.13,
+      "p95": 100596.04,
+      "p99": 150124.42,
+      "samples": 32
+    },
+    {
+      "subject": "chess",
+      "stage": "compile",
+      "kind": "timed",
+      "median": 22,
+      "p95": 29.08,
+      "p99": 37.46,
+      "samples": 300,
+      "note": "the authored source map; the simulator walks the parsed AST directly"
+    },
+    {
+      "subject": "chess / normal move (Nf3)",
+      "stage": "evaluate",
+      "kind": "timed",
+      "median": 253.46,
+      "p95": 388.63,
+      "p99": 999,
+      "samples": 300,
+      "note": "simulateParsed for one request"
+    },
+    {
+      "subject": "chess / normal move (Nf3)",
+      "stage": "evaluate.match",
+      "kind": "timed",
+      "median": 0.92,
+      "p95": 2.46,
+      "p99": 5.5,
+      "samples": 300,
+      "note": "collectMatches over the service match, timed on its own"
+    },
+    {
+      "subject": "chess / normal move (Nf3)",
+      "stage": "evaluate.lookups",
+      "kind": "timed",
+      "median": 0.08,
+      "p95": 0.29,
+      "p99": 0.67,
+      "samples": 300,
+      "note": "1 getDoc call(s) per request, time inside the callback"
+    },
+    {
+      "subject": "chess / normal move (Nf3)",
+      "stage": "evaluate.expressions",
+      "kind": "derived",
+      "median": 252.41,
+      "note": "evaluate minus lookups minus match: expressions, trace recording and context building"
+    },
+    {
+      "subject": "chess / normal move (Nf3)",
+      "stage": "simulator nodes",
+      "kind": "count",
+      "count": 898,
+      "note": "expression trace entries the simulator records for this request"
+    },
+    {
+      "subject": "chess / normal move (Nf3)",
+      "stage": "e2e",
+      "kind": "timed",
+      "median": 625.63,
+      "p95": 3208.63,
+      "p99": 4224.71,
+      "samples": 30,
+      "note": "pyric/firestore setDoc to the verdict and commit"
+    },
+    {
+      "subject": "chess / capture (Qxf7#)",
+      "stage": "evaluate",
+      "kind": "timed",
+      "median": 275.63,
+      "p95": 415.38,
+      "p99": 907.42,
+      "samples": 300,
+      "note": "simulateParsed for one request"
+    },
+    {
+      "subject": "chess / capture (Qxf7#)",
+      "stage": "evaluate.match",
+      "kind": "timed",
+      "median": 0.5,
+      "p95": 1.67,
+      "p99": 6.71,
+      "samples": 300,
+      "note": "collectMatches over the service match, timed on its own"
+    },
+    {
+      "subject": "chess / capture (Qxf7#)",
+      "stage": "evaluate.lookups",
+      "kind": "timed",
+      "median": 0.08,
+      "p95": 0.29,
+      "p99": 0.42,
+      "samples": 300,
+      "note": "1 getDoc call(s) per request, time inside the callback"
+    },
+    {
+      "subject": "chess / capture (Qxf7#)",
+      "stage": "evaluate.expressions",
+      "kind": "derived",
+      "median": 275.04,
+      "note": "evaluate minus lookups minus match: expressions, trace recording and context building"
+    },
+    {
+      "subject": "chess / capture (Qxf7#)",
+      "stage": "simulator nodes",
+      "kind": "count",
+      "count": 959,
+      "note": "expression trace entries the simulator records for this request"
+    },
+    {
+      "subject": "chess / capture (Qxf7#)",
+      "stage": "e2e",
+      "kind": "timed",
+      "median": 416.46,
+      "p95": 1092.71,
+      "p99": 2138.67,
+      "samples": 32,
+      "note": "pyric/firestore setDoc to the verdict and commit"
+    },
+    {
+      "subject": "chess / castle (O-O)",
+      "stage": "evaluate",
+      "kind": "timed",
+      "median": 248.21,
+      "p95": 318.33,
+      "p99": 606.13,
+      "samples": 300,
+      "note": "simulateParsed for one request"
+    },
+    {
+      "subject": "chess / castle (O-O)",
+      "stage": "evaluate.match",
+      "kind": "timed",
+      "median": 0.42,
+      "p95": 1.25,
+      "p99": 2.67,
+      "samples": 300,
+      "note": "collectMatches over the service match, timed on its own"
+    },
+    {
+      "subject": "chess / castle (O-O)",
+      "stage": "evaluate.lookups",
+      "kind": "timed",
+      "median": 0.04,
+      "p95": 0.13,
+      "p99": 0.33,
+      "samples": 300,
+      "note": "1 getDoc call(s) per request, time inside the callback"
+    },
+    {
+      "subject": "chess / castle (O-O)",
+      "stage": "evaluate.expressions",
+      "kind": "derived",
+      "median": 247.75,
+      "note": "evaluate minus lookups minus match: expressions, trace recording and context building"
+    },
+    {
+      "subject": "chess / castle (O-O)",
+      "stage": "simulator nodes",
+      "kind": "count",
+      "count": 863,
+      "note": "expression trace entries the simulator records for this request"
+    },
+    {
+      "subject": "chess / castle (O-O)",
+      "stage": "e2e",
+      "kind": "timed",
+      "median": 461.67,
+      "p95": 1143.96,
+      "p99": 3799.79,
+      "samples": 30,
+      "note": "pyric/firestore setDoc to the verdict and commit"
+    },
+    {
+      "subject": "arcade-firestore",
+      "stage": "parse.cold",
+      "kind": "timed",
+      "median": 370144.54,
+      "p95": 410856.29,
+      "p99": 410856.29,
+      "samples": 10,
+      "note": "fresh process: parser module load, grammar build, first parse"
+    },
+    {
+      "subject": "arcade-firestore",
+      "stage": "parse.warm",
+      "kind": "timed",
+      "median": 305979.29,
+      "p95": 383803,
+      "p99": 434207.67,
+      "samples": 30
+    },
+    {
+      "subject": "arcade-firestore",
+      "stage": "compile",
+      "kind": "timed",
+      "median": 72.88,
+      "p95": 102.5,
+      "p99": 187.29,
+      "samples": 300,
+      "note": "the authored source map; the simulator walks the parsed AST directly"
+    },
+    {
+      "subject": "arcade-firestore / Reversi move",
+      "stage": "evaluate",
+      "kind": "timed",
+      "median": 241.46,
+      "p95": 323,
+      "p99": 662.46,
+      "samples": 300,
+      "note": "simulateParsed for one request"
+    },
+    {
+      "subject": "arcade-firestore / Reversi move",
+      "stage": "evaluate.match",
+      "kind": "timed",
+      "median": 5.42,
+      "p95": 9.83,
+      "p99": 19.88,
+      "samples": 300,
+      "note": "collectMatches over the service match, timed on its own"
+    },
+    {
+      "subject": "arcade-firestore / Reversi move",
+      "stage": "evaluate.lookups",
+      "kind": "timed",
+      "median": 0,
+      "p95": 0,
+      "p99": 0,
+      "samples": 300,
+      "note": "0 getDoc call(s) per request, time inside the callback"
+    },
+    {
+      "subject": "arcade-firestore / Reversi move",
+      "stage": "evaluate.expressions",
+      "kind": "derived",
+      "median": 236.04,
+      "note": "evaluate minus lookups minus match: expressions, trace recording and context building"
+    },
+    {
+      "subject": "arcade-firestore / Reversi move",
+      "stage": "simulator nodes",
+      "kind": "count",
+      "count": 458,
+      "note": "expression trace entries the simulator records for this request"
+    },
+    {
+      "subject": "arcade-firestore / Reversi move",
+      "stage": "e2e",
+      "kind": "timed",
+      "median": 742.96,
+      "p95": 1079.08,
+      "p99": 1693.67,
+      "samples": 30,
+      "note": "pyric/firestore writeBatch commit to the verdict and commit"
+    },
+    {
+      "subject": "arcade-firestore / Yacht score (choice)",
+      "stage": "evaluate",
+      "kind": "timed",
+      "median": 97.88,
+      "p95": 136.33,
+      "p99": 176.83,
+      "samples": 300,
+      "note": "simulateParsed for one request"
+    },
+    {
+      "subject": "arcade-firestore / Yacht score (choice)",
+      "stage": "evaluate.match",
+      "kind": "timed",
+      "median": 4.83,
+      "p95": 7.25,
+      "p99": 13.38,
+      "samples": 300,
+      "note": "collectMatches over the service match, timed on its own"
+    },
+    {
+      "subject": "arcade-firestore / Yacht score (choice)",
+      "stage": "evaluate.lookups",
+      "kind": "timed",
+      "median": 0,
+      "p95": 0,
+      "p99": 0,
+      "samples": 300,
+      "note": "0 getDoc call(s) per request, time inside the callback"
+    },
+    {
+      "subject": "arcade-firestore / Yacht score (choice)",
+      "stage": "evaluate.expressions",
+      "kind": "derived",
+      "median": 93.05,
+      "note": "evaluate minus lookups minus match: expressions, trace recording and context building"
+    },
+    {
+      "subject": "arcade-firestore / Yacht score (choice)",
+      "stage": "simulator nodes",
+      "kind": "count",
+      "count": 325,
+      "note": "expression trace entries the simulator records for this request"
+    },
+    {
+      "subject": "arcade-firestore / Yacht score (choice)",
+      "stage": "e2e",
+      "kind": "timed",
+      "median": 246.58,
+      "p95": 520.04,
+      "p99": 1145.75,
+      "samples": 30,
+      "note": "pyric/firestore writeBatch commit to the verdict and commit"
+    },
+    {
+      "subject": "arcade-rtdb",
+      "stage": "parse.cold",
+      "kind": "timed",
+      "median": 73200,
+      "p95": 99649.71,
+      "p99": 99649.71,
+      "samples": 10,
+      "note": "fresh process: parser module load, grammar build, first parse"
+    },
+    {
+      "subject": "arcade-rtdb",
+      "stage": "parse.warm",
+      "kind": "timed",
+      "median": 24032.54,
+      "p95": 29955.42,
+      "p99": 35909.21,
+      "samples": 82,
+      "note": "JSON.parse and 27 expression parse(s)"
+    },
+    {
+      "subject": "arcade-rtdb",
+      "stage": "compile",
+      "kind": "timed",
+      "median": 78635.13,
+      "p95": 105261.58,
+      "p99": 117461.46,
+      "samples": 34,
+      "note": "compileRtdbRules: parses, validates and lints every expression"
+    },
+    {
+      "subject": "arcade-rtdb / Air Hockey frame",
+      "stage": "evaluate",
+      "kind": "timed",
+      "median": 501.5,
+      "p95": 992.21,
+      "p99": 1426.83,
+      "samples": 300,
+      "note": "simulateRtdbRules for one request, expression trees already parsed"
+    },
+    {
+      "subject": "arcade-rtdb / Air Hockey frame",
+      "stage": "evaluate.input-validation",
+      "kind": "timed",
+      "median": 2.58,
+      "p95": 4.25,
+      "p99": 8.38,
+      "samples": 300,
+      "note": "SimulationInputSchema.safeParse on the same input, which evaluate runs first"
+    },
+    {
+      "subject": "arcade-rtdb / Air Hockey frame",
+      "stage": "evaluate.first",
+      "kind": "timed",
+      "median": 7326.5,
+      "p95": 10717.79,
+      "p99": 15762.58,
+      "samples": 30,
+      "note": "first request on a new compile: evaluation parses each rule it reaches once"
+    },
+    {
+      "subject": "arcade-rtdb / Air Hockey frame",
+      "stage": "e2e",
+      "kind": "timed",
+      "median": 502.63,
+      "p95": 654.75,
+      "p99": 1359.88,
+      "samples": 300,
+      "note": "pyric/database set of one frame to the verdict and commit"
+    },
+    {
+      "subject": "arcade-storage",
+      "stage": "parse.cold",
+      "kind": "timed",
+      "median": 55701.96,
+      "p95": 63994.08,
+      "p99": 63994.08,
+      "samples": 10,
+      "note": "fresh process: parser module load, grammar build, first parse"
+    },
+    {
+      "subject": "arcade-storage",
+      "stage": "parse.warm",
+      "kind": "timed",
+      "median": 4006.13,
+      "p95": 7142.96,
+      "p99": 9154.29,
+      "samples": 300
+    },
+    {
+      "subject": "arcade-storage",
+      "stage": "compile",
+      "kind": "derived",
+      "median": 0,
+      "note": "compileStorageRules minus parse: AST conversion, function scopes, resolution record"
+    },
+    {
+      "subject": "arcade-storage / Sokoban upload",
+      "stage": "evaluate",
+      "kind": "timed",
+      "median": 7.08,
+      "p95": 28.08,
+      "p99": 88,
+      "samples": 300,
+      "note": "evaluateStorageRules for one request"
+    },
+    {
+      "subject": "arcade-storage / Sokoban upload",
+      "stage": "evaluate.lookups",
+      "kind": "timed",
+      "median": 0.08,
+      "p95": 0.29,
+      "p99": 1.25,
+      "samples": 300,
+      "note": "1 firestore lookup(s) per request, time inside the callback"
+    },
+    {
+      "subject": "arcade-storage / Sokoban upload",
+      "stage": "e2e",
+      "kind": "timed",
+      "median": 38.79,
+      "p95": 274.17,
+      "p99": 505.17,
+      "samples": 300,
+      "note": "pyric/storage uploadString to the verdict and the stored object"
+    },
+    {
+      "subject": "corpus / firestore/common-auth-membership-firestore",
+      "stage": "parse.warm",
+      "kind": "timed",
+      "median": 3157.83,
+      "p95": 4797.33,
+      "p99": 6083.17,
+      "samples": 300
+    },
+    {
+      "subject": "corpus / firestore/common-auth-membership-firestore",
+      "stage": "compile",
+      "kind": "timed",
+      "median": 0.21,
+      "p95": 0.21,
+      "p99": 1.04,
+      "samples": 300,
+      "note": "the authored source map; the simulator walks the parsed AST directly"
+    },
+    {
+      "subject": "corpus / firestore/common-auth-membership-firestore",
+      "stage": "evaluate",
+      "kind": "timed",
+      "median": 7.92,
+      "p95": 66.96,
+      "p99": 523.75,
+      "samples": 300,
+      "note": "simulateParsed for one request"
+    },
+    {
+      "subject": "corpus / firestore/common-auth-membership-firestore",
+      "stage": "evaluate.match",
+      "kind": "timed",
+      "median": 1.33,
+      "p95": 9.79,
+      "p99": 56.92,
+      "samples": 300,
+      "note": "collectMatches over the service match, timed on its own"
+    },
+    {
+      "subject": "corpus / firestore/common-auth-membership-firestore",
+      "stage": "evaluate.lookups",
+      "kind": "timed",
+      "median": 0,
+      "p95": 0,
+      "p99": 0,
+      "samples": 300,
+      "note": "0 getDoc call(s) per request, time inside the callback"
+    },
+    {
+      "subject": "corpus / firestore/common-auth-membership-firestore",
+      "stage": "evaluate.expressions",
+      "kind": "derived",
+      "median": 6.59,
+      "note": "evaluate minus lookups minus match: expressions, trace recording and context building"
+    },
+    {
+      "subject": "corpus / firestore/common-auth-membership-firestore",
+      "stage": "simulator nodes",
+      "kind": "count",
+      "count": 5,
+      "note": "expression trace entries the simulator records for this request"
+    },
+    {
+      "subject": "corpus / firestore/required-fields-and-mapdiff",
+      "stage": "parse.warm",
+      "kind": "timed",
+      "median": 3320.08,
+      "p95": 4844.29,
+      "p99": 7038.25,
+      "samples": 300
+    },
+    {
+      "subject": "corpus / firestore/required-fields-and-mapdiff",
+      "stage": "compile",
+      "kind": "timed",
+      "median": 0.13,
+      "p95": 0.21,
+      "p99": 0.58,
+      "samples": 300,
+      "note": "the authored source map; the simulator walks the parsed AST directly"
+    },
+    {
+      "subject": "corpus / firestore/required-fields-and-mapdiff",
+      "stage": "evaluate",
+      "kind": "timed",
+      "median": 11.33,
+      "p95": 24.08,
+      "p99": 92.5,
+      "samples": 300,
+      "note": "simulateParsed for one request"
+    },
+    {
+      "subject": "corpus / firestore/required-fields-and-mapdiff",
+      "stage": "evaluate.match",
+      "kind": "timed",
+      "median": 0.25,
+      "p95": 1.08,
+      "p99": 1.96,
+      "samples": 300,
+      "note": "collectMatches over the service match, timed on its own"
+    },
+    {
+      "subject": "corpus / firestore/required-fields-and-mapdiff",
+      "stage": "evaluate.lookups",
+      "kind": "timed",
+      "median": 0,
+      "p95": 0,
+      "p99": 0,
+      "samples": 300,
+      "note": "0 getDoc call(s) per request, time inside the callback"
+    },
+    {
+      "subject": "corpus / firestore/required-fields-and-mapdiff",
+      "stage": "evaluate.expressions",
+      "kind": "derived",
+      "median": 11.08,
+      "note": "evaluate minus lookups minus match: expressions, trace recording and context building"
+    },
+    {
+      "subject": "corpus / firestore/required-fields-and-mapdiff",
+      "stage": "simulator nodes",
+      "kind": "count",
+      "count": 35,
+      "note": "expression trace entries the simulator records for this request"
+    },
+    {
+      "subject": "corpus / firestore/hierarchical-match-cascade",
+      "stage": "parse.warm",
+      "kind": "timed",
+      "median": 242.25,
+      "p95": 282.96,
+      "p99": 557.42,
+      "samples": 300
+    },
+    {
+      "subject": "corpus / firestore/hierarchical-match-cascade",
+      "stage": "compile",
+      "kind": "timed",
+      "median": 0.04,
+      "p95": 0.13,
+      "p99": 0.17,
+      "samples": 300,
+      "note": "the authored source map; the simulator walks the parsed AST directly"
+    },
+    {
+      "subject": "corpus / firestore/hierarchical-match-cascade",
+      "stage": "evaluate",
+      "kind": "timed",
+      "median": 4,
+      "p95": 6.75,
+      "p99": 13.29,
+      "samples": 300,
+      "note": "simulateParsed for one request"
+    },
+    {
+      "subject": "corpus / firestore/hierarchical-match-cascade",
+      "stage": "evaluate.match",
+      "kind": "timed",
+      "median": 0.79,
+      "p95": 4.71,
+      "p99": 8.04,
+      "samples": 300,
+      "note": "collectMatches over the service match, timed on its own"
+    },
+    {
+      "subject": "corpus / firestore/hierarchical-match-cascade",
+      "stage": "evaluate.lookups",
+      "kind": "timed",
+      "median": 0,
+      "p95": 0,
+      "p99": 0,
+      "samples": 300,
+      "note": "0 getDoc call(s) per request, time inside the callback"
+    },
+    {
+      "subject": "corpus / firestore/hierarchical-match-cascade",
+      "stage": "evaluate.expressions",
+      "kind": "derived",
+      "median": 2.09,
+      "note": "evaluate minus lookups minus match: expressions, trace recording and context building"
+    },
+    {
+      "subject": "corpus / firestore/hierarchical-match-cascade",
+      "stage": "simulator nodes",
+      "kind": "count",
+      "count": 1,
+      "note": "expression trace entries the simulator records for this request"
+    },
+    {
+      "subject": "corpus / firestore/list-and-string-methods",
+      "stage": "parse.warm",
+      "kind": "timed",
+      "median": 2552.92,
+      "p95": 3747.54,
+      "p99": 4681.42,
+      "samples": 300
+    },
+    {
+      "subject": "corpus / firestore/list-and-string-methods",
+      "stage": "compile",
+      "kind": "timed",
+      "median": 0.08,
+      "p95": 0.13,
+      "p99": 0.21,
+      "samples": 300,
+      "note": "the authored source map; the simulator walks the parsed AST directly"
+    },
+    {
+      "subject": "corpus / firestore/list-and-string-methods",
+      "stage": "evaluate",
+      "kind": "timed",
+      "median": 26.42,
+      "p95": 57.75,
+      "p99": 151.33,
+      "samples": 300,
+      "note": "simulateParsed for one request"
+    },
+    {
+      "subject": "corpus / firestore/list-and-string-methods",
+      "stage": "evaluate.match",
+      "kind": "timed",
+      "median": 0.33,
+      "p95": 1,
+      "p99": 3.21,
+      "samples": 300,
+      "note": "collectMatches over the service match, timed on its own"
+    },
+    {
+      "subject": "corpus / firestore/list-and-string-methods",
+      "stage": "evaluate.lookups",
+      "kind": "timed",
+      "median": 0,
+      "p95": 0,
+      "p99": 0,
+      "samples": 300,
+      "note": "0 getDoc call(s) per request, time inside the callback"
+    },
+    {
+      "subject": "corpus / firestore/list-and-string-methods",
+      "stage": "evaluate.expressions",
+      "kind": "derived",
+      "median": 26.04,
+      "note": "evaluate minus lookups minus match: expressions, trace recording and context building"
+    },
+    {
+      "subject": "corpus / firestore/list-and-string-methods",
+      "stage": "simulator nodes",
+      "kind": "count",
+      "count": 95,
+      "note": "expression trace entries the simulator records for this request"
+    },
+    {
+      "subject": "corpus / storage/common-auth-membership",
+      "stage": "parse.warm",
+      "kind": "timed",
+      "median": 2968.88,
+      "p95": 4261,
+      "p99": 5094.54,
+      "samples": 300
+    },
+    {
+      "subject": "corpus / storage/common-auth-membership",
+      "stage": "compile",
+      "kind": "derived",
+      "median": 0,
+      "note": "compileStorageRules minus parse: AST conversion, function scopes, resolution record"
+    },
+    {
+      "subject": "corpus / storage/common-auth-membership",
+      "stage": "evaluate",
+      "kind": "timed",
+      "median": 0.92,
+      "p95": 2.08,
+      "p99": 7.67,
+      "samples": 300,
+      "note": "evaluateStorageRules for one request"
+    },
+    {
+      "subject": "corpus / storage/metadata-access",
+      "stage": "parse.warm",
+      "kind": "timed",
+      "median": 515.58,
+      "p95": 596.5,
+      "p99": 1191.58,
+      "samples": 300
+    },
+    {
+      "subject": "corpus / storage/metadata-access",
+      "stage": "compile",
+      "kind": "derived",
+      "median": 0,
+      "note": "compileStorageRules minus parse: AST conversion, function scopes, resolution record"
+    },
+    {
+      "subject": "corpus / storage/metadata-access",
+      "stage": "evaluate",
+      "kind": "timed",
+      "median": 1.17,
+      "p95": 3.21,
+      "p99": 12,
+      "samples": 300,
+      "note": "evaluateStorageRules for one request"
+    },
+    {
+      "subject": "corpus / storage/upload-primitives-boundaries",
+      "stage": "parse.warm",
+      "kind": "timed",
+      "median": 4121.75,
+      "p95": 6189.17,
+      "p99": 14156.29,
+      "samples": 300
+    },
+    {
+      "subject": "corpus / storage/upload-primitives-boundaries",
+      "stage": "compile",
+      "kind": "derived",
+      "median": 0,
+      "note": "compileStorageRules minus parse: AST conversion, function scopes, resolution record"
+    },
+    {
+      "subject": "corpus / storage/upload-primitives-boundaries",
+      "stage": "evaluate",
+      "kind": "timed",
+      "median": 0.88,
+      "p95": 1.92,
+      "p99": 5.63,
+      "samples": 300,
+      "note": "evaluateStorageRules for one request"
+    },
+    {
+      "subject": "corpus / rtdb/r2-own-uid",
+      "stage": "parse.warm",
+      "kind": "timed",
+      "median": 145.17,
+      "p95": 173.08,
+      "p99": 257.58,
+      "samples": 300,
+      "note": "JSON.parse and 2 expression parse(s)"
+    },
+    {
+      "subject": "corpus / rtdb/r2-own-uid",
+      "stage": "compile",
+      "kind": "timed",
+      "median": 655.5,
+      "p95": 781.96,
+      "p99": 1436.25,
+      "samples": 300,
+      "note": "compileRtdbRules: parses, validates and lints every expression"
+    },
+    {
+      "subject": "corpus / rtdb/r2-own-uid",
+      "stage": "evaluate",
+      "kind": "timed",
+      "median": 12.88,
+      "p95": 21.67,
+      "p99": 30.42,
+      "samples": 300,
+      "note": "simulateRtdbRules for one request, expression trees already parsed"
+    },
+    {
+      "subject": "corpus / rtdb/r2-own-uid",
+      "stage": "evaluate.input-validation",
+      "kind": "timed",
+      "median": 1.13,
+      "p95": 2.75,
+      "p99": 6.13,
+      "samples": 300,
+      "note": "SimulationInputSchema.safeParse on the same input, which evaluate runs first"
+    },
+    {
+      "subject": "corpus / rtdb/r2-own-uid",
+      "stage": "evaluate.first",
+      "kind": "timed",
+      "median": 119.25,
+      "p95": 202.96,
+      "p99": 319.83,
+      "samples": 30,
+      "note": "first request on a new compile: evaluation parses each rule it reaches once"
+    },
+    {
+      "subject": "corpus / rtdb/r4-validate-structure",
+      "stage": "parse.warm",
+      "kind": "timed",
+      "median": 307.92,
+      "p95": 404.08,
+      "p99": 549.33,
+      "samples": 300,
+      "note": "JSON.parse and 3 expression parse(s)"
+    },
+    {
+      "subject": "corpus / rtdb/r4-validate-structure",
+      "stage": "compile",
+      "kind": "timed",
+      "median": 1193.58,
+      "p95": 1962.58,
+      "p99": 2603.17,
+      "samples": 300,
+      "note": "compileRtdbRules: parses, validates and lints every expression"
+    },
+    {
+      "subject": "corpus / rtdb/r4-validate-structure",
+      "stage": "evaluate",
+      "kind": "timed",
+      "median": 30.54,
+      "p95": 41.25,
+      "p99": 79.42,
+      "samples": 300,
+      "note": "simulateRtdbRules for one request, expression trees already parsed"
+    },
+    {
+      "subject": "corpus / rtdb/r4-validate-structure",
+      "stage": "evaluate.input-validation",
+      "kind": "timed",
+      "median": 1.13,
+      "p95": 2.67,
+      "p99": 8.04,
+      "samples": 300,
+      "note": "SimulationInputSchema.safeParse on the same input, which evaluate runs first"
+    },
+    {
+      "subject": "corpus / rtdb/r4-validate-structure",
+      "stage": "evaluate.first",
+      "kind": "timed",
+      "median": 298.33,
+      "p95": 539.92,
+      "p99": 563.58,
+      "samples": 30,
+      "note": "first request on a new compile: evaluation parses each rule it reaches once"
+    },
+    {
+      "subject": "corpus / rtdb/r14-root-lookup",
+      "stage": "parse.warm",
+      "kind": "timed",
+      "median": 557.54,
+      "p95": 735,
+      "p99": 1563.96,
+      "samples": 300,
+      "note": "JSON.parse and 5 expression parse(s)"
+    },
+    {
+      "subject": "corpus / rtdb/r14-root-lookup",
+      "stage": "compile",
+      "kind": "timed",
+      "median": 2050.29,
+      "p95": 2856.75,
+      "p99": 3696.13,
+      "samples": 300,
+      "note": "compileRtdbRules: parses, validates and lints every expression"
+    },
+    {
+      "subject": "corpus / rtdb/r14-root-lookup",
+      "stage": "evaluate",
+      "kind": "timed",
+      "median": 25.46,
+      "p95": 34.63,
+      "p99": 46.46,
+      "samples": 300,
+      "note": "simulateRtdbRules for one request, expression trees already parsed"
+    },
+    {
+      "subject": "corpus / rtdb/r14-root-lookup",
+      "stage": "evaluate.input-validation",
+      "kind": "timed",
+      "median": 1.04,
+      "p95": 2.17,
+      "p99": 5.04,
+      "samples": 300,
+      "note": "SimulationInputSchema.safeParse on the same input, which evaluate runs first"
+    },
+    {
+      "subject": "corpus / rtdb/r14-root-lookup",
+      "stage": "evaluate.first",
+      "kind": "timed",
+      "median": 288.92,
+      "p95": 353.63,
+      "p99": 379.54,
+      "samples": 30,
+      "note": "first request on a new compile: evaluation parses each rule it reaches once"
+    }
+  ]
+}

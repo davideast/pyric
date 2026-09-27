@@ -1,0 +1,235 @@
+{
+  "id": "corpus",
+  "service": "mixed",
+  "source": {
+    "repo": "pyric",
+    "commit": "dbc35150",
+    "scenarios": "packages/conformance/rules-corpus/{firestore,storage,rtdb}; one case per scenario, the first the corpus records as allowed"
+  },
+  "scenarios": [
+    {
+      "id": "firestore/common-auth-membership-firestore",
+      "service": "firestore",
+      "rules": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    function isAuthenticated() {\n      return request.auth != null;\n    }\n    function isOwner(userId) {\n      return isAuthenticated() && request.auth.uid == userId;\n    }\n    function hasClaim(claim) {\n      return request.auth != null && request.auth.token[claim] != null;\n    }\n    function hasClaimRole(claim, role) {\n      return request.auth != null && request.auth.token[claim] == role;\n    }\n    function isMemberOf(membersMap) {\n      return request.auth != null && request.auth.uid in membersMap;\n    }\n    function hasRole(membersMap, role) {\n      return request.auth != null && membersMap[request.auth.uid] == role;\n    }\n\n    match /authenticated/{fileId} {\n      allow create: if isAuthenticated();\n    }\n    match /owners/{ownerId} {\n      allow create: if isOwner(ownerId);\n    }\n    match /claims/{fileId} {\n      allow create: if hasClaim('plan');\n    }\n    match /claim-roles/{fileId} {\n      allow create: if hasClaimRole('role', 'editor');\n    }\n    match /members/{fileId} {\n      allow create: if isMemberOf(request.auth.token.members);\n    }\n    match /member-roles/{fileId} {\n      allow create: if hasRole(request.auth.token.members, 'editor');\n    }\n  }\n}",
+      "label": "isAuthenticated: signed-in caller allowed",
+      "expect": "ALLOW",
+      "testCase": {
+        "description": "isAuthenticated: signed-in caller allowed",
+        "expectation": "ALLOW",
+        "method": "create",
+        "path": "authenticated/a",
+        "auth": {
+          "uid": "alice"
+        },
+        "data": {}
+      }
+    },
+    {
+      "id": "firestore/required-fields-and-mapdiff",
+      "service": "firestore",
+      "rules": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /articles/{articleId} {\n      // create: exact required field set, self-owned\n      allow create: if request.auth != null\n        && request.resource.data.keys().hasAll(['title', 'body', 'ownerId', 'tags'])\n        && request.resource.data.keys().hasOnly(['title', 'body', 'ownerId', 'tags'])\n        && request.resource.data.ownerId == request.auth.uid;\n      // update: only title/body may change; ownerId immutable, no add/remove\n      allow update: if request.auth != null\n        && resource.data.ownerId == request.auth.uid\n        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'body'])\n        && request.resource.data.diff(resource.data).changedKeys().hasAny(['title', 'body'])\n        && request.resource.data.diff(resource.data).addedKeys().size() == 0\n        && request.resource.data.diff(resource.data).removedKeys().size() == 0\n        && request.resource.data.diff(resource.data).unchangedKeys().hasAll(['ownerId']);\n    }\n  }\n}",
+      "label": "create with exact required fields, self-owned ALLOW",
+      "expect": "ALLOW",
+      "testCase": {
+        "description": "create with exact required fields, self-owned ALLOW",
+        "expectation": "ALLOW",
+        "method": "create",
+        "path": "articles/a1",
+        "auth": {
+          "uid": "alice"
+        },
+        "data": {
+          "title": "Hello",
+          "body": "World",
+          "ownerId": "alice",
+          "tags": [
+            "x"
+          ]
+        }
+      }
+    },
+    {
+      "id": "firestore/hierarchical-match-cascade",
+      "service": "firestore",
+      "rules": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /parents/{parentId} {\n      match /children/{childId} {\n        allow get: if true;\n      }\n    }\n  }\n}",
+      "label": "exact nested child path ALLOW",
+      "expect": "ALLOW",
+      "testCase": {
+        "description": "exact nested child path ALLOW",
+        "expectation": "ALLOW",
+        "method": "get",
+        "path": "parents/p1/children/c1",
+        "resource": {
+          "value": 1
+        }
+      }
+    },
+    {
+      "id": "firestore/list-and-string-methods",
+      "service": "firestore",
+      "rules": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /posts/{postId} {\n      allow create: if request.auth != null\n        && request.resource.data.categories.split(',').hasOnly(['news', 'tech', 'sport'])\n        && request.resource.data.categories.split(',').hasAny(['news', 'tech'])\n        && request.resource.data.categories.split(',').hasAll(['news'])\n        && request.resource.data.tags.join(',').size() > 0\n        && request.resource.data.slug.lower() == request.resource.data.slug\n        && request.resource.data.title.trim().size() >= 3\n        && request.resource.data.code.upper().size() == 4\n        && request.resource.data.body.replace('  ', ' ').size() > 0\n        && request.resource.data.values().size() >= 5;\n    }\n  }\n}",
+      "label": "well-formed post ALLOW",
+      "expect": "ALLOW",
+      "testCase": {
+        "description": "well-formed post ALLOW",
+        "expectation": "ALLOW",
+        "method": "create",
+        "path": "posts/p1",
+        "auth": {
+          "uid": "alice"
+        },
+        "data": {
+          "categories": "news,tech",
+          "tags": [
+            "a",
+            "b"
+          ],
+          "slug": "my-post",
+          "title": "Title",
+          "code": "abcd",
+          "body": "some  body"
+        }
+      }
+    },
+    {
+      "id": "storage/common-auth-membership",
+      "service": "storage",
+      "rules": "rules_version = '2';\nservice firebase.storage {\n  match /b/{bucket}/o {\n    function isAuthenticated() {\n      return request.auth != null;\n    }\n    function isOwner(userId) {\n      return isAuthenticated() && request.auth.uid == userId;\n    }\n    function hasClaim(claim) {\n      return request.auth != null && request.auth.token[claim] != null;\n    }\n    function hasClaimRole(claim, role) {\n      return request.auth != null && request.auth.token[claim] == role;\n    }\n    function isMemberOf(membersMap) {\n      return request.auth != null && request.auth.uid in membersMap;\n    }\n    function hasRole(membersMap, role) {\n      return request.auth != null && membersMap[request.auth.uid] == role;\n    }\n\n    match /authenticated/{fileId} {\n      allow create: if isAuthenticated();\n    }\n    match /owners/{ownerId} {\n      allow create: if isOwner(ownerId);\n    }\n    match /claims/{fileId} {\n      allow create: if hasClaim('plan');\n    }\n    match /claim-roles/{fileId} {\n      allow create: if hasClaimRole('role', 'editor');\n    }\n    match /members/{fileId} {\n      allow create: if isMemberOf(request.auth.token.members);\n    }\n    match /member-roles/{fileId} {\n      allow create: if hasRole(request.auth.token.members, 'editor');\n    }\n  }\n}",
+      "label": "isAuthenticated: signed-in caller allowed",
+      "expect": "ALLOW",
+      "input": {
+        "request": {
+          "auth": {
+            "uid": "alice"
+          },
+          "method": "create",
+          "path": "/b/demo-pyric.appspot.com/o/authenticated/a.txt",
+          "resource": {
+            "size": 1
+          }
+        },
+        "resource": null
+      },
+      "lookup": {
+        "gets": {},
+        "exists": []
+      }
+    },
+    {
+      "id": "storage/metadata-access",
+      "service": "storage",
+      "rules": "rules_version = '2';\nservice firebase.storage {\n  match /b/{bucket}/o {\n    match /dotted/{fileId} {\n      allow get: if resource.metadata.owner == request.auth.uid;\n    }\n    match /bracket/{fileId} {\n      allow get: if resource.metadata['owner'] == request.auth.uid;\n    }\n  }\n}",
+      "label": "dotted metadata: owner matches → allow",
+      "expect": "ALLOW",
+      "input": {
+        "request": {
+          "auth": {
+            "uid": "alice"
+          },
+          "method": "get",
+          "path": "/b/demo-pyric.appspot.com/o/dotted/a.txt"
+        },
+        "resource": {
+          "size": 10,
+          "metadata": {
+            "owner": "alice"
+          }
+        }
+      },
+      "lookup": {
+        "gets": {},
+        "exists": []
+      }
+    },
+    {
+      "id": "storage/upload-primitives-boundaries",
+      "service": "storage",
+      "rules": "rules_version = '2';\nservice firebase.storage {\n  match /b/{bucket}/o {\n    function sizeAtMost(maxBytes) {\n      return request.resource.size <= maxBytes;\n    }\n    function mimeIs(expected) {\n      return request.resource.contentType == expected;\n    }\n    function hasMetadata(required) {\n      return request.resource.metadata.keys().hasAll(required);\n    }\n    function metadataOr(key, fallback) {\n      return request.resource.metadata.get(key, fallback);\n    }\n    function createdWithin(seconds) {\n      return request.time < resource.timeCreated + duration.value(seconds, 's');\n    }\n\n    match /size/{fileName} {\n      allow create: if sizeAtMost(10);\n    }\n    match /mime-exact/{fileName} {\n      allow create: if mimeIs('image/png');\n    }\n    match /mime-regex/{fileName} {\n      allow create: if request.resource.contentType.matches('image/(png|jpeg)');\n    }\n    match /metadata-required/{fileName} {\n      allow create: if hasMetadata(['owner', 'purpose']);\n    }\n    match /metadata-default/{fileName} {\n      allow create: if metadataOr('visibility', 'private') == 'private';\n    }\n    match /metadata-update/{fileName} {\n      allow update: if request.resource.size == resource.size\n        && request.resource.metadata.owner == resource.metadata.owner;\n    }\n    match /path/{fileName} {\n      allow create: if fileName is string && fileName.matches('.*[.]png');\n    }\n    match /identity/{fileName} {\n      allow get: if resource.name == 'identity/pinned.png'\n        && resource.bucket == bucket\n        && resource.generation == 7\n        && resource.metageneration == 2;\n    }\n    match /fresh/{fileName} {\n      allow delete: if createdWithin(60);\n    }\n    match /request-resource-delete/{fileName} {\n      allow delete: if request.resource == null;\n    }\n  }\n}",
+      "label": "size: zero bytes is within inclusive maximum",
+      "expect": "ALLOW",
+      "input": {
+        "request": {
+          "auth": null,
+          "method": "create",
+          "path": "/b/demo-pyric.appspot.com/o/size/zero.bin",
+          "resource": {
+            "size": 0
+          }
+        },
+        "resource": null
+      },
+      "lookup": {
+        "gets": {},
+        "exists": []
+      }
+    },
+    {
+      "id": "rtdb/r2-own-uid",
+      "service": "rtdb",
+      "rules": "{\"rules\":{\".read\":false,\".write\":false,\"r2-own-uid\":{\"$uid\":{\".read\":\"$uid === auth.uid\",\".write\":\"$uid === auth.uid\"}}}}",
+      "label": "matching uid read allowed",
+      "expect": "ALLOW",
+      "input": {
+        "operation": "read",
+        "path": "/r2-own-uid/bench-uid/value",
+        "auth": {
+          "uid": "bench-uid",
+          "token": {
+            "firebase": {
+              "sign_in_provider": "anonymous"
+            },
+            "provider_id": "anonymous"
+          }
+        },
+        "mockData": {}
+      }
+    },
+    {
+      "id": "rtdb/r4-validate-structure",
+      "service": "rtdb",
+      "rules": "{\"rules\":{\".read\":false,\".write\":false,\"r4-validate-structure\":{\".read\":\"auth != null\",\".write\":\"auth != null\",\"entry\":{\".validate\":\"newData.hasChildren(['title', 'body'])\"}}}}",
+      "label": "valid structure allowed",
+      "expect": "ALLOW",
+      "input": {
+        "operation": "write",
+        "path": "/r4-validate-structure/entry",
+        "auth": {
+          "uid": "bench-uid",
+          "token": {
+            "firebase": {
+              "sign_in_provider": "anonymous"
+            },
+            "provider_id": "anonymous"
+          }
+        },
+        "mockData": {},
+        "newData": {
+          "title": "t",
+          "body": "b"
+        }
+      }
+    },
+    {
+      "id": "rtdb/r14-root-lookup",
+      "service": "rtdb",
+      "rules": "{\"rules\":{\".read\":false,\".write\":false,\"r14-root-lookup\":{\".read\":\"auth != null\",\"rootabsent\":{\".write\":\"auth != null\",\".validate\":\"root.child('pyric_absent_sentinel').exists() === false\"},\"rootpresent\":{\".write\":\"auth != null\",\".validate\":\"root.child('pyric_absent_sentinel').exists() === true\"}}}}",
+      "label": "sentinel absent from the database root",
+      "expect": "ALLOW",
+      "input": {
+        "operation": "write",
+        "path": "/r14-root-lookup/rootabsent",
+        "auth": {
+          "uid": "bench-uid",
+          "token": {
+            "firebase": {
+              "sign_in_provider": "anonymous"
+            },
+            "provider_id": "anonymous"
+          }
+        },
+        "mockData": {},
+        "newData": 1
+      }
+    }
+  ]
+}
