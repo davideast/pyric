@@ -13,7 +13,7 @@ import { isAbsolute, relative, sep } from 'node:path';
 import { createSandboxRoot, emitSandboxEvent, makeSandboxRuntimeErrorEvent } from 'pyric/sandbox/internal';
 import { getFirestore } from 'pyric/firestore';
 import { FirebaseError } from 'pyric/app';
-import { installStorageBackend } from 'pyric/storage/internal';
+import { installStorageBackend, replaceStorageRules } from 'pyric/storage/internal';
 import { assertJsonSafeRelayValue, MAX_MOUNTED_MCP_SESSIONS, type BridgeMessage, type ToolCallRequest, type WorkerResFrame } from '../../bridge/protocol.js';
 import { dispatchSandboxTool, SANDBOX_TOOL_NAMES } from '../../bridge/client/dispatch.js';
 import { sandboxToolEffect } from '../../bridge/tool-families.js';
@@ -329,9 +329,14 @@ export async function createHostedRuntime(
     storageHttp(req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> {
       return storageBytes(req, res, url);
     },
-    /** A null database source clears the rules, so the default policy applies. */
-    deployRules(service: 'firestore' | 'database', source: string | null): void {
+    /** A null database or Storage source clears the rules, so the default
+     *  policy applies: RTDB's configured policy, and deny-all for Storage. */
+    async deployRules(service: 'firestore' | 'database' | 'storage', source: string | null): Promise<void> {
       if (closed) throw new Error('The hosted sandbox is closed.');
+      if (service === 'storage') {
+        await replaceStorageRules(ctx.sandbox, source);
+        return;
+      }
       const isFirestore = service === 'firestore';
       if (isFirestore && source === null) throw new Error('Firestore rules source is required.');
       const op = isFirestore

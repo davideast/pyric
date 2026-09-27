@@ -27,7 +27,7 @@ await uploadBytes(ref(storage, 'sessions/s1'), bytes, { contentType: 'applicatio
 const blob = await getBlob(ref(storage, 'sessions/s1'));
 console.log(JSON.parse(await blob.text()));
 ```
-`uploadString` covers text without the encoder, and `getBytes` returns an `ArrayBuffer` when you want raw bytes instead of a `Blob`. Under `pyric sandbox`, a served page's `firebase/storage` imports resolve to the sandbox's shared object store, so uploads show up across tabs like every other write. `pyric sandbox` enforces `storage.rules` the same as `firestore.rules` and `database.rules.json`. Storage rules load at server boot and do not hot-reload. Restart the sandbox server after editing `storage.rules`.
+`uploadString` covers text without the encoder, and `getBytes` returns an `ArrayBuffer` when you want raw bytes instead of a `Blob`. Under `pyric sandbox`, a served page's `firebase/storage` imports resolve to the sandbox's shared object store, so uploads show up across tabs like every other write. `pyric sandbox` enforces `storage.rules` the same as `firestore.rules` and `database.rules.json`. Saving `storage.rules`, or the file `firebase.json` names under `storage.rules`, reloads the rules without a restart, including a file created after the server started. A save that fails to parse keeps the last rules that loaded. Deleting the file returns Storage to denying every client operation, the state the server starts in without the file.
 
 ## List and delete
 ```ts

@@ -669,6 +669,38 @@ describe('setupWorkerHotReload — the worker owns the single SSE', () => {
     dispose();
     expect(es.closed).toBe(true);
   });
+
+  it('replaces the Storage rules on storage-rules-update, and a null ruleset returns Storage to deny-all', async () => {
+    const ctx = await makeCtx();
+    applyServeInit(ctx, { ...basePayload, storageRules: null }, { fetch: recordingFetch() });
+    const dispose = setupWorkerHotReload(ctx, (url) => new FakeES(url));
+    const es = FakeES.last!;
+    const upload = async (id: string): Promise<ResMessage> => {
+      const port = fakePort();
+      await handleMessage(ctx, port, {
+        t: 'op',
+        id,
+        method: 'storage.putBytes',
+        path: 'users/ada/notes.txt',
+        dataB64: bytesToBase64(new TextEncoder().encode('mine')),
+        actAs: { mode: 'as', uid: 'ada' },
+      });
+      return getRes(port, id);
+    };
+    expect((await upload('before')).ok).toBe(false);
+
+    es.emit('storage-rules-update', JSON.stringify({ rules: OWNER_ONLY_STORAGE_RULES, rulesHash: 'sh' }));
+    await tick();
+    expect((await upload('reloaded')).ok).toBe(true);
+
+    es.emit('storage-rules-update', JSON.stringify({ rules: null, rulesHash: null }));
+    await tick();
+    const removed = await upload('removed');
+    expect(removed.ok).toBe(false);
+    expect((removed as ResMessage & { ok: false }).error.code).toBe('storage/unauthorized');
+
+    dispose();
+  });
 });
 
 // ─── Event-history hydration: survive worker death ──────────────────────────

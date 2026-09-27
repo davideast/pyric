@@ -212,6 +212,28 @@ export function prepareStorageRulesSource(raw: string, sourcePath: string): stri
   return source;
 }
 
+function configuredStorageRules(config: FirebaseJson | null): string | undefined {
+  const block = config?.storage;
+  const entries = block ? (Array.isArray(block) ? block : [block]) : [];
+  return entries.find((e) => e && typeof e === 'object' && e.rules)?.rules;
+}
+
+/**
+ * The Storage rules file the project deploys: the first `firebase.json`
+ * `storage` entry with a `rules` path, else `storage.rules` in `cwd`. The
+ * file may not exist.
+ */
+export function storageRulesPath(cwd: string, config: FirebaseJson | null): string {
+  const rel = configuredStorageRules(config) ?? 'storage.rules';
+  return isAbsolute(rel) ? rel : join(cwd, rel);
+}
+
+/** The notice a dev server logs when the Storage rules file it loaded is
+ *  deleted and Storage returns to denying every client operation. */
+export function formatStorageRulesRemoved(path: string): string {
+  return `storage rules removed: ${path} does not exist, client Storage operations default to DENY`;
+}
+
 /**
  * Load the project's storage rules per `firebase.json` (`storage.rules`
  * path — the block may be a single object or an array of per-bucket
@@ -226,11 +248,8 @@ export async function loadProjectStorageRules(
   cwd: string,
   config: FirebaseJson | null,
 ): Promise<LoadedStorageRules> {
-  const block = config?.storage;
-  const entries = block ? (Array.isArray(block) ? block : [block]) : [];
-  const configured = entries.find((e) => e && typeof e === 'object' && e.rules)?.rules;
-  const rel = configured ?? 'storage.rules';
-  const path = isAbsolute(rel) ? rel : join(cwd, rel);
+  const configured = configuredStorageRules(config);
+  const path = storageRulesPath(cwd, config);
   let raw: string;
   try {
     raw = await readFile(path, 'utf8');
@@ -340,19 +359,6 @@ export function watchProjectRules(
   debounceMs = 150,
 ): FSWatcher {
   return watchRulesFile(sourcePath, prepareRulesSource, onChange, onError, debounceMs);
-}
-
-/**
- * Watch a project's storage.rules file, same contract as
- * {@link watchProjectRules} but validating via `pyric/storage`'s parser.
- */
-export function watchProjectStorageRules(
-  sourcePath: string,
-  onChange: (next: { rules: string; rulesHash: string }) => void,
-  onError: (message: string) => void,
-  debounceMs = 150,
-): FSWatcher {
-  return watchRulesFile(sourcePath, prepareStorageRulesSource, onChange, onError, debounceMs);
 }
 
 /**

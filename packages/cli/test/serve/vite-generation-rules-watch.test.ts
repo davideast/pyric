@@ -7,6 +7,7 @@ import { watchViteGenerationRules } from '../../src/serve/vite-generation-rules-
 const MAIN = '/project/firestore.modules.rules';
 const GAME = '/project/games/tictactoe.rules';
 const SHARED = '/project/games/shared.rules';
+const STORAGE = '/project/storage.rules';
 
 type ReloadKind = 'reloaded' | 'rejected';
 
@@ -28,6 +29,7 @@ function fakes(files: { current: string[] }, results: ReloadKind[] = []) {
     summary: { rules: { firestore: { sourcePath: MAIN }, database: { sourcePath: null } } },
     firestoreRulesFiles: () => [MAIN, ...files.current],
     databaseRulesFile: () => '/project/database.rules.json',
+    storageRulesFile: () => STORAGE,
     reloadFirestoreRules: async () => {
       reloads += 1;
       const kind = results.shift() ?? 'reloaded';
@@ -35,6 +37,7 @@ function fakes(files: { current: string[] }, results: ReloadKind[] = []) {
       return { kind, rulesHash: 'h', clients: 1 };
     },
     reloadDatabaseRules: async () => ({ kind: 'not-configured' }),
+    reloadStorageRules: async () => ({ kind: 'not-configured' }),
   } as unknown as SandboxSession;
   return { server, session, watcher, watched, reloads: () => reloads };
 }
@@ -46,7 +49,7 @@ describe('Vite rules watching', () => {
     const files = { current: [GAME, SHARED] };
     const f = fakes(files);
     const stop = watchViteGenerationRules({ server: f.server, session: f.session });
-    expect([...f.watched].sort()).toEqual([GAME, MAIN, SHARED, '/project/database.rules.json'].sort());
+    expect([...f.watched].sort()).toEqual([GAME, MAIN, SHARED, '/project/database.rules.json', STORAGE].sort());
 
     f.watcher.emit('change', SHARED);
     await settle();
@@ -130,6 +133,7 @@ function missingFilesFakes(databaseResults: DatabaseResult[]) {
     summary: { rules: { firestore: { sourcePath: null }, database: { sourcePath: null } } },
     firestoreRulesFiles: () => [FIRESTORE],
     databaseRulesFile: () => DATABASE,
+    storageRulesFile: () => STORAGE,
     reloadFirestoreRules: async () => {
       firestoreReloads += 1;
       return { kind: 'reloaded', rulesHash: 'fh', clients: 1 };
@@ -138,6 +142,7 @@ function missingFilesFakes(databaseResults: DatabaseResult[]) {
       databaseReloads += 1;
       return databaseResults.shift() ?? { kind: 'not-configured' };
     },
+    reloadStorageRules: async () => ({ kind: 'not-configured' }),
   } as unknown as SandboxSession;
   return {
     ...f,
@@ -203,5 +208,86 @@ describe('Vite rules watching when a rules file does not exist at startup', () =
     await settle();
     expect(f.firestoreReloads()).toBe(1);
     stop?.();
+  });
+});
+
+type StorageResult =
+  | { kind: 'reloaded'; rulesHash: string; clients: number }
+  | { kind: 'rejected'; error: Error }
+  | { kind: 'removed'; policy: 'allow' | 'deny'; clients: number }
+  | { kind: 'not-configured' };
+
+/** A session whose Storage rules reload answers with `results` in order. */
+function storageFakes(results: StorageResult[]) {
+  const f = missingFilesFakes([]);
+  let storageReloads = 0;
+  const session = {
+    ...f.session,
+    reloadStorageRules: async () => {
+      storageReloads += 1;
+      return results.shift() ?? { kind: 'not-configured' };
+    },
+  } as unknown as SandboxSession;
+  return { ...f, session, storageReloads: () => storageReloads };
+}
+
+describe('Vite Storage rules watching', () => {
+  test('watches the path the Storage rules load from', () => {
+    const f = storageFakes([]);
+    const stop = watchViteGenerationRules({ server: f.server, session: f.session });
+    expect(f.watched.has(STORAGE)).toBe(true);
+    stop();
+  });
+
+  test('loads Storage rules created after startup', async () => {
+    const f = storageFakes([{ kind: 'reloaded', rulesHash: 'sh', clients: 1 }]);
+    const stop = watchViteGenerationRules({ server: f.server, session: f.session });
+    f.watcher.emit('add', STORAGE);
+    await settle();
+    expect(f.storageReloads()).toBe(1);
+    expect(f.firestoreReloads()).toBe(0);
+    expect(f.databaseReloads()).toBe(0);
+    expect(f.logs.some((line) => line.includes('storage rules reloaded (sh)'))).toBe(true);
+    stop();
+  });
+
+  test('reloads changed Storage rules, and keeps the last-good rules when a change does not parse', async () => {
+    const f = storageFakes([
+      { kind: 'reloaded', rulesHash: 'sh', clients: 1 },
+      { kind: 'rejected', error: new Error('storage.rules failed to parse') },
+    ]);
+    const stop = watchViteGenerationRules({ server: f.server, session: f.session });
+    f.watcher.emit('change', STORAGE);
+    await settle();
+    f.watcher.emit('change', STORAGE);
+    await settle();
+    expect(f.storageReloads()).toBe(2);
+    const warning = f.logs.find((line) => line.includes('storage rules NOT reloaded'));
+    expect(warning).toContain('last-good stays live');
+    expect(warning).toContain('failed to parse');
+    stop();
+  });
+
+  test('reloads every service whose file changed within one debounce window', async () => {
+    const f = storageFakes([{ kind: 'reloaded', rulesHash: 'sh', clients: 1 }]);
+    const stop = watchViteGenerationRules({ server: f.server, session: f.session });
+    f.watcher.emit('change', FIRESTORE);
+    f.watcher.emit('change', STORAGE);
+    await settle();
+    expect(f.firestoreReloads()).toBe(1);
+    expect(f.storageReloads()).toBe(1);
+    stop();
+  });
+
+  test('returns Storage to deny-all with a notice when the Storage rules file is deleted', async () => {
+    const f = storageFakes([{ kind: 'removed', policy: 'deny', clients: 1 }]);
+    const stop = watchViteGenerationRules({ server: f.server, session: f.session });
+    f.watcher.emit('unlink', STORAGE);
+    await settle();
+    expect(f.storageReloads()).toBe(1);
+    const notice = f.logs.find((line) => line.includes('storage rules removed'));
+    expect(notice).toContain(STORAGE);
+    expect(notice).toContain('DENY');
+    stop();
   });
 });

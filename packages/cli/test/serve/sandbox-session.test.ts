@@ -315,6 +315,127 @@ service cloud.firestore {
     await session.close();
   });
 
+  const storageRules = (path: string): string => `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o { match /${path}/{file} { allow read: if true; } }
+}`;
+
+  it('names the Storage rules file the rules would load from before it exists', async () => {
+    const root = project();
+    const session = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: null,
+      sdk: { dir: join(root, 'sdk') },
+    });
+    expect(session.storageRulesFile()).toBe(join(root, 'storage.rules'));
+    await session.close();
+  });
+
+  it("names firebase.json's storage rules path as the Storage rules file", async () => {
+    const root = project();
+    writeFileSync(join(root, 'bucket.rules'), storageRules('configured'));
+    const session = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: { storage: [{ rules: 'bucket.rules' }] },
+      sdk: { dir: join(root, 'sdk') },
+    });
+    expect(session.storageRulesFile()).toBe(join(root, 'bucket.rules'));
+    await session.close();
+  });
+
+  it('loads Storage rules created after startup', async () => {
+    const root = project();
+    const session = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: null,
+      sdk: { dir: join(root, 'sdk') },
+    });
+    expect(session.payload().storageRules).toBeNull();
+    writeFileSync(join(root, 'storage.rules'), storageRules('created'));
+    const reloaded = await session.reloadStorageRules();
+    expect(reloaded.kind).toBe('reloaded');
+    expect(session.payload().storageRules).toContain('/created/{file}');
+    expect(session.payload().storageRulesHash).not.toBeNull();
+    await session.close();
+  });
+
+  it('reloads changed Storage rules', async () => {
+    const root = project();
+    const rulesPath = join(root, 'storage.rules');
+    writeFileSync(rulesPath, storageRules('first'));
+    const session = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: null,
+      sdk: { dir: join(root, 'sdk') },
+    });
+    const firstHash = session.payload().storageRulesHash;
+    writeFileSync(rulesPath, storageRules('second'));
+    const reloaded = await session.reloadStorageRules();
+    expect(reloaded.kind).toBe('reloaded');
+    expect(session.payload().storageRules).toContain('/second/{file}');
+    expect(session.payload().storageRulesHash).not.toBe(firstHash);
+    await session.close();
+  });
+
+  it('keeps the last-good Storage rules when the changed file does not parse', async () => {
+    const root = project();
+    const rulesPath = join(root, 'storage.rules');
+    writeFileSync(rulesPath, storageRules('kept'));
+    const session = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: null,
+      sdk: { dir: join(root, 'sdk') },
+    });
+    writeFileSync(rulesPath, 'service firebase.storage { match /b/{bucket}/o {');
+    const rejected = await session.reloadStorageRules();
+    expect(rejected.kind).toBe('rejected');
+    expect(rejected.kind === 'rejected' ? rejected.error.message : '').toContain('failed to parse');
+    expect(session.payload().storageRules).toContain('/kept/{file}');
+    await session.close();
+  });
+
+  it('returns Storage to deny-all when the Storage rules file is deleted', async () => {
+    const root = project();
+    const rulesPath = join(root, 'storage.rules');
+    writeFileSync(rulesPath, storageRules('removed'));
+    const session = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: null,
+      sdk: { dir: join(root, 'sdk') },
+    });
+    rmSync(rulesPath);
+    const removed = await session.reloadStorageRules();
+    expect(removed).toEqual({ kind: 'removed', policy: 'deny', clients: 0 });
+    expect(session.payload().storageRules).toBeNull();
+    expect(session.payload().storageRulesHash).toBeNull();
+
+    const again = await session.reloadStorageRules();
+    expect(again.kind).toBe('not-configured');
+    await session.close();
+  });
+
+  it('deploys reloaded and removed Storage rules to the Node sandbox', async () => {
+    const root = project();
+    const rulesPath = join(root, 'storage.rules');
+    const deployed: Array<[string, string | null]> = [];
+    const session = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: null,
+      sdk: { dir: join(root, 'sdk') },
+      deployHostedRules: async (service, source) => {
+        deployed.push([service, source]);
+      },
+    });
+    writeFileSync(rulesPath, storageRules('hosted'));
+    await session.reloadStorageRules();
+    rmSync(rulesPath);
+    await session.reloadStorageRules();
+    expect(deployed.map(([service]) => service)).toEqual(['storage', 'storage']);
+    expect(deployed[0]?.[1]).toContain('/hosted/{file}');
+    expect(deployed[1]?.[1]).toBeNull();
+    await session.close();
+  });
+
   it('supports multi-database array configs in firebase.json', async () => {
     const root = project();
     const rulesPath = join(root, 'main-db.rules.json');

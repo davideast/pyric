@@ -13,7 +13,8 @@ export interface InitPayload {
   databaseUrl?: string | null;
   /** Explicit opt-in to permissive default access when rules are unconfigured. */
   permissive?: boolean;
-  /** Storage rules are installed once, before the first Storage operation. */
+  /** Storage rules installed before the first Storage operation. A dev server
+   *  replaces them over `storage-rules-update` when the rules file changes. */
   storageRules: string | null;
   storageRulesHash: string | null;
   /**
