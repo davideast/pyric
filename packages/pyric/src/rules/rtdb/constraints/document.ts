@@ -141,10 +141,14 @@ export function checkRtdbRules(compile: () => CompiledRtdbRules): RtdbRulesCheck
 }
 
 class DefinedRtdbRulesDocument implements RtdbRulesDocumentInternal {
+  private compiled: CompiledRtdbRules | undefined;
+
   constructor(private readonly definition: RtdbRulesDefinition) {}
 
+  /** Compiles the definition on first use; lint, simulate, and toJSON share the tree. */
   compile(): CompiledRtdbRules {
-    return ruleset(this.definition.paths);
+    this.compiled ??= ruleset(this.definition.paths);
+    return this.compiled;
   }
 
   toJSON(): RtdbRulesJson {

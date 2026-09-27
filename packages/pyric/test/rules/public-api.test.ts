@@ -399,6 +399,53 @@ describe('rtdbRules constructor', () => {
     expect(summary.passed + summary.failed + summary.unsupported).toBe(2);
   });
 
+  test('a definition handle compiles the definition once across lint, simulate, explain, and toJSON', () => {
+    let compiles = 0;
+    const handle = rtdbRules(defineRtdbRules({
+      paths: (ctx) => {
+        compiles++;
+        ctx.path('/notes/$noteId', { read: allow(), write: expr('auth != null') });
+      },
+    }));
+    const cases: RtdbCase[] = Array.from({ length: 5 }, (_, i) => ({
+      expectation: i % 2 === 0 ? 'ALLOW' : 'DENY',
+      operation: 'write',
+      path: `/notes/n${i}`,
+      auth: i % 2 === 0 ? 'u' : null,
+      newData: { body: 'x' },
+    }));
+    expect(handle.simulate(cases).passed).toBe(cases.length);
+    handle.simulate(cases);
+    handle.lint();
+    handle.explain(cases[0]!);
+    handle.toJSON();
+    expect(compiles).toBe(1);
+  });
+
+  test('a definition handle and the JSON handle made from it return the same simulate verdicts', () => {
+    const definition = {
+      paths: {
+        '/notes/$noteId': {
+          read: expr('auth != null'),
+          write: expr("auth != null && newData.child('owner').val() === auth.uid"),
+          validate: expr("newData.hasChildren(['owner'])"),
+        },
+      },
+    };
+    const fromDefinition = rtdbRules(defineRtdbRules(definition));
+    const fromJson = rtdbRules(fromDefinition.toJSON());
+    const cases: RtdbCase[] = [
+      { expectation: 'ALLOW', operation: 'read', path: '/notes/n1', auth: 'u' },
+      { expectation: 'DENY', operation: 'read', path: '/notes/n1', auth: null },
+      { expectation: 'ALLOW', operation: 'write', path: '/notes/n1', auth: 'u', newData: { owner: 'u' } },
+      { expectation: 'DENY', operation: 'write', path: '/notes/n1', auth: 'u', newData: { owner: 'v' } },
+      { expectation: 'DENY', operation: 'write', path: '/notes/n1', auth: 'u', newData: { body: 'x' } },
+    ];
+    const definitionSummary = fromDefinition.simulate(cases);
+    expect(definitionSummary.passed).toBe(cases.length);
+    expect(fromJson.simulate(cases)).toEqual(definitionSummary);
+  });
+
   test('simulate() honors an explicit now against a now-gated rule', () => {
     const gated = {
       paths: {
