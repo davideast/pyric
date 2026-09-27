@@ -2,6 +2,7 @@
 import { rtdbRules } from 'pyric/rules';
 import type { RtdbCase, RtdbRulesJson } from 'pyric/rules';
 import { getActiveRules, setRules, snapshotState } from 'pyric/sandbox/database';
+import { parseRtdbRulesText } from '../../../rtdb/rules-json.js';
 import { callSandboxTool, operationFailure } from '../context.js';
 import { requestInstant } from '../request-instant.js';
 import { markLintFindings } from '../rules-verdict.js';
@@ -13,15 +14,19 @@ const NO_RULES_LOADED =
   "No database rules were supplied and none are loaded in the sandbox. Pass rules, or call rules.set with service 'database' first.";
 
 /** What a call has to do when the source it named is not the JSON these rules take. */
-const NOT_JSON =
-  "The supplied database rules are not valid JSON. Pass rules as a JSON object with a 'rules' key.";
+function notRules(problem: string): string {
+  return `The supplied database rules did not parse: ${problem}. Pass rules as a JSON object with a 'rules' key.`;
+}
 
-/** The ruleset a source describes, or null when it is not JSON. */
-function parseRuleset(source: string): RtdbRulesJson | null {
+/**
+ * The ruleset a source describes, or why it is not a rules document. The
+ * source is the text of a rules file, comments included.
+ */
+function parseRuleset(source: string): { ruleset: RtdbRulesJson } | { problem: string } {
   try {
-    return JSON.parse(source) as RtdbRulesJson;
-  } catch {
-    return null;
+    return { ruleset: parseRtdbRulesText(source, (reason) => reason) };
+  } catch (error) {
+    return { problem: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -73,16 +78,12 @@ export const DATABASE_RULES: RulesEngine = {
   requestMethods: ['read', 'write', 'validate'],
 
   parseFailure(source): RulesSourceProblem | null {
-    try {
-      JSON.parse(source);
-      return null;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return {
-        body: `rules did not parse as JSON: ${message}.`,
-        fix: 'Pass rules JSON that parses, then call set again.',
-      };
-    }
+    const parsed = parseRuleset(source);
+    if ('ruleset' in parsed) return null;
+    return {
+      body: `rules did not parse: ${parsed.problem}.`,
+      fix: "Pass rules JSON with a top-level 'rules' object, then call set again.",
+    };
   },
 
   async lint(ctx, rules) {
@@ -90,10 +91,11 @@ export const DATABASE_RULES: RulesEngine = {
     if (rules === undefined) {
       ruleset = getActiveRules(ctx.sandbox);
     } else {
-      ruleset = parseRuleset(rules);
-      if (ruleset === null) {
-        return operationFailure(NOT_JSON);
+      const parsed = parseRuleset(rules);
+      if ('problem' in parsed) {
+        return operationFailure(notRules(parsed.problem));
       }
+      ruleset = parsed.ruleset;
     }
     if (ruleset === null) {
       return operationFailure(NO_RULES_LOADED);
@@ -122,11 +124,11 @@ export const DATABASE_RULES: RulesEngine = {
       return callSandboxTool(ctx, 'rtdb_simulate_access', call);
     }
 
-    const ruleset = parseRuleset(request.rules);
-    if (ruleset === null) {
-      return operationFailure(NOT_JSON);
+    const parsed = parseRuleset(request.rules);
+    if ('problem' in parsed) {
+      return operationFailure(notRules(parsed.problem));
     }
-    const evaluated = simulateAgainst(ctx, ruleset, request, auth);
+    const evaluated = simulateAgainst(ctx, parsed.ruleset, request, auth);
     return {
       ok: !evaluated.unsupported,
       summary: `${request.operation} ${request.path}: ${evaluated.decision}`,
@@ -140,13 +142,13 @@ export const DATABASE_RULES: RulesEngine = {
   },
 
   async install(ctx, rules) {
-    const ruleset = parseRuleset(rules);
-    if (ruleset === null) {
+    const parsed = parseRuleset(rules);
+    if ('problem' in parsed) {
       return operationFailure(
-        'Database rules did not parse. Pass rules JSON that parses, then call set again.',
+        `Database rules did not parse: ${parsed.problem}. Pass rules JSON with a top-level 'rules' object, then call set again.`,
       );
     }
-    setRules(ctx.sandbox, ruleset);
+    setRules(ctx.sandbox, parsed.ruleset);
     return { ok: true, summary: 'Database rules installed.' };
   },
 };

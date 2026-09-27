@@ -120,8 +120,12 @@ export function stripJsonComments(text: string): string {
 }
 
 /**
- * Parse a JSON string that may contain line or block comments into a validated
- * Realtime Database rules document structure.
+ * Parse the text of a Realtime Database rules file into a `{ rules }` document.
+ * The text may carry line and block comments, as a deployed rules file may.
+ * `rules lint`, `rules simulate`, `rules set`, `database rules validate`,
+ * `verify`, and the served sandbox's rules loader parse rules text here, so
+ * they accept the same files. `onInvalid` receives the reason the text is not a rules document and
+ * returns the error to throw.
  */
 export function parseRtdbRulesText(
   text: string,
@@ -133,7 +137,7 @@ export function parseRtdbRulesText(
     parsed = JSON.parse(clean);
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
-    throw onInvalid(new Error(`Failed to parse rules JSON: ${detail}`));
+    throw onInvalid(new Error(`not valid JSON: ${detail}`));
   }
-  return parseRtdbRulesJson(parsed, () => onInvalid(new Error('Document must contain a top-level "rules" object.')));
+  return parseRtdbRulesJson(parsed, () => onInvalid(new Error('no top-level "rules" object')));
 }
