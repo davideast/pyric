@@ -35,6 +35,9 @@ export interface RuleIssue {
   message: string;
   /** Rules path the issue applies to, when known (e.g. `'/users/{uid}'`). */
   path?: string;
+  /** The Realtime Database rule at `path` the issue applies to. Absent for
+   *  Firestore issues and for an RTDB issue about the whole ruleset. */
+  rule?: '.read' | '.write' | '.validate';
   /** 1-indexed source line, when known. */
   line?: number;
   /** Suggested remediation, verbatim, when the producing stage offers one. */
@@ -84,18 +87,31 @@ export function validationFindingToIssue(finding: ValidationFinding): RuleIssue 
   };
 }
 
+/** Codes on RTDB check errors that mean the source never reached validation:
+ *  an expression that does not parse, or a ruleset that does not compile. */
+const RTDB_PARSE_CODES = new Set(['PARSE_ERROR', 'COMPILE_ERROR']);
+
 /** Map an RTDB check finding (from the internal document `check()`) onto the
- *  unified issue. `severity` is decided by the caller (errors vs warnings
- *  live in separate arrays on the check result). */
+ *  unified issue. `severity` is decided by the caller: check errors come from
+ *  the parser, the ruleset compiler, or the validator, and check warnings come
+ *  only from the linter. */
 export function rtdbFindingToIssue(
   finding: RtdbRulesFinding,
-  severity: RuleIssueSeverity,
+  severity: 'error' | 'warning',
 ): RuleIssue {
-  return {
+  const origin: RuleIssueOrigin =
+    severity === 'warning'
+      ? 'lint'
+      : RTDB_PARSE_CODES.has(finding.code)
+        ? 'parse'
+        : 'validate';
+  const issue: RuleIssue = {
     code: finding.code,
     severity,
     message: finding.message,
     path: finding.path,
-    origin: 'validate',
+    origin,
   };
+  if (finding.rule !== 'ruleset') issue.rule = finding.rule;
+  return issue;
 }
