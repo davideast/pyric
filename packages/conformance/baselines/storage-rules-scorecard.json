@@ -132,6 +132,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "arithmetic-operand-types",
         "common-auth-membership",
         "firestore-lookup",
         "float-modulo-unary-minus",
@@ -164,6 +165,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "arithmetic-operand-types",
         "common-auth-membership",
         "firestore-lookup",
         "function-scopes-and-shadowing",
@@ -191,6 +193,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "arithmetic-operand-types",
         "common-auth-membership",
         "firestore-lookup",
         "metadata-access",
@@ -398,6 +401,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "arithmetic-operand-types",
         "metadata-access",
         "metadata-verbs-and-arithmetic",
         "resource-object-identity",
@@ -425,6 +429,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "arithmetic-operand-types",
         "metadata-verbs-and-arithmetic",
         "stdlib-string-bytes-hashing",
         "stdlib-timestamp-duration",
@@ -462,6 +467,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "arithmetic-operand-types",
         "metadata-access",
         "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
@@ -487,6 +493,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "arithmetic-operand-types",
         "common-auth-membership",
         "error-absorption-and-direction",
         "firestore-lookup",
@@ -914,6 +921,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "arithmetic-operand-types",
         "common-auth-membership",
         "error-absorption-and-direction",
         "firestore-lookup",
@@ -952,6 +960,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "arithmetic-operand-types",
         "common-auth-membership",
         "function-scopes-and-shadowing",
         "metadata-verbs-and-arithmetic",
@@ -1056,13 +1065,16 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "arithmetic-operand-types",
         "metadata-verbs-and-arithmetic",
         "resource-object-identity",
         "stdlib-storage-modules",
         "stdlib-timestamp-duration",
         "upload-primitives-boundaries"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "storage-rules#123"
+      ],
       "divergedByRows": []
     },
     "storage.operator.sub": {
@@ -1077,10 +1089,13 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "arithmetic-operand-types",
         "metadata-verbs-and-arithmetic",
         "stdlib-timestamp-duration"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "storage-rules#123"
+      ],
       "divergedByRows": []
     },
     "storage.operator.mul": {
@@ -1095,6 +1110,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "arithmetic-operand-types",
         "float-modulo-unary-minus",
         "functions-let-scope",
         "metadata-verbs-and-arithmetic"
@@ -1116,6 +1132,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "arithmetic-operand-types",
         "error-absorption-and-direction",
         "float-modulo-unary-minus",
         "metadata-verbs-and-arithmetic"
@@ -1138,6 +1155,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "arithmetic-operand-types",
         "common-auth-membership",
         "error-absorption-and-direction",
         "firestore-lookup-budget",
@@ -1172,6 +1190,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "arithmetic-operand-types",
         "error-absorption-and-direction",
         "firestore-lookup-budget",
         "metadata-verbs-and-arithmetic",
@@ -1197,6 +1216,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "arithmetic-operand-types",
         "error-absorption-and-direction",
         "float-modulo-unary-minus",
         "functions-let-scope",
@@ -1220,6 +1240,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "arithmetic-operand-types",
         "common-auth-membership",
         "firestore-lookup",
         "firestore-lookup-budget",
@@ -1382,6 +1403,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "arithmetic-operand-types",
         "error-absorption-and-direction",
         "float-modulo-unary-minus",
         "function-scopes-and-shadowing",
@@ -1471,6 +1493,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "arithmetic-operand-types",
         "common-auth-membership",
         "firestore-lookup",
         "firestore-lookup-budget",
@@ -1558,6 +1581,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "arithmetic-operand-types",
         "common-auth-membership",
         "error-absorption-and-direction",
         "firestore-lookup",
@@ -1638,6 +1662,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "arithmetic-operand-types",
         "common-auth-membership",
         "error-absorption-and-direction",
         "firestore-lookup",
@@ -1676,6 +1701,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "arithmetic-operand-types",
         "error-absorption-and-direction",
         "float-modulo-unary-minus",
         "function-scopes-and-shadowing",
