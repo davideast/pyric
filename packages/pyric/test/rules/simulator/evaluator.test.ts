@@ -784,6 +784,32 @@ describe('RULES-B6: + operator type rules', () => {
     const expr = methodCall(listLit([lit(1)]), 'concat', [listLit([lit(2)])]);
     expect(evaluate(expr, baseCtx())).toEqual([1, 2]);
   });
+
+  const requestTime = member(id('request'), 'time');
+  const minute = methodCall(id('duration'), 'value', [lit(60), lit('s')]);
+  const bytesOf = (text: string) => methodCall(lit(text), 'toUtf8');
+  const unsupportedPairs: Array<[string, Expression, Expression, RegExp]> = [
+    ['string + timestamp', lit('at '), requestTime, /between string and timestamp/],
+    ['timestamp + string', requestTime, lit(' at'), /between timestamp and string/],
+    ['string + duration', lit('for '), minute, /between string and duration/],
+    ['duration + string', minute, lit(' later'), /between duration and string/],
+    ['timestamp + timestamp', requestTime, requestTime, /between timestamp and timestamp/],
+    ['string + bytes', lit('a'), bytesOf('b'), /between string and bytes/],
+    ['bytes + string', bytesOf('a'), lit('b'), /between bytes and string/],
+    ['bytes + bytes', bytesOf('ab'), bytesOf('cd'), /between bytes and bytes/],
+    ['duration + int', minute, lit(1), /between duration and int/],
+    ['int + duration', lit(1), minute, /between int and duration/],
+  ];
+  for (const [pair, left, right, message] of unsupportedPairs) {
+    test(`${pair} ERRORS (no ${pair} overload)`, () => {
+      const plus = binOp('+', left, right);
+      expect(() => evaluate(plus, baseCtx())).toThrow(EvalError);
+      expect(() => evaluate(plus, baseCtx())).toThrow(message);
+      const witness = binOp('!=', plus, lit('z'));
+      expect(() => evaluate(witness, baseCtx())).toThrow(EvalError);
+      expect(evaluate(binOp('||', witness, lit(true)), baseCtx())).toBe(true);
+    });
+  }
 });
 
 // ═══ RULES-B12 (partial): cross-type ordering errors; is map exclusions ═══

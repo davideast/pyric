@@ -65,6 +65,20 @@ describe('prepareStorageRulesSource', () => {
     expect(out).not.toContain('2+modules');
     expect(out).toContain('function sizeAtMost(maxBytes)');
   });
+
+  it('reports a parse error that ends in a period without doubling it', () => {
+    let message = '';
+    try {
+      prepareStorageRulesSource(
+        "rules_version = '2';\nservice firebase.storage { match /b/{bucket}/o { allow read: if true;",
+        'storage.rules',
+      );
+    } catch (e) {
+      message = e instanceof Error ? e.message : String(e);
+    }
+    expect(message).toContain('expected "}". Fix the rules before serving.');
+    expect(message).not.toContain('..');
+  });
 });
 
 describe('loadProjectRules', () => {

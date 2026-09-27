@@ -5,12 +5,12 @@
     "firestore-rules#162"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"cross-type-operator-overloads\" (Item 2). Wrapper binaryOp must produce typed results for Timestamp/Duration cross-type ops; numeric coercion would silently lose type identity and (post-Risk 2 guard) silently DENY.",
-  "observedAt": "2026-09-27T19:38:01.331Z",
+  "observedAt": "2026-09-27T21:35:17.278Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "2eabda71910c4b1bb91fcf5143d9442c342362d0dc8ffdcc991cdef16c749c5e"
+    "value": "4fcfbae110d769f5d72693a19a76ad32e7c6507bc324f563ab53dad9bd6885ea"
   },
   "behavior": {
     "Timestamp + Duration → Timestamp ALLOW": "ALLOW",
@@ -45,7 +45,41 @@
     "plusOperand intFloatOrTrue: (request.resource.data.n + 1.5 != 4.5) || true → ALLOW": "ALLOW",
     "plusOperand concatDataEq: request.resource.data.a.concat(request.resource.data.b) == ['a', 'b', 'c', 'd'] → ALLOW": "ALLOW",
     "plusOperand concatLiteralEq: [1].concat([2]) == [1, 2] → ALLOW": "ALLOW",
-    "plusOperand concatLiteralNeq: [1].concat([2]) != [1, 2] → DENY": "DENY"
+    "plusOperand concatLiteralNeq: [1].concat([2]) != [1, 2] → DENY": "DENY",
+    "plusOperand stringTimestampBare: 'at ' + timestamp.value(0) → DENY": "DENY",
+    "plusOperand stringTimestampNeq: 'at ' + timestamp.value(0) != 'z' → DENY": "DENY",
+    "plusOperand stringTimestampOrTrue: ('at ' + timestamp.value(0) != 'z') || true → ALLOW": "ALLOW",
+    "plusOperand stringRequestTimeBare: 'at ' + request.time → DENY": "DENY",
+    "plusOperand stringRequestTimeNeq: 'at ' + request.time != 'z' → DENY": "DENY",
+    "plusOperand stringRequestTimeOrTrue: ('at ' + request.time != 'z') || true → ALLOW": "ALLOW",
+    "plusOperand timestampStringBare: timestamp.value(0) + ' at' → DENY": "DENY",
+    "plusOperand timestampStringNeq: timestamp.value(0) + ' at' != 'z' → DENY": "DENY",
+    "plusOperand timestampStringOrTrue: (timestamp.value(0) + ' at' != 'z') || true → ALLOW": "ALLOW",
+    "plusOperand stringDurationBare: 'for ' + duration.value(60, 's') → DENY": "DENY",
+    "plusOperand stringDurationNeq: 'for ' + duration.value(60, 's') != 'z' → DENY": "DENY",
+    "plusOperand stringDurationOrTrue: ('for ' + duration.value(60, 's') != 'z') || true → ALLOW": "ALLOW",
+    "plusOperand durationStringBare: duration.value(60, 's') + ' later' → DENY": "DENY",
+    "plusOperand durationStringNeq: duration.value(60, 's') + ' later' != 'z' → DENY": "DENY",
+    "plusOperand durationStringOrTrue: (duration.value(60, 's') + ' later' != 'z') || true → ALLOW": "ALLOW",
+    "plusOperand timestampTimestampBare: timestamp.value(0) + timestamp.value(60000) → DENY": "DENY",
+    "plusOperand timestampTimestampNeq: timestamp.value(0) + timestamp.value(60000) != timestamp.value(1) → DENY": "DENY",
+    "plusOperand timestampTimestampOrTrue: (timestamp.value(0) + timestamp.value(60000) != timestamp.value(1)) || true → ALLOW": "ALLOW",
+    "plusOperand stringBytesBare: 'a' + 'b'.toUtf8() → DENY": "DENY",
+    "plusOperand stringBytesNeq: 'a' + 'b'.toUtf8() != 'z' → DENY": "DENY",
+    "plusOperand stringBytesOrTrue: ('a' + 'b'.toUtf8() != 'z') || true → ALLOW": "ALLOW",
+    "plusOperand bytesStringBare: 'a'.toUtf8() + 'b' → DENY": "DENY",
+    "plusOperand bytesStringNeq: 'a'.toUtf8() + 'b' != 'z' → DENY": "DENY",
+    "plusOperand bytesStringOrTrue: ('a'.toUtf8() + 'b' != 'z') || true → ALLOW": "ALLOW",
+    "plusOperand bytesBytesBare: 'ab'.toUtf8() + 'cd'.toUtf8() → DENY": "DENY",
+    "plusOperand bytesBytesNeq: 'ab'.toUtf8() + 'cd'.toUtf8() != 'zz'.toUtf8() → DENY": "DENY",
+    "plusOperand bytesBytesOrTrue: ('ab'.toUtf8() + 'cd'.toUtf8() != 'zz'.toUtf8()) || true → ALLOW": "ALLOW",
+    "plusOperand durationIntBare: duration.value(60, 's') + 1 → DENY": "DENY",
+    "plusOperand durationIntNeq: duration.value(60, 's') + 1 != duration.value(1, 's') → DENY": "DENY",
+    "plusOperand durationIntOrTrue: (duration.value(60, 's') + 1 != duration.value(1, 's')) || true → ALLOW": "ALLOW",
+    "plusOperand intDurationBare: 1 + duration.value(60, 's') → DENY": "DENY",
+    "plusOperand intDurationNeq: 1 + duration.value(60, 's') != duration.value(1, 's') → DENY": "DENY",
+    "plusOperand intDurationOrTrue: (1 + duration.value(60, 's') != duration.value(1, 's')) || true → ALLOW": "ALLOW",
+    "plusOperand bytesBytesEq: 'ab'.toUtf8() + 'cd'.toUtf8() == 'abcd'.toUtf8() → DENY": "DENY"
   },
   "diagnostics": {
     "plusOperand listLiteralEq: [1] + [2] == [1, 2] → DENY": {
@@ -185,6 +219,328 @@
           "column": 48,
           "currentOffset": 3588,
           "endOffset": 3588
+        }
+      }
+    },
+    "plusOperand stringTimestampBare: 'at ' + timestamp.value(0) → DENY": {
+      "notes": [
+        "Error: firestore.rules line [118], column [30]. Unsupported operation error. Received: string + timestamp. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 118,
+          "column": 30,
+          "currentOffset": 4914,
+          "endOffset": 4914
+        }
+      }
+    },
+    "plusOperand stringTimestampNeq: 'at ' + timestamp.value(0) != 'z' → DENY": {
+      "notes": [
+        "Error: firestore.rules line [121], column [30]. Unsupported operation error. Received: string + timestamp. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 121,
+          "column": 30,
+          "currentOffset": 5020,
+          "endOffset": 5020
+        }
+      }
+    },
+    "plusOperand stringRequestTimeBare: 'at ' + request.time → DENY": {
+      "notes": [
+        "Error: firestore.rules line [127], column [30]. Unsupported operation error. Received: string + timestamp. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 127,
+          "column": 30,
+          "currentOffset": 5262,
+          "endOffset": 5262
+        }
+      }
+    },
+    "plusOperand stringRequestTimeNeq: 'at ' + request.time != 'z' → DENY": {
+      "notes": [
+        "Error: firestore.rules line [130], column [30]. Unsupported operation error. Received: string + timestamp. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 130,
+          "column": 30,
+          "currentOffset": 5364,
+          "endOffset": 5364
+        }
+      }
+    },
+    "plusOperand timestampStringBare: timestamp.value(0) + ' at' → DENY": {
+      "notes": [
+        "Error: firestore.rules line [136], column [43]. Unsupported operation error. Received: timestamp + string. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 136,
+          "column": 43,
+          "currentOffset": 5607,
+          "endOffset": 5607
+        }
+      }
+    },
+    "plusOperand timestampStringNeq: timestamp.value(0) + ' at' != 'z' → DENY": {
+      "notes": [
+        "Error: firestore.rules line [139], column [43]. Unsupported operation error. Received: timestamp + string. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 139,
+          "column": 43,
+          "currentOffset": 5713,
+          "endOffset": 5713
+        }
+      }
+    },
+    "plusOperand stringDurationBare: 'for ' + duration.value(60, 's') → DENY": {
+      "notes": [
+        "Error: firestore.rules line [145], column [31]. Unsupported operation error. Received: string + duration. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 145,
+          "column": 31,
+          "currentOffset": 5940,
+          "endOffset": 5940
+        }
+      }
+    },
+    "plusOperand stringDurationNeq: 'for ' + duration.value(60, 's') != 'z' → DENY": {
+      "notes": [
+        "Error: firestore.rules line [148], column [31]. Unsupported operation error. Received: string + duration. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 148,
+          "column": 31,
+          "currentOffset": 6051,
+          "endOffset": 6051
+        }
+      }
+    },
+    "plusOperand durationStringBare: duration.value(60, 's') + ' later' → DENY": {
+      "notes": [
+        "Error: firestore.rules line [154], column [48]. Unsupported operation error. Received: duration + string. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 154,
+          "column": 48,
+          "currentOffset": 6318,
+          "endOffset": 6318
+        }
+      }
+    },
+    "plusOperand durationStringNeq: duration.value(60, 's') + ' later' != 'z' → DENY": {
+      "notes": [
+        "Error: firestore.rules line [157], column [48]. Unsupported operation error. Received: duration + string. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 157,
+          "column": 48,
+          "currentOffset": 6431,
+          "endOffset": 6431
+        }
+      }
+    },
+    "plusOperand timestampTimestampBare: timestamp.value(0) + timestamp.value(60000) → DENY": {
+      "notes": [
+        "Error: firestore.rules line [163], column [43]. Unsupported operation error. Received: timestamp + timestamp. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 163,
+          "column": 43,
+          "currentOffset": 6684,
+          "endOffset": 6684
+        }
+      }
+    },
+    "plusOperand timestampTimestampNeq: timestamp.value(0) + timestamp.value(60000) != timestamp.value(1) → DENY": {
+      "notes": [
+        "Error: firestore.rules line [166], column [43]. Unsupported operation error. Received: timestamp + timestamp. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 166,
+          "column": 43,
+          "currentOffset": 6810,
+          "endOffset": 6810
+        }
+      }
+    },
+    "plusOperand stringBytesBare: 'a' + 'b'.toUtf8() → DENY": {
+      "notes": [
+        "Error: firestore.rules line [172], column [28]. Unsupported operation error. Received: string + bytes. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 172,
+          "column": 28,
+          "currentOffset": 7098,
+          "endOffset": 7098
+        }
+      }
+    },
+    "plusOperand stringBytesNeq: 'a' + 'b'.toUtf8() != 'z' → DENY": {
+      "notes": [
+        "Error: firestore.rules line [175], column [28]. Unsupported operation error. Received: string + bytes. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 175,
+          "column": 28,
+          "currentOffset": 7192,
+          "endOffset": 7192
+        }
+      }
+    },
+    "plusOperand bytesStringBare: 'a'.toUtf8() + 'b' → DENY": {
+      "notes": [
+        "Error: firestore.rules line [181], column [37]. Unsupported operation error. Received: bytes + string. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 181,
+          "column": 37,
+          "currentOffset": 7417,
+          "endOffset": 7417
+        }
+      }
+    },
+    "plusOperand bytesStringNeq: 'a'.toUtf8() + 'b' != 'z' → DENY": {
+      "notes": [
+        "Error: firestore.rules line [184], column [37]. Unsupported operation error. Received: bytes + string. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 184,
+          "column": 37,
+          "currentOffset": 7511,
+          "endOffset": 7511
+        }
+      }
+    },
+    "plusOperand bytesBytesBare: 'ab'.toUtf8() + 'cd'.toUtf8() → DENY": {
+      "notes": [
+        "Error: firestore.rules line [190], column [38]. Unsupported operation error. Received: bytes + bytes. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 190,
+          "column": 38,
+          "currentOffset": 7727,
+          "endOffset": 7727
+        }
+      }
+    },
+    "plusOperand bytesBytesNeq: 'ab'.toUtf8() + 'cd'.toUtf8() != 'zz'.toUtf8() → DENY": {
+      "notes": [
+        "Error: firestore.rules line [193], column [38]. Unsupported operation error. Received: bytes + bytes. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 193,
+          "column": 38,
+          "currentOffset": 7831,
+          "endOffset": 7831
+        }
+      }
+    },
+    "plusOperand durationIntBare: duration.value(60, 's') + 1 → DENY": {
+      "notes": [
+        "Error: firestore.rules line [199], column [48]. Unsupported operation error. Received: duration + int. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 199,
+          "column": 48,
+          "currentOffset": 8098,
+          "endOffset": 8098
+        }
+      }
+    },
+    "plusOperand durationIntNeq: duration.value(60, 's') + 1 != duration.value(1, 's') → DENY": {
+      "notes": [
+        "Error: firestore.rules line [202], column [48]. Unsupported operation error. Received: duration + int. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 202,
+          "column": 48,
+          "currentOffset": 8201,
+          "endOffset": 8201
+        }
+      }
+    },
+    "plusOperand intDurationBare: 1 + duration.value(60, 's') → DENY": {
+      "notes": [
+        "Error: firestore.rules line [208], column [26]. Unsupported operation error. Received: int + duration. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 208,
+          "column": 26,
+          "currentOffset": 8451,
+          "endOffset": 8451
+        }
+      }
+    },
+    "plusOperand intDurationNeq: 1 + duration.value(60, 's') != duration.value(1, 's') → DENY": {
+      "notes": [
+        "Error: firestore.rules line [211], column [26]. Unsupported operation error. Received: int + duration. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 211,
+          "column": 26,
+          "currentOffset": 8554,
+          "endOffset": 8554
+        }
+      }
+    },
+    "plusOperand bytesBytesEq: 'ab'.toUtf8() + 'cd'.toUtf8() == 'abcd'.toUtf8() → DENY": {
+      "notes": [
+        "Error: firestore.rules line [217], column [38]. Unsupported operation error. Received: bytes + bytes. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 217,
+          "column": 38,
+          "currentOffset": 8835,
+          "endOffset": 8835
         }
       }
     }

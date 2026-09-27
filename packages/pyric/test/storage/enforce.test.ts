@@ -708,3 +708,57 @@ service firebase.storage {
       .rejects.toThrow(/unauthorized/);
   });
 });
+
+describe('denial message punctuation', () => {
+  async function denial(storage: ReturnType<typeof getStorageSandbox>): Promise<string> {
+    const error = await getBlob(ref(storage, 'files/a.txt')).then(
+      () => null,
+      (e: Error) => e,
+    );
+    return error?.message ?? '';
+  }
+
+  it('ends a denial whose reason already closes with a period in one period', async () => {
+    const sandbox = initializeSandbox({});
+    const storage = getStorageSandbox(sandbox.withAuth({ uid: 'alice' }), {
+      dbName: uniqueDbName('deny-bool-period'),
+      rules: `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /files/{name} {
+      allow read: if bool('true');
+    }
+  }
+}`,
+    });
+    const message = await denial(storage);
+    expect(message).toEndWith('Function not found error: Name: [bool].');
+    expect(message).not.toContain('..');
+  });
+
+  it('ends a denial whose reason has no period with one period', async () => {
+    const sandbox = initializeSandbox({});
+    const storage = getStorageSandbox(sandbox.withAuth({ uid: 'alice' }), {
+      dbName: uniqueDbName('deny-false-period'),
+      rules: `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /files/{name} {
+      allow read: if false;
+    }
+  }
+}`,
+    });
+    expect(await denial(storage)).toEndWith('condition false.');
+  });
+
+  it('ends the no-rules default denial in one period', async () => {
+    const sandbox = initializeSandbox({});
+    const storage = getStorageSandbox(sandbox.withAuth({ uid: 'alice' }), {
+      dbName: uniqueDbName('deny-no-rules-period'),
+    });
+    const message = await denial(storage);
+    expect(message).toEndWith('No Storage rules configured; default deny.');
+    expect(message).not.toContain('..');
+  });
+});

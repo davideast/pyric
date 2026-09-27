@@ -20,6 +20,7 @@
  * while the message wording stays sandbox-flavored. The
  * `storage/<code>` prefix is what consumer code branches on.
  */
+import { asSentence } from 'pyric/sandbox/internal';
 
 /** Unprefixed Firebase Storage error codes. */
 export const StorageErrorCode = {
@@ -86,7 +87,7 @@ export function objectNotFound(path: string): StorageError {
 export function unauthorized(method: string, path: string, detail: string): StorageError {
   return new StorageError(
     'unauthorized',
-    `${method} "${path}" denied by rules${detail}.`,
+    asSentence(`${method} "${path}" denied by rules${detail}`),
   );
 }
 

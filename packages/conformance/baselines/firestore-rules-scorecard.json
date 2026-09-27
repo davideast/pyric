@@ -406,6 +406,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "cross-type-operator-overloads",
         "time-math-and-casts",
         "timestamp-component-accessors"
       ],
@@ -1277,6 +1278,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "bytes-toutf8-and-hashing",
+        "cross-type-operator-overloads",
         "string-literals-and-regex"
       ],
       "verifiedByRows": [

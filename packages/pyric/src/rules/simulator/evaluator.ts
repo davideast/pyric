@@ -15,6 +15,7 @@ import type { Expression, FunctionDef } from '../grammar/FirestoreAST.js';
 import { MapDiff } from './mapdiff.js';
 import { FirestoreSet } from './firestore-set.js';
 import { rulesValuesEqual } from './value-equality.js';
+import { describeRulesType } from './rules-type.js';
 import { RulesValue, NO_OP } from './wrappers/base.js';
 import { LatLng } from './wrappers/latlng.js';
 import { Duration } from './wrappers/duration.js';
@@ -439,18 +440,13 @@ function evaluateBinaryOp(
     // drop the type. Both are real type errors in the rule (e.g.
     // `latlng + 1`, `duration > 60`), not sim gaps — surface as
     // EvalError so handler.ts maps to DENY-with-error instead of a
-    // misleading "passed but came out false" or "UNSUPPORTED".
-    //
-    // Exception: `string + wrapper` is documented coercion that flows
-    // through `String(rv)` concat in the switch below.
-    if (op !== '+' || (typeof lv !== 'string' && typeof rv !== 'string')) {
-      if (lv instanceof RulesValue || rv instanceof RulesValue) {
-        const lhsType = lv instanceof RulesValue ? lv.typeName : typeof lv;
-        const rhsType = rv instanceof RulesValue ? rv.typeName : typeof rv;
-        throw new EvalError(
-          `Operator '${op}' is not defined between ${lhsType} and ${rhsType}`,
-        );
-      }
+    // misleading "passed but came out false" or "UNSUPPORTED". A string
+    // operand is no exception: production has no string + timestamp,
+    // string + duration, or string + bytes overload.
+    if (lv instanceof RulesValue || rv instanceof RulesValue) {
+      throw new EvalError(
+        `Operator '${op}' is not defined between ${describeRulesType(lv)} and ${describeRulesType(rv)}`,
+      );
     }
   }
 
@@ -480,20 +476,17 @@ function evaluateBinaryOp(
     case '+': {
       // Production's `+` accepts int + int, float + float, string + string,
       // duration + duration, duration + timestamp, and timestamp + duration.
-      // Every other pair, list + list included, is "Unsupported operation
-      // error", an error value that `&&` and `||` absorb. `'a' + 1` errors
-      // rather than coercing, and `[1] + [2]` errors rather than
-      // concatenating: `list.concat(list)` joins lists. (Wrapper `+` like
-      // Timestamp+Duration was already handled above via binaryOp dispatch;
-      // the `string + wrapper` affordance also flows above this.)
+      // Every other pair is "Unsupported operation error", an error value
+      // that `&&` and `||` absorb: `'a' + 1` errors rather than coercing,
+      // `[1] + [2]` errors rather than concatenating (`list.concat(list)`
+      // joins lists), and `'at ' + request.time`, `bytes + bytes`, and
+      // `duration + 1` error rather than joining. The float and the
+      // duration and timestamp pairs were dispatched above through the
+      // wrappers' `binaryOp`, and any other wrapper operand errored there.
       if (typeof lv === 'string' && typeof rv === 'string') return lv + rv;
       if (typeof lv === 'number' && typeof rv === 'number') return lv + rv;
-      // Documented sim affordance (see the `op !== '+'` guard above): a
-      // `string + wrapper` (e.g. `'at ' + request.time`) concatenates the
-      // wrapper's string form. Preserved here for back-compat with that path.
-      if (typeof lv === 'string' && rv instanceof RulesValue) return lv + String(rv);
       throw new EvalError(
-        `Operator '+' is not defined between ${Array.isArray(lv) ? 'list' : typeof lv} and ${Array.isArray(rv) ? 'list' : typeof rv}`,
+        `Operator '+' is not defined between ${describeRulesType(lv)} and ${describeRulesType(rv)}`,
       );
     }
     case '-': return (lv as number) - (rv as number);

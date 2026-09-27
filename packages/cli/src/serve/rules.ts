@@ -14,6 +14,7 @@ import { readFileSync, watch, type FSWatcher } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join } from 'node:path';
 import { lintFirestoreRules, resolveModulesWithFiles, type ResolveResult } from 'pyric/rules/internal';
+import { asSentence } from 'pyric/sandbox/internal';
 import { parseStorageRules } from 'pyric/storage';
 import type { FirebaseJson } from '../cli/firebase-json.js';
 import { parseRtdbRulesText } from '../rtdb/rules-json.js';
@@ -206,7 +207,7 @@ export function prepareStorageRulesSource(raw: string, sourcePath: string): stri
     parseStorageRules(source);
   } catch (e) {
     throw new Error(
-      `pyric sandbox: ${sourcePath} failed to parse: ${e instanceof Error ? e.message : String(e)}. Fix the rules before serving.`,
+      `${asSentence(`pyric sandbox: ${sourcePath} failed to parse: ${e instanceof Error ? e.message : String(e)}`)} Fix the rules before serving.`,
     );
   }
   return source;
