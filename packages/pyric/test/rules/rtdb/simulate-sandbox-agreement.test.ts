@@ -51,3 +51,45 @@ describe('RTDB simulate agrees with the sandbox when no rule grants', () => {
     });
   }
 });
+
+// Production verdicts from a deploy-observe-restore capture: `==` and `!=`
+// compare operands of different types without converting either, so a
+// `.validate` that expects one type denies a value of another type.
+const equalityCases: Array<[validate: string, value: unknown, expected: 'ALLOW' | 'DENY']> = [
+  ["newData.val() == '5'", 5, 'DENY'],
+  ["newData.val() == '5'", '5', 'ALLOW'],
+  ["newData.val() != '5'", 5, 'ALLOW'],
+  ["newData.val() != '5'", '5', 'DENY'],
+  ['newData.val() == true', 1, 'DENY'],
+  ['newData.val() == true', true, 'ALLOW'],
+  ['newData.val() != true', 1, 'ALLOW'],
+  ['newData.val() != true', true, 'DENY'],
+  ['newData.val() == 0', false, 'DENY'],
+  ['newData.val() == 0', 0, 'ALLOW'],
+  ["newData.val() == ''", false, 'DENY'],
+  ["newData.val() == '1'", true, 'DENY'],
+  ["newData.val() == '1'", '1', 'ALLOW'],
+  ["newData.val() != '1'", true, 'ALLOW'],
+  ['newData.val() == 1.0', 1, 'ALLOW'],
+];
+
+describe('RTDB simulate agrees with the sandbox on == and != across types', () => {
+  for (const [validate, value, expected] of equalityCases) {
+    test(`${validate} with ${JSON.stringify(value)}`, async () => {
+      const equalityRules = { rules: { a: { '.write': 'auth != null', '.validate': validate } } };
+      const box = initializeSandbox();
+      sandbox.setRules(getDatabase(box.withAuth({ uid: 'admin' })), equalityRules);
+      let verdict: 'ALLOW' | 'DENY' = 'ALLOW';
+      try {
+        await set(ref(getDatabase(box.withAuth({ uid: 'alice' })), 'a'), value);
+      } catch {
+        verdict = 'DENY';
+      }
+      const [result] = rtdbRules(equalityRules).simulate([
+        { expectation: expected, operation: 'write', path: '/a', auth: { uid: 'alice' }, newData: value },
+      ]).cases;
+      expect(verdict).toBe(expected);
+      expect(result.decision).toBe(verdict);
+    });
+  }
+});

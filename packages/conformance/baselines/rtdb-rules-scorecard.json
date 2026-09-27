@@ -126,6 +126,7 @@
         "r22-strict-equality-types",
         "r23-validate-sibling-scope",
         "r24-deny-without-rule",
+        "r25-loose-equality-types",
         "r3-data-exists",
         "r4-validate-structure",
         "r5-cascade-root-grant",
@@ -175,6 +176,7 @@
       "verifiedBy": [
         "r20-priority-values",
         "r23-validate-sibling-scope",
+        "r25-loose-equality-types",
         "r3-data-exists",
         "r9-quota-arithmetic"
       ],
@@ -200,6 +202,7 @@
         "r22-strict-equality-types",
         "r23-validate-sibling-scope",
         "r24-deny-without-rule",
+        "r25-loose-equality-types",
         "r4-validate-structure",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -259,6 +262,7 @@
         "r22-strict-equality-types",
         "r23-validate-sibling-scope",
         "r24-deny-without-rule",
+        "r25-loose-equality-types",
         "r8-combined-check",
         "r9-quota-arithmetic"
       ],
@@ -544,6 +548,7 @@
         "r17-validate-runtime-error",
         "r20-priority-values",
         "r23-validate-sibling-scope",
+        "r25-loose-equality-types",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -571,6 +576,7 @@
         "r22-strict-equality-types",
         "r23-validate-sibling-scope",
         "r24-deny-without-rule",
+        "r25-loose-equality-types",
         "r3-data-exists",
         "r4-validate-structure",
         "r5-cascade-root-grant",
@@ -709,6 +715,7 @@
         "r20-priority-values",
         "r22-strict-equality-types",
         "r24-deny-without-rule",
+        "r25-loose-equality-types",
         "r7-pathvar-binding",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -851,6 +858,7 @@
         "r22-strict-equality-types",
         "r23-validate-sibling-scope",
         "r24-deny-without-rule",
+        "r25-loose-equality-types",
         "r3-data-exists",
         "r4-validate-structure",
         "r5-cascade-root-grant",
@@ -883,6 +891,7 @@
         "r22-strict-equality-types",
         "r23-validate-sibling-scope",
         "r24-deny-without-rule",
+        "r25-loose-equality-types",
         "r4-validate-structure",
         "r9-quota-arithmetic"
       ],

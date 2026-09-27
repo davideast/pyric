@@ -1089,8 +1089,13 @@ export const rulesRegistry = {
           rowRef: "9",
           featureKeys: ["arithmetic","comparison","ternary"],
           behavior: "Arithmetic and comparison operators in quota rules: `+` `-` `*` `/` `%`, `>` `>=` `<` `<=`, `===` `!==`, `==`, `||`, the ternary, and unary minus",
-          evidence: "NEW ROW, 2026-07-12: production capture proves the simulator evaluates every arithmetic and ordering operator as production does, across increment-only counters, doubling and halving deltas, a parity check, inclusive and exclusive range caps, a negative sentinel, loose equality against zero, a disjunction, and a ternary tier bound. `oracle:rules-rtdb-r9-quota-arithmetic` matches production verdict-for-verdict on all 23 cases. The corpus rules are the ones that capture deployed, with `===` and `!==` in the delta, parity, sentinel, and disjunction checks. `oracle:rules-rtdb-r22-strict-equality-types` adds mixed-type operands: production treats the number 5 and the string `'5'` as unequal under both `===` and `!==`, and the simulator agrees.",
-          oracleObservations: ["rules-rtdb-r9-quota-arithmetic", "rules-rtdb-r22-strict-equality-types"],
+          evidence: "NEW ROW, 2026-07-12: production capture proves the simulator evaluates every arithmetic and ordering operator as production does, across increment-only counters, doubling and halving deltas, a parity check, inclusive and exclusive range caps, a negative sentinel, loose equality against zero, a disjunction, and a ternary tier bound. `oracle:rules-rtdb-r9-quota-arithmetic` matches production verdict-for-verdict on all 23 cases. The corpus rules are the ones that capture deployed, with `===` and `!==` in the delta, parity, sentinel, and disjunction checks. `oracle:rules-rtdb-r22-strict-equality-types` adds mixed-type operands: production treats the number 5 and the string `'5'` as unequal under both `===` and `!==`, and the simulator agrees. `oracle:rules-rtdb-r25-loose-equality-types` (captured 2026-09-27) records that `==` and `!=` do not convert types either: production denies `newData.val() == '5'` for the number 5, `newData.val() == true` for the number 1, `newData.val() == 0` and `newData.val() == ''` for false, and `newData.val() == '1'` for true, and allows the matching `!=` writes. It also records that `data.val() == null` holds for a missing node and not for a stored value, and that the number 1 equals the literal `1.0`. The simulator evaluates `==` and `!=` without type conversion, and all 19 cases match production.",
+          oracleObservations: ["rules-rtdb-r9-quota-arithmetic", "rules-rtdb-r22-strict-equality-types", "rules-rtdb-r25-loose-equality-types"],
+          conformanceTests: [
+            "packages/pyric/test/rules/rtdb/rules-conformance.test.ts",
+            "packages/pyric/test/rules/rtdb/grammar/simulator.test.ts",
+            "packages/pyric/test/rules/rtdb/simulate-sandbox-agreement.test.ts",
+          ],
         }),
         row3({
           rowRef: "10",
