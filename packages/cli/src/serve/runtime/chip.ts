@@ -278,6 +278,8 @@ const styles = `
   .source-highlight { width:32px; height:32px; display:flex; align-items:center; justify-content:center; color:var(--pyric-muted); border:1px solid transparent; border-radius:4px; cursor:pointer; }
   .source-highlight .icon { width:16px; height:16px; }
   .source-highlight:hover,.source-highlight[aria-pressed="true"] { color:var(--pyric-accent); background:var(--pyric-content); border-color:var(--pyric-border); }
+  .source-highlight:disabled { opacity:.4; cursor:not-allowed; color:var(--pyric-muted); background:none; border-color:transparent; }
+  .unplaced-reason { display:block; color:var(--pyric-muted); }
   .source-highlight:focus-visible { outline:2px solid var(--pyric-accent); outline-offset:2px; }
   .listener-mark { width: 10px; height: 10px; border: 2px solid var(--listener-color); border-radius: 3px; }
   .source-row:has(.source-highlight[aria-pressed="true"]) .listener-mark { background: var(--listener-color); }
@@ -448,6 +450,7 @@ function sameOutlines(a: readonly ListenerOutline[], b: readonly ListenerOutline
       && outline.activity?.method === other.activity?.method
       && outline.activity?.status === other.activity?.status
       && outline.observedRender === other.observedRender
+      && outline.selectors.join('\n') === other.selectors.join('\n')
       && outline.incident?.pattern === other.incident?.pattern
       && outline.incident?.count === other.incident?.count
       && outline.incident?.windowMs === other.incident?.windowMs;
@@ -1052,16 +1055,24 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       const calls = counts?.calls ?? group.members.length;
       const deliveries = counts?.deliveries ?? group.members.reduce((sum, member) => sum + member.deliveryCount, 0);
       const indexMissing = missingIndex(queryForSource(group.id));
+      // A source is placed when any of its calls has an element on the page.
+      const reasons = group.members.map(member => listenerMode?.placementReason(member) ?? null);
+      const unplaced = group.members.length > 0 && reasons.every(reason => reason !== null) ? reasons[0] : null;
+      const facts = [
+        indexMissing ? '<span class="index-status">Index missing from config</span>' : '',
+        unplaced ? `<span class="unplaced-reason" data-listener-unplaced>${escapeAttribute(unplaced)}</span>` : '',
+      ].filter(Boolean);
+      const highlightTitle = unplaced ?? `Highlight ${group.target}`;
       return '<div class="source-row">' + buttonRowHtml({
         c1: modelIdentity ? aiModelHtml(modelIdentity, escapeAttribute, modelActivity?.method) : dataPathHtml(group.target),
-        s2: indexMissing ? '<span class="index-status">Index missing from config</span>' : '',
+        s2: facts.join(''),
         s1: `${sourceLabel(group.service, group.target, group.members.some(member => member.isQuery))}${stopped ? ' — Stopped' : ''}${group.members.some(member => member.incident) ? ' — Duplicate subscriptions' : ''}`,
         slot: `<span class="listener-fact"><span>${counts?.partial ? '≥ ' : ''}${pluralize(calls, 'call')}</span><span>${counts?.partial ? '≥ ' : ''}${pluralize(deliveries, 'delivery', 'deliveries')}</span></span>`,
         leading: `<span class="listener-mark" style="--listener-color:${escapeAttribute(listenerColors(group.id).swatch)}"></span>`,
         className: group.members.some(member => member.incident) ? 'listener-row problem' : indexMissing ? 'listener-row pending' : 'listener-row', title: `Inspect ${group.target}`,
         attributes: `${group.members.some(member => member.incident) ? 'data-listener-incident="true" ' : ''}data-listener-row="${escapeAttribute(group.activityId)}" data-activate-listener="${escapeAttribute(group.activityId)}"`,
         label: `Inspect ${group.target}`, expanded: false,
-      }) + `<button type="button" class="source-highlight" data-highlight-source="${escapeAttribute(group.id)}" aria-label="Highlight ${escapeAttribute(group.target)}" title="Highlight ${escapeAttribute(group.target)}" aria-pressed="${outlinesOn && highlightedSourceKey === group.id}">${iconHtml('eye')}</button></div>`;
+      }) + `<button type="button" class="source-highlight" data-highlight-source="${escapeAttribute(group.id)}" aria-label="Highlight ${escapeAttribute(group.target)}" title="${escapeAttribute(highlightTitle)}" aria-pressed="${outlinesOn && highlightedSourceKey === group.id}"${unplaced ? ' disabled' : ''}>${iconHtml('eye')}</button></div>`;
     });
     const blocked = outlinesRefused;
     const allOn = outlinesOn && paintMode === 'overview' && highlightedSourceKey === undefined && listenerOutlines.every((outline) => listenerMode?.isListenerVisible(outline.listenerId));

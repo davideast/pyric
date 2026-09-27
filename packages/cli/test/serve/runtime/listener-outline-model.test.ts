@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'bun:test';
 import type { SandboxEvent } from 'pyric/sandbox';
 import type { ActivityIncident } from 'pyric/firestore/internal';
-import { listenerOutlines } from '../../../src/serve/runtime/listener-outline-model.js';
+import { createSdkActivityJournal } from 'pyric/sandbox/internal';
+import { activityOutlines, listenerOutlines } from '../../../src/serve/runtime/listener-outline-model.js';
 
 const auth = { uid: null, token: null };
 
@@ -116,5 +117,39 @@ describe('listenerOutlines', () => {
     const outlines = listenerOutlines(events, []);
     expect(outlines[0]?.selectors).toEqual([]);
     expect(outlines[0]?.label).toBe('/src/a.ts');
+  });
+});
+
+describe('activityOutlines', () => {
+  const journal = createSdkActivityJournal();
+  const frame = { kind: 'frame', file: '/src/app.js', line: 4 } as const;
+  let serial = 0;
+  const record = (owners: readonly unknown[]) => {
+    const activity = journal.begin({ app: {}, method: 'onSnapshot', kind: 'subscription', owners: owners as never, source: { service: 'firestore', target: 'scores', key: `scores-${++serial}`, isQuery: true } });
+    activity.transport(`sub-${serial}`);
+    return journal.records().find(candidate => candidate.id === activity.id)!;
+  };
+
+  it('keeps the regions a backend delivery recorded alongside the startup owners', () => {
+    const activity = record([frame]);
+    const backend = listenerOutlines([
+      { ...(attach('e1', 'b1', { kind: 'query', collection: 'scores' }, [frame]) as object), activity: { listenerId: activity.transportId } } as unknown as SandboxEvent,
+      delivery('e2', 'b1', { kind: 'query', collection: 'scores' }, [{ kind: 'regions', selectors: ['#live'] }]),
+    ], []);
+    const [outline] = activityOutlines(backend, [activity], new Set());
+    expect(outline.listenerId).toBe(activity.id);
+    expect(outline.selectors).toEqual(['#live']);
+  });
+
+  it('adds the regions the page recorded around the served callback', () => {
+    const activity = record([frame]);
+    const [outline] = activityOutlines([], [activity], new Set(), id => id === activity.id ? ['#live', '#count'] : []);
+    expect(outline.selectors).toEqual(['#live', '#count']);
+  });
+
+  it('puts an explicit owner first and does not repeat a selector', () => {
+    const activity = record([frame, { kind: 'tag', name: 'canvas', element: '#board' }]);
+    const [outline] = activityOutlines([], [activity], new Set(), () => ['#board', '#score']);
+    expect(outline.selectors).toEqual(['#board', '#score']);
   });
 });

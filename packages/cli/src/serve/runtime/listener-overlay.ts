@@ -86,7 +86,7 @@ function badgeText(outline: ListenerOutline): string {
 }
 
 /** Every element an outline claims, in the order its selectors name them. */
-function ownedElements(documentLike: Document, outline: ListenerOutline): Element[] {
+export function ownedElements(documentLike: Document, outline: ListenerOutline): Element[] {
   const elements: Element[] = [];
   for (const selector of outline.selectors) {
     let found: Element | null = null;

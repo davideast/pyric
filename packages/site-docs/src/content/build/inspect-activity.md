@@ -13,6 +13,14 @@ Open the runtime chip's **Data** tab to see Firestore and Realtime Database read
 
 **Overview** outlines registered regions and the latest observed regions for SDK activity. **Flow** highlights supported renders observed after a delivery. While Flow is running, Alt-click a highlighted region to open its details. Keyboard users can select the corresponding chip row; Overview badges are also buttons.
 
+Overview finds a listener's region in three places: the `owner` passed to the listen call, the elements a listener callback changed while it ran, and the React render that followed a delivery. A callback that writes the DOM directly is located without React or an `owner`. A callback that draws on a canvas, or hands its data to a game engine, changes no element, so pass the element as the owner:
+
+```js
+onSnapshot(collection(db, 'scores'), { owner: canvas }, (snapshot) => draw(snapshot));
+```
+
+A source with no region on the page shows why under its row, and its highlight button is disabled. Flow needs React renders; on a page without them the panel says so and Flow stays off.
+
 ## Read the counts
 
 - **Calls** count SDK invocations, including separate registrations of the same subscription.
