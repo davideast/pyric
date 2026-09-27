@@ -1,0 +1,888 @@
+{
+  "name": "stdlib-realstorage-request-resource-fields",
+  "matrixRow": "",
+  "rowIds": [
+    "storage-rules#126"
+  ],
+  "description": "Real-resource Storage Rules probe of the fields production populates on request.resource for a client create, a client metadata update, and a client upload over an existing object, and their values relative to the upload, the stored resource, and request.time.",
+  "observedAt": "2026-09-27T14:55:54.791Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "bucket": "digame-mas.appspot.com",
+  "behavior": {
+    "create": {
+      "present-name": "ALLOW",
+      "present-bucket": "ALLOW",
+      "present-generation": "ALLOW",
+      "present-metageneration": "ALLOW",
+      "present-size": "ALLOW",
+      "present-timeCreated": "DENY",
+      "present-updated": "DENY",
+      "present-md5Hash": "ALLOW",
+      "present-crc32c": "ALLOW",
+      "present-etag": "ALLOW",
+      "present-contentDisposition": "ALLOW",
+      "present-contentEncoding": "ALLOW",
+      "present-contentLanguage": "ALLOW",
+      "present-contentType": "ALLOW",
+      "present-metadata": "ALLOW",
+      "name-object-path": "ALLOW",
+      "name-string": "ALLOW",
+      "bucket-match": "ALLOW",
+      "content-type-set": "ALLOW",
+      "content-disposition-set": "ALLOW",
+      "content-encoding-set": "ALLOW",
+      "content-language-set": "ALLOW",
+      "metadata-set": "ALLOW",
+      "time-created-timestamp": "DENY",
+      "updated-timestamp": "DENY",
+      "generation-int": "DENY",
+      "metageneration-int": "DENY",
+      "md5-string": "ALLOW",
+      "etag-string": "DENY",
+      "crc32c-string": "ALLOW",
+      "size-int": "ALLOW",
+      "cache-control-set": "ALLOW",
+      "storage-class-null": "ALLOW",
+      "storage-class-standard": "DENY",
+      "time-created-key": "DENY",
+      "updated-key": "DENY",
+      "name-key": "ALLOW",
+      "keys-size-13": "DENY",
+      "keys-size-14": "DENY",
+      "keys-size-15": "ALLOW",
+      "keys-size-16": "DENY",
+      "keys-size-17": "DENY",
+      "keys-size-18": "DENY",
+      "keys-size-over-18": "DENY",
+      "extra-key-cacheControl": "ALLOW",
+      "extra-key-storageClass": "ALLOW",
+      "extra-key-customTime": "DENY",
+      "extra-key-componentCount": "DENY",
+      "extra-key-id": "DENY",
+      "extra-key-kind": "DENY",
+      "extra-key-path": "DENY",
+      "extra-key-contentMD5": "DENY",
+      "keys-documented-13": "ALLOW",
+      "size-bytes": "ALLOW",
+      "metageneration-one": "DENY",
+      "time-created-request-time": "DENY",
+      "updated-time-created": "DENY",
+      "generation-null": "ALLOW",
+      "metageneration-null": "ALLOW",
+      "etag-null": "ALLOW",
+      "unset-present-contentDisposition": "ALLOW",
+      "unset-present-contentEncoding": "ALLOW",
+      "unset-present-contentLanguage": "ALLOW",
+      "unset-present-cacheControl": "ALLOW",
+      "unset-present-metadata": "ALLOW",
+      "unset-null-contentDisposition": "DENY",
+      "unset-null-contentEncoding": "DENY",
+      "unset-null-contentLanguage": "ALLOW",
+      "unset-null-cacheControl": "ALLOW",
+      "unset-null-metadata": "ALLOW",
+      "unset-empty-contentDisposition": "DENY",
+      "unset-empty-contentEncoding": "DENY",
+      "unset-empty-contentLanguage": "DENY",
+      "unset-empty-cacheControl": "DENY",
+      "unset-empty-metadata": "DENY",
+      "unset-identity-contentEncoding": "ALLOW",
+      "unset-filename-contentDisposition": "ALLOW",
+      "unset-inline-contentDisposition": "ALLOW"
+    },
+    "update": {
+      "present-name": "ALLOW",
+      "present-bucket": "ALLOW",
+      "present-generation": "ALLOW",
+      "present-metageneration": "ALLOW",
+      "present-size": "ALLOW",
+      "present-timeCreated": "DENY",
+      "present-updated": "DENY",
+      "present-md5Hash": "ALLOW",
+      "present-crc32c": "ALLOW",
+      "present-etag": "ALLOW",
+      "present-contentDisposition": "ALLOW",
+      "present-contentEncoding": "ALLOW",
+      "present-contentLanguage": "ALLOW",
+      "present-contentType": "ALLOW",
+      "present-metadata": "ALLOW",
+      "name-object-path": "ALLOW",
+      "name-string": "ALLOW",
+      "bucket-match": "ALLOW",
+      "content-type-set": "ALLOW",
+      "content-disposition-set": "ALLOW",
+      "content-encoding-set": "ALLOW",
+      "content-language-set": "ALLOW",
+      "metadata-set": "ALLOW",
+      "time-created-timestamp": "DENY",
+      "updated-timestamp": "DENY",
+      "generation-int": "ALLOW",
+      "metageneration-int": "ALLOW",
+      "md5-string": "ALLOW",
+      "etag-string": "ALLOW",
+      "crc32c-string": "ALLOW",
+      "size-int": "ALLOW",
+      "cache-control-set": "ALLOW",
+      "storage-class-null": "DENY",
+      "storage-class-standard": "ALLOW",
+      "time-created-key": "DENY",
+      "updated-key": "DENY",
+      "name-key": "ALLOW",
+      "keys-size-13": "DENY",
+      "keys-size-14": "DENY",
+      "keys-size-15": "ALLOW",
+      "keys-size-16": "DENY",
+      "keys-size-17": "DENY",
+      "keys-size-18": "DENY",
+      "keys-size-over-18": "DENY",
+      "extra-key-cacheControl": "ALLOW",
+      "extra-key-storageClass": "ALLOW",
+      "extra-key-customTime": "DENY",
+      "extra-key-componentCount": "DENY",
+      "extra-key-id": "DENY",
+      "extra-key-kind": "DENY",
+      "extra-key-path": "DENY",
+      "extra-key-contentMD5": "DENY",
+      "keys-documented-13": "ALLOW",
+      "size-unchanged": "ALLOW",
+      "generation-unchanged": "ALLOW",
+      "metageneration-unchanged": "ALLOW",
+      "metageneration-next": "DENY",
+      "time-created-unchanged": "DENY",
+      "updated-unchanged": "DENY",
+      "updated-request-time": "DENY",
+      "md5-unchanged": "ALLOW",
+      "crc32c-unchanged": "ALLOW",
+      "etag-unchanged": "ALLOW",
+      "partial-content-type-kept": "ALLOW",
+      "partial-content-disposition-null": "ALLOW"
+    },
+    "overwrite": {
+      "present-name": "ALLOW",
+      "present-bucket": "ALLOW",
+      "present-generation": "ALLOW",
+      "present-metageneration": "ALLOW",
+      "present-size": "ALLOW",
+      "present-timeCreated": "DENY",
+      "present-updated": "DENY",
+      "present-md5Hash": "ALLOW",
+      "present-crc32c": "ALLOW",
+      "present-etag": "ALLOW",
+      "present-contentDisposition": "ALLOW",
+      "present-contentEncoding": "ALLOW",
+      "present-contentLanguage": "ALLOW",
+      "present-contentType": "ALLOW",
+      "present-metadata": "ALLOW",
+      "name-object-path": "ALLOW",
+      "size-bytes": "ALLOW",
+      "generation-null": "ALLOW",
+      "metageneration-null": "ALLOW",
+      "etag-null": "ALLOW",
+      "md5-changed": "ALLOW",
+      "keys-size-15": "ALLOW",
+      "unset-identity-contentEncoding": "ALLOW",
+      "unset-filename-contentDisposition": "ALLOW",
+      "unset-null-contentLanguage": "ALLOW",
+      "unset-null-cacheControl": "ALLOW",
+      "unset-null-metadata": "ALLOW",
+      "verb-create": "ALLOW",
+      "verb-update": "DENY",
+      "resource-existing": "ALLOW"
+    }
+  },
+  "diagnostics": {
+    "create/present-name": {
+      "allowed": true
+    },
+    "create/present-bucket": {
+      "allowed": true
+    },
+    "create/present-generation": {
+      "allowed": true
+    },
+    "create/present-metageneration": {
+      "allowed": true
+    },
+    "create/present-size": {
+      "allowed": true
+    },
+    "create/present-timeCreated": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "create/present-updated": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "create/present-md5Hash": {
+      "allowed": true
+    },
+    "create/present-crc32c": {
+      "allowed": true
+    },
+    "create/present-etag": {
+      "allowed": true
+    },
+    "create/present-contentDisposition": {
+      "allowed": true
+    },
+    "create/present-contentEncoding": {
+      "allowed": true
+    },
+    "create/present-contentLanguage": {
+      "allowed": true
+    },
+    "create/present-contentType": {
+      "allowed": true
+    },
+    "create/present-metadata": {
+      "allowed": true
+    },
+    "create/name-object-path": {
+      "allowed": true
+    },
+    "create/name-string": {
+      "allowed": true
+    },
+    "create/bucket-match": {
+      "allowed": true
+    },
+    "create/content-type-set": {
+      "allowed": true
+    },
+    "create/content-disposition-set": {
+      "allowed": true
+    },
+    "create/content-encoding-set": {
+      "allowed": true
+    },
+    "create/content-language-set": {
+      "allowed": true
+    },
+    "create/metadata-set": {
+      "allowed": true
+    },
+    "create/time-created-timestamp": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "create/updated-timestamp": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "create/generation-int": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "create/metageneration-int": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "create/md5-string": {
+      "allowed": true
+    },
+    "create/etag-string": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "create/crc32c-string": {
+      "allowed": true
+    },
+    "create/size-int": {
+      "allowed": true
+    },
+    "create/cache-control-set": {
+      "allowed": true
+    },
+    "create/storage-class-null": {
+      "allowed": true
+    },
+    "create/storage-class-standard": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "create/time-created-key": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "create/updated-key": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "create/name-key": {
+      "allowed": true
+    },
+    "create/keys-size-13": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "create/keys-size-14": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "create/keys-size-15": {
+      "allowed": true
+    },
+    "create/keys-size-16": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "create/keys-size-17": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "create/keys-size-18": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "create/keys-size-over-18": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "create/extra-key-cacheControl": {
+      "allowed": true
+    },
+    "create/extra-key-storageClass": {
+      "allowed": true
+    },
+    "create/extra-key-customTime": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "create/extra-key-componentCount": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "create/extra-key-id": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "create/extra-key-kind": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "create/extra-key-path": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "create/extra-key-contentMD5": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "create/keys-documented-13": {
+      "allowed": true
+    },
+    "create/size-bytes": {
+      "allowed": true
+    },
+    "create/metageneration-one": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "create/time-created-request-time": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "create/updated-time-created": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "create/generation-null": {
+      "allowed": true
+    },
+    "create/metageneration-null": {
+      "allowed": true
+    },
+    "create/etag-null": {
+      "allowed": true
+    },
+    "create/unset-present-contentDisposition": {
+      "allowed": true
+    },
+    "create/unset-present-contentEncoding": {
+      "allowed": true
+    },
+    "create/unset-present-contentLanguage": {
+      "allowed": true
+    },
+    "create/unset-present-cacheControl": {
+      "allowed": true
+    },
+    "create/unset-present-metadata": {
+      "allowed": true
+    },
+    "create/unset-null-contentDisposition": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "create/unset-null-contentEncoding": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "create/unset-null-contentLanguage": {
+      "allowed": true
+    },
+    "create/unset-null-cacheControl": {
+      "allowed": true
+    },
+    "create/unset-null-metadata": {
+      "allowed": true
+    },
+    "create/unset-empty-contentDisposition": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "create/unset-empty-contentEncoding": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "create/unset-empty-contentLanguage": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "create/unset-empty-cacheControl": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "create/unset-empty-metadata": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "create/unset-identity-contentEncoding": {
+      "allowed": true
+    },
+    "create/unset-filename-contentDisposition": {
+      "allowed": true
+    },
+    "create/unset-inline-contentDisposition": {
+      "allowed": true
+    },
+    "update/present-name": {
+      "allowed": true
+    },
+    "update/present-bucket": {
+      "allowed": true
+    },
+    "update/present-generation": {
+      "allowed": true
+    },
+    "update/present-metageneration": {
+      "allowed": true
+    },
+    "update/present-size": {
+      "allowed": true
+    },
+    "update/present-timeCreated": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "update/present-updated": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "update/present-md5Hash": {
+      "allowed": true
+    },
+    "update/present-crc32c": {
+      "allowed": true
+    },
+    "update/present-etag": {
+      "allowed": true
+    },
+    "update/present-contentDisposition": {
+      "allowed": true
+    },
+    "update/present-contentEncoding": {
+      "allowed": true
+    },
+    "update/present-contentLanguage": {
+      "allowed": true
+    },
+    "update/present-contentType": {
+      "allowed": true
+    },
+    "update/present-metadata": {
+      "allowed": true
+    },
+    "update/name-object-path": {
+      "allowed": true
+    },
+    "update/name-string": {
+      "allowed": true
+    },
+    "update/bucket-match": {
+      "allowed": true
+    },
+    "update/content-type-set": {
+      "allowed": true
+    },
+    "update/content-disposition-set": {
+      "allowed": true
+    },
+    "update/content-encoding-set": {
+      "allowed": true
+    },
+    "update/content-language-set": {
+      "allowed": true
+    },
+    "update/metadata-set": {
+      "allowed": true
+    },
+    "update/time-created-timestamp": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "update/updated-timestamp": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "update/generation-int": {
+      "allowed": true
+    },
+    "update/metageneration-int": {
+      "allowed": true
+    },
+    "update/md5-string": {
+      "allowed": true
+    },
+    "update/etag-string": {
+      "allowed": true
+    },
+    "update/crc32c-string": {
+      "allowed": true
+    },
+    "update/size-int": {
+      "allowed": true
+    },
+    "update/cache-control-set": {
+      "allowed": true
+    },
+    "update/storage-class-null": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "update/storage-class-standard": {
+      "allowed": true
+    },
+    "update/time-created-key": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "update/updated-key": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "update/name-key": {
+      "allowed": true
+    },
+    "update/keys-size-13": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "update/keys-size-14": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "update/keys-size-15": {
+      "allowed": true
+    },
+    "update/keys-size-16": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "update/keys-size-17": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "update/keys-size-18": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "update/keys-size-over-18": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "update/extra-key-cacheControl": {
+      "allowed": true
+    },
+    "update/extra-key-storageClass": {
+      "allowed": true
+    },
+    "update/extra-key-customTime": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "update/extra-key-componentCount": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "update/extra-key-id": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "update/extra-key-kind": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "update/extra-key-path": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "update/extra-key-contentMD5": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "update/keys-documented-13": {
+      "allowed": true
+    },
+    "update/size-unchanged": {
+      "allowed": true
+    },
+    "update/generation-unchanged": {
+      "allowed": true
+    },
+    "update/metageneration-unchanged": {
+      "allowed": true
+    },
+    "update/metageneration-next": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "update/time-created-unchanged": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "update/updated-unchanged": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "update/updated-request-time": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "update/md5-unchanged": {
+      "allowed": true
+    },
+    "update/crc32c-unchanged": {
+      "allowed": true
+    },
+    "update/etag-unchanged": {
+      "allowed": true
+    },
+    "update/partial-content-type-kept": {
+      "allowed": true
+    },
+    "update/partial-content-disposition-null": {
+      "allowed": true
+    },
+    "overwrite/present-name": {
+      "allowed": true
+    },
+    "overwrite/present-bucket": {
+      "allowed": true
+    },
+    "overwrite/present-generation": {
+      "allowed": true
+    },
+    "overwrite/present-metageneration": {
+      "allowed": true
+    },
+    "overwrite/present-size": {
+      "allowed": true
+    },
+    "overwrite/present-timeCreated": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "overwrite/present-updated": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "overwrite/present-md5Hash": {
+      "allowed": true
+    },
+    "overwrite/present-crc32c": {
+      "allowed": true
+    },
+    "overwrite/present-etag": {
+      "allowed": true
+    },
+    "overwrite/present-contentDisposition": {
+      "allowed": true
+    },
+    "overwrite/present-contentEncoding": {
+      "allowed": true
+    },
+    "overwrite/present-contentLanguage": {
+      "allowed": true
+    },
+    "overwrite/present-contentType": {
+      "allowed": true
+    },
+    "overwrite/present-metadata": {
+      "allowed": true
+    },
+    "overwrite/name-object-path": {
+      "allowed": true
+    },
+    "overwrite/size-bytes": {
+      "allowed": true
+    },
+    "overwrite/generation-null": {
+      "allowed": true
+    },
+    "overwrite/metageneration-null": {
+      "allowed": true
+    },
+    "overwrite/etag-null": {
+      "allowed": true
+    },
+    "overwrite/md5-changed": {
+      "allowed": true
+    },
+    "overwrite/keys-size-15": {
+      "allowed": true
+    },
+    "overwrite/unset-identity-contentEncoding": {
+      "allowed": true
+    },
+    "overwrite/unset-filename-contentDisposition": {
+      "allowed": true
+    },
+    "overwrite/unset-null-contentLanguage": {
+      "allowed": true
+    },
+    "overwrite/unset-null-cacheControl": {
+      "allowed": true
+    },
+    "overwrite/unset-null-metadata": {
+      "allowed": true
+    },
+    "overwrite/verb-create": {
+      "allowed": true
+    },
+    "overwrite/verb-update": {
+      "allowed": false,
+      "code": "403",
+      "message": "Permission denied."
+    },
+    "overwrite/resource-existing": {
+      "allowed": true
+    }
+  },
+  "cleanup": {
+    "releaseRestored": true,
+    "objectsRemoved": true
+  },
+  "requestBudget": {
+    "counts": {
+      "storage": 269,
+      "firestoreWrite": 0,
+      "rules": 6,
+      "iam": 0
+    },
+    "limits": {
+      "storage": 300,
+      "firestoreWrite": 0,
+      "rules": 12,
+      "iam": 0
+    }
+  },
+  "cleanupRequestBudget": {
+    "counts": {
+      "storage": 176,
+      "firestoreWrite": 0,
+      "rules": 2,
+      "iam": 0
+    },
+    "limits": {
+      "storage": 340,
+      "firestoreWrite": 0,
+      "rules": 8,
+      "iam": 0
+    }
+  },
+  "probeRules": "\n    // @pyric/storage-request-resource-fields/<prefix>\n    match /<prefix>/canary.bin { allow create: if true; }\n    match /<prefix>/create/present-name.bin { allow create: if request.resource.name == request.resource.name; }\n    match /<prefix>/create/present-bucket.bin { allow create: if request.resource.bucket == request.resource.bucket; }\n    match /<prefix>/create/present-generation.bin { allow create: if request.resource.generation == request.resource.generation; }\n    match /<prefix>/create/present-metageneration.bin { allow create: if request.resource.metageneration == request.resource.metageneration; }\n    match /<prefix>/create/present-size.bin { allow create: if request.resource.size == request.resource.size; }\n    match /<prefix>/create/present-timeCreated.bin { allow create: if request.resource.timeCreated == request.resource.timeCreated; }\n    match /<prefix>/create/present-updated.bin { allow create: if request.resource.updated == request.resource.updated; }\n    match /<prefix>/create/present-md5Hash.bin { allow create: if request.resource.md5Hash == request.resource.md5Hash; }\n    match /<prefix>/create/present-crc32c.bin { allow create: if request.resource.crc32c == request.resource.crc32c; }\n    match /<prefix>/create/present-etag.bin { allow create: if request.resource.etag == request.resource.etag; }\n    match /<prefix>/create/present-contentDisposition.bin { allow create: if request.resource.contentDisposition == request.resource.contentDisposition; }\n    match /<prefix>/create/present-contentEncoding.bin { allow create: if request.resource.contentEncoding == request.resource.contentEncoding; }\n    match /<prefix>/create/present-contentLanguage.bin { allow create: if request.resource.contentLanguage == request.resource.contentLanguage; }\n    match /<prefix>/create/present-contentType.bin { allow create: if request.resource.contentType == request.resource.contentType; }\n    match /<prefix>/create/present-metadata.bin { allow create: if request.resource.metadata == request.resource.metadata; }\n    match /<prefix>/create/name-object-path.bin { allow create: if request.resource.name == \"<prefix>/create/name-object-path.bin\"; }\n    match /<prefix>/create/name-string.bin { allow create: if request.resource.name is string; }\n    match /<prefix>/create/bucket-match.bin { allow create: if request.resource.bucket == bucket; }\n    match /<prefix>/create/content-type-set.bin { allow create: if request.resource.contentType == 'text/plain'; }\n    match /<prefix>/create/content-disposition-set.bin { allow create: if request.resource.contentDisposition == 'inline'; }\n    match /<prefix>/create/content-encoding-set.bin { allow create: if request.resource.contentEncoding == 'identity'; }\n    match /<prefix>/create/content-language-set.bin { allow create: if request.resource.contentLanguage == 'en'; }\n    match /<prefix>/create/metadata-set.bin { allow create: if request.resource.metadata == {'probe': 'value'}; }\n    match /<prefix>/create/time-created-timestamp.bin { allow create: if request.resource.timeCreated is timestamp; }\n    match /<prefix>/create/updated-timestamp.bin { allow create: if request.resource.updated is timestamp; }\n    match /<prefix>/create/generation-int.bin { allow create: if request.resource.generation is int; }\n    match /<prefix>/create/metageneration-int.bin { allow create: if request.resource.metageneration is int; }\n    match /<prefix>/create/md5-string.bin { allow create: if request.resource.md5Hash is string; }\n    match /<prefix>/create/etag-string.bin { allow create: if request.resource.etag is string; }\n    match /<prefix>/create/crc32c-string.bin { allow create: if request.resource.crc32c is string; }\n    match /<prefix>/create/size-int.bin { allow create: if request.resource.size is int; }\n    match /<prefix>/create/cache-control-set.bin { allow create: if request.resource.cacheControl == 'no-cache'; }\n    match /<prefix>/create/storage-class-null.bin { allow create: if request.resource.storageClass == null; }\n    match /<prefix>/create/storage-class-standard.bin { allow create: if request.resource.storageClass == 'STANDARD'; }\n    match /<prefix>/create/time-created-key.bin { allow create: if 'timeCreated' in request.resource; }\n    match /<prefix>/create/updated-key.bin { allow create: if 'updated' in request.resource; }\n    match /<prefix>/create/name-key.bin { allow create: if 'name' in request.resource; }\n    match /<prefix>/create/keys-size-13.bin { allow create: if request.resource.keys().size() == 13; }\n    match /<prefix>/create/keys-size-14.bin { allow create: if request.resource.keys().size() == 14; }\n    match /<prefix>/create/keys-size-15.bin { allow create: if request.resource.keys().size() == 15; }\n    match /<prefix>/create/keys-size-16.bin { allow create: if request.resource.keys().size() == 16; }\n    match /<prefix>/create/keys-size-17.bin { allow create: if request.resource.keys().size() == 17; }\n    match /<prefix>/create/keys-size-18.bin { allow create: if request.resource.keys().size() == 18; }\n    match /<prefix>/create/keys-size-over-18.bin { allow create: if request.resource.keys().size() > 18; }\n    match /<prefix>/create/extra-key-cacheControl.bin { allow create: if 'cacheControl' in request.resource; }\n    match /<prefix>/create/extra-key-storageClass.bin { allow create: if 'storageClass' in request.resource; }\n    match /<prefix>/create/extra-key-customTime.bin { allow create: if 'customTime' in request.resource; }\n    match /<prefix>/create/extra-key-componentCount.bin { allow create: if 'componentCount' in request.resource; }\n    match /<prefix>/create/extra-key-id.bin { allow create: if 'id' in request.resource; }\n    match /<prefix>/create/extra-key-kind.bin { allow create: if 'kind' in request.resource; }\n    match /<prefix>/create/extra-key-path.bin { allow create: if 'path' in request.resource; }\n    match /<prefix>/create/extra-key-contentMD5.bin { allow create: if 'contentMD5' in request.resource; }\n    match /<prefix>/create/keys-documented-13.bin { allow create: if request.resource.keys().hasAll([\"name\",\"bucket\",\"generation\",\"metageneration\",\"size\",\"md5Hash\",\"crc32c\",\"etag\",\"contentDisposition\",\"contentEncoding\",\"contentLanguage\",\"contentType\",\"metadata\"]); }\n    match /<prefix>/create/size-bytes.bin { allow create: if request.resource.size == 5; }\n    match /<prefix>/create/metageneration-one.bin { allow create: if request.resource.metageneration == 1; }\n    match /<prefix>/create/time-created-request-time.bin { allow create: if request.resource.timeCreated == request.time; }\n    match /<prefix>/create/updated-time-created.bin { allow create: if request.resource.updated == request.resource.timeCreated; }\n    match /<prefix>/create/generation-null.bin { allow create: if request.resource.generation == null; }\n    match /<prefix>/create/metageneration-null.bin { allow create: if request.resource.metageneration == null; }\n    match /<prefix>/create/etag-null.bin { allow create: if request.resource.etag == null; }\n    match /<prefix>/create/unset-present-contentDisposition.bin { allow create: if request.resource.contentDisposition == request.resource.contentDisposition; }\n    match /<prefix>/create/unset-present-contentEncoding.bin { allow create: if request.resource.contentEncoding == request.resource.contentEncoding; }\n    match /<prefix>/create/unset-present-contentLanguage.bin { allow create: if request.resource.contentLanguage == request.resource.contentLanguage; }\n    match /<prefix>/create/unset-present-cacheControl.bin { allow create: if request.resource.cacheControl == request.resource.cacheControl; }\n    match /<prefix>/create/unset-present-metadata.bin { allow create: if request.resource.metadata == request.resource.metadata; }\n    match /<prefix>/create/unset-null-contentDisposition.bin { allow create: if request.resource.contentDisposition == null; }\n    match /<prefix>/create/unset-null-contentEncoding.bin { allow create: if request.resource.contentEncoding == null; }\n    match /<prefix>/create/unset-null-contentLanguage.bin { allow create: if request.resource.contentLanguage == null; }\n    match /<prefix>/create/unset-null-cacheControl.bin { allow create: if request.resource.cacheControl == null; }\n    match /<prefix>/create/unset-null-metadata.bin { allow create: if request.resource.metadata == null; }\n    match /<prefix>/create/unset-empty-contentDisposition.bin { allow create: if request.resource.contentDisposition == ''; }\n    match /<prefix>/create/unset-empty-contentEncoding.bin { allow create: if request.resource.contentEncoding == ''; }\n    match /<prefix>/create/unset-empty-contentLanguage.bin { allow create: if request.resource.contentLanguage == ''; }\n    match /<prefix>/create/unset-empty-cacheControl.bin { allow create: if request.resource.cacheControl == ''; }\n    match /<prefix>/create/unset-empty-metadata.bin { allow create: if request.resource.metadata == {}; }\n    match /<prefix>/create/unset-identity-contentEncoding.bin { allow create: if request.resource.contentEncoding == 'identity'; }\n    match /<prefix>/create/unset-filename-contentDisposition.bin { allow create: if request.resource.contentDisposition == \"inline; filename*=utf-8''unset-filename-contentDisposition.bin\"; }\n    match /<prefix>/create/unset-inline-contentDisposition.bin { allow create: if request.resource.contentDisposition.matches('inline.*'); }\n    match /<prefix>/update/present-name.bin { allow update: if request.resource.name == request.resource.name; }\n    match /<prefix>/update/present-bucket.bin { allow update: if request.resource.bucket == request.resource.bucket; }\n    match /<prefix>/update/present-generation.bin { allow update: if request.resource.generation == request.resource.generation; }\n    match /<prefix>/update/present-metageneration.bin { allow update: if request.resource.metageneration == request.resource.metageneration; }\n    match /<prefix>/update/present-size.bin { allow update: if request.resource.size == request.resource.size; }\n    match /<prefix>/update/present-timeCreated.bin { allow update: if request.resource.timeCreated == request.resource.timeCreated; }\n    match /<prefix>/update/present-updated.bin { allow update: if request.resource.updated == request.resource.updated; }\n    match /<prefix>/update/present-md5Hash.bin { allow update: if request.resource.md5Hash == request.resource.md5Hash; }\n    match /<prefix>/update/present-crc32c.bin { allow update: if request.resource.crc32c == request.resource.crc32c; }\n    match /<prefix>/update/present-etag.bin { allow update: if request.resource.etag == request.resource.etag; }\n    match /<prefix>/update/present-contentDisposition.bin { allow update: if request.resource.contentDisposition == request.resource.contentDisposition; }\n    match /<prefix>/update/present-contentEncoding.bin { allow update: if request.resource.contentEncoding == request.resource.contentEncoding; }\n    match /<prefix>/update/present-contentLanguage.bin { allow update: if request.resource.contentLanguage == request.resource.contentLanguage; }\n    match /<prefix>/update/present-contentType.bin { allow update: if request.resource.contentType == request.resource.contentType; }\n    match /<prefix>/update/present-metadata.bin { allow update: if request.resource.metadata == request.resource.metadata; }\n    match /<prefix>/update/name-object-path.bin { allow update: if request.resource.name == \"<prefix>/update/name-object-path.bin\"; }\n    match /<prefix>/update/name-string.bin { allow update: if request.resource.name is string; }\n    match /<prefix>/update/bucket-match.bin { allow update: if request.resource.bucket == bucket; }\n    match /<prefix>/update/content-type-set.bin { allow update: if request.resource.contentType == 'text/plain'; }\n    match /<prefix>/update/content-disposition-set.bin { allow update: if request.resource.contentDisposition == 'inline'; }\n    match /<prefix>/update/content-encoding-set.bin { allow update: if request.resource.contentEncoding == 'identity'; }\n    match /<prefix>/update/content-language-set.bin { allow update: if request.resource.contentLanguage == 'en'; }\n    match /<prefix>/update/metadata-set.bin { allow update: if request.resource.metadata == {'probe': 'value'}; }\n    match /<prefix>/update/time-created-timestamp.bin { allow update: if request.resource.timeCreated is timestamp; }\n    match /<prefix>/update/updated-timestamp.bin { allow update: if request.resource.updated is timestamp; }\n    match /<prefix>/update/generation-int.bin { allow update: if request.resource.generation is int; }\n    match /<prefix>/update/metageneration-int.bin { allow update: if request.resource.metageneration is int; }\n    match /<prefix>/update/md5-string.bin { allow update: if request.resource.md5Hash is string; }\n    match /<prefix>/update/etag-string.bin { allow update: if request.resource.etag is string; }\n    match /<prefix>/update/crc32c-string.bin { allow update: if request.resource.crc32c is string; }\n    match /<prefix>/update/size-int.bin { allow update: if request.resource.size is int; }\n    match /<prefix>/update/cache-control-set.bin { allow update: if request.resource.cacheControl == 'no-cache'; }\n    match /<prefix>/update/storage-class-null.bin { allow update: if request.resource.storageClass == null; }\n    match /<prefix>/update/storage-class-standard.bin { allow update: if request.resource.storageClass == 'STANDARD'; }\n    match /<prefix>/update/time-created-key.bin { allow update: if 'timeCreated' in request.resource; }\n    match /<prefix>/update/updated-key.bin { allow update: if 'updated' in request.resource; }\n    match /<prefix>/update/name-key.bin { allow update: if 'name' in request.resource; }\n    match /<prefix>/update/keys-size-13.bin { allow update: if request.resource.keys().size() == 13; }\n    match /<prefix>/update/keys-size-14.bin { allow update: if request.resource.keys().size() == 14; }\n    match /<prefix>/update/keys-size-15.bin { allow update: if request.resource.keys().size() == 15; }\n    match /<prefix>/update/keys-size-16.bin { allow update: if request.resource.keys().size() == 16; }\n    match /<prefix>/update/keys-size-17.bin { allow update: if request.resource.keys().size() == 17; }\n    match /<prefix>/update/keys-size-18.bin { allow update: if request.resource.keys().size() == 18; }\n    match /<prefix>/update/keys-size-over-18.bin { allow update: if request.resource.keys().size() > 18; }\n    match /<prefix>/update/extra-key-cacheControl.bin { allow update: if 'cacheControl' in request.resource; }\n    match /<prefix>/update/extra-key-storageClass.bin { allow update: if 'storageClass' in request.resource; }\n    match /<prefix>/update/extra-key-customTime.bin { allow update: if 'customTime' in request.resource; }\n    match /<prefix>/update/extra-key-componentCount.bin { allow update: if 'componentCount' in request.resource; }\n    match /<prefix>/update/extra-key-id.bin { allow update: if 'id' in request.resource; }\n    match /<prefix>/update/extra-key-kind.bin { allow update: if 'kind' in request.resource; }\n    match /<prefix>/update/extra-key-path.bin { allow update: if 'path' in request.resource; }\n    match /<prefix>/update/extra-key-contentMD5.bin { allow update: if 'contentMD5' in request.resource; }\n    match /<prefix>/update/keys-documented-13.bin { allow update: if request.resource.keys().hasAll([\"name\",\"bucket\",\"generation\",\"metageneration\",\"size\",\"md5Hash\",\"crc32c\",\"etag\",\"contentDisposition\",\"contentEncoding\",\"contentLanguage\",\"contentType\",\"metadata\"]); }\n    match /<prefix>/update/size-unchanged.bin { allow update: if request.resource.size == resource.size; }\n    match /<prefix>/update/generation-unchanged.bin { allow update: if request.resource.generation == resource.generation; }\n    match /<prefix>/update/metageneration-unchanged.bin { allow update: if request.resource.metageneration == resource.metageneration; }\n    match /<prefix>/update/metageneration-next.bin { allow update: if request.resource.metageneration == resource.metageneration + 1; }\n    match /<prefix>/update/time-created-unchanged.bin { allow update: if request.resource.timeCreated == resource.timeCreated; }\n    match /<prefix>/update/updated-unchanged.bin { allow update: if request.resource.updated == resource.updated; }\n    match /<prefix>/update/updated-request-time.bin { allow update: if request.resource.updated == request.time; }\n    match /<prefix>/update/md5-unchanged.bin { allow update: if request.resource.md5Hash == resource.md5Hash; }\n    match /<prefix>/update/crc32c-unchanged.bin { allow update: if request.resource.crc32c == resource.crc32c; }\n    match /<prefix>/update/etag-unchanged.bin { allow update: if request.resource.etag == resource.etag; }\n    match /<prefix>/update/partial-content-type-kept.bin { allow update: if request.resource.contentType == resource.contentType; }\n    match /<prefix>/update/partial-content-disposition-null.bin { allow update: if request.resource.contentDisposition == null; }\n    match /<prefix>/overwrite/present-name.bin { allow write: if request.resource.name == request.resource.name; }\n    match /<prefix>/overwrite/present-bucket.bin { allow write: if request.resource.bucket == request.resource.bucket; }\n    match /<prefix>/overwrite/present-generation.bin { allow write: if request.resource.generation == request.resource.generation; }\n    match /<prefix>/overwrite/present-metageneration.bin { allow write: if request.resource.metageneration == request.resource.metageneration; }\n    match /<prefix>/overwrite/present-size.bin { allow write: if request.resource.size == request.resource.size; }\n    match /<prefix>/overwrite/present-timeCreated.bin { allow write: if request.resource.timeCreated == request.resource.timeCreated; }\n    match /<prefix>/overwrite/present-updated.bin { allow write: if request.resource.updated == request.resource.updated; }\n    match /<prefix>/overwrite/present-md5Hash.bin { allow write: if request.resource.md5Hash == request.resource.md5Hash; }\n    match /<prefix>/overwrite/present-crc32c.bin { allow write: if request.resource.crc32c == request.resource.crc32c; }\n    match /<prefix>/overwrite/present-etag.bin { allow write: if request.resource.etag == request.resource.etag; }\n    match /<prefix>/overwrite/present-contentDisposition.bin { allow write: if request.resource.contentDisposition == request.resource.contentDisposition; }\n    match /<prefix>/overwrite/present-contentEncoding.bin { allow write: if request.resource.contentEncoding == request.resource.contentEncoding; }\n    match /<prefix>/overwrite/present-contentLanguage.bin { allow write: if request.resource.contentLanguage == request.resource.contentLanguage; }\n    match /<prefix>/overwrite/present-contentType.bin { allow write: if request.resource.contentType == request.resource.contentType; }\n    match /<prefix>/overwrite/present-metadata.bin { allow write: if request.resource.metadata == request.resource.metadata; }\n    match /<prefix>/overwrite/name-object-path.bin { allow write: if request.resource.name == \"<prefix>/overwrite/name-object-path.bin\"; }\n    match /<prefix>/overwrite/size-bytes.bin { allow write: if request.resource.size == 6; }\n    match /<prefix>/overwrite/generation-null.bin { allow write: if request.resource.generation == null; }\n    match /<prefix>/overwrite/metageneration-null.bin { allow write: if request.resource.metageneration == null; }\n    match /<prefix>/overwrite/etag-null.bin { allow write: if request.resource.etag == null; }\n    match /<prefix>/overwrite/md5-changed.bin { allow write: if request.resource.md5Hash != resource.md5Hash; }\n    match /<prefix>/overwrite/keys-size-15.bin { allow write: if request.resource.keys().size() == 15; }\n    match /<prefix>/overwrite/unset-identity-contentEncoding.bin { allow write: if request.resource.contentEncoding == 'identity'; }\n    match /<prefix>/overwrite/unset-filename-contentDisposition.bin { allow write: if request.resource.contentDisposition == \"inline; filename*=utf-8''unset-filename-contentDisposition.bin\"; }\n    match /<prefix>/overwrite/unset-null-contentLanguage.bin { allow write: if request.resource.contentLanguage == null; }\n    match /<prefix>/overwrite/unset-null-cacheControl.bin { allow write: if request.resource.cacheControl == null; }\n    match /<prefix>/overwrite/unset-null-metadata.bin { allow write: if request.resource.metadata == null; }\n    match /<prefix>/overwrite/verb-create.bin { allow create: if true; }\n    match /<prefix>/overwrite/verb-update.bin { allow update: if true; }\n    match /<prefix>/overwrite/resource-existing.bin { allow write: if resource.size == 5; }\n",
+  "createFields": {
+    "contentType": "text/plain",
+    "contentDisposition": "inline",
+    "contentEncoding": "identity",
+    "contentLanguage": "en",
+    "cacheControl": "no-cache",
+    "metadata": {
+      "probe": "value"
+    },
+    "size": 5
+  },
+  "updateFields": {
+    "contentType": "text/plain",
+    "contentDisposition": "inline",
+    "contentEncoding": "identity",
+    "contentLanguage": "en",
+    "cacheControl": "no-cache",
+    "metadata": {
+      "probe": "value"
+    }
+  },
+  "overwriteFields": {
+    "contentType": "text/plain",
+    "size": 6
+  }
+}

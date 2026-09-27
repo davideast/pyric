@@ -6,8 +6,10 @@
  * match block, writes three run-scoped Firestore documents, and performs real
  * anonymous Storage uploads. The previous Storage release pointer is restored
  * in finally, then every object/document is deleted and absence is verified.
- * Additional explicit modes cover native object fields and the remaining
- * cross-service database/project boundaries through the same exclusive lock.
+ * Additional explicit modes cover native object fields, the remaining
+ * cross-service database/project boundaries, and the fields of
+ * `request.resource` (`--request-resource-fields`) through the same exclusive
+ * lock.
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -191,6 +193,10 @@ function injectFirestoreProbeRule(source: string, runId: string, allow: boolean)
 }
 
 async function run(): Promise<void> {
+  if (Bun.argv.includes('--request-resource-fields')) {
+    const { resolveProbeAccess, runStorageRequestResourceFields } = await import('./run-storage-request-resource-fields.ts');
+    return runStorageRequestResourceFields(await resolveProbeAccess());
+  }
   if (!process.env.PYRIC_ORACLE_SA_PATH || !process.env.PYRIC_AI_FIREBASE_CONFIG) return inert();
   if (Bun.argv.includes('--native-fields') || Bun.argv.includes('--remaining-cross-service')) {
     const { runStorageStdlibRemaining } = await import('./run-storage-stdlib-remaining.ts');

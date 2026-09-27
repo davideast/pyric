@@ -1,4 +1,4 @@
-import type { StorageRequest, StorageResource } from './rules.js';
+import type { StorageRequestResource, StorageResource } from './rules.js';
 
 export function resourceFromStored(
   stored:
@@ -74,20 +74,64 @@ function numberOrUndefined(v: string | undefined): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
-/**
- * Build the `request.resource` binding for a write. The custom
- * metadata the client is about to set becomes `request.resource.metadata`
- * so `allow write: if request.resource.metadata.owner == request.auth.uid`
- * evaluates against the real incoming value rather than `undefined`.
- */
-export function requestResourceFor(args: {
+/** The object record a write would store, in the persisted metadata shape. */
+export interface WrittenObject {
+  /** Object path, with or without the `b/<bucket>/o/` prefix. */
+  fullPath: string;
+  bucket: string;
   size: number;
   contentType?: string;
   customMetadata?: Record<string, string>;
-}): NonNullable<StorageRequest['resource']> {
-  return {
-    size: args.size,
-    contentType: args.contentType,
-    metadata: args.customMetadata,
+  cacheControl?: string;
+  contentDisposition?: string;
+  contentEncoding?: string;
+  contentLanguage?: string;
+  /** Persisted as a numeric string; read only for a metadata update. */
+  generation?: string;
+  metageneration?: string;
+}
+
+/**
+ * Which write builds the binding. `upload` writes new bytes, whether or not an
+ * object exists at the path; `metadataUpdate` rewrites the metadata of a stored
+ * object and keeps its bytes.
+ */
+export type StorageWrite = 'upload' | 'metadataUpdate';
+
+/**
+ * Build the `request.resource` binding for a write from the object it would
+ * store. See {@link StorageRequestResource} for the production shape.
+ *
+ * An upload gets the defaults the Firebase Storage upload endpoint applies to
+ * an unset `contentDisposition` (`inline; filename*=utf-8''<last path
+ * segment>`) and `contentEncoding` (`identity`), and `null` versions and
+ * `etag`, which the object has not been assigned yet. A metadata update reads
+ * `generation` and `metageneration` from `object`, so the caller passes the
+ * stored metageneration: production does not show the rule the advance the
+ * write makes.
+ */
+export function requestResourceFor(object: WrittenObject, write: StorageWrite): StorageRequestResource {
+  const name = objectNameFromFullPath(object.fullPath, object.bucket);
+  const upload = write === 'upload';
+  const resource: StorageRequestResource = {
+    name,
+    bucket: object.bucket,
+    size: object.size,
+    contentType: object.contentType,
+    contentDisposition: object.contentDisposition
+      ?? (upload ? `inline; filename*=utf-8''${name?.split('/').pop() ?? ''}` : null),
+    contentEncoding: object.contentEncoding ?? (upload ? 'identity' : null),
+    contentLanguage: object.contentLanguage ?? null,
+    cacheControl: object.cacheControl ?? null,
+    metadata: object.customMetadata ?? null,
   };
+  if (upload) {
+    resource.generation = null;
+    resource.metageneration = null;
+    resource.etag = null;
+  } else {
+    resource.generation = numberOrUndefined(object.generation);
+    resource.metageneration = numberOrUndefined(object.metageneration);
+  }
+  return resource;
 }

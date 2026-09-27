@@ -233,10 +233,11 @@ async function rewriteMetadata(
       // object-not-found below when absent), so the verb is `update`.
       method: 'update',
       path: ref.fullPath,
-      // The changed view drives `request.resource` for size / contentType /
-      // metadata rule checks.
-      resource: next
-        ? requestResourceFor({ size: next.size, contentType: next.contentType, customMetadata: next.customMetadata })
+      // The changed view drives `request.resource`, with the stored
+      // metageneration: production shows the rule the version before this
+      // write advances it.
+      resource: existing && next
+        ? requestResourceFor({ ...next, metageneration: existing.metageneration }, 'metadataUpdate')
         : undefined,
     },
     resource: resourceFromStored(existing),

@@ -58,6 +58,13 @@ const ST_FUNCTION_MOCKS: Record<string, StorageFunctionMock[]> = {
   'storage.function.firestore.exists': [{ function: 'exists', path: 'u/x', result: true }],
 };
 
+/** The Rules Test API case shape of `request.resource`. The capability probes
+ *  never set a field to null, so only present, non-null fields are sent. */
+function wireRequestResource(resource: EvaluationInput['request']['resource']): StorageTestCase['resource'] {
+  if (!resource) return undefined;
+  return Object.fromEntries(Object.entries(resource).filter(([, value]) => value !== null && value !== undefined));
+}
+
 export function storageRequest(
   c: LanguageConstruct,
 ): { rules: string; cases: StorageTestCase[] } | { unprobeable: string } {
@@ -75,7 +82,7 @@ export function storageRequest(
         method: storageMethodToTestMethod(input.request.method),
         path: input.request.path,
         auth: input.request.auth ?? null,
-        resource: input.request.resource,
+        resource: wireRequestResource(input.request.resource),
         existingResource: input.resource,
         requestTime: '2024-01-01T00:00:00Z',
         ...(functionMocks ? { functionMocks } : {}),

@@ -408,10 +408,12 @@ export async function handleStorageOp(
             method: existing ? 'update' : 'create',
             path: r.fullPath,
             resource: requestResourceFor({
+              ...settable,
+              fullPath: r.fullPath,
+              bucket: r.bucket,
               size: msg.size,
               contentType: settable.contentType ?? msg.contentType ?? 'application/octet-stream',
-              customMetadata: settable.customMetadata,
-            }),
+            }, 'upload'),
           },
           resource: resourceFromStored(existing),
         }, target, operationProvenance);

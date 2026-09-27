@@ -502,3 +502,90 @@ describe('resource object-identity / time fields thread through real ops', () =>
     expect(meta.contentType).toBe('image/png');
   });
 });
+
+describe('request.resource object fields thread through real ops', () => {
+  async function uploadUnder(condition: string): Promise<'ALLOW' | 'DENY'> {
+    const sandbox = initializeSandbox({});
+    const alice = getStorageSandbox(sandbox.withAuth({ uid: 'alice' }), {
+      dbName: uniqueDbName('req-res'),
+      rules: `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{uid}/{file} {
+      allow create: if ${condition};
+    }
+  }
+}`,
+    });
+    try {
+      await uploadBytes(ref(alice, 'users/alice/a.txt'), new Blob(['hi']), { contentType: 'text/plain' });
+      return 'ALLOW';
+    } catch {
+      return 'DENY';
+    }
+  }
+
+  const cases: Array<[string, 'ALLOW' | 'DENY']> = [
+    ["request.resource.name == 'users/alice/a.txt'", 'ALLOW'],
+    ["request.resource.name.split('/')[1] == request.auth.uid", 'ALLOW'],
+    ['request.resource.bucket == bucket', 'ALLOW'],
+    ["request.resource.name != 'users/alice/a.txt'", 'DENY'],
+    ["request.resource.size == 2 && request.resource.contentType == 'text/plain'", 'ALLOW'],
+    ['request.resource.generation == null && request.resource.metageneration == null && request.resource.etag == null', 'ALLOW'],
+    ["request.resource.contentDisposition == \"inline; filename*=utf-8''a.txt\" && request.resource.contentEncoding == 'identity'", 'ALLOW'],
+    ['request.resource.contentLanguage == null && request.resource.cacheControl == null && request.resource.metadata == null', 'ALLOW'],
+    ['request.resource.timeCreated != request.time', 'DENY'],
+    ['request.resource.updated != request.time', 'DENY'],
+  ];
+  for (const [condition, expected] of cases) {
+    it(`an upload under \`${condition}\` is ${expected}`, async () => {
+      expect(await uploadUnder(condition)).toBe(expected);
+    });
+  }
+
+  it('a metadata update sees the object identity and stored versions on request.resource', async () => {
+    const sandbox = initializeSandbox({});
+    const alice = getStorageSandbox(sandbox.withAuth({ uid: 'alice' }), {
+      dbName: uniqueDbName('req-res-update'),
+      rules: `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{uid}/{file} {
+      allow create: if true;
+      allow update: if request.resource.name == 'users/alice/a.txt'
+        && request.resource.bucket == resource.bucket
+        && request.resource.size == resource.size
+        && request.resource.generation == resource.generation
+        && request.resource.metageneration == resource.metageneration
+        && request.resource.metadata == {'label': 'x'}
+        && request.resource.contentType == resource.contentType;
+    }
+  }
+}`,
+    });
+    const target = ref(alice, 'users/alice/a.txt');
+    await uploadBytes(target, new Blob(['hi']), { contentType: 'text/plain' });
+    const meta = await updateMetadata(target, { customMetadata: { label: 'x' } });
+    expect(meta.customMetadata).toEqual({ label: 'x' });
+  });
+
+  it('a metadata update cannot read request.resource.timeCreated or .updated', async () => {
+    const sandbox = initializeSandbox({});
+    const alice = getStorageSandbox(sandbox.withAuth({ uid: 'alice' }), {
+      dbName: uniqueDbName('req-res-update-times'),
+      rules: `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{uid}/{file} {
+      allow create: if true;
+      allow update: if request.resource.timeCreated == resource.timeCreated
+        || request.resource.updated != resource.updated;
+    }
+  }
+}`,
+    });
+    const target = ref(alice, 'users/alice/a.txt');
+    await uploadBytes(target, new Blob(['hi']), { contentType: 'text/plain' });
+    await expect(updateMetadata(target, { customMetadata: { label: 'x' } })).rejects.toThrow(/unauthorized/);
+  });
+});
