@@ -96,7 +96,7 @@ export function queryResidual(
         const arrayField = field(expr.collection);
         const element = rewrite(expr.element, visiting);
         let value: Scalar | undefined;
-        if (element.type === "literal") value = element.value;
+        if (element.type === "literal" && scalar(element.value)) value = element.value;
         if (
           element.type === "memberAccess" &&
           element.property === "uid" &&

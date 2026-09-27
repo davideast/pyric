@@ -5,12 +5,12 @@
     "firestore-rules#161"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"bytes-toutf8-and-hashing\" (Item 5.3). Sim must implement Bytes + String.toUtf8() + hashing.{md5,sha256,crc32,crc32c}. Pre-fix: every reference hashing rule denied silently and toUtf8 threw UnsupportedError.",
-  "observedAt": "2026-09-26T20:25:12.619Z",
+  "observedAt": "2026-09-27T17:04:23.369Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "f93bc223c7407f2152c96089155e022ce6490475aec25c07d78c94cc0a7ea577"
+    "value": "16b6c5d8f2fe40b701f3f66fa32ba7f3c5b1d312e58d6a7ba308c6774ed7ff21"
   },
   "behavior": {
     "toUtf8().size() == 5 ALLOW": "ALLOW",
@@ -41,6 +41,66 @@
     "sha256 FIPS 180-4 448-bit message ALLOW": "ALLOW",
     "sha256 FIPS 180-4 896-bit message ALLOW": "ALLOW",
     "sha256 120-byte Bytes input ALLOW": "ALLOW",
-    "sha256 non-ASCII string ALLOW": "ALLOW"
+    "sha256 non-ASCII string ALLOW": "ALLOW",
+    "bytes literal: b'abc' == 'abc'.toUtf8() → ALLOW": "ALLOW",
+    "bytes literal: b\"abc\" == 'abc'.toUtf8() && b\"it's\" == 'it\\'s'.toUtf8() → ALLOW": "ALLOW",
+    "bytes literal: B'abc' == b\"abc\" → ALLOW": "ALLOW",
+    "bytes literal: b''.size() == 0 && b'' == ''.toUtf8() → ALLOW": "ALLOW",
+    "bytes literal: b'\\x00\\x01'.size() == 2 → ALLOW": "ALLOW",
+    "bytes literal: b'\\x00\\x01'.size() == 8 → DENY": "DENY",
+    "bytes literal: b'\\x00\\x01'.toHexString() == '0001' && b'\\xFf\\xfF'.toHexString() == 'FFFF' → ALLOW": "ALLOW",
+    "bytes literal: b'\\x411' == b'A1' → ALLOW": "ALLOW",
+    "bytes literal: b'\\101' == 'A'.toUtf8() && b'\\012' == b'\\n' && b'\\377' == b'\\xff' → ALLOW": "ALLOW",
+    "bytes literal: b'\\\\\\'\\\"\\n\\r\\t\\b\\f'.toHexString() == '5C27220A0D09080C' → ALLOW": "ALLOW",
+    "bytes literal: b'é' == 'é'.toUtf8() && b'é' == b'\\xc3\\xa9' && b'日本'.size() == 6 → ALLOW": "ALLOW",
+    "bytes literal: b'\\xe9' == 'é'.toUtf8() → DENY": "DENY",
+    "bytes literal: b'abc' is bytes → ALLOW": "ALLOW",
+    "bytes literal: b'\\xff'.toBase64() == '_w==' → ALLOW": "ALLOW",
+    "bytes literal: b'abc' == 'abc' → DENY": "DENY",
+    "bytes literal: b'abc' == b'abd' → DENY": "DENY",
+    "bytes literal: b'abc' < b'abd' && b'abc' > b'ab' && b'\\x00' < b'\\xff' → ALLOW": "ALLOW",
+    "bytes literal: b'abc' in [b'abc'] && !(b'abd' in [b'abc']) → ALLOW": "ALLOW",
+    "bytes literal: hashing.md5(b'abc') == hashing.md5('abc') → ALLOW": "ALLOW",
+    "bytes literal: b'abc' + b'd' == b'abcd' → DENY": "DENY",
+    "bytes literal: (b'abc' + b'd' == b'abcd') || true → ALLOW": "ALLOW",
+    "bytes literal: b'abc'[0] == 97 → DENY": "DENY"
+  },
+  "diagnostics": {
+    "bytes literal: b'abc' + b'd' == b'abcd' → DENY": {
+      "notes": [
+        "Error: firestore.rules line [194], column [31]. Unsupported operation error. Received: bytes + bytes. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 194,
+          "column": 31,
+          "currentOffset": 8386,
+          "endOffset": 8386
+        }
+      }
+    },
+    "bytes literal: b'abc'[0] == 97 → DENY": {
+      "notes": [
+        "Error: firestore.rules line [200], column [24]. Function not found error: Name: [[]]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 200,
+          "column": 24,
+          "currentOffset": 8590,
+          "endOffset": 8595
+        },
+        "functionCalls": [
+          {
+            "function": "[]",
+            "args": [
+              0
+            ]
+          }
+        ]
+      }
+    }
   }
 }

@@ -167,6 +167,7 @@ export function sourceReceiverType(
       if (typeof expression.value === 'string') return 'string';
       if (typeof expression.value === 'number') return 'number';
       if (typeof expression.value === 'boolean') return 'boolean';
+      if (expression.value instanceof Uint8Array) return 'bytes';
       return null;
     case 'listLiteral': return 'list';
     case 'mapLiteral': return 'map';

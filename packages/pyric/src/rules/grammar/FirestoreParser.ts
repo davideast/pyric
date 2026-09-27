@@ -296,6 +296,12 @@ semantics.addOperation<any>('toAST', {
   string_double(_q1, chars, _q2) {
     return { type: 'literal', value: processStringEscapes(chars.sourceString), raw: this.sourceString };
   },
+  bytes_single(_prefix, _q1, chars, _q2) {
+    return { type: 'literal', value: decodeBytesLiteral(chars.sourceString), raw: this.sourceString };
+  },
+  bytes_double(_prefix, _q1, chars, _q2) {
+    return { type: 'literal', value: decodeBytesLiteral(chars.sourceString), raw: this.sourceString };
+  },
   bool_true(_) { return { type: 'literal', value: true, raw: 'true' }; },
   bool_false(_) { return { type: 'literal', value: false, raw: 'false' }; },
   null(_) { return { type: 'literal', value: null, raw: 'null' }; },
@@ -336,6 +342,41 @@ function processStringEscapes(raw: string): string {
     }
   }
   return out;
+}
+
+// ---- Bytes literal decoding ----
+// The body of a bytes literal, after the grammar's `bytesEscape` rule has
+// accepted it. A plain character contributes its UTF-8 encoding; `\xHH` and
+// `\ooo` contribute one byte each; a simple escape contributes the byte of
+// the character it names.
+const BYTES_SIMPLE_ESCAPES: Readonly<Record<string, number>> = {
+  '\\': 0x5c, '\'': 0x27, '"': 0x22, n: 0x0a, r: 0x0d, t: 0x09, b: 0x08, f: 0x0c,
+};
+
+function decodeBytesLiteral(body: string): Uint8Array {
+  const out: number[] = [];
+  const encoder = new TextEncoder();
+  let i = 0;
+  while (i < body.length) {
+    if (body[i] !== '\\') {
+      const char = String.fromCodePoint(body.codePointAt(i)!);
+      out.push(...encoder.encode(char));
+      i += char.length;
+      continue;
+    }
+    const next = body[i + 1]!;
+    if (next === 'x') {
+      out.push(parseInt(body.slice(i + 2, i + 4), 16));
+      i += 4;
+    } else if (next >= '0' && next <= '3') {
+      out.push(parseInt(body.slice(i + 1, i + 4), 8));
+      i += 4;
+    } else {
+      out.push(BYTES_SIMPLE_ESCAPES[next]!);
+      i += 2;
+    }
+  }
+  return new Uint8Array(out);
 }
 
 // ---- Path parsing helper ----

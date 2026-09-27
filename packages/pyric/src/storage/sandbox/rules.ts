@@ -94,6 +94,7 @@ import { parseErrorWording } from '../../rules/grammar/parse-error-wording.js';
 // adopts the same model so `1.0 is float`, truncating int division, and
 // int-vs-float promotion match production instead of JS numerics.
 import { RulesFloat } from '../../rules/simulator/wrappers/float.js';
+import { Bytes } from '../../rules/simulator/wrappers/bytes.js';
 import type {
   FirestoreRules as SharedRules,
   MatchBlock as SharedMatchBlock,
@@ -341,7 +342,7 @@ const BINARY_OPS: ReadonlySet<BinaryOp> = new Set([
 ]);
 
 export type Expr =
-  | { kind: 'literal'; value: number | RulesFloat | string | boolean | null }
+  | { kind: 'literal'; value: number | RulesFloat | string | boolean | null | Bytes }
   | { kind: 'ident'; name: string }
   | { kind: 'member'; target: Expr; name: string }
   | { kind: 'index'; target: Expr; index: Expr }
@@ -424,6 +425,8 @@ function convertExpr(e: SharedExpression): Expr {
       if (typeof e.value === 'number' && e.raw.includes('.')) {
         return { kind: 'literal', value: new RulesFloat(e.value) };
       }
+      // A bytes literal evaluates to the same Bytes value as `toUtf8()`.
+      if (e.value instanceof Uint8Array) return { kind: 'literal', value: new Bytes(e.value) };
       return { kind: 'literal', value: e.value };
     case 'identifier':
       return { kind: 'ident', name: e.name };

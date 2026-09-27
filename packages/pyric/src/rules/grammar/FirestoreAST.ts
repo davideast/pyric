@@ -82,7 +82,7 @@ export interface LetBinding {
 }
 
 export type Expression =
-  | { type: 'literal'; value: string | number | boolean | null; raw: string; loc?: SourceLoc }
+  | { type: 'literal'; value: string | number | boolean | null | Uint8Array; raw: string; loc?: SourceLoc }
   | { type: 'identifier'; name: string; loc?: SourceLoc }
   | { type: 'memberAccess'; object: Expression; property: string; loc?: SourceLoc }
   | { type: 'methodCall'; object: Expression; method: string; args: Expression[]; loc?: SourceLoc }
