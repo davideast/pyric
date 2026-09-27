@@ -28,7 +28,9 @@ import { evaluateStorageRules } from '../../src/storage/sandbox/rules-evaluator.
 // stay unabsorbable and fail the evaluation closed even under a
 // determining operand (the lookup-budget precedent):
 //   - resource-limit exhaustion (Firestore lookup caps, call depth)
-//   - unsupported / compile-reject constructs (undefined function, etc.)
+//   - constructs the evaluator cannot model (an unresolved import, etc.)
+// A Storage call to an undefined function is a runtime error value in
+// production, so it is absorbed like any other.
 // ═══════════════════════════════════════════════════════════════
 
 const fsHandler = new SimulateFirestoreRulesHandler();
@@ -138,6 +140,11 @@ describe('CEL commutative error absorption for && and ||', () => {
     test('nested absorption: (error && false) || true → ALLOW', () => {
       expect(storageAllowed('(request.nope && false) || true')).toBe(true);
     });
+
+    test('an undefined function inside (call && false) → ALLOW', () => {
+      expect(storageAllowed('!(missing() && false)')).toBe(true);
+      expect(storageAllowed('!(missing() && true)')).toBe(false);
+    });
   });
 
   // ─── thrown-error routing at the operand boundary ─────────────
@@ -156,7 +163,7 @@ describe('CEL commutative error absorption for && and ||', () => {
   });
 
   // ─── unabsorbable classes fail closed (budget precedent) ──────
-  describe('resource-limit and compile-reject errors are never absorbed', () => {
+  describe('resource-limit errors are never absorbed', () => {
     test('Storage 2-lookup cap exhaustion inside (lookup && false) → DENY', () => {
       const docs = { 'g/p0': { ok: true }, 'g/p1': { ok: true }, 'g/p2': { ok: true } };
       expect(storageAllowed(
@@ -165,10 +172,6 @@ describe('CEL commutative error absorption for && and ||', () => {
         + ' && !(firestore.exists(/databases/(default)/documents/g/p2) && false)',
         docs,
       )).toBe(false);
-    });
-
-    test('undefined function inside (call && false) → DENY', () => {
-      expect(storageAllowed('!(missing() && false)')).toBe(false);
     });
 
     test('Firestore 10-read budget inside (get && false) → DENY', () => {

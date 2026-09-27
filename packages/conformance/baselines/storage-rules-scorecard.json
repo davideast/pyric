@@ -134,6 +134,7 @@
       "verifiedBy": [
         "arithmetic-operand-types",
         "common-auth-membership",
+        "conversion-functions",
         "firestore-lookup",
         "float-modulo-unary-minus",
         "function-scopes-and-shadowing",
@@ -238,6 +239,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "conversion-functions",
         "float-modulo-unary-minus",
         "function-scopes-and-shadowing",
         "functions-let-scope",
@@ -265,6 +267,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "conversion-functions",
         "float-modulo-unary-minus",
         "functions-let-scope",
         "metadata-verbs-and-arithmetic",
@@ -314,6 +317,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "conversion-functions",
         "in-membership-and-proto-keys",
         "metadata-verbs-and-arithmetic",
         "stdlib-sets-and-mapdiff",
@@ -495,6 +499,7 @@
       "verifiedBy": [
         "arithmetic-operand-types",
         "common-auth-membership",
+        "conversion-functions",
         "error-absorption-and-direction",
         "firestore-lookup",
         "firestore-lookup-budget",
@@ -923,6 +928,7 @@
       "verifiedBy": [
         "arithmetic-operand-types",
         "common-auth-membership",
+        "conversion-functions",
         "error-absorption-and-direction",
         "firestore-lookup",
         "firestore-lookup-budget",
@@ -962,6 +968,7 @@
       "verifiedBy": [
         "arithmetic-operand-types",
         "common-auth-membership",
+        "conversion-functions",
         "function-scopes-and-shadowing",
         "metadata-verbs-and-arithmetic",
         "resource-object-identity",
@@ -984,6 +991,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "conversion-functions",
         "float-modulo-unary-minus",
         "functions-let-scope",
         "metadata-verbs-and-arithmetic",
@@ -1008,6 +1016,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "conversion-functions",
         "functions-let-scope",
         "request-time-timestamp",
         "stdlib-timestamp-duration"
@@ -1066,6 +1075,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "arithmetic-operand-types",
+        "conversion-functions",
         "metadata-verbs-and-arithmetic",
         "resource-object-identity",
         "stdlib-storage-modules",
@@ -1157,6 +1167,7 @@
       "verifiedBy": [
         "arithmetic-operand-types",
         "common-auth-membership",
+        "conversion-functions",
         "error-absorption-and-direction",
         "firestore-lookup-budget",
         "float-modulo-unary-minus",
@@ -1191,6 +1202,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "arithmetic-operand-types",
+        "conversion-functions",
         "error-absorption-and-direction",
         "firestore-lookup-budget",
         "metadata-verbs-and-arithmetic",
@@ -1217,6 +1229,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "arithmetic-operand-types",
+        "conversion-functions",
         "error-absorption-and-direction",
         "float-modulo-unary-minus",
         "functions-let-scope",
@@ -1242,6 +1255,7 @@
       "verifiedBy": [
         "arithmetic-operand-types",
         "common-auth-membership",
+        "conversion-functions",
         "firestore-lookup",
         "firestore-lookup-budget",
         "float-modulo-unary-minus",
@@ -1495,6 +1509,7 @@
       "verifiedBy": [
         "arithmetic-operand-types",
         "common-auth-membership",
+        "conversion-functions",
         "firestore-lookup",
         "firestore-lookup-budget",
         "float-modulo-unary-minus",
@@ -1583,6 +1598,7 @@
       "verifiedBy": [
         "arithmetic-operand-types",
         "common-auth-membership",
+        "conversion-functions",
         "error-absorption-and-direction",
         "firestore-lookup",
         "firestore-lookup-budget",
@@ -1621,6 +1637,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "common-auth-membership",
+        "conversion-functions",
         "function-scopes-and-shadowing",
         "functions-let-scope",
         "stdlib-sets-and-mapdiff",
@@ -1664,6 +1681,7 @@
       "verifiedBy": [
         "arithmetic-operand-types",
         "common-auth-membership",
+        "conversion-functions",
         "error-absorption-and-direction",
         "firestore-lookup",
         "firestore-lookup-budget",
