@@ -242,6 +242,24 @@ describe('the panel shell', () => {
     expect(root.querySelector('.view')!.scrollTop).toBe(0);
   });
 
+  it('keeps the view nodes when a render repeats the markup, so an in-flight scroll lands on them', () => {
+    const { root, showTab, setCurrentLens } = setup({ initiallyOpen: true });
+    showTab('sandbox');
+    const view = root.querySelector('[data-chip-view]');
+    setCurrentLens(undefined);
+    expect(root.querySelector('[data-chip-view]')).toBe(view);
+  });
+
+  it('rebuilds a view edited outside render even when the markup repeats', () => {
+    const { root, showTab, setCurrentLens, dom } = setup({ initiallyOpen: true });
+    showTab('sandbox');
+    const view = root.querySelector('[data-chip-view]');
+    root.querySelector('.view-content')!.append(dom.window.document.createElement('hr'));
+    setCurrentLens(undefined);
+    expect(root.querySelector('[data-chip-view]')).not.toBe(view);
+    expect(root.querySelector('.view-content hr')).toBeNull();
+  });
+
   it('colours the tab whose view holds the problem, and opens on it', () => {
     const { root, runtime } = setup();
     runtime.reportError('write to conversations denied', 'sandbox');

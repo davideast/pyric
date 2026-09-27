@@ -406,6 +406,15 @@ const REQUEST_PAGE_SIZE = 25;
 const USER_PAGE_SIZE = 20;
 const PROVIDER_ICON_LIMIT = 3;
 
+/**
+ * Whether a change to the chip's view came from outside render. Opening or
+ * closing a details element is not: render carries that state over from the
+ * previous view.
+ */
+function isViewEdit(record: MutationRecord): boolean {
+  return !(record.type === 'attributes' && record.attributeName === 'open' && record.target.nodeName === 'DETAILS');
+}
+
 /** `true` for an element with a text caret to preserve across a rebuild. */
 function isTextField(element: Element | null | undefined): element is HTMLInputElement {
   return element !== null && element !== undefined && element.tagName === 'INPUT';
@@ -664,6 +673,11 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   let open = options.initiallyOpen ?? false;
   /** The `open` value the view was last built for; the panel's enter animation plays only when it changes. */
   let renderedOpen: boolean | null = null;
+  /** The markup the view was last built from, or null once the view is edited outside render. */
+  let renderedMarkup: string | null = null;
+  const ViewObserver = documentLike.defaultView?.MutationObserver;
+  const viewEdits = ViewObserver === undefined ? null : new ViewObserver((records) => { if (records.some(isViewEdit)) renderedMarkup = null; });
+  viewEdits?.observe(view, { subtree: true, childList: true, attributes: true, characterData: true });
   const openPanel = (): void => {
     tab = openingChipTab(signals(), readRememberedChipTab(tabStorage));
     if (thresholdMonitor.pending() && !signals().failedRecently) { trafficDisplay = 'rates'; selectedRateService = null; }
@@ -1094,7 +1108,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
 
     if (open) installChipFonts(documentLike);
     const built = open ? viewHtml(activeUid, isAdmin) : { body: '', bar: '' };
-    view.innerHTML = open
+    const markup = open
       ? `<section class="panel" role="dialog" aria-label="pyric"><div class="panel-column">
         <header class="panel-header">
           <span class="brand"><span class="panel-name">pyric</span></span>
@@ -1105,6 +1119,21 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         ${built.bar}
       </div></section>`
       : `<button class="chip${chipTone}" type="button" data-expand aria-label="Open pyric" aria-expanded="false"${chipTitle ? ` title="${chipTitle}"` : ''}>pyric</button>`;
+
+    const announcement = `${errorCount === 0 ? 'No runtime errors' : `${errorCount} runtime ${errorCount === 1 ? 'error' : 'errors'}`}.${current.missingIndex ? ' A query is missing an index in local configuration.' : ''}${current.rateThreshold ? ' Activity exceeded a threshold. Open Traffic to review.' : ''}${open ? ` ${CHIP_TAB_LABELS[tab]}.` : ''}`;
+    if (announcer.textContent !== announcement) announcer.textContent = announcement;
+    // A view edited outside render (a refreshed rate cell, a copied-response
+    // icon) is rebuilt from state even when the markup matches.
+    if (viewEdits?.takeRecords().some(isViewEdit)) renderedMarkup = null;
+    // Markup that matches what the view shows keeps the view's nodes. Replacing
+    // them would drop a scroll that the compositor has applied and the main
+    // thread has not read yet, along with hover and text selection.
+    if (viewEdits !== null && markup === renderedMarkup) {
+      if (open && tab === 'identity' && !usersRequested) void loadUsers();
+      return;
+    }
+    view.innerHTML = markup;
+    renderedMarkup = markup;
 
     const rateNotes = root.querySelector<HTMLDetailsElement>('[data-rate-notes]');
     if (rateNotes) {
@@ -1311,9 +1340,6 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       photo.addEventListener('error', () => { photo.hidden = true; });
     }
 
-    const announcement = `${errorCount === 0 ? 'No runtime errors' : `${errorCount} runtime ${errorCount === 1 ? 'error' : 'errors'}`}.${current.missingIndex ? ' A query is missing an index in local configuration.' : ''}${current.rateThreshold ? ' Activity exceeded a threshold. Open Traffic to review.' : ''}${open ? ` ${CHIP_TAB_LABELS[tab]}.` : ''}`;
-    if (announcer.textContent !== announcement) announcer.textContent = announcement;
-
     if (renderedOpen !== open) {
       // The panel is a new surface on every open, so it fades in each time. The
       // chip fades in once, when the page first gets it; coming back from the
@@ -1469,6 +1495,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     }
     // The sandbox's users are only read when the view that lists them is up.
     if (open && tab === 'identity' && !usersRequested) void loadUsers();
+    // This render's own writes to the view are not edits.
+    viewEdits?.takeRecords();
   };
 
   documentLike.body.append(host);
@@ -1533,6 +1561,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       clearInterval(rateClock);
       unsubscribeCapture?.();
       clearTimeout(pointerRenderTimer);
+      viewEdits?.disconnect();
       documentLike.removeEventListener('pointerup', finishPointer);
       documentLike.removeEventListener('pointercancel', finishPointer);
       unsubscribe();
