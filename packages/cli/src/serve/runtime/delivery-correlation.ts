@@ -20,10 +20,12 @@
  * React, and no sandbox types, and every clock it reads is injectable.
  */
 
+import type { ListenerKey } from './listener-key.js';
+
 /** One delivery and the nodes the page changed after it. */
 export interface DeliveryFlow {
-  /** The sandbox listener id, which is the worker subscription id. */
-  readonly listenerId: string;
+  /** The listener the delivery belongs to. */
+  readonly listenerId: ListenerKey;
   /** When the delivery arrived, on the injected clock. */
   readonly at: number;
   /** How long the window stayed open, in milliseconds. */
@@ -48,13 +50,13 @@ export interface DeliveryCorrelationOptions {
 
 export interface DeliveryCorrelation {
   /** A listener handed a snapshot to the application. Opens a window. */
-  delivered(listenerId: string): void;
+  delivered(listenerId: ListenerKey): void;
   /** Nodes the page changed. Ignored when no window is open. */
   changed(nodes: Iterable<unknown>): void;
   /** React finished a commit. Closes every open window. */
   committed(): void;
   /** The listener ids whose windows are still open, oldest first. */
-  pending(): readonly string[];
+  pending(): readonly ListenerKey[];
   /** Close every window without reporting, and cancel the sweep. */
   dispose(): void;
 }
@@ -77,7 +79,7 @@ export function createDeliveryCorrelation(
   const now = options.now ?? (() => Date.now());
   const schedule = options.schedule ?? defaultSchedule;
 
-  let open: Array<{ listenerId: string; at: number }> = [];
+  let open: Array<{ listenerId: ListenerKey; at: number }> = [];
   let changedNodes: unknown[] = [];
   let cancelSweep: (() => void) | null = null;
 

@@ -30,13 +30,14 @@
  * marked restarts that element's fade rather than adding a second mark.
  */
 import { listenerHueIndex } from './listener-palette.js';
+import type { ListenerKey } from './listener-key.js';
 import { ensureFlowStyleSheet, ensureOverlayStyleSheet } from './overlay-theme.js';
 import type { FlowSubtree } from './fiber-flow.js';
 import { tryAnchorOverlay } from './overlay-anchor.js';
 
 /** One delivery, ready to draw. */
 export interface FlowPaint {
-  readonly listenerId: string;
+  readonly listenerId: ListenerKey;
   readonly colorKey?: string;
   readonly pinned?: boolean;
   /** The owner label the Listeners panel uses. */

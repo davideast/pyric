@@ -23,7 +23,7 @@ import { flowSubtree, regionSubtree } from './fiber-flow.js';
 import { createDeliveryCorrelation, type DeliveryCorrelation } from './delivery-correlation.js';
 import { createFlowPainter, type FlowPainter } from './listener-flow-painter.js';
 import type { ReactCommitSource } from './react-commit-source.js';
-import type { ListenerOutline } from './listener-outline-model.js';
+import type { ListenerKey, ListenerOutline } from './listener-outline-model.js';
 import { onListenerDelivery } from '../worker/client/listener-delivery.js';
 
 /** A source of changed nodes the mode can drain on demand. */
@@ -45,11 +45,11 @@ export interface FlowModeOptions {
   /** React's commits, already installed on the page. */
   commits: ReactCommitSource;
   /** The listener's outline record, for the badge words. */
-  outlineFor: (listenerId: string) => ListenerOutline | null;
+  outlineFor: (listenerId: ListenerKey) => ListenerOutline | null;
   /** `false` hides this listener's paint, in either mode. */
-  isVisible: (listenerId: string) => boolean;
+  isVisible: (listenerId: ListenerKey) => boolean;
   /** Deliveries. Defaults to the worker client's own hook. */
-  subscribeDeliveries?: (listener: (listenerId: string) => void) => () => void;
+  subscribeDeliveries?: (listener: (listenerId: ListenerKey) => void) => () => void;
   /** Changed nodes. Defaults to a `MutationObserver` over the page body. */
   changedNodes?: (documentLike: Document) => ChangedNodeSource;
   /** How long a delivery waits for a commit. */
@@ -72,13 +72,13 @@ export interface FlowModeOptions {
   /** The clock the replay window is measured on. Defaults to `Date.now`. */
   now?: () => number;
   /** Called with the outline's listener id after every painted delivery. */
-  onPaint?: (listenerId: string) => void;
+  onPaint?: (listenerId: ListenerKey) => void;
 }
 
 /** One delivery the fold recorded, for the replay on the switch into Flow. */
 export interface RecentDelivery {
   /** The listener id the outline carries. */
-  readonly listenerId: string;
+  readonly listenerId: ListenerKey;
   /** When the delivery arrived, on the fold's clock. */
   readonly at: number;
 }
@@ -92,7 +92,7 @@ export interface FlowMode {
   /** Take every box away without stopping the mode. */
   clear(): void;
   /** Take one listener's boxes away, for a listener switched off. */
-  clearListener(listenerId: string): void;
+  clearListener(listenerId: ListenerKey): void;
   /** Recompute the boxes already drawn against the page's current geometry. */
   reposition(): void;
   dispose(): void;
@@ -176,19 +176,14 @@ export function createFlowMode(options: FlowModeOptions): FlowMode {
   let painter: FlowPainter | null = null;
   let container: HTMLElement | null = null;
   let paintingCorrelation: DeliveryCorrelation | null = null;
-  const commitPaints = new Map<string, FlowPaint | null>();
+  const commitPaints = new Map<ListenerKey, FlowPaint | null>();
 
   const readRegion = options.regionFor
     ?? ((outline: ListenerOutline) => regionElement(options.document, outline));
 
-  /**
-   * Resolve one listener's flow. The paint is keyed by the id the outline
-   * carries rather than by the id the delivery arrived under, because that is
-   * the id the panel's toggles and the mode's clears use; a page-side delivery
-   * names the listener by the client's own subscription id.
-   */
+  /** Resolve one listener's flow, keyed by the listener key the delivery named. */
   let currentCommit = 0;
-  const resolveFlow = (listenerId: string, nodes: Iterable<unknown> | null): FlowPaint | null => {
+  const resolveFlow = (listenerId: ListenerKey, nodes: Iterable<unknown> | null): FlowPaint | null => {
     const outline = options.outlineFor(listenerId);
     if (outline === null) return null;
     const region = readRegion(outline);
@@ -207,7 +202,7 @@ export function createFlowMode(options: FlowModeOptions): FlowMode {
       subtree,
     };
   };
-  const resolveCommitFlow = (listenerId: string, nodes: Iterable<unknown>): FlowPaint | null => {
+  const resolveCommitFlow = (listenerId: ListenerKey, nodes: Iterable<unknown>): FlowPaint | null => {
     if (!commitPaints.has(listenerId)) commitPaints.set(listenerId, resolveFlow(listenerId, nodes));
     return commitPaints.get(listenerId) ?? null;
   };

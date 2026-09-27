@@ -25,7 +25,7 @@ import type { FlowTreatmentManifest, FlowTreatmentState } from './flow-treatment
  */
 import type { SandboxEvent } from 'pyric/sandbox';
 import type { ActivityIncident } from 'pyric/firestore/internal';
-import { activityOutlines, createListenerOutlineState, type ListenerOutline } from './listener-outline-model.js';
+import { activityOutlines, createListenerOutlineState, type ListenerKey, type ListenerOutline } from './listener-outline-model.js';
 import { sdkActivity, sdkMethodCoverage, observationService, type SdkActivityRecord } from 'pyric/sandbox/internal';
 import { createListenerOverlay, ownedElements, type ListenerOverlay } from './listener-overlay.js';
 import { deliveredRegions, onDeliveredRegions } from '../worker/client/listener-delivery.js';
@@ -152,9 +152,9 @@ export interface ListenerMode {
    */
   placementReason(outline: ListenerOutline): string | null;
   /** `false` when this listener's paint is hidden in both modes. */
-  isListenerVisible(listenerId: string): boolean;
+  isListenerVisible(listenerId: ListenerKey): boolean;
   /** Show or hide one listener's paint. Remembered for this page session. */
-  setListenerVisible(listenerId: string, visible: boolean): void;
+  setListenerVisible(listenerId: ListenerKey, visible: boolean): void;
   /** The overrides in effect, page storage over the served page's option. */
   overlayTheme(): OverlayTheme;
   /**
@@ -236,13 +236,13 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
   /** `true` once Flow painted a delivery since the switch into Flow. */
   let flowPainted = false;
   /** Listeners the developer switched off. Page session only, never stored. */
-  const hidden = new Set<string>();
-  const observed = new Set<string>();
+  const hidden = new Set<ListenerKey>();
+  const observed = new Set<ListenerKey>();
   const history = createActivityHistory();
   const regions = new Map<number, { paint: Omit<FlowPaint, 'subtree'>; nodes: { element: WeakRef<Element>; name: string; depth: number; kind: 'component' | 'host' }[] }>();
   let selectedActivityId: string | null = null;
   let inspectionVersion = 0;
-  let highlightedHistory: { sequence: number; listenerId: string } | null = null;
+  let highlightedHistory: { sequence: number; listenerId: ListenerKey } | null = null;
   const clearHistoryHighlight = () => {
     if (highlightedHistory) flow.clearListener(highlightedHistory.listenerId);
     highlightedHistory = null;
@@ -317,10 +317,8 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
     document: documentLike,
     onTreatmentPaint: (paint) => treatments.record(paint),
     commits,
-    // A delivery observed on the page carries the client's subscription id;
-    // the outline knows both ids.
     outlineFor: (listenerId) => {
-      const outline = current.find((outline) => outline.listenerId === listenerId || outline.clientListenerId === listenerId);
+      const outline = current.find((outline) => outline.listenerId === listenerId);
       const hasOutline = outline !== undefined;
       return hasOutline ? displayOutline(outline) : null;
     },

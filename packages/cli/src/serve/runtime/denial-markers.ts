@@ -1,7 +1,7 @@
 import type { SandboxEvent } from 'pyric/sandbox';
 import type { ChipRequest } from './chip-traffic.js';
 import { createListenerOverlay } from './listener-overlay.js';
-import { outlineSelectors, type ListenerOutline } from './listener-outline-model.js';
+import { listenerKey, outlineSelectors, type ListenerOutline } from './listener-outline-model.js';
 
 /** Denials decorate known owners or explicitly related regions, never inferred renders. */
 export function createDenialMarkers(options: {
@@ -48,7 +48,7 @@ export function createDenialMarkers(options: {
       const verb = ['get', 'list', 'listen'].includes(request.method ?? '') ? 'Read' : 'Write';
       const label = `⚠ ${verb} denied${owners.length ? '' : ' — related region'}: ${request.path}`;
       const outline: ListenerOutline = {
-        listenerId: request.id, colorKey: related?.sourceId ?? `${request.service}:${request.path}`, label, labelIsOwner: false, target: request.path,
+        listenerId: listenerKey(request.id), colorKey: related?.sourceId ?? `${request.service}:${request.path}`, label, labelIsOwner: false, target: request.path,
         service: request.service === 'database' ? 'database' : 'firestore',
         isQuery: false, deliveryCount: 0, selectors: [], incident: null,
       };

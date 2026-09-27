@@ -13,6 +13,9 @@ import { activeListeners, type ActiveListener, type ActiveListenerTarget } from 
 import type { SandboxEvent } from 'pyric/sandbox';
 import type { ActivityIncident } from 'pyric/firestore/internal';
 import type { SdkActivityRecord } from 'pyric/sandbox/internal';
+import { listenerKey, type ListenerKey } from './listener-key.js';
+
+export { listenerKey, type ListenerKey } from './listener-key.js';
 
 /**
  * A `component` owner names the React or framework component that created the
@@ -54,14 +57,24 @@ export interface ListenerOutlineIncident {
   readonly windowMs: number;
 }
 
+
+/**
+ * The id the page's SDK gave the sandbox for this call, which the sandbox
+ * stamps on the attach as `clientListenerId`: the transport id over a port,
+ * the activity id in-page. It is the only field that joins a sandbox listener
+ * to the page's record of the call.
+ */
+function sandboxJoinKey(record: SdkActivityRecord): string {
+  return record.transportId ?? record.id;
+}
+
 /** One listener as the overlay draws it. */
 export interface ListenerOutline {
   readonly colorKey?: string;
   readonly activity?: SdkActivityRecord;
   readonly observedRender?: boolean;
-  readonly listenerId: string;
-  /** The page client's own subscription id, when the attach carried it; a
-   * delivery observed on the page names the listener by this id. */
+  readonly listenerId: ListenerKey;
+  /** On a sandbox listener, the id the page's SDK stamped on its attach. */
   readonly clientListenerId?: string;
   /** Component name, else owner tag name, else creating function or file. */
   readonly label: string;
@@ -96,13 +109,18 @@ export function activityOutlines(
   observed: ReadonlySet<string>,
   deliveredRegions: (activityId: string) => readonly string[] = () => [],
 ): readonly ListenerOutline[] {
-  const ids = new Set(records.flatMap(record => [record.id, record.transportId]));
-  const unmatched = legacy.filter(outline => !ids.has(outline.clientListenerId ?? outline.listenerId));
-  return [...unmatched, ...records.map(record => {
-    const backend = legacy.find(outline => outline.clientListenerId === (record.transportId ?? record.id));
+  const backends = new Map<string, ListenerOutline>();
+  for (const outline of legacy) {
+    const joins = outline.clientListenerId !== undefined;
+    if (joins) backends.set(outline.clientListenerId, outline);
+  }
+  const joined = new Set(records.map(sandboxJoinKey));
+  const unmatched = legacy.filter(outline => outline.clientListenerId === undefined || !joined.has(outline.clientListenerId));
+  return [...unmatched, ...records.map((record): ListenerOutline => {
+    const backend = backends.get(sandboxJoinKey(record));
     const owners = record.owners;
     return {
-      listenerId: record.id, clientListenerId: record.transportId,
+      listenerId: listenerKey(record.id),
       label: outlineLabel(owners, record.method), labelIsOwner: labelIsOwner(owners),
       target: record.target, isQuery: record.isQuery, service: record.service,
       deliveryCount: record.deliveryCount, lastDeliveryAt: record.lastProgressAt === undefined ? record.lastDeliveryAt : Math.max(record.lastDeliveryAt ?? 0, record.lastProgressAt),
@@ -224,7 +242,7 @@ function outlineFor(
 ): ListenerOutline {
   const owners = listener.owners ?? [];
   return {
-    listenerId: listener.id,
+    listenerId: listenerKey(listener.id),
     ...(listener.clientListenerId === undefined ? {} : { clientListenerId: listener.clientListenerId }),
     label: outlineLabel(owners, listener.id),
     labelIsOwner: labelIsOwner(owners),

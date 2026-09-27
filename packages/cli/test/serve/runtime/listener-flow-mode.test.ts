@@ -211,14 +211,18 @@ describe('the Flow painting mode', () => {
     expect(marked(page.doc)).toHaveLength(0);
   });
 
-  it('reports the outline own listener id when it paints, whatever id the delivery carried', () => {
+  it('paints a delivery under the listener key it named, and a delivery under any other id paints nothing', () => {
     const painted: string[] = [];
     const page = setup({ onPaint: (listenerId) => painted.push(listenerId) });
-    page.outlines.set('client-9', { ...page.outlines.get('sub-1')!, clientListenerId: 'client-9' });
     page.deliver('client-9');
     page.change([page.bubbleEl]);
     page.commit();
+    expect(painted).toEqual([]);
+    expect(marked(page.doc)).toHaveLength(0);
 
+    page.deliver('sub-1');
+    page.change([page.bubbleEl]);
+    page.commit();
     expect(painted).toEqual(['sub-1']);
     expect(marked(page.doc).every((element) => (
       element.getAttribute('data-pyric-flow-listener') === 'sub-1'

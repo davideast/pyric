@@ -45,7 +45,7 @@ export function createListenerObservation(document: Document, commits: ReactComm
       const hasConsumer = consumer !== null;
       if (hasConsumer) return consumer.outlineFor(id);
       const outlines = activityOutlines([], sdkActivity.records(), unobserved);
-      return outlines.find(outline => outline.listenerId === id || outline.clientListenerId === id) ?? null;
+      return outlines.find(outline => outline.listenerId === id) ?? null;
     },
     isVisible: id => bindings?.isVisible(id) ?? false,
     recentDeliveries: () => bindings?.recentDeliveries?.() ?? [],

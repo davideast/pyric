@@ -14,7 +14,7 @@ const clientModule = await import('react-dom/client');
 const { createRoot } = clientModule.default ?? clientModule;
 const h = React.createElement;
 const kind = new URL(location.href).searchParams.get('runtime') ?? 'inpage';
-let subscribeEvents: (listener: (events: readonly SandboxEvent[]) => void) => () => void;
+let subscribeEvents: (listener: (events: readonly SandboxEvent[], batch: { history: boolean }) => void) => () => void;
 let readDocument: () => Promise<unknown>;
 let readQuery: () => Promise<unknown>;
 let readDatabase: () => Promise<unknown>;
@@ -99,7 +99,7 @@ if (kind === 'worker') {
   write = async () => { ++version; await sdk.setDoc(document, { version }); await database.set(node, { version }); };
   denied = () => sdk.getDoc(sdk.doc(db, 'private/denied'));
   deniedWrite = () => sdk.setDoc(document, { version: -1 });
-  subscribeEvents = listener => { listener(sandbox.history()); return sandbox.onEvent(event => listener([event])); };
+  subscribeEvents = listener => { listener(sandbox.history(), { history: true }); return sandbox.onEvent(event => listener([event], { history: false })); };
 }
 await write();
 let mode!: ListenerMode;

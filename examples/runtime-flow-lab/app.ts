@@ -456,9 +456,9 @@ async function main() {
   database.sandbox.setData(rtdb, { presence: { online: true }, typing: { design: false } });
   const chat = createChatData(sandbox, service, messageStore.get());
   await chat.rules();
-  const subscribeEvents = (listener: (events: readonly SandboxEvent[]) => void) => {
-    listener(sandbox.history());
-    return sandbox.onEvent(event => listener([event]));
+  const subscribeEvents = (listener: (events: readonly SandboxEvent[], batch: { history: boolean }) => void) => {
+    listener(sandbox.history(), { history: true });
+    return sandbox.onEvent(event => listener([event], { history: false }));
   };
   let lens: AuthLens | undefined;
   const runtime = createPyricRuntimeStatus({
