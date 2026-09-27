@@ -24,8 +24,20 @@ import type { ClientDb, ClientPort, Unsubscribe } from './handles.js';
 // adapt them into the same `{ onEvent, history }`-shaped source the in-process
 // sandbox exposes (e.g. Studio's `feedFromSandboxLike`).
 
+/**
+ * What one delivered batch is. A history batch is the host's whole retained
+ * history, which includes every listener it still holds attached; it replaces
+ * whatever the subscriber folded before rather than adding to it.
+ */
+export interface EventBatch {
+  readonly history: boolean;
+}
+
+/** A subscriber's view of the stream: batches of events, each marked. */
+export type EventBatchCallback = (events: readonly SandboxEvent[], batch: EventBatch) => void;
+
 interface EventSubscriber {
-  callback: (events: readonly SandboxEvent[]) => void;
+  callback: EventBatchCallback;
   onError?: (error: Error & { code: string }) => void;
   /** Receives live batches once it has received the history. */
   isPrimed: boolean;
@@ -91,7 +103,7 @@ class SharedEventStream {
       const isStillSubscribed = this.subscribers.has(subscriber);
       if (!isStillSubscribed) continue;
       if (isFirstHistory) prime(subscriber, events);
-      else if (subscriber.isPrimed) deliver(subscriber, events);
+      else if (subscriber.isPrimed) deliver(subscriber, events, isHistory);
     }
   }
 
@@ -119,9 +131,9 @@ class SharedEventStream {
 const sharedStreams = new WeakMap<ClientPort, SharedEventStream>();
 
 /** Deliver to one subscriber; a throwing consumer does not stop the others. */
-function deliver(subscriber: EventSubscriber, events: readonly SandboxEvent[]): void {
+function deliver(subscriber: EventSubscriber, events: readonly SandboxEvent[], history: boolean): void {
   try {
-    subscriber.callback(events);
+    subscriber.callback(events, { history });
   } catch (error) {
     console.error('pyric: Uncaught Error in event subscriber:', error);
   }
@@ -130,13 +142,15 @@ function deliver(subscriber: EventSubscriber, events: readonly SandboxEvent[]): 
 /** A subscriber's first delivery is the history; live batches follow it. */
 function prime(subscriber: EventSubscriber, history: readonly SandboxEvent[]): void {
   subscriber.isPrimed = true;
-  deliver(subscriber, history);
+  deliver(subscriber, history, true);
 }
 
 /**
  * Subscribe to the worker sandbox's unified event stream. The callback fires
  * with each delivered BATCH of events: the FIRST call carries the history
- * (possibly empty), each later call carries one live event. Every subscriber on
+ * (possibly empty), each later call carries one live event. After the host
+ * restores the subscription (a reconnect or a replacement host), the next batch
+ * is its whole history again, marked `{ history: true }`. Every subscriber on
  * a port shares one subscription on the worker; a subscriber that joins after
  * the worker's history batch receives the page's copy of it, bounded like the
  * worker's history. Returns an unsubscribe; the worker subscription closes when
@@ -148,7 +162,7 @@ function prime(subscriber: EventSubscriber, history: readonly SandboxEvent[]): v
  */
 export function subscribeEvents(
   db: ClientDb,
-  callback: (events: readonly SandboxEvent[]) => void,
+  callback: EventBatchCallback,
   onError?: (error: Error & { code: string }) => void,
 ): Unsubscribe {
   const port = db.port;

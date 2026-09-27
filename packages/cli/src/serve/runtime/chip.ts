@@ -9,7 +9,7 @@ import { createThresholdSettings, thresholdSettingsHtml, refreshThresholdForm, T
 import { createRateThresholdMonitor } from './rate-threshold-monitor.js';
 import { isThresholdService } from './rate-threshold-config.js';
 import { createRateHistory, bindHistory } from './rate-history.js';
-import { serviceLabel, sourceLabel } from './service-presentation.js';
+import { serviceLabel } from './service-presentation.js';
 import { RATE_STYLES, rateView, refreshRateView } from './chip-rates.js';
 import { sdkRates, sdkActivity } from 'pyric/sandbox/internal';
 import { RULE_EVIDENCE_STYLES } from './chip-rules-evidence-styles.js';
@@ -17,10 +17,8 @@ import { INDEX_STYLES, indexDetailsHtml, indexActionHtml } from './chip-indexes.
 import { createIndexInspector, createIndexConfigClient, type IndexConfigClient } from './index-config-client.js';
 import type { ServiceIndexQuery } from 'pyric/sandbox/internal';
 import { rulesEvidenceHtml, rulesSummary } from './chip-rules-evidence.js';
-import { activityOccurrences } from './activity-occurrences.js';
-import { presentActivityOccurrence } from './activity-occurrence-presentation.js';
 import { createDenialMarkers } from './denial-markers.js';
-import { activityDisplayTarget, type ActivityHistoryEntry } from './activity-history.js';
+import { activityDisplayTarget } from './activity-history.js';
 /**
  * A compact inspector for the app's identity, listeners, traffic, and sandbox.
  * Header, tabs, scroll viewport, and action bar share one fixed panel frame.
@@ -42,7 +40,6 @@ import type { RuntimeIdentity, RuntimeIdentityBindings } from './identity.js';
 import type { ListenerMode } from './listener-mode.js';
 import { studioSectionUrl } from './studio-links.js';
 import type { ListenerOutline } from './listener-outline-model.js';
-import { listenerColors } from './listener-palette.js';
 import { filterUsers, getUserProviders, userDisplayLabel } from './chip-user-search.js';
 import {
   CHIP_TABS,
@@ -64,11 +61,20 @@ import {
   type ChipRequest,
   type TrafficFeed,
 } from './chip-traffic.js';
+import { createChipDataView, type ChipDataView } from './chip-data-view.js';
 import {
-  pagePaintModeStorage,
-  readListenerPaintMode,
-  type ListenerPaintMode,
-} from './listener-paint-mode.js';
+  barHtml,
+  buttonHtml,
+  buttonRowHtml,
+  clockTime,
+  emptyHtml,
+  escapeAttribute,
+  iconHtml,
+  pluralize,
+  rowHtml,
+  sectionHtml,
+  type ChipView,
+} from './chip-markup.js';
 import type { SandboxEventSource } from './listener-event-source.js';
 import {
   getLens as defaultGetLens,
@@ -384,39 +390,6 @@ const styles = `
   ${THEME_DIALOG_STYLES}
 `;
 
-function escapeAttribute(value: string): string {
-  return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
-}
-
-/** Small, shared stroke icons; provider marks use their recognizable silhouettes. */
-function iconHtml(name: string): string {
-  const paths: Record<string, string> = {
-    traffic: '<path d="M7 3v18m-4-4 4 4 4-4M17 21V3m-4 4 4-4 4 4"/>',
-    settings: '<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3" fill="var(--pyric-content)"/><circle cx="15" cy="17" r="3" fill="var(--pyric-content)"/>',
-    check: '<path d="m5 12 4 4L19 6"/>',
-    unavailable: '<circle cx="12" cy="12" r="9"/><path d="m6 18 12-12"/>',
-    warning: '<path d="M12 3 2 21h20L12 3Z"/><path d="M12 9v5m0 3v1"/>',
-    pause: '<path d="M8 5v14M16 5v14"/>',
-    play: '<path d="m7 4 13 8-13 8Z"/>',
-    copy: '<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M15 8V3H3v12h5"/>',
-    chevron: '<path d="m9 5 7 7-7 7"/>',
-    minimize: '<path d="M5 12h14"/>',
-    external: '<path d="M14 4h6v6M20 4l-9 9M10 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-5"/>',
-    eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>',
-    search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/>',
-    user: '<circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/>',
-    password: '<rect x="4" y="9" width="16" height="12" rx="2"/><path d="M8 9V6a4 4 0 0 1 8 0v3M12 14v3"/>',
-    phone: '<rect x="6" y="2" width="12" height="20" rx="3"/><path d="M10 18h4"/>',
-    'google.com': '<path d="M20 7a9 9 0 1 0 1 6h-9M21 13v-2h-9"/>',
-    'github.com': '<path d="M8 21v-4c-5 1-5-3-7-3m15 7v-4c0-1-.3-2-1-2 4-.5 6-2 6-6 0-2-.5-3-2-4 .3-1 .3-2 0-3-2 0-3 1-4 2a14 14 0 0 0-6 0C8 3 7 2 5 2c-.3 1-.3 2 0 3-1.5 1-2 2-2 4 0 4 2 5.5 6 6-.7 0-1 1-1 2"/>',
-    'facebook.com': '<path d="M14 22V12h4l1-4h-5V6c0-2 1-3 4-3V0h-4c-4 0-5 3-5 6v2H6v4h3v10"/>',
-    'twitter.com': '<path d="m4 3 16 18h-4L1 3h4m15 0L4 21"/>',
-    'microsoft.com': '<path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"/>',
-    'apple.com': '<path d="M15 3c0-2 2-3 3-3 0 2-1 3-3 3Zm-3 3C5 1 1 9 5 17c3 6 4 3 7 3s4 3 7-3c-5-2-5-7-1-9-2-3-4-3-6-2Z"/>',
-  };
-  return `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] ?? paths.user}</svg>`;
-}
-
 function avatarHtml(photoUrl: string | null | undefined, label: string): string {
   const initials = label.trim().split(/\s+/).slice(0, 2).map((part) => part[0] ?? '').join('').toUpperCase();
   // Profile images may be relative served assets or remote HTTP images.
@@ -424,117 +397,18 @@ function avatarHtml(photoUrl: string | null | undefined, label: string): string 
   return `<span class="avatar" aria-hidden="true"><span>${escapeAttribute(initials || '?')}</span>${safePhoto ? `<img data-avatar src="${escapeAttribute(safePhoto)}" alt="" referrerpolicy="no-referrer">` : ''}</span>`;
 }
 
-function sectionHtml(title: string, body: string, meta = '', action = ''): string {
-  return `<section class="section"><div class="section-heading"><div class="section-line"><span class="section-title">${escapeAttribute(title)}</span><span class="actions"><span class="section-meta">${escapeAttribute(meta)}</span>${action}</span></div></div>${body}</section>`;
-}
-
 function introHtml(title: string, hint: string, detail = ''): string {
   return `<div class="intro-rail"><div class="intro"><span class="section-title">${escapeAttribute(title)}</span><span class="hint">${escapeAttribute(hint)}</span>${detail}</div></div>`;
 }
-
-function emptyHtml(title: string, detail: string): string {
-  return `<div class="empty"><div class="intro"><span class="section-title">${escapeAttribute(title)}</span><span class="hint">${escapeAttribute(detail)}</span></div></div>`;
-}
-
-/** `true` when two listener lists would render the same Listeners view. */
-function sameOutlines(a: readonly ListenerOutline[], b: readonly ListenerOutline[]): boolean {
-  if (a.length !== b.length) return false;
-  return a.every((outline, i) => {
-    const other = b[i];
-    return outline.listenerId === other.listenerId
-      && outline.label === other.label
-      && outline.labelIsOwner === other.labelIsOwner
-      && outline.target === other.target
-      && outline.isQuery === other.isQuery
-      && outline.deliveryCount === other.deliveryCount
-      && outline.activity?.method === other.activity?.method
-      && outline.activity?.status === other.activity?.status
-      && outline.observedRender === other.observedRender
-      && outline.selectors.join('\n') === other.selectors.join('\n')
-      && outline.incident?.pattern === other.incident?.pattern
-      && outline.incident?.count === other.incident?.count
-      && outline.incident?.windowMs === other.incident?.windowMs;
-  });
-}
-
-/** `12 listeners`, `1 listener`, etc. */
-function pluralize(count: number, singular: string, plural = `${singular}s`): string {
-  return `${count.toLocaleString()} ${count === 1 ? singular : plural}`;
-}
-
-/** The target the way the app wrote it: `conversations (query)`, `users/u1`. */
-function displayTarget(outline: ListenerOutline): string {
-  return outline.isQuery ? `${outline.target} (query)` : outline.target;
-}
-
-/** A view: what the scrolling area holds, and its action bar. */
-interface ChipView { body: string; bar: string }
 
 /** Traffic is a bounded recent feed; the identity directory has searchable pages. */
 const REQUEST_PAGE_SIZE = 25;
 const USER_PAGE_SIZE = 20;
 const PROVIDER_ICON_LIMIT = 3;
 
-/** Named cells containing escaped text or trusted component markup. */
-interface RowCells {
-  /** Column one, or the whole text width when `c2` is absent. */
-  c1: string;
-  /** Optional avatar or listener mark, outside the text cells. */
-  leading?: string;
-  /** Column two, at L2. Present only on a tab with a fixed first column. */
-  c2?: string;
-  /** The sub-row under column one; with `c2`, under the first column only. */
-  s1?: string;
-  /** The sub-row under column two. */
-  s2?: string;
-  /** The sub-row's right-aligned cell, ending at R. Only without `c2`. */
-  s1Right?: string;
-  /** The trailing fact or action slot, already escaped or built. */
-  slot: string;
-  className?: string;
-  attributes?: string;
-  title?: string | null;
-}
-
-/** A row: two lines, three columns, the same cells on every tab. */
-function rowHtml(cells: RowCells): string {
-  const hasSub = cells.s1 !== undefined || cells.s2 !== undefined || cells.s1Right !== undefined;
-  const wide = cells.c2 === undefined;
-  const classes = `row${hasSub ? ' sub' : ''}${cells.leading ? ' has-leading' : ''}${cells.className ? ` ${cells.className}` : ''}`;
-  const title = cells.title ? ` title="${escapeAttribute(cells.title)}"` : '';
-  const attributes = cells.attributes ? ` ${cells.attributes}` : '';
-  let html = `<span class="c1${wide ? ' wide' : ''}">${cells.c1}</span>`;
-  if (!wide) html += `<span class="c2">${cells.c2}</span>`;
-  html += `<span class="slot">${cells.slot}</span>`;
-  if (hasSub) {
-    if (wide && cells.s1Right !== undefined) {
-      html += `<span class="s1 wide split"><span>${cells.s1 ?? ''}</span><span class="right">${cells.s1Right}</span></span>`;
-    } else {
-      html += `<span class="s1${wide ? ' wide' : ''}">${cells.s1 ?? ''}</span>`;
-      if (!wide || cells.s2) html += `<span class="s2">${cells.s2 ?? ''}</span>`;
-    }
-  }
-  return `<div class="${classes}"${title}${attributes}><span class="row-content">${cells.leading ? `<span class="leading">${cells.leading}</span>` : ''}${html}</span></div>`;
-}
-
-/** A row whose own click is its action; `pressed` marks it active. */
-function buttonRowHtml(cells: RowCells & { label: string; pressed?: boolean; expanded?: boolean }): string {
-  const inner = rowHtml(cells);
-  const body = inner.slice(inner.indexOf('>') + 1, -'</div>'.length);
-  const hasSub = cells.s1 !== undefined || cells.s2 !== undefined || cells.s1Right !== undefined;
-  const classes = `row${hasSub ? ' sub' : ''}${cells.leading ? ' has-leading' : ''}${cells.className ? ` ${cells.className}` : ''}`;
-  const title = cells.title ? ` title="${escapeAttribute(cells.title)}"` : '';
-  return `<button class="${classes}" type="button" aria-label="${escapeAttribute(cells.label)}"${cells.pressed === undefined ? '' : ` aria-pressed="${cells.pressed}"`}${cells.expanded === undefined ? '' : ` aria-expanded="${cells.expanded}"`}${title} ${cells.attributes ?? ''}>${body}</button>`;
-}
-
 /** `true` for an element with a text caret to preserve across a rebuild. */
 function isTextField(element: Element | null | undefined): element is HTMLInputElement {
   return element !== null && element !== undefined && element.tagName === 'INPUT';
-}
-
-/** The one button, wherever it sits. */
-function buttonHtml(attributes: string, label: string, title?: string): string {
-  return `<button class="btn" type="button" ${attributes}${title ? ` title="${escapeAttribute(title)}"` : ''}>${escapeAttribute(label)}</button>`;
 }
 
 /** A shared icon and label track keeps request statuses aligned across rows. */
@@ -549,18 +423,6 @@ function trafficBadgeHtml(verdict: ChipRequest['verdict'], indexMissing: boolean
     ? { label: 'Index', icon: 'warning', tone: 'index-warning', title: 'Index missing from config' }
     : badges[verdict];
   return `<span class="verdict ${badge.tone}" title="${badge.title}" aria-label="${badge.title}"><span class="verdict-icon">${iconHtml(badge.icon)}</span><span class="verdict-label">${badge.label}</span></span>`;
-}
-
-/** The action bar: up to three buttons against R, the primary one rightmost. */
-function barHtml(buttons: readonly string[], hint = ''): string {
-  return `<div class="bar${hint ? '' : ' no-hint'}" data-action-bar><span class="bar-hint">${hint}</span><span class="actions">${buttons.join('')}</span></div>`;
-}
-
-/** `12:50:43` in the page's own clock, which is the one the developer reads. */
-function clockTime(at: number): string {
-  const time = new Date(at);
-  const pad = (value: number): string => String(value).padStart(2, '0');
-  return `${pad(time.getHours())}:${pad(time.getMinutes())}:${pad(time.getSeconds())}`;
 }
 
 /** Mount the framework-independent runtime chip in an isolated shadow root. */
@@ -651,50 +513,6 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     render();
   };
 
-  // ── Listeners view state ───────────────────────────────────────────────────
-  let listenerMode: ListenerMode | null = null;
-  let listenerOutlines: readonly ListenerOutline[] = [];
-  /** The remembered painting mode, for the control the chip draws before the
-   * Listeners mode is built. */
-  const paintModeBeforeBuild = readListenerPaintMode(pagePaintModeStorage(documentLike));
-  /** `true` once the Listeners mode has reported at least once. The collapsed
-   * chip's listener count stays hidden until then. */
-  /** Why the outlines refused to come on, for the control's own title. */
-  let outlinesRefused: string | null = null;
-  /** Whether the last rendered panel carried the Flow waiting fact. */
-  let renderedFlowWaiting = false;
-  let renderedHistoryState = '';
-  let inspectedFromPage = 0;
-  let renderedTreatmentState = '';
-  const ensureListenerMode = (): ListenerMode | null => {
-    if (listenerMode !== null) return listenerMode;
-    const build = options.listeners;
-    if (build === undefined) return null;
-    listenerMode = build((outlines) => {
-      // The mode reports on every attach, delivery, and resize; rebuild the
-      // view only when what the panel shows actually changes. The first
-      // painted flow changes the panel without changing the outlines, because
-      // it is what takes the waiting fact away.
-      const waiting = listenerMode?.flowWaiting() === true;
-      const treatmentState = JSON.stringify(listenerMode?.treatmentState?.());
-      const historyState = JSON.stringify([listenerMode?.history?.snapshot(), listenerMode?.history?.counts({ scope: { kind: 'retained' } })]);
-      const inspected = listenerMode?.selectedActivity?.() ?? null;
-      const inspectionVersion = listenerMode?.inspectionVersion?.() ?? 0;
-      const inspectionChanged = inspectionVersion !== inspectedFromPage;
-      if (inspectionChanged) {
-        inspectedFromPage = inspectionVersion;
-        if (inspected) { selectedSourceKey = undefined; activeListenerId = inspected; selectedHistory = null; historyPage = 0;  tab = 'listeners'; open = true; }
-      }
-      if (historyState === renderedHistoryState && !inspectionChanged && sameOutlines(outlines, listenerOutlines) && waiting === renderedFlowWaiting && treatmentState === renderedTreatmentState) return;
-      renderedHistoryState = historyState;
-      renderedTreatmentState = treatmentState;
-      renderedFlowWaiting = waiting;
-      listenerOutlines = outlines;
-      if (open && tab === 'listeners') render();
-    });
-    return listenerMode;
-  };
-
   // ── Traffic view state ─────────────────────────────────────────────────────
   /** Which requests Traffic lists. A page session remembers nothing here: the
    * filter is a way of reading the last minute, not a preference. */
@@ -749,9 +567,11 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   /** `false` until the first render. The fold's history batch arrives while this
    * function is still running, before there is a view for it to rebuild. */
   let mounted = false;
+  /** The Data view, built once the index helpers it shares with Traffic exist. */
+  let dataView: ChipDataView | null = null;
   const denials = createDenialMarkers({
     document: documentLike,
-    related: (service, path) => listenerMode?.relatedRegion?.(service, path) ?? null,
+    related: (service, path) => dataView?.mode()?.relatedRegion?.(service, path) ?? null,
     select: request => {
       selectedRequest = request;
       open = true;
@@ -765,7 +585,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     ? createTrafficFeed({
       subscribeEvents: sandboxEvents,
       onRequest: (request, event) => {
-        const showsDenials = mounted && listenerMode?.enabled() === true;
+        const showsDenials = mounted && dataView?.mode()?.enabled() === true;
         if (showsDenials) denials.show(request, event);
       },
       onChange: () => {
@@ -835,8 +655,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     return {
       failedRecently,
       rateThreshold: thresholdMonitor.pending(),
-      missingIndex: (trafficFeed?.requests() ?? []).some(requestMissingIndex) || listenerOutlines.some(outline => missingIndex(outline.activity?.indexQuery)),
-      duplicateListener: listenerOutlines.some((outline) => outline.incident?.pattern === 'duplicate-listener'),
+      missingIndex: (trafficFeed?.requests() ?? []).some(requestMissingIndex) || (dataView?.outlines() ?? []).some(outline => missingIndex(outline.activity?.indexQuery)),
+      duplicateListener: (dataView?.outlines() ?? []).some((outline) => outline.incident?.pattern === 'duplicate-listener'),
       updatePending: snapshot.updateAvailable,
     };
   };
@@ -852,7 +672,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   };
 
   const showTab = (next: ChipTab): void => {
-    if (next !== 'listeners') { listenerMode?.inspectHistory?.(null); selectedHistory = null; }
+    if (next !== 'listeners') dataView?.leave();
     if (next === 'identity' && usersFailed) usersRequested = false;
     tab = next;
     writeRememberedChipTab(tabStorage, next);
@@ -866,9 +686,9 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     themeDialogController = createChipThemeDialog({
       shadowRoot: root,
       storage: pageOverlayThemeStorage(documentLike),
-      readTheme: () => ensureListenerMode()?.overlayTheme() ?? {},
+      readTheme: () => dataView?.mode()?.overlayTheme() ?? {},
       applyTheme: (theme) => {
-        ensureListenerMode()?.setOverlayTheme(theme);
+        dataView?.mode()?.setOverlayTheme(theme);
       },
     });
     return themeDialogController;
@@ -877,22 +697,29 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   // ── The four views ─────────────────────────────────────────────────────────
 
   /** The listener a row click singled out on the page, if any. */
-  let selectedSourceKey: string | undefined;
-  let highlightedSourceKey: string | undefined;
   const indexTargets = new Map<string, { query: ServiceIndexQuery; sourceId?: string }>();
-  const queryForSource = (id: string): ServiceIndexQuery | undefined =>
-    listenerOutlines.find(outline => outline.activity?.sourceId === id)?.activity?.indexQuery
-    ?? listenerMode?.history?.snapshot().entries.find(entry => entry.sourceId === id && entry.indexQuery)?.indexQuery;
   const indexBlock = (query: ServiceIndexQuery | undefined, key: string, sourceId?: string): string => {
     if (!query) return '';
     indexTargets.set(key, { query, sourceId });
     indexInspector.prepare(key, query);
     return indexDetailsHtml(query, key, indexInspector, escapeAttribute, iconHtml('chevron'), iconHtml('copy'));
   };
-  let activeListenerId: string | null = null;
-  let selectedHistory: number | null = null;
-  let historyPage = 0;
 
+
+  dataView = createChipDataView({
+    document: documentLike,
+    build: options.listeners,
+    render: () => render(),
+    showing: () => open && tab === 'listeners',
+    reveal: () => { tab = 'listeners'; open = true; },
+    showTraffic: (source) => {
+      if (source) trafficSource = source;
+      trafficFilter = 'all'; trafficDisplay = 'requests'; selectedRequest = null; showTab('traffic');
+    },
+    missingIndex,
+    indexBlock,
+    indexAction: (query, key) => indexActionHtml(query, key, indexInspector, escapeAttribute),
+  });
 
   /** The pending worker update as the first tab's first row, while it lasts. */
   const updateRowHtml = (): string => {
@@ -973,132 +800,6 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       body: `${update ? `<div class="rows">${update}</div>` : ''}${sectionHtml('Current identity', `<div class="rows">${identityRecordHtml(current, record)}</div>`, isAdmin ? 'Rules bypassed' : getLensFn()?.mode === 'as' ? 'Impersonating' : '')}${sectionHtml('Switch user', `${search}${pagination}<div class="rows" data-user-rows>${matched.join('')}</div>${matched.length ? '' : empty}`, pluralize(available.length, 'user'))}`,
       bar: barHtml(buttons, isAdmin ? 'Rules bypassed' : 'Rules enforced'),
     };
-  };
-
-  const selectedSourceId = (): string | undefined => {
-    if (selectedSourceKey) return selectedSourceKey;
-    const live = listenerOutlines.find(outline => outline.listenerId === activeListenerId);
-    if (live) return live.activity?.sourceId ?? live.listenerId;
-    return listenerMode?.history?.snapshot().entries.find(entry => entry.activityId === activeListenerId)?.sourceId;
-  };
-  const sourceGroups = () => {
-    const groups = new Map<string, { id: string; activityId: string; target: string; service: string; members: ListenerOutline[] }>();
-    for (const entry of listenerMode?.history?.snapshot().entries ?? []) {
-      if (!groups.has(entry.sourceId)) groups.set(entry.sourceId, { id: entry.sourceId, activityId: entry.activityId, target: entry.target, service: entry.service, members: [] });
-    }
-    for (const outline of listenerOutlines) {
-      const id = outline.activity?.sourceId ?? outline.listenerId;
-      const group = groups.get(id) ?? { id, activityId: outline.listenerId, target: activityDisplayTarget(outline.target), service: outline.service, members: [] };
-      group.members.push(outline);
-      groups.set(id, group);
-    }
-    return [...groups.values()];
-  };
-  const activityDetailHtml = (id: string, event?: ActivityHistoryEntry): string => {
-    const history = listenerMode?.history;
-    const entries = history?.snapshot().entries.filter(entry => entry.activityId === id) ?? [];
-    const start = entries.find(entry => entry.phase === 'start');
-    const end = entries.find(entry => entry.phase === 'end');
-    const association = event ? history?.association(event.sequence) : undefined;
-    const candidates = history?.snapshot().entries.filter(entry => entry.phase === 'render' && association && entry.commitId === association.commitId && entry.activityId !== id) ?? [];
-    const targets = [...new Set(candidates.map(entry => entry.target))];
-    const facts: string[] = [];
-    if (start?.kind === 'operation' && end) facts.push(`<div class="activity-fact"><span>Response time</span><span class="mono">${Math.max(0, end.at - start.at)} ms</span></div>`);
-    if (targets.length) facts.push(`<span>Also observed in this render</span>${targets.map(target => `<span class="mono activity-path">${escapeAttribute(target)}</span>`).join('')}`);
-    if (!facts.length) return '';
-    return `<div class="activity-detail" data-activity-detail="${escapeAttribute(id)}"><div class="activity-detail-content">${facts.join('')}</div></div>`;
-  };
-  const historyHtml = (): string => {
-    const history = listenerMode?.history;
-    if (!history) return '';
-    const snapshot = history.snapshot();
-    const sourceId = selectedSourceId();
-    const entries = activityOccurrences(snapshot.entries.filter(entry => entry.sourceId === sourceId));
-    historyPage = Math.min(historyPage, Math.max(0, Math.ceil(entries.length / 10) - 1));
-    const shown = entries.slice(historyPage * 10, historyPage * 10 + 10).map(occurrence => ({ ...occurrence, ...presentActivityOccurrence(occurrence) }));
-    const counts = history.counts({ sourceId, scope: { kind: 'retained' } });
-    const rows = shown.map(({ event: entry, label, outcome, registration }) => buttonRowHtml({
-      c1: escapeAttribute(label),
-      s1: escapeAttribute(registration === null ? entry.method : `${entry.method} #${registration}`),
-      slot: `<span class="listener-fact"><span class="mono">${escapeAttribute(clockTime(entry.at))}</span><span>${outcome}</span></span>`,
-      className: 'history-row', attributes: `data-history-entry="${entry.sequence}"`,
-      label: `Inspect ${label}: ${outcome}${registration === null ? '' : `, Subscription ${registration}`}`, pressed: selectedHistory === entry.sequence, expanded: selectedHistory === entry.sequence && activityDetailHtml(entry.activityId, entry) !== '',
-    }) + (selectedHistory === entry.sequence ? activityDetailHtml(entry.activityId, entry) : '')).join('');
-    const inset = (html: string) => `<div class="history-context">${html}</div>`;
-    return `<div class="history-body">
-      ${inset(`<div class="history-summary"><span>${counts.partial ? '≥ ' : ''}${counts.calls} calls <span aria-hidden="true">/</span> ${counts.partial ? '≥ ' : ''}${counts.deliveries} results <span aria-hidden="true">/</span> ${counts.partial ? '≥ ' : ''}${counts.commits} renders</span>${buttonHtml('data-clear-activity-history', 'Clear', 'Clear all recorded history')}</div>`)}
-      <div class="rows" data-activity-history>${rows}</div>
-      ${!entries.length ? inset('<span class="hint">No events recorded since this view started or was cleared.</span>') : ''}
-      ${entries.length > 10 ? inset(`<div class="history-pagination">${buttonHtml(`data-history-page="${historyPage - 1}"${historyPage === 0 ? ' disabled' : ''}`, 'Previous')}<span class="hint">${historyPage * 10 + 1}–${Math.min(entries.length, historyPage * 10 + 10)} of ${entries.length} items</span>${buttonHtml(`data-history-page="${historyPage + 1}"${(historyPage + 1) * 10 >= entries.length ? ' disabled' : ''}`, 'Next')}</div>`) : ''}
-      ${inset(`<span class="hint">${snapshot.discarded ? `${snapshot.discarded} older events removed. Counts cover retained history.` : 'Counts cover recorded history.'} Clear or reload to reset.</span>`)}
-    </div>`;
-
-  };
-
-  const dataPathHtml = (path: string): string => {
-    const split = path.lastIndexOf('/') + 1;
-    return `<span class="data-path" title="${escapeAttribute(path)}"><span class="data-path-parent">${escapeAttribute(path.slice(0, split))}</span><span class="data-path-leaf">${escapeAttribute(path.slice(split))}</span></span>`;
-  };
-  const listenersViewHtml = (): ChipView => {
-    const outlinesOn = listenerMode?.enabled() === true;
-    const paintMode: ListenerPaintMode = listenerMode?.mode() ?? paintModeBeforeBuild;
-    const flowReason = listenerMode === null ? null : listenerMode.flowUnavailableReason();
-    const pressed = (candidate: ListenerPaintMode): boolean => outlinesOn && paintMode === candidate;
-
-    const groups = sourceGroups();
-    const selected = groups.find(group => group.id === selectedSourceId());
-    const rows = groups.map(group => {
-      const modelActivity = group.members.find(member => member.activity?.ai)?.activity;
-      const modelIdentity = modelActivity?.ai;
-      const counts = group.members.some(member => !member.activity) ? undefined : listenerMode?.history?.counts({ sourceId: group.id, scope: { kind: 'retained' } });
-      const stopped = group.members.some(member => member.activity?.kind === 'subscription') && group.members.every(member => member.activity && (member.activity.kind !== 'subscription' || member.activity.status === 'closed'));
-      const calls = counts?.calls ?? group.members.length;
-      const deliveries = counts?.deliveries ?? group.members.reduce((sum, member) => sum + member.deliveryCount, 0);
-      const indexMissing = missingIndex(queryForSource(group.id));
-      // A source is placed when any of its calls has an element on the page.
-      const reasons = group.members.map(member => listenerMode?.placementReason(member) ?? null);
-      const unplaced = group.members.length > 0 && reasons.every(reason => reason !== null) ? reasons[0] : null;
-      const facts = [
-        indexMissing ? '<span class="index-status">Index missing from config</span>' : '',
-        unplaced ? `<span class="unplaced-reason" data-listener-unplaced>${escapeAttribute(unplaced)}</span>` : '',
-      ].filter(Boolean);
-      const highlightTitle = unplaced ?? `Highlight ${group.target}`;
-      return '<div class="source-row">' + buttonRowHtml({
-        c1: modelIdentity ? aiModelHtml(modelIdentity, escapeAttribute, modelActivity?.method) : dataPathHtml(group.target),
-        s2: facts.join(''),
-        s1: `${sourceLabel(group.service, group.target, group.members.some(member => member.isQuery))}${stopped ? ' — Stopped' : ''}${group.members.some(member => member.incident) ? ' — Duplicate subscriptions' : ''}`,
-        slot: `<span class="listener-fact"><span>${counts?.partial ? '≥ ' : ''}${pluralize(calls, 'call')}</span><span>${counts?.partial ? '≥ ' : ''}${pluralize(deliveries, 'delivery', 'deliveries')}</span></span>`,
-        leading: `<span class="listener-mark" style="--listener-color:${escapeAttribute(listenerColors(group.id).swatch)}"></span>`,
-        className: group.members.some(member => member.incident) ? 'listener-row problem' : indexMissing ? 'listener-row pending' : 'listener-row', title: `Inspect ${group.target}`,
-        attributes: `${group.members.some(member => member.incident) ? 'data-listener-incident="true" ' : ''}data-listener-row="${escapeAttribute(group.activityId)}" data-activate-listener="${escapeAttribute(group.activityId)}"`,
-        label: `Inspect ${group.target}`, expanded: false,
-      }) + `<button type="button" class="source-highlight" data-highlight-source="${escapeAttribute(group.id)}" aria-label="Highlight ${escapeAttribute(group.target)}" title="${escapeAttribute(highlightTitle)}" aria-pressed="${outlinesOn && highlightedSourceKey === group.id}"${unplaced ? ' disabled' : ''}>${iconHtml('eye')}</button></div>`;
-    });
-    const blocked = outlinesRefused;
-    const allOn = outlinesOn && paintMode === 'overview' && highlightedSourceKey === undefined && listenerOutlines.every((outline) => listenerMode?.isListenerVisible(outline.listenerId));
-    const toggle = `<button type="button" class="listener-toggle" data-listener-all aria-pressed="${allOn}"><span class="toggle-track" aria-hidden="true"></span>Show all</button>`;
-    const treatment = listenerMode?.treatmentState?.();
-    const description = treatment?.choices.find(entry => entry.id === treatment.selected)?.description ?? '';
-    const picker = treatment ? `<select id="pyric-flow-treatment" data-flow-treatment aria-label="Flow treatment" title="${escapeAttribute(description)}">${['Standard', 'Experimental', 'Custom'].map(group => { const entries = treatment.choices.filter(entry => entry.group === group); return entries.length ? `<optgroup label="${group}">${entries.map(entry => `<option value="${escapeAttribute(entry.id)}" title="${escapeAttribute(entry.description)}"${entry.id === treatment.selected ? ' selected' : ''}>${escapeAttribute(entry.name)}</option>`).join('')}</optgroup>` : ''; }).join('')}</select>` : '<span></span>';
-    const notice = treatment?.error ? `<span class="hint" role="alert">${escapeAttribute(treatment.error)}</span>${buttonHtml(`data-treatment-retry="${escapeAttribute(treatment.retry ?? treatment.selected)}"`, 'Retry')}` : treatment?.loading ? '<span class="hint" role="status">Loading treatment…</span>' : '';
-    const toolbar = `<div class="listener-toolbar"><div class="paint-switch" role="group" aria-label="Highlight mode">${buttonHtml(`data-listener-mode="overview" aria-pressed="${pressed('overview')}"`, 'Overview')}${buttonHtml(`data-listener-mode="flow" aria-pressed="${pressed('flow')}"${flowReason === null ? '' : ' disabled'}`, 'Flow', flowReason ?? 'Show what rendered after each delivery')}</div>${picker}<button type="button" class="btn icon-button" data-open-overlay-theme aria-label="Highlight settings" title="Highlight settings">${iconHtml('settings')}</button>${notice ? `<span class="listener-toolbar-notice">${notice}</span>` : ''}</div>`;
-    let bar = barHtml([toolbar]);
-    const overviewReason = listenerMode?.overviewUnavailableReason();
-    const regionGuidance = [overviewReason, flowReason].filter(Boolean).join(' ');
-    const guidance = blocked ?? regionGuidance;
-    const list = `<div class="rows" data-listener-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml('No reads or listeners yet', 'Read or subscribe to data in your app to see activity here. Select a row to highlight its associated components.')}`;
-    let body = sectionHtml(pluralize(groups.length, 'source'), list, listenerMode?.history?.counts({ scope: { kind: 'retained' } }).partial ? 'Retained history / incomplete' : '', toggle);
-    if (selected) {
-      body = `<div class="history-context"><div class="source-navigation"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-sources-back>Data</button>${iconHtml('chevron')}<span class="breadcrumb-service">${serviceLabel(selected.service)}</span>${iconHtml('chevron')}<span class="breadcrumb-target" aria-current="page" title="${escapeAttribute(selected.target)}">${selected.service === 'ai' ? 'Model requests' : escapeAttribute(selected.target)}</span></nav><a href="#pyric-traffic" class="nav-link" data-source-traffic aria-label="View traffic" title="View matching traffic">Traffic${iconHtml('chevron')}</a></div></div>` + historyHtml();
-    }
-    if (selected) body += `<div class="history-context">${indexBlock(queryForSource(selected.id), selected.id, selected.id)}</div>`;
-    if (selected) {
-      const action = indexActionHtml(queryForSource(selected.id), selected.id, indexInspector, escapeAttribute);
-      if (action) bar = barHtml([`<div class="index-toolbar">${toolbar}<div class="index-submit">${action}</div></div>`]);
-    }
-    if (guidance) body += `<span class="hint" data-flow-unavailable>${escapeAttribute(guidance)}</span>`;
-    return { body, bar };
-
   };
 
   let selectedRequest: ChipRequest | null = null;
@@ -1258,7 +959,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
 
   const viewHtml = (activeUid: string | null, isAdmin: boolean): ChipView => {
     if (tab === 'identity') return identityViewHtml(activeUid, isAdmin);
-    if (tab === 'listeners') return options.listeners ? listenersViewHtml() : { body: emptyHtml('Data unavailable', 'This page has no listener event source. Connect the sandbox to inspect subscriptions.'), bar: barHtml([]) };
+    if (tab === 'listeners') return options.listeners && dataView ? dataView.view() : { body: emptyHtml('Data unavailable', 'This page has no listener event source. Connect the sandbox to inspect subscriptions.'), bar: barHtml([]) };
     if (tab === 'traffic') return trafficViewHtml();
     return sandboxViewHtml();
   };
@@ -1354,7 +1055,6 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
           caret: isTextField(active) ? active.selectionStart : null,
         };
     snapshot = next;
-    renderedFlowWaiting = listenerMode?.flowWaiting() === true;
 
     const lens = getLensFn();
     const user = readCurrentUser();
@@ -1680,118 +1380,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     root.querySelector('[data-create-user]')?.addEventListener('click', () => {
       identity.openCreateUser();
     });
-    root.querySelector<HTMLSelectElement>('[data-flow-treatment]')?.addEventListener('change', (event) => {
-      const select = event.currentTarget as HTMLSelectElement;
-      void listenerMode?.setTreatment?.(select.value);
-    });
-    root.querySelector('[data-treatment-retry]')?.addEventListener('click', () => {
-      const retry = listenerMode?.treatmentState?.().retry;
-      if (retry) void listenerMode?.setTreatment?.(retry);
-    });
-    root.querySelector('[data-listener-all]')?.addEventListener('click', () => {
-      const mode = ensureListenerMode();
-      if (!mode) return;
-      const allOn = mode.enabled() && mode.mode() === 'overview' && highlightedSourceKey === undefined && mode.outlines().every((outline) => mode.isListenerVisible(outline.listenerId));
-      activeListenerId = null; selectedSourceKey = undefined; highlightedSourceKey = undefined;
-      for (const outline of mode.outlines()) mode.setListenerVisible(outline.listenerId, true);
-      if (!allOn) mode.setMode('overview');
-      mode.setEnabled(!allOn);
-      outlinesRefused = !allOn && !mode.enabled() ? 'Listener attribution is off in this build, so there are no owners to outline.' : null;
-      listenerOutlines = mode.outlines();
-      render();
-    });
-    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-listener-mode]')) {
-      button.addEventListener('click', () => {
-        const mode = ensureListenerMode();
-        if (mode === null) return;
-        const paint: ListenerPaintMode = button.dataset.listenerMode === 'flow' ? 'flow' : 'overview';
-        // A pressed mode pressed again is the outlines going off; anything
-        // else is that mode going on.
-        if (mode.enabled() && mode.mode() === paint) {
-          mode.setEnabled(false);
-          activeListenerId = null; selectedSourceKey = undefined; highlightedSourceKey = undefined;
-          for (const outline of mode.outlines()) mode.setListenerVisible(outline.listenerId, true);
-          outlinesRefused = null;
-        } else {
-          mode.setMode(paint);
-          mode.setEnabled(true);
-          outlinesRefused = mode.enabled()
-            ? mode.mode() === paint ? null : mode.flowUnavailableReason()
-            : 'Listener attribution is off in this build, so there are no owners to outline.';
-        }
-        listenerOutlines = mode.outlines();
-        render();
-      });
-    }
-    // A listener row singles its listener out on the page: the outlines come
-    // on if they were off, and only that listener is painted until the row is
-    // pressed again.
-    root.querySelector('[data-source-traffic]')?.addEventListener('click', (event) => {
-      event.preventDefault();
-      const selected = sourceGroups().find(group => group.id === selectedSourceId());
-      if (selected) trafficSource = { service: selected.service, target: selected.target };
-      trafficFilter = 'all'; trafficDisplay = 'requests'; selectedRequest = null; showTab('traffic');
-    });
+    dataView?.bind(root);
     root.querySelector('[data-clear-traffic-source]')?.addEventListener('click', () => { trafficSource = null; selectedRequest = null; render(); });
-    root.querySelector('[data-sources-back]')?.addEventListener('click', () => {
-      activeListenerId = null; selectedSourceKey = undefined; selectedHistory = null; historyPage = 0;
-      listenerMode?.inspectHistory?.(null);
-      render();
-      const view = root.querySelector<HTMLElement>('.view'); if (view) view.scrollTop = 0;
-      root.querySelector<HTMLButtonElement>('[data-listener-row]')?.focus();
-    });
-    root.querySelector('[data-clear-activity-history]')?.addEventListener('click', () => {
-      selectedHistory = null; historyPage = 0;
-      listenerMode?.clearActivityHistory?.(); render();
-    });
-    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-history-page]')) {
-      button.addEventListener('click', () => { historyPage = Number(button.dataset.historyPage); render(); });
-    }
-    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-history-entry]')) {
-      button.addEventListener('click', () => {
-        const sequence = Number(button.dataset.historyEntry);
-        selectedHistory = selectedHistory === sequence ? null : sequence;
-        const entry = listenerMode?.history?.snapshot().entries.find(entry => entry.sequence === sequence);
-        const associated = listenerMode?.history?.association(sequence);
-        const highlightSequence = selectedHistory === null ? null : associated?.sequence ?? null;
-        listenerMode?.inspectHistory?.(highlightSequence);
-
-        render();
-      });
-    }
-    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-highlight-source]')) {
-      button.addEventListener('click', () => {
-        const mode = ensureListenerMode();
-        if (!mode) return;
-        const sourceId = button.dataset.highlightSource;
-        const turnOff = mode.enabled() && highlightedSourceKey === sourceId;
-        highlightedSourceKey = turnOff ? undefined : sourceId;
-        mode.inspectHistory?.(null);
-        for (const outline of mode.outlines()) {
-          mode.setListenerVisible(outline.listenerId, turnOff || (outline.activity?.sourceId ?? outline.listenerId) === sourceId);
-        }
-        mode.setMode('overview');
-        mode.setEnabled(!turnOff);
-        render();
-        root.querySelectorAll<HTMLButtonElement>('[data-highlight-source]').forEach(next => {
-          if (next.dataset.highlightSource === sourceId) next.focus({ preventScroll: true });
-        });
-      });
-    }
-    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-activate-listener]')) {
-      button.addEventListener('click', () => {
-        const mode = ensureListenerMode();
-        const listenerId = button.dataset.activateListener;
-        if (mode === null || listenerId === undefined) return;
-        historyPage = 0; selectedHistory = null;
-        selectedSourceKey = sourceGroups().find(group => group.activityId === listenerId)?.id;
-        activeListenerId = listenerId;
-        listenerOutlines = mode.outlines();
-        render();
-        const view = root.querySelector<HTMLElement>('.view'); if (view) view.scrollTop = 0;
-        root.querySelector<HTMLButtonElement>('[data-sources-back]')?.focus();
-      });
-    }
     root.querySelector('[data-request-back]')?.addEventListener('click', () => {
       selectedRequest = null; render();
       const view = root.querySelector<HTMLElement>('[data-chip-view]');
@@ -1857,7 +1447,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       });
     });
     root.querySelector('[data-open-overlay-theme]')?.addEventListener('click', (event) => {
-      if (ensureListenerMode() === null) return;
+      if (dataView?.mode() === null) return;
       themeDialog().open(event.currentTarget as HTMLElement);
     });
     root.querySelector('[data-update-worker]')?.addEventListener('click', () => {
@@ -1906,7 +1496,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
 
   // The Listeners rows and the collapsed count read the mode's fold, so the
   // mode exists from the start; the control only turns the painting on.
-  ensureListenerMode();
+  dataView?.mode();
 
   const unsubAuth = identity.subscribeAuth((next) => {
     clientUser = next;
@@ -1956,7 +1546,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       indexInspector.dispose();
       thresholdSettings.dispose();
       denials.dispose();
-      listenerMode?.dispose();
+      dataView?.dispose();
       host.remove();
     },
   };

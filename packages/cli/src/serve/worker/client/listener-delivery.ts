@@ -1,11 +1,11 @@
 import { recordEffectRegions, sdkActivity } from 'pyric/sandbox/internal';
+import { listenerKey, type ListenerKey } from '../../runtime/listener-key.js';
 /**
  * Delivery hooks between the page's SDK client and the runtime chip.
  *
  * SDK adapters report through the shared journal at the public callback/result
- * boundary. Worker records carry their transport id so existing outline lookup
- * can join backend attribution; in-page records use their activity id.
- * Synthetic reports remain available for the demonstration fixture.
+ * boundary, and a delivery names its listener by the activity id on every
+ * transport. Synthetic reports remain available for the demonstration fixture.
  *
  * The page regions a served listener's callback changed are kept here too. An
  * in-page sandbox records them itself, around the callback it runs, and puts
@@ -14,8 +14,8 @@ import { recordEffectRegions, sdkActivity } from 'pyric/sandbox/internal';
  * latest selectors per activity id for the chip to read.
  */
 
-/** Called with the subscription id whose callback is about to run. */
-export type ListenerDeliveryListener = (listenerId: string) => void;
+/** Called with the key of the listener whose callback is about to run. */
+export type ListenerDeliveryListener = (listenerId: ListenerKey) => void;
 
 const listeners = new Set<ListenerDeliveryListener>();
 
@@ -23,7 +23,7 @@ const listeners = new Set<ListenerDeliveryListener>();
 export function onListenerDelivery(listener: ListenerDeliveryListener): () => void {
   listeners.add(listener);
   const stopActivity = sdkActivity.subscribe(event => {
-    if (event.phase === 'delivery' || event.phase === 'progress') listener(event.record.transportId ?? event.record.id);
+    if (event.phase === 'delivery' || event.phase === 'progress') listener(listenerKey(event.record.id));
   });
   return () => {
     stopActivity();
@@ -36,7 +36,7 @@ export function reportListenerDelivery(listenerId: string): void {
   if (listeners.size === 0) return;
   for (const listener of [...listeners]) {
     try {
-      listener(listenerId);
+      listener(listenerKey(listenerId));
     } catch {
       /* a diagnostic must never break the application's delivery */
     }

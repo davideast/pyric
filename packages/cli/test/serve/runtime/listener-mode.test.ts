@@ -1,4 +1,4 @@
-import { createSdkActivityJournal } from 'pyric/sandbox/internal';
+import { createSdkActivityJournal, EventHistory } from 'pyric/sandbox/internal';
 import { JSDOM } from 'jsdom';
 import { describe, expect, it } from 'bun:test';
 import type { SandboxEvent } from 'pyric/sandbox';
@@ -78,7 +78,7 @@ function harness(options: {
   const rowHost = { tag: 5, type: 'span', stateNode: rowEl, return: regionHost, child: null };
   Reflect.set(rowEl, '__reactFiber$k', rowHost);
   let changedNodes: unknown[] = [];
-  let deliver: ((events: readonly SandboxEvent[]) => void) | null = null;
+  let deliver: ((events: readonly SandboxEvent[], batch?: { history: boolean }) => void) | null = null;
   let subscriptions = 0;
   let delivered: ((listenerId: string) => void) | null = null;
   const commits = fakeCommits(options.react ?? true);
@@ -122,7 +122,9 @@ function harness(options: {
     mode,
     commits,
     rowEl,
-    push: (events: readonly SandboxEvent[]) => deliver?.(events),
+    push: (events: readonly SandboxEvent[]) => deliver?.(events, { history: false }),
+    /** The host's whole history again, as a reconnect delivers it. */
+    replaceHistory: (events: readonly SandboxEvent[]) => deliver?.(events, { history: true }),
     subscriptions: () => subscriptions,
     flowWatching: () => delivered !== null,
     queueDelivery: (id: string) => delivered?.(id),
@@ -260,7 +262,7 @@ describe('incident marking', () => {
   it('marks the badges of listeners the activity monitor calls duplicates', () => {
     const dom = new JSDOM('<!doctype html><body><div id="a"></div><div id="b"></div><div id="c"></div></body>', { url: 'http://localhost/' });
     const doc = dom.window.document;
-    let deliver: ((events: readonly SandboxEvent[]) => void) | null = null;
+    let deliver: ((events: readonly SandboxEvent[], batch: { history: boolean }) => void) | null = null;
     const mode = createListenerMode({
     activity: createSdkActivityJournal(),
       document: doc,
@@ -282,7 +284,7 @@ describe('incident marking', () => {
       actor: { kind: 'app' },
       owners: [{ kind: 'tag', name, element: `#${name}` }],
     } as unknown as SandboxEvent));
-    deliver?.(attaches);
+    deliver?.(attaches, { history: false });
 
     const marked = [...doc.querySelectorAll<HTMLElement>('[data-pyric-listener-badge]')];
     expect(marked).toHaveLength(3);
@@ -299,7 +301,7 @@ describe('in-app inspection', () => {
     const dom = new JSDOM('<!doctype html><body><div id="todos"></div></body>', { url: 'http://localhost/' });
     const doc = dom.window.document;
     const opened: string[] = [];
-    let deliver: ((events: readonly SandboxEvent[]) => void) | null = null;
+    let deliver: ((events: readonly SandboxEvent[], batch: { history: boolean }) => void) | null = null;
     const mode = createListenerMode({
     activity: createSdkActivityJournal(),
       document: doc,
@@ -312,7 +314,7 @@ describe('in-app inspection', () => {
       },
     });
     mode.setEnabled(true);
-    deliver?.([attach('e1', 'l1', { kind: 'query', collection: 'todos' }, [{ kind: 'tag', name: 'TodoList', element: '#todos' }])]);
+    deliver?.([attach('e1', 'l1', { kind: 'query', collection: 'todos' }, [{ kind: 'tag', name: 'TodoList', element: '#todos' }])], { history: false });
     doc.querySelector<HTMLElement>('[data-pyric-listener-badge]')?.click();
 
     expect(opened).toEqual([]);
@@ -642,6 +644,36 @@ it('preserves interleaved commit sources and rejects removed history regions', (
   expect(history.snapshot().entries).toHaveLength(0);
   expect(page.activity.records()).toHaveLength(2);
   page.mode.dispose(); page.activity.dispose();
+});
+
+it('keeps the listener set and rows when the host trims its history and the page reconnects', () => {
+  const page = harness();
+  const todos: Target = { kind: 'query', collection: 'todos' };
+  const profile: Target = { kind: 'doc', path: 'users/u1' };
+  const appAttach = (id: string, listenerId: string, target: Target, owners: unknown[]) =>
+    ({ ...(attach(id, listenerId, target, owners) as object), actor: { kind: 'app' as const } }) as unknown as SandboxEvent;
+  const host = new EventHistory({ maxEvents: 12, maxBytes: 1024 * 1024 });
+  const hostEmits = (events: readonly SandboxEvent[]) => { for (const event of events) host.append(event); page.push(events); };
+  const rows = () => page.mode.outlines().map(outline => ({ id: outline.listenerId, label: outline.label, deliveries: outline.deliveryCount, selectors: outline.selectors, incident: outline.incident }));
+  try {
+    hostEmits([
+      appAttach('a1', 'L1', todos, [{ kind: 'tag', name: 'TodoList', element: '#todos' }]),
+      appAttach('a2', 'L2', profile, [{ kind: 'tag', name: 'Profile', element: '#profile' }]),
+      appAttach('a3', 'L3', { kind: 'doc', path: 'users/u2' }, []),
+    ]);
+    const before = rows();
+    expect(before.map(row => row.id)).toEqual(['L1', 'L2', 'L3']);
+    // A detach the page missed while it was disconnected, then enough traffic
+    // to trim every event the page saw from the host's history.
+    host.append(detach('d3', 'L3', { kind: 'doc', path: 'users/u2' }));
+    for (let index = 0; index < 20; index++) host.append({ kind: 'observation_gap', id: `filler-${index}`, at: 3, reason: 'none', firstEventId: 'x', lastEventId: 'x', omittedCount: 0 } as unknown as SandboxEvent);
+    page.replaceHistory(host.snapshot());
+    expect(rows()).toEqual(before.filter(row => row.id !== 'L3'));
+    // A second reconnect replays the same attaches again without raising a
+    // duplicate-listener incident or doubling the set.
+    page.replaceHistory(host.snapshot());
+    expect(rows()).toEqual(before.filter(row => row.id !== 'L3'));
+  } finally { page.mode.dispose(); }
 });
 
 it('outlines a served listener where its callback changed the page, without React or an owner', () => {

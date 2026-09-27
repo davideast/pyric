@@ -141,6 +141,17 @@ describe('activityOutlines', () => {
     expect(outline.selectors).toEqual(['#live']);
   });
 
+  it('joins a sandbox listener to a record only through the id the page stamped on its attach', () => {
+    const activity = record([frame]);
+    const backend = listenerOutlines([
+      // Same sandbox listener id as the transport id, but no stamp: another client's listener.
+      attach('e1', activity.transportId!, { kind: 'query', collection: 'scores' }, [{ kind: 'regions', selectors: ['#other'] }]),
+    ], []);
+    const outlines = activityOutlines(backend, [activity], new Set());
+    expect(outlines.map(outline => outline.listenerId)).toEqual([activity.transportId, activity.id]);
+    expect(outlines[1].selectors).toEqual([]);
+  });
+
   it('adds the regions the page recorded around the served callback', () => {
     const activity = record([frame]);
     const [outline] = activityOutlines([], [activity], new Set(), id => id === activity.id ? ['#live', '#count'] : []);

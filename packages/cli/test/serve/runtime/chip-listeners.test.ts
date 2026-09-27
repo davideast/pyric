@@ -107,7 +107,7 @@ function setup(options: {
   (regionHost as { child: unknown }).child = rowFiber;
   (doc.querySelector('#todos') as unknown as Record<string, unknown>)['__reactFiber$k'] = regionHost;
   (rowEl as unknown as Record<string, unknown>)['__reactFiber$k'] = rowFiber;
-  let deliver: ((events: readonly SandboxEvent[]) => void) | null = null;
+  let deliver: ((events: readonly SandboxEvent[], batch: { history: boolean }) => void) | null = null;
   let delivered: ((listenerId: string) => void) | null = null;
   let commit: (() => void) | null = null;
   let changedNodes: unknown[] = [];
@@ -171,7 +171,7 @@ function setup(options: {
     chip,
     paintStore,
     root,
-    push: (events: readonly SandboxEvent[]) => deliver?.(events),
+    push: (events: readonly SandboxEvent[]) => deliver?.(events, { history: false }),
     /** A delivery the worker client reported, and the render that followed. */
     flowDelivery: (listenerId: string) => {
       delivered?.(listenerId);

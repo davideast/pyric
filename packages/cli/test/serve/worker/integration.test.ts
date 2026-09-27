@@ -13,6 +13,7 @@ import { rtdbGetDatabase, rtdbRef } from '../../../src/serve/worker/client/rtdb-
 import { rtdbOnValue } from '../../../src/serve/worker/client/rtdb-listeners.js';
 import { onListenerDelivery } from '../../../src/serve/worker/client/listener-delivery.js';
 import { activeListeners } from 'pyric/sandbox';
+import { sdkActivity } from 'pyric/sandbox/internal';
 import {
   connectClient,
   connectClientToHost,
@@ -137,7 +138,7 @@ describe('client↔host round-trip (gate repro)', () => {
     expect((seen.at(-1) as { marker?: string }).marker).toBe('shared');
   });
 
-  it('stamps the client subscription id on the attach of both services and reports deliveries by it', async () => {
+  it('stamps the client subscription id on the attach of both services and reports deliveries by the activity id that joins to it', async () => {
     const ctx = await makeHostCtx();
     const { db } = connectClientToHost(ctx, 'worker://client-ids');
     const auth = client.getAuth(db);
@@ -153,7 +154,14 @@ describe('client↔host round-trip (gate repro)', () => {
     expect(clientIds).toHaveLength(2);
     expect(new Set(listeners.map((listener) => listener.service))).toEqual(new Set(['firestore', 'database']));
     expect(reported.length).toBeGreaterThan(0);
-    for (const id of reported) expect(clientIds).toContain(id);
+    // A delivery names the page's activity; the activity's transport id is the
+    // one field that joins it to the sandbox listener.
+    const records = sdkActivity.records();
+    for (const id of reported) {
+      const record = records.find((candidate) => candidate.id === id);
+      expect(record?.kind).toBe('subscription');
+      expect(clientIds).toContain(record!.transportId!);
+    }
     firestoreUnsub();
     databaseUnsub();
     stopReports();

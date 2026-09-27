@@ -10,7 +10,7 @@
  * operation is needed for the chip.
  */
 import type { SandboxEvent } from 'pyric/sandbox';
-import { subscribeEvents } from '../worker/client/studio.js';
+import { subscribeEvents, type EventBatchCallback } from '../worker/client/studio.js';
 import type { ClientDb } from '../worker/client/handles.js';
 
 /** The in-page sandbox's event stream, as this module reads it. */
@@ -19,10 +19,11 @@ export interface SandboxEventFeed {
   onEvent(listener: (event: SandboxEvent) => void): () => void;
 }
 
-/** Subscribe to batches of sandbox events, history first. */
-export type SandboxEventSource = (
-  callback: (events: readonly SandboxEvent[]) => void,
-) => () => void;
+/**
+ * Subscribe to batches of sandbox events. A batch marked `history` is the
+ * host's whole retained history and replaces what came before it.
+ */
+export type SandboxEventSource = (callback: EventBatchCallback) => () => void;
 
 export interface EventSourceBindings {
   /** The worker-backed sandbox handle, when the page has a worker. */
@@ -40,8 +41,8 @@ export function sandboxEventSource(bindings: EventSourceBindings): SandboxEventS
   const feed = bindings.sandbox;
   if (feed !== null && feed !== undefined) {
     return (callback) => {
-      callback(feed.history());
-      return feed.onEvent((event) => callback([event]));
+      callback(feed.history(), { history: true });
+      return feed.onEvent((event) => callback([event], { history: false }));
     };
   }
   return null;

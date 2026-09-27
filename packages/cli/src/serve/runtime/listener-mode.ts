@@ -25,7 +25,7 @@ import type { FlowTreatmentManifest, FlowTreatmentState } from './flow-treatment
  */
 import type { SandboxEvent } from 'pyric/sandbox';
 import type { ActivityIncident } from 'pyric/firestore/internal';
-import { activityOutlines, createListenerOutlineState, type ListenerOutline } from './listener-outline-model.js';
+import { activityOutlines, createListenerOutlineState, type ListenerKey, type ListenerOutline } from './listener-outline-model.js';
 import { sdkActivity, sdkMethodCoverage, observationService, type SdkActivityRecord } from 'pyric/sandbox/internal';
 import { createListenerOverlay, ownedElements, type ListenerOverlay } from './listener-overlay.js';
 import { deliveredRegions, onDeliveredRegions } from '../worker/client/listener-delivery.js';
@@ -33,6 +33,7 @@ import { createListenerIncidents } from './listener-incidents.js';
 import { studioSectionUrl } from './studio-links.js';
 import { createFlowMode, type FlowModeOptions } from './listener-flow-mode.js';
 import type { ListenerObservation } from './listener-observation.js';
+import type { SandboxEventSource } from './listener-event-source.js';
 
 import {
   installReactCommitSource,
@@ -69,11 +70,12 @@ export interface ListenerModeOptions {
   treatmentStorage?: Pick<Storage, 'getItem' | 'setItem'> | null;
   document: Document;
   /**
-   * The page's sandbox event source. The first delivery carries history, each
-   * later delivery carries the events since the last one, which is exactly
-   * the shape the worker client's `subscribeEvents` already has.
+   * The page's sandbox event source. A batch marked `history` is the host's
+   * whole retained history, which keeps every listener it still holds
+   * attached, and replaces the fold; other batches carry the events since the
+   * last one.
    */
-  subscribeEvents: (callback: (events: readonly SandboxEvent[]) => void) => () => void;
+  subscribeEvents: SandboxEventSource;
   /** Whether listener attribution is recording owners. */
   attributionEnabled?: () => boolean;
   /** Incident source. Defaults to raising them from the page's own history. */
@@ -150,9 +152,9 @@ export interface ListenerMode {
    */
   placementReason(outline: ListenerOutline): string | null;
   /** `false` when this listener's paint is hidden in both modes. */
-  isListenerVisible(listenerId: string): boolean;
+  isListenerVisible(listenerId: ListenerKey): boolean;
   /** Show or hide one listener's paint. Remembered for this page session. */
-  setListenerVisible(listenerId: string, visible: boolean): void;
+  setListenerVisible(listenerId: ListenerKey, visible: boolean): void;
   /** The overrides in effect, page storage over the served page's option. */
   overlayTheme(): OverlayTheme;
   /**
@@ -234,13 +236,13 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
   /** `true` once Flow painted a delivery since the switch into Flow. */
   let flowPainted = false;
   /** Listeners the developer switched off. Page session only, never stored. */
-  const hidden = new Set<string>();
-  const observed = new Set<string>();
+  const hidden = new Set<ListenerKey>();
+  const observed = new Set<ListenerKey>();
   const history = createActivityHistory();
   const regions = new Map<number, { paint: Omit<FlowPaint, 'subtree'>; nodes: { element: WeakRef<Element>; name: string; depth: number; kind: 'component' | 'host' }[] }>();
   let selectedActivityId: string | null = null;
   let inspectionVersion = 0;
-  let highlightedHistory: { sequence: number; listenerId: string } | null = null;
+  let highlightedHistory: { sequence: number; listenerId: ListenerKey } | null = null;
   const clearHistoryHighlight = () => {
     if (highlightedHistory) flow.clearListener(highlightedHistory.listenerId);
     highlightedHistory = null;
@@ -315,10 +317,8 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
     document: documentLike,
     onTreatmentPaint: (paint) => treatments.record(paint),
     commits,
-    // A delivery observed on the page carries the client's subscription id;
-    // the outline knows both ids.
     outlineFor: (listenerId) => {
-      const outline = current.find((outline) => outline.listenerId === listenerId || outline.clientListenerId === listenerId);
+      const outline = current.find((outline) => outline.listenerId === listenerId);
       const hasOutline = outline !== undefined;
       return hasOutline ? displayOutline(outline) : null;
     },
@@ -378,7 +378,15 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
   // The mode observes from the moment it exists: the chip's count and summary
   // read the fold whether or not anything is painted. Enabling the mode only
   // adds the overlay on top of a fold that is already current.
-  unsubscribe = options.subscribeEvents((batch) => {
+  unsubscribe = options.subscribeEvents((batch, { history: replacesState }) => {
+    // The host's history keeps every listener it still holds attached, so a
+    // history batch is the current listener set: fold it from empty rather than
+    // on top of what the page folded before a reconnect.
+    if (replacesState) {
+      listeners.clear();
+      incidents.reset();
+      customIncidentEvents.length = 0;
+    }
     const usesCustomIncidents = options.incidents !== undefined;
     if (usesCustomIncidents) customIncidentEvents.push(...batch);
     incidents.append(batch);
