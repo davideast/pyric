@@ -66,15 +66,21 @@ export function useAuthUsers(auth: Auth): UseAuthUsersResult {
   const [error, setError] = useState<Error | undefined>(undefined);
   const [filter, setFilter] = useState('');
 
+  // One success path for the subscription's re-list and a manual refresh: a
+  // successful list replaces the users and clears any earlier list error.
+  const showUsers = useCallback((u: AuthUserRecord[]) => {
+    setAll(u);
+    setError(undefined);
+    setIsLoading(false);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     setIsLoading(true);
     setError(undefined);
     const applyUsers = (u: AuthUserRecord[]) => {
       if (cancelled) return;
-      setAll(u);
-      setError(undefined);
-      setIsLoading(false);
+      showUsers(u);
     };
     const applyErr = (e: unknown) => {
       if (cancelled) return;
@@ -109,7 +115,7 @@ export function useAuthUsers(auth: Auth): UseAuthUsersResult {
       cancelled = true;
       unsub?.();
     };
-  }, [auth, listUsers, subscribeUsers]);
+  }, [auth, listUsers, subscribeUsers, showUsers]);
 
   const users = useMemo(() => {
     const needle = filter.trim().toLowerCase();
@@ -133,11 +139,11 @@ export function useAuthUsers(auth: Auth): UseAuthUsersResult {
   const refresh = useCallback(() => {
     const r = listUsers(auth) as AuthUserRecord[] | Promise<AuthUserRecord[]>;
     if (r && typeof (r as Promise<AuthUserRecord[]>).then === 'function') {
-      void (r as Promise<AuthUserRecord[]>).then((u) => setAll(u)).catch(() => {});
+      void (r as Promise<AuthUserRecord[]>).then(showUsers).catch(() => {});
     } else {
-      setAll(r as AuthUserRecord[]);
+      showUsers(r as AuthUserRecord[]);
     }
-  }, [auth, listUsers]);
+  }, [auth, listUsers, showUsers]);
 
   return {
     users,

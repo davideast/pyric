@@ -152,6 +152,42 @@ describe('useAuthUsers', () => {
     expect(result.current!.error).toBeUndefined();
     act(() => renderer!.unmount());
   });
+
+  test('a successful refresh() after a failed load clears the error', async () => {
+    const auth = freshAuth();
+    const user = { uid: 'u1', email: 'a@example.com' } as AuthUserRecord;
+    const responses: Array<() => Promise<AuthUserRecord[]>> = [
+      () => Promise.reject(new Error('This client already has 256 pending operations.')),
+      () => Promise.resolve([user]),
+    ];
+    const api = {
+      ...inProcessApi(),
+      listUsers: () => responses.shift()!(),
+      subscribeUsers: () => () => {},
+    } as unknown as AuthApi;
+
+    const result: { current: UseAuthUsersResult | undefined } = { current: undefined };
+    function Host() {
+      result.current = useAuthUsers(auth);
+      return null;
+    }
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = create(
+        <AuthApiProvider value={api}>
+          <Host />
+        </AuthApiProvider>,
+      );
+    });
+    expect(result.current!.error?.message).toBe('This client already has 256 pending operations.');
+
+    await act(async () => {
+      result.current!.refresh();
+    });
+    expect(result.current!.users.map((u) => u.uid)).toEqual(['u1']);
+    expect(result.current!.error).toBeUndefined();
+    act(() => renderer!.unmount());
+  });
 });
 
 function inProcessApi(): AuthApi {
