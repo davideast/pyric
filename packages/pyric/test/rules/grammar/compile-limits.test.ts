@@ -25,6 +25,11 @@ function condition(expr: string): number {
 }
 
 describe('compile limits: every Rules Test API probe', () => {
+  test('a bare literal compiles in 98 parentheses and is rejected in 99, one level past a comparison', () => {
+    const literal = compileLimitProbes().filter((p) => p.shape === 'paren-literal');
+    expect(literal.map((p) => [p.n, p.compiles])).toEqual([[98, true], [99, false]]);
+  });
+
   test('the thresholds are the captured boundaries', () => {
     expect([CALL_DEPTH_LIMIT, LET_LIMIT, NESTING_LEVEL_LIMIT]).toEqual([21, 11, 99]);
   });
@@ -68,11 +73,6 @@ describe('compile limits: shapes the capture does not measure', () => {
       `    match /b/{d} {\n${chain('h', 'true')}\n      allow read: if h1();\n    }`,
     ].join('\n'));
     expect(violations(source)).toEqual([]);
-  });
-
-  test('a bare operand in 98 parentheses sits at level 99 and compiles; in 99 it is rejected', () => {
-    expect(condition(`${'('.repeat(98)}true${')'.repeat(98)}`)).toBe(0);
-    expect(condition(`${'('.repeat(99)}true${')'.repeat(99)}`)).toBe(1);
   });
 
   test('!, a ternary, a method call, and a list add no level; a comparison does', () => {

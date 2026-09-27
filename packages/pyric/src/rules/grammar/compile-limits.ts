@@ -133,8 +133,8 @@ function pushNesting(out: CompileLimitViolation[], expr: Expression, line: numbe
  * index and slice access, or list and map literals. They are counted like
  * member access, adding no level, because the only operand-taking nodes the
  * capture shows adding a level are binary operators and parenthesized groups.
- * A bare operand is counted like the measured ones: 98 parentheses around
- * `true` put `true` at level 99, which compiles under this model.
+ * A bare operand is a level of its own: production compiles `true` in 98
+ * parentheses (level 99) and rejects it in 99, reporting at the `true`.
  */
 export function nestingViolations(expr: Expression): number {
   return countTooComplex(expr, 1);

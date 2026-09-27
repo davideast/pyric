@@ -100,7 +100,7 @@ describe('Firestore Rules Linter', () => {
     // "Expression is too complex to evaluate safely."
     // (fixtures/compile-limits/captures.json, shapes and-nesting and
     // paren-nesting, Firestore and Storage).
-    const nesting = compileLimitProbes().filter(p => p.shape === 'and-nesting' || p.shape === 'paren-nesting');
+    const nesting = compileLimitProbes().filter(p => p.shape === 'and-nesting' || p.shape === 'paren-nesting' || p.shape === 'paren-literal');
 
     for (const probe of nesting) {
       test(`${probe.label}: ${probe.compiles ? 'no NESTING_DEPTH' : 'NESTING_DEPTH error'}, as production ${probe.compiles ? 'compiles' : 'rejects'} it`, () => {

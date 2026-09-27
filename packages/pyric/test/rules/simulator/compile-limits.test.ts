@@ -35,7 +35,7 @@ function compileError(source: string): RulesCompileError {
 describe('Firestore simulator: production compile limits', () => {
   test('the capture holds the three rejected shapes and the 21-function control', () => {
     const shapes = new Set(probes.filter((p) => !p.compiles).map((p) => p.shape));
-    expect([...shapes].sort()).toEqual(['and-nesting', 'call-depth', 'call-depth-uncalled', 'let-count', 'paren-nesting']);
+    expect([...shapes].sort()).toEqual(['and-nesting', 'call-depth', 'call-depth-uncalled', 'let-count', 'paren-literal', 'paren-nesting']);
     expect(probes.some((p) => p.shape === 'call-depth' && p.n === 21 && p.compiles && !p.range)).toBe(true);
   });
 
@@ -65,7 +65,9 @@ describe('Firestore simulator: production compile limits', () => {
   for (const probe of probes.filter((p) => p.compiles)) {
     test(`${probe.label}: compiles and evaluates as production does`, () => {
       const summary = firestoreRules(probe.source).simulate(cases('p'));
-      expect(summary.cases.map((c) => c.decision)).toEqual(['ALLOW', 'DENY']);
+      // A bare `true` grants both uids; every other probe grants only uid a.
+      const expected = probe.shape === 'paren-literal' ? ['ALLOW', 'ALLOW'] : ['ALLOW', 'DENY'];
+      expect(summary.cases.map((c) => c.decision)).toEqual(expected);
     });
   }
 });
