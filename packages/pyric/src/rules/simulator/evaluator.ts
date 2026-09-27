@@ -478,13 +478,14 @@ function evaluateBinaryOp(
     case '<=': return (lv as number) <= (rv as number);
     case '>=': return (lv as number) >= (rv as number);
     case '+': {
-      // RULES-B6: CEL `+` has no mixed-type overloads — both operands must be
-      // the same type. Allowed: string+string, number+number, list+list (concat).
-      // `'a' + 1` is an error (no string+int overload), not the silent
-      // `String(rv)` coercion the old impl did. (Wrapper `+` like
+      // Production's `+` accepts int + int, float + float, string + string,
+      // duration + duration, duration + timestamp, and timestamp + duration.
+      // Every other pair, list + list included, is "Unsupported operation
+      // error", an error value that `&&` and `||` absorb. `'a' + 1` errors
+      // rather than coercing, and `[1] + [2]` errors rather than
+      // concatenating: `list.concat(list)` joins lists. (Wrapper `+` like
       // Timestamp+Duration was already handled above via binaryOp dispatch;
-      // the documented `string + wrapper` affordance also flows above this.)
-      if (Array.isArray(lv) && Array.isArray(rv)) return [...lv, ...rv];
+      // the `string + wrapper` affordance also flows above this.)
       if (typeof lv === 'string' && typeof rv === 'string') return lv + rv;
       if (typeof lv === 'number' && typeof rv === 'number') return lv + rv;
       // Documented sim affordance (see the `op !== '+'` guard above): a

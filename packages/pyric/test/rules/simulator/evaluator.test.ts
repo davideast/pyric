@@ -3,6 +3,7 @@ import { evaluate, type SimulationContext, type SimResource } from '../../../src
 import type { Expression, FunctionDef } from '../../../src/rules/grammar/FirestoreAST.js';
 import { Path } from '../../../src/rules/simulator/wrappers/path.js';
 import { Timestamp } from '../../../src/rules/simulator/wrappers/timestamp.js';
+import { EvalError } from '../../../src/rules/simulator/eval-error.js';
 
 function mkRes(data: Record<string, unknown>, id = 'doc1'): SimResource {
   return { data, id, __name__: Path.fromString(`/test/${id}`) };
@@ -722,10 +723,11 @@ describe('RULES-B9: list membership value equality', () => {
 
 // ═══ RULES-B6 (partial): `+` requires matching operand types ═══
 //
-// Prod truth (CEL langdef): `+` has no mixed-type overload — both operands
-// must be the same type. Allowed: int+int, double+double, string+string,
-// bytes+bytes, list+list (concat). `'a' + 1` is an ERROR (no string+int
-// overload), not the silent `String(rv)` coercion the old impl did.
+// Production's `+` accepts int + int, float + float, string + string,
+// duration + duration, duration + timestamp, and timestamp + duration. Every
+// other pair, list + list included, is "Unsupported operation error", an
+// error value: `'a' + 1` errors rather than coercing, and `[1] + [2]`
+// errors rather than concatenating (`list.concat(list)` joins lists).
 // (Full RULES-B6 — strict bool in &&/||/ternary, int()/bool() parsing — is
 // deferred; see step-08 doc. This step covers only the unambiguous `+` rule.)
 describe('RULES-B6: + operator type rules', () => {
@@ -745,8 +747,41 @@ describe('RULES-B6: + operator type rules', () => {
     expect(evaluate(binOp('+', lit(2), lit(3)), baseCtx())).toBe(5);
   });
 
-  test('list + list concatenates (CEL list concat)', () => {
+  test('list + list ERRORS (no list + list overload)', () => {
     const expr = binOp('+', listLit([lit(1)]), listLit([lit(2)]));
+    expect(() => evaluate(expr, baseCtx())).toThrow(EvalError);
+    expect(() => evaluate(expr, baseCtx())).toThrow(/'\+' is not defined between list and list/);
+  });
+
+  test('list + list from request data ERRORS', () => {
+    const ctx = baseCtx();
+    ctx.request.resource = { data: { a: ['a', 'b'], b: ['c', 'd'] } };
+    const data = member(member(id('request'), 'resource'), 'data');
+    const expr = binOp('+', member(data, 'a'), member(data, 'b'));
+    expect(() => evaluate(expr, ctx)).toThrow(EvalError);
+  });
+
+  test('list + list is an error value that absorption resolves', () => {
+    const plus = binOp('==', binOp('+', listLit([lit(1)]), listLit([lit(2)])), listLit([lit(1), lit(2)]));
+    expect(evaluate(binOp('||', plus, lit(true)), baseCtx())).toBe(true);
+    expect(evaluate(binOp('||', lit(true), plus), baseCtx())).toBe(true);
+    expect(evaluate(binOp('&&', plus, lit(false)), baseCtx())).toBe(false);
+    expect(evaluate(binOp('&&', lit(false), plus), baseCtx())).toBe(false);
+    expect(() => evaluate(binOp('&&', plus, lit(true)), baseCtx())).toThrow(EvalError);
+    expect(() => evaluate(binOp('||', plus, lit(false)), baseCtx())).toThrow(EvalError);
+  });
+
+  test('list + string, string + list, and map + map ERROR', () => {
+    const list = listLit([lit(1)]);
+    expect(() => evaluate(binOp('+', list, lit('a')), baseCtx())).toThrow(EvalError);
+    expect(() => evaluate(binOp('+', lit('a'), list), baseCtx())).toThrow(EvalError);
+    const ctx = baseCtx({ resource: mkRes({ m: { k: 'v' }, o: { b: 'c' } }) });
+    const data = member(id('resource'), 'data');
+    expect(() => evaluate(binOp('+', member(data, 'm'), member(data, 'o')), ctx)).toThrow(EvalError);
+  });
+
+  test('list.concat(list) joins two lists', () => {
+    const expr = methodCall(listLit([lit(1)]), 'concat', [listLit([lit(2)])]);
     expect(evaluate(expr, baseCtx())).toEqual([1, 2]);
   });
 });

@@ -333,6 +333,7 @@
       "verifiedBy": [
         "ast-strictness-and-unsupported-casts",
         "builtins-time-and-math",
+        "cross-type-operator-overloads",
         "duration-and-latlng",
         "error-absorption-and-or",
         "functions-verbs-and-recursive",
@@ -369,6 +370,7 @@
       "verifiedBy": [
         "ast-strictness-and-unsupported-casts",
         "builtins-time-and-math",
+        "cross-type-operator-overloads",
         "duration-and-latlng",
         "error-absorption-and-or",
         "functions-verbs-and-recursive",
@@ -1387,6 +1389,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "cross-type-operator-overloads",
         "list-methods-concat-removeall-toset"
       ],
       "verifiedByRows": [],
@@ -2465,6 +2468,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "bytes-toutf8-and-hashing",
+        "cross-type-operator-overloads",
         "error-absorption-and-or",
         "get-missing-doc",
         "int-float-and-division",
@@ -3086,6 +3090,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "cross-type-operator-overloads",
         "error-absorption-and-or",
         "get-missing-doc",
         "undefined-field-access"
