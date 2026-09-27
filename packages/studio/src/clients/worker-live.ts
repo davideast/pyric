@@ -169,7 +169,9 @@ export interface WorkerLivePlane {
   setLens(lens: StudioLens | undefined): void;
   /** Read the active lens back (Studio UI reflects it). */
   getLens(): StudioLens | undefined;
-  /** F2 data browse: enumerate root collection ids over the worker keyspace. */
+  /** F2 data browse: enumerate root collection ids over the worker keyspace.
+   *  Coalesced: at most one request in flight, and every call made while one
+   *  is in flight shares a single follow-up request. */
   listRootCollections(): Promise<string[]>;
   /** F2 data browse: enumerate subcollection ids under a document path. */
   listSubcollections(docPath: string): Promise<string[]>;
@@ -205,7 +207,8 @@ export interface WorkerLivePlane {
   auth: Auth;
   /** F2 data browse: the worker auth admin ops as an injectable {@link AuthApi}
    *  bundle (Studio feeds it to `@pyric/ui`'s `AuthApiProvider`). `subscribeUsers`
-   *  re-lists on the worker event feed (coarse "user DB changed"). */
+   *  re-lists on the worker event feed (coarse "user DB changed"), and
+   *  `listUsers` is coalesced like {@link listRootCollections}. */
   authApi: AuthApi;
   /** F2 data browse: the worker-backed Storage handle (the object store the
    *  served app + agent share). Passed to the storage hooks as the handle. */
@@ -332,6 +335,56 @@ export function workerEventFeed(db: ClientDb): LiveEventFeed {
 }
 
 /**
+ * Wrap a read so repeated calls cost at most two requests per burst.
+ *
+ * The event feed delivers its history batch one event at a time, and the
+ * subscribers that re-read on each event would otherwise send one request per
+ * event in a single synchronous loop. The worker client refuses requests past
+ * its pending-operation budget, so a long history would fail the reads.
+ *
+ * A call with nothing in flight sends a request. A call made while a request is
+ * in flight sends nothing; it waits for one follow-up request, sent when the
+ * current one settles, and every such call receives that follow-up's result.
+ * The follow-up starts after the in-flight read settles, so it observes every
+ * change that prompted the calls waiting on it.
+ */
+function coalesceReads<T>(read: () => Promise<T>): () => Promise<T> {
+  let inFlight = false;
+  let followUp: {
+    promise: Promise<T>;
+    resolve: (value: T) => void;
+    reject: (reason: unknown) => void;
+  } | null = null;
+
+  const start = (): Promise<T> => {
+    inFlight = true;
+    const request = (async () => read())();
+    const settle = () => {
+      inFlight = false;
+      const waiting = followUp;
+      followUp = null;
+      if (waiting) start().then(waiting.resolve, waiting.reject);
+    };
+    request.then(settle, settle);
+    return request;
+  };
+
+  return () => {
+    if (!inFlight) return start();
+    if (!followUp) {
+      let resolve!: (value: T) => void;
+      let reject!: (reason: unknown) => void;
+      const promise = new Promise<T>((res, rej) => {
+        resolve = res;
+        reject = rej;
+      });
+      followUp = { promise, resolve, reject };
+    }
+    return followUp.promise;
+  };
+}
+
+/**
  * Connect Studio to the live SharedWorker backend, returning the {@link WorkerLivePlane},
  * or `null` when no `SharedWorker` is available (SSR / unsupported browser /
  * tests), so the env can fall back to the HTTP-only path. Never throws.
@@ -418,7 +471,7 @@ export function connectWorkerLive(
     feed,
     setLens: (lens) => workerSetLens(lens),
     getLens: () => workerGetLens() as StudioLens | undefined,
-    listRootCollections: () => workerListRootCollections(db),
+    listRootCollections: coalesceReads(() => workerListRootCollections(db)),
     listSubcollections: (docPath) => workerListSubcollections(db, docPath),
     // Browse-only listing: drop `data` at this seam (the pane only needs the
     // id + the phantom flag; document CONTENT always reads via getDoc).
@@ -455,7 +508,7 @@ export function connectWorkerLive(
     // service mutations (user create/update/delete/clear, sign-ins, provider
     // links) — a Firestore write must not fire a `listUsers` RPC.
     authApi: {
-      listUsers: () => workerListUsers(authHandle),
+      listUsers: coalesceReads(() => workerListUsers(authHandle)),
       subscribeUsers: (_auth: unknown, cb: () => void) =>
         feed.subscribe((event) => {
           if (event.kind === 'service_mutation' && event.service === 'auth') cb();

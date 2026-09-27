@@ -124,7 +124,8 @@ export function useStudioDataSource(): StudioDataState {
 /**
  * Reactive cache of the live worker's root collection ids. Fetches on mount and
  * refetches on every worker event (so a write that materialises a new
- * collection shows up live), and aligns the worker's default lens with Studio's
+ * collection shows up live; the plane coalesces the requests, so a history
+ * batch of any length costs at most two), and aligns the worker's default lens with Studio's
  * admin default. Empty array when there is no live plane.
  */
 function useWorkerRootCollections(live: WorkerLivePlane | undefined): string[] {

@@ -1,11 +1,12 @@
 /** `useAuthUsers` — live list + filter + CRUD over the sandbox user DB.
  *  DOM-free via the shared react-test-renderer harness. */
 import { describe, test, expect } from 'bun:test';
-import { act } from 'react-test-renderer';
+import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { initializeSandbox } from 'pyric/sandbox';
-import { getAuth, sandbox as authSandbox, type Auth } from 'pyric/auth';
+import { getAuth, sandbox as authSandbox, type Auth, type AuthUserRecord } from 'pyric/auth';
 import { renderHook } from '../../helpers/render-hook.js';
-import { useAuthUsers } from '../../../src/auth/hooks/index.js';
+import { useAuthUsers, type UseAuthUsersResult } from '../../../src/auth/hooks/index.js';
+import { AuthApiProvider, type AuthApi } from '../../../src/auth/authApi.js';
 
 function freshAuth(): Auth {
   return getAuth(initializeSandbox());
@@ -111,4 +112,94 @@ describe('useAuthUsers', () => {
     authSandbox.seedUsers(auth, [{ uid: 'late', email: 'late@example.com', password: 'pw-llll' }]);
     expect(authSandbox.listUsers(auth).length).toBe(1);
   });
+
+  test('a successful list after a failed one clears the error', async () => {
+    const auth = freshAuth();
+    const user = { uid: 'u1', email: 'a@example.com' } as AuthUserRecord;
+    const responses: Array<() => Promise<AuthUserRecord[]>> = [
+      () => Promise.reject(new Error('This client already has 256 pending operations.')),
+      () => Promise.resolve([user]),
+    ];
+    let notify: () => void = () => {};
+    const api = {
+      ...inProcessApi(),
+      listUsers: () => responses.shift()!(),
+      subscribeUsers: (_auth: Auth, cb: () => void) => {
+        notify = cb;
+        return () => {};
+      },
+    } as unknown as AuthApi;
+
+    const result: { current: UseAuthUsersResult | undefined } = { current: undefined };
+    function Host() {
+      result.current = useAuthUsers(auth);
+      return null;
+    }
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = create(
+        <AuthApiProvider value={api}>
+          <Host />
+        </AuthApiProvider>,
+      );
+    });
+    expect(result.current!.error?.message).toBe('This client already has 256 pending operations.');
+
+    await act(async () => {
+      notify();
+    });
+    expect(result.current!.users.map((u) => u.uid)).toEqual(['u1']);
+    expect(result.current!.error).toBeUndefined();
+    act(() => renderer!.unmount());
+  });
+
+  test('a successful refresh() after a failed load clears the error', async () => {
+    const auth = freshAuth();
+    const user = { uid: 'u1', email: 'a@example.com' } as AuthUserRecord;
+    const responses: Array<() => Promise<AuthUserRecord[]>> = [
+      () => Promise.reject(new Error('This client already has 256 pending operations.')),
+      () => Promise.resolve([user]),
+    ];
+    const api = {
+      ...inProcessApi(),
+      listUsers: () => responses.shift()!(),
+      subscribeUsers: () => () => {},
+    } as unknown as AuthApi;
+
+    const result: { current: UseAuthUsersResult | undefined } = { current: undefined };
+    function Host() {
+      result.current = useAuthUsers(auth);
+      return null;
+    }
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = create(
+        <AuthApiProvider value={api}>
+          <Host />
+        </AuthApiProvider>,
+      );
+    });
+    expect(result.current!.error?.message).toBe('This client already has 256 pending operations.');
+
+    await act(async () => {
+      result.current!.refresh();
+    });
+    expect(result.current!.users.map((u) => u.uid)).toEqual(['u1']);
+    expect(result.current!.error).toBeUndefined();
+    act(() => renderer!.unmount());
+  });
 });
+
+function inProcessApi(): AuthApi {
+  return {
+    listUsers: authSandbox.listUsers,
+    subscribeUsers: authSandbox.subscribeUsers,
+    createUser: authSandbox.createUser,
+    updateUser: authSandbox.updateUser,
+    deleteUser: authSandbox.deleteUser,
+    clearUsers: authSandbox.clearUsers,
+    getAuthProviderConfig: authSandbox.getAuthProviderConfig,
+    setAuthProviderConfig: authSandbox.setAuthProviderConfig,
+    subscribeAuthProviderConfig: authSandbox.subscribeAuthProviderConfig,
+  };
+}
