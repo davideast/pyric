@@ -6,7 +6,8 @@ import { RuleError, describeRulesType as describeType } from './rules-values.js'
  * The global conversion functions of the Storage rules language: `int()`,
  * `string()`, and `float()`. Corpus scenario `conversion-functions` records
  * the production verdicts. Every failure is an error value, so `&&` and `||`
- * can absorb it.
+ * can absorb it. Production has no global `bool()`, so a `bool` call resolves
+ * to the Function not found error value (corpus scenario `bool-function`).
  */
 interface Conversion {
   /** The overload list production prints in its argument errors. */

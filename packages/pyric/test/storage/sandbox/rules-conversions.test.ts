@@ -162,6 +162,19 @@ describe('evaluateStorageRules: undefined functions and argument counts', () => 
     expect(allows('!(foo(1) && false)')).toBe(true);
   });
 
+  it('bool() is not a global function: every call is a Function not found error value', () => {
+    for (const arg of ["'true'", "'false'", "'TRUE'", "'1'", '1', '0', 'true', 'null', '[]']) {
+      const r = evalCreate(`bool(${arg}) == true`);
+      expect(r.allowed).toBe(false);
+      expect(r.reasons.join(' ')).toContain('Function not found error: Name: [bool].');
+      expect(allows(`!(bool(${arg}) == true)`)).toBe(false);
+    }
+    expect(allows("bool('true')")).toBe(false);
+    expect(allows("bool('true') == true || true")).toBe(true);
+    expect(allows("!(bool('true') && false)")).toBe(true);
+    expect(evalCreate("bool('yes')", "function bool(x) { return x == 'yes'; }").allowed).toBe(true);
+  });
+
   it('a ruleset function called with the wrong argument count is an error value that || true absorbs', () => {
     const fn = 'function isOne(n) { return n == 1; }';
     const r = evalCreate('isOne(1, 2)', fn);
