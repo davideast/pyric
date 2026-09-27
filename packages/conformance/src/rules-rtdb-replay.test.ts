@@ -68,3 +68,24 @@ test('applies mount-relative seed data before replaying a case', () => {
     },
   ]);
 });
+
+test('reports an engine error and an abstention apart from a DENY', () => {
+  const results = replayRtdbScenario({
+    id: 'outcome-replay',
+    fm: 'rtdb#71',
+    rationale: 'An engine error or abstention never reads as a production DENY.',
+    provenance: 'Synthetic replay-adapter specification.',
+    rules: JSON.stringify({
+      outside: { '.write': 'auth != null', '.validate': 'newData.val().trim() == newData.val()' },
+      unparseable: { '.write': 'newData.val(' },
+      runtime: { '.write': 'auth != null', '.validate': "newData.val().toUpperCase() == 'OK'" },
+    }),
+    cases: [
+      { description: 'method outside the rules language', expectation: 'DENY', operation: 'write', opPath: '/outside', authPresent: true, newData: 'x' },
+      { description: 'method outside the rules language, in an update', expectation: 'DENY', operation: 'update', opPath: '/', authPresent: true, newData: { outside: 'x' } },
+      { description: 'unparseable rule', expectation: 'DENY', operation: 'write', opPath: '/unparseable', authPresent: true, newData: 'x' },
+      { description: 'runtime error', expectation: 'DENY', operation: 'write', opPath: '/runtime', authPresent: true, newData: 5 },
+    ],
+  });
+  expect(results.map((result) => result.simulator)).toEqual(['ERROR', 'ERROR', 'UNSUPPORTED', 'DENY']);
+});

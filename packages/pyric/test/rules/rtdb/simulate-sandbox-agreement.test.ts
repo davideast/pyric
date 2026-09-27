@@ -93,3 +93,41 @@ describe('RTDB simulate agrees with the sandbox on == and != across types', () =
     });
   }
 });
+
+// Production verdicts from deploy-observe-restore captures: a rule that fails
+// at evaluation, such as a string method called on a number, fails as that
+// rule. A `.validate` or `.write` that errors denies the write, and an
+// erroring ancestor `.write` leaves a descendant `.write` to grant.
+const errorRules = {
+  rules: {
+    a: { '.write': 'auth != null', '.validate': "newData.val().toUpperCase() == 'A'" },
+    w: { '.write': "newData.val().toUpperCase() == 'OK'", open: { '.write': 'auth != null' } },
+  },
+};
+const errorCases: Array<[label: string, path: string, value: unknown, expected: 'ALLOW' | 'DENY']> = [
+  ['.validate calling a string method on a number', '/a', 5, 'DENY'],
+  ['.validate calling a string method on a string', '/a', 'a', 'ALLOW'],
+  ['.write calling a string method on a number', '/w', 5, 'DENY'],
+  ['erroring ancestor .write, descendant .write grants', '/w/open', 5, 'ALLOW'],
+];
+
+describe('RTDB simulate agrees with the sandbox on rules that error at evaluation', () => {
+  for (const [label, path, value, expected] of errorCases) {
+    test(label, async () => {
+      const box = initializeSandbox();
+      sandbox.setRules(getDatabase(box.withAuth({ uid: 'admin' })), errorRules);
+      let verdict: 'ALLOW' | 'DENY' = 'ALLOW';
+      try {
+        await set(ref(getDatabase(box.withAuth({ uid: 'u' })), path.slice(1)), value);
+      } catch {
+        verdict = 'DENY';
+      }
+      const [result] = rtdbRules(errorRules).simulate([
+        { expectation: expected, operation: 'write', path, auth: 'u', newData: value },
+      ]).cases;
+      expect(verdict).toBe(expected);
+      expect(result.decision).toBe(verdict);
+      expect(result.unsupported).toBe(false);
+    });
+  }
+});

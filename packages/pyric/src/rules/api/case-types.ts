@@ -141,7 +141,9 @@ export interface RtdbCaseResult {
   unsupported: boolean;
   /** The tree path whose rule decided the request. */
   matchedPath: string;
-  /** Which rule kind (`.read` / `.write` / `.validate`) decided. */
+  /** The expression of the rule that decided, such as `auth != null`. Empty
+   *  when no rule on the path decided, as for a request denied by default or
+   *  one the engine could not evaluate. */
   matchedRule: string;
   /** Engine-provided reason string. */
   reason: string;

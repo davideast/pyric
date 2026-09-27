@@ -1361,3 +1361,97 @@ describe('SimulateHandler denial when no .read or .write rule grants', () => {
     expect(data.matchedPath).toBe('/rooms');
   });
 });
+
+// Production verdicts from the deploy-observe-restore captures
+// rules-rtdb-r17-validate-runtime-error and rules-rtdb-r26-rule-runtime-error:
+// a rule that fails at evaluation, such as a string method called on a number,
+// fails as that rule. A `.validate` that errors denies the write; a `.read` or
+// `.write` that errors does not grant, and the rest of the path still decides.
+describe('SimulateHandler evaluation errors in rules', () => {
+  const handler = new SimulateHandler();
+  const alice = { uid: 'alice', token: {} };
+
+  function run(
+    rulesJson: Record<string, unknown>,
+    operation: 'read' | 'write' | 'validate',
+    path: string,
+    options: { newData?: unknown; mockData?: Record<string, unknown> } = {},
+  ) {
+    const compiled = compileRtdbRules({ rules: rulesJson });
+    const result = handler.execute(compiled, { operation, path, auth: alice, mockData: options.mockData ?? {}, newData: options.newData });
+    if (!result.success) throw new Error(`${result.error.code}: ${result.error.message}`);
+    return result.data;
+  }
+
+  test('a .validate that calls a string method on a number denies the write', () => {
+    const rules = { a: { '.write': 'auth != null', '.validate': "newData.val().toUpperCase() == 'A'" } };
+    const data = run(rules, 'write', '/a', { newData: 5 });
+    expect(data.allowed).toBe(false);
+    expect(data.unsupported).toBeFalsy();
+    expect(data.matchedPath).toBe('/a');
+    expect(data.matchedRule).toBe("newData.val().toUpperCase() == 'A'");
+    expect(data.reason).toContain('toUpperCase');
+    expect(run(rules, 'write', '/a', { newData: 'a' }).allowed).toBe(true);
+  });
+
+  test('the validate operation denies on a .validate that errors', () => {
+    const rules = { a: { '.validate': "newData.val().toUpperCase() == 'A'" } };
+    const data = run(rules, 'validate', '/a', { newData: 5 });
+    expect(data.allowed).toBe(false);
+    expect(data.unsupported).toBeFalsy();
+  });
+
+  test('a .write or .read that errors does not grant', () => {
+    const write = run({ w: { '.write': "newData.val().toUpperCase() == 'OK'" } }, 'write', '/w', { newData: 5 });
+    expect(write.allowed).toBe(false);
+    expect(write.unsupported).toBeFalsy();
+    expect(write.matchedRule).toBe("newData.val().toUpperCase() == 'OK'");
+    const readRules = { r: { '.read': "data.val().toUpperCase() == 'OK'" } };
+    const read = run(readRules, 'read', '/r', { mockData: { r: 5 } });
+    expect(read.allowed).toBe(false);
+    expect(read.unsupported).toBeFalsy();
+    expect(run(readRules, 'read', '/r', { mockData: { r: 'ok' } }).allowed).toBe(true);
+  });
+
+  test('an ancestor rule that errors leaves a descendant rule to grant', () => {
+    const rules = {
+      w: { '.write': "newData.val().toUpperCase() == 'OK'", open: { '.write': 'auth != null' } },
+      r: { '.read': "data.child('v').val().toUpperCase() == 'OK'", open: { '.read': 'auth != null' } },
+    };
+    expect(run(rules, 'write', '/w/open', { newData: 5 }).allowed).toBe(true);
+    expect(run(rules, 'read', '/r/open', { mockData: { r: { v: 5 } } }).allowed).toBe(true);
+    expect(run(rules, 'read', '/r', { mockData: { r: { v: 5 } } }).allowed).toBe(false);
+  });
+
+  test('an error fails the whole expression, including under || and !', () => {
+    const rules = {
+      or: { '.write': 'auth != null', '.validate': "newData.val().toUpperCase() == 'OK' || newData.isNumber()" },
+      not: { '.write': 'auth != null', '.validate': "!(newData.val().toUpperCase() == 'OK')" },
+      missing: { '.write': 'auth != null', '.validate': "newData.child('absent').val().toUpperCase() == 'OK'" },
+    };
+    expect(run(rules, 'write', '/or', { newData: 5 }).allowed).toBe(false);
+    expect(run(rules, 'write', '/not', { newData: 5 }).allowed).toBe(false);
+    expect(run(rules, 'write', '/missing', { newData: 'x' }).allowed).toBe(false);
+  });
+
+  test('a .validate that errors is a real failure and wins over an unparseable one', () => {
+    const rules = {
+      '.write': 'auth != null',
+      a: { '.validate': 'newData.val().nope(' },
+      b: { '.validate': "newData.val().toUpperCase() == 'B'" },
+    };
+    const data = run(rules, 'write', '/', { newData: { a: 1, b: 2 } });
+    expect(data.allowed).toBe(false);
+    expect(data.unsupported).toBeFalsy();
+    expect(data.matchedPath).toBe('/b');
+  });
+
+  test('a method outside the RTDB rules language stays an evaluation error', () => {
+    const compiled = compileRtdbRules({ rules: { a: { '.write': 'auth != null', '.validate': 'newData.val().trim() == newData.val()' } } });
+    const result = handler.execute(compiled, { operation: 'write', path: '/a', auth: alice, mockData: {}, newData: 'x' });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.code).toBe('EVALUATION_ERROR');
+    expect(result.error.message).toContain('trim');
+  });
+});

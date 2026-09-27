@@ -491,11 +491,14 @@ export const rtdbRegistry = {
         }),
         row2({
           rowRef: "70",
-          behavior: "Evaluation errors (grammar mismatch, unknown identifier) surface as `EVALUATION_ERROR`",
+          behavior: "A rule that raises a runtime error production also raises, such as a string method called on a number or on null, fails as that rule: a `.validate` denies the write and a `.read` or `.write` does not grant, and the result is a verdict, not an error. Only a construct the simulator does not evaluate, such as a method outside the rules language, surfaces as `EVALUATION_ERROR`",
           status: "conforms",
-          evidence: "`unit:simulation/handler.test.ts`",
+          evidence: "`unit:simulation/handler.test.ts`; `unit:simulate-sandbox-agreement.test.ts` checks that `simulate` and the sandbox return the same verdict for rules that error; `oracle:rules-rtdb-r17-validate-runtime-error` and `oracle:rules-rtdb-r26-rule-runtime-error` record the production verdicts",
           automation: "unit-backed",
-          conformanceTests: ["packages/pyric/test/rules/rtdb/simulation/handler.test.ts"],
+          conformanceTests: [
+            "packages/pyric/test/rules/rtdb/simulation/handler.test.ts",
+            "packages/pyric/test/rules/rtdb/simulate-sandbox-agreement.test.ts",
+          ],
         }),
         row2({
           rowRef: "71",

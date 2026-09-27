@@ -240,6 +240,42 @@ class RtdbString {
   }
 }
 
+/**
+ * A failure the production rules engine also raises while it evaluates a rule:
+ * a rules method called on a value whose runtime type does not have it, such
+ * as `toUpperCase()` on a number or on null. Production fails the whole rule
+ * expression on it, with no short-circuit rescue from `||` or `!`, and treats
+ * the rule as not granting (captures rules-rtdb-r17 and rules-rtdb-r26).
+ *
+ * Any other throw from the evaluator, such as a method that is not part of the
+ * RTDB rules language, is a construct the simulator does not evaluate and is
+ * not this error.
+ */
+export class RtdbRuleRuntimeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RtdbRuleRuntimeError';
+  }
+}
+
+/** The methods the rules language defines on a data snapshot. */
+const SNAPSHOT_METHODS = new Set([
+  'val', 'exists', 'hasChild', 'hasChildren', 'isString', 'isNumber',
+  'isBoolean', 'child', 'parent', 'getPriority',
+]);
+
+/** The methods the rules language defines on a string. */
+const STRING_METHODS = new Set([
+  'matches', 'contains', 'beginsWith', 'endsWith', 'replace', 'toLowerCase', 'toUpperCase',
+]);
+
+/** The rules type name of a value that is neither a snapshot nor a string. */
+function runtimeTypeName(value: unknown): string {
+  if (value === null) return 'null';
+  if (Array.isArray(value)) return 'array';
+  return typeof value;
+}
+
 let evalSemantics: Semantics | undefined;
 
 function getEvalSemantics(): Semantics {
@@ -319,8 +355,21 @@ function getEvalSemantics(): Semantics {
           case 'replace': return str.replace(argValues[0] as string | RegExp, String(argValues[1]));
           case 'toLowerCase': return str.toLowerCase();
           case 'toUpperCase': return str.toUpperCase();
-          default: throw new Error(`Unknown string method: ${method}`);
+          default:
+            if (SNAPSHOT_METHODS.has(method)) {
+              throw new RtdbRuleRuntimeError(`Method '${method}' is not defined on a string.`);
+            }
+            throw new Error(`Unknown string method: ${method}`);
         }
+      }
+
+      // A rules method called on a value of another runtime type, such as a
+      // number from `newData.val()` or null from a missing child. `undefined`
+      // comes only from an identifier the evaluator does not bind, which is
+      // not a runtime value.
+      const isRulesMethod = SNAPSHOT_METHODS.has(method) || STRING_METHODS.has(method);
+      if (isRulesMethod && recv !== undefined) {
+        throw new RtdbRuleRuntimeError(`Method '${method}' is not defined on ${runtimeTypeName(recv)}.`);
       }
 
       // No generic method-call fallback. Dispatching to an arbitrary JS

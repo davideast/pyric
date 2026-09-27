@@ -1,4 +1,4 @@
-import { DataSnapshot, evaluateRtdbRule } from '../grammar/simulator.js';
+import { DataSnapshot, RtdbRuleRuntimeError, evaluateRtdbRule } from '../grammar/simulator.js';
 import type { EvalContext, SimulatedAuth } from '../grammar/simulator.js';
 import type { RtdbNode, RtdbRuleExpression } from '../types.js';
 import { SimulationInputSchema, type SimulationInput } from './spec.js';
@@ -32,6 +32,32 @@ interface ValidateFailure {
    *  priority over an unsupported one (AND-semantics: a confirmed DENY
    *  is stronger evidence than an abstention). */
   unsupported?: boolean;
+  /** The runtime error the rule raised, when it failed by raising one
+   *  rather than by evaluating to false. */
+  runtimeError?: string;
+}
+
+/** The outcome of evaluating one rule: whether it holds, and the runtime
+ *  error it raised when it failed that way. */
+interface RuleOutcome {
+  holds: boolean;
+  runtimeError?: string;
+}
+
+/**
+ * Evaluates one rule. A runtime error that production also raises, such as a
+ * string method called on a number, fails the rule: a `.read` or `.write`
+ * that raises one does not grant, and a `.validate` that raises one rejects
+ * the write. Any other throw is a construct the simulator does not evaluate
+ * and propagates to the caller.
+ */
+function evaluateRule(rule: RtdbRuleExpression, ctx: EvalContext): RuleOutcome {
+  try {
+    return { holds: Boolean(evaluateRtdbRule(rule, ctx)) };
+  } catch (error) {
+    if (error instanceof RtdbRuleRuntimeError) return { holds: false, runtimeError: error.message };
+    throw error;
+  }
 }
 
 /** Own-enumerable keys of a snapshot's object value; empty for non-objects. */
@@ -120,8 +146,8 @@ function findFailingValidate(
             firstUnsupported = { node, rule, bindings, unsupported: true };
           }
         } else {
-          const result = evaluateRtdbRule(rule, buildContext(data, newData, bindings));
-          if (!result) return { node, rule, bindings };
+          const outcome = evaluateRule(rule, buildContext(data, newData, bindings));
+          if (!outcome.holds) return { node, rule, bindings, runtimeError: outcome.runtimeError };
         }
       }
     }
@@ -219,9 +245,12 @@ function childFor(node: RtdbNode, key: string): { child: RtdbNode; variable?: st
 
 /** The denial result for a failing `.validate` rule. */
 function toValidateFailureResult(failure: ValidateFailure): SimulateResult {
-  const reason = failure.unsupported
-    ? `Validation rule at '${failure.node.path}' contains an expression the simulator cannot evaluate: ${failure.rule.raw} — not evaluated; production may reject this write.`
-    : 'Validation rule evaluated to false';
+  let reason = 'Validation rule evaluated to false';
+  if (failure.unsupported) {
+    reason = `Validation rule at '${failure.node.path}' contains an expression the simulator cannot evaluate: ${failure.rule.raw}. It was not evaluated; production may reject this write.`;
+  } else if (failure.runtimeError !== undefined) {
+    reason = `Validation rule at '${failure.node.path}' failed at evaluation: ${failure.runtimeError}`;
+  }
   return {
     success: true,
     data: {
@@ -422,6 +451,10 @@ export class SimulateHandler {
       // found either, this reported as `unsupported` rather than a
       // fabricated deny.
       let firstUnsupportedAncestor: AncestorMatch | undefined;
+      // The runtime error each ancestor's rule raised, when it raised one. A
+      // rule that raises one does not grant, and the cascade continues to the
+      // next rule on the path, as it does after a rule that evaluates false.
+      const runtimeErrors = new Map<AncestorMatch, string>();
 
       for (const ancestor of ancestors) {
         const ruleExpr: RtdbRuleExpression | undefined = ancestor.node[operation];
@@ -435,12 +468,13 @@ export class SimulateHandler {
         const dataAtAncestor = rootData.child(ancestorSegments);
         const newDataAtAncestor = mergedRootData.child(ancestorSegments);
 
-        const result = evaluateRtdbRule(
+        const outcome = evaluateRule(
           ruleExpr,
           buildContext(dataAtAncestor, newDataAtAncestor, ancestor.pathVariableBindings),
         );
+        if (outcome.runtimeError !== undefined) runtimeErrors.set(ancestor, outcome.runtimeError);
 
-        if (Boolean(result)) {
+        if (outcome.holds) {
           // A granting `.write` is necessary but not sufficient: RTDB also
           // enforces every `.validate` rule from the root through the write
           // location and through every present descendant.
@@ -510,17 +544,24 @@ export class SimulateHandler {
         };
       }
       const decidingRule = deciding.node[operation] as RtdbRuleExpression;
+      const decidingError = runtimeErrors.get(deciding);
+      const decidingOutcome = decidingError === undefined
+        ? 'evaluated to false'
+        : `failed at evaluation: ${decidingError}`;
       return {
         success: true,
         data: {
           allowed: false,
           matchedPath: deciding.node.path,
           matchedRule: decidingRule.raw,
-          reason: `No '${operation}' rule grants access; the deepest, at '${deciding.node.path}', evaluated to false`,
+          reason: `No '${operation}' rule grants access; the deepest, at '${deciding.node.path}', ${decidingOutcome}`,
           pathVariableBindings: deciding.pathVariableBindings,
         },
       };
     } catch (e) {
+      // A rule the evaluator does not evaluate, such as one calling a method
+      // outside the rules language. Runtime errors that production also
+      // raises never reach here: `evaluateRule` counts them as the rule failing.
       return {
         success: false,
         error: {
