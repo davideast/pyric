@@ -230,14 +230,18 @@ export function proposeMove(game: ChessGame, from: string, to: string): ChessGam
   const target = String(game[to] ?? '');
   const pawn = piece === 'P' || piece === 'p';
   const distance = Math.abs(rank(to) - rank(from));
+  // A pawn that reaches the last rank becomes a queen.
+  const promotedTo = pawn && (rank(to) === 8 || rank(to) === 1) ? (piece === 'P' ? 'Q' : 'q') : '';
   const moveType = pawn
-    ? target ? 'pawn_capture' : distance === 2 ? 'double_pawn' : 'pawn_forward'
+    ? promotedTo
+      ? target ? 'promotion_capture' : 'promotion'
+      : target ? 'pawn_capture' : distance === 2 ? 'double_pawn' : 'pawn_forward'
     : target ? 'capture' : 'normal';
 
   const next: ChessGame = {
     ...game,
     [from]: '',
-    [to]: piece,
+    [to]: promotedTo || piece,
     [movedPiece]: to,
     currentTurn: game.currentTurn === 'host' ? 'guest' : 'host',
     moveCount: Number(game.moveCount) + 1,
@@ -246,7 +250,7 @@ export function proposeMove(game: ChessGame, from: string, to: string): ChessGam
     movedPiece,
     capturedPiece,
     moveType,
-    promotedTo: '',
+    promotedTo,
     lastDoublePawn: moveType === 'double_pawn'
       ? `${from[0]}${(rank(from) + rank(to)) / 2}`
       : '',
