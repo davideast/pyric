@@ -114,11 +114,30 @@ export function evalArithmetic(op: ArithmeticOperator, left: unknown, right: unk
   return float ? new RulesFloat(result) : result;
 }
 
-export function cmp(a: unknown, b: unknown): number {
-  const an = numVal(a);
-  const bn = numVal(b);
-  // CEL compares int and float by numeric value (`1 < 1.5` is well-typed).
-  if (an !== undefined && bn !== undefined) return an - bn;
-  if (typeof a === 'string' && typeof b === 'string') return a < b ? -1 : a > b ? 1 : 0;
-  return Number.NaN; // mismatched types → NaN → all comparisons return false
+/** The ordering operators `evalOrdering` answers. */
+export type OrderingOperator = '<' | '>' | '<=' | '>=';
+
+/**
+ * `<`, `>`, `<=`, and `>=` over operands that are not Timestamp, Duration, or
+ * Bytes values. Ints and floats order by numeric value, and two strings order
+ * lexicographically. Every other operand pair, including bool with bool,
+ * list with list, map with map, and any pair with null, is production's
+ * "Unsupported operation error", an error value that `!` keeps and that
+ * `&&` and `||` absorb.
+ */
+export function evalOrdering(op: OrderingOperator, left: unknown, right: unknown): boolean | RuleError {
+  const l = numVal(left);
+  const r = numVal(right);
+  if (l !== undefined && r !== undefined) return orders(op, l, r);
+  if (typeof left === 'string' && typeof right === 'string') return orders(op, left, right);
+  return unsupportedOperation(op, left, right);
+}
+
+function orders<T extends number | string>(op: OrderingOperator, left: T, right: T): boolean {
+  switch (op) {
+    case '<': return left < right;
+    case '>': return left > right;
+    case '<=': return left <= right;
+    case '>=': return left >= right;
+  }
 }
