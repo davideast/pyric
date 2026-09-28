@@ -140,6 +140,7 @@ These are the Firestore-compatible modules used by this guide. The [complete ref
 | `lobby` | Two-player session creation and joining | `validCreate`, `validJoin`, `canCancel` |
 | `turns` | Two-player turn enforcement | `isMyTurn`, `turnFlipped` |
 | `state` | Game status, move count, and participants | `isPlaying`, `moveIncremented`, `participantsUnchanged` |
+| `results` | Resigning, finishing, and keeping a game result | `resignedBy`, `finishedWithWinner`, `resultUnchanged` |
 
 The game-oriented modules assume the field conventions documented by their function descriptions. Prefer the general modules for application data unless your schema matches those conventions.
 

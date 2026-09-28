@@ -1,0 +1,668 @@
+{
+  "costs": [
+    { "function": "resignedBy", "cost": { "min": 10, "max": 72 }, "reads": 0 },
+    { "function": "finishedWithWinner", "cost": { "min": 14, "max": 61 }, "reads": 0 },
+    { "function": "resultUnchanged", "cost": { "min": 14, "max": 14 }, "reads": 0 }
+  ],
+  "cases": [
+    {
+      "description": "resignedBy allows the guest to resign, naming the host winner",
+      "expectation": "ALLOW",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "guest1"
+      },
+      "resource": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 4,
+        "board": "b4"
+      },
+      "data": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "resigned",
+        "winner": "host",
+        "moveCount": 4,
+        "board": "b4"
+      },
+      "wrapFunction": "resignedBy",
+      "wrapOperation": "update",
+      "wrapCallExpr": "resignedBy('guest')"
+    },
+    {
+      "description": "resignedBy allows the host to resign, naming the guest winner",
+      "expectation": "ALLOW",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "host1"
+      },
+      "resource": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 4,
+        "board": "b4"
+      },
+      "data": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "resigned",
+        "winner": "guest",
+        "moveCount": 4,
+        "board": "b4"
+      },
+      "wrapFunction": "resignedBy",
+      "wrapOperation": "update",
+      "wrapCallExpr": "resignedBy('host')"
+    },
+    {
+      "description": "resignedBy denies a caller who does not hold the seat",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "guest1"
+      },
+      "resource": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 4,
+        "board": "b4"
+      },
+      "data": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "resigned",
+        "winner": "guest",
+        "moveCount": 4,
+        "board": "b4"
+      },
+      "wrapFunction": "resignedBy",
+      "wrapOperation": "update",
+      "wrapCallExpr": "resignedBy('host')"
+    },
+    {
+      "description": "resignedBy denies a seat name other than host or guest",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "guest1"
+      },
+      "resource": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 4,
+        "board": "b4",
+        "owner": "guest1"
+      },
+      "data": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "resigned",
+        "winner": "host",
+        "moveCount": 4,
+        "board": "b4",
+        "owner": "guest1"
+      },
+      "wrapFunction": "resignedBy",
+      "wrapOperation": "update",
+      "wrapCallExpr": "resignedBy('owner')"
+    },
+    {
+      "description": "resignedBy denies a game that already finished",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "guest1"
+      },
+      "resource": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "won",
+        "winner": "host",
+        "moveCount": 4,
+        "board": "b4"
+      },
+      "data": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "resigned",
+        "winner": "host",
+        "moveCount": 4,
+        "board": "b4"
+      },
+      "wrapFunction": "resignedBy",
+      "wrapOperation": "update",
+      "wrapCallExpr": "resignedBy('guest')"
+    },
+    {
+      "description": "resignedBy denies naming the resigning seat winner",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "guest1"
+      },
+      "resource": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 4,
+        "board": "b4"
+      },
+      "data": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "resigned",
+        "winner": "guest",
+        "moveCount": 4,
+        "board": "b4"
+      },
+      "wrapFunction": "resignedBy",
+      "wrapOperation": "update",
+      "wrapCallExpr": "resignedBy('guest')"
+    },
+    {
+      "description": "resignedBy denies a status other than 'resigned'",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "guest1"
+      },
+      "resource": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 4,
+        "board": "b4"
+      },
+      "data": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "won",
+        "winner": "host",
+        "moveCount": 4,
+        "board": "b4"
+      },
+      "wrapFunction": "resignedBy",
+      "wrapOperation": "update",
+      "wrapCallExpr": "resignedBy('guest')"
+    },
+    {
+      "description": "resignedBy denies a resignation that also changes another field",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "guest1"
+      },
+      "resource": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 4,
+        "board": "b4"
+      },
+      "data": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "resigned",
+        "winner": "host",
+        "moveCount": 4,
+        "board": "b5"
+      },
+      "wrapFunction": "resignedBy",
+      "wrapOperation": "update",
+      "wrapCallExpr": "resignedBy('guest')"
+    },
+    {
+      "description": "resignedBy denies unauthenticated",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/game1",
+      "auth": null,
+      "resource": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 4,
+        "board": "b4"
+      },
+      "data": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "resigned",
+        "winner": "host",
+        "moveCount": 4,
+        "board": "b4"
+      },
+      "wrapFunction": "resignedBy",
+      "wrapOperation": "update",
+      "wrapCallExpr": "resignedBy('guest')"
+    },
+    {
+      "description": "finishedWithWinner allows a win for the named seat",
+      "expectation": "ALLOW",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "host1"
+      },
+      "resource": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 4,
+        "board": "b4"
+      },
+      "data": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "won",
+        "winner": "host",
+        "moveCount": 4,
+        "board": "b4"
+      },
+      "wrapFunction": "finishedWithWinner",
+      "wrapOperation": "update",
+      "wrapCallExpr": "finishedWithWinner('host', 'won')"
+    },
+    {
+      "description": "finishedWithWinner allows a draw with no winner",
+      "expectation": "ALLOW",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "guest1"
+      },
+      "resource": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 4,
+        "board": "b4"
+      },
+      "data": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "draw",
+        "winner": "",
+        "moveCount": 4,
+        "board": "b4"
+      },
+      "wrapFunction": "finishedWithWinner",
+      "wrapOperation": "update",
+      "wrapCallExpr": "finishedWithWinner('', 'draw')"
+    },
+    {
+      "description": "finishedWithWinner denies a game that already finished",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "host1"
+      },
+      "resource": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "won",
+        "winner": "guest",
+        "moveCount": 4,
+        "board": "b4"
+      },
+      "data": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "won",
+        "winner": "host",
+        "moveCount": 4,
+        "board": "b4"
+      },
+      "wrapFunction": "finishedWithWinner",
+      "wrapOperation": "update",
+      "wrapCallExpr": "finishedWithWinner('host', 'won')"
+    },
+    {
+      "description": "finishedWithWinner denies a winner other than the one named",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "host1"
+      },
+      "resource": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 4,
+        "board": "b4"
+      },
+      "data": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "won",
+        "winner": "guest",
+        "moveCount": 4,
+        "board": "b4"
+      },
+      "wrapFunction": "finishedWithWinner",
+      "wrapOperation": "update",
+      "wrapCallExpr": "finishedWithWinner('host', 'won')"
+    },
+    {
+      "description": "finishedWithWinner denies a winner that is not a seat",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "host1"
+      },
+      "resource": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 4,
+        "board": "b4"
+      },
+      "data": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "won",
+        "winner": "nobody",
+        "moveCount": 4,
+        "board": "b4"
+      },
+      "wrapFunction": "finishedWithWinner",
+      "wrapOperation": "update",
+      "wrapCallExpr": "finishedWithWinner('nobody', 'won')"
+    },
+    {
+      "description": "finishedWithWinner denies a draw that names a winner",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "host1"
+      },
+      "resource": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 4,
+        "board": "b4"
+      },
+      "data": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "draw",
+        "winner": "host",
+        "moveCount": 4,
+        "board": "b4"
+      },
+      "wrapFunction": "finishedWithWinner",
+      "wrapOperation": "update",
+      "wrapCallExpr": "finishedWithWinner('host', 'draw')"
+    },
+    {
+      "description": "finishedWithWinner denies a reason outside won and draw",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "host1"
+      },
+      "resource": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 4,
+        "board": "b4"
+      },
+      "data": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "checkmate",
+        "winner": "host",
+        "moveCount": 4,
+        "board": "b4"
+      },
+      "wrapFunction": "finishedWithWinner",
+      "wrapOperation": "update",
+      "wrapCallExpr": "finishedWithWinner('host', 'checkmate')"
+    },
+    {
+      "description": "finishedWithWinner denies a status other than the reason",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "host1"
+      },
+      "resource": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 4,
+        "board": "b4"
+      },
+      "data": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "draw",
+        "winner": "host",
+        "moveCount": 4,
+        "board": "b4"
+      },
+      "wrapFunction": "finishedWithWinner",
+      "wrapOperation": "update",
+      "wrapCallExpr": "finishedWithWinner('host', 'won')"
+    },
+    {
+      "description": "finishedWithWinner denies a finish that also changes another field",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "host1"
+      },
+      "resource": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 4,
+        "board": "b4"
+      },
+      "data": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "won",
+        "winner": "host",
+        "moveCount": 4,
+        "board": "b5"
+      },
+      "wrapFunction": "finishedWithWinner",
+      "wrapOperation": "update",
+      "wrapCallExpr": "finishedWithWinner('host', 'won')"
+    },
+    {
+      "description": "resultUnchanged allows a move that keeps status and winner",
+      "expectation": "ALLOW",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "guest1"
+      },
+      "resource": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 4,
+        "board": "b4"
+      },
+      "data": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "host",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 5,
+        "board": "b5"
+      },
+      "wrapFunction": "resultUnchanged",
+      "wrapOperation": "update",
+      "wrapCallExpr": "resultUnchanged()"
+    },
+    {
+      "description": "resultUnchanged denies a write that changes status",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "guest1"
+      },
+      "resource": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 4,
+        "board": "b4"
+      },
+      "data": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "host",
+        "status": "won",
+        "winner": "",
+        "moveCount": 5,
+        "board": "b5"
+      },
+      "wrapFunction": "resultUnchanged",
+      "wrapOperation": "update",
+      "wrapCallExpr": "resultUnchanged()"
+    },
+    {
+      "description": "resultUnchanged denies a write that changes winner",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "guest1"
+      },
+      "resource": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 4,
+        "board": "b4"
+      },
+      "data": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "host",
+        "status": "playing",
+        "winner": "guest",
+        "moveCount": 5,
+        "board": "b5"
+      },
+      "wrapFunction": "resultUnchanged",
+      "wrapOperation": "update",
+      "wrapCallExpr": "resultUnchanged()"
+    },
+    {
+      "description": "resultUnchanged denies a write that removes winner",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "guest1"
+      },
+      "resource": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 4,
+        "board": "b4"
+      },
+      "data": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "host",
+        "status": "playing",
+        "moveCount": 5,
+        "board": "b5"
+      },
+      "wrapFunction": "resultUnchanged",
+      "wrapOperation": "update",
+      "wrapCallExpr": "resultUnchanged()"
+    }
+  ]
+}

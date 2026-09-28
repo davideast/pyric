@@ -1,6 +1,6 @@
 {
   "schema": "pyric.stdlib-cost.v1",
-  "capturedAt": "2026-09-27T21:50:19.916Z",
+  "capturedAt": "2026-09-28T01:40:57.377Z",
   "projects": {
     "firestore": "digame-mas",
     "storage": "digame-mas"
@@ -48,8 +48,8 @@
       ]
     }
   },
-  "requests": 60,
-  "testCases": 2303,
+  "requests": 8,
+  "testCases": 463,
   "functions": [
     {
       "module": "atomic",
@@ -666,6 +666,39 @@
       "reads": 0,
       "cheapestCase": "whole-string MIME and allowlist policy composes",
       "mostExpensiveCase": "whole-string MIME and allowlist policy composes"
+    },
+    {
+      "module": "results",
+      "function": "resignedBy",
+      "cost": {
+        "min": 10,
+        "max": 72
+      },
+      "reads": 0,
+      "cheapestCase": "resignedBy denies unauthenticated",
+      "mostExpensiveCase": "resignedBy allows the guest to resign, naming the host winner"
+    },
+    {
+      "module": "results",
+      "function": "finishedWithWinner",
+      "cost": {
+        "min": 14,
+        "max": 61
+      },
+      "reads": 0,
+      "cheapestCase": "finishedWithWinner denies a game that already finished",
+      "mostExpensiveCase": "finishedWithWinner allows a draw with no winner"
+    },
+    {
+      "module": "results",
+      "function": "resultUnchanged",
+      "cost": {
+        "min": 14,
+        "max": 14
+      },
+      "reads": 0,
+      "cheapestCase": "resultUnchanged allows a move that keeps status and winner",
+      "mostExpensiveCase": "resultUnchanged allows a move that keeps status and winner"
     }
   ],
   "probes": [
@@ -3435,6 +3468,358 @@
         "call": 15,
         "reference": 4,
         "perCall": 13
+      }
+    },
+    {
+      "module": "results",
+      "function": "resignedBy",
+      "case": "resignedBy allows the guest to resign, naming the host winner",
+      "call": "resignedBy('guest')",
+      "measured": {
+        "call": 73,
+        "reference": 3,
+        "perCall": 72
+      },
+      "estimated": {
+        "call": 80,
+        "reference": 3,
+        "perCall": 79
+      }
+    },
+    {
+      "module": "results",
+      "function": "resignedBy",
+      "case": "resignedBy allows the host to resign, naming the guest winner",
+      "call": "resignedBy('host')",
+      "measured": {
+        "call": 68,
+        "reference": 3,
+        "perCall": 67
+      },
+      "estimated": {
+        "call": 80,
+        "reference": 3,
+        "perCall": 79
+      }
+    },
+    {
+      "module": "results",
+      "function": "resignedBy",
+      "case": "resignedBy denies a caller who does not hold the seat",
+      "call": "resignedBy('host')",
+      "measured": {
+        "call": 33,
+        "reference": 3,
+        "perCall": 32
+      },
+      "estimated": {
+        "call": 80,
+        "reference": 3,
+        "perCall": 79
+      }
+    },
+    {
+      "module": "results",
+      "function": "resignedBy",
+      "case": "resignedBy denies a seat name other than host or guest",
+      "call": "resignedBy('owner')",
+      "measured": {
+        "call": 22,
+        "reference": 3,
+        "perCall": 21
+      },
+      "estimated": {
+        "call": 80,
+        "reference": 3,
+        "perCall": 79
+      }
+    },
+    {
+      "module": "results",
+      "function": "resignedBy",
+      "case": "resignedBy denies a game that already finished",
+      "call": "resignedBy('guest')",
+      "measured": {
+        "call": 48,
+        "reference": 3,
+        "perCall": 47
+      },
+      "estimated": {
+        "call": 80,
+        "reference": 3,
+        "perCall": 79
+      }
+    },
+    {
+      "module": "results",
+      "function": "resignedBy",
+      "case": "resignedBy denies naming the resigning seat winner",
+      "call": "resignedBy('guest')",
+      "measured": {
+        "call": 29,
+        "reference": 3,
+        "perCall": 28
+      },
+      "estimated": {
+        "call": 80,
+        "reference": 3,
+        "perCall": 79
+      }
+    },
+    {
+      "module": "results",
+      "function": "resignedBy",
+      "case": "resignedBy denies a status other than 'resigned'",
+      "call": "resignedBy('guest')",
+      "measured": {
+        "call": 59,
+        "reference": 3,
+        "perCall": 58
+      },
+      "estimated": {
+        "call": 80,
+        "reference": 3,
+        "perCall": 79
+      }
+    },
+    {
+      "module": "results",
+      "function": "resignedBy",
+      "case": "resignedBy denies a resignation that also changes another field",
+      "call": "resignedBy('guest')",
+      "measured": {
+        "call": 73,
+        "reference": 3,
+        "perCall": 72
+      },
+      "estimated": {
+        "call": 80,
+        "reference": 3,
+        "perCall": 79
+      }
+    },
+    {
+      "module": "results",
+      "function": "resignedBy",
+      "case": "resignedBy denies unauthenticated",
+      "call": "resignedBy('guest')",
+      "measured": {
+        "call": 11,
+        "reference": 3,
+        "perCall": 10
+      },
+      "estimated": {
+        "call": 80,
+        "reference": 3,
+        "perCall": 79
+      }
+    },
+    {
+      "module": "results",
+      "function": "finishedWithWinner",
+      "case": "finishedWithWinner allows a win for the named seat",
+      "call": "finishedWithWinner('host', 'won')",
+      "measured": {
+        "call": 60,
+        "reference": 4,
+        "perCall": 58
+      },
+      "estimated": {
+        "call": 69,
+        "reference": 4,
+        "perCall": 67
+      }
+    },
+    {
+      "module": "results",
+      "function": "finishedWithWinner",
+      "case": "finishedWithWinner allows a draw with no winner",
+      "call": "finishedWithWinner('', 'draw')",
+      "measured": {
+        "call": 63,
+        "reference": 4,
+        "perCall": 61
+      },
+      "estimated": {
+        "call": 69,
+        "reference": 4,
+        "perCall": 67
+      }
+    },
+    {
+      "module": "results",
+      "function": "finishedWithWinner",
+      "case": "finishedWithWinner denies a game that already finished",
+      "call": "finishedWithWinner('host', 'won')",
+      "measured": {
+        "call": 16,
+        "reference": 4,
+        "perCall": 14
+      },
+      "estimated": {
+        "call": 69,
+        "reference": 4,
+        "perCall": 67
+      }
+    },
+    {
+      "module": "results",
+      "function": "finishedWithWinner",
+      "case": "finishedWithWinner denies a winner other than the one named",
+      "call": "finishedWithWinner('host', 'won')",
+      "measured": {
+        "call": 46,
+        "reference": 4,
+        "perCall": 44
+      },
+      "estimated": {
+        "call": 69,
+        "reference": 4,
+        "perCall": 67
+      }
+    },
+    {
+      "module": "results",
+      "function": "finishedWithWinner",
+      "case": "finishedWithWinner denies a winner that is not a seat",
+      "call": "finishedWithWinner('nobody', 'won')",
+      "measured": {
+        "call": 33,
+        "reference": 4,
+        "perCall": 31
+      },
+      "estimated": {
+        "call": 69,
+        "reference": 4,
+        "perCall": 67
+      }
+    },
+    {
+      "module": "results",
+      "function": "finishedWithWinner",
+      "case": "finishedWithWinner denies a draw that names a winner",
+      "call": "finishedWithWinner('host', 'draw')",
+      "measured": {
+        "call": 31,
+        "reference": 4,
+        "perCall": 29
+      },
+      "estimated": {
+        "call": 69,
+        "reference": 4,
+        "perCall": 67
+      }
+    },
+    {
+      "module": "results",
+      "function": "finishedWithWinner",
+      "case": "finishedWithWinner denies a reason outside won and draw",
+      "call": "finishedWithWinner('host', 'checkmate')",
+      "measured": {
+        "call": 27,
+        "reference": 4,
+        "perCall": 25
+      },
+      "estimated": {
+        "call": 69,
+        "reference": 4,
+        "perCall": 67
+      }
+    },
+    {
+      "module": "results",
+      "function": "finishedWithWinner",
+      "case": "finishedWithWinner denies a status other than the reason",
+      "call": "finishedWithWinner('host', 'won')",
+      "measured": {
+        "call": 39,
+        "reference": 4,
+        "perCall": 37
+      },
+      "estimated": {
+        "call": 69,
+        "reference": 4,
+        "perCall": 67
+      }
+    },
+    {
+      "module": "results",
+      "function": "finishedWithWinner",
+      "case": "finishedWithWinner denies a finish that also changes another field",
+      "call": "finishedWithWinner('host', 'won')",
+      "measured": {
+        "call": 60,
+        "reference": 4,
+        "perCall": 58
+      },
+      "estimated": {
+        "call": 69,
+        "reference": 4,
+        "perCall": 67
+      }
+    },
+    {
+      "module": "results",
+      "function": "resultUnchanged",
+      "case": "resultUnchanged allows a move that keeps status and winner",
+      "call": "resultUnchanged()",
+      "measured": {
+        "call": 14,
+        "reference": 2,
+        "perCall": 14
+      },
+      "estimated": {
+        "call": 14,
+        "reference": 2,
+        "perCall": 14
+      }
+    },
+    {
+      "module": "results",
+      "function": "resultUnchanged",
+      "case": "resultUnchanged denies a write that changes status",
+      "call": "resultUnchanged()",
+      "measured": {
+        "call": 14,
+        "reference": 2,
+        "perCall": 14
+      },
+      "estimated": {
+        "call": 14,
+        "reference": 2,
+        "perCall": 14
+      }
+    },
+    {
+      "module": "results",
+      "function": "resultUnchanged",
+      "case": "resultUnchanged denies a write that changes winner",
+      "call": "resultUnchanged()",
+      "measured": {
+        "call": 14,
+        "reference": 2,
+        "perCall": 14
+      },
+      "estimated": {
+        "call": 14,
+        "reference": 2,
+        "perCall": 14
+      }
+    },
+    {
+      "module": "results",
+      "function": "resultUnchanged",
+      "case": "resultUnchanged denies a write that removes winner",
+      "call": "resultUnchanged()",
+      "measured": {
+        "call": 14,
+        "reference": 2,
+        "perCall": 14
+      },
+      "estimated": {
+        "call": 14,
+        "reference": 2,
+        "perCall": 14
       }
     }
   ]
