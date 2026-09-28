@@ -261,6 +261,36 @@
           ]
         }
       }
+    },
+    "content": {
+      "requests": 9,
+      "testCases": 379,
+      "date": "2026-09-28T05:44:08.256Z",
+      "modules": [
+        "content"
+      ],
+      "calibration": {
+        "firestore": {
+          "d": 986,
+          "checks": [
+            {
+              "condition": "false",
+              "cost": 1,
+              "d": 986
+            },
+            {
+              "condition": "true && false",
+              "cost": 4,
+              "d": 986
+            },
+            {
+              "condition": "true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true",
+              "cost": 58,
+              "d": 986
+            }
+          ]
+        }
+      }
     }
   },
   "functions": [
@@ -345,12 +375,23 @@
       "module": "content",
       "function": "notDeleted",
       "cost": {
-        "min": 7,
-        "max": 7
+        "min": 8,
+        "max": 8
       },
       "reads": 0,
       "cheapestCase": "notDeleted allows when deleted flag is false",
       "mostExpensiveCase": "notDeleted allows when deleted flag is false"
+    },
+    {
+      "module": "content",
+      "function": "ownerOnlyUntil",
+      "cost": {
+        "min": 6,
+        "max": 20
+      },
+      "reads": 1,
+      "cheapestCase": "ownerOnlyUntil denies unauthenticated reads of a finished match",
+      "mostExpensiveCase": "ownerOnlyUntil denies the opponent while the match is in play"
     },
     {
       "module": "counters",
@@ -1452,30 +1493,30 @@
       "case": "notDeleted allows when deleted flag is false",
       "call": "notDeleted()",
       "measured": {
-        "call": 7,
+        "call": 8,
         "reference": 2,
-        "perCall": 7
+        "perCall": 8
       },
       "estimated": {
-        "call": 7,
+        "call": 8,
         "reference": 2,
-        "perCall": 7
+        "perCall": 8
       }
     },
     {
       "module": "content",
       "function": "notDeleted",
-      "case": "notDeleted allows when the field is absent (null-on-miss)",
+      "case": "notDeleted allows when the field is absent",
       "call": "notDeleted()",
       "measured": {
-        "call": 7,
+        "call": 8,
         "reference": 2,
-        "perCall": 7
+        "perCall": 8
       },
       "estimated": {
-        "call": 7,
+        "call": 8,
         "reference": 2,
-        "perCall": 7
+        "perCall": 8
       }
     },
     {
@@ -1484,14 +1525,158 @@
       "case": "notDeleted denies a soft-deleted doc",
       "call": "notDeleted()",
       "measured": {
-        "call": 7,
+        "call": 8,
         "reference": 2,
-        "perCall": 7
+        "perCall": 8
       },
       "estimated": {
-        "call": 7,
+        "call": 8,
         "reference": 2,
-        "perCall": 7
+        "perCall": 8
+      }
+    },
+    {
+      "module": "content",
+      "function": "ownerOnlyUntil",
+      "case": "ownerOnlyUntil allows the owner to read while the match is in play",
+      "call": "ownerOnlyUntil(/databases/$(database)/documents/matches/m1, 'owner1', ['won', 'resigned'])",
+      "measured": {
+        "call": 23,
+        "reference": 12,
+        "perCall": 13
+      },
+      "estimated": {
+        "call": 30,
+        "reference": 12,
+        "perCall": 20
+      }
+    },
+    {
+      "module": "content",
+      "function": "ownerOnlyUntil",
+      "case": "ownerOnlyUntil denies the opponent while the match is in play",
+      "call": "ownerOnlyUntil(/databases/$(database)/documents/matches/m1, 'owner1', ['won', 'resigned'])",
+      "measured": {
+        "call": 30,
+        "reference": 12,
+        "perCall": 20
+      },
+      "estimated": {
+        "call": 30,
+        "reference": 12,
+        "perCall": 20
+      }
+    },
+    {
+      "module": "content",
+      "function": "ownerOnlyUntil",
+      "case": "ownerOnlyUntil allows the opponent once the match is won",
+      "call": "ownerOnlyUntil(/databases/$(database)/documents/matches/m1, 'owner1', ['won', 'resigned'])",
+      "measured": {
+        "call": 30,
+        "reference": 12,
+        "perCall": 20
+      },
+      "estimated": {
+        "call": 30,
+        "reference": 12,
+        "perCall": 20
+      }
+    },
+    {
+      "module": "content",
+      "function": "ownerOnlyUntil",
+      "case": "ownerOnlyUntil allows the opponent once the match is resigned",
+      "call": "ownerOnlyUntil(/databases/$(database)/documents/matches/m1, 'owner1', ['won', 'resigned'])",
+      "measured": {
+        "call": 30,
+        "reference": 12,
+        "perCall": 20
+      },
+      "estimated": {
+        "call": 30,
+        "reference": 12,
+        "perCall": 20
+      }
+    },
+    {
+      "module": "content",
+      "function": "ownerOnlyUntil",
+      "case": "ownerOnlyUntil allows the owner once the match is won",
+      "call": "ownerOnlyUntil(/databases/$(database)/documents/matches/m1, 'owner1', ['won', 'resigned'])",
+      "measured": {
+        "call": 23,
+        "reference": 12,
+        "perCall": 13
+      },
+      "estimated": {
+        "call": 30,
+        "reference": 12,
+        "perCall": 20
+      }
+    },
+    {
+      "module": "content",
+      "function": "ownerOnlyUntil",
+      "case": "ownerOnlyUntil denies unauthenticated reads of a finished match",
+      "call": "ownerOnlyUntil(/databases/$(database)/documents/matches/m1, 'owner1', ['won', 'resigned'])",
+      "measured": {
+        "call": 16,
+        "reference": 12,
+        "perCall": 6
+      },
+      "estimated": {
+        "call": 30,
+        "reference": 12,
+        "perCall": 20
+      }
+    },
+    {
+      "module": "content",
+      "function": "ownerOnlyUntil",
+      "case": "ownerOnlyUntil allows the owner when the parent match is missing",
+      "call": "ownerOnlyUntil(/databases/$(database)/documents/matches/m1, 'owner1', ['won', 'resigned'])",
+      "measured": {
+        "call": 23,
+        "reference": 12,
+        "perCall": 13
+      },
+      "estimated": {
+        "call": 30,
+        "reference": 12,
+        "perCall": 20
+      }
+    },
+    {
+      "module": "content",
+      "function": "ownerOnlyUntil",
+      "case": "ownerOnlyUntil denies the opponent when the parent match is missing",
+      "call": "ownerOnlyUntil(/databases/$(database)/documents/matches/m1, 'owner1', ['won', 'resigned'])",
+      "measured": {
+        "call": 30,
+        "reference": 12,
+        "perCall": 20
+      },
+      "estimated": {
+        "call": 30,
+        "reference": 12,
+        "perCall": 20
+      }
+    },
+    {
+      "module": "content",
+      "function": "ownerOnlyUntil",
+      "case": "ownerOnlyUntil denies the opponent when the status is not in the list",
+      "call": "ownerOnlyUntil(/databases/$(database)/documents/matches/m1, 'owner1', ['won', 'resigned'])",
+      "measured": {
+        "call": 30,
+        "reference": 12,
+        "perCall": 20
+      },
+      "estimated": {
+        "call": 30,
+        "reference": 12,
+        "perCall": 20
       }
     },
     {

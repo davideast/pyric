@@ -2198,9 +2198,10 @@ export const firestoreRegistry = {
         }),
         row22({
           rowRef: "133",
-          behavior: "Tri-state error semantics: DOTTED field access of a missing key (`resource.data.typo`), access on null/undefined, undefined variables, and `get()`-of-missing ERROR → deny; `&&`/`||` absorb operand errors **commutatively** (CEL: `error || true` → true, `error && false` → false). NOTE: DYNAMIC index access `data[expr]` stays null-on-miss (the documented may-be-absent-lookup idiom; only dotted access is doc-confirmed to error). (RULES-B2/B3/B8)",
-          status: "conforms",
-          evidence: "`unit:rules/simulator/evaluator.test.ts` (RULES-B2 / RULES-B3 / RULES-B8 blocks)",
+          behavior: "Tri-state error semantics: DOTTED field access of a missing key (`resource.data.typo`), access on null/undefined, undefined variables, and `get()`-of-missing ERROR → deny; `&&`/`||` absorb operand errors **commutatively** (CEL: `error || true` → true, `error && false` → false). DYNAMIC index access `data[expr]` of a missing key is also an error in production; Pyric returns null for it, a known divergence, so a rule such as `resource.data['deleted'] != true` allows in Pyric and denies in production. Use `map.get(key, default)` for a may-be-absent key. (RULES-B2/B3/B8)",
+          status: "diverged-documented",
+          statusNote: "bracket access of a missing key returns null; production errors",
+          evidence: "`unit:rules/simulator/evaluator.test.ts` (RULES-B2 / RULES-B3 / RULES-B8 blocks) covers dotted access, null access, undefined variables, `get()` of a missing document and error absorption. Production capture, 2026-09-28: the Rules Test API denied `resource.data['deleted'] != true` on an existing document without the field, in the content module replay of `notDeleted`, where Pyric allowed it. The module now uses `resource.data.get('deleted', false)`, and `packages/pyric/test/rules/modules/fixtures/stdlib-replay-content.json` records production agreeing on every content case. The evaluator still returns null for a missing bracket key.",
           automation: "unit-backed",
           conformanceTests: ["packages/pyric/test/rules/simulator/evaluator.test.ts"],
         }),

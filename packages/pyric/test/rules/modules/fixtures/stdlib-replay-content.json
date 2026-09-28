@@ -1,0 +1,154 @@
+{
+  "schema": "pyric.stdlib-replay.v1",
+  "capturedAt": "2026-09-28T05:07:50.913Z",
+  "project": "digame-mas",
+  "module": "content",
+  "cases": 24,
+  "agree": 24,
+  "results": [
+    {
+      "case": "validAuthorCreate allows when author is the caller",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "validAuthorCreate denies when author is someone else",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "validAuthorCreate denies unauthenticated",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "validAuthorCreate denies missing author field",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "isAuthor allows the existing doc's author",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "isAuthor denies a non-author",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "isAuthor denies unauthenticated",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "canReadContent allows anyone to read published",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "canReadContent allows unauthenticated read of published",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "canReadContent allows the author to read a draft",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "canReadContent denies a stranger reading a draft",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "canReadContent denies unauthenticated read of a draft",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "notDeleted allows when deleted flag is false",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "notDeleted allows when the field is absent",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "notDeleted denies a soft-deleted doc",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "ownerOnlyUntil allows the owner to read while the match is in play",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "ownerOnlyUntil denies the opponent while the match is in play",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "ownerOnlyUntil allows the opponent once the match is won",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "ownerOnlyUntil allows the opponent once the match is resigned",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "ownerOnlyUntil allows the owner once the match is won",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "ownerOnlyUntil denies unauthenticated reads of a finished match",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "ownerOnlyUntil allows the owner when the parent match is missing",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "ownerOnlyUntil denies the opponent when the parent match is missing",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "ownerOnlyUntil denies the opponent when the status is not in the list",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    }
+  ]
+}

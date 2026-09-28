@@ -90,12 +90,12 @@ export function isOwner(userId) {
 // are not memoized: every call pays its full cost again, and a let inside a
 // function is paid on every call.
 //
-// Content module for author-owned documents — the most common
+// Content module for author-owned documents, the most common
 // Firebase app shape (posts, notes, docs, comments, tasks).
 //
 // Convention: documents carry an author field (a UID string) and
 // usually a status field ('draft' | 'published' | ...). Field names
-// are parameters, not conventions — pass yours.
+// are parameters, not conventions: pass yours.
 //
 // Usage:
 //   import { validAuthorCreate, isAuthor, canReadContent, notDeleted } from 'content';
@@ -109,6 +109,19 @@ export function isOwner(userId) {
 //     // Update: author edits content fields; authorship immutable.
 //     allow update: if isAuthor('author') && onlyFieldsChanged(['title', 'body', 'status']);
 //     allow delete: if isAuthor('author');
+//   }
+//
+// Hidden per-player documents: a fleet, a hand or a secret pick that only
+// its owner reads until the match ends. The document lives under its match,
+// at {collection}/{matchId}/{sub}/{uid}: the document id is the owner's UID,
+// and the parent match document carries a \`status\` field. When your owner is
+// a field instead, pass resource.data.<field> as the owner.
+//
+//   import { ownerOnlyUntil } from 'content';
+//
+//   match /battleship/{matchId}/boards/{uid} {
+//     allow read: if ownerOnlyUntil(
+//       /databases/$(database)/documents/battleship/$(matchId), uid, ['won', 'resigned']);
 //   }
 
 // Create guard: signed in, and the incoming doc's author field is the
@@ -129,8 +142,8 @@ export function isAuthor(authorField) {
 
 // Read visibility: published content is public; anything else is
 // visible to its author only. Works for get; for list queries the
-// client must filter (rules are not filters — a bare collection query
-// will be denied unless it proves status == 'published').
+// client must filter (rules are not filters: a bare collection query
+// is denied unless it proves status == 'published').
 // cost 8 to 23 expressions per call
 export function canReadContent(statusField, authorField) {
   return resource.data[statusField] == 'published'
@@ -138,11 +151,26 @@ export function canReadContent(statusField, authorField) {
 }
 
 // Soft-delete guard: the document is not marked deleted. Reads the
-// EXISTING doc; a doc without the field passes — bracket access is
-// the null-on-miss idiom (dotted access of a missing key ERRORS).
-// cost 7 to 7 expressions per call
+// EXISTING doc. A doc without the field passes: map.get() returns the
+// default for a missing key, while dotted or bracket access of a missing
+// key is an error in production and denies.
+// cost 8 to 8 expressions per call
 export function notDeleted() {
-  return resource.data['deleted'] != true;
+  return resource.data.get('deleted', false) != true;
+}
+
+// Read rule for a hidden per-player document: the owner reads it at any
+// time, and any other signed-in caller reads it once the status of the match
+// at \`parentPath\` is in \`statuses\`. Pass one status as a one-item list, such
+// as ['finished'], or several, such as ['won', 'draw', 'resigned']. The owner
+// check runs before the get(), so the owner's read stops there and spends no
+// read. A missing parent match is an error and denies every caller but the
+// owner.
+// cost 6 to 20 expressions per call, reads 1
+export function ownerOnlyUntil(parentPath, ownerUid, statuses) {
+  return request.auth != null
+    && (request.auth.uid == ownerUid
+        || get(parentPath).data.status in statuses);
 }
 `,
   "counters": `// @pyric-services cloud.firestore

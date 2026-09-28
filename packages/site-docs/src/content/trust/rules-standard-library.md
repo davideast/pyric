@@ -40,7 +40,7 @@ shown in each row's **Verified** column.
 | [geometry](#geometry) | Firestore | Explicit param | Patterns 12-14 | Simulator + live Rules validation |
 | [counters](#counters) | Firestore | Self-contained | — | Simulator + Rules Test API replay |
 | [timing](#timing) | Firestore | Self-contained | — | Simulator + live Rules validation |
-| [content](#content) | Firestore | Self-contained | — | Simulator |
+| [content](#content) | Firestore | Self-contained | — | Simulator + Rules Test API replay |
 | [spaces](#spaces) | Firestore | Explicit param | — | Simulator + live Rules validation |
 | [joining](#joining) | Firestore | Self-contained | — | Simulator + live Rules validation |
 | [atomic](#atomic) | Firestore | Explicit param | — | Simulator bodies + live real-DB validation |
@@ -329,7 +329,10 @@ Author-owned documents — posts, notes, docs, comments, tasks. Field names are 
 | `validAuthorCreate(authorField)` | authorField: string | bool | Signed in, and the incoming doc's author field is the caller. Create rules |
 | `isAuthor(authorField)` | authorField: string | bool | Caller is the EXISTING doc's author. Update/delete rules |
 | `canReadContent(statusField, authorField)` | statusField, authorField: string | bool | Published is public; anything else visible to its author only. `get` rules — list queries must prove `status == 'published'` via query filters (rules are not filters) |
-| `notDeleted()` | — | bool | Soft-delete guard: `resource.data['deleted'] != true` (bracket access — null-on-miss, absent field passes) |
+| `notDeleted()` | — | bool | Soft-delete guard: `resource.data.get('deleted', false) != true`. An absent field passes, because `get()` returns the default; bracket access of a missing key is an error in production |
+| `ownerOnlyUntil(parentPath, ownerUid, statuses)` | parentPath: path to the match, ownerUid: string, statuses: list | bool | Hidden per-player document: the owner reads it at any time; any other signed-in caller reads it once the match's `status` is in `statuses`. The owner check runs before the `get()`, so the owner's read spends none. Reads 1 |
+
+Convention for `ownerOnlyUntil`: the hidden document lives at `{collection}/{matchId}/{sub}/{uid}` under a match document with a `status` field. Pass the `uid` wildcard as the owner when the document id is the owner's UID, or `resource.data.<field>` when the owner is a field. A missing match is an error and denies every caller but the owner.
 
 File: `content.rules` | Tests: `content.test.json`
 
