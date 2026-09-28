@@ -29,7 +29,7 @@ import { resolveModulesBrowser } from '../../pyric/src/rules/modules/resolver-br
 import { parseStdlibTestFile } from '../../pyric/src/rules/modules/stdlib-cost.ts';
 import { buildApiTestCase, type TestCase } from '../../pyric/src/rules/test/spec.ts';
 import { REPO_ROOT } from './rules-expression-cost-suites.ts';
-import { STDLIB_DIR } from './measure-stdlib-cost.ts';
+import { STDLIB_DIR, apiValue } from './measure-stdlib-cost.ts';
 
 const DEFAULT_TIME = '2026-07-21T00:00:00Z';
 const RULES_API = 'https://firebaserules.googleapis.com/v1';
@@ -69,15 +69,17 @@ if (!resolved.success) throw new Error(`${moduleName}: ${resolved.error.code} ${
 const rules = resolved.data.resolved.replace(/\n\/\/ @pyric-source-map:.*$/s, '\n');
 
 const testCases = cases.map((c, n) => {
+  const time = c.requestTime ?? DEFAULT_TIME;
   const tc: TestCase = {
     description: c.description,
     expectation: c.expectation,
     method: c.method,
     path: `c${n}/${c.path}`,
     auth: c.auth ?? null,
-    requestTime: c.requestTime ?? DEFAULT_TIME,
-    ...(c.data ? { data: c.data } : {}),
-    ...(c.resource ? { resource: c.resource } : {}),
+    requestTime: time,
+    // A REQUEST_TIME value is sent as the request time, as the cost probes send it.
+    ...(c.data ? { data: apiValue(c.data, time) } : {}),
+    ...(c.resource ? { resource: apiValue(c.resource, time) } : {}),
     ...(c.functionMocks ? { functionMocks: c.functionMocks } : {}),
   } as TestCase;
   const api: any = buildApiTestCase(tc);

@@ -171,6 +171,36 @@
           ]
         }
       }
+    },
+    "lifecycle": {
+      "requests": 8,
+      "testCases": 372,
+      "date": "2026-09-28T03:52:38.844Z",
+      "modules": [
+        "lifecycle"
+      ],
+      "calibration": {
+        "firestore": {
+          "d": 986,
+          "checks": [
+            {
+              "condition": "false",
+              "cost": 1,
+              "d": 986
+            },
+            {
+              "condition": "true && false",
+              "cost": 4,
+              "d": 986
+            },
+            {
+              "condition": "true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true",
+              "cost": 58,
+              "d": 986
+            }
+          ]
+        }
+      }
     }
   },
   "functions": [
@@ -393,6 +423,17 @@
       "reads": 0,
       "cheapestCase": "nFieldsChanged allows when exactly one field changed",
       "mostExpensiveCase": "nFieldsChanged allows when exactly one field changed"
+    },
+    {
+      "module": "lifecycle",
+      "function": "exactlyChanged",
+      "cost": {
+        "min": 13,
+        "max": 17
+      },
+      "reads": 0,
+      "cheapestCase": "exactlyChanged denies when a listed field is unchanged",
+      "mostExpensiveCase": "exactlyChanged allows when every listed field changed and nothing else did"
     },
     {
       "module": "lobby",
@@ -2110,6 +2151,198 @@
         "call": 12,
         "reference": 3,
         "perCall": 11
+      }
+    },
+    {
+      "module": "lifecycle",
+      "function": "exactlyChanged",
+      "case": "exactlyChanged allows when every listed field changed and nothing else did",
+      "call": "exactlyChanged(['board', 'lastMove', 'currentTurn', 'moveCount'])",
+      "measured": {
+        "call": 22,
+        "reference": 7,
+        "perCall": 17
+      },
+      "estimated": {
+        "call": 22,
+        "reference": 7,
+        "perCall": 17
+      }
+    },
+    {
+      "module": "lifecycle",
+      "function": "exactlyChanged",
+      "case": "exactlyChanged denies when a listed field is unchanged",
+      "call": "exactlyChanged(['board', 'lastMove', 'currentTurn', 'moveCount'])",
+      "measured": {
+        "call": 18,
+        "reference": 7,
+        "perCall": 13
+      },
+      "estimated": {
+        "call": 22,
+        "reference": 7,
+        "perCall": 17
+      }
+    },
+    {
+      "module": "lifecycle",
+      "function": "exactlyChanged",
+      "case": "exactlyChanged denies when an unlisted field changed",
+      "call": "exactlyChanged(['board', 'lastMove', 'currentTurn', 'moveCount'])",
+      "measured": {
+        "call": 22,
+        "reference": 7,
+        "perCall": 17
+      },
+      "estimated": {
+        "call": 22,
+        "reference": 7,
+        "perCall": 17
+      }
+    },
+    {
+      "module": "lifecycle",
+      "function": "exactlyChanged",
+      "case": "exactlyChanged denies when an unlisted field is added",
+      "call": "exactlyChanged(['board', 'lastMove', 'currentTurn', 'moveCount'])",
+      "measured": {
+        "call": 22,
+        "reference": 7,
+        "perCall": 17
+      },
+      "estimated": {
+        "call": 22,
+        "reference": 7,
+        "perCall": 17
+      }
+    },
+    {
+      "module": "lifecycle",
+      "function": "exactlyChanged",
+      "case": "exactlyChanged counts a listed field that is removed as changed",
+      "call": "exactlyChanged(['title', 'draft'])",
+      "measured": {
+        "call": 20,
+        "reference": 5,
+        "perCall": 17
+      },
+      "estimated": {
+        "call": 20,
+        "reference": 5,
+        "perCall": 17
+      }
+    },
+    {
+      "module": "lifecycle",
+      "function": "exactlyChanged",
+      "case": "exactlyChanged allows an empty list when nothing changed",
+      "call": "exactlyChanged([])",
+      "measured": {
+        "call": 18,
+        "reference": 3,
+        "perCall": 17
+      },
+      "estimated": {
+        "call": 18,
+        "reference": 3,
+        "perCall": 17
+      }
+    },
+    {
+      "module": "lifecycle",
+      "function": "exactlyChanged",
+      "case": "exactlyChanged denies an empty list when a field changed",
+      "call": "exactlyChanged([])",
+      "measured": {
+        "call": 18,
+        "reference": 3,
+        "perCall": 17
+      },
+      "estimated": {
+        "call": 18,
+        "reference": 3,
+        "perCall": 17
+      }
+    },
+    {
+      "module": "lifecycle",
+      "function": "exactlyChanged",
+      "case": "exactlyChanged denies a listed field when nothing changed",
+      "call": "exactlyChanged(['title'])",
+      "measured": {
+        "call": 15,
+        "reference": 4,
+        "perCall": 13
+      },
+      "estimated": {
+        "call": 19,
+        "reference": 4,
+        "perCall": 17
+      }
+    },
+    {
+      "module": "lifecycle",
+      "function": "exactlyChanged",
+      "case": "exactlyChanged allows the keys given as a Set",
+      "call": "exactlyChanged(['board', 'lastMove', 'currentTurn', 'moveCount'].toSet())",
+      "measured": {
+        "call": 23,
+        "reference": 8,
+        "perCall": 17
+      },
+      "estimated": {
+        "call": 23,
+        "reference": 8,
+        "perCall": 17
+      }
+    },
+    {
+      "module": "lifecycle",
+      "function": "exactlyChanged",
+      "case": "exactlyChanged denies an unlisted change with the keys given as a Set",
+      "call": "exactlyChanged(['board', 'lastMove', 'currentTurn', 'moveCount'].toSet())",
+      "measured": {
+        "call": 23,
+        "reference": 8,
+        "perCall": 17
+      },
+      "estimated": {
+        "call": 23,
+        "reference": 8,
+        "perCall": 17
+      }
+    },
+    {
+      "module": "lifecycle",
+      "function": "exactlyChanged",
+      "case": "exactlyChanged treats a repeated key in the list as one key",
+      "call": "exactlyChanged(['title', 'title'])",
+      "measured": {
+        "call": 20,
+        "reference": 5,
+        "perCall": 17
+      },
+      "estimated": {
+        "call": 20,
+        "reference": 5,
+        "perCall": 17
+      }
+    },
+    {
+      "module": "lifecycle",
+      "function": "exactlyChanged",
+      "case": "exactlyChanged denies on create, where there is no existing document to diff",
+      "call": "exactlyChanged(['title'])",
+      "measured": {
+        "call": 19,
+        "reference": 4,
+        "perCall": 17
+      },
+      "estimated": {
+        "call": 19,
+        "reference": 4,
+        "perCall": 17
       }
     },
     {

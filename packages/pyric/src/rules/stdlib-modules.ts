@@ -856,7 +856,7 @@ const LIFECYCLE_MODULE: StdlibModuleDefinition = {
   key: 'lifecycle',
   kind: 'user-module',
   description:
-    'User-authored module: field immutability + server-timestamp checks (fieldUnchanged, immutableFields, isServerTimestamp). Self-contained.',
+    'User-authored module: field immutability, changed-field checks, and server-timestamp checks (fieldUnchanged, immutableFields, onlyFieldsChanged, exactlyChanged, nFieldsChanged, isServerTimestamp). Self-contained.',
   purpose:
     'Locks specific fields against modification on updates and asserts that a timestamp field matches `request.time` (i.e. the client used the server-timestamp sentinel).',
   whenToUse:
@@ -886,7 +886,7 @@ const LIFECYCLE_MODULE: StdlibModuleDefinition = {
       cost: { min: 10, max: 10 },
       reads: 0,
       description:
-        'The dual of immutableFields: every CHANGED field is in the allowed list, so unlisted fields are implicitly immutable (adds and removes count as changes). The single most common update guard — "users may edit title/body and nothing else". Top-level keys only; nested-map diffs are unreliable in production.',
+        'The dual of immutableFields: every CHANGED field is in the allowed list, so unlisted fields are implicitly immutable (adds and removes count as changes). The most common update guard: users may edit title and body and nothing else. Top-level keys only; nested-map diffs are unreliable in production.',
       examples: [`allow update: if onlyFieldsChanged(['title', 'body']);`],
     },
     {
@@ -895,6 +895,16 @@ const LIFECYCLE_MODULE: StdlibModuleDefinition = {
       reads: 0,
       description:
         'Exactly n top-level fields changed in this write. `nFieldsChanged(1)` is the board-integrity / edit-one-field-per-write guard.',
+    },
+    {
+      signature: 'exactlyChanged(keys: list<string> | set<string>): bool',
+      cost: { min: 13, max: 17 },
+      reads: 0,
+      description:
+        'The top-level fields the write adds, removes, or changes are exactly `keys`: every listed field changed and no other field did. `onlyFieldsChanged` is the subset form, where a listed field may stay unchanged.',
+      examples: [`allow update: if exactlyChanged(['board', 'lastMove', 'currentTurn', 'moveCount']);`],
+      notes:
+        'Use it for a transition that always writes the same fields, such as a tic-tac-toe move. Reads `resource.data`, so on create the call is an error and the rule denies.',
     },
   ],
   relatedKeys: ['map', 'validation', 'request', 'counters'],

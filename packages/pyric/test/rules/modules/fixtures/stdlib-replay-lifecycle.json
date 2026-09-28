@@ -1,0 +1,166 @@
+{
+  "schema": "pyric.stdlib-replay.v1",
+  "capturedAt": "2026-09-28T03:52:19.685Z",
+  "project": "digame-mas",
+  "module": "lifecycle",
+  "cases": 26,
+  "agree": 26,
+  "results": [
+    {
+      "case": "fieldUnchanged allows when field value is same",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "fieldUnchanged denies when field value changed",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "fieldUnchanged works with timestamp fields",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "immutableFields allows when all listed fields unchanged",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "immutableFields denies when one listed field changed",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "isServerTimestamp allows when field equals request.time",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "onlyFieldsChanged allows when only listed fields changed",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "onlyFieldsChanged allows a subset of listed fields changing",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "onlyFieldsChanged denies when an unlisted field changed",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "onlyFieldsChanged denies when an unlisted field is ADDED",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "onlyFieldsChanged denies when an unlisted field is REMOVED",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "nFieldsChanged allows when exactly one field changed",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "nFieldsChanged denies when two fields changed",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "nFieldsChanged denies when zero fields changed",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "exactlyChanged allows when every listed field changed and nothing else did",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "exactlyChanged denies when a listed field is unchanged",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "exactlyChanged denies when an unlisted field changed",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "exactlyChanged denies when an unlisted field is added",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "exactlyChanged counts a listed field that is removed as changed",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "exactlyChanged allows an empty list when nothing changed",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "exactlyChanged denies an empty list when a field changed",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "exactlyChanged denies a listed field when nothing changed",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "exactlyChanged allows the keys given as a Set",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "exactlyChanged denies an unlisted change with the keys given as a Set",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "exactlyChanged treats a repeated key in the list as one key",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "exactlyChanged denies on create, where there is no existing document to diff",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    }
+  ]
+}

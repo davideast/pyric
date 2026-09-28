@@ -5,12 +5,12 @@
     "firestore-rules#178"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"required-fields-and-mapdiff\" (Coverage: List/Set + MapDiff required-fields idiom). Production must accept the keys().hasAll/hasOnly required-fields pattern and the diff().*Keys() MapDiff family used to gate field-level mutations.",
-  "observedAt": "2026-09-28T00:50:28.012Z",
+  "observedAt": "2026-09-28T03:54:29.544Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "ed12206318eabce271c82f052bc429f32d0849e680ee6d0f0490b68fb4ac5fcf"
+    "value": "9ad9d814c16b3ea2a721642a96c3fd0de85f5d0d4c44ef03bd9869126dfe4ebd"
   },
   "behavior": {
     "create with exact required fields, self-owned ALLOW": "ALLOW",
@@ -30,6 +30,15 @@
     "keys() is list → ALLOW": "ALLOW",
     "keys() is set is false → DENY": "DENY",
     "!(keys() is set) → ALLOW": "ALLOW",
-    "keys().toSet().size() → ALLOW": "ALLOW"
+    "keys().toSet().size() → ALLOW": "ALLOW",
+    "affectedKeys() == a Set of the same keys in another order → ALLOW": "ALLOW",
+    "affectedKeys() == a Set missing a changed key → DENY": "DENY",
+    "affectedKeys() == a Set with a key that did not change → DENY": "DENY",
+    "affectedKeys() == a List of the same keys is false → DENY": "DENY",
+    "affectedKeys() hasAll() and hasOnly() a List of the same keys → ALLOW": "ALLOW",
+    "affectedKeys() hasAll() and hasOnly() a List, one key unchanged → DENY": "DENY",
+    "affectedKeys() hasAll() and hasOnly() a List, another key changed → DENY": "DENY",
+    "affectedKeys() hasAll() and hasOnly() a Set of the same keys → ALLOW": "ALLOW",
+    "affectedKeys() hasAll() and hasOnly() a Set, another key changed → DENY": "DENY"
   }
 }

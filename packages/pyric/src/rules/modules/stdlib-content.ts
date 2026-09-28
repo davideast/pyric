@@ -371,7 +371,7 @@ export function onlyRemovedSelf(membersField) {
 // (createdBy, createdAt, authorId).
 //
 // Usage:
-//   import { fieldUnchanged, immutableFields, isServerTimestamp } from 'lifecycle';
+//   import { fieldUnchanged, immutableFields, onlyFieldsChanged, exactlyChanged, isServerTimestamp } from 'lifecycle';
 //
 //   // Single field:
 //   allow update: if fieldUnchanged('createdBy');
@@ -382,7 +382,31 @@ export function onlyRemovedSelf(membersField) {
 //   // The dual: users may edit title/body but NOTHING else:
 //   allow update: if onlyFieldsChanged(['title', 'body']);
 //
+//   // Every listed field changes and nothing else does:
+//   allow update: if exactlyChanged(['board', 'lastMove', 'currentTurn', 'moveCount']);
+//
 //   allow create: if isServerTimestamp('createdAt');
+//
+// Changed-key checks: each one compares the set of top-level keys the write
+// adds, removes, or changes against the keys you pass, as a List or a Set.
+//   onlyFieldsChanged(keys): the changed keys are a subset of \`keys\`. A
+//     listed key may stay unchanged. Use it when a transition may leave
+//     some listed fields alone, such as the move checks in reversi, chess,
+//     and checkers, where status and winner change only on the last move.
+//   exactlyChanged(keys): the changed keys equal \`keys\`. Every listed key
+//     changes. Use it when each transition always writes the same fields,
+//     such as a tic-tac-toe move, which changes board, lastMove,
+//     currentTurn, and moveCount, and never status or winner. In
+//     tic-tac-toe it replaces one affectedKeys().hasOnly([...]) shared by
+//     the move, win, and draw rules with one list per rule: a win adds
+//     status and winner, and a draw adds status.
+// Both read resource.data, so on create, where there is no existing
+// document, the call is an error and the rule denies. On create, check
+// request.resource.data.keys() instead.
+//
+// A "the move squares changed" check on a nested map, such as
+// board.diff(resource.data.board), is not a top-level diff: write it in the
+// game with diff() on the two maps.
 
 // Ensure a field's value is identical between existing and incoming document.
 // Use on update rules to enforce immutability.
@@ -420,6 +444,16 @@ export function onlyFieldsChanged(fields) {
 // cost 11 to 11 expressions per call
 export function nFieldsChanged(n) {
   return request.resource.data.diff(resource.data).affectedKeys().size() == n;
+}
+
+// The top-level fields this write adds, removes, or changes are exactly
+// \`keys\`, a List or a Set: every listed field changed and no other field
+// did. A key listed twice counts once. An empty \`keys\` allows only a write
+// that changes nothing. On create the call is an error, so the rule denies.
+// cost 13 to 17 expressions per call
+export function exactlyChanged(keys) {
+  let changed = request.resource.data.diff(resource.data).affectedKeys();
+  return changed.hasAll(keys) && changed.hasOnly(keys);
 }
 `,
   "lobby": `// @pyric-services cloud.firestore

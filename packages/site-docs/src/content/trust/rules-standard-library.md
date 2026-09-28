@@ -35,7 +35,7 @@ shown in each row's **Verified** column.
 | [storage/metadata](#storagemetadata) | Storage | Self-contained | — | Storage evaluator + production oracle |
 | [storage/objects](#storageobjects) | Storage | Self-contained | — | Storage evaluator + production oracle |
 | [storage/time](#storagetime) | Storage | Self-contained | — | Storage evaluator + production oracle |
-| [lifecycle](#lifecycle) | Firestore | Self-contained | — | Simulator |
+| [lifecycle](#lifecycle) | Firestore | Self-contained | — | Simulator + Rules Test API replay |
 | [transitions](#transitions) | Firestore | Self-contained | — | Simulator |
 | [geometry](#geometry) | Firestore | Explicit param | Patterns 12-14 | Simulator + live Rules validation |
 | [counters](#counters) | Firestore | Self-contained | — | Simulator |
@@ -233,8 +233,12 @@ Field immutability and timestamp enforcement.
 | `isServerTimestamp(field)` | field: string | bool | Field value equals `request.time` |
 | `onlyFieldsChanged(fields)` | fields: list of strings | bool | Every changed field is in the list — the dual of immutableFields (unlisted fields implicitly immutable). Top-level keys only |
 | `nFieldsChanged(n)` | n: int | bool | Exactly n top-level fields changed (n=1 = board-integrity / edit-one-field guard) |
+| `exactlyChanged(keys)` | keys: list or set of strings | bool | The changed top-level fields are exactly `keys`: every listed field changed and no other field did |
+
+`onlyFieldsChanged` checks that the changed fields are a subset of the list, so a listed field may stay unchanged. `exactlyChanged` checks that they equal the list. Use `exactlyChanged` for a transition that always writes the same fields, such as a tic-tac-toe move, and `onlyFieldsChanged` when some listed fields change only sometimes, such as `status` and `winner` on a move that may end the game. Adds and removes count as changes. Both read `resource.data`, so on create the call is an error and the rule denies.
 
 File: `lifecycle.rules` | Tests: `lifecycle.test.json`
+Every case replayed through the Rules Test API with the same decision.
 
 ### transitions
 
