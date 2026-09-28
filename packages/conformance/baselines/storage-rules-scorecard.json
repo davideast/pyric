@@ -1269,10 +1269,12 @@
         "common-auth-membership",
         "conversion-functions",
         "function-scopes-and-shadowing",
+        "list-map-literals-and-slice",
         "metadata-access",
         "metadata-verbs-and-arithmetic",
         "ordering-operand-types",
         "resource-object-identity",
+        "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
         "stdlib-string-bytes-hashing",
         "upload-primitives-boundaries",
@@ -1541,7 +1543,8 @@
         "metadata-verbs-and-arithmetic",
         "ordering-operand-types",
         "stdlib-timestamp-duration",
-        "ternary-and-error-absorption"
+        "ternary-and-error-absorption",
+        "upload-primitives-boundaries"
       ],
       "verifiedByRows": [
         "storage-rules#119",
@@ -1606,6 +1609,7 @@
         "function-scopes-and-shadowing",
         "functions-let-scope",
         "in-membership-and-proto-keys",
+        "list-map-literals-and-slice",
         "matches-regex",
         "metadata-access",
         "metadata-verbs-and-arithmetic",

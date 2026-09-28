@@ -35,10 +35,10 @@ import { describeRulesType as describeType, isRulesMap } from '../../rules/simul
 import { sliceBoundsError } from '../../rules/simulator/slice-bounds.js';
 import { IndexAccessFailure, indexList, undefinedPropertyMessage } from '../../rules/simulator/index-access.js';
 import { MembershipFailure, membership } from '../../rules/simulator/membership.js';
+import { rulesValuesEqual } from '../../rules/simulator/value-equality.js';
 import {
   RuleError,
   isRuleError as isErr,
-  rulesEquals,
 } from './rules-values.js';
 
 export function evaluateStorageRules(
@@ -374,7 +374,7 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       const operands = evalOperands([expr.collection, expr.element], ctx);
       if (isErr(operands)) return operands;
       const [coll, el] = operands;
-      const result = membership(el, coll, rulesEquals);
+      const result = membership(el, coll);
       return result instanceof MembershipFailure ? new RuleError(result.message) : result;
     }
     case 'is': {
@@ -425,16 +425,15 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       if (isErr(operands)) return operands;
       const [l, r] = operands;
       // Timestamp, Duration, and Bytes operands own their comparison and
-      // arithmetic operators; equality stays with rulesEquals below.
+      // arithmetic operators; equality stays with rulesValuesEqual below.
       if (expr.op !== '==' && expr.op !== '!=' && (isValueTypeOperand(l) || isValueTypeOperand(r))) {
         return evalValueOperator(expr.op, l, r);
       }
       switch (expr.op) {
-        // Lists and maps compare STRUCTURALLY (production `[a] == [a]` is true;
-        // JS reference identity would make every literal comparison
-        // false). Everything else is strict equality.
-        case '==': return rulesEquals(l, r);
-        case '!=': return !rulesEquals(l, r);
+        // Lists and maps compare structurally (production `[a] == [a]` is
+        // true), each element by its numeric type as well as its value.
+        case '==': return rulesValuesEqual(l, r);
+        case '!=': return !rulesValuesEqual(l, r);
         case '<':
         case '>':
         case '<=':

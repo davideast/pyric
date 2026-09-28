@@ -5,12 +5,12 @@
     "firestore-rules#168"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"list-methods-concat-removeall-toset\" (Item 5.2). Sim must implement List.concat/removeAll/toSet; pre-fix all three threw UnsupportedError.",
-  "observedAt": "2026-07-22T01:09:37.080Z",
+  "observedAt": "2026-09-28T06:47:34.078Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "679d1d1a61dcbbebf36a6a189b730b13b08c016eb0be2819ccec55ad53a881dc"
+    "value": "d3cdec6903190005deb2d8d470b5ec7c309aff0111439b0ce832b724f02007fa"
   },
   "behavior": {
     "list concat → size 4 ALLOW": "ALLOW",
@@ -21,7 +21,70 @@
     "list removeAll empty arg → identity ALLOW": "ALLOW",
     "list toSet dedupes ALLOW": "ALLOW",
     "list toSet().difference chain (5.1 wiring) DENY": "DENY",
-    "list concat with wrong expected size DENY": "DENY"
+    "list concat with wrong expected size DENY": "DENY",
+    "listMethod: in: a float is not in a List of the equal int": "DENY",
+    "listMethod: in: !(float in a List of the equal int) is true": "ALLOW",
+    "listMethod: in: an int is not in a List of the equal float": "DENY",
+    "listMethod: in: -0.0 is in a List of 0.0": "ALLOW",
+    "listMethod: in: an int zero is not in a List of -0.0": "DENY",
+    "listMethod: in: NaN is not in a List of NaN": "DENY",
+    "listMethod: in: a List of an int is not in a List of a List of the equal float": "DENY",
+    "listMethod: in: a Map of an int is not in a List of a Map of the equal float": "DENY",
+    "listMethod: in: a List of 0.0 is not in a List of a List of -0.0": "DENY",
+    "listMethod: in: a float is in a List of the same float": "ALLOW",
+    "listMethod: hasAny: an int List has no float of the same value": "DENY",
+    "listMethod: hasAny: != true for a float of the same value": "ALLOW",
+    "listMethod: hasAny: a float List has no int of the same value": "DENY",
+    "listMethod: hasAll: an int List does not have all of a float List": "DENY",
+    "listMethod: hasOnly: an int List does not have only a float List": "DENY",
+    "listMethod: hasAll: a mixed List has all of a float List": "ALLOW",
+    "listMethod: hasAny: a List of 0.0 has -0.0": "ALLOW",
+    "listMethod: hasAny: a List of an int List has no List of the equal float": "DENY",
+    "listMethod: hasAny: a List of a 0.0 List has no List of -0.0": "DENY",
+    "listMethod: removeAll: a float argument leaves the equal int": "ALLOW",
+    "listMethod: removeAll: a float argument does not remove the equal int": "DENY",
+    "listMethod: removeAll: an int argument leaves the equal float": "ALLOW",
+    "listMethod: removeAll: an int argument removes the equal int": "ALLOW",
+    "listMethod: removeAll: a 0.0 argument removes -0.0": "ALLOW",
+    "listMethod: removeAll: a float List argument leaves the equal int List": "ALLOW",
+    "listMethod: removeAll: a float argument removes the same float": "ALLOW",
+    "listMethod: join: joins with the separator": "ALLOW",
+    "listMethod: join: != the joined string is false": "DENY",
+    "listMethod: join: no separator is an error": "DENY",
+    "listMethod: join: no separator is an error under negation": "DENY",
+    "listMethod: join: || true absorbs the no-separator error": "ALLOW",
+    "listMethod: join: two separators is an error": "DENY",
+    "listMethod: join: an int separator is an error": "DENY",
+    "listMethod: join: a null element is the text null": "ALLOW",
+    "listMethod: join: a null element is not the empty string": "DENY",
+    "listMethod: join: a float element keeps its fraction": "ALLOW",
+    "listMethod: join: a float element is not printed as an int": "DENY",
+    "listMethod: join: floats convert as string() does": "ALLOW",
+    "listMethod: join: int and bool elements convert as string() does": "ALLOW",
+    "listMethod: join: a path element converts as string() does": "ALLOW",
+    "listMethod: join: a List element is an error": "DENY",
+    "listMethod: join: || true absorbs a List element error": "ALLOW",
+    "listMethod: join: a Map element is an error": "DENY",
+    "listMethod: join: a bytes element is an error": "DENY",
+    "listMethod: join: a duration element is an error": "DENY",
+    "listMethod: join: an empty List joins to the empty string": "ALLOW",
+    "listMethod: join: an empty separator": "ALLOW",
+    "listMethod: receiver: concat on a string is an error": "DENY",
+    "listMethod: receiver: || true absorbs concat on a string": "ALLOW",
+    "listMethod: receiver: removeAll on a string is an error": "DENY",
+    "listMethod: receiver: join on a string is an error": "DENY",
+    "listMethod: receiver: toSet on a string is an error": "DENY",
+    "listMethod: receiver: hasAny on a string is an error": "DENY",
+    "listMethod: receiver: hasAll on a string is an error": "DENY",
+    "listMethod: receiver: hasOnly on a string is an error": "DENY",
+    "listMethod: receiver: concat on a Map is an error": "DENY",
+    "listMethod: receiver: removeAll on a Map is an error": "DENY",
+    "listMethod: receiver: join on a Map is an error": "DENY",
+    "listMethod: receiver: toSet on a Map is an error": "DENY",
+    "listMethod: receiver: hasAll on a Map is an error": "DENY",
+    "listMethod: receiver: concat on a Set is an error": "DENY",
+    "listMethod: receiver: removeAll on a Set is an error": "DENY",
+    "listMethod: receiver: join on a Set is an error": "DENY"
   },
   "diagnostics": {
     "list toSet().difference chain (5.1 wiring) DENY": {
@@ -36,6 +99,460 @@
           "currentOffset": 1538,
           "endOffset": 1547
         }
+      }
+    },
+    "listMethod: join: no separator is an error": {
+      "notes": [
+        "Error: firestore.rules line [134], column [35]. Incorrect number of arguments. Received: 0. Expected: list.join(string)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 134,
+          "column": 35,
+          "currentOffset": 4207,
+          "endOffset": 4210
+        }
+      }
+    },
+    "listMethod: join: no separator is an error under negation": {
+      "notes": [
+        "Error: firestore.rules line [137], column [37]. Incorrect number of arguments. Received: 0. Expected: list.join(string)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 137,
+          "column": 37,
+          "currentOffset": 4298,
+          "endOffset": 4301
+        }
+      }
+    },
+    "listMethod: join: two separators is an error": {
+      "notes": [
+        "Error: firestore.rules line [143], column [32]. Incorrect number of arguments. Received: 2. Expected: list.join(string)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 143,
+          "column": 32,
+          "currentOffset": 4480,
+          "endOffset": 4483
+        }
+      }
+    },
+    "listMethod: join: an int separator is an error": {
+      "notes": [
+        "Error: firestore.rules line [146], column [32]. Unsupported operation error. Received: list.join(int). Expected: list.join(string)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 146,
+          "column": 32,
+          "currentOffset": 4573,
+          "endOffset": 4576
+        }
+      }
+    },
+    "listMethod: join: a List element is an error": {
+      "notes": [
+        "Error: firestore.rules line [170], column [34]. Unsupported operation error. Received: string(list). Expected: string(int), string(float), string(null), string(string), string(bool), string(path)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 170,
+          "column": 34,
+          "currentOffset": 5336,
+          "endOffset": 5339
+        }
+      }
+    },
+    "listMethod: join: a Map element is an error": {
+      "notes": [
+        "Error: firestore.rules line [176], column [39]. Unsupported operation error. Received: string(map). Expected: string(int), string(float), string(null), string(string), string(bool), string(path)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 176,
+          "column": 39,
+          "currentOffset": 5528,
+          "endOffset": 5531
+        }
+      }
+    },
+    "listMethod: join: a bytes element is an error": {
+      "notes": [
+        "Error: firestore.rules line [179], column [34]. Unsupported operation error. Received: string(bytes). Expected: string(int), string(float), string(null), string(string), string(bool), string(path)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 179,
+          "column": 34,
+          "currentOffset": 5618,
+          "endOffset": 5621
+        }
+      }
+    },
+    "listMethod: join: a duration element is an error": {
+      "notes": [
+        "Error: firestore.rules line [182], column [51]. Unsupported operation error. Received: string(duration). Expected: string(int), string(float), string(null), string(string), string(bool), string(path)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 182,
+          "column": 51,
+          "currentOffset": 5725,
+          "endOffset": 5728
+        }
+      }
+    },
+    "listMethod: receiver: concat on a string is an error": {
+      "notes": [
+        "Error: firestore.rules line [191], column [26]. Function not found error: Name: [concat]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 191,
+          "column": 26,
+          "currentOffset": 5978,
+          "endOffset": 5980
+        },
+        "functionCalls": [
+          {
+            "function": "concat",
+            "args": [
+              "b"
+            ]
+          }
+        ]
+      }
+    },
+    "listMethod: receiver: removeAll on a string is an error": {
+      "notes": [
+        "Error: firestore.rules line [197], column [26]. Function not found error: Name: [removeAll]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 197,
+          "column": 26,
+          "currentOffset": 6161,
+          "endOffset": 6163
+        },
+        "functionCalls": [
+          {
+            "function": "removeAll",
+            "args": [
+              [
+                "a"
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    "listMethod: receiver: join on a string is an error": {
+      "notes": [
+        "Error: firestore.rules line [200], column [26]. Function not found error: Name: [join]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 200,
+          "column": 26,
+          "currentOffset": 6254,
+          "endOffset": 6256
+        },
+        "functionCalls": [
+          {
+            "function": "join",
+            "args": [
+              ","
+            ]
+          }
+        ]
+      }
+    },
+    "listMethod: receiver: toSet on a string is an error": {
+      "notes": [
+        "Error: firestore.rules line [203], column [26]. Function not found error: Name: [toSet]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 203,
+          "column": 26,
+          "currentOffset": 6340,
+          "endOffset": 6342
+        },
+        "functionCalls": [
+          {
+            "function": "toSet"
+          }
+        ]
+      }
+    },
+    "listMethod: receiver: hasAny on a string is an error": {
+      "notes": [
+        "Error: firestore.rules line [206], column [25]. Function not found error: Name: [hasAny]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 206,
+          "column": 25,
+          "currentOffset": 6433,
+          "endOffset": 6433
+        },
+        "functionCalls": [
+          {
+            "function": "hasAny",
+            "args": [
+              [
+                "a"
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    "listMethod: receiver: hasAll on a string is an error": {
+      "notes": [
+        "Error: firestore.rules line [209], column [25]. Function not found error: Name: [hasAll]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 209,
+          "column": 25,
+          "currentOffset": 6516,
+          "endOffset": 6516
+        },
+        "functionCalls": [
+          {
+            "function": "hasAll",
+            "args": [
+              [
+                "a"
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    "listMethod: receiver: hasOnly on a string is an error": {
+      "notes": [
+        "Error: firestore.rules line [212], column [25]. Function not found error: Name: [hasOnly]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 212,
+          "column": 25,
+          "currentOffset": 6599,
+          "endOffset": 6599
+        },
+        "functionCalls": [
+          {
+            "function": "hasOnly",
+            "args": [
+              [
+                "a"
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    "listMethod: receiver: concat on a Map is an error": {
+      "notes": [
+        "Error: firestore.rules line [215], column [26]. Function not found error: Name: [concat]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 215,
+          "column": 26,
+          "currentOffset": 6684,
+          "endOffset": 6684
+        },
+        "functionCalls": [
+          {
+            "function": "concat",
+            "args": [
+              [
+                1
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    "listMethod: receiver: removeAll on a Map is an error": {
+      "notes": [
+        "Error: firestore.rules line [218], column [26]. Function not found error: Name: [removeAll]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 218,
+          "column": 26,
+          "currentOffset": 6777,
+          "endOffset": 6777
+        },
+        "functionCalls": [
+          {
+            "function": "removeAll",
+            "args": [
+              [
+                "a"
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    "listMethod: receiver: join on a Map is an error": {
+      "notes": [
+        "Error: firestore.rules line [221], column [26]. Function not found error: Name: [join]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 221,
+          "column": 26,
+          "currentOffset": 6874,
+          "endOffset": 6874
+        },
+        "functionCalls": [
+          {
+            "function": "join",
+            "args": [
+              ","
+            ]
+          }
+        ]
+      }
+    },
+    "listMethod: receiver: toSet on a Map is an error": {
+      "notes": [
+        "Error: firestore.rules line [224], column [26]. Function not found error: Name: [toSet]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 224,
+          "column": 26,
+          "currentOffset": 6965,
+          "endOffset": 6965
+        },
+        "functionCalls": [
+          {
+            "function": "toSet"
+          }
+        ]
+      }
+    },
+    "listMethod: receiver: hasAll on a Map is an error": {
+      "notes": [
+        "Error: firestore.rules line [227], column [25]. Function not found error: Name: [hasAll]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 227,
+          "column": 25,
+          "currentOffset": 7063,
+          "endOffset": 7063
+        },
+        "functionCalls": [
+          {
+            "function": "hasAll",
+            "args": [
+              [
+                "a"
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    "listMethod: receiver: concat on a Set is an error": {
+      "notes": [
+        "Error: firestore.rules line [230], column [26]. Function not found error: Name: [concat]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 230,
+          "column": 26,
+          "currentOffset": 7152,
+          "endOffset": 7152
+        },
+        "functionCalls": [
+          {
+            "function": "concat",
+            "args": [
+              [
+                "b"
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    "listMethod: receiver: removeAll on a Set is an error": {
+      "notes": [
+        "Error: firestore.rules line [233], column [26]. Function not found error: Name: [removeAll]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 233,
+          "column": 26,
+          "currentOffset": 7254,
+          "endOffset": 7254
+        },
+        "functionCalls": [
+          {
+            "function": "removeAll",
+            "args": [
+              [
+                "a"
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    "listMethod: receiver: join on a Set is an error": {
+      "notes": [
+        "Error: firestore.rules line [236], column [26]. Function not found error: Name: [join]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 236,
+          "column": 26,
+          "currentOffset": 7367,
+          "endOffset": 7367
+        },
+        "functionCalls": [
+          {
+            "function": "join",
+            "args": [
+              ","
+            ]
+          }
+        ]
       }
     }
   }

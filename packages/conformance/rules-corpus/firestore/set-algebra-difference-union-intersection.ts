@@ -6,9 +6,55 @@
  * List), while explicit List.toSet() receivers implement all three methods.
  * The paired shapes make the receiver-type boundary distinguishable. The
  * membership cases test `in` over Sets from toSet(), union(), and the MapDiff
- * key-set accessors, with present, absent, and negated elements.
+ * key-set accessors, with present, absent, and negated elements. The
+ * setIdentity cases pin how a Set compares ints, floats, zeros and NaN.
  */
 import type { ScenarioRecord } from './types.ts';
+
+/** One Set case: description, allow condition, production verdict. */
+type SetIdentityCase = readonly [description: string, condition: string, expectation: 'ALLOW' | 'DENY'];
+
+/**
+ * A Set compares its elements by numeric value at every depth, where a List
+ * does not: `[1, 1.0].toSet()` has one element, `[[1]].toSet() ==
+ * [[1.0]].toSet()`, `0.0` and `-0.0` are one element, and NaN is one element
+ * that is a member of its own Set.
+ */
+const setIdentityCases: readonly SetIdentityCase[] = [
+  ['a Set of an int equals a Set of the equal float', '[1].toSet() == [1.0].toSet()', 'ALLOW'],
+  ['!= between a Set of an int and a Set of the equal float is false', '[1].toSet() != [1.0].toSet()', 'DENY'],
+  ['an int and the equal float are one element', '[1, 1.0].toSet().size() == 1', 'ALLOW'],
+  ['an int and the equal float are not two elements', '[1, 1.0].toSet().size() == 2', 'DENY'],
+  ['an int is in a Set of the equal float', '1 in [1.0].toSet()', 'ALLOW'],
+  ['a float is in a Set of the equal int', '1.0 in [1].toSet()', 'ALLOW'],
+  ['hasAny() with a List of the equal float', '[1].toSet().hasAny([1.0])', 'ALLOW'],
+  ['hasAny() != true is false for the equal float', '[1].toSet().hasAny([1.0]) != true', 'DENY'],
+  ['hasAll() with a List of the equal float', '[1].toSet().hasAll([1.0])', 'ALLOW'],
+  ['hasOnly() with a List of the equal float', '[1].toSet().hasOnly([1.0])', 'ALLOW'],
+  ['hasAny() with a Set of the equal float', '[1].toSet().hasAny([1.0].toSet())', 'ALLOW'],
+  ['difference() removes the equal float', '[1].toSet().difference([1.0].toSet()).size() == 0', 'ALLOW'],
+  ['intersection() keeps the equal float', '[1].toSet().intersection([1.0].toSet()).size() == 1', 'ALLOW'],
+  ['union() merges the equal float', '[1].toSet().union([1.0].toSet()).size() == 1', 'ALLOW'],
+  ['a Set of an int List equals a Set of the equal float List', '[[1]].toSet() == [[1.0]].toSet()', 'ALLOW'],
+  ['an int List and the equal float List are one element', '[[1], [1.0]].toSet().size() == 1', 'ALLOW'],
+  ['a Map element matches the Map of the equal float', "[{'a': 1}].toSet().hasAny([{'a': 1.0}])", 'ALLOW'],
+  ['an int List is in a Set of the equal float List', '[1] in [[1.0]].toSet()', 'ALLOW'],
+  ['nested Map and List elements compare by value', "[{'a': [1]}].toSet() == [{'a': [1.0]}].toSet()", 'ALLOW'],
+  ['a Set of 0.0 equals a Set of -0.0', '[0.0].toSet() == [-0.0].toSet()', 'ALLOW'],
+  ['0.0 and -0.0 are one element', '[0.0, -0.0].toSet().size() == 1', 'ALLOW'],
+  ['a Set of a 0.0 List equals a Set of a -0.0 List', '[[0.0]].toSet() == [[-0.0]].toSet()', 'ALLOW'],
+  ['two NaN are one element', "[float('NaN'), float('NaN')].toSet().size() == 1", 'ALLOW'],
+  ['a Set of NaN equals a Set of NaN', "[float('NaN')].toSet() == [float('NaN')].toSet()", 'ALLOW'],
+  ['NaN is in a Set of NaN', "float('NaN') in [float('NaN')].toSet()", 'ALLOW'],
+  ['hasAny() finds NaN', "[float('NaN')].toSet().hasAny([float('NaN')])", 'ALLOW'],
+  ['two NaN Lists are one element', "[[float('NaN')], [float('NaN')]].toSet().size() == 1", 'ALLOW'],
+];
+
+const setIdentityBlocks = setIdentityCases
+  .map(([, condition], index) => `    match /setIdentity/${index}/{id} {
+      allow create: if ${condition};
+    }`)
+  .join('\n');
 
 export const scenario: ScenarioRecord = {
   fm: 'Item 5.1',
@@ -112,6 +158,7 @@ service cloud.firestore {
     match /affectedNotInPresentDeny/{id} {
       allow update: if !('k' in request.resource.data.board.diff(resource.data.board).affectedKeys());
     }
+${setIdentityBlocks}
   }
 }`,
   cases: [
@@ -220,6 +267,14 @@ service cloud.firestore {
       path: `${match}/d${19 + i}`, auth: { uid: 'alice' },
       resource: { board: { k: 1, u: 0, r: 5 } },
       data: { board: { k: 2, u: 0, a: 3 } },
+    })),
+    ...setIdentityCases.map(([description, , expectation], index) => ({
+      description: `setIdentity: ${description}`,
+      expectation,
+      method: 'create' as const,
+      path: `setIdentity/${index}/d1`,
+      auth: { uid: 'alice' },
+      data: {},
     })),
   ],
   group: 'stress',

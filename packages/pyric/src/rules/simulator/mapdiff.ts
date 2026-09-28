@@ -6,14 +6,15 @@
  *
  * Semantics derived from production Firestore behavior:
  * - Only compares top-level keys (nested map diff is unreliable in production)
- * - Values are compared with Firestore Rules value equality
+ * - Values compare as Set elements do (`setElementsEqual`): an int and the
+ *   equal float, `0.0` and `-0.0`, and two NaN are unchanged
  * - Keys are own keys only, so a key named `constructor` or `toString` is
  *   added or removed like any other (production maps expose no prototype)
  * - Returns Set-like objects with hasOnly(), hasAll(), hasAny(), size()
  */
 
 import { FirestoreSet } from './firestore-set.js';
-import { rulesValuesEqual } from './value-equality.js';
+import { setElementsEqual } from './value-equality.js';
 
 export { FirestoreSet } from './firestore-set.js';
 
@@ -48,7 +49,7 @@ export class MapDiff {
   changedKeys(): FirestoreSet {
     const changed: string[] = [];
     for (const key of Object.keys(this.after)) {
-      if (Object.hasOwn(this.before, key) && !rulesValuesEqual(this.before[key], this.after[key])) {
+      if (Object.hasOwn(this.before, key) && !setElementsEqual(this.before[key], this.after[key])) {
         changed.push(key);
       }
     }
@@ -60,7 +61,7 @@ export class MapDiff {
     const affected: string[] = [];
     const allKeys = new Set([...Object.keys(this.before), ...Object.keys(this.after)]);
     for (const key of allKeys) {
-      if (!Object.hasOwn(this.before, key) || !Object.hasOwn(this.after, key) || !rulesValuesEqual(this.before[key], this.after[key])) {
+      if (!Object.hasOwn(this.before, key) || !Object.hasOwn(this.after, key) || !setElementsEqual(this.before[key], this.after[key])) {
         affected.push(key);
       }
     }
@@ -71,7 +72,7 @@ export class MapDiff {
   unchangedKeys(): FirestoreSet {
     const unchanged: string[] = [];
     for (const key of Object.keys(this.before)) {
-      if (Object.hasOwn(this.after, key) && rulesValuesEqual(this.before[key], this.after[key])) {
+      if (Object.hasOwn(this.after, key) && setElementsEqual(this.before[key], this.after[key])) {
         unchanged.push(key);
       }
     }

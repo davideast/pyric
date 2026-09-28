@@ -5,12 +5,12 @@
     "firestore-rules#174"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"set-algebra-difference-union-intersection\" (Item 5.1). Production distinguishes Map.keys() List receivers (no set algebra) from explicit List.toSet() Set receivers (difference/union/intersection supported); paired cases lock the boundary.",
-  "observedAt": "2026-09-27T23:24:15.185Z",
+  "observedAt": "2026-09-28T06:47:34.596Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "75157e8ed7920fdff5bac78d6ed7ff39453472df284c816c1086e21d8630d304"
+    "value": "883eb067684e5b866ada9033279e1da664912afd11dceb292e0d9b282eee6656"
   },
   "behavior": {
     "set difference (list arg) → hasOnly([c]) DENY": "DENY",
@@ -38,7 +38,34 @@
     "unchanged key in unchangedKeys() ALLOW": "ALLOW",
     "unchanged key in affectedKeys() DENY": "DENY",
     "negated unchanged key in affectedKeys() ALLOW": "ALLOW",
-    "negated changed key in affectedKeys() DENY": "DENY"
+    "negated changed key in affectedKeys() DENY": "DENY",
+    "setIdentity: a Set of an int equals a Set of the equal float": "ALLOW",
+    "setIdentity: != between a Set of an int and a Set of the equal float is false": "DENY",
+    "setIdentity: an int and the equal float are one element": "ALLOW",
+    "setIdentity: an int and the equal float are not two elements": "DENY",
+    "setIdentity: an int is in a Set of the equal float": "ALLOW",
+    "setIdentity: a float is in a Set of the equal int": "ALLOW",
+    "setIdentity: hasAny() with a List of the equal float": "ALLOW",
+    "setIdentity: hasAny() != true is false for the equal float": "DENY",
+    "setIdentity: hasAll() with a List of the equal float": "ALLOW",
+    "setIdentity: hasOnly() with a List of the equal float": "ALLOW",
+    "setIdentity: hasAny() with a Set of the equal float": "ALLOW",
+    "setIdentity: difference() removes the equal float": "ALLOW",
+    "setIdentity: intersection() keeps the equal float": "ALLOW",
+    "setIdentity: union() merges the equal float": "ALLOW",
+    "setIdentity: a Set of an int List equals a Set of the equal float List": "ALLOW",
+    "setIdentity: an int List and the equal float List are one element": "ALLOW",
+    "setIdentity: a Map element matches the Map of the equal float": "ALLOW",
+    "setIdentity: an int List is in a Set of the equal float List": "ALLOW",
+    "setIdentity: nested Map and List elements compare by value": "ALLOW",
+    "setIdentity: a Set of 0.0 equals a Set of -0.0": "ALLOW",
+    "setIdentity: 0.0 and -0.0 are one element": "ALLOW",
+    "setIdentity: a Set of a 0.0 List equals a Set of a -0.0 List": "ALLOW",
+    "setIdentity: two NaN are one element": "ALLOW",
+    "setIdentity: a Set of NaN equals a Set of NaN": "ALLOW",
+    "setIdentity: NaN is in a Set of NaN": "ALLOW",
+    "setIdentity: hasAny() finds NaN": "ALLOW",
+    "setIdentity: two NaN Lists are one element": "ALLOW"
   },
   "diagnostics": {
     "set difference (list arg) → hasOnly([c]) DENY": {

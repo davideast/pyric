@@ -1,7 +1,7 @@
 import type { Expression } from '../grammar/FirestoreAST.js';
 import { MapDiff } from './mapdiff.js';
 import { FirestoreSet } from './firestore-set.js';
-import { rulesValuesEqual } from './value-equality.js';
+import { mapKeys } from './map-keys.js';
 import { RulesValue, NO_OP } from './wrappers/base.js';
 import { LatLng } from './wrappers/latlng.js';
 import { Duration } from './wrappers/duration.js';
@@ -9,10 +9,10 @@ import { Timestamp } from './wrappers/timestamp.js';
 import { Bytes } from './wrappers/bytes.js';
 import { Path } from './wrappers/path.js';
 import { RulesFloat } from './wrappers/float.js';
-import { EvalError } from './eval-error.js';
+import { EvalError, functionNotFoundMessage } from './eval-error.js';
 import { ConversionFailure, applyConversion, conversionFor } from './conversions.js';
 import { MathFailure, applyMath } from './math-builtins.js';
-import { ListMethodFailure, listConcat, listRemoveAll } from './list-methods.js';
+import { LIST_METHOD_NAMES, ListMethodFailure, listConcat, listHas, listJoin, listRemoveAll } from './list-methods.js';
 import { UnsupportedError } from './unsupported-error.js';
 import { isDocumentPath, makeGetResource, normalizeDocumentPath, resolveExists, resolveGet } from './document-lookups.js';
 import { chargeLookup } from './lookup-budget.js';
@@ -281,9 +281,10 @@ export function evaluateMethodCall(
   if (typeof obj === 'object' && obj !== null && !Array.isArray(obj)) {
     const map = obj as Record<string, unknown>;
     switch (method) {
-      // Production Map.keys() returns a List, not a Set. List membership
-      // methods work on it, but Set-only algebra requires an explicit toSet().
-      case 'keys': return Object.keys(map);
+      // Production Map.keys() returns a List, not a Set, in code point
+      // order. List membership methods work on it, but Set-only algebra
+      // requires an explicit toSet().
+      case 'keys': return mapKeys(map);
       case 'values': return Object.values(map);
       case 'size': return Object.keys(map).length;
       case 'diff': {
@@ -328,27 +329,24 @@ export function evaluateMethodCall(
   if (Array.isArray(obj)) {
     switch (method) {
       case 'size': return obj.length;
-      // RULES-B9: list membership uses VALUE equality, not JS identity, so it
-      // is consistent with `in` / `removeAll` (which already use
-      // rulesValuesEqual). Without this, `[t1].hasAll([t2])` for equal-valued
-      // Timestamp/Bytes/Path wrappers wrongly returned false because the two
-      // instances aren't `===`.
-      case 'hasAll': return (argValues[0] as unknown[]).every(v => obj.some(o => rulesValuesEqual(o, v)));
-      case 'hasAny': return (argValues[0] as unknown[]).some(v => obj.some(o => rulesValuesEqual(o, v)));
-      case 'hasOnly': {
-        const allowed = argValues[0] as unknown[];
-        return obj.every(v => allowed.some(o => rulesValuesEqual(o, v)));
-      }
-      case 'join': return obj.join(String(argValues[0] ?? ','));
-      // List.concat and List.removeAll are shared with the Storage
-      // evaluator (`list-methods.ts`). removeAll compares with
-      // rulesValuesEqual, so equal Timestamp, Duration and other wrapper
-      // instances compare by value, not by JS identity.
+      // RULES-B9: list membership compares by value, as `in` and
+      // `removeAll` do, so equal Timestamp, Bytes and Path wrappers match
+      // though the two instances aren't `===`. An int never matches the
+      // equal float (`list-methods.ts`).
+      case 'hasAll':
+      case 'hasAny':
+      case 'hasOnly':
+        return listHas(method, obj, argValues[0] as unknown[]);
+      // List.concat, List.join and List.removeAll are shared with the
+      // Storage evaluator (`list-methods.ts`).
       case 'concat':
+      case 'join':
       case 'removeAll': {
         const result = method === 'concat'
           ? listConcat(obj, argValues)
-          : listRemoveAll(obj, argValues, rulesValuesEqual);
+          : method === 'join'
+            ? listJoin(obj, argValues)
+            : listRemoveAll(obj, argValues);
         if (result instanceof ListMethodFailure) throw new EvalError(result.message);
         return result;
       }
@@ -388,6 +386,9 @@ export function evaluateMethodCall(
     }
   }
 
+  // A List method on a string, Map or Set receiver is production's
+  // "Function not found error", an error value that `&&` and `||` absorb.
+  if (LIST_METHOD_NAMES.has(method)) throw new EvalError(functionNotFoundMessage(method));
   throw new EvalError(`Unknown method '${method}' on ${typeof obj}`);
 }
 

@@ -1,21 +1,28 @@
 import { ConversionFailure, applyConversion, conversionFor } from './conversions.js';
 import { describeRulesType } from './rules-type.js';
+import { listElementsEqual } from './value-equality.js';
 
 /**
- * List methods of the rules language that take a List argument, shared by
- * the Firestore simulator and the Storage evaluator: `concat()`,
- * `removeAll()`, and `join()`.
+ * List methods of the rules language, shared by the Firestore simulator and
+ * the Storage evaluator: `concat()`, `removeAll()` and `join()`, which take a
+ * List or string argument, and the element tests of a List receiver's
+ * `hasAll()`, `hasAny()` and `hasOnly()`.
  *
  * Each takes exactly one argument. A missing or extra argument is
  * `Incorrect number of arguments.`, and an argument of the wrong type, a Set
  * included, is an unsupported operation naming the one overload. `join()`
  * converts each element as `string()` does, so an int, float, bool, null or
  * path element is text and a List, Map or Bytes element is `string()`'s
- * error. The Storage corpus scenario `upload-primitives-boundaries` records
- * production's verdicts and messages for every shape.
+ * error. `removeAll()` and the membership tests compare elements under
+ * `listElementsEqual`, so an int never matches the equal float. The corpus
+ * scenarios `upload-primitives-boundaries` (Storage) and
+ * `list-methods-concat-removeall-toset` (Firestore) record production's
+ * verdicts and messages for every shape, which are the same in both services.
  *
- * The receiver is already a List; a caller reports its own error for any
- * other receiver. A failure is returned as a `ListMethodFailure` carrying
+ * The receiver is already a List. A method named in `LIST_METHOD_NAMES` on a
+ * string or Map receiver, and `concat()`, `join()`, `removeAll()` or
+ * `toSet()` on a Set, is `functionNotFoundMessage`'s error, which a caller
+ * reports itself. A failure is returned as a `ListMethodFailure` carrying
  * production's message. Each evaluator turns it into its own error value, so
  * `&&` and `||` can absorb it.
  */
@@ -53,16 +60,36 @@ export function listConcat(receiver: readonly unknown[], args: readonly unknown[
   return [...receiver, ...(other as unknown[])];
 }
 
-/** `list.removeAll(other)`: the receiver without any element equal to one in the argument. */
-export function listRemoveAll(
-  receiver: readonly unknown[],
-  args: readonly unknown[],
-  equals: (left: unknown, right: unknown) => boolean,
-): unknown[] | ListMethodFailure {
+/** `list.removeAll(other)`: the receiver without any element that matches one in the argument. */
+export function listRemoveAll(receiver: readonly unknown[], args: readonly unknown[]): unknown[] | ListMethodFailure {
   const other = singleArgument('removeAll', 'list', args);
   if (other instanceof ListMethodFailure) return other;
-  return receiver.filter((value) => !(other as unknown[]).some((removed) => equals(value, removed)));
+  return receiver.filter((value) => !(other as unknown[]).some((removed) => listElementsEqual(value, removed)));
 }
+
+/** The List methods that test a List receiver's elements against a List argument. */
+export type ListMembershipMethod = 'hasAll' | 'hasAny' | 'hasOnly';
+
+/**
+ * `list.hasAll(other)`, `list.hasAny(other)` and `list.hasOnly(other)` over
+ * the argument's elements. The caller has checked the argument.
+ */
+export function listHas(
+  method: ListMembershipMethod,
+  receiver: readonly unknown[],
+  candidates: readonly unknown[],
+): boolean {
+  const contains = (values: readonly unknown[], value: unknown) =>
+    values.some((item) => listElementsEqual(item, value));
+  if (method === 'hasAll') return candidates.every((candidate) => contains(receiver, candidate));
+  if (method === 'hasAny') return candidates.some((candidate) => contains(receiver, candidate));
+  return receiver.every((member) => contains(candidates, member));
+}
+
+/** The List methods production captures as "Function not found error" on a string or Map receiver. */
+export const LIST_METHOD_NAMES: ReadonlySet<string> = new Set([
+  'concat', 'hasAll', 'hasAny', 'hasOnly', 'join', 'removeAll', 'toSet',
+]);
 
 /** `list.join(separator)`: each element as `string()` converts it, joined by the separator. */
 export function listJoin(receiver: readonly unknown[], args: readonly unknown[]): string | ListMethodFailure {

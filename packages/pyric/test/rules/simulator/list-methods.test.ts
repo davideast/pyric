@@ -1,7 +1,8 @@
 /**
  * List methods in the Firestore simulator and the Storage evaluator.
  *
- * `List.concat()` and `List.removeAll()` live in one module
+ * `List.concat()`, `List.join()`, `List.removeAll()` and a List receiver's
+ * `hasAll()`, `hasAny()` and `hasOnly()` live in one module
  * (src/rules/simulator/list-methods.ts) that both evaluators call. The cases
  * are the `list:` cases of the Storage corpus scenario
  * `upload-primitives-boundaries`, which production evaluated over the Rules
@@ -75,7 +76,7 @@ service firebase.storage {
 
 describe('List methods in Storage, cases production evaluated', () => {
   test('the scenario has its List-method cases', () => {
-    expect(LIST_CASES.length).toBe(52);
+    expect(LIST_CASES.length).toBe(111);
   });
   for (const { description, condition, verdict, message } of LIST_CASES) {
     test(`${description}: ${verdict}`, () => {
@@ -94,7 +95,7 @@ describe('concat() and removeAll() are one implementation in both evaluators', (
       && !condition.includes('request.resource'));
 
   test('the List-literal concat and removeAll cases are present', () => {
-    expect(shared.length).toBe(10);
+    expect(shared.length).toBe(17);
   });
   for (const { description, condition, verdict, message } of shared) {
     test(`${description}: Firestore ${verdict}`, () => {

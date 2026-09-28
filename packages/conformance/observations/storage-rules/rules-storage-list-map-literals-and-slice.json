@@ -5,7 +5,7 @@
     "storage-rules#122"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"list-map-literals-and-slice\" (Coverage: list/map literals, slice [i:j], OOB slice errors). Slices on split() lists and on strings must evaluate, list literals must compare by value, and an out-of-bounds slice end must error → deny (production does not clamp).",
-  "observedAt": "2026-09-28T06:06:37.047Z",
+  "observedAt": "2026-09-28T06:57:46.733Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "behavior": {
@@ -31,7 +31,26 @@
     "list index in range → ALLOW": "ALLOW",
     "list index past the end is an index error → DENY": "DENY",
     "negative list index is an index error → DENY": "DENY",
-    "string key on a list is an error → DENY": "DENY"
+    "string key on a list is an error → DENY": "DENY",
+    "equality: an int equals a float of the same value": "ALLOW",
+    "equality: a List of an int does not equal a List of a float": "DENY",
+    "equality: != between a List of an int and a List of a float is true": "ALLOW",
+    "equality: a List of a float does not equal a List of an int": "DENY",
+    "equality: one float element makes Lists unequal": "DENY",
+    "equality: nested Lists compare element types": "DENY",
+    "equality: a Map of an int does not equal a Map of a float": "DENY",
+    "equality: != between a Map of an int and a Map of a float is true": "ALLOW",
+    "equality: a Map value List compares element types": "DENY",
+    "equality: an element read from a List equals a float of the same value": "ALLOW",
+    "equality: a value read from a Map equals a float of the same value": "ALLOW",
+    "equality: Lists of equal floats are equal": "ALLOW",
+    "equality: Maps of equal floats are equal": "ALLOW",
+    "equality: an int zero equals a negative float zero": "ALLOW",
+    "equality: a List of 0.0 does not equal a List of -0.0": "DENY",
+    "equality: Lists of -0.0 are equal": "ALLOW",
+    "equality: a Map of -0.0 does not equal a Map of 0.0": "DENY",
+    "equality: NaN does not equal NaN": "DENY",
+    "equality: a List of NaN does not equal a List of NaN": "DENY"
   },
   "diagnostics": {
     "list mid-slice of split() → size 2 → ALLOW": {
@@ -363,6 +382,291 @@
           "currentOffset": 2090,
           "endOffset": 2095
         }
+      }
+    },
+    "equality: an int equals a float of the same value": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 35,
+              "column": 49,
+              "currentOffset": 2234,
+              "endOffset": 2234
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "equality: a List of an int does not equal a List of a float": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 36,
+              "column": 49,
+              "currentOffset": 2294,
+              "endOffset": 2294
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "equality: != between a List of an int and a List of a float is true": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 37,
+              "column": 49,
+              "currentOffset": 2358,
+              "endOffset": 2358
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "equality: a List of a float does not equal a List of an int": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 38,
+              "column": 49,
+              "currentOffset": 2422,
+              "endOffset": 2422
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "equality: one float element makes Lists unequal": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 39,
+              "column": 49,
+              "currentOffset": 2486,
+              "endOffset": 2486
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "equality: nested Lists compare element types": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 40,
+              "column": 49,
+              "currentOffset": 2556,
+              "endOffset": 2556
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "equality: a Map of an int does not equal a Map of a float": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 41,
+              "column": 49,
+              "currentOffset": 2624,
+              "endOffset": 2624
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "equality: != between a Map of an int and a Map of a float is true": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 42,
+              "column": 49,
+              "currentOffset": 2698,
+              "endOffset": 2698
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "equality: a Map value List compares element types": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 43,
+              "column": 49,
+              "currentOffset": 2772,
+              "endOffset": 2772
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "equality: an element read from a List equals a float of the same value": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 44,
+              "column": 49,
+              "currentOffset": 2850,
+              "endOffset": 2850
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "equality: a value read from a Map equals a float of the same value": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 45,
+              "column": 50,
+              "currentOffset": 2916,
+              "endOffset": 2916
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "equality: Lists of equal floats are equal": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 46,
+              "column": 50,
+              "currentOffset": 2986,
+              "endOffset": 2986
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "equality: Maps of equal floats are equal": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 47,
+              "column": 50,
+              "currentOffset": 3053,
+              "endOffset": 3053
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "equality: an int zero equals a negative float zero": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 48,
+              "column": 50,
+              "currentOffset": 3130,
+              "endOffset": 3130
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "equality: a List of 0.0 does not equal a List of -0.0": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 49,
+              "column": 50,
+              "currentOffset": 3192,
+              "endOffset": 3192
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "equality: Lists of -0.0 are equal": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 50,
+              "column": 50,
+              "currentOffset": 3260,
+              "endOffset": 3260
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "equality: a Map of -0.0 does not equal a Map of 0.0": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 51,
+              "column": 50,
+              "currentOffset": 3329,
+              "endOffset": 3329
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "equality: NaN does not equal NaN": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 52,
+              "column": 50,
+              "currentOffset": 3407,
+              "endOffset": 3411
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "equality: a List of NaN does not equal a List of NaN": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 53,
+              "column": 50,
+              "currentOffset": 3488,
+              "endOffset": 3488
+            },
+            "value": false
+          }
+        ]
       }
     }
   }

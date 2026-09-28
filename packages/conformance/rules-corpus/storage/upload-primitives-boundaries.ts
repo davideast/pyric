@@ -16,6 +16,13 @@
  * the error. A List receiver takes only a List argument, where a Set
  * argument is an error; a Set receiver's `hasAny()` and `hasOnly()`
  * take either. `join()` converts each element as `string()` does.
+ *
+ * List membership (`in`, `hasAny()`, `hasAll()`, `hasOnly()`) and
+ * `removeAll()` compare an element's numeric type: an int is not a member of
+ * a List of the equal float, `-0.0` is a member of `[0.0]`, and NaN is a
+ * member of nothing. A List method on a string, Map or Set receiver is
+ * "Function not found error". `keys()` lists a Map's keys in ascending
+ * Unicode code point order, for Map literals and for custom metadata alike.
  */
 import type { StorageScenarioRecord } from './types.ts';
 
@@ -75,7 +82,87 @@ const LIST_METHOD_CASES: readonly ListMethodCase[] = [
   ['removeAll: a Set argument is an error', "!(['a', 'b'].removeAll(['a'].toSet()) == ['z'])", 'DENY'],
   ['removeAll: a Set receiver is an error', "!(['a'].toSet().removeAll(['a']) == ['z'].toSet())", 'DENY'],
   ['removeAll: a Map receiver is an error', "!(request.resource.metadata.removeAll(['a']) == ['z'])", 'DENY'],
+  ['in: a float is not in a List of the equal int', '1.0 in [1]', 'DENY'],
+  ['in: !(float in a List of the equal int) is true', '!(1.0 in [1])', 'ALLOW'],
+  ['in: an int is not in a List of the equal float', '1 in [1.0]', 'DENY'],
+  ['in: -0.0 is in a List of 0.0', '-0.0 in [0.0]', 'ALLOW'],
+  ['in: an int zero is not in a List of -0.0', '0 in [-0.0]', 'DENY'],
+  ['in: NaN is not in a List of NaN', "float('NaN') in [float('NaN')]", 'DENY'],
+  ['in: a List of an int is not in a List of a List of the equal float', '[1] in [[1.0]]', 'DENY'],
+  ['in: a Map of an int is not in a List of a Map of the equal float', "{'a': 1} in [{'a': 1.0}]", 'DENY'],
+  ['in: a List of 0.0 is not in a List of a List of -0.0', '[0.0] in [[-0.0]]', 'DENY'],
+  ['in: a float is in a List of the same float', '2.5 in [2.5]', 'ALLOW'],
+  ['hasAny: an int List has no float of the same value', '[1].hasAny([1.0])', 'DENY'],
+  ['hasAny: != true for a float of the same value', '[1].hasAny([1.0]) != true', 'ALLOW'],
+  ['hasAny: a float List has no int of the same value', '[1.0].hasAny([1])', 'DENY'],
+  ['hasAll: an int List does not have all of a float List', '[1].hasAll([1.0])', 'DENY'],
+  ['hasOnly: an int List does not have only a float List', '[1].hasOnly([1.0])', 'DENY'],
+  ['hasAll: a mixed List has all of a float List', '[1, 2.5].hasAll([2.5])', 'ALLOW'],
+  ['hasAny: a List of 0.0 has -0.0', '[0.0].hasAny([-0.0])', 'ALLOW'],
+  ['hasAny: a List of an int List has no List of the equal float', '[[1]].hasAny([[1.0]])', 'DENY'],
+  ['hasAny: a List of a 0.0 List has no List of -0.0', '[[0.0]].hasAny([[-0.0]])', 'DENY'],
+  ['removeAll: a float argument leaves the equal int', '[1, 2].removeAll([1.0]) == [1, 2]', 'ALLOW'],
+  ['removeAll: a float argument does not remove the equal int', '[1, 2].removeAll([1.0]) == [2]', 'DENY'],
+  ['removeAll: an int argument leaves the equal float', '[1.0, 2].removeAll([1]) == [1.0, 2]', 'ALLOW'],
+  ['removeAll: an int argument removes the equal int', '[1, 2].removeAll([1]) == [2]', 'ALLOW'],
+  ['removeAll: a 0.0 argument removes -0.0', '[-0.0].removeAll([0.0]) == []', 'ALLOW'],
+  ['removeAll: a float List argument leaves the equal int List', '[[1]].removeAll([[1.0]]) == [[1]]', 'ALLOW'],
+  ['removeAll: a float argument removes the same float', '[2.5].removeAll([2.5]) == []', 'ALLOW'],
+  ['join: != the joined string is false', "['a', 'b'].join(',') != 'a,b'", 'DENY'],
+  ['join: || true absorbs the no-separator error', "(['a', 'b'].join() == 'z') || true", 'ALLOW'],
+  ['join: two separators is an error', "!(['a'].join(',', ',') == 'z')", 'DENY'],
+  ['join: a null element is not the empty string', "['a', null].join(',') == 'a,'", 'DENY'],
+  ['join: a float element is not printed as an int', "[2.0].join(',') == '2'", 'DENY'],
+  ['join: floats convert as string() does', "[-0.5, 100000000.0, 1.5].join(',') == '-0.5,1.0E8,1.5'", 'ALLOW'],
+  ['join: a path element converts as string() does', "[path('/a/b')].join(',') == '/a/b'", 'ALLOW'],
+  ['join: || true absorbs a List element error', "([['a']].join(',') == 'z') || true", 'ALLOW'],
+  ['join: a Map element is an error', "!([{'k': 'v'}].join(',') == 'z')", 'DENY'],
+  ['join: a bytes element is an error', "!([b'ab'].join(',') == 'z')", 'DENY'],
+  ['join: a duration element is an error', "!([duration.value(1, 's')].join(',') == 'z')", 'DENY'],
+  ['join: an empty separator', "['a', 'b'].join('') == 'ab'", 'ALLOW'],
+  ['receiver: || true absorbs concat on a string', "('a'.concat('b') == 'z') || true", 'ALLOW'],
+  ['receiver: removeAll on a string is an error', "!('a'.removeAll(['a']) == 'z')", 'DENY'],
+  ['receiver: join on a string is an error', "!('a'.join(',') == 'z')", 'DENY'],
+  ['receiver: toSet on a string is an error', "!('a'.toSet() == ['a'].toSet())", 'DENY'],
+  ['receiver: hasAny on a string is an error', "!('a'.hasAny(['a']))", 'DENY'],
+  ['receiver: hasAll on a string is an error', "!('a'.hasAll(['a']))", 'DENY'],
+  ['receiver: hasOnly on a string is an error', "!('a'.hasOnly(['a']))", 'DENY'],
+  ['receiver: concat on a Map is an error', "!({'a': 1}.concat([1]) == [1])", 'DENY'],
+  ['receiver: join on a Map is an error', "!({'a': 1}.join(',') == 'z')", 'DENY'],
+  ['receiver: hasAll on a Map is an error', "!({'a': 1}.hasAll(['a']))", 'DENY'],
+  ["keys: keys() of a literal is sorted", "{'b': 1, 'a': 2}.keys() == ['a', 'b']", 'ALLOW'],
+  ["keys: keys() of a literal is not in written order", "{'b': 1, 'a': 2}.keys() == ['b', 'a']", 'DENY'],
+  ["keys: keys() != the sorted List is false", "{'b': 1, 'a': 2}.keys() != ['a', 'b']", 'DENY'],
+  ["keys: keys()[0] is the least key", "{'b': 1, 'a': 2}.keys()[0] == 'a'", 'ALLOW'],
+  ["keys: keys().join() joins the sorted keys", "{'b': 1, 'a': 2}.keys().join(',') == 'a,b'", 'ALLOW'],
+  [
+    "keys: keys() orders digits, upper case, underscore and lower case by code point",
+    "{'b': 1, 'B': 2, 'a': 3, 'A': 4, '10': 5, '2': 6, '1': 7, '_': 8, 'z': 9}.keys() == ['1', '10', '2', 'A', 'B', '_', 'a', 'b', 'z']",
+    'ALLOW',
+  ],
+  [
+    "keys: keys() does not order numeric keys by value",
+    "{'b': 1, 'B': 2, 'a': 3, 'A': 4, '10': 5, '2': 6, '1': 7, '_': 8, 'z': 9}.keys() == ['1', '2', '10', 'A', 'B', '_', 'a', 'b', 'z']",
+    'DENY',
+  ],
+  ["keys: keys() puts '10' before '9'", "{'b': 1, '10': 2, '9': 3}.keys() == ['10', '9', 'b']", 'ALLOW'],
+  ["keys: keys() orders non-ASCII keys by code point", "{'é': 1, 'z': 2, 'ｚ': 3, '😀': 4, 'e': 5}.keys() == ['e', 'z', 'é', 'ｚ', '😀']", 'ALLOW'],
+  ["keys: keys() does not order by UTF-16 code unit", "{'é': 1, 'z': 2, 'ｚ': 3, '😀': 4, 'e': 5}.keys() == ['e', 'z', 'é', '😀', 'ｚ']", 'DENY'],
+  ["keys: keys() puts a prefix before its extensions", "{'ab': 1, 'a': 2, 'a b': 3, '': 4}.keys() == ['', 'a', 'a b', 'ab']", 'ALLOW'],
 ];
+
+/** One metadata keys() order case, with metadata written as `{b, a, B, 1}`. */
+const METADATA_KEY_ORDER_CASES: readonly ListMethodCase[] = [
+  ['metadata keys() is sorted', "request.resource.metadata.keys() == ['1', 'B', 'a', 'b']", 'ALLOW'],
+  ['metadata keys() is not in written order', "request.resource.metadata.keys() == ['b', 'a', 'B', '1']", 'DENY'],
+  ['metadata keys()[0] is the least key', "request.resource.metadata.keys()[0] == '1'", 'ALLOW'],
+  ['metadata keys().join() joins the sorted keys', "request.resource.metadata.keys().join(',') == '1,B,a,b'", 'ALLOW'],
+];
+
+const metadataKeyOrderMatches = METADATA_KEY_ORDER_CASES.map(([, condition], index) =>
+  `    match /metadata-key-order-${index}/{fileName} {
+      allow create: if ${condition};
+    }`).join('\n');
 
 const listMethodMatches = LIST_METHOD_CASES.map(([, condition], index) =>
   `    match /list-${index}/{fileName} {
@@ -175,6 +262,8 @@ service firebase.storage {
     }
     // List methods on keys() and on List literals
 ${listMethodMatches}
+    // keys() order over custom metadata
+${metadataKeyOrderMatches}
   }
 }`,
   cases: [
@@ -228,6 +317,13 @@ ${listMethodMatches}
       method: 'create' as const,
       path: `list-${index}/a.bin`,
       resource: { size: 1, metadata: { a: 'x', b: 'y' } },
+    })),
+    ...METADATA_KEY_ORDER_CASES.map(([description, , expectation], index) => ({
+      description: `keys order: ${description}`,
+      expectation,
+      method: 'create' as const,
+      path: `metadata-key-order-${index}/a.bin`,
+      resource: { size: 1, metadata: { b: 'y', a: 'x', B: 'z', 1: 'w' } },
     })),
   ],
 };

@@ -9,8 +9,45 @@
  * The bounds cases repeat the Firestore bounds shapes: `start` must be an
  * index, `end - 1` must be an index (so `[0:0]`, `[n:n]` and any slice of an
  * empty value are errors), and `start` must not exceed `end`.
+ *
+ * The `equality-*` matches pin `==` over ints and floats inside List and Map
+ * literals.
  */
 import type { StorageScenarioRecord } from './types.ts';
+
+/** One `==` case over numbers inside Lists and Maps: description, condition, production verdict. */
+type EqualityIdentityCase = readonly [description: string, condition: string, expectation: 'ALLOW' | 'DENY'];
+
+/**
+ * `==` compares an int and a float by value, but a List or Map literal equals
+ * another only when each element or value has the same numeric type: `1 ==
+ * 1.0` holds while `[1] == [1.0]` and `{'a': 1} == {'a': 1.0}` are false.
+ * Inside a List or Map, `0.0` and `-0.0` differ and NaN equals nothing.
+ */
+const EQUALITY_IDENTITY_CASES: readonly EqualityIdentityCase[] = [
+  ['an int equals a float of the same value', '1 == 1.0', 'ALLOW'],
+  ['a List of an int does not equal a List of a float', '[1] == [1.0]', 'DENY'],
+  ['!= between a List of an int and a List of a float is true', '[1] != [1.0]', 'ALLOW'],
+  ['a List of a float does not equal a List of an int', '[1.0] == [1]', 'DENY'],
+  ['one float element makes Lists unequal', '[1, 2] == [1, 2.0]', 'DENY'],
+  ['nested Lists compare element types', '[[1]] == [[1.0]]', 'DENY'],
+  ['a Map of an int does not equal a Map of a float', "{'a': 1} == {'a': 1.0}", 'DENY'],
+  ['!= between a Map of an int and a Map of a float is true', "{'a': 1} != {'a': 1.0}", 'ALLOW'],
+  ['a Map value List compares element types', "{'a': [1]} == {'a': [1.0]}", 'DENY'],
+  ['an element read from a List equals a float of the same value', '[1][0] == 1.0', 'ALLOW'],
+  ['a value read from a Map equals a float of the same value', "{'a': 1}.a == 1.0", 'ALLOW'],
+  ['Lists of equal floats are equal', '[1.0] == [1.0]', 'ALLOW'],
+  ['Maps of equal floats are equal', "{'a': 1.0} == {'a': 1.0}", 'ALLOW'],
+  ['an int zero equals a negative float zero', '0 == -0.0', 'ALLOW'],
+  ['a List of 0.0 does not equal a List of -0.0', '[0.0] == [-0.0]', 'DENY'],
+  ['Lists of -0.0 are equal', '[-0.0] == [-0.0]', 'ALLOW'],
+  ['a Map of -0.0 does not equal a Map of 0.0', "{'a': -0.0} == {'a': 0.0}", 'DENY'],
+  ['NaN does not equal NaN', "float('NaN') == float('NaN')", 'DENY'],
+  ['a List of NaN does not equal a List of NaN', "[float('NaN')] == [float('NaN')]", 'DENY'],
+];
+
+const equalityIdentityMatches = EQUALITY_IDENTITY_CASES.map(([, condition], index) =>
+  `    match /equality-${index}/{fileId} { allow read: if ${condition}; }`).join('\n');
 
 export const scenario: StorageScenarioRecord = {
   fm: 'Coverage: list/map literals, slice [i:j], OOB slice errors',
@@ -49,6 +86,8 @@ service firebase.storage {
     match /listIndexPastEnd/{fileId} { allow read: if fileId.split('-')[5] == null; }
     match /listIndexNegative/{fileId} { allow read: if fileId.split('-')[-1] == 'd'; }
     match /listIndexStringKey/{fileId} { allow read: if fileId.split('-')['length'] == 4; }
+    // == over ints and floats inside List and Map literals
+${equalityIdentityMatches}
   }
 }`,
   cases: [
@@ -122,6 +161,14 @@ service firebase.storage {
     ] as const).map(([description, expectation, path]) => ({
       description, expectation, method: 'get' as const, path,
       auth: { uid: 'alice' }, existingResource: { size: 100 },
+    })),
+    ...EQUALITY_IDENTITY_CASES.map(([description, , expectation], index) => ({
+      description: `equality: ${description}`,
+      expectation,
+      method: 'get' as const,
+      path: `equality-${index}/a.png`,
+      auth: { uid: 'alice' },
+      existingResource: { size: 100 },
     })),
   ],
 };

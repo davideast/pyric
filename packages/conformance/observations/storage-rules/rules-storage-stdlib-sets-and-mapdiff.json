@@ -6,7 +6,7 @@
     "storage-rules#storage.stdlib.map-diff"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"stdlib-sets-and-mapdiff\" (STORAGE-STDLIB-SET). List.toSet(), Set membership and algebra, Set equality, in over a Set, and Map.diff() over custom metadata with every MapDiff accessor, with a List argument to Set algebra and a List receiver as negative controls.",
-  "observedAt": "2026-09-24T11:54:15.892Z",
+  "observedAt": "2026-09-28T06:47:36.087Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "behavior": {
@@ -22,7 +22,40 @@
     "metadata diff adds and removes keys named like prototype members": "ALLOW",
     "metadata diff guard allows a label-only change": "ALLOW",
     "metadata diff guard denies an owner change": "DENY",
-    "in over metadata diff changedKeys": "ALLOW"
+    "in over metadata diff changedKeys": "ALLOW",
+    "value identity: a Set of an int equals a Set of the equal float": "ALLOW",
+    "value identity: != between a Set of an int and a Set of the equal float is false": "DENY",
+    "value identity: an int and the equal float are one element": "ALLOW",
+    "value identity: an int and the equal float are not two elements": "DENY",
+    "value identity: an int is in a Set of the equal float": "ALLOW",
+    "value identity: a float is in a Set of the equal int": "ALLOW",
+    "value identity: hasAny() with a List of the equal float": "ALLOW",
+    "value identity: hasAny() != true is false for the equal float": "DENY",
+    "value identity: hasAll() with a List of the equal float": "ALLOW",
+    "value identity: hasOnly() with a List of the equal float": "ALLOW",
+    "value identity: hasAny() with a Set of the equal float": "ALLOW",
+    "value identity: difference() removes the equal float": "ALLOW",
+    "value identity: intersection() keeps the equal float": "ALLOW",
+    "value identity: union() merges the equal float": "ALLOW",
+    "value identity: a Set of an int List equals a Set of the equal float List": "ALLOW",
+    "value identity: an int List and the equal float List are one element": "ALLOW",
+    "value identity: a Map element matches the Map of the equal float": "ALLOW",
+    "value identity: an int List is in a Set of the equal float List": "ALLOW",
+    "value identity: nested Map and List elements compare by value": "ALLOW",
+    "value identity: a Set of 0.0 equals a Set of -0.0": "ALLOW",
+    "value identity: 0.0 and -0.0 are one element": "ALLOW",
+    "value identity: a Set of a 0.0 List equals a Set of a -0.0 List": "ALLOW",
+    "value identity: two NaN are one element": "ALLOW",
+    "value identity: a Set of NaN equals a Set of NaN": "ALLOW",
+    "value identity: NaN is in a Set of NaN": "ALLOW",
+    "value identity: hasAny() finds NaN": "ALLOW",
+    "value identity: two NaN Lists are one element": "ALLOW",
+    "value identity: diff() of an int and the equal float is unchanged": "ALLOW",
+    "value identity: diff() of an int and the equal float lists the key as unchanged": "ALLOW",
+    "value identity: diff() of an int List and the equal float List is unchanged": "ALLOW",
+    "value identity: diff() of 0.0 and -0.0 is unchanged": "ALLOW",
+    "value identity: diff() of NaN and NaN is unchanged": "ALLOW",
+    "value identity: diff() of an int and a different float is changed": "ALLOW"
   },
   "diagnostics": {
     "toSet removes duplicates and set equality ignores order": {
@@ -222,6 +255,501 @@
               "column": 24,
               "currentOffset": 2131,
               "endOffset": 2137
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "value identity: a Set of an int equals a Set of the equal float": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 56,
+              "column": 21,
+              "currentOffset": 2233,
+              "endOffset": 2233
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "value identity: != between a Set of an int and a Set of the equal float is false": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 59,
+              "column": 21,
+              "currentOffset": 2324,
+              "endOffset": 2324
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "value identity: an int and the equal float are one element": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 62,
+              "column": 21,
+              "currentOffset": 2415,
+              "endOffset": 2415
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "value identity: an int and the equal float are not two elements": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 65,
+              "column": 21,
+              "currentOffset": 2506,
+              "endOffset": 2506
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "value identity: an int is in a Set of the equal float": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 68,
+              "column": 21,
+              "currentOffset": 2597,
+              "endOffset": 2597
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "value identity: a float is in a Set of the equal int": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 71,
+              "column": 21,
+              "currentOffset": 2678,
+              "endOffset": 2680
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "value identity: hasAny() with a List of the equal float": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 74,
+              "column": 21,
+              "currentOffset": 2759,
+              "endOffset": 2759
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "value identity: hasAny() != true is false for the equal float": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 77,
+              "column": 21,
+              "currentOffset": 2847,
+              "endOffset": 2847
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "value identity: hasAll() with a List of the equal float": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 80,
+              "column": 21,
+              "currentOffset": 2943,
+              "endOffset": 2943
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "value identity: hasOnly() with a List of the equal float": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 83,
+              "column": 21,
+              "currentOffset": 3031,
+              "endOffset": 3031
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "value identity: hasAny() with a Set of the equal float": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 86,
+              "column": 21,
+              "currentOffset": 3121,
+              "endOffset": 3121
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "value identity: difference() removes the equal float": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 89,
+              "column": 21,
+              "currentOffset": 3218,
+              "endOffset": 3218
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "value identity: intersection() keeps the equal float": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 92,
+              "column": 21,
+              "currentOffset": 3331,
+              "endOffset": 3331
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "value identity: union() merges the equal float": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 95,
+              "column": 21,
+              "currentOffset": 3446,
+              "endOffset": 3446
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "value identity: a Set of an int List equals a Set of the equal float List": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 98,
+              "column": 21,
+              "currentOffset": 3554,
+              "endOffset": 3554
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "value identity: an int List and the equal float List are one element": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 101,
+              "column": 21,
+              "currentOffset": 3650,
+              "endOffset": 3650
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "value identity: a Map element matches the Map of the equal float": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 104,
+              "column": 21,
+              "currentOffset": 3746,
+              "endOffset": 3746
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "value identity: an int List is in a Set of the equal float List": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 107,
+              "column": 21,
+              "currentOffset": 3849,
+              "endOffset": 3849
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "value identity: nested Map and List elements compare by value": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 110,
+              "column": 21,
+              "currentOffset": 3935,
+              "endOffset": 3935
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "value identity: a Set of 0.0 equals a Set of -0.0": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 113,
+              "column": 21,
+              "currentOffset": 4045,
+              "endOffset": 4045
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "value identity: 0.0 and -0.0 are one element": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 116,
+              "column": 21,
+              "currentOffset": 4140,
+              "endOffset": 4140
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "value identity: a Set of a 0.0 List equals a Set of a -0.0 List": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 119,
+              "column": 21,
+              "currentOffset": 4235,
+              "endOffset": 4235
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "value identity: two NaN are one element": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 122,
+              "column": 21,
+              "currentOffset": 4334,
+              "endOffset": 4334
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "value identity: a Set of NaN equals a Set of NaN": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 125,
+              "column": 21,
+              "currentOffset": 4446,
+              "endOffset": 4446
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "value identity: NaN is in a Set of NaN": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 128,
+              "column": 21,
+              "currentOffset": 4558,
+              "endOffset": 4562
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "value identity: hasAny() finds NaN": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 131,
+              "column": 21,
+              "currentOffset": 4660,
+              "endOffset": 4660
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "value identity: two NaN Lists are one element": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 134,
+              "column": 21,
+              "currentOffset": 4769,
+              "endOffset": 4769
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "value identity: diff() of an int and the equal float is unchanged": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 137,
+              "column": 21,
+              "currentOffset": 4885,
+              "endOffset": 4885
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "value identity: diff() of an int and the equal float lists the key as unchanged": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 140,
+              "column": 21,
+              "currentOffset": 5001,
+              "endOffset": 5001
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "value identity: diff() of an int List and the equal float List is unchanged": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 143,
+              "column": 21,
+              "currentOffset": 5118,
+              "endOffset": 5118
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "value identity: diff() of 0.0 and -0.0 is unchanged": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 146,
+              "column": 21,
+              "currentOffset": 5237,
+              "endOffset": 5237
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "value identity: diff() of NaN and NaN is unchanged": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 149,
+              "column": 21,
+              "currentOffset": 5355,
+              "endOffset": 5355
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "value identity: diff() of an int and a different float is changed": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 152,
+              "column": 21,
+              "currentOffset": 5490,
+              "endOffset": 5490
             },
             "value": true
           }
