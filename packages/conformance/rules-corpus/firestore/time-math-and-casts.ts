@@ -16,7 +16,15 @@
  * prints a float as Java's `Double.toString` does: `4.9E-324` for the
  * smallest subnormal, not the shortest form `5.0E-324`. Every conversion
  * failure is an error value: it denies through `!=`, and `|| true` absorbs it.
+ *
+ * The math cases (packages/conformance/src/rules-math-cases.ts, shared with
+ * the Storage scenario `math-namespace`) pin the namespace's result types:
+ * `math.abs()` keeps its argument's type, `math.ceil()` and `math.floor()`
+ * return a float, `math.round()` rounds half up to an int, and
+ * `math.sqrt()` and `math.pow()` return a float. A wrong argument type or
+ * count, and `math.isInfinite()`, are error values.
  */
+import { MATH_CASES } from '../../src/rules-math-cases.ts';
 import type { ScenarioRecord, TestCase } from './types.ts';
 
 interface ConversionCase {
@@ -73,7 +81,7 @@ function conversionCase({ key, condition, expectation }: ConversionCase): TestCa
   };
 }
 
-const conversionBlocks = conversions
+const conversionBlocks = [...conversions, ...MATH_CASES]
   .map(({ key, condition }) => `    match /${key}/{id} {
       allow create: if ${condition};
     }`)
@@ -82,7 +90,7 @@ const conversionBlocks = conversions
 export const scenario: ScenarioRecord = {
   fm: 'Coverage: Timestamp methods + math builtins + casts',
   rationale:
-    'Production must accept request.time.<accessor>() Timestamp methods, math.floor/round/sqrt/pow/isNaN, int/float/string casts, request.method, and >= / * operators; int() parses a whole int64 decimal string and truncates or saturates a float, float() parses Java double syntax, string() prints a float as Java Double.toString does, and every conversion failure is an error value that || true absorbs.',
+    'Production must accept request.time.<accessor>() Timestamp methods, math.floor/round/sqrt/pow/isNaN, int/float/string casts, request.method, and >= / * operators; int() parses a whole int64 decimal string and truncates or saturates a float, float() parses Java double syntax, string() prints a float as Java Double.toString does, math.ceil/floor/sqrt/pow return a float, math.round returns an int, and every conversion or math failure is an error value that || true absorbs.',
   rules: `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -143,6 +151,7 @@ ${conversionBlocks}
       data: { score: 4, area: -1, base: 3, countStr: '5', qty: 2 },
     },
     ...conversions.map(conversionCase),
+    ...MATH_CASES.map(conversionCase),
   ],
   group: 'stress',
 };

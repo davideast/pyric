@@ -5,12 +5,12 @@
     "firestore-rules#163"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"error-absorption-and-or\" (RULES-B3). CEL tri-state: `error || true` → ALLOW, `error && false` → DENY-as-false; errors absorb commutatively, not JS left-to-right.",
-  "observedAt": "2026-07-21T23:43:02.197Z",
+  "observedAt": "2026-09-28T00:20:58.992Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "623df9995664f570ab1a9efe8207568c52a726f27b5cc6e05907423b236bcab6"
+    "value": "9ac0f5e62a4c19690b769bc7e8ebb58f371aa09ec3b000b7cf95fe440d7345d7"
   },
   "behavior": {
     "error || true → ALLOW (commutative absorption)": "ALLOW",
@@ -19,7 +19,17 @@
     "error && false → DENY (absorbed to false)": "DENY",
     "false && error → DENY (short-circuit control)": "DENY",
     "error && true → DENY (error propagates)": "DENY",
-    "(error && false) || true → ALLOW (nested absorption)": "ALLOW"
+    "(error && false) || true → ALLOW (nested absorption)": "ALLOW",
+    "an error, then a true rule in the same block → ALLOW": "ALLOW",
+    "an error, then a false rule in the same block → DENY": "DENY",
+    "a true rule, then an error in the same block → ALLOW": "ALLOW",
+    "a false rule, then an error in the same block → DENY": "DENY",
+    "an error, then a true rule in a second matching block → ALLOW": "ALLOW",
+    "an error, then a false rule in a second matching block → DENY": "DENY",
+    "a true rule, then an error in a second matching block → ALLOW": "ALLOW",
+    "a false rule, then an error in a second matching block → DENY": "DENY",
+    "an error, then a true rule past the expression limit → DENY, reported as the error": "DENY",
+    "a false rule, then a true rule past the expression limit → DENY at the limit": "DENY"
   },
   "diagnostics": {
     "error || false → DENY (error propagates)": {
@@ -47,6 +57,90 @@
           "column": 24,
           "currentOffset": 1030,
           "endOffset": 1036
+        }
+      }
+    },
+    "an error, then a false rule in the same block → DENY": {
+      "notes": [
+        "Error: firestore.rules line [68], column [28]. Unsupported operation error. Received: list + list. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 68,
+          "column": 28,
+          "currentOffset": 5278,
+          "endOffset": 5278
+        }
+      }
+    },
+    "a false rule, then an error in the same block → DENY": {
+      "notes": [
+        "Error: firestore.rules line [77], column [28]. Unsupported operation error. Received: list + list. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 77,
+          "column": 28,
+          "currentOffset": 5537,
+          "endOffset": 5537
+        }
+      }
+    },
+    "an error, then a false rule in a second matching block → DENY": {
+      "notes": [
+        "Error: firestore.rules line [87], column [28]. Unsupported operation error. Received: list + list. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 87,
+          "column": 28,
+          "currentOffset": 5868,
+          "endOffset": 5868
+        }
+      }
+    },
+    "a false rule, then an error in a second matching block → DENY": {
+      "notes": [
+        "Error: firestore.rules line [102], column [28]. Unsupported operation error. Received: list + list. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 102,
+          "column": 28,
+          "currentOffset": 6280,
+          "endOffset": 6280
+        }
+      }
+    },
+    "an error, then a true rule past the expression limit → DENY, reported as the error": {
+      "notes": [
+        "Error: firestore.rules line [106], column [28]. Unsupported operation error. Received: list + list. Expected: int + int, float + float, string + string, duration + duration, duration + timestamp, timestamp + duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 106,
+          "column": 28,
+          "currentOffset": 6443,
+          "endOffset": 6443
+        }
+      }
+    },
+    "a false rule, then a true rule past the expression limit → DENY at the limit": {
+      "notes": [
+        "Error: firestore.rules line [57], column [118]. Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 57,
+          "column": 118,
+          "currentOffset": 4446,
+          "endOffset": 4449
         }
       }
     }

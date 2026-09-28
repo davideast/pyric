@@ -56,6 +56,11 @@ export function evaluateStorageRules(
   // match block, in the unit the Firestore simulator counts.
   const expressionBudget = new ExpressionBudget((message) => new RuleExpressionLimitError(message));
   let expressionLimit: string | undefined;
+  // Whether the request stopped at the limit, and the first error an allow
+  // rule raised before it. Production goes on to later allow rules after an
+  // error, and reports that error rather than a limit reached after it.
+  let stopped = false;
+  let firstError: string | undefined;
 
   // The operation's verb, reduced to its granular set. A coarse
   // request method expands to its sub-verbs so umbrella semantics are
@@ -73,7 +78,7 @@ export function evaluateStorageRules(
     remaining: string[],
     params: Record<string, string | string[]>,
   ): boolean {
-    if (expressionLimit !== undefined) return false;
+    if (stopped) return false;
     // Match this block's segments against the start of `remaining`.
     const match = matchSegments(block.segments, remaining, params);
     if (!match) return false;
@@ -125,6 +130,7 @@ export function evaluateStorageRules(
             } else {
               failure = new RuleError(`Allow condition expected bool, got ${describeType(value)}.`);
             }
+            firstError ??= failure.message;
             reasons.push(
               `match ${formatPath(block.segments)} ${input.request.method}: ${failure.message}`,
             );
@@ -134,14 +140,23 @@ export function evaluateStorageRules(
           // The expression limit ends the request: production evaluates no
           // later allow rule or match block once it is reached.
           if (err instanceof RuleExpressionLimitError) {
-            expressionLimit = err.message;
-            reasons.push(`match ${formatPath(block.segments)} ${input.request.method}: ${err.message}`);
+            stopped = true;
+            if (firstError === undefined) {
+              expressionLimit = err.message;
+              reasons.push(`match ${formatPath(block.segments)} ${input.request.method}: ${err.message}`);
+            } else {
+              reasons.push(
+                `match ${formatPath(block.segments)} ${input.request.method}: ${err.message} `
+                + `Reached after an earlier allow rule raised an error; production reports that earlier error: ${firstError}`,
+              );
+            }
             return false;
           }
           // Any thrown evaluation failure (depth exceeded, an unresolved
           // import, an error inside a body) denies this rule with a reason
           // that names the function, never a false allow.
           if (err instanceof RuleEvalError) {
+            firstError ??= err.message;
             reasons.push(
               `match ${formatPath(block.segments)} ${input.request.method}: ${err.message}`,
             );

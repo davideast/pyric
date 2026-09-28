@@ -1,14 +1,14 @@
 {
   "schema": "pyric.conformance.storage-rules-acceptance-evidence.v1",
   "generatedNote": "Committed production acceptance evidence for Storage Security Rules captured over Google Cloud Rules Test API.",
-  "capturedAt": "2026-09-24T12:12:07.293Z",
+  "capturedAt": "2026-09-28T00:37:41.683Z",
   "projectId": "digame-mas",
   "engine": "storage",
-  "total": 71,
-  "accepted": 71,
-  "rejected": 0,
+  "total": 79,
+  "accepted": 78,
+  "rejected": 1,
   "unprobeable": 0,
-  "evaluationAgree": 71,
+  "evaluationAgree": 78,
   "evaluationDisagree": 0,
   "constructs": [
     {
@@ -382,6 +382,107 @@
       "probeDigest": {
         "algorithm": "sha256",
         "value": "ffdd53eb25900d747c60b19fa463ce89952443ac7cc7a35971fd87929ff4e3b3"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.function.math.abs",
+      "kind": "function",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "a01657b84b2055b5be2d3fd60be8e5613d1c6429a71365e158828f8a83b8eb15"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.function.math.ceil",
+      "kind": "function",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "34f09df5a2d21135b8971dc26cfc40c1a038839c3b97d630bd79793cd6e37c13"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.function.math.floor",
+      "kind": "function",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "31b3ffa0aed5ce674d48bb6185b43e0dd958ae56e5ebc932df6b9f0492191d53"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.function.math.round",
+      "kind": "function",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "2f7008e96d84778c592d202fea61cb4f7ceec42f6f83b32567e16062e5df775e"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.function.math.sqrt",
+      "kind": "function",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "ef363b83e3be59750baf35552052cf41cce3e6fe5ca8696e160229b547c10cd8"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.function.math.pow",
+      "kind": "function",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "2def01c028034cecb4391151e8b3be8d91b814b70a5306930a09d891a04d1c05"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.function.math.isInfinite",
+      "kind": "function",
+      "status": "rejected",
+      "probeNote": "Error: storage.rules line [5], column [22]. Function not found error: Name: [math.isInfinite].",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "642a2e83fa783ed84362f8173a92ba88cfe4dea19211e3828e0961b89aefb66f"
+      }
+    },
+    {
+      "id": "storage.function.math.isNaN",
+      "kind": "function",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "9ba9f5ffb12f415b25fa50dc5466c43622d49b68fe16427d6253083c03fc45d9"
       },
       "evaluationAgreement": true,
       "evaluationDetail": "expected ALLOW, got ALLOW",

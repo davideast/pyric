@@ -187,6 +187,13 @@ export interface RuleEvaluation {
    *  rule to abort). */
   message?: string;
   /**
+   * Expressions the request had evaluated when this rule's evaluation
+   * ended, counting every earlier rule and match block (see
+   * {@link TestResult.evaluatedExpressions} for the unit). Populated by the
+   * local simulator; absent on production Test API results.
+   */
+  evaluatedExpressions?: number;
+  /**
    * Per-sub-expression evaluation trace for this rule's condition.
    * Flat, in evaluation order; reconstruct the tree via the `parent`
    * index on each entry. Populated by the local simulator when the
@@ -304,6 +311,10 @@ export interface TestResult {
    * The per-request rules limit that stopped this request, when one did.
    * The request is DENY and no later allow rule or match block ran.
    * Absent when no limit was reached, and on production Test API results.
+   * Also absent when the expression limit was reached after an earlier
+   * allow rule for the request raised an error: production reports that
+   * earlier error instead, and the trace shows the limit on the rule that
+   * reached it.
    */
   resourceLimit?: RulesResourceLimit;
 }

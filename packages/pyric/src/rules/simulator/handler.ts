@@ -150,6 +150,12 @@ function evaluateRules(
   // across the loop.
   let sawUnsupported = false;
   const priorRecorder = ctx.trace;
+  // Each entry records the request's running expression count at the point
+  // its rule's evaluation ended.
+  const record = (entry: RuleEvaluation) => {
+    if (ctx.expressionBudget) entry.evaluatedExpressions = ctx.expressionBudget.evaluated;
+    trace.push(entry);
+  };
   for (const { rule, index } of matchingRules) {
     const entry = newEntry(rule, index, sourceMap);
     const recorder = new TraceRecorder();
@@ -161,12 +167,12 @@ function evaluateRules(
       entry.expressionTrace = recorder.entries;
       if (isAllowed) {
         entry.verdict = 'ALLOW';
-        trace.push(entry);
+        record(entry);
         ctx.trace = priorRecorder;
         return { decision: 'ALLOW', trace, notes };
       }
       entry.verdict = 'DENY';
-      trace.push(entry);
+      record(entry);
     } catch (e) {
       entry.expressionTrace = recorder.entries;
       // A per-request resource limit (the document access budget) is not a
@@ -177,7 +183,7 @@ function evaluateRules(
       if (isResourceLimit) {
         entry.verdict = 'ERROR';
         entry.message = (e as ResourceLimitError).message;
-        trace.push(entry);
+        record(entry);
         ctx.trace = priorRecorder;
         notes.push(
           `Request denied by a rules resource limit: ${(e as ResourceLimitError).message}. `
@@ -204,7 +210,7 @@ function evaluateRules(
           entry.message = String(e);
         }
       }
-      trace.push(entry);
+      record(entry);
     }
   }
   ctx.trace = priorRecorder;
@@ -632,6 +638,7 @@ export class SimulateFirestoreRulesHandler {
       let sawUnsupported = false;
       let grantingBlockPath: string | undefined;
       let resourceLimit: RulesResourceLimit | undefined;
+      let stoppedByLimit = false;
       // One lookup budget per test case (one request evaluation), shared
       // across every matching block below and reset here between requests.
       // Production's single-request budget is 10 distinct document
@@ -661,7 +668,20 @@ export class SimulateFirestoreRulesHandler {
         const isResourceLimit = res.resourceLimit !== undefined;
         if (isResourceLimit) {
           decision = 'DENY';
-          resourceLimit = res.resourceLimit;
+          stoppedByLimit = true;
+          // Production goes on to a method's later allow rules after one
+          // raises an error, so the limit can be reached after that error.
+          // It then reports the earlier error, not the limit; the trace
+          // keeps the limit on the rule that reached it.
+          const earlierError = trace.slice(0, -1).find((t) => t.verdict === 'ERROR');
+          if (res.resourceLimit!.kind === 'expressions' && earlierError) {
+            notes.push(
+              `The request reached the limit (${res.resourceLimit!.message}) after an earlier allow rule raised an error; `
+              + `production reports that earlier error: ${earlierError.message ?? 'evaluation error'}`,
+            );
+          } else {
+            resourceLimit = res.resourceLimit;
+          }
           break;
         }
         const isResAllow = res.decision === 'ALLOW';
@@ -677,7 +697,7 @@ export class SimulateFirestoreRulesHandler {
       }
       // A resource limit is a definite production DENY, so it outranks an
       // UNSUPPORTED abstention recorded by an earlier block.
-      const isEscalatable = decision !== 'ALLOW' && resourceLimit === undefined;
+      const isEscalatable = decision !== 'ALLOW' && !stoppedByLimit;
       if (isEscalatable) {
         if (sawUnsupported) {
           decision = 'UNSUPPORTED';

@@ -1,7 +1,7 @@
 /**
  * EXPRESSION_BUDGET against production measurements.
  *
- * `fixtures/expression-cost/captures.json` holds, for 34 requests over three
+ * `fixtures/expression-cost/captures.json` holds, for 35 requests over four
  * rulesets, bounds on the expressions production's 1000-expression limit
  * counted (`production.cost`), captured by
  * `packages/conformance/src/capture-rules-expression-cost.ts`. The rulesets
@@ -11,7 +11,7 @@
  *  - where the rules fix the evaluated path (`pathFixed`), the estimate is
  *    within 10 percent above production's upper bound;
  *  - where the path depends on document values, the estimate is at most 6
- *    times production (measured: 1.13 to 5.25). The estimate is the most
+ *    times production (measured: 1.03 to 5.25). The estimate is the most
  *    expensive path the rules allow for any document, and these requests
  *    take cheaper paths than that.
  */
@@ -152,6 +152,14 @@ service cloud.firestore {
     // short-circuited && on the spine.
     expect(second!.grantCost).toBe(6 + 6 + 2);
     expect(first!.grantCost).toBeGreaterThan(second!.grantCost!);
+  });
+
+  test('a ternary pays 2 on its true branch and 4 on its false branch, and the estimate takes the more expensive', () => {
+    // Condition `resource.data.a == 1` costs 5; each branch literal costs 1.
+    // True branch: 2 + 5 + 1. False branch: 4 + 5 + 1.
+    expect(estimate('resource.data.a == 1 ? true : true')).toBe(4 + 5 + 1);
+    // A true branch 5 more expensive than the false one outweighs the false branch's 2.
+    expect(estimate('resource.data.a == 1 ? (1 == 1 && true) : true')).toBe(2 + 5 + 6);
   });
 
   test('a rule whose own conjuncts contradict has no grant estimate', () => {

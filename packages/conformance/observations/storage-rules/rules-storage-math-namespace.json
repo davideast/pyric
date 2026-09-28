@@ -1,0 +1,381 @@
+{
+  "name": "rules-storage-math-namespace",
+  "matrixRow": "",
+  "rowIds": [
+    "storage-rules#124"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"math-namespace\" (STORAGE-MATH-NAMESPACE). Storage rules define the math namespace as Firestore does: abs keeps its type, ceil and floor return a float, round rounds half up to an int, sqrt and pow return a float, and a wrong argument type, a wrong argument count, or math.isInfinite() is an error value that || true absorbs.",
+  "observedAt": "2026-09-28T00:36:29.283Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "math.abs(-2) == 2 && math.abs(-2) is int && math.abs(1) is int && math.abs(-2.5) == 2.5 && math.abs(-2.5) is float && math.abs(-1.0) is float → ALLOW": "ALLOW",
+    "math.ceil(1.5) == 2 && math.ceil(1.5) is float && math.ceil(-1.5) == -1 && math.ceil(-0.5) == 0 && math.floor(-1.5) == -2 && math.floor(2.5) == 2 && math.floor(-0.5) == -1 && math.floor(1) is float && math.ceil(1) is float → ALLOW": "ALLOW",
+    "math.ceil(1.5) is int → DENY": "DENY",
+    "math.round(2.5) == 3 && math.round(-2.5) == -2 && math.round(-1.5) == -1 && math.round(0.5) == 1 && math.round(-0.5) == 0 && math.round(1.4) == 1 && math.round(2.5) is int && math.round(1) is int → ALLOW": "ALLOW",
+    "math.round(-2.5) == -3 → DENY": "DENY",
+    "math.round(2.5) is float → DENY": "DENY",
+    "math.round(math.sqrt(-1)) == 0 && math.round(math.pow(0, -1)) > 0 → ALLOW": "ALLOW",
+    "math.sqrt(4) == 2.0 && math.sqrt(4) is float && math.sqrt(2) > 1.414 && math.sqrt(2) < 1.415 && math.pow(2, 3) == 8.0 && math.pow(2, 3) is float && math.pow(2, -1) == 0.5 && math.pow(4, 0.5) == 2.0 → ALLOW": "ALLOW",
+    "math.isNaN(math.sqrt(-1)) && !math.isNaN(1) && !math.isNaN(1.0) && !math.isNaN(math.pow(0, -1)) && math.pow(0, -1) > 1000000000.0 → ALLOW": "ALLOW",
+    "!(math.abs('a') == 1) → DENY": "DENY",
+    "(math.abs('a') == 1) || true → ALLOW": "ALLOW",
+    "!(math.abs(true) == 1) → DENY": "DENY",
+    "!(math.abs(null) == 1) → DENY": "DENY",
+    "!(math.ceil('a') == 1) → DENY": "DENY",
+    "!(math.sqrt('a') == 1) → DENY": "DENY",
+    "!(math.pow(2, 'a') == 1) → DENY": "DENY",
+    "!math.isNaN('a') → DENY": "DENY",
+    "!(math.abs(1, 2) == 1) → DENY": "DENY",
+    "!(math.sqrt() == 1) → DENY": "DENY",
+    "math.isInfinite(1.0) == false → DENY": "DENY",
+    "math.isInfinite(1.0) || true → ALLOW": "ALLOW",
+    "!(math.isInfinite(1.0) && false) → ALLOW": "ALLOW"
+  },
+  "diagnostics": {
+    "math.abs(-2) == 2 && math.abs(-2) is int && math.abs(1) is int && math.abs(-2.5) == 2.5 && math.abs(-2.5) is float && math.abs(-1.0) is float → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 22,
+              "currentOffset": 132,
+              "endOffset": 135
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "math.ceil(1.5) == 2 && math.ceil(1.5) is float && math.ceil(-1.5) == -1 && math.ceil(-0.5) == 0 && math.floor(-1.5) == -2 && math.floor(2.5) == 2 && math.floor(-0.5) == -1 && math.floor(1) is float && math.ceil(1) is float → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 8,
+              "column": 22,
+              "currentOffset": 343,
+              "endOffset": 346
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "math.ceil(1.5) is int → DENY": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 11,
+              "column": 22,
+              "currentOffset": 630,
+              "endOffset": 633
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "math.round(2.5) == 3 && math.round(-2.5) == -2 && math.round(-1.5) == -1 && math.round(0.5) == 1 && math.round(-0.5) == 0 && math.round(1.4) == 1 && math.round(2.5) is int && math.round(1) is int → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 14,
+              "column": 22,
+              "currentOffset": 721,
+              "endOffset": 724
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "math.round(-2.5) == -3 → DENY": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 17,
+              "column": 22,
+              "currentOffset": 993,
+              "endOffset": 996
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "math.round(2.5) is float → DENY": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 20,
+              "column": 22,
+              "currentOffset": 1083,
+              "endOffset": 1086
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "math.round(math.sqrt(-1)) == 0 && math.round(math.pow(0, -1)) > 0 → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 23,
+              "column": 22,
+              "currentOffset": 1179,
+              "endOffset": 1182
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "math.sqrt(4) == 2.0 && math.sqrt(4) is float && math.sqrt(2) > 1.414 && math.sqrt(2) < 1.415 && math.pow(2, 3) == 8.0 && math.pow(2, 3) is float && math.pow(2, -1) == 0.5 && math.pow(4, 0.5) == 2.0 → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 26,
+              "column": 22,
+              "currentOffset": 1312,
+              "endOffset": 1315
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "math.isNaN(math.sqrt(-1)) && !math.isNaN(1) && !math.isNaN(1.0) && !math.isNaN(math.pow(0, -1)) && math.pow(0, -1) > 1000000000.0 → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 29,
+              "column": 22,
+              "currentOffset": 1576,
+              "endOffset": 1579
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "!(math.abs('a') == 1) → DENY": {
+      "notes": [
+        "Error: storage.rules line [32], column [29]. Unsupported operation error. Received: math.abs(string). Expected: math.abs(int), math.abs(float)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 32,
+          "column": 29,
+          "currentOffset": 1777,
+          "endOffset": 1779
+        }
+      }
+    },
+    "(math.abs('a') == 1) || true → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 35,
+              "column": 22,
+              "currentOffset": 1862,
+              "endOffset": 1862
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "!(math.abs(true) == 1) → DENY": {
+      "notes": [
+        "Error: storage.rules line [38], column [29]. Unsupported operation error. Received: math.abs(bool). Expected: math.abs(int), math.abs(float)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 38,
+          "column": 29,
+          "currentOffset": 1960,
+          "endOffset": 1962
+        }
+      }
+    },
+    "!(math.abs(null) == 1) → DENY": {
+      "notes": [
+        "Error: storage.rules line [41], column [29]. Unsupported operation error. Received: math.abs(null). Expected: math.abs(int), math.abs(float)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 41,
+          "column": 29,
+          "currentOffset": 2045,
+          "endOffset": 2047
+        }
+      }
+    },
+    "!(math.ceil('a') == 1) → DENY": {
+      "notes": [
+        "Error: storage.rules line [44], column [29]. Unsupported operation error. Received: math.ceil(string). Expected: math.ceil(float)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 44,
+          "column": 29,
+          "currentOffset": 2133,
+          "endOffset": 2136
+        }
+      }
+    },
+    "!(math.sqrt('a') == 1) → DENY": {
+      "notes": [
+        "Error: storage.rules line [47], column [29]. Unsupported operation error. Received: math.sqrt(string). Expected: math.sqrt(float)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 47,
+          "column": 29,
+          "currentOffset": 2221,
+          "endOffset": 2224
+        }
+      }
+    },
+    "!(math.pow(2, 'a') == 1) → DENY": {
+      "notes": [
+        "Error: storage.rules line [50], column [29]. Unsupported operation error. Received: math.pow(int, string). Expected: math.pow(float, float)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 50,
+          "column": 29,
+          "currentOffset": 2308,
+          "endOffset": 2310
+        }
+      }
+    },
+    "!math.isNaN('a') → DENY": {
+      "notes": [
+        "Error: storage.rules line [53], column [28]. Unsupported operation error. Received: math.isNaN(string). Expected: math.isNaN(float)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 53,
+          "column": 28,
+          "currentOffset": 2398,
+          "endOffset": 2402
+        }
+      }
+    },
+    "!(math.abs(1, 2) == 1) → DENY": {
+      "notes": [
+        "Error: storage.rules line [56], column [29]. Incorrect number of arguments. Received: 2. Expected: math.abs(int), math.abs(float)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 56,
+          "column": 29,
+          "currentOffset": 2481,
+          "endOffset": 2483
+        }
+      }
+    },
+    "!(math.sqrt() == 1) → DENY": {
+      "notes": [
+        "Error: storage.rules line [59], column [29]. Incorrect number of arguments. Received: 0. Expected: math.sqrt(float)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 59,
+          "column": 29,
+          "currentOffset": 2569,
+          "endOffset": 2572
+        }
+      }
+    },
+    "math.isInfinite(1.0) == false → DENY": {
+      "notes": [
+        "Error: storage.rules line [62], column [22]. Function not found error: Name: [math.isInfinite]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 62,
+          "column": 22,
+          "currentOffset": 2647,
+          "endOffset": 2650
+        },
+        "functionCalls": [
+          {
+            "function": "math.isInfinite",
+            "args": [
+              1
+            ]
+          }
+        ]
+      }
+    },
+    "math.isInfinite(1.0) || true → ALLOW": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "math.isInfinite",
+            "args": [
+              1
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 65,
+              "column": 22,
+              "currentOffset": 2748,
+              "endOffset": 2751
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "!(math.isInfinite(1.0) && false) → ALLOW": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "math.isInfinite",
+            "args": [
+              1
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 68,
+              "column": 22,
+              "currentOffset": 2850,
+              "endOffset": 2850
+            },
+            "value": true
+          }
+        ]
+      }
+    }
+  }
+}

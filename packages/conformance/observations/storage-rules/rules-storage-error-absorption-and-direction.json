@@ -5,19 +5,23 @@
     "storage-rules#133"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"error-absorption-and-direction\" (STORAGE-P4-ERROR-ABSORPTION). Storage && absorbs commutatively like Firestore: !(error && false) allows; (error && false) == false allows; error && true and true && error propagate to DENY.",
-  "observedAt": "2026-09-01T05:01:30.031Z",
+  "observedAt": "2026-09-28T00:21:36.886Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "behavior": {
-    "!(error && false) \u2192 absorbed to false, negated \u2192 ALLOW": "ALLOW",
-    "(error && false) == false \u2192 ALLOW": "ALLOW",
-    "!(false && error) \u2192 short-circuit control \u2192 ALLOW": "ALLOW",
-    "error && true \u2192 propagates \u2192 DENY": "DENY",
-    "true && error \u2192 propagates \u2192 DENY (commutative twin)": "DENY",
-    "(error || true) == true \u2192 ALLOW": "ALLOW"
+    "!(error && false) → absorbed to false, negated → ALLOW": "ALLOW",
+    "(error && false) == false → ALLOW": "ALLOW",
+    "!(false && error) → short-circuit control → ALLOW": "ALLOW",
+    "error && true → propagates → DENY": "DENY",
+    "true && error → propagates → DENY (commutative twin)": "DENY",
+    "(error || true) == true → ALLOW": "ALLOW",
+    "an error, then a true rule in the same block → ALLOW": "ALLOW",
+    "an error, then a false rule in the same block → DENY": "DENY",
+    "an error, then a true rule in a second matching block → ALLOW": "ALLOW",
+    "an error, then a true rule past the expression limit → DENY, reported as the error": "DENY"
   },
   "diagnostics": {
-    "!(error && false) \u2192 absorbed to false, negated \u2192 ALLOW": {
+    "!(error && false) → absorbed to false, negated → ALLOW": {
       "api": {
         "visitedExpressions": [
           {
@@ -32,7 +36,7 @@
         ]
       }
     },
-    "(error && false) == false \u2192 ALLOW": {
+    "(error && false) == false → ALLOW": {
       "api": {
         "visitedExpressions": [
           {
@@ -47,7 +51,7 @@
         ]
       }
     },
-    "!(false && error) \u2192 short-circuit control \u2192 ALLOW": {
+    "!(false && error) → short-circuit control → ALLOW": {
       "api": {
         "visitedExpressions": [
           {
@@ -62,7 +66,7 @@
         ]
       }
     },
-    "error && true \u2192 propagates \u2192 DENY": {
+    "error && true → propagates → DENY": {
       "notes": [
         "Error: storage.rules line [18], column [26]. Divide by zero error."
       ],
@@ -76,7 +80,7 @@
         }
       }
     },
-    "true && error \u2192 propagates \u2192 DENY (commutative twin)": {
+    "true && error → propagates → DENY (commutative twin)": {
       "notes": [
         "Error: storage.rules line [22], column [34]. Divide by zero error."
       ],
@@ -90,7 +94,7 @@
         }
       }
     },
-    "(error || true) == true \u2192 ALLOW": {
+    "(error || true) == true → ALLOW": {
       "api": {
         "visitedExpressions": [
           {
@@ -103,6 +107,64 @@
             "value": true
           }
         ]
+      }
+    },
+    "an error, then a true rule in the same block → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 61,
+              "column": 22,
+              "currentOffset": 4963,
+              "endOffset": 4966
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "an error, then a false rule in the same block → DENY": {
+      "notes": [
+        "Error: storage.rules line [64], column [25]. Divide by zero error."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 64,
+          "column": 25,
+          "currentOffset": 5038,
+          "endOffset": 5038
+        }
+      }
+    },
+    "an error, then a true rule in a second matching block → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 71,
+              "column": 22,
+              "currentOffset": 5235,
+              "endOffset": 5238
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "an error, then a true rule past the expression limit → DENY, reported as the error": {
+      "notes": [
+        "Error: storage.rules line [74], column [25]. Divide by zero error."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 74,
+          "column": 25,
+          "currentOffset": 5314,
+          "endOffset": 5314
+        }
       }
     }
   }

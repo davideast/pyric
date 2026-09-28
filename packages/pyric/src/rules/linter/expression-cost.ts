@@ -13,7 +13,8 @@
  *    type name after it counts as one expression.
  *  - `&&` and `||` cost 1, plus 1 when they go on to evaluate their right
  *    operand. A short-circuited operand costs nothing.
- *  - A ternary costs 2 plus its condition and the branch it takes.
+ *  - A ternary costs 2 plus its condition and the branch it takes, and 2
+ *    more when it takes the false branch.
  *  - A path literal costs 1 plus 1 per segment; an interpolated segment
  *    costs its expression.
  *  - A user function call costs 1 plus its arguments, each `let` binding
@@ -200,6 +201,9 @@ class Estimator {
     }
     switch (expr.type) {
       case 'literal':
+        // A boolean literal yields only its own value.
+        if (typeof expr.value === 'boolean' && want !== 'A' && expr.value !== (want === 'T')) return null;
+        return 1;
       case 'identifier':
         return 1;
       case 'memberAccess':
@@ -238,8 +242,9 @@ class Estimator {
           const t = this.cost(taken, want, scoped);
           return t === null ? null : c + t;
         };
-        const best = maxOf(branch('T', expr.consequent), branch('F', expr.alternate));
-        return best === null ? null : 2 + best;
+        const whenTrue = branch('T', expr.consequent);
+        const whenFalse = branch('F', expr.alternate);
+        return maxOf(whenTrue === null ? null : 2 + whenTrue, whenFalse === null ? null : 4 + whenFalse);
       }
       case 'binaryOp':
         if (expr.op === '&&') return this.and(expr.left, expr.right, want as 'T' | 'F', facts);

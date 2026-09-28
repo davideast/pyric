@@ -739,7 +739,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "builtins-time-and-math"
+        "builtins-time-and-math",
+        "time-math-and-casts"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -756,7 +757,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "builtins-time-and-math"
+        "builtins-time-and-math",
+        "time-math-and-casts"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -842,7 +844,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "ast-strictness-and-unsupported-casts"
+        "ast-strictness-and-unsupported-casts",
+        "time-math-and-casts"
       ],
       "verifiedByRows": [
         "firestore-rules#191"
@@ -2191,6 +2194,7 @@
         "common-auth-membership-firestore",
         "cross-type-operator-overloads",
         "duration-and-latlng",
+        "error-absorption-and-or",
         "functions-verbs-and-recursive",
         "get-after-and-exists-after",
         "get-missing-doc",
@@ -2347,6 +2351,7 @@
       "verifiedBy": [
         "bytes-toutf8-and-hashing",
         "cross-type-operator-overloads",
+        "error-absorption-and-or",
         "time-math-and-casts"
       ],
       "verifiedByRows": [],
@@ -2518,6 +2523,7 @@
         "set-algebra-difference-union-intersection",
         "strict-boolean-control-flow",
         "string-literals-and-regex",
+        "time-math-and-casts",
         "undefined-field-access"
       ],
       "verifiedByRows": [],
@@ -2924,6 +2930,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "common-auth-membership-firestore",
+        "error-absorption-and-or",
         "functions-verbs-and-recursive",
         "global-and-service-scope-functions"
       ],

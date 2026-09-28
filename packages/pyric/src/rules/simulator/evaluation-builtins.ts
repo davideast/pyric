@@ -11,6 +11,7 @@ import { Path } from './wrappers/path.js';
 import { RulesFloat } from './wrappers/float.js';
 import { EvalError } from './eval-error.js';
 import { ConversionFailure, applyConversion, conversionFor } from './conversions.js';
+import { MathFailure, applyMath } from './math-builtins.js';
 import { UnsupportedError } from './unsupported-error.js';
 import { isDocumentPath, makeGetResource, normalizeDocumentPath, resolveExists, resolveGet } from './document-lookups.js';
 import { chargeLookup } from './lookup-budget.js';
@@ -428,16 +429,16 @@ function isBuiltinNamespace(name: string): boolean {
 }
 
 function evaluateNamespaceMethod(ns: string, method: string, args: unknown[]): unknown {
-  // RULES-B5: the numeric namespaces (math/latlng/timestamp/duration) operate
-  // on the underlying double — `latlng.value(37.7, ...)` or `math.ceil(1.5)`
-  // doesn't care whether the arg was written as an int or a float literal, and
-  // the constructors store bare numbers. Unwrap RulesFloat args to their raw
-  // value so `args[0] as number` casts inside each handler stay valid (a
-  // RulesFloat is otherwise an object, breaking `latlng.value` equality etc.).
-  // hashing.* takes Bytes/String — no numeric args — so it's left untouched.
+  // RULES-B5: the latlng/timestamp/duration namespaces operate on the
+  // underlying double: `latlng.value(37.7, ...)` does not care whether the arg
+  // was written as an int or a float literal, and the constructors store bare
+  // numbers. Unwrap RulesFloat args to their raw value so `args[0] as number`
+  // casts inside each handler stay valid (a RulesFloat is otherwise an object,
+  // breaking `latlng.value` equality etc.). math.* types its arguments and
+  // results itself, and hashing.* takes Bytes/String; both get the raw args.
   const a = ns === 'hashing' ? args : args.map(unwrapFloat);
   switch (ns) {
-    case 'math': return evaluateMathMethod(method, a);
+    case 'math': return evaluateMathMethod(method, args);
     case 'timestamp': return evaluateTimestampMethod(method, a);
     case 'duration': return evaluateDurationMethod(method, a);
     case 'latlng': return evaluateLatLngMethod(method, a);
@@ -473,17 +474,11 @@ function evaluateLatLngMethod(method: string, args: unknown[]): unknown {
   throw new UnsupportedError(`Unknown latlng method '${method}'`);
 }
 
+/** `math.*`, shared with Storage rules; a failure is an absorbable error. */
 function evaluateMathMethod(method: string, args: unknown[]): unknown {
-  switch (method) {
-    case 'abs': return Math.abs(args[0] as number);
-    case 'ceil': return Math.ceil(args[0] as number);
-    case 'floor': return Math.floor(args[0] as number);
-    case 'round': return Math.round(args[0] as number);
-    case 'sqrt': return Math.sqrt(args[0] as number);
-    case 'pow': return Math.pow(args[0] as number, args[1] as number);
-    case 'isNaN': return Number.isNaN(args[0] as number);
-  }
-  throw new EvalError(`Unknown math method '${method}'`);
+  const result = applyMath(method, args);
+  if (result instanceof MathFailure) throw new EvalError(result.message);
+  return result;
 }
 
 function evaluateTimestampMethod(method: string, args: unknown[]): unknown {

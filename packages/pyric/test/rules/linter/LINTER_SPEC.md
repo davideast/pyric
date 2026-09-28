@@ -56,17 +56,18 @@ From the ladder:
 
 - Every evaluated node costs 1, literals included: identifiers, literals, member, index and slice access, method calls, function calls, comparisons, arithmetic, `!`, `in`, and list and map literals. `is` costs 2 plus its value: the type name counts as one expression. The standard library measurement found it: `validString` evaluates one `is` check and `boundedNumber` two, and each measured one expression more per check than a cost of 1 gives.
 - `&&` and `||` cost 1, plus 1 when they go on to evaluate their right operand. A short-circuited operand costs nothing, so a false first conjunct stops the chain.
-- A ternary costs 2 plus its condition and the branch it takes when the condition is true. When it takes the false branch it costs 2 more. The ladder measures only the true branch; the chess promotion and the two Reversi rows take false branches, and a false-branch cost of 2 more is the only value that fits all three windows. The estimator charges 2 for either branch.
+- A ternary costs 2 plus its condition and the branch it takes when the condition is true. When it takes the false branch it costs 2 more. The ladder measures only the true branch; the chess promotion and the two Reversi rows take false branches, and a false-branch cost of 2 more is the only value that fits all three windows. The estimator charges the same: 2 on the true branch, 4 on the false branch, and it takes the more expensive of the two when the condition is not known.
 - A path literal costs 1 plus 1 per segment; an interpolated segment costs its expression.
 - A `let` costs 1 plus its value, and the value is evaluated when the function is called whether or not the body reads it.
 - A user function call costs 1 plus its arguments, its lets and its body, on every call. Calls are not memoized; a `get()` of a cached path still pays for its call and path.
 - A denied rule's cost stays in the request's total when a later rule grants.
+- An allow rule that raises an error does not end the request. The method's later allow rules, in the same match block or another block that matches the path, are evaluated, can grant, and count toward the limit. When the limit is reached after an earlier rule raised an error, production reports that error, not the limit. A padding threshold detects the limit by its message, so for a request with an erroring rule it bounds the count through the end of the first rule that raised an error. The Firestore and Storage captures are in the rules corpus scenarios `error-absorption-and-or` and `error-absorption-and-direction`.
 
 The 2026-04-07 sweep deployed each ruleset once and tested it five times through a client. It reported non-deterministic failures from 60 to 150 expressions and a per-call overhead. The Rules Test API measurements reproduce neither: two functions of 90 comparisons each (about 900 expressions) evaluated to ALLOW on every run, each measured request reached the limit at the same padding step in every round, and a function call costs 1. The call-count thresholds that sweep produced are replaced by the limit above.
 
 #### Measured requests
 
-The chess showcase and an externally authored resolved ruleset for several turn-based games (`arcade`) give the real-world rows. The simulator column is the count Pyric's simulator traced when the fixture was captured. That count took each evaluated node once, without the second unit a logical operator or ternary pays, `let` bindings or path segments, and ran 7 to 13 percent under production on these rows. The simulator now counts in production's unit as it evaluates, reports the count as `evaluatedExpressions` on each result, and denies a request past the limit with production's message. `test/rules/simulator/expression-budget-fixture.test.ts` replays the padding thresholds through the simulator and places that count inside production's window on 33 of the 34 requests. The previous estimator counted each called function's nodes once per rule and discounted wide `||` trees by 0.3 or 0.5.
+The chess showcase and an externally authored resolved ruleset for several turn-based games (`arcade`) give the real-world rows. The `reversi` row is the same ruleset after its Reversi move rule was restructured to check each direction with set lookups; its production window is the most expensive move in that change's measurement table (arcade branch `reversi-rules-within-production-budget`), and padding steps 38 and 39 against the Rules Test API reproduce it. Its simulator count is in production's unit. The simulator column is the count Pyric's simulator traced when the fixture was captured. That count took each evaluated node once, without the second unit a logical operator or ternary pays, `let` bindings or path segments, and ran 7 to 13 percent under production on these rows. The simulator now counts in production's unit as it evaluates, reports the count as `evaluatedExpressions` on each result, and denies a request past the limit with production's message. `test/rules/simulator/expression-budget-fixture.test.ts` replays the padding thresholds through the simulator and places that count inside production's window on all 35 requests, counting a request with an erroring rule through the end of that rule. The previous estimator counted each called function's nodes once per rule and discounted wide `||` trees by 0.3 or 0.5.
 
 | Request | Production decision | Production cost | Simulator | Previous estimate | Estimate | Estimate / production |
 |---------|--------------------|-----------------|-----------|-------------------|----------|-----------------------|
@@ -76,15 +77,16 @@ The chess showcase and an externally authored resolved ruleset for several turn-
 | chess bishop | ALLOW | 984.2 to 989.1 | 872 | 2461 | 1676 | 1.70 |
 | chess queen d8 to h4, checkmate | DENY, limit reached | 1000 or more | 892 | 2461 | 1676 | 1.68 |
 | chess queen takes f7, checkmate | ALLOW | 974.4 to 979.3 | 864 | 2478 | 1709 | 1.75 |
-| chess castle kingside | ALLOW | 856.1 to 861 | 767 | 2324 | 1534 | 1.79 |
+| chess castle kingside | ALLOW | 856.1 to 861 | 767 | 2324 | 1540 | 1.79 |
 | chess en passant | ALLOW | 865.9 to 870.9 | 772 | 2376 | 1549 | 1.78 |
-| chess promotion, nearly empty board | ALLOW | 599.8 to 604.7 | 522 | 2438 | 1603 | 2.66 |
+| chess promotion, nearly empty board | ALLOW | 599.8 to 604.7 | 522 | 2438 | 1605 | 2.67 |
 | chess illegal pawn leap | DENY | 338.6 to 343.5 | 316 | not estimated | 1790 (deny) | 5.25 |
 | arcade tic-tac-toe move | ALLOW | 141.5 to 146.4 | 132 | 151 | 162 | 1.13 |
 | arcade tic-tac-toe win | ALLOW | 195.7 to 200.6 | 179 | 232 | 394 | 1.99 |
-| arcade chess e2 to e4 | DENY, runtime error | 304.1 to 309 | 274 | 409 | 469 | 1.53 |
-| arcade reversi opening | ALLOW | 511.1 to 516 | 454 | 792 | 2611 | 5.08 |
-| arcade reversi, three two-square rays | ALLOW | 752.6 to 757.5 | 661 | 792 | 2611 | 3.46 |
+| arcade chess e2 to e4 | DENY, runtime error | 304.1 to 309 | 274 | 409 | 477 | 1.56 |
+| arcade reversi opening | ALLOW | 511.1 to 516 | 454 | 792 | 2669 | 5.20 |
+| arcade reversi, three two-square rays | ALLOW | 752.6 to 757.5 | 661 | 792 | 2669 | 3.53 |
+| reversi, random seed 8 write 54, sets | ALLOW | 796.9 to 801.9 | 799 | 784 | 826 | 1.03 |
 
 ### Key insight: binary chain depth, not expression count
 

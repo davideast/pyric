@@ -326,7 +326,10 @@ async function capture(options: { selected: string[] | null; reportsOnly: boolea
     records.push({ ...suiteHeader(suite), cases: rows });
   }
 
-  const order = ['ladder', 'chess', 'arcade'];
+  // The `reversi` suite is not generated here: its request and threshold
+  // come from the arcade's own measurement and are kept from the stored
+  // fixture like any suite this run does not select.
+  const order = ['ladder', 'chess', 'arcade', 'reversi'];
   records.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
   const fixture = {
     schema: 'pyric.rules-expression-cost.v1',
