@@ -42,6 +42,10 @@
  * Output
  *  - packages/pyric/test/rules/modules/fixtures/stdlib-cost-capture.json:
  *    calibration, every probe's measured X, and per-function min and max.
+ *    A full run replaces it. A run with --module replaces its modules' rows
+ *    in place and keeps the full run's totals, date and calibration; its own
+ *    request and test case counts go in `runs`, under each module it measured
+ *    (`mergeCapture`).
  *  - With --write: the `costs` records in every module test file and the cost
  *    line above every exported function (`applyCostLines`). Run
  *    `bun run inline-stdlib` in packages/pyric afterwards.
@@ -723,20 +727,17 @@ async function main(): Promise<void> {
   for (const f of functions) console.log(`${f.module.padEnd(20)} ${f.function.padEnd(24)} ${String(f.cost.min).padStart(3)}  ${String(f.cost.max).padStart(3)}  ${f.reads}`);
   console.log(`\n[stdlib-cost] ${runner.requests} Rules Test API requests, ${runner.testCases} test cases, at most ${chunkCap} test cases per request`);
 
-  const previous = existsSync(CAPTURE_PATH) && selected ? JSON.parse(readFileSync(CAPTURE_PATH, 'utf8')) : null;
-  const keep = (rows: any[] | undefined) => (rows ?? []).filter((r) => !modules.some((m) => m.name === r.module));
-  const capture = {
-    schema: 'pyric.stdlib-cost.v1',
+  const previous = existsSync(CAPTURE_PATH) && selected ? JSON.parse(readFileSync(CAPTURE_PATH, 'utf8')) as CostCapture : null;
+  const capture = mergeCapture(previous, {
     capturedAt: new Date().toISOString(),
+    modules: selected ? modules.map((m) => m.name) : null,
     projects: runner.projects,
-    method: 'padding: pad(a, v) + X >= D; per call = X(call) - X(reference with the same arguments) + 2',
-    calibration: { ...(previous?.calibration ?? {}), ...calibration },
-    // The run totals describe the last full run; a --module run keeps them.
-    requests: previous?.requests ?? runner.requests,
-    testCases: previous?.testCases ?? runner.testCases,
-    functions: [...keep(previous?.functions), ...functions],
-    probes: [...keep(previous?.probes), ...probeRows],
-  };
+    calibration,
+    requests: runner.requests,
+    testCases: runner.testCases,
+    functions,
+    probes: probeRows,
+  });
   mkdirSync(dirname(CAPTURE_PATH), { recursive: true });
   writeFileSync(CAPTURE_PATH, JSON.stringify(capture, null, 2) + '\n');
   console.log(`[stdlib-cost] wrote ${CAPTURE_PATH}`);
@@ -751,6 +752,109 @@ async function main(): Promise<void> {
     writeFileSync(mod.rulesPath, applyCostLines(mod.source, records));
   }
   console.log('[stdlib-cost] wrote cost records and cost lines; run `bun run inline-stdlib` in packages/pyric');
+}
+
+// ─── Capture ─────────────────────────────────────────────────────────────
+
+interface CaptureRow {
+  module: string;
+  function: string;
+  [field: string]: any;
+}
+
+/** What one run of this tool measured. `modules` is null for a full run. */
+export interface CostRun {
+  capturedAt: string;
+  modules: string[] | null;
+  projects: Record<string, string>;
+  calibration: Record<string, unknown>;
+  requests: number;
+  testCases: number;
+  functions: CaptureRow[];
+  probes: CaptureRow[];
+}
+
+/** The totals of a partial run, recorded under each module it measured. */
+export interface PartialRunRecord {
+  requests: number;
+  testCases: number;
+  date: string;
+  modules: string[];
+  calibration: Record<string, unknown>;
+}
+
+export interface CostCapture {
+  schema: string;
+  capturedAt: string;
+  projects: Record<string, string>;
+  method: string;
+  calibration: Record<string, unknown>;
+  /** Totals of the last full run; null until a full run is recorded. */
+  requests: number | null;
+  testCases: number | null;
+  note?: string;
+  runs?: Record<string, PartialRunRecord>;
+  functions: CaptureRow[];
+  probes: CaptureRow[];
+}
+
+const METHOD = 'padding: pad(a, v) + X >= D; per call = X(call) - X(reference with the same arguments) + 2';
+
+/**
+ * Rows of `previous` with the rows of `modules` replaced by `next`, in place:
+ * a measured module's rows go where its first row was, and a module the
+ * capture has not measured before goes at the end.
+ */
+function replaceRows(previous: CaptureRow[], next: CaptureRow[], modules: readonly string[]): CaptureRow[] {
+  const out: CaptureRow[] = [];
+  const placed = new Set<string>();
+  for (const r of previous) {
+    if (!modules.includes(r.module)) {
+      out.push(r);
+      continue;
+    }
+    if (placed.has(r.module)) continue;
+    placed.add(r.module);
+    out.push(...next.filter((n) => n.module === r.module));
+  }
+  out.push(...next.filter((n) => !placed.has(n.module)));
+  return out;
+}
+
+/**
+ * The capture after `run`. A full run replaces the capture. A partial run
+ * keeps the full run's totals, date and calibration, replaces its modules'
+ * rows in place, and records its own totals in `runs` under each module it
+ * measured.
+ */
+export function mergeCapture(previous: CostCapture | null, run: CostRun): CostCapture {
+  if (!run.modules) {
+    return {
+      schema: 'pyric.stdlib-cost.v1', capturedAt: run.capturedAt, projects: run.projects, method: METHOD,
+      calibration: run.calibration, requests: run.requests, testCases: run.testCases,
+      functions: run.functions, probes: run.probes,
+    };
+  }
+  const record: PartialRunRecord = {
+    requests: run.requests, testCases: run.testCases, date: run.capturedAt,
+    modules: run.modules, calibration: run.calibration,
+  };
+  const runs = { ...(previous?.runs ?? {}) };
+  for (const m of run.modules) {
+    delete runs[m];
+    runs[m] = record;
+  }
+  const base: CostCapture = previous ?? {
+    schema: 'pyric.stdlib-cost.v1', capturedAt: run.capturedAt, projects: run.projects, method: METHOD,
+    calibration: {}, requests: null, testCases: null, functions: [], probes: [],
+  };
+  return {
+    ...base,
+    projects: { ...run.projects, ...base.projects },
+    runs,
+    functions: replaceRows(base.functions, run.functions, run.modules),
+    probes: replaceRows(base.probes, run.probes, run.modules),
+  };
 }
 
 /** Replace the `costs` array of a test file, one record per line, keeping the case text as written. */

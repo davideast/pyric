@@ -2,7 +2,8 @@
   "costs": [
     { "function": "validCreate", "cost": { "min": 8, "max": 31 }, "reads": 0 },
     { "function": "validJoin", "cost": { "min": 10, "max": 57 }, "reads": 0 },
-    { "function": "canCancel", "cost": { "min": 7, "max": 21 }, "reads": 0 }
+    { "function": "canCancel", "cost": { "min": 7, "max": 21 }, "reads": 0 },
+    { "function": "validRematch", "cost": { "min": 14, "max": 55 }, "reads": 1 }
   ],
   "cases": [
     {
@@ -155,6 +156,311 @@
       },
       "wrapFunction": "canCancel",
       "wrapOperation": "delete"
+    },
+    {
+      "description": "validRematch allows the guest of a resigned match to host the rematch",
+      "expectation": "ALLOW",
+      "method": "create",
+      "path": "test/room2",
+      "auth": {
+        "uid": "guest1"
+      },
+      "data": {
+        "host": "guest1",
+        "guest": "",
+        "status": "waiting"
+      },
+      "functionMocks": [
+        {
+          "function": "get",
+          "path": "matches/finished",
+          "result": {
+            "host": "host1",
+            "guest": "guest1",
+            "status": "resigned",
+            "winner": "host"
+          }
+        }
+      ],
+      "wrapFunction": "validRematch",
+      "wrapOperation": "create",
+      "wrapCallExpr": "validRematch(/databases/$(database)/documents/matches/finished)"
+    },
+    {
+      "description": "validRematch allows the host of a drawn match to host the rematch",
+      "expectation": "ALLOW",
+      "method": "create",
+      "path": "test/room2",
+      "auth": {
+        "uid": "host1"
+      },
+      "data": {
+        "host": "host1",
+        "guest": "",
+        "status": "waiting"
+      },
+      "functionMocks": [
+        {
+          "function": "get",
+          "path": "matches/finished",
+          "result": {
+            "host": "host1",
+            "guest": "guest1",
+            "status": "draw",
+            "winner": ""
+          }
+        }
+      ],
+      "wrapFunction": "validRematch",
+      "wrapOperation": "create",
+      "wrapCallExpr": "validRematch(/databases/$(database)/documents/matches/finished)"
+    },
+    {
+      "description": "validRematch allows the loser of a won match to host the rematch",
+      "expectation": "ALLOW",
+      "method": "create",
+      "path": "test/room2",
+      "auth": {
+        "uid": "guest1"
+      },
+      "data": {
+        "host": "guest1",
+        "guest": "",
+        "status": "waiting"
+      },
+      "functionMocks": [
+        {
+          "function": "get",
+          "path": "matches/finished",
+          "result": {
+            "host": "host1",
+            "guest": "guest1",
+            "status": "won",
+            "winner": "host"
+          }
+        }
+      ],
+      "wrapFunction": "validRematch",
+      "wrapOperation": "create",
+      "wrapCallExpr": "validRematch(/databases/$(database)/documents/matches/finished)"
+    },
+    {
+      "description": "validRematch denies a rematch of a match in play",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "test/room2",
+      "auth": {
+        "uid": "guest1"
+      },
+      "data": {
+        "host": "guest1",
+        "guest": "",
+        "status": "waiting"
+      },
+      "functionMocks": [
+        {
+          "function": "get",
+          "path": "matches/finished",
+          "result": {
+            "host": "host1",
+            "guest": "guest1",
+            "status": "playing",
+            "winner": ""
+          }
+        }
+      ],
+      "wrapFunction": "validRematch",
+      "wrapOperation": "create",
+      "wrapCallExpr": "validRematch(/databases/$(database)/documents/matches/finished)"
+    },
+    {
+      "description": "validRematch denies a rematch of a waiting match",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "test/room2",
+      "auth": {
+        "uid": "host1"
+      },
+      "data": {
+        "host": "host1",
+        "guest": "",
+        "status": "waiting"
+      },
+      "functionMocks": [
+        {
+          "function": "get",
+          "path": "matches/finished",
+          "result": {
+            "host": "host1",
+            "guest": "guest1",
+            "status": "waiting",
+            "winner": ""
+          }
+        }
+      ],
+      "wrapFunction": "validRematch",
+      "wrapOperation": "create",
+      "wrapCallExpr": "validRematch(/databases/$(database)/documents/matches/finished)"
+    },
+    {
+      "description": "validRematch denies a rematch of a missing match",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "test/room2",
+      "auth": {
+        "uid": "guest1"
+      },
+      "data": {
+        "host": "guest1",
+        "guest": "",
+        "status": "waiting"
+      },
+      "wrapFunction": "validRematch",
+      "wrapOperation": "create",
+      "wrapCallExpr": "validRematch(/databases/$(database)/documents/matches/finished)"
+    },
+    {
+      "description": "validRematch denies a rematch hosted by the other seat",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "test/room2",
+      "auth": {
+        "uid": "guest1"
+      },
+      "data": {
+        "host": "host1",
+        "guest": "",
+        "status": "waiting"
+      },
+      "functionMocks": [
+        {
+          "function": "get",
+          "path": "matches/finished",
+          "result": {
+            "host": "host1",
+            "guest": "guest1",
+            "status": "resigned",
+            "winner": "host"
+          }
+        }
+      ],
+      "wrapFunction": "validRematch",
+      "wrapOperation": "create",
+      "wrapCallExpr": "validRematch(/databases/$(database)/documents/matches/finished)"
+    },
+    {
+      "description": "validRematch denies a rematch with the other seat already filled",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "test/room2",
+      "auth": {
+        "uid": "guest1"
+      },
+      "data": {
+        "host": "guest1",
+        "guest": "host1",
+        "status": "waiting"
+      },
+      "functionMocks": [
+        {
+          "function": "get",
+          "path": "matches/finished",
+          "result": {
+            "host": "host1",
+            "guest": "guest1",
+            "status": "resigned",
+            "winner": "host"
+          }
+        }
+      ],
+      "wrapFunction": "validRematch",
+      "wrapOperation": "create",
+      "wrapCallExpr": "validRematch(/databases/$(database)/documents/matches/finished)"
+    },
+    {
+      "description": "validRematch denies a caller who held no seat",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "test/room2",
+      "auth": {
+        "uid": "stranger"
+      },
+      "data": {
+        "host": "stranger",
+        "guest": "",
+        "status": "waiting"
+      },
+      "functionMocks": [
+        {
+          "function": "get",
+          "path": "matches/finished",
+          "result": {
+            "host": "host1",
+            "guest": "guest1",
+            "status": "resigned",
+            "winner": "host"
+          }
+        }
+      ],
+      "wrapFunction": "validRematch",
+      "wrapOperation": "create",
+      "wrapCallExpr": "validRematch(/databases/$(database)/documents/matches/finished)"
+    },
+    {
+      "description": "validRematch denies a rematch that starts in play",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "test/room2",
+      "auth": {
+        "uid": "guest1"
+      },
+      "data": {
+        "host": "guest1",
+        "guest": "",
+        "status": "playing"
+      },
+      "functionMocks": [
+        {
+          "function": "get",
+          "path": "matches/finished",
+          "result": {
+            "host": "host1",
+            "guest": "guest1",
+            "status": "resigned",
+            "winner": "host"
+          }
+        }
+      ],
+      "wrapFunction": "validRematch",
+      "wrapOperation": "create",
+      "wrapCallExpr": "validRematch(/databases/$(database)/documents/matches/finished)"
+    },
+    {
+      "description": "validRematch denies an unauthenticated rematch",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "test/room2",
+      "auth": null,
+      "data": {
+        "host": "guest1",
+        "guest": "",
+        "status": "waiting"
+      },
+      "functionMocks": [
+        {
+          "function": "get",
+          "path": "matches/finished",
+          "result": {
+            "host": "host1",
+            "guest": "guest1",
+            "status": "resigned",
+            "winner": "host"
+          }
+        }
+      ],
+      "wrapFunction": "validRematch",
+      "wrapOperation": "create",
+      "wrapCallExpr": "validRematch(/databases/$(database)/documents/matches/finished)"
     }
   ]
 }

@@ -620,9 +620,9 @@ const LOBBY_MODULE: StdlibModuleDefinition = {
   key: 'lobby',
   kind: 'user-module',
   description:
-    'User-authored module: lobby lifecycle (validCreate, validJoin, canCancel) for two-player game sessions. Self-contained.',
+    'User-authored module: lobby lifecycle (validCreate, validJoin, canCancel, validRematch) for two-player game sessions. Self-contained; validRematch reads the finished match with one get().',
   purpose:
-    'Convention-based lifecycle for game lobbies — assumes the document has `host`, `guest`, and `status` fields. Encapsulates the rules for opening a lobby, joining as the second player, and cancelling.',
+    "Convention-based lifecycle for game lobbies — assumes the document has `host`, `guest`, and `status` fields. Encapsulates the rules for opening a lobby, joining as the second player, cancelling, and opening a rematch of a finished match ('won', 'draw' or 'resigned').",
   whenToUse:
     'Reach for `lobby` on games with a join-then-start flow. The convention names are load-bearing — if your schema differs, fork these functions rather than try to remap.',
   entries: [
@@ -644,8 +644,20 @@ const LOBBY_MODULE: StdlibModuleDefinition = {
       reads: 0,
       description: 'Status is "waiting" and the requester is the host.',
     },
+    {
+      signature: 'validRematch(previousPath: path): bool',
+      cost: { min: 14, max: 55 },
+      reads: 1,
+      description:
+        "The match at `previousPath` is finished ('won', 'draw' or 'resigned') and seated the caller as host or guest; the new match has the caller as host, guest '' and status 'waiting'.",
+      examples: [
+        'allow create: if validRematch(/databases/$(database)/documents/matches/$(request.resource.data.rematchOf));',
+      ],
+      notes:
+        "Either seat can ask, so the seats swap when the guest asks. The other player takes the open seat through validJoin, which does not check that they held a seat in the finished match. A missing previous match is an error and denies the request. The `let` that holds the `get()` is evaluated before the auth check, so a signed-out request also pays for the `get()`.",
+    },
   ],
-  relatedKeys: ['turns', 'state', 'transitions'],
+  relatedKeys: ['turns', 'state', 'transitions', 'results'],
 };
 
 const TURNS_MODULE: StdlibModuleDefinition = {

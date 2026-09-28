@@ -8,14 +8,25 @@
 // Convention: documents must have these fields:
 //   host: string (creator's UID)
 //   guest: string ('' when waiting, joiner's UID when joined)
-//   status: 'waiting' | 'playing' | 'ready' (or any active state)
+//   status: 'waiting' | 'playing' | 'ready' (or any active state);
+//           'won' | 'draw' | 'resigned' once finished
+//
+// Rematch convention: the player who asks for a rematch hosts the new match,
+// which opens like any other lobby: guest '' and status 'waiting'. Either
+// seat of the finished match can ask, so the seats swap when the guest asks.
+// The other player takes the open seat through validJoin. Tic-tac-toe, Chess
+// and Reversi start their rematches this way.
 //
 // Usage:
-//   import { validCreate, validJoin, canCancel } from 'lobby';
+//   import { validCreate, validJoin, canCancel, validRematch } from 'lobby';
 //
 //   allow create: if validCreate();
 //   allow update: if validJoin();
 //   allow delete: if canCancel();
+//
+//   // A new match that names the finished match it follows in `rematchOf`:
+//   allow create: if validRematch(
+//     /databases/$(database)/documents/matches/$(request.resource.data.rematchOf));
 
 // Is this a waiting lobby with an open seat?
 function isWaiting() {
@@ -49,4 +60,19 @@ export function canCancel() {
   return request.auth != null
     && resource.data.status == 'waiting'
     && request.auth.uid == resource.data.host;
+}
+
+// Rematch: the finished match at `previousPath` ('won', 'draw' or
+// 'resigned') seated the caller as host or guest, and the new match opens
+// with the caller as host, the other seat open and status 'waiting'. A
+// missing previous match is an error and denies the request.
+// cost 14 to 55 expressions per call, reads 1
+export function validRematch(previousPath) {
+  let previous = get(previousPath).data;
+  return request.auth != null
+    && previous.status in ['won', 'draw', 'resigned']
+    && request.auth.uid in [previous.host, previous.guest]
+    && request.resource.data.host == request.auth.uid
+    && request.resource.data.guest == ''
+    && request.resource.data.status == 'waiting';
 }
