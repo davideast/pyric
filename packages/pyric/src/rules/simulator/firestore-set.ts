@@ -1,19 +1,23 @@
-import { rulesValuesEqual } from './value-equality.js';
+import { setElementsEqual } from './value-equality.js';
 
+/**
+ * A rules Set. Elements compare under `setElementsEqual`: numbers by value at
+ * every depth, with NaN matching NaN, so `[1, 1.0].toSet()` has one element.
+ */
 export class FirestoreSet {
   private items: unknown[];
 
   constructor(items: Iterable<unknown>) {
     this.items = [];
     for (const item of items) {
-      if (!this.items.some((existing) => rulesValuesEqual(existing, item))) this.items.push(item);
+      if (!this.items.some((existing) => setElementsEqual(existing, item))) this.items.push(item);
     }
   }
 
   /** True if the set contains ONLY keys from the provided list/set (and no others). */
   hasOnly(keys: unknown[] | FirestoreSet): boolean {
     const arr = keys instanceof FirestoreSet ? keys.toArray() : keys;
-    return this.items.every((item) => arr.some((key) => rulesValuesEqual(item, key)));
+    return this.items.every((item) => arr.some((key) => setElementsEqual(item, key)));
   }
 
   /** Value equality against another FirestoreSet (order-insensitive).
@@ -22,14 +26,14 @@ export class FirestoreSet {
   equals(other: unknown): boolean {
     if (!(other instanceof FirestoreSet)) return false;
     if (other.items.length !== this.items.length) return false;
-    return this.items.every((item) => other.items.some((candidate) => rulesValuesEqual(item, candidate)));
+    return this.items.every((item) => other.items.some((candidate) => setElementsEqual(item, candidate)));
   }
 
   /** True if the set contains ALL keys from the provided list/set. */
   hasAll(keys: unknown[] | FirestoreSet): boolean {
     const arr = keys instanceof FirestoreSet ? keys.toArray() : keys;
     for (const key of arr) {
-      if (!this.items.some((item) => rulesValuesEqual(item, key))) return false;
+      if (!this.items.some((item) => setElementsEqual(item, key))) return false;
     }
     return true;
   }
@@ -38,9 +42,14 @@ export class FirestoreSet {
   hasAny(keys: unknown[] | FirestoreSet): boolean {
     const arr = keys instanceof FirestoreSet ? keys.toArray() : keys;
     for (const key of arr) {
-      if (this.items.some((item) => rulesValuesEqual(item, key))) return true;
+      if (this.items.some((item) => setElementsEqual(item, key))) return true;
     }
     return false;
+  }
+
+  /** True if the set contains `element`, as `element in set` tests it. */
+  has(element: unknown): boolean {
+    return this.items.some((item) => setElementsEqual(item, element));
   }
 
   /** Number of items in the set. */
@@ -65,7 +74,7 @@ export class FirestoreSet {
     const otherItems = other.toArray();
     const result: unknown[] = [];
     for (const item of this.items) {
-      if (!otherItems.some((candidate) => rulesValuesEqual(item, candidate))) result.push(item);
+      if (!otherItems.some((candidate) => setElementsEqual(item, candidate))) result.push(item);
     }
     return new FirestoreSet(result);
   }
@@ -81,7 +90,7 @@ export class FirestoreSet {
     const otherItems = other.toArray();
     const result: unknown[] = [];
     for (const item of this.items) {
-      if (otherItems.some((candidate) => rulesValuesEqual(item, candidate))) result.push(item);
+      if (otherItems.some((candidate) => setElementsEqual(item, candidate))) result.push(item);
     }
     return new FirestoreSet(result);
   }

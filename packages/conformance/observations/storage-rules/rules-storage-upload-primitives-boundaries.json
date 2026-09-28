@@ -7,7 +7,7 @@
     "storage-rules#128"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"upload-primitives-boundaries\" (STORAGE-P2-PRIMITIVES). Boundary-first evidence for Storage size, MIME, metadata, path, identity, and time helpers, including production-pinned metadata collection methods.",
-  "observedAt": "2026-09-28T04:21:37.927Z",
+  "observedAt": "2026-09-28T06:47:35.884Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "behavior": {
@@ -99,7 +99,70 @@
     "list: removeAll: a string argument is an error": "DENY",
     "list: removeAll: a Set argument is an error": "DENY",
     "list: removeAll: a Set receiver is an error": "DENY",
-    "list: removeAll: a Map receiver is an error": "DENY"
+    "list: removeAll: a Map receiver is an error": "DENY",
+    "list: in: a float is not in a List of the equal int": "DENY",
+    "list: in: !(float in a List of the equal int) is true": "ALLOW",
+    "list: in: an int is not in a List of the equal float": "DENY",
+    "list: in: -0.0 is in a List of 0.0": "ALLOW",
+    "list: in: an int zero is not in a List of -0.0": "DENY",
+    "list: in: NaN is not in a List of NaN": "DENY",
+    "list: in: a List of an int is not in a List of a List of the equal float": "DENY",
+    "list: in: a Map of an int is not in a List of a Map of the equal float": "DENY",
+    "list: in: a List of 0.0 is not in a List of a List of -0.0": "DENY",
+    "list: in: a float is in a List of the same float": "ALLOW",
+    "list: hasAny: an int List has no float of the same value": "DENY",
+    "list: hasAny: != true for a float of the same value": "ALLOW",
+    "list: hasAny: a float List has no int of the same value": "DENY",
+    "list: hasAll: an int List does not have all of a float List": "DENY",
+    "list: hasOnly: an int List does not have only a float List": "DENY",
+    "list: hasAll: a mixed List has all of a float List": "ALLOW",
+    "list: hasAny: a List of 0.0 has -0.0": "ALLOW",
+    "list: hasAny: a List of an int List has no List of the equal float": "DENY",
+    "list: hasAny: a List of a 0.0 List has no List of -0.0": "DENY",
+    "list: removeAll: a float argument leaves the equal int": "ALLOW",
+    "list: removeAll: a float argument does not remove the equal int": "DENY",
+    "list: removeAll: an int argument leaves the equal float": "ALLOW",
+    "list: removeAll: an int argument removes the equal int": "ALLOW",
+    "list: removeAll: a 0.0 argument removes -0.0": "ALLOW",
+    "list: removeAll: a float List argument leaves the equal int List": "ALLOW",
+    "list: removeAll: a float argument removes the same float": "ALLOW",
+    "list: join: != the joined string is false": "DENY",
+    "list: join: || true absorbs the no-separator error": "ALLOW",
+    "list: join: two separators is an error": "DENY",
+    "list: join: a null element is not the empty string": "DENY",
+    "list: join: a float element is not printed as an int": "DENY",
+    "list: join: floats convert as string() does": "ALLOW",
+    "list: join: a path element converts as string() does": "ALLOW",
+    "list: join: || true absorbs a List element error": "ALLOW",
+    "list: join: a Map element is an error": "DENY",
+    "list: join: a bytes element is an error": "DENY",
+    "list: join: a duration element is an error": "DENY",
+    "list: join: an empty separator": "ALLOW",
+    "list: receiver: || true absorbs concat on a string": "ALLOW",
+    "list: receiver: removeAll on a string is an error": "DENY",
+    "list: receiver: join on a string is an error": "DENY",
+    "list: receiver: toSet on a string is an error": "DENY",
+    "list: receiver: hasAny on a string is an error": "DENY",
+    "list: receiver: hasAll on a string is an error": "DENY",
+    "list: receiver: hasOnly on a string is an error": "DENY",
+    "list: receiver: concat on a Map is an error": "DENY",
+    "list: receiver: join on a Map is an error": "DENY",
+    "list: receiver: hasAll on a Map is an error": "DENY",
+    "list: keys: keys() of a literal is sorted": "ALLOW",
+    "list: keys: keys() of a literal is not in written order": "DENY",
+    "list: keys: keys() != the sorted List is false": "DENY",
+    "list: keys: keys()[0] is the least key": "ALLOW",
+    "list: keys: keys().join() joins the sorted keys": "ALLOW",
+    "list: keys: keys() orders digits, upper case, underscore and lower case by code point": "ALLOW",
+    "list: keys: keys() does not order numeric keys by value": "DENY",
+    "list: keys: keys() puts '10' before '9'": "ALLOW",
+    "list: keys: keys() orders non-ASCII keys by code point": "ALLOW",
+    "list: keys: keys() does not order by UTF-16 code unit": "DENY",
+    "list: keys: keys() puts a prefix before its extensions": "ALLOW",
+    "keys order: metadata keys() is sorted": "ALLOW",
+    "keys order: metadata keys() is not in written order": "DENY",
+    "keys order: metadata keys()[0] is the least key": "ALLOW",
+    "keys order: metadata keys().join() joins the sorted keys": "ALLOW"
   },
   "diagnostics": {
     "size: zero bytes is within inclusive maximum": {
@@ -1474,6 +1537,1027 @@
                 "a"
               ]
             ]
+          }
+        ]
+      }
+    },
+    "list: in: a float is not in a List of the equal int": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 246,
+              "column": 24,
+              "currentOffset": 8674,
+              "endOffset": 8676
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "list: in: !(float in a List of the equal int) is true": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 249,
+              "column": 24,
+              "currentOffset": 8747,
+              "endOffset": 8747
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: in: an int is not in a List of the equal float": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 252,
+              "column": 24,
+              "currentOffset": 8823,
+              "endOffset": 8823
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "list: in: -0.0 is in a List of 0.0": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 255,
+              "column": 24,
+              "currentOffset": 8896,
+              "endOffset": 8896
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: in: an int zero is not in a List of -0.0": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 258,
+              "column": 24,
+              "currentOffset": 8972,
+              "endOffset": 8972
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "list: in: NaN is not in a List of NaN": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 261,
+              "column": 24,
+              "currentOffset": 9046,
+              "endOffset": 9050
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "list: in: a List of an int is not in a List of a List of the equal float": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 264,
+              "column": 24,
+              "currentOffset": 9139,
+              "endOffset": 9139
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "list: in: a Map of an int is not in a List of a Map of the equal float": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 267,
+              "column": 24,
+              "currentOffset": 9216,
+              "endOffset": 9216
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "list: in: a List of 0.0 is not in a List of a List of -0.0": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 270,
+              "column": 24,
+              "currentOffset": 9303,
+              "endOffset": 9303
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "list: in: a float is in a List of the same float": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 273,
+              "column": 24,
+              "currentOffset": 9383,
+              "endOffset": 9385
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: hasAny: an int List has no float of the same value": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 276,
+              "column": 24,
+              "currentOffset": 9458,
+              "endOffset": 9458
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "list: hasAny: != true for a float of the same value": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 279,
+              "column": 24,
+              "currentOffset": 9538,
+              "endOffset": 9538
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: hasAny: a float List has no int of the same value": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 282,
+              "column": 24,
+              "currentOffset": 9626,
+              "endOffset": 9626
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "list: hasAll: an int List does not have all of a float List": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 285,
+              "column": 24,
+              "currentOffset": 9706,
+              "endOffset": 9706
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "list: hasOnly: an int List does not have only a float List": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 288,
+              "column": 24,
+              "currentOffset": 9786,
+              "endOffset": 9786
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "list: hasAll: a mixed List has all of a float List": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 291,
+              "column": 24,
+              "currentOffset": 9867,
+              "endOffset": 9867
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: hasAny: a List of 0.0 has -0.0": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 294,
+              "column": 24,
+              "currentOffset": 9952,
+              "endOffset": 9952
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: hasAny: a List of an int List has no List of the equal float": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 297,
+              "column": 24,
+              "currentOffset": 10035,
+              "endOffset": 10035
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "list: hasAny: a List of a 0.0 List has no List of -0.0": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 300,
+              "column": 24,
+              "currentOffset": 10119,
+              "endOffset": 10119
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "list: removeAll: a float argument leaves the equal int": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 303,
+              "column": 24,
+              "currentOffset": 10206,
+              "endOffset": 10206
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: removeAll: a float argument does not remove the equal int": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 306,
+              "column": 24,
+              "currentOffset": 10302,
+              "endOffset": 10302
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "list: removeAll: an int argument leaves the equal float": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 309,
+              "column": 24,
+              "currentOffset": 10395,
+              "endOffset": 10395
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: removeAll: an int argument removes the equal int": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 312,
+              "column": 24,
+              "currentOffset": 10493,
+              "endOffset": 10493
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: removeAll: a 0.0 argument removes -0.0": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 315,
+              "column": 24,
+              "currentOffset": 10584,
+              "endOffset": 10584
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: removeAll: a float List argument leaves the equal int List": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 318,
+              "column": 24,
+              "currentOffset": 10676,
+              "endOffset": 10676
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: removeAll: a float argument removes the same float": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 321,
+              "column": 24,
+              "currentOffset": 10772,
+              "endOffset": 10772
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: join: != the joined string is false": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 324,
+              "column": 24,
+              "currentOffset": 10863,
+              "endOffset": 10863
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "list: join: || true absorbs the no-separator error": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 327,
+              "column": 24,
+              "currentOffset": 10955,
+              "endOffset": 10955
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: join: two separators is an error": {
+      "notes": [
+        "Error: storage.rules line [330], column [32]. Incorrect number of arguments. Received: 2. Expected: list.join(string)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 330,
+          "column": 32,
+          "currentOffset": 11060,
+          "endOffset": 11063
+        }
+      }
+    },
+    "list: join: a null element is not the empty string": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 333,
+              "column": 24,
+              "currentOffset": 11145,
+              "endOffset": 11145
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "list: join: a float element is not printed as an int": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 336,
+              "column": 24,
+              "currentOffset": 11237,
+              "endOffset": 11237
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "list: join: floats convert as string() does": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 339,
+              "column": 24,
+              "currentOffset": 11322,
+              "endOffset": 11322
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: join: a path element converts as string() does": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 342,
+              "column": 24,
+              "currentOffset": 11439,
+              "endOffset": 11439
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: join: || true absorbs a List element error": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 345,
+              "column": 24,
+              "currentOffset": 11536,
+              "endOffset": 11536
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: join: a Map element is an error": {
+      "notes": [
+        "Error: storage.rules line [348], column [39]. Unsupported operation error. Received: string(map). Expected: string(int), string(float), string(null), string(string), string(bool), string(path)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 348,
+          "column": 39,
+          "currentOffset": 11648,
+          "endOffset": 11651
+        }
+      }
+    },
+    "list: join: a bytes element is an error": {
+      "notes": [
+        "Error: storage.rules line [351], column [34]. Unsupported operation error. Received: string(bytes). Expected: string(int), string(float), string(null), string(string), string(bool), string(path)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 351,
+          "column": 34,
+          "currentOffset": 11738,
+          "endOffset": 11741
+        }
+      }
+    },
+    "list: join: a duration element is an error": {
+      "notes": [
+        "Error: storage.rules line [354], column [51]. Unsupported operation error. Received: string(duration). Expected: string(int), string(float), string(null), string(string), string(bool), string(path)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 354,
+          "column": 51,
+          "currentOffset": 11845,
+          "endOffset": 11848
+        }
+      }
+    },
+    "list: join: an empty separator": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 357,
+              "column": 24,
+              "currentOffset": 11925,
+              "endOffset": 11925
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: receiver: || true absorbs concat on a string": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "concat",
+            "args": [
+              "b"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 360,
+              "column": 24,
+              "currentOffset": 12015,
+              "endOffset": 12015
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: receiver: removeAll on a string is an error": {
+      "notes": [
+        "Error: storage.rules line [363], column [26]. Function not found error: Name: [removeAll]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 363,
+          "column": 26,
+          "currentOffset": 12112,
+          "endOffset": 12114
+        },
+        "functionCalls": [
+          {
+            "function": "removeAll",
+            "args": [
+              [
+                "a"
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    "list: receiver: join on a string is an error": {
+      "notes": [
+        "Error: storage.rules line [366], column [26]. Function not found error: Name: [join]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 366,
+          "column": 26,
+          "currentOffset": 12205,
+          "endOffset": 12207
+        },
+        "functionCalls": [
+          {
+            "function": "join",
+            "args": [
+              ","
+            ]
+          }
+        ]
+      }
+    },
+    "list: receiver: toSet on a string is an error": {
+      "notes": [
+        "Error: storage.rules line [369], column [26]. Function not found error: Name: [toSet]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 369,
+          "column": 26,
+          "currentOffset": 12291,
+          "endOffset": 12293
+        },
+        "functionCalls": [
+          {
+            "function": "toSet"
+          }
+        ]
+      }
+    },
+    "list: receiver: hasAny on a string is an error": {
+      "notes": [
+        "Error: storage.rules line [372], column [25]. Function not found error: Name: [hasAny]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 372,
+          "column": 25,
+          "currentOffset": 12384,
+          "endOffset": 12384
+        },
+        "functionCalls": [
+          {
+            "function": "hasAny",
+            "args": [
+              [
+                "a"
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    "list: receiver: hasAll on a string is an error": {
+      "notes": [
+        "Error: storage.rules line [375], column [25]. Function not found error: Name: [hasAll]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 375,
+          "column": 25,
+          "currentOffset": 12467,
+          "endOffset": 12467
+        },
+        "functionCalls": [
+          {
+            "function": "hasAll",
+            "args": [
+              [
+                "a"
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    "list: receiver: hasOnly on a string is an error": {
+      "notes": [
+        "Error: storage.rules line [378], column [25]. Function not found error: Name: [hasOnly]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 378,
+          "column": 25,
+          "currentOffset": 12550,
+          "endOffset": 12550
+        },
+        "functionCalls": [
+          {
+            "function": "hasOnly",
+            "args": [
+              [
+                "a"
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    "list: receiver: concat on a Map is an error": {
+      "notes": [
+        "Error: storage.rules line [381], column [26]. Function not found error: Name: [concat]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 381,
+          "column": 26,
+          "currentOffset": 12635,
+          "endOffset": 12635
+        },
+        "functionCalls": [
+          {
+            "function": "concat",
+            "args": [
+              [
+                1
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    "list: receiver: join on a Map is an error": {
+      "notes": [
+        "Error: storage.rules line [384], column [26]. Function not found error: Name: [join]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 384,
+          "column": 26,
+          "currentOffset": 12728,
+          "endOffset": 12728
+        },
+        "functionCalls": [
+          {
+            "function": "join",
+            "args": [
+              ","
+            ]
+          }
+        ]
+      }
+    },
+    "list: receiver: hasAll on a Map is an error": {
+      "notes": [
+        "Error: storage.rules line [387], column [25]. Function not found error: Name: [hasAll]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 387,
+          "column": 25,
+          "currentOffset": 12818,
+          "endOffset": 12818
+        },
+        "functionCalls": [
+          {
+            "function": "hasAll",
+            "args": [
+              [
+                "a"
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    "list: keys: keys() of a literal is sorted": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 390,
+              "column": 24,
+              "currentOffset": 12906,
+              "endOffset": 12906
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: keys: keys() of a literal is not in written order": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 393,
+              "column": 24,
+              "currentOffset": 13007,
+              "endOffset": 13007
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "list: keys: keys() != the sorted List is false": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 396,
+              "column": 24,
+              "currentOffset": 13108,
+              "endOffset": 13108
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "list: keys: keys()[0] is the least key": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 399,
+              "column": 24,
+              "currentOffset": 13209,
+              "endOffset": 13209
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: keys: keys().join() joins the sorted keys": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 402,
+              "column": 24,
+              "currentOffset": 13306,
+              "endOffset": 13306
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: keys: keys() orders digits, upper case, underscore and lower case by code point": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 405,
+              "column": 24,
+              "currentOffset": 13412,
+              "endOffset": 13412
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: keys: keys() does not order numeric keys by value": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 408,
+              "column": 24,
+              "currentOffset": 13606,
+              "endOffset": 13606
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "list: keys: keys() puts '10' before '9'": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 411,
+              "column": 24,
+              "currentOffset": 13800,
+              "endOffset": 13800
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: keys: keys() orders non-ASCII keys by code point": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 414,
+              "column": 24,
+              "currentOffset": 13916,
+              "endOffset": 13916
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: keys: keys() does not order by UTF-16 code unit": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 417,
+              "column": 24,
+              "currentOffset": 14056,
+              "endOffset": 14056
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "list: keys: keys() puts a prefix before its extensions": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 420,
+              "column": 24,
+              "currentOffset": 14196,
+              "endOffset": 14196
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "keys order: metadata keys() is sorted": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 424,
+              "column": 24,
+              "currentOffset": 14380,
+              "endOffset": 14386
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "keys order: metadata keys() is not in written order": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 427,
+              "column": 24,
+              "currentOffset": 14512,
+              "endOffset": 14518
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "keys order: metadata keys()[0] is the least key": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 430,
+              "column": 24,
+              "currentOffset": 14644,
+              "endOffset": 14650
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "keys order: metadata keys().join() joins the sorted keys": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 433,
+              "column": 24,
+              "currentOffset": 14762,
+              "endOffset": 14768
+            },
+            "value": true
           }
         ]
       }

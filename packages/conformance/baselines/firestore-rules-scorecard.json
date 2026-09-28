@@ -930,6 +930,7 @@
         "builtins-time-and-math",
         "cross-type-operator-overloads",
         "duration-and-latlng",
+        "list-methods-concat-removeall-toset",
         "time-math-and-casts"
       ],
       "verifiedByRows": [],
@@ -1111,6 +1112,10 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "cross-type-operator-overloads",
+        "list-methods-concat-removeall-toset",
+        "required-fields-and-mapdiff",
+        "set-algebra-difference-union-intersection",
         "time-math-and-casts"
       ],
       "verifiedByRows": [
@@ -1150,6 +1155,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "list-methods-concat-removeall-toset",
         "path-constructor-and-bind",
         "time-math-and-casts"
       ],
@@ -1317,6 +1323,7 @@
         "ast-strictness-and-unsupported-casts",
         "functions-verbs-and-recursive",
         "list-and-string-methods",
+        "list-methods-concat-removeall-toset",
         "required-fields-and-mapdiff"
       ],
       "verifiedByRows": [],
@@ -1335,6 +1342,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "list-and-string-methods",
+        "list-methods-concat-removeall-toset",
         "prototype-chain-keys",
         "required-fields-and-mapdiff"
       ],
@@ -1355,6 +1363,7 @@
       "verifiedBy": [
         "functions-verbs-and-recursive",
         "list-and-string-methods",
+        "list-methods-concat-removeall-toset",
         "prototype-chain-keys",
         "required-fields-and-mapdiff"
       ],
@@ -1449,6 +1458,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "list-and-string-methods",
+        "list-methods-concat-removeall-toset",
         "required-fields-and-mapdiff"
       ],
       "verifiedByRows": [],
@@ -1487,7 +1497,9 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "list-and-string-methods"
+        "cross-type-operator-overloads",
+        "list-and-string-methods",
+        "required-fields-and-mapdiff"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -1542,7 +1554,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "ast-strictness-and-unsupported-casts"
+        "ast-strictness-and-unsupported-casts",
+        "list-methods-concat-removeall-toset"
       ],
       "verifiedByRows": [
         "firestore-rules#191"
@@ -1760,7 +1773,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "required-fields-and-mapdiff"
+        "required-fields-and-mapdiff",
+        "set-algebra-difference-union-intersection"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -1777,7 +1791,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "required-fields-and-mapdiff"
+        "required-fields-and-mapdiff",
+        "set-algebra-difference-union-intersection"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -2520,6 +2535,7 @@
         "error-absorption-and-or",
         "get-missing-doc",
         "int-float-and-division",
+        "list-methods-concat-removeall-toset",
         "resource-document-identity",
         "strict-boolean-control-flow",
         "time-math-and-casts",
@@ -2546,6 +2562,7 @@
         "bytes-toutf8-and-hashing",
         "functions-verbs-and-recursive",
         "int-float-and-division",
+        "list-methods-concat-removeall-toset",
         "path-constructor-and-bind",
         "prototype-chain-keys",
         "required-fields-and-mapdiff",
@@ -2595,6 +2612,7 @@
         "common-auth-membership-firestore",
         "error-absorption-and-or",
         "functions-verbs-and-recursive",
+        "list-methods-concat-removeall-toset",
         "prototype-chain-keys",
         "set-algebra-difference-union-intersection",
         "undefined-field-access"
@@ -2642,8 +2660,12 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "cross-type-operator-overloads",
         "duration-and-latlng",
         "int-float-and-division",
+        "list-methods-concat-removeall-toset",
+        "required-fields-and-mapdiff",
+        "set-algebra-difference-union-intersection",
         "time-math-and-casts",
         "timestamp-component-accessors",
         "undefined-field-access"
@@ -2713,6 +2735,7 @@
       "verifiedBy": [
         "bytes-toutf8-and-hashing",
         "common-auth-membership-firestore",
+        "cross-type-operator-overloads",
         "functions-verbs-and-recursive",
         "list-methods-concat-removeall-toset",
         "path-constructor-and-bind",

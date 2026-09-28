@@ -202,7 +202,7 @@ function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<st
       // collection before the element: when both error, the collection's
       // error is the result.
       const [collection, element] = evaluateOperands([expr.collection, expr.element], ctx, scope);
-      const result = membership(element, collection, rulesValuesEqual);
+      const result = membership(element, collection);
       if (result instanceof MembershipFailure) throw new EvalError(result.message, expr);
       return result;
     }

@@ -1,3 +1,4 @@
+import { functionNotFoundMessage } from '../../rules/simulator/eval-error.js';
 import { NO_OP, RulesValue } from '../../rules/simulator/wrappers/base.js';
 import type { Expr } from './rules.js';
 import { evalOperands, type EvalCtx } from './rules-evaluator.js';
@@ -29,7 +30,7 @@ export type NamespaceMethod = (expr: MethodCall, ctx: EvalCtx) => unknown;
  * captures `resource.size.year() == 1970 || true` allowing).
  */
 export function functionNotFound(method: string): RuleEvalError {
-  return new RuleEvalError(`Function not found error: Name: [${method}].`);
+  return new RuleEvalError(functionNotFoundMessage(method));
 }
 
 /** Deny a call that passes arguments to a method that takes none. */

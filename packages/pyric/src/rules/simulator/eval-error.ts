@@ -42,3 +42,11 @@ export { EvalError as RuleEvalError };
  * NaN.
  */
 export const DIVIDE_BY_ZERO_MESSAGE = 'Divide by zero error.';
+
+/**
+ * Production's error for a method the receiver's type does not define, such
+ * as `'a'.concat('b')`, in Firestore and Storage rules alike.
+ */
+export function functionNotFoundMessage(name: string): string {
+  return `Function not found error: Name: [${name}].`;
+}

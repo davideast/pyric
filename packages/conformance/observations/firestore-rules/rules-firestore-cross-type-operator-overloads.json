@@ -5,12 +5,12 @@
     "firestore-rules#162"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"cross-type-operator-overloads\" (Item 2). Wrapper binaryOp must produce typed results for Timestamp/Duration cross-type ops; numeric coercion would silently lose type identity and (post-Risk 2 guard) silently DENY.",
-  "observedAt": "2026-09-27T21:35:17.278Z",
+  "observedAt": "2026-09-28T06:47:33.532Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "4fcfbae110d769f5d72693a19a76ad32e7c6507bc324f563ab53dad9bd6885ea"
+    "value": "3365a803cf2ad01371cc46ff5eab50cee780989774037cbb28212c3571f1ce59"
   },
   "behavior": {
     "Timestamp + Duration → Timestamp ALLOW": "ALLOW",
@@ -79,7 +79,30 @@
     "plusOperand intDurationBare: 1 + duration.value(60, 's') → DENY": "DENY",
     "plusOperand intDurationNeq: 1 + duration.value(60, 's') != duration.value(1, 's') → DENY": "DENY",
     "plusOperand intDurationOrTrue: (1 + duration.value(60, 's') != duration.value(1, 's')) || true → ALLOW": "ALLOW",
-    "plusOperand bytesBytesEq: 'ab'.toUtf8() + 'cd'.toUtf8() == 'abcd'.toUtf8() → DENY": "DENY"
+    "plusOperand bytesBytesEq: 'ab'.toUtf8() + 'cd'.toUtf8() == 'abcd'.toUtf8() → DENY": "DENY",
+    "equalityIdentity: an int equals a float of the same value": "ALLOW",
+    "equalityIdentity: a List of an int does not equal a List of a float": "DENY",
+    "equalityIdentity: != between a List of an int and a List of a float is true": "ALLOW",
+    "equalityIdentity: a List of a float does not equal a List of an int": "DENY",
+    "equalityIdentity: one float element makes Lists unequal": "DENY",
+    "equalityIdentity: nested Lists compare element types": "DENY",
+    "equalityIdentity: a Map of an int does not equal a Map of a float": "DENY",
+    "equalityIdentity: != between a Map of an int and a Map of a float is true": "ALLOW",
+    "equalityIdentity: a Map value List compares element types": "DENY",
+    "equalityIdentity: an element read from a List equals a float of the same value": "ALLOW",
+    "equalityIdentity: a value read from a Map equals a float of the same value": "ALLOW",
+    "equalityIdentity: Lists of equal floats are equal": "ALLOW",
+    "equalityIdentity: Maps of equal floats are equal": "ALLOW",
+    "equalityIdentity: an int zero equals a negative float zero": "ALLOW",
+    "equalityIdentity: a List of 0.0 does not equal a List of -0.0": "DENY",
+    "equalityIdentity: Lists of -0.0 are equal": "ALLOW",
+    "equalityIdentity: a Map of -0.0 does not equal a Map of 0.0": "DENY",
+    "equalityIdentity: NaN does not equal NaN": "DENY",
+    "equalityIdentity: a List of NaN does not equal a List of NaN": "DENY",
+    "equalityIdentity: a List of an int data field does not equal a List of a float": "DENY",
+    "equalityIdentity: a List of an int data field equals a List of an int": "ALLOW",
+    "equalityIdentity: a List of a float data field equals a List of a float": "ALLOW",
+    "equalityIdentity: Map.values() of an int does not equal a List of a float": "DENY"
   },
   "diagnostics": {
     "plusOperand listLiteralEq: [1] + [2] == [1, 2] → DENY": {

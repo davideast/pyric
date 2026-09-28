@@ -1,5 +1,13 @@
 import { FirestoreSet } from '../../rules/simulator/firestore-set.js';
-import { ListMethodFailure, listConcat, listJoin, listRemoveAll } from '../../rules/simulator/list-methods.js';
+import {
+  ListMethodFailure,
+  listConcat,
+  listHas,
+  listJoin,
+  listRemoveAll,
+  type ListMembershipMethod,
+} from '../../rules/simulator/list-methods.js';
+import { mapKeys } from '../../rules/simulator/map-keys.js';
 import { MapDiff } from '../../rules/simulator/mapdiff.js';
 import type { EvalCtx } from './rules-evaluator.js';
 import { RuleEvalError } from './rules-evaluation-error.js';
@@ -13,10 +21,7 @@ import {
   type ReceiverMethods,
 } from './rules-method-calls.js';
 import { describeRulesType as describeType, isRulesMap } from '../../rules/simulator/rules-type.js';
-import {
-  isRuleError as isErr,
-  rulesEquals,
-} from './rules-values.js';
+import { isRuleError as isErr } from './rules-values.js';
 
 const SET_ALGEBRA = ['difference', 'intersection', 'union'] as const;
 type SetAlgebraMethod = (typeof SET_ALGEBRA)[number];
@@ -37,18 +42,18 @@ function evalSize(receiver: unknown, expr: MethodCall): unknown {
   return evalValueMethod(receiver, expr);
 }
 
-/** `Map.keys()` returns the map's own keys and never exposes JS prototypes. */
+/** `Map.keys()` returns the map's own keys in code point order and never exposes JS prototypes. */
 function evalMapKeys(receiver: unknown, expr: MethodCall): unknown {
   expectNoArguments(expr);
   if (!isRulesMap(receiver)) throw functionNotFound(expr.method);
-  return Object.keys(receiver);
+  return mapKeys(receiver);
 }
 
 /** The List methods `list-methods.ts` implements for both evaluators. */
 const LIST_METHODS = {
   concat: (receiver: unknown[], args: unknown[]) => listConcat(receiver, args),
   join: (receiver: unknown[], args: unknown[]) => listJoin(receiver, args),
-  removeAll: (receiver: unknown[], args: unknown[]) => listRemoveAll(receiver, args, rulesEquals),
+  removeAll: (receiver: unknown[], args: unknown[]) => listRemoveAll(receiver, args),
 } as const;
 
 /**
@@ -80,14 +85,14 @@ function evalMapGet(receiver: unknown, expr: MethodCall, ctx: EvalCtx): unknown 
 }
 
 /**
- * `hasAll`, `hasAny`, and `hasOnly` under Rules value equality. A List
- * receiver takes a List argument and a Set receiver a List or Set; any other
- * argument, a Set to a List receiver included, is an unsupported operation
+ * `hasAll`, `hasAny`, and `hasOnly`. A List receiver takes a List argument
+ * and compares elements as List membership does; a Set receiver takes a List
+ * or Set and compares elements as the Set does. Any other argument, a Set to
+ * a List receiver included, is an unsupported operation
  * (rules-storage-upload-primitives-boundaries).
  */
 function evalMembership(receiver: unknown, expr: MethodCall, ctx: EvalCtx): unknown {
-  const members = membersOf(receiver);
-  if (members === undefined) throw functionNotFound(expr.method);
+  if (!Array.isArray(receiver) && !(receiver instanceof FirestoreSet)) throw functionNotFound(expr.method);
   const receiverType = Array.isArray(receiver) ? 'list' : 'set';
   const overloads = receiverType === 'list'
     ? `list.${expr.method}(list)`
@@ -98,23 +103,15 @@ function evalMembership(receiver: unknown, expr: MethodCall, ctx: EvalCtx): unkn
   const args = evalArguments(expr, ctx);
   if (isErr(args)) return args;
   const [argument] = args;
-  const candidates = receiverType === 'list' && !Array.isArray(argument) ? undefined : membersOf(argument);
-  if (candidates === undefined) {
+  const accepted = Array.isArray(argument) || (receiverType === 'set' && argument instanceof FirestoreSet);
+  if (!accepted) {
     throw new RuleEvalError(
       `Unsupported operation error. Received: ${receiverType}.${expr.method}(${describeType(argument)}). Expected: ${overloads}.`,
     );
   }
-  const contains = (values: unknown[], value: unknown) => values.some((item) => rulesEquals(item, value));
-  if (expr.method === 'hasAll') return candidates.every((candidate) => contains(members, candidate));
-  if (expr.method === 'hasAny') return candidates.some((candidate) => contains(members, candidate));
-  return members.every((member) => contains(candidates, member));
-}
-
-/** The members of a List or Set, or undefined for any other value. */
-function membersOf(value: unknown): unknown[] | undefined {
-  if (Array.isArray(value)) return value;
-  if (value instanceof FirestoreSet) return value.toArray();
-  return undefined;
+  const method = expr.method as ListMembershipMethod;
+  if (Array.isArray(receiver)) return listHas(method, receiver, argument as unknown[]);
+  return receiver[method](argument as unknown[] | FirestoreSet);
 }
 
 /** `List.toSet()`: the list's distinct members as a Set. */

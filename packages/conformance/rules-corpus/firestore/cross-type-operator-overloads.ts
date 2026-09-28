@@ -22,6 +22,10 @@
  * timestamp + timestamp, string + bytes, bytes + string, bytes + bytes,
  * duration + int, and int + duration are error values too, each pinned as a
  * bare condition, as a `!=` witness, and under `|| true`.
+ *
+ * The equalityIdentity cases pin `==` over numbers inside Lists and Maps:
+ * an int equals a float of the same value, but Lists and Maps compare the
+ * numeric type of each element and value.
  */
 import type { ScenarioRecord } from './types.ts';
 
@@ -105,6 +109,48 @@ const plusOperandBlocks = plusOperands
     }`)
   .join('\n');
 
+/** One `==` case over numbers inside Lists and Maps: description, condition, production verdict. */
+type EqualityIdentityCase = readonly [description: string, condition: string, expectation: 'ALLOW' | 'DENY'];
+
+/**
+ * `==` compares an int and a float by value, but a List or Map equals another
+ * only when each element or value has the same numeric type: `1 == 1.0`
+ * holds while `[1] == [1.0]` and `{'a': 1} == {'a': 1.0}` are false. Inside a
+ * List or Map, `0.0` and `-0.0` differ and NaN equals nothing. The data field
+ * `n` is the int 1 and `f` the float 1.5.
+ */
+const equalityIdentityCases: readonly EqualityIdentityCase[] = [
+  ['an int equals a float of the same value', '1 == 1.0', 'ALLOW'],
+  ['a List of an int does not equal a List of a float', '[1] == [1.0]', 'DENY'],
+  ['!= between a List of an int and a List of a float is true', '[1] != [1.0]', 'ALLOW'],
+  ['a List of a float does not equal a List of an int', '[1.0] == [1]', 'DENY'],
+  ['one float element makes Lists unequal', '[1, 2] == [1, 2.0]', 'DENY'],
+  ['nested Lists compare element types', '[[1]] == [[1.0]]', 'DENY'],
+  ['a Map of an int does not equal a Map of a float', "{'a': 1} == {'a': 1.0}", 'DENY'],
+  ['!= between a Map of an int and a Map of a float is true', "{'a': 1} != {'a': 1.0}", 'ALLOW'],
+  ['a Map value List compares element types', "{'a': [1]} == {'a': [1.0]}", 'DENY'],
+  ['an element read from a List equals a float of the same value', '[1][0] == 1.0', 'ALLOW'],
+  ['a value read from a Map equals a float of the same value', "{'a': 1}.a == 1.0", 'ALLOW'],
+  ['Lists of equal floats are equal', '[1.0] == [1.0]', 'ALLOW'],
+  ['Maps of equal floats are equal', "{'a': 1.0} == {'a': 1.0}", 'ALLOW'],
+  ['an int zero equals a negative float zero', '0 == -0.0', 'ALLOW'],
+  ['a List of 0.0 does not equal a List of -0.0', '[0.0] == [-0.0]', 'DENY'],
+  ['Lists of -0.0 are equal', '[-0.0] == [-0.0]', 'ALLOW'],
+  ['a Map of -0.0 does not equal a Map of 0.0', "{'a': -0.0} == {'a': 0.0}", 'DENY'],
+  ['NaN does not equal NaN', "float('NaN') == float('NaN')", 'DENY'],
+  ['a List of NaN does not equal a List of NaN', "[float('NaN')] == [float('NaN')]", 'DENY'],
+  ['a List of an int data field does not equal a List of a float', '[request.resource.data.n] == [1.0]', 'DENY'],
+  ['a List of an int data field equals a List of an int', '[request.resource.data.n] == [1]', 'ALLOW'],
+  ['a List of a float data field equals a List of a float', '[request.resource.data.f] == [1.5]', 'ALLOW'],
+  ['Map.values() of an int does not equal a List of a float', "{'a': 1}.values() == [1.0]", 'DENY'],
+];
+
+const equalityIdentityBlocks = equalityIdentityCases
+  .map(([, condition], index) => `    match /equalityIdentity/${index}/{id} {
+      allow create: if ${condition};
+    }`)
+  .join('\n');
+
 export const scenario: ScenarioRecord = {
   fm: 'Item 2',
   rationale: 'Wrapper binaryOp must produce typed results for Timestamp/Duration cross-type ops; numeric coercion would silently lose type identity and (post-Risk 2 guard) silently DENY.',
@@ -147,6 +193,7 @@ service cloud.firestore {
         && timestamp.value(0) + duration.value(60, 's') == timestamp.value(0);
     }
 ${plusOperandBlocks}
+${equalityIdentityBlocks}
   }
 }`,
   cases: [
@@ -214,6 +261,14 @@ ${plusOperandBlocks}
       auth: { uid: 'alice' },
       data: { a: ['a', 'b'], b: ['c', 'd'], s: 'ab', n: 3, m: { k: 'v' } },
       ...(requestTime === undefined ? {} : { requestTime }),
+    })),
+    ...equalityIdentityCases.map(([description, , expectation], index) => ({
+      description: `equalityIdentity: ${description}`,
+      expectation,
+      method: 'create' as const,
+      path: `equalityIdentity/${index}/d1`,
+      auth: { uid: 'alice' },
+      data: { n: 1, f: 1.5 },
     })),
   ],
   group: 'stress',
