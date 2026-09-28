@@ -133,7 +133,7 @@ describe('costDrift', () => {
 
 describe('stdlib cost records', () => {
   it('covers every module', () => {
-    expect(modules.length).toBe(19);
+    expect(modules.length).toBe(20);
   });
 
   for (const mod of modules) {

@@ -706,6 +706,48 @@ const STATE_MODULE: StdlibModuleDefinition = {
   relatedKeys: ['turns', 'lifecycle', 'transitions'],
 };
 
+const RESULTS_MODULE: StdlibModuleDefinition = {
+  key: 'results',
+  kind: 'user-module',
+  description:
+    'User-authored module: how a two-player game ends (resignedBy, finishedWithWinner, resultUnchanged). Imports onlyFieldsChanged and immutableFields from lifecycle, statusIs and newStatusIs from transitions.',
+  purpose:
+    "Result writes on docs with `host`, `guest`, `status` and `winner` fields. `status` is 'playing' while in play and names how the game ended once finished: 'won' with the winning seat in `winner`, 'draw' with `winner` '', or 'resigned' with the other seat in `winner`. There is no separate reason field.",
+  whenToUse:
+    'Reach for `results` on the update rule of a turn-based game: resignedBy for the resign button, finishedWithWinner for a write that only records the result, and resultUnchanged on every other update so a move cannot rewrite the result.',
+  entries: [
+    {
+      signature: 'resignedBy(seat: string): bool',
+      cost: { min: 10, max: 72 },
+      reads: 0,
+      description:
+        "The caller holds `seat` ('host' or 'guest'), status goes from 'playing' to 'resigned', `winner` is the other seat, and only status and winner change.",
+      examples: [
+        `allow update: if resignedBy(request.auth.uid == resource.data.host ? 'host' : 'guest');`,
+      ],
+    },
+    {
+      signature: 'finishedWithWinner(winner: string, reason: string): bool',
+      cost: { min: 14, max: 61 },
+      reads: 0,
+      description:
+        "Status goes from 'playing' to `reason`, 'won' or 'draw'; `winner` is 'host' or 'guest' for 'won' and '' for 'draw'; only status and winner change.",
+      examples: [
+        `allow update: if finishedWithWinner('host', 'won') || finishedWithWinner('', 'draw');`,
+      ],
+      notes:
+        'The caller is not checked: compose it with the rule that decides who may record a result. Resignations go through resignedBy.',
+    },
+    {
+      signature: 'resultUnchanged(): bool',
+      cost: { min: 14, max: 14 },
+      reads: 0,
+      description: 'Status and winner are unchanged by the write.',
+    },
+  ],
+  relatedKeys: ['state', 'turns', 'lobby', 'lifecycle', 'transitions'],
+};
+
 const MEMBERSHIP_MODULE: StdlibModuleDefinition = {
   key: 'membership',
   kind: 'user-module',
@@ -1233,6 +1275,7 @@ export const STDLIB_MODULES: ReadonlyArray<StdlibModule> = [
   LOBBY_MODULE,
   TURNS_MODULE,
   STATE_MODULE,
+  RESULTS_MODULE,
   MEMBERSHIP_MODULE,
   LIFECYCLE_MODULE,
   TRANSITIONS_MODULE,

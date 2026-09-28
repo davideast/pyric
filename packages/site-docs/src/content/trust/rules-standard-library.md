@@ -28,6 +28,7 @@ shown in each row's **Verified** column.
 | [lobby](#lobby) | Firestore | Self-contained | — | Simulator |
 | [turns](#turns) | Firestore | Self-contained | — | Simulator |
 | [state](#state) | Firestore | Self-contained | — | Simulator |
+| [results](#results) | Firestore | Imports modules | — | Simulator + Rules Test API replay |
 | [membership](#membership) | Firestore + Storage | Self-contained | — | Firestore + Storage production |
 | [storage/uploads](#storageuploads) | Storage | Self-contained | — | Storage evaluator + production oracle |
 | [storage/metadata](#storagemetadata) | Storage | Self-contained | — | Storage evaluator + production oracle |
@@ -47,6 +48,7 @@ shown in each row's **Verified** column.
 
 - **Self-contained**: Only references `request`, `resource`, `request.auth`. No user-defined functions needed.
 - **Explicit param**: Requires caller to pass data (e.g., config doc result) as a function parameter. No implicit dependencies.
+- **Imports modules**: Calls functions from other bundled modules. The resolver inlines them, so you import only the module you use.
 
 ## Modules
 
@@ -112,6 +114,23 @@ Game state tracking.
 | `participantsUnchanged()` | — | bool | host and guest fields unchanged |
 
 File: `state.rules` | Tests: `state.test.json`
+
+### results
+
+How a two-player game ends, and that other writes leave the result alone.
+
+| Function | Params | Returns | Description |
+|----------|--------|---------|-------------|
+| `resignedBy(seat)` | seat: 'host' or 'guest' | bool | The caller holds the seat, status goes from 'playing' to 'resigned', the other seat wins, only status and winner change |
+| `finishedWithWinner(winner, reason)` | winner: 'host', 'guest' or ''; reason: 'won' or 'draw' | bool | Status goes from 'playing' to the reason, winner is a seat for 'won' and '' for 'draw', only status and winner change |
+| `resultUnchanged()` | — | bool | Status and winner unchanged |
+
+Convention: uses `host`/`guest`/`status`/`winner` fields on document. The status names how the game ended ('won', 'draw' or 'resigned'), so there is no separate reason field. `finishedWithWinner` does not check the caller; compose it with the rule that decides who may record a result.
+
+Imports `onlyFieldsChanged` and `immutableFields` from `lifecycle`, `statusIs` and `newStatusIs` from `transitions`.
+
+File: `results.rules` | Tests: `results.test.json`
+Every case replayed through the Rules Test API with the same decision.
 
 ### membership
 
