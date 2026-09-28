@@ -20,8 +20,8 @@ describe('generated conformance scoreboard', () => {
     expect(rulesRow).toContain('>Realtime Database Rules<');
     expect(rulesRow).toContain('<span class="compat-score-pct">97.9%</span>');
     expect(rulesRow).toContain('137 of 140 rules-language constructs verified');
-    expect(rulesRow).toContain('<span class="compat-score-pct">97.5%</span>');
-    expect(rulesRow).toContain('77 of 79 rules-language constructs verified');
+    expect(rulesRow).toContain('<span class="compat-score-pct">97.6%</span>');
+    expect(rulesRow).toContain('83 of 85 rules-language constructs verified');
     expect(rulesRow).toContain('<span class="compat-score-pct">100%</span>');
     expect(rulesRow).toContain('56 of 56 rules-language constructs verified');
     expect(rulesRow).not.toContain('Gathering metrics');

@@ -1,14 +1,14 @@
 {
   "schema": "pyric.conformance.storage-rules-acceptance-evidence.v1",
   "generatedNote": "Committed production acceptance evidence for Storage Security Rules captured over Google Cloud Rules Test API.",
-  "capturedAt": "2026-09-28T00:37:41.683Z",
+  "capturedAt": "2026-09-28T04:25:23.234Z",
   "projectId": "digame-mas",
   "engine": "storage",
-  "total": 79,
-  "accepted": 78,
+  "total": 85,
+  "accepted": 84,
   "rejected": 1,
   "unprobeable": 0,
-  "evaluationAgree": 78,
+  "evaluationAgree": 84,
   "evaluationDisagree": 0,
   "constructs": [
     {
@@ -561,6 +561,84 @@
       "probeDigest": {
         "algorithm": "sha256",
         "value": "b43c5b69dd0fad7a4cfd74193df9fcc61908fcfbc11a2d7dcb9273d03ebae9aa"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.list.toSet",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "c7586b72164936090344196b43fdf657d88b549dd856b0c01a078babe0839cbc"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.list.join",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "351f6eeef58c3946c203b725eeddff2c6e7268386296e990331f4652c01792b5"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.list.hasAny",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "a58f953035d51bb5a2acc58745ffed1bb17f081e50578c6aae90f234c665dc7e"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.list.hasOnly",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "aa94b9ad792557fb321b8c2af4a7a1a992e464c1f113f25d6bc89a52a8cc48c9"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.list.concat",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "622db83e47d5d13b8dfbde6502a53322625dd9e45f5b5917910c5eef0810e494"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.list.removeAll",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "9e43defd9f151200282a694901b1f4ef8e7b7190b56391d64dcf7149fb7abb25"
       },
       "evaluationAgreement": true,
       "evaluationDetail": "expected ALLOW, got ALLOW",

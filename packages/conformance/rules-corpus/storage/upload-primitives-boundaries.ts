@@ -7,8 +7,80 @@
  * `keys-*` matches show custom-metadata `keys()` returns a List: `is list`
  * holds, `is set` is false, and `toSet()`, `hasAll()`, `hasAny()`,
  * `hasOnly()`, `size()`, `[0]` and `join()` evaluate on it.
+ *
+ * The `list-*` matches cover each List method on the keys() List and on
+ * List literals: `toSet()`, `join()`, `hasAll()`, `hasAny()`,
+ * `hasOnly()`, `concat()` and `removeAll()`, each with a value case, a
+ * `!=` witness and error cases. An error case negates a comparison that is
+ * false when the call succeeds, so ALLOW would show a value and DENY shows
+ * the error. A List receiver takes only a List argument, where a Set
+ * argument is an error; a Set receiver's `hasAny()` and `hasOnly()`
+ * take either. `join()` converts each element as `string()` does.
  */
 import type { StorageScenarioRecord } from './types.ts';
+
+/** One List-method case: description, allow condition, production verdict. */
+type ListMethodCase = readonly [description: string, condition: string, expectation: 'ALLOW' | 'DENY'];
+
+const LIST_METHOD_CASES: readonly ListMethodCase[] = [
+  ['toSet: keys().toSet() equals a Set literal in another order', "request.resource.metadata.keys().toSet() == ['b', 'a'].toSet()", 'ALLOW'],
+  ['toSet: a List literal with a duplicate equals the distinct Set', "['a', 'a', 'b'].toSet() == ['b', 'a'].toSet()", 'ALLOW'],
+  ['toSet: != a smaller Set is true', "request.resource.metadata.keys().toSet() != ['a'].toSet()", 'ALLOW'],
+  ['toSet: != the same Set is false', "['a'].toSet() != ['a', 'a'].toSet()", 'DENY'],
+  ['toSet: a Set receiver is an error', "!(['a'].toSet().toSet() == ['z'].toSet())", 'DENY'],
+  ['toSet: a Map receiver is an error', "!(request.resource.metadata.toSet() == ['z'].toSet())", 'DENY'],
+  ['toSet: an argument is an error', "!(['a'].toSet(1) == ['z'].toSet())", 'DENY'],
+  ['join: keys().join() joins the keys', "request.resource.metadata.keys().join(',') == 'a,b'", 'ALLOW'],
+  ['join: a List literal joins with the separator', "['a', 'b'].join('-') == 'a-b'", 'ALLOW'],
+  ['join: != another string is true', "request.resource.metadata.keys().join(',') != 'a'", 'ALLOW'],
+  ['join: an empty List joins to the empty string', "[].join(',') == ''", 'ALLOW'],
+  ['join: int, bool and null elements convert as string() does', "['a', 1, true, null].join('|') == 'a|1|true|null'", 'ALLOW'],
+  ['join: float elements convert as string() does', "[2.0, -0.5].join(',') == '2.0,-0.5'", 'ALLOW'],
+  ['join: a List element is an error', "!([['a']].join(',') == 'z')", 'DENY'],
+  ['join: an int separator is an error', "!(['a', 'b'].join(1) == 'z')", 'DENY'],
+  ['join: no separator is an error', "!(['a', 'b'].join() == 'z')", 'DENY'],
+  ['join: a Set receiver is an error', "!(['a'].toSet().join(',') == 'z')", 'DENY'],
+  ['hasAll: a Set argument to a List receiver is an error', "!(['a', 'b'].hasAll(['z'].toSet()))", 'DENY'],
+  ['hasAny: keys().hasAny() with one shared key', "request.resource.metadata.keys().hasAny(['z', 'b'])", 'ALLOW'],
+  ['hasAny: a List literal with one shared element', "['a', 'b'].hasAny(['b'])", 'ALLOW'],
+  ['hasAny: != true with no shared key', "request.resource.metadata.keys().hasAny(['z']) != true", 'ALLOW'],
+  ['hasAny: an empty argument is false', "!['a'].hasAny([])", 'ALLOW'],
+  ['hasAny: a Set receiver takes a Set argument', "request.resource.metadata.keys().toSet().hasAny(['b'].toSet())", 'ALLOW'],
+  ['hasAny: a Set argument to a List receiver is an error', "!(['a', 'b'].hasAny(['z'].toSet()))", 'DENY'],
+  ['hasAny: a string argument is an error', "!(['a', 'b'].hasAny('z'))", 'DENY'],
+  ['hasAny: a Map receiver is an error', "!(request.resource.metadata.hasAny(['z']))", 'DENY'],
+  ['hasOnly: keys().hasOnly() is false for a missing key', "!request.resource.metadata.keys().hasOnly(['a'])", 'ALLOW'],
+  ['hasOnly: a List literal with a duplicate', "['a', 'a'].hasOnly(['a'])", 'ALLOW'],
+  ['hasOnly: != true for a missing key', "request.resource.metadata.keys().hasOnly(['a']) != true", 'ALLOW'],
+  ['hasOnly: an empty receiver is true', '[].hasOnly([])', 'ALLOW'],
+  ['hasOnly: a Set receiver takes a Set argument', "request.resource.metadata.keys().toSet().hasOnly(['a', 'b'].toSet())", 'ALLOW'],
+  ['hasOnly: a Set argument to a List receiver is an error', "!(['a', 'b'].hasOnly(['z'].toSet()))", 'DENY'],
+  ['hasOnly: a string argument is an error', "!(['a'].hasOnly('z'))", 'DENY'],
+  ['concat: keys().concat() appends the argument', "request.resource.metadata.keys().concat(['c']) == ['a', 'b', 'c']", 'ALLOW'],
+  ['concat: a List literal keeps duplicates in order', "['x'].concat(['y', 'x']) == ['x', 'y', 'x']", 'ALLOW'],
+  ['concat: != the receiver is true', "request.resource.metadata.keys().concat(['c']) != ['a', 'b']", 'ALLOW'],
+  ['concat: keys() with itself has four elements', 'request.resource.metadata.keys().concat(request.resource.metadata.keys()).size() == 4', 'ALLOW'],
+  ['concat: two empty Lists', '[].concat([]) == []', 'ALLOW'],
+  ['concat: a string argument is an error', "!(['a'].concat('b') == ['z'])", 'DENY'],
+  ['concat: a Set argument is an error', "!(['a'].concat(['b'].toSet()) == ['z'])", 'DENY'],
+  ['concat: a Set receiver is an error', "!(['a'].toSet().concat(['b']) == ['z'])", 'DENY'],
+  ['concat: a string receiver is an error', "!('a'.concat('b') == 'z')", 'DENY'],
+  ['concat: no argument is an error', "!(['a'].concat() == ['z'])", 'DENY'],
+  ['removeAll: keys().removeAll() drops the listed key', "request.resource.metadata.keys().removeAll(['a']) == ['b']", 'ALLOW'],
+  ['removeAll: a List literal drops every occurrence', "['a', 'b', 'a', 'c'].removeAll(['a', 'c']) == ['b']", 'ALLOW'],
+  ['removeAll: != the receiver is true', "request.resource.metadata.keys().removeAll(['a']) != ['a', 'b']", 'ALLOW'],
+  ['removeAll: an absent element leaves the List unchanged', "['a', 'b'].removeAll(['z']) == ['a', 'b']", 'ALLOW'],
+  ['removeAll: List, Map and null elements compare by value', "[['a'], {'k': 'v'}, null].removeAll([['a'], null]) == [{'k': 'v'}]", 'ALLOW'],
+  ['removeAll: a string argument is an error', "!(['a'].removeAll('a') == ['z'])", 'DENY'],
+  ['removeAll: a Set argument is an error', "!(['a', 'b'].removeAll(['a'].toSet()) == ['z'])", 'DENY'],
+  ['removeAll: a Set receiver is an error', "!(['a'].toSet().removeAll(['a']) == ['z'].toSet())", 'DENY'],
+  ['removeAll: a Map receiver is an error', "!(request.resource.metadata.removeAll(['a']) == ['z'])", 'DENY'],
+];
+
+const listMethodMatches = LIST_METHOD_CASES.map(([, condition], index) =>
+  `    match /list-${index}/{fileName} {
+      allow create: if ${condition};
+    }`).join('\n');
 
 export const scenario: StorageScenarioRecord = {
   fm: 'STORAGE-P2-PRIMITIVES',
@@ -101,6 +173,8 @@ service firebase.storage {
     match /keys-to-set-size/{fileName} {
       allow create: if request.resource.metadata.keys().toSet().size() == 2;
     }
+    // List methods on keys() and on List literals
+${listMethodMatches}
   }
 }`,
   cases: [
@@ -148,5 +222,12 @@ service firebase.storage {
     { description: 'keys: keys() is set is false', expectation: 'DENY', method: 'create', path: 'keys-is-set/a.bin', resource: { size: 1, metadata: { a: 'x', b: 'y' } } },
     { description: 'keys: !(keys() is set)', expectation: 'ALLOW', method: 'create', path: 'keys-is-not-set/a.bin', resource: { size: 1, metadata: { a: 'x', b: 'y' } } },
     { description: 'keys: toSet().size()', expectation: 'ALLOW', method: 'create', path: 'keys-to-set-size/a.bin', resource: { size: 1, metadata: { a: 'x', b: 'y' } } },
+    ...LIST_METHOD_CASES.map(([description, , expectation], index) => ({
+      description: `list: ${description}`,
+      expectation,
+      method: 'create' as const,
+      path: `list-${index}/a.bin`,
+      resource: { size: 1, metadata: { a: 'x', b: 'y' } },
+    })),
   ],
 };
