@@ -143,6 +143,26 @@ These are the Firestore-compatible modules used by this guide. The [complete ref
 
 The game-oriented modules assume the field conventions documented by their function descriptions. Prefer the general modules for application data unless your schema matches those conventions.
 
+## Count what each call costs
+
+Production stops evaluating a request when it reaches 1000 expressions and denies it. Every library function states its share of that budget in the comment above it:
+```rules
+// cost 10 to 57 expressions per call
+export function validJoin() {
+```
+Read the numbers this way:
+
+- The range runs from the cheapest measured path to the most expensive one. `validJoin` costs 10 when the request is unauthenticated and fails at its first check, and 57 when every check runs.
+- The cost covers the call, its `let` bindings, and its body. The arguments you pass are extra and cost what they cost wherever you write them.
+- The cost is per call. Calls are not memoized, so calling `isOwner` three times in one rule costs three times as much, and a `let` inside a function is paid again on every call.
+- A function that reads other documents also states `reads <n>`: the `get()` and `exists()` calls one call can make. Those count against the separate limit on document reads.
+
+The update rule at the top of this guide calls `isAuthor` (6 to 15), `onlyFieldsChanged` (10), `cooldownElapsed` (12), and `isServerTimestamp` (9), so it evaluates at most 46 expressions for those calls plus the `&&` operators and arguments between them.
+
+The numbers are measured, not estimated. Each function is wrapped in a single-rule ruleset, evaluated through the Firebase Rules test endpoint with the requests from its test cases, and padded with an always-false rule of known cost until the request reaches the limit. The smallest padding that reaches it gives the exact count. The module test files hold the same numbers, and the library's tests fail when the comment, the test file, or the linter's static estimate disagree with them.
+
+When you lint a resolved ruleset, each rule that calls the library gets an informational `EXPRESSION_LIBRARY_CALLS` finding. It lists the rule's three most expensive library calls with their cost per call and how many calls the rule makes.
+
 ## Look up exact signatures through an agent
 
 Do not ask an agent to guess a helper name. Ask it to inspect the library first:

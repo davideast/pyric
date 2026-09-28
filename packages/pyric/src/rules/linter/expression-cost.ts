@@ -9,7 +9,8 @@
  *
  *  - Every evaluated expression node costs 1: identifiers, literals, member,
  *    index and slice access, method and function calls, comparisons,
- *    arithmetic, `!`, `in`, `is`, and list and map literals.
+ *    arithmetic, `!`, `in`, and list and map literals. `is` costs 2: the
+ *    type name after it counts as one expression.
  *  - `&&` and `||` cost 1, plus 1 when they go on to evaluate their right
  *    operand. A short-circuited operand costs nothing.
  *  - A ternary costs 2 plus its condition and the branch it takes.
@@ -215,7 +216,8 @@ class Estimator {
         return 1 + this.any(expr.element, facts) + this.any(expr.collection, facts);
       }
       case 'isExpr':
-        return 1 + this.any(expr.value, facts);
+        // The type name counts as an expression: `x is string` costs 2 plus x.
+        return 2 + this.any(expr.value, facts);
       case 'listLiteral':
         return 1 + sum(expr.elements.map((e) => this.any(e, facts)));
       case 'mapLiteral':
@@ -443,4 +445,73 @@ function gateAssignments(est: Estimator, rules: readonly AllowRule[]): Facts[] {
 
 function firstConjunct(expr: Expression): Expression {
   return expr.type === 'binaryOp' && expr.op === '&&' ? firstConjunct(expr.left) : expr;
+}
+
+export interface RuleFunctionCalls {
+  /** Index in `collectAllRules` order, the same as `RuleCostEstimate.ruleIndex`. */
+  ruleIndex: number;
+  matchPath: string;
+  blockPath: string;
+  line?: number;
+  /** Every user function the walk reaches from the rule, with the number of
+   *  calls made to it. Calls are not memoized, so a function reached through
+   *  two callers is called twice. */
+  calls: { fn: FunctionDef; count: number }[];
+}
+
+/**
+ * The user function calls each allow rule makes, found by the walk the cost
+ * estimate takes: through every argument, `let` value and body of every called
+ * function in the rule's scope, to the estimator's depth cap. A count covers
+ * the whole condition, not one evaluation path.
+ */
+export function countRuleFunctionCalls(ast: FirestoreRules): RuleFunctionCalls[] {
+  const out: RuleFunctionCalls[] = [];
+  let ruleIndex = 0;
+  for (const { block, path, fns } of walkBlocks(ast)) {
+    for (const rule of block.allows) {
+      const counts = new Map<FunctionDef, number>();
+      const visit = (expr: Expression, depth: number): void => {
+        if (expr.type === 'functionCall') {
+          const fn = fns.get(expr.name);
+          if (fn) {
+            counts.set(fn, (counts.get(fn) ?? 0) + 1);
+            if (depth < 20) {
+              for (const binding of fn.lets) visit(binding.value, depth + 1);
+              visit(fn.body, depth + 1);
+            }
+          }
+        }
+        for (const child of childExpressions(expr)) visit(child, depth);
+      };
+      visit(rule.condition, 0);
+      out.push({
+        ruleIndex: ruleIndex++,
+        matchPath: path,
+        blockPath: block.path.raw,
+        ...(rule.loc?.line !== undefined ? { line: rule.loc.line } : {}),
+        calls: [...counts].map(([fn, count]) => ({ fn, count })),
+      });
+    }
+  }
+  return out;
+}
+
+function childExpressions(expr: Expression): Expression[] {
+  switch (expr.type) {
+    case 'binaryOp': return [expr.left, expr.right];
+    case 'unaryOp': return [expr.operand];
+    case 'ternary': return [expr.condition, expr.consequent, expr.alternate];
+    case 'memberAccess': return [expr.object];
+    case 'methodCall': return [expr.object, ...expr.args];
+    case 'bracketAccess': return [expr.object, expr.index];
+    case 'sliceAccess': return [expr.object, expr.start, expr.end].filter((e): e is Expression => Boolean(e));
+    case 'inExpr': return [expr.element, expr.collection];
+    case 'isExpr': return [expr.value];
+    case 'listLiteral': return expr.elements;
+    case 'mapLiteral': return expr.entries.flatMap((e) => [e.key, e.value]);
+    case 'pathLiteral': return expr.segments.filter((s): s is Expression => typeof s !== 'string');
+    case 'functionCall': return expr.args;
+    default: return [];
+  }
 }

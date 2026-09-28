@@ -44,6 +44,7 @@ import {
 } from '../../../src/rules/simulator/handler.js';
 import { Timestamp } from '../../../src/rules/simulator/wrappers/timestamp.js';
 import type { TestCase } from '../../../src/rules/test/spec.js';
+import { parseStdlibTestFile } from '../../../src/rules/modules/stdlib-cost.js';
 
 const STDLIB_DIR = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -126,9 +127,10 @@ const handler = new SimulateFirestoreRulesHandler();
 
 for (const file of fixtureFiles) {
   const moduleName = file.replace(/\.test\.json$/, '');
-  const cases = JSON.parse(
+  const { cases } = parseStdlibTestFile<WrapCase>(
     readFileSync(join(STDLIB_DIR, file), 'utf8'),
-  ) as WrapCase[];
+    file,
+  );
 
   describe(`stdlib semantics: ${moduleName}`, () => {
     for (const c of cases) {

@@ -38,13 +38,36 @@ function importLineFor(module: (typeof STDLIB_MODULES)[number]): string | undefi
     : undefined;
 }
 
+/**
+ * The list-response row for a module. A user module also lists its functions
+ * with their measured cost per call, so an agent can compare what a call
+ * spends of the 1000-expression request limit before it imports one.
+ */
+function listEntry(module: (typeof STDLIB_MODULES)[number]) {
+  return {
+    key: module.key,
+    kind: module.kind,
+    services: module.services,
+    description: module.description,
+    ...(module.kind === 'user-module'
+      ? {
+          functions: module.entries.map((entry) => ({
+            name: entry.signature.slice(0, entry.signature.indexOf('(')),
+            cost: entry.cost,
+            reads: entry.reads,
+          })),
+        }
+      : {}),
+  };
+}
+
 export function createFirestoreRulesStdlibTools(): ToolHandler[] {
   const firestoreModules = modulesForService('firestore');
   return [
     {
       name: 'firestore_rules_stdlib_list',
       description:
-        "List every Firestore Rules stdlib module as { key, kind, description }. Returns ~20 entries covering language namespaces (math, timestamp, duration, latlng, hashing), built-in type methods (string, list, map, bytes, path), the request/resource/builtins globals, and user-authored library modules (auth, validation, lobby, etc.) the project can import. Call this BEFORE writing rules — pick the relevant key(s) from the result, then call firestore_rules_stdlib_get for full signatures + examples. Cheap (~1.5KB) so calling once per session is the right default. Skipping this and inventing a function name fails rules compile.",
+        "List every Firestore Rules stdlib module as { key, kind, description }. Returns ~20 entries covering language namespaces (math, timestamp, duration, latlng, hashing), built-in type methods (string, list, map, bytes, path), the request/resource/builtins globals, and user-authored library modules (auth, validation, lobby, etc.) the project can import. Call this BEFORE writing rules — pick the relevant key(s) from the result, then call firestore_rules_stdlib_get for full signatures + examples. User modules also list each function with its measured cost per call. About 9 KB, so calling once per session is the right default. Skipping this and inventing a function name fails rules compile.",
       parameters: {
         type: 'object',
         properties: {},
@@ -56,12 +79,9 @@ export function createFirestoreRulesStdlibTools(): ToolHandler[] {
           data: {
             authoring:
               "user-module entries are IMPORTED, never copied: start the rules file with rules_version = '2+modules'; add one `import { fn } from 'key';` line per module; call the functions in allow conditions. write_file inlines imports on save.",
-            modules: firestoreModules.map((m) => ({
-              key: m.key,
-              kind: m.kind,
-              services: m.services,
-              description: m.description,
-            })),
+            costs:
+              "functions[].cost is production expressions per call (cheapest to most expensive measured path), not counting arguments. Calls are not memoized. A request stops at 1000.",
+            modules: firestoreModules.map(listEntry),
           },
         };
       },
@@ -238,12 +258,9 @@ export function createFirestoreRulesStdlibTools(): ToolHandler[] {
           data: {
             authoring:
               "Import user-module functions from a rules_version = '2+modules' source. Keep firestore.modules.rules or storage.modules.rules as the authored source and resolve it to the deployment artifact. Never copy module bodies.",
-            modules: modules.map((module) => ({
-              key: module.key,
-              kind: module.kind,
-              services: module.services,
-              description: module.description,
-            })),
+            costs:
+              "functions[].cost is production expressions per call (cheapest to most expensive measured path), not counting arguments. Calls are not memoized. A request stops at 1000.",
+            modules: modules.map(listEntry),
           },
         };
       },

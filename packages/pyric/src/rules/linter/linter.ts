@@ -25,12 +25,14 @@ import {
 import { checkSyntaxHints, checkHallucinations } from './hallucinations.js';
 import { countDocumentAccessCalls } from '../grammar/document-access-count.js';
 import { EXPRESSION_LIMIT, estimateExpressionCosts, type RuleCostEstimate } from './expression-cost.js';
+import { ruleLibraryCalls } from './library-calls.js';
 
 // ═══ Types ═══
 
 export interface LintWarning {
   rule: string;
-  severity: 'warning' | 'error';
+  /** `info` findings report, and never block a write or a deploy. */
+  severity: 'info' | 'warning' | 'error';
   message: string;
   location?: {
     functionName?: string;
@@ -217,6 +219,29 @@ function checkExpressionBudget(estimates: RuleCostEstimate[], warnings: LintWarn
       message: `Rule #${estimate.ruleIndex} in '${estimate.blockPath}' can evaluate up to ~${estimate.grantCost} expressions for a request it grants, counting the earlier rules that deny it first. Production denies a request that reaches ${EXPRESSION_LIMIT}.`,
       location: { ruleIndex: estimate.ruleIndex, matchPath: estimate.blockPath },
       fix: 'Put a cheap discriminator first in each rule so earlier rules fail at their gate, split expensive checks so a request evaluates only the branch it needs, or move lookup work into documents.',
+    });
+  }
+}
+
+/**
+ * EXPRESSION_LIBRARY_CALLS: for each allow rule that calls the standard
+ * library, the three calls it spends most on, with the measured production
+ * cost per call and the number of calls the rule makes. Informational: it
+ * explains where a rule's expression budget goes, and EXPRESSION_BUDGET
+ * decides whether the total is a problem.
+ */
+function checkLibraryCalls(ast: FirestoreRules, warnings: LintWarning[]) {
+  for (const rule of ruleLibraryCalls(ast)) {
+    const top = rule.calls.slice(0, 3).map((c) => {
+      const range = c.cost.min === c.cost.max ? `${c.cost.max}` : `${c.cost.min} to ${c.cost.max}`;
+      const reads = c.reads > 0 ? `, ${c.reads} read${c.reads === 1 ? '' : 's'} per call` : '';
+      return `${c.name} (${c.module}): ${c.count} call${c.count === 1 ? '' : 's'}, ${range} expressions per call${reads}`;
+    });
+    warnings.push({
+      rule: 'EXPRESSION_LIBRARY_CALLS',
+      severity: 'info',
+      message: `Rule #${rule.ruleIndex} in '${rule.blockPath}' spends most on these library calls: ${top.join('; ')}. Calls are not memoized: each call pays again.`,
+      location: { ruleIndex: rule.ruleIndex, matchPath: rule.blockPath },
     });
   }
 }
@@ -766,6 +791,9 @@ export function lintFirestoreRules(source: string, options: LintOptions = {}): L
   // Rule 5: Expression budget
   const costEstimates = estimateExpressionCosts(ast);
   checkExpressionBudget(costEstimates.rules, warnings);
+
+  // Rule 5.5: The most expensive standard library calls in each rule
+  checkLibraryCalls(ast, warnings);
 
   // Rule 6: Call depth
   checkCallDepth(allRules, allFunctions, warnings);

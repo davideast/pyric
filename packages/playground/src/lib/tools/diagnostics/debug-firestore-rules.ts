@@ -191,7 +191,10 @@ export function buildDebugFirestoreRulesHandler(): ToolHandler<FullArgs, DebugFi
       // ruleIndex / matchPath / testCaseDescription), not source line
       // numbers. Pass them through verbatim so the agent can scope the
       // finding to a rule without having to re-parse.
-      const lintFindings = lintResult.warnings.map(w => ({
+      // Informational findings describe cost, not a pitfall behind a denial.
+      const lintFindings = lintResult.warnings
+        .filter((w): w is typeof w & { severity: 'error' | 'warning' } => w.severity !== 'info')
+        .map(w => ({
         message: w.message,
         severity: w.severity,
         ruleIndex: w.location?.ruleIndex,

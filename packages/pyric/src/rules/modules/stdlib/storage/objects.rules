@@ -1,16 +1,23 @@
 // @pyric-services firebase.storage
 // @pyric-evidence storage-rules#132
+// Costs are production expressions per call, not counting arguments. Calls
+// are not memoized: every call pays its full cost again, and a let inside a
+// function is paid on every call.
+//
 // Storage operation identity. Use request.method rather than null checks:
 // production treats missing resource/request.resource bindings as errors.
 
+// cost 5 to 5 expressions per call
 export function isCreate() {
   return request.method == 'create';
 }
 
+// cost 5 to 5 expressions per call
 export function isUpdate() {
   return request.method == 'update';
 }
 
+// cost 5 to 5 expressions per call
 export function isDelete() {
   return request.method == 'delete';
 }
