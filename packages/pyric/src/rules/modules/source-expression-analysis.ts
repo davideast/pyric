@@ -2,6 +2,7 @@ import type { Expression, FunctionDef } from '../grammar/FirestoreAST.js';
 import { FIRESTORE_NAMESPACE_METHODS, STORAGE_NAMESPACE_METHODS } from './rules-capabilities.generated.js';
 import { ambientReceiverType, methodReturnType, type RulesReceiverType } from './receiver-types.js';
 import type { RulesServiceName } from './stdlib-service-compatibility.js';
+import { bindingHasFixedFields } from './service-bindings.js';
 
 export type SourceProvenance = string[] | 'unknown-ambient' | null;
 export type InferredReceiverType = RulesReceiverType | 'mixed';
@@ -35,13 +36,23 @@ const STORAGE_NAMESPACES: Readonly<Record<string, ReadonlySet<string>>> = Object
   Object.entries(STORAGE_NAMESPACE_METHODS).map(([namespace, methods]) => [namespace, new Set(methods)]),
 );
 
+// A computed value is data unless it may be a binding with a fixed field set.
+// Each operand's own bindings are checked where the operand appears.
+function derivedFromProvenances(
+  provenances: readonly SourceProvenance[],
+  ctx: SourceExpressionContext,
+): SourceProvenance {
+  return provenances.some((provenance) => provenance === 'unknown-ambient' ||
+    (provenance !== null && bindingHasFixedFields(ctx.service, provenance)))
+    ? 'unknown-ambient'
+    : null;
+}
+
 function derivedProvenance(
   expressions: readonly Expression[],
   ctx: SourceExpressionContext,
 ): SourceProvenance {
-  return expressions.some((expression) => sourceProvenance(expression, ctx) !== null)
-    ? 'unknown-ambient'
-    : null;
+  return derivedFromProvenances(expressions.map((expression) => sourceProvenance(expression, ctx)), ctx);
 }
 
 function functionContext(
@@ -103,7 +114,7 @@ export function sourceProvenance(
     if (!consequent && !alternate) return null;
     if (Array.isArray(consequent) && Array.isArray(alternate) &&
         consequent.join('.') === alternate.join('.')) return consequent;
-    return 'unknown-ambient';
+    return derivedFromProvenances([consequent, alternate], ctx);
   }
   if (expression.type === 'functionCall') {
     const fn = ctx.functions.get(expression.name);
@@ -113,9 +124,7 @@ export function sourceProvenance(
     // Conversion functions such as string() derive from their arguments.
     if (!fn && FIRESTORE_LOOKUP_FUNCTIONS.has(expression.name)) return null;
     if (!fn || ctx.stack.has(fn.name)) {
-      return arguments_.some(({ provenance }) => provenance !== null)
-        ? 'unknown-ambient'
-        : null;
+      return derivedFromProvenances(arguments_.map(({ provenance }) => provenance), ctx);
     }
     const nested = functionContext(fn, arguments_, ctx);
     for (const binding of fn.lets) {

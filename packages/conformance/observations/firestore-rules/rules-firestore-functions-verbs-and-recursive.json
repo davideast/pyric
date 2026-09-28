@@ -5,12 +5,12 @@
     "firestore-rules#182"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"functions-verbs-and-recursive\" (Coverage: functions/let, granular verbs, ternary, recursive wildcard, methods on untyped receivers). Production must accept function declarations with let bindings, allow get/list/update/write verbs, the ternary operator, and a recursive {document=**} match, and must compile method calls on receivers whose type is known only at evaluation.",
-  "observedAt": "2026-09-26T20:28:15.680Z",
+  "observedAt": "2026-09-28T00:23:15.917Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "f322e5c29b075b5782d61a042230f029ab651f6854966f9c595e09b30206e747"
+    "value": "d3ada4f598649ad5b7f00598dc22d7276fe7be41d7090adab7a4913a7296a58e"
   },
   "behavior": {
     "signed-in get ALLOW": "ALLOW",
@@ -32,7 +32,12 @@
     "ternary map branch size() ALLOW": "ALLOW",
     "ternary string branch size() ALLOW": "ALLOW",
     "ternary map branch keys() ALLOW": "ALLOW",
-    "ternary string branch keys() DENY (string has no keys())": "DENY"
+    "ternary string branch keys() DENY (string has no keys())": "DENY",
+    "key outside the diff of two request maps ALLOW": "ALLOW",
+    "split element of a request string has one part ALLOW": "ALLOW",
+    "split element of a request string has two parts DENY": "DENY",
+    "literal split by a request string has a two-word element ALLOW": "ALLOW",
+    "literal split by a request string has a one-word element DENY": "DENY"
   },
   "diagnostics": {
     "anonymous get DENY": {
@@ -147,15 +152,15 @@
     },
     "ternary string branch keys() DENY (string has no keys())": {
       "notes": [
-        "Error: firestore.rules line [60], column [24]. Function not found error: Name: [keys]."
+        "Error: firestore.rules line [69], column [24]. Function not found error: Name: [keys]."
       ],
       "api": {
         "errorPosition": {
           "fileName": "firestore.rules",
-          "line": 60,
+          "line": 69,
           "column": 24,
-          "currentOffset": 2051,
-          "endOffset": 2051
+          "currentOffset": 2411,
+          "endOffset": 2411
         },
         "functionCalls": [
           {

@@ -480,6 +480,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "functions-verbs-and-recursive",
         "globals-request-path-and-resource-id",
         "required-fields-and-mapdiff",
         "resource-document-identity",
@@ -505,6 +506,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "functions-verbs-and-recursive",
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "resource-missing-document",
@@ -1248,6 +1250,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "functions-verbs-and-recursive",
         "list-and-string-methods"
       ],
       "verifiedByRows": [],
@@ -1579,6 +1582,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "functions-verbs-and-recursive",
         "required-fields-and-mapdiff",
         "set-algebra-difference-union-intersection"
       ],
@@ -1651,6 +1655,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "functions-verbs-and-recursive",
         "required-fields-and-mapdiff",
         "set-algebra-difference-union-intersection"
       ],
@@ -2516,6 +2521,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "bytes-toutf8-and-hashing",
+        "functions-verbs-and-recursive",
         "int-float-and-division",
         "path-constructor-and-bind",
         "prototype-chain-keys",
@@ -2563,6 +2569,7 @@
       "verifiedBy": [
         "bytes-toutf8-and-hashing",
         "common-auth-membership-firestore",
+        "functions-verbs-and-recursive",
         "prototype-chain-keys",
         "set-algebra-difference-union-intersection",
         "undefined-field-access"
@@ -2678,6 +2685,7 @@
       "verifiedBy": [
         "bytes-toutf8-and-hashing",
         "common-auth-membership-firestore",
+        "functions-verbs-and-recursive",
         "list-methods-concat-removeall-toset",
         "path-constructor-and-bind",
         "range-slice-list-and-string"

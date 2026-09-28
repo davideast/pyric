@@ -451,6 +451,15 @@ describe('Firestore Validator', () => {
       expect(findCode(ast, 'QUA-3').length).toBeGreaterThan(0);
     });
 
+    test("reports production's compile error text", () => {
+      const fn1 = makeFunction('helper', [], AUTH_CHECK);
+      const fn2 = makeFunction('helper', ['x'], binOp('==', ident('x'), TRUE));
+      const ast = makeRules([makeMatch('/items/{id}', {
+        allows: [makeAllow(['read'], TRUE)],
+      })], [fn1, fn2]);
+      expect(findCode(ast, 'QUA-3')[0]?.message).toContain('Function helper is already defined.');
+    });
+
     test('does not flag different names', () => {
       const fn1 = makeFunction('isAuth', [], AUTH_CHECK);
       const fn2 = makeFunction('isOwner', ['uid'], binOp('==', AUTH_UID, ident('uid')));

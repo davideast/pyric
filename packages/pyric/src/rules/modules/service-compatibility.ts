@@ -97,14 +97,11 @@ function ambientMethodReceiverIssue(
   service: RulesServiceName,
   ctx: AnalysisContext,
 ): string | null {
-  const provenance = sourceProvenance(object, ctx);
   const receiverType = sourceReceiverType(object, ctx);
   // Production does not type field values when it compiles rules; a method on
   // a value of the wrong type is an evaluation error, which denies. Only a
   // receiver whose type is known is checked against the method's contract.
-  if (!receiverType || receiverType === 'unknown' || receiverType === 'mixed') {
-    return provenance === 'unknown-ambient' ? "binding '<derived ambient receiver>'" : null;
-  }
+  if (!receiverType || receiverType === 'unknown' || receiverType === 'mixed') return null;
   const contracts = service === 'cloud.firestore'
     ? FIRESTORE_METHOD_RECEIVER_TYPES
     : STORAGE_METHOD_RECEIVER_TYPES;

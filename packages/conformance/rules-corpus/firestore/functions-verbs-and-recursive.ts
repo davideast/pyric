@@ -11,6 +11,10 @@
  * request data, or on a ternary whose branches have different types compiles;
  * the runtime value decides, and a method it does not support denies. These
  * are the plain v2 shapes that `2+modules` module functions lower to.
+ *
+ * Values computed from request data compile the same way: membership in the
+ * key set of a diff of two request maps, and a method on an element of a list
+ * that `split()` builds from a request string or from a literal split by one.
  */
 import type { ScenarioRecord } from './types.ts';
 
@@ -41,6 +45,15 @@ service cloud.firestore {
     function boardHasOrigin() {
       let doc = request.resource.data;
       return doc.board.keys().hasAll(['a1']);
+    }
+    function boardKeepsZ() {
+      return !('z' in request.resource.data.board.diff(resource.data.board).affectedKeys());
+    }
+    function headIsOnePart() {
+      return request.resource.data.at.split('_')[0].split('-').size() == 1;
+    }
+    function tailHasTwoWords() {
+      return 'a_b c'.split(request.resource.data.at)[1].split(' ').size() == 2;
     }
     match /docs/{docId} {
       allow get: if isSignedIn();
@@ -78,6 +91,18 @@ service cloud.firestore {
     // a ternary whose string branch does not support keys()
     match /ternaryKeys/{id} {
       allow create: if (request.resource.data.useMap ? {'a': 1} : 'a').keys().size() == 1;
+    }
+    // membership in a set computed from request and resource data
+    match /diffKeys/{id} {
+      allow update: if boardKeepsZ();
+    }
+    // a method on an element of a list split from a request string
+    match /splitHead/{id} {
+      allow create: if headIsOnePart();
+    }
+    // a method on an element of a literal split by a request string
+    match /splitBy/{id} {
+      allow create: if tailHasTwoWords();
     }
   }
 }`,
@@ -250,6 +275,47 @@ service cloud.firestore {
       path: 'ternaryKeys/t2',
       auth: { uid: 'alice' },
       data: { useMap: false },
+    },
+    {
+      description: 'key outside the diff of two request maps ALLOW',
+      expectation: 'ALLOW',
+      method: 'update',
+      path: 'diffKeys/k1',
+      auth: { uid: 'alice' },
+      resource: { board: { k: 1, z: 0 } },
+      data: { board: { k: 2, z: 0 } },
+    },
+    {
+      description: 'split element of a request string has one part ALLOW',
+      expectation: 'ALLOW',
+      method: 'create',
+      path: 'splitHead/s1',
+      auth: { uid: 'alice' },
+      data: { at: 'ab_c' },
+    },
+    {
+      description: 'split element of a request string has two parts DENY',
+      expectation: 'DENY',
+      method: 'create',
+      path: 'splitHead/s2',
+      auth: { uid: 'alice' },
+      data: { at: 'a-b_c' },
+    },
+    {
+      description: 'literal split by a request string has a two-word element ALLOW',
+      expectation: 'ALLOW',
+      method: 'create',
+      path: 'splitBy/s1',
+      auth: { uid: 'alice' },
+      data: { at: '_' },
+    },
+    {
+      description: 'literal split by a request string has a one-word element DENY',
+      expectation: 'DENY',
+      method: 'create',
+      path: 'splitBy/s2',
+      auth: { uid: 'alice' },
+      data: { at: ' ' },
     },
   ],
   group: 'stress',

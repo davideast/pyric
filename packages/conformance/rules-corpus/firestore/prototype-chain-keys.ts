@@ -5,6 +5,12 @@
  * `data.constructor` is a missing-field error. Pre-fix the simulator's
  * `in` walked the JS prototype chain, so `'toString' in data` allowed and
  * `data.constructor` returned the Object constructor.
+ *
+ * The negated membership cases separate an error from false: `in` over null
+ * is `Null value error.`, `in` over a string, int, float or bool is
+ * `Function not found error: Name: [in].`, and a non-string key into a map is
+ * `Unsupported operation error. Received: map.in(int). Expected:
+ * map.in(string).`. Each error denies, so its negation denies too.
  */
 import type { ScenarioRecord } from './types.ts';
 
@@ -37,6 +43,26 @@ service cloud.firestore {
     match /keysOwnOnlyAllow/{id} {
       allow create: if !request.resource.data.keys().hasAny(['toString', 'constructor'])
         && request.resource.data.keys().hasOnly(['name']);
+    }
+    // negated membership over a value that is not a collection → error → DENY
+    match /notInNull/{id} {
+      allow create: if !('a' in request.resource.data.v);
+    }
+    match /notInString/{id} {
+      allow create: if !('a' in request.resource.data.v);
+    }
+    match /notInInt/{id} {
+      allow create: if !('a' in request.resource.data.v);
+    }
+    match /notInFloat/{id} {
+      allow create: if !('a' in request.resource.data.v);
+    }
+    match /notInBool/{id} {
+      allow create: if !('a' in request.resource.data.v);
+    }
+    // negated int key into a map → error → DENY
+    match /intKeyNotInMap/{id} {
+      allow create: if !(1 in request.resource.data.v);
     }
   }
 }`,
@@ -81,6 +107,18 @@ service cloud.firestore {
       auth: { uid: 'alice' },
       data: { name: 'alice' },
     },
+    ...([
+      ["!('a' in null) is a null value error → DENY", 'notInNull', null],
+      ["!('a' in 'abc') is a function not found error → DENY", 'notInString', 'abc'],
+      ["!('a' in 5) is a function not found error → DENY", 'notInInt', 5],
+      ["!('a' in 1.5) is a function not found error → DENY", 'notInFloat', 1.5],
+      ["!('a' in true) is a function not found error → DENY", 'notInBool', true],
+      ["!(1 in {'a': 1}) is an unsupported operation error → DENY", 'intKeyNotInMap', { a: 1 }],
+    ] as const).map(([description, match, v], i) => ({
+      description, expectation: 'DENY' as const, method: 'create' as const,
+      path: `${match}/d${6 + i}`, auth: { uid: 'alice' },
+      data: { v },
+    })),
   ],
   group: 'fix-class',
 };

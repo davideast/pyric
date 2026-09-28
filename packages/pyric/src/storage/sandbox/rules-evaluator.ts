@@ -32,6 +32,7 @@ import { EXPRESSION_LIMIT, ExpressionBudget } from '../../rules/simulator/expres
 import { StoragePath } from './rules-path.js';
 import { ConversionFailure, applyConversion, conversionFor } from '../../rules/simulator/conversions.js';
 import { describeRulesType as describeType, isRulesMap } from '../../rules/simulator/rules-type.js';
+import { sliceBoundsError } from '../../rules/simulator/slice-bounds.js';
 import {
   RuleError,
   isRuleError as isErr,
@@ -376,13 +377,12 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       if (typeof start !== 'number' || typeof end !== 'number' || !Number.isInteger(start) || !Number.isInteger(end)) {
         return new RuleError(`Slice bounds must be integers.`);
       }
-      // Production slices lists AND strings, but an out-of-range bound ERRORS
-      // (deny) — it does NOT clamp the way JS `.slice()` does (live-pinned by
-      // rules-firestore-range-slice-list-and-string: end past length → DENY).
+      // Production slices lists and strings, and an out-of-range bound is an
+      // error, never clamped the way JS `.slice()` does. The bounds are the
+      // Firestore simulator's (`rules/simulator/slice-bounds.ts`).
       if (Array.isArray(t) || typeof t === 'string') {
-        if (start < 0 || end < start || end > t.length) {
-          return new RuleError(`Slice bounds [${start}:${end}] out of range for ${describeType(t)} of size ${t.length}.`);
-        }
+        const boundsError = sliceBoundsError(start, end, t.length);
+        if (boundsError) return new RuleError(boundsError);
         return t.slice(start, end);
       }
       return new RuleError(`Slice applied to ${describeType(t)} (expected a list or string).`);

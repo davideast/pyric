@@ -5,6 +5,10 @@
  * engine already pinned (rules-firestore-range-slice-list-and-string):
  * mid-slices on lists AND strings work, but an out-of-bounds slice END
  * ERRORS (→ DENY) — it does NOT clamp to length the way JS `.slice()` does.
+ *
+ * The bounds cases repeat the Firestore bounds shapes: `start` must be an
+ * index, `end - 1` must be an index (so `[0:0]`, `[n:n]` and any slice of an
+ * empty value are errors), and `start` must not exceed `end`.
  */
 import type { StorageScenarioRecord } from './types.ts';
 
@@ -25,6 +29,21 @@ service firebase.storage {
       // string slice: substring semantics
       allow delete: if 'abcdef'[1:4] == 'bcd';
     }
+    // Bounds on a 4-element list (fileId 'a-b-c-d') and a 5-character
+    // string (fileId 'hello').
+    match /listZeroZero/{fileId} { allow read: if fileId.split('-')[0:0].size() == 0; }
+    match /listLenLen/{fileId} { allow read: if fileId.split('-')[4:4].size() == 0; }
+    match /listLastEmpty/{fileId} { allow read: if fileId.split('-')[3:3].size() == 0; }
+    match /listLastElement/{fileId} { allow read: if fileId.split('-')[3:4] == ['d']; }
+    match /listEndBeforeFirst/{fileId} { allow read: if fileId.split('-')[1:0].size() == 0; }
+    match /listStartAfterEnd/{fileId} { allow read: if fileId.split('-')[3:1].size() == 0; }
+    match /listEmptyZeroZero/{fileId} { allow read: if [][0:0] == []; }
+    match /strZeroZero/{fileId} { allow read: if fileId[0:0] == ''; }
+    match /strOneOne/{fileId} { allow read: if fileId[1:1] == ''; }
+    match /strLastEmpty/{fileId} { allow read: if fileId[4:4] == ''; }
+    match /strLenLen/{fileId} { allow read: if fileId[5:5] == ''; }
+    match /strStartAfterEnd/{fileId} { allow read: if fileId[2:1] == ''; }
+    match /strEmptyZeroZero/{fileId} { allow read: if ''[0:0] == ''; }
   }
 }`,
   cases: [
@@ -77,5 +96,23 @@ service firebase.storage {
       auth: { uid: 'alice' },
       existingResource: { size: 100 },
     },
+    ...([
+      ['list slice [0:0] is an index error → DENY', 'DENY', 'listZeroZero/a-b-c-d'],
+      ['list slice [n:n] is an index error → DENY', 'DENY', 'listLenLen/a-b-c-d'],
+      ['list slice [n-1:n-1] → empty → ALLOW', 'ALLOW', 'listLastEmpty/a-b-c-d'],
+      ['list slice [n-1:n] → last element → ALLOW', 'ALLOW', 'listLastElement/a-b-c-d'],
+      ['list slice [1:0] is an index error → DENY', 'DENY', 'listEndBeforeFirst/a-b-c-d'],
+      ['list slice start after end is a range error → DENY', 'DENY', 'listStartAfterEnd/a-b-c-d'],
+      ['empty list slice [0:0] is an index error → DENY', 'DENY', 'listEmptyZeroZero/a-b-c-d'],
+      ['string slice [0:0] is an index error → DENY', 'DENY', 'strZeroZero/hello'],
+      ['string slice [1:1] → empty string → ALLOW', 'ALLOW', 'strOneOne/hello'],
+      ['string slice [n-1:n-1] → empty string → ALLOW', 'ALLOW', 'strLastEmpty/hello'],
+      ['string slice [n:n] is an index error → DENY', 'DENY', 'strLenLen/hello'],
+      ['string slice start after end is a range error → DENY', 'DENY', 'strStartAfterEnd/hello'],
+      ['empty string slice [0:0] is an index error → DENY', 'DENY', 'strEmptyZeroZero/hello'],
+    ] as const).map(([description, expectation, path]) => ({
+      description, expectation, method: 'get' as const, path,
+      auth: { uid: 'alice' }, existingResource: { size: 100 },
+    })),
   ],
 };
