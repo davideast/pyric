@@ -1,0 +1,568 @@
+{
+  "costs": [
+    { "function": "commitmentMatches", "cost": { "min": 6, "max": 16 }, "reads": 0 },
+    { "function": "digestByte", "cost": { "min": 63, "max": 63 }, "reads": 0 }
+  ],
+  "cases": [
+    {
+      "description": "commitmentMatches allows the salt whose SHA-256 is the stored commitment",
+      "expectation": "ALLOW",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "p0"
+      },
+      "resource": {
+        "players": [
+          "p0",
+          "p1"
+        ],
+        "turn": 0,
+        "commit": "8B1B1777BB73EF61D82EE4967B466779A50FAE03C440027170899A4263EA748E",
+        "salt": ""
+      },
+      "data": {
+        "players": [
+          "p0",
+          "p1"
+        ],
+        "turn": 0,
+        "commit": "8B1B1777BB73EF61D82EE4967B466779A50FAE03C440027170899A4263EA748E",
+        "salt": "3F9A0C7E51B2D4486E1F0A9C3B7D2E58"
+      },
+      "wrapFunction": "commitmentMatches",
+      "wrapOperation": "update",
+      "wrapCallExpr": "commitmentMatches(resource.data.commit, request.resource.data.salt)"
+    },
+    {
+      "description": "commitmentMatches denies a different salt",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "p0"
+      },
+      "resource": {
+        "players": [
+          "p0",
+          "p1"
+        ],
+        "turn": 0,
+        "commit": "8B1B1777BB73EF61D82EE4967B466779A50FAE03C440027170899A4263EA748E",
+        "salt": ""
+      },
+      "data": {
+        "players": [
+          "p0",
+          "p1"
+        ],
+        "turn": 0,
+        "commit": "8B1B1777BB73EF61D82EE4967B466779A50FAE03C440027170899A4263EA748E",
+        "salt": "3F9A0C7E51B2D4486E1F0A9C3B7D2E59"
+      },
+      "wrapFunction": "commitmentMatches",
+      "wrapOperation": "update",
+      "wrapCallExpr": "commitmentMatches(resource.data.commit, request.resource.data.salt)"
+    },
+    {
+      "description": "commitmentMatches denies a commitment in lowercase hex",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "p0"
+      },
+      "resource": {
+        "players": [
+          "p0",
+          "p1"
+        ],
+        "turn": 0,
+        "commit": "8b1b1777bb73ef61d82ee4967b466779a50fae03c440027170899a4263ea748e",
+        "salt": ""
+      },
+      "data": {
+        "players": [
+          "p0",
+          "p1"
+        ],
+        "turn": 0,
+        "commit": "8b1b1777bb73ef61d82ee4967b466779a50fae03c440027170899a4263ea748e",
+        "salt": "3F9A0C7E51B2D4486E1F0A9C3B7D2E58"
+      },
+      "wrapFunction": "commitmentMatches",
+      "wrapOperation": "update",
+      "wrapCallExpr": "commitmentMatches(resource.data.commit, request.resource.data.salt)"
+    },
+    {
+      "description": "commitmentMatches denies a commitment stored as Bytes",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "p0"
+      },
+      "resource": {
+        "players": [
+          "p0",
+          "p1"
+        ],
+        "turn": 0,
+        "commit": "8B1B1777BB73EF61D82EE4967B466779A50FAE03C440027170899A4263EA748E",
+        "salt": ""
+      },
+      "data": {
+        "players": [
+          "p0",
+          "p1"
+        ],
+        "turn": 0,
+        "commit": "8B1B1777BB73EF61D82EE4967B466779A50FAE03C440027170899A4263EA748E",
+        "salt": "3F9A0C7E51B2D4486E1F0A9C3B7D2E58"
+      },
+      "wrapFunction": "commitmentMatches",
+      "wrapOperation": "update",
+      "wrapCallExpr": "commitmentMatches(hashing.sha256(request.resource.data.salt), request.resource.data.salt)"
+    },
+    {
+      "description": "commitmentMatches denies a salt that is not a string",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "p0"
+      },
+      "resource": {
+        "players": [
+          "p0",
+          "p1"
+        ],
+        "turn": 0,
+        "commit": "8B1B1777BB73EF61D82EE4967B466779A50FAE03C440027170899A4263EA748E",
+        "salt": ""
+      },
+      "data": {
+        "players": [
+          "p0",
+          "p1"
+        ],
+        "turn": 0,
+        "commit": "8B1B1777BB73EF61D82EE4967B466779A50FAE03C440027170899A4263EA748E",
+        "salt": 42
+      },
+      "wrapFunction": "commitmentMatches",
+      "wrapOperation": "update",
+      "wrapCallExpr": "commitmentMatches(resource.data.commit, request.resource.data.salt)"
+    },
+    {
+      "description": "commitmentMatches denies a salt given as Bytes",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "p0"
+      },
+      "resource": {
+        "players": [
+          "p0",
+          "p1"
+        ],
+        "turn": 0,
+        "commit": "8B1B1777BB73EF61D82EE4967B466779A50FAE03C440027170899A4263EA748E",
+        "salt": ""
+      },
+      "data": {
+        "players": [
+          "p0",
+          "p1"
+        ],
+        "turn": 0,
+        "commit": "8B1B1777BB73EF61D82EE4967B466779A50FAE03C440027170899A4263EA748E",
+        "salt": "3F9A0C7E51B2D4486E1F0A9C3B7D2E58"
+      },
+      "wrapFunction": "commitmentMatches",
+      "wrapOperation": "update",
+      "wrapCallExpr": "commitmentMatches(resource.data.commit, request.resource.data.salt.toUtf8())"
+    },
+    {
+      "description": "commitmentMatches denies an empty salt, even against its own digest",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "p0"
+      },
+      "resource": {
+        "players": [
+          "p0",
+          "p1"
+        ],
+        "turn": 0,
+        "commit": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+        "salt": ""
+      },
+      "data": {
+        "players": [
+          "p0",
+          "p1"
+        ],
+        "turn": 0,
+        "commit": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+        "salt": ""
+      },
+      "wrapFunction": "commitmentMatches",
+      "wrapOperation": "update",
+      "wrapCallExpr": "commitmentMatches(resource.data.commit, request.resource.data.salt)"
+    },
+    {
+      "description": "commitmentMatches denies a missing commitment",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "p0"
+      },
+      "resource": {
+        "players": [
+          "p0",
+          "p1"
+        ],
+        "turn": 0,
+        "commit": null,
+        "salt": ""
+      },
+      "data": {
+        "players": [
+          "p0",
+          "p1"
+        ],
+        "turn": 0,
+        "commit": null,
+        "salt": "3F9A0C7E51B2D4486E1F0A9C3B7D2E58"
+      },
+      "wrapFunction": "commitmentMatches",
+      "wrapOperation": "update",
+      "wrapCallExpr": "commitmentMatches(resource.data.commit, request.resource.data.salt)"
+    },
+    {
+      "description": "digestByte reads the first byte",
+      "expectation": "ALLOW",
+      "method": "get",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "p0"
+      },
+      "resource": {
+        "seed": "abc",
+        "hex": "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD"
+      },
+      "wrapFunction": "digestByte",
+      "wrapOperation": "get",
+      "wrapCallExpr": "digestByte(hashing.sha256(resource.data.seed), 0) == 186"
+    },
+    {
+      "description": "digestByte denies a value other than the first byte",
+      "expectation": "DENY",
+      "method": "get",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "p0"
+      },
+      "resource": {
+        "seed": "abc",
+        "hex": "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD"
+      },
+      "wrapFunction": "digestByte",
+      "wrapOperation": "get",
+      "wrapCallExpr": "digestByte(hashing.sha256(resource.data.seed), 0) == 120"
+    },
+    {
+      "description": "digestByte reads the second byte",
+      "expectation": "ALLOW",
+      "method": "get",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "p0"
+      },
+      "resource": {
+        "seed": "abc",
+        "hex": "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD"
+      },
+      "wrapFunction": "digestByte",
+      "wrapOperation": "get",
+      "wrapCallExpr": "digestByte(hashing.sha256(resource.data.seed), 1) == 120"
+    },
+    {
+      "description": "digestByte denies the first byte at the second position",
+      "expectation": "DENY",
+      "method": "get",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "p0"
+      },
+      "resource": {
+        "seed": "abc",
+        "hex": "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD"
+      },
+      "wrapFunction": "digestByte",
+      "wrapOperation": "get",
+      "wrapCallExpr": "digestByte(hashing.sha256(resource.data.seed), 1) == 186"
+    },
+    {
+      "description": "digestByte reads a byte whose high digit is 0",
+      "expectation": "ALLOW",
+      "method": "get",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "p0"
+      },
+      "resource": {
+        "seed": "abc",
+        "hex": "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD"
+      },
+      "wrapFunction": "digestByte",
+      "wrapOperation": "get",
+      "wrapCallExpr": "digestByte(hashing.sha256(resource.data.seed), 5) == 1"
+    },
+    {
+      "description": "digestByte denies the low digit read as the high digit",
+      "expectation": "DENY",
+      "method": "get",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "p0"
+      },
+      "resource": {
+        "seed": "abc",
+        "hex": "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD"
+      },
+      "wrapFunction": "digestByte",
+      "wrapOperation": "get",
+      "wrapCallExpr": "digestByte(hashing.sha256(resource.data.seed), 5) == 16"
+    },
+    {
+      "description": "digestByte reads the byte FF as 255",
+      "expectation": "ALLOW",
+      "method": "get",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "p0"
+      },
+      "resource": {
+        "seed": "abc",
+        "hex": "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD"
+      },
+      "wrapFunction": "digestByte",
+      "wrapOperation": "get",
+      "wrapCallExpr": "digestByte(hashing.sha256(resource.data.seed), 26) == 255"
+    },
+    {
+      "description": "digestByte reads the byte 00 as 0",
+      "expectation": "ALLOW",
+      "method": "get",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "p0"
+      },
+      "resource": {
+        "seed": "abc",
+        "hex": "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD"
+      },
+      "wrapFunction": "digestByte",
+      "wrapOperation": "get",
+      "wrapCallExpr": "digestByte(hashing.sha256(resource.data.seed), 29) == 0"
+    },
+    {
+      "description": "digestByte reads the last byte",
+      "expectation": "ALLOW",
+      "method": "get",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "p0"
+      },
+      "resource": {
+        "seed": "abc",
+        "hex": "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD"
+      },
+      "wrapFunction": "digestByte",
+      "wrapOperation": "get",
+      "wrapCallExpr": "digestByte(hashing.sha256(resource.data.seed), 31) == 173"
+    },
+    {
+      "description": "digestByte denies a value other than the last byte",
+      "expectation": "DENY",
+      "method": "get",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "p0"
+      },
+      "resource": {
+        "seed": "abc",
+        "hex": "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD"
+      },
+      "wrapFunction": "digestByte",
+      "wrapOperation": "get",
+      "wrapCallExpr": "digestByte(hashing.sha256(resource.data.seed), 31) == 21"
+    },
+    {
+      "description": "digestByte gives a die face with % 6 + 1",
+      "expectation": "ALLOW",
+      "method": "get",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "p0"
+      },
+      "resource": {
+        "seed": "abc",
+        "hex": "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD"
+      },
+      "wrapFunction": "digestByte",
+      "wrapOperation": "get",
+      "wrapCallExpr": "digestByte(hashing.sha256(resource.data.seed), 0) % 6 + 1 == 1"
+    },
+    {
+      "description": "digestByte denies another die face",
+      "expectation": "DENY",
+      "method": "get",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "p0"
+      },
+      "resource": {
+        "seed": "abc",
+        "hex": "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD"
+      },
+      "wrapFunction": "digestByte",
+      "wrapOperation": "get",
+      "wrapCallExpr": "digestByte(hashing.sha256(resource.data.seed), 0) % 6 + 1 == 6"
+    },
+    {
+      "description": "digestByte denies an index past the last byte",
+      "expectation": "DENY",
+      "method": "get",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "p0"
+      },
+      "resource": {
+        "seed": "abc",
+        "hex": "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD"
+      },
+      "wrapFunction": "digestByte",
+      "wrapOperation": "get",
+      "wrapCallExpr": "digestByte(hashing.sha256(resource.data.seed), 32) >= 0"
+    },
+    {
+      "description": "digestByte denies the negation of an index past the last byte",
+      "expectation": "DENY",
+      "method": "get",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "p0"
+      },
+      "resource": {
+        "seed": "abc",
+        "hex": "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD"
+      },
+      "wrapFunction": "digestByte",
+      "wrapOperation": "get",
+      "wrapCallExpr": "!(digestByte(hashing.sha256(resource.data.seed), 32) >= 0)"
+    },
+    {
+      "description": "digestByte denies a negative index",
+      "expectation": "DENY",
+      "method": "get",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "p0"
+      },
+      "resource": {
+        "seed": "abc",
+        "hex": "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD"
+      },
+      "wrapFunction": "digestByte",
+      "wrapOperation": "get",
+      "wrapCallExpr": "digestByte(hashing.sha256(resource.data.seed), -1) >= 0"
+    },
+    {
+      "description": "digestByte denies the negation of a negative index",
+      "expectation": "DENY",
+      "method": "get",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "p0"
+      },
+      "resource": {
+        "seed": "abc",
+        "hex": "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD"
+      },
+      "wrapFunction": "digestByte",
+      "wrapOperation": "get",
+      "wrapCallExpr": "!(digestByte(hashing.sha256(resource.data.seed), -1) >= 0)"
+    },
+    {
+      "description": "digestByte reads the last byte of a shorter digest",
+      "expectation": "ALLOW",
+      "method": "get",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "p0"
+      },
+      "resource": {
+        "seed": "abc",
+        "hex": "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD"
+      },
+      "wrapFunction": "digestByte",
+      "wrapOperation": "get",
+      "wrapCallExpr": "digestByte(hashing.md5(resource.data.seed), 15) == 114"
+    },
+    {
+      "description": "digestByte denies an index past a shorter digest",
+      "expectation": "DENY",
+      "method": "get",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "p0"
+      },
+      "resource": {
+        "seed": "abc",
+        "hex": "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD"
+      },
+      "wrapFunction": "digestByte",
+      "wrapOperation": "get",
+      "wrapCallExpr": "digestByte(hashing.md5(resource.data.seed), 16) >= 0"
+    },
+    {
+      "description": "digestByte denies a digest stored as its hex string",
+      "expectation": "DENY",
+      "method": "get",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "p0"
+      },
+      "resource": {
+        "seed": "abc",
+        "hex": "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD"
+      },
+      "wrapFunction": "digestByte",
+      "wrapOperation": "get",
+      "wrapCallExpr": "digestByte(resource.data.hex, 0) == 186"
+    },
+    {
+      "description": "digestByte denies the negation for a digest stored as its hex string",
+      "expectation": "DENY",
+      "method": "get",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "p0"
+      },
+      "resource": {
+        "seed": "abc",
+        "hex": "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD"
+      },
+      "wrapFunction": "digestByte",
+      "wrapOperation": "get",
+      "wrapCallExpr": "!(digestByte(resource.data.hex, 0) == 186)"
+    }
+  ]
+}

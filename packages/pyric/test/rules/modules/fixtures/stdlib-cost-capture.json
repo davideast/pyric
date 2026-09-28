@@ -1,6 +1,6 @@
 {
   "schema": "pyric.stdlib-cost.v1",
-  "capturedAt": "2026-09-28T01:40:57.377Z",
+  "capturedAt": "2026-09-28T03:07:02.745Z",
   "projects": {
     "firestore": "digame-mas",
     "storage": "digame-mas"
@@ -721,6 +721,28 @@
       "reads": 0,
       "cheapestCase": "resultUnchanged allows a move that keeps status and winner",
       "mostExpensiveCase": "resultUnchanged allows a move that keeps status and winner"
+    },
+    {
+      "module": "fairness",
+      "function": "commitmentMatches",
+      "cost": {
+        "min": 6,
+        "max": 16
+      },
+      "reads": 0,
+      "cheapestCase": "commitmentMatches denies a salt that is not a string",
+      "mostExpensiveCase": "commitmentMatches allows the salt whose SHA-256 is the stored commitment"
+    },
+    {
+      "module": "fairness",
+      "function": "digestByte",
+      "cost": {
+        "min": 63,
+        "max": 63
+      },
+      "reads": 0,
+      "cheapestCase": "digestByte reads the first byte",
+      "mostExpensiveCase": "digestByte reads the first byte"
     }
   ],
   "probes": [
@@ -4034,6 +4056,310 @@
         "call": 14,
         "reference": 2,
         "perCall": 14
+      }
+    },
+    {
+      "module": "fairness",
+      "function": "commitmentMatches",
+      "case": "commitmentMatches allows the salt whose SHA-256 is the stored commitment",
+      "call": "commitmentMatches(resource.data.commit, request.resource.data.salt)",
+      "measured": {
+        "call": 23,
+        "reference": 9,
+        "perCall": 16
+      },
+      "estimated": {
+        "call": 24,
+        "reference": 9,
+        "perCall": 17
+      }
+    },
+    {
+      "module": "fairness",
+      "function": "commitmentMatches",
+      "case": "commitmentMatches denies a different salt",
+      "call": "commitmentMatches(resource.data.commit, request.resource.data.salt)",
+      "measured": {
+        "call": 23,
+        "reference": 9,
+        "perCall": 16
+      },
+      "estimated": {
+        "call": 24,
+        "reference": 9,
+        "perCall": 17
+      }
+    },
+    {
+      "module": "fairness",
+      "function": "commitmentMatches",
+      "case": "commitmentMatches denies a commitment in lowercase hex",
+      "call": "commitmentMatches(resource.data.commit, request.resource.data.salt)",
+      "measured": {
+        "call": 23,
+        "reference": 9,
+        "perCall": 16
+      },
+      "estimated": {
+        "call": 24,
+        "reference": 9,
+        "perCall": 17
+      }
+    },
+    {
+      "module": "fairness",
+      "function": "commitmentMatches",
+      "case": "commitmentMatches denies a commitment stored as Bytes",
+      "call": "commitmentMatches(hashing.sha256(request.resource.data.salt), request.resource.data.salt)",
+      "measured": {
+        "call": 25,
+        "reference": 11,
+        "perCall": 16
+      },
+      "estimated": {
+        "call": 27,
+        "reference": 12,
+        "perCall": 17
+      }
+    },
+    {
+      "module": "fairness",
+      "function": "commitmentMatches",
+      "case": "commitmentMatches denies a salt that is not a string",
+      "call": "commitmentMatches(resource.data.commit, request.resource.data.salt)",
+      "measured": {
+        "call": 13,
+        "reference": 9,
+        "perCall": 6
+      },
+      "estimated": {
+        "call": 24,
+        "reference": 9,
+        "perCall": 17
+      }
+    },
+    {
+      "module": "fairness",
+      "function": "commitmentMatches",
+      "case": "commitmentMatches denies a salt given as Bytes",
+      "call": "commitmentMatches(resource.data.commit, request.resource.data.salt.toUtf8())",
+      "measured": {
+        "call": 14,
+        "reference": 10,
+        "perCall": 6
+      },
+      "estimated": {
+        "call": 25,
+        "reference": 10,
+        "perCall": 17
+      }
+    },
+    {
+      "module": "fairness",
+      "function": "commitmentMatches",
+      "case": "commitmentMatches denies an empty salt, even against its own digest",
+      "call": "commitmentMatches(resource.data.commit, request.resource.data.salt)",
+      "measured": {
+        "call": 17,
+        "reference": 9,
+        "perCall": 10
+      },
+      "estimated": {
+        "call": 24,
+        "reference": 9,
+        "perCall": 17
+      }
+    },
+    {
+      "module": "fairness",
+      "function": "commitmentMatches",
+      "case": "commitmentMatches denies a missing commitment",
+      "call": "commitmentMatches(resource.data.commit, request.resource.data.salt)",
+      "measured": {
+        "call": 23,
+        "reference": 9,
+        "perCall": 16
+      },
+      "estimated": {
+        "call": 24,
+        "reference": 9,
+        "perCall": 17
+      }
+    },
+    {
+      "module": "fairness",
+      "function": "digestByte",
+      "case": "digestByte reads the first byte",
+      "call": "digestByte(hashing.sha256(resource.data.seed), 0)",
+      "measured": {
+        "call": 68,
+        "reference": 7,
+        "perCall": 63
+      },
+      "estimated": {
+        "call": 69,
+        "reference": 8,
+        "perCall": 63
+      }
+    },
+    {
+      "module": "fairness",
+      "function": "digestByte",
+      "case": "digestByte reads the second byte",
+      "call": "digestByte(hashing.sha256(resource.data.seed), 1)",
+      "measured": {
+        "call": 68,
+        "reference": 7,
+        "perCall": 63
+      },
+      "estimated": {
+        "call": 69,
+        "reference": 8,
+        "perCall": 63
+      }
+    },
+    {
+      "module": "fairness",
+      "function": "digestByte",
+      "case": "digestByte reads a byte whose high digit is 0",
+      "call": "digestByte(hashing.sha256(resource.data.seed), 5)",
+      "measured": {
+        "call": 68,
+        "reference": 7,
+        "perCall": 63
+      },
+      "estimated": {
+        "call": 69,
+        "reference": 8,
+        "perCall": 63
+      }
+    },
+    {
+      "module": "fairness",
+      "function": "digestByte",
+      "case": "digestByte reads the byte FF as 255",
+      "call": "digestByte(hashing.sha256(resource.data.seed), 26)",
+      "measured": {
+        "call": 68,
+        "reference": 7,
+        "perCall": 63
+      },
+      "estimated": {
+        "call": 69,
+        "reference": 8,
+        "perCall": 63
+      }
+    },
+    {
+      "module": "fairness",
+      "function": "digestByte",
+      "case": "digestByte reads the byte 00 as 0",
+      "call": "digestByte(hashing.sha256(resource.data.seed), 29)",
+      "measured": {
+        "call": 68,
+        "reference": 7,
+        "perCall": 63
+      },
+      "estimated": {
+        "call": 69,
+        "reference": 8,
+        "perCall": 63
+      }
+    },
+    {
+      "module": "fairness",
+      "function": "digestByte",
+      "case": "digestByte reads the last byte",
+      "call": "digestByte(hashing.sha256(resource.data.seed), 31)",
+      "measured": {
+        "call": 68,
+        "reference": 7,
+        "perCall": 63
+      },
+      "estimated": {
+        "call": 69,
+        "reference": 8,
+        "perCall": 63
+      }
+    },
+    {
+      "module": "fairness",
+      "function": "digestByte",
+      "case": "digestByte denies an index past the last byte",
+      "call": "digestByte(hashing.sha256(resource.data.seed), 32)",
+      "measured": {
+        "call": 68,
+        "reference": 7,
+        "perCall": 63
+      },
+      "estimated": {
+        "call": 69,
+        "reference": 8,
+        "perCall": 63
+      }
+    },
+    {
+      "module": "fairness",
+      "function": "digestByte",
+      "case": "digestByte denies a negative index",
+      "call": "digestByte(hashing.sha256(resource.data.seed), -1)",
+      "measured": {
+        "call": 69,
+        "reference": 8,
+        "perCall": 63
+      },
+      "estimated": {
+        "call": 70,
+        "reference": 9,
+        "perCall": 63
+      }
+    },
+    {
+      "module": "fairness",
+      "function": "digestByte",
+      "case": "digestByte reads the last byte of a shorter digest",
+      "call": "digestByte(hashing.md5(resource.data.seed), 15)",
+      "measured": {
+        "call": 68,
+        "reference": 7,
+        "perCall": 63
+      },
+      "estimated": {
+        "call": 69,
+        "reference": 8,
+        "perCall": 63
+      }
+    },
+    {
+      "module": "fairness",
+      "function": "digestByte",
+      "case": "digestByte denies an index past a shorter digest",
+      "call": "digestByte(hashing.md5(resource.data.seed), 16)",
+      "measured": {
+        "call": 68,
+        "reference": 7,
+        "perCall": 63
+      },
+      "estimated": {
+        "call": 69,
+        "reference": 8,
+        "perCall": 63
+      }
+    },
+    {
+      "module": "fairness",
+      "function": "digestByte",
+      "case": "digestByte denies a digest stored as its hex string",
+      "call": "digestByte(resource.data.hex, 0)",
+      "measured": {
+        "call": 67,
+        "reference": 6,
+        "perCall": 63
+      },
+      "estimated": {
+        "call": 67,
+        "reference": 6,
+        "perCall": 63
       }
     }
   ]

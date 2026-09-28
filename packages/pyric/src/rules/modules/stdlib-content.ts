@@ -195,6 +195,63 @@ export function boundedNumber(field, min, max) {
     && request.resource.data[field] <= max;
 }
 `,
+  "fairness": `// @pyric-services cloud.firestore
+// Costs are production expressions per call, not counting arguments. Calls
+// are not memoized: every call pays its full cost again, and a let inside a
+// function is paid on every call.
+//
+// Fairness for hidden choices and commit-reveal randomness: a player commits
+// to a secret salt before the other players add their input, then reveals
+// the salt. The rules check the reveal against the commitment and derive
+// values from a digest.
+//
+// Convention: commit-reveal as Yacht stores it:
+//   commit: string, the uppercase hex SHA-256 of the salt, the form
+//           hashing.sha256(salt).toHexString() produces (64 characters)
+//   salt:   string, the secret, written on the reveal
+//
+// The commitment is a hex string, not Bytes, because the client computes it
+// and writes it as a string field. A commitment stored as Bytes, or as
+// lowercase hex, does not match. The salt is hashed as its UTF-8 bytes.
+//
+// Production Bytes have no index operator: digest[0] is an error.
+// digestByte reads the byte from the digest's hex string instead, two
+// characters per byte, and pays for a 16-entry lookup map on every call.
+//
+// Usage:
+//   import { commitmentMatches, digestByte } from 'fairness';
+//
+//   // The reveal matches the commitment stored by the commit write:
+//   allow update: if commitmentMatches(resource.data.commit, request.resource.data.salt);
+//
+//   // A die face from the digest of the salt and another player's nonce:
+//   allow update: if request.resource.data.die
+//     == digestByte(hashing.sha256(request.resource.data.salt + resource.data.nonce), 0) % 6 + 1;
+
+// The salt is a non-empty string and its SHA-256, as uppercase hex, equals
+// \`commitment\`. An empty salt is refused because anyone can compute its
+// digest, so it hides nothing.
+// cost 6 to 16 expressions per call
+export function commitmentMatches(commitment, salt) {
+  return salt is string
+    && salt != ''
+    && hashing.sha256(salt).toHexString() == commitment;
+}
+
+// Byte \`index\` of the Bytes value \`digest\`, as an int from 0 to 255. An
+// index outside the digest, or a digest that is not Bytes, is an error, so
+// the rule that uses the value denies. A die face is digestByte(d, i) % 6 + 1:
+// 256 is not a multiple of 6, so faces 1 to 4 come up 43 times in 256 and
+// faces 5 and 6 come up 42 times. Read a new index for each value.
+// cost 63 to 63 expressions per call
+export function digestByte(digest, index) {
+  let hex = {'0': 0, '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7,
+             '8': 8, '9': 9, 'A': 10, 'B': 11, 'C': 12, 'D': 13, 'E': 14, 'F': 15};
+  let h = digest.toHexString();
+  let i = index * 2;
+  return hex[h[i:i + 1]] * 16 + hex[h[i + 1:i + 2]];
+}
+`,
   "geometry": `// @pyric-services cloud.firestore
 // Costs are production expressions per call, not counting arguments. Calls
 // are not memoized: every call pays its full cost again, and a let inside a
