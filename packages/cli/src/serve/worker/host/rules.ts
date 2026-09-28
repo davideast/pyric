@@ -14,7 +14,7 @@ import type { Firestore } from 'pyric/firestore';
 import { setRules } from 'pyric/sandbox/firestore';
 import {
   lintFirestoreRules,
-  sourceCompileLimitViolations,
+  rulesSourceRejection,
   type CompileLimitViolation,
 } from 'pyric/rules/internal';
 import { sandbox as rtdbSandbox } from 'pyric/database';
@@ -35,16 +35,9 @@ export function normalizeDatabaseRules(source: unknown): { rules: Record<string,
   throw new Error('RTDB rules must be a rules JSON object or JSON string.');
 }
 
-function firestoreRuleMessages(result: { warnings?: Array<{ severity?: string; message?: string }>; parseError?: { line?: number; column?: number; expected?: unknown; actual?: string } | null }) {
+/** The lint findings of an installed ruleset, one message each. */
+function firestoreRuleMessages(result: { warnings?: Array<{ severity?: string; message?: string }> }) {
   const messages: Array<{ severity: 'info' | 'warn' | 'error'; text: string; line?: number; column?: number }> = [];
-  if (result.parseError) {
-    messages.push({
-      severity: 'error',
-      text: `PARSE ERROR: expected ${String(result.parseError.expected ?? 'valid rules')}`,
-      line: result.parseError.line,
-      column: result.parseError.column,
-    });
-  }
   for (const warning of result.warnings ?? []) {
     messages.push({
       severity: warning.severity === 'error' ? 'error' : warning.severity === 'warning' ? 'warn' : 'info',
@@ -87,19 +80,27 @@ export function handleRulesOp(
     case 'setRules':
     case 'setFirestoreRules': {
       try {
-        // Production rejects a ruleset past its compile limits before it
-        // evaluates any request, so the sandbox keeps the active ruleset and
-        // the status carries production's messages.
-        const violations = sourceCompileLimitViolations(msg.source);
-        const result = violations.length > 0 ? lintFirestoreRules(msg.source) : setRules(ctx.sandbox, msg.source);
-        const messages = violations.length > 0 ? compileLimitMessages(violations) : firestoreRuleMessages(result);
+        // Production rejects a ruleset that does not parse, or is past its
+        // compile limits, before it evaluates any request. The sandbox keeps
+        // the active ruleset, and the status carries the reason every CLI
+        // rules load path refuses with (the parse failure at its position,
+        // or production's compile messages).
+        const rejection = rulesSourceRejection(msg.source);
+        const result = rejection !== null ? lintFirestoreRules(msg.source) : setRules(ctx.sandbox, msg.source);
+        const messages = rejection === null
+          ? firestoreRuleMessages(result)
+          : rejection.kind === 'parse'
+            ? [{ severity: 'error' as const, text: `Firestore ${rejection.message}`, line: rejection.line, column: rejection.column }]
+            : compileLimitMessages(rejection.violations);
         const okDeploy = !messages.some((m) => m.severity === 'error');
         ctx.activeRules ??= {};
         const previous = ctx.activeRules.firestore?.status === 'active'
           ? ctx.activeRules.firestore.source
           : ctx.activeRules.firestore?.lastKnownGood;
         ctx.activeRules.firestore = {
-          source: okDeploy ? msg.source : ctx.activeRules.firestore?.source ?? msg.source,
+          // The source the sandbox enforces: the new one when it was installed,
+          // even with lint errors, and the active one when it was refused.
+          source: rejection === null ? msg.source : ctx.activeRules.firestore?.source ?? msg.source,
           updatedAt: Date.now(),
           status: okDeploy ? 'active' : 'error',
           messages,

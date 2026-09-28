@@ -25,10 +25,17 @@
  *    value, charged once its arguments evaluate without an error.
  *
  * The evaluators charge through the named methods below, so the unit lives
- * here once. The budget does not format or record expressions; it only
- * counts.
+ * here once, each charge naming the expression it is for. The budget does
+ * not format or record expressions; it counts, and when a charge reaches the
+ * limit it hands that expression's source position to the error, the
+ * position production reports the limit at.
  */
 import { EXPRESSION_LIMIT } from '../linter/expression-cost.js';
+import {
+  describeExpressionPosition,
+  expressionPosition,
+  type ExpressionPosition,
+} from '../grammar/expression-positions.js';
 
 export { EXPRESSION_LIMIT };
 
@@ -36,55 +43,68 @@ export { EXPRESSION_LIMIT };
 export const EXPRESSION_LIMIT_MESSAGE =
   `Unable to evaluate the expression as the maximum of ${EXPRESSION_LIMIT} expressions to evaluate has been reached.`;
 
+/**
+ * Production's message for a request that reached the limit, preceded by
+ * where the budget ran out when that position is known:
+ * `line 135, column 1790: Unable to evaluate ...`.
+ */
+export function describeExpressionLimit(message: string, position: ExpressionPosition | undefined): string {
+  return position === undefined ? message : `${describeExpressionPosition(position)}: ${message}`;
+}
+
 export class ExpressionBudget {
   /** Expressions evaluated so far for this request, in production's unit. */
   evaluated = 0;
 
   /**
    * @param exhausted builds the error thrown when the request would
-   *   evaluate past the limit. Each evaluator supplies its own resource-limit error class, so
-   *   the limit fails the whole request closed and no `&&` or `||` operand
-   *   absorbs it.
+   *   evaluate past the limit, given the source position of the expression
+   *   the budget ran out on. Each evaluator supplies its own resource-limit
+   *   error class, so the limit fails the whole request closed and no `&&`
+   *   or `||` operand absorbs it.
    */
   constructor(
-    private readonly exhausted: (message: string) => Error,
+    private readonly exhausted: (message: string, position: ExpressionPosition | undefined) => Error,
     readonly limit: number = EXPRESSION_LIMIT,
   ) {}
 
   /** One evaluated expression node. */
-  node(): void {
-    this.charge();
+  node(at?: object): void {
+    this.charge(at);
   }
 
   /** The second unit `&&` or `||` pays when it evaluates its right operand. */
-  logicalRight(): void {
-    this.charge();
+  logicalRight(at?: object): void {
+    this.charge(at);
   }
 
   /** The second unit a ternary pays, charged before its condition. */
-  ternary(): void {
-    this.charge();
+  ternary(at?: object): void {
+    this.charge(at);
   }
 
   /** The two further units a ternary pays when it takes the false branch. */
-  ternaryElse(): void {
-    this.charge();
-    this.charge();
+  ternaryElse(at?: object): void {
+    this.charge(at);
+    this.charge(at);
   }
 
   /** One literal segment of a path literal. */
-  pathSegment(): void {
-    this.charge();
+  pathSegment(at?: object): void {
+    this.charge(at);
   }
 
-  /** One `let` binding, charged before its value is evaluated. */
-  letBinding(): void {
-    this.charge();
+  /** One `let` binding, charged before its value is evaluated; `at` is the value. */
+  letBinding(at?: object): void {
+    this.charge(at);
   }
 
-  private charge(): void {
+  /** @param at the parsed expression the unit is for, whose position a limit reports. */
+  private charge(at: object | undefined): void {
     // A request may evaluate `limit` expressions; the next one stops it.
-    if (this.evaluated >= this.limit) throw this.exhausted(EXPRESSION_LIMIT_MESSAGE);
+    if (this.evaluated >= this.limit) {
+      throw this.exhausted(EXPRESSION_LIMIT_MESSAGE, at === undefined ? undefined : expressionPosition(at));
+    }
     this.evaluated++;
   }
 }

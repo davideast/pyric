@@ -97,6 +97,17 @@ async function openSession(
   return { client, close };
 }
 
+/** A project ruleset production loads, so the session installs it. */
+const VALID_RULES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
+`;
+
 describe('in-process MCP session', () => {
   it('records one event per call in PYRIC_EVAL_LOG and writes no project audit log', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pyric-in-process-eval-'));
@@ -207,7 +218,7 @@ describe('in-process MCP session', () => {
   it('loads project rules and serves the service tools when no surface is named', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pyric-in-process-surface-'));
     try {
-      writeFileSync(join(dir, 'firestore.rules'), "rules_version = '2';\n", 'utf8');
+      writeFileSync(join(dir, 'firestore.rules'), VALID_RULES, 'utf8');
       const session = await openSession(dir, {});
       const listed = await session.client.listTools();
       expect(listed.tools.map((tool) => tool.name).sort()).toEqual(
@@ -331,7 +342,7 @@ describe('a project directory apart from the cwd', () => {
     }) as typeof process.stderr.write;
     try {
       await applySeed(projectDir, {
-        firestoreRules: "rules_version = '2';\n",
+        firestoreRules: VALID_RULES,
         firestore: { 'posts/p1': { title: 'seeded elsewhere' } },
       });
 

@@ -134,7 +134,10 @@ export async function runSurfaceMethod(
     const sandbox = initializeSandbox();
     const storage = openPersistedServices(sandbox, cwd);
     loadSandboxSnapshot(sandbox, cwd);
-    loadProjectRules(sandbox, cwd);
+    const projectRules = loadProjectRules(sandbox, cwd);
+    if (projectRules?.refused) {
+      stderr.write(`pyric: rules not loaded from ${projectRules.path}: ${projectRules.refused}\n`);
+    }
     await loadStorageSidecar(storage, cwd);
 
     const ctx = createSurfaceContext(sandbox, cwd);

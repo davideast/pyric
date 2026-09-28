@@ -3,7 +3,7 @@ import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { lintFirestoreRules } from '../../../src/rules/linter/linter.js';
-import { compileLimitProbes } from '../compile-limits-probes.js';
+import { apiErrorProbes, compileLimitProbes } from '../compile-limits-probes.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CORPUS = join(__dirname, 'corpus');
@@ -696,5 +696,94 @@ ${inner}
       const errors = r.warnings.filter(w => w.severity === 'error');
       expect(errors.length).toBe(0);
     });
+  });
+});
+
+describe('SLASH_STARTS_PATH', () => {
+  // Production reads a `/` directly followed by a character other than
+  // whitespace as the start of a path and rejects the ruleset with
+  // "Missing 'match' keyword before path." (fixtures/compile-limits/captures.json,
+  // shape slash-divisor, Firestore and Storage).
+  const slash = compileLimitProbes().filter(p => p.shape === 'slash-divisor' && p.service === 'firestore');
+
+  for (const probe of slash) {
+    test(`${probe.label}: ${probe.compiles ? 'no SLASH_STARTS_PATH' : 'SLASH_STARTS_PATH error'}, as production ${probe.compiles ? 'compiles' : 'rejects'} it`, () => {
+      const r = lintSource(probe.source);
+      expect(hasError(r, 'SLASH_STARTS_PATH')).toBe(!probe.compiles);
+      if (!probe.compiles) {
+        const found = r.warnings.find(w => w.rule === 'SLASH_STARTS_PATH')!;
+        expect(found.message).toContain(probe.errors[0]!);
+        expect(found.message).toContain('line 5');
+      }
+    });
+  }
+
+  test('an unspaced slash in a function body names the function, one error per slash', () => {
+    const r = lintSource(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function half(x) { return x/2 == x/(2); }
+    match /p/{d} { allow read: if half(4) && 4 / 2 == 2; }
+  }
+}`);
+    const found = r.warnings.filter(w => w.rule === 'SLASH_STARTS_PATH');
+    expect(found).toHaveLength(2);
+    expect(found.every(w => w.severity === 'error' && w.location?.functionName === 'half')).toBe(true);
+  });
+});
+
+describe('long chains: MEMBER_CHAIN_LENGTH and EXPRESSION_TOO_DEEP', () => {
+  // Each function reads a member chain off the next function's result, so
+  // the chain the checks follow through the calls is six times as deep as
+  // any one body the parser reads.
+  function calledChains(functions: number, terms: number): string {
+    const lines: string[] = [];
+    for (let i = 1; i <= functions; i++) {
+      const inner = i === functions ? 'x' : `f${i + 1}(x)`;
+      lines.push(`    function f${i}(x) { return ${inner}${'.a'.repeat(terms)}; }`);
+    }
+    return `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+${lines.join('\n')}
+    match /x/{id} { allow get: if f1(request.auth) == 1; }
+  }
+}`;
+  }
+
+  test('a chain deeper, through the functions it calls, than the checks can walk is an error, not a crash', () => {
+    const r = lintSource(calledChains(6, 3000));
+    expect(r.parseError).toBeUndefined();
+    expect(hasError(r, 'EXPRESSION_TOO_DEEP')).toBe(true);
+    expect(r.warnings.find(w => w.rule === 'EXPRESSION_TOO_DEEP')!.message).toContain('limit of the linter');
+  });
+
+  test('the same shape at a depth the checks walk is not reported', () => {
+    expect(hasRule(lintSource(calledChains(6, 50)), 'EXPRESSION_TOO_DEEP')).toBe(false);
+  });
+
+  test("the captured 4,900-term member chain, which production's Rules Test API answered with an internal error, lints to an error", () => {
+    const [probe] = apiErrorProbes();
+    expect(probe!.shape).toBe('member-chain');
+    expect(probe!.n).toBe(4900);
+    expect(probe!.apiError).toContain('500');
+    const r = lintSource(probe!.source);
+    // Where the parser reads the chain, MEMBER_CHAIN_LENGTH reports it;
+    // where the parser runs out of stack first, the parse error does.
+    if (r.parseError === undefined) {
+      const found = r.warnings.find(w => w.rule === 'MEMBER_CHAIN_LENGTH');
+      expect(found?.severity).toBe('error');
+      expect(found?.message).toContain('reads a member chain of 4900 terms');
+      expect(found?.message).toContain('4,900-term member chain with an internal error');
+    }
+  });
+
+  test('the captured 100-term member chain, which production compiles, lints clean of both', () => {
+    const probe = compileLimitProbes().find(p => p.shape === 'member-chain' && p.n === 100)!;
+    expect(probe.compiles).toBe(true);
+    const r = lintSource(probe.source);
+    expect(r.parseError).toBeUndefined();
+    expect(hasRule(r, 'EXPRESSION_TOO_DEEP')).toBe(false);
+    expect(hasRule(r, 'MEMBER_CHAIN_LENGTH')).toBe(false);
   });
 });

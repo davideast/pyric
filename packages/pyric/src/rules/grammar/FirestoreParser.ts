@@ -7,6 +7,7 @@ import type {
 import { addParenthesizedGroup } from './paren-groups.js';
 import { boundSourceNesting, type SourceNestingFailure } from './compile-limits.js';
 import { MAX_BRACKET_DEPTH } from './bracket-scan.js';
+import { SourcePositions, setExpressionPosition } from './expression-positions.js';
 
 // The grammar source is inlined at SDK build time (see
 // scripts/inline-grammar.ts). This keeps the parser browser-safe — no
@@ -43,6 +44,19 @@ export interface ParseError {
 // ---- Semantics for AST generation ----
 
 const semantics = grammar.createSemantics();
+
+/**
+ * Line and column conversion for the source being built into an AST, set for
+ * the duration of one `parseToASTOrError` build. Null otherwise, so a match
+ * that builds no AST records no positions.
+ */
+let buildPositions: SourcePositions | null = null;
+
+/** Records where `expr` starts: the first character of `node` in the parsed source. */
+function placedAt<T extends object>(expr: T, node: { source: { startIdx: number } }): T {
+  if (buildPositions !== null) setExpressionPosition(expr, buildPositions.at(node.source.startIdx));
+  return expr;
+}
 
 semantics.addOperation<any>('toAST', {
   // Both grammar alternatives (`versionFirst` and `importsFirst`)
@@ -189,75 +203,75 @@ semantics.addOperation<any>('toAST', {
   // Expressions
   Expr(e) { return e.toAST(); },
   Ternary_ternary(cond, _q, cons, _colon, alt) {
-    return { type: 'ternary', condition: cond.toAST(), consequent: cons.toAST(), alternate: alt.toAST() };
+    return placedAt({ type: 'ternary', condition: cond.toAST(), consequent: cons.toAST(), alternate: alt.toAST() }, this);
   },
   LogicalOr_or(left, _op, right) {
-    return { type: 'binaryOp', op: '||', left: left.toAST(), right: right.toAST() };
+    return placedAt({ type: 'binaryOp', op: '||', left: left.toAST(), right: right.toAST() }, _op);
   },
   LogicalAnd_and(left, _op, right) {
-    return { type: 'binaryOp', op: '&&', left: left.toAST(), right: right.toAST() };
+    return placedAt({ type: 'binaryOp', op: '&&', left: left.toAST(), right: right.toAST() }, _op);
   },
   InIsExpr_in(left, _op, right) {
-    return { type: 'inExpr', element: left.toAST(), collection: right.toAST() };
+    return placedAt({ type: 'inExpr', element: left.toAST(), collection: right.toAST() }, _op);
   },
   InIsExpr_is(left, _op, typeName) {
-    return { type: 'isExpr', value: left.toAST(), typeName: typeName.sourceString };
+    return placedAt({ type: 'isExpr', value: left.toAST(), typeName: typeName.sourceString }, _op);
   },
   Equality_eq(left, _op, right) {
-    return { type: 'binaryOp', op: '==', left: left.toAST(), right: right.toAST() };
+    return placedAt({ type: 'binaryOp', op: '==', left: left.toAST(), right: right.toAST() }, _op);
   },
   Equality_neq(left, _op, right) {
-    return { type: 'binaryOp', op: '!=', left: left.toAST(), right: right.toAST() };
+    return placedAt({ type: 'binaryOp', op: '!=', left: left.toAST(), right: right.toAST() }, _op);
   },
   Comparison_gte(left, _op, right) {
-    return { type: 'binaryOp', op: '>=', left: left.toAST(), right: right.toAST() };
+    return placedAt({ type: 'binaryOp', op: '>=', left: left.toAST(), right: right.toAST() }, _op);
   },
   Comparison_lte(left, _op, right) {
-    return { type: 'binaryOp', op: '<=', left: left.toAST(), right: right.toAST() };
+    return placedAt({ type: 'binaryOp', op: '<=', left: left.toAST(), right: right.toAST() }, _op);
   },
   Comparison_gt(left, _op, right) {
-    return { type: 'binaryOp', op: '>', left: left.toAST(), right: right.toAST() };
+    return placedAt({ type: 'binaryOp', op: '>', left: left.toAST(), right: right.toAST() }, _op);
   },
   Comparison_lt(left, _op, right) {
-    return { type: 'binaryOp', op: '<', left: left.toAST(), right: right.toAST() };
+    return placedAt({ type: 'binaryOp', op: '<', left: left.toAST(), right: right.toAST() }, _op);
   },
   Additive_add(left, _op, right) {
-    return { type: 'binaryOp', op: '+', left: left.toAST(), right: right.toAST() };
+    return placedAt({ type: 'binaryOp', op: '+', left: left.toAST(), right: right.toAST() }, _op);
   },
   Additive_sub(left, _op, right) {
-    return { type: 'binaryOp', op: '-', left: left.toAST(), right: right.toAST() };
+    return placedAt({ type: 'binaryOp', op: '-', left: left.toAST(), right: right.toAST() }, _op);
   },
   Multiplicative_mul(left, _op, right) {
-    return { type: 'binaryOp', op: '*', left: left.toAST(), right: right.toAST() };
+    return placedAt({ type: 'binaryOp', op: '*', left: left.toAST(), right: right.toAST() }, _op);
   },
   Multiplicative_div(left, _op, right) {
     const source = _op.source as any;
     const next: string = source.sourceString.charAt(source.endIdx);
-    return {
+    return placedAt({
       type: 'binaryOp', op: '/', left: left.toAST(), right: right.toAST(),
       ...(/\s/.test(next) ? {} : { slashStartsPath: true }),
-    };
+    }, _op);
   },
   Multiplicative_mod(left, _op, right) {
-    return { type: 'binaryOp', op: '%', left: left.toAST(), right: right.toAST() };
+    return placedAt({ type: 'binaryOp', op: '%', left: left.toAST(), right: right.toAST() }, _op);
   },
   UnaryExpr_not(_op, expr) {
-    return { type: 'unaryOp', op: '!', operand: expr.toAST() };
+    return placedAt({ type: 'unaryOp', op: '!', operand: expr.toAST() }, this);
   },
   UnaryExpr_neg(_op, expr) {
-    return { type: 'unaryOp', op: '-', operand: expr.toAST() };
+    return placedAt({ type: 'unaryOp', op: '-', operand: expr.toAST() }, this);
   },
   PostfixExpr_methodCall(obj, _dot, method, _lp, args, _rp) {
-    return { type: 'methodCall', object: obj.toAST(), method: method.sourceString, args: args.asIteration().children.map((c: any) => c.toAST()) };
+    return placedAt({ type: 'methodCall', object: obj.toAST(), method: method.sourceString, args: args.asIteration().children.map((c: any) => c.toAST()) }, this);
   },
   PostfixExpr_memberAccess(obj, _dot, member) {
-    return { type: 'memberAccess', object: obj.toAST(), property: member.sourceString };
+    return placedAt({ type: 'memberAccess', object: obj.toAST(), property: member.sourceString }, this);
   },
   PostfixExpr_bracketAccess(obj, _lb, idx, _rb) {
-    return { type: 'bracketAccess', object: obj.toAST(), index: idx.toAST() };
+    return placedAt({ type: 'bracketAccess', object: obj.toAST(), index: idx.toAST() }, this);
   },
   PostfixExpr_sliceAccess(obj, _lb, start, _colon, end, _rb) {
-    return { type: 'sliceAccess', object: obj.toAST(), start: start.toAST(), end: end.toAST() };
+    return placedAt({ type: 'sliceAccess', object: obj.toAST(), start: start.toAST(), end: end.toAST() }, this);
   },
   Primary_paren(_lp, expr, _rp) {
     const inner = expr.toAST() as Expression;
@@ -268,12 +282,12 @@ semantics.addOperation<any>('toAST', {
   Primary_list(l) { return l.toAST(); },
   Primary_map(m) { return m.toAST(); },
   Primary_functionCall(name, _lp, args, _rp) {
-    return { type: 'functionCall', name: name.sourceString, args: args.asIteration().children.map((c: any) => c.toAST()) };
+    return placedAt({ type: 'functionCall', name: name.sourceString, args: args.asIteration().children.map((c: any) => c.toAST()) }, this);
   },
   PathLiteral(_slash, first, _slashes, rest) {
     const segments: Array<string | Expression> = [first.toAST()];
     for (const r of rest.children) segments.push(r.toAST());
-    return { type: 'pathLiteral', raw: this.sourceString, segments };
+    return placedAt({ type: 'pathLiteral', raw: this.sourceString, segments }, this);
   },
   PathLitSegment_interpolation(_dp, expr, _rp) { return expr.toAST(); },
   // Match-style `{ident}` is INVALID syntax inside path literals — Firestore
@@ -290,37 +304,37 @@ semantics.addOperation<any>('toAST', {
   PathLitSegment_parenLiteral(_lp, name, _rp) { return `(${name.sourceString})`; },
   PathLitSegment_literal(p) { return p.sourceString; },
   ListLiteral(_lb, items, _comma, _rb) {
-    return { type: 'listLiteral', elements: items.asIteration().children.map((c: any) => c.toAST()) };
+    return placedAt({ type: 'listLiteral', elements: items.asIteration().children.map((c: any) => c.toAST()) }, this);
   },
   MapLiteral(_lb, entries, _comma, _rb) {
-    return { type: 'mapLiteral', entries: entries.asIteration().children.map((c: any) => c.toAST()) };
+    return placedAt({ type: 'mapLiteral', entries: entries.asIteration().children.map((c: any) => c.toAST()) }, this);
   },
   MapEntry(key, _colon, value) {
     return { key: key.toAST(), value: value.toAST() };
   },
   literal(l) { return l.toAST(); },
   number_float(_int, _dot, _frac) {
-    return { type: 'literal', value: parseFloat(this.sourceString), raw: this.sourceString };
+    return placedAt({ type: 'literal', value: parseFloat(this.sourceString), raw: this.sourceString }, this);
   },
   number_int(_digits) {
-    return { type: 'literal', value: parseInt(this.sourceString, 10), raw: this.sourceString };
+    return placedAt({ type: 'literal', value: parseInt(this.sourceString, 10), raw: this.sourceString }, this);
   },
   string_single(_q1, chars, _q2) {
-    return { type: 'literal', value: decodeStringLiteral(chars.sourceString), raw: this.sourceString };
+    return placedAt({ type: 'literal', value: decodeStringLiteral(chars.sourceString), raw: this.sourceString }, this);
   },
   string_double(_q1, chars, _q2) {
-    return { type: 'literal', value: decodeStringLiteral(chars.sourceString), raw: this.sourceString };
+    return placedAt({ type: 'literal', value: decodeStringLiteral(chars.sourceString), raw: this.sourceString }, this);
   },
   bytes_single(_prefix, _q1, chars, _q2) {
-    return { type: 'literal', value: decodeBytesLiteral(chars.sourceString), raw: this.sourceString };
+    return placedAt({ type: 'literal', value: decodeBytesLiteral(chars.sourceString), raw: this.sourceString }, this);
   },
   bytes_double(_prefix, _q1, chars, _q2) {
-    return { type: 'literal', value: decodeBytesLiteral(chars.sourceString), raw: this.sourceString };
+    return placedAt({ type: 'literal', value: decodeBytesLiteral(chars.sourceString), raw: this.sourceString }, this);
   },
-  bool_true(_) { return { type: 'literal', value: true, raw: 'true' }; },
-  bool_false(_) { return { type: 'literal', value: false, raw: 'false' }; },
-  null(_) { return { type: 'literal', value: null, raw: 'null' }; },
-  ident(_start, _rest) { return { type: 'identifier', name: this.sourceString }; },
+  bool_true(_) { return placedAt({ type: 'literal', value: true, raw: 'true' }, this); },
+  bool_false(_) { return placedAt({ type: 'literal', value: false, raw: 'false' }, this); },
+  null(_) { return placedAt({ type: 'literal', value: null, raw: 'null' }, this); },
+  ident(_start, _rest) { return placedAt({ type: 'identifier', name: this.sourceString }, this); },
   _nonterminal(...children) {
     if (children.length === 1) return children[0].toAST();
     return children.map((c: any) => c.toAST());
@@ -511,20 +525,29 @@ export function parseToASTOrError(
   if (!trimmed) {
     return { ok: false, error: { line: 1, column: 1, offset: 0, expected: '', actual: '', message: 'Empty rules file' } };
   }
-  const built = matchBounded(trimmed, undefined, (match) => semantics(match).toAST() as FirestoreRules);
-  if (!built.ok) return built;
-  const ast = built.value;
   // Ohm's line numbers are relative to the *trimmed* input. Shift `loc`
   // entries by the count of newlines we stripped off the front so callers
   // can compare against the original source they passed in.
   const leadingTrimmed = input.length - input.trimStart().length;
   let leadingLineOffset = 0;
+  let lastLeadingNewline = -1;
   for (let i = 0; i < leadingTrimmed; i++) {
     const isNewline = input.charCodeAt(i) === 10;
     if (isNewline) {
       leadingLineOffset++;
+      lastLeadingNewline = i;
     }
   }
+  // Expression positions are recorded against the caller's source directly.
+  buildPositions = new SourcePositions(trimmed, leadingLineOffset, leadingTrimmed - lastLeadingNewline - 1);
+  let built: ReturnType<typeof matchBounded<FirestoreRules>>;
+  try {
+    built = matchBounded(trimmed, undefined, (match) => semantics(match).toAST() as FirestoreRules);
+  } finally {
+    buildPositions = null;
+  }
+  if (!built.ok) return built;
+  const ast = built.value;
   const hasLeadingOffset = leadingLineOffset > 0;
   if (hasLeadingOffset) {
     shiftAstLines(ast, leadingLineOffset);

@@ -90,6 +90,7 @@
 import { parseToASTOrError } from '../../rules/grammar/FirestoreParser.js';
 import { parseErrorWording } from '../../rules/grammar/parse-error-wording.js';
 import { compileLimitViolations, describeCompileLimitViolations } from '../../rules/grammar/compile-limits.js';
+import { copyExpressionPosition } from '../../rules/grammar/expression-positions.js';
 // RULES-B5 float model, shared with the Firestore simulator: a FLOAT value is
 // tagged with this wrapper while a bare JS `number` means INT (see the
 // wrapper's header for why floats are the wrapped case). The storage evaluator
@@ -428,7 +429,14 @@ function convertFunction(fn: SharedFunctionDef): FunctionDef {
   };
 }
 
+/** The evaluator's node for a parsed expression, at the parsed node's source position. */
 function convertExpr(e: SharedExpression): Expr {
+  const converted = convertExprNode(e);
+  copyExpressionPosition(e, converted);
+  return converted;
+}
+
+function convertExprNode(e: SharedExpression): Expr {
   switch (e.type) {
     case 'literal':
       // A numeric literal written with a decimal point is a FLOAT even when

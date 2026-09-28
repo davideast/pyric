@@ -328,11 +328,17 @@ export interface TestResult {
  *    expressions to evaluate has been reached."
  *  - `document-lookups`: 10 distinct get(), exists(), getAfter() and
  *    existsAfter() document accesses.
+ *
+ * `line` and `column` place an `expressions` limit where production reports
+ * it: the 1-based line and column, in the evaluated source, of the
+ * expression the request was evaluating when the budget ran out.
  */
 export interface RulesResourceLimit {
   kind: 'expressions' | 'document-lookups';
   limit: number;
   message: string;
+  line?: number;
+  column?: number;
 }
 
 export type TestFirestoreRulesResult =
@@ -382,7 +388,8 @@ export interface EvaluatedRuleInfo {
  * For an ALLOW, picks the `ALLOW` trace entry (evaluation short-circuits on the
  * first allowing rule, so it's unique). For a DENY, picks the rule the sandbox
  * would report as responsible: the first `DENY`/`ERROR` entry, falling back to
- * the last evaluated rule. Returns `undefined` when no rule was evaluated
+ * the last evaluated rule. A DENY a resource limit stopped is decided by the
+ * rule that reached the limit, the last evaluated. Returns `undefined` when no rule was evaluated
  * (implicit deny — no matching `allow`) or the simulator abstained
  * (`UNSUPPORTED`). Never invents data: a missing line/trace stays absent.
  */
@@ -397,6 +404,11 @@ export function projectEvaluatedRule(result: TestResult): EvaluatedRuleInfo | un
   if (isAllowed) {
     verdict = 'allow';
     deciding = result.trace.find((t) => t.verdict === 'ALLOW');
+  } else if (result.resourceLimit !== undefined && result.trace.length > 0) {
+    // A request stopped by a limit is decided by the rule that reached it,
+    // the last one evaluated, not by an earlier rule that denied.
+    verdict = 'deny';
+    deciding = result.trace[result.trace.length - 1];
   } else {
     verdict = 'deny';
     deciding = result.trace.find((t) => {

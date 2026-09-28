@@ -48,7 +48,7 @@ import {
   ref as storageRef,
   uploadBytes,
 } from 'pyric/storage';
-import { Timestamp, Bytes as RulesBytes, LatLng } from 'pyric/rules/internal';
+import { Timestamp, Bytes as RulesBytes, LatLng, rulesSourceRejection } from 'pyric/rules/internal';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -789,6 +789,45 @@ ${lets}
     // The permissive rules are still the ones requests evaluate.
     const write = await sendOp(ctx, port, {
       t: 'op', id: 'sr-over-write', method: 'setDoc', path: 'guarded/doc', data: { v: 1 },
+    });
+    expect(write.ok).toBe(true);
+  });
+
+  it('setFirestoreRules refuses a ruleset that does not parse and keeps the active one, as the CLI does', async () => {
+    const ctx = await makeCtx(PERMISSIVE_RULES);
+    const port = fakePort();
+    await sendOp(ctx, port, { t: 'op', id: 'sr-good', method: 'setFirestoreRules', source: PERMISSIVE_RULES });
+    const unparseable = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} { allow read, write: if false }
+  }
+}`;
+
+    const res = await sendOp(ctx, port, {
+      t: 'op', id: 'sr-unparseable', method: 'setFirestoreRules', source: unparseable,
+    });
+    expect(res.ok).toBe(true);
+    const value = (res as ResMessage & { ok: true }).value as {
+      ok: boolean;
+      messages: Array<{ severity: string; text: string; line?: number; column?: number }>;
+    };
+    expect(value.ok).toBe(false);
+    const rejection = rulesSourceRejection(unparseable)!;
+    expect(rejection.kind).toBe('parse');
+    expect(value.messages.filter((m) => m.severity === 'error')).toEqual([{
+      severity: 'error',
+      text: `Firestore ${rejection.message}`,
+      line: rejection.kind === 'parse' ? rejection.line : undefined,
+      column: rejection.kind === 'parse' ? rejection.column : undefined,
+    }]);
+
+    const status = await sendOp(ctx, port, { t: 'op', id: 'sr-status', method: 'getRulesStatus', service: 'firestore' });
+    expect(status.value).toMatchObject({ status: 'error', source: PERMISSIVE_RULES });
+
+    // The permissive rules are still the ones requests evaluate.
+    const write = await sendOp(ctx, port, {
+      t: 'op', id: 'sr-unparseable-write', method: 'setDoc', path: 'guarded/doc', data: { v: 1 },
     });
     expect(write.ok).toBe(true);
   });

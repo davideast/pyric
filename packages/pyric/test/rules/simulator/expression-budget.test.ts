@@ -164,7 +164,7 @@ describe('expression budget limit', () => {
     const r = run(rules(`match /t/{id} { allow get: if ${condition}; }`, f));
     expect(r.decision).toBe('DENY');
     expect(r.evaluatedExpressions).toBe(EXPRESSION_LIMIT);
-    expect(r.resourceLimit).toEqual({ kind: 'expressions', limit: EXPRESSION_LIMIT, message: EXPRESSION_LIMIT_MESSAGE });
+    expect(r.resourceLimit).toMatchObject({ kind: 'expressions', limit: EXPRESSION_LIMIT, message: EXPRESSION_LIMIT_MESSAGE });
     expect(EXPRESSION_LIMIT_MESSAGE).toBe(
       'Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.',
     );
@@ -227,7 +227,7 @@ describe('twelve functions of 90 comparisons in one rule', () => {
     expect(c!.decision).toBe('DENY');
     expect(c!.passed).toBe(true);
     expect(c!.evaluatedExpressions).toBe(EXPRESSION_LIMIT);
-    expect(c!.resourceLimit).toEqual({ kind: 'expressions', limit: EXPRESSION_LIMIT, message: EXPRESSION_LIMIT_MESSAGE });
+    expect(c!.resourceLimit).toMatchObject({ kind: 'expressions', limit: EXPRESSION_LIMIT, message: EXPRESSION_LIMIT_MESSAGE });
   });
 
   test('one of the functions stays under the limit', () => {

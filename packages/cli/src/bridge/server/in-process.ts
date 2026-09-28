@@ -27,7 +27,6 @@ import {
   type LocalSandbox,
 } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
-import { setRules } from 'pyric/sandbox/firestore';
 import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 import { getAdminDatabase } from 'pyric/database';
 import { getAdminStorageSandbox } from 'pyric/storage/internal';
@@ -43,6 +42,7 @@ import { registerRenderedSurface } from './surface-server.js';
 import { renderSurface } from '../surface/index.js';
 import { createSurfaceContext } from '../surface/context.js';
 import { rememberUnloadedStorageRules } from '../surface/storage-rules.js';
+import { loadFirestoreRules } from '../surface/firestore-rules-load.js';
 import { createLocalBridge, type LocalBridgeOptions } from './local-bridge.js';
 import {
   createEvalLogWriter,
@@ -149,16 +149,25 @@ export function buildInProcessMcpServer(sandbox: LocalSandbox, opts?: InProcessM
   });
 }
 
+/** The project rules file a load read, and why it was refused, if it was. */
+export interface ProjectRulesLoad {
+  path: string;
+  /** Why production would not load the file, when the sandbox refused it; null when it loaded. */
+  refused: string | null;
+}
+
 /**
- * Load `<cwd>/firestore.rules` into the sandbox when present. Returns the path
- * it loaded, or null if there was no rules file. Without rules, rules-enforcing
- * (`as:{uid}`) ops fall back to the sandbox's default; admin ops are unaffected.
+ * Load `<cwd>/firestore.rules` into the sandbox when present. A file
+ * production would not load (it does not parse, or it is past a compile
+ * limit) is refused: the rules in force stay, and lint and simulate read the
+ * file's source. Null when there is no rules file. Without rules,
+ * rules-enforcing (`as:{uid}`) ops fall back to the sandbox's default; admin
+ * ops are unaffected.
  */
-export function loadProjectRules(sandbox: LocalSandbox, cwd: string): string | null {
-  const rulesPath = join(cwd, 'firestore.rules');
-  if (!existsSync(rulesPath)) return null;
-  setRules(sandbox, readFileSync(rulesPath, 'utf8'));
-  return rulesPath;
+export function loadProjectRules(sandbox: LocalSandbox, cwd: string): ProjectRulesLoad | null {
+  const path = join(cwd, 'firestore.rules');
+  if (!existsSync(path)) return null;
+  return { path, refused: loadFirestoreRules(sandbox, readFileSync(path, 'utf8')) };
 }
 
 /**
@@ -380,10 +389,11 @@ async function runInProcessSession(
   }
   // After the snapshot: restoring it resets the ruleset to the sandbox default,
   // and the project's rules file is the authority for what the server enforces.
-  const rulesPath = loadProjectRules(sandbox, projectDir);
-  const hasProjectRules = rulesPath !== null;
-  if (hasProjectRules) {
-    log(`rules loaded from ${rulesPath}`);
+  const projectRules = loadProjectRules(sandbox, projectDir);
+  if (projectRules !== null && projectRules.refused === null) {
+    log(`rules loaded from ${projectRules.path}`);
+  } else if (projectRules !== null) {
+    log(`rules not loaded from ${projectRules.path}: ${projectRules.refused} The sandbox keeps the rules in force.`);
   } else {
     log(`no firestore.rules found in ${projectDir}`);
   }

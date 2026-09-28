@@ -20,6 +20,7 @@ import {
 } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
 import { seedDocuments, setRules, snapshotDocuments } from 'pyric/sandbox/firestore';
+import { rulesSourceRejection } from 'pyric/rules/internal';
 import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database';
 import { getStorageSandbox } from 'pyric/storage';
 import { replaceStorageRules } from 'pyric/storage/internal';
@@ -159,14 +160,14 @@ if (!useWorker) try {
   // (one backend per sandbox) so a later rules/op call reuses it.
   getDatabase(sandbox);
   if (payload.rules) {
-    const lint = setRules(sandbox, payload.rules);
-    if (lint.parseError) {
-      // The server lints before serving, so this is a defensive surface —
-      // loud, but don't brick the page: the sandbox keeps its default rules.
-      throw new Error(
-        `firestore.rules failed to parse in the sandbox: ${JSON.stringify(lint.parseError)}`,
-      );
+    // The server checks before serving, so this is a defensive surface: the
+    // check every rules load path runs, and a refused source leaves the
+    // sandbox's default rules in force.
+    const rejection = rulesSourceRejection(payload.rules);
+    if (rejection !== null) {
+      throw new Error(`firestore.rules not loaded in the sandbox: Firestore ${rejection.message}`);
     }
+    setRules(sandbox, payload.rules);
     diagnostics.rulesDeployed = true;
     diagnostics.rulesHash = payload.rulesHash;
   }
@@ -596,8 +597,10 @@ if (!useWorker && typeof EventSource !== 'undefined') {
         rules: string;
         rulesHash: string;
       };
-      const lint = setRules(sandbox, rules);
-      if (lint.parseError) throw new Error(JSON.stringify(lint.parseError));
+      // A refused source leaves the active rules in force.
+      const rejection = rulesSourceRejection(rules);
+      if (rejection !== null) throw new Error(`Firestore ${rejection.message}`);
+      setRules(sandbox, rules);
       diagnostics.rulesDeployed = true;
       diagnostics.rulesHash = rulesHash;
       console.info(`[pyric sandbox] firestore.rules hot-reloaded (hash ${rulesHash})`);

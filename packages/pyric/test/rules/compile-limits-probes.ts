@@ -37,10 +37,25 @@ export interface CompileLimitProbe {
   errorPositions: ([number, number] | undefined)[];
   /** A readable label for a test name. */
   label: string;
+  /** The Rules Test API server error the ruleset drew instead of a compile result, when it drew one. */
+  apiError?: string;
 }
 
-/** Every probe in the capture, with its ruleset. */
+/** Every probe production compiled or rejected with issues, with its ruleset. */
 export function compileLimitProbes(): CompileLimitProbe[] {
+  return capturedProbes().filter((p) => p.apiError === undefined);
+}
+
+/**
+ * Every probe the Rules Test API answered with a server error on each
+ * attempt, with its ruleset: production neither compiled it nor reported an
+ * issue for it.
+ */
+export function apiErrorProbes(): CompileLimitProbe[] {
+  return capturedProbes().filter((p) => p.apiError !== undefined);
+}
+
+function capturedProbes(): CompileLimitProbe[] {
   const fixture = JSON.parse(readFileSync(FIXTURE, 'utf8')) as { probes: ProbeRecord[] };
   return fixture.probes.map((p) => {
     const errors = p.issues.filter((i) => i.severity === 'ERROR').map((i) => i.description);
@@ -57,6 +72,7 @@ export function compileLimitProbes(): CompileLimitProbe[] {
         .filter((i) => i.severity === 'ERROR')
         .map((i) => (i.line === undefined || i.column === undefined ? undefined : [i.line, i.column])),
       label: `${p.service} ${p.shape} ${p.range ? `${p.range[0]}..${p.range[1]}` : `n=${p.n}`}`,
+      ...(p.apiError === undefined ? {} : { apiError: p.apiError }),
     };
   });
 }

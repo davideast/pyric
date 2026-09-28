@@ -103,8 +103,54 @@ service firebase.storage {
     const over = storage(`match /docs/{docId} { allow read: if f() && f() && f() && ${trues(63)} && true; }`, f);
     expect(over.allowed).toBe(false);
     expect(over.evaluatedExpressions).toBe(EXPRESSION_LIMIT);
-    expect(over.resourceLimit).toEqual({ kind: 'expressions', limit: EXPRESSION_LIMIT, message: EXPRESSION_LIMIT_MESSAGE });
+    expect(over.resourceLimit).toMatchObject({ kind: 'expressions', limit: EXPRESSION_LIMIT, message: EXPRESSION_LIMIT_MESSAGE });
     expect(over.reasons.join(' ')).toContain(EXPRESSION_LIMIT_MESSAGE);
+  });
+
+  it('places the limit at the expression the budget ran out on, as the Firestore simulator does', () => {
+    // Production reports the limit at a line and column. The same condition
+    // runs out at the same expression in both engines, so the position
+    // relative to the condition is the same.
+    const f = `function f() { return ${trues(90)}; }`;
+    const condition = `f() && f() && f() && ${trues(63)} && false`;
+    const storageSource = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    ${f}
+    match /docs/{docId} { allow read: if ${condition}; }
+  }
+}`;
+    const r = evaluateStorageRules(parseStorageRules(storageSource), {
+      request: { auth: { uid: 'alice' }, method: 'read', path },
+      resource: { size: 10, name: 'docs/d1.json', metadata: {} },
+    });
+    expect(r.allowed).toBe(false);
+    const limit = r.resourceLimit!;
+    expect(limit.line).toBe(5);
+    // Without `&& false` the condition costs exactly 1000. Its `&&` node is
+    // charged before its operands, so the last `true` is the 1001st unit.
+    const storageLine = storageSource.split('\n')[4]!;
+    expect(limit.column).toBe(storageLine.lastIndexOf('true') + 1);
+    expect(r.reasons).toEqual([
+      `match /docs/{docId} read: line 5, column ${limit.column}: ${EXPRESSION_LIMIT_MESSAGE}`,
+    ]);
+
+    const firestoreSource = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    ${f}
+    match /docs/{id} { allow get: if ${condition}; }
+  }
+}`;
+    const simulated = new SimulateFirestoreRulesHandler().simulate(firestoreSource, [{
+      description: 'limit', expectation: 'DENY', method: 'get', path: 'docs/d1', auth: { uid: 'alice' },
+    }]);
+    if (!simulated.success) throw new Error(simulated.error.message);
+    const firestoreLimit = simulated.data.results[0]!.resourceLimit!;
+    const firestoreLine = firestoreSource.split('\n')[4]!;
+    expect(firestoreLimit.line).toBe(5);
+    expect(firestoreLimit.column! - firestoreLine.indexOf(condition))
+      .toBe(limit.column! - storageLine.indexOf(condition));
   });
 
   it('ends the request at the limit: no later rule or match block grants, and || true does not absorb it', () => {

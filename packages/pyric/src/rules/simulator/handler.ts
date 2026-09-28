@@ -18,8 +18,7 @@ import type {
   RulesResourceLimit,
 } from '../test/spec.js';
 import type { FirestoreRules, MatchBlock, AllowRule, FunctionDef, Expression } from '../grammar/FirestoreAST.js';
-import { parseToAST } from '../grammar/FirestoreParser.js';
-import { compileLimitViolations, describeCompileLimitViolations } from '../grammar/compile-limits.js';
+import { checkRulesSource } from '../grammar/source-compile-limits.js';
 import { assembleExpression } from '../grammar/FirestoreAssembler.js';
 import { readAuthoredSourceMap, resolveAuthoredLoc, type AuthoredSourceMap } from '../modules/resolver-core.js';
 import { evaluate, requireBoolean, UnsupportedError, TraceRecorder, type SimulationContext } from './evaluator.js';
@@ -27,7 +26,7 @@ import { evaluate, requireBoolean, UnsupportedError, TraceRecorder, type Simulat
 import { Timestamp } from './wrappers/timestamp.js';
 import { Path } from './wrappers/path.js';
 import { DOCUMENT_LOOKUP_LIMIT, LookupBudget } from './lookup-budget.js';
-import { EXPRESSION_LIMIT, ExpressionBudget } from './expression-budget.js';
+import { EXPRESSION_LIMIT, ExpressionBudget, describeExpressionLimit } from './expression-budget.js';
 import { ExpressionLimitError, ResourceLimitError } from './eval-error.js';
 import { projectAfterState } from './project-after-state.js';
 import { DOCUMENT_PATH_FORM, documentRelativePath } from './request-path.js';
@@ -97,7 +96,12 @@ interface RuleBlockOutcome {
 
 function describeResourceLimit(e: ResourceLimitError): RulesResourceLimit {
   if (e instanceof ExpressionLimitError) {
-    return { kind: 'expressions', limit: EXPRESSION_LIMIT, message: e.message };
+    return {
+      kind: 'expressions',
+      limit: EXPRESSION_LIMIT,
+      message: e.message,
+      ...(e.position === undefined ? {} : { line: e.position.line, column: e.position.column }),
+    };
   }
   return { kind: 'document-lookups', limit: DOCUMENT_LOOKUP_LIMIT, message: e.message };
 }
@@ -186,15 +190,22 @@ function evaluateRules(
         entry.message = (e as ResourceLimitError).message;
         record(entry);
         ctx.trace = priorRecorder;
+        const resourceLimit = describeResourceLimit(e as ResourceLimitError);
+        // Production reports the expression limit at the expression the
+        // budget ran out on, so the note cites that position.
+        const position = resourceLimit.line === undefined || resourceLimit.column === undefined
+          ? undefined
+          : { line: resourceLimit.line, column: resourceLimit.column };
+        const cited = describeExpressionLimit(resourceLimit.message, position);
         notes.push(
-          `Request denied by a rules resource limit: ${(e as ResourceLimitError).message}. `
+          `Request denied by a rules resource limit: ${cited.endsWith('.') ? cited : `${cited}.`} `
           + 'The limit is per request, so no other allow rule or match block was evaluated.',
         );
         return {
           decision: 'DENY',
           trace,
           notes,
-          resourceLimit: describeResourceLimit(e as ResourceLimitError),
+          resourceLimit,
         };
       }
       const isUnsupported = e instanceof UnsupportedError;
@@ -464,7 +475,7 @@ export class SimulateFirestoreRulesHandler {
     opts?: SimulateOptions,
   ): TestFirestoreRulesResult {
     // Parse rules. Give the empty-input case a distinct, actionable
-    // error — agents that see "Failed to parse rules source" otherwise
+    // error: agents that see a bare parse failure otherwise
     // hex-dump the rules file looking for invisible characters before
     // realizing the source string is just empty (see
     // CLAUDE_DEBUG_SESSION.md).
@@ -481,27 +492,17 @@ export class SimulateFirestoreRulesHandler {
         },
       };
     }
-    const ast = parseToAST(source);
-    if (!ast) {
+    // Production rejects a ruleset that does not parse, or is past its
+    // compile limits (call depth, `let` count, nesting), before evaluating
+    // any request. The reason is the one every rules load path refuses with.
+    const checked = checkRulesSource(source);
+    if (!checked.ok) {
       return {
         success: false,
-        error: { code: 'PARSE_FAILED', message: 'Failed to parse rules source', recoverable: true },
+        error: { code: 'PARSE_FAILED', message: `Firestore ${checked.rejection.message}`, recoverable: true },
       };
     }
-    // Production rejects a ruleset past its compile limits (call depth,
-    // `let` count, nesting) before evaluating any request.
-    const violations = compileLimitViolations(ast);
-    if (violations.length > 0) {
-      return {
-        success: false,
-        error: {
-          code: 'PARSE_FAILED',
-          message: `Rules source does not compile: ${describeCompileLimitViolations(violations)}`,
-          recoverable: true,
-        },
-      };
-    }
-    return this.simulateParsed(ast, source, testCases, opts);
+    return this.simulateParsed(checked.ast, source, testCases, opts);
   }
 
   /**
@@ -664,7 +665,7 @@ export class SimulateFirestoreRulesHandler {
       // One expression budget per request, shared the same way: production
       // counts every allow rule and match block the request evaluates
       // toward one limit of 1000.
-      const expressionBudget = new ExpressionBudget((message) => new ExpressionLimitError(message));
+      const expressionBudget = new ExpressionBudget((message, position) => new ExpressionLimitError(message, position));
       for (const match of matches) {
         const pathVars = { ...rootBindings, ...match.pathVariables };
         const ctx = buildContext(tc, match.functions, pathVars, opts?.getDoc, opts?.batchProjection, lookupBudget, expressionBudget);

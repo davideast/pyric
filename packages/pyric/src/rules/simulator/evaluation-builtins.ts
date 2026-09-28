@@ -158,7 +158,7 @@ export function evaluateFunctionCall(
     // value of `<name>`" without re-walking the function AST. A binding
     // whose value errors holds the error, as a parameter does.
     for (const binding of fn.lets) {
-      ctx.expressionBudget?.letBinding();
+      ctx.expressionBudget?.letBinding(binding.value);
       const bindingRootIdx = ctx.trace ? ctx.trace.entries.length : -1;
       fnScope[binding.name] = evaluateBinding(binding.value, ctx, fnScope);
       if (bindingRootIdx >= 0) {
@@ -193,7 +193,7 @@ export function evaluateMethodCall(
       // errors, production counts the arguments and not that unit (the
       // expression-cost capture's error-namespace-args shape).
       const argValues = evaluateOperands(args, ctx, scope);
-      ctx.expressionBudget?.node();
+      ctx.expressionBudget?.node(objectExpr);
       return evaluateNamespaceMethod(name, method, argValues);
     }
     // RULES-B2 interaction: an UNKNOWN bare identifier used as a method-call

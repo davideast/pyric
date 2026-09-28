@@ -27,7 +27,8 @@ import {
   RuleUnsupportedError,
   isAbsorbableEvalError,
 } from './rules-evaluation-error.js';
-import { EXPRESSION_LIMIT, ExpressionBudget } from '../../rules/simulator/expression-budget.js';
+import { EXPRESSION_LIMIT, ExpressionBudget, describeExpressionLimit } from '../../rules/simulator/expression-budget.js';
+import type { ExpressionPosition } from '../../rules/grammar/expression-positions.js';
 import { StoragePath } from './rules-path.js';
 import { ConversionFailure, applyConversion, conversionFor } from '../../rules/simulator/conversions.js';
 import { describeRulesType as describeType, isRulesMap } from '../../rules/simulator/rules-type.js';
@@ -55,8 +56,8 @@ export function evaluateStorageRules(
   const firestoreAccesses = new Set<string>();
   // One expression budget for the request, shared by every allow rule and
   // match block, in the unit the Firestore simulator counts.
-  const expressionBudget = new ExpressionBudget((message) => new RuleExpressionLimitError(message));
-  let expressionLimit: string | undefined;
+  const expressionBudget = new ExpressionBudget((message, position) => new RuleExpressionLimitError(message, position));
+  let expressionLimit: { message: string; position: ExpressionPosition | undefined } | undefined;
   // Whether the request stopped at the limit, and the first error an allow
   // rule raised before it. Production goes on to later allow rules after an
   // error, and reports that error rather than a limit reached after it.
@@ -142,8 +143,12 @@ export function evaluateStorageRules(
           if (err instanceof RuleExpressionLimitError) {
             stopped = true;
             if (firstError === undefined) {
-              expressionLimit = err.message;
-              reasons.push(`match ${formatPath(block.segments)} ${input.request.method}: ${err.message}`);
+              expressionLimit = { message: err.message, position: err.position };
+              // Production reports the limit at the expression the budget ran
+              // out on, so the reason cites that position.
+              reasons.push(
+                `match ${formatPath(block.segments)} ${input.request.method}: ${describeExpressionLimit(err.message, err.position)}`,
+              );
             } else {
               reasons.push(
                 `match ${formatPath(block.segments)} ${input.request.method}: ${err.message} `
@@ -186,7 +191,16 @@ export function evaluateStorageRules(
     reasons,
     evaluatedExpressions: expressionBudget.evaluated,
     ...(expressionLimit !== undefined
-      ? { resourceLimit: { kind: 'expressions' as const, limit: EXPRESSION_LIMIT, message: expressionLimit } }
+      ? {
+        resourceLimit: {
+          kind: 'expressions' as const,
+          limit: EXPRESSION_LIMIT,
+          message: expressionLimit.message,
+          ...(expressionLimit.position === undefined
+            ? {}
+            : { line: expressionLimit.position.line, column: expressionLimit.position.column }),
+        },
+      }
       : {}),
   };
 }
@@ -245,7 +259,7 @@ export interface EvalCtx {
  * potentially truthy value.
  */
 export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
-  ctx.expressionBudget?.node();
+  ctx.expressionBudget?.node(expr);
   switch (expr.kind) {
     case 'literal':
       return expr.value;
@@ -288,8 +302,8 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       // value, such as an argument to a function that passes it on to
       // `firestore.get()`. It charges what the literal charges as a direct
       // argument there: one node and one unit per literal segment.
-      ctx.expressionBudget?.node();
-      for (const seg of expr.segments) if (seg.kind === 'literal') ctx.expressionBudget?.pathSegment();
+      ctx.expressionBudget?.node(expr);
+      for (const seg of expr.segments) if (seg.kind === 'literal') ctx.expressionBudget?.pathSegment(expr);
       const interpolated = evalOperands(expr.segments.flatMap((seg) => (seg.kind === 'literal' ? [] : [seg.expr])), ctx);
       if (isErr(interpolated)) return interpolated;
       let next = 0;
@@ -327,7 +341,7 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       return undefined;
     }
     case 'ternary': {
-      ctx.expressionBudget?.ternary();
+      ctx.expressionBudget?.ternary(expr);
       const c = evalExpr(expr.cond, ctx);
       // An error condition denies the whole conditional; it must not fall
       // through to the alternate branch and potentially allow.
@@ -341,7 +355,7 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
         return new RuleError(`Ternary condition expected bool, got ${describeType(c)}.`);
       }
       if (c) return evalExpr(expr.then, ctx);
-      ctx.expressionBudget?.ternaryElse();
+      ctx.expressionBudget?.ternaryElse(expr);
       return evalExpr(expr.else, ctx);
     }
     case 'in': {
@@ -396,8 +410,8 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       // CEL, not JS left-to-right short-circuit. The two operators differ
       // only in which operand value uniquely determines the result: false
       // for &&, true for ||. Both are evaluated by the one helper below.
-      if (expr.op === '&&') return evalAbsorbingOperator(expr.left, expr.right, false, ctx);
-      if (expr.op === '||') return evalAbsorbingOperator(expr.left, expr.right, true, ctx);
+      if (expr.op === '&&') return evalAbsorbingOperator(expr, false, ctx);
+      if (expr.op === '||') return evalAbsorbingOperator(expr, true, ctx);
       // Both operands evaluate, and count, when the left one errors; the
       // left error is the result.
       const operands = evalOperands([expr.left, expr.right], ctx);
@@ -443,14 +457,14 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
  * skips the right one entirely.
  */
 function evalAbsorbingOperator(
-  left: Expr,
-  right: Expr,
+  operator: Extract<Expr, { kind: 'binary' }>,
   determining: boolean,
   ctx: EvalCtx,
 ): boolean | RuleError {
+  const { left, right } = operator;
   const l = evalLogicalOperand(left, ctx);
   if (l === determining) return determining; // left determines; right unevaluated
-  ctx.expressionBudget?.logicalRight();
+  ctx.expressionBudget?.logicalRight(operator);
   const r = evalLogicalOperand(right, ctx);
   if (r === determining) return determining; // right determines and absorbs any left error
   if (isErr(l)) return l;                    // left errored and nothing determined
@@ -564,7 +578,7 @@ function evalCall(expr: Extract<Expr, { kind: 'call' }>, ctx: EvalCtx): unknown 
   // to the return expression (they share the `locals` object). A binding
   // whose value errors holds the error, as a parameter does.
   for (const b of fn.lets) {
-    bodyCtx.expressionBudget?.letBinding();
+    bodyCtx.expressionBudget?.letBinding(b.value);
     locals[b.name] = evalOperand(b.value, bodyCtx);
   }
   return evalExpr(fn.body, bodyCtx);

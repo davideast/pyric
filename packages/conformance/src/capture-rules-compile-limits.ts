@@ -32,7 +32,7 @@ const OUT = join(OUT_DIR, 'captures.json');
 const RULES_API = 'https://firebaserules.googleapis.com/v1';
 
 export type Service = 'firestore' | 'storage';
-export type Shape = 'call-depth' | 'call-depth-uncalled' | 'let-count' | 'paren-nesting' | 'paren-literal' | 'and-nesting' | 'list-nesting' | 'map-nesting' | 'index-chain' | 'call-nesting' | 'slash-divisor';
+export type Shape = 'call-depth' | 'call-depth-uncalled' | 'let-count' | 'paren-nesting' | 'paren-literal' | 'and-nesting' | 'list-nesting' | 'map-nesting' | 'index-chain' | 'call-nesting' | 'slash-divisor' | 'member-chain';
 
 const LEAF = "request.auth.uid == 'a'";
 
@@ -81,6 +81,10 @@ export function probeBlock(shape: Shape, n: number, path = 'p'): string {
     case 'slash-divisor':
       // An int division with n spaces after the slash: (4/2) at n = 0, (4/ 2) at n = 1.
       return `    match /${path}/{d} {\n      allow read: if ${LEAF} && (4/${' '.repeat(n)}2) == 2;\n    }`;
+    case 'member-chain':
+      // A member chain of n terms, request.auth.token.m.m..., behind a leaf that
+      // grants uid a; for uid b the chain evaluates and errors on the missing key.
+      return `    match /${path}/{d} {\n      allow read: if ${LEAF} || request.auth.token${'.m'.repeat(n - 3)} == 1;\n    }`;
     case 'call-nesting':
       // n nested calls of one identity function: id(id(... uid ...)) == 'a'.
       return `    match /${path}/{d} {\n      function id(x) { return x; }\n      allow read: if ${'id('.repeat(n)}request.auth.uid${')'.repeat(n)} == 'a';\n    }`;
@@ -107,9 +111,15 @@ export interface ProbeRecord {
   /** Verbatim compiler issues, with severity and source position. */
   issues: Issue[];
   cases: { description: string; decision: 'ALLOW' | 'DENY'; notes: string[] }[];
+  /**
+   * Set when the Rules Test API answered the ruleset with a server error on
+   * every attempt, rather than compiling it or reporting issues: the status
+   * and the error message verbatim. The ruleset did not compile.
+   */
+  apiError?: string;
 }
 
-interface RunResult { compiles: boolean; issues: Issue[]; results: { decision: 'ALLOW' | 'DENY'; notes: string[] }[] }
+interface RunResult { compiles: boolean; issues: Issue[]; results: { decision: 'ALLOW' | 'DENY'; notes: string[] }[]; apiError?: string }
 export type Execute = (service: Service, source: string, cases: ProbeCase[]) => Promise<RunResult>;
 
 export async function tools(): Promise<{ run: Execute; projectId: string }> {
@@ -134,6 +144,12 @@ export async function tools(): Promise<{ run: Execute; projectId: string }> {
       if ((res.status === 500 || res.status === 503) && attempt < 4) {
         await new Promise((r) => setTimeout(r, 2000 * attempt));
         continue;
+      }
+      // A server error on the last attempt is the API's answer to this
+      // ruleset, recorded with the probe; any other failure stops the capture.
+      if (res.status === 500) {
+        const error = (await res.json() as { error?: { status?: string; message?: string } }).error;
+        return { compiles: false, issues: [], results: [], apiError: `${res.status} ${error?.status ?? ''}: ${error?.message ?? ''}` };
       }
       if (!res.ok) throw new Error(`Rules Test API ${res.status}: ${await res.text()}`);
       const data = await res.json() as {
@@ -162,6 +178,7 @@ const records: ProbeRecord[] = [];
 let calls = 0;
 
 function show(rec: ProbeRecord): string {
+  if (rec.apiError !== undefined) return `API ERROR ${rec.apiError}`;
   return rec.compiles
     ? `compiles ${rec.cases.map((c) => `${c.description}=${c.decision}${c.notes.length ? ` (${c.notes.join(' | ')})` : ''}`).join(', ')}${rec.issues.length ? ` issues: ${rec.issues.map((i) => `${i.severity} ${i.description}`).join('; ')}` : ''}`
     : `REJECTED ${rec.issues.map((i) => `${i.severity}@${i.line ?? '?'}:${i.column ?? '?'} ${i.description}`).join('; ')}`;
@@ -176,6 +193,7 @@ async function submit(run: Execute, service: Service, shape: Shape, n: number, s
     compiles: res.compiles,
     issues: res.issues,
     cases: res.results.map((r, i) => ({ description: cases[i]!.description, ...r })),
+    ...(res.apiError === undefined ? {} : { apiError: res.apiError }),
   };
   records.push(rec);
   console.log(`  ${service.padEnd(9)} ${shape.padEnd(20)} ${range ? `${range[0]}..${range[1]}` : `n=${n}`} ${show(rec)}`);
@@ -222,7 +240,7 @@ export interface Boundary { service: Service; shape: Shape; largestPass: number 
 export function boundaries(probes: readonly ProbeRecord[]): Boundary[] {
   const out: Boundary[] = [];
   for (const service of ['firestore', 'storage'] as const) {
-    for (const shape of ['call-depth', 'call-depth-uncalled', 'let-count', 'and-nesting', 'paren-nesting', 'paren-literal', 'list-nesting', 'map-nesting', 'index-chain', 'call-nesting', 'slash-divisor'] as const) {
+    for (const shape of ['call-depth', 'call-depth-uncalled', 'let-count', 'and-nesting', 'paren-nesting', 'paren-literal', 'list-nesting', 'map-nesting', 'index-chain', 'call-nesting', 'slash-divisor', 'member-chain'] as const) {
       const mine = probes.filter((p) => p.service === service && p.shape === shape && !p.range);
       if (mine.length === 0) continue;
       const ok = mine.filter((p) => p.compiles).map((p) => p.n);

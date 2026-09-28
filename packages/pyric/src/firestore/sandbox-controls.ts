@@ -8,7 +8,7 @@
  */
 import type { LocalSandbox, RemoteSandbox } from 'pyric/sandbox';
 import { getInternalEnv } from 'pyric/sandbox/internal';
-import { lintFirestoreRules } from 'pyric/rules/internal';
+import { lintFirestoreRules, rulesSourceRejection } from 'pyric/rules/internal';
 
 import type { DocumentData, LintResult } from './types.js';
 
@@ -93,6 +93,17 @@ export function inspect(
     if (warning.severity === 'error') counts.errors++;
     else if (warning.severity === 'warning') counts.warnings++;
     else counts.info++;
+  }
+  // `setRules` installs a source production would not load. Its status
+  // carries the reason the CLI's rules load paths refuse the same source with.
+  const rejection = rulesSource ? rulesSourceRejection(rulesSource) : null;
+  if (rejection !== null) {
+    findings.unshift({
+      rule: rejection.kind === 'parse' ? 'PARSE_ERROR' : 'COMPILE_LIMIT',
+      severity: 'error',
+      message: `Firestore ${rejection.message}`,
+    });
+    counts.errors++;
   }
 
   const documents = env.snapshot();

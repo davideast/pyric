@@ -31,6 +31,7 @@ import { SERVE_HISTORY_LIMITS } from '../observation-limits.js';
 
 import { getFirestore } from 'pyric/firestore';
 import { seedDocuments, setRules, snapshotDocuments } from 'pyric/sandbox/firestore';
+import { rulesSourceRejection } from 'pyric/rules/internal';
 import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database';
 import { getAuth, sandbox as authOps, type SeedUser } from 'pyric/auth';
 import { getStorageSandbox } from 'pyric/storage';
@@ -84,8 +85,11 @@ export function setupWorkerHotReload(
   events.addEventListener('rules-changed', (ev) => {
     try {
       const { rules } = JSON.parse(ev.data) as { rules: string; rulesHash?: string };
-      const lint = setRules(ctx.sandbox, rules);
-      if (lint.parseError) throw new Error(JSON.stringify(lint.parseError));
+      // The check every rules load path runs; a refused source leaves the
+      // active rules in force.
+      const rejection = rulesSourceRejection(rules);
+      if (rejection !== null) throw new Error(`Firestore ${rejection.message}`);
+      setRules(ctx.sandbox, rules);
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error('[pyric worker] rules hot-reload failed:', err instanceof Error ? err.message : String(err));
@@ -247,17 +251,19 @@ export function applyServeInit(
   }
 
   // 1. Rules — deploy the project's ruleset, replacing the permissive starter
-  //    `entry.ts` deployed at bootstrap. A parse error is defensive (the server
-  //    lints before serving): keep the default rules, surface loudly.
+  //    `entry.ts` deployed at bootstrap. A source production would not load
+  //    is defensive (the server checks before serving): keep the default
+  //    rules, surface loudly.
   if (payload.rules) {
-    const lint = setRules(ctx.sandbox, payload.rules);
-    if (lint.parseError) {
-      result.rulesParseError = JSON.stringify(lint.parseError);
+    const rejection = rulesSourceRejection(payload.rules);
+    if (rejection !== null) {
+      result.rulesParseError = `Firestore ${rejection.message}`;
       console.error(
-        '[pyric worker] firestore.rules failed to parse — running WITHOUT your rules:',
+        '[pyric worker] firestore.rules not loaded, running WITHOUT your rules:',
         result.rulesParseError,
       );
     } else {
+      setRules(ctx.sandbox, payload.rules);
       result.rulesDeployed = true;
       // Record the deployed source on ctx (mirrors the database branch below)
       // so diagnostics report it AND the `resetAll` op can re-deploy it —

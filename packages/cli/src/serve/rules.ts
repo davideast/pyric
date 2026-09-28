@@ -17,6 +17,7 @@ import {
   describeCompileLimitViolations,
   lintFirestoreRules,
   resolveModulesWithFiles,
+  rulesSourceRejection,
   sourceCompileLimitViolations,
   type ResolveResult,
 } from 'pyric/rules/internal';
@@ -136,23 +137,23 @@ export function prepareProjectRules(raw: string, sourcePath: string): PreparedRu
     }
     source = resolved.data.resolved;
   }
+  // Production rejects a ruleset that does not parse, or is past its compile
+  // limits, before it evaluates any request, so the sandbox does not serve
+  // one either: the check every rules load path runs.
+  const rejection = rulesSourceRejection(source);
+  if (rejection?.kind === 'parse') {
+    throw new RulesPrepareError(
+      `pyric sandbox: ${sourcePath} failed to parse (line ${rejection.line}, col ${rejection.column}). Fix the rules before serving.`,
+      moduleFiles,
+    );
+  }
+  if (rejection?.kind === 'compile') {
+    throw new RulesPrepareError(
+      `pyric sandbox: ${sourcePath} does not compile: ${describeCompileLimitViolations(rejection.violations)} Fix the rules before serving.`,
+      moduleFiles,
+    );
+  }
   const lint = lintFirestoreRules(source);
-  if (lint.parseError) {
-    const { line, column } = lint.parseError;
-    throw new RulesPrepareError(
-      `pyric sandbox: ${sourcePath} failed to parse (line ${line}, col ${column}). Fix the rules before serving.`,
-      moduleFiles,
-    );
-  }
-  // Production rejects a ruleset past its compile limits before it evaluates
-  // any request, so the sandbox does not serve one either.
-  const violations = sourceCompileLimitViolations(source);
-  if (violations.length > 0) {
-    throw new RulesPrepareError(
-      `pyric sandbox: ${sourcePath} does not compile: ${describeCompileLimitViolations(violations)} Fix the rules before serving.`,
-      moduleFiles,
-    );
-  }
   const errors = lint.warnings.filter((w) => w.severity === 'error');
   if (errors.length > 0) {
     throw new RulesPrepareError(
