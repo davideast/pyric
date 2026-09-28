@@ -69,4 +69,36 @@ describe('parseStorageRules', () => {
       }`),
     ).toThrow();
   });
+
+  // Production rejects a second definition of one function name in the same
+  // scope at compile time with `Function f is already defined.`. A nested
+  // match block that redefines an outer name shadows it and compiles.
+  it.each([
+    ['one match block', `match /b/{bucket}/o {
+    function f() { return true; }
+    function f() { return false; }
+    match /c/{id} { allow read: if f(); }
+  }`],
+    ['service scope', `function f() { return true; }
+  function f() { return false; }
+  match /b/{bucket}/o {
+    match /c/{id} { allow read: if f(); }
+  }`],
+  ])('rejects two functions of one name in %s', (_scope, body) => {
+    expect(() => parseStorageRules(`rules_version = '2';
+service firebase.storage {
+  ${body}
+}`)).toThrow('Function f is already defined.');
+  });
+
+  it('accepts a nested match block function that shadows an outer one', () => {
+    expect(() => parseStorageRules(`rules_version = '2';
+service firebase.storage {
+  function f() { return true; }
+  match /b/{bucket}/o {
+    function f() { return false; }
+    match /c/{id} { allow read: if f(); }
+  }
+}`)).not.toThrow();
+  });
 });

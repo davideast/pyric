@@ -15,7 +15,8 @@ import type { Expression, FunctionDef } from '../grammar/FirestoreAST.js';
 import { MapDiff } from './mapdiff.js';
 import { FirestoreSet } from './firestore-set.js';
 import { rulesValuesEqual } from './value-equality.js';
-import { describeRulesType } from './rules-type.js';
+import { describeRulesType, isRulesMap } from './rules-type.js';
+import { sliceBoundsError } from './slice-bounds.js';
 import { RulesValue, NO_OP } from './wrappers/base.js';
 import { LatLng } from './wrappers/latlng.js';
 import { Duration } from './wrappers/duration.js';
@@ -181,11 +182,9 @@ function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<st
 
     case 'sliceAccess': {
       // Range slice `obj[start:end]` on a List or String: a sub-list or
-      // substring, `end` exclusive. Indices must be integers. Production
-      // then checks, in order, that `start` is an index, that `end - 1` is
-      // an index, and that `start` does not exceed `end`; each failure is an
-      // evaluation error. So `[0:0]`, `[n:n]`, and any slice of an empty
-      // value are errors, and `[i:i]` for 0 < i < n is empty.
+      // substring, `end` exclusive. Indices must be integers, and the bounds
+      // follow production's checks in `slice-bounds.ts`, shared with the
+      // Storage evaluator.
       const obj = evaluate(expr.object, ctx, scope);
       const start = evaluate(expr.start, ctx, scope);
       const end = evaluate(expr.end, ctx, scope);
@@ -197,15 +196,8 @@ function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<st
         throw new EvalError(`Slice end must be an integer, got ${typeof end}`);
       }
       if (typeof obj === 'string' || Array.isArray(obj)) {
-        const size = obj.length;
-        for (const index of [start, end - 1]) {
-          if (index < 0 || index >= size) {
-            throw new EvalError(`Index out of bound error. Index: [${index}] , size: [${size}].`);
-          }
-        }
-        if (start > end) {
-          throw new EvalError(`Illegal range error. From index: [${start}] , To index: [${end}].`);
-        }
+        const boundsError = sliceBoundsError(start, end, obj.length);
+        if (boundsError) throw new EvalError(boundsError);
         return obj.slice(start, end);
       }
       throw new EvalError(`Slice not supported on ${typeof obj}`);
@@ -214,7 +206,13 @@ function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<st
     case 'inExpr': {
       const element = evaluate(expr.element, ctx, scope);
       const collection = evaluate(expr.collection, ctx, scope);
-      if (collection === null || collection === undefined) return false;
+      // `in` over null, a string, a number or a bool is an evaluation error
+      // in production, never false, so its negation denies as well.
+      if (collection === null || collection === undefined) throw new EvalError('Null value error.', expr);
+      if (typeof collection === 'string' || typeof collection === 'number' ||
+          typeof collection === 'boolean' || collection instanceof RulesFloat) {
+        throw new EvalError('Function not found error: Name: [in].', expr);
+      }
       // Use Rules value equality instead of Array.includes so wrapper
       // value-equality applies (Item 0.B hook 6). Without this,
       // `someTimestamp in [t1, t2]` is always false because `===`
@@ -233,6 +231,13 @@ function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<st
       // true (and an `in`-guarded access then leaked the Object method).
       // Object.hasOwn ignores inherited keys, matching Firestore's "the map
       // has no inherited keys" model.
+      // A map key is a string: any other key type is an evaluation error.
+      if (isRulesMap(collection) && typeof element !== 'string') {
+        throw new EvalError(
+          `Unsupported operation error. Received: map.in(${describeRulesType(element)}). Expected: map.in(string).`,
+          expr,
+        );
+      }
       if (typeof collection === 'object') return Object.hasOwn(collection as object, String(element));
       return false;
     }

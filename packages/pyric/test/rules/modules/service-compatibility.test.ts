@@ -604,7 +604,6 @@ service cloud.firestore {
     ['bool(1)', "function 'bool()'"],
     ['debug(1)', "function 'debug()'"],
     ['cast.string(1)', "namespace 'cast'"],
-    ['string(request.auth.uid)[0]', "binding '<derived ambient value>[...]'"],
   ])('rejects %s in a module function', (expression, issue) => {
     const result = resolveModules(castSource, {
       modules: { './policy': `export function check(i) { return ${expression} == i; }` },
@@ -660,5 +659,47 @@ service cloud.firestore {
       expect(result.success, module).toBe(false);
       if (!result.success) expect(result.error.code).toBe('INCOMPATIBLE_FUNCTION');
     }
+  });
+  test.each([
+    ["'k' in request.resource.data.board.diff(resource.data.board).affectedKeys()"],
+    ["request.resource.data.at.split('_')[0].split('-').size() == 1"],
+    ["'a_b c'.split(request.resource.data.at)[1].split(' ').size() == 2"],
+    ["request.resource.data.tags[0].lower() == 'a'"],
+    ["'k' in request.resource.data.tags.toSet().union(['j'].toSet())"],
+    ["request.resource.data.name.lower().trim().split(' ').size() > 0"],
+    ["request.resource.data.list.concat([1])[0].size() > 0"],
+    ["request.resource.data.m.get('a', {}).b == 1"],
+    ["(request.resource.data.x > 0 ? request.resource.data.a : resource.data.b).size() > 0"],
+    ["request.auth.uid in request.resource.data.members.toSet().difference(resource.data.members.toSet())"],
+    ["string(request.auth.uid)[0] == 'a'"],
+  ])('admits a Firestore expression over a value computed from request data: %s', (expression) => {
+    const result = resolveModules(makeSource("import { check } from './policy';"), {
+      modules: { './policy': `export function check() { return ${expression}; }` },
+    });
+    expect(result.success, result.success ? '' : result.error.message).toBe(true);
+  });
+  test.each([
+    ["'md5Hash' in [request.resource][0]", '<derived ambient value>'],
+    ["[request.resource][0]['md5Hash'] != null", '<derived ambient value>'],
+    ["[request.resource][0].get('md5Hash', null) != null", 'requires map receiver, got resource'],
+    ["(request.auth != null ? request.resource : resource).md5Hash != null", '<derived ambient value>'],
+  ])('rejects a Storage expression that routes a fixed-field binding through a computed value: %s', (expression, issue) => {
+    const result = resolveModules(
+      makeStorageSource("import { check } from './policy';", 'check()'),
+      { modules: { './policy': `export function check() { return ${expression}; }` } },
+    );
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.message).toContain(issue);
+  });
+  test.each([
+    ["'k' in request.resource.metadata.keys()"],
+    ["resource.name.split('/')[0].size() > 0"],
+    ["request.resource.contentType.split('/')[0].matches('image')"],
+  ])('admits a Storage expression over a value computed from request data: %s', (expression) => {
+    const result = resolveModules(
+      makeStorageSource("import { check } from './policy';", 'check()'),
+      { modules: { './policy': `export function check() { return ${expression}; }` } },
+    );
+    expect(result.success, result.success ? '' : result.error.message).toBe(true);
   });
 });

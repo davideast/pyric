@@ -4,16 +4,305 @@
   "rowIds": [
     "storage-rules#122"
   ],
-  "description": "Storage Rules Test API verdicts for corpus scenario \"list-map-literals-and-slice\" (Coverage: list/map literals, slice [i:j], OOB slice errors). Slices on split() lists and on strings must evaluate, list literals must compare by value, and an out-of-bounds slice end must error \u2192 deny (production does not clamp).",
-  "observedAt": "2026-07-17T19:19:08.292Z",
+  "description": "Storage Rules Test API verdicts for corpus scenario \"list-map-literals-and-slice\" (Coverage: list/map literals, slice [i:j], OOB slice errors). Slices on split() lists and on strings must evaluate, list literals must compare by value, and an out-of-bounds slice end must error → deny (production does not clamp).",
+  "observedAt": "2026-09-28T00:12:17.608Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "behavior": {
-    "list mid-slice of split() \u2192 size 2 \u2192 ALLOW": "ALLOW",
-    "slice end beyond split() length errors \u2192 DENY": "DENY",
-    "slice == list literal \u2192 ALLOW": "ALLOW",
-    "slice == list literal (different segments) \u2192 DENY": "DENY",
-    "OOB slice end [0:9] errors, does not clamp \u2192 DENY": "DENY",
-    "string slice [1:4] is substring \u2192 ALLOW": "ALLOW"
+    "list mid-slice of split() → size 2 → ALLOW": "ALLOW",
+    "slice end beyond split() length errors → DENY": "DENY",
+    "slice == list literal → ALLOW": "ALLOW",
+    "slice == list literal (different segments) → DENY": "DENY",
+    "OOB slice end [0:9] errors, does not clamp → DENY": "DENY",
+    "string slice [1:4] is substring → ALLOW": "ALLOW",
+    "list slice [0:0] is an index error → DENY": "DENY",
+    "list slice [n:n] is an index error → DENY": "DENY",
+    "list slice [n-1:n-1] → empty → ALLOW": "ALLOW",
+    "list slice [n-1:n] → last element → ALLOW": "ALLOW",
+    "list slice [1:0] is an index error → DENY": "DENY",
+    "list slice start after end is a range error → DENY": "DENY",
+    "empty list slice [0:0] is an index error → DENY": "DENY",
+    "string slice [0:0] is an index error → DENY": "DENY",
+    "string slice [1:1] → empty string → ALLOW": "ALLOW",
+    "string slice [n-1:n-1] → empty string → ALLOW": "ALLOW",
+    "string slice [n:n] is an index error → DENY": "DENY",
+    "string slice start after end is a range error → DENY": "DENY",
+    "empty string slice [0:0] is an index error → DENY": "DENY"
+  },
+  "diagnostics": {
+    "list mid-slice of split() → size 2 → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 6,
+              "column": 22,
+              "currentOffset": 197,
+              "endOffset": 202
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "slice end beyond split() length errors → DENY": {
+      "notes": [
+        "Error: storage.rules line [6], column [22]. Index out of bound error. Index: [1] , size: [1]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 6,
+          "column": 22,
+          "currentOffset": 197,
+          "endOffset": 202
+        }
+      }
+    },
+    "slice == list literal → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 8,
+              "column": 24,
+              "currentOffset": 303,
+              "endOffset": 308
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "slice == list literal (different segments) → DENY": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 8,
+              "column": 24,
+              "currentOffset": 303,
+              "endOffset": 308
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "OOB slice end [0:9] errors, does not clamp → DENY": {
+      "notes": [
+        "Error: storage.rules line [10], column [24]. Index out of bound error. Index: [8] , size: [3]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 10,
+          "column": 24,
+          "currentOffset": 443,
+          "endOffset": 448
+        }
+      }
+    },
+    "string slice [1:4] is substring → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 12,
+              "column": 24,
+              "currentOffset": 545,
+              "endOffset": 552
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list slice [0:0] is an index error → DENY": {
+      "notes": [
+        "Error: storage.rules line [16], column [51]. Index out of bound error. Index: [-1] , size: [4]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 16,
+          "column": 51,
+          "currentOffset": 728,
+          "endOffset": 733
+        }
+      }
+    },
+    "list slice [n:n] is an index error → DENY": {
+      "notes": [
+        "Error: storage.rules line [17], column [49]. Index out of bound error. Index: [4] , size: [4]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 17,
+          "column": 49,
+          "currentOffset": 814,
+          "endOffset": 819
+        }
+      }
+    },
+    "list slice [n-1:n-1] → empty → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 18,
+              "column": 52,
+              "currentOffset": 903,
+              "endOffset": 908
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list slice [n-1:n] → last element → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 19,
+              "column": 54,
+              "currentOffset": 994,
+              "endOffset": 999
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list slice [1:0] is an index error → DENY": {
+      "notes": [
+        "Error: storage.rules line [20], column [57]. Index out of bound error. Index: [-1] , size: [4]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 20,
+          "column": 57,
+          "currentOffset": 1085,
+          "endOffset": 1090
+        }
+      }
+    },
+    "list slice start after end is a range error → DENY": {
+      "notes": [
+        "Error: storage.rules line [21], column [56]. Illegal range error. From index: [3] , To index: [1]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 21,
+          "column": 56,
+          "currentOffset": 1178,
+          "endOffset": 1183
+        }
+      }
+    },
+    "empty list slice [0:0] is an index error → DENY": {
+      "notes": [
+        "Error: storage.rules line [22], column [56]. Index out of bound error. Index: [0] , size: [0]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 22,
+          "column": 56,
+          "currentOffset": 1271,
+          "endOffset": 1271
+        }
+      }
+    },
+    "string slice [0:0] is an index error → DENY": {
+      "notes": [
+        "Error: storage.rules line [23], column [50]. Index out of bound error. Index: [-1] , size: [5]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 23,
+          "column": 50,
+          "currentOffset": 1337,
+          "endOffset": 1342
+        }
+      }
+    },
+    "string slice [1:1] → empty string → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 24,
+              "column": 48,
+              "currentOffset": 1405,
+              "endOffset": 1410
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "string slice [n-1:n-1] → empty string → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 25,
+              "column": 51,
+              "currentOffset": 1476,
+              "endOffset": 1481
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "string slice [n:n] is an index error → DENY": {
+      "notes": [
+        "Error: storage.rules line [26], column [48]. Index out of bound error. Index: [5] , size: [5]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 26,
+          "column": 48,
+          "currentOffset": 1544,
+          "endOffset": 1549
+        }
+      }
+    },
+    "string slice start after end is a range error → DENY": {
+      "notes": [
+        "Error: storage.rules line [27], column [55]. Illegal range error. From index: [2] , To index: [1]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 27,
+          "column": 55,
+          "currentOffset": 1619,
+          "endOffset": 1624
+        }
+      }
+    },
+    "empty string slice [0:0] is an index error → DENY": {
+      "notes": [
+        "Error: storage.rules line [28], column [55]. Index out of bound error. Index: [0] , size: [0]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 28,
+          "column": 55,
+          "currentOffset": 1694,
+          "endOffset": 1695
+        }
+      }
+    }
   }
 }

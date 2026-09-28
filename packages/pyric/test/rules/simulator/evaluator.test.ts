@@ -186,9 +186,11 @@ describe('Layer 2: Access patterns', () => {
     expect(evaluate(expr, ctx)).toBe(false);
   });
 
-  test('value in null/undefined — false, no error', () => {
+  // Production: `in` over null is `Null value error.`, not false
+  // (corpus scenario prototype-chain-keys).
+  test('value in null is a null value error', () => {
     const expr = inExpr(lit('x'), lit(null));
-    expect(evaluate(expr, baseCtx())).toBe(false);
+    expect(() => evaluate(expr, baseCtx())).toThrow('Null value error.');
   });
 
   // RULES-B2 FLIP: these two previously asserted null-on-null-access — the

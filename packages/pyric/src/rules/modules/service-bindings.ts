@@ -23,6 +23,19 @@ export function allowedAmbientBinding(service: RulesServiceName, path: readonly 
   return path[0] === 'resource' && (path.length === 1 || path[1] === 'data');
 }
 
+const FIRESTORE_FIXED_FIELD_BINDINGS: ReadonlySet<string> = new Set(['request', 'request.resource', 'resource']);
+
+// A binding with a fixed field set, such as Storage's request.resource. A
+// value computed from one may be the binding itself, so a field read from that
+// value cannot be checked against the service's bindings. A value computed
+// only from user-defined data or from scalar bindings is data.
+export function bindingHasFixedFields(service: RulesServiceName, path: readonly string[]): boolean {
+  const binding = path.join('.');
+  if (service === 'cloud.firestore') return FIRESTORE_FIXED_FIELD_BINDINGS.has(binding);
+  if (allowsDynamicAmbientAccess(service, path)) return false;
+  return STORAGE_BINDING_PATHS.some((candidate) => candidate.startsWith(`${binding}.`));
+}
+
 export function allowsDynamicAmbientAccess(
   service: RulesServiceName,
   path: readonly string[],

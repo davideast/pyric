@@ -2,6 +2,7 @@ import type {
   FirestoreRules, MatchBlock, AllowRule, FunctionDef, Expression, Operation,
 } from './FirestoreAST.js';
 import { countDocumentAccessCalls } from './document-access-count.js';
+import { compileLimitViolations } from './compile-limits.js';
 import {
   collectRulesetScopes, functionReferences, ruleReferences,
   type NameReferences, type RulesetScopes,
@@ -345,28 +346,17 @@ function referencesResourceData(expr: Expression): boolean {
 // resolver already uses that name for its own error code
 // (`modules/resolver-core.ts`), and colliding would make mixed issue
 // lists ambiguous.
+//
+// Detection is the compile-limit module's FUNCTION_REDEFINED rejection, which
+// the Firestore simulator and the Storage parser also enforce at load.
 
 function checkDuplicateFunctions(ast: FirestoreRules, findings: ValidationFinding[]) {
-  checkDupsInScope(ast.functions ?? [], 'global scope', findings);
-  checkDupsInScope(ast.service.functions ?? [], `service ${ast.service.name}`, findings);
-  checkDupsInMatchScopes(ast.service.match, findings);
-}
-
-function checkDupsInMatchScopes(match: MatchBlock, findings: ValidationFinding[]) {
-  checkDupsInScope(match.functions, match.path.raw, findings);
-  for (const child of match.children) checkDupsInMatchScopes(child, findings);
-}
-
-function checkDupsInScope(fns: readonly FunctionDef[], scope: string, findings: ValidationFinding[]) {
-  const declared = new Set<string>();
-  for (const fn of fns) {
-    if (declared.has(fn.name)) {
-      findings.push({
-        code: 'QUA-3', severity: 'critical', path: scope,
-        message: `Duplicate function '${fn.name}' declared twice in ${scope}. Production rejects duplicate function declarations in one scope at compile time`,
-      });
-    }
-    declared.add(fn.name);
+  for (const violation of compileLimitViolations(ast)) {
+    if (violation.code !== 'FUNCTION_REDEFINED') continue;
+    findings.push({
+      code: 'QUA-3', severity: 'critical', path: violation.scope ?? '',
+      message: `${violation.message} Function '${violation.functionName}' is declared twice in ${violation.scope}, and production rejects the ruleset at compile time`,
+    });
   }
 }
 

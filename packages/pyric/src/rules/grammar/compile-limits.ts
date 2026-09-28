@@ -22,6 +22,12 @@
  * The production messages count one lower than the boundaries: the call
  * depth message says 20 and names 21 functions, the variable count message
  * says 10 while 11 bindings compile.
+ *
+ * One more compile rejection lives here because both engines load rulesets
+ * through this module: a second definition of one function name in one
+ * scope (the global list, the service list, or one match block's list) is
+ * rejected with "Function f is already defined.", in Firestore and Storage.
+ * A nested match block function that shadows an outer one compiles.
  */
 import type { Expression, FirestoreRules, FunctionDef, MatchBlock } from './FirestoreAST.js';
 import { parenthesizedGroups } from './FirestoreParser.js';
@@ -46,7 +52,12 @@ export function callDepthMessage(stack: readonly string[]): string {
   return `Maximum allowed call depth of 20 is reached for [${stack.join('->')}] call stack.`;
 }
 
-export type CompileLimitCode = 'CALL_DEPTH' | 'LET_LIMIT' | 'NESTING_DEPTH';
+/** Production's message for a second definition of `name` in one scope. */
+export function duplicateFunctionMessage(name: string): string {
+  return `Function ${name} is already defined.`;
+}
+
+export type CompileLimitCode = 'CALL_DEPTH' | 'LET_LIMIT' | 'NESTING_DEPTH' | 'FUNCTION_REDEFINED';
 
 /** One compile rejection, carrying production's message verbatim. */
 export interface CompileLimitViolation {
@@ -56,6 +67,11 @@ export interface CompileLimitViolation {
   line?: number;
   /** The function the rejection applies to, when it applies to one. */
   functionName?: string;
+  /**
+   * For FUNCTION_REDEFINED, the scope that defines the name twice:
+   * `global scope`, `service <name>`, or the match block's path.
+   */
+  scope?: string;
 }
 
 /**
@@ -81,7 +97,35 @@ export function compileLimitViolations(ast: FirestoreRules): CompileLimitViolati
   };
   visitRules(ast.service.match);
   out.push(...callDepthViolations(graph));
+  out.push(...redefinedFunctions(ast));
   return out.sort((a, b) => (a.line ?? 0) - (b.line ?? 0));
+}
+
+function redefinedFunctions(ast: FirestoreRules): CompileLimitViolation[] {
+  const out: CompileLimitViolation[] = [];
+  const inScope = (fns: readonly FunctionDef[], scope: string) => {
+    const declared = new Set<string>();
+    for (const fn of fns) {
+      if (declared.has(fn.name)) {
+        out.push({
+          code: 'FUNCTION_REDEFINED',
+          message: duplicateFunctionMessage(fn.name),
+          ...lineOf(fn.loc),
+          functionName: fn.name,
+          scope,
+        });
+      }
+      declared.add(fn.name);
+    }
+  };
+  const inMatch = (match: MatchBlock) => {
+    inScope(match.functions, match.path.raw);
+    for (const child of match.children) inMatch(child);
+  };
+  inScope(ast.functions ?? [], 'global scope');
+  inScope(ast.service.functions ?? [], `service ${ast.service.name}`);
+  inMatch(ast.service.match);
+  return out;
 }
 
 /** Every rejection, each prefixed with its line when known: `Line 26: Maximum allowed call depth ...`. */
