@@ -886,7 +886,7 @@ const LIFECYCLE_MODULE: StdlibModuleDefinition = {
       cost: { min: 10, max: 10 },
       reads: 0,
       description:
-        'The dual of immutableFields: every CHANGED field is in the allowed list, so unlisted fields are implicitly immutable (adds and removes count as changes). The single most common update guard — "users may edit title/body and nothing else". Top-level keys only; nested-map diffs are unreliable in production.',
+        'The dual of immutableFields: every CHANGED field is in the allowed list, so unlisted fields are implicitly immutable (adds and removes count as changes). The most common update guard: users may edit title and body and nothing else. Top-level keys only; nested-map diffs are unreliable in production.',
       examples: [`allow update: if onlyFieldsChanged(['title', 'body']);`],
     },
     {
