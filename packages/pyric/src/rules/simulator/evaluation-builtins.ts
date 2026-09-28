@@ -16,7 +16,7 @@ import { UnsupportedError } from './unsupported-error.js';
 import { isDocumentPath, makeGetResource, normalizeDocumentPath, resolveExists, resolveGet } from './document-lookups.js';
 import { chargeLookup } from './lookup-budget.js';
 import type { SimulationContext } from './evaluation-context.js';
-import { evaluate, isKnownGlobal, resolveIdentifier } from './evaluator.js';
+import { evaluate, evaluateBinding, evaluateOperands, isKnownGlobal } from './evaluator.js';
 import { evaluateHashingMethod } from './hashing-builtins.js';
 
 // ═══ Function calls ═══
@@ -116,7 +116,7 @@ export function evaluateFunctionCall(
     case 'string':
     case 'int':
     case 'float': {
-      const converted = applyConversion(conversionFor(name)!, args.map((arg) => evaluate(arg, ctx, scope)));
+      const converted = applyConversion(conversionFor(name)!, evaluateOperands(args, ctx, scope));
       if (converted instanceof ConversionFailure) throw new EvalError(converted.message);
       return converted;
     }
@@ -136,10 +136,12 @@ export function evaluateFunctionCall(
   // Bind parameters — parameter expressions evaluate in the CALLER's
   // scope and frame. We push the inlinedFrom frame *after* this loop
   // so parameter traces stay attributed to the caller (where the
-  // argument expression literally lives in source).
+  // argument expression literally lives in source). Every argument
+  // evaluates; one that errors binds its error value, which decides the
+  // call only if the body reads that parameter.
   const fnScope: Record<string, unknown> = { ...scope };
   for (let i = 0; i < fn.parameters.length; i++) {
-    fnScope[fn.parameters[i]] = evaluate(args[i], ctx, scope);
+    fnScope[fn.parameters[i]] = evaluateBinding(args[i], ctx, scope);
   }
 
   // Push frame for let bindings + body so their trace entries get
@@ -152,11 +154,12 @@ export function evaluateFunctionCall(
     // will be the binding-root entry (recursive children land below
     // it). After the evaluate returns, tag that root slot with the
     // bound name so the agent can attribute "this subtree was the
-    // value of `<name>`" without re-walking the function AST.
+    // value of `<name>`" without re-walking the function AST. A binding
+    // whose value errors holds the error, as a parameter does.
     for (const binding of fn.lets) {
       ctx.expressionBudget?.letBinding();
       const bindingRootIdx = ctx.trace ? ctx.trace.entries.length : -1;
-      fnScope[binding.name] = evaluate(binding.value, ctx, fnScope);
+      fnScope[binding.name] = evaluateBinding(binding.value, ctx, fnScope);
       if (bindingRootIdx >= 0) {
         ctx.trace?.markEntryAsLetBinding(bindingRootIdx, binding.name);
       }
@@ -184,10 +187,12 @@ export function evaluateMethodCall(
   if (objectExpr.type === 'identifier') {
     const name = objectExpr.name;
     if (isBuiltinNamespace(name) && !(name in scope) && !(name in ctx.pathVariables)) {
-      // The namespace identifier is an evaluated node in production's unit,
-      // although the simulator resolves it without evaluate().
+      // The namespace call costs one unit more than its arguments in
+      // production's unit, charged once the arguments evaluate: when one
+      // errors, production counts the arguments and not that unit (the
+      // expression-cost capture's error-namespace-args shape).
+      const argValues = evaluateOperands(args, ctx, scope);
       ctx.expressionBudget?.node();
-      const argValues = args.map(a => evaluate(a, ctx, scope));
       return evaluateNamespaceMethod(name, method, argValues);
     }
     // RULES-B2 interaction: an UNKNOWN bare identifier used as a method-call
@@ -208,8 +213,8 @@ export function evaluateMethodCall(
     }
   }
 
-  const obj = evaluate(objectExpr, ctx, scope);
-  const argValues = args.map(a => evaluate(a, ctx, scope));
+  // The receiver, then every argument, evaluates when an earlier one errors.
+  const [obj, ...argValues] = evaluateOperands([objectExpr, ...args], ctx, scope);
 
   // RulesValue method dispatch (Item 0.B hook 3). Placed above MapDiff /
   // FirestoreSet / Map / Array / String branches because every wrapper

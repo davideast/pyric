@@ -1,7 +1,7 @@
 /**
  * The simulator's expression count against production's measurements.
  *
- * `test/rules/linter/fixtures/expression-cost/captures.json` records, for 35
+ * `test/rules/linter/fixtures/expression-cost/captures.json` records, for 45
  * requests, the padding step at which production's 1000-expression limit
  * stopped the request: a padding rule evaluated first, whose cost grows with
  * `request.auth.token.pyric_pad`, is false below `threshold.at` and reaches

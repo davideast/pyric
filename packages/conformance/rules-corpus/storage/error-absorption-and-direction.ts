@@ -14,6 +14,15 @@
  * error-absorption-and-or: a later allow rule, in the same match block or in
  * another block that matches the path, is still evaluated and can grant, and
  * a limit reached after the error is reported as the earlier error.
+ *
+ * Operands after an error, as in the Firestore scenario: production
+ * evaluates every operand of a non-logical operator, list elements, and a
+ * method call's receiver and arguments after one errors, and reports the
+ * first error in evaluation order; `in` evaluates its collection before its
+ * element. The diagnostics name which of two missing properties was
+ * reported. A limit reached by an operand after the error, in the same
+ * expression, is reported as the limit. An int division or modulo by a zero
+ * read from the request is "Divide by zero error.".
  */
 import type { StorageScenarioRecord } from './types.ts';
 
@@ -74,6 +83,33 @@ ${OVER_LIMIT_FUNCTIONS}
     match /errThenOverLimitDeny/{fileId} {
       allow read: if (1 / 0 == 0);
       allow read: if overLimit0();
+    }
+    // Division and modulo by a zero read from the request.
+    match /divideByRequestZeroDeny/{fileId} {
+      allow create: if 1 / request.resource.size == 1;
+    }
+    match /moduloByRequestZeroDeny/{fileId} {
+      allow create: if 1 % request.resource.size == 1;
+    }
+    // Which of two errors is reported.
+    match /firstErrorEq/{fileId} {
+      allow create: if request.resource.missingA == request.resource.missingB;
+    }
+    match /firstErrorList/{fileId} {
+      allow create: if [request.resource.missingA, request.resource.missingB] == [];
+    }
+    match /firstErrorIn/{fileId} {
+      allow create: if request.resource.missingA in [request.resource.missingB];
+    }
+    match /firstErrorMethodArgs/{fileId} {
+      allow create: if request.resource.metadata.get(request.resource.missingA, request.resource.missingB) == 1;
+    }
+    match /firstErrorReceiver/{fileId} {
+      allow create: if request.resource.missingA.get(request.resource.missingB, 1) == 1;
+    }
+    // An operand past the limit after an error in the same expression.
+    match /errThenOperandOverLimitDeny/{fileId} {
+      allow create: if [request.resource.missing, overLimit0()] == [];
     }
   }
 }`,
@@ -138,6 +174,23 @@ ${OVER_LIMIT_FUNCTIONS}
       path: `${folder}/a.txt`,
       auth: { uid: 'alice' },
       existingResource: { size: 1 },
+    })),
+    ...([
+      ['divideByRequestZeroDeny', 'int division by a zero from the request → DENY', 'DENY'],
+      ['moduloByRequestZeroDeny', 'int modulo by a zero from the request → DENY', 'DENY'],
+      ['firstErrorEq', 'two erroring operands of == → DENY, reported as the left one', 'DENY'],
+      ['firstErrorList', 'two erroring list elements → DENY, reported as the first', 'DENY'],
+      ['firstErrorIn', 'an erroring element and collection of in → DENY, reported as the collection', 'DENY'],
+      ['firstErrorMethodArgs', 'two erroring method arguments → DENY, reported as the first', 'DENY'],
+      ['firstErrorReceiver', 'an erroring receiver and argument → DENY, reported as the receiver', 'DENY'],
+      ['errThenOperandOverLimitDeny', 'an error, then an operand past the expression limit in the same expression → DENY at the limit', 'DENY'],
+    ] as const).map(([folder, description, expectation]) => ({
+      description,
+      expectation,
+      method: 'create' as const,
+      path: `${folder}/a.txt`,
+      auth: { uid: 'alice' },
+      resource: { size: 0, contentType: 'text/plain', metadata: { k: 'v' } },
     })),
   ],
 };

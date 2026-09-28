@@ -1,7 +1,7 @@
 {
   "schema": "pyric.rules-expression-cost.v1",
   "limit": 1000,
-  "capturedAt": "2026-09-27T19:53:52.891Z",
+  "capturedAt": "2026-09-28T03:41:49.670Z",
   "projectId": "digame-mas",
   "padding": {
     "model": {
@@ -59,7 +59,7 @@
       "id": "ladder",
       "description": "Synthetic match blocks, one expression shape each.",
       "rulesFile": "ladder.rules",
-      "rulesSha256": "7583b5109212068072fd8fe627ab7676d194782bd6c6cc6b0d885246f4f1383a",
+      "rulesSha256": "dd7b69af3ecb86ab9d5e88794bce92239daaa53c73ccaee63d5329908d237253",
       "documents": {},
       "cases": [
         {
@@ -106,7 +106,7 @@
               "matchPath": "/eq-field/{id}",
               "index": 0
             },
-            "evaluated": 119
+            "evaluated": 138
           }
         },
         {
@@ -153,7 +153,7 @@
               "matchPath": "/eq-wildcard/{id}",
               "index": 0
             },
-            "evaluated": 79
+            "evaluated": 98
           }
         },
         {
@@ -200,7 +200,7 @@
               "matchPath": "/literal-true/{id}",
               "index": 0
             },
-            "evaluated": 39
+            "evaluated": 58
           }
         },
         {
@@ -247,7 +247,7 @@
               "matchPath": "/parameter/{id}",
               "index": 0
             },
-            "evaluated": 41
+            "evaluated": 60
           }
         },
         {
@@ -294,7 +294,7 @@
               "matchPath": "/call/{id}",
               "index": 0
             },
-            "evaluated": 119
+            "evaluated": 138
           }
         },
         {
@@ -341,7 +341,7 @@
               "matchPath": "/let/{id}",
               "index": 0
             },
-            "evaluated": 139
+            "evaluated": 178
           }
         },
         {
@@ -388,7 +388,7 @@
               "matchPath": "/let-unused/{id}",
               "index": 0
             },
-            "evaluated": 65
+            "evaluated": 75
           }
         },
         {
@@ -435,7 +435,7 @@
               "matchPath": "/in-list/{id}",
               "index": 0
             },
-            "evaluated": 119
+            "evaluated": 138
           }
         },
         {
@@ -482,7 +482,7 @@
               "matchPath": "/method/{id}",
               "index": 0
             },
-            "evaluated": 139
+            "evaluated": 158
           }
         },
         {
@@ -529,7 +529,7 @@
               "matchPath": "/bracket/{id}",
               "index": 0
             },
-            "evaluated": 123
+            "evaluated": 142
           }
         },
         {
@@ -576,7 +576,7 @@
               "matchPath": "/slice/{id}",
               "index": 0
             },
-            "evaluated": 139
+            "evaluated": 158
           }
         },
         {
@@ -623,7 +623,7 @@
               "matchPath": "/not/{id}",
               "index": 0
             },
-            "evaluated": 99
+            "evaluated": 118
           }
         },
         {
@@ -670,7 +670,7 @@
               "matchPath": "/ternary/{id}",
               "index": 0
             },
-            "evaluated": 119
+            "evaluated": 158
           }
         },
         {
@@ -717,7 +717,7 @@
               "matchPath": "/map-eq/{id}",
               "index": 0
             },
-            "evaluated": 79
+            "evaluated": 88
           }
         },
         {
@@ -764,7 +764,7 @@
               "matchPath": "/or-false/{id}",
               "index": 0
             },
-            "evaluated": 79
+            "evaluated": 98
           }
         },
         {
@@ -914,7 +914,445 @@
               "matchPath": "/get-cached/{id}",
               "index": 0
             },
-            "evaluated": 39
+            "evaluated": 63
+          }
+        },
+        {
+          "id": "ladder/error-eq",
+          "description": "20 conjuncts `resource.data.missing == resource.data.a`",
+          "block": "/error-eq/{id}",
+          "pathFixed": true,
+          "testCase": {
+            "description": "20 conjuncts `resource.data.missing == resource.data.a`",
+            "expectation": "ALLOW",
+            "method": "get",
+            "path": "error-eq/x",
+            "auth": {
+              "uid": "u"
+            },
+            "resource": {
+              "a": 1,
+              "m": {
+                "k": 1
+              }
+            }
+          },
+          "production": {
+            "decision": "DENY",
+            "notes": [
+              "Error: firestore.rules line [64], column [21]. Property missing is undefined on object."
+            ],
+            "grantingRule": null,
+            "limitReached": false,
+            "reported": 100,
+            "threshold": {
+              "below": 161,
+              "at": 162
+            },
+            "cost": {
+              "low": 171,
+              "high": 176
+            }
+          },
+          "simulator": {
+            "decision": "DENY",
+            "grantingRule": null,
+            "evaluated": 178
+          }
+        },
+        {
+          "id": "ladder/error-plus",
+          "description": "20 conjuncts `resource.data.missing + resource.data.a == 1`",
+          "block": "/error-plus/{id}",
+          "pathFixed": true,
+          "testCase": {
+            "description": "20 conjuncts `resource.data.missing + resource.data.a == 1`",
+            "expectation": "ALLOW",
+            "method": "get",
+            "path": "error-plus/x",
+            "auth": {
+              "uid": "u"
+            },
+            "resource": {
+              "a": 1,
+              "m": {
+                "k": 1
+              }
+            }
+          },
+          "production": {
+            "decision": "DENY",
+            "notes": [
+              "Error: firestore.rules line [67], column [21]. Property missing is undefined on object."
+            ],
+            "grantingRule": null,
+            "limitReached": false,
+            "reported": 100,
+            "threshold": {
+              "below": 153,
+              "at": 154
+            },
+            "cost": {
+              "low": 215.4,
+              "high": 220.3
+            }
+          },
+          "simulator": {
+            "decision": "DENY",
+            "grantingRule": null,
+            "evaluated": 218
+          }
+        },
+        {
+          "id": "ladder/error-list",
+          "description": "20 conjuncts `[resource.data.missing, resource.data.a] == []`",
+          "block": "/error-list/{id}",
+          "pathFixed": true,
+          "testCase": {
+            "description": "20 conjuncts `[resource.data.missing, resource.data.a] == []`",
+            "expectation": "ALLOW",
+            "method": "get",
+            "path": "error-list/x",
+            "auth": {
+              "uid": "u"
+            },
+            "resource": {
+              "a": 1,
+              "m": {
+                "k": 1
+              }
+            }
+          },
+          "production": {
+            "decision": "DENY",
+            "notes": [
+              "Error: firestore.rules line [70], column [972]. Property missing is undefined on object."
+            ],
+            "grantingRule": null,
+            "limitReached": false,
+            "reported": 120,
+            "threshold": {
+              "below": 153,
+              "at": 154
+            },
+            "cost": {
+              "low": 215.4,
+              "high": 220.3
+            }
+          },
+          "simulator": {
+            "decision": "DENY",
+            "grantingRule": null,
+            "evaluated": 218
+          }
+        },
+        {
+          "id": "ladder/error-map",
+          "description": "10 conjuncts `{'k': resource.data.missing, 'j': resource.data.a} == {}`",
+          "block": "/error-map/{id}",
+          "pathFixed": true,
+          "testCase": {
+            "description": "10 conjuncts `{'k': resource.data.missing, 'j': resource.data.a} == {}`",
+            "expectation": "ALLOW",
+            "method": "get",
+            "path": "error-map/x",
+            "auth": {
+              "uid": "u"
+            },
+            "resource": {
+              "a": 1,
+              "m": {
+                "k": 1
+              }
+            }
+          },
+          "production": {
+            "decision": "DENY",
+            "notes": [
+              "Error: firestore.rules line [73], column [27]. Property missing is undefined on object."
+            ],
+            "grantingRule": null,
+            "limitReached": false,
+            "reported": 60,
+            "threshold": {
+              "below": 171,
+              "at": 172
+            },
+            "cost": {
+              "low": 121.7,
+              "high": 126.7
+            }
+          },
+          "simulator": {
+            "decision": "DENY",
+            "grantingRule": null,
+            "evaluated": 128
+          }
+        },
+        {
+          "id": "ladder/error-in",
+          "description": "20 conjuncts `resource.data.missing in [resource.data.a, 2]`",
+          "block": "/error-in/{id}",
+          "pathFixed": true,
+          "testCase": {
+            "description": "20 conjuncts `resource.data.missing in [resource.data.a, 2]`",
+            "expectation": "ALLOW",
+            "method": "get",
+            "path": "error-in/x",
+            "auth": {
+              "uid": "u"
+            },
+            "resource": {
+              "a": 1,
+              "m": {
+                "k": 1
+              }
+            }
+          },
+          "production": {
+            "decision": "DENY",
+            "notes": [
+              "Error: firestore.rules line [76], column [21]. Property missing is undefined on object."
+            ],
+            "grantingRule": null,
+            "limitReached": false,
+            "reported": 120,
+            "threshold": {
+              "below": 153,
+              "at": 154
+            },
+            "cost": {
+              "low": 215.4,
+              "high": 220.3
+            }
+          },
+          "simulator": {
+            "decision": "DENY",
+            "grantingRule": null,
+            "evaluated": 218
+          }
+        },
+        {
+          "id": "ladder/error-method-args",
+          "description": "20 conjuncts `resource.data.get(resource.data.missing, resource.data.a) == 1`",
+          "block": "/error-method-args/{id}",
+          "pathFixed": true,
+          "testCase": {
+            "description": "20 conjuncts `resource.data.get(resource.data.missing, resource.data.a) == 1`",
+            "expectation": "ALLOW",
+            "method": "get",
+            "path": "error-method-args/x",
+            "auth": {
+              "uid": "u"
+            },
+            "resource": {
+              "a": 1,
+              "m": {
+                "k": 1
+              }
+            }
+          },
+          "production": {
+            "decision": "DENY",
+            "notes": [
+              "Error: firestore.rules line [79], column [39]. Property missing is undefined on object."
+            ],
+            "grantingRule": null,
+            "limitReached": false,
+            "reported": 140,
+            "threshold": {
+              "below": 145,
+              "at": 146
+            },
+            "cost": {
+              "low": 254.8,
+              "high": 259.7
+            }
+          },
+          "simulator": {
+            "decision": "DENY",
+            "grantingRule": null,
+            "evaluated": 258
+          }
+        },
+        {
+          "id": "ladder/error-receiver",
+          "description": "20 conjuncts `resource.data.missing.get('k', resource.data.a) == 1`",
+          "block": "/error-receiver/{id}",
+          "pathFixed": true,
+          "testCase": {
+            "description": "20 conjuncts `resource.data.missing.get('k', resource.data.a) == 1`",
+            "expectation": "ALLOW",
+            "method": "get",
+            "path": "error-receiver/x",
+            "auth": {
+              "uid": "u"
+            },
+            "resource": {
+              "a": 1,
+              "m": {
+                "k": 1
+              }
+            }
+          },
+          "production": {
+            "decision": "DENY",
+            "notes": [
+              "Error: firestore.rules line [82], column [21]. Property missing is undefined on object."
+            ],
+            "grantingRule": null,
+            "limitReached": false,
+            "reported": 100,
+            "threshold": {
+              "below": 149,
+              "at": 150
+            },
+            "cost": {
+              "low": 235.1,
+              "high": 240
+            }
+          },
+          "simulator": {
+            "decision": "DENY",
+            "grantingRule": null,
+            "evaluated": 238
+          }
+        },
+        {
+          "id": "ladder/error-namespace-args",
+          "description": "20 conjuncts `math.pow(resource.data.missing, resource.data.a) == 1.0`",
+          "block": "/error-namespace-args/{id}",
+          "pathFixed": true,
+          "testCase": {
+            "description": "20 conjuncts `math.pow(resource.data.missing, resource.data.a) == 1.0`",
+            "expectation": "ALLOW",
+            "method": "get",
+            "path": "error-namespace-args/x",
+            "auth": {
+              "uid": "u"
+            },
+            "resource": {
+              "a": 1,
+              "m": {
+                "k": 1
+              }
+            }
+          },
+          "production": {
+            "decision": "DENY",
+            "notes": [
+              "Error: firestore.rules line [85], column [30]. Property missing is undefined on object."
+            ],
+            "grantingRule": null,
+            "limitReached": false,
+            "reported": 100,
+            "threshold": {
+              "below": 153,
+              "at": 154
+            },
+            "cost": {
+              "low": 215.4,
+              "high": 220.3
+            }
+          },
+          "simulator": {
+            "decision": "DENY",
+            "grantingRule": null,
+            "evaluated": 218
+          }
+        },
+        {
+          "id": "ladder/error-call-args",
+          "description": "20 conjuncts `ig(resource.data.missing, resource.data.a)`, ig(x, y) returning true",
+          "block": "/error-call-args/{id}",
+          "pathFixed": true,
+          "testCase": {
+            "description": "20 conjuncts `ig(resource.data.missing, resource.data.a)`, ig(x, y) returning true",
+            "expectation": "ALLOW",
+            "method": "get",
+            "path": "error-call-args/x",
+            "auth": {
+              "uid": "u"
+            },
+            "resource": {
+              "a": 1,
+              "m": {
+                "k": 1
+              }
+            }
+          },
+          "production": {
+            "decision": "ALLOW",
+            "notes": [],
+            "grantingRule": {
+              "matchPath": "/error-call-args/{id}",
+              "index": 0
+            },
+            "limitReached": false,
+            "reported": 139,
+            "threshold": {
+              "below": 157,
+              "at": 158
+            },
+            "cost": {
+              "low": 195.7,
+              "high": 200.6
+            }
+          },
+          "simulator": {
+            "decision": "ALLOW",
+            "grantingRule": {
+              "matchPath": "/error-call-args/{id}",
+              "index": 0
+            },
+            "evaluated": 198
+          }
+        },
+        {
+          "id": "ladder/error-let",
+          "description": "20 conjuncts `el()`, el() binding `let v = resource.data.missing` and returning true",
+          "block": "/error-let/{id}",
+          "pathFixed": true,
+          "testCase": {
+            "description": "20 conjuncts `el()`, el() binding `let v = resource.data.missing` and returning true",
+            "expectation": "ALLOW",
+            "method": "get",
+            "path": "error-let/x",
+            "auth": {
+              "uid": "u"
+            },
+            "resource": {
+              "a": 1,
+              "m": {
+                "k": 1
+              }
+            }
+          },
+          "production": {
+            "decision": "ALLOW",
+            "notes": [],
+            "grantingRule": {
+              "matchPath": "/error-let/{id}",
+              "index": 0
+            },
+            "limitReached": false,
+            "reported": 99,
+            "threshold": {
+              "below": 165,
+              "at": 166
+            },
+            "cost": {
+              "low": 151.3,
+              "high": 156.2
+            }
+          },
+          "simulator": {
+            "decision": "ALLOW",
+            "grantingRule": {
+              "matchPath": "/error-let/{id}",
+              "index": 0
+            },
+            "evaluated": 158
           }
         },
         {
@@ -961,7 +1399,7 @@
               "matchPath": "/rule-order/{id}",
               "index": 2
             },
-            "evaluated": 353
+            "evaluated": 410
           }
         }
       ]

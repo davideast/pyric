@@ -3,7 +3,7 @@
   "capturedAt": "2026-09-27T20:35:28.442Z",
   "projectId": "digame-mas",
   "method": "Rules Test API projects.test, one generated ruleset per probe; each case is a get with uid a (granted when the ruleset works) and uid b (denied). probeBlock() in packages/conformance/src/capture-rules-compile-limits.ts generates each shape.",
-  "calls": 55,
+  "calls": 59,
   "boundaries": [
     {
       "service": "firestore",
@@ -66,6 +66,12 @@
       "smallestFail": 129
     },
     {
+      "service": "firestore",
+      "shape": "slash-divisor",
+      "largestPass": 1,
+      "smallestFail": 0
+    },
+    {
       "service": "storage",
       "shape": "call-depth",
       "largestPass": 21,
@@ -100,6 +106,12 @@
       "shape": "list-nesting",
       "largestPass": null,
       "smallestFail": 129
+    },
+    {
+      "service": "storage",
+      "shape": "slash-divisor",
+      "largestPass": 1,
+      "smallestFail": 0
     }
   ],
   "probes": [
@@ -1189,6 +1201,98 @@
         }
       ],
       "cases": []
+    },
+    {
+      "service": "firestore",
+      "shape": "slash-divisor",
+      "n": 0,
+      "compiles": false,
+      "issues": [
+        {
+          "severity": "ERROR",
+          "description": "Missing 'match' keyword before path.",
+          "line": 5,
+          "column": 51
+        },
+        {
+          "severity": "ERROR",
+          "description": "Unexpected '/2'.",
+          "line": 5,
+          "column": 51
+        },
+        {
+          "severity": "ERROR",
+          "description": "mismatched input ')' expecting {'{', '/', PATH_SEGMENT}",
+          "line": 5,
+          "column": 53
+        }
+      ],
+      "cases": []
+    },
+    {
+      "service": "firestore",
+      "shape": "slash-divisor",
+      "n": 1,
+      "compiles": true,
+      "issues": [],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "service": "storage",
+      "shape": "slash-divisor",
+      "n": 0,
+      "compiles": false,
+      "issues": [
+        {
+          "severity": "ERROR",
+          "description": "Missing 'match' keyword before path.",
+          "line": 5,
+          "column": 51
+        },
+        {
+          "severity": "ERROR",
+          "description": "Unexpected '/2'.",
+          "line": 5,
+          "column": 51
+        },
+        {
+          "severity": "ERROR",
+          "description": "mismatched input ')' expecting {'{', '/', PATH_SEGMENT}",
+          "line": 5,
+          "column": 53
+        }
+      ],
+      "cases": []
+    },
+    {
+      "service": "storage",
+      "shape": "slash-divisor",
+      "n": 1,
+      "compiles": true,
+      "issues": [],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
     }
   ]
 }

@@ -33,3 +33,10 @@ export class ExpressionLimitError extends ResourceLimitError {
 }
 
 export { EvalError as RuleEvalError };
+
+/**
+ * Production's error for an int `/` or `%` by zero, in Firestore and Storage
+ * rules alike. A float divisor of zero is no error: it yields an infinity or
+ * NaN.
+ */
+export const DIVIDE_BY_ZERO_MESSAGE = 'Divide by zero error.';

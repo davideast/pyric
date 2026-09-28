@@ -3,7 +3,7 @@ import { Timestamp } from '../../rules/simulator/wrappers/timestamp.js';
 import type { EvalCtx } from './rules-evaluator.js';
 import { RuleEvalError } from './rules-evaluation-error.js';
 import {
-  evalArguments,
+  evalNamespaceArguments,
   evalValueMethod,
   type MethodCall,
   type ReceiverMethods,
@@ -19,7 +19,7 @@ const DURATION_UNITS = ['w', 'd', 'h', 'm', 's', 'ms', 'ns'];
  * with `request.time` and the resource time fields.
  */
 export function evalTimestampNamespace(expr: MethodCall, ctx: EvalCtx): unknown {
-  const args = evalArguments(expr, ctx);
+  const args = evalNamespaceArguments(expr, ctx);
   if (isErr(args)) return args;
   if (expr.method === 'value') {
     if (args.length !== 1 || typeof args[0] !== 'number') {
@@ -46,7 +46,7 @@ export function evalTimestampNamespace(expr: MethodCall, ctx: EvalCtx): unknown 
  *   request.time < resource.timeCreated + duration.value(1, 'h')
  */
 export function evalDurationNamespace(expr: MethodCall, ctx: EvalCtx): unknown {
-  const args = evalArguments(expr, ctx);
+  const args = evalNamespaceArguments(expr, ctx);
   if (isErr(args)) return args;
   if (expr.method === 'value') {
     if (args.length !== 2 || typeof args[0] !== 'number' || typeof args[1] !== 'string') {

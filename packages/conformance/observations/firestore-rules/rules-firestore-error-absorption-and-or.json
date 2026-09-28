@@ -5,12 +5,12 @@
     "firestore-rules#163"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"error-absorption-and-or\" (RULES-B3). CEL tri-state: `error || true` → ALLOW, `error && false` → DENY-as-false; errors absorb commutatively, not JS left-to-right.",
-  "observedAt": "2026-09-28T00:20:58.992Z",
+  "observedAt": "2026-09-28T03:39:07.804Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "9ac0f5e62a4c19690b769bc7e8ebb58f371aa09ec3b000b7cf95fe440d7345d7"
+    "value": "efacd2a4f47f97451f17f97ce491173b38164b30f503b38cd18c82337ea15635"
   },
   "behavior": {
     "error || true → ALLOW (commutative absorption)": "ALLOW",
@@ -29,7 +29,26 @@
     "a true rule, then an error in a second matching block → ALLOW": "ALLOW",
     "a false rule, then an error in a second matching block → DENY": "DENY",
     "an error, then a true rule past the expression limit → DENY, reported as the error": "DENY",
-    "a false rule, then a true rule past the expression limit → DENY at the limit": "DENY"
+    "a false rule, then a true rule past the expression limit → DENY at the limit": "DENY",
+    "an erroring argument the function never reads → ALLOW": "ALLOW",
+    "an erroring argument the function reads → DENY": "DENY",
+    "an erroring argument passed through two calls and never read → ALLOW": "ALLOW",
+    "an erroring argument passed through two calls and read → DENY": "DENY",
+    "a missing-field argument the function never reads → ALLOW": "ALLOW",
+    "an erroring let the function never reads → ALLOW": "ALLOW",
+    "an erroring let the function reads → DENY": "DENY",
+    "int division by a zero from data → DENY": "DENY",
+    "int modulo by a zero from data → DENY": "DENY",
+    "int division by a zero from data, || true → ALLOW": "ALLOW",
+    "two erroring operands of == → DENY, reported as the left one": "DENY",
+    "two erroring operands of + → DENY, reported as the left one": "DENY",
+    "two erroring list elements → DENY, reported as the first": "DENY",
+    "two erroring map values → DENY, reported as the first": "DENY",
+    "an erroring element and collection of in → DENY, reported as the collection": "DENY",
+    "two erroring method arguments → DENY, reported as the first": "DENY",
+    "an erroring receiver and argument → DENY, reported as the receiver": "DENY",
+    "two erroring function arguments, the second read → DENY, reported as the second": "DENY",
+    "an error, then an operand past the expression limit in the same expression → DENY at the limit": "DENY"
   },
   "diagnostics": {
     "error || false → DENY (error propagates)": {
@@ -131,6 +150,202 @@
       }
     },
     "a false rule, then a true rule past the expression limit → DENY at the limit": {
+      "notes": [
+        "Error: firestore.rules line [57], column [118]. Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 57,
+          "column": 118,
+          "currentOffset": 4446,
+          "endOffset": 4449
+        }
+      }
+    },
+    "an erroring argument the function reads → DENY": {
+      "notes": [
+        "Error: firestore.rules line [125], column [35]. Divide by zero error."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 125,
+          "column": 35,
+          "currentOffset": 7257,
+          "endOffset": 7257
+        }
+      }
+    },
+    "an erroring argument passed through two calls and read → DENY": {
+      "notes": [
+        "Error: firestore.rules line [131], column [43]. Divide by zero error."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 131,
+          "column": 43,
+          "currentOffset": 7510,
+          "endOffset": 7510
+        }
+      }
+    },
+    "an erroring let the function reads → DENY": {
+      "notes": [
+        "Error: firestore.rules line [120], column [36]. Divide by zero error."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 120,
+          "column": 36,
+          "currentOffset": 7041,
+          "endOffset": 7041
+        }
+      }
+    },
+    "int division by a zero from data → DENY": {
+      "notes": [
+        "Error: firestore.rules line [144], column [50]. Divide by zero error."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 144,
+          "column": 50,
+          "currentOffset": 7950,
+          "endOffset": 7950
+        }
+      }
+    },
+    "int modulo by a zero from data → DENY": {
+      "notes": [
+        "Error: firestore.rules line [147], column [50]. Divide by zero error."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 147,
+          "column": 50,
+          "currentOffset": 8079,
+          "endOffset": 8079
+        }
+      }
+    },
+    "two erroring operands of == → DENY, reported as the left one": {
+      "notes": [
+        "Error: firestore.rules line [154], column [24]. Property missingA is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 154,
+          "column": 24,
+          "currentOffset": 8358,
+          "endOffset": 8364
+        }
+      }
+    },
+    "two erroring operands of + → DENY, reported as the left one": {
+      "notes": [
+        "Error: firestore.rules line [157], column [24]. Property missingA is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 157,
+          "column": 24,
+          "currentOffset": 8486,
+          "endOffset": 8492
+        }
+      }
+    },
+    "two erroring list elements → DENY, reported as the first": {
+      "notes": [
+        "Error: firestore.rules line [160], column [25]. Property missingA is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 160,
+          "column": 25,
+          "currentOffset": 8619,
+          "endOffset": 8625
+        }
+      }
+    },
+    "two erroring map values → DENY, reported as the first": {
+      "notes": [
+        "Error: firestore.rules line [163], column [30]. Property missingA is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 163,
+          "column": 30,
+          "currentOffset": 8757,
+          "endOffset": 8763
+        }
+      }
+    },
+    "an erroring element and collection of in → DENY, reported as the collection": {
+      "notes": [
+        "Error: firestore.rules line [166], column [59]. Property missingB is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 166,
+          "column": 59,
+          "currentOffset": 8928,
+          "endOffset": 8934
+        }
+      }
+    },
+    "two erroring method arguments → DENY, reported as the first": {
+      "notes": [
+        "Error: firestore.rules line [169], column [50]. Property missingA is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 169,
+          "column": 50,
+          "currentOffset": 9055,
+          "endOffset": 9061
+        }
+      }
+    },
+    "an erroring receiver and argument → DENY, reported as the receiver": {
+      "notes": [
+        "Error: firestore.rules line [172], column [24]. Property missingA is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 172,
+          "column": 24,
+          "currentOffset": 9191,
+          "endOffset": 9197
+        }
+      }
+    },
+    "two erroring function arguments, the second read → DENY, reported as the second": {
+      "notes": [
+        "Error: firestore.rules line [175], column [71]. Property missingB is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 175,
+          "column": 71,
+          "currentOffset": 9384,
+          "endOffset": 9390
+        }
+      }
+    },
+    "an error, then an operand past the expression limit in the same expression → DENY at the limit": {
       "notes": [
         "Error: firestore.rules line [57], column [118]. Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached."
       ],

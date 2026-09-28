@@ -39,10 +39,22 @@ describe('compile limits: every Rules Test API probe', () => {
   // reports.
   for (const probe of compileLimitProbes()) {
     test(`${probe.label}: ${probe.compiles ? 'compiles' : 'rejected'} with production's errors`, () => {
-      expect(violations(probe.source).map((v) => v.message)).toEqual(probe.errors);
+      expect(violations(probe.source).map((v) => v.message)).toEqual(probe.modeledErrors);
       expect(probe.errors.length === 0).toBe(probe.compiles);
     });
   }
+
+  test('a slash directly followed by a digit is rejected as a path; one followed by a space divides', () => {
+    const slash = compileLimitProbes().filter((p) => p.shape === 'slash-divisor');
+    expect(slash.map((p) => [p.service, p.n, p.compiles])).toEqual([
+      ['firestore', 0, false], ['firestore', 1, true], ['storage', 0, false], ['storage', 1, true],
+    ]);
+    expect(slash.find((p) => !p.compiles)!.errors).toEqual([
+      "Missing 'match' keyword before path.",
+      "Unexpected '/2'.",
+      "mismatched input ')' expecting {'{', '/', PATH_SEGMENT}",
+    ]);
+  });
 
   test('a call-depth rejection is on the line of the 22nd function, where production reports it', () => {
     const probe = compileLimitProbes().find((p) => p.service === 'firestore' && p.shape === 'call-depth' && p.range)!;
@@ -56,6 +68,26 @@ describe('compile limits: every Rules Test API probe', () => {
       expect(violations(probe.source).map((v) => [v.line, v.column])).toEqual(probe.errorPositions);
     }
   });
+});
+
+describe('compile limits: a slash that starts a path', () => {
+  // Production's verdicts on these conditions, from Rules Test API probes:
+  // every slash directly followed by a character other than whitespace is
+  // rejected, and whitespace after the slash, a newline included, divides.
+  const rejected = ['(1/0) == 1', '4/2 == 2', 'request.resource.data.a/request.resource.data.z == 1', '(4/(2)) == 2', '(4/-2) == -2', 't(1/0)'];
+  const compiles = ['(1 / 0) == 1', '(4/ 2) == 2', '(4/\n2) == 2', '(4/\t2) == 2', '(1%0) == 1'];
+  const ruleset = (cond: string) => firestore(`    function t(a) { return true; }\n    match /c/{id} { allow create: if ${cond}; }`);
+
+  for (const cond of rejected) {
+    test(`${JSON.stringify(cond)} is rejected`, () => {
+      expect(violations(ruleset(cond)).map((v) => [v.code, v.message])).toEqual([['SLASH_STARTS_PATH', "Missing 'match' keyword before path."]]);
+    });
+  }
+  for (const cond of compiles) {
+    test(`${JSON.stringify(cond)} compiles`, () => {
+      expect(violations(ruleset(cond))).toEqual([]);
+    });
+  }
 });
 
 describe('compile limits: shapes the capture does not measure', () => {

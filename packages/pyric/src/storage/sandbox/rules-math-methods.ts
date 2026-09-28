@@ -1,6 +1,6 @@
 import { MathFailure, applyMath } from '../../rules/simulator/math-builtins.js';
 import type { EvalCtx } from './rules-evaluator.js';
-import { evalArguments, type MethodCall } from './rules-method-calls.js';
+import { evalNamespaceArguments, type MethodCall } from './rules-method-calls.js';
 import { RuleError, isRuleError as isErr } from './rules-values.js';
 
 /**
@@ -12,7 +12,7 @@ import { RuleError, isRuleError as isErr } from './rules-values.js';
  * `math-namespace`).
  */
 export function evalMathNamespace(expr: MethodCall, ctx: EvalCtx): unknown {
-  const args = evalArguments(expr, ctx);
+  const args = evalNamespaceArguments(expr, ctx);
   if (isErr(args)) return args;
   const result = applyMath(expr.method, args);
   return result instanceof MathFailure ? new RuleError(result.message) : result;

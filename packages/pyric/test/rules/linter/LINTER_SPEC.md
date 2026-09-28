@@ -31,7 +31,7 @@ The Rules Test API does not report the count for a request that stays under the 
 2. The capture finds the smallest step `n*` at which the request reaches the limit. The cost `X` of everything else the request evaluates satisfies `P(n* - 1) + X < 1000 <= P(n*) + X`, a window of about 5 expressions.
 3. The padding cost `P(n)` is fitted from six anchor requests that evaluate the padding before a second padding of known length, not assumed.
 
-The capture uses `projects.test` only and deploys nothing. The fixture in `fixtures/expression-cost/` took about 600 test cases, including the anchors and two refreshes of the unpadded reports.
+The capture uses `projects.test` only and deploys nothing. The fixture in `fixtures/expression-cost/` took about 950 test cases, including the anchors, two refreshes of the unpadded reports, and a recapture of the ladder with its error rows.
 
 #### What the limit counts
 
@@ -56,6 +56,16 @@ Each ladder shape is 20 repetitions of one expression in its own match block. Th
 | a false first conjunct before 19 more | 18.2 to 23.2 | 23 |
 | `get(/databases/$(database)/documents/cfg/c).data.on == true` × 5 | 57.7 to 62.6 | 63 |
 | three rules of 20 conjuncts, the first two false at their last conjunct | 407.6 to 412.5 | 410 |
+| `resource.data.missing == resource.data.a` × 20, the left operand an error | 171 to 176 | 178 |
+| `resource.data.missing + resource.data.a == 1` × 20 | 215.4 to 220.3 | 218 |
+| `[resource.data.missing, resource.data.a] == []` × 20 | 215.4 to 220.3 | 218 |
+| `{'k': resource.data.missing, 'j': resource.data.a} == {}` × 10 | 121.7 to 126.7 | 128 |
+| `resource.data.missing in [resource.data.a, 2]` × 20 | 215.4 to 220.3 | 218 |
+| `resource.data.get(resource.data.missing, resource.data.a) == 1` × 20 | 254.8 to 259.7 | 258 |
+| `resource.data.missing.get('k', resource.data.a) == 1` × 20 | 235.1 to 240 | 238 |
+| `math.pow(resource.data.missing, resource.data.a) == 1.0` × 20 | 215.4 to 220.3 | 238 |
+| `ig(resource.data.missing, resource.data.a)` × 20, `ig(x, y)` returning true | 195.7 to 200.6 | 198 |
+| `el()` × 20, `el()` binding `let v = resource.data.missing` and returning true | 151.3 to 156.2 | 158 |
 
 From the ladder:
 
@@ -66,13 +76,14 @@ From the ladder:
 - A `let` costs 1 plus its value, and the value is evaluated when the function is called whether or not the body reads it.
 - A user function call costs 1 plus its arguments, its lets and its body, on every call. Calls are not memoized; a `get()` of a cached path still pays for its call and path.
 - A denied rule's cost stays in the request's total when a later rule grants.
+- An operand that errors does not stop the expression around it. The other operand of a comparison, arithmetic or `in`, the other elements of a list or map literal, a method call's receiver and arguments, and a function's arguments and lets all evaluate and count after one errors (the `resource.data.missing` rows); only `&&`, `||` and a ternary's condition decide what is skipped. An argument or `let` that errors is bound, and the error decides the verdict only where the body reads it. A namespace call such as `math.pow()` costs 1 more than a method call on a value, and not when an argument errors: that row is 20 under the estimate, which charges it on every call.
 - An allow rule that raises an error does not end the request. The method's later allow rules, in the same match block or another block that matches the path, are evaluated, can grant, and count toward the limit. When the limit is reached after an earlier rule raised an error, production reports that error, not the limit. A padding threshold detects the limit by its message, so for a request with an erroring rule it bounds the count through the end of the first rule that raised an error. The Firestore and Storage captures are in the rules corpus scenarios `error-absorption-and-or` and `error-absorption-and-direction`.
 
 The 2026-04-07 sweep deployed each ruleset once and tested it five times through a client. It reported non-deterministic failures from 60 to 150 expressions and a per-call overhead. The Rules Test API measurements reproduce neither: two functions of 90 comparisons each (about 900 expressions) evaluated to ALLOW on every run, each measured request reached the limit at the same padding step in every round, and a function call costs 1. The call-count thresholds that sweep produced are replaced by the limit above.
 
 #### Measured requests
 
-The chess showcase and an externally authored resolved ruleset for several turn-based games (`arcade`) give the real-world rows. The `reversi` row is the same ruleset after its Reversi move rule was restructured to check each direction with set lookups; its production window is the most expensive move in that change's measurement table (arcade branch `reversi-rules-within-production-budget`), and padding steps 38 and 39 against the Rules Test API reproduce it. Its simulator count is in production's unit. The simulator column is the count Pyric's simulator traced when the fixture was captured. That count took each evaluated node once, without the second unit a logical operator or ternary pays, `let` bindings or path segments, and ran 7 to 13 percent under production on these rows. The simulator now counts in production's unit as it evaluates, reports the count as `evaluatedExpressions` on each result, and denies a request past the limit with production's message. `test/rules/simulator/expression-budget-fixture.test.ts` replays the padding thresholds through the simulator and places that count inside production's window on all 35 requests, counting a request with an erroring rule through the end of that rule. The previous estimator counted each called function's nodes once per rule and discounted wide `||` trees by 0.3 or 0.5.
+The chess showcase and an externally authored resolved ruleset for several turn-based games (`arcade`) give the real-world rows. The `reversi` row is the same ruleset after its Reversi move rule was restructured to check each direction with set lookups; its production window is the most expensive move in that change's measurement table (arcade branch `reversi-rules-within-production-budget`), and padding steps 38 and 39 against the Rules Test API reproduce it. Its simulator count is in production's unit. The simulator column is the count Pyric's simulator traced when the fixture was captured. That count took each evaluated node once, without the second unit a logical operator or ternary pays, `let` bindings or path segments, and ran 7 to 13 percent under production on these rows. The simulator now counts in production's unit as it evaluates, reports the count as `evaluatedExpressions` on each result, and denies a request past the limit with production's message. `test/rules/simulator/expression-budget-fixture.test.ts` replays the padding thresholds through the simulator and places that count inside production's window on all 45 requests, counting a request with an erroring rule through the end of that rule. The previous estimator counted each called function's nodes once per rule and discounted wide `||` trees by 0.3 or 0.5.
 
 | Request | Production decision | Production cost | Simulator | Previous estimate | Estimate | Estimate / production |
 |---------|--------------------|-----------------|-----------|-------------------|----------|-----------------------|

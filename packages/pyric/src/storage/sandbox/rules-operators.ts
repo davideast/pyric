@@ -1,6 +1,7 @@
 import { NO_OP, RulesValue } from '../../rules/simulator/wrappers/base.js';
 import { RulesFloat } from '../../rules/simulator/wrappers/float.js';
 import { FirestoreSet } from '../../rules/simulator/firestore-set.js';
+import { DIVIDE_BY_ZERO_MESSAGE } from '../../rules/simulator/eval-error.js';
 import { describeRulesType as describeType, isRulesMap } from '../../rules/simulator/rules-type.js';
 import {
   RuleError,
@@ -104,11 +105,11 @@ export function evalArithmetic(op: ArithmeticOperator, left: unknown, right: unk
     case '-': result = l - r; break;
     case '*': result = l * r; break;
     case '/':
-      if (!float && r === 0) return new RuleError('Division by zero.');
+      if (!float && r === 0) return new RuleError(DIVIDE_BY_ZERO_MESSAGE);
       result = float ? l / r : Math.trunc(l / r);
       break;
     case '%':
-      if (!float && r === 0) return new RuleError('Modulo by zero.');
+      if (!float && r === 0) return new RuleError(DIVIDE_BY_ZERO_MESSAGE);
       result = l % r;
       break;
   }

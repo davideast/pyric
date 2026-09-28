@@ -1,7 +1,7 @@
 /**
  * EXPRESSION_BUDGET against production measurements.
  *
- * `fixtures/expression-cost/captures.json` holds, for 35 requests over four
+ * `fixtures/expression-cost/captures.json` holds, for 45 requests over four
  * rulesets, bounds on the expressions production's 1000-expression limit
  * counted (`production.cost`), captured by
  * `packages/conformance/src/capture-rules-expression-cost.ts`. The rulesets

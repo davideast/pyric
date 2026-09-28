@@ -1,6 +1,6 @@
 import { NO_OP, RulesValue } from '../../rules/simulator/wrappers/base.js';
 import type { Expr } from './rules.js';
-import { evalExpr, type EvalCtx } from './rules-evaluator.js';
+import { evalOperands, type EvalCtx } from './rules-evaluator.js';
 import { RuleEvalError } from './rules-evaluation-error.js';
 import { isRuleError as isErr, type RuleError } from './rules-values.js';
 
@@ -39,15 +39,21 @@ export function expectNoArguments(expr: MethodCall): void {
   }
 }
 
-/** Evaluate every argument in order; the first error value wins. */
+/** Evaluate every argument in order, after an error too; the first error value wins. */
 export function evalArguments(expr: MethodCall, ctx: EvalCtx): unknown[] | RuleError {
-  const values: unknown[] = [];
-  for (const arg of expr.args) {
-    const value = evalExpr(arg, ctx);
-    if (isErr(value)) return value;
-    values.push(value);
-  }
-  return values;
+  return evalOperands(expr.args, ctx);
+}
+
+/**
+ * Evaluate a namespace call's arguments, as {@link evalArguments} does, and
+ * charge the unit the call costs beyond them once they evaluate. When an
+ * argument errors, production counts the arguments and not that unit (the
+ * Firestore expression-cost capture's error-namespace-args shape).
+ */
+export function evalNamespaceArguments(expr: MethodCall, ctx: EvalCtx): unknown[] | RuleError {
+  const args = evalArguments(expr, ctx);
+  if (!isErr(args)) ctx.expressionBudget?.node();
+  return args;
 }
 
 /**

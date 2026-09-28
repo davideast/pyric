@@ -120,6 +120,28 @@ const LADDER_SHAPES: LadderShape[] = [
     conditions: [repeat(() => 'get(/databases/$(database)/documents/cfg/c).data.on == true', '&&', 5)],
     mocks: [{ function: 'get', path: 'cfg/c', result: { on: true } }],
   },
+  // Operands after an error: `resource.data.missing` errors, and production
+  // goes on evaluating the other operands, which count.
+  { id: 'error-eq', description: `${REPEAT} conjuncts \`resource.data.missing == resource.data.a\``, conditions: [repeat(() => 'resource.data.missing == resource.data.a', '&&')] },
+  { id: 'error-plus', description: `${REPEAT} conjuncts \`resource.data.missing + resource.data.a == 1\``, conditions: [repeat(() => 'resource.data.missing + resource.data.a == 1', '&&')] },
+  { id: 'error-list', description: `${REPEAT} conjuncts \`[resource.data.missing, resource.data.a] == []\``, conditions: [repeat(() => '[resource.data.missing, resource.data.a] == []', '&&')] },
+  { id: 'error-map', description: `${REPEAT / 2} conjuncts \`{'k': resource.data.missing, 'j': resource.data.a} == {}\``, conditions: [repeat(() => "{'k': resource.data.missing, 'j': resource.data.a} == {}", '&&', REPEAT / 2)] },
+  { id: 'error-in', description: `${REPEAT} conjuncts \`resource.data.missing in [resource.data.a, 2]\``, conditions: [repeat(() => 'resource.data.missing in [resource.data.a, 2]', '&&')] },
+  { id: 'error-method-args', description: `${REPEAT} conjuncts \`resource.data.get(resource.data.missing, resource.data.a) == 1\``, conditions: [repeat(() => 'resource.data.get(resource.data.missing, resource.data.a) == 1', '&&')] },
+  { id: 'error-receiver', description: `${REPEAT} conjuncts \`resource.data.missing.get('k', resource.data.a) == 1\``, conditions: [repeat(() => "resource.data.missing.get('k', resource.data.a) == 1", '&&')] },
+  { id: 'error-namespace-args', description: `${REPEAT} conjuncts \`math.pow(resource.data.missing, resource.data.a) == 1.0\``, conditions: [repeat(() => 'math.pow(resource.data.missing, resource.data.a) == 1.0', '&&')] },
+  {
+    id: 'error-call-args',
+    description: `${REPEAT} conjuncts \`ig(resource.data.missing, resource.data.a)\`, ig(x, y) returning true`,
+    functions: 'function ig(x, y) { return true; }',
+    conditions: [repeat(() => 'ig(resource.data.missing, resource.data.a)', '&&')],
+  },
+  {
+    id: 'error-let',
+    description: `${REPEAT} conjuncts \`el()\`, el() binding \`let v = resource.data.missing\` and returning true`,
+    functions: 'function el() { let v = resource.data.missing; return true; }',
+    conditions: [repeat(() => 'el()', '&&')],
+  },
   {
     id: 'rule-order',
     description: `three allow rules of ${REPEAT} conjuncts each; the first two end false`,

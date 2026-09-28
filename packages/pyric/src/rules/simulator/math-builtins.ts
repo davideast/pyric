@@ -8,7 +8,8 @@ import { RulesFloat } from './wrappers/float.js';
  * the production verdicts, from one case table
  * (`packages/conformance/src/rules-math-cases.ts`).
  *
- *  - `abs` keeps an int an int and a float a float.
+ *  - `abs` keeps an int an int and a float a float; the int64 minimum
+ *    stays negative, as it does in production.
  *  - `ceil` and `floor` return a float, for an int argument too.
  *  - `round` rounds half up and returns an int: NaN is 0 and an infinity
  *    saturates at the int64 bounds.
@@ -50,7 +51,8 @@ const MATH: ReadonlyMap<string, MathFunction> = new Map<string, MathFunction>([
   ['abs', {
     overloads: 'math.abs(int), math.abs(float)',
     arity: 1,
-    apply: ([x], [isFloat]) => (isFloat ? float(Math.abs(x!)) : Math.abs(x!)),
+    // The int64 minimum has no positive int64: production returns it unchanged.
+    apply: ([x], [isFloat]) => (isFloat ? float(Math.abs(x!)) : x === INT64_MIN ? x : Math.abs(x!)),
   }],
   ['ceil', { overloads: 'math.ceil(float)', arity: 1, apply: ([x]) => float(Math.ceil(x!)) }],
   ['floor', { overloads: 'math.floor(float)', arity: 1, apply: ([x]) => float(Math.floor(x!)) }],

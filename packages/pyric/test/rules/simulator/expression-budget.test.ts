@@ -255,8 +255,9 @@ describe('allow rules after an error', () => {
   // error-absorption-and-or scenario of the Firestore rules corpus.
   const f = `function f() { return ${trues(90)}; }`;
   const ERR = '[1] + [2] == [1, 2]';
-  // == (1), + (1), [1] (2), [2] (2); the error stops the == before its right operand.
-  const ERR_COST = 6;
+  // == (1), + (1), [1] (2), [2] (2), and [1, 2] (3): production evaluates the
+  // right operand of == after the left one errors.
+  const ERR_COST = 9;
 
   test('a later rule in the same block grants, and both rules count', () => {
     const r = run(rules(`match /t/{id} {

@@ -1,5 +1,5 @@
 import type { Expr } from './rules.js';
-import { evalExpr, type EvalCtx } from './rules-evaluator.js';
+import { evalExpr, evalOperands, type EvalCtx } from './rules-evaluator.js';
 import {
   RuleEvalError,
   RuleResourceLimitError,
@@ -44,6 +44,9 @@ function wrapFirestoreValue(val: unknown): unknown {
 }
 
 export function evalFirestoreBuiltin(expr: MethodCall, ctx: EvalCtx): unknown {
+  // The unit a namespace call costs beyond its argument, charged before the
+  // path evaluates (no capture measures it after an erroring path).
+  ctx.expressionBudget?.node();
   if (expr.method !== 'get' && expr.method !== 'exists') {
     // Unknown namespace method, compile-reject class, never absorbed.
     throw new RuleUnsupportedError(`unsupported method firestore.${expr.method}()`);
@@ -114,9 +117,14 @@ function buildFirestoreDocPath(
   pathExpr: Extract<Expr, { kind: 'path' }>,
   ctx: EvalCtx,
 ): string {
+  // Every interpolation evaluates when an earlier one errors; the first
+  // error denies.
+  const interpolated = evalOperands(pathExpr.segments.flatMap((seg) => (seg.kind === 'literal' ? [] : [seg.expr])), ctx);
+  if (isErr(interpolated)) throw new RuleEvalError(interpolated.message);
+  let next = 0;
   const parts = pathExpr.segments.map((seg) => {
     if (seg.kind === 'literal') return seg.value;
-    const v = evalExpr(seg.expr, ctx);
+    const v = interpolated[next++];
     if (typeof v === 'string') return v;
     if (typeof v === 'number') return String(v);
     throw new RuleEvalError(
