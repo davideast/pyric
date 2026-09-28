@@ -128,7 +128,7 @@ These are the Firestore-compatible modules used by this guide. The [complete ref
 | `auth` | Authentication and ownership | `isAuthenticated`, `isOwner` |
 | `validation` | Required fields, allowed fields, strings, enums | `hasRequired`, `hasOnly`, `validString`, `isOneOf` |
 | `lifecycle` | Immutable or changed fields and server timestamps | `fieldUnchanged`, `immutableFields`, `isServerTimestamp`, `onlyFieldsChanged`, `exactlyChanged`, `nFieldsChanged` |
-| `content` | Author-owned documents and published visibility | `validAuthorCreate`, `isAuthor`, `canReadContent`, `notDeleted` |
+| `content` | Author-owned documents, published visibility, and hidden per-player documents | `validAuthorCreate`, `isAuthor`, `canReadContent`, `notDeleted`, `ownerOnlyUntil` |
 | `membership` | Claims and document membership maps | `hasClaim`, `hasClaimRole`, `isMemberOf`, `hasRole` |
 | `spaces` | Parent-document membership for child data | `isSpaceMember`, `hasSpaceRole`, `validMemberCreate` |
 | `joining` | Safe self-service join and leave | `onlyAddedSelf`, `onlyRemovedSelf` |
@@ -162,6 +162,28 @@ service cloud.firestore {
     match /matches/{matchId} {
       allow create: if !('rematchOf' in request.resource.data) && validCreate();
       allow create: if validRematch(/databases/$(database)/documents/matches/$(request.resource.data.rematchOf));
+    }
+  }
+}
+```
+
+`ownerOnlyUntil(parentPath, ownerUid, statuses)` in `content` hides a per-player document, such as a fleet or a hand, from the other players until the match ends:
+
+- The document lives under its match at `{collection}/{matchId}/{sub}/{uid}`. Pass the `uid` wildcard as the owner when the document id is the owner's UID, or `resource.data.<field>` when the owner is a field.
+- The owner reads the document at any time. Any other signed-in caller reads it once the match's `status` is in `statuses`. Pass one status as a one-item list, such as `['finished']`.
+- The owner check runs before the `get()` of the match, so the owner's read spends no read. Everyone else pays one `get()`.
+- A missing match is an error, so the function denies every caller but the owner.
+
+```rules
+rules_version = '2+modules';
+
+import { ownerOnlyUntil } from 'content';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /battleship/{matchId}/boards/{uid} {
+      allow get: if ownerOnlyUntil(
+        /databases/$(database)/documents/battleship/$(matchId), uid, ['won', 'resigned']);
     }
   }
 }

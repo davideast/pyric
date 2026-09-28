@@ -3,7 +3,8 @@
     { "function": "validAuthorCreate", "cost": { "min": 6, "max": 16 }, "reads": 0 },
     { "function": "isAuthor", "cost": { "min": 6, "max": 15 }, "reads": 0 },
     { "function": "canReadContent", "cost": { "min": 8, "max": 23 }, "reads": 0 },
-    { "function": "notDeleted", "cost": { "min": 7, "max": 7 }, "reads": 0 }
+    { "function": "notDeleted", "cost": { "min": 8, "max": 8 }, "reads": 0 },
+    { "function": "ownerOnlyUntil", "cost": { "min": 6, "max": 20 }, "reads": 1 }
   ],
   "cases": [
     {
@@ -212,7 +213,7 @@
       }
     },
     {
-      "description": "notDeleted allows when the field is absent (null-on-miss)",
+      "description": "notDeleted allows when the field is absent",
       "expectation": "ALLOW",
       "method": "get",
       "path": "test/doc1",
@@ -241,6 +242,252 @@
         "deleted": true,
         "title": "x"
       }
+    },
+    {
+      "description": "ownerOnlyUntil allows the owner to read while the match is in play",
+      "expectation": "ALLOW",
+      "method": "get",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "owner1"
+      },
+      "resource": {
+        "cells": [
+          1,
+          2,
+          3
+        ]
+      },
+      "functionMocks": [
+        {
+          "function": "get",
+          "path": "matches/m1",
+          "result": {
+            "host": "owner1",
+            "guest": "rival1",
+            "status": "playing"
+          }
+        }
+      ],
+      "wrapFunction": "ownerOnlyUntil",
+      "wrapOperation": "get",
+      "wrapCallExpr": "ownerOnlyUntil(/databases/$(database)/documents/matches/m1, 'owner1', ['won', 'resigned'])"
+    },
+    {
+      "description": "ownerOnlyUntil denies the opponent while the match is in play",
+      "expectation": "DENY",
+      "method": "get",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "rival1"
+      },
+      "resource": {
+        "cells": [
+          1,
+          2,
+          3
+        ]
+      },
+      "functionMocks": [
+        {
+          "function": "get",
+          "path": "matches/m1",
+          "result": {
+            "host": "owner1",
+            "guest": "rival1",
+            "status": "playing"
+          }
+        }
+      ],
+      "wrapFunction": "ownerOnlyUntil",
+      "wrapOperation": "get",
+      "wrapCallExpr": "ownerOnlyUntil(/databases/$(database)/documents/matches/m1, 'owner1', ['won', 'resigned'])"
+    },
+    {
+      "description": "ownerOnlyUntil allows the opponent once the match is won",
+      "expectation": "ALLOW",
+      "method": "get",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "rival1"
+      },
+      "resource": {
+        "cells": [
+          1,
+          2,
+          3
+        ]
+      },
+      "functionMocks": [
+        {
+          "function": "get",
+          "path": "matches/m1",
+          "result": {
+            "host": "owner1",
+            "guest": "rival1",
+            "status": "won"
+          }
+        }
+      ],
+      "wrapFunction": "ownerOnlyUntil",
+      "wrapOperation": "get",
+      "wrapCallExpr": "ownerOnlyUntil(/databases/$(database)/documents/matches/m1, 'owner1', ['won', 'resigned'])"
+    },
+    {
+      "description": "ownerOnlyUntil allows the opponent once the match is resigned",
+      "expectation": "ALLOW",
+      "method": "get",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "rival1"
+      },
+      "resource": {
+        "cells": [
+          1,
+          2,
+          3
+        ]
+      },
+      "functionMocks": [
+        {
+          "function": "get",
+          "path": "matches/m1",
+          "result": {
+            "host": "owner1",
+            "guest": "rival1",
+            "status": "resigned"
+          }
+        }
+      ],
+      "wrapFunction": "ownerOnlyUntil",
+      "wrapOperation": "get",
+      "wrapCallExpr": "ownerOnlyUntil(/databases/$(database)/documents/matches/m1, 'owner1', ['won', 'resigned'])"
+    },
+    {
+      "description": "ownerOnlyUntil allows the owner once the match is won",
+      "expectation": "ALLOW",
+      "method": "get",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "owner1"
+      },
+      "resource": {
+        "cells": [
+          1,
+          2,
+          3
+        ]
+      },
+      "functionMocks": [
+        {
+          "function": "get",
+          "path": "matches/m1",
+          "result": {
+            "host": "owner1",
+            "guest": "rival1",
+            "status": "won"
+          }
+        }
+      ],
+      "wrapFunction": "ownerOnlyUntil",
+      "wrapOperation": "get",
+      "wrapCallExpr": "ownerOnlyUntil(/databases/$(database)/documents/matches/m1, 'owner1', ['won', 'resigned'])"
+    },
+    {
+      "description": "ownerOnlyUntil denies unauthenticated reads of a finished match",
+      "expectation": "DENY",
+      "method": "get",
+      "path": "test/doc1",
+      "auth": null,
+      "resource": {
+        "cells": [
+          1,
+          2,
+          3
+        ]
+      },
+      "functionMocks": [
+        {
+          "function": "get",
+          "path": "matches/m1",
+          "result": {
+            "host": "owner1",
+            "guest": "rival1",
+            "status": "won"
+          }
+        }
+      ],
+      "wrapFunction": "ownerOnlyUntil",
+      "wrapOperation": "get",
+      "wrapCallExpr": "ownerOnlyUntil(/databases/$(database)/documents/matches/m1, 'owner1', ['won', 'resigned'])"
+    },
+    {
+      "description": "ownerOnlyUntil allows the owner when the parent match is missing",
+      "expectation": "ALLOW",
+      "method": "get",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "owner1"
+      },
+      "resource": {
+        "cells": [
+          1,
+          2,
+          3
+        ]
+      },
+      "wrapFunction": "ownerOnlyUntil",
+      "wrapOperation": "get",
+      "wrapCallExpr": "ownerOnlyUntil(/databases/$(database)/documents/matches/m1, 'owner1', ['won', 'resigned'])"
+    },
+    {
+      "description": "ownerOnlyUntil denies the opponent when the parent match is missing",
+      "expectation": "DENY",
+      "method": "get",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "rival1"
+      },
+      "resource": {
+        "cells": [
+          1,
+          2,
+          3
+        ]
+      },
+      "wrapFunction": "ownerOnlyUntil",
+      "wrapOperation": "get",
+      "wrapCallExpr": "ownerOnlyUntil(/databases/$(database)/documents/matches/m1, 'owner1', ['won', 'resigned'])"
+    },
+    {
+      "description": "ownerOnlyUntil denies the opponent when the status is not in the list",
+      "expectation": "DENY",
+      "method": "get",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "rival1"
+      },
+      "resource": {
+        "cells": [
+          1,
+          2,
+          3
+        ]
+      },
+      "functionMocks": [
+        {
+          "function": "get",
+          "path": "matches/m1",
+          "result": {
+            "host": "owner1",
+            "guest": "rival1",
+            "status": "draw"
+          }
+        }
+      ],
+      "wrapFunction": "ownerOnlyUntil",
+      "wrapOperation": "get",
+      "wrapCallExpr": "ownerOnlyUntil(/databases/$(database)/documents/matches/m1, 'owner1', ['won', 'resigned'])"
     }
   ]
 }

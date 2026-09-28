@@ -1053,7 +1053,7 @@ const CONTENT_MODULE: StdlibModuleDefinition = {
   key: 'content',
   kind: 'user-module',
   description:
-    'User-authored module: author-owned documents (validAuthorCreate, isAuthor, canReadContent, notDeleted). Self-contained. Field names are parameters, not conventions.',
+    'User-authored module: author-owned documents (validAuthorCreate, isAuthor, canReadContent, notDeleted) and hidden per-player documents (ownerOnlyUntil). Self-contained; ownerOnlyUntil reads the parent match with one get(). Field names are parameters, not conventions.',
   purpose:
     'The most common Firebase app shape — posts, notes, docs, comments, tasks. Covers the create/read/update/delete lifecycle of documents that belong to their author, with draft/published visibility and soft delete.',
   whenToUse:
@@ -1084,10 +1084,22 @@ const CONTENT_MODULE: StdlibModuleDefinition = {
     },
     {
       signature: 'notDeleted(): bool',
-      cost: { min: 7, max: 7 },
+      cost: { min: 8, max: 8 },
       reads: 0,
       description:
-        "Soft-delete guard: `resource.data['deleted'] != true`. Bracket access is the null-on-miss idiom, so a document WITHOUT the field passes.",
+        "Soft-delete guard: `resource.data.get('deleted', false) != true`. `get()` returns the default for a missing key, so a document WITHOUT the field passes. Dotted or bracket access of a missing key is an error in production and would deny it.",
+    },
+    {
+      signature: 'ownerOnlyUntil(parentPath: path, ownerUid: string, statuses: list): bool',
+      cost: { min: 6, max: 20 },
+      reads: 1,
+      description:
+        'Read rule for a hidden per-player document under a match: the owner reads it at any time, and any other signed-in caller reads it once the match at `parentPath` has a `status` in `statuses`.',
+      examples: [
+        "allow read: if ownerOnlyUntil(/databases/$(database)/documents/battleship/$(matchId), uid, ['won', 'resigned']);",
+      ],
+      notes:
+        "The document lives at {collection}/{matchId}/{sub}/{uid}. Pass the `uid` wildcard as the owner when the document id is the owner's UID, or `resource.data.<field>` when the owner is a field. Pass one status as a one-item list, such as ['finished']. The owner check runs before the `get()`, so the owner's read spends no read; everyone else pays one `get()` of the parent. A missing parent match is an error and denies every caller but the owner.",
     },
   ],
   relatedKeys: ['auth', 'lifecycle', 'validation'],
