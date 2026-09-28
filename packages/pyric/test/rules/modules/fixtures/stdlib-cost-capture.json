@@ -202,36 +202,6 @@
         }
       }
     },
-    "counters": {
-      "requests": 11,
-      "testCases": 667,
-      "date": "2026-09-28T04:53:24.002Z",
-      "modules": [
-        "counters"
-      ],
-      "calibration": {
-        "firestore": {
-          "d": 986,
-          "checks": [
-            {
-              "condition": "false",
-              "cost": 1,
-              "d": 986
-            },
-            {
-              "condition": "true && false",
-              "cost": 4,
-              "d": 986
-            },
-            {
-              "condition": "true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true",
-              "cost": 58,
-              "d": 986
-            }
-          ]
-        }
-      }
-    },
     "storage/objects": {
       "requests": 9,
       "testCases": 352,
@@ -298,6 +268,102 @@
       "date": "2026-09-28T05:29:04.536Z",
       "modules": [
         "geometry"
+      ],
+      "calibration": {
+        "firestore": {
+          "d": 986,
+          "checks": [
+            {
+              "condition": "false",
+              "cost": 1,
+              "d": 986
+            },
+            {
+              "condition": "true && false",
+              "cost": 4,
+              "d": 986
+            },
+            {
+              "condition": "true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true",
+              "cost": 58,
+              "d": 986
+            }
+          ]
+        }
+      }
+    },
+    "atomic": {
+      "requests": 13,
+      "testCases": 954,
+      "date": "2026-09-28T06:34:03.387Z",
+      "modules": [
+        "atomic",
+        "counters",
+        "validation"
+      ],
+      "calibration": {
+        "firestore": {
+          "d": 986,
+          "checks": [
+            {
+              "condition": "false",
+              "cost": 1,
+              "d": 986
+            },
+            {
+              "condition": "true && false",
+              "cost": 4,
+              "d": 986
+            },
+            {
+              "condition": "true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true",
+              "cost": 58,
+              "d": 986
+            }
+          ]
+        }
+      }
+    },
+    "counters": {
+      "requests": 13,
+      "testCases": 954,
+      "date": "2026-09-28T06:34:03.387Z",
+      "modules": [
+        "atomic",
+        "counters",
+        "validation"
+      ],
+      "calibration": {
+        "firestore": {
+          "d": 986,
+          "checks": [
+            {
+              "condition": "false",
+              "cost": 1,
+              "d": 986
+            },
+            {
+              "condition": "true && false",
+              "cost": 4,
+              "d": 986
+            },
+            {
+              "condition": "true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true",
+              "cost": 58,
+              "d": 986
+            }
+          ]
+        }
+      }
+    },
+    "validation": {
+      "requests": 13,
+      "testCases": 954,
+      "date": "2026-09-28T06:34:03.387Z",
+      "modules": [
+        "atomic",
+        "counters",
+        "validation"
       ],
       "calibration": {
         "firestore": {
@@ -1196,7 +1262,7 @@
     {
       "module": "atomic",
       "function": "companionChangedBy",
-      "case": "companionChangedBy denies a missing companion field (null-on-miss)",
+      "case": "companionChangedBy denies a missing companion field (a missing key is an error)",
       "call": "companionChangedBy({'other': 1}, {'other': 1}, 'taskCount', 1)",
       "measured": {
         "call": 18,
@@ -1980,7 +2046,7 @@
     {
       "module": "counters",
       "function": "boundedNumber",
-      "case": "boundedNumber denies missing field (null-on-miss)",
+      "case": "boundedNumber denies a missing field (a missing key is an error)",
       "call": "boundedNumber('rating', 1, 5)",
       "measured": {
         "call": 38,
@@ -5052,7 +5118,7 @@
     {
       "module": "validation",
       "function": "validString",
-      "case": "validString denies MISSING field (null-on-miss, not error)",
+      "case": "validString denies a missing field (a missing key is an error)",
       "call": "validString('title', 1, 10)",
       "measured": {
         "call": 31,

@@ -229,8 +229,8 @@ export function changedBy(field, min, max) {
 }
 
 // The incoming value is a number within [min, max] (inclusive).
-// Works on create and update. Missing field reads null (dynamic
-// access) and fails the type check rather than erroring.
+// Works on create and update. A missing field is an error under dynamic
+// access, so the call denies.
 // cost 19 to 35 expressions per call
 export function boundedNumber(field, min, max) {
   return (request.resource.data[field] is int || request.resource.data[field] is float)
@@ -1189,8 +1189,9 @@ export function hasOnly(fields) {
 }
 
 // Incoming field is a string with size in [min, max] (inclusive).
-// Uses dynamic access, so a MISSING field reads as null (not an
-// error) and fails the \`is string\` check — safe on optional fields.
+// A missing field is an error under dynamic access, so the call denies.
+// For an optional field, guard it:
+// \`!('title' in request.resource.data) || validString('title', 1, 80)\`.
 // cost 10 to 28 expressions per call
 export function validString(field, min, max) {
   return request.resource.data[field] is string

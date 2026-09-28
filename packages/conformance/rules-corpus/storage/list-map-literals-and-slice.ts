@@ -44,6 +44,11 @@ service firebase.storage {
     match /strLenLen/{fileId} { allow read: if fileId[5:5] == ''; }
     match /strStartAfterEnd/{fileId} { allow read: if fileId[2:1] == ''; }
     match /strEmptyZeroZero/{fileId} { allow read: if ''[0:0] == ''; }
+    // List index access on a 4-element list (fileId 'a-b-c-d').
+    match /listIndexInRange/{fileId} { allow read: if fileId.split('-')[1] == 'b'; }
+    match /listIndexPastEnd/{fileId} { allow read: if fileId.split('-')[5] == null; }
+    match /listIndexNegative/{fileId} { allow read: if fileId.split('-')[-1] == 'd'; }
+    match /listIndexStringKey/{fileId} { allow read: if fileId.split('-')['length'] == 4; }
   }
 }`,
   cases: [
@@ -110,6 +115,10 @@ service firebase.storage {
       ['string slice [n:n] is an index error → DENY', 'DENY', 'strLenLen/hello'],
       ['string slice start after end is a range error → DENY', 'DENY', 'strStartAfterEnd/hello'],
       ['empty string slice [0:0] is an index error → DENY', 'DENY', 'strEmptyZeroZero/hello'],
+      ['list index in range → ALLOW', 'ALLOW', 'listIndexInRange/a-b-c-d'],
+      ['list index past the end is an index error → DENY', 'DENY', 'listIndexPastEnd/a-b-c-d'],
+      ['negative list index is an index error → DENY', 'DENY', 'listIndexNegative/a-b-c-d'],
+      ['string key on a list is an error → DENY', 'DENY', 'listIndexStringKey/a-b-c-d'],
     ] as const).map(([description, expectation, path]) => ({
       description, expectation, method: 'get' as const, path,
       auth: { uid: 'alice' }, existingResource: { size: 100 },

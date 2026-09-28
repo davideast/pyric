@@ -9,11 +9,12 @@
  * same verdict and text for every shape (corpus scenarios
  * `range-slice-list-and-string` and `list-map-literals-and-slice`).
  */
+import { indexOutOfBoundMessage } from './index-access.js';
 
 /** Production's error text for a slice of a value of `size`, or null when the bounds are valid. */
 export function sliceBoundsError(start: number, end: number, size: number): string | null {
   for (const index of [start, end - 1]) {
-    if (index < 0 || index >= size) return `Index out of bound error. Index: [${index}] , size: [${size}].`;
+    if (index < 0 || index >= size) return indexOutOfBoundMessage(index, size);
   }
   if (start > end) return `Illegal range error. From index: [${start}] , To index: [${end}].`;
   return null;

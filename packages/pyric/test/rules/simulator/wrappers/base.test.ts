@@ -2,7 +2,7 @@
  * Base contract for RulesValue (Item 1.0). These tests pin the dispatch
  * defaults so future wrappers can assume:
  *   - NO_OP from binaryOp / callMethod = "fall through"
- *   - field() default = null (mirrors Firestore "missing key reads as null")
+ *   - field() default = null
  *   - typeName is required (used by isExpr dispatch)
  *
  * Concrete wrapper coverage lives in <wrapper>.test.ts files (1.1–1.4).

@@ -65,7 +65,7 @@
       "wrapCallExpr": "companionChangedBy({'taskCount': 3}, {'taskCount': 3}, 'taskCount', 1)"
     },
     {
-      "description": "companionChangedBy denies a missing companion field (null-on-miss)",
+      "description": "companionChangedBy denies a missing companion field (a missing key is an error)",
       "expectation": "DENY",
       "method": "create",
       "path": "test/doc1",

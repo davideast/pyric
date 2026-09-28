@@ -466,14 +466,73 @@ describe('RULES-B2: undefined-field access errors', () => {
     expect(evaluate(expr, ctx)).toBe(null);
   });
 
-  test("missing key on map via DYNAMIC bracket access returns null (not an error)", () => {
-    // RULES-B2 scope: dynamic index access (`data[expr]`) is the documented
-    // "may-be-absent lookup" idiom; flagship rules (e.g. chess
-    // `cfg().paths[from][to]`) rely on null-on-miss. Only DOTTED field access
-    // errors. (See the bracketAccess scope note in evaluator.ts.)
+  // Production reports the same error for `data['b']` as for `data.b` when
+  // the map does not own the key (corpus scenario undefined-field-access).
+  test("missing key on map via bracket access ERRORS with production's text", () => {
     const ctx = baseCtx({ resource: mkRes({ a: 1 }) });
     const expr = bracket(member(id('resource'), 'data'), lit('b'));
-    expect(evaluate(expr, ctx)).toBe(null);
+    expect(() => evaluate(expr, ctx)).toThrow('Property b is undefined on object.');
+  });
+
+  test("resource.data['deleted'] != true ERRORS on a document without the field", () => {
+    const ctx = baseCtx({ resource: mkRes({ a: 1 }) });
+    const expr = binOp('!=', bracket(member(id('resource'), 'data'), lit('deleted')), lit(true));
+    expect(() => evaluate(expr, ctx)).toThrow(EvalError);
+  });
+
+  test('a missing bracket key under ! stays an error', () => {
+    const ctx = baseCtx({ resource: mkRes({ a: 1 }) });
+    const expr = unaryOp('!', binOp('==', bracket(member(id('resource'), 'data'), lit('x')), lit(true)));
+    expect(() => evaluate(expr, ctx)).toThrow(EvalError);
+  });
+
+  test('a missing bracket key is absorbed by || true and by && false', () => {
+    const ctx = baseCtx({ resource: mkRes({ a: 1 }) });
+    const miss = (): Expression => binOp('==', bracket(member(id('resource'), 'data'), lit('x')), lit(true));
+    expect(evaluate(binOp('||', miss(), lit(true)), ctx)).toBe(true);
+    expect(evaluate(unaryOp('!', binOp('&&', miss(), lit(false))), ctx)).toBe(true);
+  });
+
+  test('a computed bracket key that the map does not own ERRORS', () => {
+    const ctx = baseCtx({ resource: mkRes({ name: 'alice' }) });
+    const present = bracket(member(id('resource'), 'data'), binOp('+', lit('na'), lit('me')));
+    const missing = bracket(member(id('resource'), 'data'), binOp('+', lit('miss'), lit('ing')));
+    expect(evaluate(present, ctx)).toBe('alice');
+    expect(() => evaluate(missing, ctx)).toThrow('Property missing is undefined on object.');
+  });
+
+  test('a nested missing bracket key ERRORS and a present-with-null key reads null', () => {
+    const ctx = baseCtx({ resource: mkRes({ m: { a: 1 }, nul: null }) });
+    const data = member(id('resource'), 'data');
+    expect(() => evaluate(bracket(bracket(data, lit('m')), lit('missing')), ctx)).toThrow(EvalError);
+    expect(evaluate(bracket(bracket(member(id('resource'), 'data'), lit('m')), lit('a')), ctx)).toBe(1);
+    expect(evaluate(bracket(member(id('resource'), 'data'), lit('nul')), ctx)).toBe(null);
+  });
+
+  test('an inherited name is not a key under bracket access', () => {
+    const ctx = baseCtx({ resource: mkRes({ a: 1 }) });
+    const expr = bracket(member(id('resource'), 'data'), lit('constructor'));
+    expect(() => evaluate(expr, ctx)).toThrow('Property constructor is undefined on object.');
+  });
+
+  test("a missing key on request.resource.data and on the auth token ERRORS", () => {
+    const ctx = baseCtx();
+    ctx.request.resource.data = { name: 'alice' };
+    const reqData = member(member(id('request'), 'resource'), 'data');
+    expect(() => evaluate(binOp('==', bracket(reqData, lit('missing')), lit(null)), ctx)).toThrow(EvalError);
+    const token = member(member(id('request'), 'auth'), 'token');
+    expect(() => evaluate(bracket(token, lit('missing')), ctx)).toThrow(EvalError);
+  });
+
+  test("a list index must be an int within the list's bounds", () => {
+    const ctx = baseCtx({ resource: mkRes({ l: [1, 2] }) });
+    const l = (): Expression => bracket(member(id('resource'), 'data'), lit('l'));
+    expect(evaluate(bracket(l(), lit(1)), ctx)).toBe(2);
+    expect(() => evaluate(bracket(l(), lit(5)), ctx)).toThrow('Index out of bound error. Index: [5] , size: [2].');
+    expect(() => evaluate(bracket(l(), lit(-1)), ctx)).toThrow('Index out of bound error. Index: [-1] , size: [2].');
+    expect(() => evaluate(bracket(l(), lit('length')), ctx)).toThrow(
+      'Unsupported operation error. Received: list[string]. Expected: list[int].',
+    );
   });
 
   test('field access on a null member ERRORS — request.auth.uid when auth null', () => {

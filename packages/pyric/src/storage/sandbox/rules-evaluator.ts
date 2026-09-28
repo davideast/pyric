@@ -33,6 +33,7 @@ import { StoragePath } from './rules-path.js';
 import { ConversionFailure, applyConversion, conversionFor } from '../../rules/simulator/conversions.js';
 import { describeRulesType as describeType, isRulesMap } from '../../rules/simulator/rules-type.js';
 import { sliceBoundsError } from '../../rules/simulator/slice-bounds.js';
+import { IndexAccessFailure, indexList, undefinedPropertyMessage } from '../../rules/simulator/index-access.js';
 import { MembershipFailure, membership } from '../../rules/simulator/membership.js';
 import {
   RuleError,
@@ -213,10 +214,10 @@ function readProperty(obj: unknown, name: string): unknown {
     return new RuleError(`Property ${name} is undefined on ${describeType(obj)}.`);
   }
   if (!Object.hasOwn(obj, name)) {
-    return new RuleError(`Property ${name} is undefined on object.`);
+    return new RuleError(undefinedPropertyMessage(name));
   }
   const v = obj[name as keyof typeof obj];
-  if (v === undefined) return new RuleError(`Property ${name} is undefined on object.`);
+  if (v === undefined) return new RuleError(undefinedPropertyMessage(name));
   return v;
 }
 
@@ -291,6 +292,12 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       if (isErr(operands)) return operands;
       const [t, idx] = operands;
       if (t === null || t === undefined) return new RuleError(`Null value error.`);
+      // A list index must be an int within bounds (`index-access.ts`, shared
+      // with the Firestore simulator); a map key reads as a property.
+      if (Array.isArray(t)) {
+        const element = indexList(t, idx);
+        return element instanceof IndexAccessFailure ? new RuleError(element.message) : element;
+      }
       return readProperty(t, String(idx));
     }
     case 'call':
