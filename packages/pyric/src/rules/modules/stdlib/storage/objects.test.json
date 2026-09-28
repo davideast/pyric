@@ -2,7 +2,9 @@
   "costs": [
     { "function": "isCreate", "cost": { "min": 5, "max": 5 }, "reads": 0 },
     { "function": "isUpdate", "cost": { "min": 5, "max": 5 }, "reads": 0 },
-    { "function": "isDelete", "cost": { "min": 5, "max": 5 }, "reads": 0 }
+    { "function": "isDelete", "cost": { "min": 5, "max": 5 }, "reads": 0 },
+    { "function": "nameSegment", "cost": { "min": 17, "max": 18 }, "reads": 0 },
+    { "function": "matchesDocument", "cost": { "min": 6, "max": 26 }, "reads": 1 }
   ],
   "cases": [
     {
@@ -42,6 +44,275 @@
       "existingResource": { "size": 1 },
       "wrapFunction": "isCreate",
       "wrapCallExpr": "isCreate()"
+    },
+    {
+      "description": "nameSegment reads a create's first segment from request.resource.name",
+      "expectation": "ALLOW",
+      "method": "create",
+      "path": "uploads/alice/3/abc-33-8.txt",
+      "auth": { "uid": "alice" },
+      "resource": { "size": 33, "contentType": "text/plain", "name": "uploads/alice/3/abc-33-8.txt" },
+      "wrapMatch": "/uploads/{uid}/{level}/{file}",
+      "wrapFunction": "nameSegment",
+      "wrapCallExpr": "nameSegment(0) == 'uploads'"
+    },
+    {
+      "description": "nameSegment denies a create whose first segment differs",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "uploads/alice/3/abc-33-8.txt",
+      "auth": { "uid": "alice" },
+      "resource": { "size": 33, "contentType": "text/plain", "name": "uploads/alice/3/abc-33-8.txt" },
+      "wrapMatch": "/uploads/{uid}/{level}/{file}",
+      "wrapFunction": "nameSegment",
+      "wrapCallExpr": "nameSegment(0) == 'images'"
+    },
+    {
+      "description": "nameSegment reads an update's second segment from request.resource.name",
+      "expectation": "ALLOW",
+      "method": "update",
+      "path": "uploads/alice/3/abc-33-8.txt",
+      "auth": { "uid": "alice" },
+      "resource": { "size": 33, "contentType": "text/plain", "name": "uploads/alice/3/abc-33-8.txt" },
+      "existingResource": { "size": 33, "contentType": "text/plain", "name": "uploads/alice/3/abc-33-8.txt" },
+      "wrapMatch": "/uploads/{uid}/{level}/{file}",
+      "wrapFunction": "nameSegment",
+      "wrapCallExpr": "nameSegment(1) == request.auth.uid"
+    },
+    {
+      "description": "nameSegment denies an update whose second segment is another user",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "uploads/bob/3/abc-33-8.txt",
+      "auth": { "uid": "alice" },
+      "resource": { "size": 33, "contentType": "text/plain", "name": "uploads/bob/3/abc-33-8.txt" },
+      "existingResource": { "size": 33, "contentType": "text/plain", "name": "uploads/bob/3/abc-33-8.txt" },
+      "wrapMatch": "/uploads/{uid}/{level}/{file}",
+      "wrapFunction": "nameSegment",
+      "wrapCallExpr": "nameSegment(1) == request.auth.uid"
+    },
+    {
+      "description": "nameSegment reads a get's third segment from resource.name",
+      "expectation": "ALLOW",
+      "method": "get",
+      "path": "uploads/alice/3/abc-33-8.txt",
+      "auth": { "uid": "alice" },
+      "existingResource": { "size": 33, "contentType": "text/plain", "name": "uploads/alice/3/abc-33-8.txt" },
+      "wrapMatch": "/uploads/{uid}/{level}/{file}",
+      "wrapFunction": "nameSegment",
+      "wrapCallExpr": "nameSegment(2) == '3'"
+    },
+    {
+      "description": "nameSegment denies a get whose third segment differs",
+      "expectation": "DENY",
+      "method": "get",
+      "path": "uploads/alice/4/abc-33-8.txt",
+      "auth": { "uid": "alice" },
+      "existingResource": { "size": 33, "contentType": "text/plain", "name": "uploads/alice/4/abc-33-8.txt" },
+      "wrapMatch": "/uploads/{uid}/{level}/{file}",
+      "wrapFunction": "nameSegment",
+      "wrapCallExpr": "nameSegment(2) == '3'"
+    },
+    {
+      "description": "nameSegment reads a delete's last segment from resource.name",
+      "expectation": "ALLOW",
+      "method": "delete",
+      "path": "uploads/alice/3/abc-33-8.txt",
+      "auth": { "uid": "alice" },
+      "existingResource": { "size": 33, "contentType": "text/plain", "name": "uploads/alice/3/abc-33-8.txt" },
+      "wrapMatch": "/uploads/{uid}/{level}/{file}",
+      "wrapFunction": "nameSegment",
+      "wrapCallExpr": "nameSegment(3) == 'abc-33-8.txt'"
+    },
+    {
+      "description": "nameSegment denies a delete whose last segment differs",
+      "expectation": "DENY",
+      "method": "delete",
+      "path": "uploads/alice/3/abc-40-9.txt",
+      "auth": { "uid": "alice" },
+      "existingResource": { "size": 40, "contentType": "text/plain", "name": "uploads/alice/3/abc-40-9.txt" },
+      "wrapMatch": "/uploads/{uid}/{level}/{file}",
+      "wrapFunction": "nameSegment",
+      "wrapCallExpr": "nameSegment(3) == 'abc-33-8.txt'"
+    },
+    {
+      "description": "nameSegment past the last segment is an error that denies",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "uploads/alice/3/abc-33-8.txt",
+      "auth": { "uid": "alice" },
+      "resource": { "size": 33, "contentType": "text/plain", "name": "uploads/alice/3/abc-33-8.txt" },
+      "wrapMatch": "/uploads/{uid}/{level}/{file}",
+      "wrapFunction": "nameSegment",
+      "wrapCallExpr": "nameSegment(4) == ''"
+    },
+    {
+      "description": "negating nameSegment past the last segment still denies",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "uploads/alice/3/abc-33-8.txt",
+      "auth": { "uid": "alice" },
+      "resource": { "size": 33, "contentType": "text/plain", "name": "uploads/alice/3/abc-33-8.txt" },
+      "wrapMatch": "/uploads/{uid}/{level}/{file}",
+      "wrapFunction": "nameSegment",
+      "wrapCallExpr": "!(nameSegment(4) == 'x')"
+    },
+    {
+      "description": "nameSegment of a name with no slash is the whole name",
+      "expectation": "ALLOW",
+      "method": "create",
+      "path": "avatar.png",
+      "auth": { "uid": "alice" },
+      "resource": { "size": 10, "contentType": "image/png", "name": "avatar.png" },
+      "wrapMatch": "/{file}",
+      "wrapFunction": "nameSegment",
+      "wrapCallExpr": "nameSegment(0) == 'avatar.png'"
+    },
+    {
+      "description": "nameSegment of a name with no slash has no second segment",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "avatar.png",
+      "auth": { "uid": "alice" },
+      "resource": { "size": 10, "contentType": "image/png", "name": "avatar.png" },
+      "wrapMatch": "/{file}",
+      "wrapFunction": "nameSegment",
+      "wrapCallExpr": "!(nameSegment(1) == 'x')"
+    },
+    {
+      "description": "matchesDocument allows an upload the document names",
+      "expectation": "ALLOW",
+      "method": "create",
+      "path": "uploads/alice/3/abc-33-8.txt",
+      "auth": { "uid": "alice" },
+      "resource": { "size": 33, "contentType": "text/plain", "name": "uploads/alice/3/abc-33-8.txt" },
+      "functionMocks": [
+        { "function": "get", "path": "scores/alice", "result": { "object": "uploads/alice/3/abc-33-8.txt", "moves": 33 } }
+      ],
+      "wrapMatch": "/uploads/{uid}/{level}/{file}",
+      "wrapFunction": "matchesDocument",
+      "wrapCallExpr": "matchesDocument(/databases/(default)/documents/scores/$(request.auth.uid), 'object')"
+    },
+    {
+      "description": "matchesDocument denies an upload the document names differently",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "uploads/alice/3/abc-40-9.txt",
+      "auth": { "uid": "alice" },
+      "resource": { "size": 40, "contentType": "text/plain", "name": "uploads/alice/3/abc-40-9.txt" },
+      "functionMocks": [
+        { "function": "get", "path": "scores/alice", "result": { "object": "uploads/alice/3/abc-33-8.txt", "moves": 33 } }
+      ],
+      "wrapMatch": "/uploads/{uid}/{level}/{file}",
+      "wrapFunction": "matchesDocument",
+      "wrapCallExpr": "matchesDocument(/databases/(default)/documents/scores/$(request.auth.uid), 'object')"
+    },
+    {
+      "description": "matchesDocument denies an upload when the document is missing",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "uploads/alice/3/abc-33-8.txt",
+      "auth": { "uid": "alice" },
+      "resource": { "size": 33, "contentType": "text/plain", "name": "uploads/alice/3/abc-33-8.txt" },
+      "wrapMatch": "/uploads/{uid}/{level}/{file}",
+      "wrapFunction": "matchesDocument",
+      "wrapCallExpr": "matchesDocument(/databases/(default)/documents/scores/$(request.auth.uid), 'object')"
+    },
+    {
+      "description": "negating matchesDocument on a missing document still denies",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "uploads/alice/3/abc-33-8.txt",
+      "auth": { "uid": "alice" },
+      "resource": { "size": 33, "contentType": "text/plain", "name": "uploads/alice/3/abc-33-8.txt" },
+      "wrapMatch": "/uploads/{uid}/{level}/{file}",
+      "wrapFunction": "matchesDocument",
+      "wrapCallExpr": "!matchesDocument(/databases/(default)/documents/scores/$(request.auth.uid), 'object')"
+    },
+    {
+      "description": "matchesDocument denies when the document lacks the field",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "uploads/alice/3/abc-33-8.txt",
+      "auth": { "uid": "alice" },
+      "resource": { "size": 33, "contentType": "text/plain", "name": "uploads/alice/3/abc-33-8.txt" },
+      "functionMocks": [
+        { "function": "get", "path": "scores/alice", "result": { "moves": 33 } }
+      ],
+      "wrapMatch": "/uploads/{uid}/{level}/{file}",
+      "wrapFunction": "matchesDocument",
+      "wrapCallExpr": "matchesDocument(/databases/(default)/documents/scores/$(request.auth.uid), 'object')"
+    },
+    {
+      "description": "matchesDocument denies a signed-out upload the document names",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "uploads/alice/3/abc-33-8.txt",
+      "auth": null,
+      "resource": { "size": 33, "contentType": "text/plain", "name": "uploads/alice/3/abc-33-8.txt" },
+      "functionMocks": [
+        { "function": "get", "path": "scores/alice", "result": { "object": "uploads/alice/3/abc-33-8.txt", "moves": 33 } }
+      ],
+      "wrapMatch": "/uploads/{uid}/{level}/{file}",
+      "wrapFunction": "matchesDocument",
+      "wrapCallExpr": "matchesDocument(/databases/(default)/documents/scores/alice, 'object')"
+    },
+    {
+      "description": "matchesDocument allows a get of an object the document names",
+      "expectation": "ALLOW",
+      "method": "get",
+      "path": "uploads/alice/3/abc-33-8.txt",
+      "auth": { "uid": "bob" },
+      "existingResource": { "size": 33, "contentType": "text/plain", "name": "uploads/alice/3/abc-33-8.txt" },
+      "functionMocks": [
+        { "function": "get", "path": "scores/alice", "result": { "object": "uploads/alice/3/abc-33-8.txt", "moves": 33 } }
+      ],
+      "wrapMatch": "/uploads/{uid}/{level}/{file}",
+      "wrapFunction": "matchesDocument",
+      "wrapCallExpr": "matchesDocument(/databases/(default)/documents/scores/alice, 'object')"
+    },
+    {
+      "description": "matchesDocument denies a get of an object the document no longer names",
+      "expectation": "DENY",
+      "method": "get",
+      "path": "uploads/alice/3/abc-40-9.txt",
+      "auth": { "uid": "bob" },
+      "existingResource": { "size": 40, "contentType": "text/plain", "name": "uploads/alice/3/abc-40-9.txt" },
+      "functionMocks": [
+        { "function": "get", "path": "scores/alice", "result": { "object": "uploads/alice/3/abc-33-8.txt", "moves": 33 } }
+      ],
+      "wrapMatch": "/uploads/{uid}/{level}/{file}",
+      "wrapFunction": "matchesDocument",
+      "wrapCallExpr": "matchesDocument(/databases/(default)/documents/scores/alice, 'object')"
+    },
+    {
+      "description": "matchesDocument takes a document path built from name segments",
+      "expectation": "ALLOW",
+      "method": "create",
+      "path": "uploads/alice/3/abc-33-8.txt",
+      "auth": { "uid": "alice" },
+      "resource": { "size": 33, "contentType": "text/plain", "name": "uploads/alice/3/abc-33-8.txt" },
+      "functionMocks": [
+        { "function": "get", "path": "levels/3/scores/alice", "result": { "object": "uploads/alice/3/abc-33-8.txt", "moves": 33 } }
+      ],
+      "wrapMatch": "/uploads/{uid}/{level}/{file}",
+      "wrapFunction": "nameSegment, matchesDocument",
+      "wrapCallExpr": "matchesDocument(/databases/(default)/documents/levels/$(nameSegment(2))/scores/$(nameSegment(1)), 'object')"
+    },
+    {
+      "description": "two matchesDocument calls read two documents",
+      "expectation": "ALLOW",
+      "method": "create",
+      "path": "uploads/alice/3/abc-33-8.txt",
+      "auth": { "uid": "alice" },
+      "resource": { "size": 33, "contentType": "text/plain", "name": "uploads/alice/3/abc-33-8.txt" },
+      "functionMocks": [
+        { "function": "get", "path": "scores/alice", "result": { "object": "uploads/alice/3/abc-33-8.txt" } },
+        { "function": "get", "path": "archive/alice", "result": { "latest": "uploads/alice/3/abc-33-8.txt" } }
+      ],
+      "wrapMatch": "/uploads/{uid}/{level}/{file}",
+      "wrapFunction": "matchesDocument",
+      "wrapCallExpr": "matchesDocument(/databases/(default)/documents/scores/alice, 'object') && matchesDocument(/databases/(default)/documents/archive/alice, 'latest')"
     }
   ]
 }

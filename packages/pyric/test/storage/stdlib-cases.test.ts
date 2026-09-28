@@ -2,7 +2,13 @@ import { describe, expect, it } from 'bun:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolveModulesBrowser } from '../../src/rules/modules/resolver-browser.ts';
-import { parseStorageRules, type StorageAuth, type StorageResource } from '../../src/storage/sandbox/rules.ts';
+import {
+  parseStorageRules,
+  type FirestoreLookup,
+  type StorageAuth,
+  type StorageRequestResource,
+  type StorageResource,
+} from '../../src/storage/sandbox/rules.ts';
 import { evaluateStorageRules } from '../../src/storage/sandbox/rules-evaluator.ts';
 import { parseStdlibTestFile } from '../../src/rules/modules/stdlib-cost.ts';
 
@@ -14,11 +20,28 @@ interface StorageStdlibCase {
   method: 'get' | 'list' | 'create' | 'update' | 'delete';
   path: string;
   auth?: StorageAuth | null;
-  resource?: { size: number; contentType?: string; metadata?: Record<string, string> };
+  resource?: StorageRequestResource;
   existingResource?: StorageResource | null;
   requestTime?: string;
+  functionMocks?: Array<{ function: 'get' | 'exists'; path: string; result: Record<string, unknown> | boolean }>;
   wrapFunction: string;
   wrapCallExpr?: string;
+  /** The match path the case's rule sits under; defaults to `/test/{file}`. */
+  wrapMatch?: string;
+}
+
+/** A Firestore lookup that answers only the case's mocks, as the Rules Test
+ *  API does: an unmocked get is a missing document and an unmocked exists is
+ *  false. */
+function mockLookup(mocks: StorageStdlibCase['functionMocks'] = []): FirestoreLookup {
+  const find = (fn: 'get' | 'exists', path: string) => mocks.find((m) => m.function === fn && m.path === path);
+  return {
+    get: (path) => {
+      const mock = find('get', path);
+      return mock && typeof mock.result === 'object' ? mock.result : null;
+    },
+    exists: (path) => find('exists', path)?.result === true,
+  };
 }
 
 const fixtureFiles = readdirSync(FIXTURE_DIR).filter((file) => file.endsWith('.test.json')).sort();
@@ -37,7 +60,7 @@ for (const file of fixtureFiles) {
 import { ${testCase.wrapFunction} } from '${moduleName}';
 service firebase.storage {
   match /b/{bucket}/o {
-    match /test/{file} {
+    match ${testCase.wrapMatch ?? '/test/{file}'} {
       allow ${testCase.method}: if ${testCase.wrapCallExpr ?? `${testCase.wrapFunction}()`};
     }
   }
@@ -56,6 +79,7 @@ service firebase.storage {
             resource: testCase.existingResource ?? null,
           },
           testCase.requestTime ? new Date(testCase.requestTime) : new Date('2026-07-21T00:00:00Z'),
+          mockLookup(testCase.functionMocks),
         );
         expect(result.allowed).toBe(testCase.expectation === 'ALLOW');
       });

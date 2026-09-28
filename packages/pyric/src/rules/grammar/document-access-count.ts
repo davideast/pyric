@@ -7,7 +7,8 @@ import type { Expression, FunctionDef } from './FirestoreAST.js';
 const DOCUMENT_ACCESS_BUILTINS = new Set(['get', 'exists', 'getAfter', 'existsAfter']);
 
 /**
- * Count the document access calls (get/exists/getAfter/existsAfter)
+ * Count the document access calls (get/exists/getAfter/existsAfter, and a
+ * Storage rule's firestore.get/firestore.exists)
  * reachable from a rule condition, expanding each user-defined function
  * once PER CALL SITE. `isOwner(a) && isOwner(b) && isOwner(c)` with three
  * gets inside `isOwner` costs nine, matching production where each call
@@ -54,7 +55,16 @@ export function countDocumentAccessCalls(
       case 'binaryOp': visit(e.left); visit(e.right); break;
       case 'unaryOp': visit(e.operand); break;
       case 'ternary': visit(e.condition); visit(e.consequent); visit(e.alternate); break;
-      case 'methodCall': visit(e.object); e.args.forEach(visit); break;
+      case 'methodCall':
+        // Storage rules read a Firestore document through firestore.get()
+        // and firestore.exists().
+        if (e.object.type === 'identifier' && e.object.name === 'firestore' &&
+          (e.method === 'get' || e.method === 'exists')) {
+          count++;
+        }
+        visit(e.object);
+        e.args.forEach(visit);
+        break;
       case 'memberAccess': visit(e.object); break;
       case 'bracketAccess': visit(e.object); visit(e.index); break;
       case 'sliceAccess': visit(e.object); visit(e.start); visit(e.end); break;

@@ -1,0 +1,166 @@
+{
+  "schema": "pyric.stdlib-replay.v1",
+  "capturedAt": "2026-09-28T04:31:13.434Z",
+  "project": "digame-mas",
+  "module": "storage/objects",
+  "cases": 26,
+  "agree": 26,
+  "results": [
+    {
+      "case": "create method is identified without reading missing resource",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "update method is identified",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "delete method is identified without reading missing request.resource",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "create predicate denies an update",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "nameSegment reads a create's first segment from request.resource.name",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "nameSegment denies a create whose first segment differs",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "nameSegment reads an update's second segment from request.resource.name",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "nameSegment denies an update whose second segment is another user",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "nameSegment reads a get's third segment from resource.name",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "nameSegment denies a get whose third segment differs",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "nameSegment reads a delete's last segment from resource.name",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "nameSegment denies a delete whose last segment differs",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "nameSegment past the last segment is an error that denies",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "negating nameSegment past the last segment still denies",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "nameSegment of a name with no slash is the whole name",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "nameSegment of a name with no slash has no second segment",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "matchesDocument allows an upload the document names",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "matchesDocument denies an upload the document names differently",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "matchesDocument denies an upload when the document is missing",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "negating matchesDocument on a missing document still denies",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "matchesDocument denies when the document lacks the field",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "matchesDocument denies a signed-out upload the document names",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "matchesDocument allows a get of an object the document names",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "matchesDocument denies a get of an object the document no longer names",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "matchesDocument takes a document path built from name segments",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "two matchesDocument calls read two documents",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    }
+  ]
+}

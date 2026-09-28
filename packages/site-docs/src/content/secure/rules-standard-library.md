@@ -9,7 +9,7 @@ description: "Import a tested rule function, resolve it to ordinary Firebase Rul
 
 # Use tested modules in Firestore Security Rules
 
-This guide uses the Firestore-compatible part of Pyric's tested Rules standard library. The catalog is service-aware: `auth` and `membership` work in Firestore and Storage, `storage/*` modules are Storage-only, and the remaining modules are Firestore-only. See the [service-aware module reference](../trust/rules-standard-library.md) for the complete catalog. The `2+modules` source format adds imports for local development; the resolver replaces those imports with ordinary `rules_version = '2'` functions before deployment.
+This guide uses the Firestore-compatible part of Pyric's tested Rules standard library, plus the Storage module `storage/objects`. The catalog is service-aware: `auth` and `membership` work in Firestore and Storage, `storage/*` modules are Storage-only, and the remaining modules are Firestore-only. See the [service-aware module reference](../trust/rules-standard-library.md) for the complete catalog. The `2+modules` source format adds imports for local development; the resolver replaces those imports with ordinary `rules_version = '2'` functions before deployment.
 
 This example lets an author update a post, prevents changes to `authorId` and `createdAt`, and requires a two-second cooldown between edits.
 
@@ -219,6 +219,37 @@ allow update: if improvedBy('moves', 'down', ['pushes', 'solve'])
   || improvedBy('pushes', 'down', ['solve']);
 ```
 The second call leaves `moves` out of `mayChange`, so it allows fewer pushes only on as many moves. `improvedBy` reads `resource.data`, so call it from update rules only.
+
+## Check Storage objects by name
+
+Storage rules import the `storage/*` modules the same way. `storage/objects` reads the object name, the object's full path within the bucket:
+
+- `nameSegment(index)` returns one segment of the name split on `/`, counting from 0. An index past the last segment is an error, so the function denies the request.
+- `matchesDocument(path, field)` checks that the caller is signed in, that the Firestore document at `path` exists, and that its `field` equals the object name. A missing document or field denies the request.
+
+On create and update the name comes from `request.resource.name`, because a create may have no stored object yet. On get and delete it comes from `resource.name`, because those requests carry no incoming object.
+
+```rules
+rules_version = '2+modules';
+
+import { nameSegment, matchesDocument } from 'storage/objects';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    // The user named in the second segment reads every object below it.
+    match /scores/{allPaths=**} {
+      allow get: if nameSegment(1) == request.auth.uid;
+    }
+    // An upload is allowed once the score document names it in `object`.
+    match /scores/{uid}/{level}/{file} {
+      allow create: if matchesDocument(
+        /databases/(default)/documents/levels/$(level)/scores/$(uid), 'object');
+    }
+  }
+}
+```
+
+Each `matchesDocument` call reads one document from the (default) database. A Storage rule reads at most two distinct Firestore documents, so call it at most twice with different paths; a third distinct document denies the request. Calling it again with the same path reads the same document and does not count twice.
 
 ## Count what each call costs
 

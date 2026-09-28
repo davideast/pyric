@@ -817,10 +817,37 @@ export function existingMetadataOwner(key) {
 // @pyric-evidence storage-rules#132
 // Costs are production expressions per call, not counting arguments. Calls
 // are not memoized: every call pays its full cost again, and a let inside a
-// function is paid on every call.
+// function is paid on every call. matchesDocument reads one Firestore
+// document per call.
 //
-// Storage operation identity. Use request.method rather than null checks:
-// production treats missing resource/request.resource bindings as errors.
+// Storage operation identity and object names. Use request.method rather
+// than null checks: production treats missing resource/request.resource
+// bindings as errors.
+//
+// Convention: the object name is the full path within the bucket, such as
+// 'scores/alice/3/abc-33-8.txt'. On create and update the name comes from
+// request.resource.name, since a create may have no stored object yet. On
+// get and delete it comes from resource.name, since those requests carry no
+// incoming object. Call nameSegment and matchesDocument from get, create,
+// update and delete rules.
+//
+// A Storage rule reads at most two distinct Firestore documents, so a rule
+// may call matchesDocument at most twice with different paths. A third
+// distinct document denies the request.
+//
+// Usage:
+//   import { nameSegment, matchesDocument } from 'storage/objects';
+//
+//   // The user named in the second segment reads every object below it:
+//   match /scores/{allPaths=**} {
+//     allow get: if nameSegment(1) == request.auth.uid;
+//   }
+//
+//   // An upload is allowed once the score document names it in \`object\`:
+//   match /scores/{uid}/{level}/{file} {
+//     allow create: if matchesDocument(
+//       /databases/(default)/documents/levels/$(level)/scores/$(uid), 'object');
+//   }
 
 // cost 5 to 5 expressions per call
 export function isCreate() {
@@ -835,6 +862,28 @@ export function isUpdate() {
 // cost 5 to 5 expressions per call
 export function isDelete() {
   return request.method == 'delete';
+}
+
+// The object's name for this request (see the convention above).
+function objectName() {
+  return request.method in ['create', 'update'] ? request.resource.name : resource.name;
+}
+
+// Segment \`index\` of the object name split on '/', counting from 0. An index
+// past the last segment is an error that denies the request, and a name with
+// no '/' has one segment.
+// cost 17 to 18 expressions per call
+export function nameSegment(index) {
+  return objectName().split('/')[index];
+}
+
+// The Firestore document at \`path\` exists and its \`field\` equals the object
+// name. A signed-out request denies before the read. A missing document or
+// field is an error that denies the request. Each call reads one document.
+// cost 6 to 26 expressions per call, reads 1
+export function matchesDocument(path, field) {
+  return request.auth != null
+    && firestore.get(path).data[field] == objectName();
 }
 `,
   "storage/time": `// @pyric-services firebase.storage

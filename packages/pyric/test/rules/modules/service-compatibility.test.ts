@@ -131,7 +131,6 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
   });
   test('rejects Storage bindings that production exposes but the evaluator does not implement', () => {
     for (const expression of [
-      'request.resource.name',
       'resource.md5Hash',
       'resource.crc32c',
       'resource.etag',
@@ -147,6 +146,17 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
       expect(result.success).toBe(false);
       if (!result.success) expect(result.error.message).toContain(`binding '${expression}'`);
     }
+  });
+  test('admits the incoming object name on a Storage write', () => {
+    const result = resolveModules(
+      makeStorageSource("import { namedUpload } from './policy';", 'namedUpload()'),
+      { modules: { './policy': `
+        export function namedUpload() {
+          return request.resource.name.split('/')[0] == 'uploads';
+        }
+      ` } },
+    );
+    expect(result.success).toBe(true);
   });
   test('does not let literal bracket notation bypass ambient binding checks', () => {
     const storage = resolveModules(

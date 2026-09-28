@@ -26,6 +26,10 @@
  *     ISO-8601 strings (production rejects an int with "Unsupported operation
  *     error. Received: int < timestamp").
  *   - The update-time field is `updated`. There is NO `resource.timeUpdated`.
+ *   - `request.resource.name` is the incoming object's full path, the same
+ *     form as `resource.name`. A delete carries no `request.resource`, so
+ *     reading its name is an error. A `split('/')` index past the last
+ *     segment is an error that survives negation.
  */
 import type { StorageScenarioRecord } from './types.ts';
 
@@ -49,6 +53,18 @@ service firebase.storage {
     match /guarded/{fileId} {
       // Negation over an absent property must NOT false-allow.
       allow get: if resource.name != 'nope';
+    }
+    match /named/{fileId} {
+      // request.resource.name is the incoming object's full path, the same
+      // form as resource.name; split('/') indexes its segments.
+      allow create: if request.resource.name.split('/')[1] == fileId;
+      // A delete carries no request.resource, so reading its name errors.
+      allow delete: if request.resource.name != 'nope';
+      allow get: if resource.name.split('/')[1] == fileId;
+    }
+    match /pastEnd/{fileId} {
+      // A segment index past the end is an error that survives negation.
+      allow get: if !(resource.name.split('/')[2] == 'x');
     }
   }
 }`,
@@ -97,6 +113,31 @@ service firebase.storage {
       description: 'get: resource.name != literal, name ABSENT → deny (error survives negation)',
       expectation: 'DENY', method: 'get', path: 'guarded/g.txt',
       existingResource: { size: 10 },
+    },
+    {
+      description: 'create: request.resource.name second segment equals the file → allow',
+      expectation: 'ALLOW', method: 'create', path: 'named/a.png',
+      resource: { size: 10, contentType: 'image/png', name: 'named/a.png' },
+    },
+    {
+      description: 'create: request.resource.name second segment differs → deny',
+      expectation: 'DENY', method: 'create', path: 'named/a.png',
+      resource: { size: 10, contentType: 'image/png', name: 'named/b.png' },
+    },
+    {
+      description: 'delete: request.resource.name with no request.resource → deny (error survives negation)',
+      expectation: 'DENY', method: 'delete', path: 'named/a.png',
+      existingResource: { size: 10, name: 'named/a.png' },
+    },
+    {
+      description: 'get: resource.name second segment equals the file → allow',
+      expectation: 'ALLOW', method: 'get', path: 'named/a.png',
+      existingResource: { size: 10, name: 'named/a.png' },
+    },
+    {
+      description: 'get: resource.name segment index past the end → deny (error survives negation)',
+      expectation: 'DENY', method: 'get', path: 'pastEnd/a.png',
+      existingResource: { size: 10, name: 'pastEnd/a.png' },
     },
   ],
 };

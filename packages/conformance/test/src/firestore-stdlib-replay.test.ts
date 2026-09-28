@@ -1,5 +1,5 @@
 /**
- * A Firestore stdlib module's production replay covers the module's current
+ * A stdlib module's production replay covers the module's current
  * cases. `replay-stdlib-cases.ts` writes one observation per module; a case
  * added, removed, renamed or flipped since the replay fails here until the
  * module is replayed again.
@@ -26,7 +26,7 @@ const replays = readdirSync(FIXTURES)
   .filter((name) => /^stdlib-replay-[\w-]+\.json$/.test(name))
   .map((name) => JSON.parse(readFileSync(join(FIXTURES, name), 'utf8')) as ReplayObservation);
 
-describe('Firestore stdlib production replays', () => {
+describe('stdlib production replays', () => {
   test('the turns and results modules have replays', () => {
     expect(replays.map((r) => r.module)).toEqual(expect.arrayContaining(['results', 'turns']));
   });

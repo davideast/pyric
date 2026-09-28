@@ -104,6 +104,19 @@
       "probeEvaluationAgreement": true
     },
     {
+      "id": "storage.binding.request.resource.name",
+      "kind": "binding",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/security/storage/request#resource",
+      "status": "accepted",
+      "note": "request.resource.name is the incoming object's FULL path within the bucket (GCS object-name convention, e.g. `uploads/pic.png`), the same form as resource.name. A real upload or metadata update builds it; a delete has no request.resource, so reading it there is an evaluation error that denies.",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "503e86f261e1dfa6b4f44534d245506aaa5e039c256afc3baf45a0e6237dbef5"
+      },
+      "probeEvaluationAgreement": true
+    },
+    {
       "id": "storage.binding.request.time",
       "kind": "binding",
       "engine": "storage",
