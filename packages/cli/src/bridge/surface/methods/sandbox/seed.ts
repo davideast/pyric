@@ -53,12 +53,19 @@ export default {
   validate: (args, { fail }) => checkUserFields(args, fail),
   async handler(args, ctx) {
     const seed = args as SandboxSeed;
+    let refusals: string[];
     try {
-      await applyRules(ctx.sandbox, seed);
+      refusals = await applyRules(ctx.sandbox, seed);
       await applyData(ctx.sandbox, seed);
     } catch (error) {
       return operationFailure(error instanceof Error ? error.message : String(error));
     }
-    return { ok: true, summary: 'Sandbox seeded.' };
+    if (refusals.length === 0) return { ok: true, summary: 'Sandbox seeded.' };
+    // The data is seeded; rules production would not load are not installed.
+    return {
+      ok: true,
+      summary: `Sandbox seeded. Rules not installed, the sandbox keeps the rules in force: ${refusals.join(' ')}`,
+      data: { refusedRules: refusals },
+    };
   },
 } satisfies MethodRecord;

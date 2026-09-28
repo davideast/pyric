@@ -98,8 +98,12 @@ export function readFixtureFile(path: string): SandboxSeed | null {
   return JSON.parse(readFileSync(path, 'utf8')) as SandboxSeed;
 }
 
-/** Load a fixture's state onto the live sandbox, on top of whatever is already there. */
-export async function applyFixture(sandbox: LocalSandbox, fixture: SandboxSeed): Promise<void> {
-  await applyRules(sandbox, fixture);
+/**
+ * Load a fixture's state onto the live sandbox, on top of whatever is already
+ * there. Returns why each rules source production would not load was refused.
+ */
+export async function applyFixture(sandbox: LocalSandbox, fixture: SandboxSeed): Promise<string[]> {
+  const refusals = await applyRules(sandbox, fixture);
   await applyData(sandbox, fixture);
+  return refusals;
 }

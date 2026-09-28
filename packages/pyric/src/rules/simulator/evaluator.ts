@@ -55,7 +55,7 @@ export function evaluate(expr: Expression, ctx: SimulationContext, scope: Record
 function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<string, unknown>): unknown {
   // One unit per evaluated node, charged inside the trace capture so the
   // node that reaches the limit records the limit as its error.
-  ctx.expressionBudget?.node();
+  ctx.expressionBudget?.node(expr);
   switch (expr.type) {
     // ═══ Layer 1: Literals, identifiers, binary ops ═══
 
@@ -76,7 +76,7 @@ function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<st
       return resolveIdentifier(expr.name, ctx, scope);
 
     case 'binaryOp':
-      return evaluateBinaryOp(expr.op, expr.left, expr.right, ctx, scope);
+      return evaluateBinaryOp(expr, ctx, scope);
 
     case 'unaryOp': {
       if (expr.op === '!') {
@@ -93,10 +93,10 @@ function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<st
     }
 
     case 'ternary': {
-      ctx.expressionBudget?.ternary();
+      ctx.expressionBudget?.ternary(expr);
       const cond = requireBoolean(evaluate(expr.condition, ctx, scope), expr.condition);
       if (cond) return evaluate(expr.consequent, ctx, scope);
-      ctx.expressionBudget?.ternaryElse();
+      ctx.expressionBudget?.ternaryElse(expr);
       return evaluate(expr.alternate, ctx, scope);
     }
 
@@ -285,7 +285,7 @@ function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<st
       let error: EvalError | undefined;
       for (const seg of expr.segments) {
         if (typeof seg === 'string') {
-          ctx.expressionBudget?.pathSegment();
+          ctx.expressionBudget?.pathSegment(expr);
           parts.push(seg);
         } else {
           try {
@@ -408,6 +408,7 @@ export function evaluateBinding(expr: Expression, ctx: SimulationContext, scope:
 // ═══ Binary operations with short-circuit ═══
 
 function evaluateShortCircuitOp(
+  operator: Expression,
   determiningValue: boolean,
   left: Expression,
   right: Expression,
@@ -426,7 +427,7 @@ function evaluateShortCircuitOp(
     return determiningValue;
   }
 
-  ctx.expressionBudget?.logicalRight();
+  ctx.expressionBudget?.logicalRight(operator);
   let rv: unknown, rErr: unknown;
   try {
     rv = requireBoolean(evaluate(right, ctx, scope), right);
@@ -441,9 +442,10 @@ function evaluateShortCircuitOp(
 }
 
 function evaluateBinaryOp(
-  op: string, left: Expression, right: Expression,
+  expr: Extract<Expression, { type: 'binaryOp' }>,
   ctx: SimulationContext, scope: Record<string, unknown>,
 ): unknown {
+  const { op, left, right } = expr;
   // RULES-B3: && and || are COMMUTATIVE error-absorbing operators in CEL,
   // not plain left-to-right short-circuit. Per the CEL spec: "if any of
   // their operands uniquely determines the result (false for &&, true for
@@ -457,8 +459,8 @@ function evaluateBinaryOp(
   // either errored or did not determine the result. If neither operand
   // determines the result and one errored, the error propagates (re-thrown)
   // so the handler DENYs.
-  if (op === '&&') return evaluateShortCircuitOp(false, left, right, ctx, scope);
-  if (op === '||') return evaluateShortCircuitOp(true, left, right, ctx, scope);
+  if (op === '&&') return evaluateShortCircuitOp(expr, false, left, right, ctx, scope);
+  if (op === '||') return evaluateShortCircuitOp(expr, true, left, right, ctx, scope);
 
   // Both operands evaluate, and count, when the left one errors; the left
   // error is the result.

@@ -29,13 +29,16 @@ export default {
     if (fixture === null) {
       return operationFailure(`No fixture file at '${given}'.`);
     }
-    await applyFixture(ctx.sandbox, fixture);
+    const refusals = await applyFixture(ctx.sandbox, fixture);
     const docs = Object.keys(fixture.firestore ?? {}).length;
     const users = fixture.users?.length ?? 0;
+    const loaded = `Loaded a fixture of ${docs} doc(s) and ${users} user(s) from ${given}.`;
     return {
       ok: true,
-      summary: `Loaded a fixture of ${docs} doc(s) and ${users} user(s) from ${given}.`,
-      data: { path: given, docs, users },
+      summary: refusals.length === 0
+        ? loaded
+        : `${loaded} Rules not installed, the sandbox keeps the rules in force: ${refusals.join(' ')}`,
+      data: { path: given, docs, users, ...(refusals.length === 0 ? {} : { refusedRules: refusals }) },
     };
   },
 } satisfies MethodRecord;

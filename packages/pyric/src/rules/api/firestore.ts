@@ -166,6 +166,7 @@ function toEngineResult(r: CaseResult) {
     trace: r.trace,
     notes: r.notes,
     ...(r.pathResolution ? { pathResolution: r.pathResolution } : {}),
+    ...(r.resourceLimit ? { resourceLimit: r.resourceLimit } : {}),
   });
 }
 

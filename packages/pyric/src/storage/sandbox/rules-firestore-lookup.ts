@@ -46,7 +46,7 @@ function wrapFirestoreValue(val: unknown): unknown {
 export function evalFirestoreBuiltin(expr: MethodCall, ctx: EvalCtx): unknown {
   // The unit a namespace call costs beyond its argument, charged before the
   // path evaluates (no capture measures it after an erroring path).
-  ctx.expressionBudget?.node();
+  ctx.expressionBudget?.node(expr);
   if (expr.method !== 'get' && expr.method !== 'exists') {
     // Unknown namespace method, compile-reject class, never absorbed.
     throw new RuleUnsupportedError(`unsupported method firestore.${expr.method}()`);
@@ -67,8 +67,8 @@ export function evalFirestoreBuiltin(expr: MethodCall, ctx: EvalCtx): unknown {
   if (arg.kind === 'path') {
     // An authored path literal is an evaluated node plus one unit per literal
     // segment; its interpolations charge themselves as they evaluate.
-    ctx.expressionBudget?.node();
-    for (const seg of arg.segments) if (seg.kind === 'literal') ctx.expressionBudget?.pathSegment();
+    ctx.expressionBudget?.node(arg);
+    for (const seg of arg.segments) if (seg.kind === 'literal') ctx.expressionBudget?.pathSegment(arg);
     docPath = buildFirestoreDocPath(arg, ctx);
   } else {
     const val = evalExpr(arg, ctx);

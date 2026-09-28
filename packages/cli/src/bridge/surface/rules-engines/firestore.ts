@@ -1,12 +1,6 @@
 /** The Firestore rules engine behind the `rules` tool. */
-import {
-  DOCUMENT_PATH_FORM,
-  describeCompileLimitViolations,
-  lintFirestoreRules,
-  parseErrorWording,
-  sourceCompileLimitViolations,
-} from 'pyric/rules/internal';
-import { setRules } from 'pyric/sandbox/firestore';
+import { DOCUMENT_PATH_FORM, rulesSourceRejection, type RulesSourceRejection } from 'pyric/rules/internal';
+import { installFirestoreRules } from '../firestore-rules-load.js';
 import { callSandboxTool, operationFailure } from '../context.js';
 import {
   activeFirestoreRules,
@@ -25,15 +19,18 @@ const REPARSE_FIX = 'Fix the syntax, then call rules.set with service \'firestor
 const RECOMPILE_FIX =
   "Bring the ruleset within production's compile limits (call rules.lint for the fix each limit takes), then call rules.set with service 'firestore'.";
 
-/** Why a source does not parse, or null when it parses. */
-function parseFailure(source: string): RulesSourceProblem | null {
-  const lint = lintFirestoreRules(source);
-  if (lint.parseError === undefined) return null;
-  const parseError = lint.parseError;
-  return {
-    body: `rules did not parse at line ${parseError.line}, column ${parseError.column}: ${parseErrorWording(parseError, source)}.`,
-    fix: REPARSE_FIX,
-  };
+/**
+ * Why production would not load a source, from the check every rules load
+ * path runs: it does not parse, or it is past a compile limit.
+ */
+function loadFailure(source: string): RulesSourceProblem | null {
+  const rejection = rulesSourceRejection(source);
+  return rejection === null ? null : problemFor(rejection);
+}
+
+/** A rejection in the caller's words, with the edit that fixes it. */
+function problemFor(rejection: RulesSourceRejection): RulesSourceProblem {
+  return { body: rejection.message, fix: rejection.kind === 'parse' ? REPARSE_FIX : RECOMPILE_FIX };
 }
 
 /** What a call has to do when it named no source and the sandbox holds none. */
@@ -57,16 +54,10 @@ export const FIRESTORE_RULES: RulesEngine = {
   requestMethods: ['get', 'list', 'create', 'update', 'delete'],
 
   compileFailure(source): RulesSourceProblem | null {
-    const problem = parseFailure(source);
-    if (problem !== null) return problem;
-    // Production rejects a ruleset past its compile limits before it
-    // evaluates any request, as `firestoreRules()` does.
-    const violations = sourceCompileLimitViolations(source);
-    if (violations.length === 0) return null;
-    return {
-      body: `rules did not compile: ${describeCompileLimitViolations(violations)}`,
-      fix: RECOMPILE_FIX,
-    };
+    // Production rejects a ruleset that does not parse, or is past its
+    // compile limits, before it evaluates any request, as `firestoreRules()`
+    // does.
+    return loadFailure(source);
   },
 
   async lint(ctx, rules) {
@@ -74,10 +65,11 @@ export const FIRESTORE_RULES: RulesEngine = {
     if (source.length === 0) {
       return operationFailure(NO_RULES_LOADED);
     }
-    // A compile-limit rejection is a lint finding here, reported with its fix.
-    const problem = parseFailure(source);
-    if (problem !== null) {
-      return markLintFindings(operationFailure(`Firestore ${problem.body} ${problem.fix}`));
+    // A source that does not parse has nothing further to lint. A
+    // compile-limit rejection is a lint finding, reported with its fix.
+    const rejection = rulesSourceRejection(source);
+    if (rejection?.kind === 'parse') {
+      return markLintFindings(operationFailure(`Firestore ${rejection.message} ${REPARSE_FIX}`));
     }
     return markLintFindings(await callSandboxTool(ctx, 'firestore_lint_rules', { source }));
   },
@@ -102,11 +94,11 @@ export const FIRESTORE_RULES: RulesEngine = {
   },
 
   async install(ctx, rules) {
-    const problem = FIRESTORE_RULES.compileFailure(rules);
-    if (problem !== null) {
+    const rejection = installFirestoreRules(ctx.sandbox, rules);
+    if (rejection !== null) {
+      const problem = problemFor(rejection);
       return operationFailure(`Firestore ${problem.body} ${problem.fix}`);
     }
-    setRules(ctx.sandbox, rules);
     return { ok: true, summary: 'Firestore rules installed.' };
   },
 };

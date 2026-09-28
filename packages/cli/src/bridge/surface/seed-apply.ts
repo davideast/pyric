@@ -14,13 +14,14 @@
  * before any data write.
  */
 import { setRules as setDatabaseRules, stripJsonComments } from 'pyric/sandbox/database';
-import { setRules as setFirestoreRules } from 'pyric/sandbox/firestore';
 import type { LocalSandbox } from 'pyric/sandbox';
 import { getAdminFirestore, doc, setDoc } from 'pyric/firestore';
 import { getAdminDatabase, ref as databaseRef, set as databaseSet } from 'pyric/database';
 import { getAdminStorageSandbox, replaceStorageRules } from 'pyric/storage/internal';
 import { ref as storageRef, uploadBytes } from 'pyric/storage';
 import { getAuth, sandbox as authSandbox } from 'pyric/auth';
+import { loadFirestoreRules } from './firestore-rules-load.js';
+import { rememberUnloadedStorageRules } from './storage-rules.js';
 
 /** One seeded user, as a plain data record rather than a validated Zod shape. */
 export interface SeedUserEntry {
@@ -102,16 +103,24 @@ export function applyUsers(sandbox: LocalSandbox, users: readonly SeedUserEntry[
   );
 }
 
-/** Install the rules a seed carries, before any data write. */
-export async function applyRules(sandbox: LocalSandbox, seed: SandboxSeed): Promise<void> {
+/**
+ * Install the rules a seed carries, before any data write. Returns why each
+ * Firestore or Storage source production would not load was refused.
+ *
+ * A seed may carry such rules on purpose, for lint tasks, so a refusal does
+ * not throw: the sandbox keeps the rules in force, and lint and simulate read
+ * the refused source.
+ */
+export async function applyRules(sandbox: LocalSandbox, seed: SandboxSeed): Promise<string[]> {
+  const refusals: string[] = [];
   const storageRules = seed.storageRules;
   if (storageRules !== undefined) {
-    // A seed may carry rules that do not parse on purpose, for lint tasks. The
-    // seeding sandbox opens storage without them rather than throwing.
     try {
       await replaceStorageRules(sandbox, storageRules);
-    } catch {
+    } catch (error) {
       getAdminStorageSandbox(sandbox);
+      rememberUnloadedStorageRules(sandbox, storageRules);
+      refusals.push(error instanceof Error ? error.message : String(error));
     }
   }
   const databaseRules = seed.databaseRules;
@@ -121,8 +130,10 @@ export async function applyRules(sandbox: LocalSandbox, seed: SandboxSeed): Prom
   }
   const firestoreRules = seed.firestoreRules;
   if (firestoreRules !== undefined) {
-    setFirestoreRules(sandbox, firestoreRules);
+    const refused = loadFirestoreRules(sandbox, firestoreRules);
+    if (refused !== null) refusals.push(refused);
   }
+  return refusals;
 }
 
 /** Load the data a seed carries: users, documents, database tree, storage objects. */

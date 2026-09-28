@@ -32,7 +32,9 @@ import {
   LET_LIMIT,
   NESTING_LEVEL_LIMIT,
   NESTING_MESSAGE,
+  SLASH_STARTS_PATH_MESSAGE,
   compileLimitViolations,
+  type CompileLimitViolation,
 } from '../grammar/compile-limits.js';
 
 // ═══ Types ═══
@@ -140,9 +142,9 @@ function checkLetBindings(functions: FunctionDef[], warnings: LintWarning[]) {
  * rejected, while a chain of bare operands, one level shallower, reaches the
  * limit one operand later.
  */
-function checkNestingDepth(ast: FirestoreRules, warnings: LintWarning[]) {
+function checkNestingDepth(violations: readonly CompileLimitViolation[], warnings: LintWarning[]) {
   const reported = new Set<string>();
-  for (const violation of compileLimitViolations(ast)) {
+  for (const violation of violations) {
     if (violation.code !== 'NESTING_DEPTH') continue;
     const key = `${violation.functionName ?? ''}@${violation.line ?? ''}`;
     if (reported.has(key)) continue;
@@ -157,6 +159,105 @@ function checkNestingDepth(ast: FirestoreRules, warnings: LintWarning[]) {
       ...(violation.functionName !== undefined ? { location: { functionName: violation.functionName } } : {}),
       fix: 'Remove redundant parentheses, or move a nested group into its own function and call it.',
     });
+  }
+}
+
+/**
+ * SLASH_STARTS_PATH: production reads a `/` directly followed by a character
+ * other than whitespace as the start of a path, not as division, and rejects
+ * the ruleset with "Missing 'match' keyword before path." (`4/2`, `a/b`,
+ * `x/(2)`), while `4 / 2` and `4/ 2` divide. The Firestore simulator and the
+ * Storage evaluator refuse such a ruleset when it loads through the same
+ * module (grammar/compile-limits.ts); one warning per slash.
+ */
+function checkSlashStartsPath(violations: readonly CompileLimitViolation[], warnings: LintWarning[]) {
+  for (const violation of violations) {
+    if (violation.code !== 'SLASH_STARTS_PATH') continue;
+    const where = violation.functionName !== undefined
+      ? `in function '${violation.functionName}'${violation.line === undefined ? '' : ` at line ${violation.line}`}`
+      : violation.line !== undefined ? `in the rule at line ${violation.line}` : 'in an allow rule';
+    warnings.push({
+      rule: 'SLASH_STARTS_PATH',
+      severity: 'error',
+      message: `A '/' ${where} is directly followed by a character other than whitespace, which production reads as the start of a path. Production rejects the ruleset: "${SLASH_STARTS_PATH_MESSAGE}"`,
+      ...(violation.functionName !== undefined ? { location: { functionName: violation.functionName } } : {}),
+      fix: "To divide, put whitespace after the '/': `a / b`.",
+    });
+  }
+}
+
+/**
+ * The member chain length at which production's Rules Test API failed: a
+ * ruleset holding a 4,900-term chain (`request.auth.token.m.m...`) drew an
+ * internal server error instead of compiling, while a 100-term chain
+ * compiled (the `member-chain` probes in
+ * `test/rules/linter/fixtures/compile-limits/captures.json`). The boundary
+ * between the two is not measured.
+ */
+const MEMBER_CHAIN_FAILED_TERMS = 4900;
+
+/**
+ * MEMBER_CHAIN_LENGTH: a member access chain at least as long as the one
+ * production failed to compile. Terms count the chain's root and each
+ * `.field` read on it. The walk keeps its own stack, so a chain the parser
+ * reads never exhausts the host stack here.
+ */
+function checkMemberChainLength(ast: FirestoreRules, functions: readonly FunctionDef[], warnings: LintWarning[]) {
+  const roots: { expr: Expression; functionName?: string; line?: number }[] = [];
+  for (const fn of functions) {
+    for (const binding of fn.lets) roots.push({ expr: binding.value, functionName: fn.name });
+    roots.push({ expr: fn.body, functionName: fn.name });
+  }
+  for (const { rule } of collectAllRules(ast.service.match)) {
+    roots.push({ expr: rule.condition, ...(rule.loc === undefined ? {} : { line: rule.loc.line }) });
+  }
+  for (const root of roots) {
+    let longest = 0;
+    const stack: Expression[] = [root.expr];
+    while (stack.length > 0) {
+      const expr = stack.pop()!;
+      let terms = 1;
+      let inner = expr;
+      while (inner.type === 'memberAccess') {
+        terms++;
+        inner = inner.object;
+      }
+      if (expr.type === 'memberAccess') longest = Math.max(longest, terms);
+      stack.push(...childExpressions(inner));
+    }
+    if (longest < MEMBER_CHAIN_FAILED_TERMS) continue;
+    const subject = root.functionName !== undefined
+      ? `Function '${root.functionName}'`
+      : root.line !== undefined ? `The rule at line ${root.line}` : 'An allow rule';
+    warnings.push({
+      rule: 'MEMBER_CHAIN_LENGTH',
+      severity: 'error',
+      message: `${subject} reads a member chain of ${longest} terms. The Rules Test API answered a ruleset holding a ${MEMBER_CHAIN_FAILED_TERMS.toLocaleString('en-US')}-term member chain with an internal error instead of compiling it.`,
+      ...(root.functionName !== undefined ? { location: { functionName: root.functionName } } : {}),
+      fix: 'Shorten the chain: bind a value partway along it to a `let` or a function parameter, and read the rest of the chain from that name.',
+    });
+  }
+}
+
+/** The operands, elements, arguments and receivers an expression evaluates. */
+function childExpressions(expr: Expression): Expression[] {
+  switch (expr.type) {
+    case 'literal':
+    case 'identifier':
+      return [];
+    case 'memberAccess': return [expr.object];
+    case 'methodCall': return [expr.object, ...expr.args];
+    case 'bracketAccess': return [expr.object, expr.index];
+    case 'sliceAccess': return [expr.object, expr.start, expr.end];
+    case 'binaryOp': return [expr.left, expr.right];
+    case 'unaryOp': return [expr.operand];
+    case 'ternary': return [expr.condition, expr.consequent, expr.alternate];
+    case 'inExpr': return [expr.element, expr.collection];
+    case 'isExpr': return [expr.value];
+    case 'listLiteral': return expr.elements;
+    case 'mapLiteral': return expr.entries.flatMap((e) => [e.key, e.value]);
+    case 'pathLiteral': return expr.segments.filter((s): s is Expression => typeof s !== 'string');
+    case 'functionCall': return expr.args;
   }
 }
 
@@ -739,24 +840,67 @@ export function lintFirestoreRules(source: string, options: LintOptions = {}): L
   // budget checks intentionally do not run on partial ASTs.
   const parsed = parseToASTOrError(source);
   if (!parsed.ok) {
-    return {
-      warnings,
-      metrics: {
-        sourceSize: source.length, functionCount: 0, allowRuleCount: 0,
-        maxChainDepth: 0, maxChainOp: '', maxLetBindings: 0, maxLetBindingsFunction: '',
-        maxCallDepth: 0, maxEstimatedExpressions: 0, getCallCount: 0,
-      },
-      parseError: parsed.error,
-    };
+    return { warnings, metrics: sourceOnlyMetrics(source), parseError: parsed.error };
   }
-  const ast = parsed.ast;
+  try {
+    return analyzeParsedRules(parsed.ast, source, options, warnings);
+  } catch (error) {
+    // The checks walk each expression recursively, following the functions
+    // it calls. A chain the parser reads can still be deeper, through those
+    // calls, than the host stack allows; report it rather than throw.
+    if (!(error instanceof RangeError)) throw error;
+    warnings.push(expressionTooDeepWarning());
+    return { warnings, metrics: sourceOnlyMetrics(source) };
+  }
+}
 
+/** Metrics for a source the checks did not analyze: its size, every other count zero. */
+function sourceOnlyMetrics(source: string): RulesMetrics {
+  return {
+    sourceSize: source.length, functionCount: 0, allowRuleCount: 0,
+    maxChainDepth: 0, maxChainOp: '', maxLetBindings: 0, maxLetBindingsFunction: '',
+    maxCallDepth: 0, maxEstimatedExpressions: 0, getCallCount: 0,
+  };
+}
+
+/**
+ * EXPRESSION_TOO_DEEP: an expression chains or nests more terms, counting
+ * the bodies of the functions it calls, than the linter's recursive checks
+ * can walk on the host stack. This is a limit of the linter, not a
+ * production claim: production's behavior for such an expression is not
+ * measured. The checks that ran before the walk failed keep their findings.
+ */
+function expressionTooDeepWarning(): LintWarning {
+  return {
+    rule: 'EXPRESSION_TOO_DEEP',
+    severity: 'error',
+    message:
+      'An expression chains or nests more terms, counting the bodies of the functions it calls, than the linter can analyze, '
+      + 'so the remaining checks did not run. This is a limit of the linter; production\'s limit for this expression is not measured.',
+    fix: 'Shorten the chain: bind a value partway along it to a `let` or a function parameter, and read the rest of the chain from that name.',
+  };
+}
+
+/** The checks that read the parsed ruleset, and its metrics. */
+function analyzeParsedRules(
+  ast: FirestoreRules,
+  source: string,
+  options: LintOptions,
+  warnings: LintWarning[],
+): LintResult {
   // Collect all functions and rules from the AST
   const allFunctions = collectDeclaredFunctions(ast);
   const allRules = collectAllRules(ast.service.match);
 
-  // Rule 2: Nesting depth
-  checkNestingDepth(ast, warnings);
+  // Rule 1.5: A member chain as long as one production failed to compile.
+  // First, and without recursion, so a chain too deep for the recursive
+  // checks below is still reported by length.
+  checkMemberChainLength(ast, allFunctions, warnings);
+
+  // Rules 2 and 2b: Nesting depth, and a slash that starts a path
+  const violations = compileLimitViolations(ast);
+  checkNestingDepth(violations, warnings);
+  checkSlashStartsPath(violations, warnings);
 
   // Rule 3: Let bindings
   checkLetBindings(allFunctions, warnings);

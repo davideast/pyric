@@ -18,6 +18,8 @@
 | Nested map literals under a comparison | 129 fail ("Expression is too complex to evaluate safely."), at the key and value of the 98th map, Firestore | `{'a': {'a': a}} == {'a': {'a': 'a'}}`, 2026-09-27 |
 | Nested function calls under a comparison | 129 fail ("Expression is too complex to evaluate safely."), at the 99th call, Firestore | `id(id(a)) == 'a'`, 2026-09-27 |
 | 129 nested lists read back with 129 chained `[0]` | fail once, at the 99th list; the index chain adds no level, Firestore | `[[a]][0][0] == 'a'`, 2026-09-27 |
+| A `/` directly followed by a character other than whitespace | fails ("Missing 'match' keyword before path."); `4/ 2` compiles, Firestore and Storage | `(4/2) == 2`, 2026-09-27 |
+| Terms in one member chain | 100 compile; 4,900 draw `500 INTERNAL: Internal error encountered.` from the Rules Test API instead of a compile result; between them not measured, Firestore | `request.auth.token.m.m... == 1`, 2026-09-28 |
 
 The 2026-09-27 rows come from `packages/conformance/src/capture-rules-compile-limits.ts`, which submits one generated ruleset per probe to the Rules Test API and deploys nothing. `fixtures/compile-limits/captures.json` records each probe: whether it compiled, the verbatim issues with severity and position, and each case's decision. The production messages count differently from the measured boundaries: the call-depth message says 20 and names a stack of 21 functions for a 22-function chain, and the variable-count message says 10 while 11 bindings compile.
 
@@ -132,6 +134,31 @@ The parser's own bracket bound, 128 nested brackets of any kind (`MAX_BRACKET_DE
 - **Message**: "Function '{name}' nests an expression deeper than 99 levels. Production rejects the ruleset: \"Expression is too complex to evaluate safely.\"", or "The rule at line {line} ..." for an allow condition. One warning per function or rule.
 - **Fix**: remove redundant parentheses, or move a nested group into its own function and call it
 - **Corpus**: `linter.test.ts` replays every and-nesting and paren-nesting probe in `fixtures/compile-limits/captures.json`, 200 groups included, plus 98- and 99-term flat chains in functions at global, service and match scope and in an allow condition
+
+### RULE 2b: SLASH_STARTS_PATH
+- **Severity**: error
+- **Threshold**: a `/` operator directly followed by a character other than whitespace
+- **Detection**: `compileLimitViolations` in `src/rules/grammar/compile-limits.ts`, code `SLASH_STARTS_PATH`, the same check the Firestore simulator and the Storage evaluator run when a ruleset loads. The parser marks a division whose slash is not followed by whitespace (`slashStartsPath` on the node). Production reads such a slash as the start of a path, not as division: `4/2`, `(1/0)`, `a/b`, `4/(2)` and `4/-2` are rejected, while `4 / 2` and `4/ 2` compile and divide.
+- **Message**: "A '/' in function '{name}' at line {line} is directly followed by a character other than whitespace, which production reads as the start of a path. Production rejects the ruleset: \"Missing 'match' keyword before path.\"", or "... in the rule at line {line} ..." for an allow condition. One warning per slash. Production lists further issues from its parser recovery that depend on the next token (such as "Unexpected '/2'."); only the first is reported.
+- **Fix**: put whitespace after the `/` to divide: `a / b`
+- **Corpus**: `linter.test.ts` replays the Firestore `slash-divisor` probes in `fixtures/compile-limits/captures.json`: `(4/2)` is rejected and `(4/ 2)` compiles
+
+### RULE 2c: MEMBER_CHAIN_LENGTH
+- **Severity**: error
+- **Threshold**: a member access chain of 4,900 terms or more, counting the root and each `.field` read on it
+- **Detection**: a walk with its own stack over every allow condition, function body and `let` value, so a chain the parser reads never exhausts the host stack here. It runs before the recursive checks.
+- **Production**: the Rules Test API answered a ruleset holding a 4,900-term chain (`request.auth.token.m.m...`) with `500 INTERNAL: Internal error encountered.` on every attempt, instead of compiling it or reporting an issue; a 100-term chain compiles (the `member-chain` probes in `fixtures/compile-limits/captures.json`). The boundary between 100 and 4,900 terms is not measured, so the rule reports only at the length that failed.
+- **Message**: "Function '{name}' reads a member chain of {n} terms. The Rules Test API answered a ruleset holding a 4,900-term member chain with an internal error instead of compiling it.", or "The rule at line {line} ..." for an allow condition
+- **Fix**: bind a value partway along the chain to a `let` or a function parameter, and read the rest of the chain from that name
+- **Corpus**: `linter.test.ts` lints both `member-chain` probes
+
+### RULE 2d: EXPRESSION_TOO_DEEP
+- **Severity**: error
+- **Threshold**: none of production's. The recursive checks (expression cost, call depth, document access counts and the rest) follow each expression into the bodies of the functions it calls, so a chain the parser reads can still be deeper, through those calls, than the host stack allows.
+- **Detection**: the linter catches the host's stack overflow in its checks and reports this rule instead of throwing. Findings from checks that ran before the overflow are kept; `metrics` other than `sourceSize` are zero.
+- **Message**: "An expression chains or nests more terms, counting the bodies of the functions it calls, than the linter can analyze, so the remaining checks did not run. This is a limit of the linter; production's limit for this expression is not measured."
+- **Fix**: bind a value partway along the chain to a `let` or a function parameter, and read the rest of the chain from that name
+- **Corpus**: `linter.test.ts` lints six functions, each reading a 3,000-term member chain off the next one's result
 
 ### RULE 3: LET_LIMIT
 - **Severity**: error

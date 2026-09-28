@@ -52,7 +52,7 @@ export function evalArguments(expr: MethodCall, ctx: EvalCtx): unknown[] | RuleE
  */
 export function evalNamespaceArguments(expr: MethodCall, ctx: EvalCtx): unknown[] | RuleError {
   const args = evalArguments(expr, ctx);
-  if (!isErr(args)) ctx.expressionBudget?.node();
+  if (!isErr(args)) ctx.expressionBudget?.node(expr);
   return args;
 }
 

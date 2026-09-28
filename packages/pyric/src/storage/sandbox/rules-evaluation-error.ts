@@ -1,3 +1,5 @@
+import type { ExpressionPosition } from '../../rules/grammar/expression-positions.js';
+
 /** Fatal evaluator misuse caught at the allow boundary and converted to a deny. */
 export class RuleEvalError extends Error {}
 
@@ -23,9 +25,14 @@ export class RuleResourceLimitError extends RuleEvalError {}
 /**
  * The evaluation reached production's limit of 1000 evaluated expressions
  * (see ExpressionBudget). Unlike the other resource limits it ends the whole
- * request: no later allow rule or match block is evaluated.
+ * request: no later allow rule or match block is evaluated. `position` is
+ * where the budget ran out, when the parser recorded it.
  */
-export class RuleExpressionLimitError extends RuleResourceLimitError {}
+export class RuleExpressionLimitError extends RuleResourceLimitError {
+  constructor(message: string, readonly position?: ExpressionPosition) {
+    super(message);
+  }
+}
 
 /**
  * True for the errors that CEL `&&`/`||` absorption may treat as an error

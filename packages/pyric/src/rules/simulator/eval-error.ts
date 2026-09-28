@@ -1,4 +1,5 @@
 import type { Expression } from '../grammar/FirestoreAST.js';
+import type { ExpressionPosition } from '../grammar/expression-positions.js';
 
 export class EvalError extends Error {
   constructor(message: string, public expr?: Expression) {
@@ -24,9 +25,10 @@ export class ResourceLimitError extends EvalError {
 /**
  * The request reached production's limit of 1000 evaluated expressions
  * (see ExpressionBudget). A resource limit: the whole request denies.
+ * `position` is where the budget ran out, when the parser recorded it.
  */
 export class ExpressionLimitError extends ResourceLimitError {
-  constructor(message: string) {
+  constructor(message: string, readonly position?: ExpressionPosition) {
     super(message);
     this.name = 'ExpressionLimitError';
   }

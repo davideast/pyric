@@ -7,7 +7,7 @@
  * The identity is the same projection the data plane uses, so a tenant
  * resolves as `request.auth.token.firebase.tenant` here too.
  */
-import { inspect } from 'pyric/sandbox/firestore';
+import { firestoreRulesSource } from './firestore-rules-load.js';
 import { callSandboxTool } from './context.js';
 import { requestInstant } from './request-instant.js';
 import { storedIdentity } from './stored-identity.js';
@@ -29,9 +29,13 @@ export interface SimulationOutcome {
   auth: { uid: string; token: Record<string, unknown> } | null;
 }
 
-/** The Firestore rules the sandbox is running, or the empty string when none are loaded. */
+/**
+ * The Firestore rules the sandbox is running, or the empty string when none
+ * are loaded; or, while those rules are still in force, the project or seed
+ * source a load refused, so lint and simulate report what is wrong with it.
+ */
 export function activeFirestoreRules(ctx: SurfaceContext): string {
-  return inspect(ctx.sandbox).rules.source;
+  return firestoreRulesSource(ctx.sandbox);
 }
 
 /** The identity a simulation runs as: the named uid, or the held identity. */

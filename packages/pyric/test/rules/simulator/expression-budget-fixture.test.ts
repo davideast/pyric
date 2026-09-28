@@ -30,6 +30,8 @@ import {
 import { SimulateFirestoreRulesHandler } from '../../../src/rules/simulator/handler.js';
 import { EXPRESSION_LIMIT, EXPRESSION_LIMIT_MESSAGE } from '../../../src/rules/simulator/expression-budget.js';
 import type { TestCase, TestResult } from '../../../src/rules/test/spec.js';
+import { firestoreRules } from '../../../src/rules/api/firestore.js';
+import type { FirestoreCase } from '../../../src/rules/api/case-types.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FIXTURES = join(HERE, '..', 'linter', 'fixtures', 'expression-cost');
@@ -40,7 +42,7 @@ interface CaptureCase {
   id: string;
   block: string;
   testCase: TestCase;
-  production: { decision: 'ALLOW' | 'DENY'; limitReached: boolean; threshold: Threshold };
+  production: { decision: 'ALLOW' | 'DENY'; limitReached: boolean; threshold: Threshold; notes: string[] };
 }
 interface CaptureSuite {
   id: string;
@@ -155,7 +157,7 @@ for (const suite of captures.suites) {
       test(`${c.id}: decides as production did`, () => {
         expect(result.decision).toBe(c.production.decision);
         if (c.production.limitReached) {
-          expect(result.resourceLimit).toEqual({ kind: 'expressions', limit: EXPRESSION_LIMIT, message: EXPRESSION_LIMIT_MESSAGE });
+          expect(result.resourceLimit).toMatchObject({ kind: 'expressions', limit: EXPRESSION_LIMIT, message: EXPRESSION_LIMIT_MESSAGE });
           expect(result.evaluatedExpressions).toBe(EXPRESSION_LIMIT);
         } else {
           expect(result.resourceLimit).toBeUndefined();
@@ -193,17 +195,46 @@ describe("the chess showcase's Fool's Mate", () => {
     expect(mate.testCase.data?.moveType).toBe('normal');
   });
 
+  const source = readFileSync(join(FIXTURES, chess.rulesFile), 'utf8');
+  const config = JSON.parse(readFileSync(join(REPO_ROOT, chess.documents['gameConfig/chessv2']!.file), 'utf8'));
+  const tc = {
+    ...mate.testCase,
+    functionMocks: mate.testCase.functionMocks!.map((m) => ({ ...m, result: config })),
+  };
+
   test('the simulator denies it at the limit with production\'s message', () => {
-    const source = readFileSync(join(FIXTURES, chess.rulesFile), 'utf8');
-    const config = JSON.parse(readFileSync(join(REPO_ROOT, chess.documents['gameConfig/chessv2']!.file), 'utf8'));
-    const tc = {
-      ...mate.testCase,
-      functionMocks: mate.testCase.functionMocks!.map((m) => ({ ...m, result: config })),
-    };
     const r = simulate(source, tc);
     expect(r.decision).toBe('DENY');
     expect(r.evaluatedExpressions).toBe(EXPRESSION_LIMIT);
     expect(r.resourceLimit?.message).toBe(EXPRESSION_LIMIT_MESSAGE);
     expect(r.trace.at(-1)!.verdict).toBe('ERROR');
+  });
+
+  // Production reported "firestore.rules line [135], column [1790]": inside
+  // the move-validation function the update rules call, not at any allow
+  // rule. The simulator counts about a dozen fewer expressions than
+  // production before that point, so its budget runs out a few terms
+  // later on the same line.
+  const [, productionLine] = /line \[(\d+)\], column \[(\d+)\]/.exec(mate.production.notes.join(' '))!;
+
+  test('the limit carries the line production reported and a column on it', () => {
+    const r = simulate(source, tc);
+    expect(r.resourceLimit?.line).toBe(Number(productionLine));
+    expect(r.resourceLimit?.column).toBeGreaterThan(0);
+    expect(r.notes.join(' ')).toContain(
+      `line ${r.resourceLimit!.line}, column ${r.resourceLimit!.column}: ${EXPRESSION_LIMIT_MESSAGE}`,
+    );
+  });
+
+  test('explain() cites the rule that reached the limit and where the budget ran out', () => {
+    const explanation = firestoreRules(source).explain(tc as FirestoreCase);
+    const limitRule = explanation.trace.at(-1)!;
+    expect(limitRule.message).toBe(EXPRESSION_LIMIT_MESSAGE);
+    // Not the first update rule, which denied before the limit was reached.
+    expect(explanation.trace[0]!.line).not.toBe(limitRule.line);
+    expect(explanation.deciding?.line).toBe(limitRule.line);
+    expect(explanation.deciding?.verdict).toBe('deny');
+    expect(explanation.resourceLimit?.line).toBe(Number(productionLine));
+    expect(explanation.resourceLimit?.column).toBeGreaterThan(0);
   });
 });
