@@ -38,7 +38,7 @@ shown in each row's **Verified** column.
 | [lifecycle](#lifecycle) | Firestore | Self-contained | — | Simulator + Rules Test API replay |
 | [transitions](#transitions) | Firestore | Self-contained | — | Simulator |
 | [geometry](#geometry) | Firestore | Explicit param | Patterns 12-14 | Simulator + live Rules validation |
-| [counters](#counters) | Firestore | Self-contained | — | Simulator |
+| [counters](#counters) | Firestore | Self-contained | — | Simulator + Rules Test API replay |
 | [timing](#timing) | Firestore | Self-contained | — | Simulator + live Rules validation |
 | [content](#content) | Firestore | Self-contained | — | Simulator |
 | [spaces](#spaces) | Firestore | Explicit param | — | Simulator + live Rules validation |
@@ -282,15 +282,19 @@ Patterns: 12 (Config Document), 13 (Path Blocking), 14 (Piece-Type-Agnostic)
 
 ### counters
 
-Denormalized numeric integrity (likes, votes, moves, quantities). Generalizes state's `moveIncremented()` to any field.
+Denormalized numeric integrity (likes, votes, moves, quantities) and best scores. Generalizes state's `moveIncremented()` to any field.
 
 | Function | Params | Returns | Description |
 |----------|--------|---------|-------------|
 | `incrementedBy(field, n)` | field: string, n: int | bool | Field changed by exactly n vs the existing doc (n may be negative). Update rules only |
 | `changedBy(field, min, max)` | field: string, min/max: int | bool | Field's delta is within [min, max]; zero delta passes when the range spans 0 |
 | `boundedNumber(field, min, max)` | field: string, min/max: number | bool | Incoming value is an int or float within [min, max]; missing field fails closed |
+| `improvedBy(field, direction, mayChange)` | field: string, direction: `'up'` or `'down'`, mayChange: list of strings | bool | Field moved strictly in `direction` and every other changed top-level field is in `mayChange`. Update rules only |
+
+`improvedBy` needs an int or a float on both sides and compares them by value, as production compares an int with a float. An unchanged or worse value, a string or missing value on either side, an unlisted field added, removed, or changed, and any other direction deny. A field in `mayChange` may stay unchanged.
 
 File: `counters.rules` | Tests: `counters.test.json`
+Every case replayed through the Rules Test API with the same decision.
 
 ### timing
 

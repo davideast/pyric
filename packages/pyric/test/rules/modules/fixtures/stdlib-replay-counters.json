@@ -1,0 +1,238 @@
+{
+  "schema": "pyric.stdlib-replay.v1",
+  "capturedAt": "2026-09-28T04:53:04.811Z",
+  "project": "digame-mas",
+  "module": "counters",
+  "cases": 38,
+  "agree": 38,
+  "results": [
+    {
+      "case": "incrementedBy allows exact +1",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "incrementedBy allows exact negative step",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "incrementedBy denies wrong step",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "incrementedBy denies unchanged value",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "changedBy allows delta at min bound",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "changedBy allows delta at max bound",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "changedBy allows zero delta when range spans zero",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "changedBy denies delta above max",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "changedBy denies delta below min",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "boundedNumber allows int within range on create",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "boundedNumber allows float within range",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "boundedNumber allows boundary values",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "boundedNumber denies out-of-range value",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "boundedNumber denies non-numeric value",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "boundedNumber denies missing field (null-on-miss)",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "boundedNumber denies a string value",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "improvedBy allows a higher score for up with a listed field unchanged",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "improvedBy allows a higher score for up with a listed field changed",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "improvedBy denies an unchanged score for up",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "improvedBy denies a lower score for up",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "improvedBy allows fewer moves for down",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "improvedBy denies more moves for down",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "improvedBy denies unchanged moves for down",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "improvedBy allows a float above an int for up",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "improvedBy allows an int above a float for up",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "improvedBy denies a float below an int for up",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "improvedBy denies a string new value",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "improvedBy denies a string old value",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "improvedBy denies a missing old value",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "improvedBy denies two strings that order up",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "improvedBy is false, not an error, for a string new value",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "improvedBy is false, not an error, for a string old value",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "improvedBy denies a removed field",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "improvedBy denies an unlisted field changed",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "improvedBy denies an unlisted field added",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "improvedBy allows an empty list when only the field changes",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "improvedBy denies an empty list when another field changes",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "improvedBy denies an invalid direction",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    }
+  ]
+}

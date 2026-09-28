@@ -2,7 +2,8 @@
   "costs": [
     { "function": "incrementedBy", "cost": { "min": 13, "max": 13 }, "reads": 0 },
     { "function": "changedBy", "cost": { "min": 14, "max": 27 }, "reads": 0 },
-    { "function": "boundedNumber", "cost": { "min": 19, "max": 35 }, "reads": 0 }
+    { "function": "boundedNumber", "cost": { "min": 19, "max": 35 }, "reads": 0 },
+    { "function": "improvedBy", "cost": { "min": 18, "max": 50 }, "reads": 0 }
   ],
   "cases": [
     {
@@ -270,6 +271,483 @@
       "wrapCallExpr": "boundedNumber('rating', 1, 5)",
       "data": {
         "rating": "3"
+      }
+    },
+    {
+      "description": "improvedBy allows a higher score for up with a listed field unchanged",
+      "expectation": "ALLOW",
+      "method": "update",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "wrapFunction": "improvedBy",
+      "wrapOperation": "update",
+      "wrapCallExpr": "improvedBy('score', 'up', ['solve'])",
+      "resource": {
+        "score": 10,
+        "owner": "user1",
+        "solve": "a"
+      },
+      "data": {
+        "score": 11,
+        "owner": "user1",
+        "solve": "a"
+      }
+    },
+    {
+      "description": "improvedBy allows a higher score for up with a listed field changed",
+      "expectation": "ALLOW",
+      "method": "update",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "wrapFunction": "improvedBy",
+      "wrapOperation": "update",
+      "wrapCallExpr": "improvedBy('score', 'up', ['solve'])",
+      "resource": {
+        "score": 10,
+        "owner": "user1",
+        "solve": "a"
+      },
+      "data": {
+        "score": 11,
+        "owner": "user1",
+        "solve": "b"
+      }
+    },
+    {
+      "description": "improvedBy denies an unchanged score for up",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "wrapFunction": "improvedBy",
+      "wrapOperation": "update",
+      "wrapCallExpr": "improvedBy('score', 'up', ['solve'])",
+      "resource": {
+        "score": 10,
+        "owner": "user1",
+        "solve": "a"
+      },
+      "data": {
+        "score": 10,
+        "owner": "user1",
+        "solve": "b"
+      }
+    },
+    {
+      "description": "improvedBy denies a lower score for up",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "wrapFunction": "improvedBy",
+      "wrapOperation": "update",
+      "wrapCallExpr": "improvedBy('score', 'up', ['solve'])",
+      "resource": {
+        "score": 10,
+        "owner": "user1",
+        "solve": "a"
+      },
+      "data": {
+        "score": 9,
+        "owner": "user1",
+        "solve": "a"
+      }
+    },
+    {
+      "description": "improvedBy allows fewer moves for down",
+      "expectation": "ALLOW",
+      "method": "update",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "wrapFunction": "improvedBy",
+      "wrapOperation": "update",
+      "wrapCallExpr": "improvedBy('moves', 'down', ['solve'])",
+      "resource": {
+        "moves": 30,
+        "solve": "a"
+      },
+      "data": {
+        "moves": 29,
+        "solve": "b"
+      }
+    },
+    {
+      "description": "improvedBy denies more moves for down",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "wrapFunction": "improvedBy",
+      "wrapOperation": "update",
+      "wrapCallExpr": "improvedBy('moves', 'down', ['solve'])",
+      "resource": {
+        "moves": 30,
+        "solve": "a"
+      },
+      "data": {
+        "moves": 31,
+        "solve": "b"
+      }
+    },
+    {
+      "description": "improvedBy denies unchanged moves for down",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "wrapFunction": "improvedBy",
+      "wrapOperation": "update",
+      "wrapCallExpr": "improvedBy('moves', 'down', ['solve'])",
+      "resource": {
+        "moves": 30,
+        "solve": "a"
+      },
+      "data": {
+        "moves": 30,
+        "solve": "b"
+      }
+    },
+    {
+      "description": "improvedBy allows a float above an int for up",
+      "expectation": "ALLOW",
+      "method": "update",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "wrapFunction": "improvedBy",
+      "wrapOperation": "update",
+      "wrapCallExpr": "improvedBy('score', 'up', ['solve'])",
+      "resource": {
+        "score": 10,
+        "owner": "user1",
+        "solve": "a"
+      },
+      "data": {
+        "score": 10.5,
+        "owner": "user1",
+        "solve": "a"
+      }
+    },
+    {
+      "description": "improvedBy allows an int above a float for up",
+      "expectation": "ALLOW",
+      "method": "update",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "wrapFunction": "improvedBy",
+      "wrapOperation": "update",
+      "wrapCallExpr": "improvedBy('score', 'up', ['solve'])",
+      "resource": {
+        "score": 9.5,
+        "owner": "user1",
+        "solve": "a"
+      },
+      "data": {
+        "score": 10,
+        "owner": "user1",
+        "solve": "a"
+      }
+    },
+    {
+      "description": "improvedBy denies a float below an int for up",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "wrapFunction": "improvedBy",
+      "wrapOperation": "update",
+      "wrapCallExpr": "improvedBy('score', 'up', ['solve'])",
+      "resource": {
+        "score": 10,
+        "owner": "user1",
+        "solve": "a"
+      },
+      "data": {
+        "score": 9.5,
+        "owner": "user1",
+        "solve": "a"
+      }
+    },
+    {
+      "description": "improvedBy denies a string new value",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "wrapFunction": "improvedBy",
+      "wrapOperation": "update",
+      "wrapCallExpr": "improvedBy('score', 'up', ['solve'])",
+      "resource": {
+        "score": 10,
+        "owner": "user1",
+        "solve": "a"
+      },
+      "data": {
+        "score": "11",
+        "owner": "user1",
+        "solve": "a"
+      }
+    },
+    {
+      "description": "improvedBy denies a string old value",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "wrapFunction": "improvedBy",
+      "wrapOperation": "update",
+      "wrapCallExpr": "improvedBy('score', 'up', ['solve'])",
+      "resource": {
+        "score": "10",
+        "owner": "user1",
+        "solve": "a"
+      },
+      "data": {
+        "score": 11,
+        "owner": "user1",
+        "solve": "a"
+      }
+    },
+    {
+      "description": "improvedBy denies a missing old value",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "wrapFunction": "improvedBy",
+      "wrapOperation": "update",
+      "wrapCallExpr": "improvedBy('score', 'up', ['solve'])",
+      "resource": {
+        "owner": "user1",
+        "solve": "a"
+      },
+      "data": {
+        "score": 11,
+        "owner": "user1",
+        "solve": "a"
+      }
+    },
+    {
+      "description": "improvedBy denies two strings that order up",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "wrapFunction": "improvedBy",
+      "wrapOperation": "update",
+      "wrapCallExpr": "improvedBy('score', 'up', ['solve'])",
+      "resource": {
+        "score": "a",
+        "owner": "user1",
+        "solve": "a"
+      },
+      "data": {
+        "score": "b",
+        "owner": "user1",
+        "solve": "a"
+      }
+    },
+    {
+      "description": "improvedBy is false, not an error, for a string new value",
+      "expectation": "ALLOW",
+      "method": "update",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "wrapFunction": "improvedBy",
+      "wrapOperation": "update",
+      "wrapCallExpr": "!improvedBy('score', 'up', ['solve'])",
+      "resource": {
+        "score": 10,
+        "owner": "user1",
+        "solve": "a"
+      },
+      "data": {
+        "score": "11",
+        "owner": "user1",
+        "solve": "a"
+      }
+    },
+    {
+      "description": "improvedBy is false, not an error, for a string old value",
+      "expectation": "ALLOW",
+      "method": "update",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "wrapFunction": "improvedBy",
+      "wrapOperation": "update",
+      "wrapCallExpr": "!improvedBy('score', 'up', ['solve'])",
+      "resource": {
+        "score": "10",
+        "owner": "user1",
+        "solve": "a"
+      },
+      "data": {
+        "score": 11,
+        "owner": "user1",
+        "solve": "a"
+      }
+    },
+    {
+      "description": "improvedBy denies a removed field",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "wrapFunction": "improvedBy",
+      "wrapOperation": "update",
+      "wrapCallExpr": "improvedBy('score', 'up', ['solve'])",
+      "resource": {
+        "score": 10,
+        "owner": "user1",
+        "solve": "a"
+      },
+      "data": {
+        "owner": "user1",
+        "solve": "a"
+      }
+    },
+    {
+      "description": "improvedBy denies an unlisted field changed",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "wrapFunction": "improvedBy",
+      "wrapOperation": "update",
+      "wrapCallExpr": "improvedBy('score', 'up', ['solve'])",
+      "resource": {
+        "score": 10,
+        "owner": "user1",
+        "solve": "a"
+      },
+      "data": {
+        "score": 11,
+        "owner": "user2",
+        "solve": "a"
+      }
+    },
+    {
+      "description": "improvedBy denies an unlisted field added",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "wrapFunction": "improvedBy",
+      "wrapOperation": "update",
+      "wrapCallExpr": "improvedBy('score', 'up', ['solve'])",
+      "resource": {
+        "score": 10,
+        "owner": "user1",
+        "solve": "a"
+      },
+      "data": {
+        "score": 11,
+        "owner": "user1",
+        "solve": "a",
+        "extra": true
+      }
+    },
+    {
+      "description": "improvedBy allows an empty list when only the field changes",
+      "expectation": "ALLOW",
+      "method": "update",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "wrapFunction": "improvedBy",
+      "wrapOperation": "update",
+      "wrapCallExpr": "improvedBy('score', 'up', [])",
+      "resource": {
+        "score": 10,
+        "owner": "user1",
+        "solve": "a"
+      },
+      "data": {
+        "score": 11,
+        "owner": "user1",
+        "solve": "a"
+      }
+    },
+    {
+      "description": "improvedBy denies an empty list when another field changes",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "wrapFunction": "improvedBy",
+      "wrapOperation": "update",
+      "wrapCallExpr": "improvedBy('score', 'up', [])",
+      "resource": {
+        "score": 10,
+        "owner": "user1",
+        "solve": "a"
+      },
+      "data": {
+        "score": 11,
+        "owner": "user1",
+        "solve": "b"
+      }
+    },
+    {
+      "description": "improvedBy denies an invalid direction",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "wrapFunction": "improvedBy",
+      "wrapOperation": "update",
+      "wrapCallExpr": "improvedBy('score', 'higher', ['solve'])",
+      "resource": {
+        "score": 10,
+        "owner": "user1",
+        "solve": "a"
+      },
+      "data": {
+        "score": 11,
+        "owner": "user1",
+        "solve": "a"
       }
     }
   ]

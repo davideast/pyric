@@ -133,7 +133,7 @@ These are the Firestore-compatible modules used by this guide. The [complete ref
 | `spaces` | Parent-document membership for child data | `isSpaceMember`, `hasSpaceRole`, `validMemberCreate` |
 | `joining` | Safe self-service join and leave | `onlyAddedSelf`, `onlyRemovedSelf` |
 | `transitions` | Allowed state-machine edges | `validTransition`, `statusIs`, `newStatusIs` |
-| `counters` | Bounded values and controlled numeric changes | `incrementedBy`, `changedBy`, `boundedNumber` |
+| `counters` | Bounded values, controlled numeric changes, and best scores | `incrementedBy`, `changedBy`, `boundedNumber`, `improvedBy` |
 | `timing` | Update cooldowns | `cooldownElapsed` |
 | `atomic` | Companion changes in one batch | `companionChangedBy`, `consumedFlag` |
 | `geometry` | Config-driven game moves | `validSimpleMove`, `validJumpMove` |
@@ -200,6 +200,25 @@ allow update: if request.resource.data.status == 'playing'
   && exactlyChanged(['board', 'lastMove', 'currentTurn', 'moveCount']);
 ```
 `keys` can be a list or a set. Both functions read `resource.data`, so call them from update rules only: on create the call is an error and the rule denies.
+
+`counters` has `improvedBy(field, direction, mayChange)` for a best score that only gets better. It allows an update when `field` moves strictly `'up'` or `'down'` and every other changed top-level field is in `mayChange`:
+```rules
+allow update: if isOwner(resource.data.uid)
+  && improvedBy('score', 'up', ['solve', 'updatedAt']);
+```
+Read the result this way:
+
+- An unchanged score, a worse score, and a direction other than `'up'` or `'down'` deny.
+- The old and the new value must each be an int or a float. They compare by value, so `10.5` is up from `10`. A string or a missing value on either side denies.
+- A field in `mayChange` may stay unchanged. Any other field added, removed, or changed denies.
+- `improvedBy` compares only the old and new values. Write the score's type, bounds, and owner checks beside it.
+
+For a score ranked on two fields, such as fewest moves and then fewest pushes, call `improvedBy` once per field:
+```rules
+allow update: if improvedBy('moves', 'down', ['pushes', 'solve'])
+  || improvedBy('pushes', 'down', ['solve']);
+```
+The second call leaves `moves` out of `mayChange`, so it allows fewer pushes only on as many moves. `improvedBy` reads `resource.data`, so call it from update rules only.
 
 ## Count what each call costs
 

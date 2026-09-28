@@ -978,11 +978,11 @@ const COUNTERS_MODULE: StdlibModuleDefinition = {
   key: 'counters',
   kind: 'user-module',
   description:
-    'User-authored module: denormalized numeric integrity (incrementedBy, changedBy, boundedNumber). Self-contained.',
+    'User-authored module: denormalized numeric integrity and best scores (incrementedBy, changedBy, boundedNumber, improvedBy). Self-contained.',
   purpose:
-    'Keeps client-maintained counts honest — likes, votes, moves, quantities may only change by a known step or stay within known bounds. Generalizes the state module\'s moveIncremented() (hardcoded to moveCount) to any field.',
+    'Keeps client-maintained counts honest: likes, votes, moves, quantities may only change by a known step, stay within known bounds, or move strictly one way. Generalizes the state module\'s moveIncremented() (hardcoded to moveCount) to any field.',
   whenToUse:
-    'Reach for `counters` whenever a numeric field is client-written but semantically constrained: vote/like toggles (`changedBy(f, -1, 1)`), move counters (`incrementedBy(f, 1)`), ratings (`boundedNumber(f, 1, 5)`).',
+    'Reach for `counters` whenever a numeric field is client-written but semantically constrained: vote/like toggles (`changedBy(f, -1, 1)`), move counters (`incrementedBy(f, 1)`), ratings (`boundedNumber(f, 1, 5)`), best scores that only get better (`improvedBy(f, \'up\', [...])`).',
   entries: [
     {
       signature: 'incrementedBy(field: string, n: int): bool',
@@ -1007,6 +1007,19 @@ const COUNTERS_MODULE: StdlibModuleDefinition = {
       description:
         'The incoming value is an int or float within [min, max]. Missing field reads null (dynamic access) and fails closed.',
       examples: [`allow write: if boundedNumber('rating', 1, 5);`],
+    },
+    {
+      signature: "improvedBy(field: string, direction: 'up' | 'down', mayChange: list<string>): bool",
+      cost: { min: 18, max: 50 },
+      reads: 0,
+      description:
+        'The numeric field moved strictly in `direction` (`up`: new > old, `down`: new < old) and every other changed top-level field is in `mayChange`. Both values must be an int or a float; they compare by value.',
+      examples: [
+        `allow update: if improvedBy('score', 'up', ['solve']);`,
+        `allow update: if improvedBy('moves', 'down', ['pushes', 'solve'])\n  || improvedBy('pushes', 'down', ['solve']);`,
+      ],
+      notes:
+        'A listed field may stay unchanged. An unchanged or worse value, a non-numeric or missing value on either side, an unlisted field added, removed, or changed, and a direction other than `up` or `down` deny. For a score ranked on two fields, call it once per field: the second call leaves the first field out of `mayChange`, so it allows fewer pushes only on as many moves. Write the score\'s type, bounds, and owner checks beside it. Reads `resource.data`, so on create the call is an error and the rule denies.',
     },
   ],
   relatedKeys: ['lifecycle', 'state'],

@@ -201,6 +201,36 @@
           ]
         }
       }
+    },
+    "counters": {
+      "requests": 11,
+      "testCases": 667,
+      "date": "2026-09-28T04:53:24.002Z",
+      "modules": [
+        "counters"
+      ],
+      "calibration": {
+        "firestore": {
+          "d": 986,
+          "checks": [
+            {
+              "condition": "false",
+              "cost": 1,
+              "d": 986
+            },
+            {
+              "condition": "true && false",
+              "cost": 4,
+              "d": 986
+            },
+            {
+              "condition": "true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true",
+              "cost": 58,
+              "d": 986
+            }
+          ]
+        }
+      }
     }
   },
   "functions": [
@@ -324,6 +354,17 @@
       "reads": 0,
       "cheapestCase": "boundedNumber denies non-numeric value",
       "mostExpensiveCase": "boundedNumber allows float within range"
+    },
+    {
+      "module": "counters",
+      "function": "improvedBy",
+      "cost": {
+        "min": 18,
+        "max": 50
+      },
+      "reads": 0,
+      "cheapestCase": "improvedBy denies a string old value",
+      "mostExpensiveCase": "improvedBy allows fewer moves for down"
     },
     {
       "module": "geometry",
@@ -1655,6 +1696,326 @@
         "call": 38,
         "reference": 5,
         "perCall": 35
+      }
+    },
+    {
+      "module": "counters",
+      "function": "improvedBy",
+      "case": "improvedBy allows a higher score for up with a listed field unchanged",
+      "call": "improvedBy('score', 'up', ['solve'])",
+      "measured": {
+        "call": 49,
+        "reference": 6,
+        "perCall": 45
+      },
+      "estimated": {
+        "call": 58,
+        "reference": 6,
+        "perCall": 54
+      }
+    },
+    {
+      "module": "counters",
+      "function": "improvedBy",
+      "case": "improvedBy allows a higher score for up with a listed field changed",
+      "call": "improvedBy('score', 'up', ['solve'])",
+      "measured": {
+        "call": 49,
+        "reference": 6,
+        "perCall": 45
+      },
+      "estimated": {
+        "call": 58,
+        "reference": 6,
+        "perCall": 54
+      }
+    },
+    {
+      "module": "counters",
+      "function": "improvedBy",
+      "case": "improvedBy denies an unchanged score for up",
+      "call": "improvedBy('score', 'up', ['solve'])",
+      "measured": {
+        "call": 41,
+        "reference": 6,
+        "perCall": 37
+      },
+      "estimated": {
+        "call": 58,
+        "reference": 6,
+        "perCall": 54
+      }
+    },
+    {
+      "module": "counters",
+      "function": "improvedBy",
+      "case": "improvedBy denies a lower score for up",
+      "call": "improvedBy('score', 'up', ['solve'])",
+      "measured": {
+        "call": 41,
+        "reference": 6,
+        "perCall": 37
+      },
+      "estimated": {
+        "call": 58,
+        "reference": 6,
+        "perCall": 54
+      }
+    },
+    {
+      "module": "counters",
+      "function": "improvedBy",
+      "case": "improvedBy allows fewer moves for down",
+      "call": "improvedBy('moves', 'down', ['solve'])",
+      "measured": {
+        "call": 54,
+        "reference": 6,
+        "perCall": 50
+      },
+      "estimated": {
+        "call": 58,
+        "reference": 6,
+        "perCall": 54
+      }
+    },
+    {
+      "module": "counters",
+      "function": "improvedBy",
+      "case": "improvedBy denies more moves for down",
+      "call": "improvedBy('moves', 'down', ['solve'])",
+      "measured": {
+        "call": 41,
+        "reference": 6,
+        "perCall": 37
+      },
+      "estimated": {
+        "call": 58,
+        "reference": 6,
+        "perCall": 54
+      }
+    },
+    {
+      "module": "counters",
+      "function": "improvedBy",
+      "case": "improvedBy denies unchanged moves for down",
+      "call": "improvedBy('moves', 'down', ['solve'])",
+      "measured": {
+        "call": 41,
+        "reference": 6,
+        "perCall": 37
+      },
+      "estimated": {
+        "call": 58,
+        "reference": 6,
+        "perCall": 54
+      }
+    },
+    {
+      "module": "counters",
+      "function": "improvedBy",
+      "case": "improvedBy allows a float above an int for up",
+      "call": "improvedBy('score', 'up', ['solve'])",
+      "measured": {
+        "call": 49,
+        "reference": 6,
+        "perCall": 45
+      },
+      "estimated": {
+        "call": 58,
+        "reference": 6,
+        "perCall": 54
+      }
+    },
+    {
+      "module": "counters",
+      "function": "improvedBy",
+      "case": "improvedBy allows an int above a float for up",
+      "call": "improvedBy('score', 'up', ['solve'])",
+      "measured": {
+        "call": 49,
+        "reference": 6,
+        "perCall": 45
+      },
+      "estimated": {
+        "call": 58,
+        "reference": 6,
+        "perCall": 54
+      }
+    },
+    {
+      "module": "counters",
+      "function": "improvedBy",
+      "case": "improvedBy denies a float below an int for up",
+      "call": "improvedBy('score', 'up', ['solve'])",
+      "measured": {
+        "call": 41,
+        "reference": 6,
+        "perCall": 37
+      },
+      "estimated": {
+        "call": 58,
+        "reference": 6,
+        "perCall": 54
+      }
+    },
+    {
+      "module": "counters",
+      "function": "improvedBy",
+      "case": "improvedBy denies a string new value",
+      "call": "improvedBy('score', 'up', ['solve'])",
+      "measured": {
+        "call": 26,
+        "reference": 6,
+        "perCall": 22
+      },
+      "estimated": {
+        "call": 58,
+        "reference": 6,
+        "perCall": 54
+      }
+    },
+    {
+      "module": "counters",
+      "function": "improvedBy",
+      "case": "improvedBy denies a string old value",
+      "call": "improvedBy('score', 'up', ['solve'])",
+      "measured": {
+        "call": 22,
+        "reference": 6,
+        "perCall": 18
+      },
+      "estimated": {
+        "call": 58,
+        "reference": 6,
+        "perCall": 54
+      }
+    },
+    {
+      "module": "counters",
+      "function": "improvedBy",
+      "case": "improvedBy denies a missing old value",
+      "call": "improvedBy('score', 'up', ['solve'])",
+      "measured": {
+        "call": 54,
+        "reference": 6,
+        "perCall": 50
+      },
+      "estimated": {
+        "call": 58,
+        "reference": 6,
+        "perCall": 54
+      }
+    },
+    {
+      "module": "counters",
+      "function": "improvedBy",
+      "case": "improvedBy denies two strings that order up",
+      "call": "improvedBy('score', 'up', ['solve'])",
+      "measured": {
+        "call": 22,
+        "reference": 6,
+        "perCall": 18
+      },
+      "estimated": {
+        "call": 58,
+        "reference": 6,
+        "perCall": 54
+      }
+    },
+    {
+      "module": "counters",
+      "function": "improvedBy",
+      "case": "improvedBy denies a removed field",
+      "call": "improvedBy('score', 'up', ['solve'])",
+      "measured": {
+        "call": 54,
+        "reference": 6,
+        "perCall": 50
+      },
+      "estimated": {
+        "call": 58,
+        "reference": 6,
+        "perCall": 54
+      }
+    },
+    {
+      "module": "counters",
+      "function": "improvedBy",
+      "case": "improvedBy denies an unlisted field changed",
+      "call": "improvedBy('score', 'up', ['solve'])",
+      "measured": {
+        "call": 49,
+        "reference": 6,
+        "perCall": 45
+      },
+      "estimated": {
+        "call": 58,
+        "reference": 6,
+        "perCall": 54
+      }
+    },
+    {
+      "module": "counters",
+      "function": "improvedBy",
+      "case": "improvedBy denies an unlisted field added",
+      "call": "improvedBy('score', 'up', ['solve'])",
+      "measured": {
+        "call": 49,
+        "reference": 6,
+        "perCall": 45
+      },
+      "estimated": {
+        "call": 58,
+        "reference": 6,
+        "perCall": 54
+      }
+    },
+    {
+      "module": "counters",
+      "function": "improvedBy",
+      "case": "improvedBy allows an empty list when only the field changes",
+      "call": "improvedBy('score', 'up', [])",
+      "measured": {
+        "call": 48,
+        "reference": 5,
+        "perCall": 45
+      },
+      "estimated": {
+        "call": 57,
+        "reference": 5,
+        "perCall": 54
+      }
+    },
+    {
+      "module": "counters",
+      "function": "improvedBy",
+      "case": "improvedBy denies an empty list when another field changes",
+      "call": "improvedBy('score', 'up', [])",
+      "measured": {
+        "call": 48,
+        "reference": 5,
+        "perCall": 45
+      },
+      "estimated": {
+        "call": 57,
+        "reference": 5,
+        "perCall": 54
+      }
+    },
+    {
+      "module": "counters",
+      "function": "improvedBy",
+      "case": "improvedBy denies an invalid direction",
+      "call": "improvedBy('score', 'higher', ['solve'])",
+      "measured": {
+        "call": 37,
+        "reference": 6,
+        "perCall": 33
+      },
+      "estimated": {
+        "call": 58,
+        "reference": 6,
+        "perCall": 54
       }
     },
     {
