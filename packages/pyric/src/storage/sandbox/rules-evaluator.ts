@@ -1,4 +1,3 @@
-import { FirestoreSet } from '../../rules/simulator/firestore-set.js';
 import { RulesFloat } from '../../rules/simulator/wrappers/float.js';
 import {
   expandVerb,
@@ -33,6 +32,7 @@ import { StoragePath } from './rules-path.js';
 import { ConversionFailure, applyConversion, conversionFor } from '../../rules/simulator/conversions.js';
 import { describeRulesType as describeType, isRulesMap } from '../../rules/simulator/rules-type.js';
 import { sliceBoundsError } from '../../rules/simulator/slice-bounds.js';
+import { MembershipFailure, membership } from '../../rules/simulator/membership.js';
 import {
   RuleError,
   isRuleError as isErr,
@@ -328,18 +328,15 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       return evalExpr(expr.else, ctx);
     }
     case 'in': {
+      // List and set elements under Rules value equality, own map keys only,
+      // and production's errors for any other operand (`membership.ts`,
+      // shared with the Firestore simulator).
       const el = evalExpr(expr.element, ctx);
       if (isErr(el)) return el;
       const coll = evalExpr(expr.collection, ctx);
       if (isErr(coll)) return coll;
-      // `x in list` is membership; `x in map` tests OWN keys only — production
-      // maps never expose prototype names (`'toString' in map` is false;
-      // live-pinned by rules-firestore-prototype-chain-keys), so JS `in`
-      // (which walks the prototype chain) would false-ALLOW here.
-      if (Array.isArray(coll)) return coll.some((v) => rulesEquals(v, el));
-      if (coll instanceof FirestoreSet) return coll.hasAll([el]);
-      if (isRulesMap(coll)) return typeof el === 'string' && Object.prototype.hasOwnProperty.call(coll, el);
-      return new RuleError(`'in' applied to ${describeType(coll)} (expected a list, set, or map).`);
+      const result = membership(el, coll, rulesEquals);
+      return result instanceof MembershipFailure ? new RuleError(result.message) : result;
     }
     case 'is': {
       const v = evalExpr(expr.value, ctx);

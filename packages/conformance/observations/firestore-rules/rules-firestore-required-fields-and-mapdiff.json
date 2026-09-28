@@ -5,12 +5,12 @@
     "firestore-rules#178"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"required-fields-and-mapdiff\" (Coverage: List/Set + MapDiff required-fields idiom). Production must accept the keys().hasAll/hasOnly required-fields pattern and the diff().*Keys() MapDiff family used to gate field-level mutations.",
-  "observedAt": "2026-07-21T23:43:06.761Z",
+  "observedAt": "2026-09-28T00:50:28.012Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "d58c4ba3fe028b23b64e653033416ffa00f696076ddc4632b7a3e1cd4aa54308"
+    "value": "ed12206318eabce271c82f052bc429f32d0849e680ee6d0f0490b68fb4ac5fcf"
   },
   "behavior": {
     "create with exact required fields, self-owned ALLOW": "ALLOW",
@@ -19,6 +19,17 @@
     "create where ownerId != caller DENY": "DENY",
     "update changing only title ALLOW": "ALLOW",
     "update touching ownerId DENY (affectedKeys hasOnly)": "DENY",
-    "update adding a new field DENY (addedKeys size 0)": "DENY"
+    "update adding a new field DENY (addedKeys size 0)": "DENY",
+    "keys().toSet() equals a set of the field names → ALLOW": "ALLOW",
+    "keys().hasAll() with a List argument → ALLOW": "ALLOW",
+    "keys().size() counts the fields → ALLOW": "ALLOW",
+    "keys()[0] is the only field name → ALLOW": "ALLOW",
+    "keys().join(',') joins the field names → ALLOW": "ALLOW",
+    "keys().hasAny() → ALLOW": "ALLOW",
+    "keys().hasOnly() → ALLOW": "ALLOW",
+    "keys() is list → ALLOW": "ALLOW",
+    "keys() is set is false → DENY": "DENY",
+    "!(keys() is set) → ALLOW": "ALLOW",
+    "keys().toSet().size() → ALLOW": "ALLOW"
   }
 }

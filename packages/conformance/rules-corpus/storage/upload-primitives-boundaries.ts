@@ -3,7 +3,10 @@
  * batched Rules Test API request covers the boundaries that helpers would
  * otherwise be tempted to guess: inclusive size limits, MIME exactness,
  * metadata key/default methods, unchanged bytes during metadata updates,
- * path wildcard typing, object identity, and strict time windows.
+ * path wildcard typing, object identity, and strict time windows. The
+ * `keys-*` matches show custom-metadata `keys()` returns a List: `is list`
+ * holds, `is set` is false, and `toSet()`, `hasAll()`, `hasAny()`,
+ * `hasOnly()`, `size()`, `[0]` and `join()` evaluate on it.
  */
 import type { StorageScenarioRecord } from './types.ts';
 
@@ -64,6 +67,40 @@ service firebase.storage {
     match /request-resource-delete/{fileName} {
       allow delete: if request.resource == null;
     }
+    // keys() returns a List: each List method and type test on it
+    match /keys-to-set/{fileName} {
+      allow create: if request.resource.metadata.keys().toSet() == ['a', 'b'].toSet();
+    }
+    match /keys-has-all/{fileName} {
+      allow create: if request.resource.metadata.keys().hasAll(['a', 'b']);
+    }
+    match /keys-size/{fileName} {
+      allow create: if request.resource.metadata.keys().size() == 2;
+    }
+    match /keys-index/{fileName} {
+      allow create: if request.resource.metadata.keys()[0] == 'a';
+    }
+    match /keys-join/{fileName} {
+      allow create: if request.resource.metadata.keys().join(',') == 'a';
+    }
+    match /keys-has-any/{fileName} {
+      allow create: if request.resource.metadata.keys().hasAny(['a', 'z']);
+    }
+    match /keys-has-only/{fileName} {
+      allow create: if request.resource.metadata.keys().hasOnly(['a', 'b', 'c']);
+    }
+    match /keys-is-list/{fileName} {
+      allow create: if request.resource.metadata.keys() is list;
+    }
+    match /keys-is-set/{fileName} {
+      allow create: if request.resource.metadata.keys() is set;
+    }
+    match /keys-is-not-set/{fileName} {
+      allow create: if !(request.resource.metadata.keys() is set);
+    }
+    match /keys-to-set-size/{fileName} {
+      allow create: if request.resource.metadata.keys().toSet().size() == 2;
+    }
   }
 }`,
   cases: [
@@ -99,5 +136,17 @@ service firebase.storage {
     { description: 'time: after strict 60 second boundary is denied', expectation: 'DENY', method: 'delete', path: 'fresh/a.bin', requestTime: '2025-03-01T00:01:00.001Z', existingResource: { size: 1, timeCreated: '2025-03-01T00:00:00Z' } },
     { description: 'time: future timeCreated value makes the strict comparison true', expectation: 'ALLOW', method: 'delete', path: 'fresh/a.bin', requestTime: '2025-03-01T00:00:00Z', existingResource: { size: 1, timeCreated: '2025-03-01T00:01:00Z' } },
     { description: 'delete: missing request.resource does not become a usable null guard', expectation: 'DENY', method: 'delete', path: 'request-resource-delete/a.bin', existingResource: { size: 1 } },
+
+    { description: 'keys: toSet() equals a set of the metadata keys', expectation: 'ALLOW', method: 'create', path: 'keys-to-set/a.bin', resource: { size: 1, metadata: { a: 'x', b: 'y' } } },
+    { description: 'keys: hasAll() with a List argument', expectation: 'ALLOW', method: 'create', path: 'keys-has-all/a.bin', resource: { size: 1, metadata: { a: 'x', b: 'y' } } },
+    { description: 'keys: size() counts the metadata keys', expectation: 'ALLOW', method: 'create', path: 'keys-size/a.bin', resource: { size: 1, metadata: { a: 'x', b: 'y' } } },
+    { description: 'keys: [0] is the only metadata key', expectation: 'ALLOW', method: 'create', path: 'keys-index/a.bin', resource: { size: 1, metadata: { a: 'x' } } },
+    { description: 'keys: join() joins the metadata keys', expectation: 'ALLOW', method: 'create', path: 'keys-join/a.bin', resource: { size: 1, metadata: { a: 'x' } } },
+    { description: 'keys: hasAny()', expectation: 'ALLOW', method: 'create', path: 'keys-has-any/a.bin', resource: { size: 1, metadata: { a: 'x', b: 'y' } } },
+    { description: 'keys: hasOnly()', expectation: 'ALLOW', method: 'create', path: 'keys-has-only/a.bin', resource: { size: 1, metadata: { a: 'x', b: 'y' } } },
+    { description: 'keys: keys() is list', expectation: 'ALLOW', method: 'create', path: 'keys-is-list/a.bin', resource: { size: 1, metadata: { a: 'x', b: 'y' } } },
+    { description: 'keys: keys() is set is false', expectation: 'DENY', method: 'create', path: 'keys-is-set/a.bin', resource: { size: 1, metadata: { a: 'x', b: 'y' } } },
+    { description: 'keys: !(keys() is set)', expectation: 'ALLOW', method: 'create', path: 'keys-is-not-set/a.bin', resource: { size: 1, metadata: { a: 'x', b: 'y' } } },
+    { description: 'keys: toSet().size()', expectation: 'ALLOW', method: 'create', path: 'keys-to-set-size/a.bin', resource: { size: 1, metadata: { a: 'x', b: 'y' } } },
   ],
 };

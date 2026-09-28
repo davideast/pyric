@@ -63,8 +63,10 @@ export function methodReturnType(expression: Expression): RulesReceiverType | nu
   if (['lower', 'upper', 'trim', 'replace', 'join', 'toBase64', 'toHexString']
     .includes(expression.method)) return 'string';
   if (['matches', 'hasAny', 'hasAll', 'hasOnly'].includes(expression.method)) return 'boolean';
-  if (['concat', 'removeAll', 'split', 'values'].includes(expression.method)) return 'list';
-  if (['keys', 'toSet', 'addedKeys', 'removedKeys', 'changedKeys', 'affectedKeys',
+  // `Map.keys()` returns a List in both services (corpus scenarios
+  // `required-fields-and-mapdiff` and `upload-primitives-boundaries`).
+  if (['concat', 'keys', 'removeAll', 'split', 'values'].includes(expression.method)) return 'list';
+  if (['toSet', 'addedKeys', 'removedKeys', 'changedKeys', 'affectedKeys',
     'unchangedKeys', 'difference', 'union', 'intersection'].includes(expression.method)) return 'set';
   if (expression.method === 'diff') return 'mapdiff';
   if (expression.method === 'get') return null;

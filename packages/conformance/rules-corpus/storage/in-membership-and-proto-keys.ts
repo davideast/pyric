@@ -6,6 +6,13 @@
  * (rules-firestore-prototype-chain-keys): production maps expose OWN keys
  * only, so `'toString' in map` is false unless the map literally carries a
  * `toString` key. A JS-`in`-backed evaluator false-ALLOWs these.
+ *
+ * The negated membership cases separate an error from false, with the same
+ * text Firestore reports: `in` over null is `Null value error.`, `in` over a
+ * string, int, float, bool, timestamp, path or map diff is `Function not found
+ * error: Name: [in].`, and an int key into a map is `Unsupported operation
+ * error. Received: map.in(int). Expected: map.in(string).`. Each error denies,
+ * so its negation denies too.
  */
 import type { StorageScenarioRecord } from './types.ts';
 
@@ -40,6 +47,36 @@ service firebase.storage {
     // map literals behave identically: own keys in, proto keys out
     match /literalmap/{fileId} {
       allow create: if 'a' in {'a': 1, 'b': 2} && !('toString' in {'a': 1});
+    }
+    // negated membership over a value that is not a collection → error → DENY
+    match /notinnull/{fileId} {
+      allow create: if !('a' in request.resource.metadata.get('missing', null));
+    }
+    match /notinstring/{fileId} {
+      allow create: if !('a' in request.resource.contentType);
+    }
+    match /notinint/{fileId} {
+      allow create: if !('a' in request.resource.size);
+    }
+    match /notinfloat/{fileId} {
+      allow create: if !('a' in float(request.resource.size));
+    }
+    match /notinbool/{fileId} {
+      allow create: if !('a' in (request.resource.size > 0));
+    }
+    // negated int key into a map → error → DENY
+    match /intkeynotinmap/{fileId} {
+      allow create: if !(1 in request.resource.metadata);
+    }
+    // negated membership over a timestamp, a path or a map diff → error → DENY
+    match /notintimestamp/{fileId} {
+      allow create: if !('a' in request.time);
+    }
+    match /notinpath/{fileId} {
+      allow create: if !('a' in request.path);
+    }
+    match /notinmapdiff/{fileId} {
+      allow create: if !('a' in request.resource.metadata.diff({}));
     }
   }
 }`,
@@ -108,5 +145,24 @@ service firebase.storage {
       auth: { uid: 'alice' },
       resource: { size: 100, contentType: 'application/pdf' },
     },
+    ...([
+      ["!('a' in null) is a null value error → DENY", 'notinnull'],
+      ["!('a' in contentType) is a function not found error → DENY", 'notinstring'],
+      ["!('a' in size) is a function not found error → DENY", 'notinint'],
+      ["!('a' in float(size)) is a function not found error → DENY", 'notinfloat'],
+      ["!('a' in (size > 0)) is a function not found error → DENY", 'notinbool'],
+      ["!(1 in metadata) is an unsupported operation error → DENY", 'intkeynotinmap'],
+      ["!('a' in request.time) is an error → DENY", 'notintimestamp'],
+      ["!('a' in request.path) is an error → DENY", 'notinpath'],
+      ["!('a' in a map diff) is an error → DENY", 'notinmapdiff'],
+    ] as const).map(([description, match]) => ({
+      description,
+      expectation: 'DENY' as const,
+      method: 'create' as const,
+      path: `${match}/doc.pdf`,
+      auth: { uid: 'alice' },
+      resource: { size: 100, contentType: 'application/pdf', metadata: { a: 'x' } },
+      requestTime: '2025-06-15T00:00:00Z',
+    })),
   ],
 };

@@ -182,11 +182,11 @@ service firebase.storage {
 service firebase.storage {
   match /b/{bucket}/o {
     match /x/{fileId} {
-      allow read: if fileId.split('[.]').join('') == 'fpng';
+      allow read: if fileId.split('[.]').concat([]).size() == 2;
     }
   }
 }`),
-    ).toMatch(/unsupported method \.join\(\)/);
+    ).toMatch(/unsupported method \.concat\(\)/);
   });
 
   it('an unmodeled `is` type names the type', () => {

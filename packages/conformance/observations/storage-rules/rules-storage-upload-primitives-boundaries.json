@@ -1,9 +1,13 @@
 {
   "name": "rules-storage-upload-primitives-boundaries",
   "matrixRow": "Storage rules engine #126-#128",
-  "rowIds": ["storage-rules#126", "storage-rules#127", "storage-rules#128"],
-  "description": "Storage Rules Test API verdicts for corpus scenario \"upload-primitives-boundaries\" (STORAGE-P2-PRIMITIVES). Boundary-first evidence for possible Storage size, MIME, metadata, path, identity, and time helpers; metadata methods remain unimplemented locally until production establishes their contract.",
-  "observedAt": "2026-07-21T06:03:34.478Z",
+  "rowIds": [
+    "storage-rules#126",
+    "storage-rules#127",
+    "storage-rules#128"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"upload-primitives-boundaries\" (STORAGE-P2-PRIMITIVES). Boundary-first evidence for Storage size, MIME, metadata, path, identity, and time helpers, including production-pinned metadata collection methods.",
+  "observedAt": "2026-09-28T00:49:56.574Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "behavior": {
@@ -32,7 +36,18 @@
     "time: exact strict 60 second boundary is denied": "DENY",
     "time: after strict 60 second boundary is denied": "DENY",
     "time: future timeCreated value makes the strict comparison true": "ALLOW",
-    "delete: missing request.resource does not become a usable null guard": "DENY"
+    "delete: missing request.resource does not become a usable null guard": "DENY",
+    "keys: toSet() equals a set of the metadata keys": "ALLOW",
+    "keys: hasAll() with a List argument": "ALLOW",
+    "keys: size() counts the metadata keys": "ALLOW",
+    "keys: [0] is the only metadata key": "ALLOW",
+    "keys: join() joins the metadata keys": "ALLOW",
+    "keys: hasAny()": "ALLOW",
+    "keys: hasOnly()": "ALLOW",
+    "keys: keys() is list": "ALLOW",
+    "keys: keys() is set is false": "DENY",
+    "keys: !(keys() is set)": "ALLOW",
+    "keys: toSet().size()": "ALLOW"
   },
   "diagnostics": {
     "size: zero bytes is within inclusive maximum": {
@@ -420,6 +435,171 @@
           "currentOffset": 1751,
           "endOffset": 1757
         }
+      }
+    },
+    "keys: toSet() equals a set of the metadata keys": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 56,
+              "column": 24,
+              "currentOffset": 1909,
+              "endOffset": 1915
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "keys: hasAll() with a List argument": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 59,
+              "column": 24,
+              "currentOffset": 2039,
+              "endOffset": 2045
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "keys: size() counts the metadata keys": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 62,
+              "column": 24,
+              "currentOffset": 2155,
+              "endOffset": 2161
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "keys: [0] is the only metadata key": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 65,
+              "column": 24,
+              "currentOffset": 2265,
+              "endOffset": 2271
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "keys: join() joins the metadata keys": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 68,
+              "column": 24,
+              "currentOffset": 2372,
+              "endOffset": 2378
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "keys: hasAny()": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 71,
+              "column": 24,
+              "currentOffset": 2489,
+              "endOffset": 2495
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "keys: hasOnly()": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 74,
+              "column": 24,
+              "currentOffset": 2609,
+              "endOffset": 2615
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "keys: keys() is list": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 77,
+              "column": 24,
+              "currentOffset": 2734,
+              "endOffset": 2740
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "keys: keys() is set is false": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 80,
+              "column": 24,
+              "currentOffset": 2841,
+              "endOffset": 2847
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "keys: !(keys() is set)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 83,
+              "column": 24,
+              "currentOffset": 2951,
+              "endOffset": 2951
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "keys: toSet().size()": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 86,
+              "column": 24,
+              "currentOffset": 3065,
+              "endOffset": 3071
+            },
+            "value": true
+          }
+        ]
       }
     }
   }

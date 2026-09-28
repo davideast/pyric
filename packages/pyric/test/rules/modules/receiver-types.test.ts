@@ -17,7 +17,8 @@ describe('rules method return types', () => {
   test.each([
     ["'A'.lower()", 'string'],
     ["'a,b'.split(',')", 'list'],
-    ["{'owner': true}.keys()", 'set'],
+    ["{'owner': true}.keys()", 'list'],
+    ["['a'].toSet()", 'set'],
     ["{'owner': true}.diff({})", 'mapdiff'],
     ["'A'.matches('A')", 'boolean'],
     ["'A'.size()", 'number'],

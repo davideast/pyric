@@ -407,6 +407,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "cross-type-operator-overloads",
+        "prototype-chain-keys",
         "time-math-and-casts",
         "timestamp-component-accessors"
       ],
@@ -427,6 +428,7 @@
       "verifiedBy": [
         "get-after-and-exists-after",
         "globals-request-path-and-resource-id",
+        "prototype-chain-keys",
         "resource-document-identity"
       ],
       "verifiedByRows": [],
@@ -1327,7 +1329,8 @@
       "classification": "conformant",
       "verifiedBy": [
         "list-and-string-methods",
-        "prototype-chain-keys"
+        "prototype-chain-keys",
+        "required-fields-and-mapdiff"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -1366,7 +1369,8 @@
       "verifiedBy": [
         "functions-verbs-and-recursive",
         "list-and-string-methods",
-        "list-methods-concat-removeall-toset"
+        "list-methods-concat-removeall-toset",
+        "required-fields-and-mapdiff"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -1384,6 +1388,8 @@
       "classification": "conformant",
       "verifiedBy": [
         "list-methods-concat-removeall-toset",
+        "prototype-chain-keys",
+        "required-fields-and-mapdiff",
         "set-algebra-difference-union-intersection"
       ],
       "verifiedByRows": [],
@@ -1436,7 +1442,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "list-and-string-methods"
+        "list-and-string-methods",
+        "required-fields-and-mapdiff"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -1583,6 +1590,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "functions-verbs-and-recursive",
+        "prototype-chain-keys",
         "required-fields-and-mapdiff",
         "set-algebra-difference-union-intersection"
       ],
@@ -2525,6 +2533,7 @@
         "int-float-and-division",
         "path-constructor-and-bind",
         "prototype-chain-keys",
+        "required-fields-and-mapdiff",
         "resource-document-identity",
         "set-algebra-difference-union-intersection",
         "strict-boolean-control-flow",
@@ -2595,6 +2604,7 @@
         "globals-request-path-and-resource-id",
         "int-float-and-division",
         "path-constructor-and-bind",
+        "required-fields-and-mapdiff",
         "resource-document-identity",
         "time-math-and-casts"
       ],
@@ -2688,7 +2698,8 @@
         "functions-verbs-and-recursive",
         "list-methods-concat-removeall-toset",
         "path-constructor-and-bind",
-        "range-slice-list-and-string"
+        "range-slice-list-and-string",
+        "required-fields-and-mapdiff"
       ],
       "verifiedByRows": [],
       "divergedByRows": []

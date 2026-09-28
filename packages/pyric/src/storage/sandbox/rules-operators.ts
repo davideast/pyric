@@ -1,5 +1,6 @@
 import { NO_OP, RulesValue } from '../../rules/simulator/wrappers/base.js';
 import { RulesFloat } from '../../rules/simulator/wrappers/float.js';
+import { FirestoreSet } from '../../rules/simulator/firestore-set.js';
 import { describeRulesType as describeType, isRulesMap } from '../../rules/simulator/rules-type.js';
 import {
   RuleError,
@@ -26,13 +27,14 @@ export function typeMatches(v: unknown, typeName: string): boolean | RuleError {
     case 'float': return v instanceof RulesFloat || (typeof v === 'number' && !Number.isInteger(v));
     case 'number': return v instanceof RulesFloat || typeof v === 'number';
     case 'list': return Array.isArray(v);
+    case 'set': return v instanceof FirestoreSet;
     case 'map': return isRulesMap(v);
     case 'null': return v === null;
   }
   if (VALUE_TYPE_NAMES.has(typeName)) {
     return v instanceof RulesValue && v.typeName === typeName;
   }
-  // No capture pins `is` against path, latlng, set, or another type name, so
+  // No capture pins `is` against path, latlng, or another type name, so
   // the test cannot answer honestly: deny with a reason rather than
   // false-allow.
   return new RuleError(`'is ${typeName}' is not supported by the storage evaluator.`);

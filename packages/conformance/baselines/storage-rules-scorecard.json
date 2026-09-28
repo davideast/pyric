@@ -996,6 +996,7 @@
       "verifiedBy": [],
       "verifiedByRows": [
         "storage-rules#122",
+        "storage-rules#127",
         "storage-rules#storage.stdlib.string-methods",
         "storage-rules#storage.stdlib.bytes-hashing",
         "storage-rules#storage.stdlib.sets"
@@ -1433,7 +1434,8 @@
         "ordering-operand-types",
         "stdlib-sets-and-mapdiff",
         "stdlib-timestamp-duration",
-        "type-checks-is"
+        "type-checks-is",
+        "upload-primitives-boundaries"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -1490,7 +1492,8 @@
         "bytes-literal",
         "common-auth-membership",
         "metadata-access",
-        "stdlib-storage-modules"
+        "stdlib-storage-modules",
+        "upload-primitives-boundaries"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
