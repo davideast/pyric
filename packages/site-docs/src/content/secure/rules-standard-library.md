@@ -138,11 +138,33 @@ These are the Firestore-compatible modules used by this guide. The [complete ref
 | `atomic` | Companion changes in one batch | `companionChangedBy`, `consumedFlag` |
 | `geometry` | Config-driven game moves | `validSimpleMove`, `validJumpMove` |
 | `lobby` | Two-player session creation and joining | `validCreate`, `validJoin`, `canCancel` |
-| `turns` | Two-player turn enforcement | `isMyTurn`, `turnFlipped` |
+| `turns` | Turn enforcement for two seats or a seat list | `isMyTurn`, `turnFlipped`, `isSeatTurn`, `turnAdvanced` |
 | `state` | Game status, move count, and participants | `isPlaying`, `moveIncremented`, `participantsUnchanged` |
 | `results` | Resigning, finishing, and keeping a game result | `resignedBy`, `finishedWithWinner`, `resultUnchanged` |
 
 The game-oriented modules assume the field conventions documented by their function descriptions. Prefer the general modules for application data unless your schema matches those conventions.
+
+`turns` covers two document shapes:
+
+- Two seats: `isMyTurn` and `turnFlipped` read `host`, `guest`, and `currentTurn`.
+- A seat list of any size: `isSeatTurn` and `turnAdvanced` read `players`, the UIDs in turn order, and `turn`, the int index of the seat on turn.
+
+`isSeatTurn(seats, turnIndex)` takes the list and the index as arguments, so it also works on a document that names them differently. `turnAdvanced(seatCount)` checks that the new `turn` is `(turn + 1) % seatCount`, so the last seat wraps to seat 0, and that `players` is unchanged. `%` on two ints is the remainder, as in production:
+```rules
+rules_version = '2+modules';
+
+import { isSeatTurn, turnAdvanced } from 'turns';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /games/{gameId} {
+      allow update: if isSeatTurn(resource.data.players, resource.data.turn)
+        && turnAdvanced(resource.data.players.size());
+    }
+  }
+}
+```
+An index past the last seat, or below 0, is an error, so `isSeatTurn` denies the request.
 
 ## Count what each call costs
 

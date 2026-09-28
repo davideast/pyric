@@ -652,11 +652,11 @@ const TURNS_MODULE: StdlibModuleDefinition = {
   key: 'turns',
   kind: 'user-module',
   description:
-    'User-authored module: turn enforcement for two-player games (isMyTurn, turnFlipped). Self-contained.',
+    'User-authored module: turn enforcement for two-player games (isMyTurn, turnFlipped) and games with a seat list (isSeatTurn, turnAdvanced). Self-contained.',
   purpose:
-    'Convention-based turn handling on docs with `host`, `guest`, and `currentTurn` fields. Asserts the request is from the current player and that turn alternates correctly across writes.',
+    'Convention-based turn handling. Two-seat docs have `host`, `guest`, and `currentTurn` fields. Seat-list docs have `players`, a list of UIDs in turn order, and `turn`, the int index of the seat on turn. Asserts the request is from the current player and that the turn moves to the next seat across writes.',
   whenToUse:
-    'Reach for `turns` on any turn-based game where exactly one player can act per state.',
+    'Reach for `turns` on any turn-based game where exactly one player can act per state: isMyTurn and turnFlipped for two named seats, isSeatTurn and turnAdvanced for a seat list of any size.',
   entries: [
     {
       signature: 'isMyTurn(): bool',
@@ -669,6 +669,22 @@ const TURNS_MODULE: StdlibModuleDefinition = {
       cost: { min: 15, max: 22 },
       reads: 0,
       description: 'After the write, `currentTurn` has switched from host to guest (or vice-versa).',
+    },
+    {
+      signature: 'isSeatTurn(seats: list, turnIndex: int): bool',
+      cost: { min: 6, max: 14 },
+      reads: 0,
+      description:
+        'The caller is signed in and their uid is `seats[turnIndex]`. An index past the last seat, or below 0, is an error and denies the request.',
+      examples: [`allow update: if isSeatTurn(resource.data.players, resource.data.turn);`],
+    },
+    {
+      signature: 'turnAdvanced(seatCount: int): bool',
+      cost: { min: 14, max: 23 },
+      reads: 0,
+      description:
+        "The new `turn` is the old `turn` plus one modulo `seatCount` (production's `%` on ints), so the last seat wraps to seat 0, and `players` is unchanged.",
+      examples: [`allow update: if turnAdvanced(resource.data.players.size());`],
     },
   ],
   relatedKeys: ['lobby', 'state', 'transitions'],

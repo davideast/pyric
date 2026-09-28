@@ -3,17 +3,31 @@
 // are not memoized: every call pays its full cost again, and a let inside a
 // function is paid on every call.
 //
-// Turn enforcement for 2-participant games/sessions.
+// Turn enforcement for games/sessions: two-seat games with named seats, and
+// games of any size with a seat list.
 //
-// Convention: documents must have these fields:
+// Two-seat convention: documents must have these fields:
 //   host: string (UID)
 //   guest: string (UID)
 //   currentTurn: 'host' | 'guest'
 //
-// Usage:
-//   import { isMyTurn, turnFlipped } from 'turns';
+// Seat-list convention: documents must have these fields:
+//   players: list of UIDs, one per seat, in turn order
+//   turn: int, the index in `players` of the seat whose turn it is
 //
+// Yacht and Uno store these two fields under these names. isSeatTurn takes
+// the list and the index as arguments, so a document that names them
+// differently can still use it; turnAdvanced reads `players` and `turn`.
+//
+// Usage:
+//   import { isMyTurn, turnFlipped, isSeatTurn, turnAdvanced } from 'turns';
+//
+//   // Two seats:
 //   allow update: if isMyTurn() && turnFlipped();
+//
+//   // A seat list:
+//   allow update: if isSeatTurn(resource.data.players, resource.data.turn)
+//     && turnAdvanced(resource.data.players.size());
 
 // Is the caller the participant whose turn it is?
 // cost 16 to 23 expressions per call
@@ -31,4 +45,21 @@ export function turnFlipped() {
             && request.resource.data.currentTurn == 'guest')
       || (resource.data.currentTurn == 'guest'
             && request.resource.data.currentTurn == 'host');
+}
+
+// Is the caller's uid `seats[turnIndex]`? `seats` is a list of UIDs and
+// `turnIndex` an int. A signed-out request is false. An index past the last
+// seat, or below 0, is an error, and the request is denied.
+// cost 6 to 14 expressions per call
+export function isSeatTurn(seats, turnIndex) {
+  return request.auth != null && seats[turnIndex] == request.auth.uid;
+}
+
+// Did the turn move to the next seat? The new `turn` equals the old `turn`
+// plus one, modulo `seatCount`, so the last seat wraps to seat 0. `%` on two
+// ints is the remainder, as in production. The `players` list is unchanged.
+// cost 14 to 23 expressions per call
+export function turnAdvanced(seatCount) {
+  return request.resource.data.turn == (resource.data.turn + 1) % seatCount
+    && request.resource.data.players == resource.data.players;
 }

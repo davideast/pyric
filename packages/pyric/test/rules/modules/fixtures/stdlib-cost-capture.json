@@ -481,6 +481,28 @@
       "mostExpensiveCase": "turnFlipped denies same turn value"
     },
     {
+      "module": "turns",
+      "function": "isSeatTurn",
+      "cost": {
+        "min": 6,
+        "max": 14
+      },
+      "reads": 0,
+      "cheapestCase": "isSeatTurn denies unauthenticated",
+      "mostExpensiveCase": "isSeatTurn allows the caller seated at the turn index"
+    },
+    {
+      "module": "turns",
+      "function": "turnAdvanced",
+      "cost": {
+        "min": 14,
+        "max": 23
+      },
+      "reads": 0,
+      "cheapestCase": "turnAdvanced denies a turn that did not move",
+      "mostExpensiveCase": "turnAdvanced allows the next seat"
+    },
+    {
       "module": "validation",
       "function": "hasRequired",
       "cost": {
@@ -2924,6 +2946,198 @@
         "call": 22,
         "reference": 2,
         "perCall": 22
+      }
+    },
+    {
+      "module": "turns",
+      "function": "isSeatTurn",
+      "case": "isSeatTurn allows the caller seated at the turn index",
+      "call": "isSeatTurn(resource.data.players, resource.data.turn)",
+      "measured": {
+        "call": 20,
+        "reference": 8,
+        "perCall": 14
+      },
+      "estimated": {
+        "call": 20,
+        "reference": 8,
+        "perCall": 14
+      }
+    },
+    {
+      "module": "turns",
+      "function": "isSeatTurn",
+      "case": "isSeatTurn denies a caller seated at another index",
+      "call": "isSeatTurn(resource.data.players, resource.data.turn)",
+      "measured": {
+        "call": 20,
+        "reference": 8,
+        "perCall": 14
+      },
+      "estimated": {
+        "call": 20,
+        "reference": 8,
+        "perCall": 14
+      }
+    },
+    {
+      "module": "turns",
+      "function": "isSeatTurn",
+      "case": "isSeatTurn allows the caller in the last seat",
+      "call": "isSeatTurn(resource.data.players, resource.data.turn)",
+      "measured": {
+        "call": 20,
+        "reference": 8,
+        "perCall": 14
+      },
+      "estimated": {
+        "call": 20,
+        "reference": 8,
+        "perCall": 14
+      }
+    },
+    {
+      "module": "turns",
+      "function": "isSeatTurn",
+      "case": "isSeatTurn denies a turn index past the last seat",
+      "call": "isSeatTurn(resource.data.players, resource.data.turn)",
+      "measured": {
+        "call": 20,
+        "reference": 8,
+        "perCall": 14
+      },
+      "estimated": {
+        "call": 20,
+        "reference": 8,
+        "perCall": 14
+      }
+    },
+    {
+      "module": "turns",
+      "function": "isSeatTurn",
+      "case": "isSeatTurn denies a negative turn index",
+      "call": "isSeatTurn(resource.data.players, resource.data.turn)",
+      "measured": {
+        "call": 20,
+        "reference": 8,
+        "perCall": 14
+      },
+      "estimated": {
+        "call": 20,
+        "reference": 8,
+        "perCall": 14
+      }
+    },
+    {
+      "module": "turns",
+      "function": "isSeatTurn",
+      "case": "isSeatTurn denies unauthenticated",
+      "call": "isSeatTurn(resource.data.players, resource.data.turn)",
+      "measured": {
+        "call": 12,
+        "reference": 8,
+        "perCall": 6
+      },
+      "estimated": {
+        "call": 20,
+        "reference": 8,
+        "perCall": 14
+      }
+    },
+    {
+      "module": "turns",
+      "function": "turnAdvanced",
+      "case": "turnAdvanced allows the next seat",
+      "call": "turnAdvanced(3)",
+      "measured": {
+        "call": 24,
+        "reference": 3,
+        "perCall": 23
+      },
+      "estimated": {
+        "call": 24,
+        "reference": 3,
+        "perCall": 23
+      }
+    },
+    {
+      "module": "turns",
+      "function": "turnAdvanced",
+      "case": "turnAdvanced denies a turn that did not move",
+      "call": "turnAdvanced(3)",
+      "measured": {
+        "call": 15,
+        "reference": 3,
+        "perCall": 14
+      },
+      "estimated": {
+        "call": 24,
+        "reference": 3,
+        "perCall": 23
+      }
+    },
+    {
+      "module": "turns",
+      "function": "turnAdvanced",
+      "case": "turnAdvanced denies a turn advanced by two",
+      "call": "turnAdvanced(3)",
+      "measured": {
+        "call": 15,
+        "reference": 3,
+        "perCall": 14
+      },
+      "estimated": {
+        "call": 24,
+        "reference": 3,
+        "perCall": 23
+      }
+    },
+    {
+      "module": "turns",
+      "function": "turnAdvanced",
+      "case": "turnAdvanced allows the last seat wrapping to seat 0",
+      "call": "turnAdvanced(3)",
+      "measured": {
+        "call": 24,
+        "reference": 3,
+        "perCall": 23
+      },
+      "estimated": {
+        "call": 24,
+        "reference": 3,
+        "perCall": 23
+      }
+    },
+    {
+      "module": "turns",
+      "function": "turnAdvanced",
+      "case": "turnAdvanced denies the last seat moving past the end",
+      "call": "turnAdvanced(3)",
+      "measured": {
+        "call": 15,
+        "reference": 3,
+        "perCall": 14
+      },
+      "estimated": {
+        "call": 24,
+        "reference": 3,
+        "perCall": 23
+      }
+    },
+    {
+      "module": "turns",
+      "function": "turnAdvanced",
+      "case": "turnAdvanced denies a changed seat list",
+      "call": "turnAdvanced(3)",
+      "measured": {
+        "call": 24,
+        "reference": 3,
+        "perCall": 23
+      },
+      "estimated": {
+        "call": 24,
+        "reference": 3,
+        "perCall": 23
       }
     },
     {
