@@ -5,7 +5,7 @@
     "storage-rules#133"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"error-absorption-and-direction\" (STORAGE-P4-ERROR-ABSORPTION). Storage && absorbs commutatively like Firestore: !(error && false) allows; (error && false) == false allows; error && true and true && error propagate to DENY.",
-  "observedAt": "2026-09-28T00:21:36.886Z",
+  "observedAt": "2026-09-28T03:39:09.365Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "behavior": {
@@ -18,7 +18,15 @@
     "an error, then a true rule in the same block → ALLOW": "ALLOW",
     "an error, then a false rule in the same block → DENY": "DENY",
     "an error, then a true rule in a second matching block → ALLOW": "ALLOW",
-    "an error, then a true rule past the expression limit → DENY, reported as the error": "DENY"
+    "an error, then a true rule past the expression limit → DENY, reported as the error": "DENY",
+    "int division by a zero from the request → DENY": "DENY",
+    "int modulo by a zero from the request → DENY": "DENY",
+    "two erroring operands of == → DENY, reported as the left one": "DENY",
+    "two erroring list elements → DENY, reported as the first": "DENY",
+    "an erroring element and collection of in → DENY, reported as the collection": "DENY",
+    "two erroring method arguments → DENY, reported as the first": "DENY",
+    "an erroring receiver and argument → DENY, reported as the receiver": "DENY",
+    "an error, then an operand past the expression limit in the same expression → DENY at the limit": "DENY"
   },
   "diagnostics": {
     "!(error && false) → absorbed to false, negated → ALLOW": {
@@ -164,6 +172,118 @@
           "column": 25,
           "currentOffset": 5314,
           "endOffset": 5314
+        }
+      }
+    },
+    "int division by a zero from the request → DENY": {
+      "notes": [
+        "Error: storage.rules line [79], column [26]. Divide by zero error."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 79,
+          "column": 26,
+          "currentOffset": 5497,
+          "endOffset": 5497
+        }
+      }
+    },
+    "int modulo by a zero from the request → DENY": {
+      "notes": [
+        "Error: storage.rules line [82], column [26]. Divide by zero error."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 82,
+          "column": 26,
+          "currentOffset": 5604,
+          "endOffset": 5604
+        }
+      }
+    },
+    "two erroring operands of == → DENY, reported as the left one": {
+      "notes": [
+        "Error: storage.rules line [86], column [24]. Property missingA is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 86,
+          "column": 24,
+          "currentOffset": 5738,
+          "endOffset": 5744
+        }
+      }
+    },
+    "two erroring list elements → DENY, reported as the first": {
+      "notes": [
+        "Error: storage.rules line [89], column [25]. Property missingA is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 89,
+          "column": 25,
+          "currentOffset": 5861,
+          "endOffset": 5867
+        }
+      }
+    },
+    "an erroring element and collection of in → DENY, reported as the collection": {
+      "notes": [
+        "Error: storage.rules line [92], column [54]. Property missingB is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 92,
+          "column": 54,
+          "currentOffset": 6016,
+          "endOffset": 6022
+        }
+      }
+    },
+    "two erroring method arguments → DENY, reported as the first": {
+      "notes": [
+        "Error: storage.rules line [95], column [54]. Property missingA is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 95,
+          "column": 54,
+          "currentOffset": 6146,
+          "endOffset": 6152
+        }
+      }
+    },
+    "an erroring receiver and argument → DENY, reported as the receiver": {
+      "notes": [
+        "Error: storage.rules line [98], column [24]. Property missingA is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 98,
+          "column": 24,
+          "currentOffset": 6276,
+          "endOffset": 6282
+        }
+      }
+    },
+    "an error, then an operand past the expression limit in the same expression → DENY at the limit": {
+      "notes": [
+        "Error: storage.rules line [53], column [118]. Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 53,
+          "column": 118,
+          "currentOffset": 4232,
+          "endOffset": 4235
         }
       }
     }

@@ -14,10 +14,30 @@
  * and a limit reached after the error is reported as the earlier error (the
  * over-limit cases' diagnostics). The error generator for these cases is
  * `[1] + [2] == [1, 2]`, an unsupported `list + list`.
+ *
+ * Errors passed into functions and `let` bindings: production binds an
+ * argument or `let` value that errors and evaluates the function body. The
+ * error decides the verdict only where the body reads it, so a function that
+ * ignores the argument grants, also when the argument passes through a
+ * second call. The error generator for these cases is an int division by
+ * `request.resource.data.zero`, which is 0: "Divide by zero error.", for `%`
+ * too.
+ *
+ * Operands after an error: production evaluates every operand of a
+ * non-logical operator, list and map literal elements, and a method call's
+ * receiver and arguments after one errors, and reports the first error in
+ * evaluation order: the left operand of `==` and `+`, the first element, the
+ * receiver, then the first argument. `in` evaluates its collection before
+ * its element. The diagnostics name which of two missing fields was
+ * reported. A limit reached by an operand after the error, in the same
+ * expression, is reported as the limit.
  */
 import type { ScenarioRecord } from './types.ts';
 
 const LIST_PLUS_LIST = '[1] + [2] == [1, 2]';
+
+/** A zero the request carries, so the division errors at evaluation. */
+const ZERO = 'request.resource.data.zero';
 
 /**
  * `overLimit0()` is true and evaluates about 1220 expressions: ten functions
@@ -115,6 +135,74 @@ ${OVER_LIMIT_FUNCTIONS}
       allow create: if false;
       allow create: if overLimit0();
     }
+    // Errors passed into functions and let bindings.
+    function ignoresArg(a) { return true; }
+    function readsArg(a) { return a > 0; }
+    function passesToIgnoresArg(a) { return ignoresArg(a); }
+    function passesToReadsArg(a) { return readsArg(a); }
+    function readsSecondArg(a, b) { return b; }
+    function letUnread() { let x = 1 / ${ZERO}; return true; }
+    function letRead() { let x = 1 / ${ZERO}; return x > 0; }
+    match /argUnreadAllow/{id} {
+      allow create: if ignoresArg(1 / ${ZERO});
+    }
+    match /argReadDeny/{id} {
+      allow create: if readsArg(1 / ${ZERO});
+    }
+    match /argThroughTwoCallsUnreadAllow/{id} {
+      allow create: if passesToIgnoresArg(1 / ${ZERO});
+    }
+    match /argThroughTwoCallsReadDeny/{id} {
+      allow create: if passesToReadsArg(1 / ${ZERO});
+    }
+    match /argMissingFieldUnreadAllow/{id} {
+      allow create: if ignoresArg(request.resource.data.missing);
+    }
+    match /letUnreadAllow/{id} {
+      allow create: if letUnread();
+    }
+    match /letReadDeny/{id} {
+      allow create: if letRead();
+    }
+    // Division and modulo by a zero read from data.
+    match /divideByDataZeroDeny/{id} {
+      allow create: if request.resource.data.one / ${ZERO} == 1;
+    }
+    match /moduloByDataZeroDeny/{id} {
+      allow create: if request.resource.data.one % ${ZERO} == 1;
+    }
+    match /divideByDataZeroOrTrueAllow/{id} {
+      allow create: if request.resource.data.one / ${ZERO} == 1 || true;
+    }
+    // Which of two errors is reported.
+    match /firstErrorEq/{id} {
+      allow create: if request.resource.data.missingA == request.resource.data.missingB;
+    }
+    match /firstErrorPlus/{id} {
+      allow create: if request.resource.data.missingA + request.resource.data.missingB == 1;
+    }
+    match /firstErrorList/{id} {
+      allow create: if [request.resource.data.missingA, request.resource.data.missingB] == [];
+    }
+    match /firstErrorMap/{id} {
+      allow create: if {'a': request.resource.data.missingA, 'b': request.resource.data.missingB} == {};
+    }
+    match /firstErrorIn/{id} {
+      allow create: if request.resource.data.missingA in [request.resource.data.missingB];
+    }
+    match /firstErrorMethodArgs/{id} {
+      allow create: if request.resource.data.get(request.resource.data.missingA, request.resource.data.missingB) == 1;
+    }
+    match /firstErrorReceiver/{id} {
+      allow create: if request.resource.data.missingA.get(request.resource.data.missingB, 1) == 1;
+    }
+    match /firstErrorFunctionArgs/{id} {
+      allow create: if readsSecondArg(request.resource.data.missingA, request.resource.data.missingB);
+    }
+    // An operand past the limit after an error in the same expression.
+    match /errThenOperandOverLimitDeny/{id} {
+      allow create: if [request.resource.data.missing, overLimit0()] == [];
+    }
   }
 }`,
   cases: [
@@ -192,6 +280,34 @@ ${OVER_LIMIT_FUNCTIONS}
       path: `${collection}/d1`,
       auth: { uid: 'alice' },
       data: { present: 1 },
+    })),
+    ...([
+      ['argUnreadAllow', 'an erroring argument the function never reads → ALLOW', 'ALLOW'],
+      ['argReadDeny', 'an erroring argument the function reads → DENY', 'DENY'],
+      ['argThroughTwoCallsUnreadAllow', 'an erroring argument passed through two calls and never read → ALLOW', 'ALLOW'],
+      ['argThroughTwoCallsReadDeny', 'an erroring argument passed through two calls and read → DENY', 'DENY'],
+      ['argMissingFieldUnreadAllow', 'a missing-field argument the function never reads → ALLOW', 'ALLOW'],
+      ['letUnreadAllow', 'an erroring let the function never reads → ALLOW', 'ALLOW'],
+      ['letReadDeny', 'an erroring let the function reads → DENY', 'DENY'],
+      ['divideByDataZeroDeny', 'int division by a zero from data → DENY', 'DENY'],
+      ['moduloByDataZeroDeny', 'int modulo by a zero from data → DENY', 'DENY'],
+      ['divideByDataZeroOrTrueAllow', 'int division by a zero from data, || true → ALLOW', 'ALLOW'],
+      ['firstErrorEq', 'two erroring operands of == → DENY, reported as the left one', 'DENY'],
+      ['firstErrorPlus', 'two erroring operands of + → DENY, reported as the left one', 'DENY'],
+      ['firstErrorList', 'two erroring list elements → DENY, reported as the first', 'DENY'],
+      ['firstErrorMap', 'two erroring map values → DENY, reported as the first', 'DENY'],
+      ['firstErrorIn', 'an erroring element and collection of in → DENY, reported as the collection', 'DENY'],
+      ['firstErrorMethodArgs', 'two erroring method arguments → DENY, reported as the first', 'DENY'],
+      ['firstErrorReceiver', 'an erroring receiver and argument → DENY, reported as the receiver', 'DENY'],
+      ['firstErrorFunctionArgs', 'two erroring function arguments, the second read → DENY, reported as the second', 'DENY'],
+      ['errThenOperandOverLimitDeny', 'an error, then an operand past the expression limit in the same expression → DENY at the limit', 'DENY'],
+    ] as const).map(([collection, description, expectation]) => ({
+      description,
+      expectation,
+      method: 'create' as const,
+      path: `${collection}/d1`,
+      auth: { uid: 'alice' },
+      data: { present: 1, one: 1, zero: 0 },
     })),
   ],
   group: 'fix-class',

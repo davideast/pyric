@@ -909,10 +909,10 @@ describe('RULES-B5: int/float distinction + integer division', () => {
 
   // ── division / modulo by zero ──
   test('1 / 0 ERRORS (int div-by-zero denies, not Infinity)', () => {
-    expect(() => evaluate(binOp('/', lit(1), lit(0)), baseCtx())).toThrow(/[Dd]ivision by zero/);
+    expect(() => evaluate(binOp('/', lit(1), lit(0)), baseCtx())).toThrow('Divide by zero error.');
   });
   test('5 % 0 ERRORS (int modulo-by-zero denies)', () => {
-    expect(() => evaluate(binOp('%', lit(5), lit(0)), baseCtx())).toThrow(/[Mm]odulo by zero/);
+    expect(() => evaluate(binOp('%', lit(5), lit(0)), baseCtx())).toThrow('Divide by zero error.');
   });
   test('1.0 / 0.0 does NOT error (float ÷0 is IEEE)', () => {
     // Float division by zero is IEEE (±Infinity), not an error like int÷0.

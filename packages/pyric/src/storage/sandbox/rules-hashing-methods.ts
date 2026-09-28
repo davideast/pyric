@@ -3,7 +3,7 @@ import { Bytes } from '../../rules/simulator/wrappers/bytes.js';
 import type { EvalCtx } from './rules-evaluator.js';
 import { RuleEvalError, RuleUnsupportedError } from './rules-evaluation-error.js';
 import {
-  evalArguments,
+  evalNamespaceArguments,
   evalValueMethod,
   type MethodCall,
   type ReceiverMethods,
@@ -25,7 +25,7 @@ export function evalHashingNamespace(expr: MethodCall, ctx: EvalCtx): unknown {
     // A name outside the namespace is a compile-reject class: never absorbed.
     throw new RuleUnsupportedError(`unsupported method hashing.${expr.method}()`);
   }
-  const args = evalArguments(expr, ctx);
+  const args = evalNamespaceArguments(expr, ctx);
   if (isErr(args)) return args;
   if (args.length !== 1) {
     throw new RuleEvalError(`hashing.${expr.method}() expects a single string or bytes argument`);

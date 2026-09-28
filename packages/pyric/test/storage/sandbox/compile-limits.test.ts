@@ -24,7 +24,7 @@ function rejection(source: string): string {
 describe('Storage evaluator: production compile limits', () => {
   test('the capture holds the rejected shapes and the 21-function control', () => {
     const shapes = new Set(probes.filter((p) => !p.compiles).map((p) => p.shape));
-    expect([...shapes].sort()).toEqual(['and-nesting', 'call-depth', 'call-depth-uncalled', 'let-count', 'list-nesting', 'paren-nesting']);
+    expect([...shapes].sort()).toEqual(['and-nesting', 'call-depth', 'call-depth-uncalled', 'let-count', 'list-nesting', 'paren-nesting', 'slash-divisor']);
     expect(probes.some((p) => p.shape === 'call-depth' && p.n === 21 && p.compiles && !p.range)).toBe(true);
   });
 
@@ -32,9 +32,10 @@ describe('Storage evaluator: production compile limits', () => {
     test(`${probe.label}: parseStorageRules and the install step reject it with production's errors`, () => {
       const message = rejection(probe.source);
       expect(message.startsWith('Storage rules do not compile: ')).toBe(true);
-      // Each production error appears as many times as production reports it.
-      for (const error of new Set(probe.errors)) {
-        expect(message.split(error).length - 1).toBe(probe.errors.filter((e) => e === error).length);
+      // Each modeled production error appears as many times as production reports it.
+      const errors = probe.modeledErrors;
+      for (const error of new Set(errors)) {
+        expect(message.split(error).length - 1).toBe(errors.filter((e) => e === error).length);
       }
       expect(() => compileStorageRules(probe.source)).toThrow(probe.errors[0]!);
     });

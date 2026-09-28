@@ -25,7 +25,7 @@ import { Timestamp } from './wrappers/timestamp.js';
 import { Bytes } from './wrappers/bytes.js';
 import { Path } from './wrappers/path.js';
 import { RulesFloat } from './wrappers/float.js';
-import { EvalError, ResourceLimitError } from './eval-error.js';
+import { DIVIDE_BY_ZERO_MESSAGE, EvalError, ResourceLimitError } from './eval-error.js';
 import { UnsupportedError } from './unsupported-error.js';
 
 export { EvalError, EvalError as RuleEvalError } from './eval-error.js';
@@ -154,8 +154,7 @@ function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<st
     }
 
     case 'bracketAccess': {
-      const obj = evaluate(expr.object, ctx, scope);
-      const idx = evaluate(expr.index, ctx, scope);
+      const [obj, idx] = evaluateOperands([expr.object, expr.index], ctx, scope);
       // RULES-B2: index/key access on null/undefined errors in production
       // (no CEL index overload for null), absorbed by &&/|| where guarded.
       if (obj === null || obj === undefined) {
@@ -186,9 +185,7 @@ function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<st
       // substring, `end` exclusive. Indices must be integers, and the bounds
       // follow production's checks in `slice-bounds.ts`, shared with the
       // Storage evaluator.
-      const obj = evaluate(expr.object, ctx, scope);
-      const start = evaluate(expr.start, ctx, scope);
-      const end = evaluate(expr.end, ctx, scope);
+      const [obj, start, end] = evaluateOperands([expr.object, expr.start, expr.end], ctx, scope);
       if (obj === null || obj === undefined) return null;
       if (typeof start !== 'number' || !Number.isInteger(start)) {
         throw new EvalError(`Slice start must be an integer, got ${typeof start}`);
@@ -207,9 +204,10 @@ function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<st
     case 'inExpr': {
       // List and set elements under Rules value equality, own map keys only,
       // and production's errors for any other operand (`membership.ts`,
-      // shared with the Storage evaluator).
-      const element = evaluate(expr.element, ctx, scope);
-      const collection = evaluate(expr.collection, ctx, scope);
+      // shared with the Storage evaluator). Production evaluates the
+      // collection before the element: when both error, the collection's
+      // error is the result.
+      const [collection, element] = evaluateOperands([expr.collection, expr.element], ctx, scope);
       const result = membership(element, collection, rulesValuesEqual);
       if (result instanceof MembershipFailure) throw new EvalError(result.message, expr);
       return result;
@@ -255,14 +253,12 @@ function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<st
     }
 
     case 'listLiteral':
-      return expr.elements.map(e => evaluate(e, ctx, scope));
+      return evaluateOperands(expr.elements, ctx, scope);
 
     case 'mapLiteral': {
+      const values = evaluateOperands(expr.entries.flatMap((entry) => [entry.key, entry.value]), ctx, scope);
       const map: Record<string, unknown> = {};
-      for (const entry of expr.entries) {
-        const key = String(evaluate(entry.key, ctx, scope));
-        map[key] = evaluate(entry.value, ctx, scope);
-      }
+      for (let i = 0; i < values.length; i += 2) map[String(values[i])] = values[i + 1];
       return map;
     }
 
@@ -284,15 +280,22 @@ function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<st
       // Item 5.4: returns Path wrapper instead of raw string so `is path`
       // works. get/exists already String()-coerce, so resolveGet/Exists
       // see the same '/foo/bar' shape via Path.toString().
+      // Every embedded expression evaluates when an earlier one errors.
       const parts: string[] = [];
+      let error: EvalError | undefined;
       for (const seg of expr.segments) {
         if (typeof seg === 'string') {
           ctx.expressionBudget?.pathSegment();
           parts.push(seg);
         } else {
-          parts.push(String(evaluate(seg, ctx, scope)));
+          try {
+            parts.push(String(evaluate(seg, ctx, scope)));
+          } catch (e) {
+            error = firstError(error, e);
+          }
         }
       }
+      if (error) throw error;
       return new Path(parts);
     }
 
@@ -304,8 +307,13 @@ function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<st
 // ═══ Identifier resolution ═══
 
 export function resolveIdentifier(name: string, ctx: SimulationContext, scope: Record<string, unknown>): unknown {
-  // Local scope first (let bindings, function parameters)
-  if (name in scope) return scope[name];
+  // Local scope first (let bindings, function parameters). A binding whose
+  // value errored holds that error, which decides only where it is read.
+  if (name in scope) {
+    const value = scope[name];
+    if (value instanceof EvalError) throw value;
+    return value;
+  }
 
   // Path variables
   if (name in ctx.pathVariables) return ctx.pathVariables[name];
@@ -334,6 +342,67 @@ export function resolveIdentifier(name: string, ctx: SimulationContext, scope: R
 export function isKnownGlobal(name: string): boolean {
   return name === 'request' || name === 'resource'
     || name === 'true' || name === 'false' || name === 'null';
+}
+
+// ═══ Error values ═══
+
+/**
+ * True for an evaluation error production treats as a CEL error value: it
+ * flows through operands and bindings and decides the verdict only where it
+ * is used. A per-request resource limit ends the request at once, and a
+ * simulator gap abstains at once, so neither is a value.
+ */
+export function isErrorValue(e: unknown): e is EvalError {
+  return e instanceof EvalError && !(e instanceof ResourceLimitError) && !(e instanceof UnsupportedError);
+}
+
+/** `e` as an error value, rethrowing anything that is not one. */
+function asErrorValue(e: unknown): EvalError {
+  if (isErrorValue(e)) return e;
+  throw e;
+}
+
+/**
+ * The first of an operand list's errors once `e` is thrown: `first` when an
+ * earlier operand errored, else `e`. A resource limit or simulator gap in `e`
+ * is rethrown even after an earlier error.
+ */
+function firstError(first: EvalError | undefined, e: unknown): EvalError {
+  const value = asErrorValue(e);
+  return first ?? value;
+}
+
+/**
+ * Evaluate every operand in order and return their values. Production goes on
+ * evaluating the operands of a non-logical operator, a literal's elements,
+ * and a call's receiver and arguments after one errors, and counts them
+ * toward the expression limit; the result is then the first error.
+ */
+export function evaluateOperands(exprs: readonly Expression[], ctx: SimulationContext, scope: Record<string, unknown>): unknown[] {
+  const values = new Array<unknown>(exprs.length);
+  let error: EvalError | undefined;
+  for (let i = 0; i < exprs.length; i++) {
+    try {
+      values[i] = evaluate(exprs[i]!, ctx, scope);
+    } catch (e) {
+      error = firstError(error, e);
+    }
+  }
+  if (error) throw error;
+  return values;
+}
+
+/**
+ * The value a function parameter or `let` binding holds: the evaluated value,
+ * or the error value it evaluated to. Production binds the error and runs the
+ * function body; reading the binding raises it (see `resolveIdentifier`).
+ */
+export function evaluateBinding(expr: Expression, ctx: SimulationContext, scope: Record<string, unknown>): unknown {
+  try {
+    return evaluate(expr, ctx, scope);
+  } catch (e) {
+    return asErrorValue(e);
+  }
 }
 
 // ═══ Binary operations with short-circuit ═══
@@ -391,8 +460,20 @@ function evaluateBinaryOp(
   if (op === '&&') return evaluateShortCircuitOp(false, left, right, ctx, scope);
   if (op === '||') return evaluateShortCircuitOp(true, left, right, ctx, scope);
 
-  const lv = evaluate(left, ctx, scope);
-  const rv = evaluate(right, ctx, scope);
+  // Both operands evaluate, and count, when the left one errors; the left
+  // error is the result.
+  let lv: unknown, rv: unknown, error: EvalError | undefined;
+  try {
+    lv = evaluate(left, ctx, scope);
+  } catch (e) {
+    error = asErrorValue(e);
+  }
+  try {
+    rv = evaluate(right, ctx, scope);
+  } catch (e) {
+    error = firstError(error, e);
+  }
+  if (error) throw error;
 
   // Wrapper-aware binary op dispatch (Item 0.B hook 4). Cross-type
   // arithmetic like `Timestamp + Duration → Timestamp` and lexicographic
@@ -489,13 +570,14 @@ function evaluateBinaryOp(
       // divisor (it does NOT yield ±Infinity the way JS / float division does).
       // The EvalError propagates via the tri-state so the rule DENYs.
       if ((rv as number) === 0) {
-        throw new EvalError('Division by zero');
+        throw new EvalError(DIVIDE_BY_ZERO_MESSAGE);
       }
       return Math.trunc((lv as number) / (rv as number));
     case '%':
-      // CEL INT64 modulo likewise errors on a zero divisor (JS would give NaN).
+      // CEL INT64 modulo likewise errors on a zero divisor (JS would give
+      // NaN), with the same message as division.
       if ((rv as number) === 0) {
-        throw new EvalError('Modulo by zero');
+        throw new EvalError(DIVIDE_BY_ZERO_MESSAGE);
       }
       return (lv as number) % (rv as number);
     default: throw new EvalError(`Unknown binary op: ${op}`);

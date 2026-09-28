@@ -144,6 +144,7 @@
         "bool-function",
         "common-auth-membership",
         "conversion-functions",
+        "error-absorption-and-direction",
         "firestore-lookup",
         "float-modulo-unary-minus",
         "function-scopes-and-shadowing",
@@ -253,6 +254,7 @@
       "verifiedBy": [
         "bool-function",
         "conversion-functions",
+        "error-absorption-and-direction",
         "float-modulo-unary-minus",
         "function-scopes-and-shadowing",
         "functions-let-scope",
@@ -281,6 +283,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "conversion-functions",
+        "error-absorption-and-direction",
         "float-modulo-unary-minus",
         "functions-let-scope",
         "metadata-verbs-and-arithmetic",
@@ -332,6 +335,7 @@
       "verifiedBy": [
         "bool-function",
         "conversion-functions",
+        "error-absorption-and-direction",
         "in-membership-and-proto-keys",
         "metadata-verbs-and-arithmetic",
         "stdlib-sets-and-mapdiff",
@@ -1284,6 +1288,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "arithmetic-operand-types",
+        "math-namespace",
         "metadata-verbs-and-arithmetic",
         "stdlib-timestamp-duration"
       ],
@@ -1330,6 +1335,7 @@
         "conversion-functions",
         "error-absorption-and-direction",
         "float-modulo-unary-minus",
+        "functions-let-scope",
         "metadata-verbs-and-arithmetic"
       ],
       "verifiedByRows": [
@@ -1456,6 +1462,7 @@
         "bool-function",
         "common-auth-membership",
         "conversion-functions",
+        "error-absorption-and-direction",
         "firestore-lookup",
         "firestore-lookup-budget",
         "float-modulo-unary-minus",
@@ -1718,6 +1725,7 @@
         "bytes-literal",
         "common-auth-membership",
         "conversion-functions",
+        "error-absorption-and-direction",
         "firestore-lookup",
         "firestore-lookup-budget",
         "float-modulo-unary-minus",

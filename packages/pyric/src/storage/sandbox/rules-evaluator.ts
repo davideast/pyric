@@ -273,11 +273,10 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       return readProperty(t, expr.name);
     }
     case 'index': {
-      const t = evalExpr(expr.target, ctx);
-      if (isErr(t)) return t;
+      const operands = evalOperands([expr.target, expr.index], ctx);
+      if (isErr(operands)) return operands;
+      const [t, idx] = operands;
       if (t === null || t === undefined) return new RuleError(`Null value error.`);
-      const idx = evalExpr(expr.index, ctx);
-      if (isErr(idx)) return idx;
       return readProperty(t, String(idx));
     }
     case 'call':
@@ -330,11 +329,12 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
     case 'in': {
       // List and set elements under Rules value equality, own map keys only,
       // and production's errors for any other operand (`membership.ts`,
-      // shared with the Firestore simulator).
-      const el = evalExpr(expr.element, ctx);
-      if (isErr(el)) return el;
-      const coll = evalExpr(expr.collection, ctx);
-      if (isErr(coll)) return coll;
+      // shared with the Firestore simulator). Production evaluates the
+      // collection before the element: when both error, the collection's
+      // error is the result.
+      const operands = evalOperands([expr.collection, expr.element], ctx);
+      if (isErr(operands)) return operands;
+      const [coll, el] = operands;
       const result = membership(el, coll, rulesEquals);
       return result instanceof MembershipFailure ? new RuleError(result.message) : result;
     }
@@ -343,34 +343,23 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       if (isErr(v)) return v;
       return typeMatches(v, expr.typeName);
     }
-    case 'list': {
-      const out: unknown[] = [];
-      for (const el of expr.elements) {
-        const v = evalExpr(el, ctx);
-        if (isErr(v)) return v;
-        out.push(v);
-      }
-      return out;
-    }
+    case 'list':
+      return evalOperands(expr.elements, ctx);
     case 'map': {
+      const values = evalOperands(expr.entries.flatMap((entry) => [entry.key, entry.value]), ctx);
+      if (isErr(values)) return values;
       const out: Record<string, unknown> = {};
-      for (const entry of expr.entries) {
-        const k = evalExpr(entry.key, ctx);
-        if (isErr(k)) return k;
+      for (let i = 0; i < values.length; i += 2) {
+        const k = values[i];
         if (typeof k !== 'string') return new RuleError(`Map literal key is ${describeType(k)} (expected a string).`);
-        const v = evalExpr(entry.value, ctx);
-        if (isErr(v)) return v;
-        out[k] = v;
+        out[k] = values[i + 1];
       }
       return out;
     }
     case 'slice': {
-      const t = evalExpr(expr.target, ctx);
-      if (isErr(t)) return t;
-      const start = evalExpr(expr.start, ctx);
-      if (isErr(start)) return start;
-      const end = evalExpr(expr.end, ctx);
-      if (isErr(end)) return end;
+      const operands = evalOperands([expr.target, expr.start, expr.end], ctx);
+      if (isErr(operands)) return operands;
+      const [t, start, end] = operands;
       if (typeof start !== 'number' || typeof end !== 'number' || !Number.isInteger(start) || !Number.isInteger(end)) {
         return new RuleError(`Slice bounds must be integers.`);
       }
@@ -391,10 +380,11 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       // for &&, true for ||. Both are evaluated by the one helper below.
       if (expr.op === '&&') return evalAbsorbingOperator(expr.left, expr.right, false, ctx);
       if (expr.op === '||') return evalAbsorbingOperator(expr.left, expr.right, true, ctx);
-      const l = evalExpr(expr.left, ctx);
-      if (isErr(l)) return l;
-      const r = evalExpr(expr.right, ctx);
-      if (isErr(r)) return r;
+      // Both operands evaluate, and count, when the left one errors; the
+      // left error is the result.
+      const operands = evalOperands([expr.left, expr.right], ctx);
+      if (isErr(operands)) return operands;
+      const [l, r] = operands;
       // Timestamp, Duration, and Bytes operands own their comparison and
       // arithmetic operators; equality stays with rulesEquals below.
       if (expr.op !== '==' && expr.op !== '!=' && (isValueTypeOperand(l) || isValueTypeOperand(r))) {
@@ -467,18 +457,44 @@ function evalAbsorbingOperator(
  *     an absorbable error value, never a truthy/falsy coercion.
  */
 function evalLogicalOperand(expr: Expr, ctx: EvalCtx): boolean | RuleError {
-  let v: unknown;
-  try {
-    v = evalExpr(expr, ctx);
-  } catch (err) {
-    if (isAbsorbableEvalError(err)) return new RuleError(err.message);
-    throw err;
-  }
+  const v = evalOperand(expr, ctx);
   if (isErr(v)) return v;
   if (typeof v !== 'boolean') {
     return new RuleError(`Expected a boolean '&&'/'||' operand, got ${describeType(v)}.`);
   }
   return v;
+}
+
+/**
+ * Evaluate one operand to a value or an error value. A thrown ABSORBABLE
+ * {@link RuleEvalError} becomes a {@link RuleError} value; an unsupported
+ * construct or a resource limit re-throws and fails the evaluation closed.
+ */
+export function evalOperand(expr: Expr, ctx: EvalCtx): unknown {
+  try {
+    return evalExpr(expr, ctx);
+  } catch (err) {
+    if (isAbsorbableEvalError(err)) return new RuleError(err.message);
+    throw err;
+  }
+}
+
+/**
+ * Evaluate every operand in order: the values, or the first error value.
+ * Production goes on evaluating the operands of a non-logical operator, a
+ * literal's elements, and a call's receiver and arguments after one errors,
+ * and counts them toward the expression limit; the result is the first
+ * error.
+ */
+export function evalOperands(exprs: readonly Expr[], ctx: EvalCtx): unknown[] | RuleError {
+  const values: unknown[] = [];
+  let error: RuleError | undefined;
+  for (const expr of exprs) {
+    const value = evalOperand(expr, ctx);
+    if (isErr(value)) error ??= value;
+    values.push(value);
+  }
+  return error ?? values;
 }
 
 /**
@@ -508,8 +524,10 @@ function evalCall(expr: Extract<Expr, { kind: 'call' }>, ctx: EvalCtx): unknown 
   // No call depth guard: `parseStorageRules` rejects a chain over
   // production's compile limit and any recursive call, so the depth of a
   // call here is bounded (`rules/grammar/compile-limits.ts`).
-  // Arguments: caller context.
-  const argVals = expr.args.map((a) => evalExpr(a, ctx));
+  // Arguments: caller context. Every argument evaluates; one that errors
+  // binds its error value, which decides the call only if the body reads
+  // that parameter.
+  const argVals = expr.args.map((a) => evalOperand(a, ctx));
   const locals: Record<string, unknown> = {};
   fn.params.forEach((p, i) => {
     locals[p] = argVals[i];
@@ -525,10 +543,11 @@ function evalCall(expr: Extract<Expr, { kind: 'call' }>, ctx: EvalCtx): unknown 
     expressionBudget: ctx.expressionBudget,
   };
   // `let` bindings evaluated in order; each is visible to the next and
-  // to the return expression (they share the `locals` object).
+  // to the return expression (they share the `locals` object). A binding
+  // whose value errors holds the error, as a parameter does.
   for (const b of fn.lets) {
     bodyCtx.expressionBudget?.letBinding();
-    locals[b.name] = evalExpr(b.value, bodyCtx);
+    locals[b.name] = evalOperand(b.value, bodyCtx);
   }
   return evalExpr(fn.body, bodyCtx);
 }
@@ -544,12 +563,8 @@ function evalGlobalCall(expr: Extract<Expr, { kind: 'call' }>, ctx: EvalCtx): un
   }
   const conversion = conversionFor(expr.name);
   if (!conversion) return new RuleError(`Function not found error: Name: [${expr.name}].`);
-  const args: unknown[] = [];
-  for (const arg of expr.args) {
-    const value = evalExpr(arg, ctx);
-    if (isErr(value)) return value;
-    args.push(value);
-  }
+  const args = evalOperands(expr.args, ctx);
+  if (isErr(args)) return args;
   const converted = applyConversion(conversion, args);
   return converted instanceof ConversionFailure ? new RuleError(converted.message) : converted;
 }

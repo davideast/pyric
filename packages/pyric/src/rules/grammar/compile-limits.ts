@@ -30,6 +30,12 @@
  * scope (the global list, the service list, or one match block's list) is
  * rejected with "Function f is already defined.", in Firestore and Storage.
  * A nested match block function that shadows an outer one compiles.
+ *
+ * And a `/` directly followed by a character other than whitespace is read
+ * by production as the start of a path, so `(1/0)` and `a/b` are rejected
+ * with "Missing 'match' keyword before path." while `1 / 0` compiles and
+ * errors at evaluation with "Divide by zero error." (the `slash-divisor`
+ * probes, identical for Firestore and Storage).
  */
 import type { Expression, FirestoreRules, FunctionDef, MatchBlock } from './FirestoreAST.js';
 import { parenthesizedGroups } from './paren-groups.js';
@@ -49,6 +55,7 @@ export const NESTING_LEVEL_LIMIT = 99;
 
 export const LET_LIMIT_MESSAGE = 'Maximum allowed variable count of 10 for a given function has been reached.';
 export const NESTING_MESSAGE = 'Expression is too complex to evaluate safely.';
+export const SLASH_STARTS_PATH_MESSAGE = "Missing 'match' keyword before path.";
 
 /** Production's call depth message for a stack of {@link CALL_DEPTH_LIMIT} function names. */
 export function callDepthMessage(stack: readonly string[]): string {
@@ -60,7 +67,7 @@ export function duplicateFunctionMessage(name: string): string {
   return `Function ${name} is already defined.`;
 }
 
-export type CompileLimitCode = 'CALL_DEPTH' | 'LET_LIMIT' | 'NESTING_DEPTH' | 'FUNCTION_REDEFINED';
+export type CompileLimitCode = 'CALL_DEPTH' | 'LET_LIMIT' | 'NESTING_DEPTH' | 'FUNCTION_REDEFINED' | 'SLASH_STARTS_PATH';
 
 /** One compile rejection, carrying production's message verbatim. */
 export interface CompileLimitViolation {
@@ -99,11 +106,18 @@ export function compileLimitViolations(ast: FirestoreRules): CompileLimitViolati
         functionName: fn.name,
       });
     }
-    for (const binding of fn.lets) pushNesting(out, binding.value, binding.loc?.line ?? fn.loc?.line, fn.name);
+    for (const binding of fn.lets) {
+      pushNesting(out, binding.value, binding.loc?.line ?? fn.loc?.line, fn.name);
+      pushSlashPaths(out, binding.value, binding.loc?.line ?? fn.loc?.line, fn.name);
+    }
     pushNesting(out, fn.body, fn.loc?.line, fn.name);
+    pushSlashPaths(out, fn.body, fn.returnLoc?.line ?? fn.loc?.line, fn.name);
   }
   const visitRules = (match: MatchBlock) => {
-    for (const rule of match.allows) pushNesting(out, rule.condition, rule.loc?.line);
+    for (const rule of match.allows) {
+      pushNesting(out, rule.condition, rule.loc?.line);
+      pushSlashPaths(out, rule.condition, rule.loc?.line);
+    }
     for (const child of match.children) visitRules(child);
   };
   visitRules(ast.service.match);
@@ -158,6 +172,33 @@ function pushNesting(out: CompileLimitViolation[], expr: Expression, line: numbe
       ...(functionName === undefined ? {} : { functionName }),
     });
   }
+}
+
+// ── A slash that starts a path ──────────────────────────────────────────
+
+/**
+ * One rejection per `/` operator that a character other than whitespace
+ * directly follows, reported on the line of the statement that holds it.
+ *
+ * Production reads a slash followed by a path segment as the start of a
+ * path, not as division, wherever it sits: `4/2`, `(1/0)`, `a/b`, `4/(2)`
+ * and `4/-2` are rejected with "Missing 'match' keyword before path.",
+ * while `4 / 2` and `4/ 2` compile and divide (the capture's
+ * `slash-divisor` shape). The rejection lists further issues from
+ * production's parser recovery, which depend on the token after the path,
+ * such as "Unexpected '/0'." and "mismatched input ')' expecting {'{', '/',
+ * PATH_SEGMENT}"; only the first issue is reported here.
+ */
+function pushSlashPaths(out: CompileLimitViolation[], expr: Expression, line: number | undefined, functionName?: string): void {
+  if (expr.type === 'binaryOp' && expr.slashStartsPath) {
+    out.push({
+      code: 'SLASH_STARTS_PATH',
+      message: SLASH_STARTS_PATH_MESSAGE,
+      ...(line === undefined ? {} : { line }),
+      ...(functionName === undefined ? {} : { functionName }),
+    });
+  }
+  for (const child of children(expr)) pushSlashPaths(out, child, line, functionName);
 }
 
 // ── Nesting ─────────────────────────────────────────────────────────────

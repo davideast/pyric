@@ -18,7 +18,11 @@
  *    branch (measured on the chess promotion and the reversi rows; the
  *    ladder measured only the true branch);
  *  - a path literal costs 1 more per literal segment;
- *  - a `let` binding costs 1 plus its value, on every call.
+ *  - a `let` binding costs 1 plus its value, on every call;
+ *  - an operand that errors does not stop the expression around it: the
+ *    other operands, elements, receiver and arguments evaluate and count;
+ *  - a namespace call (`math.pow()`) costs 1 more than a method call on a
+ *    value, charged once its arguments evaluate without an error.
  *
  * The evaluators charge through the named methods below, so the unit lives
  * here once. The budget does not format or record expressions; it only

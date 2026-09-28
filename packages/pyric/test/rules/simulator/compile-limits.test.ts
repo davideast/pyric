@@ -35,14 +35,14 @@ function compileError(source: string): RulesCompileError {
 describe('Firestore simulator: production compile limits', () => {
   test('the capture holds the rejected shapes and the 21-function control', () => {
     const shapes = new Set(probes.filter((p) => !p.compiles).map((p) => p.shape));
-    expect([...shapes].sort()).toEqual(['and-nesting', 'call-depth', 'call-depth-uncalled', 'call-nesting', 'index-chain', 'let-count', 'list-nesting', 'map-nesting', 'paren-literal', 'paren-nesting']);
+    expect([...shapes].sort()).toEqual(['and-nesting', 'call-depth', 'call-depth-uncalled', 'call-nesting', 'index-chain', 'let-count', 'list-nesting', 'map-nesting', 'paren-literal', 'paren-nesting', 'slash-divisor']);
     expect(probes.some((p) => p.shape === 'call-depth' && p.n === 21 && p.compiles && !p.range)).toBe(true);
   });
 
   for (const probe of probes.filter((p) => !p.compiles)) {
     test(`${probe.label}: firestoreRules throws with production's errors`, () => {
       const error = compileError(probe.source);
-      expect(error.issues.map((i) => i.message)).toEqual(probe.errors);
+      expect(error.issues.map((i) => i.message)).toEqual(probe.modeledErrors);
       expect(error.issues.every((i) => i.severity === 'error' && i.origin === 'parse')).toBe(true);
     });
 

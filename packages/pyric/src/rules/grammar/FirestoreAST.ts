@@ -91,7 +91,12 @@ export type Expression =
   | { type: 'methodCall'; object: Expression; method: string; args: Expression[]; loc?: SourceLoc }
   | { type: 'bracketAccess'; object: Expression; index: Expression; loc?: SourceLoc }
   | { type: 'sliceAccess'; object: Expression; start: Expression; end: Expression; loc?: SourceLoc }
-  | { type: 'binaryOp'; op: string; left: Expression; right: Expression; loc?: SourceLoc }
+  | {
+    type: 'binaryOp'; op: string; left: Expression; right: Expression; loc?: SourceLoc;
+    /** Set on a `/` directly followed by a character other than whitespace,
+     *  which production reads as the start of a path (see compile-limits). */
+    slashStartsPath?: true;
+  }
   | { type: 'unaryOp'; op: string; operand: Expression; loc?: SourceLoc }
   | { type: 'ternary'; condition: Expression; consequent: Expression; alternate: Expression; loc?: SourceLoc }
   | { type: 'inExpr'; element: Expression; collection: Expression; loc?: SourceLoc }

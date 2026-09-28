@@ -231,7 +231,12 @@ semantics.addOperation<any>('toAST', {
     return { type: 'binaryOp', op: '*', left: left.toAST(), right: right.toAST() };
   },
   Multiplicative_div(left, _op, right) {
-    return { type: 'binaryOp', op: '/', left: left.toAST(), right: right.toAST() };
+    const source = _op.source as any;
+    const next: string = source.sourceString.charAt(source.endIdx);
+    return {
+      type: 'binaryOp', op: '/', left: left.toAST(), right: right.toAST(),
+      ...(/\s/.test(next) ? {} : { slashStartsPath: true }),
+    };
   },
   Multiplicative_mod(left, _op, right) {
     return { type: 'binaryOp', op: '%', left: left.toAST(), right: right.toAST() };

@@ -1516,6 +1516,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "error-absorption-and-or",
         "map-get-string-and-list-form"
       ],
       "verifiedByRows": [],
@@ -2382,7 +2383,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "cross-type-operator-overloads"
+        "cross-type-operator-overloads",
+        "time-math-and-casts"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -2417,6 +2419,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "error-absorption-and-or",
         "int-float-and-division",
         "time-math-and-casts"
       ],
@@ -2437,6 +2440,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "error-absorption-and-or",
         "int-float-and-division"
       ],
       "verifiedByRows": [],
@@ -2578,6 +2582,7 @@
       "verifiedBy": [
         "bytes-toutf8-and-hashing",
         "common-auth-membership-firestore",
+        "error-absorption-and-or",
         "functions-verbs-and-recursive",
         "prototype-chain-keys",
         "set-algebra-difference-union-intersection",
@@ -2971,6 +2976,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "error-absorption-and-or",
         "functions-verbs-and-recursive"
       ],
       "verifiedByRows": [],

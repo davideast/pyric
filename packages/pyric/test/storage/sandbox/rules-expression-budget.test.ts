@@ -131,8 +131,9 @@ service firebase.storage {
       allow read: if true;
     }`);
     expect(r.allowed).toBe(true);
-    // == (1), / (1), 1 (1), 0 (1): the error stops the == before its right operand.
-    expect(r.evaluatedExpressions).toBe(4 + 1);
+    // == (1), / (1), 1 (1), 0 (1), and the right operand 0 (1): production
+    // evaluates the right operand of == after the left one errors.
+    expect(r.evaluatedExpressions).toBe(5 + 1);
   });
 
   it('reports a limit reached after an earlier rule raised an error as that error', () => {
@@ -144,7 +145,7 @@ service firebase.storage {
     expect(r.allowed).toBe(false);
     expect(r.evaluatedExpressions).toBe(EXPRESSION_LIMIT);
     expect(r.resourceLimit).toBeUndefined();
-    expect(r.reasons[0]).toContain('Division by zero');
+    expect(r.reasons[0]).toContain('Divide by zero error.');
     expect(r.reasons.some((reason) => reason.includes(EXPRESSION_LIMIT_MESSAGE) && reason.includes('earlier'))).toBe(true);
   });
 

@@ -5,7 +5,7 @@
     "storage-rules#104"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"functions-let-scope\" (STORAGE-FUNC). User-defined functions with let bindings, functions calling functions, and a match-block-scoped helper — the evaluator surface #96/#104 wrongly call unsupported.",
-  "observedAt": "2026-09-27T23:26:46.543Z",
+  "observedAt": "2026-09-28T03:39:08.882Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "behavior": {
@@ -15,7 +15,14 @@
     "block-scoped helper tooBig(): small file allowed": "ALLOW",
     "block-scoped helper tooBig(): large file denied": "DENY",
     "undefined function after a true || operand: allowed": "ALLOW",
-    "undefined function that decides the rule: denied": "DENY"
+    "undefined function that decides the rule: denied": "DENY",
+    "an erroring argument the function never reads: allowed": "ALLOW",
+    "an erroring argument the function reads: denied": "DENY",
+    "an erroring argument passed through two calls and never read: allowed": "ALLOW",
+    "an erroring argument passed through two calls and read: denied": "DENY",
+    "an argument calling a method an int lacks, never read: allowed": "ALLOW",
+    "an erroring let the function never reads: allowed": "ALLOW",
+    "an erroring let the function reads: denied": "DENY"
   },
   "diagnostics": {
     "let + nested calls: small png under 5MB": {
@@ -125,6 +132,113 @@
             "function": "notDeclared"
           }
         ]
+      }
+    },
+    "an erroring argument the function never reads: allowed": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 36,
+              "column": 24,
+              "currentOffset": 1177,
+              "endOffset": 1186
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "an erroring argument the function reads: denied": {
+      "notes": [
+        "Error: storage.rules line [39], column [35]. Divide by zero error."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 39,
+          "column": 35,
+          "currentOffset": 1286,
+          "endOffset": 1286
+        }
+      }
+    },
+    "an erroring argument passed through two calls and never read: allowed": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 42,
+              "column": 24,
+              "currentOffset": 1388,
+              "endOffset": 1405
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "an erroring argument passed through two calls and read: denied": {
+      "notes": [
+        "Error: storage.rules line [45], column [43]. Divide by zero error."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 45,
+          "column": 43,
+          "currentOffset": 1528,
+          "endOffset": 1528
+        }
+      }
+    },
+    "an argument calling a method an int lacks, never read: allowed": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "hours"
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 48,
+              "column": 24,
+              "currentOffset": 1626,
+              "endOffset": 1635
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "an erroring let the function never reads: allowed": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 51,
+              "column": 24,
+              "currentOffset": 1730,
+              "endOffset": 1738
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "an erroring let the function reads: denied": {
+      "notes": [
+        "Error: storage.rules line [34], column [36]. Divide by zero error."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 34,
+          "column": 36,
+          "currentOffset": 1081,
+          "endOffset": 1081
+        }
       }
     }
   }

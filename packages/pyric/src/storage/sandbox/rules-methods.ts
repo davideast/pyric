@@ -1,10 +1,10 @@
-import { evalExpr, type EvalCtx } from './rules-evaluator.js';
+import { evalOperand, type EvalCtx } from './rules-evaluator.js';
 import { RuleUnsupportedError } from './rules-evaluation-error.js';
 import { collectionMethods } from './rules-collection-methods.js';
 import { evalFirestoreBuiltin } from './rules-firestore-lookup.js';
 import { bytesMethods, evalHashingNamespace } from './rules-hashing-methods.js';
 import { evalMathNamespace } from './rules-math-methods.js';
-import type { MethodCall, NamespaceMethod, ReceiverMethod, ReceiverMethods } from './rules-method-calls.js';
+import { evalArguments, type MethodCall, type NamespaceMethod, type ReceiverMethod, type ReceiverMethods } from './rules-method-calls.js';
 import { stringMethods } from './rules-string-methods.js';
 import { evalDurationNamespace, evalTimestampNamespace, timeMethods } from './rules-time-methods.js';
 import { isRuleError as isErr } from './rules-values.js';
@@ -40,22 +40,23 @@ const RECEIVER_METHODS: ReadonlyMap<string, ReceiverMethod> = mergeReceiverMetho
  */
 export function evalMethodCall(expr: MethodCall, ctx: EvalCtx): unknown {
   const namespace = builtinNamespace(expr, ctx);
-  if (namespace !== undefined) {
-    // The namespace identifier is an evaluated node in production's unit,
-    // although it is not evaluated as a value.
-    ctx.expressionBudget?.node();
-    return namespace(expr, ctx);
-  }
+  // A namespace call charges the unit it costs beyond its arguments itself
+  // (`evalNamespaceArguments`).
+  if (namespace !== undefined) return namespace(expr, ctx);
 
   const method = RECEIVER_METHODS.get(expr.method);
   if (method === undefined) {
     throw new RuleUnsupportedError(`unsupported method .${expr.method}()`);
   }
-  const receiver = evalExpr(expr.target, ctx);
+  const receiver = evalOperand(expr.target, ctx);
   // `resource.name.matches(…)` on an object whose `name` is absent: the
   // receiver is already production's absent-property error. Propagate it
-  // (→ deny) rather than recasting it as a method-specific failure.
-  if (isErr(receiver)) return receiver;
+  // (→ deny) rather than recasting it as a method-specific failure, after
+  // evaluating the arguments, which production evaluates and counts too.
+  if (isErr(receiver)) {
+    evalArguments(expr, ctx);
+    return receiver;
+  }
   return method(receiver, expr, ctx);
 }
 

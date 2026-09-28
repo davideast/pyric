@@ -3,7 +3,8 @@
  * `time-math-and-casts` and the Storage corpus scenario `math-namespace`.
  * Production evaluates each condition the same way in both services.
  *
- * `math.abs()` keeps an int an int and a float a float. `math.ceil()` and
+ * `math.abs()` keeps an int an int and a float a float, and returns the int64
+ * minimum unchanged, since no positive int64 equals its magnitude. `math.ceil()` and
  * `math.floor()` return a float, for an int argument too. `math.round()`
  * rounds half up and returns an int, with NaN as 0 and infinities saturated.
  * `math.sqrt()` and `math.pow()` return a float and accept ints. `math.isNaN()`
@@ -19,6 +20,7 @@ export interface MathCase {
 }
 
 export const MATH_CASES: readonly MathCase[] = [
+  { key: 'mathAbsInt64Min', condition: 'math.abs(-9223372036854775807 - 1) < 0 && math.abs(-9223372036854775807 - 1) == -9223372036854775807 - 1', expectation: 'ALLOW' },
   { key: 'mathAbsKeepsType', condition: 'math.abs(-2) == 2 && math.abs(-2) is int && math.abs(1) is int && math.abs(-2.5) == 2.5 && math.abs(-2.5) is float && math.abs(-1.0) is float', expectation: 'ALLOW' },
   { key: 'mathCeilFloorFloat', condition: 'math.ceil(1.5) == 2 && math.ceil(1.5) is float && math.ceil(-1.5) == -1 && math.ceil(-0.5) == 0 && math.floor(-1.5) == -2 && math.floor(2.5) == 2 && math.floor(-0.5) == -1 && math.floor(1) is float && math.ceil(1) is float', expectation: 'ALLOW' },
   { key: 'mathCeilIsInt', condition: 'math.ceil(1.5) is int', expectation: 'DENY' },

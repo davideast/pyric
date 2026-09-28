@@ -5,10 +5,11 @@
     "storage-rules#124"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"math-namespace\" (STORAGE-MATH-NAMESPACE). Storage rules define the math namespace as Firestore does: abs keeps its type, ceil and floor return a float, round rounds half up to an int, sqrt and pow return a float, and a wrong argument type, a wrong argument count, or math.isInfinite() is an error value that || true absorbs.",
-  "observedAt": "2026-09-28T00:36:29.283Z",
+  "observedAt": "2026-09-28T03:39:09.818Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "behavior": {
+    "math.abs(-9223372036854775807 - 1) < 0 && math.abs(-9223372036854775807 - 1) == -9223372036854775807 - 1 → ALLOW": "ALLOW",
     "math.abs(-2) == 2 && math.abs(-2) is int && math.abs(1) is int && math.abs(-2.5) == 2.5 && math.abs(-2.5) is float && math.abs(-1.0) is float → ALLOW": "ALLOW",
     "math.ceil(1.5) == 2 && math.ceil(1.5) is float && math.ceil(-1.5) == -1 && math.ceil(-0.5) == 0 && math.floor(-1.5) == -2 && math.floor(2.5) == 2 && math.floor(-0.5) == -1 && math.floor(1) is float && math.ceil(1) is float → ALLOW": "ALLOW",
     "math.ceil(1.5) is int → DENY": "DENY",
@@ -33,15 +34,30 @@
     "!(math.isInfinite(1.0) && false) → ALLOW": "ALLOW"
   },
   "diagnostics": {
-    "math.abs(-2) == 2 && math.abs(-2) is int && math.abs(1) is int && math.abs(-2.5) == 2.5 && math.abs(-2.5) is float && math.abs(-1.0) is float → ALLOW": {
+    "math.abs(-9223372036854775807 - 1) < 0 && math.abs(-9223372036854775807 - 1) == -9223372036854775807 - 1 → ALLOW": {
       "api": {
         "visitedExpressions": [
           {
             "sourcePosition": {
               "line": 5,
               "column": 22,
-              "currentOffset": 132,
-              "endOffset": 135
+              "currentOffset": 131,
+              "endOffset": 134
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "math.abs(-2) == 2 && math.abs(-2) is int && math.abs(1) is int && math.abs(-2.5) == 2.5 && math.abs(-2.5) is float && math.abs(-1.0) is float → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 8,
+              "column": 22,
+              "currentOffset": 303,
+              "endOffset": 306
             },
             "value": true
           }
@@ -53,10 +69,10 @@
         "visitedExpressions": [
           {
             "sourcePosition": {
-              "line": 8,
+              "line": 11,
               "column": 22,
-              "currentOffset": 343,
-              "endOffset": 346
+              "currentOffset": 514,
+              "endOffset": 517
             },
             "value": true
           }
@@ -68,10 +84,10 @@
         "visitedExpressions": [
           {
             "sourcePosition": {
-              "line": 11,
+              "line": 14,
               "column": 22,
-              "currentOffset": 630,
-              "endOffset": 633
+              "currentOffset": 801,
+              "endOffset": 804
             },
             "value": false
           }
@@ -83,10 +99,10 @@
         "visitedExpressions": [
           {
             "sourcePosition": {
-              "line": 14,
+              "line": 17,
               "column": 22,
-              "currentOffset": 721,
-              "endOffset": 724
+              "currentOffset": 892,
+              "endOffset": 895
             },
             "value": true
           }
@@ -98,10 +114,10 @@
         "visitedExpressions": [
           {
             "sourcePosition": {
-              "line": 17,
+              "line": 20,
               "column": 22,
-              "currentOffset": 993,
-              "endOffset": 996
+              "currentOffset": 1164,
+              "endOffset": 1167
             },
             "value": false
           }
@@ -113,10 +129,10 @@
         "visitedExpressions": [
           {
             "sourcePosition": {
-              "line": 20,
+              "line": 23,
               "column": 22,
-              "currentOffset": 1083,
-              "endOffset": 1086
+              "currentOffset": 1254,
+              "endOffset": 1257
             },
             "value": false
           }
@@ -128,10 +144,10 @@
         "visitedExpressions": [
           {
             "sourcePosition": {
-              "line": 23,
+              "line": 26,
               "column": 22,
-              "currentOffset": 1179,
-              "endOffset": 1182
+              "currentOffset": 1350,
+              "endOffset": 1353
             },
             "value": true
           }
@@ -143,10 +159,10 @@
         "visitedExpressions": [
           {
             "sourcePosition": {
-              "line": 26,
+              "line": 29,
               "column": 22,
-              "currentOffset": 1312,
-              "endOffset": 1315
+              "currentOffset": 1483,
+              "endOffset": 1486
             },
             "value": true
           }
@@ -158,10 +174,10 @@
         "visitedExpressions": [
           {
             "sourcePosition": {
-              "line": 29,
+              "line": 32,
               "column": 22,
-              "currentOffset": 1576,
-              "endOffset": 1579
+              "currentOffset": 1747,
+              "endOffset": 1750
             },
             "value": true
           }
@@ -170,15 +186,15 @@
     },
     "!(math.abs('a') == 1) → DENY": {
       "notes": [
-        "Error: storage.rules line [32], column [29]. Unsupported operation error. Received: math.abs(string). Expected: math.abs(int), math.abs(float)."
+        "Error: storage.rules line [35], column [29]. Unsupported operation error. Received: math.abs(string). Expected: math.abs(int), math.abs(float)."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
-          "line": 32,
+          "line": 35,
           "column": 29,
-          "currentOffset": 1777,
-          "endOffset": 1779
+          "currentOffset": 1948,
+          "endOffset": 1950
         }
       }
     },
@@ -187,10 +203,10 @@
         "visitedExpressions": [
           {
             "sourcePosition": {
-              "line": 35,
+              "line": 38,
               "column": 22,
-              "currentOffset": 1862,
-              "endOffset": 1862
+              "currentOffset": 2033,
+              "endOffset": 2033
             },
             "value": true
           }
@@ -199,127 +215,127 @@
     },
     "!(math.abs(true) == 1) → DENY": {
       "notes": [
-        "Error: storage.rules line [38], column [29]. Unsupported operation error. Received: math.abs(bool). Expected: math.abs(int), math.abs(float)."
-      ],
-      "api": {
-        "errorPosition": {
-          "fileName": "storage.rules",
-          "line": 38,
-          "column": 29,
-          "currentOffset": 1960,
-          "endOffset": 1962
-        }
-      }
-    },
-    "!(math.abs(null) == 1) → DENY": {
-      "notes": [
-        "Error: storage.rules line [41], column [29]. Unsupported operation error. Received: math.abs(null). Expected: math.abs(int), math.abs(float)."
+        "Error: storage.rules line [41], column [29]. Unsupported operation error. Received: math.abs(bool). Expected: math.abs(int), math.abs(float)."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
           "line": 41,
           "column": 29,
-          "currentOffset": 2045,
-          "endOffset": 2047
+          "currentOffset": 2131,
+          "endOffset": 2133
         }
       }
     },
-    "!(math.ceil('a') == 1) → DENY": {
+    "!(math.abs(null) == 1) → DENY": {
       "notes": [
-        "Error: storage.rules line [44], column [29]. Unsupported operation error. Received: math.ceil(string). Expected: math.ceil(float)."
+        "Error: storage.rules line [44], column [29]. Unsupported operation error. Received: math.abs(null). Expected: math.abs(int), math.abs(float)."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
           "line": 44,
           "column": 29,
-          "currentOffset": 2133,
-          "endOffset": 2136
+          "currentOffset": 2216,
+          "endOffset": 2218
         }
       }
     },
-    "!(math.sqrt('a') == 1) → DENY": {
+    "!(math.ceil('a') == 1) → DENY": {
       "notes": [
-        "Error: storage.rules line [47], column [29]. Unsupported operation error. Received: math.sqrt(string). Expected: math.sqrt(float)."
+        "Error: storage.rules line [47], column [29]. Unsupported operation error. Received: math.ceil(string). Expected: math.ceil(float)."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
           "line": 47,
           "column": 29,
-          "currentOffset": 2221,
-          "endOffset": 2224
+          "currentOffset": 2304,
+          "endOffset": 2307
         }
       }
     },
-    "!(math.pow(2, 'a') == 1) → DENY": {
+    "!(math.sqrt('a') == 1) → DENY": {
       "notes": [
-        "Error: storage.rules line [50], column [29]. Unsupported operation error. Received: math.pow(int, string). Expected: math.pow(float, float)."
+        "Error: storage.rules line [50], column [29]. Unsupported operation error. Received: math.sqrt(string). Expected: math.sqrt(float)."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
           "line": 50,
           "column": 29,
-          "currentOffset": 2308,
-          "endOffset": 2310
+          "currentOffset": 2392,
+          "endOffset": 2395
         }
       }
     },
-    "!math.isNaN('a') → DENY": {
+    "!(math.pow(2, 'a') == 1) → DENY": {
       "notes": [
-        "Error: storage.rules line [53], column [28]. Unsupported operation error. Received: math.isNaN(string). Expected: math.isNaN(float)."
+        "Error: storage.rules line [53], column [29]. Unsupported operation error. Received: math.pow(int, string). Expected: math.pow(float, float)."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
           "line": 53,
-          "column": 28,
-          "currentOffset": 2398,
-          "endOffset": 2402
+          "column": 29,
+          "currentOffset": 2479,
+          "endOffset": 2481
         }
       }
     },
-    "!(math.abs(1, 2) == 1) → DENY": {
+    "!math.isNaN('a') → DENY": {
       "notes": [
-        "Error: storage.rules line [56], column [29]. Incorrect number of arguments. Received: 2. Expected: math.abs(int), math.abs(float)."
+        "Error: storage.rules line [56], column [28]. Unsupported operation error. Received: math.isNaN(string). Expected: math.isNaN(float)."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
           "line": 56,
-          "column": 29,
-          "currentOffset": 2481,
-          "endOffset": 2483
+          "column": 28,
+          "currentOffset": 2569,
+          "endOffset": 2573
         }
       }
     },
-    "!(math.sqrt() == 1) → DENY": {
+    "!(math.abs(1, 2) == 1) → DENY": {
       "notes": [
-        "Error: storage.rules line [59], column [29]. Incorrect number of arguments. Received: 0. Expected: math.sqrt(float)."
+        "Error: storage.rules line [59], column [29]. Incorrect number of arguments. Received: 2. Expected: math.abs(int), math.abs(float)."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
           "line": 59,
           "column": 29,
-          "currentOffset": 2569,
-          "endOffset": 2572
+          "currentOffset": 2652,
+          "endOffset": 2654
         }
       }
     },
-    "math.isInfinite(1.0) == false → DENY": {
+    "!(math.sqrt() == 1) → DENY": {
       "notes": [
-        "Error: storage.rules line [62], column [22]. Function not found error: Name: [math.isInfinite]."
+        "Error: storage.rules line [62], column [29]. Incorrect number of arguments. Received: 0. Expected: math.sqrt(float)."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
           "line": 62,
+          "column": 29,
+          "currentOffset": 2740,
+          "endOffset": 2743
+        }
+      }
+    },
+    "math.isInfinite(1.0) == false → DENY": {
+      "notes": [
+        "Error: storage.rules line [65], column [22]. Function not found error: Name: [math.isInfinite]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 65,
           "column": 22,
-          "currentOffset": 2647,
-          "endOffset": 2650
+          "currentOffset": 2818,
+          "endOffset": 2821
         },
         "functionCalls": [
           {
@@ -344,10 +360,10 @@
         "visitedExpressions": [
           {
             "sourcePosition": {
-              "line": 65,
+              "line": 68,
               "column": 22,
-              "currentOffset": 2748,
-              "endOffset": 2751
+              "currentOffset": 2919,
+              "endOffset": 2922
             },
             "value": true
           }
@@ -367,10 +383,10 @@
         "visitedExpressions": [
           {
             "sourcePosition": {
-              "line": 68,
+              "line": 71,
               "column": 22,
-              "currentOffset": 2850,
-              "endOffset": 2850
+              "currentOffset": 3021,
+              "endOffset": 3021
             },
             "value": true
           }
