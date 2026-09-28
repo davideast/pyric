@@ -81,6 +81,14 @@ describe('install', () => {
     expect(result.summary).toContain('Storage rules did not parse');
   });
 
+  it('states a parse failure that ends in a period without doubling it', () => {
+    const problem = STORAGE_RULES.parseFailure(
+      "rules_version = '2';\nservice firebase.storage { match /b/{bucket}/o { allow read: if true;",
+    );
+    expect(problem?.body).toEndWith('expected "}".');
+    expect(problem?.body).not.toContain('..');
+  });
+
   it('installs a parsed source', async () => {
     const result = await STORAGE_RULES.install(freshContext(), OPEN_RULES);
     expect(result.ok).toBe(true);

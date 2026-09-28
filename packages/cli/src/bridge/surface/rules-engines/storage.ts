@@ -6,6 +6,7 @@ import {
   replaceStorageRules,
   storageFirestoreLookup,
 } from 'pyric/storage/internal';
+import { asSentence } from 'pyric/sandbox/internal';
 import { operationFailure } from '../context.js';
 import { requestInstant } from '../request-instant.js';
 import { storageFor } from '../service-handles.js';
@@ -42,7 +43,7 @@ export const STORAGE_RULES: RulesEngine = {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {
-        body: `rules did not parse: ${message}.`,
+        body: asSentence(`rules did not parse: ${message}`),
         fix: "Fix the syntax, then call rules.set with service 'storage'.",
       };
     }

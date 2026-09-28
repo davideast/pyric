@@ -17,7 +17,11 @@
  * each denies as a bare comparison, denies through `!=`, and `|| true`
  * absorbs it. `list.concat(list)` is the documented way to join two lists.
  * Operands come from literals and from request data, so the pair is
- * evaluated at request time.
+ * evaluated at request time. string + timestamp (literal and
+ * `request.time`), timestamp + string, string + duration, duration + string,
+ * timestamp + timestamp, string + bytes, bytes + string, bytes + bytes,
+ * duration + int, and int + duration are error values too, each pinned as a
+ * bare condition, as a `!=` witness, and under `|| true`.
  */
 import type { ScenarioRecord } from './types.ts';
 
@@ -25,6 +29,8 @@ interface PlusOperandCase {
   key: string;
   condition: string;
   expectation: 'ALLOW' | 'DENY';
+  /** Pins `request.time`; the Rules Test API leaves it undefined otherwise. */
+  requestTime?: string;
 }
 
 const d = 'request.resource.data';
@@ -56,7 +62,42 @@ const plusOperands: PlusOperandCase[] = [
   { key: 'concatDataEq', condition: `${d}.a.concat(${d}.b) == ['a', 'b', 'c', 'd']`, expectation: 'ALLOW' },
   { key: 'concatLiteralEq', condition: '[1].concat([2]) == [1, 2]', expectation: 'ALLOW' },
   { key: 'concatLiteralNeq', condition: '[1].concat([2]) != [1, 2]', expectation: 'DENY' },
+  ...wrapperPlusOperands(),
 ];
+
+interface WrapperPair {
+  key: string;
+  sum: string;
+  requestTime?: string;
+  /** A value the sum cannot equal, so `!=` is true whenever `+` produces a value. */
+  sentinel: string;
+}
+
+/** `+` with a timestamp, duration, or bytes operand, each pair as a bare
+ *  condition, as a `!=` witness that is true whenever `+` produces a value,
+ *  and as that witness under `|| true`. */
+function wrapperPlusOperands(): PlusOperandCase[] {
+  const pairs: WrapperPair[] = [
+    { key: 'stringTimestamp', sum: "'at ' + timestamp.value(0)", sentinel: "'z'" },
+    { key: 'stringRequestTime', sum: "'at ' + request.time", sentinel: "'z'", requestTime: '2026-01-01T00:00:00.000Z' },
+    { key: 'timestampString', sum: "timestamp.value(0) + ' at'", sentinel: "'z'" },
+    { key: 'stringDuration', sum: "'for ' + duration.value(60, 's')", sentinel: "'z'" },
+    { key: 'durationString', sum: "duration.value(60, 's') + ' later'", sentinel: "'z'" },
+    { key: 'timestampTimestamp', sum: 'timestamp.value(0) + timestamp.value(60000)', sentinel: 'timestamp.value(1)' },
+    { key: 'stringBytes', sum: "'a' + 'b'.toUtf8()", sentinel: "'z'" },
+    { key: 'bytesString', sum: "'a'.toUtf8() + 'b'", sentinel: "'z'" },
+    { key: 'bytesBytes', sum: "'ab'.toUtf8() + 'cd'.toUtf8()", sentinel: "'zz'.toUtf8()" },
+    { key: 'durationInt', sum: "duration.value(60, 's') + 1", sentinel: "duration.value(1, 's')" },
+    { key: 'intDuration', sum: "1 + duration.value(60, 's')", sentinel: "duration.value(1, 's')" },
+  ];
+  return pairs.flatMap(({ key, sum, sentinel, requestTime }): PlusOperandCase[] => [
+    { key: `${key}Bare`, condition: sum, expectation: 'DENY', requestTime },
+    { key: `${key}Neq`, condition: `${sum} != ${sentinel}`, expectation: 'DENY', requestTime },
+    { key: `${key}OrTrue`, condition: `(${sum} != ${sentinel}) || true`, expectation: 'ALLOW', requestTime },
+  ]).concat([
+    { key: 'bytesBytesEq', condition: "'ab'.toUtf8() + 'cd'.toUtf8() == 'abcd'.toUtf8()", expectation: 'DENY' },
+  ]);
+}
 
 const plusOperandBlocks = plusOperands
   .map(({ key, condition }) => `    match /plusOperand/${key}/{id} {
@@ -165,13 +206,14 @@ ${plusOperandBlocks}
       auth: { uid: 'alice' },
       data: { _: 1 },
     },
-    ...plusOperands.map(({ key, condition, expectation }) => ({
+    ...plusOperands.map(({ key, condition, expectation, requestTime }) => ({
       description: `plusOperand ${key}: ${condition} → ${expectation}`,
       expectation,
       method: 'create' as const,
       path: `plusOperand/${key}/d1`,
       auth: { uid: 'alice' },
       data: { a: ['a', 'b'], b: ['c', 'd'], s: 'ab', n: 3, m: { k: 'v' } },
+      ...(requestTime === undefined ? {} : { requestTime }),
     })),
   ],
   group: 'stress',
