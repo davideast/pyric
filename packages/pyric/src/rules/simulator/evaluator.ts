@@ -15,8 +15,9 @@ import type { Expression, FunctionDef } from '../grammar/FirestoreAST.js';
 import { MapDiff } from './mapdiff.js';
 import { FirestoreSet } from './firestore-set.js';
 import { rulesValuesEqual } from './value-equality.js';
-import { describeRulesType, isRulesMap } from './rules-type.js';
+import { describeRulesType } from './rules-type.js';
 import { sliceBoundsError } from './slice-bounds.js';
+import { MembershipFailure, membership } from './membership.js';
 import { RulesValue, NO_OP } from './wrappers/base.js';
 import { LatLng } from './wrappers/latlng.js';
 import { Duration } from './wrappers/duration.js';
@@ -204,42 +205,14 @@ function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<st
     }
 
     case 'inExpr': {
+      // List and set elements under Rules value equality, own map keys only,
+      // and production's errors for any other operand (`membership.ts`,
+      // shared with the Storage evaluator).
       const element = evaluate(expr.element, ctx, scope);
       const collection = evaluate(expr.collection, ctx, scope);
-      // `in` over null, a string, a number or a bool is an evaluation error
-      // in production, never false, so its negation denies as well.
-      if (collection === null || collection === undefined) throw new EvalError('Null value error.', expr);
-      if (typeof collection === 'string' || typeof collection === 'number' ||
-          typeof collection === 'boolean' || collection instanceof RulesFloat) {
-        throw new EvalError('Function not found error: Name: [in].', expr);
-      }
-      // Use Rules value equality instead of Array.includes so wrapper
-      // value-equality applies (Item 0.B hook 6). Without this,
-      // `someTimestamp in [t1, t2]` is always false because `===`
-      // doesn't see the wrappers as equal even when their contents
-      // match. Map-key membership stays as a String() check — keys
-      // are always strings in Firestore rules.
-      if (Array.isArray(collection)) {
-        return collection.some(v => rulesValuesEqual(v, element));
-      }
-      // A Set (from toSet(), Set algebra, or a MapDiff key-set accessor)
-      // holds its elements privately, so it is searched by value equality
-      // before the map branch, which would look the element up as a key.
-      if (collection instanceof FirestoreSet) return collection.hasAll([element]);
-      // RULES-B7: map-key membership must use OWN keys only. `in` walks the JS
-      // prototype chain, so `'toString' in resource.data` wrongly returned
-      // true (and an `in`-guarded access then leaked the Object method).
-      // Object.hasOwn ignores inherited keys, matching Firestore's "the map
-      // has no inherited keys" model.
-      // A map key is a string: any other key type is an evaluation error.
-      if (isRulesMap(collection) && typeof element !== 'string') {
-        throw new EvalError(
-          `Unsupported operation error. Received: map.in(${describeRulesType(element)}). Expected: map.in(string).`,
-          expr,
-        );
-      }
-      if (typeof collection === 'object') return Object.hasOwn(collection as object, String(element));
-      return false;
+      const result = membership(element, collection, rulesValuesEqual);
+      if (result instanceof MembershipFailure) throw new EvalError(result.message, expr);
+      return result;
     }
 
     case 'isExpr': {
@@ -264,6 +237,7 @@ function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<st
         case 'bool': return typeof value === 'boolean';
         case 'null': return value === null;
         case 'list': return Array.isArray(value);
+        case 'set': return value instanceof FirestoreSet;
         case 'map':
           // Wrappers are objects but `is map` should be false for them —
           // a Timestamp is not a Map. Filter via instanceof RulesValue.

@@ -489,7 +489,7 @@
       "engine": "storage",
       "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
-      "receiverType": "string|list|map",
+      "receiverType": "string|list|map|set",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "b2c26c7f51d8687afa9c3273f40320f4a3c4c688790952332955b0ca278e6639"
@@ -543,8 +543,8 @@
       "engine": "storage",
       "reference": "https://firebase.google.com/docs/reference/rules/rules.List#function_hasAll_",
       "status": "accepted",
-      "receiverType": "set",
-      "note": "Production and the local Storage evaluator accept hasAll() on the set returned by custom-metadata keys(); replayed by the Storage upload-boundary corpus.",
+      "receiverType": "list|set",
+      "note": "Production and the local Storage evaluator accept hasAll() on the List returned by custom-metadata keys() and on a Set; replayed by the Storage upload-boundary and stdlib-sets corpus.",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "b43c5b69dd0fad7a4cfd74193df9fcc61908fcfbc11a2d7dcb9273d03ebae9aa"

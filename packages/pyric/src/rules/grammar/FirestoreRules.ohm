@@ -224,6 +224,7 @@ FirestoreRules {
     | "number" ~identChar
     | "bool" ~identChar
     | "list" ~identChar
+    | "set" ~identChar
     | "map" ~identChar
     | "timestamp" ~identChar
     | "path" ~identChar

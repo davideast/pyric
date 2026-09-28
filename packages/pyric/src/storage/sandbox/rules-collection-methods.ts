@@ -43,6 +43,20 @@ function evalMapKeys(receiver: unknown, expr: MethodCall): unknown {
   return Object.keys(receiver);
 }
 
+/** `List.join(separator)` concatenates a List of strings with a string separator. */
+function evalListJoin(receiver: unknown, expr: MethodCall, ctx: EvalCtx): unknown {
+  if (!Array.isArray(receiver)) throw functionNotFound(expr.method);
+  if (expr.args.length !== 1) throw new RuleEvalError('join() expects one string separator');
+  const args = evalArguments(expr, ctx);
+  if (isErr(args)) return args;
+  const [separator] = args;
+  if (typeof separator !== 'string') throw new RuleEvalError('join() separator must be a string');
+  if (!receiver.every((value) => typeof value === 'string')) {
+    throw new RuleEvalError('join() requires a list of strings');
+  }
+  return receiver.join(separator);
+}
+
 /** `Map.get(key, default)` for the production-probed string-key form. */
 function evalMapGet(receiver: unknown, expr: MethodCall, ctx: EvalCtx): unknown {
   if (!isRulesMap(receiver)) throw functionNotFound(expr.method);
@@ -152,6 +166,7 @@ export const collectionMethods: ReceiverMethods = {
   hasAll: evalMembership,
   hasAny: evalMembership,
   hasOnly: evalMembership,
+  join: evalListJoin,
   keys: evalMapKeys,
   size: evalSize,
   toSet: evalToSet,

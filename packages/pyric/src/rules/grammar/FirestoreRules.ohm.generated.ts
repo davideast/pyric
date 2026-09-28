@@ -228,6 +228,7 @@ export const FIRESTORE_RULES_OHM_SOURCE = `FirestoreRules {
     | "number" ~identChar
     | "bool" ~identChar
     | "list" ~identChar
+    | "set" ~identChar
     | "map" ~identChar
     | "timestamp" ~identChar
     | "path" ~identChar

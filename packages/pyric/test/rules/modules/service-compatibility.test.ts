@@ -702,4 +702,43 @@ service cloud.firestore {
     );
     expect(result.success, result.success ? '' : result.error.message).toBe(true);
   });
+  // Map.keys() returns a List in both services (Firestore corpus scenario
+  // required-fields-and-mapdiff, Storage corpus scenario
+  // upload-primitives-boundaries), so List methods apply to it.
+  test.each([
+    ["request.resource.data.keys().toSet() == ['host', 'guest'].toSet()"],
+    ["request.resource.data.keys().toSet().size() == 2"],
+    ["request.resource.data.keys().toSet().difference(['host'].toSet()).size() == 0"],
+    ["request.resource.data.keys().hasOnly(['host', 'guest', 'status'])"],
+    ["request.resource.data.board.keys().hasOnly(resource.data.board.keys())"],
+    ["request.resource.data.keys().hasAll(['host'])"],
+    ["request.resource.data.keys().hasAny(['host'])"],
+    ["request.resource.data.keys().size() == 2"],
+    ["request.resource.data.keys()[0] == 'host'"],
+    ["request.resource.data.keys().join(',') == 'host'"],
+    ["request.resource.data.keys().concat(['x']).size() == 3"],
+  ])('admits a List method on Firestore Map.keys(): %s', (expression) => {
+    const result = resolveModules(makeSource("import { check } from './policy';"), {
+      modules: { './policy': `export function check() { return ${expression}; }` },
+    });
+    expect(result.success, result.success ? '' : result.error.message).toBe(true);
+  });
+  test.each([
+    ["request.resource.metadata.keys().hasAll(['owner'])"],
+    ["request.resource.metadata.keys().size() == 2"],
+    ["request.resource.metadata.keys()[0] == 'owner'"],
+  ])('admits a List method on Storage Map.keys(): %s', (expression) => {
+    const result = resolveModules(
+      makeStorageSource("import { check } from './policy';", 'check()'),
+      { modules: { './policy': `export function check() { return ${expression}; }` } },
+    );
+    expect(result.success, result.success ? '' : result.error.message).toBe(true);
+  });
+  test('rejects Set algebra on Firestore Map.keys(), which is a List', () => {
+    const result = resolveModules(makeSource("import { check } from './policy';"), {
+      modules: { './policy': 'export function check() { return request.resource.data.keys().union(["a"].toSet()).size() > 0; }' },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.message).toContain("method '.union()' requires set receiver, got list");
+  });
 });

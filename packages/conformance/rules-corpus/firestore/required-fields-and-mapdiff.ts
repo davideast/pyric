@@ -7,6 +7,10 @@
  * constrain which fields a mutation may touch. An owner-scoped `articles`
  * collection: create requires the exact field set and self-ownership; update may
  * only change `title`/`body` and must leave `ownerId` intact.
+ *
+ * The `keys*` matches show `keys()` returns a List: `is list` holds, `is set`
+ * is false, and `toSet()`, `hasAll()`, `hasAny()`, `hasOnly()`, `size()`,
+ * `[0]` and `join()` evaluate on it.
  */
 import type { ScenarioRecord } from './types.ts';
 
@@ -31,6 +35,40 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).addedKeys().size() == 0
         && request.resource.data.diff(resource.data).removedKeys().size() == 0
         && request.resource.data.diff(resource.data).unchangedKeys().hasAll(['ownerId']);
+    }
+    // keys() returns a List: each List method and type test on it
+    match /keysToSet/{id} {
+      allow create: if request.resource.data.keys().toSet() == ['a', 'b'].toSet();
+    }
+    match /keysHasAll/{id} {
+      allow create: if request.resource.data.keys().hasAll(['a', 'b']);
+    }
+    match /keysSize/{id} {
+      allow create: if request.resource.data.keys().size() == 2;
+    }
+    match /keysIndex/{id} {
+      allow create: if request.resource.data.keys()[0] == 'a';
+    }
+    match /keysJoin/{id} {
+      allow create: if request.resource.data.keys().join(',') == 'a';
+    }
+    match /keysHasAny/{id} {
+      allow create: if request.resource.data.keys().hasAny(['a', 'z']);
+    }
+    match /keysHasOnly/{id} {
+      allow create: if request.resource.data.keys().hasOnly(['a', 'b', 'c']);
+    }
+    match /keysIsList/{id} {
+      allow create: if request.resource.data.keys() is list;
+    }
+    match /keysIsSet/{id} {
+      allow create: if request.resource.data.keys() is set;
+    }
+    match /keysIsNotSet/{id} {
+      allow create: if !(request.resource.data.keys() is set);
+    }
+    match /keysToSetSize/{id} {
+      allow create: if request.resource.data.keys().toSet().size() == 2;
     }
   }
 }`,
@@ -94,6 +132,23 @@ service cloud.firestore {
       resource: { title: 'Old', body: 'Body', ownerId: 'alice', tags: ['x'] },
       data: { title: 'New', body: 'Body', ownerId: 'alice', tags: ['x'], pinned: true },
     },
+    ...([
+      ['keys().toSet() equals a set of the field names → ALLOW', 'ALLOW', 'keysToSet', { a: 1, b: 2 }],
+      ['keys().hasAll() with a List argument → ALLOW', 'ALLOW', 'keysHasAll', { a: 1, b: 2 }],
+      ['keys().size() counts the fields → ALLOW', 'ALLOW', 'keysSize', { a: 1, b: 2 }],
+      ['keys()[0] is the only field name → ALLOW', 'ALLOW', 'keysIndex', { a: 1 }],
+      ["keys().join(',') joins the field names → ALLOW", 'ALLOW', 'keysJoin', { a: 1 }],
+      ['keys().hasAny() → ALLOW', 'ALLOW', 'keysHasAny', { a: 1, b: 2 }],
+      ['keys().hasOnly() → ALLOW', 'ALLOW', 'keysHasOnly', { a: 1, b: 2 }],
+      ['keys() is list → ALLOW', 'ALLOW', 'keysIsList', { a: 1, b: 2 }],
+      ['keys() is set is false → DENY', 'DENY', 'keysIsSet', { a: 1, b: 2 }],
+      ['!(keys() is set) → ALLOW', 'ALLOW', 'keysIsNotSet', { a: 1, b: 2 }],
+      ['keys().toSet().size() → ALLOW', 'ALLOW', 'keysToSetSize', { a: 1, b: 2 }],
+    ] as const).map(([description, expectation, match, data], i) => ({
+      description, expectation, method: 'create' as const,
+      path: `${match}/k${i + 1}`, auth: { uid: 'alice' },
+      data,
+    })),
   ],
   group: 'stress',
 };

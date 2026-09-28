@@ -10,7 +10,9 @@
  * is `Null value error.`, `in` over a string, int, float or bool is
  * `Function not found error: Name: [in].`, and a non-string key into a map is
  * `Unsupported operation error. Received: map.in(int). Expected:
- * map.in(string).`. Each error denies, so its negation denies too.
+ * map.in(string).`. Each error denies, so its negation denies too. `in` over
+ * a timestamp, a path or a map diff is the same function not found error, and
+ * `in` over a set tests its elements, never its object fields.
  */
 import type { ScenarioRecord } from './types.ts';
 
@@ -63,6 +65,23 @@ service cloud.firestore {
     // negated int key into a map → error → DENY
     match /intKeyNotInMap/{id} {
       allow create: if !(1 in request.resource.data.v);
+    }
+    // set membership tests elements, never object fields
+    match /inSet/{id} {
+      allow create: if 'a' in request.resource.data.v.toSet();
+    }
+    match /fieldNameNotInSet/{id} {
+      allow create: if !('items' in request.resource.data.v.toSet());
+    }
+    // negated membership over a timestamp, a path or a map diff
+    match /notInTimestamp/{id} {
+      allow create: if !('a' in request.time);
+    }
+    match /notInPath/{id} {
+      allow create: if !('a' in request.path);
+    }
+    match /notInMapDiff/{id} {
+      allow create: if !('a' in request.resource.data.diff({}));
     }
   }
 }`,
@@ -118,6 +137,18 @@ service cloud.firestore {
       description, expectation: 'DENY' as const, method: 'create' as const,
       path: `${match}/d${6 + i}`, auth: { uid: 'alice' },
       data: { v },
+    })),
+    ...([
+      ["'a' in a set of ['a', 'b'] → ALLOW", 'ALLOW', 'inSet', ['a', 'b']],
+      ["!('items' in a set of ['a', 'b']) → ALLOW", 'ALLOW', 'fieldNameNotInSet', ['a', 'b']],
+      ["!('a' in request.time) is an error → DENY", 'DENY', 'notInTimestamp', 1],
+      ["!('a' in request.path) is an error → DENY", 'DENY', 'notInPath', 1],
+      ["!('a' in a map diff) is an error → DENY", 'DENY', 'notInMapDiff', 1],
+    ] as const).map(([description, expectation, match, v], i) => ({
+      description, expectation, method: 'create' as const,
+      path: `${match}/d${12 + i}`, auth: { uid: 'alice' },
+      data: { v },
+      requestTime: '2025-06-15T00:00:00Z',
     })),
   ],
   group: 'fix-class',

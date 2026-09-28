@@ -62,10 +62,10 @@ export const STORAGE_DIRECT_FUNCTIONS = [] as const;
 export const STORAGE_METHODS = ["get", "hasAll", "keys", "matches", "size", "split"] as const;
 export const STORAGE_METHOD_RECEIVER_TYPES = {
   "get": ["map"] as const,
-  "hasAll": ["set"] as const,
+  "hasAll": ["list", "set"] as const,
   "keys": ["map"] as const,
   "matches": ["string"] as const,
-  "size": ["list", "map", "string"] as const,
+  "size": ["list", "map", "set", "string"] as const,
   "split": ["string"] as const,
 } as const;
 export const STORAGE_NAMESPACE_METHODS = {

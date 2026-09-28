@@ -5,12 +5,12 @@
     "firestore-rules#172"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"prototype-chain-keys\" (RULES-B7). `'toString' in map` must be false (own keys only) and `.constructor` access must error; JS prototype-chain leakage said true / returned Object.",
-  "observedAt": "2026-09-28T00:11:36.398Z",
+  "observedAt": "2026-09-28T00:50:27.525Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "b4fe8aa6b3d695e98765b7b8e4fa5165fa4d5ed70f132dbda2b7db24b04b515b"
+    "value": "129bc3accf2f624c262d80edf838b2dc8b6bbf47fdfdc67a9e4dd6d347ddcdf3"
   },
   "behavior": {
     "'toString' in data (no such field) → DENY": "DENY",
@@ -23,7 +23,12 @@
     "!('a' in 5) is a function not found error → DENY": "DENY",
     "!('a' in 1.5) is a function not found error → DENY": "DENY",
     "!('a' in true) is a function not found error → DENY": "DENY",
-    "!(1 in {'a': 1}) is an unsupported operation error → DENY": "DENY"
+    "!(1 in {'a': 1}) is an unsupported operation error → DENY": "DENY",
+    "'a' in a set of ['a', 'b'] → ALLOW": "ALLOW",
+    "!('items' in a set of ['a', 'b']) → ALLOW": "ALLOW",
+    "!('a' in request.time) is an error → DENY": "DENY",
+    "!('a' in request.path) is an error → DENY": "DENY",
+    "!('a' in a map diff) is an error → DENY": "DENY"
   },
   "diagnostics": {
     ".constructor access (no such field) → DENY (error)": {
@@ -154,6 +159,72 @@
           "currentOffset": 1750,
           "endOffset": 1751
         }
+      }
+    },
+    "!('a' in request.time) is an error → DENY": {
+      "notes": [
+        "Error: firestore.rules line [57], column [25]. Function not found error: Name: [in]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 57,
+          "column": 25,
+          "currentOffset": 2170,
+          "endOffset": 2170
+        },
+        "functionCalls": [
+          {
+            "function": "in",
+            "args": [
+              "a"
+            ]
+          }
+        ]
+      }
+    },
+    "!('a' in request.path) is an error → DENY": {
+      "notes": [
+        "Error: firestore.rules line [60], column [25]. Function not found error: Name: [in]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 60,
+          "column": 25,
+          "currentOffset": 2251,
+          "endOffset": 2251
+        },
+        "functionCalls": [
+          {
+            "function": "in",
+            "args": [
+              "a"
+            ]
+          }
+        ]
+      }
+    },
+    "!('a' in a map diff) is an error → DENY": {
+      "notes": [
+        "Error: firestore.rules line [63], column [25]. Function not found error: Name: [in]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 63,
+          "column": 25,
+          "currentOffset": 2335,
+          "endOffset": 2335
+        },
+        "functionCalls": [
+          {
+            "function": "in",
+            "args": [
+              "a"
+            ]
+          }
+        ]
       }
     }
   }
