@@ -605,7 +605,7 @@ const VALIDATION_MODULE: StdlibModuleDefinition = {
       cost: { min: 10, max: 28 },
       reads: 0,
       description:
-        'The incoming field is a string with size in [min, max] (inclusive). Uses dynamic access, so a MISSING field reads null and fails the type check instead of erroring — safe on optional fields.',
+        "The incoming field is a string with size in [min, max] (inclusive). A missing field is an error under dynamic access, so the call denies; guard an optional field with `!('title' in request.resource.data) || validString('title', 1, 80)`.",
       examples: [`allow create: if validString('title', 1, 100);`],
     },
     {
@@ -1040,7 +1040,7 @@ const COUNTERS_MODULE: StdlibModuleDefinition = {
       cost: { min: 19, max: 35 },
       reads: 0,
       description:
-        'The incoming value is an int or float within [min, max]. Missing field reads null (dynamic access) and fails closed.',
+        'The incoming value is an int or float within [min, max]. A missing field is an error under dynamic access, so the call denies.',
       examples: [`allow write: if boundedNumber('rating', 1, 5);`],
     },
     {

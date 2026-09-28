@@ -2198,12 +2198,15 @@ export const firestoreRegistry = {
         }),
         row22({
           rowRef: "133",
-          behavior: "Tri-state error semantics: DOTTED field access of a missing key (`resource.data.typo`), access on null/undefined, undefined variables, and `get()`-of-missing ERROR → deny; `&&`/`||` absorb operand errors **commutatively** (CEL: `error || true` → true, `error && false` → false). DYNAMIC index access `data[expr]` of a missing key is also an error in production; Pyric returns null for it, a known divergence, so a rule such as `resource.data['deleted'] != true` allows in Pyric and denies in production. Use `map.get(key, default)` for a may-be-absent key. (RULES-B2/B3/B8)",
-          status: "diverged-documented",
-          statusNote: "bracket access of a missing key returns null; production errors",
-          evidence: "`unit:rules/simulator/evaluator.test.ts` (RULES-B2 / RULES-B3 / RULES-B8 blocks) covers dotted access, null access, undefined variables, `get()` of a missing document and error absorption. Production capture, 2026-09-28: the Rules Test API denied `resource.data['deleted'] != true` on an existing document without the field, in the content module replay of `notDeleted`, where Pyric allowed it. The module now uses `resource.data.get('deleted', false)`, and `packages/pyric/test/rules/modules/fixtures/stdlib-replay-content.json` records production agreeing on every content case. The evaluator still returns null for a missing bracket key.",
+          behavior: "Tri-state error semantics: field access of a missing key, by dot (`resource.data.typo`) or by index (`resource.data['typo']`, `resource.data[field]`), a list index out of bounds, access on null/undefined, undefined variables, and `get()`-of-missing ERROR → deny; `&&`/`||` absorb operand errors **commutatively** (CEL: `error || true` → true, `error && false` → false). A key present with a null value reads null. Use `key in map` or `map.get(key, default)` for a may-be-absent key. (RULES-B2/B3/B8)",
+          status: "conforms",
+          evidence: "`unit:rules/simulator/evaluator.test.ts` (RULES-B2 / RULES-B3 / RULES-B8 blocks) covers dotted and index access, null access, undefined variables, `get()` of a missing document and error absorption. Production capture, 2026-09-28: `oracle:rules-firestore-undefined-field-access` records production denying index access of a missing key on `resource.data`, `request.resource.data` and `request.auth.token` under `==`, `!=`, `== null`, `!`, `is`, `in`, `.size()`, a nested map, a computed key, a path variable key and a `let` that is used; allowing under `|| true`, `!(... && false)`, an unused `let`, an `in` guard, a key present with null and `get(key, null)`; and denying a list index past either end and a string key on a list. The simulator returned null for a missing index key and allowed 16 of those denials; it now reads index access through `rules/simulator/index-access.ts`, shared with the Storage evaluator, and matches production on all 41 cases (replayed by `unit:rules/oracle-conformance.test.ts`; `unit:rules/index-access.test.ts` runs each shape through both engines).",
           automation: "unit-backed",
-          conformanceTests: ["packages/pyric/test/rules/simulator/evaluator.test.ts"],
+          conformanceTests: [
+            "packages/pyric/test/rules/simulator/evaluator.test.ts",
+            "packages/pyric/test/rules/oracle-conformance.test.ts",
+            "packages/pyric/test/rules/index-access.test.ts",
+          ],
         }),
         row22({
           rowRef: "134",

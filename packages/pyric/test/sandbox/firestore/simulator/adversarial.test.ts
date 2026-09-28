@@ -32,22 +32,22 @@ service cloud.firestore {
   }
 }`;
 
-  test('accessing missing field via dynamic key — null != empty string is true', () => {
-    // resource.data['e2'] returns null (field missing). null != '' is TRUE in Firestore.
-    // So this rule ALLOWS — the simulator must match this behavior.
+  test('accessing a missing field via dynamic key errors, so != denies', () => {
+    // resource.data['e2'] is an error in production when the map does not own
+    // 'e2' (corpus scenario undefined-field-access), so the rule DENIES.
     const r = sim(RULES, [{
-      description: 'missing field via dynamic key — null != "" is true',
-      expectation: 'ALLOW',
+      description: 'missing field via dynamic key errors',
+      expectation: 'DENY',
       method: 'update',
       path: 'test/doc1',
       auth: { uid: 'u1' },
       resource: {}, // no fields at all
-      data: { moveFrom: 'e2' }, // e2 doesn't exist in resource → null, null != '' → true
+      data: { moveFrom: 'e2' }, // e2 doesn't exist in resource → error → DENY
     }]);
     expect(r.results[0].state).toBe('PASSED');
   });
 
-  test('double dynamic access where first level is null', () => {
+  test('double dynamic access where the first level is missing', () => {
     // resource.data[resource.data.moveFrom] where moveFrom points to nothing
     const RULES2 = `rules_version = '2';
 service cloud.firestore {
@@ -59,12 +59,12 @@ service cloud.firestore {
   }
 }`;
     const r = sim(RULES2, [{
-      description: 'double dynamic access, first level null',
+      description: 'double dynamic access, first level missing',
       expectation: 'DENY',
       method: 'update',
       path: 'test/doc1',
       auth: { uid: 'u1' },
-      resource: { moveFrom: 'e2' }, // e2 doesn't exist, so data[data['e2']] = data[null]
+      resource: { moveFrom: 'e2' }, // e2 doesn't exist, so data['e2'] errors
       data: { moveFrom: 'e2' },
     }]);
     expect(r.results[0].state).toBe('PASSED');

@@ -64,6 +64,21 @@ service firebase.storage {
     expect(verdict(`{'k': 1} == {'k': 2}`)).toBe(false);
   });
 
+  /** Production: a list index must be an int within bounds, and a string
+   *  key on a list is an unsupported operation, not the JS `length`
+   *  property (corpus scenario list-map-literals-and-slice). A missing
+   *  metadata key under bracket access errors (scenario metadata-access). */
+  it('bracket access errors on a missing key, an index past either end, and a string key on a list', () => {
+    expect(verdict(`fileId.split('-')[1] == 'b'`)).toBe(true);
+    expect(verdict(`fileId.split('-')[5] == null`)).toBe(false);
+    expect(verdict(`fileId.split('-')[-1] == 'c.png'`)).toBe(false);
+    expect(verdict(`fileId.split('-')['length'] == 3`)).toBe(false);
+    expect(verdict(`!(fileId.split('-')['length'] == 0)`)).toBe(false);
+    expect(verdict(`request.resource.metadata['missing'] == null`)).toBe(false);
+    expect(verdict(`request.resource.metadata['missing'] != 'x'`)).toBe(false);
+    expect(verdict(`request.resource.metadata['missing'] == 'x' || true`)).toBe(true);
+  });
+
   it('split() rejects RE2-unsupported constructs with a deny-reason', () => {
     expect(verdict(`fileId.split('(?=x)').size() > 0`)).toBe(false);
   });

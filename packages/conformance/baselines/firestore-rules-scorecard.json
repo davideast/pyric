@@ -268,6 +268,7 @@
         "set-algebra-difference-union-intersection",
         "string-literals-and-regex",
         "time-math-and-casts",
+        "undefined-field-access",
         "unsupported-feature-witness"
       ],
       "verifiedByRows": [
@@ -312,6 +313,7 @@
         "common-auth-membership-firestore",
         "matches-full-string-regex",
         "string-literals-and-regex",
+        "undefined-field-access",
         "unsupported-feature-witness"
       ],
       "verifiedByRows": [
@@ -489,7 +491,8 @@
         "resource-document-identity",
         "resource-missing-document",
         "set-algebra-difference-union-intersection",
-        "strict-boolean-control-flow"
+        "strict-boolean-control-flow",
+        "undefined-field-access"
       ],
       "verifiedByRows": [
         "firestore-rules#184",
@@ -514,7 +517,8 @@
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "resource-missing-document",
-        "set-algebra-difference-union-intersection"
+        "set-algebra-difference-union-intersection",
+        "undefined-field-access"
       ],
       "verifiedByRows": [
         "firestore-rules#183",
@@ -1519,7 +1523,8 @@
       "classification": "conformant",
       "verifiedBy": [
         "error-absorption-and-or",
-        "map-get-string-and-list-form"
+        "map-get-string-and-list-form",
+        "undefined-field-access"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -2270,6 +2275,7 @@
         "resource-missing-document",
         "set-algebra-difference-union-intersection",
         "time-math-and-casts",
+        "undefined-field-access",
         "unsupported-feature-witness"
       ],
       "verifiedByRows": [],
@@ -2369,7 +2375,8 @@
         "bytes-toutf8-and-hashing",
         "cross-type-operator-overloads",
         "error-absorption-and-or",
-        "time-math-and-casts"
+        "time-math-and-casts",
+        "undefined-field-access"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -2487,7 +2494,8 @@
         "strict-boolean-control-flow",
         "string-literals-and-regex",
         "time-math-and-casts",
-        "timestamp-component-accessors"
+        "timestamp-component-accessors",
+        "undefined-field-access"
       ],
       "verifiedByRows": [
         "firestore-rules#163",
@@ -2614,7 +2622,8 @@
         "path-constructor-and-bind",
         "required-fields-and-mapdiff",
         "resource-document-identity",
-        "time-math-and-casts"
+        "time-math-and-casts",
+        "undefined-field-access"
       ],
       "verifiedByRows": [
         "firestore-rules#167"
@@ -2636,7 +2645,8 @@
         "duration-and-latlng",
         "int-float-and-division",
         "time-math-and-casts",
-        "timestamp-component-accessors"
+        "timestamp-component-accessors",
+        "undefined-field-access"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -2707,7 +2717,8 @@
         "list-methods-concat-removeall-toset",
         "path-constructor-and-bind",
         "range-slice-list-and-string",
-        "required-fields-and-mapdiff"
+        "required-fields-and-mapdiff",
+        "undefined-field-access"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -2789,7 +2800,8 @@
         "resource-document-identity",
         "resource-missing-document",
         "string-literals-and-regex",
-        "timestamp-component-accessors"
+        "timestamp-component-accessors",
+        "undefined-field-access"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -2960,7 +2972,8 @@
         "common-auth-membership-firestore",
         "error-absorption-and-or",
         "functions-verbs-and-recursive",
-        "global-and-service-scope-functions"
+        "global-and-service-scope-functions",
+        "undefined-field-access"
       ],
       "verifiedByRows": [
         "firestore-rules#186",
@@ -2981,7 +2994,8 @@
       "classification": "conformant",
       "verifiedBy": [
         "error-absorption-and-or",
-        "functions-verbs-and-recursive"
+        "functions-verbs-and-recursive",
+        "undefined-field-access"
       ],
       "verifiedByRows": [],
       "divergedByRows": []

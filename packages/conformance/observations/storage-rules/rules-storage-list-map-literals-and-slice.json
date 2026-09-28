@@ -5,7 +5,7 @@
     "storage-rules#122"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"list-map-literals-and-slice\" (Coverage: list/map literals, slice [i:j], OOB slice errors). Slices on split() lists and on strings must evaluate, list literals must compare by value, and an out-of-bounds slice end must error → deny (production does not clamp).",
-  "observedAt": "2026-09-28T00:12:17.608Z",
+  "observedAt": "2026-09-28T06:06:37.047Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "behavior": {
@@ -27,7 +27,11 @@
     "string slice [n-1:n-1] → empty string → ALLOW": "ALLOW",
     "string slice [n:n] is an index error → DENY": "DENY",
     "string slice start after end is a range error → DENY": "DENY",
-    "empty string slice [0:0] is an index error → DENY": "DENY"
+    "empty string slice [0:0] is an index error → DENY": "DENY",
+    "list index in range → ALLOW": "ALLOW",
+    "list index past the end is an index error → DENY": "DENY",
+    "negative list index is an index error → DENY": "DENY",
+    "string key on a list is an error → DENY": "DENY"
   },
   "diagnostics": {
     "list mid-slice of split() → size 2 → ALLOW": {
@@ -301,6 +305,63 @@
           "column": 55,
           "currentOffset": 1694,
           "endOffset": 1695
+        }
+      }
+    },
+    "list index in range → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 30,
+              "column": 55,
+              "currentOffset": 1830,
+              "endOffset": 1835
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list index past the end is an index error → DENY": {
+      "notes": [
+        "Error: storage.rules line [31], column [55]. Index out of bound error. Index: [5] , size: [4]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 31,
+          "column": 55,
+          "currentOffset": 1915,
+          "endOffset": 1920
+        }
+      }
+    },
+    "negative list index is an index error → DENY": {
+      "notes": [
+        "Error: storage.rules line [32], column [56]. Index out of bound error. Index: [-1] , size: [4]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 32,
+          "column": 56,
+          "currentOffset": 2002,
+          "endOffset": 2007
+        }
+      }
+    },
+    "string key on a list is an error → DENY": {
+      "notes": [
+        "Error: storage.rules line [33], column [57]. Unsupported operation error. Received: list[string]. Expected: list[int]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 33,
+          "column": 57,
+          "currentOffset": 2090,
+          "endOffset": 2095
         }
       }
     }

@@ -72,7 +72,7 @@ Document field validation.
 |----------|--------|---------|-------------|
 | `hasRequired(fields)` | fields: list of field names | bool | `request.resource.data.keys().hasAll(fields)` |
 | `hasOnly(fields)` | fields: list of field names | bool | `request.resource.data.keys().hasOnly(fields)` |
-| `validString(field, min, max)` | field: string, min/max: int | bool | Incoming field is a string with size in [min, max]; missing field fails (null-on-miss, not error) |
+| `validString(field, min, max)` | field: string, min/max: int | bool | Incoming field is a string with size in [min, max]; a missing field is an error, so the call denies |
 | `isOneOf(field, values)` | field: string, values: list | bool | Incoming field value is in the allowed list (enum check) |
 
 File: `validation.rules` | Tests: `validation.test.json`

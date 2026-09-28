@@ -1,6 +1,6 @@
 {
   "schema": "pyric.stdlib-replay.v1",
-  "capturedAt": "2026-09-28T04:53:04.811Z",
+  "capturedAt": "2026-09-28T06:12:21.423Z",
   "project": "digame-mas",
   "module": "counters",
   "cases": 38,
@@ -91,7 +91,7 @@
       "state": "SUCCESS"
     },
     {
-      "case": "boundedNumber denies missing field (null-on-miss)",
+      "case": "boundedNumber denies a missing field (a missing key is an error)",
       "expectation": "DENY",
       "production": "DENY",
       "state": "SUCCESS"

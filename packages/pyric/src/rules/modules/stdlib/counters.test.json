@@ -244,7 +244,7 @@
       }
     },
     {
-      "description": "boundedNumber denies missing field (null-on-miss)",
+      "description": "boundedNumber denies a missing field (a missing key is an error)",
       "expectation": "DENY",
       "method": "create",
       "path": "test/doc1",

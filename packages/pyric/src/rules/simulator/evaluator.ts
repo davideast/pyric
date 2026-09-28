@@ -17,6 +17,7 @@ import { FirestoreSet } from './firestore-set.js';
 import { rulesValuesEqual } from './value-equality.js';
 import { describeRulesType } from './rules-type.js';
 import { sliceBoundsError } from './slice-bounds.js';
+import { IndexAccessFailure, indexList, indexMap } from './index-access.js';
 import { MembershipFailure, membership } from './membership.js';
 import { RulesValue, NO_OP } from './wrappers/base.js';
 import { LatLng } from './wrappers/latlng.js';
@@ -118,9 +119,7 @@ function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<st
       }
       // Wrapper-owned property dispatch (Item 0.B hook 2). Wrappers like
       // Timestamp expose no readable properties — `t.year` returns null,
-      // `t.year()` goes through callMethod. The base default returns null
-      // so unknown properties stay consistent with Firestore's "missing
-      // map key reads as null" semantics.
+      // `t.year()` goes through callMethod. The base default returns null.
       if (obj instanceof RulesValue) return obj.field(expr.property);
       if (obj instanceof MapDiff) {
         // MapDiff methods that return FirestoreSet
@@ -166,18 +165,13 @@ function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<st
       // `field()` here keeps the contract uniform — wrappers that don't
       // implement bracket access return null.
       if (obj instanceof RulesValue) return obj.field(String(idx));
-      // RULES-B2 scope note: DYNAMIC bracket/index access (`data[expr]`) is the
-      // documented idiom for "look up a key that may be absent" (e.g. a chess
-      // rule's `cfg().paths[from][to]`, `resource.data[squareVar]`). The
-      // Firebase docs explicitly confirm the ERROR semantics for DOTTED field
-      // access (`resource.data.typo`) — handled in `memberAccess` above — but
-      // NOT for dynamic index access, and flagship rules rely on null-on-miss
-      // here. Without an emulator to confirm bracket-vs-field divergence, we
-      // keep dynamic index access returning null on a missing key (the
-      // conservative, non-bug-laundering choice — the disputed-edge STOP).
-      // Present-with-null still returns null.
-      const key = String(idx);
-      return Object.hasOwn(obj as object, key) ? (obj as Record<string, unknown>)[key] : null;
+      // A key the map does not own is an error, as with dot access, and a
+      // list index must be an int within bounds (`index-access.ts`, shared
+      // with the Storage evaluator). Guard a possibly-absent key with `in`
+      // or read it with `map.get(key, default)`.
+      const value = Array.isArray(obj) ? indexList(obj, idx) : indexMap(obj as object, String(idx));
+      if (value instanceof IndexAccessFailure) throw new EvalError(value.message, expr);
+      return value;
     }
 
     case 'sliceAccess': {

@@ -4,8 +4,8 @@
   "rowIds": [
     "storage-rules#114"
   ],
-  "description": "Storage Rules Test API verdicts for corpus pack \"metadata-access\" (STORAGE-META). resource.metadata custom-metadata access in dotted and bracket form (identical resolution) and missing-key deny.",
-  "observedAt": "2026-07-11T03:09:46.238Z",
+  "description": "Storage Rules Test API verdicts for corpus scenario \"metadata-access\" (STORAGE-META). resource.metadata custom-metadata access in dotted and bracket form (identical resolution) and missing-key deny.",
+  "observedAt": "2026-09-28T06:04:28.743Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "behavior": {
@@ -13,6 +13,173 @@
     "dotted metadata: owner mismatch → deny": "DENY",
     "dotted metadata: missing owner key → deny": "DENY",
     "bracket metadata: owner matches → allow": "ALLOW",
-    "bracket metadata: owner mismatch → deny": "DENY"
+    "bracket metadata: owner mismatch → deny": "DENY",
+    "bracket metadata: missing key != 'x' → deny": "DENY",
+    "bracket metadata: missing key == null → deny": "DENY",
+    "bracket metadata: !(missing key == 'x') → deny": "DENY",
+    "bracket metadata: missing key == 'x' || true → allow": "ALLOW",
+    "bracket request metadata: missing key != 'x' → deny": "DENY",
+    "bracket request metadata: missing key == null → deny": "DENY"
+  },
+  "diagnostics": {
+    "dotted metadata: owner matches → allow": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 21,
+              "currentOffset": 121,
+              "endOffset": 128
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "dotted metadata: owner mismatch → deny": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 21,
+              "currentOffset": 121,
+              "endOffset": 128
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "dotted metadata: missing owner key → deny": {
+      "notes": [
+        "Error: storage.rules line [5], column [21]. Property owner is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 5,
+          "column": 21,
+          "currentOffset": 121,
+          "endOffset": 128
+        }
+      }
+    },
+    "bracket metadata: owner matches → allow": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 8,
+              "column": 21,
+              "currentOffset": 222,
+              "endOffset": 229
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "bracket metadata: owner mismatch → deny": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 8,
+              "column": 21,
+              "currentOffset": 222,
+              "endOffset": 229
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "bracket metadata: missing key != 'x' → deny": {
+      "notes": [
+        "Error: storage.rules line [11], column [21]. Property missing is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 11,
+          "column": 21,
+          "currentOffset": 323,
+          "endOffset": 330
+        }
+      }
+    },
+    "bracket metadata: missing key == null → deny": {
+      "notes": [
+        "Error: storage.rules line [14], column [21]. Property missing is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 14,
+          "column": 21,
+          "currentOffset": 417,
+          "endOffset": 424
+        }
+      }
+    },
+    "bracket metadata: !(missing key == 'x') → deny": {
+      "notes": [
+        "Error: storage.rules line [17], column [23]. Property missing is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 17,
+          "column": 23,
+          "currentOffset": 513,
+          "endOffset": 520
+        }
+      }
+    },
+    "bracket metadata: missing key == 'x' || true → allow": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 20,
+              "column": 21,
+              "currentOffset": 608,
+              "endOffset": 615
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "bracket request metadata: missing key != 'x' → deny": {
+      "notes": [
+        "Error: storage.rules line [23], column [24]. Property missing is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 23,
+          "column": 24,
+          "currentOffset": 712,
+          "endOffset": 718
+        }
+      }
+    },
+    "bracket request metadata: missing key == null → deny": {
+      "notes": [
+        "Error: storage.rules line [26], column [24]. Property missing is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 26,
+          "column": 24,
+          "currentOffset": 820,
+          "endOffset": 826
+        }
+      }
+    }
   }
 }

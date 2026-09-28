@@ -129,7 +129,7 @@
       }
     },
     {
-      "description": "validString denies MISSING field (null-on-miss, not error)",
+      "description": "validString denies a missing field (a missing key is an error)",
       "expectation": "DENY",
       "method": "create",
       "path": "test/doc1",
