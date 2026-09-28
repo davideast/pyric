@@ -83,10 +83,13 @@ describe('compile limits: shapes the capture does not measure', () => {
     expect(violations(source)).toEqual([]);
   });
 
-  test('!, a ternary, a method call, and a list add no level; a comparison does', () => {
+  test('!, a ternary and a method call add no level; a comparison, a list and a function call do', () => {
     const deep = `${'('.repeat(97)}request.auth.uid == 'a'${')'.repeat(97)}`;
     expect(condition(`!${deep}`)).toBe(0);
     expect(condition(`true ? ${deep} : false`)).toBe(0);
-    expect(condition(`[${deep}].size() > 0`)).toBe(2);
+    expect(condition(`'x'.matches(${deep})`)).toBe(0);
+    // The list puts its element one level deeper, so the comparison reaches level 100.
+    expect(condition(`[${deep}].size() > 0`)).toBe(1);
+    expect(condition(`string(${deep}) == 'true'`)).toBe(1);
   });
 });

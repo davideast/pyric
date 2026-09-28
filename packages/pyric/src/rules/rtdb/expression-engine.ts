@@ -39,7 +39,7 @@ export function matchRtdbExpression(raw: string): RtdbExpressionMatch {
   if (tooDeep !== undefined) {
     return {
       ok: false,
-      message: `Brackets nest more than ${MAX_BRACKET_DEPTH} levels deep at offset ${tooDeep.open}, deeper than the rules parser reads.`,
+      message: `Brackets nest more than ${MAX_BRACKET_DEPTH} levels deep at offset ${tooDeep.open}: the rules parser reads at most ${MAX_BRACKET_DEPTH}, a limit of this parser, not of production.`,
     };
   }
   try {

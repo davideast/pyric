@@ -432,7 +432,7 @@ function failureAt(source: string, offset: number, expected: string, message: st
 /** The failure for source nesting past the parser's bracket depth bound. */
 function nestingFailure(source: string, failure: SourceNestingFailure): ParseError {
   const error = failureAt(source, failure.offset, failure.expected, '');
-  error.message = `Line ${error.line}, col ${error.column}: Brackets nest more than ${MAX_BRACKET_DEPTH} levels deep, deeper than the rules parser reads.`;
+  error.message = `Line ${error.line}, col ${error.column}: Brackets nest more than ${MAX_BRACKET_DEPTH} levels deep: the rules parser reads at most ${MAX_BRACKET_DEPTH}, a limit of this parser, not of production.`;
   return error;
 }
 

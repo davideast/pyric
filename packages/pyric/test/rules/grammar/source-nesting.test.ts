@@ -81,8 +81,8 @@ describe('parser: what the group scan does not count', () => {
     expect(nesting(firestore(groups(300), "    // it's a comment\n"))).toBe(1);
   });
 
-  test('function call parentheses are not groups: 110 nested calls around a comparison compile', () => {
-    const calls = `${'f('.repeat(110)}request.auth.uid == 'a'${')'.repeat(110)}`;
+  test('function call parentheses are not groups: 90 nested calls around a comparison compile', () => {
+    const calls = `${'f('.repeat(90)}request.auth.uid == 'a'${')'.repeat(90)}`;
     expect(nesting(firestore(calls, '    function f(x) { return x; }\n'))).toBe(0);
   });
 
@@ -102,13 +102,41 @@ describe('parser: what the group scan does not count', () => {
   });
 });
 
+describe('parser: nested lists, maps and calls', () => {
+  // Production rejects each at the 99th level (fixtures/compile-limits,
+  // shapes list-nesting, map-nesting, call-nesting), so the parser empties
+  // the content past it as it does for a group.
+  test('300 nested lists, maps and calls parse and report what production reports', () => {
+    const lists = `${'['.repeat(300)}request.auth.uid${']'.repeat(300)} == ${'['.repeat(300)}'a'${']'.repeat(300)}`;
+    const maps = `${"{'a': ".repeat(300)}request.auth.uid${'}'.repeat(300)} == ${"{'a': ".repeat(300)}'a'${'}'.repeat(300)}`;
+    const calls = `${'f('.repeat(300)}request.auth.uid${')'.repeat(300)} == 'a'`;
+    expect(nesting(firestore(lists))).toBe(2);
+    expect(nesting(firestore(maps))).toBe(4);
+    expect(nesting(firestore(calls, '    function f(x) { return x; }\n'))).toBe(1);
+  });
+
+  test('every item of the emptied content is still reported', () => {
+    const inner = "[1, 2, 3], {'a': 1, 'b': 2,}";
+    const lists = `${'['.repeat(98)}${inner}${']'.repeat(98)} == []`;
+    // The 98th list holds two items at level 100.
+    expect(nesting(firestore(lists))).toBe(2);
+    const wider = `${'['.repeat(97)}[${inner}]${']'.repeat(97)} == []`;
+    expect(nesting(firestore(wider))).toBe(2);
+    const deeper = `${'['.repeat(99)}${inner}${']'.repeat(99)} == []`;
+    expect(nesting(firestore(deeper))).toBe(1);
+  });
+
+  test('a map key and a path wildcard in braces are not map literals', () => {
+    const path = `exists(/databases/$(database)/documents/p/{d})`;
+    expect(parseToASTOrError(firestore(`${'('.repeat(97)}${path}${')'.repeat(97)}`)).ok).toBe(true);
+  });
+});
+
 describe('parser: the bracket depth bound', () => {
   test(`brackets nested past ${MAX_BRACKET_DEPTH} levels are a parse error, not a stack overflow`, () => {
     for (const expr of [
-      `${'['.repeat(300)}1${']'.repeat(300)} == 1`,
-      `${"{'a': ".repeat(300)}1${'}'.repeat(300)} == 1`,
-      `${'f('.repeat(300)}1${')'.repeat(300)}`,
       `a${'[a'.repeat(300)}${']'.repeat(300)}`,
+      `${"'a'.concat(".repeat(300)}'a'${')'.repeat(300)} == 'a'`,
     ]) {
       const parsed = parseToASTOrError(firestore(expr));
       expect(parsed.ok).toBe(false);
