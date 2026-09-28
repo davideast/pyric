@@ -93,10 +93,10 @@
     },
     {
       "subject": "chess / normal move (Nf3)",
-      "stage": "simulator nodes",
+      "stage": "expressions",
       "kind": "count",
-      "count": 898,
-      "note": "expression trace entries the simulator records for this request"
+      "count": 928,
+      "note": "expressions the request evaluated, in the unit of production's 1000-expression limit"
     },
     {
       "subject": "chess / normal move (Nf3)",
@@ -147,10 +147,10 @@
     },
     {
       "subject": "chess / capture (Qxf7#)",
-      "stage": "simulator nodes",
+      "stage": "expressions",
       "kind": "count",
-      "count": 959,
-      "note": "expression trace entries the simulator records for this request"
+      "count": 978,
+      "note": "expressions the request evaluated, in the unit of production's 1000-expression limit"
     },
     {
       "subject": "chess / capture (Qxf7#)",
@@ -201,10 +201,10 @@
     },
     {
       "subject": "chess / castle (O-O)",
-      "stage": "simulator nodes",
+      "stage": "expressions",
       "kind": "count",
-      "count": 863,
-      "note": "expression trace entries the simulator records for this request"
+      "count": 859,
+      "note": "expressions the request evaluated, in the unit of production's 1000-expression limit"
     },
     {
       "subject": "chess / castle (O-O)",
@@ -284,10 +284,10 @@
     },
     {
       "subject": "arcade-firestore / Reversi move",
-      "stage": "simulator nodes",
+      "stage": "expressions",
       "kind": "count",
-      "count": 458,
-      "note": "expression trace entries the simulator records for this request"
+      "count": 516,
+      "note": "expressions the request evaluated, in the unit of production's 1000-expression limit"
     },
     {
       "subject": "arcade-firestore / Reversi move",
@@ -338,10 +338,10 @@
     },
     {
       "subject": "arcade-firestore / Yacht score (choice)",
-      "stage": "simulator nodes",
+      "stage": "expressions",
       "kind": "count",
-      "count": 325,
-      "note": "expression trace entries the simulator records for this request"
+      "count": 372,
+      "note": "expressions the request evaluated, in the unit of production's 1000-expression limit"
     },
     {
       "subject": "arcade-firestore / Yacht score (choice)",
@@ -537,10 +537,10 @@
     },
     {
       "subject": "corpus / firestore/common-auth-membership-firestore",
-      "stage": "simulator nodes",
+      "stage": "expressions",
       "kind": "count",
       "count": 5,
-      "note": "expression trace entries the simulator records for this request"
+      "note": "expressions the request evaluated, in the unit of production's 1000-expression limit"
     },
     {
       "subject": "corpus / firestore/required-fields-and-mapdiff",
@@ -600,10 +600,10 @@
     },
     {
       "subject": "corpus / firestore/required-fields-and-mapdiff",
-      "stage": "simulator nodes",
+      "stage": "expressions",
       "kind": "count",
-      "count": 35,
-      "note": "expression trace entries the simulator records for this request"
+      "count": 38,
+      "note": "expressions the request evaluated, in the unit of production's 1000-expression limit"
     },
     {
       "subject": "corpus / firestore/hierarchical-match-cascade",
@@ -663,10 +663,10 @@
     },
     {
       "subject": "corpus / firestore/hierarchical-match-cascade",
-      "stage": "simulator nodes",
+      "stage": "expressions",
       "kind": "count",
       "count": 1,
-      "note": "expression trace entries the simulator records for this request"
+      "note": "expressions the request evaluated, in the unit of production's 1000-expression limit"
     },
     {
       "subject": "corpus / firestore/list-and-string-methods",
@@ -726,10 +726,10 @@
     },
     {
       "subject": "corpus / firestore/list-and-string-methods",
-      "stage": "simulator nodes",
+      "stage": "expressions",
       "kind": "count",
-      "count": 95,
-      "note": "expression trace entries the simulator records for this request"
+      "count": 104,
+      "note": "expressions the request evaluated, in the unit of production's 1000-expression limit"
     },
     {
       "subject": "corpus / storage/common-auth-membership",

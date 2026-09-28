@@ -95,6 +95,7 @@ import { parseErrorWording } from '../../rules/grammar/parse-error-wording.js';
 // int-vs-float promotion match production instead of JS numerics.
 import { RulesFloat } from '../../rules/simulator/wrappers/float.js';
 import { Bytes } from '../../rules/simulator/wrappers/bytes.js';
+import type { RulesResourceLimit } from '../../rules/test/spec.js';
 import type {
   FirestoreRules as SharedRules,
   MatchBlock as SharedMatchBlock,
@@ -252,6 +253,16 @@ export interface EvaluationResult {
    *  integration to populate `storage/unauthorized` error
    *  messages. */
   reasons: string[];
+  /**
+   * Expressions the evaluation counted, in the unit of production's
+   * per-request limit of 1000 (the Firestore rules unit; see
+   * `TestResult.evaluatedExpressions` in pyric/rules). The count spans every
+   * allow rule and match block evaluated for the request.
+   */
+  evaluatedExpressions: number;
+  /** Set when the request reached the 1000-expression limit, which denies
+   *  it with production's message. */
+  resourceLimit?: RulesResourceLimit;
 }
 
 /**

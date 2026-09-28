@@ -21,6 +21,13 @@ export class RuleUnsupportedError extends RuleEvalError {}
 export class RuleResourceLimitError extends RuleEvalError {}
 
 /**
+ * The evaluation reached production's limit of 1000 evaluated expressions
+ * (see ExpressionBudget). Unlike the other resource limits it ends the whole
+ * request: no later allow rule or match block is evaluated.
+ */
+export class RuleExpressionLimitError extends RuleResourceLimitError {}
+
+/**
  * True for the errors that CEL `&&`/`||` absorption may treat as an error
  * VALUE at an operand boundary: genuine rule-evaluation failures, excluding
  * the unsupported/compile-reject and resource-limit classes above.

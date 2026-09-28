@@ -38,7 +38,12 @@ const RECEIVER_METHODS: ReadonlyMap<string, ReceiverMethod> = mergeReceiverMetho
  */
 export function evalMethodCall(expr: MethodCall, ctx: EvalCtx): unknown {
   const namespace = builtinNamespace(expr, ctx);
-  if (namespace !== undefined) return namespace(expr, ctx);
+  if (namespace !== undefined) {
+    // The namespace identifier is an evaluated node in production's unit,
+    // although it is not evaluated as a value.
+    ctx.expressionBudget?.node();
+    return namespace(expr, ctx);
+  }
 
   const method = RECEIVER_METHODS.get(expr.method);
   if (method === undefined) {

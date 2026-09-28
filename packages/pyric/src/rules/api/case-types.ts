@@ -16,6 +16,7 @@ import type {
   ListQuery,
   RuleEvaluation,
   PathResolutionTrace,
+  RulesResourceLimit,
   TestIdentity,
   WriteMode,
 } from '../test/spec.js';
@@ -74,6 +75,17 @@ export interface CaseResult {
   notes: string[];
   /** Which match blocks the resolver considered and where each fell apart. */
   pathResolution?: PathResolutionTrace;
+  /**
+   * Expressions the request evaluated, in the unit of production's
+   * per-request limit of 1000, across every allow rule and match block it
+   * reached. `1000 - evaluatedExpressions` is the request's margin. See
+   * `TestResult.evaluatedExpressions` for the unit.
+   */
+  evaluatedExpressions: number;
+  /** The per-request limit that stopped the request, when one did. A
+   *  request past 1000 expressions is DENY with `kind: 'expressions'`
+   *  and production's message. */
+  resourceLimit?: RulesResourceLimit;
 }
 
 /** The structured account of why one Firestore case resolved as it did. */
@@ -88,6 +100,10 @@ export interface Explanation {
   trace: RuleEvaluation[];
   pathResolution?: PathResolutionTrace;
   notes: string[];
+  /** Expressions the request evaluated; see {@link CaseResult.evaluatedExpressions}. */
+  evaluatedExpressions: number;
+  /** The per-request limit that stopped the request, when one did. */
+  resourceLimit?: RulesResourceLimit;
 }
 
 /** Aggregate of a `simulate(cases)` run. Counts partition the cases:

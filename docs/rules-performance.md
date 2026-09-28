@@ -57,7 +57,7 @@ Each fixture reports these stages. A stage that does not apply to a service is l
 | `evaluate.expressions` | Firestore only, derived: `evaluate` minus lookups minus match. It includes expression evaluation, trace recording and context building. |
 | `evaluate.input-validation` | Realtime Database only: the input schema check `evaluate` runs first. |
 | `evaluate.first` | Realtime Database only: the first request on a fresh compile, when evaluation parses each rule it reaches once. |
-| `simulator nodes` | Firestore only: the expression trace entries the simulator records for the request. This is the simulator's own count, not production's. |
+| `expressions` | Firestore only: the expressions the request evaluated (`evaluatedExpressions`), in the unit of production's limit of 1000 per request. |
 | `e2e` | A sandbox write from the SDK call to the verdict and commit: `setDoc` or a `writeBatch` commit through `pyric/firestore`, `set` through `pyric/database`, `uploadString` through `pyric/storage`. |
 
 Every request is checked before it is timed. `evaluate` must return the verdict the fixture records, the `e2e` write must succeed, and the same write by another user must be denied, which shows the write path evaluated the rules. A failed check fails the run.
@@ -72,7 +72,7 @@ Every request is checked before it is timed. `evaluate` must return the verdict 
 
 ## How the gate decides
 
-`--check` fails a timed stage when its median is more than 25 percent above the baseline median and more than 5 microseconds above it. A `simulator nodes` count fails on any increase. Derived rows are never gated.
+`--check` fails a timed stage when its median is more than 25 percent above the baseline median and more than 5 microseconds above it. An `expressions` count fails on any increase. Derived rows are never gated.
 
 Before a stage fails, the harness runs that stage's fixture for three more rounds and keeps the fastest. A real regression stays slow; a busy moment does not.
 
@@ -110,15 +110,15 @@ A profile covers every stage in the run, so parse and compile time mixes with ev
 
 Recorded on an Apple M3 Pro with 18 GiB of memory and bun 1.3.9: three rounds, each in its own process, each stage's fastest round. The machine had a load average near 10 from other work, so a quiet machine measures some stages faster; `e2e` moved most. Medians:
 
-| Fixture | parse.cold | parse.warm | resolve | compile | evaluate | e2e | simulator nodes |
+| Fixture | parse.cold | parse.warm | resolve | compile | evaluate | e2e | expressions |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | chess | 161.96 ms | 89.44 ms | 94.90 ms | 22.0 us | | | |
-| chess / normal move (Nf3) | | | | | 253.5 us | 625.6 us | 898 |
-| chess / capture (Qxf7#) | | | | | 275.6 us | 416.5 us | 959 |
-| chess / castle (O-O) | | | | | 248.2 us | 461.7 us | 863 |
+| chess / normal move (Nf3) | | | | | 253.5 us | 625.6 us | 928 |
+| chess / capture (Qxf7#) | | | | | 275.6 us | 416.5 us | 978 |
+| chess / castle (O-O) | | | | | 248.2 us | 461.7 us | 859 |
 | arcade-firestore | 370.14 ms | 305.98 ms | | 72.9 us | | | |
-| arcade-firestore / Reversi move | | | | | 241.5 us | 743.0 us | 458 |
-| arcade-firestore / Yacht score (choice) | | | | | 97.9 us | 246.6 us | 325 |
+| arcade-firestore / Reversi move | | | | | 241.5 us | 743.0 us | 516 |
+| arcade-firestore / Yacht score (choice) | | | | | 97.9 us | 246.6 us | 372 |
 | arcade-rtdb | 73.20 ms | 24.03 ms | | 78.64 ms | | | |
 | arcade-rtdb / Air Hockey frame | | | | | 501.5 us | 502.6 us | |
 | arcade-storage | 55.70 ms | 4.01 ms | | 0.0 us | | | |

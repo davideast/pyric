@@ -329,8 +329,7 @@ function firestoreEvaluate(
     failures.push(`${subject}: evaluate returned ${result?.decision ?? first.error?.message}, fixture expects ${request.expect}`);
     return;
   }
-  const nodes = (result.trace as { expressionTrace?: unknown[] }[])
-    .reduce((sum, entry) => sum + (entry.expressionTrace?.length ?? 0), 0);
+  const expressions = result.evaluatedExpressions as number;
 
   lookups = 0;
   run();
@@ -352,7 +351,7 @@ function firestoreEvaluate(
   record(subject, 'evaluate.lookups', timedLookups, `${perRequestLookups} getDoc call(s) per request, time inside the callback`);
   derived(subject, 'evaluate.expressions', median(timedRest) - matchMedian,
     'evaluate minus lookups minus match: expressions, trace recording and context building');
-  count(subject, 'simulator nodes', nodes, 'expression trace entries the simulator records for this request');
+  count(subject, 'expressions', expressions, "expressions the request evaluated, in the unit of production's 1000-expression limit");
 }
 
 async function firestoreEndToEnd(
@@ -750,7 +749,7 @@ if (has('--check')) {
 const STAGE_COLUMNS = [
   'parse.cold', 'parse.warm', 'resolve', 'compile',
   'evaluate', 'evaluate.match', 'evaluate.expressions', 'evaluate.lookups',
-  'evaluate.input-validation', 'evaluate.first', 'simulator nodes', 'e2e',
+  'evaluate.input-validation', 'evaluate.first', 'expressions', 'e2e',
 ];
 
 function cell(row: StageRow | undefined): string {

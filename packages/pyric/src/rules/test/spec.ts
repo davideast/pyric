@@ -287,6 +287,41 @@ export interface TestResult {
    *  simulation leaves this absent because its structured diagnostics live
    *  in `trace` and `pathResolution`. */
   api?: RulesTestApiResultDetails;
+  /**
+   * Expressions the local simulator evaluated for this request, counted in
+   * the unit of production's per-request limit of 1000: every evaluated
+   * node costs 1, literals included; `&&` and `||` cost 1 more when they
+   * evaluate their right operand; a ternary costs 1 more, and 2 more again
+   * when it takes the false branch; a path literal
+   * costs 1 more per literal segment; a `let` binding costs 1 plus its
+   * value on every call. The count spans every allow rule and match block
+   * the request evaluated, including rules that denied before one granted.
+   * `limit - evaluatedExpressions` is the request's margin. Absent on
+   * results from the production Test API client, which does not report it.
+   */
+  evaluatedExpressions?: number;
+  /**
+   * The per-request rules limit that stopped this request, when one did.
+   * The request is DENY and no later allow rule or match block ran.
+   * Absent when no limit was reached, and on production Test API results.
+   */
+  resourceLimit?: RulesResourceLimit;
+}
+
+/**
+ * A per-request rules limit the local simulator enforces.
+ *
+ *  - `expressions`: 1000 evaluated expressions (see
+ *    {@link TestResult.evaluatedExpressions}). `message` is production's
+ *    own: "Unable to evaluate the expression as the maximum of 1000
+ *    expressions to evaluate has been reached."
+ *  - `document-lookups`: 10 distinct get(), exists(), getAfter() and
+ *    existsAfter() document accesses.
+ */
+export interface RulesResourceLimit {
+  kind: 'expressions' | 'document-lookups';
+  limit: number;
+  message: string;
 }
 
 export type TestFirestoreRulesResult =

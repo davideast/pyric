@@ -62,6 +62,10 @@ export function evalFirestoreBuiltin(expr: MethodCall, ctx: EvalCtx): unknown {
   const arg = expr.args[0];
   let docPath: string;
   if (arg.kind === 'path') {
+    // An authored path literal is an evaluated node plus one unit per literal
+    // segment; its interpolations charge themselves as they evaluate.
+    ctx.expressionBudget?.node();
+    for (const seg of arg.segments) if (seg.kind === 'literal') ctx.expressionBudget?.pathSegment();
     docPath = buildFirestoreDocPath(arg, ctx);
   } else {
     const val = evalExpr(arg, ctx);

@@ -1,0 +1,219 @@
+/**
+ * The simulator's expression count against production's measurements.
+ *
+ * `test/rules/linter/fixtures/expression-cost/captures.json` records, for 34
+ * requests, the padding step at which production's 1000-expression limit
+ * stopped the request: a padding rule evaluated first, whose cost grows with
+ * `request.auth.token.pyric_pad`, is false below `threshold.at` and reaches
+ * the limit at it (`packages/conformance/src/rules-expression-cost-pad.ts`).
+ * So the request's own cost X satisfies
+ *
+ *   P(below) + X <= 1000 < P(at) + X
+ *
+ * where P(n) is the padding rule's cost. This test measures P(n) by running
+ * the padding through the simulator, checks that it reproduces production's
+ * six padding anchors, and then requires every request's simulated count to
+ * lie in that window, which is 5 expressions wide. The window is computed
+ * from the thresholds, not from the fixture's `production.cost`, which
+ * carries the rounding of a linear fit of P(n).
+ */
+import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import {
+  PAD_SECOND_TOKEN,
+  PAD_TOKEN,
+  anchorRules,
+  injectPadding,
+} from '../../../../conformance/src/rules-expression-cost-pad.ts';
+import { SimulateFirestoreRulesHandler } from '../../../src/rules/simulator/handler.js';
+import { EXPRESSION_LIMIT, EXPRESSION_LIMIT_MESSAGE } from '../../../src/rules/simulator/expression-budget.js';
+import type { TestCase, TestResult } from '../../../src/rules/test/spec.js';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const FIXTURES = join(HERE, '..', 'linter', 'fixtures', 'expression-cost');
+const REPO_ROOT = join(HERE, '..', '..', '..', '..', '..');
+
+interface Threshold { below: number; at: number }
+interface CaptureCase {
+  id: string;
+  block: string;
+  testCase: TestCase;
+  production: { decision: 'ALLOW' | 'DENY'; limitReached: boolean; threshold: Threshold };
+}
+interface CaptureSuite {
+  id: string;
+  rulesFile: string;
+  documents: Record<string, { file: string }>;
+  cases: CaptureCase[];
+}
+interface Captures {
+  limit: number;
+  padding: { anchors: { second: number | null; threshold: Threshold }[] };
+  suites: CaptureSuite[];
+}
+
+const captures = JSON.parse(readFileSync(join(FIXTURES, 'captures.json'), 'utf8')) as Captures;
+const handler = new SimulateFirestoreRulesHandler();
+
+/**
+ * Requests whose simulated count lies outside production's window for a
+ * reason other than the counting unit. The simulator still decides them as
+ * production does; the count is pinned so a change is noticed.
+ *
+ * arcade/chess-e4: the granting candidate rule raises "Unsupported
+ * operation error" (list + list), and the simulator goes on to evaluate the
+ * next allow rule for the method (`request.resource.data.status ==
+ * 'resigned' && ...`, 7 expressions, false at its gate). Removing that rule's
+ * 7 from the simulated 316 lands at 309, inside production's window of 306
+ * to 310, which suggests production does not evaluate allow rules after one
+ * that raises an error. That is a decision semantics question, not a unit
+ * question, and it needs its own capture.
+ */
+const OUTSIDE_WINDOW: Record<string, number> = { 'arcade/chess-e4': 316 };
+
+function simulate(source: string, tc: TestCase, getDoc?: (path: string) => Record<string, unknown> | null): TestResult {
+  const result = handler.simulate(source, [tc], getDoc ? { getDoc } : undefined);
+  if (!result.success) throw new Error(result.error.message);
+  return result.data.results[0]!;
+}
+
+function padded(tc: TestCase, token: Record<string, number>): TestCase {
+  const auth = tc.auth ?? { uid: 'pyric-pad' };
+  return { ...tc, auth: { ...auth, token: { ...(auth.token ?? {}), ...token } } };
+}
+
+const ANCHOR_RULES = anchorRules();
+const ANCHOR_CASE: TestCase = {
+  description: 'anchor', expectation: 'DENY', method: 'get', path: 'anchor-false/x', auth: { uid: 'pyric-pad' },
+};
+
+/** The padding rule's cost at step n: the anchor that follows it with
+ *  `allow get: if false` costs P(n) + 1. */
+function padCost(n: number): number {
+  const r = simulate(ANCHOR_RULES, padded(ANCHOR_CASE, { [PAD_TOKEN]: n }));
+  expect(r.resourceLimit).toBeUndefined();
+  return r.evaluatedExpressions! - 1;
+}
+
+/** Production's window for the request's own cost, from its threshold. */
+function windowOf(t: Threshold): { low: number; high: number } {
+  return {
+    low: EXPRESSION_LIMIT - padCost(t.at) + 1,
+    high: t.below < 0 ? Infinity : EXPRESSION_LIMIT - padCost(t.below),
+  };
+}
+
+describe('padding cost in the simulator', () => {
+  test('the fixture measures against the limit the simulator enforces', () => {
+    expect(captures.limit).toBe(EXPRESSION_LIMIT);
+  });
+
+  test('P(n) is 9 plus 5 per step plus 2 per 40-step segment', () => {
+    for (const n of [0, 1, 39, 40, 41, 79, 80, 150]) {
+      expect(padCost(n)).toBe(9 + 5 * n + 2 * Math.floor(n / 40));
+    }
+  });
+
+  for (const { second, threshold } of captures.padding.anchors) {
+    test(`anchor ${second === null ? 'padding then false' : `padding then padding(${second})`} reaches the limit where production did`, () => {
+      const tc = second === null
+        ? ANCHOR_CASE
+        : { ...ANCHOR_CASE, path: 'anchor-pad/x' };
+      const extra = second === null ? {} : { [PAD_SECOND_TOKEN]: second };
+      const below = simulate(ANCHOR_RULES, padded(tc, { [PAD_TOKEN]: threshold.below, ...extra }));
+      const at = simulate(ANCHOR_RULES, padded(tc, { [PAD_TOKEN]: threshold.at, ...extra }));
+      expect(below.resourceLimit).toBeUndefined();
+      expect(at.resourceLimit?.kind).toBe('expressions');
+    });
+  }
+});
+
+for (const suite of captures.suites) {
+  describe(`expression count against production: ${suite.id}`, () => {
+    const source = readFileSync(join(FIXTURES, suite.rulesFile), 'utf8');
+    const documents: Record<string, Record<string, unknown>> = {};
+    for (const [path, { file }] of Object.entries(suite.documents)) {
+      documents[path] = JSON.parse(readFileSync(join(REPO_ROOT, file), 'utf8'));
+    }
+    const getDoc = (path: string) => documents[path.replace(/^\/+/, '')] ?? null;
+    /** Stored function mocks name their document; the capture sent its data. */
+    const resolved = (tc: TestCase): TestCase => tc.functionMocks
+      ? {
+        ...tc,
+        functionMocks: tc.functionMocks.map((m) => {
+          const ref = (m.result as { $document?: string } | undefined)?.$document;
+          return ref ? { ...m, result: documents[ref] } : m;
+        }),
+      }
+      : tc;
+
+    for (const c of suite.cases) {
+      const tc = resolved(c.testCase);
+      const result = simulate(source, tc, getDoc);
+
+      test(`${c.id}: decides as production did`, () => {
+        expect(result.decision).toBe(c.production.decision);
+        if (c.production.limitReached) {
+          expect(result.resourceLimit).toEqual({ kind: 'expressions', limit: EXPRESSION_LIMIT, message: EXPRESSION_LIMIT_MESSAGE });
+          expect(result.evaluatedExpressions).toBe(EXPRESSION_LIMIT);
+        } else {
+          expect(result.resourceLimit).toBeUndefined();
+        }
+      });
+
+      if (c.production.limitReached) continue;
+
+      if (OUTSIDE_WINDOW[c.id] !== undefined) {
+        test(`${c.id}: count is pinned outside production's window (see OUTSIDE_WINDOW)`, () => {
+          const { low, high } = windowOf(c.production.threshold);
+          expect(result.evaluatedExpressions).toBe(OUTSIDE_WINDOW[c.id]!);
+          expect(result.evaluatedExpressions! < low || result.evaluatedExpressions! > high).toBe(true);
+        });
+        continue;
+      }
+
+      test(`${c.id}: count lies in production's window`, () => {
+        const { low, high } = windowOf(c.production.threshold);
+        expect(high - low).toBeLessThanOrEqual(5);
+        expect(result.evaluatedExpressions!).toBeGreaterThanOrEqual(low);
+        expect(result.evaluatedExpressions!).toBeLessThanOrEqual(high);
+      });
+
+      test(`${c.id}: the padded request reaches the limit at production's step and not before`, () => {
+        const withPadding = injectPadding(source, [{ anchor: `match ${c.block} {`, method: tc.method }]);
+        const { below, at } = c.production.threshold;
+        expect(simulate(withPadding, padded(tc, { [PAD_TOKEN]: below }), getDoc).resourceLimit).toBeUndefined();
+        expect(simulate(withPadding, padded(tc, { [PAD_TOKEN]: at }), getDoc).resourceLimit?.kind).toBe('expressions');
+      });
+    }
+  });
+}
+
+describe("the chess showcase's Fool's Mate", () => {
+  // Black's queen d8 to h4 after f3 e5 g4, sent with moveType 'normal' to
+  // the showcase rules as they stood before the showcase fix. Production
+  // denied it at the limit; the simulator used to allow it.
+  const chess = captures.suites.find((s) => s.id === 'chess')!;
+  const mate = chess.cases.find((c) => c.id === 'chess/queen-mate')!;
+
+  test('production stopped the request at the limit', () => {
+    expect(mate.production.limitReached).toBe(true);
+    expect(mate.testCase.data?.moveType).toBe('normal');
+  });
+
+  test('the simulator denies it at the limit with production\'s message', () => {
+    const source = readFileSync(join(FIXTURES, chess.rulesFile), 'utf8');
+    const config = JSON.parse(readFileSync(join(REPO_ROOT, chess.documents['gameConfig/chessv2']!.file), 'utf8'));
+    const tc = {
+      ...mate.testCase,
+      functionMocks: mate.testCase.functionMocks!.map((m) => ({ ...m, result: config })),
+    };
+    const r = simulate(source, tc);
+    expect(r.decision).toBe('DENY');
+    expect(r.evaluatedExpressions).toBe(EXPRESSION_LIMIT);
+    expect(r.resourceLimit?.message).toBe(EXPRESSION_LIMIT_MESSAGE);
+    expect(r.trace.at(-1)!.verdict).toBe('ERROR');
+  });
+});

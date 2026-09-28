@@ -41,7 +41,7 @@ import { isDocumentPath, normalizeDocumentPath } from './document-lookups.js';
 // not enforce the budget, so it cannot produce this evidence.
 
 /** Production's per-evaluation document access budget (single request). */
-const DOCUMENT_LOOKUP_LIMIT = 10;
+export const DOCUMENT_LOOKUP_LIMIT = 10;
 
 /**
  * Budget exhaustion. A {@link ResourceLimitError}, not a plain EvalError,
