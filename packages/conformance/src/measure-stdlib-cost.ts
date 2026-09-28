@@ -731,8 +731,9 @@ async function main(): Promise<void> {
     projects: runner.projects,
     method: 'padding: pad(a, v) + X >= D; per call = X(call) - X(reference with the same arguments) + 2',
     calibration: { ...(previous?.calibration ?? {}), ...calibration },
-    requests: runner.requests,
-    testCases: runner.testCases,
+    // The run totals describe the last full run; a --module run keeps them.
+    requests: previous?.requests ?? runner.requests,
+    testCases: previous?.testCases ?? runner.testCases,
     functions: [...keep(previous?.functions), ...functions],
     probes: [...keep(previous?.probes), ...probeRows],
   };

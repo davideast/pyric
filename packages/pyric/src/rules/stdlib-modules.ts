@@ -764,6 +764,44 @@ const RESULTS_MODULE: StdlibModuleDefinition = {
   relatedKeys: ['state', 'turns', 'lobby', 'lifecycle', 'transitions'],
 };
 
+const FAIRNESS_MODULE: StdlibModuleDefinition = {
+  key: 'fairness',
+  kind: 'user-module',
+  description:
+    'User-authored module: commit-reveal fairness (commitmentMatches, digestByte). Self-contained.',
+  purpose:
+    'Hidden choices and shared randomness: a player stores `commit`, the uppercase hex SHA-256 of a secret salt, before the other players add their input, then reveals `salt`. commitmentMatches checks the reveal against the commitment, and digestByte derives values such as die faces from a digest.',
+  whenToUse:
+    'Reach for `fairness` on the reveal write of a commit-reveal game: dice, card draws, or a hidden move that must not change after the other players act.',
+  entries: [
+    {
+      signature: 'commitmentMatches(commitment: string, salt: string): bool',
+      cost: { min: 6, max: 16 },
+      reads: 0,
+      description:
+        '`salt` is a non-empty string and `hashing.sha256(salt).toHexString()` equals `commitment`.',
+      examples: [
+        `allow update: if commitmentMatches(resource.data.commit, request.resource.data.salt);`,
+      ],
+      notes:
+        'The commitment is the uppercase hex string, not Bytes: a commitment stored as Bytes or as lowercase hex does not match.',
+    },
+    {
+      signature: 'digestByte(digest: Bytes, index: int): int',
+      cost: { min: 63, max: 63 },
+      reads: 0,
+      description:
+        'Byte `index` of `digest` as an int from 0 to 255. An index outside the digest, or a digest that is not Bytes, is an error, so the rule denies.',
+      examples: [
+        `allow update: if request.resource.data.die == digestByte(hashing.sha256(request.resource.data.salt + resource.data.nonce), 0) % 6 + 1;`,
+      ],
+      notes:
+        'Production Bytes have no index operator, so the byte is read from `toHexString()` through a 16-entry lookup map on every call. `% 6 + 1` gives faces 1 to 4 a 43 in 256 chance and faces 5 and 6 a 42 in 256 chance.',
+    },
+  ],
+  relatedKeys: ['hashing', 'bytes', 'turns', 'results'],
+};
+
 const MEMBERSHIP_MODULE: StdlibModuleDefinition = {
   key: 'membership',
   kind: 'user-module',
@@ -1292,6 +1330,7 @@ export const STDLIB_MODULES: ReadonlyArray<StdlibModule> = [
   TURNS_MODULE,
   STATE_MODULE,
   RESULTS_MODULE,
+  FAIRNESS_MODULE,
   MEMBERSHIP_MODULE,
   LIFECYCLE_MODULE,
   TRANSITIONS_MODULE,

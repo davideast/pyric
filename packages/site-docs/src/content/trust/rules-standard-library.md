@@ -29,6 +29,7 @@ shown in each row's **Verified** column.
 | [turns](#turns) | Firestore | Self-contained | — | Simulator + Rules Test API replay |
 | [state](#state) | Firestore | Self-contained | — | Simulator |
 | [results](#results) | Firestore | Imports modules | — | Simulator + Rules Test API replay |
+| [fairness](#fairness) | Firestore | Self-contained | — | Simulator + Rules Test API replay |
 | [membership](#membership) | Firestore + Storage | Self-contained | — | Firestore + Storage production |
 | [storage/uploads](#storageuploads) | Storage | Self-contained | — | Storage evaluator + production oracle |
 | [storage/metadata](#storagemetadata) | Storage | Self-contained | — | Storage evaluator + production oracle |
@@ -133,6 +134,22 @@ Convention: uses `host`/`guest`/`status`/`winner` fields on document. The status
 Imports `onlyFieldsChanged` and `immutableFields` from `lifecycle`, `statusIs` and `newStatusIs` from `transitions`.
 
 File: `results.rules` | Tests: `results.test.json`
+Every case replayed through the Rules Test API with the same decision.
+
+### fairness
+
+Commit-reveal checks for hidden choices and shared randomness.
+
+| Function | Params | Returns | Description |
+|----------|--------|---------|-------------|
+| `commitmentMatches(commitment, salt)` | commitment: uppercase hex string; salt: string | bool | The salt is a non-empty string and its SHA-256, as uppercase hex, equals the commitment |
+| `digestByte(digest, index)` | digest: Bytes; index: int | int | Byte `index` of the digest, 0 to 255; an index outside the digest or a digest that is not Bytes is an error, so the rule denies |
+
+Convention: the commit write stores `commit`, the string `hashing.sha256(salt).toHexString()` produces, and the reveal write stores `salt`. A commitment stored as Bytes or as lowercase hex does not match. An empty salt is refused because anyone can compute its digest.
+
+Production Bytes have no index operator, so `digestByte` reads the byte from `toHexString()` through a 16-entry lookup map, 63 expressions per call. A die face is `digestByte(d, i) % 6 + 1`; faces 1 to 4 come up 43 times in 256 and faces 5 and 6 come up 42 times.
+
+File: `fairness.rules` | Tests: `fairness.test.json`
 Every case replayed through the Rules Test API with the same decision.
 
 ### membership
