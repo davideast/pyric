@@ -1,0 +1,118 @@
+{
+  "schema": "pyric.stdlib-replay.v1",
+  "capturedAt": "2026-09-28T02:14:50.815Z",
+  "project": "digame-mas",
+  "module": "turns",
+  "cases": 18,
+  "agree": 18,
+  "results": [
+    {
+      "case": "isMyTurn allows host when currentTurn is host",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "isMyTurn denies guest when currentTurn is host",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "isMyTurn allows guest when currentTurn is guest",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "isMyTurn denies unauthenticated",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "turnFlipped allows host to guest transition",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "turnFlipped denies same turn value",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "isSeatTurn allows the caller seated at the turn index",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "isSeatTurn denies a caller seated at another index",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "isSeatTurn allows the caller in the last seat",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "isSeatTurn denies a turn index past the last seat",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "isSeatTurn denies a negative turn index",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "isSeatTurn denies unauthenticated",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "turnAdvanced allows the next seat",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "turnAdvanced denies a turn that did not move",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "turnAdvanced denies a turn advanced by two",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "turnAdvanced allows the last seat wrapping to seat 0",
+      "expectation": "ALLOW",
+      "production": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "turnAdvanced denies the last seat moving past the end",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "case": "turnAdvanced denies a changed seat list",
+      "expectation": "DENY",
+      "production": "DENY",
+      "state": "SUCCESS"
+    }
+  ]
+}

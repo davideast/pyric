@@ -1,7 +1,9 @@
 {
   "costs": [
     { "function": "isMyTurn", "cost": { "min": 16, "max": 23 }, "reads": 0 },
-    { "function": "turnFlipped", "cost": { "min": 15, "max": 22 }, "reads": 0 }
+    { "function": "turnFlipped", "cost": { "min": 15, "max": 22 }, "reads": 0 },
+    { "function": "isSeatTurn", "cost": { "min": 6, "max": 14 }, "reads": 0 },
+    { "function": "turnAdvanced", "cost": { "min": 14, "max": 23 }, "reads": 0 }
   ],
   "cases": [
     {
@@ -9,8 +11,14 @@
       "expectation": "ALLOW",
       "method": "update",
       "path": "test/game1",
-      "auth": { "uid": "host1" },
-      "resource": { "host": "host1", "guest": "guest1", "currentTurn": "host" },
+      "auth": {
+        "uid": "host1"
+      },
+      "resource": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "host"
+      },
       "wrapFunction": "isMyTurn",
       "wrapOperation": "update"
     },
@@ -19,8 +27,14 @@
       "expectation": "DENY",
       "method": "update",
       "path": "test/game1",
-      "auth": { "uid": "guest1" },
-      "resource": { "host": "host1", "guest": "guest1", "currentTurn": "host" },
+      "auth": {
+        "uid": "guest1"
+      },
+      "resource": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "host"
+      },
       "wrapFunction": "isMyTurn",
       "wrapOperation": "update"
     },
@@ -29,8 +43,14 @@
       "expectation": "ALLOW",
       "method": "update",
       "path": "test/game1",
-      "auth": { "uid": "guest1" },
-      "resource": { "host": "host1", "guest": "guest1", "currentTurn": "guest" },
+      "auth": {
+        "uid": "guest1"
+      },
+      "resource": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "guest"
+      },
       "wrapFunction": "isMyTurn",
       "wrapOperation": "update"
     },
@@ -40,7 +60,11 @@
       "method": "update",
       "path": "test/game1",
       "auth": null,
-      "resource": { "host": "host1", "guest": "guest1", "currentTurn": "host" },
+      "resource": {
+        "host": "host1",
+        "guest": "guest1",
+        "currentTurn": "host"
+      },
       "wrapFunction": "isMyTurn",
       "wrapOperation": "update"
     },
@@ -49,9 +73,15 @@
       "expectation": "ALLOW",
       "method": "update",
       "path": "test/game1",
-      "auth": { "uid": "host1" },
-      "data": { "currentTurn": "guest" },
-      "resource": { "currentTurn": "host" },
+      "auth": {
+        "uid": "host1"
+      },
+      "data": {
+        "currentTurn": "guest"
+      },
+      "resource": {
+        "currentTurn": "host"
+      },
       "wrapFunction": "turnFlipped",
       "wrapOperation": "update"
     },
@@ -60,11 +90,303 @@
       "expectation": "DENY",
       "method": "update",
       "path": "test/game1",
-      "auth": { "uid": "host1" },
-      "data": { "currentTurn": "host" },
-      "resource": { "currentTurn": "host" },
+      "auth": {
+        "uid": "host1"
+      },
+      "data": {
+        "currentTurn": "host"
+      },
+      "resource": {
+        "currentTurn": "host"
+      },
       "wrapFunction": "turnFlipped",
       "wrapOperation": "update"
+    },
+    {
+      "description": "isSeatTurn allows the caller seated at the turn index",
+      "expectation": "ALLOW",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "p1"
+      },
+      "resource": {
+        "players": [
+          "p0",
+          "p1",
+          "p2"
+        ],
+        "turn": 1
+      },
+      "wrapFunction": "isSeatTurn",
+      "wrapOperation": "update",
+      "wrapCallExpr": "isSeatTurn(resource.data.players, resource.data.turn)"
+    },
+    {
+      "description": "isSeatTurn denies a caller seated at another index",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "p0"
+      },
+      "resource": {
+        "players": [
+          "p0",
+          "p1",
+          "p2"
+        ],
+        "turn": 1
+      },
+      "wrapFunction": "isSeatTurn",
+      "wrapOperation": "update",
+      "wrapCallExpr": "isSeatTurn(resource.data.players, resource.data.turn)"
+    },
+    {
+      "description": "isSeatTurn allows the caller in the last seat",
+      "expectation": "ALLOW",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "p2"
+      },
+      "resource": {
+        "players": [
+          "p0",
+          "p1",
+          "p2"
+        ],
+        "turn": 2
+      },
+      "wrapFunction": "isSeatTurn",
+      "wrapOperation": "update",
+      "wrapCallExpr": "isSeatTurn(resource.data.players, resource.data.turn)"
+    },
+    {
+      "description": "isSeatTurn denies a turn index past the last seat",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "p0"
+      },
+      "resource": {
+        "players": [
+          "p0",
+          "p1",
+          "p2"
+        ],
+        "turn": 3
+      },
+      "wrapFunction": "isSeatTurn",
+      "wrapOperation": "update",
+      "wrapCallExpr": "isSeatTurn(resource.data.players, resource.data.turn)"
+    },
+    {
+      "description": "isSeatTurn denies a negative turn index",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "p2"
+      },
+      "resource": {
+        "players": [
+          "p0",
+          "p1",
+          "p2"
+        ],
+        "turn": -1
+      },
+      "wrapFunction": "isSeatTurn",
+      "wrapOperation": "update",
+      "wrapCallExpr": "isSeatTurn(resource.data.players, resource.data.turn)"
+    },
+    {
+      "description": "isSeatTurn denies unauthenticated",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/game1",
+      "auth": null,
+      "resource": {
+        "players": [
+          "p0",
+          "p1",
+          "p2"
+        ],
+        "turn": 0
+      },
+      "wrapFunction": "isSeatTurn",
+      "wrapOperation": "update",
+      "wrapCallExpr": "isSeatTurn(resource.data.players, resource.data.turn)"
+    },
+    {
+      "description": "turnAdvanced allows the next seat",
+      "expectation": "ALLOW",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "p0"
+      },
+      "resource": {
+        "players": [
+          "p0",
+          "p1",
+          "p2"
+        ],
+        "turn": 0
+      },
+      "data": {
+        "players": [
+          "p0",
+          "p1",
+          "p2"
+        ],
+        "turn": 1
+      },
+      "wrapFunction": "turnAdvanced",
+      "wrapOperation": "update",
+      "wrapCallExpr": "turnAdvanced(3)"
+    },
+    {
+      "description": "turnAdvanced denies a turn that did not move",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "p1"
+      },
+      "resource": {
+        "players": [
+          "p0",
+          "p1",
+          "p2"
+        ],
+        "turn": 1
+      },
+      "data": {
+        "players": [
+          "p0",
+          "p1",
+          "p2"
+        ],
+        "turn": 1
+      },
+      "wrapFunction": "turnAdvanced",
+      "wrapOperation": "update",
+      "wrapCallExpr": "turnAdvanced(3)"
+    },
+    {
+      "description": "turnAdvanced denies a turn advanced by two",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "p0"
+      },
+      "resource": {
+        "players": [
+          "p0",
+          "p1",
+          "p2"
+        ],
+        "turn": 0
+      },
+      "data": {
+        "players": [
+          "p0",
+          "p1",
+          "p2"
+        ],
+        "turn": 2
+      },
+      "wrapFunction": "turnAdvanced",
+      "wrapOperation": "update",
+      "wrapCallExpr": "turnAdvanced(3)"
+    },
+    {
+      "description": "turnAdvanced allows the last seat wrapping to seat 0",
+      "expectation": "ALLOW",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "p2"
+      },
+      "resource": {
+        "players": [
+          "p0",
+          "p1",
+          "p2"
+        ],
+        "turn": 2
+      },
+      "data": {
+        "players": [
+          "p0",
+          "p1",
+          "p2"
+        ],
+        "turn": 0
+      },
+      "wrapFunction": "turnAdvanced",
+      "wrapOperation": "update",
+      "wrapCallExpr": "turnAdvanced(3)"
+    },
+    {
+      "description": "turnAdvanced denies the last seat moving past the end",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "p2"
+      },
+      "resource": {
+        "players": [
+          "p0",
+          "p1",
+          "p2"
+        ],
+        "turn": 2
+      },
+      "data": {
+        "players": [
+          "p0",
+          "p1",
+          "p2"
+        ],
+        "turn": 3
+      },
+      "wrapFunction": "turnAdvanced",
+      "wrapOperation": "update",
+      "wrapCallExpr": "turnAdvanced(3)"
+    },
+    {
+      "description": "turnAdvanced denies a changed seat list",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/game1",
+      "auth": {
+        "uid": "p0"
+      },
+      "resource": {
+        "players": [
+          "p0",
+          "p1",
+          "p2"
+        ],
+        "turn": 0
+      },
+      "data": {
+        "players": [
+          "p1",
+          "p0",
+          "p2"
+        ],
+        "turn": 1
+      },
+      "wrapFunction": "turnAdvanced",
+      "wrapOperation": "update",
+      "wrapCallExpr": "turnAdvanced(3)"
     }
   ]
 }

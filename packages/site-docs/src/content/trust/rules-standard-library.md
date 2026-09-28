@@ -26,7 +26,7 @@ shown in each row's **Verified** column.
 | [auth](#auth) | Firestore + Storage | Self-contained | — | Firestore + Storage production |
 | [validation](#validation) | Firestore | Self-contained | — | Simulator |
 | [lobby](#lobby) | Firestore | Self-contained | — | Simulator |
-| [turns](#turns) | Firestore | Self-contained | — | Simulator |
+| [turns](#turns) | Firestore | Self-contained | — | Simulator + Rules Test API replay |
 | [state](#state) | Firestore | Self-contained | — | Simulator |
 | [results](#results) | Firestore | Imports modules | — | Simulator + Rules Test API replay |
 | [membership](#membership) | Firestore + Storage | Self-contained | — | Firestore + Storage production |
@@ -92,16 +92,19 @@ File: `lobby.rules` | Tests: `lobby.test.json`
 
 ### turns
 
-Turn enforcement for two-player games.
+Turn enforcement for two-player games and for games with a seat list.
 
 | Function | Params | Returns | Description |
 |----------|--------|---------|-------------|
 | `isMyTurn()` | — | bool | Current player matches auth uid (host/guest) |
 | `turnFlipped()` | — | bool | currentTurn alternates between host and guest |
+| `isSeatTurn(seats, turnIndex)` | seats: list of UIDs, turnIndex: int | bool | Caller is signed in and `seats[turnIndex] == request.auth.uid`; an index out of range is an error and denies |
+| `turnAdvanced(seatCount)` | seatCount: int | bool | New `turn` is `(turn + 1) % seatCount` (the last seat wraps to 0) and `players` is unchanged |
 
-Convention: uses `host`/`guest`/`currentTurn` fields on document.
+Convention: `isMyTurn` and `turnFlipped` use `host`/`guest`/`currentTurn` fields on document. `turnAdvanced` uses `players` (UIDs in turn order) and `turn` (int index of the seat on turn); `isSeatTurn` takes both as arguments.
 
 File: `turns.rules` | Tests: `turns.test.json`
+Every case replayed through the Rules Test API with the same decision.
 
 ### state
 
