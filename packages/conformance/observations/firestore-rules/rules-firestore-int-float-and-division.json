@@ -4,13 +4,13 @@
   "rowIds": [
     "firestore-rules#167"
   ],
-  "description": "Firestore Rules Test API verdicts for corpus scenario \"int-float-and-division\" (RULES-B5). int ÷ int truncates toward zero, float division stays float, div-by-zero errors (deny); `is int` / `is float` are distinct types.",
-  "observedAt": "2026-07-21T23:43:05.704Z",
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"int-float-and-division\" (RULES-B5). int ÷ int truncates toward zero, float division stays float, div-by-zero errors (deny); `is int` / `is float` are distinct types; `is number` holds for both; `>` orders an int and a float by value.",
+  "observedAt": "2026-09-28T04:38:26.395Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "90aef8c37f961283848ec03ef6849d603b1b45fd14bb456e0f9149e839dc47ba"
+    "value": "172c9320adbf9daa709a3e4b94c20afa1aa612972865092100892026dc65a0cd"
   },
   "behavior": {
     "10 / 4 == 2 (integer truncation) ALLOW": "ALLOW",
@@ -22,7 +22,15 @@
     "10 / 0 errors → DENY (not Infinity)": "DENY",
     "10 / 0 error || true → ALLOW (absorption)": "ALLOW",
     "integer payload is int / not float ALLOW": "ALLOW",
-    "float payload is float / not int ALLOW": "ALLOW"
+    "float payload is float / not int ALLOW": "ALLOW",
+    "int payload is number ALLOW": "ALLOW",
+    "float payload is number ALLOW": "ALLOW",
+    "string payload is not number DENY": "DENY",
+    "null payload is not number DENY": "DENY",
+    "float 10.5 > int 10 ALLOW": "ALLOW",
+    "int 10 > float 9.5 ALLOW": "ALLOW",
+    "float 9.5 > int 10 is false DENY": "DENY",
+    "string > int is an error DENY": "DENY"
   },
   "diagnostics": {
     "10 / 0 errors → DENY (not Infinity)": {
@@ -36,6 +44,20 @@
           "column": 27,
           "currentOffset": 940,
           "endOffset": 940
+        }
+      }
+    },
+    "string > int is an error DENY": {
+      "notes": [
+        "Error: firestore.rules line [52], column [48]. Unsupported operation error. Received: string > int. Expected: string > string, bytes > bytes, int > int, float > float, duration > duration, timestamp > timestamp, constraint > any, any > constraint."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 52,
+          "column": 48,
+          "currentOffset": 1826,
+          "endOffset": 1826
         }
       }
     }

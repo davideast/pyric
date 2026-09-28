@@ -484,6 +484,7 @@
       "verifiedBy": [
         "functions-verbs-and-recursive",
         "globals-request-path-and-resource-id",
+        "int-float-and-division",
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "resource-missing-document",
@@ -509,6 +510,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "functions-verbs-and-recursive",
+        "int-float-and-division",
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "resource-missing-document",
@@ -2308,6 +2310,7 @@
         "bytes-toutf8-and-hashing",
         "duration-and-latlng",
         "error-absorption-and-or",
+        "int-float-and-division",
         "list-and-string-methods",
         "time-math-and-casts"
       ],
@@ -2864,6 +2867,7 @@
       "verifiedBy": [
         "atomic-batch-sibling-merge",
         "functions-verbs-and-recursive",
+        "int-float-and-division",
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "resource-missing-document",

@@ -153,13 +153,13 @@ export function notDeleted() {
 // Counters module for denormalized numeric integrity.
 //
 // The recurring shape: a client-maintained count (likes, votes, moves,
-// quantities) that rules must keep honest — it may only change by a
+// quantities) that rules must keep honest: it may only change by a
 // known step, or stay within known bounds. Generalizes the
 // state-module's moveIncremented() (hardcoded to moveCount) to any
 // field.
 //
 // Usage:
-//   import { incrementedBy, changedBy, boundedNumber } from 'counters';
+//   import { incrementedBy, changedBy, boundedNumber, improvedBy } from 'counters';
 //
 //   // A like toggle: likeCount moves by exactly ±1:
 //   allow update: if changedBy('likeCount', -1, 1);
@@ -169,6 +169,21 @@ export function notDeleted() {
 //
 //   // A rating: any write keeps it in [1, 5]:
 //   allow write: if boundedNumber('rating', 1, 5);
+//
+//   // A best score: a new score replaces the old one only when it is
+//   // higher, and only the score and its solve id change:
+//   allow update: if improvedBy('score', 'up', ['solve']);
+//
+// A best-score check: improvedBy(field, direction, mayChange) allows an
+// update where \`field\` moves strictly 'up' or 'down' and every other
+// changed top-level field is in \`mayChange\`. Write the score's shape
+// checks (type, bounds, owner) beside it: improvedBy only compares the
+// old and new values and pins the unlisted fields. For a score ranked on
+// two fields, such as fewest moves and then fewest pushes, call it once
+// per field. The second call leaves \`moves\` out of \`mayChange\`, so it
+// allows fewer pushes only on as many moves:
+//   improvedBy('moves', 'down', ['pushes', 'solve'])
+//     || improvedBy('pushes', 'down', ['solve'])
 
 // The field changed by EXACTLY n relative to the existing document.
 // n may be negative (decrement). Update rules only (needs resource).
@@ -193,6 +208,24 @@ export function boundedNumber(field, min, max) {
   return (request.resource.data[field] is int || request.resource.data[field] is float)
     && request.resource.data[field] >= min
     && request.resource.data[field] <= max;
+}
+
+// The numeric \`field\` moved strictly in \`direction\`, 'up' or 'down', and no
+// other top-level field changed except the ones in \`mayChange\`, a List. A
+// listed field may stay unchanged. Both values must be numbers, int or
+// float; they compare by value. An unchanged value, a move the other way, a
+// non-numeric value on either side, an unlisted field added, removed, or
+// changed, and any other direction make the call false. A field missing
+// from either document is an error in production, which denies, and stays
+// an error under \`!\`. Update rules only: on create the call is an error and
+// the rule denies.
+// cost 18 to 50 expressions per call
+export function improvedBy(field, direction, mayChange) {
+  let before = resource.data[field];
+  let after = request.resource.data[field];
+  return before is number && after is number
+    && ((direction == 'up' && after > before) || (direction == 'down' && after < before))
+    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(mayChange.concat([field]));
 }
 `,
   "fairness": `// @pyric-services cloud.firestore
