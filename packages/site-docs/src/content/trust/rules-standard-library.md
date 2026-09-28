@@ -25,7 +25,7 @@ shown in each row's **Verified** column.
 |--------|----------|------------|---------|----------|
 | [auth](#auth) | Firestore + Storage | Self-contained | — | Firestore + Storage production |
 | [validation](#validation) | Firestore | Self-contained | — | Simulator |
-| [lobby](#lobby) | Firestore | Self-contained | — | Simulator |
+| [lobby](#lobby) | Firestore | Self-contained | — | Simulator + Rules Test API replay |
 | [turns](#turns) | Firestore | Self-contained | — | Simulator + Rules Test API replay |
 | [state](#state) | Firestore | Self-contained | — | Simulator |
 | [results](#results) | Firestore | Imports modules | — | Simulator + Rules Test API replay |
@@ -79,17 +79,19 @@ File: `validation.rules` | Tests: `validation.test.json`
 
 ### lobby
 
-Game session lifecycle (create, join, cancel).
+Game session lifecycle (create, join, cancel, rematch).
 
 | Function | Params | Returns | Description |
 |----------|--------|---------|-------------|
 | `validCreate()` | — | bool | Host is auth user, guest empty, status waiting |
 | `validJoin()` | — | bool | Guest slot empty, joiner is not host, status → playing |
 | `canCancel()` | — | bool | Status is waiting, requester is host |
+| `validRematch(previousPath)` | previousPath: path to the finished match | bool | The match at the path is 'won', 'draw' or 'resigned' and seated the caller as host or guest; the new match has the caller as host, guest '' and status waiting. Reads 1 |
 
-Convention: uses `host`/`guest`/`status` fields on document.
+Convention: uses `host`/`guest`/`status` fields on document. A rematch opens like any other lobby: the player who asks hosts it, so the seats swap when the guest asks, and the other player joins through `validJoin`. Tic-tac-toe, Chess and Reversi start their rematches this way. A missing previous match is an error and denies the request.
 
 File: `lobby.rules` | Tests: `lobby.test.json`
+Every case replayed through the Rules Test API with the same decision.
 
 ### turns
 

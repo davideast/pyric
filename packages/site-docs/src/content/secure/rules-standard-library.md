@@ -137,13 +137,35 @@ These are the Firestore-compatible modules used by this guide. The [complete ref
 | `timing` | Update cooldowns | `cooldownElapsed` |
 | `atomic` | Companion changes in one batch | `companionChangedBy`, `consumedFlag` |
 | `geometry` | Config-driven game moves | `validSimpleMove`, `validJumpMove` |
-| `lobby` | Two-player session creation and joining | `validCreate`, `validJoin`, `canCancel` |
+| `lobby` | Two-player session creation, joining, and rematches | `validCreate`, `validJoin`, `canCancel`, `validRematch` |
 | `turns` | Turn enforcement for two seats or a seat list | `isMyTurn`, `turnFlipped`, `isSeatTurn`, `turnAdvanced` |
 | `state` | Game status, move count, and participants | `isPlaying`, `moveIncremented`, `participantsUnchanged` |
 | `results` | Resigning, finishing, and keeping a game result | `resignedBy`, `finishedWithWinner`, `resultUnchanged` |
 | `fairness` | Commit-reveal checks and values derived from a digest | `commitmentMatches`, `digestByte` |
 
 The game-oriented modules assume the field conventions documented by their function descriptions. Prefer the general modules for application data unless your schema matches those conventions.
+
+`validRematch(previousPath)` opens a new match as a rematch of a finished one. You build the path to the finished match, and the function reads it with one `get()`:
+
+- The finished match has status `'won'`, `'draw'` or `'resigned'`, and it seated the caller as host or guest.
+- The new match opens like any other lobby: the caller is host, `guest` is `''`, and `status` is `'waiting'`. Either seat can ask, so the seats swap when the guest asks.
+- The other player takes the open seat through `validJoin`, which does not check that they played the finished match.
+- A missing finished match is an error, so the function denies the request.
+
+```rules
+rules_version = '2+modules';
+
+import { validCreate, validRematch } from 'lobby';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /matches/{matchId} {
+      allow create: if !('rematchOf' in request.resource.data) && validCreate();
+      allow create: if validRematch(/databases/$(database)/documents/matches/$(request.resource.data.rematchOf));
+    }
+  }
+}
+```
 
 `turns` covers two document shapes:
 

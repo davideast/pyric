@@ -1,6 +1,6 @@
 {
   "schema": "pyric.stdlib-cost.v1",
-  "capturedAt": "2026-09-28T03:07:02.745Z",
+  "capturedAt": "2026-09-27T21:50:19.916Z",
   "projects": {
     "firestore": "digame-mas",
     "storage": "digame-mas"
@@ -48,8 +48,131 @@
       ]
     }
   },
-  "requests": 8,
-  "testCases": 463,
+  "requests": 60,
+  "testCases": 2303,
+  "note": "requests, testCases and capturedAt are those of the last full run. Partial runs record their own counts in runs. The results, turns and fairness records come from the changes that measured them; the turns run did not record its time, so its date is when that change merged.",
+  "runs": {
+    "results": {
+      "requests": 8,
+      "testCases": 463,
+      "date": "2026-09-28T01:40:57.377Z",
+      "modules": [
+        "results"
+      ],
+      "calibration": {
+        "firestore": {
+          "d": 986,
+          "checks": [
+            {
+              "condition": "false",
+              "cost": 1,
+              "d": 986
+            },
+            {
+              "condition": "true && false",
+              "cost": 4,
+              "d": 986
+            },
+            {
+              "condition": "true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true",
+              "cost": 58,
+              "d": 986
+            }
+          ]
+        }
+      }
+    },
+    "turns": {
+      "requests": 7,
+      "testCases": 257,
+      "date": "2026-09-28T03:35:02.000Z",
+      "modules": [
+        "turns"
+      ],
+      "calibration": {
+        "firestore": {
+          "d": 986,
+          "checks": [
+            {
+              "condition": "false",
+              "cost": 1,
+              "d": 986
+            },
+            {
+              "condition": "true && false",
+              "cost": 4,
+              "d": 986
+            },
+            {
+              "condition": "true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true",
+              "cost": 58,
+              "d": 986
+            }
+          ]
+        }
+      }
+    },
+    "fairness": {
+      "requests": 8,
+      "testCases": 302,
+      "date": "2026-09-28T03:07:02.745Z",
+      "modules": [
+        "fairness"
+      ],
+      "calibration": {
+        "firestore": {
+          "d": 986,
+          "checks": [
+            {
+              "condition": "false",
+              "cost": 1,
+              "d": 986
+            },
+            {
+              "condition": "true && false",
+              "cost": 4,
+              "d": 986
+            },
+            {
+              "condition": "true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true",
+              "cost": 58,
+              "d": 986
+            }
+          ]
+        }
+      }
+    },
+    "lobby": {
+      "requests": 8,
+      "testCases": 341,
+      "date": "2026-09-28T03:43:39.595Z",
+      "modules": [
+        "lobby"
+      ],
+      "calibration": {
+        "firestore": {
+          "d": 986,
+          "checks": [
+            {
+              "condition": "false",
+              "cost": 1,
+              "d": 986
+            },
+            {
+              "condition": "true && false",
+              "cost": 4,
+              "d": 986
+            },
+            {
+              "condition": "true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true",
+              "cost": 58,
+              "d": 986
+            }
+          ]
+        }
+      }
+    }
+  },
   "functions": [
     {
       "module": "atomic",
@@ -303,6 +426,17 @@
       "reads": 0,
       "cheapestCase": "canCancel denies an unauthenticated cancel",
       "mostExpensiveCase": "canCancel allows the host to cancel a waiting lobby"
+    },
+    {
+      "module": "lobby",
+      "function": "validRematch",
+      "cost": {
+        "min": 14,
+        "max": 55
+      },
+      "reads": 1,
+      "cheapestCase": "validRematch denies an unauthenticated rematch",
+      "mostExpensiveCase": "validRematch allows the guest of a resigned match to host the rematch"
     },
     {
       "module": "membership",
@@ -2136,6 +2270,182 @@
         "call": 21,
         "reference": 2,
         "perCall": 21
+      }
+    },
+    {
+      "module": "lobby",
+      "function": "validRematch",
+      "case": "validRematch allows the guest of a resigned match to host the rematch",
+      "call": "validRematch(/databases/$(database)/documents/matches/finished)",
+      "measured": {
+        "call": 61,
+        "reference": 8,
+        "perCall": 55
+      },
+      "estimated": {
+        "call": 61,
+        "reference": 8,
+        "perCall": 55
+      }
+    },
+    {
+      "module": "lobby",
+      "function": "validRematch",
+      "case": "validRematch allows the host of a drawn match to host the rematch",
+      "call": "validRematch(/databases/$(database)/documents/matches/finished)",
+      "measured": {
+        "call": 61,
+        "reference": 8,
+        "perCall": 55
+      },
+      "estimated": {
+        "call": 61,
+        "reference": 8,
+        "perCall": 55
+      }
+    },
+    {
+      "module": "lobby",
+      "function": "validRematch",
+      "case": "validRematch allows the loser of a won match to host the rematch",
+      "call": "validRematch(/databases/$(database)/documents/matches/finished)",
+      "measured": {
+        "call": 61,
+        "reference": 8,
+        "perCall": 55
+      },
+      "estimated": {
+        "call": 61,
+        "reference": 8,
+        "perCall": 55
+      }
+    },
+    {
+      "module": "lobby",
+      "function": "validRematch",
+      "case": "validRematch denies a rematch of a match in play",
+      "call": "validRematch(/databases/$(database)/documents/matches/finished)",
+      "measured": {
+        "call": 28,
+        "reference": 8,
+        "perCall": 22
+      },
+      "estimated": {
+        "call": 61,
+        "reference": 8,
+        "perCall": 55
+      }
+    },
+    {
+      "module": "lobby",
+      "function": "validRematch",
+      "case": "validRematch denies a rematch of a waiting match",
+      "call": "validRematch(/databases/$(database)/documents/matches/finished)",
+      "measured": {
+        "call": 28,
+        "reference": 8,
+        "perCall": 22
+      },
+      "estimated": {
+        "call": 61,
+        "reference": 8,
+        "perCall": 55
+      }
+    },
+    {
+      "module": "lobby",
+      "function": "validRematch",
+      "case": "validRematch denies a rematch of a missing match",
+      "call": "validRematch(/databases/$(database)/documents/matches/finished)",
+      "measured": {
+        "call": 61,
+        "reference": 8,
+        "perCall": 55
+      },
+      "estimated": {
+        "call": 61,
+        "reference": 8,
+        "perCall": 55
+      }
+    },
+    {
+      "module": "lobby",
+      "function": "validRematch",
+      "case": "validRematch denies a rematch hosted by the other seat",
+      "call": "validRematch(/databases/$(database)/documents/matches/finished)",
+      "measured": {
+        "call": 47,
+        "reference": 8,
+        "perCall": 41
+      },
+      "estimated": {
+        "call": 61,
+        "reference": 8,
+        "perCall": 55
+      }
+    },
+    {
+      "module": "lobby",
+      "function": "validRematch",
+      "case": "validRematch denies a rematch with the other seat already filled",
+      "call": "validRematch(/databases/$(database)/documents/matches/finished)",
+      "measured": {
+        "call": 54,
+        "reference": 8,
+        "perCall": 48
+      },
+      "estimated": {
+        "call": 61,
+        "reference": 8,
+        "perCall": 55
+      }
+    },
+    {
+      "module": "lobby",
+      "function": "validRematch",
+      "case": "validRematch denies a caller who held no seat",
+      "call": "validRematch(/databases/$(database)/documents/matches/finished)",
+      "measured": {
+        "call": 38,
+        "reference": 8,
+        "perCall": 32
+      },
+      "estimated": {
+        "call": 61,
+        "reference": 8,
+        "perCall": 55
+      }
+    },
+    {
+      "module": "lobby",
+      "function": "validRematch",
+      "case": "validRematch denies a rematch that starts in play",
+      "call": "validRematch(/databases/$(database)/documents/matches/finished)",
+      "measured": {
+        "call": 61,
+        "reference": 8,
+        "perCall": 55
+      },
+      "estimated": {
+        "call": 61,
+        "reference": 8,
+        "perCall": 55
+      }
+    },
+    {
+      "module": "lobby",
+      "function": "validRematch",
+      "case": "validRematch denies an unauthenticated rematch",
+      "call": "validRematch(/databases/$(database)/documents/matches/finished)",
+      "measured": {
+        "call": 20,
+        "reference": 8,
+        "perCall": 14
+      },
+      "estimated": {
+        "call": 61,
+        "reference": 8,
+        "perCall": 55
       }
     },
     {

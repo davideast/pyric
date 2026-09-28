@@ -6,7 +6,9 @@
  * Every case in the module's `*.test.json` becomes its own block, wrapped the
  * way the module tests wrap it: one `allow <wrapOperation>: if <call>;` rule
  * under `/c<n>/test/{docId}`, with the case's request and documents at
- * `c<n>/<path>`. All blocks share one ruleset, so a module replays in one
+ * `c<n>/<path>`. A case's `functionMocks` are sent as they are: a `get()`
+ * path in a call expression names its own document, outside the `c<n>`
+ * prefix, so the mock path needs no change. All blocks share one ruleset, so a module replays in one
  * request. The case expectation is sent as the test expectation, so
  * production's `SUCCESS` means it agrees with the case and `FAILURE` means it
  * decided the other way.
@@ -76,6 +78,7 @@ const testCases = cases.map((c, n) => {
     requestTime: c.requestTime ?? DEFAULT_TIME,
     ...(c.data ? { data: c.data } : {}),
     ...(c.resource ? { resource: c.resource } : {}),
+    ...(c.functionMocks ? { functionMocks: c.functionMocks } : {}),
   } as TestCase;
   const api: any = buildApiTestCase(tc);
   // Without the field production makes request.auth undefined, not null.
