@@ -17,7 +17,9 @@
  * - Nesting: 97 parentheses around one comparison and a right-nested `&&`
  *   chain of 49 terms compile; 98 parentheses and 50 terms are rejected with
  *   "Expression is too complex to evaluate safely." A flat chain of 98
- *   comparisons compiles and 99 is rejected with the same message.
+ *   comparisons compiles and 99 is rejected with the same message. List
+ *   literals, map literals and function calls nest the same way: 97 nested
+ *   lists under a comparison compile and 98 are rejected.
  *
  * The production messages count one lower than the boundaries: the call
  * depth message says 20 and names 21 functions, the variable count message
@@ -30,7 +32,8 @@
  * A nested match block function that shadows an outer one compiles.
  */
 import type { Expression, FirestoreRules, FunctionDef, MatchBlock } from './FirestoreAST.js';
-import { parenthesizedGroups } from './FirestoreParser.js';
+import { parenthesizedGroups } from './paren-groups.js';
+import { MAX_BRACKET_DEPTH, scanBrackets } from './bracket-scan.js';
 
 /** Most functions one call stack may hold; 22 is rejected. */
 export const CALL_DEPTH_LIMIT = 21;
@@ -63,8 +66,10 @@ export type CompileLimitCode = 'CALL_DEPTH' | 'LET_LIMIT' | 'NESTING_DEPTH' | 'F
 export interface CompileLimitViolation {
   code: CompileLimitCode;
   message: string;
-  /** 1-indexed line of the declaration, allow rule, or function the rejection applies to, when known. */
+  /** 1-indexed line production reports the rejection at, or of the declaration, allow rule, or function it applies to, when known. */
   line?: number;
+  /** 1-indexed column of the return expression a `let` count rejection is reported at. */
+  column?: number;
   /** The function the rejection applies to, when it applies to one. */
   functionName?: string;
   /**
@@ -84,9 +89,15 @@ export function compileLimitViolations(ast: FirestoreRules): CompileLimitViolati
   for (const node of graph) {
     const fn = node.fn;
     if (fn.lets.length > LET_LIMIT) {
-      // Production reports this at the return expression, which the AST
-      // gives no position; the line is the function declaration's.
-      out.push({ code: 'LET_LIMIT', message: LET_LIMIT_MESSAGE, ...lineOf(fn.loc), functionName: fn.name });
+      // Production reports this at the return expression.
+      const at = fn.returnLoc ?? fn.loc;
+      out.push({
+        code: 'LET_LIMIT',
+        message: LET_LIMIT_MESSAGE,
+        ...lineOf(at),
+        ...(fn.returnLoc === undefined ? {} : { column: fn.returnLoc.col }),
+        functionName: fn.name,
+      });
     }
     for (const binding of fn.lets) pushNesting(out, binding.value, binding.loc?.line ?? fn.loc?.line, fn.name);
     pushNesting(out, fn.body, fn.loc?.line, fn.name);
@@ -173,15 +184,80 @@ function pushNesting(out: CompileLimitViolation[], expr: Expression, line: numbe
  * A member access such as `request.auth.uid` adds no level: 97 parentheses
  * around a comparison of it compile, which one more level would reject.
  *
- * The capture does not measure `!`, the ternary, method and function calls,
- * index and slice access, or list and map literals. They are counted like
- * member access, adding no level, because the only operand-taking nodes the
- * capture shows adding a level are binary operators and parenthesized groups.
- * A bare operand is a level of its own: production compiles `true` in 98
+ * A list literal, a map literal and a function call put their elements, the
+ * key and value of each entry, and their arguments one level deeper. Under a
+ * comparison, 97 nested list literals compile and 98 are rejected at the
+ * innermost element; 129 are rejected at the 99th list of each operand, 129
+ * nested maps at the key and value of the 98th map of each operand, and 129
+ * nested calls of `id(x)` at the 99th call. Index access adds no level: 129
+ * nested lists read back with 129 chained `[0]` are reported once, at the
+ * 99th list of the indexed operand, not in the index chain. Firestore and
+ * Storage report 129 nested lists at the same positions.
+ *
+ * The capture does not measure `!`, the ternary, method calls, or slice
+ * access. They are counted like member access, adding no level. A bare
+ * operand is a level of its own: production compiles `true` in 98
  * parentheses (level 99) and rejects it in 99, reporting at the `true`.
  */
 export function nestingViolations(expr: Expression): number {
   return countTooComplex(expr, 1);
+}
+
+/** Source the parser cannot read, with where the bracket past its bound opens. */
+export interface SourceNestingFailure {
+  offset: number;
+  /** What the source would need instead, worded for a parse error's `expected`. */
+  expected: string;
+}
+
+/**
+ * The source for the parser to match, with the content of every bracket
+ * nested past the nesting limit replaced, or where it nests past the
+ * parser's bracket depth bound.
+ *
+ * A parenthesized group, a list literal, a map literal and a function call's
+ * arguments each put what they enclose one level deeper, so the content of
+ * such a bracket inside 98 others sits past level {@link NESTING_LEVEL_LIMIT}
+ * whatever it holds. {@link nestingViolations} reports each item of that
+ * content (a group's expression, a list element, a map entry's key and
+ * value, a call argument), or a node enclosing it, and never visits below
+ * it. The content is replaced by as many literal items (`1`, or `a:1` in a
+ * map), padded with spaces that keep every line break, so the parser does
+ * not descend into it, the same rejections are reported, and every later
+ * line and column is unchanged. Without this the parser exhausts the host
+ * stack around 170 to 250 nested brackets.
+ *
+ * Past that, any source that nests more than {@link MAX_BRACKET_DEPTH}
+ * brackets of any kind is a parse failure: the parser does not read it. The
+ * brackets left to reach that bound are index access, method call arguments
+ * and blocks, whose production limit is not measured, so the bound is this
+ * parser's own.
+ */
+export function boundSourceNesting(source: string): { source: string } | SourceNestingFailure {
+  const spans = scanBrackets(source, { comments: true, regexLiterals: false, multilineStrings: false });
+  let rewritten: string[] | undefined;
+  let emptiedUntil = -1;
+  for (const span of spans) {
+    if (span.open < emptiedUntil) continue;
+    if (span.depth > MAX_BRACKET_DEPTH) {
+      return { offset: span.open, expected: `brackets nested at most ${MAX_BRACKET_DEPTH} levels deep` };
+    }
+    if (span.levels < NESTING_LEVEL_LIMIT || span.items === 0) continue;
+    const end = span.close === -1 ? source.length : span.close;
+    const content = source.slice(span.open + 1, end);
+    const item = span.kind === 'map' ? 'a:1' : '1';
+    const replacement = Array.from({ length: span.items }, () => item).join(',');
+    // Content too short for its items is malformed; the parser reports it.
+    if (content.replace(/[\n\r]/g, '').length < replacement.length) continue;
+    let next = 0;
+    const filled = content.replace(/[^\n\r]/g, () => (next < replacement.length ? replacement[next++]! : ' '));
+    rewritten ??= [];
+    rewritten.push(source.slice(Math.max(emptiedUntil, 0), span.open + 1), filled);
+    emptiedUntil = end === source.length ? Infinity : end;
+  }
+  if (rewritten === undefined) return { source };
+  if (emptiedUntil !== Infinity) rewritten.push(source.slice(emptiedUntil));
+  return { source: rewritten.join('') };
 }
 
 function countTooComplex(expr: Expression, level: number): number {
@@ -194,7 +270,17 @@ function countTooComplex(expr: Expression, level: number): number {
 }
 
 function addsLevel(expr: Expression): boolean {
-  return expr.type === 'binaryOp' || expr.type === 'inExpr' || expr.type === 'isExpr';
+  switch (expr.type) {
+    case 'binaryOp':
+    case 'inExpr':
+    case 'isExpr':
+    case 'listLiteral':
+    case 'mapLiteral':
+    case 'functionCall':
+      return true;
+    default:
+      return false;
+  }
 }
 
 function children(expr: Expression): Expression[] {

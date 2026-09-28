@@ -32,7 +32,7 @@ const OUT = join(OUT_DIR, 'captures.json');
 const RULES_API = 'https://firebaserules.googleapis.com/v1';
 
 export type Service = 'firestore' | 'storage';
-export type Shape = 'call-depth' | 'call-depth-uncalled' | 'let-count' | 'paren-nesting' | 'paren-literal' | 'and-nesting';
+export type Shape = 'call-depth' | 'call-depth-uncalled' | 'let-count' | 'paren-nesting' | 'paren-literal' | 'and-nesting' | 'list-nesting' | 'map-nesting' | 'index-chain' | 'call-nesting';
 
 const LEAF = "request.auth.uid == 'a'";
 
@@ -69,6 +69,18 @@ export function probeBlock(shape: Shape, n: number, path = 'p'): string {
       // n parenthesis pairs around the bare literal `true`: one level shallower
       // than a comparison. A compiling probe grants both uids.
       return `    match /${path}/{d} {\n      allow read: if ${'('.repeat(n)}true${')'.repeat(n)};\n    }`;
+    case 'list-nesting':
+      // Two list literals nested n deep, compared: [[...[uid]...]] == [[...['a']...]].
+      return `    match /${path}/{d} {\n      allow read: if ${'['.repeat(n)}request.auth.uid${']'.repeat(n)} == ${'['.repeat(n)}'a'${']'.repeat(n)};\n    }`;
+    case 'map-nesting':
+      // Two map literals nested n deep, compared: {'a': {'a': ... uid ...}} == {'a': ... 'a' ...}.
+      return `    match /${path}/{d} {\n      allow read: if ${"{'a': ".repeat(n)}request.auth.uid${'}'.repeat(n)} == ${"{'a': ".repeat(n)}'a'${'}'.repeat(n)};\n    }`;
+    case 'index-chain':
+      // A list literal nested n deep, read back with n chained index brackets.
+      return `    match /${path}/{d} {\n      allow read: if ${'['.repeat(n)}request.auth.uid${']'.repeat(n)}${'[0]'.repeat(n)} == 'a';\n    }`;
+    case 'call-nesting':
+      // n nested calls of one identity function: id(id(... uid ...)) == 'a'.
+      return `    match /${path}/{d} {\n      function id(x) { return x; }\n      allow read: if ${'id('.repeat(n)}request.auth.uid${')'.repeat(n)} == 'a';\n    }`;
     case 'and-nesting': {
       // n terms: t1 && (t2 && (... && (leaf))).
       let inner = LEAF;
@@ -207,7 +219,7 @@ export interface Boundary { service: Service; shape: Shape; largestPass: number 
 export function boundaries(probes: readonly ProbeRecord[]): Boundary[] {
   const out: Boundary[] = [];
   for (const service of ['firestore', 'storage'] as const) {
-    for (const shape of ['call-depth', 'call-depth-uncalled', 'let-count', 'and-nesting', 'paren-nesting', 'paren-literal'] as const) {
+    for (const shape of ['call-depth', 'call-depth-uncalled', 'let-count', 'and-nesting', 'paren-nesting', 'paren-literal', 'list-nesting', 'map-nesting', 'index-chain', 'call-nesting'] as const) {
       const mine = probes.filter((p) => p.service === service && p.shape === shape && !p.range);
       if (mine.length === 0) continue;
       const ok = mine.filter((p) => p.compiles).map((p) => p.n);

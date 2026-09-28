@@ -3,7 +3,7 @@
   "capturedAt": "2026-09-27T20:35:28.442Z",
   "projectId": "digame-mas",
   "method": "Rules Test API projects.test, one generated ruleset per probe; each case is a get with uid a (granted when the ruleset works) and uid b (denied). probeBlock() in packages/conformance/src/capture-rules-compile-limits.ts generates each shape.",
-  "calls": 48,
+  "calls": 55,
   "boundaries": [
     {
       "service": "firestore",
@@ -42,6 +42,30 @@
       "smallestFail": 99
     },
     {
+      "service": "firestore",
+      "shape": "list-nesting",
+      "largestPass": 97,
+      "smallestFail": 98
+    },
+    {
+      "service": "firestore",
+      "shape": "map-nesting",
+      "largestPass": null,
+      "smallestFail": 129
+    },
+    {
+      "service": "firestore",
+      "shape": "index-chain",
+      "largestPass": null,
+      "smallestFail": 129
+    },
+    {
+      "service": "firestore",
+      "shape": "call-nesting",
+      "largestPass": null,
+      "smallestFail": 129
+    },
+    {
       "service": "storage",
       "shape": "call-depth",
       "largestPass": 21,
@@ -70,6 +94,12 @@
       "shape": "paren-nesting",
       "largestPass": 97,
       "smallestFail": 98
+    },
+    {
+      "service": "storage",
+      "shape": "list-nesting",
+      "largestPass": null,
+      "smallestFail": 129
     }
   ],
   "probes": [
@@ -1011,6 +1041,151 @@
           "description": "Expression is too complex to evaluate safely.",
           "line": 5,
           "column": 121
+        }
+      ],
+      "cases": []
+    },
+    {
+      "service": "firestore",
+      "shape": "list-nesting",
+      "n": 129,
+      "compiles": false,
+      "issues": [
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 5,
+          "column": 120
+        },
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 5,
+          "column": 398
+        }
+      ],
+      "cases": []
+    },
+    {
+      "service": "firestore",
+      "shape": "map-nesting",
+      "n": 129,
+      "compiles": false,
+      "issues": [
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 5,
+          "column": 605
+        },
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 5,
+          "column": 610
+        },
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 5,
+          "column": 1528
+        },
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 5,
+          "column": 1533
+        }
+      ],
+      "cases": []
+    },
+    {
+      "service": "firestore",
+      "shape": "index-chain",
+      "n": 129,
+      "compiles": false,
+      "issues": [
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 5,
+          "column": 120
+        }
+      ],
+      "cases": []
+    },
+    {
+      "service": "firestore",
+      "shape": "list-nesting",
+      "n": 97,
+      "compiles": true,
+      "issues": [],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "service": "firestore",
+      "shape": "list-nesting",
+      "n": 98,
+      "compiles": false,
+      "issues": [
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 5,
+          "column": 120
+        },
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 5,
+          "column": 336
+        }
+      ],
+      "cases": []
+    },
+    {
+      "service": "storage",
+      "shape": "list-nesting",
+      "n": 129,
+      "compiles": false,
+      "issues": [
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 5,
+          "column": 120
+        },
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 5,
+          "column": 398
+        }
+      ],
+      "cases": []
+    },
+    {
+      "service": "firestore",
+      "shape": "call-nesting",
+      "n": 129,
+      "compiles": false,
+      "issues": [
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 6,
+          "column": 316
         }
       ],
       "cases": []

@@ -79,12 +79,12 @@ function rtdbSemantics(): ohm.Semantics {
 }
 
 function rtdbWalkExpr(raw: string, out: AnalyzeResult): void {
-  const match = matchRtdbExpression(raw);
-  if (match.failed()) {
+  const matched = matchRtdbExpression(raw);
+  if (!matched.ok) {
     out.unresolved.push({ what: `expr`, reason: `rtdb expression failed to parse: ${raw}` });
     return;
   }
-  (rtdbSemantics()(match) as any).collectInto(out);
+  (rtdbSemantics()(matched.match) as any).collectInto(out);
 }
 
 function rtdbWalkTree(node: unknown, out: AnalyzeResult): void {

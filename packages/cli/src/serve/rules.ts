@@ -13,7 +13,13 @@ import { createHash } from 'node:crypto';
 import { readFileSync, watch, type FSWatcher } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join } from 'node:path';
-import { lintFirestoreRules, resolveModulesWithFiles, type ResolveResult } from 'pyric/rules/internal';
+import {
+  describeCompileLimitViolations,
+  lintFirestoreRules,
+  resolveModulesWithFiles,
+  sourceCompileLimitViolations,
+  type ResolveResult,
+} from 'pyric/rules/internal';
 import { asSentence } from 'pyric/sandbox/internal';
 import { parseStorageRules } from 'pyric/storage';
 import type { FirebaseJson } from '../cli/firebase-json.js';
@@ -138,6 +144,15 @@ export function prepareProjectRules(raw: string, sourcePath: string): PreparedRu
       moduleFiles,
     );
   }
+  // Production rejects a ruleset past its compile limits before it evaluates
+  // any request, so the sandbox does not serve one either.
+  const violations = sourceCompileLimitViolations(source);
+  if (violations.length > 0) {
+    throw new RulesPrepareError(
+      `pyric sandbox: ${sourcePath} does not compile: ${describeCompileLimitViolations(violations)} Fix the rules before serving.`,
+      moduleFiles,
+    );
+  }
   const errors = lint.warnings.filter((w) => w.severity === 'error');
   if (errors.length > 0) {
     throw new RulesPrepareError(
@@ -206,6 +221,12 @@ export function prepareStorageRulesSource(raw: string, sourcePath: string): stri
   try {
     parseStorageRules(source);
   } catch (e) {
+    const violations = sourceCompileLimitViolations(source);
+    if (violations.length > 0) {
+      throw new Error(
+        `pyric sandbox: ${sourcePath} does not compile: ${describeCompileLimitViolations(violations)} Fix the rules before serving.`,
+      );
+    }
     throw new Error(
       `${asSentence(`pyric sandbox: ${sourcePath} failed to parse: ${e instanceof Error ? e.message : String(e)}`)} Fix the rules before serving.`,
     );

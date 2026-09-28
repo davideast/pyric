@@ -14,6 +14,10 @@
 | Terms in a right-nested `&&` chain | 49 compiles, 50 fails ("Expression is too complex to evaluate safely."), Firestore and Storage | `t1 && (t2 && (... && (t49)))`, 2026-09-27 |
 | Parentheses around one comparison | 97 pairs compile, 98 fail ("Expression is too complex to evaluate safely."), Firestore and Storage | `((((a == b))))`, 2026-09-27 |
 | Parentheses around a bare literal | 98 pairs compile, 99 fail ("Expression is too complex to evaluate safely."), Firestore | `((((true))))`, 2026-09-27 |
+| Nested list literals under a comparison | 97 compile, 98 fail ("Expression is too complex to evaluate safely."); 129 fail in Firestore and Storage | `[[[a]]] == [[['a']]]`, 2026-09-27 |
+| Nested map literals under a comparison | 129 fail ("Expression is too complex to evaluate safely."), at the key and value of the 98th map, Firestore | `{'a': {'a': a}} == {'a': {'a': 'a'}}`, 2026-09-27 |
+| Nested function calls under a comparison | 129 fail ("Expression is too complex to evaluate safely."), at the 99th call, Firestore | `id(id(a)) == 'a'`, 2026-09-27 |
+| 129 nested lists read back with 129 chained `[0]` | fail once, at the 99th list; the index chain adds no level, Firestore | `[[a]][0][0] == 'a'`, 2026-09-27 |
 
 The 2026-09-27 rows come from `packages/conformance/src/capture-rules-compile-limits.ts`, which submits one generated ruleset per probe to the Rules Test API and deploys nothing. `fixtures/compile-limits/captures.json` records each probe: whether it compiled, the verbatim issues with severity and position, and each case's decision. The production messages count differently from the measured boundaries: the call-depth message says 20 and names a stack of 21 functions for a 22-function chain, and the variable-count message says 10 while 11 bindings compile.
 
@@ -94,9 +98,11 @@ The chess showcase and an externally authored resolved ruleset for several turn-
 The compilation limit is the depth of the top-level binary chain
 (`a && b && c && ...`), NOT the total number of comparisons. Nesting
 reduces chain depth: `(a && b) || (c && d)` has OR-chain depth of N/2,
-not N. This means the linter should count chain depth, not total nodes.
+not N. The linter counts nesting depth, not total nodes.
 
-The three "too complex" boundaries, and the positions production reports them at, fit one nesting limit. The root of an allow condition, a function body or a `let` value is level 1; each parenthesized group and each binary operator (`&&`, `||`, a comparison) puts what it encloses one level deeper; a node at level 100 is rejected, reported once, and its operands are not visited. With 98 parentheses around `request.auth.uid == 'a'` production reports two issues, at the two operands of `==`; with 99 it reports one, at the `==`; with 100 or more one, at the hundredth parenthesis. 97 parentheses put the operands at level 99 and compile. A right-nested chain of 49 terms puts the innermost operands at level 98 and compiles; 50 terms reach 100 at the two operands of the innermost comparison. A flat chain of 98 comparisons has 97 `&&` nodes on its left spine and its operands at level 99; 99 comparisons reach 100. A member access such as `request.auth.uid` adds no level, since 97 parentheses around a comparison of it compile. The capture does not measure `!`, the ternary, method or function calls, index access, or list and map literals; `grammar/compile-limits.ts` counts them like member access, adding no level. For a chain of comparisons the count agrees with a simpler reading in which only `&&`, `||` and groups count and 97 of them compile; the two differ for a bare operand such as `true`, which sits one level shallower than a comparison: production compiles `true` in 98 parentheses and rejects it in 99, reporting at the `true` (probe shape paren-literal), as the measured model predicts. NESTING_DEPTH (Rule 2b) reports the limit; CHAIN_DEPTH counts only the left spine of one operator.
+The three "too complex" boundaries, and the positions production reports them at, fit one nesting limit. The root of an allow condition, a function body or a `let` value is level 1; each parenthesized group and each binary operator (`&&`, `||`, a comparison) puts what it encloses one level deeper; a node at level 100 is rejected, reported once, and its operands are not visited. With 98 parentheses around `request.auth.uid == 'a'` production reports two issues, at the two operands of `==`; with 99 it reports one, at the `==`; with 100 or more one, at the hundredth parenthesis. 97 parentheses put the operands at level 99 and compile. A right-nested chain of 49 terms puts the innermost operands at level 98 and compiles; 50 terms reach 100 at the two operands of the innermost comparison. A flat chain of 98 comparisons has 97 `&&` nodes on its left spine and its operands at level 99; 99 comparisons reach 100. A member access such as `request.auth.uid` adds no level, since 97 parentheses around a comparison of it compile. A list literal, a map literal and a function call put their elements, each entry's key and value, and their arguments one level deeper: 97 nested lists under a comparison compile and 98 fail at the innermost element, and 129 nested maps fail at the key and value of the 98th map. Index access adds no level: 129 nested lists read back with 129 chained `[0]` fail once, at the 99th list. The capture does not measure `!`, the ternary, method calls or slice access; `grammar/compile-limits.ts` counts them like member access, adding no level.
+
+The parser's own bracket bound, 128 nested brackets of any kind (`MAX_BRACKET_DEPTH` in `grammar/bracket-scan.ts`), is a limit of this parser, not of production, and a source past it is a parse error that says so. Groups, lists, maps and calls never reach it: production rejects them at the 99th level, and the parser empties the content past that level before matching. What can reach it is nested index access, method call arguments and blocks, whose production limit is not measured. For a chain of comparisons the count agrees with a simpler reading in which only `&&`, `||` and groups count and 97 of them compile; the two differ for a bare operand such as `true`, which sits one level shallower than a comparison: production compiles `true` in 98 parentheses and rejects it in 99, reporting at the `true` (probe shape paren-literal), as the measured model predicts. NESTING_DEPTH (Rule 2) reports the limit for every shape, the flat chain included.
 
 ## Lint Rules
 
@@ -108,39 +114,13 @@ The three "too complex" boundaries, and the positions production reports them at
 - **Fix**: Split into smaller match blocks or reduce string literals
 - **Corpus**: none needed (trivial check)
 
-### RULE 2: CHAIN_DEPTH
-- **Severity**: error at >95, warning at >85
-- **Threshold**: max flat binary chain depth per function > 98
-- **Detection**: walk every function the ruleset declares (global scope,
-  service scope, and every match block), count the operands of the longest
-  flat AND or OR chain. A 98-operand chain compiles; 99 fails.
-- **Algorithm**:
-  ```
-  function maxChainDepth(expr, targetOp):
-    if expr.type != 'binaryOp' || expr.op != targetOp: return 0
-    operands = 1
-    while expr.type == 'binaryOp' && expr.op == targetOp:
-      operands += 1
-      expr = expr.left
-      // Left spine because the parser builds left-associative chains
-    return operands
-
-  for each function:
-    andDepth = maxChainDepth(fn.body, '&&')
-    orDepth = maxChainDepth(fn.body, '||')
-    maxDepth = max(andDepth, orDepth)
-  ```
-- **Message**: "Function '{name}' has a {op} chain of depth {depth}. Limit is 98."
-- **Fix**: move part of the chain into its own function: `a && b && c && d` → `firstHalf() && c && d`
-- **Corpus**: 05-lets-13-fail.rules (also triggers LET_LIMIT, but chain depth is fine)
-
-### RULE 2b: NESTING_DEPTH
+### RULE 2: NESTING_DEPTH
 - **Severity**: error
 - **Threshold**: an expression node at nesting level 100 or deeper (99 is the deepest that compiles)
-- **Detection**: `nestingViolations` in `src/rules/grammar/compile-limits.ts`, the count the Firestore simulator and the Storage evaluator enforce when a ruleset loads. Parentheses are not AST nodes; the parser records the groups around each node in a side table (`parenthesizedGroups`).
+- **Detection**: `nestingViolations` in `src/rules/grammar/compile-limits.ts`, the count the Firestore simulator and the Storage evaluator enforce when a ruleset loads. Parentheses are not AST nodes; the parser records the groups around each node in a side table (`parenthesizedGroups`). A flat `&&` or `||` chain is one shape of the limit: every operator on its left spine is a level, so 98 comparisons compile and 99 fail, in a function at any scope or in an allow condition. The parser does not descend into the content of a group inside 98 others: `boundSourceNesting` replaces that content with a literal before matching, since the limit rejects it whatever it holds, so arbitrarily deep parentheses report this rule instead of exhausting the stack.
 - **Message**: "Function '{name}' nests an expression deeper than 99 levels. Production rejects the ruleset: \"Expression is too complex to evaluate safely.\"", or "The rule at line {line} ..." for an allow condition. One warning per function or rule.
 - **Fix**: remove redundant parentheses, or move a nested group into its own function and call it
-- **Corpus**: `linter.test.ts` replays every and-nesting and paren-nesting probe in `fixtures/compile-limits/captures.json` up to 150 groups, plus the 98- and 99-term flat chains
+- **Corpus**: `linter.test.ts` replays every and-nesting and paren-nesting probe in `fixtures/compile-limits/captures.json`, 200 groups included, plus 98- and 99-term flat chains in functions at global, service and match scope and in an allow condition
 
 ### RULE 3: LET_LIMIT
 - **Severity**: error
@@ -242,7 +222,7 @@ interface LintResult {
 }
 
 interface LintWarning {
-  rule: string;           // 'CHAIN_DEPTH', 'SHARED_GATE', etc.
+  rule: string;           // 'NESTING_DEPTH', 'SHARED_GATE', etc.
   severity: 'info' | 'warning' | 'error';
   message: string;
   location?: {
@@ -306,11 +286,10 @@ interface RulesMetrics {
 2. Verify: rules that trigger should trigger, rules that don't shouldn't
 3. For EXPRESSION_BUDGET: compare every estimate with the captured production costs in `fixtures/expression-cost/`; recapture with `bun run packages/conformance/src/capture-rules-expression-cost.ts`
 4. For SHARED_GATE: verify 08 triggers but 09 doesn't
-5. For CHAIN_DEPTH: verify 05/06b trigger, 01-04/06 don't
+5. For NESTING_DEPTH: replay the compile-limit probes and the 98- and 99-operand flat chains
 
 ## Open Questions (for future probing)
 
-1. **Nested match block scope**: Does chain depth limit apply per-match-block or globally?
-2. **get() path deduplication**: Does Firestore actually cache get() by path? At what scope?
-3. **Overlapping match blocks**: In which order does production evaluate two blocks that match one request, and does a grant in the first skip the second's cost?
-4. **Nesting depth model**: Do nodes other than binary operators and parentheses, such as `!`, ternaries and method calls, add a level toward the 99-level nesting limit? (A bare `true` in 98 parentheses compiles and 99 fails, as the model predicts.)
+1. **get() path deduplication**: Does Firestore actually cache get() by path? At what scope?
+2. **Overlapping match blocks**: In which order does production evaluate two blocks that match one request, and does a grant in the first skip the second's cost?
+3. **Nesting depth model**: Do nodes other than binary operators and parentheses, such as `!`, ternaries and method calls, add a level toward the 99-level nesting limit? (A bare `true` in 98 parentheses compiles and 99 fails, as the model predicts.)

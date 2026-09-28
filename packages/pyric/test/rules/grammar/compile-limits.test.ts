@@ -48,6 +48,14 @@ describe('compile limits: every Rules Test API probe', () => {
     const probe = compileLimitProbes().find((p) => p.service === 'firestore' && p.shape === 'call-depth' && p.range)!;
     expect(violations(probe.source).map((v) => v.line)).toEqual([271, 296, 322]);
   });
+
+  test('a let-count rejection is at the return expression, where production reports it', () => {
+    for (const service of ['firestore', 'storage'] as const) {
+      const probe = compileLimitProbes().find((p) => p.service === service && p.shape === 'let-count' && !p.compiles)!;
+      expect(probe.errorPositions).toEqual([[18, 16]]);
+      expect(violations(probe.source).map((v) => [v.line, v.column])).toEqual(probe.errorPositions);
+    }
+  });
 });
 
 describe('compile limits: shapes the capture does not measure', () => {
@@ -75,10 +83,13 @@ describe('compile limits: shapes the capture does not measure', () => {
     expect(violations(source)).toEqual([]);
   });
 
-  test('!, a ternary, a method call, and a list add no level; a comparison does', () => {
+  test('!, a ternary and a method call add no level; a comparison, a list and a function call do', () => {
     const deep = `${'('.repeat(97)}request.auth.uid == 'a'${')'.repeat(97)}`;
     expect(condition(`!${deep}`)).toBe(0);
     expect(condition(`true ? ${deep} : false`)).toBe(0);
-    expect(condition(`[${deep}].size() > 0`)).toBe(2);
+    expect(condition(`'x'.matches(${deep})`)).toBe(0);
+    // The list puts its element one level deeper, so the comparison reaches level 100.
+    expect(condition(`[${deep}].size() > 0`)).toBe(1);
+    expect(condition(`string(${deep}) == 'true'`)).toBe(1);
   });
 });

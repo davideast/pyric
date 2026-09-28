@@ -9,7 +9,7 @@ import { describe, expect, it } from 'bun:test';
 import {
   checkOneForm,
   checkOperation,
-  checkRulesParse,
+  checkRulesCompile,
   operation,
   RENAMES,
   REQUEST_METHODS,
@@ -76,15 +76,27 @@ describe('checkOperation', () => {
   });
 });
 
-describe('checkRulesParse', () => {
+describe('checkRulesCompile', () => {
   it('rejects a rules source that does not parse for the named service', () => {
-    const rejection = checkRulesParse({ service: 'firestore', rules: 'not rules at all {' }, fail);
+    const rejection = checkRulesCompile({ service: 'firestore', rules: 'not rules at all {' }, fail);
     expect(rejection).not.toBeNull();
     expect(rejection?.data.field).toBe('rules');
   });
 
+  it('rejects a rules source that parses but breaks a production compile limit', () => {
+    const deep = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /p/{d} { allow read: if ${'('.repeat(99)}true${')'.repeat(99)}; }
+  }
+}`;
+    const rejection = checkRulesCompile({ service: 'firestore', rules: deep }, fail);
+    expect(rejection?.data.field).toBe('rules');
+    expect(rejection?.summary).toContain('Expression is too complex to evaluate safely.');
+  });
+
   it('passes when the engine reports no parse problem', () => {
-    expect(checkRulesParse({ service: 'database', rules: '{"rules": {}}' }, fail)).toBeNull();
+    expect(checkRulesCompile({ service: 'database', rules: '{"rules": {}}' }, fail)).toBeNull();
   });
 });
 

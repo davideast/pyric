@@ -9,8 +9,8 @@
  * and a 98-operand `||` chain declared at service scope. 98 operands is the
  * largest flat chain production compiles; a 99-operand chain at any scope is
  * rejected before evaluation with "Expression is too complex to evaluate
- * safely.", so it cannot be a verdict case. The linter's CHAIN_DEPTH limit
- * error fires above 98 operands at every scope.
+ * safely.", so it cannot be a verdict case. The linter's NESTING_DEPTH error
+ * fires above 98 operands at every scope.
  */
 import type { ScenarioRecord } from './types.ts';
 

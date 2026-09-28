@@ -83,24 +83,33 @@ describe('Firestore Rules Linter', () => {
     });
   });
 
-  describe('CHAIN_DEPTH', () => {
-    test('small rules — no chain warning', () => {
-      const r = lint('01-minimal.rules');
-      expect(hasRule(r, 'CHAIN_DEPTH')).toBe(false);
-    });
-
-    test('10 functions — no chain warning', () => {
-      const r = lint('03-functions-10.rules');
-      expect(hasRule(r, 'CHAIN_DEPTH')).toBe(false);
-    });
-  });
-
   describe('NESTING_DEPTH', () => {
+    test('small rules: no nesting error', () => {
+      expect(hasRule(lint('01-minimal.rules'), 'NESTING_DEPTH')).toBe(false);
+    });
+
+    test('10 functions: no nesting error', () => {
+      expect(hasRule(lint('03-functions-10.rules'), 'NESTING_DEPTH')).toBe(false);
+    });
+
+    test('a 99-operand flat chain of comparisons is reported once, by NESTING_DEPTH alone', () => {
+      const chain = Array.from({ length: 99 }, (_, i) => `request.auth.uid != 'x${i}'`).join(' && ');
+      const r = lintSource(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function wide() { return ${chain}; }
+    match /p/{d} { allow read: if wide(); }
+  }
+}`);
+      const limits = r.warnings.filter(w => w.severity === 'error');
+      expect(limits.map(w => w.rule)).toEqual(['NESTING_DEPTH']);
+    });
+
     // Production rejects an expression nested past 99 levels with
     // "Expression is too complex to evaluate safely."
     // (fixtures/compile-limits/captures.json, shapes and-nesting and
     // paren-nesting, Firestore and Storage).
-    const nesting = compileLimitProbes().filter(p => p.shape === 'and-nesting' || p.shape === 'paren-nesting' || p.shape === 'paren-literal');
+    const nesting = compileLimitProbes().filter(p => p.shape.endsWith('-nesting') || p.shape === 'paren-literal' || p.shape === 'index-chain');
 
     for (const probe of nesting) {
       test(`${probe.label}: ${probe.compiles ? 'no NESTING_DEPTH' : 'NESTING_DEPTH error'}, as production ${probe.compiles ? 'compiles' : 'rejects'} it`, () => {
@@ -310,7 +319,7 @@ service cloud.firestore {
       expect(lintSource(atGlobalScope).metrics.maxEstimatedExpressions).toBe(inline);
     });
 
-    test('a 99-term && chain in a service-scope function raises CHAIN_DEPTH', () => {
+    test('a 99-term && chain in a service-scope function raises NESTING_DEPTH', () => {
       const r = lintSource(`rules_version = '2';
 service cloud.firestore {
   function wide() { return ${andChain(99)}; }
@@ -318,15 +327,15 @@ service cloud.firestore {
     match /games/{id} { allow read: if wide(); }
   }
 }`);
-      const chain = r.warnings.filter(w => w.rule === 'CHAIN_DEPTH');
+      const chain = r.warnings.filter(w => w.rule === 'NESTING_DEPTH');
       expect(chain.map(w => w.message)).toEqual([
-        "Function 'wide' has a && chain of depth 99. Limit is 98.",
+        `Function 'wide' nests an expression deeper than 99 levels. Production rejects the ruleset: "Expression is too complex to evaluate safely."`,
       ]);
       expect(chain[0].severity).toBe('error');
       expect(r.metrics.maxChainDepth).toBe(99);
     });
 
-    test('a 98-term && chain compiles, so it is below the limit error', () => {
+    test('a 98-term && chain compiles, so it raises no nesting error', () => {
       const r = lintSource(`rules_version = '2';
 service cloud.firestore {
   function wide() { return ${andChain(98)}; }
@@ -334,14 +343,11 @@ service cloud.firestore {
     match /games/{id} { allow read: if wide(); }
   }
 }`);
-      const chain = r.warnings.filter(w => w.rule === 'CHAIN_DEPTH');
-      expect(chain.map(w => w.message)).toEqual([
-        "Function 'wide' has a && chain of depth 98. Limit is 98. Approaching failure.",
-      ]);
+      expect(hasRule(r, 'NESTING_DEPTH')).toBe(false);
       expect(r.metrics.maxChainDepth).toBe(98);
     });
 
-    test('a 99-term && chain in a match-scope function raises CHAIN_DEPTH', () => {
+    test('a 99-term && chain in a match-scope function raises NESTING_DEPTH', () => {
       const r = lintSource(`rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -349,7 +355,7 @@ service cloud.firestore {
     match /games/{id} { allow read: if wide(); }
   }
 }`);
-      expect(hasError(r, 'CHAIN_DEPTH')).toBe(true);
+      expect(hasError(r, 'NESTING_DEPTH')).toBe(true);
     });
 
     test('a chain split across two functions stays under the limit', () => {
@@ -361,11 +367,11 @@ service cloud.firestore {
     match /games/{id} { allow read: if wide(); }
   }
 }`);
-      expect(hasRule(r, 'CHAIN_DEPTH')).toBe(false);
+      expect(hasRule(r, 'NESTING_DEPTH')).toBe(false);
       expect(r.metrics.maxChainDepth).toBe(50);
     });
 
-    test('a 99-term && chain in a global-scope function raises CHAIN_DEPTH', () => {
+    test('a 99-term && chain in a global-scope function raises NESTING_DEPTH', () => {
       const r = lintSource(`rules_version = '2';
 function wide() { return ${andChain(99)}; }
 service cloud.firestore {
@@ -373,10 +379,10 @@ service cloud.firestore {
     match /games/{id} { allow read: if wide(); }
   }
 }`);
-      expect(hasError(r, 'CHAIN_DEPTH')).toBe(true);
+      expect(hasError(r, 'NESTING_DEPTH')).toBe(true);
     });
 
-    test('a short && chain in a service-scope function raises no CHAIN_DEPTH', () => {
+    test('a short && chain in a service-scope function raises no NESTING_DEPTH', () => {
       const r = lintSource(`rules_version = '2';
 service cloud.firestore {
   function narrow() { return ${andChain(10)}; }
@@ -384,7 +390,7 @@ service cloud.firestore {
     match /games/{id} { allow read: if narrow(); }
   }
 }`);
-      expect(hasRule(r, 'CHAIN_DEPTH')).toBe(false);
+      expect(hasRule(r, 'NESTING_DEPTH')).toBe(false);
     });
 
     test('a match-scope function shadows a service-scope function of the same name', () => {

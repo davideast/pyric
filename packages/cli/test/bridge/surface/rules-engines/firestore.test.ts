@@ -1,6 +1,6 @@
 /**
  * The Firestore rules engine: lint, simulate, install, and the denial trace
- * `explainFirestoreDenial` builds from the same simulation. `parseFailure`'s
+ * `explainFirestoreDenial` builds from the same simulation. `compileFailure`'s
  * exact wording is `rules-engines/registry.test.ts`'s subject.
  */
 import 'fake-indexeddb/auto';
@@ -27,6 +27,20 @@ service cloud.firestore {
   match /databases/{database}/documents {
     match /{document=**} {
       allow read, write: if request.auth != null;
+    }
+  }
+}`;
+
+/** Twelve `let` bindings in one function, one more than production compiles. */
+const OVER_LET_LIMIT = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function g() {
+${Array.from({ length: 12 }, (_, i) => `      let v${i} = ${i};`).join('\n')}
+      return request.auth != null && v0 == 0;
+    }
+    match /{document=**} {
+      allow read, write: if g();
     }
   }
 }`;
@@ -69,6 +83,31 @@ describe('install', () => {
     const result = await FIRESTORE_RULES.install(freshContext(), 'not rules at all {');
     expect(result.ok).toBe(false);
     expect(result.summary).toContain('Firestore rules did not parse');
+  });
+
+  it('rejects a source past production\'s compile limits with production\'s message and keeps the active rules', async () => {
+    const ctx = freshContext();
+    await FIRESTORE_RULES.install(ctx, OPEN_RULES);
+    const result = await FIRESTORE_RULES.install(ctx, OVER_LET_LIMIT);
+    expect(result.ok).toBe(false);
+    expect(result.summary).toContain(
+      'Firestore rules did not compile: Line 17: Maximum allowed variable count of 10 for a given function has been reached.',
+    );
+    const open = await FIRESTORE_RULES.simulate(ctx, { operation: 'get', path: 'posts/p1' });
+    expect((open.data as { allowed: boolean }).allowed).toBe(true);
+  });
+
+  it('rejects 300 nested parentheses as too complex rather than crashing', async () => {
+    const deep = OPEN_RULES.replace('if true', `if ${'('.repeat(300)}true${')'.repeat(300)}`);
+    const result = await FIRESTORE_RULES.install(freshContext(), deep);
+    expect(result.ok).toBe(false);
+    expect(result.summary).toContain('Expression is too complex to evaluate safely.');
+  });
+
+  it('lints a source past the compile limits as findings rather than refusing it', async () => {
+    const result = await FIRESTORE_RULES.lint(freshContext(), OVER_LET_LIMIT);
+    expect(result.summary).not.toContain('did not compile');
+    expect(JSON.stringify(result.data)).toContain('LET_LIMIT');
   });
 
   it('installs a parsed source', async () => {

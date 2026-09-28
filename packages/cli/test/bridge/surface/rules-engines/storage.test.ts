@@ -1,5 +1,5 @@
 /**
- * The Cloud Storage rules engine: lint, simulate, and install. `parseFailure`'s
+ * The Cloud Storage rules engine: lint, simulate, and install. `compileFailure`'s
  * exact wording is `rules-engines/registry.test.ts`'s subject.
  */
 import 'fake-indexeddb/auto';
@@ -82,11 +82,20 @@ describe('install', () => {
   });
 
   it('states a parse failure that ends in a period without doubling it', () => {
-    const problem = STORAGE_RULES.parseFailure(
+    const problem = STORAGE_RULES.compileFailure(
       "rules_version = '2';\nservice firebase.storage { match /b/{bucket}/o { allow read: if true;",
     );
     expect(problem?.body).toEndWith('expected "}".');
     expect(problem?.body).not.toContain('..');
+  });
+
+  it('rejects a source past production\'s compile limits with production\'s message', async () => {
+    const deep = OPEN_RULES.replace('if true', `if ${'('.repeat(300)}true${')'.repeat(300)}`);
+    const result = await STORAGE_RULES.install(freshContext(), deep);
+    expect(result.ok).toBe(false);
+    expect(result.summary).toContain('Storage rules did not compile: Line 5: Expression is too complex to evaluate safely.');
+    const problem = STORAGE_RULES.compileFailure(deep);
+    expect(problem?.body).toBe('rules did not compile: Line 5: Expression is too complex to evaluate safely.');
   });
 
   it('installs a parsed source', async () => {

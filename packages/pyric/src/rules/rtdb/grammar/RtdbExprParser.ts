@@ -40,19 +40,19 @@ function getIdentifierSemantics(): Semantics {
 }
 
 export function parseExpression(raw: string): ParsedExpression {
-  const match = matchRtdbExpression(raw);
+  const matched = matchRtdbExpression(raw);
 
-  if (match.failed()) {
+  if (!matched.ok) {
     return {
       raw,
       valid: false,
-      errors: [{ code: 'PARSE_ERROR', message: match.message ?? 'Parse failed' }],
+      errors: [{ code: 'PARSE_ERROR', message: matched.message }],
       warnings: [],
       referencedIdentifiers: [],
     };
   }
 
-  const referencedIdentifiers = (getIdentifierSemantics()(match) as any).identifiers() as string[];
+  const referencedIdentifiers = (getIdentifierSemantics()(matched.match) as any).identifiers() as string[];
   const unique = [...new Set(referencedIdentifiers)];
 
   return {

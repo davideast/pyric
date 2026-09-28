@@ -1,6 +1,6 @@
 /** Install a ruleset into the running sandbox. */
 import { z } from 'zod';
-import { checkRulesParse, RENAMES, service, SERVICES } from '../../arguments/rules.js';
+import { checkRulesCompile, RENAMES, service, SERVICES } from '../../arguments/rules.js';
 import { rulesEngineFor } from '../../rules-engines/registry.js';
 import type { MethodRecord } from '../../method-types.js';
 
@@ -31,7 +31,7 @@ export default {
   },
   renames: RENAMES,
   example: { service: 'firestore', rules: EXAMPLE_RULES },
-  validate: (args, { fail }) => checkRulesParse(args, fail),
+  validate: (args, { fail }) => checkRulesCompile(args, fail),
   async handler(args, ctx) {
     return rulesEngineFor(String(args.service)).install(ctx, String(args.rules));
   },

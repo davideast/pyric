@@ -72,7 +72,10 @@ export interface FunctionDef {
   exported: boolean;
   lets: LetBinding[];
   body: Expression;
+  /** Source position of the `function` keyword. */
   loc?: SourceLoc;
+  /** Source position of the return expression, the first token after `return`. */
+  returnLoc?: SourceLoc;
 }
 
 export interface LetBinding {

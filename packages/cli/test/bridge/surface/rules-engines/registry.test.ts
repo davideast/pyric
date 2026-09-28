@@ -30,14 +30,14 @@ describe('the engine records declare the services', () => {
   });
 
   it('carries every service its own source check', () => {
-    expect(rulesEngineFor('database').parseFailure('{"rules": {}}')).toBeNull();
-    const database = rulesEngineFor('database').parseFailure('not json');
+    expect(rulesEngineFor('database').compileFailure('{"rules": {}}')).toBeNull();
+    const database = rulesEngineFor('database').compileFailure('not json');
     expect(database?.body).toContain('JSON');
     expect(database?.fix.startsWith('Pass')).toBe(true);
 
-    const firestore = rulesEngineFor('firestore').parseFailure('not rules at all {');
+    const firestore = rulesEngineFor('firestore').compileFailure('not rules at all {');
     expect(firestore?.body).toContain('did not parse');
-    const storage = rulesEngineFor('storage').parseFailure('not rules at all {');
+    const storage = rulesEngineFor('storage').compileFailure('not rules at all {');
     expect(storage?.body).toContain('did not parse');
   });
 });
