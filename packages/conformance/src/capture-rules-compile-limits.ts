@@ -74,7 +74,7 @@ export function probeBlock(shape: Shape, n: number, path = 'p'): string {
   }
 }
 
-interface ProbeCase { description: string; uid: string; path: string }
+export interface ProbeCase { description: string; uid: string; path: string }
 
 export interface Issue { severity: string; description: string; line?: number; column?: number }
 
@@ -91,9 +91,9 @@ export interface ProbeRecord {
 }
 
 interface RunResult { compiles: boolean; issues: Issue[]; results: { decision: 'ALLOW' | 'DENY'; notes: string[] }[] }
-type Execute = (service: Service, source: string, cases: ProbeCase[]) => Promise<RunResult>;
+export type Execute = (service: Service, source: string, cases: ProbeCase[]) => Promise<RunResult>;
 
-async function tools(): Promise<{ run: Execute; projectId: string }> {
+export async function tools(): Promise<{ run: Execute; projectId: string }> {
   const { parityScope } = await import('../../pyric/test/rules/parity/harness.ts');
   const { buildApiTestCase, buildStorageApiTestCase } = await import('../../pyric/src/rules/test/spec.ts');
   const scope = parityScope() as ProjectScope;

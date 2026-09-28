@@ -1,0 +1,371 @@
+{
+  "schema": "pyric.rules-name-resolution.v1",
+  "capturedAt": "2026-09-27T22:32:40.989Z",
+  "projectId": "digame-mas",
+  "method": "Rules Test API projects.test, one ruleset per probe from PROBES in packages/conformance/src/capture-rules-name-resolution.ts; each case is a get of p/d1 with uid a (granted when the ruleset works) and uid b (denied).",
+  "calls": 12,
+  "probes": [
+    {
+      "name": "undefined-call-in-function-body",
+      "source": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /p/{d} {\n      function f() { return request.auth.uid == 'a' || notDeclared(); }\n      allow read: if f();\n    }\n  }\n}\n",
+      "compiles": true,
+      "issues": [
+        {
+          "severity": "WARNING",
+          "description": "Invalid function name: notDeclared.",
+          "line": 5,
+          "column": 56
+        }
+      ],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": [
+            "Error: firestore.rules line [5], column [56]. Function not found error: Name: [notDeclared]."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "sibling-match-function",
+      "source": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /q/{e} {\n      function s() { return request.auth.uid == 'a'; }\n      allow read: if s();\n    }\n    match /p/{d} {\n      allow read: if s();\n    }\n  }\n}\n",
+      "compiles": true,
+      "issues": [
+        {
+          "severity": "WARNING",
+          "description": "Invalid function name: s.",
+          "line": 9,
+          "column": 22
+        }
+      ],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "DENY",
+          "notes": [
+            "Error: firestore.rules line [9], column [22]. Function not found error: Name: [s]."
+          ]
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": [
+            "Error: firestore.rules line [9], column [22]. Function not found error: Name: [s]."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "service-function-calls-match-function",
+      "source": "rules_version = '2';\nservice cloud.firestore {\n  function outer() { return inner(); }\n  match /databases/{database}/documents {\n    function inner() { return request.auth.uid == 'a'; }\n    match /p/{d} {\n      allow read: if outer();\n    }\n  }\n}\n",
+      "compiles": true,
+      "issues": [
+        {
+          "severity": "WARNING",
+          "description": "Invalid function name: inner.",
+          "line": 3,
+          "column": 29
+        },
+        {
+          "severity": "WARNING",
+          "description": "Unused function: inner.",
+          "line": 5,
+          "column": 14
+        },
+        {
+          "severity": "WARNING",
+          "description": "Invalid variable name: request.",
+          "line": 5,
+          "column": 31
+        }
+      ],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "DENY",
+          "notes": [
+            "Error: firestore.rules line [3], column [29]. Function not found error: Name: [inner]."
+          ]
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": [
+            "Error: firestore.rules line [3], column [29]. Function not found error: Name: [inner]."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "global-function-calls-service-function",
+      "source": "rules_version = '2';\nfunction g() { return s(); }\nservice cloud.firestore {\n  function s() { return request.auth.uid == 'a'; }\n  match /databases/{database}/documents {\n    match /p/{d} {\n      allow read: if g();\n    }\n  }\n}\n",
+      "compiles": true,
+      "issues": [
+        {
+          "severity": "WARNING",
+          "description": "Invalid function name: s.",
+          "line": 2,
+          "column": 23
+        },
+        {
+          "severity": "WARNING",
+          "description": "Unused function: s.",
+          "line": 4,
+          "column": 12
+        },
+        {
+          "severity": "WARNING",
+          "description": "Invalid variable name: request.",
+          "line": 4,
+          "column": 25
+        }
+      ],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "DENY",
+          "notes": [
+            "Error: firestore.rules line [2], column [23]. Function not found error: Name: [s]."
+          ]
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": [
+            "Error: firestore.rules line [2], column [23]. Function not found error: Name: [s]."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "unbound-variable-in-rule",
+      "source": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /p/{d} {\n      allow read: if request.auth.uid == 'a' && x.a1 == 'R';\n    }\n  }\n}\n",
+      "compiles": true,
+      "issues": [
+        {
+          "severity": "WARNING",
+          "description": "Invalid variable name: x.",
+          "line": 5,
+          "column": 49
+        }
+      ],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "DENY",
+          "notes": [
+            "Error: firestore.rules line [5], column [49]. Null value error."
+          ]
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "name": "unbound-variable-in-function",
+      "source": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /p/{d} {\n      function f() { return request.auth.uid == 'a' && x == 1; }\n      allow read: if f();\n    }\n  }\n}\n",
+      "compiles": true,
+      "issues": [
+        {
+          "severity": "WARNING",
+          "description": "Invalid variable name: x.",
+          "line": 5,
+          "column": 56
+        }
+      ],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "DENY",
+          "notes": [
+            "Error: firestore.rules line [5], column [56]. Null value error."
+          ]
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "name": "service-function-reads-capture",
+      "source": "rules_version = '2';\nservice cloud.firestore {\n  function f() { return request.auth.uid == 'a' && database != ''; }\n  match /databases/{database}/documents {\n    match /p/{d} {\n      allow read: if f();\n    }\n  }\n}\n",
+      "compiles": true,
+      "issues": [
+        {
+          "severity": "WARNING",
+          "description": "Invalid variable name: database.",
+          "line": 3,
+          "column": 52
+        }
+      ],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "DENY",
+          "notes": [
+            "Error: firestore.rules line [3], column [52]. Null value error."
+          ]
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "name": "parent-function-reads-child-capture",
+      "source": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    function f() { return request.auth.uid == 'a' && d != ''; }\n    match /p/{d} {\n      allow read: if f();\n    }\n  }\n}\n",
+      "compiles": true,
+      "issues": [
+        {
+          "severity": "WARNING",
+          "description": "Invalid variable name: d.",
+          "line": 4,
+          "column": 54
+        }
+      ],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "DENY",
+          "notes": [
+            "Error: firestore.rules line [4], column [54]. Null value error."
+          ]
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "name": "function-reads-enclosing-captures",
+      "source": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    function g() { return database != ''; }\n    match /p/{d} {\n      function f() { return request.auth.uid == 'a' && d != '' && g(); }\n      allow read: if f();\n    }\n  }\n}\n",
+      "compiles": true,
+      "issues": [],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "name": "let-and-parameter-resolve",
+      "source": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /p/{d} {\n      function f(u) { let v = u; let w = v; return w == 'a'; }\n      allow read: if f(request.auth.uid);\n    }\n  }\n}\n",
+      "compiles": true,
+      "issues": [],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "name": "globals-resolve",
+      "source": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /p/{d} {\n      allow read: if request.auth.uid == 'a' && (math.abs(-1) == 1 || true) && (timestamp.value(0) < request.time || true) && (duration.value(1, 's') > duration.value(0, 's') || true) && (latlng.value(0, 0) != null || true) && (hashing.sha256('a') != null || true) && (int('1') == 1 || true) && (string(1) == '1' || true) && (float(1) == 1.0 || true) && (path('/a/b') != null || true) && (existsAfter(/databases/$(database)/documents/p/$(d)) || true) && (resource == null || true);\n    }\n  }\n}\n",
+      "compiles": true,
+      "issues": [
+        {
+          "severity": "WARNING",
+          "description": "The sub-expressions are not comparable, so this comparison will always return true.",
+          "line": 5,
+          "column": 208
+        },
+        {
+          "severity": "WARNING",
+          "description": "The sub-expressions are not comparable, so this comparison will always return true.",
+          "line": 5,
+          "column": 249
+        },
+        {
+          "severity": "WARNING",
+          "description": "The sub-expressions are not comparable, so this comparison will always return true.",
+          "line": 5,
+          "column": 369
+        }
+      ],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "name": "unused-functions-every-scope",
+      "source": "rules_version = '2';\nfunction g0() { return true; }\nservice cloud.firestore {\n  function s0() { return s2(); }\n  function s1() { return request.auth.uid == 'a'; }\n  function s2() { return true; }\n  match /databases/{database}/documents {\n    function r0() { return true; }\n    match /p/{d} {\n      function m0() { return true; }\n      function m1() { return s1(); }\n      allow read: if m1();\n    }\n  }\n}\n",
+      "compiles": true,
+      "issues": [
+        {
+          "severity": "WARNING",
+          "description": "Unused function: g0.",
+          "line": 2,
+          "column": 10
+        },
+        {
+          "severity": "WARNING",
+          "description": "Unused function: s0.",
+          "line": 4,
+          "column": 12
+        },
+        {
+          "severity": "WARNING",
+          "description": "Unused function: r0.",
+          "line": 8,
+          "column": 14
+        },
+        {
+          "severity": "WARNING",
+          "description": "Unused function: m0.",
+          "line": 10,
+          "column": 16
+        }
+      ],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    }
+  ]
+}
