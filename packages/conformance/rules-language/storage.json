@@ -552,6 +552,90 @@
       "probeEvaluationAgreement": true
     },
     {
+      "id": "storage.method.list.toSet",
+      "kind": "method",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.List#function_toSet_",
+      "status": "accepted",
+      "receiverType": "list",
+      "note": "Production and the local Storage evaluator accept List.toSet(), which returns the distinct elements as a Set; a Set or Map receiver is \"Function not found error\". Replayed by the list cases of the Storage upload-boundary corpus.",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "c7586b72164936090344196b43fdf657d88b549dd856b0c01a078babe0839cbc"
+      },
+      "probeEvaluationAgreement": true
+    },
+    {
+      "id": "storage.method.list.join",
+      "kind": "method",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.List#function_join_",
+      "status": "accepted",
+      "receiverType": "list",
+      "note": "Production and the local Storage evaluator accept List.join(separator), which converts each element as string() does; a non-string separator, a missing separator, or a List or Map element is an error. Replayed by the list cases of the Storage upload-boundary corpus.",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "351f6eeef58c3946c203b725eeddff2c6e7268386296e990331f4652c01792b5"
+      },
+      "probeEvaluationAgreement": true
+    },
+    {
+      "id": "storage.method.list.hasAny",
+      "kind": "method",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.List#function_hasAny_",
+      "status": "accepted",
+      "receiverType": "list|set",
+      "note": "Production and the local Storage evaluator accept hasAny() on a List with a List argument and on a Set with a List or Set argument; a Set argument to a List receiver is \"Unsupported operation error\". Replayed by the list cases of the Storage upload-boundary corpus.",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "a58f953035d51bb5a2acc58745ffed1bb17f081e50578c6aae90f234c665dc7e"
+      },
+      "probeEvaluationAgreement": true
+    },
+    {
+      "id": "storage.method.list.hasOnly",
+      "kind": "method",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.List#function_hasOnly_",
+      "status": "accepted",
+      "receiverType": "list|set",
+      "note": "Production and the local Storage evaluator accept hasOnly() on a List with a List argument and on a Set with a List or Set argument; a Set argument to a List receiver is \"Unsupported operation error\". Replayed by the list cases of the Storage upload-boundary corpus.",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "aa94b9ad792557fb321b8c2af4a7a1a992e464c1f113f25d6bc89a52a8cc48c9"
+      },
+      "probeEvaluationAgreement": true
+    },
+    {
+      "id": "storage.method.list.concat",
+      "kind": "method",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.List#function_concat_",
+      "status": "accepted",
+      "receiverType": "list",
+      "note": "Production and the local Storage evaluator accept List.concat(list); a Set, string or other argument is \"Unsupported operation error\" and a Set, Map or string receiver is \"Function not found error\". Replayed by the list cases of the Storage upload-boundary corpus.",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "622db83e47d5d13b8dfbde6502a53322625dd9e45f5b5917910c5eef0810e494"
+      },
+      "probeEvaluationAgreement": true
+    },
+    {
+      "id": "storage.method.list.removeAll",
+      "kind": "method",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.List#function_removeAll_",
+      "status": "accepted",
+      "receiverType": "list",
+      "note": "Production and the local Storage evaluator accept List.removeAll(list), which drops every element equal to one in the argument; a Set or other argument is \"Unsupported operation error\" and a Set or Map receiver is \"Function not found error\". Replayed by the list cases of the Storage upload-boundary corpus.",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "9e43defd9f151200282a694901b1f4ef8e7b7190b56391d64dcf7149fb7abb25"
+      },
+      "probeEvaluationAgreement": true
+    },
+    {
       "id": "storage.operator.eq",
       "kind": "operator",
       "engine": "storage",

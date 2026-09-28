@@ -3,8 +3,8 @@
   "generatedNote": "Exact Storage Rules conformance ratchet. Update only with reviewed evidence or implementation changes.",
   "universe": {
     "hashAlgorithm": "sha256",
-    "hash": "43849c039539d879de0912cb142ee70136b57bcd892710ed20d48ee7c56f47ba",
-    "denominator": 79,
+    "hash": "4867168311f022284a6d02e04ad7c5f92da496ccdaad37e31fb0112556e7856f",
+    "denominator": 85,
     "constructIds": [
       "storage.binding.request",
       "storage.binding.request.auth",
@@ -49,6 +49,12 @@
       "storage.method.map.keys",
       "storage.method.map.get",
       "storage.method.set.hasAll",
+      "storage.method.list.toSet",
+      "storage.method.list.join",
+      "storage.method.list.hasAny",
+      "storage.method.list.hasOnly",
+      "storage.method.list.concat",
+      "storage.method.list.removeAll",
       "storage.operator.eq",
       "storage.operator.neq",
       "storage.operator.lt",
@@ -88,38 +94,38 @@
     ]
   },
   "score": {
-    "numerator": 77,
-    "denominator": 79,
-    "ratio": 0.9746835443037974,
-    "percent": 97.5
+    "numerator": 83,
+    "denominator": 85,
+    "ratio": 0.9764705882352941,
+    "percent": 97.6
   },
   "axes": {
     "productionAcceptance": {
       "unprobed": 0,
-      "accepted": 78,
+      "accepted": 84,
       "rejected": 1,
       "unprobeable": 0
     },
     "localAcceptance": {
-      "accepted": 78,
+      "accepted": 84,
       "rejected": 1,
       "unsupported": 0,
       "unprobeable": 0
     },
     "localCapability": {
-      "implemented": 78,
+      "implemented": 84,
       "unsupported": 0,
       "error": 1,
       "unprobeable": 0
     },
     "productionEvidence": {
-      "verified": 77,
+      "verified": 83,
       "diverged": 2,
       "unverified": 0
     }
   },
   "counts": {
-    "conformant": 77,
+    "conformant": 83,
     "diverged": 2,
     "unknown": 0,
     "acceptance-mismatch": 0,
@@ -1078,6 +1084,108 @@
       ],
       "divergedByRows": []
     },
+    "storage.method.list.toSet": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionProbeDigest": "c7586b72164936090344196b43fdf657d88b549dd856b0c01a078babe0839cbc",
+      "currentProbeDigest": "c7586b72164936090344196b43fdf657d88b549dd856b0c01a078babe0839cbc",
+      "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [],
+      "verifiedByRows": [
+        "storage-rules#127"
+      ],
+      "divergedByRows": []
+    },
+    "storage.method.list.join": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionProbeDigest": "351f6eeef58c3946c203b725eeddff2c6e7268386296e990331f4652c01792b5",
+      "currentProbeDigest": "351f6eeef58c3946c203b725eeddff2c6e7268386296e990331f4652c01792b5",
+      "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [],
+      "verifiedByRows": [
+        "storage-rules#127"
+      ],
+      "divergedByRows": []
+    },
+    "storage.method.list.hasAny": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionProbeDigest": "a58f953035d51bb5a2acc58745ffed1bb17f081e50578c6aae90f234c665dc7e",
+      "currentProbeDigest": "a58f953035d51bb5a2acc58745ffed1bb17f081e50578c6aae90f234c665dc7e",
+      "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [],
+      "verifiedByRows": [
+        "storage-rules#127"
+      ],
+      "divergedByRows": []
+    },
+    "storage.method.list.hasOnly": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionProbeDigest": "aa94b9ad792557fb321b8c2af4a7a1a992e464c1f113f25d6bc89a52a8cc48c9",
+      "currentProbeDigest": "aa94b9ad792557fb321b8c2af4a7a1a992e464c1f113f25d6bc89a52a8cc48c9",
+      "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [],
+      "verifiedByRows": [
+        "storage-rules#127"
+      ],
+      "divergedByRows": []
+    },
+    "storage.method.list.concat": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionProbeDigest": "622db83e47d5d13b8dfbde6502a53322625dd9e45f5b5917910c5eef0810e494",
+      "currentProbeDigest": "622db83e47d5d13b8dfbde6502a53322625dd9e45f5b5917910c5eef0810e494",
+      "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [],
+      "verifiedByRows": [
+        "storage-rules#127"
+      ],
+      "divergedByRows": []
+    },
+    "storage.method.list.removeAll": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionProbeDigest": "9e43defd9f151200282a694901b1f4ef8e7b7190b56391d64dcf7149fb7abb25",
+      "currentProbeDigest": "9e43defd9f151200282a694901b1f4ef8e7b7190b56391d64dcf7149fb7abb25",
+      "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [],
+      "verifiedByRows": [
+        "storage-rules#127"
+      ],
+      "divergedByRows": []
+    },
     "storage.operator.eq": {
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
@@ -1143,6 +1251,7 @@
         "resource-object-identity",
         "stdlib-storage-modules",
         "stdlib-string-bytes-hashing",
+        "upload-primitives-boundaries",
         "verbs-umbrella-granular"
       ],
       "verifiedByRows": [

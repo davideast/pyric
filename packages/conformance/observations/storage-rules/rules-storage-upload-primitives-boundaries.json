@@ -7,7 +7,7 @@
     "storage-rules#128"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"upload-primitives-boundaries\" (STORAGE-P2-PRIMITIVES). Boundary-first evidence for Storage size, MIME, metadata, path, identity, and time helpers, including production-pinned metadata collection methods.",
-  "observedAt": "2026-09-28T00:49:56.574Z",
+  "observedAt": "2026-09-28T04:21:37.927Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "behavior": {
@@ -47,7 +47,59 @@
     "keys: keys() is list": "ALLOW",
     "keys: keys() is set is false": "DENY",
     "keys: !(keys() is set)": "ALLOW",
-    "keys: toSet().size()": "ALLOW"
+    "keys: toSet().size()": "ALLOW",
+    "list: toSet: keys().toSet() equals a Set literal in another order": "ALLOW",
+    "list: toSet: a List literal with a duplicate equals the distinct Set": "ALLOW",
+    "list: toSet: != a smaller Set is true": "ALLOW",
+    "list: toSet: != the same Set is false": "DENY",
+    "list: toSet: a Set receiver is an error": "DENY",
+    "list: toSet: a Map receiver is an error": "DENY",
+    "list: toSet: an argument is an error": "DENY",
+    "list: join: keys().join() joins the keys": "ALLOW",
+    "list: join: a List literal joins with the separator": "ALLOW",
+    "list: join: != another string is true": "ALLOW",
+    "list: join: an empty List joins to the empty string": "ALLOW",
+    "list: join: int, bool and null elements convert as string() does": "ALLOW",
+    "list: join: float elements convert as string() does": "ALLOW",
+    "list: join: a List element is an error": "DENY",
+    "list: join: an int separator is an error": "DENY",
+    "list: join: no separator is an error": "DENY",
+    "list: join: a Set receiver is an error": "DENY",
+    "list: hasAll: a Set argument to a List receiver is an error": "DENY",
+    "list: hasAny: keys().hasAny() with one shared key": "ALLOW",
+    "list: hasAny: a List literal with one shared element": "ALLOW",
+    "list: hasAny: != true with no shared key": "ALLOW",
+    "list: hasAny: an empty argument is false": "ALLOW",
+    "list: hasAny: a Set receiver takes a Set argument": "ALLOW",
+    "list: hasAny: a Set argument to a List receiver is an error": "DENY",
+    "list: hasAny: a string argument is an error": "DENY",
+    "list: hasAny: a Map receiver is an error": "DENY",
+    "list: hasOnly: keys().hasOnly() is false for a missing key": "ALLOW",
+    "list: hasOnly: a List literal with a duplicate": "ALLOW",
+    "list: hasOnly: != true for a missing key": "ALLOW",
+    "list: hasOnly: an empty receiver is true": "ALLOW",
+    "list: hasOnly: a Set receiver takes a Set argument": "ALLOW",
+    "list: hasOnly: a Set argument to a List receiver is an error": "DENY",
+    "list: hasOnly: a string argument is an error": "DENY",
+    "list: concat: keys().concat() appends the argument": "ALLOW",
+    "list: concat: a List literal keeps duplicates in order": "ALLOW",
+    "list: concat: != the receiver is true": "ALLOW",
+    "list: concat: keys() with itself has four elements": "ALLOW",
+    "list: concat: two empty Lists": "ALLOW",
+    "list: concat: a string argument is an error": "DENY",
+    "list: concat: a Set argument is an error": "DENY",
+    "list: concat: a Set receiver is an error": "DENY",
+    "list: concat: a string receiver is an error": "DENY",
+    "list: concat: no argument is an error": "DENY",
+    "list: removeAll: keys().removeAll() drops the listed key": "ALLOW",
+    "list: removeAll: a List literal drops every occurrence": "ALLOW",
+    "list: removeAll: != the receiver is true": "ALLOW",
+    "list: removeAll: an absent element leaves the List unchanged": "ALLOW",
+    "list: removeAll: List, Map and null elements compare by value": "ALLOW",
+    "list: removeAll: a string argument is an error": "DENY",
+    "list: removeAll: a Set argument is an error": "DENY",
+    "list: removeAll: a Set receiver is an error": "DENY",
+    "list: removeAll: a Map receiver is an error": "DENY"
   },
   "diagnostics": {
     "size: zero bytes is within inclusive maximum": {
@@ -598,6 +650,830 @@
               "endOffset": 3071
             },
             "value": true
+          }
+        ]
+      }
+    },
+    "list: toSet: keys().toSet() equals a Set literal in another order": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 90,
+              "column": 24,
+              "currentOffset": 3230,
+              "endOffset": 3236
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: toSet: a List literal with a duplicate equals the distinct Set": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 93,
+              "column": 24,
+              "currentOffset": 3354,
+              "endOffset": 3354
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: toSet: != a smaller Set is true": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 96,
+              "column": 24,
+              "currentOffset": 3461,
+              "endOffset": 3467
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: toSet: != the same Set is false": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 99,
+              "column": 24,
+              "currentOffset": 3580,
+              "endOffset": 3580
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "list: toSet: a Set receiver is an error": {
+      "notes": [
+        "Error: storage.rules line [102], column [26]. Function not found error: Name: [toSet]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 102,
+          "column": 26,
+          "currentOffset": 3679,
+          "endOffset": 3679
+        },
+        "functionCalls": [
+          {
+            "function": "toSet"
+          }
+        ]
+      }
+    },
+    "list: toSet: a Map receiver is an error": {
+      "notes": [
+        "Error: storage.rules line [105], column [26]. Function not found error: Name: [toSet]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 105,
+          "column": 26,
+          "currentOffset": 3782,
+          "endOffset": 3788
+        },
+        "functionCalls": [
+          {
+            "function": "toSet"
+          }
+        ]
+      }
+    },
+    "list: toSet: an argument is an error": {
+      "notes": [
+        "Error: storage.rules line [108], column [32]. Incorrect number of arguments. Received: 1. Expected: list.toSet()."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 108,
+          "column": 32,
+          "currentOffset": 3903,
+          "endOffset": 3907
+        }
+      }
+    },
+    "list: join: keys().join() joins the keys": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 111,
+              "column": 24,
+              "currentOffset": 3991,
+              "endOffset": 3997
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: join: a List literal joins with the separator": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 114,
+              "column": 24,
+              "currentOffset": 4104,
+              "endOffset": 4104
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: join: != another string is true": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 117,
+              "column": 24,
+              "currentOffset": 4195,
+              "endOffset": 4201
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: join: an empty List joins to the empty string": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 120,
+              "column": 24,
+              "currentOffset": 4307,
+              "endOffset": 4307
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: join: int, bool and null elements convert as string() does": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 123,
+              "column": 24,
+              "currentOffset": 4388,
+              "endOffset": 4388
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: join: float elements convert as string() does": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 126,
+              "column": 24,
+              "currentOffset": 4500,
+              "endOffset": 4500
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: join: a List element is an error": {
+      "notes": [
+        "Error: storage.rules line [129], column [34]. Unsupported operation error. Received: string(list). Expected: string(int), string(float), string(null), string(string), string(bool), string(path)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 129,
+          "column": 34,
+          "currentOffset": 4608,
+          "endOffset": 4611
+        }
+      }
+    },
+    "list: join: an int separator is an error": {
+      "notes": [
+        "Error: storage.rules line [132], column [37]. Unsupported operation error. Received: list.join(int). Expected: list.join(string)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 132,
+          "column": 37,
+          "currentOffset": 4701,
+          "endOffset": 4704
+        }
+      }
+    },
+    "list: join: no separator is an error": {
+      "notes": [
+        "Error: storage.rules line [135], column [37]. Incorrect number of arguments. Received: 0. Expected: list.join(string)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 135,
+          "column": 37,
+          "currentOffset": 4792,
+          "endOffset": 4795
+        }
+      }
+    },
+    "list: join: a Set receiver is an error": {
+      "notes": [
+        "Error: storage.rules line [138], column [26]. Function not found error: Name: [join]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 138,
+          "column": 26,
+          "currentOffset": 4871,
+          "endOffset": 4871
+        },
+        "functionCalls": [
+          {
+            "function": "join",
+            "args": [
+              ","
+            ]
+          }
+        ]
+      }
+    },
+    "list: hasAll: a Set argument to a List receiver is an error": {
+      "notes": [
+        "Error: storage.rules line [141], column [37]. Unsupported operation error. Received: list.hasAll(set). Expected: list.hasAll(list)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 141,
+          "column": 37,
+          "currentOffset": 4978,
+          "endOffset": 4983
+        }
+      }
+    },
+    "list: hasAny: keys().hasAny() with one shared key": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 144,
+              "column": 24,
+              "currentOffset": 5063,
+              "endOffset": 5069
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: hasAny: a List literal with one shared element": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 147,
+              "column": 24,
+              "currentOffset": 5177,
+              "endOffset": 5177
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: hasAny: != true with no shared key": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 150,
+              "column": 24,
+              "currentOffset": 5264,
+              "endOffset": 5270
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: hasAny: an empty argument is false": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 153,
+              "column": 24,
+              "currentOffset": 5381,
+              "endOffset": 5381
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: hasAny: a Set receiver takes a Set argument": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 156,
+              "column": 24,
+              "currentOffset": 5461,
+              "endOffset": 5467
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: hasAny: a Set argument to a List receiver is an error": {
+      "notes": [
+        "Error: storage.rules line [159], column [37]. Unsupported operation error. Received: list.hasAny(set). Expected: list.hasAny(list)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 159,
+          "column": 37,
+          "currentOffset": 5599,
+          "endOffset": 5604
+        }
+      }
+    },
+    "list: hasAny: a string argument is an error": {
+      "notes": [
+        "Error: storage.rules line [162], column [37]. Unsupported operation error. Received: list.hasAny(string). Expected: list.hasAny(list)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 162,
+          "column": 37,
+          "currentOffset": 5697,
+          "endOffset": 5702
+        }
+      }
+    },
+    "list: hasAny: a Map receiver is an error": {
+      "notes": [
+        "Error: storage.rules line [165], column [25]. Function not found error: Name: [hasAny]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 165,
+          "column": 25,
+          "currentOffset": 5773,
+          "endOffset": 5773
+        },
+        "functionCalls": [
+          {
+            "function": "hasAny",
+            "args": [
+              [
+                "z"
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    "list: hasOnly: keys().hasOnly() is false for a missing key": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 168,
+              "column": 24,
+              "currentOffset": 5877,
+              "endOffset": 5877
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: hasOnly: a List literal with a duplicate": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 171,
+              "column": 24,
+              "currentOffset": 5988,
+              "endOffset": 5988
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: hasOnly: != true for a missing key": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 174,
+              "column": 24,
+              "currentOffset": 6076,
+              "endOffset": 6082
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: hasOnly: an empty receiver is true": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 177,
+              "column": 24,
+              "currentOffset": 6194,
+              "endOffset": 6194
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: hasOnly: a Set receiver takes a Set argument": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 180,
+              "column": 24,
+              "currentOffset": 6271,
+              "endOffset": 6277
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: hasOnly: a Set argument to a List receiver is an error": {
+      "notes": [
+        "Error: storage.rules line [183], column [37]. Unsupported operation error. Received: list.hasOnly(set). Expected: list.hasOnly(list)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 183,
+          "column": 37,
+          "currentOffset": 6415,
+          "endOffset": 6421
+        }
+      }
+    },
+    "list: hasOnly: a string argument is an error": {
+      "notes": [
+        "Error: storage.rules line [186], column [32]. Unsupported operation error. Received: list.hasOnly(string). Expected: list.hasOnly(list)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 186,
+          "column": 32,
+          "currentOffset": 6509,
+          "endOffset": 6515
+        }
+      }
+    },
+    "list: concat: keys().concat() appends the argument": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 189,
+              "column": 24,
+              "currentOffset": 6585,
+              "endOffset": 6591
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: concat: a List literal keeps duplicates in order": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 192,
+              "column": 24,
+              "currentOffset": 6713,
+              "endOffset": 6713
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: concat: != the receiver is true": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 195,
+              "column": 24,
+              "currentOffset": 6819,
+              "endOffset": 6825
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: concat: keys() with itself has four elements": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 198,
+              "column": 24,
+              "currentOffset": 6942,
+              "endOffset": 6948
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: concat: two empty Lists": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 201,
+              "column": 24,
+              "currentOffset": 7090,
+              "endOffset": 7090
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: concat: a string argument is an error": {
+      "notes": [
+        "Error: storage.rules line [204], column [32]. Unsupported operation error. Received: list.concat(string). Expected: list.concat(list)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 204,
+          "column": 32,
+          "currentOffset": 7180,
+          "endOffset": 7185
+        }
+      }
+    },
+    "list: concat: a Set argument is an error": {
+      "notes": [
+        "Error: storage.rules line [207], column [32]. Unsupported operation error. Received: list.concat(set). Expected: list.concat(list)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 207,
+          "column": 32,
+          "currentOffset": 7272,
+          "endOffset": 7277
+        }
+      }
+    },
+    "list: concat: a Set receiver is an error": {
+      "notes": [
+        "Error: storage.rules line [210], column [26]. Function not found error: Name: [concat]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 210,
+          "column": 26,
+          "currentOffset": 7368,
+          "endOffset": 7368
+        },
+        "functionCalls": [
+          {
+            "function": "concat",
+            "args": [
+              [
+                "b"
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    "list: concat: a string receiver is an error": {
+      "notes": [
+        "Error: storage.rules line [213], column [26]. Function not found error: Name: [concat]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 213,
+          "column": 26,
+          "currentOffset": 7470,
+          "endOffset": 7472
+        },
+        "functionCalls": [
+          {
+            "function": "concat",
+            "args": [
+              "b"
+            ]
+          }
+        ]
+      }
+    },
+    "list: concat: no argument is an error": {
+      "notes": [
+        "Error: storage.rules line [216], column [32]. Incorrect number of arguments. Received: 0. Expected: list.concat(list)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 216,
+          "column": 32,
+          "currentOffset": 7564,
+          "endOffset": 7569
+        }
+      }
+    },
+    "list: removeAll: keys().removeAll() drops the listed key": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 219,
+              "column": 24,
+              "currentOffset": 7645,
+              "endOffset": 7651
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: removeAll: a List literal drops every occurrence": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 222,
+              "column": 24,
+              "currentOffset": 7766,
+              "endOffset": 7766
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: removeAll: != the receiver is true": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 225,
+              "column": 24,
+              "currentOffset": 7880,
+              "endOffset": 7886
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: removeAll: an absent element leaves the List unchanged": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 228,
+              "column": 24,
+              "currentOffset": 8006,
+              "endOffset": 8006
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: removeAll: List, Map and null elements compare by value": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 231,
+              "column": 24,
+              "currentOffset": 8110,
+              "endOffset": 8110
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list: removeAll: a string argument is an error": {
+      "notes": [
+        "Error: storage.rules line [234], column [32]. Unsupported operation error. Received: list.removeAll(string). Expected: list.removeAll(list)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 234,
+          "column": 32,
+          "currentOffset": 8247,
+          "endOffset": 8255
+        }
+      }
+    },
+    "list: removeAll: a Set argument is an error": {
+      "notes": [
+        "Error: storage.rules line [237], column [37]. Unsupported operation error. Received: list.removeAll(set). Expected: list.removeAll(list)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 237,
+          "column": 37,
+          "currentOffset": 8347,
+          "endOffset": 8355
+        }
+      }
+    },
+    "list: removeAll: a Set receiver is an error": {
+      "notes": [
+        "Error: storage.rules line [240], column [26]. Function not found error: Name: [removeAll]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 240,
+          "column": 26,
+          "currentOffset": 8446,
+          "endOffset": 8446
+        },
+        "functionCalls": [
+          {
+            "function": "removeAll",
+            "args": [
+              [
+                "a"
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    "list: removeAll: a Map receiver is an error": {
+      "notes": [
+        "Error: storage.rules line [243], column [26]. Function not found error: Name: [removeAll]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 243,
+          "column": 26,
+          "currentOffset": 8559,
+          "endOffset": 8565
+        },
+        "functionCalls": [
+          {
+            "function": "removeAll",
+            "args": [
+              [
+                "a"
+              ]
+            ]
           }
         ]
       }

@@ -1,4 +1,5 @@
 import { FirestoreSet } from '../../rules/simulator/firestore-set.js';
+import { ListMethodFailure, listConcat, listJoin, listRemoveAll } from '../../rules/simulator/list-methods.js';
 import { MapDiff } from '../../rules/simulator/mapdiff.js';
 import type { EvalCtx } from './rules-evaluator.js';
 import { RuleEvalError } from './rules-evaluation-error.js';
@@ -43,18 +44,24 @@ function evalMapKeys(receiver: unknown, expr: MethodCall): unknown {
   return Object.keys(receiver);
 }
 
-/** `List.join(separator)` concatenates a List of strings with a string separator. */
-function evalListJoin(receiver: unknown, expr: MethodCall, ctx: EvalCtx): unknown {
+/** The List methods `list-methods.ts` implements for both evaluators. */
+const LIST_METHODS = {
+  concat: (receiver: unknown[], args: unknown[]) => listConcat(receiver, args),
+  join: (receiver: unknown[], args: unknown[]) => listJoin(receiver, args),
+  removeAll: (receiver: unknown[], args: unknown[]) => listRemoveAll(receiver, args, rulesEquals),
+} as const;
+
+/**
+ * `List.concat()`, `List.join()` and `List.removeAll()`. Another
+ * receiver type, a Set included, is production's function-not-found error.
+ */
+function evalListMethod(receiver: unknown, expr: MethodCall, ctx: EvalCtx): unknown {
   if (!Array.isArray(receiver)) throw functionNotFound(expr.method);
-  if (expr.args.length !== 1) throw new RuleEvalError('join() expects one string separator');
   const args = evalArguments(expr, ctx);
   if (isErr(args)) return args;
-  const [separator] = args;
-  if (typeof separator !== 'string') throw new RuleEvalError('join() separator must be a string');
-  if (!receiver.every((value) => typeof value === 'string')) {
-    throw new RuleEvalError('join() requires a list of strings');
-  }
-  return receiver.join(separator);
+  const result = LIST_METHODS[expr.method as keyof typeof LIST_METHODS](receiver, args);
+  if (result instanceof ListMethodFailure) throw new RuleEvalError(result.message);
+  return result;
 }
 
 /** `Map.get(key, default)` for the production-probed string-key form. */
@@ -73,20 +80,29 @@ function evalMapGet(receiver: unknown, expr: MethodCall, ctx: EvalCtx): unknown 
 }
 
 /**
- * `hasAll`, `hasAny`, and `hasOnly` on a List or Set receiver, with a List
- * or Set argument, under Rules value equality.
+ * `hasAll`, `hasAny`, and `hasOnly` under Rules value equality. A List
+ * receiver takes a List argument and a Set receiver a List or Set; any other
+ * argument, a Set to a List receiver included, is an unsupported operation
+ * (rules-storage-upload-primitives-boundaries).
  */
 function evalMembership(receiver: unknown, expr: MethodCall, ctx: EvalCtx): unknown {
   const members = membersOf(receiver);
   if (members === undefined) throw functionNotFound(expr.method);
+  const receiverType = Array.isArray(receiver) ? 'list' : 'set';
+  const overloads = receiverType === 'list'
+    ? `list.${expr.method}(list)`
+    : `set.${expr.method}(set), set.${expr.method}(list)`;
   if (expr.args.length !== 1) {
-    throw new RuleEvalError(`${expr.method}() expects one list or set argument`);
+    throw new RuleEvalError(`Incorrect number of arguments. Received: ${expr.args.length}. Expected: ${overloads}.`);
   }
   const args = evalArguments(expr, ctx);
   if (isErr(args)) return args;
-  const candidates = membersOf(args[0]);
+  const [argument] = args;
+  const candidates = receiverType === 'list' && !Array.isArray(argument) ? undefined : membersOf(argument);
   if (candidates === undefined) {
-    throw new RuleEvalError(`${expr.method}() argument must be a list or set`);
+    throw new RuleEvalError(
+      `Unsupported operation error. Received: ${receiverType}.${expr.method}(${describeType(argument)}). Expected: ${overloads}.`,
+    );
   }
   const contains = (values: unknown[], value: unknown) => values.some((item) => rulesEquals(item, value));
   if (expr.method === 'hasAll') return candidates.every((candidate) => contains(members, candidate));
@@ -103,8 +119,10 @@ function membersOf(value: unknown): unknown[] | undefined {
 
 /** `List.toSet()`: the list's distinct members as a Set. */
 function evalToSet(receiver: unknown, expr: MethodCall): unknown {
-  expectNoArguments(expr);
   if (!Array.isArray(receiver)) throw functionNotFound(expr.method);
+  if (expr.args.length !== 0) {
+    throw new RuleEvalError(`Incorrect number of arguments. Received: ${expr.args.length}. Expected: list.toSet().`);
+  }
   return new FirestoreSet(receiver);
 }
 
@@ -161,13 +179,15 @@ function methodsNamed(names: readonly string[], method: ReceiverMethod): Receive
 }
 
 export const collectionMethods: ReceiverMethods = {
+  concat: evalListMethod,
   diff: evalMapDiff,
   get: evalMapGet,
   hasAll: evalMembership,
   hasAny: evalMembership,
   hasOnly: evalMembership,
-  join: evalListJoin,
+  join: evalListMethod,
   keys: evalMapKeys,
+  removeAll: evalListMethod,
   size: evalSize,
   toSet: evalToSet,
   ...methodsNamed(SET_ALGEBRA, evalSetAlgebra),

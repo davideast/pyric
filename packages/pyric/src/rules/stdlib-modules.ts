@@ -423,6 +423,10 @@ const BYTES_METHODS: StdlibModuleDefinition = {
     'Methods on Bytes values — the output of hashing operations and the storage shape for arbitrary binary payloads. Bytes also support comparison operators (<, <=, >, >=) for lexicographic ordering.',
   whenToUse:
     'Reach for these when a rule examines a Bytes field — typically a stored digest from `hashing.sha256(...)` — or when comparing two hashes for tamper-evidence.',
+  // Production encodings: the Firestore capture
+  // rules-firestore-bytes-toutf8-and-hashing and the Storage capture
+  // rules-storage-stdlib-string-bytes-hashing both record padded base64url and
+  // uppercase hexadecimal.
   entries: [
     {
       signature: 'bytes.size(): int',
@@ -430,11 +434,11 @@ const BYTES_METHODS: StdlibModuleDefinition = {
     },
     {
       signature: 'bytes.toBase64(): string',
-      description: 'Standard base64 encoding of the bytes.',
+      description: 'Padded base64url encoding of the bytes: `-` and `_` in place of `+` and `/`, with `=` padding.',
     },
     {
       signature: 'bytes.toHexString(): string',
-      description: 'Lowercase hexadecimal encoding of the bytes.',
+      description: 'Uppercase hexadecimal encoding of the bytes.',
     },
   ],
   relatedKeys: ['hashing', 'string'],

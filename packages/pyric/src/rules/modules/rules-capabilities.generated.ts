@@ -59,14 +59,20 @@ export const FIRESTORE_NAMESPACE_METHODS = {
 } as const;
 export const STORAGE_BINDING_PATHS = ["request", "request.auth", "request.auth.token", "request.auth.uid", "request.method", "request.path", "request.resource", "request.resource.contentType", "request.resource.metadata", "request.resource.size", "request.time", "resource", "resource.bucket", "resource.contentType", "resource.generation", "resource.metadata", "resource.metageneration", "resource.name", "resource.size", "resource.timeCreated", "resource.updated"] as const;
 export const STORAGE_DIRECT_FUNCTIONS = [] as const;
-export const STORAGE_METHODS = ["get", "hasAll", "keys", "matches", "size", "split"] as const;
+export const STORAGE_METHODS = ["concat", "get", "hasAll", "hasAny", "hasOnly", "join", "keys", "matches", "removeAll", "size", "split", "toSet"] as const;
 export const STORAGE_METHOD_RECEIVER_TYPES = {
+  "concat": ["list"] as const,
   "get": ["map"] as const,
   "hasAll": ["list", "set"] as const,
+  "hasAny": ["list", "set"] as const,
+  "hasOnly": ["list", "set"] as const,
+  "join": ["list"] as const,
   "keys": ["map"] as const,
   "matches": ["string"] as const,
+  "removeAll": ["list"] as const,
   "size": ["list", "map", "set", "string"] as const,
   "split": ["string"] as const,
+  "toSet": ["list"] as const,
 } as const;
 export const STORAGE_NAMESPACE_METHODS = {
   duration: ["abs", "time", "value"] as const,

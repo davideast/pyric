@@ -12,6 +12,7 @@ import { RulesFloat } from './wrappers/float.js';
 import { EvalError } from './eval-error.js';
 import { ConversionFailure, applyConversion, conversionFor } from './conversions.js';
 import { MathFailure, applyMath } from './math-builtins.js';
+import { ListMethodFailure, listConcat, listRemoveAll } from './list-methods.js';
 import { UnsupportedError } from './unsupported-error.js';
 import { isDocumentPath, makeGetResource, normalizeDocumentPath, resolveExists, resolveGet } from './document-lookups.js';
 import { chargeLookup } from './lookup-budget.js';
@@ -339,25 +340,17 @@ export function evaluateMethodCall(
         return obj.every(v => allowed.some(o => rulesValuesEqual(o, v)));
       }
       case 'join': return obj.join(String(argValues[0] ?? ','));
-      // ─── Item 5.2: List.concat / removeAll / toSet ─────────────────────
-      case 'concat': {
-        const other = argValues[0];
-        if (!Array.isArray(other)) {
-          throw new EvalError(`List.concat requires a list argument, got ${typeof other}`);
-        }
-        return [...obj, ...other];
-      }
+      // List.concat and List.removeAll are shared with the Storage
+      // evaluator (`list-methods.ts`). removeAll compares with
+      // rulesValuesEqual, so equal Timestamp, Duration and other wrapper
+      // instances compare by value, not by JS identity.
+      case 'concat':
       case 'removeAll': {
-        // Returns a new list with all items from `other` removed (by value
-        // equality). Uses rulesValuesEqual so wrapper instances (Timestamp,
-        // Duration, etc.) compare by value, not by JS identity — without
-        // this, `[t1].removeAll([t2])` where t1 and t2 are equal Timestamp
-        // wrappers would not remove t1.
-        const other = argValues[0];
-        if (!Array.isArray(other)) {
-          throw new EvalError(`List.removeAll requires a list argument, got ${typeof other}`);
-        }
-        return obj.filter(v => !other.some(o => rulesValuesEqual(v, o)));
+        const result = method === 'concat'
+          ? listConcat(obj, argValues)
+          : listRemoveAll(obj, argValues, rulesValuesEqual);
+        if (result instanceof ListMethodFailure) throw new EvalError(result.message);
+        return result;
       }
       case 'toSet': {
         // Sets preserve Rules values and deduplicate by Rules value equality;

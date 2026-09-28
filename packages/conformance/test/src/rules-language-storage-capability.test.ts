@@ -20,6 +20,12 @@ describe('Storage rules-language capability probes', () => {
       { id: 'storage.method.map.keys', kind: 'method' },
       { id: 'storage.method.map.get', kind: 'method' },
       { id: 'storage.method.set.hasAll', kind: 'method' },
+      { id: 'storage.method.list.toSet', kind: 'method' },
+      { id: 'storage.method.list.join', kind: 'method' },
+      { id: 'storage.method.list.hasAny', kind: 'method' },
+      { id: 'storage.method.list.hasOnly', kind: 'method' },
+      { id: 'storage.method.list.concat', kind: 'method' },
+      { id: 'storage.method.list.removeAll', kind: 'method' },
       { id: 'storage.binding.resource.generation', kind: 'binding' },
     ] as const).map((construct) => ({
       ...construct,

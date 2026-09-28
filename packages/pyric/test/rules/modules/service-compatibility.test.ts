@@ -734,6 +734,62 @@ service cloud.firestore {
     );
     expect(result.success, result.success ? '' : result.error.message).toBe(true);
   });
+  // Production accepts each List method on custom-metadata keys() and on
+  // List literals in Storage (corpus scenario upload-primitives-boundaries,
+  // its list cases), so a Storage module function may call them.
+  test.each([
+    ["request.resource.metadata.keys().toSet() == ['level', 'moves', 'pushes'].toSet()"],
+    ["request.resource.metadata.keys().toSet().size() == 3"],
+    ["request.resource.metadata.keys().toSet().hasOnly(['level', 'moves', 'pushes'])"],
+    ["request.resource.metadata.keys().toSet().hasAny(['level'].toSet())"],
+    ["request.resource.metadata.keys().hasOnly(['level', 'moves', 'pushes'])"],
+    ["request.resource.metadata.keys().hasAny(['level', 'moves'])"],
+    ["request.resource.metadata.keys().join(',') == 'level,moves,pushes'"],
+    ["request.resource.metadata.keys().concat(['owner']).size() == 4"],
+    ["request.resource.metadata.keys().removeAll(['level']).hasOnly(['moves', 'pushes'])"],
+    ["resource.metadata.keys().removeAll(request.resource.metadata.keys()).size() == 0"],
+    ["['level', 'moves'].concat(['pushes']).join('/') == 'level/moves/pushes'"],
+  ])('admits a List method on Storage Map.keys() or a List literal: %s', (expression) => {
+    const result = resolveModules(
+      makeStorageSource("import { check } from './policy';", 'check()'),
+      { modules: { './policy': `export function check() { return ${expression}; }` } },
+    );
+    expect(result.success, result.success ? '' : result.error.message).toBe(true);
+  });
+  test('admits the arcade Sokoban upload check as a Storage module function', () => {
+    const result = resolveModules(
+      `rules_version = '2+modules';
+import { sokobanUpload } from './sokoban';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /sokoban/{uid}/{level}/{file} {
+      allow read: if request.auth != null;
+      allow create: if sokobanUpload(uid, level);
+    }
+  }
+}`,
+      { modules: { './sokoban': `export function sokobanUpload(uid, level) {
+  let meta = request.resource.metadata;
+  let score = firestore.get(/databases/(default)/documents/sokoban/$(level)/scores/$(uid)).data;
+  return request.auth != null && request.auth.uid == uid
+    && request.resource.contentType == 'text/plain'
+    && request.resource.size <= 2000
+    && meta.keys().hasOnly(['level', 'moves', 'pushes'])
+    && meta.keys().toSet() == ['level', 'moves', 'pushes'].toSet()
+    && meta.level == level
+    && request.resource.size == score.moves;
+}` } },
+    );
+    expect(result.success, result.success ? '' : result.error.message).toBe(true);
+  });
+  test('rejects a List method on a Storage Set, which has none', () => {
+    const result = resolveModules(
+      makeStorageSource("import { check } from './policy';", 'check()'),
+      { modules: { './policy': "export function check() { return request.resource.metadata.keys().toSet().concat(['a']).size() > 0; }" } },
+    );
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.message).toContain("method '.concat()' requires list receiver, got set");
+  });
   test('rejects Set algebra on Firestore Map.keys(), which is a List', () => {
     const result = resolveModules(makeSource("import { check } from './policy';"), {
       modules: { './policy': 'export function check() { return request.resource.data.keys().union(["a"].toSet()).size() > 0; }' },
