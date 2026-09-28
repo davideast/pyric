@@ -5,6 +5,10 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const GATE_SCRIPT = join(HERE, '../../src/rules-scorecard-gate.ts');
+// The gate replays every scenario of three engines in a child process. It takes
+// about 2.5 s on a laptop and longer on a loaded CI runner, past bun's 5 s
+// default per test.
+const GATE_TIMEOUT_MS = 60_000;
 
 describe('Unified rules scorecard gate CLI reporter', () => {
   it('reports all three scorecards side by side with breakdown tip on standard execution', () => {
@@ -13,7 +17,7 @@ describe('Unified rules scorecard gate CLI reporter', () => {
     expect(out).toContain('Storage Rules conformance:');
     expect(out).toContain('RTDB Rules conformance:');
     expect(out).toContain('Tip: Pass --breakdown');
-  });
+  }, GATE_TIMEOUT_MS);
 
   it('prints detailed per-engine construct breakdowns when --breakdown is supplied', () => {
     const out = execSync(`bun run "${GATE_SCRIPT}" --breakdown`, { encoding: 'utf8', stdio: 'pipe' });
@@ -24,5 +28,5 @@ describe('Unified rules scorecard gate CLI reporter', () => {
     expect(out).toContain('[diverged] storage.function.firestore.get');
     expect(out).toContain('--- RTDB Rules Breakdown ---');
     expect(out).toContain('All constructs conform cleanly.');
-  });
+  }, GATE_TIMEOUT_MS);
 });
