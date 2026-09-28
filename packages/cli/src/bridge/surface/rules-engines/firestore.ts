@@ -1,5 +1,11 @@
 /** The Firestore rules engine behind the `rules` tool. */
-import { DOCUMENT_PATH_FORM, lintFirestoreRules, parseErrorWording } from 'pyric/rules/internal';
+import {
+  DOCUMENT_PATH_FORM,
+  describeCompileLimitViolations,
+  lintFirestoreRules,
+  parseErrorWording,
+  sourceCompileLimitViolations,
+} from 'pyric/rules/internal';
 import { setRules } from 'pyric/sandbox/firestore';
 import { callSandboxTool, operationFailure } from '../context.js';
 import {
@@ -14,6 +20,21 @@ import type { RulesEngine, RulesRequest, RulesSourceProblem } from './types.js';
 
 /** The edit a source that does not parse takes, for lint and for install alike. */
 const REPARSE_FIX = 'Fix the syntax, then call rules.set with service \'firestore\'.';
+
+/** The edit a source past production's compile limits takes. */
+const RECOMPILE_FIX =
+  "Bring the ruleset within production's compile limits (call rules.lint for the fix each limit takes), then call rules.set with service 'firestore'.";
+
+/** Why a source does not parse, or null when it parses. */
+function parseFailure(source: string): RulesSourceProblem | null {
+  const lint = lintFirestoreRules(source);
+  if (lint.parseError === undefined) return null;
+  const parseError = lint.parseError;
+  return {
+    body: `rules did not parse at line ${parseError.line}, column ${parseError.column}: ${parseErrorWording(parseError, source)}.`,
+    fix: REPARSE_FIX,
+  };
+}
 
 /** What a call has to do when it named no source and the sandbox holds none. */
 const NO_RULES_LOADED =
@@ -35,13 +56,16 @@ function caseFor(request: RulesRequest): SimulationRequest {
 export const FIRESTORE_RULES: RulesEngine = {
   requestMethods: ['get', 'list', 'create', 'update', 'delete'],
 
-  parseFailure(source): RulesSourceProblem | null {
-    const lint = lintFirestoreRules(source);
-    if (lint.parseError === undefined) return null;
-    const parseError = lint.parseError;
+  compileFailure(source): RulesSourceProblem | null {
+    const problem = parseFailure(source);
+    if (problem !== null) return problem;
+    // Production rejects a ruleset past its compile limits before it
+    // evaluates any request, as `firestoreRules()` does.
+    const violations = sourceCompileLimitViolations(source);
+    if (violations.length === 0) return null;
     return {
-      body: `rules did not parse at line ${parseError.line}, column ${parseError.column}: ${parseErrorWording(parseError, source)}.`,
-      fix: REPARSE_FIX,
+      body: `rules did not compile: ${describeCompileLimitViolations(violations)}`,
+      fix: RECOMPILE_FIX,
     };
   },
 
@@ -50,7 +74,8 @@ export const FIRESTORE_RULES: RulesEngine = {
     if (source.length === 0) {
       return operationFailure(NO_RULES_LOADED);
     }
-    const problem = FIRESTORE_RULES.parseFailure(source);
+    // A compile-limit rejection is a lint finding here, reported with its fix.
+    const problem = parseFailure(source);
     if (problem !== null) {
       return markLintFindings(operationFailure(`Firestore ${problem.body} ${problem.fix}`));
     }
@@ -77,7 +102,7 @@ export const FIRESTORE_RULES: RulesEngine = {
   },
 
   async install(ctx, rules) {
-    const problem = FIRESTORE_RULES.parseFailure(rules);
+    const problem = FIRESTORE_RULES.compileFailure(rules);
     if (problem !== null) {
       return operationFailure(`Firestore ${problem.body} ${problem.fix}`);
     }

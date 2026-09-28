@@ -4,6 +4,9 @@ import type {
   FirestoreRules, ServiceBlock, MatchBlock, PathPattern, PathSegment,
   AllowRule, Operation, FunctionDef, LetBinding, Expression,
 } from './FirestoreAST.js';
+import { addParenthesizedGroup } from './paren-groups.js';
+import { boundSourceNesting, type SourceNestingFailure } from './compile-limits.js';
+import { MAX_BRACKET_DEPTH } from './bracket-scan.js';
 
 // The grammar source is inlined at SDK build time (see
 // scripts/inline-grammar.ts). This keeps the parser browser-safe — no
@@ -38,19 +41,6 @@ export interface ParseError {
 }
 
 // ---- Semantics for AST generation ----
-
-/**
- * Parenthesized groups around each expression node, keyed by node. The AST
- * drops parentheses, but production counts each group as one nesting level
- * toward its "Expression is too complex to evaluate safely." limit
- * (`compile-limits.ts`). A side table keeps the AST shape unchanged.
- */
-const PAREN_GROUPS = new WeakMap<Expression, number>();
-
-/** How many parenthesized groups directly enclose `expr` in the parsed source: 2 for `((a == b))`. */
-export function parenthesizedGroups(expr: Expression): number {
-  return PAREN_GROUPS.get(expr) ?? 0;
-}
 
 const semantics = grammar.createSemantics();
 
@@ -163,7 +153,7 @@ semantics.addOperation<any>('toAST', {
   },
   Operation(op) { return op.sourceString as Operation; },
   FunctionDef(_export, _kw, name, _lp, params, _rp, _lb, body, _rb) {
-    const { lets, expr } = body.toAST();
+    const { lets, expr, returnLoc } = body.toAST();
     const { lineNum, colNum } = (_kw.source as any).getLineAndColumn();
     let isExported = false;
     const exportStr = _export.sourceString.trim();
@@ -178,6 +168,7 @@ semantics.addOperation<any>('toAST', {
       exported: isExported,
       lets,
       body: expr,
+      returnLoc,
       loc: { line: lineNum, col: colNum },
     };
   },
@@ -185,7 +176,9 @@ semantics.addOperation<any>('toAST', {
     return list.asIteration().children.map((c: any) => c.sourceString);
   },
   FunctionBody(lets, ret) {
-    return { lets: lets.children.map((c: any) => c.toAST()), expr: ret.toAST() };
+    // The return expression is the second child of `ReturnStatement`, after the keyword.
+    const { lineNum, colNum } = ((ret.child(1) as any).source as any).getLineAndColumn();
+    return { lets: lets.children.map((c: any) => c.toAST()), expr: ret.toAST(), returnLoc: { line: lineNum, col: colNum } };
   },
   LetBinding(_kw, name, _eq, expr, _semi) {
     const { lineNum, colNum } = (_kw.source as any).getLineAndColumn();
@@ -263,7 +256,7 @@ semantics.addOperation<any>('toAST', {
   },
   Primary_paren(_lp, expr, _rp) {
     const inner = expr.toAST() as Expression;
-    PAREN_GROUPS.set(inner, parenthesizedGroups(inner) + 1);
+    addParenthesizedGroup(inner);
     return inner;
   },
   Primary_path(p) { return p.toAST(); },
@@ -414,6 +407,11 @@ function parsePath(raw: string): PathPattern {
 function buildParseError(match: ohm.MatchResult, source: string): ParseError {
   const offset = (match as any).getRightmostFailurePosition?.() ?? 0;
   const expected = (match as any).getExpectedText?.() ?? '';
+  return failureAt(source, offset, expected, (match as any).message ?? 'Parse error');
+}
+
+/** A ParseError at `offset` of `source`, with 1-based line and column and the snippet there. */
+function failureAt(source: string, offset: number, expected: string, message: string): ParseError {
   // 1-based line/column, derived by counting newlines up to the offset.
   let line = 1;
   let lastNewline = -1;
@@ -428,14 +426,49 @@ function buildParseError(match: ohm.MatchResult, source: string): ParseError {
   let endOfLine = source.indexOf('\n', offset);
   if (endOfLine === -1) endOfLine = source.length;
   const actual = source.slice(offset, Math.min(endOfLine, offset + 40));
-  return {
-    line,
-    column,
-    offset,
-    expected,
-    actual,
-    message: (match as any).message ?? 'Parse error',
-  };
+  return { line, column, offset, expected, actual, message };
+}
+
+/** The failure for source nesting past the parser's bracket depth bound. */
+function nestingFailure(source: string, failure: SourceNestingFailure): ParseError {
+  const error = failureAt(source, failure.offset, failure.expected, '');
+  error.message = `Line ${error.line}, col ${error.column}: Brackets nest more than ${MAX_BRACKET_DEPTH} levels deep, deeper than the rules parser reads.`;
+  return error;
+}
+
+/**
+ * The failure for source the parser exhausted the host stack on. The bracket
+ * scan bounds bracket nesting, so this is a long run of prefix operators or
+ * a chain of thousands of terms, and no position is known.
+ */
+function stackFailure(source: string): ParseError {
+  const error = failureAt(source, 0, 'an expression with fewer chained terms', '');
+  error.message = 'Line 1, col 1: The rules source chains more terms than the rules parser reads.';
+  return error;
+}
+
+/**
+ * Match `trimmed` from `startRule` and build a value from the match, never
+ * descending into a group production rejects as too complex or past the
+ * bracket depth bound (`boundSourceNesting`), and never letting a stack
+ * overflow escape.
+ */
+function matchBounded<T>(
+  trimmed: string,
+  startRule: string | undefined,
+  build: (match: ohm.MatchResult) => T,
+): { ok: true; value: T } | { ok: false; error: ParseError } {
+  const bounded = boundSourceNesting(trimmed);
+  if (!('source' in bounded)) return { ok: false, error: nestingFailure(trimmed, bounded) };
+  try {
+    const match = startRule === undefined ? grammar.match(bounded.source) : grammar.match(bounded.source, startRule);
+    // The bounded source keeps every offset, so a failure is placed in `trimmed`.
+    if (!match.succeeded()) return { ok: false, error: buildParseError(match, trimmed) };
+    return { ok: true, value: build(match) };
+  } catch (e) {
+    if (e instanceof RangeError) return { ok: false, error: stackFailure(trimmed) };
+    throw e;
+  }
 }
 
 // ---- Public API ----
@@ -443,19 +476,17 @@ function buildParseError(match: ohm.MatchResult, source: string): ParseError {
 export function parseExpression(input: string): ParseResult {
   const trimmed = input.trim();
   if (!trimmed) return { valid: false, errors: [{ message: 'Empty expression' }] };
-  const match = grammar.match(trimmed, 'Expr');
-  if (match.succeeded()) return { valid: true, errors: [] };
-  const parseError = buildParseError(match, trimmed);
-  return { valid: false, errors: [{ message: parseError.message }], parseError };
+  const matched = matchBounded(trimmed, 'Expr', () => undefined);
+  if (matched.ok) return { valid: true, errors: [] };
+  return { valid: false, errors: [{ message: matched.error.message }], parseError: matched.error };
 }
 
 export function parseRulesFile(input: string): ParseResult {
   const trimmed = input.trim();
   if (!trimmed) return { valid: false, errors: [{ message: 'Empty rules file' }] };
-  const match = grammar.match(trimmed);
-  if (match.succeeded()) return { valid: true, errors: [] };
-  const parseError = buildParseError(match, trimmed);
-  return { valid: false, errors: [{ message: parseError.message }], parseError };
+  const matched = matchBounded(trimmed, undefined, () => undefined);
+  if (matched.ok) return { valid: true, errors: [] };
+  return { valid: false, errors: [{ message: matched.error.message }], parseError: matched.error };
 }
 
 export function parseToAST(input: string): FirestoreRules | null {
@@ -475,9 +506,9 @@ export function parseToASTOrError(
   if (!trimmed) {
     return { ok: false, error: { line: 1, column: 1, offset: 0, expected: '', actual: '', message: 'Empty rules file' } };
   }
-  const match = grammar.match(trimmed);
-  if (!match.succeeded()) return { ok: false, error: buildParseError(match, trimmed) };
-  const ast = semantics(match).toAST() as FirestoreRules;
+  const built = matchBounded(trimmed, undefined, (match) => semantics(match).toAST() as FirestoreRules);
+  if (!built.ok) return built;
+  const ast = built.value;
   // Ohm's line numbers are relative to the *trimmed* input. Shift `loc`
   // entries by the count of newlines we stripped off the front so callers
   // can compare against the original source they passed in.
@@ -510,6 +541,7 @@ function shiftFunctionLocs(fn: FunctionDef, offset: number): void {
     shiftSourceLoc(binding.value.loc, offset);
   }
   shiftSourceLoc(fn.body.loc, offset);
+  shiftSourceLoc(fn.returnLoc, offset);
 }
 
 function shiftAstLines(ast: FirestoreRules, offset: number): void {
@@ -564,6 +596,7 @@ function attachFunctionSourceFile(fn: FunctionDef, file: string): void {
       binding.value.loc!.file = file;
     }
   }
+  if (fn.returnLoc !== undefined) fn.returnLoc.file = file;
   const hasBodyLoc = fn.body.loc !== undefined;
   if (hasBodyLoc) {
     fn.body.loc!.file = file;

@@ -164,9 +164,9 @@ function unevaluatedMethod(
   );
 }
 
-/** Reject a rules source that does not parse for the named service. */
-export function checkRulesParse(args: Args, fail: Fail): InvalidArguments | null {
-  const problem = rulesEngineFor(String(args.service)).parseFailure(String(args.rules ?? ''));
+/** Reject a rules source that does not parse, or does not compile, for the named service. */
+export function checkRulesCompile(args: Args, fail: Fail): InvalidArguments | null {
+  const problem = rulesEngineFor(String(args.service)).compileFailure(String(args.rules ?? ''));
   if (problem === null) return null;
   return fail(problem.body, problem.fix, 'rules');
 }

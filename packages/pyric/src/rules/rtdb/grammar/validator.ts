@@ -103,8 +103,9 @@ export function validateExpression(
   context: 'read' | 'write' | 'validate',
   pathVariables: string[] = [],
 ): RuleError[] {
-  const match = matchRtdbExpression(raw);
-  if (match.failed()) return [];
+  const matched = matchRtdbExpression(raw);
+  if (!matched.ok) return [];
+  const { match } = matched;
 
   const ctx: ValidateContext = {
     errors: [],

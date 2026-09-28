@@ -456,11 +456,9 @@ interface EvaluationTree {
 
 /** The parsed tree of `raw`, wrapped for the evaluation semantics. */
 function parseForEvaluation(raw: string): EvaluationTree {
-  const match = matchRtdbExpression(raw);
-  if (match.failed()) {
-    throw new Error(match.message ?? 'RTDB expression failed to parse');
-  }
-  return getEvalSemantics()(match) as unknown as EvaluationTree;
+  const matched = matchRtdbExpression(raw);
+  if (!matched.ok) throw new Error(matched.message);
+  return getEvalSemantics()(matched.match) as unknown as EvaluationTree;
 }
 
 /** Evaluates expression text, parsing it on every call. */

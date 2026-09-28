@@ -7,7 +7,7 @@
  * dispatch and nothing else.
  *
  * An engine carries everything that differs by service, including the request
- * methods that service evaluates and the check that its rules source parses.
+ * methods that service evaluates and the check that its rules source compiles.
  * A service that gains Security Rules is therefore one new engine file and one
  * new entry in the record set, with no list elsewhere to keep in step.
  */
@@ -28,7 +28,7 @@ export interface RulesRequest {
   requestTime?: string;
 }
 
-/** Why a rules source does not parse for one service, in the caller's words. */
+/** Why a rules source does not parse or compile for one service, in the caller's words. */
 export interface RulesSourceProblem {
   /** What is wrong, as a sentence naming the position or the parser's message. */
   body: string;
@@ -39,8 +39,11 @@ export interface RulesSourceProblem {
 export interface RulesEngine {
   /** The request methods this service's rules evaluate. */
   readonly requestMethods: readonly string[];
-  /** Why one source does not parse for this service, or null when it parses. */
-  parseFailure(source: string): RulesSourceProblem | null;
+  /**
+   * Why one source cannot be installed for this service: it does not parse,
+   * or production rejects it at compile time. Null when it compiles.
+   */
+  compileFailure(source: string): RulesSourceProblem | null;
   /** Check a ruleset for errors without evaluating a request. */
   lint(ctx: SurfaceContext, rules: string | undefined): Promise<OperationResult>;
   /** Evaluate one request and report allow or deny. */

@@ -89,9 +89,6 @@ export interface LintResult {
 
 const THRESHOLDS = {
   SOURCE_SIZE: 256 * 1024,           // 256 KB — exact, verified
-  CHAIN_DEPTH_ERROR: 95,             // warn before the hard limit
-  CHAIN_DEPTH_WARN: 85,
-  CHAIN_DEPTH_LIMIT: 98,             // exact compile limit in operands, verified (99 fails)
   // Production's compile limits, shared with the Firestore simulator and
   // the Storage evaluator (grammar/compile-limits.ts).
   LET_LIMIT,
@@ -132,50 +129,16 @@ function checkLetBindings(functions: FunctionDef[], warnings: LintWarning[]) {
   }
 }
 
-function checkChainDepth(functions: FunctionDef[], warnings: LintWarning[]) {
-  for (const fn of functions) {
-    const chain = deepestChain(fn.body);
-    // Also check let binding values for deep chains
-    for (const binding of fn.lets) {
-      const letChain = deepestChain(binding.value);
-      if (letChain.depth > chain.depth) {
-        chain.depth = letChain.depth;
-        chain.op = letChain.op;
-      }
-    }
-
-    if (chain.depth > THRESHOLDS.CHAIN_DEPTH_LIMIT) {
-      warnings.push({
-        rule: 'CHAIN_DEPTH',
-        severity: 'error',
-        message: `Function '${fn.name}' has a ${chain.op} chain of depth ${chain.depth}. Limit is ${THRESHOLDS.CHAIN_DEPTH_LIMIT}.`,
-        location: { functionName: fn.name },
-        fix: `Move part of the chain into its own function: 'a && b && c && d' → 'firstHalf() && c && d', where firstHalf() returns 'a && b'.`,
-      });
-    } else if (chain.depth >= THRESHOLDS.CHAIN_DEPTH_ERROR) {
-      warnings.push({
-        rule: 'CHAIN_DEPTH',
-        severity: 'error',
-        message: `Function '${fn.name}' has a ${chain.op} chain of depth ${chain.depth}. Limit is ${THRESHOLDS.CHAIN_DEPTH_LIMIT}. Approaching failure.`,
-        location: { functionName: fn.name },
-        fix: `Move part of the chain into its own function to reduce depth.`,
-      });
-    } else if (chain.depth >= THRESHOLDS.CHAIN_DEPTH_WARN) {
-      warnings.push({
-        rule: 'CHAIN_DEPTH',
-        severity: 'warning',
-        message: `Function '${fn.name}' has a ${chain.op} chain of depth ${chain.depth}. Limit is ${THRESHOLDS.CHAIN_DEPTH_LIMIT}.`,
-        location: { functionName: fn.name },
-      });
-    }
-  }
-}
-
 /**
  * NESTING_DEPTH: production rejects a ruleset with an expression nested past
  * 99 levels ("Expression is too complex to evaluate safely."). The
  * count is the one the Firestore simulator and the Storage evaluator enforce
  * (grammar/compile-limits.ts); one warning per function or rule.
+ *
+ * A flat `&&` or `||` chain is one shape of this limit: each operator on its
+ * left spine is a level, so a chain of 98 comparisons compiles and 99 is
+ * rejected, while a chain of bare operands, one level shallower, reaches the
+ * limit one operand later.
  */
 function checkNestingDepth(ast: FirestoreRules, warnings: LintWarning[]) {
   const reported = new Set<string>();
@@ -792,10 +755,7 @@ export function lintFirestoreRules(source: string, options: LintOptions = {}): L
   const allFunctions = collectDeclaredFunctions(ast);
   const allRules = collectAllRules(ast.service.match);
 
-  // Rule 2: Chain depth
-  checkChainDepth(allFunctions, warnings);
-
-  // Rule 2b: Nesting depth
+  // Rule 2: Nesting depth
   checkNestingDepth(ast, warnings);
 
   // Rule 3: Let bindings

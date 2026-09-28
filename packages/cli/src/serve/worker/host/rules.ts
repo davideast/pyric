@@ -12,6 +12,11 @@
 
 import type { Firestore } from 'pyric/firestore';
 import { setRules } from 'pyric/sandbox/firestore';
+import {
+  lintFirestoreRules,
+  sourceCompileLimitViolations,
+  type CompileLimitViolation,
+} from 'pyric/rules/internal';
 import { sandbox as rtdbSandbox } from 'pyric/database';
 
 import { stripJsonComments } from '../../../rtdb/rules-json.js';
@@ -49,6 +54,16 @@ function firestoreRuleMessages(result: { warnings?: Array<{ severity?: string; m
   return messages;
 }
 
+/** Production's compile rejections, one error message each, at the line and column production reports. */
+function compileLimitMessages(violations: readonly CompileLimitViolation[]) {
+  return violations.map((violation) => ({
+    severity: 'error' as const,
+    text: violation.message,
+    ...(violation.line === undefined ? {} : { line: violation.line }),
+    ...(violation.column === undefined ? {} : { column: violation.column }),
+  }));
+}
+
 /** The rules deploy/status op methods routed to {@link handleRulesOp}. */
 const RULES_METHODS = new Set<string>([
   'setRules',
@@ -72,8 +87,12 @@ export function handleRulesOp(
     case 'setRules':
     case 'setFirestoreRules': {
       try {
-        const result = setRules(ctx.sandbox, msg.source);
-        const messages = firestoreRuleMessages(result);
+        // Production rejects a ruleset past its compile limits before it
+        // evaluates any request, so the sandbox keeps the active ruleset and
+        // the status carries production's messages.
+        const violations = sourceCompileLimitViolations(msg.source);
+        const result = violations.length > 0 ? lintFirestoreRules(msg.source) : setRules(ctx.sandbox, msg.source);
+        const messages = violations.length > 0 ? compileLimitMessages(violations) : firestoreRuleMessages(result);
         const okDeploy = !messages.some((m) => m.severity === 'error');
         ctx.activeRules ??= {};
         const previous = ctx.activeRules.firestore?.status === 'active'

@@ -24,7 +24,8 @@
  * says 10 while 11 bindings compile.
  */
 import type { Expression, FirestoreRules, FunctionDef, MatchBlock } from './FirestoreAST.js';
-import { parenthesizedGroups } from './FirestoreParser.js';
+import { parenthesizedGroups } from './paren-groups.js';
+import { MAX_BRACKET_DEPTH, scanBrackets } from './bracket-scan.js';
 
 /** Most functions one call stack may hold; 22 is rejected. */
 export const CALL_DEPTH_LIMIT = 21;
@@ -52,8 +53,10 @@ export type CompileLimitCode = 'CALL_DEPTH' | 'LET_LIMIT' | 'NESTING_DEPTH';
 export interface CompileLimitViolation {
   code: CompileLimitCode;
   message: string;
-  /** 1-indexed line of the declaration, allow rule, or function the rejection applies to, when known. */
+  /** 1-indexed line production reports the rejection at, or of the declaration, allow rule, or function it applies to, when known. */
   line?: number;
+  /** 1-indexed column of the return expression a `let` count rejection is reported at. */
+  column?: number;
   /** The function the rejection applies to, when it applies to one. */
   functionName?: string;
 }
@@ -68,9 +71,15 @@ export function compileLimitViolations(ast: FirestoreRules): CompileLimitViolati
   for (const node of graph) {
     const fn = node.fn;
     if (fn.lets.length > LET_LIMIT) {
-      // Production reports this at the return expression, which the AST
-      // gives no position; the line is the function declaration's.
-      out.push({ code: 'LET_LIMIT', message: LET_LIMIT_MESSAGE, ...lineOf(fn.loc), functionName: fn.name });
+      // Production reports this at the return expression.
+      const at = fn.returnLoc ?? fn.loc;
+      out.push({
+        code: 'LET_LIMIT',
+        message: LET_LIMIT_MESSAGE,
+        ...lineOf(at),
+        ...(fn.returnLoc === undefined ? {} : { column: fn.returnLoc.col }),
+        functionName: fn.name,
+      });
     }
     for (const binding of fn.lets) pushNesting(out, binding.value, binding.loc?.line ?? fn.loc?.line, fn.name);
     pushNesting(out, fn.body, fn.loc?.line, fn.name);
@@ -138,6 +147,57 @@ function pushNesting(out: CompileLimitViolation[], expr: Expression, line: numbe
  */
 export function nestingViolations(expr: Expression): number {
   return countTooComplex(expr, 1);
+}
+
+/** Source the parser cannot read, with where the bracket past its bound opens. */
+export interface SourceNestingFailure {
+  offset: number;
+  /** What the source would need instead, worded for a parse error's `expected`. */
+  expected: string;
+}
+
+/**
+ * The source for the parser to match, with every group nested past the
+ * nesting limit emptied, or where it nests past the parser's bracket depth
+ * bound.
+ *
+ * The content of a parenthesized group inside 98 others sits past level
+ * {@link NESTING_LEVEL_LIMIT} whatever it holds, so {@link nestingViolations}
+ * reports that content, or a node enclosing it, and never visits below it.
+ * Its content is replaced by the literal `1`, padded with spaces that keep
+ * every line break, so the parser does not descend into it, the rejection is
+ * reported where it would be for the full content, and every later line and
+ * column is unchanged. Without this the parser exhausts the host stack
+ * around 250 nested groups.
+ *
+ * Past that, any source that nests more than {@link MAX_BRACKET_DEPTH}
+ * brackets of any kind is a parse failure: the parser does not read it.
+ * Production's limit on nested list literals, map literals, and calls is not
+ * measured; this bound is the parser's own.
+ */
+export function boundSourceNesting(source: string): { source: string } | SourceNestingFailure {
+  const spans = scanBrackets(source, { comments: true, regexLiterals: false, multilineStrings: false });
+  let rewritten: string[] | undefined;
+  let emptiedUntil = -1;
+  for (const span of spans) {
+    if (span.open < emptiedUntil) continue;
+    if (span.depth > MAX_BRACKET_DEPTH) {
+      return { offset: span.open, expected: `brackets nested at most ${MAX_BRACKET_DEPTH} levels deep` };
+    }
+    if (!span.group || span.groupDepth < NESTING_LEVEL_LIMIT) continue;
+    const end = span.close === -1 ? source.length : span.close;
+    const content = source.slice(span.open + 1, end);
+    // An empty group is a parse error the parser reports without descending.
+    if (!/\S/.test(content)) continue;
+    const padded = content.replace(/[^\n\r]/g, ' ');
+    const at = padded.indexOf(' ');
+    rewritten ??= [];
+    rewritten.push(source.slice(Math.max(emptiedUntil, 0), span.open + 1), padded.slice(0, at), '1', padded.slice(at + 1));
+    emptiedUntil = end === source.length ? Infinity : end;
+  }
+  if (rewritten === undefined) return { source };
+  if (emptiedUntil !== Infinity) rewritten.push(source.slice(emptiedUntil));
+  return { source: rewritten.join('') };
 }
 
 function countTooComplex(expr: Expression, level: number): number {

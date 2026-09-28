@@ -7,6 +7,7 @@ import {
   storageFirestoreLookup,
 } from 'pyric/storage/internal';
 import { asSentence } from 'pyric/sandbox/internal';
+import { describeCompileLimitViolations, sourceCompileLimitViolations } from 'pyric/rules/internal';
 import { operationFailure } from '../context.js';
 import { requestInstant } from '../request-instant.js';
 import { storageFor } from '../service-handles.js';
@@ -33,19 +34,35 @@ function identityFor(
   return { uid: held.uid, token: held.token ?? {} };
 }
 
+/**
+ * Why `parseStorageRules` refused a source: production's compile rejections
+ * when the source parses and breaks a compile limit, otherwise the failure it
+ * threw.
+ */
+function sourceProblem(source: string, error: unknown): RulesSourceProblem {
+  const violations = sourceCompileLimitViolations(source);
+  if (violations.length > 0) {
+    return {
+      body: `rules did not compile: ${describeCompileLimitViolations(violations)}`,
+      fix: "Bring the ruleset within production's compile limits, then call rules.set with service 'storage'.",
+    };
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return {
+    body: asSentence(`rules did not parse: ${message}`),
+    fix: "Fix the syntax, then call rules.set with service 'storage'.",
+  };
+}
+
 export const STORAGE_RULES: RulesEngine = {
   requestMethods: ['get', 'list', 'create', 'update', 'delete', 'read', 'write'],
 
-  parseFailure(source): RulesSourceProblem | null {
+  compileFailure(source): RulesSourceProblem | null {
     try {
       parseStorageRules(source);
       return null;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return {
-        body: asSentence(`rules did not parse: ${message}`),
-        fix: "Fix the syntax, then call rules.set with service 'storage'.",
-      };
+      return sourceProblem(source, error);
     }
   },
 
@@ -60,7 +77,7 @@ export const STORAGE_RULES: RulesEngine = {
       const message = error instanceof Error ? error.message : String(error);
       return markLintFindings({
         ok: false,
-        summary: `${message} Fix the syntax, then call rules.set with service 'storage'.`,
+        summary: `${message} ${sourceProblem(source, error).fix}`,
         data: { errors: [message] },
       });
     }
@@ -108,10 +125,8 @@ export const STORAGE_RULES: RulesEngine = {
     try {
       await replaceStorageRules(ctx.sandbox, rules);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return operationFailure(
-        `Storage rules did not parse: ${message} Fix the syntax, then call rules.set with service 'storage'.`,
-      );
+      const problem = sourceProblem(rules, error);
+      return operationFailure(`Storage ${problem.body} ${problem.fix}`);
     }
     return { ok: true, summary: 'Storage rules installed.' };
   },

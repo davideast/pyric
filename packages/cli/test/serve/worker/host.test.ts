@@ -760,6 +760,39 @@ describe('setRules', () => {
     expect((r2 as ResMessage & { ok: false }).error.code).toBe('permission-denied');
   });
 
+  it('setFirestoreRules refuses a ruleset past production\'s compile limits and keeps the active one', async () => {
+    const ctx = await makeCtx(PERMISSIVE_RULES);
+    const port = fakePort();
+    const lets = Array.from({ length: 12 }, (_, i) => `          let v${i} = ${i};`).join('\n');
+    const overLimit = `rules_version = '2';
+    service cloud.firestore {
+      match /databases/{database}/documents {
+        function g() {
+${lets}
+          return request.auth != null && v0 == 0;
+        }
+        match /{document=**} { allow read, write: if g(); }
+      }
+    }`;
+
+    const res = await sendOp(ctx, port, {
+      t: 'op', id: 'sr-over', method: 'setFirestoreRules', source: overLimit,
+    });
+    expect(res.ok).toBe(true);
+    const value = (res as ResMessage & { ok: true }).value as { ok: boolean; messages: Array<{ severity: string; text: string }> };
+    expect(value.ok).toBe(false);
+    expect(value.messages.filter((m) => m.severity === 'error').map((m) => m.text)).toEqual([
+      'Maximum allowed variable count of 10 for a given function has been reached.',
+    ]);
+    expect(ctx.activeRules?.firestore?.status).toBe('error');
+
+    // The permissive rules are still the ones requests evaluate.
+    const write = await sendOp(ctx, port, {
+      t: 'op', id: 'sr-over-write', method: 'setDoc', path: 'guarded/doc', data: { v: 1 },
+    });
+    expect(write.ok).toBe(true);
+  });
+
   it('setRules returns ok:true with warnings shape', async () => {
     const ctx = await makeCtx();
     const port = fakePort();

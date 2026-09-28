@@ -27,23 +27,16 @@ export interface CompileLimitProbe {
   source: string;
   /** Production's ERROR-severity messages, in order. */
   errors: string[];
+  /** Where production reports each ERROR, as [line, column]; absent when it gives no position. */
+  errorPositions: ([number, number] | undefined)[];
   /** A readable label for a test name. */
   label: string;
 }
 
-/**
- * Deepest parenthesis nesting a probe may have to be replayed. The parser
- * descends once per nested group, and around 200 to 300 groups it exhausts
- * the host stack, at a depth that varies with the runtime's stack state, so
- * the probe of 200 groups is left out. The boundary probes (97 to 130 groups)
- * stay well inside it.
- */
-const PARSER_NESTING_CEILING = 150;
-
-/** Every probe in the capture that the parser can replay, with its ruleset. */
+/** Every probe in the capture, with its ruleset. */
 export function compileLimitProbes(): CompileLimitProbe[] {
   const fixture = JSON.parse(readFileSync(FIXTURE, 'utf8')) as { probes: ProbeRecord[] };
-  return fixture.probes.filter((p) => !(p.shape === 'paren-nesting' && p.n > PARSER_NESTING_CEILING)).map((p) => ({
+  return fixture.probes.map((p) => ({
     service: p.service,
     shape: p.shape,
     n: p.n,
@@ -51,6 +44,9 @@ export function compileLimitProbes(): CompileLimitProbe[] {
     compiles: p.compiles,
     source: wrap(p.service, p.range ? combinedCallDepths(p.range) : probeBlock(p.shape, p.n)),
     errors: p.issues.filter((i) => i.severity === 'ERROR').map((i) => i.description),
+    errorPositions: p.issues
+      .filter((i) => i.severity === 'ERROR')
+      .map((i) => (i.line === undefined || i.column === undefined ? undefined : [i.line, i.column])),
     label: `${p.service} ${p.shape} ${p.range ? `${p.range[0]}..${p.range[1]}` : `n=${p.n}`}`,
   }));
 }

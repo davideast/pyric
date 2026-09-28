@@ -55,6 +55,41 @@ describe('prepareRulesSource', () => {
   });
 });
 
+describe('a rules source past production\'s compile limits', () => {
+  const overLetLimit = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    function g() {
+${Array.from({ length: 12 }, (_, i) => `      let v${i} = ${i};`).join('\n')}
+      return request.auth != null && v0 == 0;
+    }
+    match /pub/{id} { allow read: if g(); }
+  }
+}`;
+  const deep = PLAIN.replace('if true', `if ${'('.repeat(300)}request.auth != null${')'.repeat(300)}`);
+
+  it('fails to prepare with production\'s message and line', () => {
+    expect(() => prepareProjectRules(overLetLimit, 'over.rules')).toThrow(
+      'pyric sandbox: over.rules does not compile: Line 17: Maximum allowed variable count of 10 for a given function has been reached. Fix the rules before serving.',
+    );
+    expect(() => prepareProjectRules(deep, 'deep.rules')).toThrow(
+      'pyric sandbox: deep.rules does not compile: Line 4: Expression is too complex to evaluate safely. Fix the rules before serving.',
+    );
+  });
+
+  it('fails to prepare a Storage ruleset with production\'s message', () => {
+    const storage = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /u/{f} { allow read: if ${'('.repeat(300)}request.auth != null${')'.repeat(300)}; }
+  }
+}`;
+    expect(() => prepareStorageRulesSource(storage, 'storage.rules')).toThrow(
+      'pyric sandbox: storage.rules does not compile: Line 4: Expression is too complex to evaluate safely. Fix the rules before serving.',
+    );
+  });
+});
+
 describe('prepareStorageRulesSource', () => {
   it('resolves Storage modules before parsing the sandbox ruleset', () => {
     const out = prepareStorageRulesSource(

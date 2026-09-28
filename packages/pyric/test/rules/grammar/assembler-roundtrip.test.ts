@@ -21,7 +21,7 @@ function loadFiles(dir: string): Array<{ name: string; content: string }> {
  * fields (the reassembled source has a different line layout, so source
  * positions are expected to differ — they're not structural).
  */
-const NON_STRUCTURAL_KEYS = new Set(['raw', 'loc']);
+const NON_STRUCTURAL_KEYS = new Set(['raw', 'loc', 'returnLoc']);
 function structuralEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (a === null || b === null) return a === b;

@@ -1,6 +1,6 @@
 /**
  * The Realtime Database rules engine: lint, simulate against either the
- * running ruleset or a supplied one, and install. `parseFailure`'s exact
+ * running ruleset or a supplied one, and install. `compileFailure`'s exact
  * wording is `rules-engines/registry.test.ts`'s subject; this file exercises
  * lint, simulate, and install, which run against a live sandbox.
  */
@@ -124,8 +124,8 @@ describe('install', () => {
   });
 
   it('installs a ruleset with comments, the source check accepting it', async () => {
-    expect(DATABASE_RULES.parseFailure(COMMENTED_OWNER_RULES)).toBeNull();
-    expect(DATABASE_RULES.parseFailure(COMMENTED_BROKEN_RULES)).not.toBeNull();
+    expect(DATABASE_RULES.compileFailure(COMMENTED_OWNER_RULES)).toBeNull();
+    expect(DATABASE_RULES.compileFailure(COMMENTED_BROKEN_RULES)).not.toBeNull();
     const ctx = freshContext();
     const result = await DATABASE_RULES.install(ctx, COMMENTED_OWNER_RULES);
     expect(result.ok).toBe(true);

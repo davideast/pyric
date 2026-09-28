@@ -77,7 +77,7 @@ function simulateAgainst(
 export const DATABASE_RULES: RulesEngine = {
   requestMethods: ['read', 'write', 'validate'],
 
-  parseFailure(source): RulesSourceProblem | null {
+  compileFailure(source): RulesSourceProblem | null {
     const parsed = parseRuleset(source);
     if ('ruleset' in parsed) return null;
     return {

@@ -48,6 +48,14 @@ describe('compile limits: every Rules Test API probe', () => {
     const probe = compileLimitProbes().find((p) => p.service === 'firestore' && p.shape === 'call-depth' && p.range)!;
     expect(violations(probe.source).map((v) => v.line)).toEqual([271, 296, 322]);
   });
+
+  test('a let-count rejection is at the return expression, where production reports it', () => {
+    for (const service of ['firestore', 'storage'] as const) {
+      const probe = compileLimitProbes().find((p) => p.service === service && p.shape === 'let-count' && !p.compiles)!;
+      expect(probe.errorPositions).toEqual([[18, 16]]);
+      expect(violations(probe.source).map((v) => [v.line, v.column])).toEqual(probe.errorPositions);
+    }
+  });
 });
 
 describe('compile limits: shapes the capture does not measure', () => {

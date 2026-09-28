@@ -1,3 +1,4 @@
+import { CHAINED_TERMS_MESSAGE } from './expression-engine.js';
 import { parseExpression } from './grammar/RtdbExprParser.js';
 import { lintExpression } from './grammar/linter.js';
 import { validateExpression } from './grammar/validator.js';
@@ -15,18 +16,34 @@ export function buildRuleExpression(
   context: 'read' | 'write' | 'validate',
   pathVariables: string[] = [],
 ): RtdbRuleExpression {
-  const parsed = parseExpression(raw);
-  const errors = parsed.valid ? validateExpression(raw, context, pathVariables) : parsed.errors;
-  const warnings = parsed.valid ? lintExpression(raw, context) : [];
-
-  return {
-    raw,
-    parsed: {
-      ...parsed,
-      errors,
-      warnings,
-    },
-  };
+  try {
+    const parsed = parseExpression(raw);
+    const errors = parsed.valid ? validateExpression(raw, context, pathVariables) : parsed.errors;
+    const warnings = parsed.valid ? lintExpression(raw, context) : [];
+    return {
+      raw,
+      parsed: {
+        ...parsed,
+        errors,
+        warnings,
+      },
+    };
+  } catch (e) {
+    // The parse, validation, and lint passes recurse once per term; a chain
+    // of thousands of terms can exhaust the host stack in them after the
+    // match itself succeeds.
+    if (!(e instanceof RangeError)) throw e;
+    return {
+      raw,
+      parsed: {
+        raw,
+        valid: false,
+        errors: [{ code: 'PARSE_ERROR', message: CHAINED_TERMS_MESSAGE }],
+        warnings: [],
+        referencedIdentifiers: [],
+      },
+    };
+  }
 }
 
 function compileNode(
