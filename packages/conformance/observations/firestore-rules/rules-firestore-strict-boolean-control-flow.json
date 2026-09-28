@@ -4,13 +4,13 @@
   "rowIds": [
     "firestore-rules#188"
   ],
-  "description": "Firestore Rules Test API verdicts for corpus scenario \"strict-boolean-control-flow\" (RULES-B6). Firestore Rules requires boolean operands for &&, ||, and ternary conditions; non-booleans error and deny. On create, resource == null denies while request.resource carries the incoming document.",
-  "observedAt": "2026-07-22T00:43:57.168Z",
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"strict-boolean-control-flow\" (RULES-B6). Firestore Rules requires boolean operands for &&, ||, and ternary conditions, and a boolean allow condition; non-booleans error and deny. On create, resource == null denies while request.resource carries the incoming document.",
+  "observedAt": "2026-09-27T23:24:16.097Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "2dcff039eca6de32ccdae9aa799acbfaa977f40c6fdff0778ae167f64e03a842"
+    "value": "72de6bc22eb464ae0281683946c8626df98cd39bd9c47a786c63e607b6b0fe9f"
   },
   "behavior": {
     "non-boolean && operand errors → DENY": "DENY",
@@ -21,6 +21,227 @@
     "non-boolean || error discriminator → DENY": "DENY",
     "non-boolean ternary error discriminator → DENY": "DENY",
     "resource == null on create → DENY": "DENY",
-    "request.resource has incoming data on create → ALLOW": "ALLOW"
+    "request.resource has incoming data on create → ALLOW": "ALLOW",
+    "allow condition 'ab' (string) is a type error → DENY": "DENY",
+    "allow condition 1 (int) is a type error → DENY": "DENY",
+    "allow condition 0 (int) is a type error → DENY": "DENY",
+    "allow condition 1.0 (float) is a type error → DENY": "DENY",
+    "allow condition null is a type error → DENY": "DENY",
+    "allow condition [] (list) is a type error → DENY": "DENY",
+    "allow condition request.resource.data (map) is a type error → DENY": "DENY",
+    "allow condition on a string field is a type error → DENY": "DENY",
+    "allow condition true → ALLOW": "ALLOW"
+  },
+  "diagnostics": {
+    "non-boolean && operand errors → DENY": {
+      "notes": [
+        "Error: firestore.rules line [5], column [26]. Type error. Received: [int] Expected: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 5,
+          "column": 26,
+          "currentOffset": 147,
+          "endOffset": 148
+        }
+      }
+    },
+    "non-boolean || operand errors → DENY": {
+      "notes": [
+        "Error: firestore.rules line [8], column [24]. Type error. Received: [int] Expected: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 8,
+          "column": 24,
+          "currentOffset": 217,
+          "endOffset": 221
+        }
+      }
+    },
+    "non-boolean ternary condition errors → DENY": {
+      "notes": [
+        "Error: firestore.rules line [11], column [26]. Type error. Received: [int] Expected: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 11,
+          "column": 26,
+          "currentOffset": 297,
+          "endOffset": 297
+        }
+      }
+    },
+    "non-boolean && error discriminator → DENY": {
+      "notes": [
+        "Error: firestore.rules line [14], column [27]. Type error. Received: [int] Expected: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 14,
+          "column": 27,
+          "currentOffset": 392,
+          "endOffset": 393
+        }
+      }
+    },
+    "non-boolean || error discriminator → DENY": {
+      "notes": [
+        "Error: firestore.rules line [17], column [24]. Type error. Received: [int] Expected: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 17,
+          "column": 24,
+          "currentOffset": 493,
+          "endOffset": 493
+        }
+      }
+    },
+    "non-boolean ternary error discriminator → DENY": {
+      "notes": [
+        "Error: firestore.rules line [20], column [27]. Type error. Received: [int] Expected: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 20,
+          "column": 27,
+          "currentOffset": 607,
+          "endOffset": 607
+        }
+      }
+    },
+    "resource == null on create → DENY": {
+      "notes": [
+        "Error: firestore.rules line [26], column [24]. Null value error."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 26,
+          "column": 24,
+          "currentOffset": 834,
+          "endOffset": 841
+        }
+      }
+    },
+    "allow condition 'ab' (string) is a type error → DENY": {
+      "notes": [
+        "Error: firestore.rules line [33], column [24]. Type error. Received: [string] Expected: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 33,
+          "column": 24,
+          "currentOffset": 1068,
+          "endOffset": 1071
+        }
+      }
+    },
+    "allow condition 1 (int) is a type error → DENY": {
+      "notes": [
+        "Error: firestore.rules line [36], column [24]. Type error. Received: [int] Expected: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 36,
+          "column": 24,
+          "currentOffset": 1133,
+          "endOffset": 1133
+        }
+      }
+    },
+    "allow condition 0 (int) is a type error → DENY": {
+      "notes": [
+        "Error: firestore.rules line [39], column [24]. Type error. Received: [int] Expected: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 39,
+          "column": 24,
+          "currentOffset": 1196,
+          "endOffset": 1196
+        }
+      }
+    },
+    "allow condition 1.0 (float) is a type error → DENY": {
+      "notes": [
+        "Error: firestore.rules line [42], column [24]. Type error. Received: [float] Expected: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 42,
+          "column": 24,
+          "currentOffset": 1257,
+          "endOffset": 1259
+        }
+      }
+    },
+    "allow condition null is a type error → DENY": {
+      "notes": [
+        "Error: firestore.rules line [45], column [24]. Type error. Received: [null] Expected: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 45,
+          "column": 24,
+          "currentOffset": 1319,
+          "endOffset": 1322
+        }
+      }
+    },
+    "allow condition [] (list) is a type error → DENY": {
+      "notes": [
+        "Error: firestore.rules line [48], column [24]. Type error. Received: [list] Expected: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 48,
+          "column": 24,
+          "currentOffset": 1387,
+          "endOffset": 1387
+        }
+      }
+    },
+    "allow condition request.resource.data (map) is a type error → DENY": {
+      "notes": [
+        "Error: firestore.rules line [51], column [24]. Type error. Received: [map] Expected: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 51,
+          "column": 24,
+          "currentOffset": 1447,
+          "endOffset": 1453
+        }
+      }
+    },
+    "allow condition on a string field is a type error → DENY": {
+      "notes": [
+        "Error: firestore.rules line [54], column [24]. Type error. Received: [string] Expected: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 54,
+          "column": 24,
+          "currentOffset": 1534,
+          "endOffset": 1540
+        }
+      }
+    }
   }
 }

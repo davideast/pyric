@@ -4,7 +4,7 @@ import type { ScenarioRecord } from './types.ts';
 export const scenario: ScenarioRecord = {
   fm: 'RULES-B6',
   rationale:
-    'Firestore Rules requires boolean operands for &&, ||, and ternary conditions; non-booleans error and deny. On create, resource == null denies while request.resource carries the incoming document.',
+    'Firestore Rules requires boolean operands for &&, ||, and ternary conditions, and a boolean allow condition; non-booleans error and deny. On create, resource == null denies while request.resource carries the incoming document.',
   rules: `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -34,6 +34,34 @@ service cloud.firestore {
     }
     match /requestResourceData/{id} {
       allow create: if request.resource.data.owner == 'alice';
+    }
+    // The allow condition itself must be a bool.
+    match /allowString/{id} {
+      allow create: if 'ab';
+    }
+    match /allowIntOne/{id} {
+      allow create: if 1;
+    }
+    match /allowIntZero/{id} {
+      allow create: if 0;
+    }
+    match /allowFloat/{id} {
+      allow create: if 1.0;
+    }
+    match /allowNull/{id} {
+      allow create: if null;
+    }
+    match /allowEmptyList/{id} {
+      allow create: if [];
+    }
+    match /allowMap/{id} {
+      allow create: if request.resource.data;
+    }
+    match /allowStringField/{id} {
+      allow create: if request.resource.data.owner;
+    }
+    match /allowTrue/{id} {
+      allow create: if true;
     }
   }
 }`,
@@ -110,6 +138,21 @@ service cloud.firestore {
       auth: { uid: 'alice' },
       data: { owner: 'alice' },
     },
+    ...([
+      ["allow condition 'ab' (string) is a type error → DENY", 'DENY', 'allowString'],
+      ['allow condition 1 (int) is a type error → DENY', 'DENY', 'allowIntOne'],
+      ['allow condition 0 (int) is a type error → DENY', 'DENY', 'allowIntZero'],
+      ['allow condition 1.0 (float) is a type error → DENY', 'DENY', 'allowFloat'],
+      ['allow condition null is a type error → DENY', 'DENY', 'allowNull'],
+      ['allow condition [] (list) is a type error → DENY', 'DENY', 'allowEmptyList'],
+      ['allow condition request.resource.data (map) is a type error → DENY', 'DENY', 'allowMap'],
+      ['allow condition on a string field is a type error → DENY', 'DENY', 'allowStringField'],
+      ['allow condition true → ALLOW', 'ALLOW', 'allowTrue'],
+    ] as const).map(([description, expectation, match], i) => ({
+      description, expectation, method: 'create' as const,
+      path: `${match}/d${10 + i}`, auth: { uid: 'alice' },
+      data: { owner: 'alice' },
+    })),
   ],
   group: 'fix-class',
 };

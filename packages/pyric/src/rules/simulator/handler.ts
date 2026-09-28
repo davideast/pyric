@@ -20,7 +20,7 @@ import type { FirestoreRules, MatchBlock, AllowRule, FunctionDef, Expression } f
 import { parseToAST } from '../grammar/FirestoreParser.js';
 import { assembleExpression } from '../grammar/FirestoreAssembler.js';
 import { readAuthoredSourceMap, resolveAuthoredLoc, type AuthoredSourceMap } from '../modules/resolver-core.js';
-import { evaluate, UnsupportedError, TraceRecorder, type SimulationContext } from './evaluator.js';
+import { evaluate, requireBoolean, UnsupportedError, TraceRecorder, type SimulationContext } from './evaluator.js';
 
 import { Timestamp } from './wrappers/timestamp.js';
 import { Path } from './wrappers/path.js';
@@ -145,9 +145,10 @@ function evaluateRules(
     const recorder = new TraceRecorder();
     ctx.trace = recorder;
     try {
-      const result = evaluate(rule.condition, ctx);
+      // The condition must be a bool: any other value is a type error, which
+      // the catch below records as this rule's ERROR verdict.
+      const isAllowed = requireBoolean(evaluate(rule.condition, ctx), rule.condition);
       entry.expressionTrace = recorder.entries;
-      const isAllowed = Boolean(result) === true;
       if (isAllowed) {
         entry.verdict = 'ALLOW';
         trace.push(entry);

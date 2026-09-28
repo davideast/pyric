@@ -2,9 +2,9 @@
  * ─── Scenario 2: functions-let-scope ────────────────────────────────────────────
  * #96/#104 also claim user-defined functions are unsupported. This proves
  * `let` bindings, functions calling functions, and match-block-scoped helper
- * functions (lexical scoping). Same-name shadowing and undefined-function
- * calls are deliberately omitted: production rejects those at compile, so they
- * cannot be captured as a clean verdict (they live in the evaluator unit tests).
+ * functions (lexical scoping). A call to an undefined function compiles with
+ * the warning "Invalid function name" and is a "Function not found error" at
+ * evaluation, so `|| true` absorbs it and a call that decides the rule denies.
  */
 import type { StorageScenarioRecord } from './types.ts';
 
@@ -34,6 +34,12 @@ service firebase.storage {
       }
       allow create: if !tooBig();
     }
+    match /undeclared/{fileId} {
+      function ownerOrUndeclared() {
+        return request.auth.uid == 'a' || notDeclared();
+      }
+      allow read: if ownerOrUndeclared();
+    }
   }
 }`,
   cases: [
@@ -42,5 +48,7 @@ service firebase.storage {
     { description: 'nested call isImage(): wrong content type denied', expectation: 'DENY', method: 'create', path: 'uploads/a.png', resource: { size: 1048576, contentType: 'image/jpeg' } },
     { description: 'block-scoped helper tooBig(): small file allowed', expectation: 'ALLOW', method: 'create', path: 'scoped/b.bin', resource: { size: 500, contentType: 'application/octet-stream' } },
     { description: 'block-scoped helper tooBig(): large file denied', expectation: 'DENY', method: 'create', path: 'scoped/b.bin', resource: { size: 5000, contentType: 'application/octet-stream' } },
+    { description: 'undefined function after a true || operand: allowed', expectation: 'ALLOW', method: 'get', path: 'undeclared/c.bin', auth: { uid: 'a' }, existingResource: { size: 100 } },
+    { description: 'undefined function that decides the rule: denied', expectation: 'DENY', method: 'get', path: 'undeclared/c.bin', auth: { uid: 'b' }, existingResource: { size: 100 } },
   ],
 };

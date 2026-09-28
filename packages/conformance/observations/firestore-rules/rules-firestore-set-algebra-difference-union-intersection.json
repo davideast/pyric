@@ -5,12 +5,12 @@
     "firestore-rules#174"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"set-algebra-difference-union-intersection\" (Item 5.1). Production distinguishes Map.keys() List receivers (no set algebra) from explicit List.toSet() Set receivers (difference/union/intersection supported); paired cases lock the boundary.",
-  "observedAt": "2026-07-22T01:09:36.036Z",
+  "observedAt": "2026-09-27T23:24:15.185Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "0d366777f30ffa0e859164b8ec6a7ff34c21363b72adaff652d813f3b9dffbe4"
+    "value": "75157e8ed7920fdff5bac78d6ed7ff39453472df284c816c1086e21d8630d304"
   },
   "behavior": {
     "set difference (list arg) → hasOnly([c]) DENY": "DENY",
@@ -24,7 +24,21 @@
     "explicit toSet difference ALLOW": "ALLOW",
     "explicit toSet union ALLOW": "ALLOW",
     "explicit toSet intersection ALLOW": "ALLOW",
-    "explicit toSet difference wrong size DENY": "DENY"
+    "explicit toSet difference wrong size DENY": "DENY",
+    "string in toSet() holding it ALLOW": "ALLOW",
+    "string in toSet() lacking it DENY": "DENY",
+    "negated in toSet() lacking it ALLOW": "ALLOW",
+    "negated in toSet() holding it DENY": "DENY",
+    "int in toSet() holding it ALLOW": "ALLOW",
+    "string in union() result ALLOW": "ALLOW",
+    "changed key in affectedKeys() ALLOW": "ALLOW",
+    "changed key in changedKeys() ALLOW": "ALLOW",
+    "added key in addedKeys() ALLOW": "ALLOW",
+    "removed key in removedKeys() ALLOW": "ALLOW",
+    "unchanged key in unchangedKeys() ALLOW": "ALLOW",
+    "unchanged key in affectedKeys() DENY": "DENY",
+    "negated unchanged key in affectedKeys() ALLOW": "ALLOW",
+    "negated changed key in affectedKeys() DENY": "DENY"
   },
   "diagnostics": {
     "set difference (list arg) → hasOnly([c]) DENY": {

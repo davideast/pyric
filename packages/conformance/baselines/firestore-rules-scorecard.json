@@ -484,6 +484,7 @@
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "resource-missing-document",
+        "set-algebra-difference-union-intersection",
         "strict-boolean-control-flow"
       ],
       "verifiedByRows": [
@@ -506,7 +507,8 @@
       "verifiedBy": [
         "required-fields-and-mapdiff",
         "resource-document-identity",
-        "resource-missing-document"
+        "resource-missing-document",
+        "set-algebra-difference-union-intersection"
       ],
       "verifiedByRows": [
         "firestore-rules#183",
@@ -1574,7 +1576,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "required-fields-and-mapdiff"
+        "required-fields-and-mapdiff",
+        "set-algebra-difference-union-intersection"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -1591,7 +1594,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "required-fields-and-mapdiff"
+        "required-fields-and-mapdiff",
+        "set-algebra-difference-union-intersection"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -1608,7 +1612,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "required-fields-and-mapdiff"
+        "required-fields-and-mapdiff",
+        "set-algebra-difference-union-intersection"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -1625,7 +1630,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "required-fields-and-mapdiff"
+        "required-fields-and-mapdiff",
+        "set-algebra-difference-union-intersection"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -1642,7 +1648,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "required-fields-and-mapdiff"
+        "required-fields-and-mapdiff",
+        "set-algebra-difference-union-intersection"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -1659,7 +1666,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "required-fields-and-mapdiff"
+        "required-fields-and-mapdiff",
+        "set-algebra-difference-union-intersection"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -2507,6 +2515,7 @@
         "path-constructor-and-bind",
         "prototype-chain-keys",
         "resource-document-identity",
+        "set-algebra-difference-union-intersection",
         "strict-boolean-control-flow",
         "string-literals-and-regex",
         "undefined-field-access"
@@ -2549,6 +2558,7 @@
         "bytes-toutf8-and-hashing",
         "common-auth-membership-firestore",
         "prototype-chain-keys",
+        "set-algebra-difference-union-intersection",
         "undefined-field-access"
       ],
       "verifiedByRows": [
@@ -2826,7 +2836,8 @@
         "functions-verbs-and-recursive",
         "required-fields-and-mapdiff",
         "resource-document-identity",
-        "resource-missing-document"
+        "resource-missing-document",
+        "set-algebra-difference-union-intersection"
       ],
       "verifiedByRows": [],
       "divergedByRows": []

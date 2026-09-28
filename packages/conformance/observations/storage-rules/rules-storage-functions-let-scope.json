@@ -4,8 +4,8 @@
   "rowIds": [
     "storage-rules#104"
   ],
-  "description": "Storage Rules Test API verdicts for corpus pack \"functions-let-scope\" (STORAGE-FUNC). User-defined functions with let bindings, functions calling functions, and a match-block-scoped helper — the evaluator surface #96/#104 wrongly call unsupported.",
-  "observedAt": "2026-07-11T03:09:45.872Z",
+  "description": "Storage Rules Test API verdicts for corpus scenario \"functions-let-scope\" (STORAGE-FUNC). User-defined functions with let bindings, functions calling functions, and a match-block-scoped helper — the evaluator surface #96/#104 wrongly call unsupported.",
+  "observedAt": "2026-09-27T23:26:46.543Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "behavior": {
@@ -13,6 +13,119 @@
     "let + nested calls: oversized png denied": "DENY",
     "nested call isImage(): wrong content type denied": "DENY",
     "block-scoped helper tooBig(): small file allowed": "ALLOW",
-    "block-scoped helper tooBig(): large file denied": "DENY"
+    "block-scoped helper tooBig(): large file denied": "DENY",
+    "undefined function after a true || operand: allowed": "ALLOW",
+    "undefined function that decides the rule: denied": "DENY"
+  },
+  "diagnostics": {
+    "let + nested calls: small png under 5MB": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 15,
+              "column": 24,
+              "currentOffset": 410,
+              "endOffset": 422
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "let + nested calls: oversized png denied": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 15,
+              "column": 24,
+              "currentOffset": 410,
+              "endOffset": 422
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "nested call isImage(): wrong content type denied": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 15,
+              "column": 24,
+              "currentOffset": 410,
+              "endOffset": 422
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "block-scoped helper tooBig(): small file allowed": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 21,
+              "column": 24,
+              "currentOffset": 564,
+              "endOffset": 564
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "block-scoped helper tooBig(): large file denied": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 21,
+              "column": 24,
+              "currentOffset": 564,
+              "endOffset": 564
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "undefined function after a true || operand: allowed": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 27,
+              "column": 22,
+              "currentOffset": 737,
+              "endOffset": 753
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "undefined function that decides the rule: denied": {
+      "notes": [
+        "Error: storage.rules line [25], column [43]. Function not found error: Name: [notDeclared]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 25,
+          "column": 43,
+          "currentOffset": 693,
+          "endOffset": 703
+        },
+        "functionCalls": [
+          {
+            "function": "notDeclared"
+          }
+        ]
+      }
+    }
   }
 }

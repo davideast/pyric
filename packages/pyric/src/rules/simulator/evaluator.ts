@@ -174,15 +174,12 @@ function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<st
     }
 
     case 'sliceAccess': {
-      // Range slice `obj[start:end]` — Item 4 (REBUILD_PLAN.md).
-      // Per type table:
-      //   List:   `[i:j]` returns sub-list, j exclusive.
-      //   String: `[i:j]` returns substring, j exclusive.
-      // Indices must be integers; production rejects non-integer (incl.
-      // booleans coerced) so we surface as EvalError → DENY.
-      // Production rejects an end index beyond the value's length instead of
-      // applying JavaScript's clamping semantics.
-      // Negative indices: rejected (CEL doesn't support Python negatives).
+      // Range slice `obj[start:end]` on a List or String: a sub-list or
+      // substring, `end` exclusive. Indices must be integers. Production
+      // then checks, in order, that `start` is an index, that `end - 1` is
+      // an index, and that `start` does not exceed `end`; each failure is an
+      // evaluation error. So `[0:0]`, `[n:n]`, and any slice of an empty
+      // value are errors, and `[i:i]` for 0 < i < n is empty.
       const obj = evaluate(expr.object, ctx, scope);
       const start = evaluate(expr.start, ctx, scope);
       const end = evaluate(expr.end, ctx, scope);
@@ -193,12 +190,15 @@ function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<st
       if (typeof end !== 'number' || !Number.isInteger(end)) {
         throw new EvalError(`Slice end must be an integer, got ${typeof end}`);
       }
-      if (start < 0 || end < 0) {
-        throw new EvalError(`Slice indices must be non-negative, got [${start}:${end}]`);
-      }
       if (typeof obj === 'string' || Array.isArray(obj)) {
-        if (end > obj.length) {
-          throw new EvalError(`Slice end ${end} exceeds length ${obj.length}`);
+        const size = obj.length;
+        for (const index of [start, end - 1]) {
+          if (index < 0 || index >= size) {
+            throw new EvalError(`Index out of bound error. Index: [${index}] , size: [${size}].`);
+          }
+        }
+        if (start > end) {
+          throw new EvalError(`Illegal range error. From index: [${start}] , To index: [${end}].`);
         }
         return obj.slice(start, end);
       }
@@ -218,6 +218,10 @@ function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<st
       if (Array.isArray(collection)) {
         return collection.some(v => rulesValuesEqual(v, element));
       }
+      // A Set (from toSet(), Set algebra, or a MapDiff key-set accessor)
+      // holds its elements privately, so it is searched by value equality
+      // before the map branch, which would look the element up as a key.
+      if (collection instanceof FirestoreSet) return collection.hasAll([element]);
       // RULES-B7: map-key membership must use OWN keys only. `in` walks the JS
       // prototype chain, so `'toString' in resource.data` wrongly returned
       // true (and an `in`-guarded access then leaked the Object method).
@@ -511,10 +515,8 @@ function evaluateBinaryOp(
   }
 }
 
-function requireBoolean(value: unknown, expr: Expression): boolean {
+/** An `&&`/`||`/`!` operand, a ternary condition, or an allow condition must be a bool. */
+export function requireBoolean(value: unknown, expr: Expression): boolean {
   if (typeof value === 'boolean') return value;
-  throw new EvalError(
-    `Expected a boolean control-flow operand, got ${value === null ? 'null' : typeof value}`,
-    expr,
-  );
+  throw new EvalError(`Type error. Received: [${describeRulesType(value)}] Expected: [bool].`, expr);
 }
