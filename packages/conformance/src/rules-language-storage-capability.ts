@@ -155,6 +155,13 @@ export function stRun(
   if (/unsupported|unknown|not supported|no firestore lookup|cannot resolve/i.test(reason)) {
     return { classification: 'unsupported', detail: reason, ...(probeDigest ? { probeDigest } : {}) };
   }
+  // A rule that denied with an evaluation error, not a false condition or an
+  // unmatched path, is a local rejection, as a Firestore probe whose trace
+  // carries an ERROR is.
+  const evaluationError = result.reasons.find((r) => !/: condition false$/.test(r) && !/^no rule matches /.test(r));
+  if (evaluationError !== undefined) {
+    return { classification: 'error', detail: `eval error: ${evaluationError}`, ...(probeDigest ? { probeDigest } : {}) };
+  }
   const evaluationAgreement = construct ? EXPECTS_DENY.has(construct.id) : undefined;
   return {
     classification: 'implemented',
@@ -172,6 +179,14 @@ const ST_EXPR: Record<string, StProbe> = {
   'storage.function.duration.abs': { expr: "duration.abs(duration.value(-1, 's')) == duration.value(1, 's')" },
   'storage.function.firestore.get': { expr: "firestore.get(/databases/(default)/documents/u/x).data.k == 'v'" },
   'storage.function.firestore.exists': { expr: 'firestore.exists(/databases/(default)/documents/u/x)' },
+  'storage.function.math.abs': { expr: 'math.abs(-1) == 1' },
+  'storage.function.math.ceil': { expr: 'math.ceil(1.2) == 2' },
+  'storage.function.math.floor': { expr: 'math.floor(1.8) == 1' },
+  'storage.function.math.round': { expr: 'math.round(1.5) == 2' },
+  'storage.function.math.sqrt': { expr: 'math.sqrt(4) == 2' },
+  'storage.function.math.pow': { expr: 'math.pow(2, 3) == 8' },
+  'storage.function.math.isInfinite': { expr: 'math.isInfinite(1.0) == false' },
+  'storage.function.math.isNaN': { expr: 'math.isNaN(0.0) == false' },
   'storage.method.string.matches': { expr: "request.resource.contentType.matches('text/.*')" },
   'storage.method.size': { expr: 'request.resource.contentType.size() > 0' },
   'storage.method.string.split': { expr: "request.resource.contentType.split('/')[0] == 'text'" },

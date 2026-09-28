@@ -17,7 +17,7 @@ function one(query: string): FeatureSupport {
 
 describe('multi-axis conformance model', () => {
   it('supplies the shared assurance and rules-report projections in memory', () => {
-    expect(Object.keys(model.assuranceNodeVerdicts)).toHaveLength(1679);
+    expect(Object.keys(model.assuranceNodeVerdicts)).toHaveLength(1687);
     expect(Object.keys(model.nodeVerdicts).length).toBeGreaterThan(Object.keys(model.assuranceNodeVerdicts).length);
     expect(model.rulesLanguage.capability.engines).toHaveLength(3);
     expect(model.rulesLanguage.coverage.engines).toHaveLength(3);
@@ -25,7 +25,7 @@ describe('multi-axis conformance model', () => {
       numerator: 137, denominator: 140, ratio: 137 / 140, percent: 97.9,
     });
     expect(model.rulesLanguage.storageScorecard.score).toEqual({
-      numerator: 69, denominator: 71, ratio: 69 / 71, percent: 97.2,
+      numerator: 77, denominator: 79, ratio: 77 / 79, percent: 97.5,
     });
     expect(model.rulesLanguage.rtdbScorecard.score).toEqual({
       numerator: 56, denominator: 56, ratio: 1, percent: 100,

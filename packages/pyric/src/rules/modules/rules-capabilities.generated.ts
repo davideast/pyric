@@ -71,5 +71,6 @@ export const STORAGE_METHOD_RECEIVER_TYPES = {
 export const STORAGE_NAMESPACE_METHODS = {
   duration: ["abs", "time", "value"] as const,
   firestore: ["exists", "get"] as const,
+  math: ["abs", "ceil", "floor", "isNaN", "pow", "round", "sqrt"] as const,
   timestamp: ["date", "value"] as const,
 } as const;

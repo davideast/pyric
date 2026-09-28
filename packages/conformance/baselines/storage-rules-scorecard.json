@@ -3,8 +3,8 @@
   "generatedNote": "Exact Storage Rules conformance ratchet. Update only with reviewed evidence or implementation changes.",
   "universe": {
     "hashAlgorithm": "sha256",
-    "hash": "c5ba70d674704b91814c9205dd5ecf9db914c1a2e519341df6a0697a50dfc026",
-    "denominator": 71,
+    "hash": "43849c039539d879de0912cb142ee70136b57bcd892710ed20d48ee7c56f47ba",
+    "denominator": 79,
     "constructIds": [
       "storage.binding.request",
       "storage.binding.request.auth",
@@ -35,6 +35,14 @@
       "storage.function.duration.abs",
       "storage.function.firestore.get",
       "storage.function.firestore.exists",
+      "storage.function.math.abs",
+      "storage.function.math.ceil",
+      "storage.function.math.floor",
+      "storage.function.math.round",
+      "storage.function.math.sqrt",
+      "storage.function.math.pow",
+      "storage.function.math.isInfinite",
+      "storage.function.math.isNaN",
       "storage.method.string.matches",
       "storage.method.size",
       "storage.method.string.split",
@@ -80,38 +88,38 @@
     ]
   },
   "score": {
-    "numerator": 69,
-    "denominator": 71,
-    "ratio": 0.971830985915493,
-    "percent": 97.2
+    "numerator": 77,
+    "denominator": 79,
+    "ratio": 0.9746835443037974,
+    "percent": 97.5
   },
   "axes": {
     "productionAcceptance": {
       "unprobed": 0,
-      "accepted": 71,
-      "rejected": 0,
+      "accepted": 78,
+      "rejected": 1,
       "unprobeable": 0
     },
     "localAcceptance": {
-      "accepted": 71,
-      "rejected": 0,
+      "accepted": 78,
+      "rejected": 1,
       "unsupported": 0,
       "unprobeable": 0
     },
     "localCapability": {
-      "implemented": 71,
+      "implemented": 78,
       "unsupported": 0,
-      "error": 0,
+      "error": 1,
       "unprobeable": 0
     },
     "productionEvidence": {
-      "verified": 69,
+      "verified": 77,
       "diverged": 2,
       "unverified": 0
     }
   },
   "counts": {
-    "conformant": 69,
+    "conformant": 77,
     "diverged": 2,
     "unknown": 0,
     "acceptance-mismatch": 0,
@@ -521,6 +529,7 @@
         "in-membership-and-proto-keys",
         "list-map-literals-and-slice",
         "matches-regex",
+        "math-namespace",
         "metadata-access",
         "metadata-verbs-and-arithmetic",
         "ordering-operand-types",
@@ -812,6 +821,142 @@
         "storage-rules#129"
       ]
     },
+    "storage.function.math.abs": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionProbeDigest": "a01657b84b2055b5be2d3fd60be8e5613d1c6429a71365e158828f8a83b8eb15",
+      "currentProbeDigest": "a01657b84b2055b5be2d3fd60be8e5613d1c6429a71365e158828f8a83b8eb15",
+      "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [],
+      "verifiedByRows": [
+        "storage-rules#124"
+      ],
+      "divergedByRows": []
+    },
+    "storage.function.math.ceil": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionProbeDigest": "34f09df5a2d21135b8971dc26cfc40c1a038839c3b97d630bd79793cd6e37c13",
+      "currentProbeDigest": "34f09df5a2d21135b8971dc26cfc40c1a038839c3b97d630bd79793cd6e37c13",
+      "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [],
+      "verifiedByRows": [
+        "storage-rules#124"
+      ],
+      "divergedByRows": []
+    },
+    "storage.function.math.floor": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionProbeDigest": "31b3ffa0aed5ce674d48bb6185b43e0dd958ae56e5ebc932df6b9f0492191d53",
+      "currentProbeDigest": "31b3ffa0aed5ce674d48bb6185b43e0dd958ae56e5ebc932df6b9f0492191d53",
+      "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [],
+      "verifiedByRows": [
+        "storage-rules#124"
+      ],
+      "divergedByRows": []
+    },
+    "storage.function.math.round": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionProbeDigest": "2f7008e96d84778c592d202fea61cb4f7ceec42f6f83b32567e16062e5df775e",
+      "currentProbeDigest": "2f7008e96d84778c592d202fea61cb4f7ceec42f6f83b32567e16062e5df775e",
+      "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [],
+      "verifiedByRows": [
+        "storage-rules#124"
+      ],
+      "divergedByRows": []
+    },
+    "storage.function.math.sqrt": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionProbeDigest": "ef363b83e3be59750baf35552052cf41cce3e6fe5ca8696e160229b547c10cd8",
+      "currentProbeDigest": "ef363b83e3be59750baf35552052cf41cce3e6fe5ca8696e160229b547c10cd8",
+      "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [],
+      "verifiedByRows": [
+        "storage-rules#124"
+      ],
+      "divergedByRows": []
+    },
+    "storage.function.math.pow": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionProbeDigest": "2def01c028034cecb4391151e8b3be8d91b814b70a5306930a09d891a04d1c05",
+      "currentProbeDigest": "2def01c028034cecb4391151e8b3be8d91b814b70a5306930a09d891a04d1c05",
+      "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [],
+      "verifiedByRows": [
+        "storage-rules#124"
+      ],
+      "divergedByRows": []
+    },
+    "storage.function.math.isInfinite": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "rejected",
+      "productionRejectionSignature": "function-not-found:math.isInfinite",
+      "localRejectionSignature": "function-not-found:math.isInfinite",
+      "localCapability": "error",
+      "productionProbeDigest": "642a2e83fa783ed84362f8173a92ba88cfe4dea19211e3828e0961b89aefb66f",
+      "currentProbeDigest": "642a2e83fa783ed84362f8173a92ba88cfe4dea19211e3828e0961b89aefb66f",
+      "acceptanceProbeBound": true,
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [],
+      "verifiedByRows": [
+        "storage-rules#124"
+      ],
+      "divergedByRows": []
+    },
+    "storage.function.math.isNaN": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionProbeDigest": "9ba9f5ffb12f415b25fa50dc5466c43622d49b68fe16427d6253083c03fc45d9",
+      "currentProbeDigest": "9ba9f5ffb12f415b25fa50dc5466c43622d49b68fe16427d6253083c03fc45d9",
+      "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [],
+      "verifiedByRows": [
+        "storage-rules#124"
+      ],
+      "divergedByRows": []
+    },
     "storage.method.string.matches": {
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
@@ -953,6 +1098,7 @@
         "functions-let-scope",
         "in-membership-and-proto-keys",
         "list-map-literals-and-slice",
+        "math-namespace",
         "metadata-access",
         "metadata-verbs-and-arithmetic",
         "ordering-operand-types",
@@ -1015,6 +1161,7 @@
         "conversion-functions",
         "float-modulo-unary-minus",
         "functions-let-scope",
+        "math-namespace",
         "metadata-verbs-and-arithmetic",
         "ordering-operand-types",
         "request-time-timestamp",
@@ -1043,6 +1190,7 @@
         "bytes-literal",
         "conversion-functions",
         "functions-let-scope",
+        "math-namespace",
         "ordering-operand-types",
         "request-time-timestamp",
         "stdlib-timestamp-duration"
@@ -1212,6 +1360,7 @@
         "function-scopes-and-shadowing",
         "functions-let-scope",
         "in-membership-and-proto-keys",
+        "math-namespace",
         "metadata-verbs-and-arithmetic",
         "ordering-operand-types",
         "resource-object-identity",
@@ -1247,6 +1396,7 @@
         "error-absorption-and-direction",
         "firestore-lookup-budget",
         "functions-let-scope",
+        "math-namespace",
         "metadata-verbs-and-arithmetic",
         "ordering-operand-types",
         "stdlib-timestamp-duration",
@@ -1279,6 +1429,7 @@
         "float-modulo-unary-minus",
         "functions-let-scope",
         "in-membership-and-proto-keys",
+        "math-namespace",
         "ordering-operand-types",
         "stdlib-sets-and-mapdiff",
         "stdlib-timestamp-duration",
@@ -1472,6 +1623,7 @@
         "function-scopes-and-shadowing",
         "functions-let-scope",
         "list-map-literals-and-slice",
+        "math-namespace",
         "metadata-verbs-and-arithmetic",
         "ordering-operand-types",
         "ternary-and-error-absorption",
@@ -1663,6 +1815,7 @@
         "in-membership-and-proto-keys",
         "list-map-literals-and-slice",
         "matches-regex",
+        "math-namespace",
         "metadata-access",
         "metadata-verbs-and-arithmetic",
         "ordering-operand-types",
@@ -1695,6 +1848,7 @@
         "bool-function",
         "common-auth-membership",
         "conversion-functions",
+        "error-absorption-and-direction",
         "function-scopes-and-shadowing",
         "functions-let-scope",
         "stdlib-sets-and-mapdiff",
@@ -1750,6 +1904,7 @@
         "in-membership-and-proto-keys",
         "list-map-literals-and-slice",
         "matches-regex",
+        "math-namespace",
         "metadata-access",
         "metadata-verbs-and-arithmetic",
         "ordering-operand-types",
@@ -1785,6 +1940,7 @@
         "function-scopes-and-shadowing",
         "functions-let-scope",
         "list-map-literals-and-slice",
+        "math-namespace",
         "metadata-verbs-and-arithmetic",
         "ordering-operand-types",
         "ternary-and-error-absorption",

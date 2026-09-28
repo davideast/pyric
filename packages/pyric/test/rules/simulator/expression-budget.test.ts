@@ -246,3 +246,71 @@ describe('twelve functions of 90 comparisons in one rule', () => {
     expect(e.resourceLimit?.kind).toBe('expressions');
   });
 });
+
+describe('allow rules after an error', () => {
+  // Production evaluates the method's later allow rules after one raises an
+  // error: a later rule can grant, and what it evaluates counts toward the
+  // limit. When the limit is reached after an earlier rule raised an error,
+  // production reports that earlier error, not the limit. Captured in the
+  // error-absorption-and-or scenario of the Firestore rules corpus.
+  const f = `function f() { return ${trues(90)}; }`;
+  const ERR = '[1] + [2] == [1, 2]';
+  // == (1), + (1), [1] (2), [2] (2); the error stops the == before its right operand.
+  const ERR_COST = 6;
+
+  test('a later rule in the same block grants, and both rules count', () => {
+    const r = run(rules(`match /t/{id} {
+      allow get: if ${ERR};
+      allow get: if true;
+    }`));
+    expect(r.decision).toBe('ALLOW');
+    expect(r.trace.map((t) => t.verdict)).toEqual(['ERROR', 'ALLOW']);
+    expect(r.evaluatedExpressions).toBe(ERR_COST + 1);
+  });
+
+  test('a rule in a later match block grants after an error in an earlier one', () => {
+    const r = run(rules(`match /t/{id} { allow get: if ${ERR}; }
+    match /{document=**} { allow get: if true; }`));
+    expect(r.decision).toBe('ALLOW');
+    expect(r.evaluatedExpressions).toBe(ERR_COST + 1);
+  });
+
+  test('each rule records the count at which its evaluation ended', () => {
+    const r = run(rules(`match /t/{id} {
+      allow get: if false;
+      allow get: if ${ERR};
+      allow get: if 1 == 2;
+      allow get: if true;
+    }`));
+    expect(r.trace.map((t) => t.evaluatedExpressions)).toEqual([1, 1 + ERR_COST, 1 + ERR_COST + 3, 1 + ERR_COST + 4]);
+  });
+
+  test('the limit reached after an earlier rule raised an error is reported as that error', () => {
+    const r = run(rules(`match /t/{id} {
+      allow get: if ${ERR};
+      allow get: if f() && f() && f() && f();
+    }`, f));
+    expect(r.decision).toBe('DENY');
+    expect(r.evaluatedExpressions).toBe(EXPRESSION_LIMIT);
+    expect(r.resourceLimit).toBeUndefined();
+    expect(r.trace.map((t) => t.verdict)).toEqual(['ERROR', 'ERROR']);
+    expect(r.trace[0]!.message).toContain('+');
+    expect(r.trace[1]!.message).toBe(EXPRESSION_LIMIT_MESSAGE);
+    expect(r.notes.some((n) => n.includes(EXPRESSION_LIMIT_MESSAGE) && n.includes('earlier'))).toBe(true);
+  });
+
+  test('the same holds across match blocks', () => {
+    const r = run(rules(`match /t/{id} { allow get: if ${ERR}; }
+    match /{document=**} { allow get: if f() && f() && f() && f(); }`, f));
+    expect(r.decision).toBe('DENY');
+    expect(r.resourceLimit).toBeUndefined();
+  });
+
+  test('the limit is reported when every earlier rule evaluated without an error', () => {
+    const r = run(rules(`match /t/{id} {
+      allow get: if false;
+      allow get: if f() && f() && f() && f();
+    }`, f));
+    expect(r.resourceLimit?.kind).toBe('expressions');
+  });
+});

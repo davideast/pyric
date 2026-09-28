@@ -367,6 +367,110 @@
       "probeEvaluationAgreement": true
     },
     {
+      "id": "storage.function.math.abs",
+      "kind": "function",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.math#function_abs_",
+      "status": "accepted",
+      "note": "math.abs(number): the absolute value; an int stays an int and a float stays a float.",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "a01657b84b2055b5be2d3fd60be8e5613d1c6429a71365e158828f8a83b8eb15"
+      },
+      "probeEvaluationAgreement": true
+    },
+    {
+      "id": "storage.function.math.ceil",
+      "kind": "function",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.math#function_ceil_",
+      "status": "accepted",
+      "note": "math.ceil(number): the ceiling, as a float.",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "34f09df5a2d21135b8971dc26cfc40c1a038839c3b97d630bd79793cd6e37c13"
+      },
+      "probeEvaluationAgreement": true
+    },
+    {
+      "id": "storage.function.math.floor",
+      "kind": "function",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.math#function_floor_",
+      "status": "accepted",
+      "note": "math.floor(number): the floor, as a float.",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "31b3ffa0aed5ce674d48bb6185b43e0dd958ae56e5ebc932df6b9f0492191d53"
+      },
+      "probeEvaluationAgreement": true
+    },
+    {
+      "id": "storage.function.math.round",
+      "kind": "function",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.math#function_round_",
+      "status": "accepted",
+      "note": "math.round(number): rounded half up, as an int.",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "2f7008e96d84778c592d202fea61cb4f7ceec42f6f83b32567e16062e5df775e"
+      },
+      "probeEvaluationAgreement": true
+    },
+    {
+      "id": "storage.function.math.sqrt",
+      "kind": "function",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.math#function_sqrt_",
+      "status": "accepted",
+      "note": "math.sqrt(number): the square root, as a float.",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "ef363b83e3be59750baf35552052cf41cce3e6fe5ca8696e160229b547c10cd8"
+      },
+      "probeEvaluationAgreement": true
+    },
+    {
+      "id": "storage.function.math.pow",
+      "kind": "function",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.math#function_pow_",
+      "status": "accepted",
+      "note": "math.pow(base, exponent): base raised to exponent, as a float.",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "2def01c028034cecb4391151e8b3be8d91b814b70a5306930a09d891a04d1c05"
+      },
+      "probeEvaluationAgreement": true
+    },
+    {
+      "id": "storage.function.math.isInfinite",
+      "kind": "function",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.math#function_isInfinite_",
+      "status": "rejected",
+      "note": "Listed by the rules reference; production has no math.isInfinite() and evaluates a call as \"Function not found error\".",
+      "probeNote": "Error: storage.rules line [5], column [22]. Function not found error: Name: [math.isInfinite].",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "642a2e83fa783ed84362f8173a92ba88cfe4dea19211e3828e0961b89aefb66f"
+      }
+    },
+    {
+      "id": "storage.function.math.isNaN",
+      "kind": "function",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.math#function_isNaN_",
+      "status": "accepted",
+      "note": "math.isNaN(number): whether the value is NaN.",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "9ba9f5ffb12f415b25fa50dc5466c43622d49b68fe16427d6253083c03fc45d9"
+      },
+      "probeEvaluationAgreement": true
+    },
+    {
       "id": "storage.method.string.matches",
       "kind": "method",
       "engine": "storage",

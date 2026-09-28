@@ -118,4 +118,41 @@ service firebase.storage {
     expect(r.resourceLimit?.kind).toBe('expressions');
     expect(r.reasons).toHaveLength(1);
   });
+
+  // Production evaluates a method's later allow rules after one raises an
+  // error, and they count toward the limit. A limit reached after that error
+  // is reported as the error. Captured in the error-absorption-and-direction
+  // scenario of the Storage rules corpus.
+  const ERR = '(1 / 0 == 0)';
+
+  it('evaluates and counts a later rule after an error, which can grant', () => {
+    const r = storage(`match /docs/{docId} {
+      allow read: if ${ERR};
+      allow read: if true;
+    }`);
+    expect(r.allowed).toBe(true);
+    // == (1), / (1), 1 (1), 0 (1): the error stops the == before its right operand.
+    expect(r.evaluatedExpressions).toBe(4 + 1);
+  });
+
+  it('reports a limit reached after an earlier rule raised an error as that error', () => {
+    const f = `function f() { return ${trues(90)}; }`;
+    const r = storage(`match /docs/{docId} {
+      allow read: if ${ERR};
+      allow read: if f() && f() && f() && f();
+    }`, f);
+    expect(r.allowed).toBe(false);
+    expect(r.evaluatedExpressions).toBe(EXPRESSION_LIMIT);
+    expect(r.resourceLimit).toBeUndefined();
+    expect(r.reasons[0]).toContain('Division by zero');
+    expect(r.reasons.some((reason) => reason.includes(EXPRESSION_LIMIT_MESSAGE) && reason.includes('earlier'))).toBe(true);
+  });
+
+  it('reports the same across match blocks', () => {
+    const f = `function f() { return ${trues(90)}; }`;
+    const r = storage(`match /docs/{docId} { allow read: if ${ERR}; }
+    match /{allPaths=**} { allow read: if f() && f() && f() && f(); }`, f);
+    expect(r.allowed).toBe(false);
+    expect(r.resourceLimit).toBeUndefined();
+  });
 });

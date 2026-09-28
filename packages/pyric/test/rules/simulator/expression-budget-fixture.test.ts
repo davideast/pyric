@@ -1,7 +1,7 @@
 /**
  * The simulator's expression count against production's measurements.
  *
- * `test/rules/linter/fixtures/expression-cost/captures.json` records, for 34
+ * `test/rules/linter/fixtures/expression-cost/captures.json` records, for 35
  * requests, the padding step at which production's 1000-expression limit
  * stopped the request: a padding rule evaluated first, whose cost grows with
  * `request.auth.token.pyric_pad`, is false below `threshold.at` and reaches
@@ -58,20 +58,19 @@ const captures = JSON.parse(readFileSync(join(FIXTURES, 'captures.json'), 'utf8'
 const handler = new SimulateFirestoreRulesHandler();
 
 /**
- * Requests whose simulated count lies outside production's window for a
- * reason other than the counting unit. The simulator still decides them as
- * production does; the count is pinned so a change is noticed.
- *
- * arcade/chess-e4: the granting candidate rule raises "Unsupported
- * operation error" (list + list), and the simulator goes on to evaluate the
- * next allow rule for the method (`request.resource.data.status ==
- * 'resigned' && ...`, 7 expressions, false at its gate). Removing that rule's
- * 7 from the simulated 316 lands at 309, inside production's window of 306
- * to 310, which suggests production does not evaluate allow rules after one
- * that raises an error. That is a decision semantics question, not a unit
- * question, and it needs its own capture.
+ * The count a request's padding threshold bounds. Production goes on to the
+ * method's later allow rules after one raises an error, and counts them, but
+ * when the limit is reached after that error it reports the error, not the
+ * limit. The capture detects the limit by its message, so for a request with
+ * an erroring rule the threshold bounds the count through the end of the
+ * first rule that raised an error. arcade/chess-e4 is one: its move rule
+ * raises "Unsupported operation error" (list + list), and the resign rule
+ * after it (7 expressions) is evaluated but outside the measured window.
  */
-const OUTSIDE_WINDOW: Record<string, number> = { 'arcade/chess-e4': 316 };
+function measuredCount(result: TestResult): number {
+  const firstError = result.trace.find((t) => t.verdict === 'ERROR');
+  return firstError?.evaluatedExpressions ?? result.evaluatedExpressions!;
+}
 
 function simulate(source: string, tc: TestCase, getDoc?: (path: string) => Record<string, unknown> | null): TestResult {
   const result = handler.simulate(source, [tc], getDoc ? { getDoc } : undefined);
@@ -165,20 +164,11 @@ for (const suite of captures.suites) {
 
       if (c.production.limitReached) continue;
 
-      if (OUTSIDE_WINDOW[c.id] !== undefined) {
-        test(`${c.id}: count is pinned outside production's window (see OUTSIDE_WINDOW)`, () => {
-          const { low, high } = windowOf(c.production.threshold);
-          expect(result.evaluatedExpressions).toBe(OUTSIDE_WINDOW[c.id]!);
-          expect(result.evaluatedExpressions! < low || result.evaluatedExpressions! > high).toBe(true);
-        });
-        continue;
-      }
-
       test(`${c.id}: count lies in production's window`, () => {
         const { low, high } = windowOf(c.production.threshold);
         expect(high - low).toBeLessThanOrEqual(5);
-        expect(result.evaluatedExpressions!).toBeGreaterThanOrEqual(low);
-        expect(result.evaluatedExpressions!).toBeLessThanOrEqual(high);
+        expect(measuredCount(result)).toBeGreaterThanOrEqual(low);
+        expect(measuredCount(result)).toBeLessThanOrEqual(high);
       });
 
       test(`${c.id}: the padded request reaches the limit at production's step and not before`, () => {

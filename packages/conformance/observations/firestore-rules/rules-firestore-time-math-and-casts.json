@@ -4,13 +4,13 @@
   "rowIds": [
     "firestore-rules#180"
   ],
-  "description": "Firestore Rules Test API verdicts for corpus scenario \"time-math-and-casts\" (Coverage: Timestamp methods + math builtins + casts). Production must accept request.time.<accessor>() Timestamp methods, math.floor/round/sqrt/pow/isNaN, int/float/string casts, request.method, and >= / * operators; int() parses a whole int64 decimal string and truncates or saturates a float, float() parses Java double syntax, string() prints a float as Java Double.toString does, and every conversion failure is an error value that || true absorbs.",
-  "observedAt": "2026-09-27T20:55:12.909Z",
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"time-math-and-casts\" (Coverage: Timestamp methods + math builtins + casts). Production must accept request.time.<accessor>() Timestamp methods, math.floor/round/sqrt/pow/isNaN, int/float/string casts, request.method, and >= / * operators; int() parses a whole int64 decimal string and truncates or saturates a float, float() parses Java double syntax, string() prints a float as Java Double.toString does, math.ceil/floor/sqrt/pow return a float, math.round returns an int, and every conversion or math failure is an error value that || true absorbs.",
+  "observedAt": "2026-09-28T00:36:28.427Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "5b653048af1f0a1266cd6d9b3475efa53110a61da2f98b544cc7e3a8b099248d"
+    "value": "d3a8786a32778df09f3b47d447359be26e42431b0d75609f83509900fab05e4d"
   },
   "behavior": {
     "valid event within all bounds ALLOW": "ALLOW",
@@ -49,7 +49,29 @@
     "(string([1]) == '') || true → ALLOW": "ALLOW",
     "string({'a': 1}) != '' → DENY": "DENY",
     "string(b'abc') != '' → DENY": "DENY",
-    "string(duration.value(1, 's')) != '' → DENY": "DENY"
+    "string(duration.value(1, 's')) != '' → DENY": "DENY",
+    "math.abs(-2) == 2 && math.abs(-2) is int && math.abs(1) is int && math.abs(-2.5) == 2.5 && math.abs(-2.5) is float && math.abs(-1.0) is float → ALLOW": "ALLOW",
+    "math.ceil(1.5) == 2 && math.ceil(1.5) is float && math.ceil(-1.5) == -1 && math.ceil(-0.5) == 0 && math.floor(-1.5) == -2 && math.floor(2.5) == 2 && math.floor(-0.5) == -1 && math.floor(1) is float && math.ceil(1) is float → ALLOW": "ALLOW",
+    "math.ceil(1.5) is int → DENY": "DENY",
+    "math.round(2.5) == 3 && math.round(-2.5) == -2 && math.round(-1.5) == -1 && math.round(0.5) == 1 && math.round(-0.5) == 0 && math.round(1.4) == 1 && math.round(2.5) is int && math.round(1) is int → ALLOW": "ALLOW",
+    "math.round(-2.5) == -3 → DENY": "DENY",
+    "math.round(2.5) is float → DENY": "DENY",
+    "math.round(math.sqrt(-1)) == 0 && math.round(math.pow(0, -1)) > 0 → ALLOW": "ALLOW",
+    "math.sqrt(4) == 2.0 && math.sqrt(4) is float && math.sqrt(2) > 1.414 && math.sqrt(2) < 1.415 && math.pow(2, 3) == 8.0 && math.pow(2, 3) is float && math.pow(2, -1) == 0.5 && math.pow(4, 0.5) == 2.0 → ALLOW": "ALLOW",
+    "math.isNaN(math.sqrt(-1)) && !math.isNaN(1) && !math.isNaN(1.0) && !math.isNaN(math.pow(0, -1)) && math.pow(0, -1) > 1000000000.0 → ALLOW": "ALLOW",
+    "!(math.abs('a') == 1) → DENY": "DENY",
+    "(math.abs('a') == 1) || true → ALLOW": "ALLOW",
+    "!(math.abs(true) == 1) → DENY": "DENY",
+    "!(math.abs(null) == 1) → DENY": "DENY",
+    "!(math.ceil('a') == 1) → DENY": "DENY",
+    "!(math.sqrt('a') == 1) → DENY": "DENY",
+    "!(math.pow(2, 'a') == 1) → DENY": "DENY",
+    "!math.isNaN('a') → DENY": "DENY",
+    "!(math.abs(1, 2) == 1) → DENY": "DENY",
+    "!(math.sqrt() == 1) → DENY": "DENY",
+    "math.isInfinite(1.0) == false → DENY": "DENY",
+    "math.isInfinite(1.0) || true → ALLOW": "ALLOW",
+    "!(math.isInfinite(1.0) && false) → ALLOW": "ALLOW"
   },
   "diagnostics": {
     "int('1.5') != 0 → DENY": {
@@ -288,6 +310,154 @@
           "currentOffset": 5348,
           "endOffset": 5353
         }
+      }
+    },
+    "!(math.abs('a') == 1) → DENY": {
+      "notes": [
+        "Error: firestore.rules line [159], column [31]. Unsupported operation error. Received: math.abs(string). Expected: math.abs(int), math.abs(float)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 159,
+          "column": 31,
+          "currentOffset": 7077,
+          "endOffset": 7079
+        }
+      }
+    },
+    "!(math.abs(true) == 1) → DENY": {
+      "notes": [
+        "Error: firestore.rules line [165], column [31]. Unsupported operation error. Received: math.abs(bool). Expected: math.abs(int), math.abs(float)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 165,
+          "column": 31,
+          "currentOffset": 7256,
+          "endOffset": 7258
+        }
+      }
+    },
+    "!(math.abs(null) == 1) → DENY": {
+      "notes": [
+        "Error: firestore.rules line [168], column [31]. Unsupported operation error. Received: math.abs(null). Expected: math.abs(int), math.abs(float)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 168,
+          "column": 31,
+          "currentOffset": 7339,
+          "endOffset": 7341
+        }
+      }
+    },
+    "!(math.ceil('a') == 1) → DENY": {
+      "notes": [
+        "Error: firestore.rules line [171], column [31]. Unsupported operation error. Received: math.ceil(string). Expected: math.ceil(float)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 171,
+          "column": 31,
+          "currentOffset": 7425,
+          "endOffset": 7428
+        }
+      }
+    },
+    "!(math.sqrt('a') == 1) → DENY": {
+      "notes": [
+        "Error: firestore.rules line [174], column [31]. Unsupported operation error. Received: math.sqrt(string). Expected: math.sqrt(float)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 174,
+          "column": 31,
+          "currentOffset": 7511,
+          "endOffset": 7514
+        }
+      }
+    },
+    "!(math.pow(2, 'a') == 1) → DENY": {
+      "notes": [
+        "Error: firestore.rules line [177], column [31]. Unsupported operation error. Received: math.pow(int, string). Expected: math.pow(float, float)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 177,
+          "column": 31,
+          "currentOffset": 7596,
+          "endOffset": 7598
+        }
+      }
+    },
+    "!math.isNaN('a') → DENY": {
+      "notes": [
+        "Error: firestore.rules line [180], column [30]. Unsupported operation error. Received: math.isNaN(string). Expected: math.isNaN(float)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 180,
+          "column": 30,
+          "currentOffset": 7684,
+          "endOffset": 7688
+        }
+      }
+    },
+    "!(math.abs(1, 2) == 1) → DENY": {
+      "notes": [
+        "Error: firestore.rules line [183], column [31]. Incorrect number of arguments. Received: 2. Expected: math.abs(int), math.abs(float)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 183,
+          "column": 31,
+          "currentOffset": 7765,
+          "endOffset": 7767
+        }
+      }
+    },
+    "!(math.sqrt() == 1) → DENY": {
+      "notes": [
+        "Error: firestore.rules line [186], column [31]. Incorrect number of arguments. Received: 0. Expected: math.sqrt(float)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 186,
+          "column": 31,
+          "currentOffset": 7851,
+          "endOffset": 7854
+        }
+      }
+    },
+    "math.isInfinite(1.0) == false → DENY": {
+      "notes": [
+        "Error: firestore.rules line [189], column [24]. Function not found error: Name: [math.isInfinite]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 189,
+          "column": 24,
+          "currentOffset": 7927,
+          "endOffset": 7930
+        },
+        "functionCalls": [
+          {
+            "function": "math.isInfinite",
+            "args": [
+              1
+            ]
+          }
+        ]
       }
     }
   }
