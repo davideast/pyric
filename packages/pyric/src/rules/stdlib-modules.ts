@@ -950,11 +950,11 @@ const GEOMETRY_MODULE: StdlibModuleDefinition = {
   key: 'geometry',
   kind: 'user-module',
   description:
-    'User-authored module: movement validation via config-doc lookup (validSimpleMove, validJumpMove). Caller must pass the config from a `get()` call.',
+    'User-authored module: movement validation via config-doc lookup (validSimpleMove, validJumpMove) and named squares such as \'e4\' on an 8 by 8 board (file, rank, step, inBounds). The config-doc functions take the config from a `get()` call.',
   purpose:
-    'Board-game movement rules expressed as lookups in a config document — `cfg.moves[piece][from][to]` for simple moves, `cfg.jumps[piece][from][to]` for jumps (with captured-cell info). The module is "explicit parameter" style: no implicit reads — the caller passes the config explicitly.',
+    'Board-game movement rules expressed as lookups in a config document, `cfg.moves[piece][from][to]` for simple moves and `cfg.jumps[piece][from][to]` for jumps (with captured-cell info), or as arithmetic on square names: file letter \'a\' to \'h\', then rank digit \'1\' to \'8\'. The module is "explicit parameter" style: no implicit reads. The caller passes the config and the squares explicitly.',
   whenToUse:
-    'Reach for `geometry` on grid-based games (chess, checkers, go variants). Pair the function call with a `get()` on your config document.',
+    'Reach for `geometry` on grid-based games (chess, checkers, go variants). Pair the config-doc functions with a `get()` on your config document. Use the named-square functions when the board is a map keyed by square names; check a client-written square with `inBounds` before you read it.',
   entries: [
     {
       signature: 'validSimpleMove(cfg: map): bool',
@@ -967,6 +967,41 @@ const GEOMETRY_MODULE: StdlibModuleDefinition = {
       cost: { min: 31, max: 31 },
       reads: 0,
       description: '`cfg.jumps[piece][from][to] == capturedCell`.',
+    },
+    {
+      signature: 'file(square: string): int',
+      cost: { min: 23, max: 23 },
+      reads: 0,
+      description: "The square's file as a number: 'a' is 1 and 'h' is 8.",
+      examples: [`allow update: if file(request.resource.data.to) - file(resource.data.from) == 1;`],
+      notes:
+        "A first character outside 'a' to 'h', an empty string, or a non-string square is an error, which denies. Costs the same as the map lookup written inline.",
+    },
+    {
+      signature: 'rank(square: string): int',
+      cost: { min: 6, max: 6 },
+      reads: 0,
+      description: "The square's rank as a number: the second character read as a digit.",
+      examples: [`allow update: if rank(request.resource.data.to) == 8;`],
+      notes:
+        "Reads only the second character, so `rank('e9')` is 9 and `rank('e44')` is 4: check the square with `inBounds` first. A non-digit second character, a square shorter than two characters, or a non-string square is an error, which denies.",
+    },
+    {
+      signature: 'step(square: string, df: int, dr: int): string',
+      cost: { min: 49, max: 49 },
+      reads: 0,
+      description: 'The square `df` files and `dr` ranks away from `square`, as a name.',
+      examples: [`allow update: if request.resource.data.to == step(resource.data.from, 1, 1);`],
+      notes:
+        '`step(from, df, dr) == to` costs 51, where the same test written as file and rank differences costs 53 to 71. A step off the board in any direction is an error, which denies. To test for any one diagonal neighbor, compare file and rank differences instead of calling `step` four times.',
+    },
+    {
+      signature: 'inBounds(square: any): bool',
+      cost: { min: 5, max: 9 },
+      reads: 0,
+      description: "The value is a string of one file letter 'a' to 'h' and one rank digit '1' to '8'.",
+      examples: [`allow update: if inBounds(request.resource.data.to);`],
+      notes: 'Anything else, a non-string included, is false rather than an error.',
     },
   ],
   relatedKeys: ['transitions', 'state'],

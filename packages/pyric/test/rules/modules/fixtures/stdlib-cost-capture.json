@@ -291,6 +291,36 @@
           ]
         }
       }
+    },
+    "geometry": {
+      "requests": 9,
+      "testCases": 453,
+      "date": "2026-09-28T05:29:04.536Z",
+      "modules": [
+        "geometry"
+      ],
+      "calibration": {
+        "firestore": {
+          "d": 986,
+          "checks": [
+            {
+              "condition": "false",
+              "cost": 1,
+              "d": 986
+            },
+            {
+              "condition": "true && false",
+              "cost": 4,
+              "d": 986
+            },
+            {
+              "condition": "true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true",
+              "cost": 58,
+              "d": 986
+            }
+          ]
+        }
+      }
     }
   },
   "functions": [
@@ -458,6 +488,50 @@
       "reads": 0,
       "cheapestCase": "validJumpMove allows valid jump with correct captured cell",
       "mostExpensiveCase": "validJumpMove allows valid jump with correct captured cell"
+    },
+    {
+      "module": "geometry",
+      "function": "file",
+      "cost": {
+        "min": 23,
+        "max": 23
+      },
+      "reads": 0,
+      "cheapestCase": "file reads 'e4' as file 5",
+      "mostExpensiveCase": "file reads 'e4' as file 5"
+    },
+    {
+      "module": "geometry",
+      "function": "rank",
+      "cost": {
+        "min": 6,
+        "max": 6
+      },
+      "reads": 0,
+      "cheapestCase": "rank reads 'e4' as rank 4",
+      "mostExpensiveCase": "rank reads 'e4' as rank 4"
+    },
+    {
+      "module": "geometry",
+      "function": "step",
+      "cost": {
+        "min": 49,
+        "max": 49
+      },
+      "reads": 0,
+      "cheapestCase": "step moves 'e4' one file and one rank up to 'f5'",
+      "mostExpensiveCase": "step moves 'e4' one file and one rank up to 'f5'"
+    },
+    {
+      "module": "geometry",
+      "function": "inBounds",
+      "cost": {
+        "min": 5,
+        "max": 9
+      },
+      "reads": 0,
+      "cheapestCase": "inBounds does not hold for a non-string square",
+      "mostExpensiveCase": "inBounds holds for 'e4'"
     },
     {
       "module": "joining",
@@ -2317,6 +2391,550 @@
         "call": 39,
         "reference": 10,
         "perCall": 31
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "file",
+      "case": "file reads 'e4' as file 5",
+      "call": "file('e4')",
+      "measured": {
+        "call": 24,
+        "reference": 3,
+        "perCall": 23
+      },
+      "estimated": {
+        "call": 24,
+        "reference": 3,
+        "perCall": 23
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "file",
+      "case": "file reads 'a1' as 1 and 'h8' as 8",
+      "call": "file('a1')",
+      "measured": {
+        "call": 24,
+        "reference": 3,
+        "perCall": 23
+      },
+      "estimated": {
+        "call": 24,
+        "reference": 3,
+        "perCall": 23
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "file",
+      "case": "file reads 'a1' as 1 and 'h8' as 8",
+      "call": "file('h8')",
+      "measured": {
+        "call": 24,
+        "reference": 3,
+        "perCall": 23
+      },
+      "estimated": {
+        "call": 24,
+        "reference": 3,
+        "perCall": 23
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "file",
+      "case": "file is an error for a file letter past 'h'",
+      "call": "file('i4')",
+      "measured": {
+        "call": 24,
+        "reference": 3,
+        "perCall": 23
+      },
+      "estimated": {
+        "call": 24,
+        "reference": 3,
+        "perCall": 23
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "file",
+      "case": "file is an error for an uppercase file letter",
+      "call": "file('E4')",
+      "measured": {
+        "call": 24,
+        "reference": 3,
+        "perCall": 23
+      },
+      "estimated": {
+        "call": 24,
+        "reference": 3,
+        "perCall": 23
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "file",
+      "case": "file is an error for an empty string",
+      "call": "file('')",
+      "measured": {
+        "call": 24,
+        "reference": 3,
+        "perCall": 23
+      },
+      "estimated": {
+        "call": 24,
+        "reference": 3,
+        "perCall": 23
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "file",
+      "case": "file is an error for a non-string square",
+      "call": "file(5)",
+      "measured": {
+        "call": 24,
+        "reference": 3,
+        "perCall": 23
+      },
+      "estimated": {
+        "call": 24,
+        "reference": 3,
+        "perCall": 23
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "rank",
+      "case": "rank reads 'e4' as rank 4",
+      "call": "rank('e4')",
+      "measured": {
+        "call": 7,
+        "reference": 3,
+        "perCall": 6
+      },
+      "estimated": {
+        "call": 7,
+        "reference": 3,
+        "perCall": 6
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "rank",
+      "case": "rank reads 'a1' as 1 and 'h8' as 8",
+      "call": "rank('a1')",
+      "measured": {
+        "call": 7,
+        "reference": 3,
+        "perCall": 6
+      },
+      "estimated": {
+        "call": 7,
+        "reference": 3,
+        "perCall": 6
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "rank",
+      "case": "rank reads 'a1' as 1 and 'h8' as 8",
+      "call": "rank('h8')",
+      "measured": {
+        "call": 7,
+        "reference": 3,
+        "perCall": 6
+      },
+      "estimated": {
+        "call": 7,
+        "reference": 3,
+        "perCall": 6
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "rank",
+      "case": "rank is an error for a letter in the rank place",
+      "call": "rank('ex')",
+      "measured": {
+        "call": 7,
+        "reference": 3,
+        "perCall": 6
+      },
+      "estimated": {
+        "call": 7,
+        "reference": 3,
+        "perCall": 6
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "rank",
+      "case": "rank is an error for a square with no rank",
+      "call": "rank('e')",
+      "measured": {
+        "call": 7,
+        "reference": 3,
+        "perCall": 6
+      },
+      "estimated": {
+        "call": 7,
+        "reference": 3,
+        "perCall": 6
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "rank",
+      "case": "rank is an error for a non-string square",
+      "call": "rank(5)",
+      "measured": {
+        "call": 7,
+        "reference": 3,
+        "perCall": 6
+      },
+      "estimated": {
+        "call": 7,
+        "reference": 3,
+        "perCall": 6
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "step",
+      "case": "step moves 'e4' one file and one rank up to 'f5'",
+      "call": "step('e4', 1, 1)",
+      "measured": {
+        "call": 52,
+        "reference": 5,
+        "perCall": 49
+      },
+      "estimated": {
+        "call": 52,
+        "reference": 5,
+        "perCall": 49
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "step",
+      "case": "step moves 'e4' one file and one rank down to 'd3'",
+      "call": "step('e4', -1, -1)",
+      "measured": {
+        "call": 54,
+        "reference": 7,
+        "perCall": 49
+      },
+      "estimated": {
+        "call": 54,
+        "reference": 7,
+        "perCall": 49
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "step",
+      "case": "step crosses the board from 'a1' to 'h8'",
+      "call": "step('a1', 7, 7)",
+      "measured": {
+        "call": 52,
+        "reference": 5,
+        "perCall": 49
+      },
+      "estimated": {
+        "call": 52,
+        "reference": 5,
+        "perCall": 49
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "step",
+      "case": "step by zero returns the same square",
+      "call": "step('e4', 0, 0)",
+      "measured": {
+        "call": 52,
+        "reference": 5,
+        "perCall": 49
+      },
+      "estimated": {
+        "call": 52,
+        "reference": 5,
+        "perCall": 49
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "step",
+      "case": "step is an error past the 'h' file",
+      "call": "step('h4', 1, 0)",
+      "measured": {
+        "call": 52,
+        "reference": 5,
+        "perCall": 49
+      },
+      "estimated": {
+        "call": 52,
+        "reference": 5,
+        "perCall": 49
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "step",
+      "case": "step is an error past the 'a' file",
+      "call": "step('a4', -1, 0)",
+      "measured": {
+        "call": 53,
+        "reference": 6,
+        "perCall": 49
+      },
+      "estimated": {
+        "call": 53,
+        "reference": 6,
+        "perCall": 49
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "step",
+      "case": "step is an error past rank 8",
+      "call": "step('e8', 0, 1)",
+      "measured": {
+        "call": 52,
+        "reference": 5,
+        "perCall": 49
+      },
+      "estimated": {
+        "call": 52,
+        "reference": 5,
+        "perCall": 49
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "step",
+      "case": "step is an error past rank 1",
+      "call": "step('e1', 0, -1)",
+      "measured": {
+        "call": 53,
+        "reference": 6,
+        "perCall": 49
+      },
+      "estimated": {
+        "call": 53,
+        "reference": 6,
+        "perCall": 49
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "step",
+      "case": "step is an error for a file letter past 'h'",
+      "call": "step('z4', 0, 0)",
+      "measured": {
+        "call": 52,
+        "reference": 5,
+        "perCall": 49
+      },
+      "estimated": {
+        "call": 52,
+        "reference": 5,
+        "perCall": 49
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "step",
+      "case": "step is an error for a letter in the rank place",
+      "call": "step('ex', 0, 0)",
+      "measured": {
+        "call": 52,
+        "reference": 5,
+        "perCall": 49
+      },
+      "estimated": {
+        "call": 52,
+        "reference": 5,
+        "perCall": 49
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "step",
+      "case": "step is an error for a non-string square",
+      "call": "step(5, 0, 0)",
+      "measured": {
+        "call": 52,
+        "reference": 5,
+        "perCall": 49
+      },
+      "estimated": {
+        "call": 52,
+        "reference": 5,
+        "perCall": 49
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "inBounds",
+      "case": "inBounds holds for 'e4'",
+      "call": "inBounds('e4')",
+      "measured": {
+        "call": 10,
+        "reference": 3,
+        "perCall": 9
+      },
+      "estimated": {
+        "call": 10,
+        "reference": 3,
+        "perCall": 9
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "inBounds",
+      "case": "inBounds holds for the corners 'a1' and 'h8'",
+      "call": "inBounds('a1')",
+      "measured": {
+        "call": 10,
+        "reference": 3,
+        "perCall": 9
+      },
+      "estimated": {
+        "call": 10,
+        "reference": 3,
+        "perCall": 9
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "inBounds",
+      "case": "inBounds holds for the corners 'a1' and 'h8'",
+      "call": "inBounds('h8')",
+      "measured": {
+        "call": 10,
+        "reference": 3,
+        "perCall": 9
+      },
+      "estimated": {
+        "call": 10,
+        "reference": 3,
+        "perCall": 9
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "inBounds",
+      "case": "inBounds is false for a file letter past 'h'",
+      "call": "inBounds('i4')",
+      "measured": {
+        "call": 10,
+        "reference": 3,
+        "perCall": 9
+      },
+      "estimated": {
+        "call": 10,
+        "reference": 3,
+        "perCall": 9
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "inBounds",
+      "case": "inBounds is false for rank 9",
+      "call": "inBounds('e9')",
+      "measured": {
+        "call": 10,
+        "reference": 3,
+        "perCall": 9
+      },
+      "estimated": {
+        "call": 10,
+        "reference": 3,
+        "perCall": 9
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "inBounds",
+      "case": "inBounds is false for rank 0",
+      "call": "inBounds('e0')",
+      "measured": {
+        "call": 10,
+        "reference": 3,
+        "perCall": 9
+      },
+      "estimated": {
+        "call": 10,
+        "reference": 3,
+        "perCall": 9
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "inBounds",
+      "case": "inBounds is false for a square with extra characters",
+      "call": "inBounds('e44')",
+      "measured": {
+        "call": 10,
+        "reference": 3,
+        "perCall": 9
+      },
+      "estimated": {
+        "call": 10,
+        "reference": 3,
+        "perCall": 9
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "inBounds",
+      "case": "inBounds is false for an uppercase file letter",
+      "call": "inBounds('E4')",
+      "measured": {
+        "call": 10,
+        "reference": 3,
+        "perCall": 9
+      },
+      "estimated": {
+        "call": 10,
+        "reference": 3,
+        "perCall": 9
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "inBounds",
+      "case": "inBounds is false for an empty string",
+      "call": "inBounds('')",
+      "measured": {
+        "call": 10,
+        "reference": 3,
+        "perCall": 9
+      },
+      "estimated": {
+        "call": 10,
+        "reference": 3,
+        "perCall": 9
+      }
+    },
+    {
+      "module": "geometry",
+      "function": "inBounds",
+      "case": "inBounds does not hold for a non-string square",
+      "call": "inBounds(request.resource.data.moved)",
+      "measured": {
+        "call": 9,
+        "reference": 6,
+        "perCall": 5
+      },
+      "estimated": {
+        "call": 13,
+        "reference": 6,
+        "perCall": 9
       }
     },
     {

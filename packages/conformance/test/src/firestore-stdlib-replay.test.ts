@@ -27,8 +27,10 @@ const replays = readdirSync(FIXTURES)
   .map((name) => JSON.parse(readFileSync(join(FIXTURES, name), 'utf8')) as ReplayObservation);
 
 describe('stdlib production replays', () => {
-  test('the turns and results modules have replays', () => {
-    expect(replays.map((r) => r.module)).toEqual(expect.arrayContaining(['results', 'turns']));
+  test('every replayed module keeps its replay', () => {
+    expect(replays.map((r) => r.module)).toEqual(
+      expect.arrayContaining(['content', 'counters', 'fairness', 'geometry', 'lifecycle', 'lobby', 'results', 'storage/objects', 'turns']),
+    );
   });
 
   for (const replay of replays) {

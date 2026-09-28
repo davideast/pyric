@@ -1,7 +1,11 @@
 {
   "costs": [
     { "function": "validSimpleMove", "cost": { "min": 26, "max": 26 }, "reads": 0 },
-    { "function": "validJumpMove", "cost": { "min": 31, "max": 31 }, "reads": 0 }
+    { "function": "validJumpMove", "cost": { "min": 31, "max": 31 }, "reads": 0 },
+    { "function": "file", "cost": { "min": 23, "max": 23 }, "reads": 0 },
+    { "function": "rank", "cost": { "min": 6, "max": 6 }, "reads": 0 },
+    { "function": "step", "cost": { "min": 49, "max": 49 }, "reads": 0 },
+    { "function": "inBounds", "cost": { "min": 5, "max": 9 }, "reads": 0 }
   ],
   "cases": [
     {
@@ -201,6 +205,546 @@
           }
         }
       ]
+    },
+    {
+      "description": "file reads 'e4' as file 5",
+      "expectation": "ALLOW",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "data": {
+        "moved": true
+      },
+      "wrapFunction": "file",
+      "wrapOperation": "create",
+      "wrapCallExpr": "file('e4') == 5"
+    },
+    {
+      "description": "file reads 'a1' as 1 and 'h8' as 8",
+      "expectation": "ALLOW",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "data": {
+        "moved": true
+      },
+      "wrapFunction": "file",
+      "wrapOperation": "create",
+      "wrapCallExpr": "file('a1') == 1 && file('h8') == 8"
+    },
+    {
+      "description": "file does not read 'e4' as file 4",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "data": {
+        "moved": true
+      },
+      "wrapFunction": "file",
+      "wrapOperation": "create",
+      "wrapCallExpr": "file('e4') == 4"
+    },
+    {
+      "description": "file is an error for a file letter past 'h'",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "data": {
+        "moved": true
+      },
+      "wrapFunction": "file",
+      "wrapOperation": "create",
+      "wrapCallExpr": "file('i4') is int"
+    },
+    {
+      "description": "file is an error for an uppercase file letter",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "data": {
+        "moved": true
+      },
+      "wrapFunction": "file",
+      "wrapOperation": "create",
+      "wrapCallExpr": "file('E4') is int"
+    },
+    {
+      "description": "file is an error for an empty string",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "data": {
+        "moved": true
+      },
+      "wrapFunction": "file",
+      "wrapOperation": "create",
+      "wrapCallExpr": "file('') is int"
+    },
+    {
+      "description": "file is an error for a non-string square",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "data": {
+        "moved": true
+      },
+      "wrapFunction": "file",
+      "wrapOperation": "create",
+      "wrapCallExpr": "file(5) is int"
+    },
+    {
+      "description": "rank reads 'e4' as rank 4",
+      "expectation": "ALLOW",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "data": {
+        "moved": true
+      },
+      "wrapFunction": "rank",
+      "wrapOperation": "create",
+      "wrapCallExpr": "rank('e4') == 4"
+    },
+    {
+      "description": "rank reads 'a1' as 1 and 'h8' as 8",
+      "expectation": "ALLOW",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "data": {
+        "moved": true
+      },
+      "wrapFunction": "rank",
+      "wrapOperation": "create",
+      "wrapCallExpr": "rank('a1') == 1 && rank('h8') == 8"
+    },
+    {
+      "description": "rank does not read 'e4' as rank 5",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "data": {
+        "moved": true
+      },
+      "wrapFunction": "rank",
+      "wrapOperation": "create",
+      "wrapCallExpr": "rank('e4') == 5"
+    },
+    {
+      "description": "rank is an error for a letter in the rank place",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "data": {
+        "moved": true
+      },
+      "wrapFunction": "rank",
+      "wrapOperation": "create",
+      "wrapCallExpr": "rank('ex') is int"
+    },
+    {
+      "description": "rank is an error for a square with no rank",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "data": {
+        "moved": true
+      },
+      "wrapFunction": "rank",
+      "wrapOperation": "create",
+      "wrapCallExpr": "rank('e') is int"
+    },
+    {
+      "description": "rank is an error for a non-string square",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "data": {
+        "moved": true
+      },
+      "wrapFunction": "rank",
+      "wrapOperation": "create",
+      "wrapCallExpr": "rank(5) is int"
+    },
+    {
+      "description": "step moves 'e4' one file and one rank up to 'f5'",
+      "expectation": "ALLOW",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "data": {
+        "moved": true
+      },
+      "wrapFunction": "step",
+      "wrapOperation": "create",
+      "wrapCallExpr": "step('e4', 1, 1) == 'f5'"
+    },
+    {
+      "description": "step moves 'e4' one file and one rank down to 'd3'",
+      "expectation": "ALLOW",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "data": {
+        "moved": true
+      },
+      "wrapFunction": "step",
+      "wrapOperation": "create",
+      "wrapCallExpr": "step('e4', -1, -1) == 'd3'"
+    },
+    {
+      "description": "step crosses the board from 'a1' to 'h8'",
+      "expectation": "ALLOW",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "data": {
+        "moved": true
+      },
+      "wrapFunction": "step",
+      "wrapOperation": "create",
+      "wrapCallExpr": "step('a1', 7, 7) == 'h8'"
+    },
+    {
+      "description": "step by zero returns the same square",
+      "expectation": "ALLOW",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "data": {
+        "moved": true
+      },
+      "wrapFunction": "step",
+      "wrapOperation": "create",
+      "wrapCallExpr": "step('e4', 0, 0) == 'e4'"
+    },
+    {
+      "description": "step does not move 'e4' to 'f3' for one file and one rank up",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "data": {
+        "moved": true
+      },
+      "wrapFunction": "step",
+      "wrapOperation": "create",
+      "wrapCallExpr": "step('e4', 1, 1) == 'f3'"
+    },
+    {
+      "description": "step is an error past the 'h' file",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "data": {
+        "moved": true
+      },
+      "wrapFunction": "step",
+      "wrapOperation": "create",
+      "wrapCallExpr": "step('h4', 1, 0) is string"
+    },
+    {
+      "description": "step is an error past the 'a' file",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "data": {
+        "moved": true
+      },
+      "wrapFunction": "step",
+      "wrapOperation": "create",
+      "wrapCallExpr": "step('a4', -1, 0) is string"
+    },
+    {
+      "description": "step is an error past rank 8",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "data": {
+        "moved": true
+      },
+      "wrapFunction": "step",
+      "wrapOperation": "create",
+      "wrapCallExpr": "step('e8', 0, 1) is string"
+    },
+    {
+      "description": "step is an error past rank 1",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "data": {
+        "moved": true
+      },
+      "wrapFunction": "step",
+      "wrapOperation": "create",
+      "wrapCallExpr": "step('e1', 0, -1) is string"
+    },
+    {
+      "description": "step is an error for a file letter past 'h'",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "data": {
+        "moved": true
+      },
+      "wrapFunction": "step",
+      "wrapOperation": "create",
+      "wrapCallExpr": "step('z4', 0, 0) is string"
+    },
+    {
+      "description": "step is an error for a letter in the rank place",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "data": {
+        "moved": true
+      },
+      "wrapFunction": "step",
+      "wrapOperation": "create",
+      "wrapCallExpr": "step('ex', 0, 0) is string"
+    },
+    {
+      "description": "step is an error for a non-string square",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "data": {
+        "moved": true
+      },
+      "wrapFunction": "step",
+      "wrapOperation": "create",
+      "wrapCallExpr": "step(5, 0, 0) is string"
+    },
+    {
+      "description": "inBounds holds for 'e4'",
+      "expectation": "ALLOW",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "data": {
+        "moved": true
+      },
+      "wrapFunction": "inBounds",
+      "wrapOperation": "create",
+      "wrapCallExpr": "inBounds('e4')"
+    },
+    {
+      "description": "inBounds holds for the corners 'a1' and 'h8'",
+      "expectation": "ALLOW",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "data": {
+        "moved": true
+      },
+      "wrapFunction": "inBounds",
+      "wrapOperation": "create",
+      "wrapCallExpr": "inBounds('a1') && inBounds('h8')"
+    },
+    {
+      "description": "inBounds is false for a file letter past 'h'",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "data": {
+        "moved": true
+      },
+      "wrapFunction": "inBounds",
+      "wrapOperation": "create",
+      "wrapCallExpr": "inBounds('i4')"
+    },
+    {
+      "description": "inBounds is false for rank 9",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "data": {
+        "moved": true
+      },
+      "wrapFunction": "inBounds",
+      "wrapOperation": "create",
+      "wrapCallExpr": "inBounds('e9')"
+    },
+    {
+      "description": "inBounds is false for rank 0",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "data": {
+        "moved": true
+      },
+      "wrapFunction": "inBounds",
+      "wrapOperation": "create",
+      "wrapCallExpr": "inBounds('e0')"
+    },
+    {
+      "description": "inBounds is false for a square with extra characters",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "data": {
+        "moved": true
+      },
+      "wrapFunction": "inBounds",
+      "wrapOperation": "create",
+      "wrapCallExpr": "inBounds('e44')"
+    },
+    {
+      "description": "inBounds is false for an uppercase file letter",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "data": {
+        "moved": true
+      },
+      "wrapFunction": "inBounds",
+      "wrapOperation": "create",
+      "wrapCallExpr": "inBounds('E4')"
+    },
+    {
+      "description": "inBounds is false for an empty string",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "data": {
+        "moved": true
+      },
+      "wrapFunction": "inBounds",
+      "wrapOperation": "create",
+      "wrapCallExpr": "inBounds('')"
+    },
+    {
+      "description": "inBounds is false, not an error, for a malformed string",
+      "expectation": "ALLOW",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "data": {
+        "moved": true
+      },
+      "wrapFunction": "inBounds",
+      "wrapOperation": "create",
+      "wrapCallExpr": "!inBounds('e44')"
+    },
+    {
+      "description": "inBounds does not hold for a non-string square",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "data": {
+        "moved": true
+      },
+      "wrapFunction": "inBounds",
+      "wrapOperation": "create",
+      "wrapCallExpr": "inBounds(request.resource.data.moved)"
+    },
+    {
+      "description": "inBounds is false, not an error, for a non-string square",
+      "expectation": "ALLOW",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "data": {
+        "moved": true
+      },
+      "wrapFunction": "inBounds",
+      "wrapOperation": "create",
+      "wrapCallExpr": "!inBounds(request.resource.data.moved)"
     }
   ]
 }

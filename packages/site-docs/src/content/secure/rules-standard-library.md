@@ -136,7 +136,7 @@ These are the Firestore-compatible modules used by this guide. The [complete ref
 | `counters` | Bounded values, controlled numeric changes, and best scores | `incrementedBy`, `changedBy`, `boundedNumber`, `improvedBy` |
 | `timing` | Update cooldowns | `cooldownElapsed` |
 | `atomic` | Companion changes in one batch | `companionChangedBy`, `consumedFlag` |
-| `geometry` | Config-driven game moves | `validSimpleMove`, `validJumpMove` |
+| `geometry` | Config-driven game moves and named board squares | `validSimpleMove`, `validJumpMove`, `file`, `rank`, `step`, `inBounds` |
 | `lobby` | Two-player session creation, joining, and rematches | `validCreate`, `validJoin`, `canCancel`, `validRematch` |
 | `turns` | Turn enforcement for two seats or a seat list | `isMyTurn`, `turnFlipped`, `isSeatTurn`, `turnAdvanced` |
 | `state` | Game status, move count, and participants | `isPlaying`, `moveIncremented`, `participantsUnchanged` |
@@ -241,6 +241,39 @@ allow update: if improvedBy('moves', 'down', ['pushes', 'solve'])
   || improvedBy('pushes', 'down', ['solve']);
 ```
 The second call leaves `moves` out of `mayChange`, so it allows fewer pushes only on as many moves. `improvedBy` reads `resource.data`, so call it from update rules only.
+
+`geometry` has four functions for a board keyed by square names such as `'e4'`, on an 8 by 8 board. A square is a file letter `'a'` to `'h'` followed by a rank digit `'1'` to `'8'`:
+
+- `file(square)`: the file as a number, `'a'` is 1 and `'h'` is 8.
+- `rank(square)`: the rank as a number.
+- `step(square, df, dr)`: the square `df` files and `dr` ranks away, as a name.
+- `inBounds(square)`: the value is a string that names a square of the board.
+
+A checkers man moves one square diagonally forward:
+```rules
+allow update: if inBounds(request.resource.data.to)
+  && (request.resource.data.to == step(resource.data.from, 1, 1)
+      || request.resource.data.to == step(resource.data.from, -1, 1));
+```
+Read the result this way:
+
+- `file`, `rank`, and `step` read a square; they don't check it. A malformed square is an error, and the rule denies.
+- `rank` reads only the second character, so `rank('e9')` is 9 and `rank('e44')` is 4. Call `inBounds` on a square the client wrote before you trust it.
+- A step off the board in any direction is an error. Inside `||`, a true operand still allows, so a step off one edge doesn't deny a move toward the other.
+- `inBounds` is false, not an error, for anything that isn't a square, a non-string included.
+
+Each function costs what the same check costs when you write it inline:
+
+| Check | With `geometry` | Written inline |
+|---|---|---|
+| File of a square | `file`: 23 | map lookup on `sq[0:1]`: 23 |
+| Rank of a square | `rank`: 6 | `int(sq[1:2])`: 6 |
+| `to` is `df` files and `dr` ranks from `from` | `step(from, df, dr) == to`: 51 | file and rank differences: 53 to 71 |
+| Square is on the board | `inBounds`: 5 to 9 | range check on an int cell: 6 to 14 |
+
+To test that `to` is any one diagonal neighbor of `from`, compare `file` and `rank` differences, which costs 73 to 145. Four `step` calls cost more than 200 when none of them match.
+
+A board keyed by rank and file digits, such as `'34'` for rank 3 and file 4, needs none of these: `string(int(sq) + 10 * dr + df)` is the step.
 
 ## Check Storage objects by name
 

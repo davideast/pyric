@@ -340,6 +340,38 @@ export function digestByte(digest, index) {
 //
 //   allow update: if validJumpMove(config())
 //     && captureValid() && captureDecrement() && moveIntegrity();
+//
+// Named squares: file, rank, step and inBounds read squares named the way
+// chess and checkers name them, on an 8 by 8 board.
+//
+// Convention: a square is a string of two characters:
+//   file: 'a' to 'h', left to right; file() reads 'a' as 1 and 'h' as 8
+//   rank: '1' to '8', bottom to top; rank() reads '1' as 1
+//
+// file, rank and step read a square; they don't check it. A malformed
+// square is an error, which denies, except that rank reads only the second
+// character, so rank('e9') is 9 and rank('e44') is 4. Call inBounds on a
+// square the client wrote before you trust it. A board keyed by rank and
+// file digits, such as '34' for rank 3 and file 4, needs none of these:
+// string(int(sq) + 10 * dr + df) is the step.
+//
+// Each costs what the same check costs written inline: file 23 and rank 6,
+// the same map lookup and int(). step(from, df, dr) == to costs 51, where
+// the same test written as file and rank differences costs 53 to 71. To
+// test that \`to\` is any one diagonal neighbor of \`from\`, compare file and
+// rank differences (73 to 145) rather than calling step four times (over
+// 200 when none match).
+//
+// Usage:
+//   import { file, rank, step, inBounds } from 'geometry';
+//
+//   // The piece moves one square diagonally forward:
+//   allow update: if inBounds(request.resource.data.to)
+//     && (request.resource.data.to == step(resource.data.from, 1, 1)
+//         || request.resource.data.to == step(resource.data.from, -1, 1));
+//
+//   // A man crowns only on the far rank:
+//   allow update: if rank(request.resource.data.to) == 8;
 
 // Validate a simple (non-capture) move via config document lookup.
 // Uses 3-level dynamic nesting: cfg.moves[piece][from][to].
@@ -362,6 +394,39 @@ export function validJumpMove(cfg) {
   let cap = request.resource.data.captured;
   let piece = resource.data[mf];
   return cfg.jumps[piece][mf][mt] == cap;
+}
+
+// The file of a square as a number, 'a' is 1 and 'h' is 8. A first
+// character outside 'a' to 'h', an empty string, or a non-string square is
+// an error, which denies.
+// cost 23 to 23 expressions per call
+export function file(square) {
+  return {'a': 1, 'b': 2, 'c': 3, 'd': 4, 'e': 5, 'f': 6, 'g': 7, 'h': 8}[square[0:1]];
+}
+
+// The rank of a square as a number: the second character read as a digit.
+// A second character that is not a digit, a square shorter than two
+// characters, or a non-string square is an error, which denies.
+// cost 6 to 6 expressions per call
+export function rank(square) {
+  return int(square[1:2]);
+}
+
+// The square \`df\` files and \`dr\` ranks away from \`square\`, as a name. A
+// step off the board in any direction is an error, which denies.
+// cost 49 to 49 expressions per call
+export function step(square, df, dr) {
+  let f = {'a': 0, 'b': 1, 'c': 2, 'd': 3, 'e': 4, 'f': 5, 'g': 6, 'h': 7}[square[0:1]] + df;
+  let r = int(square[1:2]) - 1 + dr;
+  return 'abcdefgh'[f:f + 1] + '12345678'[r:r + 1];
+}
+
+// The square names a square of the board: a string of one file letter
+// 'a' to 'h' and one rank digit '1' to '8'. Anything else, a non-string
+// included, is false.
+// cost 5 to 9 expressions per call
+export function inBounds(square) {
+  return square is string && square.matches('[a-h][1-8]');
 }
 `,
   "joining": `// @pyric-services cloud.firestore

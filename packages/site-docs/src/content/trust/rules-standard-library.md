@@ -37,7 +37,7 @@ shown in each row's **Verified** column.
 | [storage/time](#storagetime) | Storage | Self-contained | — | Storage evaluator + production oracle |
 | [lifecycle](#lifecycle) | Firestore | Self-contained | — | Simulator + Rules Test API replay |
 | [transitions](#transitions) | Firestore | Self-contained | — | Simulator |
-| [geometry](#geometry) | Firestore | Explicit param | Patterns 12-14 | Simulator + live Rules validation |
+| [geometry](#geometry) | Firestore | Explicit param | Patterns 12-14 | Simulator + live Rules validation + Rules Test API replay |
 | [counters](#counters) | Firestore | Self-contained | — | Simulator + Rules Test API replay |
 | [timing](#timing) | Firestore | Self-contained | — | Simulator + live Rules validation |
 | [content](#content) | Firestore | Self-contained | — | Simulator + Rules Test API replay |
@@ -265,7 +265,7 @@ File: `transitions.rules` | Tests: `transitions.test.json`
 
 ### geometry
 
-Movement game validation via config document lookup. Caller must pass the config data from a `get()` call — no implicit dependencies.
+Movement game validation via config document lookup, and arithmetic on named squares. Caller must pass the config data from a `get()` call, with no implicit dependencies.
 
 | Function | Params | Returns | Description |
 |----------|--------|---------|-------------|
@@ -287,8 +287,30 @@ allow update: if validJumpMove(config()) && captureValid() && moveIntegrity();
 
 **Config doc schema**: See Pattern 15 in PATTERNS.md. Keys: `moves[pieceType][from][to] = true`, `jumps[pieceType][from][to] = capturedCell`.
 
+Named squares, on an 8 by 8 board: a square is a file letter `'a'` to `'h'` followed by a rank digit `'1'` to `'8'`.
+
+| Function | Params | Returns | Description |
+|----------|--------|---------|-------------|
+| `file(square)` | square: string | int | File as a number, `'a'` is 1 and `'h'` is 8. A malformed square is an error |
+| `rank(square)` | square: string | int | Second character read as a digit. A non-digit is an error |
+| `step(square, df, dr)` | square: string, df/dr: int | string | Square `df` files and `dr` ranks away. Off the board in any direction is an error |
+| `inBounds(square)` | square: any | bool | String of one file letter and one rank digit. False for anything else, a non-string included |
+
+`file`, `rank`, and `step` read a square without checking it, and `rank('e9')` is 9. Check a client-written square with `inBounds` first.
+
+Each named-square function was measured against the same check written inline, with the same padding measurement against production:
+
+| Check | With `geometry` | Written inline |
+|---|---|---|
+| File of a square | `file`: 23 | map lookup on `sq[0:1]`: 23 |
+| Rank of a square | `rank`: 6 | `int(sq[1:2])`: 6 |
+| `to` is `df` files and `dr` ranks from `from` | `step(from, df, dr) == to`: 51 | file and rank differences: 53 to 71 |
+| Square is on the board | `inBounds`: 5 to 9 | range check on an int cell: 6 to 14 |
+
+To test for any one diagonal neighbor, file and rank differences cost 73 to 145, and four `step` calls cost more.
+
 File: `geometry.rules` | Tests: `geometry.test.json`
-Proven by lookup-doc, path-blocking, and checkers lookup validation probes.
+Proven by lookup-doc, path-blocking, and checkers lookup validation probes. Every case replayed through the Rules Test API with the same decision.
 Patterns: 12 (Config Document), 13 (Path Blocking), 14 (Piece-Type-Agnostic)
 
 ### counters
