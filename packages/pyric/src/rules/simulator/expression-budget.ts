@@ -24,14 +24,32 @@
  *  - a namespace call (`math.pow()`) costs 1 more than a method call on a
  *    value, charged once its arguments evaluate without an error.
  *
+ * Production also fixes when each unit is charged, which decides the
+ * expression a request that reaches the limit stops at. The limit-position
+ * capture in `captures.json` (padded requests on the chess queen move and a
+ * synthetic rule-count ladder) places the charges this way:
+ *
+ *  - an expression node is charged when its evaluation completes, after its
+ *    operands, receiver and arguments, whether it produced a value or an
+ *    error;
+ *  - a call by name (a declared function, or a global such as `get()`) is
+ *    charged when it is entered, before its arguments;
+ *  - the second unit of `&&` and `||` is charged after the left operand,
+ *    before the right one;
+ *  - a `let` binding is charged after its value, at the `let`.
+ *
+ * The totals do not depend on this order, so the padding thresholds, which
+ * measure totals, agree with either; the stopping point does.
+ *
  * The evaluators charge through the named methods below, so the unit lives
  * here once, each charge naming the expression it is for. The budget does
  * not format or record expressions; it counts, and when a charge reaches the
  * limit it hands that expression's source position to the error, the
- * position production reports the limit at.
+ * position production reports the limit at (`expression-positions.ts`).
  */
 import { EXPRESSION_LIMIT } from '../linter/expression-cost.js';
 import {
+  completionPosition,
   describeExpressionPosition,
   expressionPosition,
   type ExpressionPosition,
@@ -68,43 +86,47 @@ export class ExpressionBudget {
     readonly limit: number = EXPRESSION_LIMIT,
   ) {}
 
-  /** One evaluated expression node. */
+  /** One evaluated expression node, charged as its evaluation completes. */
   node(at?: object): void {
-    this.charge(at);
+    this.charge(at === undefined ? undefined : completionPosition(at));
+  }
+
+  /** A call by name (a declared function or a global such as `get()`), charged as it is entered, before its arguments. */
+  call(at?: object): void {
+    this.charge(at === undefined ? undefined : expressionPosition(at));
   }
 
   /** The second unit `&&` or `||` pays when it evaluates its right operand. */
   logicalRight(at?: object): void {
-    this.charge(at);
+    this.charge(at === undefined ? undefined : expressionPosition(at));
   }
 
   /** The second unit a ternary pays, charged before its condition. */
   ternary(at?: object): void {
-    this.charge(at);
+    this.charge(at === undefined ? undefined : expressionPosition(at));
   }
 
   /** The two further units a ternary pays when it takes the false branch. */
   ternaryElse(at?: object): void {
-    this.charge(at);
-    this.charge(at);
+    const position = at === undefined ? undefined : expressionPosition(at);
+    this.charge(position);
+    this.charge(position);
   }
 
   /** One literal segment of a path literal. */
   pathSegment(at?: object): void {
-    this.charge(at);
+    this.charge(at === undefined ? undefined : expressionPosition(at));
   }
 
-  /** One `let` binding, charged before its value is evaluated; `at` is the value. */
+  /** One `let` binding, charged after its value is evaluated; `at` is the binding, placed at its `let`. */
   letBinding(at?: object): void {
-    this.charge(at);
+    this.charge(at === undefined ? undefined : expressionPosition(at));
   }
 
-  /** @param at the parsed expression the unit is for, whose position a limit reports. */
-  private charge(at: object | undefined): void {
+  /** @param position where production reports the limit when this unit reaches it. */
+  private charge(position: ExpressionPosition | undefined): void {
     // A request may evaluate `limit` expressions; the next one stops it.
-    if (this.evaluated >= this.limit) {
-      throw this.exhausted(EXPRESSION_LIMIT_MESSAGE, at === undefined ? undefined : expressionPosition(at));
-    }
+    if (this.evaluated >= this.limit) throw this.exhausted(EXPRESSION_LIMIT_MESSAGE, position);
     this.evaluated++;
   }
 }

@@ -55,8 +55,27 @@ export function evaluate(expr: Expression, ctx: SimulationContext, scope: Record
 
 function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<string, unknown>): unknown {
   // One unit per evaluated node, charged inside the trace capture so the
-  // node that reaches the limit records the limit as its error.
-  ctx.expressionBudget?.node(expr);
+  // node that reaches the limit records the limit as its error. A call by
+  // name is charged as it is entered; every other node as it completes,
+  // with a value or an error (`expression-budget.ts`).
+  const budget = ctx.expressionBudget;
+  if (!budget) return evaluateNode(expr, ctx, scope);
+  if (expr.type === 'functionCall') {
+    budget.call(expr);
+    return evaluateNode(expr, ctx, scope);
+  }
+  let value: unknown;
+  try {
+    value = evaluateNode(expr, ctx, scope);
+  } catch (e) {
+    if (!(e instanceof ResourceLimitError)) budget.node(expr);
+    throw e;
+  }
+  budget.node(expr);
+  return value;
+}
+
+function evaluateNode(expr: Expression, ctx: SimulationContext, scope: Record<string, unknown>): unknown {
   switch (expr.type) {
     // ═══ Layer 1: Literals, identifiers, binary ops ═══
 
@@ -153,7 +172,10 @@ function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<st
     }
 
     case 'bracketAccess': {
-      const [obj, idx] = evaluateOperands([expr.object, expr.index], ctx, scope);
+      // Production evaluates the index before the value it indexes: a
+      // request that reaches the expression limit inside `a[b]` stops in `b`
+      // first (the limit-position capture in `captures.json`).
+      const [idx, obj] = evaluateOperands([expr.index, expr.object], ctx, scope);
       // RULES-B2: index/key access on null/undefined errors in production
       // (no CEL index overload for null), absorbed by &&/|| where guarded.
       if (obj === null || obj === undefined) {

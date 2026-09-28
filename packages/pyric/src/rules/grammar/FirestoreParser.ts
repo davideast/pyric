@@ -7,7 +7,7 @@ import type {
 import { addParenthesizedGroup } from './paren-groups.js';
 import { boundSourceNesting, type SourceNestingFailure } from './compile-limits.js';
 import { MAX_BRACKET_DEPTH } from './bracket-scan.js';
-import { SourcePositions, setExpressionPosition } from './expression-positions.js';
+import { SourcePositions, setCompletionPosition, setExpressionPosition } from './expression-positions.js';
 
 // The grammar source is inlined at SDK build time (see
 // scripts/inline-grammar.ts). This keeps the parser browser-safe — no
@@ -55,6 +55,12 @@ let buildPositions: SourcePositions | null = null;
 /** Records where `expr` starts: the first character of `node` in the parsed source. */
 function placedAt<T extends object>(expr: T, node: { source: { startIdx: number } }): T {
   if (buildPositions !== null) setExpressionPosition(expr, buildPositions.at(node.source.startIdx));
+  return expr;
+}
+
+/** Records where a `&&` completes: the first character of `node`, which spans the conjunction. */
+function completesAt<T extends object>(expr: T, node: { source: { startIdx: number } }): T {
+  if (buildPositions !== null) setCompletionPosition(expr, buildPositions.at(node.source.startIdx));
   return expr;
 }
 
@@ -196,7 +202,8 @@ semantics.addOperation<any>('toAST', {
   },
   LetBinding(_kw, name, _eq, expr, _semi) {
     const { lineNum, colNum } = (_kw.source as any).getLineAndColumn();
-    return { name: name.sourceString, value: expr.toAST(), loc: { line: lineNum, col: colNum } } as LetBinding;
+    // Placed at `let`, where production reports a limit reached on the binding.
+    return placedAt({ name: name.sourceString, value: expr.toAST(), loc: { line: lineNum, col: colNum } } as LetBinding, this);
   },
   ReturnStatement(_kw, expr, _semi) { return expr.toAST(); },
 
@@ -209,7 +216,7 @@ semantics.addOperation<any>('toAST', {
     return placedAt({ type: 'binaryOp', op: '||', left: left.toAST(), right: right.toAST() }, _op);
   },
   LogicalAnd_and(left, _op, right) {
-    return placedAt({ type: 'binaryOp', op: '&&', left: left.toAST(), right: right.toAST() }, _op);
+    return completesAt(placedAt({ type: 'binaryOp', op: '&&', left: left.toAST(), right: right.toAST() }, _op), this);
   },
   InIsExpr_in(left, _op, right) {
     return placedAt({ type: 'inExpr', element: left.toAST(), collection: right.toAST() }, _op);
@@ -276,6 +283,8 @@ semantics.addOperation<any>('toAST', {
   Primary_paren(_lp, expr, _rp) {
     const inner = expr.toAST() as Expression;
     addParenthesizedGroup(inner);
+    // A parenthesized conjunction completes at its opening parenthesis.
+    if (inner.type === 'binaryOp' && inner.op === '&&') completesAt(inner, this);
     return inner;
   },
   Primary_path(p) { return p.toAST(); },

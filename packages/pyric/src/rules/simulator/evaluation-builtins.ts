@@ -158,9 +158,9 @@ export function evaluateFunctionCall(
     // value of `<name>`" without re-walking the function AST. A binding
     // whose value errors holds the error, as a parameter does.
     for (const binding of fn.lets) {
-      ctx.expressionBudget?.letBinding(binding.value);
       const bindingRootIdx = ctx.trace ? ctx.trace.entries.length : -1;
       fnScope[binding.name] = evaluateBinding(binding.value, ctx, fnScope);
+      ctx.expressionBudget?.letBinding(binding);
       if (bindingRootIdx >= 0) {
         ctx.trace?.markEntryAsLetBinding(bindingRootIdx, binding.name);
       }

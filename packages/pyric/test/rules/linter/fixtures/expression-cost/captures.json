@@ -52,6 +52,88 @@
           "at": 37
         }
       }
+    ],
+    "ruleLadder": [
+      {
+        "rules": 1,
+        "line": 20,
+        "column": 169
+      },
+      {
+        "rules": 2,
+        "line": 20,
+        "column": 181
+      },
+      {
+        "rules": 3,
+        "line": 20,
+        "column": 193
+      },
+      {
+        "rules": 4,
+        "line": 20,
+        "column": 205
+      },
+      {
+        "rules": 5,
+        "line": 20,
+        "column": 217
+      },
+      {
+        "rules": 6,
+        "line": 20,
+        "column": 229
+      },
+      {
+        "rules": 7,
+        "line": 20,
+        "column": 241
+      },
+      {
+        "rules": 8,
+        "line": 20,
+        "column": 253
+      },
+      {
+        "rules": 9,
+        "line": 20,
+        "column": 265
+      },
+      {
+        "rules": 10,
+        "line": 20,
+        "column": 277
+      },
+      {
+        "rules": 11,
+        "line": 20,
+        "column": 289
+      },
+      {
+        "rules": 12,
+        "line": 20,
+        "column": 301
+      },
+      {
+        "rules": 13,
+        "line": 20,
+        "column": 313
+      },
+      {
+        "rules": 14,
+        "line": 20,
+        "column": 325
+      },
+      {
+        "rules": 15,
+        "line": 20,
+        "column": 337
+      },
+      {
+        "rules": 16,
+        "line": 20,
+        "column": 349
+      }
     ]
   },
   "suites": [
@@ -2814,7 +2896,64 @@
             "cost": {
               "low": 1000,
               "high": null
-            }
+            },
+            "limitPositions": [
+              {
+                "pad": 0,
+                "line": 154,
+                "column": 1845
+              },
+              {
+                "pad": 10,
+                "line": 154,
+                "column": 1340
+              },
+              {
+                "pad": 20,
+                "line": 154,
+                "column": 514
+              },
+              {
+                "pad": 40,
+                "line": 149,
+                "column": 127
+              },
+              {
+                "pad": 60,
+                "line": 144,
+                "column": 533
+              },
+              {
+                "pad": 80,
+                "line": 144,
+                "column": 243
+              },
+              {
+                "pad": 100,
+                "line": 53,
+                "column": 20
+              },
+              {
+                "pad": 120,
+                "line": 67,
+                "column": 226
+              },
+              {
+                "pad": 140,
+                "line": 66,
+                "column": 9
+              },
+              {
+                "pad": 160,
+                "line": 56,
+                "column": 35
+              },
+              {
+                "pad": 180,
+                "line": 173,
+                "column": 24
+              }
+            ]
           },
           "simulator": {
             "decision": "ALLOW",

@@ -203,6 +203,59 @@ export function isLimitMessage(notes: readonly string[]): boolean {
   return notes.some((note) => note.includes(`maximum of ${EXPRESSION_LIMIT} expressions`));
 }
 
+/** Where production reported a request stopped at the limit: its `line [L], column [C]`. */
+export interface LimitPosition {
+  line: number;
+  column: number;
+}
+
+/** The position a limit note cites, or null when the notes carry no limit position. */
+export function limitPosition(notes: readonly string[]): LimitPosition | null {
+  for (const note of notes) {
+    if (!note.includes(`maximum of ${EXPRESSION_LIMIT} expressions`)) continue;
+    const match = /line \[(\d+)\], column \[(\d+)\]/.exec(note);
+    if (match) return { line: Number(match[1]), column: Number(match[2]) };
+  }
+  return null;
+}
+
+/**
+ * Padding steps the limit-position capture sends a limit-reaching request
+ * with. Each stops the request about 50 expressions earlier than the last,
+ * so the reported positions walk back through the whole request.
+ */
+export const LIMIT_POSITION_STEPS = [0, 10, 20, 40, 60, 80, 100, 120, 140, 160, 180] as const;
+
+/** Rule counts of the rule-ladder ruleset: block `/tN/{id}` holds N-1 `false` rules and then the padding. */
+export const RULE_LADDER_COUNTS = Array.from({ length: 16 }, (_, i) => i + 1);
+
+/**
+ * The rule-ladder ruleset. A `get` of `tN/x` with `pyric_pad` at PAD_MAX
+ * evaluates N-1 rules of one literal each and then the padding, which
+ * reaches the limit while its nested conjunctions complete. The position
+ * production reports shows which conjunction completed at the 1001st
+ * expression, so it fixes both the order production charges in and the
+ * cost of the rules before the padding.
+ */
+export function ruleLadderRules(): string {
+  const blocks = RULE_LADDER_COUNTS.map((n) => [
+    `    match /t${n}/{id} {`,
+    ...Array.from({ length: n - 1 }, () => '      allow get: if false;'),
+    `      ${padRule('get')}`,
+    '    }',
+  ].join('\n'));
+  return [
+    "rules_version = '2';",
+    'service cloud.firestore {',
+    '  match /databases/{database}/documents {',
+    padFunctions(),
+    ...blocks,
+    '  }',
+    '}',
+    '',
+  ].join('\n');
+}
+
 /** Anchor ruleset: padding then a false rule, and padding then a second padding. */
 export function anchorRules(): string {
   return [

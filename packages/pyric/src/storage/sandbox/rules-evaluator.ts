@@ -260,7 +260,27 @@ export interface EvalCtx {
  * potentially truthy value.
  */
 export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
-  ctx.expressionBudget?.node(expr);
+  // A call by name is charged as it is entered; every other node as it
+  // completes, with a value or an error, as the Firestore simulator charges
+  // (`expression-budget.ts`).
+  const budget = ctx.expressionBudget;
+  if (!budget) return evalNode(expr, ctx);
+  if (expr.kind === 'call') {
+    budget.call(expr);
+    return evalNode(expr, ctx);
+  }
+  let value: unknown;
+  try {
+    value = evalNode(expr, ctx);
+  } catch (e) {
+    if (!(e instanceof RuleResourceLimitError)) budget.node(expr);
+    throw e;
+  }
+  budget.node(expr);
+  return value;
+}
+
+function evalNode(expr: Expr, ctx: EvalCtx): unknown {
   switch (expr.kind) {
     case 'literal':
       return expr.value;
@@ -288,9 +308,11 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       return readProperty(t, expr.name);
     }
     case 'index': {
-      const operands = evalOperands([expr.target, expr.index], ctx);
+      // The index evaluates before the value it indexes, as in the
+      // Firestore simulator.
+      const operands = evalOperands([expr.index, expr.target], ctx);
       if (isErr(operands)) return operands;
-      const [t, idx] = operands;
+      const [idx, t] = operands;
       if (t === null || t === undefined) return new RuleError(`Null value error.`);
       // A list index must be an int within bounds (`index-access.ts`, shared
       // with the Firestore simulator); a map key reads as a property.
@@ -584,8 +606,8 @@ function evalCall(expr: Extract<Expr, { kind: 'call' }>, ctx: EvalCtx): unknown 
   // to the return expression (they share the `locals` object). A binding
   // whose value errors holds the error, as a parameter does.
   for (const b of fn.lets) {
-    bodyCtx.expressionBudget?.letBinding(b.value);
     locals[b.name] = evalOperand(b.value, bodyCtx);
+    bodyCtx.expressionBudget?.letBinding(b);
   }
   return evalExpr(fn.body, bodyCtx);
 }

@@ -424,7 +424,11 @@ function convertFunction(fn: SharedFunctionDef): FunctionDef {
   return {
     name: fn.name,
     params: fn.parameters,
-    lets: fn.lets.map((l) => ({ name: l.name, value: convertExpr(l.value) })),
+    lets: fn.lets.map((l) => {
+      const binding = { name: l.name, value: convertExpr(l.value) };
+      copyExpressionPosition(l, binding);
+      return binding;
+    }),
     body: convertExpr(fn.body),
   };
 }

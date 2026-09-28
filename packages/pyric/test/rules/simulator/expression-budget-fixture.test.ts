@@ -16,16 +16,25 @@
  * lie in that window, which is 5 expressions wide. The window is computed
  * from the thresholds, not from the fixture's `production.cost`, which
  * carries the rounding of a linear fit of P(n).
+ *
+ * Thresholds measure totals. Where a request stops at the limit also depends
+ * on the order expressions are charged in, so the fixture records the
+ * positions production reported for the rule ladder and for the request
+ * that reaches the limit at a series of paddings, and this test requires
+ * the simulator to stop at the same positions.
  */
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  LIMIT_POSITION_STEPS,
+  PAD_MAX,
   PAD_SECOND_TOKEN,
   PAD_TOKEN,
   anchorRules,
   injectPadding,
+  ruleLadderRules,
 } from '../../../../conformance/src/rules-expression-cost-pad.ts';
 import { SimulateFirestoreRulesHandler } from '../../../src/rules/simulator/handler.js';
 import { EXPRESSION_LIMIT, EXPRESSION_LIMIT_MESSAGE } from '../../../src/rules/simulator/expression-budget.js';
@@ -38,11 +47,19 @@ const FIXTURES = join(HERE, '..', 'linter', 'fixtures', 'expression-cost');
 const REPO_ROOT = join(HERE, '..', '..', '..', '..', '..');
 
 interface Threshold { below: number; at: number }
+interface Position { line: number; column: number }
 interface CaptureCase {
   id: string;
   block: string;
   testCase: TestCase;
-  production: { decision: 'ALLOW' | 'DENY'; limitReached: boolean; threshold: Threshold; notes: string[] };
+  production: {
+    decision: 'ALLOW' | 'DENY';
+    limitReached: boolean;
+    threshold: Threshold;
+    notes: string[];
+    /** Where production stopped the request padded by `pad` steps, for a request that reaches the limit. */
+    limitPositions?: (Position & { pad: number })[];
+  };
 }
 interface CaptureSuite {
   id: string;
@@ -52,7 +69,11 @@ interface CaptureSuite {
 }
 interface Captures {
   limit: number;
-  padding: { anchors: { second: number | null; threshold: Threshold }[] };
+  padding: {
+    anchors: { second: number | null; threshold: Threshold }[];
+    /** Where production stopped each block of the rule ladder. */
+    ruleLadder: (Position & { rules: number })[];
+  };
   suites: CaptureSuite[];
 }
 
@@ -86,6 +107,7 @@ function padded(tc: TestCase, token: Record<string, number>): TestCase {
 }
 
 const ANCHOR_RULES = anchorRules();
+const RULE_LADDER = ruleLadderRules();
 const ANCHOR_CASE: TestCase = {
   description: 'anchor', expectation: 'DENY', method: 'get', path: 'anchor-false/x', auth: { uid: 'pyric-pad' },
 };
@@ -116,6 +138,20 @@ describe('padding cost in the simulator', () => {
       expect(padCost(n)).toBe(9 + 5 * n + 2 * Math.floor(n / 40));
     }
   });
+
+  // The rule ladder: N-1 rules of one literal, then padding that reaches
+  // the limit as its nested conjunctions complete, innermost first. Each
+  // parenthesized conjunction completes at its own `(`, so the column shows
+  // the exact count, and one more rule moves it one conjunction deeper.
+  for (const { rules, line, column } of captures.padding.ruleLadder) {
+    test(`rule ladder with ${rules} rules stops where production did`, () => {
+      const r = simulate(RULE_LADDER, {
+        description: 'ladder', expectation: 'DENY', method: 'get', path: `t${rules}/x`,
+        auth: { uid: 'pyric-pad', token: { [PAD_TOKEN]: PAD_MAX } },
+      });
+      expect(r.resourceLimit).toMatchObject({ kind: 'expressions', line, column });
+    });
+  }
 
   for (const { second, threshold } of captures.padding.anchors) {
     test(`anchor ${second === null ? 'padding then false' : `padding then padding(${second})`} reaches the limit where production did`, () => {
@@ -211,20 +247,40 @@ describe("the chess showcase's Fool's Mate", () => {
   });
 
   // Production reported "firestore.rules line [135], column [1790]": inside
-  // the move-validation function the update rules call, not at any allow
-  // rule. The simulator counts about a dozen fewer expressions than
-  // production before that point, so its budget runs out a few terms
-  // later on the same line.
-  const [, productionLine] = /line \[(\d+)\], column \[(\d+)\]/.exec(mate.production.notes.join(' '))!;
+  // the king-safety function the update rules call, not at any allow rule.
+  // Column 1790 starts the conjunction `b.hp_B2 != '' && ...`, which
+  // completes as the 1001st expression once its `in` term is false.
+  const [, productionLine, productionColumn] = /line \[(\d+)\], column \[(\d+)\]/.exec(mate.production.notes.join(' '))!;
 
-  test('the limit carries the line production reported and a column on it', () => {
+  test('the limit carries the line and column production reported', () => {
     const r = simulate(source, tc);
     expect(r.resourceLimit?.line).toBe(Number(productionLine));
-    expect(r.resourceLimit?.column).toBeGreaterThan(0);
-    expect(r.notes.join(' ')).toContain(
-      `line ${r.resourceLimit!.line}, column ${r.resourceLimit!.column}: ${EXPRESSION_LIMIT_MESSAGE}`,
-    );
+    expect(r.resourceLimit?.column).toBe(Number(productionColumn));
+    expect(r.notes.join(' ')).toContain(`line ${productionLine}, column ${productionColumn}: ${EXPRESSION_LIMIT_MESSAGE}`);
   });
+
+  // The same request padded by each step in `limitPositions` stops about 50
+  // expressions earlier per step, so the positions walk back through the
+  // request. Production charges an expression as it completes and a call by
+  // name as it is entered, and evaluates an index before the value it
+  // indexes; the simulator stops where production did at every step but
+  // one. At step 20 production stops two or three expressions earlier,
+  // inside `cfg.moves[b[b.hp_R1]][b.hp_R1]`; that difference is not located.
+  const paddedSource = injectPadding(source, [{ anchor: `match ${mate.block} {`, method: tc.method }]);
+  const positions = mate.production.limitPositions!;
+
+  test('production stopped the request at each padding step', () => {
+    expect(positions.map((p) => p.pad)).toEqual([...LIMIT_POSITION_STEPS]);
+  });
+
+  for (const { pad, line, column } of positions) {
+    test(`padded by ${pad}, the request stops at line ${line}, column ${column}`, () => {
+      const limit = simulate(paddedSource, padded(tc as TestCase, { [PAD_TOKEN]: pad })).resourceLimit!;
+      expect(limit.line).toBe(line);
+      if (pad === 20) expect(Math.abs(limit.column! - column)).toBeLessThanOrEqual(12);
+      else expect(limit.column).toBe(column);
+    });
+  }
 
   test('explain() cites the rule that reached the limit and where the budget ran out', () => {
     const explanation = firestoreRules(source).explain(tc as FirestoreCase);
