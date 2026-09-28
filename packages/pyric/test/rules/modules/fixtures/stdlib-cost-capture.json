@@ -231,6 +231,36 @@
           ]
         }
       }
+    },
+    "storage/objects": {
+      "requests": 9,
+      "testCases": 352,
+      "date": "2026-09-28T05:20:43.556Z",
+      "modules": [
+        "storage/objects"
+      ],
+      "calibration": {
+        "storage": {
+          "d": 986,
+          "checks": [
+            {
+              "condition": "false",
+              "cost": 1,
+              "d": 986
+            },
+            {
+              "condition": "true && false",
+              "cost": 4,
+              "d": 986
+            },
+            {
+              "condition": "true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true",
+              "cost": 58,
+              "d": 986
+            }
+          ]
+        }
+      }
     }
   },
   "functions": [
@@ -838,6 +868,28 @@
       "reads": 0,
       "cheapestCase": "delete method is identified without reading missing request.resource",
       "mostExpensiveCase": "delete method is identified without reading missing request.resource"
+    },
+    {
+      "module": "storage/objects",
+      "function": "nameSegment",
+      "cost": {
+        "min": 17,
+        "max": 18
+      },
+      "reads": 0,
+      "cheapestCase": "nameSegment reads a create's first segment from request.resource.name",
+      "mostExpensiveCase": "nameSegment reads a get's third segment from resource.name"
+    },
+    {
+      "module": "storage/objects",
+      "function": "matchesDocument",
+      "cost": {
+        "min": 6,
+        "max": 26
+      },
+      "reads": 1,
+      "cheapestCase": "matchesDocument denies a signed-out upload the document names",
+      "mostExpensiveCase": "matchesDocument allows a get of an object the document names"
     },
     {
       "module": "storage/time",
@@ -4448,6 +4500,326 @@
         "call": 5,
         "reference": 2,
         "perCall": 5
+      }
+    },
+    {
+      "module": "storage/objects",
+      "function": "nameSegment",
+      "case": "nameSegment reads a create's first segment from request.resource.name",
+      "call": "nameSegment(0)",
+      "measured": {
+        "call": 18,
+        "reference": 3,
+        "perCall": 17
+      },
+      "estimated": {
+        "call": 19,
+        "reference": 3,
+        "perCall": 18
+      }
+    },
+    {
+      "module": "storage/objects",
+      "function": "nameSegment",
+      "case": "nameSegment reads an update's second segment from request.resource.name",
+      "call": "nameSegment(1)",
+      "measured": {
+        "call": 18,
+        "reference": 3,
+        "perCall": 17
+      },
+      "estimated": {
+        "call": 19,
+        "reference": 3,
+        "perCall": 18
+      }
+    },
+    {
+      "module": "storage/objects",
+      "function": "nameSegment",
+      "case": "nameSegment denies an update whose second segment is another user",
+      "call": "nameSegment(1)",
+      "measured": {
+        "call": 18,
+        "reference": 3,
+        "perCall": 17
+      },
+      "estimated": {
+        "call": 19,
+        "reference": 3,
+        "perCall": 18
+      }
+    },
+    {
+      "module": "storage/objects",
+      "function": "nameSegment",
+      "case": "nameSegment reads a get's third segment from resource.name",
+      "call": "nameSegment(2)",
+      "measured": {
+        "call": 19,
+        "reference": 3,
+        "perCall": 18
+      },
+      "estimated": {
+        "call": 19,
+        "reference": 3,
+        "perCall": 18
+      }
+    },
+    {
+      "module": "storage/objects",
+      "function": "nameSegment",
+      "case": "nameSegment denies a get whose third segment differs",
+      "call": "nameSegment(2)",
+      "measured": {
+        "call": 19,
+        "reference": 3,
+        "perCall": 18
+      },
+      "estimated": {
+        "call": 19,
+        "reference": 3,
+        "perCall": 18
+      }
+    },
+    {
+      "module": "storage/objects",
+      "function": "nameSegment",
+      "case": "nameSegment reads a delete's last segment from resource.name",
+      "call": "nameSegment(3)",
+      "measured": {
+        "call": 19,
+        "reference": 3,
+        "perCall": 18
+      },
+      "estimated": {
+        "call": 19,
+        "reference": 3,
+        "perCall": 18
+      }
+    },
+    {
+      "module": "storage/objects",
+      "function": "nameSegment",
+      "case": "nameSegment denies a delete whose last segment differs",
+      "call": "nameSegment(3)",
+      "measured": {
+        "call": 19,
+        "reference": 3,
+        "perCall": 18
+      },
+      "estimated": {
+        "call": 19,
+        "reference": 3,
+        "perCall": 18
+      }
+    },
+    {
+      "module": "storage/objects",
+      "function": "nameSegment",
+      "case": "nameSegment past the last segment is an error that denies",
+      "call": "nameSegment(4)",
+      "measured": {
+        "call": 18,
+        "reference": 3,
+        "perCall": 17
+      },
+      "estimated": {
+        "call": 19,
+        "reference": 3,
+        "perCall": 18
+      }
+    },
+    {
+      "module": "storage/objects",
+      "function": "nameSegment",
+      "case": "nameSegment of a name with no slash is the whole name",
+      "call": "nameSegment(0)",
+      "measured": {
+        "call": 18,
+        "reference": 3,
+        "perCall": 17
+      },
+      "estimated": {
+        "call": 19,
+        "reference": 3,
+        "perCall": 18
+      }
+    },
+    {
+      "module": "storage/objects",
+      "function": "nameSegment",
+      "case": "nameSegment of a name with no slash has no second segment",
+      "call": "nameSegment(1)",
+      "measured": {
+        "call": 18,
+        "reference": 3,
+        "perCall": 17
+      },
+      "estimated": {
+        "call": 19,
+        "reference": 3,
+        "perCall": 18
+      }
+    },
+    {
+      "module": "storage/objects",
+      "function": "matchesDocument",
+      "case": "matchesDocument allows an upload the document names",
+      "call": "matchesDocument(/databases/(default)/documents/scores/$(request.auth.uid), 'object')",
+      "measured": {
+        "call": 34,
+        "reference": 11,
+        "perCall": 25
+      },
+      "estimated": {
+        "call": 36,
+        "reference": 11,
+        "perCall": 27
+      }
+    },
+    {
+      "module": "storage/objects",
+      "function": "matchesDocument",
+      "case": "matchesDocument denies an upload the document names differently",
+      "call": "matchesDocument(/databases/(default)/documents/scores/$(request.auth.uid), 'object')",
+      "measured": {
+        "call": 34,
+        "reference": 11,
+        "perCall": 25
+      },
+      "estimated": {
+        "call": 36,
+        "reference": 11,
+        "perCall": 27
+      }
+    },
+    {
+      "module": "storage/objects",
+      "function": "matchesDocument",
+      "case": "matchesDocument denies an upload when the document is missing",
+      "call": "matchesDocument(/databases/(default)/documents/scores/$(request.auth.uid), 'object')",
+      "measured": {
+        "call": 34,
+        "reference": 11,
+        "perCall": 25
+      },
+      "estimated": {
+        "call": 36,
+        "reference": 11,
+        "perCall": 27
+      }
+    },
+    {
+      "module": "storage/objects",
+      "function": "matchesDocument",
+      "case": "matchesDocument denies when the document lacks the field",
+      "call": "matchesDocument(/databases/(default)/documents/scores/$(request.auth.uid), 'object')",
+      "measured": {
+        "call": 34,
+        "reference": 11,
+        "perCall": 25
+      },
+      "estimated": {
+        "call": 36,
+        "reference": 11,
+        "perCall": 27
+      }
+    },
+    {
+      "module": "storage/objects",
+      "function": "matchesDocument",
+      "case": "matchesDocument denies a signed-out upload the document names",
+      "call": "matchesDocument(/databases/(default)/documents/scores/alice, 'object')",
+      "measured": {
+        "call": 13,
+        "reference": 9,
+        "perCall": 6
+      },
+      "estimated": {
+        "call": 34,
+        "reference": 9,
+        "perCall": 27
+      }
+    },
+    {
+      "module": "storage/objects",
+      "function": "matchesDocument",
+      "case": "matchesDocument allows a get of an object the document names",
+      "call": "matchesDocument(/databases/(default)/documents/scores/alice, 'object')",
+      "measured": {
+        "call": 33,
+        "reference": 9,
+        "perCall": 26
+      },
+      "estimated": {
+        "call": 34,
+        "reference": 9,
+        "perCall": 27
+      }
+    },
+    {
+      "module": "storage/objects",
+      "function": "matchesDocument",
+      "case": "matchesDocument denies a get of an object the document no longer names",
+      "call": "matchesDocument(/databases/(default)/documents/scores/alice, 'object')",
+      "measured": {
+        "call": 33,
+        "reference": 9,
+        "perCall": 26
+      },
+      "estimated": {
+        "call": 34,
+        "reference": 9,
+        "perCall": 27
+      }
+    },
+    {
+      "module": "storage/objects",
+      "function": "matchesDocument",
+      "case": "matchesDocument takes a document path built from name segments",
+      "call": "matchesDocument(/databases/(default)/documents/levels/$(nameSegment(2))/scores/$(nameSegment(1)), 'object')",
+      "measured": {
+        "call": 68,
+        "reference": 45,
+        "perCall": 25
+      },
+      "estimated": {
+        "call": 72,
+        "reference": 47,
+        "perCall": 27
+      }
+    },
+    {
+      "module": "storage/objects",
+      "function": "matchesDocument",
+      "case": "two matchesDocument calls read two documents",
+      "call": "matchesDocument(/databases/(default)/documents/scores/alice, 'object')",
+      "measured": {
+        "call": 32,
+        "reference": 9,
+        "perCall": 25
+      },
+      "estimated": {
+        "call": 34,
+        "reference": 9,
+        "perCall": 27
+      }
+    },
+    {
+      "module": "storage/objects",
+      "function": "matchesDocument",
+      "case": "two matchesDocument calls read two documents",
+      "call": "matchesDocument(/databases/(default)/documents/archive/alice, 'latest')",
+      "measured": {
+        "call": 32,
+        "reference": 9,
+        "perCall": 25
+      },
+      "estimated": {
+        "call": 34,
+        "reference": 9,
+        "perCall": 27
       }
     },
     {

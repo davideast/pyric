@@ -283,12 +283,30 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       return evalCall(expr, ctx);
     case 'methodcall':
       return evalMethodCall(expr, ctx);
-    case 'path':
-      // A path literal is only meaningful as a `firestore.get()/exists()`
-      // argument (handled directly there). Reaching it anywhere else means
-      // the rule used it out of position, a compile-reject-class failure
-      // (never absorbed): deny rather than coerce.
-      throw new RuleUnsupportedError('a Firestore path literal is only valid as an argument to firestore.get()/exists()');
+    case 'path': {
+      // A path literal outside a `firestore.get()/exists()` call is a path
+      // value, such as an argument to a function that passes it on to
+      // `firestore.get()`. It charges what the literal charges as a direct
+      // argument there: one node and one unit per literal segment.
+      ctx.expressionBudget?.node();
+      for (const seg of expr.segments) if (seg.kind === 'literal') ctx.expressionBudget?.pathSegment();
+      const interpolated = evalOperands(expr.segments.flatMap((seg) => (seg.kind === 'literal' ? [] : [seg.expr])), ctx);
+      if (isErr(interpolated)) return interpolated;
+      let next = 0;
+      const parts: string[] = [];
+      for (const seg of expr.segments) {
+        if (seg.kind === 'literal') {
+          parts.push(seg.value);
+          continue;
+        }
+        const v = interpolated[next++];
+        if (typeof v !== 'string' && typeof v !== 'number') {
+          return new RuleError(`Path interpolation resolved to ${describeType(v)} (expected a string)`);
+        }
+        parts.push(String(v));
+      }
+      return new StoragePath(`/${parts.join('/')}`);
+    }
     case 'unary': {
       const a = evalExpr(expr.arg, ctx);
       if (expr.op === '!') {

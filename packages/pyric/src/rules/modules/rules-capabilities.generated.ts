@@ -57,7 +57,7 @@ export const FIRESTORE_NAMESPACE_METHODS = {
   math: ["abs", "ceil", "floor", "isNaN", "pow", "round", "sqrt"] as const,
   timestamp: ["date", "value"] as const,
 } as const;
-export const STORAGE_BINDING_PATHS = ["request", "request.auth", "request.auth.token", "request.auth.uid", "request.method", "request.path", "request.resource", "request.resource.contentType", "request.resource.metadata", "request.resource.size", "request.time", "resource", "resource.bucket", "resource.contentType", "resource.generation", "resource.metadata", "resource.metageneration", "resource.name", "resource.size", "resource.timeCreated", "resource.updated"] as const;
+export const STORAGE_BINDING_PATHS = ["request", "request.auth", "request.auth.token", "request.auth.uid", "request.method", "request.path", "request.resource", "request.resource.contentType", "request.resource.metadata", "request.resource.name", "request.resource.size", "request.time", "resource", "resource.bucket", "resource.contentType", "resource.generation", "resource.metadata", "resource.metageneration", "resource.name", "resource.size", "resource.timeCreated", "resource.updated"] as const;
 export const STORAGE_DIRECT_FUNCTIONS = [] as const;
 export const STORAGE_METHODS = ["concat", "get", "hasAll", "hasAny", "hasOnly", "join", "keys", "matches", "removeAll", "size", "split", "toSet"] as const;
 export const STORAGE_METHOD_RECEIVER_TYPES = {

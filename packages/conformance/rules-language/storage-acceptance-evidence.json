@@ -1,14 +1,14 @@
 {
   "schema": "pyric.conformance.storage-rules-acceptance-evidence.v1",
   "generatedNote": "Committed production acceptance evidence for Storage Security Rules captured over Google Cloud Rules Test API.",
-  "capturedAt": "2026-09-28T04:25:23.234Z",
+  "capturedAt": "2026-09-28T04:53:33.841Z",
   "projectId": "digame-mas",
   "engine": "storage",
-  "total": 85,
-  "accepted": 84,
+  "total": 86,
+  "accepted": 85,
   "rejected": 1,
   "unprobeable": 0,
-  "evaluationAgree": 84,
+  "evaluationAgree": 85,
   "evaluationDisagree": 0,
   "constructs": [
     {
@@ -109,6 +109,19 @@
       "probeDigest": {
         "algorithm": "sha256",
         "value": "18a6f0a09fab73144733cd57024136a0ed2aeaf363e66fd5ec96056f9f72559b"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.binding.request.resource.name",
+      "kind": "binding",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "503e86f261e1dfa6b4f44534d245506aaa5e039c256afc3baf45a0e6237dbef5"
       },
       "evaluationAgreement": true,
       "evaluationDetail": "expected ALLOW, got ALLOW",

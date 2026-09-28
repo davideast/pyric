@@ -1278,11 +1278,11 @@ const STORAGE_OBJECTS_MODULE: StdlibModuleDefinition = {
   key: 'storage/objects',
   kind: 'user-module',
   description:
-    'Storage module: distinguish create, update, and delete operations safely.',
+    'Storage module: distinguish create, update, and delete operations safely, read segments of the object name, and tie an object to the Firestore document that names it.',
   purpose:
-    'Branch Storage authorization by request method without relying on missing resource bindings or null checks.',
+    'Branch Storage authorization by request method without relying on missing resource bindings or null checks, and check an object by its name: one segment at a time, or against a field of a Firestore document.',
   whenToUse:
-    'Use when create, update, and delete require different ownership or validation checks.',
+    'Use when create, update, and delete require different ownership or validation checks, when the object name carries an owner or key, or when an upload is allowed only once a Firestore document names it.',
   entries: [
     {
       signature: 'isCreate(): bool',
@@ -1301,6 +1301,28 @@ const STORAGE_OBJECTS_MODULE: StdlibModuleDefinition = {
       cost: { min: 5, max: 5 },
       reads: 0,
       description: "The Storage request method is 'delete'.",
+    },
+    {
+      signature: 'nameSegment(index: int): string',
+      cost: { min: 17, max: 18 },
+      reads: 0,
+      description:
+        "Segment `index` of the object name split on '/', counting from 0. The name is `request.resource.name` on create and update and `resource.name` on get and delete.",
+      examples: ["allow create: if nameSegment(1) == request.auth.uid;"],
+      notes:
+        "An index past the last segment is an error that denies the request, and a name with no '/' has one segment. A create may have no stored object, and a get or delete carries no incoming object, so the name comes from the binding each operation has.",
+    },
+    {
+      signature: 'matchesDocument(path: path, field: string): bool',
+      cost: { min: 6, max: 26 },
+      reads: 1,
+      description:
+        'The caller is signed in, and the Firestore document at `path` exists and its `field` equals the object name.',
+      examples: [
+        "allow create: if matchesDocument(/databases/(default)/documents/scores/$(request.auth.uid), 'object');",
+      ],
+      notes:
+        'Each call reads one document. A Storage rule reads at most two distinct Firestore documents, so a rule may call matchesDocument at most twice with different paths; a third distinct document denies the request. A missing document or field is an error that denies the request. The lookup reads the (default) database.',
     },
   ],
   relatedKeys: ['auth', 'membership', 'storage/uploads', 'storage/metadata'],

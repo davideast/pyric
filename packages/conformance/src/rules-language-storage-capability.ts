@@ -221,6 +221,13 @@ const ST_EXPR: Record<string, StProbe> = {
   'storage.operator.ternary': { expr: 'request.resource.size == 10 ? true : false' },
   'storage.operator.unary-minus': { expr: '-request.resource.size == -10' },
   'storage.binding.resource.name': { expr: "resource.name.matches('probe/.*')" },
+  'storage.binding.request.resource.name': {
+    rules: ST_RULESET("request.resource.name.matches('probe/.*')", 'create'),
+    input: {
+      request: { ...ST_INPUT.request, method: 'create', resource: { ...ST_INPUT.request.resource!, name: 'probe/x' } },
+      resource: null,
+    },
+  },
   'storage.binding.resource.bucket': { expr: 'resource.bucket == resource.bucket' },
   'storage.binding.resource.generation': { expr: 'resource.generation == 1' },
   'storage.binding.resource.metageneration': { expr: 'resource.metageneration == 1' },

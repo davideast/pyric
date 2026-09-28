@@ -5,7 +5,7 @@
     "storage-rules#116"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"resource-object-identity\" (STORAGE-RES-IDENTITY). The resource binding's object-identity/time fields — name (full object path), timeCreated, updated, bucket — driving an extension guard, a freshness window, an immutability check, and an absent-property negation that must not false-allow.",
-  "observedAt": "2026-07-12T03:22:04.455Z",
+  "observedAt": "2026-09-28T04:28:24.512Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "behavior": {
@@ -17,6 +17,219 @@
     "update: timeCreated == updated (never modified) → allow (immutability)": "ALLOW",
     "update: timeCreated != updated (already modified) → deny (immutability)": "DENY",
     "get: resource.name != literal, name present → allow": "ALLOW",
-    "get: resource.name != literal, name ABSENT → deny (error survives negation)": "DENY"
+    "get: resource.name != literal, name ABSENT → deny (error survives negation)": "DENY",
+    "create: request.resource.name second segment equals the file → allow": "ALLOW",
+    "create: request.resource.name second segment differs → deny": "DENY",
+    "delete: request.resource.name with no request.resource → deny (error survives negation)": "DENY",
+    "get: resource.name second segment equals the file → allow": "ALLOW",
+    "get: resource.name segment index past the end → deny (error survives negation)": "DENY"
+  },
+  "diagnostics": {
+    "get: resource.name ends in .png → allow (extension guard)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 6,
+              "column": 21,
+              "currentOffset": 181,
+              "endOffset": 188
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "get: resource.name ends in .txt → deny (extension guard)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 6,
+              "column": 21,
+              "currentOffset": 181,
+              "endOffset": 188
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "get: resource.name absent → deny (absent-property error, no false-allow)": {
+      "notes": [
+        "Error: storage.rules line [6], column [21]. Property name is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 6,
+          "column": 21,
+          "currentOffset": 181,
+          "endOffset": 188
+        }
+      }
+    },
+    "delete: within 1h of timeCreated → allow (freshness)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 8,
+              "column": 24,
+              "currentOffset": 323,
+              "endOffset": 329
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "delete: more than 1h after timeCreated → deny (freshness)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 8,
+              "column": 24,
+              "currentOffset": 323,
+              "endOffset": 329
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "update: timeCreated == updated (never modified) → allow (immutability)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 11,
+              "column": 24,
+              "currentOffset": 544,
+              "endOffset": 551
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "update: timeCreated != updated (already modified) → deny (immutability)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 11,
+              "column": 24,
+              "currentOffset": 544,
+              "endOffset": 551
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "get: resource.name != literal, name present → allow": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 16,
+              "column": 21,
+              "currentOffset": 743,
+              "endOffset": 750
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "get: resource.name != literal, name ABSENT → deny (error survives negation)": {
+      "notes": [
+        "Error: storage.rules line [16], column [21]. Property name is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 16,
+          "column": 21,
+          "currentOffset": 743,
+          "endOffset": 750
+        }
+      }
+    },
+    "create: request.resource.name second segment equals the file → allow": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 21,
+              "column": 24,
+              "currentOffset": 966,
+              "endOffset": 972
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "create: request.resource.name second segment differs → deny": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 21,
+              "column": 24,
+              "currentOffset": 966,
+              "endOffset": 972
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "delete: request.resource.name with no request.resource → deny (error survives negation)": {
+      "notes": [
+        "Error: storage.rules line [23], column [24]. Property resource is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 23,
+          "column": 24,
+          "currentOffset": 1111,
+          "endOffset": 1117
+        }
+      }
+    },
+    "get: resource.name second segment equals the file → allow": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 24,
+              "column": 21,
+              "currentOffset": 1164,
+              "endOffset": 1171
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "get: resource.name segment index past the end → deny (error survives negation)": {
+      "notes": [
+        "Error: storage.rules line [28], column [23]. Index out of bound error. Index: [2] , size: [2]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 28,
+          "column": 23,
+          "currentOffset": 1335,
+          "endOffset": 1342
+        }
+      }
+    }
   }
 }

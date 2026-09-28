@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseFunctions, parseToAST } from 'pyric/rules/internal';
@@ -13,6 +13,7 @@ const STDLIB = join(HERE, '..', '..', '..', 'pyric', 'src', 'rules', 'modules', 
 const STORAGE_STDLIB = join(STDLIB, 'storage');
 const LOCKS = join(HERE, '..', '..', 'probe-source-locks');
 const OBSERVATIONS = join(HERE, '..', '..', 'observations');
+const REPLAYS = join(HERE, '..', '..', '..', 'pyric', 'test', 'rules', 'modules', 'fixtures');
 const MODULES = ['uploads', 'metadata', 'objects', 'time'] as const;
 
 function comparable(functions: ReturnType<typeof parseFunctions>) {
@@ -38,7 +39,7 @@ function assertCapturedAstLock(observation: string, functions: ReturnType<typeof
 }
 
 describe('production-probed Storage stdlib source lock', () => {
-  test('the captured 13 bodies are AST-identical to the four shipped modules', () => {
+  test('the captured 13 bodies are AST-identical to the shipped functions of the same names', () => {
     const shipped = MODULES.flatMap((moduleName) => {
       const source = readFileSync(join(STORAGE_STDLIB, `${moduleName}.rules`), 'utf8');
       return parseFunctions(source) ?? [];
@@ -46,11 +47,26 @@ describe('production-probed Storage stdlib source lock', () => {
     const capturedRules = parseToAST(scenario.rules);
     if (!capturedRules) throw new Error('Captured Storage stdlib corpus failed to parse');
     const captured = capturedRules.service.match.functions;
+    const capturedNames = new Set(captured.map(({ name }) => name));
 
-    expect(shipped).toHaveLength(13);
     expect(captured).toHaveLength(13);
-    expect(comparable(shipped)).toEqual(comparable(captured));
+    expect(comparable(shipped.filter(({ name }) => capturedNames.has(name)))).toEqual(comparable(captured));
     assertCapturedAstLock('rules-storage-stdlib-storage-modules', captured);
+  });
+
+  test('every shipped function the batch did not capture has a production replay of its module', () => {
+    const replays = new Set(readdirSync(REPLAYS)
+      .filter((name) => /^stdlib-replay-storage-[\w-]+\.json$/.test(name))
+      .map((name) => (JSON.parse(readFileSync(join(REPLAYS, name), 'utf8')) as { module: string }).module));
+    const capturedRules = parseToAST(scenario.rules);
+    if (!capturedRules) throw new Error('Captured Storage stdlib corpus failed to parse');
+    const capturedNames = new Set(capturedRules.service.match.functions.map(({ name }) => name));
+    for (const moduleName of MODULES) {
+      const source = readFileSync(join(STORAGE_STDLIB, `${moduleName}.rules`), 'utf8');
+      const uncaptured = (parseFunctions(source) ?? [])
+        .filter(({ name }) => !capturedNames.has(name) && new RegExp(`^export function ${name}\\b`, 'm').test(source));
+      if (uncaptured.length > 0) expect([moduleName, replays.has(`storage/${moduleName}`)]).toEqual([moduleName, true]);
+    }
   });
 
   test('the captured six common bodies are AST-identical to auth and membership', () => {

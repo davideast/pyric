@@ -3,8 +3,8 @@
   "generatedNote": "Exact Storage Rules conformance ratchet. Update only with reviewed evidence or implementation changes.",
   "universe": {
     "hashAlgorithm": "sha256",
-    "hash": "4867168311f022284a6d02e04ad7c5f92da496ccdaad37e31fb0112556e7856f",
-    "denominator": 85,
+    "hash": "dd5d536c2dcf62ab1d1a0998250414b95bd9a5e459f8a62f36c6e72ad03b6df2",
+    "denominator": 86,
     "constructIds": [
       "storage.binding.request",
       "storage.binding.request.auth",
@@ -14,6 +14,7 @@
       "storage.binding.request.resource.size",
       "storage.binding.request.resource.contentType",
       "storage.binding.request.resource.metadata",
+      "storage.binding.request.resource.name",
       "storage.binding.request.time",
       "storage.binding.request.method",
       "storage.binding.request.path",
@@ -94,38 +95,38 @@
     ]
   },
   "score": {
-    "numerator": 83,
-    "denominator": 85,
-    "ratio": 0.9764705882352941,
-    "percent": 97.6
+    "numerator": 84,
+    "denominator": 86,
+    "ratio": 0.9767441860465116,
+    "percent": 97.7
   },
   "axes": {
     "productionAcceptance": {
       "unprobed": 0,
-      "accepted": 84,
+      "accepted": 85,
       "rejected": 1,
       "unprobeable": 0
     },
     "localAcceptance": {
-      "accepted": 84,
+      "accepted": 85,
       "rejected": 1,
       "unsupported": 0,
       "unprobeable": 0
     },
     "localCapability": {
-      "implemented": 84,
+      "implemented": 85,
       "unsupported": 0,
       "error": 1,
       "unprobeable": 0
     },
     "productionEvidence": {
-      "verified": 83,
+      "verified": 84,
       "diverged": 2,
       "unverified": 0
     }
   },
   "counts": {
-    "conformant": 83,
+    "conformant": 84,
     "diverged": 2,
     "unknown": 0,
     "acceptance-mismatch": 0,
@@ -267,6 +268,7 @@
         "in-membership-and-proto-keys",
         "matches-regex",
         "metadata-verbs-and-arithmetic",
+        "resource-object-identity",
         "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
         "upload-primitives-boundaries"
@@ -352,6 +354,25 @@
         "storage-rules#126",
         "storage-rules#132",
         "storage-rules#storage.stdlib.map-diff"
+      ],
+      "divergedByRows": []
+    },
+    "storage.binding.request.resource.name": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionProbeDigest": "503e86f261e1dfa6b4f44534d245506aaa5e039c256afc3baf45a0e6237dbef5",
+      "currentProbeDigest": "503e86f261e1dfa6b4f44534d245506aaa5e039c256afc3baf45a0e6237dbef5",
+      "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "resource-object-identity"
+      ],
+      "verifiedByRows": [
+        "storage-rules#116"
       ],
       "divergedByRows": []
     },
@@ -1547,6 +1568,7 @@
         "in-membership-and-proto-keys",
         "math-namespace",
         "ordering-operand-types",
+        "resource-object-identity",
         "stdlib-sets-and-mapdiff",
         "stdlib-timestamp-duration",
         "type-checks-is",
@@ -1608,6 +1630,7 @@
         "bytes-literal",
         "common-auth-membership",
         "metadata-access",
+        "resource-object-identity",
         "stdlib-storage-modules",
         "upload-primitives-boundaries"
       ],
@@ -1845,6 +1868,7 @@
         "matches-regex",
         "metadata-verbs-and-arithmetic",
         "request-time-timestamp",
+        "resource-object-identity",
         "stdlib-storage-modules",
         "type-checks-is",
         "upload-primitives-boundaries",

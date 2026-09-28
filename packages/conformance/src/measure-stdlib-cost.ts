@@ -261,7 +261,7 @@ function padPrefix(id: string): string {
 }
 
 function blockFor(service: Service, c: Record<string, any>): { match: string; path: string } {
-  if (service === 'storage') return { match: '/test/{file}', path: c.path };
+  if (service === 'storage') return { match: c.wrapMatch ?? '/test/{file}', path: c.path };
   return { match: c.wrapMatch ?? '/test/{docId}', path: c.path };
 }
 

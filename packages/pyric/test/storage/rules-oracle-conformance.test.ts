@@ -125,10 +125,11 @@ function toEvaluationInput(tc: StorageTestCase): EvaluationInput {
     path,
   };
   if (tc.resource) {
+    // Every field the capture sent to production, so `request.resource.name`
+    // and the other identity fields read the same values on both sides.
     request.resource = {
+      ...tc.resource,
       size: tc.resource.size ?? 0,
-      contentType: tc.resource.contentType,
-      metadata: tc.resource.metadata,
     };
   }
   // The existing-object binding carries the object-identity/time fields too.

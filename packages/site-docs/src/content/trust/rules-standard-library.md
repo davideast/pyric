@@ -199,15 +199,26 @@ File: `storage/metadata.rules` | Tests: `storage/metadata.test.json`
 
 ### storage/objects
 
-Operation identity without unsafe missing-binding null checks.
+Operation identity without unsafe missing-binding null checks, and checks on
+the object name.
 
 | Function | Params | Returns | Description |
 |----------|--------|---------|-------------|
 | `isCreate()` | — | bool | `request.method == 'create'` |
 | `isUpdate()` | — | bool | `request.method == 'update'` |
 | `isDelete()` | — | bool | `request.method == 'delete'` |
+| `nameSegment(index)` | index: int | string | Segment `index` of the object name split on `/`, counting from 0; an index past the last segment denies |
+| `matchesDocument(path, field)` | path: path, field: string | bool | The caller is signed in, and the Firestore document at `path` exists and its `field` equals the object name. Reads 1 document |
 
-File: `storage/objects.rules` | Tests: `storage/objects.test.json`
+The object name is the full path within the bucket. On create and update it
+comes from `request.resource.name`, because a create may have no stored object.
+On get and delete it comes from `resource.name`, because those requests carry
+no incoming object. A Storage rule reads at most two distinct Firestore
+documents, so a rule can call `matchesDocument` at most twice with different
+paths.
+
+File: `storage/objects.rules` | Tests: `storage/objects.test.json` | Production replay:
+`test/rules/modules/fixtures/stdlib-replay-storage-objects.json` (Rules Test API)
 
 ### storage/time
 
