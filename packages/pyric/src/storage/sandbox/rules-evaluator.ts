@@ -105,7 +105,6 @@ export function evaluateStorageRules(
               params: newParams,
               locals: {},
               funcs: block.visibleFuncs ?? new Map(),
-              depth: 0,
               firestoreLookup,
               firestoreAccesses,
               expressionBudget,
@@ -152,7 +151,7 @@ export function evaluateStorageRules(
             }
             return false;
           }
-          // Any thrown evaluation failure (depth exceeded, an unresolved
+          // Any thrown evaluation failure (an unresolved
           // import, an error inside a body) denies this rule with a reason
           // that names the function, never a false allow.
           if (err instanceof RuleEvalError) {
@@ -206,20 +205,6 @@ function readProperty(obj: unknown, name: string): unknown {
   return v;
 }
 
-/**
- * Raised when a user-defined function cannot be evaluated (undefined,
- * wrong arity, call depth exceeded, or an error surfacing from within a
- * body). Caught at the condition boundary and converted into a
- * deny-with-reason so a function failure NEVER produces a false allow,
- * matching production Storage, where evaluation errors deny.
- */
-/**
- * Production Storage caps function call depth (documented limit 20) and
- * effectively disallows recursion. We enforce a hard cap that errors
- * (→ deny) rather than looping forever.
- */
-const MAX_CALL_DEPTH = 20;
-
 /** Everything an expression needs to evaluate. */
 export interface EvalCtx {
   input: EvaluationInput;
@@ -233,8 +218,6 @@ export interface EvalCtx {
   locals: Record<string, unknown>;
   /** Functions callable from the current scope. */
   funcs: FunctionMap;
-  /** Current call depth (0 at an allow condition). */
-  depth: number;
   /** Optional Firestore read capability for `firestore.get()/exists()`.
    *  Absent in pure/test usage → those methods deny "unsupported". */
   firestoreLookup?: FirestoreLookup;
@@ -479,7 +462,7 @@ function evalAbsorbingOperator(
  *     can absorb it: production evaluates these positions to a
  *     position-local error.
  *   - {@link RuleUnsupportedError} (compile-reject or unmodelable) and
- *     {@link RuleResourceLimitError} (lookup cap, call depth) re-throw:
+ *     {@link RuleResourceLimitError} (the lookup cap) re-throw:
  *     production fails those closed for the WHOLE evaluation, so no
  *     determining operand may rescue them (the lookup-budget precedent).
  *   - A non-boolean, non-error operand is a CEL TYPE error (RULES-B6,
@@ -525,13 +508,9 @@ function evalCall(expr: Extract<Expr, { kind: 'call' }>, ctx: EvalCtx): unknown 
       `Incorrect number of arguments. Received: ${expr.args.length}. Expected: ${expr.name}(${fn.params.join(', ')}).`,
     );
   }
-  const depth = ctx.depth + 1;
-  if (depth > MAX_CALL_DEPTH) {
-    // Resource-limit class: fails the evaluation closed, never absorbed.
-    throw new RuleResourceLimitError(
-      `function ${expr.name}() exceeded max call depth ${MAX_CALL_DEPTH}`,
-    );
-  }
+  // No call depth guard: `parseStorageRules` rejects a chain over
+  // production's compile limit and any recursive call, so the depth of a
+  // call here is bounded (`rules/grammar/compile-limits.ts`).
   // Arguments: caller context.
   const argVals = expr.args.map((a) => evalExpr(a, ctx));
   const locals: Record<string, unknown> = {};
@@ -544,7 +523,6 @@ function evalCall(expr: Extract<Expr, { kind: 'call' }>, ctx: EvalCtx): unknown 
     params: {}, // no dynamic-scope leakage of caller wildcards
     locals,
     funcs: fn.declScope ?? new Map(),
-    depth,
     firestoreLookup: ctx.firestoreLookup,
     firestoreAccesses: ctx.firestoreAccesses,
     expressionBudget: ctx.expressionBudget,

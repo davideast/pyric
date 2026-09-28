@@ -15,13 +15,15 @@ import type { ParseError } from '../grammar/FirestoreParser.js';
 import type { LintWarning } from '../linter/linter.js';
 import type { ValidationFinding } from '../grammar/FirestoreValidator.js';
 import type { RtdbRulesFinding } from '../rtdb/constraints/document.js';
+import type { CompileLimitViolation } from '../grammar/compile-limits.js';
 
 /** Ordered by decreasing urgency. `info` is advisory. */
 export type RuleIssueSeverity = 'error' | 'warning' | 'info';
 
 /**
  * The stage that produced the issue.
- *   - `parse`    — the source did not parse; nothing downstream ran.
+ *   - `parse`    — the source did not parse, or broke a production compile
+ *                  limit; nothing downstream ran.
  *   - `validate` — a structural/security finding on a parsed ruleset.
  *   - `lint`     — a budget/quality/hallucination warning.
  */
@@ -53,6 +55,18 @@ export function parseErrorToIssue(error: ParseError): RuleIssue {
     origin: 'parse',
   };
   if (error.line > 0) issue.line = error.line;
+  return issue;
+}
+
+/** A compile-limit rejection blocks the ruleset the way a parse failure does, so it carries origin 'parse'. */
+export function compileLimitViolationToIssue(violation: CompileLimitViolation): RuleIssue {
+  const issue: RuleIssue = {
+    code: violation.code,
+    severity: 'error',
+    message: violation.message,
+    origin: 'parse',
+  };
+  if (violation.line !== undefined) issue.line = violation.line;
   return issue;
 }
 

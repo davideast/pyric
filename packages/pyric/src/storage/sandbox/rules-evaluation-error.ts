@@ -12,8 +12,8 @@ export class RuleEvalError extends Error {}
 export class RuleUnsupportedError extends RuleEvalError {}
 
 /**
- * A resource-limit exhaustion (the two-document Firestore lookup cap, the
- * max call depth). Production fails the WHOLE evaluation closed on these:
+ * A resource-limit exhaustion (the two-document Firestore lookup cap).
+ * Production fails the WHOLE evaluation closed on these:
  * they are not CEL error values, so commutative `&&`/`||` absorption must
  * not turn one into an allow (same posture as the Firestore simulator's
  * LookupBudgetError precedent).

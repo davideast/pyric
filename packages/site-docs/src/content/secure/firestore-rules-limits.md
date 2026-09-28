@@ -17,7 +17,7 @@ The examples below show the shape that fails and the change that fixes it.
 
 ## Measured limits
 
-The Firebase documentation gives different values for some limits on different pages. The table records what production does. Each value was measured on 2026-09-27 by submitting generated rulesets to the Rules Test API, which compiles and evaluates a ruleset without deploying it. Firestore and Storage rulesets gave the same result for every row.
+The Firebase documentation gives different values for some limits on different pages. The table records what production does. Each value was measured on 2026-09-27 by submitting generated rulesets to the Rules Test API, which compiles and evaluates a ruleset without deploying it. Firestore and Storage rulesets gave the same result for every row measured in both; the bare `true` row was measured in Firestore only.
 
 | Limit | Documented | Measured | Production error at the first failing size |
 |-------|-----------|----------|--------------------------------------------|
@@ -25,10 +25,11 @@ The Firebase documentation gives different values for some limits on different p
 | `let` bindings in one function | 10: Firestore "Structuring rules" limits table, Firestore "Writing conditions" page and the "Rules language" page. Any number: Storage "Writing conditions" page. | 11 compile, 12 fail | `Maximum allowed variable count of 10 for a given function has been reached.` |
 | Terms in a right-nested `&&` chain, `t1 && (t2 && (...))` | Not documented | 49 compile, 50 fail | `Expression is too complex to evaluate safely.` |
 | Parentheses around one comparison | Not documented | 97 pairs compile, 98 fail | `Expression is too complex to evaluate safely.` |
+| Parentheses around a bare `true` (Firestore) | Not documented | 98 pairs compile, 99 fail | `Expression is too complex to evaluate safely.` |
 
 Both structural limits are compile-time checks. A ruleset over either limit is rejected before any request is evaluated, and a call chain over the limit is rejected even when no rule calls it. The error messages count differently from the measured boundaries: a 22-function chain reports a depth of 20, and 12 bindings report a count of 10.
 
-The nesting boundaries, together with the 98-operand flat chain below, fit one limit in which each `&&` or `||` and each parenthesized group is one level: 97 levels compile and 98 fail. The linter reports call depth and `let` count. It does not report nesting depth, so keep nested groups shallow and split deep conditions into functions.
+The nesting boundaries, together with the 98-operand flat chain below, fit one limit in which each parenthesized group and each binary operator, including a comparison, puts its operands one level deeper, and an operand at level 100 is rejected. For chains of comparisons this is the same as counting each `&&` or `||` and each parenthesized group as one level: 97 levels compile and 98 fail. The Pyric Firestore simulator and Storage evaluator apply all three limits when a ruleset loads and refuse a ruleset over one with production's message, and the linter reports each of them, so keep nested groups shallow and split deep conditions into functions.
 
 The runtime limit on evaluated expressions is a separate budget with its own cost model. See [More than 1000 evaluated expressions](#more-than-1000-evaluated-expressions).
 
