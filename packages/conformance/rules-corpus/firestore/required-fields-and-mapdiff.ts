@@ -11,6 +11,10 @@
  * The `keys*` matches show `keys()` returns a List: `is list` holds, `is set`
  * is false, and `toSet()`, `hasAll()`, `hasAny()`, `hasOnly()`, `size()`,
  * `[0]` and `join()` evaluate on it.
+ *
+ * The `diff*` matches compare the MapDiff `affectedKeys()` Set with a key
+ * set: `==` against a Set and against a List, and `hasAll()` with
+ * `hasOnly()` against a List and a Set.
  */
 import type { ScenarioRecord } from './types.ts';
 
@@ -69,6 +73,22 @@ service cloud.firestore {
     }
     match /keysToSetSize/{id} {
       allow create: if request.resource.data.keys().toSet().size() == 2;
+    }
+    // Set equality on the MapDiff affectedKeys() Set: == against a Set or a
+    // List, and hasAll() with hasOnly() against a List or a Set
+    match /diffEqSet/{id} {
+      allow update: if request.resource.data.diff(resource.data).affectedKeys() == ['b', 'a'].toSet();
+    }
+    match /diffEqList/{id} {
+      allow update: if request.resource.data.diff(resource.data).affectedKeys() == ['a', 'b'];
+    }
+    match /diffBothWaysList/{id} {
+      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasAll(['b', 'a'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['b', 'a']);
+    }
+    match /diffBothWaysSet/{id} {
+      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasAll(['b', 'a'].toSet())
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['b', 'a'].toSet());
     }
   }
 }`,
@@ -147,6 +167,22 @@ service cloud.firestore {
     ] as const).map(([description, expectation, match, data], i) => ({
       description, expectation, method: 'create' as const,
       path: `${match}/k${i + 1}`, auth: { uid: 'alice' },
+      data,
+    })),
+    ...([
+      ['affectedKeys() == a Set of the same keys in another order → ALLOW', 'ALLOW', 'diffEqSet', { a: 2, b: 2, c: 0 }],
+      ['affectedKeys() == a Set missing a changed key → DENY', 'DENY', 'diffEqSet', { a: 2, b: 2, c: 1 }],
+      ['affectedKeys() == a Set with a key that did not change → DENY', 'DENY', 'diffEqSet', { a: 2, b: 0, c: 0 }],
+      ['affectedKeys() == a List of the same keys is false → DENY', 'DENY', 'diffEqList', { a: 2, b: 2, c: 0 }],
+      ['affectedKeys() hasAll() and hasOnly() a List of the same keys → ALLOW', 'ALLOW', 'diffBothWaysList', { a: 2, b: 2, c: 0 }],
+      ['affectedKeys() hasAll() and hasOnly() a List, one key unchanged → DENY', 'DENY', 'diffBothWaysList', { a: 2, b: 0, c: 0 }],
+      ['affectedKeys() hasAll() and hasOnly() a List, another key changed → DENY', 'DENY', 'diffBothWaysList', { a: 2, b: 2, c: 1 }],
+      ['affectedKeys() hasAll() and hasOnly() a Set of the same keys → ALLOW', 'ALLOW', 'diffBothWaysSet', { a: 2, b: 2, c: 0 }],
+      ['affectedKeys() hasAll() and hasOnly() a Set, another key changed → DENY', 'DENY', 'diffBothWaysSet', { a: 2, b: 2, c: 1 }],
+    ] as const).map(([description, expectation, match, data], i) => ({
+      description, expectation, method: 'update' as const,
+      path: `${match}/e${i + 1}`, auth: { uid: 'alice' },
+      resource: { a: 0, b: 0, c: 0 },
       data,
     })),
   ],

@@ -127,7 +127,7 @@ These are the Firestore-compatible modules used by this guide. The [complete ref
 |---|---|---|
 | `auth` | Authentication and ownership | `isAuthenticated`, `isOwner` |
 | `validation` | Required fields, allowed fields, strings, enums | `hasRequired`, `hasOnly`, `validString`, `isOneOf` |
-| `lifecycle` | Immutable or changed fields and server timestamps | `fieldUnchanged`, `immutableFields`, `isServerTimestamp`, `onlyFieldsChanged`, `nFieldsChanged` |
+| `lifecycle` | Immutable or changed fields and server timestamps | `fieldUnchanged`, `immutableFields`, `isServerTimestamp`, `onlyFieldsChanged`, `exactlyChanged`, `nFieldsChanged` |
 | `content` | Author-owned documents and published visibility | `validAuthorCreate`, `isAuthor`, `canReadContent`, `notDeleted` |
 | `membership` | Claims and document membership maps | `hasClaim`, `hasClaimRole`, `isMemberOf`, `hasRole` |
 | `spaces` | Parent-document membership for child data | `isSpaceMember`, `hasSpaceRole`, `validMemberCreate` |
@@ -188,6 +188,18 @@ service cloud.firestore {
 }
 ```
 An index past the last seat, or below 0, is an error, so `isSeatTurn` denies the request.
+
+`lifecycle` has two checks on the set of top-level fields a write adds, removes, or changes:
+
+- `onlyFieldsChanged(keys)`: the changed fields are a subset of `keys`. A listed field may stay unchanged.
+- `exactlyChanged(keys)`: the changed fields equal `keys`. Every listed field changes and no other field does.
+
+Use `exactlyChanged` when a transition always writes the same fields. A tic-tac-toe move always changes `board`, `lastMove`, `currentTurn`, and `moveCount`, and a plain move never changes `status` or `winner`:
+```rules
+allow update: if request.resource.data.status == 'playing'
+  && exactlyChanged(['board', 'lastMove', 'currentTurn', 'moveCount']);
+```
+`keys` can be a list or a set. Both functions read `resource.data`, so call them from update rules only: on create the call is an error and the rule denies.
 
 ## Count what each call costs
 

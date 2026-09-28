@@ -357,7 +357,7 @@ function estimate(rules: string, items: Item[]): void {
 
 /** Fixture sentinels to Rules Test API values. The API reads an ISO-8601
  *  string in a document field as a timestamp. */
-function apiValue(value: unknown, time: string): unknown {
+export function apiValue(value: unknown, time: string): unknown {
   if (value === 'REQUEST_TIME') return time;
   if (Array.isArray(value)) return value.map((v) => apiValue(v, time));
   if (value && typeof value === 'object') {

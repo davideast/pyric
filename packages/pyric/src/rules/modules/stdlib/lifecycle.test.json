@@ -4,7 +4,8 @@
     { "function": "immutableFields", "cost": { "min": 10, "max": 10 }, "reads": 0 },
     { "function": "isServerTimestamp", "cost": { "min": 9, "max": 9 }, "reads": 0 },
     { "function": "onlyFieldsChanged", "cost": { "min": 10, "max": 10 }, "reads": 0 },
-    { "function": "nFieldsChanged", "cost": { "min": 11, "max": 11 }, "reads": 0 }
+    { "function": "nFieldsChanged", "cost": { "min": 11, "max": 11 }, "reads": 0 },
+    { "function": "exactlyChanged", "cost": { "min": 13, "max": 17 }, "reads": 0 }
   ],
   "cases": [
     {
@@ -291,6 +292,271 @@
       },
       "data": {
         "c1": "x"
+      }
+    },
+    {
+      "description": "exactlyChanged allows when every listed field changed and nothing else did",
+      "expectation": "ALLOW",
+      "method": "update",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "wrapFunction": "exactlyChanged",
+      "wrapOperation": "update",
+      "wrapCallExpr": "exactlyChanged(['board', 'lastMove', 'currentTurn', 'moveCount'])",
+      "resource": {
+        "board": "b0",
+        "lastMove": "c0r0",
+        "currentTurn": "host",
+        "moveCount": 1,
+        "status": "playing"
+      },
+      "data": {
+        "board": "b1",
+        "lastMove": "c1r1",
+        "currentTurn": "guest",
+        "moveCount": 2,
+        "status": "playing"
+      }
+    },
+    {
+      "description": "exactlyChanged denies when a listed field is unchanged",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "wrapFunction": "exactlyChanged",
+      "wrapOperation": "update",
+      "wrapCallExpr": "exactlyChanged(['board', 'lastMove', 'currentTurn', 'moveCount'])",
+      "resource": {
+        "board": "b0",
+        "lastMove": "c0r0",
+        "currentTurn": "host",
+        "moveCount": 1,
+        "status": "playing"
+      },
+      "data": {
+        "board": "b1",
+        "lastMove": "c0r0",
+        "currentTurn": "guest",
+        "moveCount": 2,
+        "status": "playing"
+      }
+    },
+    {
+      "description": "exactlyChanged denies when an unlisted field changed",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "wrapFunction": "exactlyChanged",
+      "wrapOperation": "update",
+      "wrapCallExpr": "exactlyChanged(['board', 'lastMove', 'currentTurn', 'moveCount'])",
+      "resource": {
+        "board": "b0",
+        "lastMove": "c0r0",
+        "currentTurn": "host",
+        "moveCount": 1,
+        "status": "playing"
+      },
+      "data": {
+        "board": "b1",
+        "lastMove": "c1r1",
+        "currentTurn": "guest",
+        "moveCount": 2,
+        "status": "draw"
+      }
+    },
+    {
+      "description": "exactlyChanged denies when an unlisted field is added",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "wrapFunction": "exactlyChanged",
+      "wrapOperation": "update",
+      "wrapCallExpr": "exactlyChanged(['board', 'lastMove', 'currentTurn', 'moveCount'])",
+      "resource": {
+        "board": "b0",
+        "lastMove": "c0r0",
+        "currentTurn": "host",
+        "moveCount": 1,
+        "status": "playing"
+      },
+      "data": {
+        "board": "b1",
+        "lastMove": "c1r1",
+        "currentTurn": "guest",
+        "moveCount": 2,
+        "status": "playing",
+        "admin": true
+      }
+    },
+    {
+      "description": "exactlyChanged counts a listed field that is removed as changed",
+      "expectation": "ALLOW",
+      "method": "update",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "wrapFunction": "exactlyChanged",
+      "wrapOperation": "update",
+      "wrapCallExpr": "exactlyChanged(['title', 'draft'])",
+      "resource": {
+        "title": "old",
+        "draft": true
+      },
+      "data": {
+        "title": "new"
+      }
+    },
+    {
+      "description": "exactlyChanged allows an empty list when nothing changed",
+      "expectation": "ALLOW",
+      "method": "update",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "wrapFunction": "exactlyChanged",
+      "wrapOperation": "update",
+      "wrapCallExpr": "exactlyChanged([])",
+      "resource": {
+        "title": "same"
+      },
+      "data": {
+        "title": "same"
+      }
+    },
+    {
+      "description": "exactlyChanged denies an empty list when a field changed",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "wrapFunction": "exactlyChanged",
+      "wrapOperation": "update",
+      "wrapCallExpr": "exactlyChanged([])",
+      "resource": {
+        "title": "old"
+      },
+      "data": {
+        "title": "new"
+      }
+    },
+    {
+      "description": "exactlyChanged denies a listed field when nothing changed",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "wrapFunction": "exactlyChanged",
+      "wrapOperation": "update",
+      "wrapCallExpr": "exactlyChanged(['title'])",
+      "resource": {
+        "title": "same"
+      },
+      "data": {
+        "title": "same"
+      }
+    },
+    {
+      "description": "exactlyChanged allows the keys given as a Set",
+      "expectation": "ALLOW",
+      "method": "update",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "wrapFunction": "exactlyChanged",
+      "wrapOperation": "update",
+      "wrapCallExpr": "exactlyChanged(['board', 'lastMove', 'currentTurn', 'moveCount'].toSet())",
+      "resource": {
+        "board": "b0",
+        "lastMove": "c0r0",
+        "currentTurn": "host",
+        "moveCount": 1,
+        "status": "playing"
+      },
+      "data": {
+        "board": "b1",
+        "lastMove": "c1r1",
+        "currentTurn": "guest",
+        "moveCount": 2,
+        "status": "playing"
+      }
+    },
+    {
+      "description": "exactlyChanged denies an unlisted change with the keys given as a Set",
+      "expectation": "DENY",
+      "method": "update",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "wrapFunction": "exactlyChanged",
+      "wrapOperation": "update",
+      "wrapCallExpr": "exactlyChanged(['board', 'lastMove', 'currentTurn', 'moveCount'].toSet())",
+      "resource": {
+        "board": "b0",
+        "lastMove": "c0r0",
+        "currentTurn": "host",
+        "moveCount": 1,
+        "status": "playing"
+      },
+      "data": {
+        "board": "b1",
+        "lastMove": "c1r1",
+        "currentTurn": "guest",
+        "moveCount": 2,
+        "status": "draw"
+      }
+    },
+    {
+      "description": "exactlyChanged treats a repeated key in the list as one key",
+      "expectation": "ALLOW",
+      "method": "update",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "wrapFunction": "exactlyChanged",
+      "wrapOperation": "update",
+      "wrapCallExpr": "exactlyChanged(['title', 'title'])",
+      "resource": {
+        "title": "old",
+        "body": "same"
+      },
+      "data": {
+        "title": "new",
+        "body": "same"
+      }
+    },
+    {
+      "description": "exactlyChanged denies on create, where there is no existing document to diff",
+      "expectation": "DENY",
+      "method": "create",
+      "path": "test/doc1",
+      "auth": {
+        "uid": "user1"
+      },
+      "wrapFunction": "exactlyChanged",
+      "wrapOperation": "create",
+      "wrapCallExpr": "exactlyChanged(['title'])",
+      "data": {
+        "title": "new"
       }
     }
   ]
