@@ -1,0 +1,10 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    match /orders/{id} {
+      allow read: if signedIn();
+    }
+  }
+}

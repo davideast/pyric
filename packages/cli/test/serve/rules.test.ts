@@ -111,7 +111,7 @@ describe('prepareStorageRulesSource', () => {
     } catch (e) {
       message = e instanceof Error ? e.message : String(e);
     }
-    expect(message).toContain('expected "}". Fix the rules before serving.');
+    expect(message).toContain("expected '}' to close the match block opened at line 2. Fix the rules before serving.");
     expect(message).not.toContain('..');
   });
 });
