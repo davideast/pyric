@@ -140,7 +140,9 @@ function evaluateNode(expr: Expression, ctx: SimulationContext, scope: Record<st
       // Wrapper-owned property dispatch (Item 0.B hook 2). Wrappers like
       // Timestamp expose no readable properties — `t.year` returns null,
       // `t.year()` goes through callMethod. The base default returns null.
-      if (obj instanceof RulesValue) return obj.field(expr.property);
+      // A path reads its bound names through `readMember` below, which
+      // errors on an unbound name as production does.
+      if (obj instanceof RulesValue && obj.typeName !== 'path') return obj.field(expr.property);
       if (obj instanceof MapDiff) {
         // MapDiff methods that return FirestoreSet
         switch (expr.property) {

@@ -1,0 +1,13 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /orders/{id} {
+      allow update: if request.auth != null
+        && request.auth.uid == resource.data.owner
+        && request.resource.data.owner == resource.data.owner
+        && request.resource.data.keys().hasOnly(['owner', 'total'])
+        && request.resource.data.total is int
+        && request.resource.data.total >= 0
+    }
+  }
+}

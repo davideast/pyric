@@ -1,0 +1,2 @@
+rules_version = '2';
+service cloud.firestore { match /databases/{database}/documents { allow read: if true } }

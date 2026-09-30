@@ -911,7 +911,8 @@
       "classification": "conformant",
       "verifiedBy": [
         "cross-type-operator-overloads",
-        "timestamp-component-accessors"
+        "timestamp-component-accessors",
+        "undefined-field-access"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -984,7 +985,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "duration-and-latlng"
+        "duration-and-latlng",
+        "undefined-field-access"
       ],
       "verifiedByRows": [],
       "divergedByRows": []

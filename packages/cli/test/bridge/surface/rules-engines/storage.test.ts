@@ -85,7 +85,7 @@ describe('install', () => {
     const problem = STORAGE_RULES.compileFailure(
       "rules_version = '2';\nservice firebase.storage { match /b/{bucket}/o { allow read: if true;",
     );
-    expect(problem?.body).toEndWith('expected "}".');
+    expect(problem?.body).toEndWith("expected '}' to close the match block opened at line 2.");
     expect(problem?.body).not.toContain('..');
   });
 

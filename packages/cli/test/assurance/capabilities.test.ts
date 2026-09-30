@@ -54,8 +54,9 @@ service cloud.firestore {
     expect(qualification.supported).toBe(false);
     expect(qualification.requirements).toContainEqual(
       expect.objectContaining({
-        id: "firestore.rules-parse",
+        id: "firestore.rules-load",
         supported: false,
+        reason: "Firestore rules did not parse at line 4, column 62: syntax error.",
       }),
     );
   });

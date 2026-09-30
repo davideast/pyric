@@ -1,7 +1,9 @@
-import { lint } from "pyric/rules";
-// Internal engine seams, both on the browser-safe `pyric/rules/internal` entry
+// Internal engine seams, all on the browser-safe `pyric/rules/internal` entry
 // (this runtime ships to the browser, so the Node-only `internal/rtdb` entry is
 // not reachable from here):
+//
+//   rulesSourceRejection — production's load check, the one every CLI load
+//   path runs: the source parses and is within the compile limits.
 //
 //   parseToASTOrError / MatchBlock / PathSegment — the public API exposes
 //   lint/simulate but no parsed AST, and the overlapping-match analysis below
@@ -14,6 +16,7 @@ import { lint } from "pyric/rules";
 import {
   parseToASTOrError,
   parseRtdbExpression,
+  rulesSourceRejection,
   type MatchBlock,
   type PathSegment,
 } from "pyric/rules/internal";
@@ -85,6 +88,43 @@ function requirement(
   reason: string,
 ): CapabilityRequirement {
   return { id, supported, reason };
+}
+
+/**
+ * Why production would refuse to load the rules a service runs under, in
+ * production's words (`Firestore rules did not compile: Line 4: Expression is
+ * too complex to evaluate safely.`), or undefined when it would load them.
+ * RTDB targets carry compiled rules JSON and have no source to check.
+ */
+export function rulesLoadRefusal(
+  target: LocalFirebaseTarget,
+  service: AssuranceProbe["control"]["service"],
+): string | undefined {
+  const source =
+    service === "firestore"
+      ? target.rules.firestore
+      : service === "storage"
+        ? target.rules.storage
+        : undefined;
+  if (typeof source !== "string" || source.trim().length === 0) return undefined;
+  const rejection = rulesSourceRejection(source);
+  if (rejection === null) return undefined;
+  return `${service === "firestore" ? "Firestore" : "Storage"} ${rejection.message}`;
+}
+
+/** The requirement that production would load a service's rules source. */
+function rulesLoadRequirement(
+  target: LocalFirebaseTarget,
+  service: "firestore" | "storage",
+): CapabilityRequirement {
+  const refusal = rulesLoadRefusal(target, service);
+  const name = service === "firestore" ? "Firestore" : "Storage";
+  return requirement(
+    `${service}.rules-load`,
+    refusal === undefined,
+    refusal ??
+      `The ${name} rules source parses and is within production's compile limits.`,
+  );
 }
 
 interface FirestoreMatchPattern {
@@ -252,19 +292,9 @@ function firestoreRequirements(
   ];
   if (!rules) return requirements;
 
-  // Parse gate via the public tolerant front door: a parse blocker surfaces as
-  // a `RuleIssue` with `origin === "parse"`.
-  const parseIssue = lint(rules).find((issue) => issue.origin === "parse");
-  requirements.push(
-    requirement(
-      "firestore.rules-parse",
-      !parseIssue,
-      parseIssue
-        ? `The Firestore rules source did not parse: ${parseIssue.message}`
-        : "The Firestore rules source parsed successfully.",
-    ),
-  );
-  if (parseIssue) return requirements;
+  const load = rulesLoadRequirement(target, "firestore");
+  requirements.push(load);
+  if (!load.supported) return requirements;
 
   // The AST walk needs the parsed match tree (no public accessor exists).
   const parsed = parseToASTOrError(rules);
@@ -390,6 +420,9 @@ function storageRequirements(
     ),
   ];
   if (!rules) return requirements;
+  const load = rulesLoadRequirement(target, "storage");
+  requirements.push(load);
+  if (!load.supported) return requirements;
   try {
     parseStorageRules(rules);
     requirements.push(

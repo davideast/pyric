@@ -41,10 +41,9 @@ export class Path extends RulesValue {
    * name → value pair when substituting `{name}` placeholders) or by the
    * handler when constructing `request.path` from a matched rule path
    * (so `request.path.uid` returns the wildcard value from the matched
-   * `match /users/{uid}/...` block).
-   *
-   * Without this, `field('uid')` on a fully-bound Path returned null and
-   * any rule reading named segments off `request.path` silently denied.
+   * `match /users/{uid}/...` block). Dot and bracket access read these
+   * through `index-access.ts`; a name not bound here is production's
+   * undefined-property error.
    */
   readonly bindings: Readonly<Record<string, string>>;
 
@@ -119,33 +118,6 @@ export class Path extends RulesValue {
       if (this.segments[i] !== other.segments[i]) return false;
     }
     return true;
-  }
-
-  /**
-   * Bracket / dot field dispatch.
-   *
-   * Numeric string ('0', '1', ...) → returns the segment at that index,
-   * null if out of bounds. The evaluator funnels both `p[0]` and `p[i]`
-   * here as `String(idx)`.
-   *
-   * Named ('uid', etc.) → returns the value from `bindings`, populated
-   * either by `bind()` or by the handler when constructing `request.path`
-   * from a matched-rule path. Returns null if the name was never bound.
-   */
-  field(name: string): unknown {
-    // Numeric index path (works for strings like '0', '12', ...)
-    if (/^\d+$/.test(name)) {
-      const i = Number(name);
-      if (i < 0 || i >= this.segments.length) return null;
-      return this.segments[i];
-    }
-    // Named binding lookup. Bindings are populated either by `bind()` or by
-    // the handler when constructing `request.path` from a matched-rule path
-    // (so wildcards from `match /users/{uid}/...` are exposed as
-    // `request.path.uid`). Returns null if the name was never bound — same
-    // shape as missing-map-key reads elsewhere in the evaluator.
-    if (name in this.bindings) return this.bindings[name];
-    return null;
   }
 
   callMethod(method: string, args: unknown[]): unknown | NoOp {
