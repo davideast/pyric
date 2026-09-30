@@ -34,6 +34,7 @@ import { ConversionFailure, applyConversion, conversionFor } from '../../rules/s
 import { describeRulesType as describeType, isRulesMap } from '../../rules/simulator/rules-type.js';
 import { sliceBoundsError } from '../../rules/simulator/slice-bounds.js';
 import { IndexAccessFailure, indexValue, readMember } from '../../rules/simulator/index-access.js';
+import { mapLiteral } from '../../rules/simulator/map-keys.js';
 import { MembershipFailure, membership } from '../../rules/simulator/membership.js';
 import { rulesValuesEqual } from '../../rules/simulator/value-equality.js';
 import {
@@ -401,13 +402,14 @@ function evalNode(expr: Expr, ctx: EvalCtx): unknown {
     case 'map': {
       const values = evalOperands(expr.entries.flatMap((entry) => [entry.key, entry.value]), ctx);
       if (isErr(values)) return values;
-      const out: Record<string, unknown> = {};
+      const entries: [string, unknown][] = [];
       for (let i = 0; i < values.length; i += 2) {
         const k = values[i];
         if (typeof k !== 'string') return new RuleError(`Map literal key is ${describeType(k)} (expected a string).`);
-        out[k] = values[i + 1];
+        entries.push([k, values[i + 1]]);
       }
-      return out;
+      // The literal keeps its written order for values() (`map-keys.ts`).
+      return mapLiteral(entries);
     }
     case 'slice': {
       const operands = evalOperands([expr.target, expr.start, expr.end], ctx);

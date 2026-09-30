@@ -10,7 +10,11 @@
  *   `0.0`.
  * - A Set and `diff()` compare by numeric value at every depth, and NaN
  *   matches NaN.
- * - `keys()` is in ascending Unicode code point order.
+ * - `keys()` is in ascending Unicode code point order, and `values()` in the
+ *   order a Map literal wrote or the request sent.
+ * - A Set has only its own methods, a MapDiff has no Map method, and each
+ *   Set method and a List receiver's `hasAll()`, `hasAny()` and `hasOnly()`
+ *   check their argument count and type.
  * - `join()` requires one string separator and converts each element as
  *   `string()` does, and a List method on another receiver is "Function not
  *   found error".
@@ -32,7 +36,7 @@ import { ALL_RULES_STORAGE_SCENARIOS } from '../../../../conformance/rules-corpu
 import type { TestCase } from '../../../src/rules/test/spec.js';
 import { SimulateFirestoreRulesHandler } from '../../../src/rules/simulator/handler.js';
 import { FirestoreSet } from '../../../src/rules/simulator/firestore-set.js';
-import { mapKeys } from '../../../src/rules/simulator/map-keys.js';
+import { mapKeys, mapLiteral, mapValues } from '../../../src/rules/simulator/map-keys.js';
 import {
   listElementsEqual,
   rulesValuesEqual,
@@ -144,15 +148,17 @@ service firebase.storage {
 
 const FIRESTORE_GROUPS = [
   ['cross-type-operator-overloads', 'equalityIdentity', 23],
-  ['list-methods-concat-removeall-toset', 'listMethod', 63],
+  ['list-methods-concat-removeall-toset', 'listMethod', 76],
   ['set-algebra-difference-union-intersection', 'setIdentity', 27],
-  ['required-fields-and-mapdiff', 'keyOrder', 21],
+  ['set-algebra-difference-union-intersection', 'setMethod', 35],
+  ['required-fields-and-mapdiff', 'keyOrder', 41],
 ] as const;
 
 const STORAGE_GROUPS = [
   ['list-map-literals-and-slice', 'equality: ', 19],
-  ['upload-primitives-boundaries', 'keys order: ', 4],
+  ['upload-primitives-boundaries', 'keys order: ', 7],
   ['stdlib-sets-and-mapdiff', 'value identity: ', 33],
+  ['stdlib-sets-and-mapdiff', 'set method: ', 35],
 ] as const;
 
 describe('Firestore simulator, cases production evaluated', () => {
@@ -224,6 +230,16 @@ describe('value equality relations', () => {
     expect(setElementsEqual([nan()], [nan()])).toBe(true);
     expect(setElementsEqual(int(1), 'a')).toBe(false);
     expect(new FirestoreSet([int(1), float(1), nan(), nan()]).size()).toBe(2);
+  });
+
+  test('values() is in the order a literal wrote, or else property order', () => {
+    expect(mapValues(mapLiteral([['b', 1], ['1', 2], ['10', 3], ['9', 4]]))).toEqual([1, 2, 3, 4]);
+    expect(mapValues(mapLiteral([['a', 1], ['b', 2], ['a', 3]]))).toEqual([3, 2]);
+    expect(mapValues({ b: 1, 1: 2 })).toEqual([2, 1]);
+    const literal = mapLiteral([['__proto__', { x: 1 }], ['a', 2]]);
+    expect(Object.keys(literal)).toEqual(['__proto__', 'a']);
+    expect(Object.getPrototypeOf(literal)).toBe(Object.prototype);
+    expect(JSON.stringify(mapLiteral([['b', 1], ['1', 2]]))).toBe('{"1":2,"b":1}');
   });
 
   test('keys() is in code point order', () => {

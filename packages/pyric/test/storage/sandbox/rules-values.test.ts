@@ -197,11 +197,11 @@ service firebase.storage {
 service firebase.storage {
   match /b/{bucket}/o {
     match /x/{fileId} {
-      allow read: if {'a': fileId}.values().size() == 1;
+      allow read: if {'a': fileId}.entries().size() == 1;
     }
   }
 }`),
-    ).toMatch(/unsupported method \.values\(\)/);
+    ).toMatch(/unsupported method \.entries\(\)/);
   });
 
   it('an unmodeled `is` type names the type', () => {

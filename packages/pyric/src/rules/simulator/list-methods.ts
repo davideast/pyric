@@ -71,19 +71,23 @@ export function listRemoveAll(receiver: readonly unknown[], args: readonly unkno
 export type ListMembershipMethod = 'hasAll' | 'hasAny' | 'hasOnly';
 
 /**
- * `list.hasAll(other)`, `list.hasAny(other)` and `list.hasOnly(other)` over
- * the argument's elements. The caller has checked the argument.
+ * `list.hasAll(other)`, `list.hasAny(other)` and `list.hasOnly(other)`.
+ * The argument is one List; a Set, string, Map or null argument is an
+ * unsupported operation, as it is in both services.
  */
-export function listHas(
+export function listMembership(
   method: ListMembershipMethod,
   receiver: readonly unknown[],
-  candidates: readonly unknown[],
-): boolean {
+  args: readonly unknown[],
+): boolean | ListMethodFailure {
+  const candidates = singleArgument(method, 'list', args);
+  if (candidates instanceof ListMethodFailure) return candidates;
   const contains = (values: readonly unknown[], value: unknown) =>
     values.some((item) => listElementsEqual(item, value));
-  if (method === 'hasAll') return candidates.every((candidate) => contains(receiver, candidate));
-  if (method === 'hasAny') return candidates.some((candidate) => contains(receiver, candidate));
-  return receiver.every((member) => contains(candidates, member));
+  const list = candidates as unknown[];
+  if (method === 'hasAll') return list.every((candidate) => contains(receiver, candidate));
+  if (method === 'hasAny') return list.some((candidate) => contains(receiver, candidate));
+  return receiver.every((member) => contains(list, member));
 }
 
 /** The List methods production captures as "Function not found error" on a string or Map receiver. */

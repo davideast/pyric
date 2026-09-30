@@ -1,13 +1,13 @@
-import { FirestoreSet } from '../../rules/simulator/firestore-set.js';
+import { FirestoreSet, SetMethodFailure, setMethod } from '../../rules/simulator/firestore-set.js';
 import {
   ListMethodFailure,
   listConcat,
-  listHas,
   listJoin,
+  listMembership,
   listRemoveAll,
   type ListMembershipMethod,
 } from '../../rules/simulator/list-methods.js';
-import { mapKeys } from '../../rules/simulator/map-keys.js';
+import { MapMethodFailure, mapList, type MapListMethod } from '../../rules/simulator/map-keys.js';
 import { MapDiff } from '../../rules/simulator/mapdiff.js';
 import type { EvalCtx } from './rules-evaluator.js';
 import { RuleEvalError } from './rules-evaluation-error.js';
@@ -24,7 +24,6 @@ import { describeRulesType as describeType, isRulesMap } from '../../rules/simul
 import { isRuleError as isErr } from './rules-values.js';
 
 const SET_ALGEBRA = ['difference', 'intersection', 'union'] as const;
-type SetAlgebraMethod = (typeof SET_ALGEBRA)[number];
 
 const MAP_DIFF_KEY_SETS = ['addedKeys', 'affectedKeys', 'changedKeys', 'removedKeys', 'unchangedKeys'] as const;
 type MapDiffKeySet = (typeof MAP_DIFF_KEY_SETS)[number];
@@ -34,19 +33,34 @@ type MapDiffKeySet = (typeof MAP_DIFF_KEY_SETS)[number];
  * own-key count, Set member count, and the Bytes count the Bytes value
  * answers for itself.
  */
-function evalSize(receiver: unknown, expr: MethodCall): unknown {
+function evalSize(receiver: unknown, expr: MethodCall, ctx: EvalCtx): unknown {
+  if (receiver instanceof FirestoreSet) return evalSetMethod(receiver, expr, ctx);
   expectNoArguments(expr);
   if (typeof receiver === 'string' || Array.isArray(receiver)) return receiver.length;
   if (isRulesMap(receiver)) return Object.keys(receiver).length;
-  if (receiver instanceof FirestoreSet) return receiver.size();
   return evalValueMethod(receiver, expr);
 }
 
-/** `Map.keys()` returns the map's own keys in code point order and never exposes JS prototypes. */
-function evalMapKeys(receiver: unknown, expr: MethodCall): unknown {
-  expectNoArguments(expr);
+/**
+ * `Map.keys()` in code point order and `Map.values()` in written order
+ * (`map-keys.ts`), own keys only, never JS prototypes.
+ */
+function evalMapList(receiver: unknown, expr: MethodCall, ctx: EvalCtx): unknown {
   if (!isRulesMap(receiver)) throw functionNotFound(expr.method);
-  return mapKeys(receiver);
+  const args = evalArguments(expr, ctx);
+  if (isErr(args)) return args;
+  const result = mapList(expr.method as MapListMethod, receiver, args);
+  if (result instanceof MapMethodFailure) throw new RuleEvalError(result.message);
+  return result;
+}
+
+/** A Set receiver's methods, shared with the Firestore simulator (`firestore-set.ts`). */
+function evalSetMethod(receiver: FirestoreSet, expr: MethodCall, ctx: EvalCtx): unknown {
+  const args = evalArguments(expr, ctx);
+  if (isErr(args)) return args;
+  const result = setMethod(receiver, expr.method, args);
+  if (result instanceof SetMethodFailure) throw new RuleEvalError(result.message);
+  return result;
 }
 
 /** The List methods `list-methods.ts` implements for both evaluators. */
@@ -85,33 +99,18 @@ function evalMapGet(receiver: unknown, expr: MethodCall, ctx: EvalCtx): unknown 
 }
 
 /**
- * `hasAll`, `hasAny`, and `hasOnly`. A List receiver takes a List argument
- * and compares elements as List membership does; a Set receiver takes a List
- * or Set and compares elements as the Set does. Any other argument, a Set to
- * a List receiver included, is an unsupported operation
- * (rules-storage-upload-primitives-boundaries).
+ * `hasAll`, `hasAny`, and `hasOnly`. A List receiver takes one List
+ * argument (`list-methods.ts`) and a Set receiver one List or Set
+ * (`firestore-set.ts`).
  */
 function evalMembership(receiver: unknown, expr: MethodCall, ctx: EvalCtx): unknown {
-  if (!Array.isArray(receiver) && !(receiver instanceof FirestoreSet)) throw functionNotFound(expr.method);
-  const receiverType = Array.isArray(receiver) ? 'list' : 'set';
-  const overloads = receiverType === 'list'
-    ? `list.${expr.method}(list)`
-    : `set.${expr.method}(set), set.${expr.method}(list)`;
-  if (expr.args.length !== 1) {
-    throw new RuleEvalError(`Incorrect number of arguments. Received: ${expr.args.length}. Expected: ${overloads}.`);
-  }
+  if (receiver instanceof FirestoreSet) return evalSetMethod(receiver, expr, ctx);
+  if (!Array.isArray(receiver)) throw functionNotFound(expr.method);
   const args = evalArguments(expr, ctx);
   if (isErr(args)) return args;
-  const [argument] = args;
-  const accepted = Array.isArray(argument) || (receiverType === 'set' && argument instanceof FirestoreSet);
-  if (!accepted) {
-    throw new RuleEvalError(
-      `Unsupported operation error. Received: ${receiverType}.${expr.method}(${describeType(argument)}). Expected: ${overloads}.`,
-    );
-  }
-  const method = expr.method as ListMembershipMethod;
-  if (Array.isArray(receiver)) return listHas(method, receiver, argument as unknown[]);
-  return receiver[method](argument as unknown[] | FirestoreSet);
+  const result = listMembership(expr.method as ListMembershipMethod, receiver, args);
+  if (result instanceof ListMethodFailure) throw new RuleEvalError(result.message);
+  return result;
 }
 
 /** `List.toSet()`: the list's distinct members as a Set. */
@@ -124,25 +123,12 @@ function evalToSet(receiver: unknown, expr: MethodCall): unknown {
 }
 
 /**
- * `Set.difference`, `Set.union`, and `Set.intersection`. They take a Set
- * argument; production rejects a List argument with "Unsupported operation
- * error" and a List receiver with "Function not found error", both captured
- * by rules-storage-stdlib-sets-and-mapdiff.
+ * `Set.difference`, `Set.union`, and `Set.intersection` (`firestore-set.ts`).
+ * Another receiver type is production's function-not-found error.
  */
 function evalSetAlgebra(receiver: unknown, expr: MethodCall, ctx: EvalCtx): unknown {
   if (!(receiver instanceof FirestoreSet)) throw functionNotFound(expr.method);
-  if (expr.args.length !== 1) {
-    throw new RuleEvalError(`${expr.method}() expects one set argument`);
-  }
-  const args = evalArguments(expr, ctx);
-  if (isErr(args)) return args;
-  const [other] = args;
-  if (!(other instanceof FirestoreSet)) {
-    throw new RuleEvalError(
-      `Unsupported operation error. Received: set.${expr.method}(${describeType(other)}). Expected: set.${expr.method}(set).`,
-    );
-  }
-  return receiver[expr.method as SetAlgebraMethod](other);
+  return evalSetMethod(receiver, expr, ctx);
 }
 
 /**
@@ -183,10 +169,11 @@ export const collectionMethods: ReceiverMethods = {
   hasAny: evalMembership,
   hasOnly: evalMembership,
   join: evalListMethod,
-  keys: evalMapKeys,
+  keys: evalMapList,
   removeAll: evalListMethod,
   size: evalSize,
   toSet: evalToSet,
+  values: evalMapList,
   ...methodsNamed(SET_ALGEBRA, evalSetAlgebra),
   ...methodsNamed(MAP_DIFF_KEY_SETS, evalMapDiffKeySet),
 };

@@ -21,7 +21,7 @@ function run(rules: string, tc: TestCase) {
 function expectUnavailable(result: ReturnType<typeof run>): void {
   expect(result.decision).toBe('DENY');
   expect(result.trace.some((entry) =>
-    entry.verdict === 'ERROR' && /Function not found on List receiver/.test(entry.message ?? ''),
+    entry.verdict === 'ERROR' && /Function not found error: Name: \[(difference|union|intersection)\]\./.test(entry.message ?? ''),
   )).toBe(true);
 }
 
