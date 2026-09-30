@@ -5,8 +5,9 @@
  * — a few cases chain through to verify the produced Set is fully usable.
  *
  * The listMethod cases pin List membership and `removeAll()` over ints and
- * floats, `join()`'s separator and element conversion, and the error for a
- * List method on a string, Map or Set receiver.
+ * floats, `join()`'s separator and element conversion, the error for a
+ * List method on a string, Map or Set receiver, and the argument a List
+ * receiver's `hasAll()`, `hasAny()` and `hasOnly()` take.
  */
 import type { ScenarioRecord } from './types.ts';
 
@@ -20,7 +21,10 @@ type ListMethodCase = readonly [description: string, condition: string, expectat
  * of nothing, and a List or Map element compares as `==` compares Lists and
  * Maps. `join(separator)` requires one string separator and converts each
  * element as `string()` does. A List method on a string, Map or Set receiver
- * is "Function not found error". Error cases negate a comparison that is
+ * is "Function not found error". A List receiver's `hasAll()`, `hasAny()`
+ * and `hasOnly()` take one List argument: a Set, string, Map or null
+ * argument is an unsupported operation, and another argument count is
+ * "Incorrect number of arguments". Error cases negate a comparison that is
  * false when the call succeeds, so ALLOW would show a value and DENY shows
  * the error.
  */
@@ -88,6 +92,19 @@ const listMethodCases: readonly ListMethodCase[] = [
   ['receiver: concat on a Set is an error', "!(['a'].toSet().concat(['b']) == ['z'])", 'DENY'],
   ['receiver: removeAll on a Set is an error', "!(['a'].toSet().removeAll(['a']) == ['z'].toSet())", 'DENY'],
   ['receiver: join on a Set is an error', "!(['a'].toSet().join(',') == 'z')", 'DENY'],
+  ['argument: hasAll with a List argument', "['a', 'b'].hasAll(['b', 'a'])", 'ALLOW'],
+  ['argument: hasAll != false with a missing element', "['a', 'b'].hasAll(['a', 'z']) != false", 'DENY'],
+  ['argument: a Set argument to hasAll on a List is an error', "!(['a', 'b'].hasAll(['z'].toSet()))", 'DENY'],
+  ['argument: a Set argument to hasAny on a List is an error', "!(['a', 'b'].hasAny(['z'].toSet()))", 'DENY'],
+  ['argument: a Set argument to hasOnly on a List is an error', "!(['a', 'b'].hasOnly(['z'].toSet()))", 'DENY'],
+  ['argument: || true absorbs a Set argument to hasAny on a List', "(['a', 'b'].hasAny(['z'].toSet())) || true", 'ALLOW'],
+  ['argument: a string argument to hasAny is an error', "!(['a', 'b'].hasAny('z'))", 'DENY'],
+  ['argument: a string argument to hasOnly is an error', "!(['a'].hasOnly('z'))", 'DENY'],
+  ['argument: a Map argument to hasAll is an error', "!([1, 2].hasAll({'a': 1}))", 'DENY'],
+  ['argument: a null argument to hasOnly is an error', '!([1, 2].hasOnly(null))', 'DENY'],
+  ['argument: || true absorbs a string argument to hasAll', "([1, 2].hasAll('a')) || true", 'ALLOW'],
+  ['argument: hasAny with no argument is an error', '!([1, 2].hasAny())', 'DENY'],
+  ['argument: hasAll with two arguments is an error', '!([1, 2].hasAll([1], [2]))', 'DENY'],
 ];
 
 const listMethodBlocks = listMethodCases

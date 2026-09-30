@@ -23,6 +23,14 @@
  * member of nothing. A List method on a string, Map or Set receiver is
  * "Function not found error". `keys()` lists a Map's keys in ascending
  * Unicode code point order, for Map literals and for custom metadata alike.
+ * `values()` lists a Map literal's values in the order written, a repeated
+ * key keeping its first position and last value, and custom metadata values
+ * in the order the request sent them. `keys()` and `values()` take no
+ * argument, and a List or string receiver of `keys()`, `values()` or `get()`
+ * is "Function not found error". A List receiver's `hasAll()`, `hasAny()` and
+ * `hasOnly()` take one List argument; a Map or null argument is an
+ * unsupported operation and another argument count is "Incorrect number of
+ * arguments".
  */
 import type { StorageScenarioRecord } from './types.ts';
 
@@ -149,14 +157,55 @@ const LIST_METHOD_CASES: readonly ListMethodCase[] = [
   ["keys: keys() orders non-ASCII keys by code point", "{'é': 1, 'z': 2, 'ｚ': 3, '😀': 4, 'e': 5}.keys() == ['e', 'z', 'é', 'ｚ', '😀']", 'ALLOW'],
   ["keys: keys() does not order by UTF-16 code unit", "{'é': 1, 'z': 2, 'ｚ': 3, '😀': 4, 'e': 5}.keys() == ['e', 'z', 'é', '😀', 'ｚ']", 'DENY'],
   ["keys: keys() puts a prefix before its extensions", "{'ab': 1, 'a': 2, 'a b': 3, '': 4}.keys() == ['', 'a', 'a b', 'ab']", 'ALLOW'],
+  ["values: values() keeps the written order", "{'c': 3, 'a': 1, 'b': 2}.values() == [3, 1, 2]", 'ALLOW'],
+  ["values: values() is not in key order", "{'c': 3, 'a': 1, 'b': 2}.values() == [1, 2, 3]", 'DENY'],
+  ["values: values() keeps an integer-like key in written order", "{'b': 1, '1': 2}.values() == [1, 2]", 'ALLOW'],
+  ["values: values() does not put an integer-like key first", "{'b': 1, '1': 2}.values() == [2, 1]", 'DENY'],
+  ["values: values() != the written order is false", "{'b': 1, '1': 2}.values() != [1, 2]", 'DENY'],
+  ["values: values() keeps '10' and '9' in written order", "{'b': 1, '10': 2, '9': 3}.values() == [1, 2, 3]", 'ALLOW'],
+  [
+    "values: values() keeps non-ASCII, integer-like and empty keys in written order",
+    "{'z': 1, 'é': 2, '😀': 3, 'ｚ': 4, '10': 5, '9': 6, '': 7}.values() == [1, 2, 3, 4, 5, 6, 7]",
+    'ALLOW',
+  ],
+  ["values: values() of a nested literal keeps its written order", "{'x': {'b': 1, '1': 2}}.x.values() == [1, 2]", 'ALLOW'],
+  ["values: values()[0] is the first value written", "{'b': 1, 'a': 2}.values()[0] == 1", 'ALLOW'],
+  ["values: values().join() joins in written order", "{'b': 1, 'a': 2}.values().join(',') == '1,2'", 'ALLOW'],
+  ["values: values() of a repeated key keeps its first position and last value", "{'a': 1, 'b': 2, 'a': 3}.values() == [3, 2]", 'ALLOW'],
+  ["values: values() of a repeated key does not move it last", "{'a': 1, 'b': 2, 'a': 3}.values() == [2, 3]", 'DENY'],
+  ["values: values() of an empty Map is an empty List", '{}.values() == []', 'ALLOW'],
+  ["values: values() is list", "{'b': 1, 'a': 2}.values() is list", 'ALLOW'],
+  ["values: values() with an argument is an error", "!({'a': 1}.values(1) == [1])", 'DENY'],
+  ["values: || true absorbs values() with an argument", "({'a': 1}.values(1) == [1]) || true", 'ALLOW'],
+  ["values: keys() with an argument is an error", "!({'a': 1}.keys(1) == ['a'])", 'DENY'],
+  ["values: values() on a List is an error", '!([1].values() == [1])', 'DENY'],
+  ["values: values() on a string is an error", "!('a'.values() == ['a'])", 'DENY'],
+  ["values: keys() on a List is an error", '!([1].keys() == [1])', 'DENY'],
+  ["values: keys() on a string is an error", "!('a'.keys() == ['a'])", 'DENY'],
+  ["values: get() on a List is an error", '!([1].get(0, 1) == 9)', 'DENY'],
+  ['argument: hasAll with a List argument', "['a', 'b'].hasAll(['b', 'a'])", 'ALLOW'],
+  ['argument: hasAll != false with a missing element', "['a', 'b'].hasAll(['a', 'z']) != false", 'DENY'],
+  ['argument: || true absorbs a Set argument to hasAny on a List', "(['a', 'b'].hasAny(['z'].toSet())) || true", 'ALLOW'],
+  ['argument: a Map argument to hasAll is an error', "!([1, 2].hasAll({'a': 1}))", 'DENY'],
+  ['argument: a null argument to hasOnly is an error', '!([1, 2].hasOnly(null))', 'DENY'],
+  ['argument: || true absorbs a string argument to hasAll', "([1, 2].hasAll('a')) || true", 'ALLOW'],
+  ['argument: hasAny with no argument is an error', '!([1, 2].hasAny())', 'DENY'],
+  ['argument: hasAll with two arguments is an error', '!([1, 2].hasAll([1], [2]))', 'DENY'],
 ];
 
-/** One metadata keys() order case, with metadata written as `{b, a, B, 1}`. */
+/**
+ * One metadata keys() or values() order case, with metadata written as
+ * `{b, a, B, 1}`. The request carries the keys in JavaScript property order,
+ * `1` first, which is the order `values()` returns.
+ */
 const METADATA_KEY_ORDER_CASES: readonly ListMethodCase[] = [
   ['metadata keys() is sorted', "request.resource.metadata.keys() == ['1', 'B', 'a', 'b']", 'ALLOW'],
   ['metadata keys() is not in written order', "request.resource.metadata.keys() == ['b', 'a', 'B', '1']", 'DENY'],
   ['metadata keys()[0] is the least key', "request.resource.metadata.keys()[0] == '1'", 'ALLOW'],
   ['metadata keys().join() joins the sorted keys', "request.resource.metadata.keys().join(',') == '1,B,a,b'", 'ALLOW'],
+  ['metadata values() keeps the order the request sent', "request.resource.metadata.values() == ['w', 'y', 'x', 'z']", 'ALLOW'],
+  ['metadata values() is not in key order', "request.resource.metadata.values() == ['w', 'z', 'x', 'y']", 'DENY'],
+  ['metadata values()[0] is the first value sent', "request.resource.metadata.values()[0] == 'w'", 'ALLOW'],
 ];
 
 const metadataKeyOrderMatches = METADATA_KEY_ORDER_CASES.map(([, condition], index) =>

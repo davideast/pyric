@@ -29,7 +29,11 @@ type KeyOrderCase = readonly [description: string, condition: string, expectatio
  * order the literal or the request data wrote them in: digits before upper
  * case before `_` before lower case, `'10'` before `'9'`, and `'ｚ'`
  * (U+FF5A) before `'😀'` (U+1F600), where UTF-16 code unit order would put
- * the emoji first. `values()` keeps the order the Map literal wrote. `diff()`
+ * the emoji first. `values()` keeps the order the Map literal wrote,
+ * integer-like keys included, and a repeated key keeps its first position
+ * and its last value; for request data it keeps the order the request sent.
+ * `keys()` and `values()` take no argument, and a List or string receiver of
+ * `keys()`, `values()` or `get()` is "Function not found error". `diff()`
  * compares values by numeric value at every depth: an int and the equal
  * float, `0.0` and `-0.0`, and two NaN are unchanged. The request data is
  * `{b, a, n}` in that order.
@@ -64,6 +68,30 @@ const keyOrderCases: readonly KeyOrderCase[] = [
   ["diff() of 0.0 and -0.0 is unchanged", "{'x': 0.0}.diff({'x': -0.0}).changedKeys().size() == 0", 'ALLOW'],
   ["diff() of NaN and NaN is unchanged", "{'x': float('NaN')}.diff({'x': float('NaN')}).changedKeys().size() == 0", 'ALLOW'],
   ["diff() of an int and a different float is changed", "{'x': 1}.diff({'x': 2.0}).changedKeys().size() == 1", 'ALLOW'],
+  ["values() keeps an integer-like key in written order", "{'b': 1, '1': 2}.values() == [1, 2]", 'ALLOW'],
+  ["values() does not put an integer-like key first", "{'b': 1, '1': 2}.values() == [2, 1]", 'DENY'],
+  ["values() != the written order is false", "{'b': 1, '1': 2}.values() != [1, 2]", 'DENY'],
+  ["values() keeps '10' and '9' in written order", "{'b': 1, '10': 2, '9': 3}.values() == [1, 2, 3]", 'ALLOW'],
+  [
+    "values() keeps non-ASCII, integer-like and empty keys in written order",
+    "{'z': 1, 'é': 2, '😀': 3, 'ｚ': 4, '10': 5, '9': 6, '': 7}.values() == [1, 2, 3, 4, 5, 6, 7]",
+    'ALLOW',
+  ],
+  ["values() of a nested literal keeps its written order", "{'x': {'b': 1, '1': 2}}.x.values() == [1, 2]", 'ALLOW'],
+  ["values()[0] is the first value written", "{'b': 1, 'a': 2}.values()[0] == 1", 'ALLOW'],
+  ["values() of a repeated key keeps its first position and last value", "{'a': 1, 'b': 2, 'a': 3}.values() == [3, 2]", 'ALLOW'],
+  ["values() of a repeated key does not move it last", "{'a': 1, 'b': 2, 'a': 3}.values() == [2, 3]", 'DENY'],
+  ["values() of an empty Map is an empty List", '{}.values() == []', 'ALLOW'],
+  ["values() is list", "{'b': 1, 'a': 2}.values() is list", 'ALLOW'],
+  ["values() of request data keeps the order the request sent", "request.resource.data.values() == ['y', 'x', 1]", 'ALLOW'],
+  ["values() with an argument is an error", "!({'a': 1}.values(1) == [1])", 'DENY'],
+  ["|| true absorbs values() with an argument", "({'a': 1}.values(1) == [1]) || true", 'ALLOW'],
+  ["keys() with an argument is an error", "!({'a': 1}.keys(1) == ['a'])", 'DENY'],
+  ["values() on a List is an error", '!([1].values() == [1])', 'DENY'],
+  ["values() on a string is an error", "!('a'.values() == ['a'])", 'DENY'],
+  ["keys() on a List is an error", '!([1].keys() == [1])', 'DENY'],
+  ["keys() on a string is an error", "!('a'.keys() == ['a'])", 'DENY'],
+  ["get() on a List is an error", '!([1].get(0, 1) == 9)', 'DENY'],
 ];
 
 const keyOrderBlocks = keyOrderCases

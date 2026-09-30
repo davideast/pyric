@@ -10,7 +10,9 @@
  * a Set argument, and a List receiver has no Set algebra. Metadata keys named
  * `constructor` and `toString` pin that a diff reads own keys only. The
  * `value-identity-*` matches pin how a Set and `diff()` compare ints, floats,
- * zeros and NaN.
+ * zeros and NaN. The `set-method-*` matches pin which methods a Set and a
+ * MapDiff have, the argument each Set method takes, and the error for Set
+ * algebra on a List, string or Map receiver.
  */
 import type { StorageScenarioRecord } from './types.ts';
 
@@ -64,6 +66,65 @@ const VALUE_IDENTITY_CASES: readonly ValueIdentityCase[] = [
 
 const valueIdentityMatches = VALUE_IDENTITY_CASES.map(([, condition], index) =>
   `    match /value-identity-${index}/{id} {
+      allow get: if ${condition};
+    }`).join('\n');
+
+/**
+ * A Set has `size()`, `hasAll()`, `hasAny()`, `hasOnly()`, `difference()`,
+ * `union()` and `intersection()`, and no Map method: `keys()`, `values()`,
+ * `get()` and `diff()` on a Set, and `keys()`, `values()`, `get()` and
+ * `size()` on a MapDiff, are "Function not found error". The membership
+ * methods take one List or Set argument, the algebra methods one Set
+ * argument, and `size()` none; another argument type is an unsupported
+ * operation and another count "Incorrect number of arguments". A List,
+ * string or Map receiver has no Set algebra. Error cases negate a comparison
+ * that is false when the call succeeds, so ALLOW would show a value and DENY
+ * shows the error.
+ */
+const SET_METHOD_CASES: readonly ValueIdentityCase[] = [
+  ['size() counts the elements', "['a', 'b', 'a'].toSet().size() == 2", 'ALLOW'],
+  ['size() != the count is false', "['a', 'b', 'a'].toSet().size() != 2", 'DENY'],
+  ['size() with an argument is an error', "!(['a'].toSet().size(1) == 9)", 'DENY'],
+  ['keys() on a Set is an error', "!(['a'].toSet().keys() == ['z'])", 'DENY'],
+  ['|| true absorbs keys() on a Set', "(['a'].toSet().keys() == ['z']) || true", 'ALLOW'],
+  ['values() on a Set is an error', "!(['a'].toSet().values() == ['z'])", 'DENY'],
+  ['get() on a Set is an error', "!(['a'].toSet().get('a', 1) == 0)", 'DENY'],
+  ['diff() on a Set is an error', "!(['a'].toSet().diff({'a': 1}).addedKeys().size() == 99)", 'DENY'],
+  ['keys() on a MapDiff is an error', "!({'a': 1}.diff({}).keys() == ['z'])", 'DENY'],
+  ['values() on a MapDiff is an error', "!({'a': 1}.diff({}).values() == [1])", 'DENY'],
+  ['get() on a MapDiff is an error', "!({'a': 1}.diff({}).get('a', 1) == 0)", 'DENY'],
+  ['size() on a MapDiff is an error', "!({'a': 1}.diff({}).size() == 99)", 'DENY'],
+  ['hasOnly() with a List argument', "['a', 'b'].toSet().hasOnly(['a', 'b', 'c'])", 'ALLOW'],
+  ['hasAll() != false with a missing element', "['a'].toSet().hasAll(['a', 'b']) != false", 'DENY'],
+  ['a string argument to hasAny() is an error', "!(['a'].toSet().hasAny('a'))", 'DENY'],
+  ['|| true absorbs a string argument to hasAny()', "(['a'].toSet().hasAny('a')) || true", 'ALLOW'],
+  ['a Map argument to hasAll() is an error', "!(['a'].toSet().hasAll({'a': 1}))", 'DENY'],
+  ['a string argument to hasOnly() is an error', "!(['a'].toSet().hasOnly('a'))", 'DENY'],
+  ['hasAll() with two arguments is an error', "!(['a'].toSet().hasAll(['a'], ['a']))", 'DENY'],
+  ['hasAny() with no argument is an error', "!(['a'].toSet().hasAny())", 'DENY'],
+  ['union() of two Sets', "['a'].toSet().union(['b'].toSet()) == ['a', 'b'].toSet()", 'ALLOW'],
+  ['union() != the joined Set is false', "['a'].toSet().union(['b'].toSet()) != ['a', 'b'].toSet()", 'DENY'],
+  ['a string argument to union() is an error', "!(['a'].toSet().union('a') == ['a'].toSet())", 'DENY'],
+  ['a Map argument to difference() is an error', "!(['a'].toSet().difference({'a': 1}) == ['a'].toSet())", 'DENY'],
+  ['a List argument to difference() is an error', "!(['a'].toSet().difference(['a']) == ['a'].toSet())", 'DENY'],
+  ['intersection() with no argument is an error', "!(['a'].toSet().intersection() == ['a'].toSet())", 'DENY'],
+  ['union() with no argument is an error', "!(['a'].toSet().union() == ['a'].toSet())", 'DENY'],
+  ['|| true absorbs union() with no argument', "(['a'].toSet().union() == ['a'].toSet()) || true", 'ALLOW'],
+  [
+    'intersection() with two arguments is an error',
+    "!(['a'].toSet().intersection(['a'].toSet(), ['a'].toSet()) == ['a'].toSet())",
+    'DENY',
+  ],
+  ['difference() on a List is an error', '!([1].difference([1].toSet()) == [1].toSet())', 'DENY'],
+  ['union() on a List is an error', '!([1].union([1].toSet()) == [1].toSet())', 'DENY'],
+  ['intersection() on a List is an error', '!([1].intersection([1].toSet()) == [1].toSet())', 'DENY'],
+  ['|| true absorbs union() on a List', '([1].union([1].toSet()) == [1].toSet()) || true', 'ALLOW'],
+  ['intersection() on a string is an error', "!('a'.intersection(['a'].toSet()) == ['a'].toSet())", 'DENY'],
+  ['difference() on a Map is an error', "!({'a': 1}.difference(['a'].toSet()) == ['a'].toSet())", 'DENY'],
+];
+
+const setMethodMatches = SET_METHOD_CASES.map(([, condition], index) =>
+  `    match /set-method-${index}/{id} {
       allow get: if ${condition};
     }`).join('\n');
 
@@ -155,6 +216,7 @@ service firebase.storage {
       allow update: if 'label' in metadataDiff().changedKeys();
     }
 ${valueIdentityMatches}
+${setMethodMatches}
   }
 }`,
   cases: [
@@ -203,5 +265,7 @@ ${valueIdentityMatches}
     ),
     ...VALUE_IDENTITY_CASES.map(([description, , expectation], index) =>
       getCase(`value identity: ${description}`, expectation, `value-identity-${index}/a`)),
+    ...SET_METHOD_CASES.map(([description, , expectation], index) =>
+      getCase(`set method: ${description}`, expectation, `set-method-${index}/a`)),
   ],
 };
