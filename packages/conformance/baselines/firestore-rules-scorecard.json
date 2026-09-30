@@ -431,7 +431,8 @@
         "get-after-and-exists-after",
         "globals-request-path-and-resource-id",
         "prototype-chain-keys",
-        "resource-document-identity"
+        "resource-document-identity",
+        "undefined-field-access"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -931,7 +932,8 @@
         "cross-type-operator-overloads",
         "duration-and-latlng",
         "list-methods-concat-removeall-toset",
-        "time-math-and-casts"
+        "time-math-and-casts",
+        "undefined-field-access"
       ],
       "verifiedByRows": [],
       "divergedByRows": []

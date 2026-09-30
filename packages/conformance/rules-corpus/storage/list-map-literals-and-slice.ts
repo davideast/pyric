@@ -88,6 +88,53 @@ service firebase.storage {
     match /listIndexStringKey/{fileId} { allow read: if fileId.split('-')['length'] == 4; }
     // == over ints and floats inside List and Map literals
 ${equalityIdentityMatches}
+    // Property and index access on values that are not maps: a list, a
+    // string, a path, a duration, and size read as a field of a map.
+    // Dot length on a list.
+    match /paListLengthEq/{fileId} { allow read: if fileId.split('-').length == 4; }
+    match /paListLengthNe/{fileId} { allow read: if fileId.split('-').length != 99; }
+    match /paListLengthNot/{fileId} { allow read: if !(fileId.split('-').length == 4); }
+    match /paListLengthOrTrue/{fileId} { allow read: if fileId.split('-').length == 4 || true; }
+    // Dot size without a call on a list.
+    match /paListSizeFieldEq/{fileId} { allow read: if fileId.split('-').size == 4; }
+    match /paListSizeFieldNe/{fileId} { allow read: if fileId.split('-').size != 99; }
+    match /paListSizeFieldNot/{fileId} { allow read: if !(fileId.split('-').size == 4); }
+    match /paListSizeFieldOrTrue/{fileId} { allow read: if fileId.split('-').size == 4 || true; }
+    // Int index on a string.
+    match /paStrIndexEq/{fileId} { allow read: if 'abc'[0] == 'a'; }
+    match /paStrIndexNe/{fileId} { allow read: if 'abc'[0] != 'zz'; }
+    match /paStrIndexNot/{fileId} { allow read: if !('abc'[0] == 'a'); }
+    match /paStrIndexOrTrue/{fileId} { allow read: if 'abc'[0] == 'a' || true; }
+    // String key on a string.
+    match /paStrLengthKeyEq/{fileId} { allow read: if 'abc'['length'] == 3; }
+    match /paStrLengthKeyNe/{fileId} { allow read: if 'abc'['length'] != 99; }
+    match /paStrLengthKeyNot/{fileId} { allow read: if !('abc'['length'] == 3); }
+    match /paStrLengthKeyOrTrue/{fileId} { allow read: if 'abc'['length'] == 3 || true; }
+    // Dot length on a string.
+    match /paStrLengthEq/{fileId} { allow read: if fileId.length == 7; }
+    match /paStrLengthNe/{fileId} { allow read: if fileId.length != 99; }
+    match /paStrLengthNot/{fileId} { allow read: if !(fileId.length == 7); }
+    match /paStrLengthOrTrue/{fileId} { allow read: if fileId.length == 7 || true; }
+    // Int index on a path.
+    match /paPathIndexEq/{fileId} { allow read: if request.path[0] == 'b'; }
+    match /paPathIndexNe/{fileId} { allow read: if request.path[0] != 'zz'; }
+    match /paPathIndexNot/{fileId} { allow read: if !(request.path[0] == 'b'); }
+    match /paPathIndexOrTrue/{fileId} { allow read: if request.path[0] == 'b' || true; }
+    // Unbound string key on a path.
+    match /paPathSegmentsKeyEq/{fileId} { allow read: if request.path['segments'] == null; }
+    match /paPathSegmentsKeyNe/{fileId} { allow read: if request.path['segments'] != 'zz'; }
+    match /paPathSegmentsKeyNot/{fileId} { allow read: if !(request.path['segments'] == null); }
+    match /paPathSegmentsKeyOrTrue/{fileId} { allow read: if request.path['segments'] == null || true; }
+    // Int index on a duration.
+    match /paDurationIndexEq/{fileId} { allow read: if duration.value(1, 'h')[0] == null; }
+    match /paDurationIndexNe/{fileId} { allow read: if duration.value(1, 'h')[0] != 'zz'; }
+    match /paDurationIndexNot/{fileId} { allow read: if !(duration.value(1, 'h')[0] == null); }
+    match /paDurationIndexOrTrue/{fileId} { allow read: if duration.value(1, 'h')[0] == null || true; }
+    // Dot size without a call on a map.
+    match /paMapSizeFieldEq/{fileId} { allow read: if {'a': 1}.size == 1; }
+    match /paMapSizeFieldNe/{fileId} { allow read: if {'a': 1}.size != 99; }
+    match /paMapSizeFieldNot/{fileId} { allow read: if !({'a': 1}.size == 1); }
+    match /paMapSizeFieldOrTrue/{fileId} { allow read: if {'a': 1}.size == 1 || true; }
   }
 }`,
   cases: [
@@ -169,6 +216,47 @@ ${equalityIdentityMatches}
       path: `equality-${index}/a.png`,
       auth: { uid: 'alice' },
       existingResource: { size: 100 },
+    })),
+    ...([
+      ['fileId.split(\'-\').length == 4 (dot length on a list) → DENY', 'DENY', 'paListLengthEq/a-b-c-d'],
+      ['fileId.split(\'-\').length != 99 (dot length on a list) → DENY', 'DENY', 'paListLengthNe/a-b-c-d'],
+      ['!(fileId.split(\'-\').length == 4) (dot length on a list) → DENY', 'DENY', 'paListLengthNot/a-b-c-d'],
+      ['fileId.split(\'-\').length == 4 || true (dot length on a list) → ALLOW', 'ALLOW', 'paListLengthOrTrue/a-b-c-d'],
+      ['fileId.split(\'-\').size == 4 (dot size without a call on a list) → DENY', 'DENY', 'paListSizeFieldEq/a-b-c-d'],
+      ['fileId.split(\'-\').size != 99 (dot size without a call on a list) → DENY', 'DENY', 'paListSizeFieldNe/a-b-c-d'],
+      ['!(fileId.split(\'-\').size == 4) (dot size without a call on a list) → DENY', 'DENY', 'paListSizeFieldNot/a-b-c-d'],
+      ['fileId.split(\'-\').size == 4 || true (dot size without a call on a list) → ALLOW', 'ALLOW', 'paListSizeFieldOrTrue/a-b-c-d'],
+      ['\'abc\'[0] == \'a\' (int index on a string) → ALLOW', 'ALLOW', 'paStrIndexEq/a-b-c-d'],
+      ['\'abc\'[0] != \'zz\' (int index on a string) → ALLOW', 'ALLOW', 'paStrIndexNe/a-b-c-d'],
+      ['!(\'abc\'[0] == \'a\') (int index on a string) → DENY', 'DENY', 'paStrIndexNot/a-b-c-d'],
+      ['\'abc\'[0] == \'a\' || true (int index on a string) → ALLOW', 'ALLOW', 'paStrIndexOrTrue/a-b-c-d'],
+      ['\'abc\'[\'length\'] == 3 (string key on a string) → DENY', 'DENY', 'paStrLengthKeyEq/a-b-c-d'],
+      ['\'abc\'[\'length\'] != 99 (string key on a string) → DENY', 'DENY', 'paStrLengthKeyNe/a-b-c-d'],
+      ['!(\'abc\'[\'length\'] == 3) (string key on a string) → DENY', 'DENY', 'paStrLengthKeyNot/a-b-c-d'],
+      ['\'abc\'[\'length\'] == 3 || true (string key on a string) → ALLOW', 'ALLOW', 'paStrLengthKeyOrTrue/a-b-c-d'],
+      ['fileId.length == 7 (dot length on a string) → DENY', 'DENY', 'paStrLengthEq/a-b-c-d'],
+      ['fileId.length != 99 (dot length on a string) → DENY', 'DENY', 'paStrLengthNe/a-b-c-d'],
+      ['!(fileId.length == 7) (dot length on a string) → DENY', 'DENY', 'paStrLengthNot/a-b-c-d'],
+      ['fileId.length == 7 || true (dot length on a string) → ALLOW', 'ALLOW', 'paStrLengthOrTrue/a-b-c-d'],
+      ['request.path[0] == \'b\' (int index on a path) → ALLOW', 'ALLOW', 'paPathIndexEq/a-b-c-d'],
+      ['request.path[0] != \'zz\' (int index on a path) → ALLOW', 'ALLOW', 'paPathIndexNe/a-b-c-d'],
+      ['!(request.path[0] == \'b\') (int index on a path) → DENY', 'DENY', 'paPathIndexNot/a-b-c-d'],
+      ['request.path[0] == \'b\' || true (int index on a path) → ALLOW', 'ALLOW', 'paPathIndexOrTrue/a-b-c-d'],
+      ['request.path[\'segments\'] == null (unbound string key on a path) → DENY', 'DENY', 'paPathSegmentsKeyEq/a-b-c-d'],
+      ['request.path[\'segments\'] != \'zz\' (unbound string key on a path) → DENY', 'DENY', 'paPathSegmentsKeyNe/a-b-c-d'],
+      ['!(request.path[\'segments\'] == null) (unbound string key on a path) → DENY', 'DENY', 'paPathSegmentsKeyNot/a-b-c-d'],
+      ['request.path[\'segments\'] == null || true (unbound string key on a path) → ALLOW', 'ALLOW', 'paPathSegmentsKeyOrTrue/a-b-c-d'],
+      ['duration.value(1, \'h\')[0] == null (int index on a duration) → DENY', 'DENY', 'paDurationIndexEq/a-b-c-d'],
+      ['duration.value(1, \'h\')[0] != \'zz\' (int index on a duration) → DENY', 'DENY', 'paDurationIndexNe/a-b-c-d'],
+      ['!(duration.value(1, \'h\')[0] == null) (int index on a duration) → DENY', 'DENY', 'paDurationIndexNot/a-b-c-d'],
+      ['duration.value(1, \'h\')[0] == null || true (int index on a duration) → ALLOW', 'ALLOW', 'paDurationIndexOrTrue/a-b-c-d'],
+      ['{\'a\': 1}.size == 1 (dot size without a call on a map) → DENY', 'DENY', 'paMapSizeFieldEq/a-b-c-d'],
+      ['{\'a\': 1}.size != 99 (dot size without a call on a map) → DENY', 'DENY', 'paMapSizeFieldNe/a-b-c-d'],
+      ['!({\'a\': 1}.size == 1) (dot size without a call on a map) → DENY', 'DENY', 'paMapSizeFieldNot/a-b-c-d'],
+      ['{\'a\': 1}.size == 1 || true (dot size without a call on a map) → ALLOW', 'ALLOW', 'paMapSizeFieldOrTrue/a-b-c-d'],
+    ] as const).map(([description, expectation, path]) => ({
+      description, expectation, method: 'get' as const, path,
+      auth: { uid: 'alice' }, existingResource: { size: 100 },
     })),
   ],
 };

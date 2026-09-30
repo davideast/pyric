@@ -5,12 +5,12 @@
     "firestore-rules#176"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"undefined-field-access\" (RULES-B2). Missing-field access is a runtime error in prod (deny), not null; `typo == null` must DENY and `!(key in map)` is the real absence check.",
-  "observedAt": "2026-09-28T06:06:15.482Z",
+  "observedAt": "2026-09-30T03:39:22.686Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "c86c0ee17a9aa2672545952ec954022a9ff960de3118a81693d4d74143eac497"
+    "value": "b7ea4480271f72b9838dee7cdbc50873c7f1e97e10fce26630ef75a7503d5828"
   },
   "behavior": {
     "missing field == null → DENY (error, not null)": "DENY",
@@ -53,7 +53,43 @@
     "request.auth.token['missing'] == null → DENY": "DENY",
     "data['l'][-1] == 2 (negative list index) → DENY": "DENY",
     "data['l']['length'] == 2 (string key on a list) → DENY": "DENY",
-    "data['constructor'] == null (inherited name, not a key) → DENY": "DENY"
+    "data['constructor'] == null (inherited name, not a key) → DENY": "DENY",
+    "resource.data.l.length == 2 (dot length on a list) → DENY": "DENY",
+    "resource.data.l.length != 99 (dot length on a list) → DENY": "DENY",
+    "!(resource.data.l.length == 2) (dot length on a list) → DENY": "DENY",
+    "resource.data.l.length == 2 || true (dot length on a list) → ALLOW": "ALLOW",
+    "resource.data.l.size == 2 (dot size without a call on a list) → DENY": "DENY",
+    "resource.data.l.size != 99 (dot size without a call on a list) → DENY": "DENY",
+    "!(resource.data.l.size == 2) (dot size without a call on a list) → DENY": "DENY",
+    "resource.data.l.size == 2 || true (dot size without a call on a list) → ALLOW": "ALLOW",
+    "'abc'[0] == 'a' (int index on a string) → ALLOW": "ALLOW",
+    "'abc'[0] != 'zz' (int index on a string) → ALLOW": "ALLOW",
+    "!('abc'[0] == 'a') (int index on a string) → DENY": "DENY",
+    "'abc'[0] == 'a' || true (int index on a string) → ALLOW": "ALLOW",
+    "'abc'['length'] == 3 (string key on a string) → DENY": "DENY",
+    "'abc'['length'] != 99 (string key on a string) → DENY": "DENY",
+    "!('abc'['length'] == 3) (string key on a string) → DENY": "DENY",
+    "'abc'['length'] == 3 || true (string key on a string) → ALLOW": "ALLOW",
+    "resource.data.name.length == 5 (dot length on a string) → DENY": "DENY",
+    "resource.data.name.length != 99 (dot length on a string) → DENY": "DENY",
+    "!(resource.data.name.length == 5) (dot length on a string) → DENY": "DENY",
+    "resource.data.name.length == 5 || true (dot length on a string) → ALLOW": "ALLOW",
+    "request.path[0] == 'databases' (int index on a path) → ALLOW": "ALLOW",
+    "request.path[0] != 'zz' (int index on a path) → ALLOW": "ALLOW",
+    "!(request.path[0] == 'databases') (int index on a path) → DENY": "DENY",
+    "request.path[0] == 'databases' || true (int index on a path) → ALLOW": "ALLOW",
+    "request.path['segments'] == null (unbound string key on a path) → DENY": "DENY",
+    "request.path['segments'] != 'zz' (unbound string key on a path) → DENY": "DENY",
+    "!(request.path['segments'] == null) (unbound string key on a path) → DENY": "DENY",
+    "request.path['segments'] == null || true (unbound string key on a path) → ALLOW": "ALLOW",
+    "duration.value(1, 'h')[0] == null (int index on a duration) → DENY": "DENY",
+    "duration.value(1, 'h')[0] != 'zz' (int index on a duration) → DENY": "DENY",
+    "!(duration.value(1, 'h')[0] == null) (int index on a duration) → DENY": "DENY",
+    "duration.value(1, 'h')[0] == null || true (int index on a duration) → ALLOW": "ALLOW",
+    "resource.data.m.size == 1 (dot size without a call on a map) → DENY": "DENY",
+    "resource.data.m.size != 99 (dot size without a call on a map) → DENY": "DENY",
+    "!(resource.data.m.size == 1) (dot size without a call on a map) → DENY": "DENY",
+    "resource.data.m.size == 1 || true (dot size without a call on a map) → ALLOW": "ALLOW"
   },
   "diagnostics": {
     "missing field == null → DENY (error, not null)": {
@@ -417,6 +453,324 @@
           "column": 21,
           "currentOffset": 4663,
           "endOffset": 4670
+        }
+      }
+    },
+    "resource.data.l.length == 2 (dot length on a list) → DENY": {
+      "notes": [
+        "Error: firestore.rules line [149], column [21]. Type error. Received: [list] Expected: [map,path]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 149,
+          "column": 21,
+          "currentOffset": 5031,
+          "endOffset": 5038
+        }
+      }
+    },
+    "resource.data.l.length != 99 (dot length on a list) → DENY": {
+      "notes": [
+        "Error: firestore.rules line [152], column [21]. Type error. Received: [list] Expected: [map,path]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 152,
+          "column": 21,
+          "currentOffset": 5119,
+          "endOffset": 5126
+        }
+      }
+    },
+    "!(resource.data.l.length == 2) (dot length on a list) → DENY": {
+      "notes": [
+        "Error: firestore.rules line [155], column [23]. Type error. Received: [list] Expected: [map,path]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 155,
+          "column": 23,
+          "currentOffset": 5211,
+          "endOffset": 5218
+        }
+      }
+    },
+    "resource.data.l.size == 2 (dot size without a call on a list) → DENY": {
+      "notes": [
+        "Error: firestore.rules line [162], column [21]. Type error. Received: [list] Expected: [map,path]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 162,
+          "column": 21,
+          "currentOffset": 5445,
+          "endOffset": 5452
+        }
+      }
+    },
+    "resource.data.l.size != 99 (dot size without a call on a list) → DENY": {
+      "notes": [
+        "Error: firestore.rules line [165], column [21]. Type error. Received: [list] Expected: [map,path]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 165,
+          "column": 21,
+          "currentOffset": 5534,
+          "endOffset": 5541
+        }
+      }
+    },
+    "!(resource.data.l.size == 2) (dot size without a call on a list) → DENY": {
+      "notes": [
+        "Error: firestore.rules line [168], column [23]. Type error. Received: [list] Expected: [map,path]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 168,
+          "column": 23,
+          "currentOffset": 5627,
+          "endOffset": 5634
+        }
+      }
+    },
+    "'abc'['length'] == 3 (string key on a string) → DENY": {
+      "notes": [
+        "Error: firestore.rules line [188], column [21]. Unsupported operation error. Received: string[string]. Expected: string[int]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 188,
+          "column": 21,
+          "currentOffset": 6191,
+          "endOffset": 6195
+        }
+      }
+    },
+    "'abc'['length'] != 99 (string key on a string) → DENY": {
+      "notes": [
+        "Error: firestore.rules line [191], column [21]. Unsupported operation error. Received: string[string]. Expected: string[int]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 191,
+          "column": 21,
+          "currentOffset": 6274,
+          "endOffset": 6278
+        }
+      }
+    },
+    "!('abc'['length'] == 3) (string key on a string) → DENY": {
+      "notes": [
+        "Error: firestore.rules line [194], column [23]. Unsupported operation error. Received: string[string]. Expected: string[int]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 194,
+          "column": 23,
+          "currentOffset": 6361,
+          "endOffset": 6365
+        }
+      }
+    },
+    "resource.data.name.length == 5 (dot length on a string) → DENY": {
+      "notes": [
+        "Error: firestore.rules line [201], column [21]. Type error. Received: [string] Expected: [map,path]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 201,
+          "column": 21,
+          "currentOffset": 6568,
+          "endOffset": 6575
+        }
+      }
+    },
+    "resource.data.name.length != 99 (dot length on a string) → DENY": {
+      "notes": [
+        "Error: firestore.rules line [204], column [21]. Type error. Received: [string] Expected: [map,path]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 204,
+          "column": 21,
+          "currentOffset": 6658,
+          "endOffset": 6665
+        }
+      }
+    },
+    "!(resource.data.name.length == 5) (dot length on a string) → DENY": {
+      "notes": [
+        "Error: firestore.rules line [207], column [23]. Type error. Received: [string] Expected: [map,path]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 207,
+          "column": 23,
+          "currentOffset": 6752,
+          "endOffset": 6759
+        }
+      }
+    },
+    "request.path['segments'] == null (unbound string key on a path) → DENY": {
+      "notes": [
+        "Error: firestore.rules line [227], column [21]. Property segments is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 227,
+          "column": 21,
+          "currentOffset": 7385,
+          "endOffset": 7391
+        }
+      }
+    },
+    "request.path['segments'] != 'zz' (unbound string key on a path) → DENY": {
+      "notes": [
+        "Error: firestore.rules line [230], column [21]. Property segments is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 230,
+          "column": 21,
+          "currentOffset": 7483,
+          "endOffset": 7489
+        }
+      }
+    },
+    "!(request.path['segments'] == null) (unbound string key on a path) → DENY": {
+      "notes": [
+        "Error: firestore.rules line [233], column [23]. Property segments is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 233,
+          "column": 23,
+          "currentOffset": 7584,
+          "endOffset": 7590
+        }
+      }
+    },
+    "duration.value(1, 'h')[0] == null (int index on a duration) → DENY": {
+      "notes": [
+        "Error: firestore.rules line [240], column [21]. Function not found error: Name: [[]]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 240,
+          "column": 21,
+          "currentOffset": 7823,
+          "endOffset": 7830
+        },
+        "functionCalls": [
+          {
+            "function": "[]",
+            "args": [
+              0
+            ]
+          }
+        ]
+      }
+    },
+    "duration.value(1, 'h')[0] != 'zz' (int index on a duration) → DENY": {
+      "notes": [
+        "Error: firestore.rules line [243], column [21]. Function not found error: Name: [[]]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 243,
+          "column": 21,
+          "currentOffset": 7920,
+          "endOffset": 7927
+        },
+        "functionCalls": [
+          {
+            "function": "[]",
+            "args": [
+              0
+            ]
+          }
+        ]
+      }
+    },
+    "!(duration.value(1, 'h')[0] == null) (int index on a duration) → DENY": {
+      "notes": [
+        "Error: firestore.rules line [246], column [23]. Function not found error: Name: [[]]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 246,
+          "column": 23,
+          "currentOffset": 8020,
+          "endOffset": 8027
+        },
+        "functionCalls": [
+          {
+            "function": "[]",
+            "args": [
+              0
+            ]
+          }
+        ]
+      }
+    },
+    "resource.data.m.size == 1 (dot size without a call on a map) → DENY": {
+      "notes": [
+        "Error: firestore.rules line [253], column [21]. Property size is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 253,
+          "column": 21,
+          "currentOffset": 8267,
+          "endOffset": 8274
+        }
+      }
+    },
+    "resource.data.m.size != 99 (dot size without a call on a map) → DENY": {
+      "notes": [
+        "Error: firestore.rules line [256], column [21]. Property size is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 256,
+          "column": 21,
+          "currentOffset": 8355,
+          "endOffset": 8362
+        }
+      }
+    },
+    "!(resource.data.m.size == 1) (dot size without a call on a map) → DENY": {
+      "notes": [
+        "Error: firestore.rules line [259], column [23]. Property size is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 259,
+          "column": 23,
+          "currentOffset": 8447,
+          "endOffset": 8454
         }
       }
     }

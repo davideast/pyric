@@ -1,6 +1,7 @@
 import { Timestamp } from '../../rules/simulator/wrappers/timestamp.js';
 import type { EvaluationInput, StorageResource } from './rules.js';
 import { RuleError } from './rules-values.js';
+import { StoragePath } from './rules-path.js';
 import { normalizeAuthState } from '../../sandbox/sandbox-context.js';
 
 /**
@@ -59,7 +60,8 @@ export function buildRequestObject(input: EvaluationInput, now: number): Record<
     // like a property read; neither may turn the missing value into an allow.
     resource: input.request.resource ?? new RuleError('Property resource is undefined on object.'),
     method: input.request.method,
-    path: input.request.path,
+    // A path value, which `request.path[0]` reads by segment.
+    path: new StoragePath(input.request.path),
     // The same Timestamp value `timestamp.date(...)` and `timestamp.value(...)`
     // build, so `request.time < timestamp.date(2030, 1, 1)` compares
     // timestamps and `request.time.year()` reads a component.

@@ -2,8 +2,14 @@ import { RulesValue } from '../../rules/simulator/wrappers/base.js';
 
 export class StoragePath extends RulesValue {
   readonly typeName = 'path';
+  /** Names bound to segments; a Storage path value binds none. */
+  readonly bindings: Readonly<Record<string, string>> = {};
   constructor(readonly path: string) {
     super();
+  }
+  /** The path's segments, which `path[i]` reads. */
+  get segments(): string[] {
+    return this.path.split('/').filter(Boolean);
   }
   valueOf(): number {
     return NaN;

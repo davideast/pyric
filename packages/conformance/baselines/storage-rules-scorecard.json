@@ -157,6 +157,7 @@
         "function-scopes-and-shadowing",
         "functions-let-scope",
         "in-membership-and-proto-keys",
+        "list-map-literals-and-slice",
         "matches-regex",
         "metadata-access",
         "metadata-verbs-and-arithmetic",
@@ -436,6 +437,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "list-map-literals-and-slice",
         "metadata-verbs-and-arithmetic"
       ],
       "verifiedByRows": [],
@@ -761,6 +763,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "conversion-functions",
+        "list-map-literals-and-slice",
         "resource-object-identity",
         "stdlib-storage-modules",
         "stdlib-timestamp-duration",
@@ -1538,6 +1541,7 @@
         "error-absorption-and-direction",
         "firestore-lookup-budget",
         "functions-let-scope",
+        "list-map-literals-and-slice",
         "math-namespace",
         "metadata-access",
         "metadata-verbs-and-arithmetic",

@@ -127,10 +127,11 @@ service firebase.storage {
     expect(r.allowed).toBe(false);
     const limit = r.resourceLimit!;
     expect(limit.line).toBe(5);
-    // Without `&& false` the condition costs exactly 1000. Its `&&` node is
-    // charged before its operands, so the last `true` is the 1001st unit.
+    // Without `&& false` the condition costs exactly 1000. A node is charged
+    // as it completes, so that conjunction has spent the 1000 when the last
+    // `&&` goes on to its right operand, and that second unit is the 1001st.
     const storageLine = storageSource.split('\n')[4]!;
-    expect(limit.column).toBe(storageLine.lastIndexOf('true') + 1);
+    expect(limit.column).toBe(storageLine.lastIndexOf('&&') + 1);
     expect(r.reasons).toEqual([
       `match /docs/{docId} read: line 5, column ${limit.column}: ${EXPRESSION_LIMIT_MESSAGE}`,
     ]);

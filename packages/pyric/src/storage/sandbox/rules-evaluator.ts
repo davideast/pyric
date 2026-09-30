@@ -33,7 +33,7 @@ import { StoragePath } from './rules-path.js';
 import { ConversionFailure, applyConversion, conversionFor } from '../../rules/simulator/conversions.js';
 import { describeRulesType as describeType, isRulesMap } from '../../rules/simulator/rules-type.js';
 import { sliceBoundsError } from '../../rules/simulator/slice-bounds.js';
-import { IndexAccessFailure, indexList, undefinedPropertyMessage } from '../../rules/simulator/index-access.js';
+import { IndexAccessFailure, indexValue, readMember } from '../../rules/simulator/index-access.js';
 import { MembershipFailure, membership } from '../../rules/simulator/membership.js';
 import { rulesValuesEqual } from '../../rules/simulator/value-equality.js';
 import {
@@ -209,16 +209,10 @@ export function evaluateStorageRules(
 /** Property read against `obj`, with production's absent-property semantics:
  *  a key that is missing — or present but holding `undefined` — is an ERROR,
  *  never a silent `undefined`. */
+/** `obj.name`: a map's own key, a path's bound name, or production's error (`index-access.ts`). */
 function readProperty(obj: unknown, name: string): unknown {
-  if (!isRulesMap(obj) && !Array.isArray(obj)) {
-    return new RuleError(`Property ${name} is undefined on ${describeType(obj)}.`);
-  }
-  if (!Object.hasOwn(obj, name)) {
-    return new RuleError(undefinedPropertyMessage(name));
-  }
-  const v = obj[name as keyof typeof obj];
-  if (v === undefined) return new RuleError(undefinedPropertyMessage(name));
-  return v;
+  const value = obj instanceof StoragePath ? indexValue(obj, name) : readMember(obj, name);
+  return value instanceof IndexAccessFailure ? new RuleError(value.message) : value;
 }
 
 /** Everything an expression needs to evaluate. */
@@ -260,7 +254,27 @@ export interface EvalCtx {
  * potentially truthy value.
  */
 export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
-  ctx.expressionBudget?.node(expr);
+  // A call by name is charged as it is entered; every other node as it
+  // completes, with a value or an error, as the Firestore simulator charges
+  // (`expression-budget.ts`).
+  const budget = ctx.expressionBudget;
+  if (!budget) return evalNode(expr, ctx);
+  if (expr.kind === 'call') {
+    budget.call(expr);
+    return evalNode(expr, ctx);
+  }
+  let value: unknown;
+  try {
+    value = evalNode(expr, ctx);
+  } catch (e) {
+    if (!(e instanceof RuleResourceLimitError)) budget.node(expr);
+    throw e;
+  }
+  budget.node(expr);
+  return value;
+}
+
+function evalNode(expr: Expr, ctx: EvalCtx): unknown {
   switch (expr.kind) {
     case 'literal':
       return expr.value;
@@ -288,17 +302,17 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       return readProperty(t, expr.name);
     }
     case 'index': {
-      const operands = evalOperands([expr.target, expr.index], ctx);
+      // The index evaluates before the value it indexes, as in the
+      // Firestore simulator.
+      const operands = evalOperands([expr.index, expr.target], ctx);
       if (isErr(operands)) return operands;
-      const [t, idx] = operands;
+      const [idx, t] = operands;
       if (t === null || t === undefined) return new RuleError(`Null value error.`);
-      // A list index must be an int within bounds (`index-access.ts`, shared
-      // with the Firestore simulator); a map key reads as a property.
-      if (Array.isArray(t)) {
-        const element = indexList(t, idx);
-        return element instanceof IndexAccessFailure ? new RuleError(element.message) : element;
-      }
-      return readProperty(t, String(idx));
+      // A list, string or path index must be an int within bounds, a map key
+      // must be owned, and other wrappers have no index operator
+      // (`index-access.ts`, shared with the Firestore simulator).
+      const element = indexValue(t, idx);
+      return element instanceof IndexAccessFailure ? new RuleError(element.message) : element;
     }
     case 'call':
       return evalCall(expr, ctx);
@@ -584,8 +598,8 @@ function evalCall(expr: Extract<Expr, { kind: 'call' }>, ctx: EvalCtx): unknown 
   // to the return expression (they share the `locals` object). A binding
   // whose value errors holds the error, as a parameter does.
   for (const b of fn.lets) {
-    bodyCtx.expressionBudget?.letBinding(b.value);
     locals[b.name] = evalOperand(b.value, bodyCtx);
+    bodyCtx.expressionBudget?.letBinding(b);
   }
   return evalExpr(fn.body, bodyCtx);
 }

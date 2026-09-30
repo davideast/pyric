@@ -155,6 +155,125 @@ service cloud.firestore {
     match /tokenBkEqNull/{id} {
       allow get: if request.auth.token['missing'] == null;
     }
+    // ── Property and index access on values that are not maps: a list, a
+    // string, a path, a duration, and size read as a field of a map.
+    // Dot length on a list.
+    match /paListLengthEq/{id} {
+      allow get: if resource.data.l.length == 2;
+    }
+    match /paListLengthNe/{id} {
+      allow get: if resource.data.l.length != 99;
+    }
+    match /paListLengthNot/{id} {
+      allow get: if !(resource.data.l.length == 2);
+    }
+    match /paListLengthOrTrue/{id} {
+      allow get: if resource.data.l.length == 2 || true;
+    }
+    // Dot size without a call on a list.
+    match /paListSizeFieldEq/{id} {
+      allow get: if resource.data.l.size == 2;
+    }
+    match /paListSizeFieldNe/{id} {
+      allow get: if resource.data.l.size != 99;
+    }
+    match /paListSizeFieldNot/{id} {
+      allow get: if !(resource.data.l.size == 2);
+    }
+    match /paListSizeFieldOrTrue/{id} {
+      allow get: if resource.data.l.size == 2 || true;
+    }
+    // Int index on a string.
+    match /paStrIndexEq/{id} {
+      allow get: if 'abc'[0] == 'a';
+    }
+    match /paStrIndexNe/{id} {
+      allow get: if 'abc'[0] != 'zz';
+    }
+    match /paStrIndexNot/{id} {
+      allow get: if !('abc'[0] == 'a');
+    }
+    match /paStrIndexOrTrue/{id} {
+      allow get: if 'abc'[0] == 'a' || true;
+    }
+    // String key on a string.
+    match /paStrLengthKeyEq/{id} {
+      allow get: if 'abc'['length'] == 3;
+    }
+    match /paStrLengthKeyNe/{id} {
+      allow get: if 'abc'['length'] != 99;
+    }
+    match /paStrLengthKeyNot/{id} {
+      allow get: if !('abc'['length'] == 3);
+    }
+    match /paStrLengthKeyOrTrue/{id} {
+      allow get: if 'abc'['length'] == 3 || true;
+    }
+    // Dot length on a string.
+    match /paStrLengthEq/{id} {
+      allow get: if resource.data.name.length == 5;
+    }
+    match /paStrLengthNe/{id} {
+      allow get: if resource.data.name.length != 99;
+    }
+    match /paStrLengthNot/{id} {
+      allow get: if !(resource.data.name.length == 5);
+    }
+    match /paStrLengthOrTrue/{id} {
+      allow get: if resource.data.name.length == 5 || true;
+    }
+    // Int index on a path.
+    match /paPathIndexEq/{id} {
+      allow get: if request.path[0] == 'databases';
+    }
+    match /paPathIndexNe/{id} {
+      allow get: if request.path[0] != 'zz';
+    }
+    match /paPathIndexNot/{id} {
+      allow get: if !(request.path[0] == 'databases');
+    }
+    match /paPathIndexOrTrue/{id} {
+      allow get: if request.path[0] == 'databases' || true;
+    }
+    // Unbound string key on a path.
+    match /paPathSegmentsKeyEq/{id} {
+      allow get: if request.path['segments'] == null;
+    }
+    match /paPathSegmentsKeyNe/{id} {
+      allow get: if request.path['segments'] != 'zz';
+    }
+    match /paPathSegmentsKeyNot/{id} {
+      allow get: if !(request.path['segments'] == null);
+    }
+    match /paPathSegmentsKeyOrTrue/{id} {
+      allow get: if request.path['segments'] == null || true;
+    }
+    // Int index on a duration.
+    match /paDurationIndexEq/{id} {
+      allow get: if duration.value(1, 'h')[0] == null;
+    }
+    match /paDurationIndexNe/{id} {
+      allow get: if duration.value(1, 'h')[0] != 'zz';
+    }
+    match /paDurationIndexNot/{id} {
+      allow get: if !(duration.value(1, 'h')[0] == null);
+    }
+    match /paDurationIndexOrTrue/{id} {
+      allow get: if duration.value(1, 'h')[0] == null || true;
+    }
+    // Dot size without a call on a map.
+    match /paMapSizeFieldEq/{id} {
+      allow get: if resource.data.m.size == 1;
+    }
+    match /paMapSizeFieldNe/{id} {
+      allow get: if resource.data.m.size != 99;
+    }
+    match /paMapSizeFieldNot/{id} {
+      allow get: if !(resource.data.m.size == 1);
+    }
+    match /paMapSizeFieldOrTrue/{id} {
+      allow get: if resource.data.m.size == 1 || true;
+    }
   }
 }`,
   cases: [
@@ -486,6 +605,47 @@ service cloud.firestore {
       auth: { uid: 'alice' },
       resource: { name: 'alice' },
     },
+    ...([
+      ['resource.data.l.length == 2 (dot length on a list) → DENY', 'DENY', 'paListLengthEq/p1'],
+      ['resource.data.l.length != 99 (dot length on a list) → DENY', 'DENY', 'paListLengthNe/p1'],
+      ['!(resource.data.l.length == 2) (dot length on a list) → DENY', 'DENY', 'paListLengthNot/p1'],
+      ['resource.data.l.length == 2 || true (dot length on a list) → ALLOW', 'ALLOW', 'paListLengthOrTrue/p1'],
+      ['resource.data.l.size == 2 (dot size without a call on a list) → DENY', 'DENY', 'paListSizeFieldEq/p1'],
+      ['resource.data.l.size != 99 (dot size without a call on a list) → DENY', 'DENY', 'paListSizeFieldNe/p1'],
+      ['!(resource.data.l.size == 2) (dot size without a call on a list) → DENY', 'DENY', 'paListSizeFieldNot/p1'],
+      ['resource.data.l.size == 2 || true (dot size without a call on a list) → ALLOW', 'ALLOW', 'paListSizeFieldOrTrue/p1'],
+      ['\'abc\'[0] == \'a\' (int index on a string) → ALLOW', 'ALLOW', 'paStrIndexEq/p1'],
+      ['\'abc\'[0] != \'zz\' (int index on a string) → ALLOW', 'ALLOW', 'paStrIndexNe/p1'],
+      ['!(\'abc\'[0] == \'a\') (int index on a string) → DENY', 'DENY', 'paStrIndexNot/p1'],
+      ['\'abc\'[0] == \'a\' || true (int index on a string) → ALLOW', 'ALLOW', 'paStrIndexOrTrue/p1'],
+      ['\'abc\'[\'length\'] == 3 (string key on a string) → DENY', 'DENY', 'paStrLengthKeyEq/p1'],
+      ['\'abc\'[\'length\'] != 99 (string key on a string) → DENY', 'DENY', 'paStrLengthKeyNe/p1'],
+      ['!(\'abc\'[\'length\'] == 3) (string key on a string) → DENY', 'DENY', 'paStrLengthKeyNot/p1'],
+      ['\'abc\'[\'length\'] == 3 || true (string key on a string) → ALLOW', 'ALLOW', 'paStrLengthKeyOrTrue/p1'],
+      ['resource.data.name.length == 5 (dot length on a string) → DENY', 'DENY', 'paStrLengthEq/p1'],
+      ['resource.data.name.length != 99 (dot length on a string) → DENY', 'DENY', 'paStrLengthNe/p1'],
+      ['!(resource.data.name.length == 5) (dot length on a string) → DENY', 'DENY', 'paStrLengthNot/p1'],
+      ['resource.data.name.length == 5 || true (dot length on a string) → ALLOW', 'ALLOW', 'paStrLengthOrTrue/p1'],
+      ['request.path[0] == \'databases\' (int index on a path) → ALLOW', 'ALLOW', 'paPathIndexEq/p1'],
+      ['request.path[0] != \'zz\' (int index on a path) → ALLOW', 'ALLOW', 'paPathIndexNe/p1'],
+      ['!(request.path[0] == \'databases\') (int index on a path) → DENY', 'DENY', 'paPathIndexNot/p1'],
+      ['request.path[0] == \'databases\' || true (int index on a path) → ALLOW', 'ALLOW', 'paPathIndexOrTrue/p1'],
+      ['request.path[\'segments\'] == null (unbound string key on a path) → DENY', 'DENY', 'paPathSegmentsKeyEq/p1'],
+      ['request.path[\'segments\'] != \'zz\' (unbound string key on a path) → DENY', 'DENY', 'paPathSegmentsKeyNe/p1'],
+      ['!(request.path[\'segments\'] == null) (unbound string key on a path) → DENY', 'DENY', 'paPathSegmentsKeyNot/p1'],
+      ['request.path[\'segments\'] == null || true (unbound string key on a path) → ALLOW', 'ALLOW', 'paPathSegmentsKeyOrTrue/p1'],
+      ['duration.value(1, \'h\')[0] == null (int index on a duration) → DENY', 'DENY', 'paDurationIndexEq/p1'],
+      ['duration.value(1, \'h\')[0] != \'zz\' (int index on a duration) → DENY', 'DENY', 'paDurationIndexNe/p1'],
+      ['!(duration.value(1, \'h\')[0] == null) (int index on a duration) → DENY', 'DENY', 'paDurationIndexNot/p1'],
+      ['duration.value(1, \'h\')[0] == null || true (int index on a duration) → ALLOW', 'ALLOW', 'paDurationIndexOrTrue/p1'],
+      ['resource.data.m.size == 1 (dot size without a call on a map) → DENY', 'DENY', 'paMapSizeFieldEq/p1'],
+      ['resource.data.m.size != 99 (dot size without a call on a map) → DENY', 'DENY', 'paMapSizeFieldNe/p1'],
+      ['!(resource.data.m.size == 1) (dot size without a call on a map) → DENY', 'DENY', 'paMapSizeFieldNot/p1'],
+      ['resource.data.m.size == 1 || true (dot size without a call on a map) → ALLOW', 'ALLOW', 'paMapSizeFieldOrTrue/p1'],
+    ] as const).map(([description, expectation, path]) => ({
+      description, expectation, method: 'get' as const, path,
+      auth: { uid: 'alice' }, resource: { name: 'alice', m: { a: 1 }, l: [1, 2] },
+    })),
   ],
   group: 'fix-class',
 };

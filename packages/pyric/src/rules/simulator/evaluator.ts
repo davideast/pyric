@@ -15,9 +15,9 @@ import type { Expression, FunctionDef } from '../grammar/FirestoreAST.js';
 import { MapDiff } from './mapdiff.js';
 import { FirestoreSet } from './firestore-set.js';
 import { rulesValuesEqual } from './value-equality.js';
-import { describeRulesType } from './rules-type.js';
+import { describeRulesType, isRulesMap } from './rules-type.js';
 import { sliceBoundsError } from './slice-bounds.js';
-import { IndexAccessFailure, indexList, indexMap } from './index-access.js';
+import { IndexAccessFailure, indexValue, readMember } from './index-access.js';
 import { MembershipFailure, membership } from './membership.js';
 import { RulesValue, NO_OP } from './wrappers/base.js';
 import { LatLng } from './wrappers/latlng.js';
@@ -55,8 +55,27 @@ export function evaluate(expr: Expression, ctx: SimulationContext, scope: Record
 
 function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<string, unknown>): unknown {
   // One unit per evaluated node, charged inside the trace capture so the
-  // node that reaches the limit records the limit as its error.
-  ctx.expressionBudget?.node(expr);
+  // node that reaches the limit records the limit as its error. A call by
+  // name is charged as it is entered; every other node as it completes,
+  // with a value or an error (`expression-budget.ts`).
+  const budget = ctx.expressionBudget;
+  if (!budget) return evaluateNode(expr, ctx, scope);
+  if (expr.type === 'functionCall') {
+    budget.call(expr);
+    return evaluateNode(expr, ctx, scope);
+  }
+  let value: unknown;
+  try {
+    value = evaluateNode(expr, ctx, scope);
+  } catch (e) {
+    if (!(e instanceof ResourceLimitError)) budget.node(expr);
+    throw e;
+  }
+  budget.node(expr);
+  return value;
+}
+
+function evaluateNode(expr: Expression, ctx: SimulationContext, scope: Record<string, unknown>): unknown {
   switch (expr.type) {
     // ═══ Layer 1: Literals, identifiers, binary ops ═══
 
@@ -143,9 +162,14 @@ function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<st
       // present with an explicit null value still returns null (the key
       // exists). Guard with the `in` operator (`'f' in resource.data`) or
       // `resource.data.get('f', default)` to read a possibly-absent field.
-      if (Object.hasOwn(obj as object, expr.property)) {
-        return (obj as Record<string, unknown>)[expr.property];
+      // Dot access on a list, string or other non-map is a type error, never
+      // a JavaScript property (`index-access.ts`).
+      if (!isRulesMap(obj)) {
+        const member = readMember(obj, expr.property);
+        if (member instanceof IndexAccessFailure) throw new EvalError(member.message, expr);
+        return member;
       }
+      if (Object.hasOwn(obj, expr.property)) return obj[expr.property];
       throw new EvalError(
         `No field '${expr.property}' on map (use 'in' or .get() to read a possibly-absent field)`,
         expr,
@@ -153,23 +177,21 @@ function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<st
     }
 
     case 'bracketAccess': {
-      const [obj, idx] = evaluateOperands([expr.object, expr.index], ctx, scope);
+      // Production evaluates the index before the value it indexes: a
+      // request that reaches the expression limit inside `a[b]` stops in `b`
+      // first (the limit-position capture in `captures.json`).
+      const [idx, obj] = evaluateOperands([expr.index, expr.object], ctx, scope);
       // RULES-B2: index/key access on null/undefined errors in production
       // (no CEL index overload for null), absorbed by &&/|| where guarded.
       if (obj === null || obj === undefined) {
         throw new EvalError(`Index access on ${obj === null ? 'null' : 'undefined'} value`, expr);
       }
-      // Wrapper-owned bracket dispatch (Item 0.B hook 2, bracket variant).
-      // Path is the only wrapper that uses bracket access semantically
-      // (`/users/$(uid)`-style binding), but routing every wrapper through
-      // `field()` here keeps the contract uniform — wrappers that don't
-      // implement bracket access return null.
-      if (obj instanceof RulesValue) return obj.field(String(idx));
-      // A key the map does not own is an error, as with dot access, and a
-      // list index must be an int within bounds (`index-access.ts`, shared
-      // with the Storage evaluator). Guard a possibly-absent key with `in`
-      // or read it with `map.get(key, default)`.
-      const value = Array.isArray(obj) ? indexList(obj, idx) : indexMap(obj as object, String(idx));
+      // A key the map does not own is an error, as with dot access; a list,
+      // string or path index must be an int within bounds; a path also reads
+      // a bound name; other wrappers have no index operator
+      // (`index-access.ts`, shared with the Storage evaluator). Guard a
+      // possibly-absent key with `in` or read it with `map.get(key, default)`.
+      const value = indexValue(obj, idx);
       if (value instanceof IndexAccessFailure) throw new EvalError(value.message, expr);
       return value;
     }

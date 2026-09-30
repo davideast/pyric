@@ -903,12 +903,17 @@ the same credentials as the Firestore rules oracle, and deploys nothing.
 bun run packages/conformance/src/capture-rules-expression-cost.ts
 bun run packages/conformance/src/capture-rules-expression-cost.ts --suite chess
 bun run packages/conformance/src/capture-rules-expression-cost.ts --reports
+bun run packages/conformance/src/capture-rules-expression-cost.ts --positions
 PYRIC_ARCADE_RULES=/path/to/firestore.rules bun run packages/conformance/src/capture-rules-expression-cost.ts
 ```
 
 `--suite` recaptures the named suites and keeps the stored padding anchors.
 `--reports` refreshes the unpadded decisions and the simulator columns and
-keeps the stored thresholds. The suites live in
+keeps the stored thresholds. `--positions` records the line and column
+production reports for each stored request that reaches the limit, padded by
+each of `LIMIT_POSITION_STEPS`, and for the rule ladder; the simulator must
+stop at the same positions, which fixes the order it charges expressions in.
+It sends 27 test cases. The suites live in
 `rules-expression-cost-suites.ts`; the output is
 `packages/pyric/test/rules/linter/fixtures/expression-cost/`, which the
 linter's EXPRESSION_BUDGET test reads. A full run sends about 500 test cases.

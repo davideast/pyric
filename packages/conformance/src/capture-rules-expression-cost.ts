@@ -31,6 +31,9 @@
  *                                     stored padding anchors
  *     [--reports]                     refresh the unpadded production fields and
  *                                     the simulator fields, keeping stored thresholds
+ *     [--positions]                   record where production stops each
+ *                                     limit-reaching case at LIMIT_POSITION_STEPS
+ *                                     of padding, and the rule ladder
  *   PYRIC_ARCADE_RULES=/path/to/firestore.rules adds the arcade suite.
  */
 import { createHash } from 'node:crypto';
@@ -42,16 +45,20 @@ import { parseToAST } from '../../pyric/src/rules/grammar/FirestoreParser.ts';
 import type { TestCase } from '../../pyric/src/rules/test/spec.ts';
 import {
   EXPRESSION_LIMIT,
+  LIMIT_POSITION_STEPS,
   PAD_MAX,
   PAD_SECOND_TOKEN,
   PAD_TOKEN,
+  RULE_LADDER_COUNTS,
   anchorRules,
   costBounds,
   fitPadCost,
   injectPadding,
   isLimitMessage,
+  limitPosition,
   nextCandidates,
   observe,
+  ruleLadderRules,
   type PadAnchor,
   type Threshold,
 } from './rules-expression-cost-pad.ts';
@@ -343,6 +350,55 @@ async function capture(options: { selected: string[] | null; reportsOnly: boolea
   console.log(`[expression-cost] ${totalCases} Rules Test API test cases; wrote ${CAPTURES}`);
 }
 
+/**
+ * Record where production stops requests that reach the limit, in the
+ * stored fixture: every limit-reaching case padded by each of
+ * LIMIT_POSITION_STEPS, and the rule ladder. The positions fix the order
+ * production charges expressions in, which the thresholds, being totals,
+ * cannot show.
+ */
+async function capturePositions(): Promise<void> {
+  const { scope, handler } = await tools();
+  if (!existsSync(CAPTURES)) throw new Error('--positions needs an existing captures.json');
+  const fixture = JSON.parse(readFileSync(CAPTURES, 'utf8'));
+  let sent = 0;
+  // The stored ruleset and request, which the thresholds were measured on;
+  // the suite's source may have moved on since.
+  for (const record of fixture.suites) {
+    const rules = readFileSync(join(FIXTURE_DIR, record.rulesFile), 'utf8');
+    if (sha256(rules) !== record.rulesSha256) throw new Error(`${record.id}: stored ruleset does not match its digest`);
+    const documents = Object.fromEntries(Object.entries(record.documents as Record<string, { file: string }>)
+      .map(([path, { file }]) => [path, JSON.parse(readFileSync(join(REPO_ROOT, file), 'utf8'))]));
+    for (const row of record.cases) {
+      if (!row.production.limitReached) continue;
+      const stored = row.testCase as TestCase;
+      const tc: TestCase = stored.functionMocks
+        ? {
+          ...stored,
+          functionMocks: stored.functionMocks.map((m) => {
+            const ref = (m.result as { $document?: string } | undefined)?.$document;
+            return ref ? { ...m, result: documents[ref] } : m;
+          }),
+        }
+        : stored;
+      const padded = injectPadding(rules, [{ anchor: `match ${row.block} {`, method: tc.method }]);
+      const results = await runCases(handler, scope, padded, LIMIT_POSITION_STEPS.map((n) => withPad(tc, n)));
+      sent += results.length;
+      row.production.limitPositions = results.map((r, k) => ({ pad: LIMIT_POSITION_STEPS[k], ...limitPosition(r.notes) }));
+      console.log(`  ${row.id}: ${row.production.limitPositions.map((p: any) => `${p.pad}@${p.line}:${p.column}`).join(' ')}`);
+    }
+  }
+  const ladder = RULE_LADDER_COUNTS.map((n) => ({
+    description: `rule ladder t${n}`, expectation: 'DENY' as const, method: 'get' as const, path: `t${n}/x`,
+    auth: { uid: 'pyric-pad', token: { [PAD_TOKEN]: PAD_MAX } },
+  }));
+  const results = await runCases(handler, scope, ruleLadderRules(), ladder);
+  sent += results.length;
+  fixture.padding.ruleLadder = results.map((r, k) => ({ rules: RULE_LADDER_COUNTS[k], ...limitPosition(r.notes) }));
+  writeFileSync(CAPTURES, JSON.stringify(fixture, null, 2) + '\n');
+  console.log(`[expression-cost] ${sent} Rules Test API test cases; wrote limit positions to ${CAPTURES}`);
+}
+
 if (import.meta.main) {
   const args = process.argv.slice(2);
   const i = args.indexOf('--suite');
@@ -350,5 +406,6 @@ if (import.meta.main) {
   if (!process.env.PARITY_SA_BASE64 && process.env.PARITY_SA_PATH) {
     process.env.PARITY_SA_BASE64 = Buffer.from(readFileSync(process.env.PARITY_SA_PATH)).toString('base64');
   }
-  await capture({ selected, reportsOnly: args.includes('--reports') });
+  if (args.includes('--positions')) await capturePositions();
+  else await capture({ selected, reportsOnly: args.includes('--reports') });
 }
