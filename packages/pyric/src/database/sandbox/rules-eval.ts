@@ -28,6 +28,7 @@ import {
 import type { SimulationInput } from '../../rules/rtdb/simulation/spec.js';
 import type { AuthState } from 'pyric/sandbox';
 import { SandboxClock } from 'pyric/sandbox';
+import { normalizeAuthState, normalizeAuthTokenClaims } from '../../sandbox/sandbox-context.js';
 import type { QuerySpec } from './query.js';
 
 function toPrimitiveBoundValue(value: unknown): string | number | boolean | null {
@@ -262,28 +263,24 @@ export class RulesEvaluator {
     ctx: EvalContext,
   ): RuleEvaluationDetails {
     const isReadOperation = operation === 'read';
-    if (isReadOperation) {
-      const isRootInfoPath = path === '/.info' || path === '.info';
-      if (isRootInfoPath) {
+    let normalizedPath = path;
+    if (!path.startsWith('/')) {
+      normalizedPath = `/${path}`;
+    }
+    const isInfoSystemPath = normalizedPath === '/.info' || normalizedPath.startsWith('/.info/');
+    if (isInfoSystemPath) {
+      if (isReadOperation) {
         return {
           check: 'allow',
           reasons: ['/.info/ system metadata paths are always readable regardless of security rules.'],
         };
       }
-      const startsWithSlashInfo = path.startsWith('/.info/');
-      if (startsWithSlashInfo) {
-        return {
-          check: 'allow',
-          reasons: ['/.info/ system metadata paths are always readable regardless of security rules.'],
-        };
-      }
-      const startsWithDotInfo = path.startsWith('.info/');
-      if (startsWithDotInfo) {
-        return {
-          check: 'allow',
-          reasons: ['/.info/ system metadata paths are always readable regardless of security rules.'],
-        };
-      }
+      return {
+        check: 'deny',
+        matchedPath: '/.info',
+        reason: 'Cannot write to read-only /.info system path',
+        reasons: ['Cannot write to read-only /.info system path'],
+      };
     }
     if (this.compiled === null) {
       if (this.defaultPolicy === 'deny') {
@@ -301,16 +298,17 @@ export class RulesEvaluator {
     }
     // The simulator's SimulationInputSchema accepts `auth` as
     // either `null` or `{ uid: string, tenant?: string, token?: Record<string, unknown> }`.
-    // Preserve tenant and optional token from AuthState so tenant claim
-    // normalization and custom claims reach the simulator.
+    // Delegate to the shared sandbox auth normalizers so tenant claims,
+    // profile claims, and custom claims reach the simulator uniformly.
     let normalisedAuth: SimulationInput['auth'] = null;
-    if (ctx.auth !== null) {
+    const normalized = normalizeAuthState(ctx.auth);
+    if (normalized !== null) {
       normalisedAuth = {
-        uid: ctx.auth.uid,
-        token: ctx.auth.token ?? {},
+        uid: normalized.uid,
+        token: normalizeAuthTokenClaims(normalized),
       };
-      if (ctx.auth.tenant !== undefined) {
-        normalisedAuth.tenant = ctx.auth.tenant;
+      if (normalized.tenant !== undefined) {
+        normalisedAuth.tenant = normalized.tenant;
       }
     }
     let simulatedQuery = ctx.query;

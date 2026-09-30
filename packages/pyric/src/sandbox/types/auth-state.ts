@@ -17,6 +17,18 @@
  * handle). They sit at different layers — payload vs. handle — and the
  * names should reflect that.
  */
-export type AuthState =
-  | { uid: string; token?: Record<string, unknown>; tenant?: string }
-  | null;
+export interface AuthUserFields {
+  uid: string;
+  token?: Record<string, unknown>;
+  tenant?: string;
+  email?: string;
+  emailVerified?: boolean;
+  displayName?: string;
+  phoneNumber?: string;
+  photoURL?: string;
+  providerId?: string;
+  isAnonymous?: boolean;
+}
+
+export type AuthState = AuthUserFields | null;
+

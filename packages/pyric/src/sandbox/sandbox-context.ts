@@ -27,14 +27,89 @@ import { SandboxError } from './types/errors.js';
 import type { Sandbox } from './types/service.js';
 import { immutableOperationContext } from './operation-record.js';
 
+function hasAuthProfileClaims(auth: NonNullable<AuthState>): boolean {
+  return (
+    auth.email !== undefined ||
+    auth.emailVerified !== undefined ||
+    auth.displayName !== undefined ||
+    auth.phoneNumber !== undefined ||
+    auth.photoURL !== undefined ||
+    auth.providerId !== undefined ||
+    auth.isAnonymous !== undefined
+  );
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function resolveDefaultProvider(auth: NonNullable<AuthState>): string {
+  if (typeof auth.providerId === 'string') {
+    return auth.providerId;
+  }
+  if (auth.isAnonymous === true) {
+    return 'anonymous';
+  }
+  return 'custom';
+}
+
+/**
+ * Synthesize standard Firebase JWT claims (`sub`, `user_id`, `email`,
+ * `email_verified`, `name`, `phone_number`, `picture`,
+ * `firebase.sign_in_provider`, `firebase.identities`, `firebase.tenant`)
+ * from an `AuthState` while preserving explicit `auth.token` overrides.
+ */
+export function normalizeAuthTokenClaims(auth: NonNullable<AuthState>): Record<string, unknown> {
+  let baseToken: Record<string, unknown> = {};
+  if (auth.token !== undefined) {
+    baseToken = structuredClone(auth.token);
+  }
+  const existingFb = baseToken.firebase;
+  let fb: Record<string, unknown> = {};
+  if (isPlainRecord(existingFb)) {
+    fb = { ...existingFb };
+  }
+  fb.sign_in_provider ??= resolveDefaultProvider(auth);
+  fb.identities ??= {};
+  if (auth.tenant !== undefined) {
+    fb.tenant ??= auth.tenant;
+  }
+
+  const token: Record<string, unknown> = {
+    sub: auth.uid,
+    user_id: auth.uid,
+    ...baseToken,
+    firebase: fb,
+  };
+  if (typeof auth.email === 'string') token.email ??= auth.email;
+  if (typeof auth.emailVerified === 'boolean') token.email_verified ??= auth.emailVerified;
+  if (typeof auth.displayName === 'string') token.name ??= auth.displayName;
+  if (typeof auth.phoneNumber === 'string') token.phone_number ??= auth.phoneNumber;
+  if (typeof auth.photoURL === 'string') token.picture ??= auth.photoURL;
+  return token;
+}
+
 /**
  * Normalize AuthState during SandboxContextImpl context assembly.
  * Automatically projects top-level `tenant` into `token.firebase.tenant`
- * while preserving custom claims and explicit nested token overrides.
+ * and top-level user profile fields into `token` while preserving custom
+ * claims and explicit nested token overrides.
  * Never mutates original input.
  */
 export function normalizeAuthState(auth: AuthState): AuthState {
   if (auth === null) return null;
+
+  const hasProfile = hasAuthProfileClaims(auth);
+  if (hasProfile) {
+    const normalized: NonNullable<AuthState> = {
+      uid: auth.uid,
+      token: normalizeAuthTokenClaims(auth),
+    };
+    if (auth.tenant !== undefined) {
+      normalized.tenant = auth.tenant;
+    }
+    return normalized;
+  }
 
   if (auth.tenant === undefined) {
     if (auth.token === undefined) {
@@ -46,19 +121,21 @@ export function normalizeAuthState(auth: AuthState): AuthState {
     };
   }
 
-  const token = auth.token !== undefined ? structuredClone(auth.token) : {};
+  let token: Record<string, unknown> = {};
+  if (auth.token !== undefined) {
+    token = structuredClone(auth.token);
+  }
   const existingFirebase = token.firebase;
 
   let normalizedFirebase: Record<string, unknown>;
-  if (
-    typeof existingFirebase === 'object' &&
-    existingFirebase !== null &&
-    !Array.isArray(existingFirebase)
-  ) {
-    const fbObj = existingFirebase as Record<string, unknown>;
+  if (isPlainRecord(existingFirebase)) {
+    let tenantValue: unknown = auth.tenant;
+    if (existingFirebase.tenant !== undefined) {
+      tenantValue = existingFirebase.tenant;
+    }
     normalizedFirebase = {
-      ...fbObj,
-      tenant: fbObj.tenant !== undefined ? fbObj.tenant : auth.tenant,
+      ...existingFirebase,
+      tenant: tenantValue,
     };
   } else {
     normalizedFirebase = { tenant: auth.tenant };
