@@ -742,6 +742,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "list-map-literals-and-slice",
         "request-time-timestamp",
         "stdlib-timestamp-duration"
       ],

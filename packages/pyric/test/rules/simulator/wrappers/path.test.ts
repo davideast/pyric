@@ -6,6 +6,7 @@
 import { describe, test, expect } from 'bun:test';
 import { Path } from '../../../../src/rules/simulator/wrappers/path.js';
 import { NO_OP } from '../../../../src/rules/simulator/wrappers/base.js';
+import { IndexAccessFailure, indexValue, readMember } from '../../../../src/rules/simulator/index-access.js';
 import { SimulateFirestoreRulesHandler } from '../../../../src/rules/simulator/handler.js';
 import type { TestCase } from '../../../../../src/rules/firestore/test/spec.js';
 
@@ -104,21 +105,25 @@ describe('Path — bind', () => {
   });
 });
 
-describe('Path — field (numeric and named)', () => {
-  test('numeric index returns segment', () => {
+describe('Path — index and member access (index-access.ts)', () => {
+  test('an int index returns the segment', () => {
     const p = new Path(['users', 'alice', 'posts']);
-    expect(p.field('0')).toBe('users');
-    expect(p.field('1')).toBe('alice');
-    expect(p.field('2')).toBe('posts');
+    expect(indexValue(p, 0)).toBe('users');
+    expect(indexValue(p, 1)).toBe('alice');
+    expect(indexValue(p, 2)).toBe('posts');
   });
 
-  test('numeric out of bounds → null', () => {
-    expect(new Path(['x']).field('5')).toBe(null);
-    expect(new Path([]).field('0')).toBe(null);
+  test('an int index out of bounds is an error', () => {
+    expect(indexValue(new Path(['x']), 5)).toEqual(
+      new IndexAccessFailure('Index out of bound error. Index: [5] , size: [1].'),
+    );
+    expect(indexValue(new Path([]), 0)).toBeInstanceOf(IndexAccessFailure);
   });
 
-  test('named lookup → null (post-bind paths do not retain names)', () => {
-    expect(new Path(['users', 'alice']).field('uid')).toBe(null);
+  test('an unbound name is an error by dot or bracket, never null', () => {
+    const failure = new IndexAccessFailure('Property uid is undefined on object.');
+    expect(readMember(new Path(['users', 'alice']), 'uid')).toEqual(failure);
+    expect(indexValue(new Path(['users', 'alice']), 'uid')).toEqual(failure);
   });
 });
 

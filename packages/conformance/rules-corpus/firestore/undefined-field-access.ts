@@ -156,7 +156,8 @@ service cloud.firestore {
       allow get: if request.auth.token['missing'] == null;
     }
     // ── Property and index access on values that are not maps: a list, a
-    // string, a path, a duration, and size read as a field of a map.
+    // string, a path, a duration, a timestamp, a latlng, and size read as a
+    // field of a map.
     // Dot length on a list.
     match /paListLengthEq/{id} {
       allow get: if resource.data.l.length == 2;
@@ -247,6 +248,45 @@ service cloud.firestore {
     }
     match /paPathSegmentsKeyOrTrue/{id} {
       allow get: if request.path['segments'] == null || true;
+    }
+    // Unbound name read by dot access on a path.
+    match /paPathSegmentsDotEq/{id} {
+      allow get: if request.path.segments == null;
+    }
+    match /paPathSegmentsDotNe/{id} {
+      allow get: if request.path.segments != 'zz';
+    }
+    match /paPathSegmentsDotNot/{id} {
+      allow get: if !(request.path.segments == null);
+    }
+    match /paPathSegmentsDotOrTrue/{id} {
+      allow get: if request.path.segments == null || true;
+    }
+    // Int index on a timestamp.
+    match /paTimestampIndexEq/{id} {
+      allow get: if timestamp.value(0)[0] == null;
+    }
+    match /paTimestampIndexNe/{id} {
+      allow get: if timestamp.value(0)[0] != 'zz';
+    }
+    match /paTimestampIndexNot/{id} {
+      allow get: if !(timestamp.value(0)[0] == null);
+    }
+    match /paTimestampIndexOrTrue/{id} {
+      allow get: if timestamp.value(0)[0] == null || true;
+    }
+    // Int index on a latlng.
+    match /paLatLngIndexEq/{id} {
+      allow get: if latlng.value(1.0, 2.0)[0] == null;
+    }
+    match /paLatLngIndexNe/{id} {
+      allow get: if latlng.value(1.0, 2.0)[0] != 'zz';
+    }
+    match /paLatLngIndexNot/{id} {
+      allow get: if !(latlng.value(1.0, 2.0)[0] == null);
+    }
+    match /paLatLngIndexOrTrue/{id} {
+      allow get: if latlng.value(1.0, 2.0)[0] == null || true;
     }
     // Int index on a duration.
     match /paDurationIndexEq/{id} {
@@ -634,6 +674,18 @@ service cloud.firestore {
       ['request.path[\'segments\'] != \'zz\' (unbound string key on a path) → DENY', 'DENY', 'paPathSegmentsKeyNe/p1'],
       ['!(request.path[\'segments\'] == null) (unbound string key on a path) → DENY', 'DENY', 'paPathSegmentsKeyNot/p1'],
       ['request.path[\'segments\'] == null || true (unbound string key on a path) → ALLOW', 'ALLOW', 'paPathSegmentsKeyOrTrue/p1'],
+      ['request.path.segments == null (unbound name by dot access on a path) → DENY', 'DENY', 'paPathSegmentsDotEq/p1'],
+      ['request.path.segments != \'zz\' (unbound name by dot access on a path) → DENY', 'DENY', 'paPathSegmentsDotNe/p1'],
+      ['!(request.path.segments == null) (unbound name by dot access on a path) → DENY', 'DENY', 'paPathSegmentsDotNot/p1'],
+      ['request.path.segments == null || true (unbound name by dot access on a path) → ALLOW', 'ALLOW', 'paPathSegmentsDotOrTrue/p1'],
+      ['timestamp.value(0)[0] == null (int index on a timestamp) → DENY', 'DENY', 'paTimestampIndexEq/p1'],
+      ['timestamp.value(0)[0] != \'zz\' (int index on a timestamp) → DENY', 'DENY', 'paTimestampIndexNe/p1'],
+      ['!(timestamp.value(0)[0] == null) (int index on a timestamp) → DENY', 'DENY', 'paTimestampIndexNot/p1'],
+      ['timestamp.value(0)[0] == null || true (int index on a timestamp) → ALLOW', 'ALLOW', 'paTimestampIndexOrTrue/p1'],
+      ['latlng.value(1.0, 2.0)[0] == null (int index on a latlng) → DENY', 'DENY', 'paLatLngIndexEq/p1'],
+      ['latlng.value(1.0, 2.0)[0] != \'zz\' (int index on a latlng) → DENY', 'DENY', 'paLatLngIndexNe/p1'],
+      ['!(latlng.value(1.0, 2.0)[0] == null) (int index on a latlng) → DENY', 'DENY', 'paLatLngIndexNot/p1'],
+      ['latlng.value(1.0, 2.0)[0] == null || true (int index on a latlng) → ALLOW', 'ALLOW', 'paLatLngIndexOrTrue/p1'],
       ['duration.value(1, \'h\')[0] == null (int index on a duration) → DENY', 'DENY', 'paDurationIndexEq/p1'],
       ['duration.value(1, \'h\')[0] != \'zz\' (int index on a duration) → DENY', 'DENY', 'paDurationIndexNe/p1'],
       ['!(duration.value(1, \'h\')[0] == null) (int index on a duration) → DENY', 'DENY', 'paDurationIndexNot/p1'],

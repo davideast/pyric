@@ -3,6 +3,7 @@ import { RuleUnsupportedError } from './rules-evaluation-error.js';
 import { collectionMethods } from './rules-collection-methods.js';
 import { evalFirestoreBuiltin } from './rules-firestore-lookup.js';
 import { bytesMethods, evalHashingNamespace } from './rules-hashing-methods.js';
+import { evalLatLngNamespace } from './rules-latlng.js';
 import { evalMathNamespace } from './rules-math-methods.js';
 import { evalArguments, type MethodCall, type NamespaceMethod, type ReceiverMethod, type ReceiverMethods } from './rules-method-calls.js';
 import { stringMethods } from './rules-string-methods.js';
@@ -14,6 +15,7 @@ const NAMESPACES: ReadonlyMap<string, NamespaceMethod> = new Map([
   ['duration', evalDurationNamespace],
   ['firestore', evalFirestoreBuiltin],
   ['hashing', evalHashingNamespace],
+  ['latlng', evalLatLngNamespace],
   ['math', evalMathNamespace],
   ['timestamp', evalTimestampNamespace],
 ]);
@@ -29,7 +31,7 @@ const RECEIVER_METHODS: ReadonlyMap<string, ReceiverMethod> = mergeReceiverMetho
 /**
  * Evaluate a `<target>.<method>(args)` call.
  *
- * A bare `timestamp`, `duration`, `hashing`, `math`, or `firestore` identifier that
+ * A bare `timestamp`, `duration`, `hashing`, `latlng`, `math`, or `firestore` identifier that
  * no local or path parameter shadows is a builtin namespace. Otherwise the
  * target is a receiver: it evaluates first, an error receiver propagates,
  * and the method's evaluator checks the receiver type. A modeled method on

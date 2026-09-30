@@ -207,12 +207,9 @@ export function evaluateStorageRules(
   };
 }
 
-/** Property read against `obj`, with production's absent-property semantics:
- *  a key that is missing — or present but holding `undefined` — is an ERROR,
- *  never a silent `undefined`. */
 /** `obj.name`: a map's own key, a path's bound name, or production's error (`index-access.ts`). */
 function readProperty(obj: unknown, name: string): unknown {
-  const value = obj instanceof StoragePath ? indexValue(obj, name) : readMember(obj, name);
+  const value = readMember(obj, name);
   return value instanceof IndexAccessFailure ? new RuleError(value.message) : value;
 }
 

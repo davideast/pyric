@@ -103,13 +103,18 @@ export function indexValue(value: unknown, index: unknown): unknown {
 }
 
 /**
- * `value.name` on a value that is not a wrapper: a map's own key, or
- * production's error. Dot access reads maps and paths only, so on a list,
- * string, number or bool it is a type error: `list.length` and
- * `'abc'.length` are errors, never the JavaScript property. Wrapper values
- * dispatch their own fields before this.
+ * `value.name` on a map or a path, as production reads it: a map's own key,
+ * a path's bound name, or production's error. An unbound name on a path is
+ * the same error the bracket form gives (`request.path.segments` and
+ * `request.path['segments']` both fail with "Property segments is undefined
+ * on object.", corpus scenarios `undefined-field-access` and
+ * `list-map-literals-and-slice`), never null. Dot access reads maps and
+ * paths only, so on a list, string, number or bool it is a type error:
+ * `list.length` and `'abc'.length` are errors, never the JavaScript
+ * property. Other wrapper values dispatch their own fields before this.
  */
 export function readMember(value: unknown, name: string): unknown {
   if (isRulesMap(value)) return indexMap(value, name);
+  if (isPath(value)) return indexValue(value, name);
   return new IndexAccessFailure(`Type error. Received: [${describeRulesType(value)}] Expected: [map,path].`);
 }

@@ -125,6 +125,21 @@ ${equalityIdentityMatches}
     match /paPathSegmentsKeyNe/{fileId} { allow read: if request.path['segments'] != 'zz'; }
     match /paPathSegmentsKeyNot/{fileId} { allow read: if !(request.path['segments'] == null); }
     match /paPathSegmentsKeyOrTrue/{fileId} { allow read: if request.path['segments'] == null || true; }
+    // Unbound name read by dot access on a path.
+    match /paPathSegmentsDotEq/{fileId} { allow read: if request.path.segments == null; }
+    match /paPathSegmentsDotNe/{fileId} { allow read: if request.path.segments != 'zz'; }
+    match /paPathSegmentsDotNot/{fileId} { allow read: if !(request.path.segments == null); }
+    match /paPathSegmentsDotOrTrue/{fileId} { allow read: if request.path.segments == null || true; }
+    // Int index on a timestamp.
+    match /paTimestampIndexEq/{fileId} { allow read: if timestamp.value(0)[0] == null; }
+    match /paTimestampIndexNe/{fileId} { allow read: if timestamp.value(0)[0] != 'zz'; }
+    match /paTimestampIndexNot/{fileId} { allow read: if !(timestamp.value(0)[0] == null); }
+    match /paTimestampIndexOrTrue/{fileId} { allow read: if timestamp.value(0)[0] == null || true; }
+    // Int index on a latlng.
+    match /paLatLngIndexEq/{fileId} { allow read: if latlng.value(1.0, 2.0)[0] == null; }
+    match /paLatLngIndexNe/{fileId} { allow read: if latlng.value(1.0, 2.0)[0] != 'zz'; }
+    match /paLatLngIndexNot/{fileId} { allow read: if !(latlng.value(1.0, 2.0)[0] == null); }
+    match /paLatLngIndexOrTrue/{fileId} { allow read: if latlng.value(1.0, 2.0)[0] == null || true; }
     // Int index on a duration.
     match /paDurationIndexEq/{fileId} { allow read: if duration.value(1, 'h')[0] == null; }
     match /paDurationIndexNe/{fileId} { allow read: if duration.value(1, 'h')[0] != 'zz'; }
@@ -246,6 +261,18 @@ ${equalityIdentityMatches}
       ['request.path[\'segments\'] != \'zz\' (unbound string key on a path) → DENY', 'DENY', 'paPathSegmentsKeyNe/a-b-c-d'],
       ['!(request.path[\'segments\'] == null) (unbound string key on a path) → DENY', 'DENY', 'paPathSegmentsKeyNot/a-b-c-d'],
       ['request.path[\'segments\'] == null || true (unbound string key on a path) → ALLOW', 'ALLOW', 'paPathSegmentsKeyOrTrue/a-b-c-d'],
+      ['request.path.segments == null (unbound name by dot access on a path) → DENY', 'DENY', 'paPathSegmentsDotEq/a-b-c-d'],
+      ['request.path.segments != \'zz\' (unbound name by dot access on a path) → DENY', 'DENY', 'paPathSegmentsDotNe/a-b-c-d'],
+      ['!(request.path.segments == null) (unbound name by dot access on a path) → DENY', 'DENY', 'paPathSegmentsDotNot/a-b-c-d'],
+      ['request.path.segments == null || true (unbound name by dot access on a path) → ALLOW', 'ALLOW', 'paPathSegmentsDotOrTrue/a-b-c-d'],
+      ['timestamp.value(0)[0] == null (int index on a timestamp) → DENY', 'DENY', 'paTimestampIndexEq/a-b-c-d'],
+      ['timestamp.value(0)[0] != \'zz\' (int index on a timestamp) → DENY', 'DENY', 'paTimestampIndexNe/a-b-c-d'],
+      ['!(timestamp.value(0)[0] == null) (int index on a timestamp) → DENY', 'DENY', 'paTimestampIndexNot/a-b-c-d'],
+      ['timestamp.value(0)[0] == null || true (int index on a timestamp) → ALLOW', 'ALLOW', 'paTimestampIndexOrTrue/a-b-c-d'],
+      ['latlng.value(1.0, 2.0)[0] == null (int index on a latlng) → DENY', 'DENY', 'paLatLngIndexEq/a-b-c-d'],
+      ['latlng.value(1.0, 2.0)[0] != \'zz\' (int index on a latlng) → DENY', 'DENY', 'paLatLngIndexNe/a-b-c-d'],
+      ['!(latlng.value(1.0, 2.0)[0] == null) (int index on a latlng) → DENY', 'DENY', 'paLatLngIndexNot/a-b-c-d'],
+      ['latlng.value(1.0, 2.0)[0] == null || true (int index on a latlng) → ALLOW', 'ALLOW', 'paLatLngIndexOrTrue/a-b-c-d'],
       ['duration.value(1, \'h\')[0] == null (int index on a duration) → DENY', 'DENY', 'paDurationIndexEq/a-b-c-d'],
       ['duration.value(1, \'h\')[0] != \'zz\' (int index on a duration) → DENY', 'DENY', 'paDurationIndexNe/a-b-c-d'],
       ['!(duration.value(1, \'h\')[0] == null) (int index on a duration) → DENY', 'DENY', 'paDurationIndexNot/a-b-c-d'],

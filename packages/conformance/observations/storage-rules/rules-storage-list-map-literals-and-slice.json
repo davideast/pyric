@@ -5,7 +5,7 @@
     "storage-rules#122"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"list-map-literals-and-slice\" (Coverage: list/map literals, slice [i:j], OOB slice errors). Slices on split() lists and on strings must evaluate, list literals must compare by value, and an out-of-bounds slice end must error → deny (production does not clamp).",
-  "observedAt": "2026-09-30T03:39:15.648Z",
+  "observedAt": "2026-09-30T04:33:26.997Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "behavior": {
@@ -79,6 +79,18 @@
     "request.path['segments'] != 'zz' (unbound string key on a path) → DENY": "DENY",
     "!(request.path['segments'] == null) (unbound string key on a path) → DENY": "DENY",
     "request.path['segments'] == null || true (unbound string key on a path) → ALLOW": "ALLOW",
+    "request.path.segments == null (unbound name by dot access on a path) → DENY": "DENY",
+    "request.path.segments != 'zz' (unbound name by dot access on a path) → DENY": "DENY",
+    "!(request.path.segments == null) (unbound name by dot access on a path) → DENY": "DENY",
+    "request.path.segments == null || true (unbound name by dot access on a path) → ALLOW": "ALLOW",
+    "timestamp.value(0)[0] == null (int index on a timestamp) → DENY": "DENY",
+    "timestamp.value(0)[0] != 'zz' (int index on a timestamp) → DENY": "DENY",
+    "!(timestamp.value(0)[0] == null) (int index on a timestamp) → DENY": "DENY",
+    "timestamp.value(0)[0] == null || true (int index on a timestamp) → ALLOW": "ALLOW",
+    "latlng.value(1.0, 2.0)[0] == null (int index on a latlng) → DENY": "DENY",
+    "latlng.value(1.0, 2.0)[0] != 'zz' (int index on a latlng) → DENY": "DENY",
+    "!(latlng.value(1.0, 2.0)[0] == null) (int index on a latlng) → DENY": "DENY",
+    "latlng.value(1.0, 2.0)[0] == null || true (int index on a latlng) → ALLOW": "ALLOW",
     "duration.value(1, 'h')[0] == null (int index on a duration) → DENY": "DENY",
     "duration.value(1, 'h')[0] != 'zz' (int index on a duration) → DENY": "DENY",
     "!(duration.value(1, 'h')[0] == null) (int index on a duration) → DENY": "DENY",
@@ -1110,17 +1122,252 @@
         ]
       }
     },
-    "duration.value(1, 'h')[0] == null (int index on a duration) → DENY": {
+    "request.path.segments == null (unbound name by dot access on a path) → DENY": {
       "notes": [
-        "Error: storage.rules line [92], column [56]. Function not found error: Name: [[]]."
+        "Error: storage.rules line [92], column [58]. Property segments is undefined on object."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
           "line": 92,
+          "column": 58,
+          "currentOffset": 6363,
+          "endOffset": 6369
+        }
+      }
+    },
+    "request.path.segments != 'zz' (unbound name by dot access on a path) → DENY": {
+      "notes": [
+        "Error: storage.rules line [93], column [58]. Property segments is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 93,
+          "column": 58,
+          "currentOffset": 6453,
+          "endOffset": 6459
+        }
+      }
+    },
+    "!(request.path.segments == null) (unbound name by dot access on a path) → DENY": {
+      "notes": [
+        "Error: storage.rules line [94], column [61]. Property segments is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 94,
+          "column": 61,
+          "currentOffset": 6546,
+          "endOffset": 6552
+        }
+      }
+    },
+    "request.path.segments == null || true (unbound name by dot access on a path) → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 95,
+              "column": 62,
+              "currentOffset": 6641,
+              "endOffset": 6647
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "timestamp.value(0)[0] == null (int index on a timestamp) → DENY": {
+      "notes": [
+        "Error: storage.rules line [97], column [57]. Function not found error: Name: [[]]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 97,
+          "column": 57,
+          "currentOffset": 6771,
+          "endOffset": 6779
+        },
+        "functionCalls": [
+          {
+            "function": "[]",
+            "args": [
+              0
+            ]
+          }
+        ]
+      }
+    },
+    "timestamp.value(0)[0] != 'zz' (int index on a timestamp) → DENY": {
+      "notes": [
+        "Error: storage.rules line [98], column [57]. Function not found error: Name: [[]]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 98,
+          "column": 57,
+          "currentOffset": 6860,
+          "endOffset": 6868
+        },
+        "functionCalls": [
+          {
+            "function": "[]",
+            "args": [
+              0
+            ]
+          }
+        ]
+      }
+    },
+    "!(timestamp.value(0)[0] == null) (int index on a timestamp) → DENY": {
+      "notes": [
+        "Error: storage.rules line [99], column [60]. Function not found error: Name: [[]]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 99,
+          "column": 60,
+          "currentOffset": 6952,
+          "endOffset": 6960
+        },
+        "functionCalls": [
+          {
+            "function": "[]",
+            "args": [
+              0
+            ]
+          }
+        ]
+      }
+    },
+    "timestamp.value(0)[0] == null || true (int index on a timestamp) → ALLOW": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "[]",
+            "args": [
+              0
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 100,
+              "column": 61,
+              "currentOffset": 7046,
+              "endOffset": 7054
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "latlng.value(1.0, 2.0)[0] == null (int index on a latlng) → DENY": {
+      "notes": [
+        "Error: storage.rules line [102], column [54]. Function not found error: Name: [[]]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 102,
+          "column": 54,
+          "currentOffset": 7170,
+          "endOffset": 7175
+        },
+        "functionCalls": [
+          {
+            "function": "[]",
+            "args": [
+              0
+            ]
+          }
+        ]
+      }
+    },
+    "latlng.value(1.0, 2.0)[0] != 'zz' (int index on a latlng) → DENY": {
+      "notes": [
+        "Error: storage.rules line [103], column [54]. Function not found error: Name: [[]]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 103,
+          "column": 54,
+          "currentOffset": 7260,
+          "endOffset": 7265
+        },
+        "functionCalls": [
+          {
+            "function": "[]",
+            "args": [
+              0
+            ]
+          }
+        ]
+      }
+    },
+    "!(latlng.value(1.0, 2.0)[0] == null) (int index on a latlng) → DENY": {
+      "notes": [
+        "Error: storage.rules line [104], column [57]. Function not found error: Name: [[]]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 104,
+          "column": 57,
+          "currentOffset": 7353,
+          "endOffset": 7358
+        },
+        "functionCalls": [
+          {
+            "function": "[]",
+            "args": [
+              0
+            ]
+          }
+        ]
+      }
+    },
+    "latlng.value(1.0, 2.0)[0] == null || true (int index on a latlng) → ALLOW": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "[]",
+            "args": [
+              0
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 105,
+              "column": 58,
+              "currentOffset": 7448,
+              "endOffset": 7453
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "duration.value(1, 'h')[0] == null (int index on a duration) → DENY": {
+      "notes": [
+        "Error: storage.rules line [107], column [56]. Function not found error: Name: [[]]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 107,
           "column": 56,
-          "currentOffset": 6343,
-          "endOffset": 6350
+          "currentOffset": 7580,
+          "endOffset": 7587
         },
         "functionCalls": [
           {
@@ -1134,15 +1381,15 @@
     },
     "duration.value(1, 'h')[0] != 'zz' (int index on a duration) → DENY": {
       "notes": [
-        "Error: storage.rules line [93], column [56]. Function not found error: Name: [[]]."
+        "Error: storage.rules line [108], column [56]. Function not found error: Name: [[]]."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
-          "line": 93,
+          "line": 108,
           "column": 56,
-          "currentOffset": 6435,
-          "endOffset": 6442
+          "currentOffset": 7672,
+          "endOffset": 7679
         },
         "functionCalls": [
           {
@@ -1156,15 +1403,15 @@
     },
     "!(duration.value(1, 'h')[0] == null) (int index on a duration) → DENY": {
       "notes": [
-        "Error: storage.rules line [94], column [59]. Function not found error: Name: [[]]."
+        "Error: storage.rules line [109], column [59]. Function not found error: Name: [[]]."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
-          "line": 94,
+          "line": 109,
           "column": 59,
-          "currentOffset": 6530,
-          "endOffset": 6537
+          "currentOffset": 7767,
+          "endOffset": 7774
         },
         "functionCalls": [
           {
@@ -1189,10 +1436,10 @@
         "visitedExpressions": [
           {
             "sourcePosition": {
-              "line": 95,
+              "line": 110,
               "column": 60,
-              "currentOffset": 6627,
-              "endOffset": 6634
+              "currentOffset": 7864,
+              "endOffset": 7871
             },
             "value": true
           }
@@ -1201,43 +1448,43 @@
     },
     "{'a': 1}.size == 1 (dot size without a call on a map) → DENY": {
       "notes": [
-        "Error: storage.rules line [97], column [55]. Property size is undefined on object."
+        "Error: storage.rules line [112], column [55]. Property size is undefined on object."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
-          "line": 97,
+          "line": 112,
           "column": 55,
-          "currentOffset": 6767,
-          "endOffset": 6767
+          "currentOffset": 8004,
+          "endOffset": 8004
         }
       }
     },
     "{'a': 1}.size != 99 (dot size without a call on a map) → DENY": {
       "notes": [
-        "Error: storage.rules line [98], column [55]. Property size is undefined on object."
+        "Error: storage.rules line [113], column [55]. Property size is undefined on object."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
-          "line": 98,
+          "line": 113,
           "column": 55,
-          "currentOffset": 6843,
-          "endOffset": 6843
+          "currentOffset": 8080,
+          "endOffset": 8080
         }
       }
     },
     "!({'a': 1}.size == 1) (dot size without a call on a map) → DENY": {
       "notes": [
-        "Error: storage.rules line [99], column [58]. Property size is undefined on object."
+        "Error: storage.rules line [114], column [58]. Property size is undefined on object."
       ],
       "api": {
         "errorPosition": {
           "fileName": "storage.rules",
-          "line": 99,
+          "line": 114,
           "column": 58,
-          "currentOffset": 6923,
-          "endOffset": 6923
+          "currentOffset": 8160,
+          "endOffset": 8160
         }
       }
     },
@@ -1246,10 +1493,10 @@
         "visitedExpressions": [
           {
             "sourcePosition": {
-              "line": 100,
+              "line": 115,
               "column": 59,
-              "currentOffset": 7004,
-              "endOffset": 7004
+              "currentOffset": 8241,
+              "endOffset": 8241
             },
             "value": true
           }

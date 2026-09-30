@@ -13,7 +13,8 @@
  */
 import { describe, test, expect } from 'bun:test';
 import { SimulateFirestoreRulesHandler } from 'pyric/rules/internal';
-import { Path } from 'pyric/rules/internal';
+import { Path } from '../../../../src/rules/simulator/wrappers/path.js';
+import { IndexAccessFailure, indexValue, readMember } from '../../../../src/rules/simulator/index-access.js';
 import type { TestCase } from 'pyric/rules/internal';
 
 const sim = new SimulateFirestoreRulesHandler();
@@ -127,36 +128,36 @@ describe('request.query — absent on non-list ops', () => {
 
 // ─── (2) Path named-field bindings ───────────────────────────────────────
 
-describe('Path.field — named bindings (wrapper-level)', () => {
-  test('bound path exposes name via field()', () => {
+describe('Path named bindings (wrapper-level)', () => {
+  test('bound path exposes each name', () => {
     const p = Path.fromString('/users/{uid}/posts/{pid}').bind({
       uid: 'alice',
       pid: 'p1',
     });
-    expect(p.field('uid')).toBe('alice');
-    expect(p.field('pid')).toBe('p1');
+    expect(readMember(p, 'uid')).toBe('alice');
+    expect(readMember(p, 'pid')).toBe('p1');
   });
 
   test('partial bind only exposes the bound names', () => {
     const p = Path.fromString('/users/{uid}/posts/{pid}').bind({ uid: 'alice' });
-    expect(p.field('uid')).toBe('alice');
-    expect(p.field('pid')).toBe(null);
+    expect(readMember(p, 'uid')).toBe('alice');
+    expect(readMember(p, 'pid')).toBeInstanceOf(IndexAccessFailure);
   });
 
   test('explicit constructor bindings are exposed', () => {
     const p = new Path(['users', 'alice'], { uid: 'alice' });
-    expect(p.field('uid')).toBe('alice');
+    expect(readMember(p, 'uid')).toBe('alice');
   });
 
-  test('unbound name → null (no throw)', () => {
+  test("an unbound name is production's undefined-property error, not null", () => {
     const p = new Path(['users', 'alice']);
-    expect(p.field('missing')).toBe(null);
+    expect(readMember(p, 'missing')).toEqual(new IndexAccessFailure('Property missing is undefined on object.'));
   });
 
-  test('numeric access still works alongside named bindings', () => {
+  test('int index access still works alongside named bindings', () => {
     const p = new Path(['users', 'alice'], { uid: 'alice' });
-    expect(p.field('0')).toBe('users');
-    expect(p.field('1')).toBe('alice');
+    expect(indexValue(p, 0)).toBe('users');
+    expect(indexValue(p, 1)).toBe('alice');
   });
 
   test('bindings do not affect equality', () => {
