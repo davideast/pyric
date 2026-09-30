@@ -2538,7 +2538,9 @@
         "get-missing-doc",
         "int-float-and-division",
         "list-methods-concat-removeall-toset",
+        "required-fields-and-mapdiff",
         "resource-document-identity",
+        "set-algebra-difference-union-intersection",
         "strict-boolean-control-flow",
         "time-math-and-casts",
         "undefined-field-access"

@@ -3,7 +3,8 @@
  *
  * `List.concat()`, `List.join()`, `List.removeAll()` and a List receiver's
  * `hasAll()`, `hasAny()` and `hasOnly()` live in one module
- * (src/rules/simulator/list-methods.ts) that both evaluators call. The cases
+ * (src/rules/simulator/list-methods.ts) that both evaluators call, as do
+ * `Map.keys()` and `Map.values()` (src/rules/simulator/map-keys.ts). The cases
  * are the `list:` cases of the Storage corpus scenario
  * `upload-primitives-boundaries`, which production evaluated over the Rules
  * Test API; its diagnostics carry the error text production reported for
@@ -76,7 +77,7 @@ service firebase.storage {
 
 describe('List methods in Storage, cases production evaluated', () => {
   test('the scenario has its List-method cases', () => {
-    expect(LIST_CASES.length).toBe(111);
+    expect(LIST_CASES.length).toBe(141);
   });
   for (const { description, condition, verdict, message } of LIST_CASES) {
     test(`${description}: ${verdict}`, () => {
@@ -96,6 +97,25 @@ describe('concat() and removeAll() are one implementation in both evaluators', (
 
   test('the List-literal concat and removeAll cases are present', () => {
     expect(shared.length).toBe(17);
+  });
+  for (const { description, condition, verdict, message } of shared) {
+    test(`${description}: Firestore ${verdict}`, () => {
+      const result = firestore(condition);
+      expect(result.decision).toBe(verdict);
+      if (message !== undefined) expect(result.trace.map((step) => step.message).join(' ')).toContain(message);
+    });
+  }
+});
+
+describe('values(), keys() and the List membership arguments are one implementation in both evaluators', () => {
+  // The cases on literals: Firestore has no custom metadata to call keys()
+  // or values() on.
+  const shared = LIST_CASES.filter(({ description, condition }) =>
+    /^list: (values|argument|hasAll|hasAny|hasOnly):/.test(description)
+      && !condition.includes('request.resource'));
+
+  test('the literal values(), keys() and membership cases are present', () => {
+    expect(shared.length).toBe(48);
   });
   for (const { description, condition, verdict, message } of shared) {
     test(`${description}: Firestore ${verdict}`, () => {

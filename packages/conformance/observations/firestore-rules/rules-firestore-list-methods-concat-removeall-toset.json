@@ -5,12 +5,12 @@
     "firestore-rules#168"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"list-methods-concat-removeall-toset\" (Item 5.2). Sim must implement List.concat/removeAll/toSet; pre-fix all three threw UnsupportedError.",
-  "observedAt": "2026-09-28T06:47:34.078Z",
+  "observedAt": "2026-09-30T03:43:23.189Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "d3cdec6903190005deb2d8d470b5ec7c309aff0111439b0ce832b724f02007fa"
+    "value": "5ef63e88d18058d679526981330b52449d18b9d827c77697feef3d0b62698b14"
   },
   "behavior": {
     "list concat → size 4 ALLOW": "ALLOW",
@@ -84,7 +84,20 @@
     "listMethod: receiver: hasAll on a Map is an error": "DENY",
     "listMethod: receiver: concat on a Set is an error": "DENY",
     "listMethod: receiver: removeAll on a Set is an error": "DENY",
-    "listMethod: receiver: join on a Set is an error": "DENY"
+    "listMethod: receiver: join on a Set is an error": "DENY",
+    "listMethod: argument: hasAll with a List argument": "ALLOW",
+    "listMethod: argument: hasAll != false with a missing element": "DENY",
+    "listMethod: argument: a Set argument to hasAll on a List is an error": "DENY",
+    "listMethod: argument: a Set argument to hasAny on a List is an error": "DENY",
+    "listMethod: argument: a Set argument to hasOnly on a List is an error": "DENY",
+    "listMethod: argument: || true absorbs a Set argument to hasAny on a List": "ALLOW",
+    "listMethod: argument: a string argument to hasAny is an error": "DENY",
+    "listMethod: argument: a string argument to hasOnly is an error": "DENY",
+    "listMethod: argument: a Map argument to hasAll is an error": "DENY",
+    "listMethod: argument: a null argument to hasOnly is an error": "DENY",
+    "listMethod: argument: || true absorbs a string argument to hasAll": "ALLOW",
+    "listMethod: argument: hasAny with no argument is an error": "DENY",
+    "listMethod: argument: hasAll with two arguments is an error": "DENY"
   },
   "diagnostics": {
     "list toSet().difference chain (5.1 wiring) DENY": {
@@ -553,6 +566,132 @@
             ]
           }
         ]
+      }
+    },
+    "listMethod: argument: a Set argument to hasAll on a List is an error": {
+      "notes": [
+        "Error: firestore.rules line [245], column [37]. Unsupported operation error. Received: list.hasAll(set). Expected: list.hasAll(list)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 245,
+          "column": 37,
+          "currentOffset": 7667,
+          "endOffset": 7672
+        }
+      }
+    },
+    "listMethod: argument: a Set argument to hasAny on a List is an error": {
+      "notes": [
+        "Error: firestore.rules line [248], column [37]. Unsupported operation error. Received: list.hasAny(set). Expected: list.hasAny(list)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 248,
+          "column": 37,
+          "currentOffset": 7765,
+          "endOffset": 7770
+        }
+      }
+    },
+    "listMethod: argument: a Set argument to hasOnly on a List is an error": {
+      "notes": [
+        "Error: firestore.rules line [251], column [37]. Unsupported operation error. Received: list.hasOnly(set). Expected: list.hasOnly(list)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 251,
+          "column": 37,
+          "currentOffset": 7863,
+          "endOffset": 7869
+        }
+      }
+    },
+    "listMethod: argument: a string argument to hasAny is an error": {
+      "notes": [
+        "Error: firestore.rules line [257], column [37]. Unsupported operation error. Received: list.hasAny(string). Expected: list.hasAny(list)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 257,
+          "column": 37,
+          "currentOffset": 8067,
+          "endOffset": 8072
+        }
+      }
+    },
+    "listMethod: argument: a string argument to hasOnly is an error": {
+      "notes": [
+        "Error: firestore.rules line [260], column [32]. Unsupported operation error. Received: list.hasOnly(string). Expected: list.hasOnly(list)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 260,
+          "column": 32,
+          "currentOffset": 8150,
+          "endOffset": 8156
+        }
+      }
+    },
+    "listMethod: argument: a Map argument to hasAll is an error": {
+      "notes": [
+        "Error: firestore.rules line [263], column [33]. Unsupported operation error. Received: list.hasAll(map). Expected: list.hasAll(list)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 263,
+          "column": 33,
+          "currentOffset": 8235,
+          "endOffset": 8240
+        }
+      }
+    },
+    "listMethod: argument: a null argument to hasOnly is an error": {
+      "notes": [
+        "Error: firestore.rules line [266], column [33]. Unsupported operation error. Received: list.hasOnly(null). Expected: list.hasOnly(list)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 266,
+          "column": 33,
+          "currentOffset": 8324,
+          "endOffset": 8330
+        }
+      }
+    },
+    "listMethod: argument: hasAny with no argument is an error": {
+      "notes": [
+        "Error: firestore.rules line [272], column [33]. Incorrect number of arguments. Received: 0. Expected: list.hasAny(list)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 272,
+          "column": 33,
+          "currentOffset": 8501,
+          "endOffset": 8506
+        }
+      }
+    },
+    "listMethod: argument: hasAll with two arguments is an error": {
+      "notes": [
+        "Error: firestore.rules line [275], column [33]. Incorrect number of arguments. Received: 2. Expected: list.hasAll(list)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 275,
+          "column": 33,
+          "currentOffset": 8582,
+          "endOffset": 8587
+        }
       }
     }
   }

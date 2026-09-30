@@ -1546,6 +1546,7 @@
         "metadata-access",
         "metadata-verbs-and-arithmetic",
         "ordering-operand-types",
+        "stdlib-sets-and-mapdiff",
         "stdlib-timestamp-duration",
         "ternary-and-error-absorption",
         "upload-primitives-boundaries"

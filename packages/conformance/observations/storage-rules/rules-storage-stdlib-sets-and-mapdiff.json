@@ -6,7 +6,7 @@
     "storage-rules#storage.stdlib.map-diff"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"stdlib-sets-and-mapdiff\" (STORAGE-STDLIB-SET). List.toSet(), Set membership and algebra, Set equality, in over a Set, and Map.diff() over custom metadata with every MapDiff accessor, with a List argument to Set algebra and a List receiver as negative controls.",
-  "observedAt": "2026-09-28T06:47:36.087Z",
+  "observedAt": "2026-09-30T03:43:30.998Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "behavior": {
@@ -55,7 +55,42 @@
     "value identity: diff() of an int List and the equal float List is unchanged": "ALLOW",
     "value identity: diff() of 0.0 and -0.0 is unchanged": "ALLOW",
     "value identity: diff() of NaN and NaN is unchanged": "ALLOW",
-    "value identity: diff() of an int and a different float is changed": "ALLOW"
+    "value identity: diff() of an int and a different float is changed": "ALLOW",
+    "set method: size() counts the elements": "ALLOW",
+    "set method: size() != the count is false": "DENY",
+    "set method: size() with an argument is an error": "DENY",
+    "set method: keys() on a Set is an error": "DENY",
+    "set method: || true absorbs keys() on a Set": "ALLOW",
+    "set method: values() on a Set is an error": "DENY",
+    "set method: get() on a Set is an error": "DENY",
+    "set method: diff() on a Set is an error": "DENY",
+    "set method: keys() on a MapDiff is an error": "DENY",
+    "set method: values() on a MapDiff is an error": "DENY",
+    "set method: get() on a MapDiff is an error": "DENY",
+    "set method: size() on a MapDiff is an error": "DENY",
+    "set method: hasOnly() with a List argument": "ALLOW",
+    "set method: hasAll() != false with a missing element": "DENY",
+    "set method: a string argument to hasAny() is an error": "DENY",
+    "set method: || true absorbs a string argument to hasAny()": "ALLOW",
+    "set method: a Map argument to hasAll() is an error": "DENY",
+    "set method: a string argument to hasOnly() is an error": "DENY",
+    "set method: hasAll() with two arguments is an error": "DENY",
+    "set method: hasAny() with no argument is an error": "DENY",
+    "set method: union() of two Sets": "ALLOW",
+    "set method: union() != the joined Set is false": "DENY",
+    "set method: a string argument to union() is an error": "DENY",
+    "set method: a Map argument to difference() is an error": "DENY",
+    "set method: a List argument to difference() is an error": "DENY",
+    "set method: intersection() with no argument is an error": "DENY",
+    "set method: union() with no argument is an error": "DENY",
+    "set method: || true absorbs union() with no argument": "ALLOW",
+    "set method: intersection() with two arguments is an error": "DENY",
+    "set method: difference() on a List is an error": "DENY",
+    "set method: union() on a List is an error": "DENY",
+    "set method: intersection() on a List is an error": "DENY",
+    "set method: || true absorbs union() on a List": "ALLOW",
+    "set method: intersection() on a string is an error": "DENY",
+    "set method: difference() on a Map is an error": "DENY"
   },
   "diagnostics": {
     "toSet removes duplicates and set equality ignores order": {
@@ -752,6 +787,624 @@
               "endOffset": 5490
             },
             "value": true
+          }
+        ]
+      }
+    },
+    "set method: size() counts the elements": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 155,
+              "column": 21,
+              "currentOffset": 5600,
+              "endOffset": 5600
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "set method: size() != the count is false": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 158,
+              "column": 21,
+              "currentOffset": 5694,
+              "endOffset": 5694
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "set method: size() with an argument is an error": {
+      "notes": [
+        "Error: storage.rules line [161], column [37]. Incorrect number of arguments. Received: 1. Expected: set.size()."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 161,
+          "column": 37,
+          "currentOffset": 5804,
+          "endOffset": 5807
+        }
+      }
+    },
+    "set method: keys() on a Set is an error": {
+      "notes": [
+        "Error: storage.rules line [164], column [23]. Function not found error: Name: [keys]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 164,
+          "column": 23,
+          "currentOffset": 5878,
+          "endOffset": 5878
+        },
+        "functionCalls": [
+          {
+            "function": "keys"
+          }
+        ]
+      }
+    },
+    "set method: || true absorbs keys() on a Set": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "keys"
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 167,
+              "column": 21,
+              "currentOffset": 5967,
+              "endOffset": 5967
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "set method: values() on a Set is an error": {
+      "notes": [
+        "Error: storage.rules line [170], column [23]. Function not found error: Name: [values]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 170,
+          "column": 23,
+          "currentOffset": 6067,
+          "endOffset": 6067
+        },
+        "functionCalls": [
+          {
+            "function": "values"
+          }
+        ]
+      }
+    },
+    "set method: get() on a Set is an error": {
+      "notes": [
+        "Error: storage.rules line [173], column [23]. Function not found error: Name: [get]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 173,
+          "column": 23,
+          "currentOffset": 6160,
+          "endOffset": 6160
+        },
+        "functionCalls": [
+          {
+            "function": "get",
+            "args": [
+              "a",
+              1
+            ]
+          }
+        ]
+      }
+    },
+    "set method: diff() on a Set is an error": {
+      "notes": [
+        "Error: storage.rules line [176], column [23]. Function not found error: Name: [diff]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 176,
+          "column": 23,
+          "currentOffset": 6252,
+          "endOffset": 6252
+        },
+        "functionCalls": [
+          {
+            "function": "diff",
+            "args": [
+              {
+                "a": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "set method: keys() on a MapDiff is an error": {
+      "notes": [
+        "Error: storage.rules line [179], column [23]. Function not found error: Name: [keys]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 179,
+          "column": 23,
+          "currentOffset": 6367,
+          "endOffset": 6367
+        },
+        "functionCalls": [
+          {
+            "function": "keys"
+          }
+        ]
+      }
+    },
+    "set method: values() on a MapDiff is an error": {
+      "notes": [
+        "Error: storage.rules line [182], column [23]. Function not found error: Name: [values]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 182,
+          "column": 23,
+          "currentOffset": 6462,
+          "endOffset": 6462
+        },
+        "functionCalls": [
+          {
+            "function": "values"
+          }
+        ]
+      }
+    },
+    "set method: get() on a MapDiff is an error": {
+      "notes": [
+        "Error: storage.rules line [185], column [23]. Function not found error: Name: [get]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 185,
+          "column": 23,
+          "currentOffset": 6558,
+          "endOffset": 6558
+        },
+        "functionCalls": [
+          {
+            "function": "get",
+            "args": [
+              "a",
+              1
+            ]
+          }
+        ]
+      }
+    },
+    "set method: size() on a MapDiff is an error": {
+      "notes": [
+        "Error: storage.rules line [188], column [23]. Function not found error: Name: [size]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 188,
+          "column": 23,
+          "currentOffset": 6655,
+          "endOffset": 6655
+        },
+        "functionCalls": [
+          {
+            "function": "size"
+          }
+        ]
+      }
+    },
+    "set method: hasOnly() with a List argument": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 191,
+              "column": 21,
+              "currentOffset": 6746,
+              "endOffset": 6746
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "set method: hasAll() != false with a missing element": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 194,
+              "column": 21,
+              "currentOffset": 6849,
+              "endOffset": 6849
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "set method: a string argument to hasAny() is an error": {
+      "notes": [
+        "Error: storage.rules line [197], column [37]. Unsupported operation error. Received: set.hasAny(string). Expected: set.hasAny(set), set.hasAny(list)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 197,
+          "column": 37,
+          "currentOffset": 6966,
+          "endOffset": 6971
+        }
+      }
+    },
+    "set method: || true absorbs a string argument to hasAny()": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 200,
+              "column": 21,
+              "currentOffset": 7038,
+              "endOffset": 7038
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "set method: a Map argument to hasAll() is an error": {
+      "notes": [
+        "Error: storage.rules line [203], column [37]. Unsupported operation error. Received: set.hasAll(map). Expected: set.hasAll(set), set.hasAll(list)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 203,
+          "column": 37,
+          "currentOffset": 7149,
+          "endOffset": 7154
+        }
+      }
+    },
+    "set method: a string argument to hasOnly() is an error": {
+      "notes": [
+        "Error: storage.rules line [206], column [37]. Unsupported operation error. Received: set.hasOnly(string). Expected: set.hasOnly(set), set.hasOnly(list)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 206,
+          "column": 37,
+          "currentOffset": 7242,
+          "endOffset": 7248
+        }
+      }
+    },
+    "set method: hasAll() with two arguments is an error": {
+      "notes": [
+        "Error: storage.rules line [209], column [37]. Incorrect number of arguments. Received: 2. Expected: set.hasAll(set), set.hasAll(list)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 209,
+          "column": 37,
+          "currentOffset": 7331,
+          "endOffset": 7336
+        }
+      }
+    },
+    "set method: hasAny() with no argument is an error": {
+      "notes": [
+        "Error: storage.rules line [212], column [37]. Incorrect number of arguments. Received: 0. Expected: set.hasAny(set), set.hasAny(list)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 212,
+          "column": 37,
+          "currentOffset": 7428,
+          "endOffset": 7433
+        }
+      }
+    },
+    "set method: union() of two Sets": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 215,
+              "column": 21,
+              "currentOffset": 7497,
+              "endOffset": 7497
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "set method: union() != the joined Set is false": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 218,
+              "column": 21,
+              "currentOffset": 7613,
+              "endOffset": 7613
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "set method: a string argument to union() is an error": {
+      "notes": [
+        "Error: storage.rules line [221], column [37]. Unsupported operation error. Received: set.union(string). Expected: set.union(set)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 221,
+          "column": 37,
+          "currentOffset": 7745,
+          "endOffset": 7749
+        }
+      }
+    },
+    "set method: a Map argument to difference() is an error": {
+      "notes": [
+        "Error: storage.rules line [224], column [37]. Unsupported operation error. Received: set.difference(map). Expected: set.difference(set)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 224,
+          "column": 37,
+          "currentOffset": 7849,
+          "endOffset": 7858
+        }
+      }
+    },
+    "set method: a List argument to difference() is an error": {
+      "notes": [
+        "Error: storage.rules line [227], column [37]. Unsupported operation error. Received: set.difference(list). Expected: set.difference(set)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 227,
+          "column": 37,
+          "currentOffset": 7963,
+          "endOffset": 7972
+        }
+      }
+    },
+    "set method: intersection() with no argument is an error": {
+      "notes": [
+        "Error: storage.rules line [230], column [37]. Incorrect number of arguments. Received: 0. Expected: set.intersection(set)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 230,
+          "column": 37,
+          "currentOffset": 8074,
+          "endOffset": 8085
+        }
+      }
+    },
+    "set method: union() with no argument is an error": {
+      "notes": [
+        "Error: storage.rules line [233], column [37]. Incorrect number of arguments. Received: 0. Expected: set.union(set)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 233,
+          "column": 37,
+          "currentOffset": 8182,
+          "endOffset": 8186
+        }
+      }
+    },
+    "set method: || true absorbs union() with no argument": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 236,
+              "column": 21,
+              "currentOffset": 8267,
+              "endOffset": 8267
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "set method: intersection() with two arguments is an error": {
+      "notes": [
+        "Error: storage.rules line [239], column [37]. Incorrect number of arguments. Received: 2. Expected: set.intersection(set)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 239,
+          "column": 37,
+          "currentOffset": 8391,
+          "endOffset": 8402
+        }
+      }
+    },
+    "set method: difference() on a List is an error": {
+      "notes": [
+        "Error: storage.rules line [242], column [23]. Function not found error: Name: [difference]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 242,
+          "column": 23,
+          "currentOffset": 8513,
+          "endOffset": 8513
+        },
+        "functionCalls": [
+          {
+            "function": "difference",
+            "args": [
+              [
+                1
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    "set method: union() on a List is an error": {
+      "notes": [
+        "Error: storage.rules line [245], column [23]. Function not found error: Name: [union]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 245,
+          "column": 23,
+          "currentOffset": 8618,
+          "endOffset": 8618
+        },
+        "functionCalls": [
+          {
+            "function": "union",
+            "args": [
+              [
+                1
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    "set method: intersection() on a List is an error": {
+      "notes": [
+        "Error: storage.rules line [248], column [23]. Function not found error: Name: [intersection]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 248,
+          "column": 23,
+          "currentOffset": 8718,
+          "endOffset": 8718
+        },
+        "functionCalls": [
+          {
+            "function": "intersection",
+            "args": [
+              [
+                1
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    "set method: || true absorbs union() on a List": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "union",
+            "args": [
+              [
+                1
+              ]
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 251,
+              "column": 21,
+              "currentOffset": 8823,
+              "endOffset": 8823
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "set method: intersection() on a string is an error": {
+      "notes": [
+        "Error: storage.rules line [254], column [23]. Function not found error: Name: [intersection]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 254,
+          "column": 23,
+          "currentOffset": 8932,
+          "endOffset": 8934
+        },
+        "functionCalls": [
+          {
+            "function": "intersection",
+            "args": [
+              [
+                "a"
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    "set method: difference() on a Map is an error": {
+      "notes": [
+        "Error: storage.rules line [257], column [23]. Function not found error: Name: [difference]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 257,
+          "column": 23,
+          "currentOffset": 9043,
+          "endOffset": 9043
+        },
+        "functionCalls": [
+          {
+            "function": "difference",
+            "args": [
+              [
+                "a"
+              ]
+            ]
           }
         ]
       }

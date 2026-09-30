@@ -1,7 +1,8 @@
 import type { Expression } from '../grammar/FirestoreAST.js';
 import { MapDiff } from './mapdiff.js';
-import { FirestoreSet } from './firestore-set.js';
-import { mapKeys } from './map-keys.js';
+import { FirestoreSet, SET_ALGEBRA_NAMES, SetMethodFailure, setMethod } from './firestore-set.js';
+import { MAP_METHOD_NAMES, MapMethodFailure, mapList } from './map-keys.js';
+import { isRulesMap } from './rules-type.js';
 import { RulesValue, NO_OP } from './wrappers/base.js';
 import { LatLng } from './wrappers/latlng.js';
 import { Duration } from './wrappers/duration.js';
@@ -12,7 +13,7 @@ import { RulesFloat } from './wrappers/float.js';
 import { EvalError, functionNotFoundMessage } from './eval-error.js';
 import { ConversionFailure, applyConversion, conversionFor } from './conversions.js';
 import { MathFailure, applyMath } from './math-builtins.js';
-import { LIST_METHOD_NAMES, ListMethodFailure, listConcat, listHas, listJoin, listRemoveAll } from './list-methods.js';
+import { LIST_METHOD_NAMES, ListMethodFailure, listConcat, listJoin, listMembership, listRemoveAll } from './list-methods.js';
 import { UnsupportedError } from './unsupported-error.js';
 import { isDocumentPath, makeGetResource, normalizeDocumentPath, resolveExists, resolveGet } from './document-lookups.js';
 import { chargeLookup } from './lookup-budget.js';
@@ -234,7 +235,7 @@ export function evaluateMethodCall(
   }
 
   // MapDiff: obj.diff(other) → MapDiff
-  if (method === 'diff' && typeof obj === 'object' && obj !== null && !Array.isArray(obj)) {
+  if (method === 'diff' && isRulesMap(obj)) {
     const other = argValues[0];
     if (typeof other === 'object' && other !== null) {
       return new MapDiff(other as Record<string, unknown>, obj as Record<string, unknown>);
@@ -247,23 +248,12 @@ export function evaluateMethodCall(
     return (obj as Function)(...argValues);
   }
 
-  // FirestoreSet methods
+  // A Set has only its own methods, shared with the Storage evaluator
+  // (`firestore-set.ts`).
   if (obj instanceof FirestoreSet) {
-    switch (method) {
-      case 'hasOnly': return obj.hasOnly(argValues[0] as unknown[] | FirestoreSet);
-      case 'hasAll': return obj.hasAll(argValues[0] as unknown[] | FirestoreSet);
-      case 'hasAny': return obj.hasAny(argValues[0] as unknown[] | FirestoreSet);
-      case 'size': return obj.size();
-      case 'difference':
-      case 'union':
-      case 'intersection': {
-        const other = argValues[0];
-        if (!(other instanceof FirestoreSet)) {
-          throw new EvalError(`Unsupported operation: set.${method} requires a Set argument`);
-        }
-        return obj[method](other);
-      }
-    }
+    const result = setMethod(obj, method, argValues);
+    if (result instanceof SetMethodFailure) throw new EvalError(result.message);
+    return result;
   }
 
   // MapDiff methods (when called directly, not via memberAccess)
@@ -275,17 +265,24 @@ export function evaluateMethodCall(
       case 'affectedKeys': return obj.affectedKeys();
       case 'unchangedKeys': return obj.unchangedKeys();
     }
+    // A MapDiff has no Map, List or Set method.
+    throw new EvalError(functionNotFoundMessage(method));
   }
 
-  // Map/object methods
-  if (typeof obj === 'object' && obj !== null && !Array.isArray(obj)) {
-    const map = obj as Record<string, unknown>;
+  // Map methods. A MapDiff is no Map and has none of them.
+  if (isRulesMap(obj)) {
+    const map = obj;
     switch (method) {
       // Production Map.keys() returns a List, not a Set, in code point
-      // order. List membership methods work on it, but Set-only algebra
+      // order, and Map.values() a List in written order (`map-keys.ts`).
+      // List membership methods work on them, but Set-only algebra
       // requires an explicit toSet().
-      case 'keys': return mapKeys(map);
-      case 'values': return Object.values(map);
+      case 'keys':
+      case 'values': {
+        const result = mapList(method, map, argValues);
+        if (result instanceof MapMethodFailure) throw new EvalError(result.message);
+        return result;
+      }
       case 'size': return Object.keys(map).length;
       case 'diff': {
         const other = argValues[0] as Record<string, unknown>;
@@ -335,8 +332,11 @@ export function evaluateMethodCall(
       // equal float (`list-methods.ts`).
       case 'hasAll':
       case 'hasAny':
-      case 'hasOnly':
-        return listHas(method, obj, argValues[0] as unknown[]);
+      case 'hasOnly': {
+        const result = listMembership(method, obj, argValues);
+        if (result instanceof ListMethodFailure) throw new EvalError(result.message);
+        return result;
+      }
       // List.concat, List.join and List.removeAll are shared with the
       // Storage evaluator (`list-methods.ts`).
       case 'concat':
@@ -355,10 +355,6 @@ export function evaluateMethodCall(
         // numeric 1 and string '1' remain distinct, matching production.
         return new FirestoreSet(obj);
       }
-      case 'difference':
-      case 'union':
-      case 'intersection':
-        throw new EvalError(`Function not found on List receiver: ${method}`);
     }
   }
 
@@ -386,9 +382,11 @@ export function evaluateMethodCall(
     }
   }
 
-  // A List method on a string, Map or Set receiver is production's
+  // A List, Set or Map method on a receiver of another type is production's
   // "Function not found error", an error value that `&&` and `||` absorb.
-  if (LIST_METHOD_NAMES.has(method)) throw new EvalError(functionNotFoundMessage(method));
+  if (LIST_METHOD_NAMES.has(method) || SET_ALGEBRA_NAMES.has(method) || MAP_METHOD_NAMES.has(method)) {
+    throw new EvalError(functionNotFoundMessage(method));
+  }
   throw new EvalError(`Unknown method '${method}' on ${typeof obj}`);
 }
 

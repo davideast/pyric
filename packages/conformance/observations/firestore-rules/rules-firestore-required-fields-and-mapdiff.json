@@ -5,12 +5,12 @@
     "firestore-rules#178"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"required-fields-and-mapdiff\" (Coverage: List/Set + MapDiff required-fields idiom). Production must accept the keys().hasAll/hasOnly required-fields pattern and the diff().*Keys() MapDiff family used to gate field-level mutations.",
-  "observedAt": "2026-09-28T06:47:35.123Z",
+  "observedAt": "2026-09-30T03:43:24.195Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "e0219eab86ecee0baa216cb412fea51dd1cbbbd769e60babdc7dcd97cc9408d2"
+    "value": "7add4c73e3a584c8d762411832a97d8d72567eafe581d05b589a0af93dac997d"
   },
   "behavior": {
     "create with exact required fields, self-owned ALLOW": "ALLOW",
@@ -60,6 +60,155 @@
     "keyOrder: diff() of an int List and the equal float List is unchanged": "ALLOW",
     "keyOrder: diff() of 0.0 and -0.0 is unchanged": "ALLOW",
     "keyOrder: diff() of NaN and NaN is unchanged": "ALLOW",
-    "keyOrder: diff() of an int and a different float is changed": "ALLOW"
+    "keyOrder: diff() of an int and a different float is changed": "ALLOW",
+    "keyOrder: values() keeps an integer-like key in written order": "ALLOW",
+    "keyOrder: values() does not put an integer-like key first": "DENY",
+    "keyOrder: values() != the written order is false": "DENY",
+    "keyOrder: values() keeps '10' and '9' in written order": "ALLOW",
+    "keyOrder: values() keeps non-ASCII, integer-like and empty keys in written order": "ALLOW",
+    "keyOrder: values() of a nested literal keeps its written order": "ALLOW",
+    "keyOrder: values()[0] is the first value written": "ALLOW",
+    "keyOrder: values() of a repeated key keeps its first position and last value": "ALLOW",
+    "keyOrder: values() of a repeated key does not move it last": "DENY",
+    "keyOrder: values() of an empty Map is an empty List": "ALLOW",
+    "keyOrder: values() is list": "ALLOW",
+    "keyOrder: values() of request data keeps the order the request sent": "ALLOW",
+    "keyOrder: values() with an argument is an error": "DENY",
+    "keyOrder: || true absorbs values() with an argument": "ALLOW",
+    "keyOrder: keys() with an argument is an error": "DENY",
+    "keyOrder: values() on a List is an error": "DENY",
+    "keyOrder: values() on a string is an error": "DENY",
+    "keyOrder: keys() on a List is an error": "DENY",
+    "keyOrder: keys() on a string is an error": "DENY",
+    "keyOrder: get() on a List is an error": "DENY"
+  },
+  "diagnostics": {
+    "keyOrder: values() with an argument is an error": {
+      "notes": [
+        "Error: firestore.rules line [169], column [35]. Incorrect number of arguments. Received: 1. Expected: map.values()."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 169,
+          "column": 35,
+          "currentOffset": 6961,
+          "endOffset": 6966
+        }
+      }
+    },
+    "keyOrder: keys() with an argument is an error": {
+      "notes": [
+        "Error: firestore.rules line [175], column [35]. Incorrect number of arguments. Received: 1. Expected: map.keys()."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 175,
+          "column": 35,
+          "currentOffset": 7146,
+          "endOffset": 7149
+        }
+      }
+    },
+    "keyOrder: values() on a List is an error": {
+      "notes": [
+        "Error: firestore.rules line [178], column [26]. Function not found error: Name: [values]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 178,
+          "column": 26,
+          "currentOffset": 7226,
+          "endOffset": 7226
+        },
+        "functionCalls": [
+          {
+            "function": "values"
+          }
+        ]
+      }
+    },
+    "keyOrder: values() on a string is an error": {
+      "notes": [
+        "Error: firestore.rules line [181], column [26]. Function not found error: Name: [values]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 181,
+          "column": 26,
+          "currentOffset": 7309,
+          "endOffset": 7311
+        },
+        "functionCalls": [
+          {
+            "function": "values"
+          }
+        ]
+      }
+    },
+    "keyOrder: keys() on a List is an error": {
+      "notes": [
+        "Error: firestore.rules line [184], column [26]. Function not found error: Name: [keys]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 184,
+          "column": 26,
+          "currentOffset": 7394,
+          "endOffset": 7394
+        },
+        "functionCalls": [
+          {
+            "function": "keys"
+          }
+        ]
+      }
+    },
+    "keyOrder: keys() on a string is an error": {
+      "notes": [
+        "Error: firestore.rules line [187], column [26]. Function not found error: Name: [keys]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 187,
+          "column": 26,
+          "currentOffset": 7475,
+          "endOffset": 7477
+        },
+        "functionCalls": [
+          {
+            "function": "keys"
+          }
+        ]
+      }
+    },
+    "keyOrder: get() on a List is an error": {
+      "notes": [
+        "Error: firestore.rules line [190], column [26]. Function not found error: Name: [get]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 190,
+          "column": 26,
+          "currentOffset": 7558,
+          "endOffset": 7558
+        },
+        "functionCalls": [
+          {
+            "function": "get",
+            "args": [
+              0,
+              1
+            ]
+          }
+        ]
+      }
+    }
   }
 }

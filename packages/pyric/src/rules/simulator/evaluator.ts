@@ -14,6 +14,7 @@
 import type { Expression, FunctionDef } from '../grammar/FirestoreAST.js';
 import { MapDiff } from './mapdiff.js';
 import { FirestoreSet } from './firestore-set.js';
+import { mapLiteral } from './map-keys.js';
 import { rulesValuesEqual } from './value-equality.js';
 import { describeRulesType, isRulesMap } from './rules-type.js';
 import { sliceBoundsError } from './slice-bounds.js';
@@ -273,9 +274,10 @@ function evaluateNode(expr: Expression, ctx: SimulationContext, scope: Record<st
 
     case 'mapLiteral': {
       const values = evaluateOperands(expr.entries.flatMap((entry) => [entry.key, entry.value]), ctx, scope);
-      const map: Record<string, unknown> = {};
-      for (let i = 0; i < values.length; i += 2) map[String(values[i])] = values[i + 1];
-      return map;
+      const entries: [string, unknown][] = [];
+      for (let i = 0; i < values.length; i += 2) entries.push([String(values[i]), values[i + 1]]);
+      // The literal keeps its written order for values() (`map-keys.ts`).
+      return mapLiteral(entries);
     }
 
     // ═══ Layer 3: Function calls ═══
