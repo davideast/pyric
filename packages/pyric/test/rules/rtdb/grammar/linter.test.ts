@@ -76,4 +76,17 @@ describe('lintExpression', () => {
     expect(second).toHaveLength(0);
     expect(third.map(w => w.code)).toContain('DATA_IN_WRITE');
   });
+
+  test('flags literal identity equality as HARDCODED_TRUE', () => {
+    const warningsNum = lintExpression('1 == 1', 'read');
+    expect(warningsNum.map(w => w.code)).toContain('HARDCODED_TRUE');
+
+    const warningsStr = lintExpression('"a" == "a"', 'read');
+    expect(warningsStr.map(w => w.code)).toContain('HARDCODED_TRUE');
+  });
+
+  test('flags literal inequality of identical values as HARDCODED_FALSE', () => {
+    const warningsNum = lintExpression('1 != 1', 'read');
+    expect(warningsNum.map(w => w.code)).toContain('HARDCODED_FALSE');
+  });
 });

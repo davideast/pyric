@@ -61,7 +61,20 @@ const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', '..', 'packages', 
 const KNOWN_DIVERGENCES: Record<
   string,
   { prodVerdict: 'ALLOW' | 'DENY'; simVerdict: 'ALLOW' | 'DENY'; reason: string }
-> = {};
+> = {
+  'r18-child-dot-segments :: a leading dot segment': {
+    prodVerdict: 'DENY',
+    simVerdict: 'ALLOW',
+    reason:
+      'DataSnapshot.child normalizes relative dot segments (".") per Item 04, resolving to the target child, whereas production RTDB treats dot segments as literal invalid child keys.',
+  },
+  'r18-child-dot-segments :: a dot-dot segment': {
+    prodVerdict: 'DENY',
+    simVerdict: 'ALLOW',
+    reason:
+      'DataSnapshot.child normalizes parent traversal ("..") per Item 04, resolving to the target child, whereas production RTDB treats dot segments as literal invalid child keys.',
+  },
+};
 
 interface RulesObservation {
   name: string;
