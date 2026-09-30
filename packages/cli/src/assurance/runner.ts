@@ -58,7 +58,7 @@ import {
   type LocalSandbox,
   type SandboxEvent,
 } from "pyric/sandbox";
-import { qualifyProbe } from "./capabilities.js";
+import { qualifyProbe, rulesLoadRefusal } from "./capabilities.js";
 import {
   assertActor,
   assertInvariant,
@@ -751,6 +751,35 @@ async function runProbe(
     (item) => item.id === probe.invariantId,
   )!;
   const qualification = qualifyProbe(spec.target, probe);
+  // Production refuses to load a source that does not parse or breaks a
+  // compile limit, so no request is ever evaluated against it. The probe
+  // reports that refusal in production's words instead of running.
+  const refusal =
+    rulesLoadRefusal(spec.target, probe.control.service) ??
+    rulesLoadRefusal(spec.target, probe.mutation.operation.service);
+  if (refusal !== undefined) {
+    const error = { code: "rules-refused", message: refusal };
+    return {
+      campaignId: spec.id,
+      probeId: probe.id,
+      targetHash: hash,
+      actorEvidence: {
+        actorId: actor.id,
+        acquisition: actor.acquisition.kind,
+        reachability:
+          actor.acquisition.kind === "synthetic" ? "synthetic" : "unreachable",
+      },
+      invariant,
+      mutationSpec: probe.mutation,
+      control: { ...skippedEvidence(probe.control, "ERROR"), error },
+      mutation: {
+        ...skippedEvidence(probe.mutation.operation, "ERROR"),
+        error,
+      },
+      qualification,
+      classification: "invalid-probe",
+    };
+  }
   if (!qualification.supported) {
     return {
       campaignId: spec.id,
