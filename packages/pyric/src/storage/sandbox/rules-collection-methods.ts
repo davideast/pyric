@@ -1,4 +1,4 @@
-import { FirestoreSet, SetMethodFailure, setMethod } from '../../rules/simulator/firestore-set.js';
+import { FirestoreSet, SET_ALGEBRA_NAMES, SetMethodFailure, setMethod } from '../../rules/simulator/firestore-set.js';
 import {
   ListMethodFailure,
   listConcat,
@@ -22,8 +22,6 @@ import {
 } from './rules-method-calls.js';
 import { describeRulesType as describeType, isRulesMap } from '../../rules/simulator/rules-type.js';
 import { isRuleError as isErr } from './rules-values.js';
-
-const SET_ALGEBRA = ['difference', 'intersection', 'union'] as const;
 
 const MAP_DIFF_KEY_SETS = ['addedKeys', 'affectedKeys', 'changedKeys', 'removedKeys', 'unchangedKeys'] as const;
 type MapDiffKeySet = (typeof MAP_DIFF_KEY_SETS)[number];
@@ -174,6 +172,6 @@ export const collectionMethods: ReceiverMethods = {
   size: evalSize,
   toSet: evalToSet,
   values: evalMapList,
-  ...methodsNamed(SET_ALGEBRA, evalSetAlgebra),
+  ...methodsNamed([...SET_ALGEBRA_NAMES], evalSetAlgebra),
   ...methodsNamed(MAP_DIFF_KEY_SETS, evalMapDiffKeySet),
 };
