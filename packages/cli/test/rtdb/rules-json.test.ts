@@ -55,4 +55,40 @@ describe('RTDB rules JSON parser', () => {
     expect(() => parseRtdbRulesText('{\n  // open\n  "rules": {', (reason) => reason)).toThrow(/^not valid JSON: /);
     expect(() => parseRtdbRulesText('/* no rules */ {}', (reason) => reason)).toThrow('no top-level "rules" object');
   });
+
+  test('accepts a rule expression that spans lines, as a deployed rules file may', () => {
+    const source = [
+      '{',
+      '  "rules": {',
+      '    ".write": "auth.uid !== null',
+      '        && !data.exists()"',
+      '  }',
+      '}',
+    ].join('\n');
+    const parsed = parseRtdbRulesText(source, (reason) => reason);
+    expect(parsed.rules['.write']).toBe('auth.uid !== null\n        && !data.exists()');
+  });
+
+  test('accepts trailing commas in objects and arrays, and keeps commas inside strings', () => {
+    const source = [
+      '{',
+      '  "rules": {',
+      '    "a": { ".indexOn": ["x", "y",], },',
+      '    // a comment after the last member',
+      '    "b": { ".read": "\'1,}\' == \'1,]\'" },',
+      '  },',
+      '}',
+    ].join('\r\n');
+    const parsed = parseRtdbRulesText(source, (reason) => reason);
+    expect(parsed).toEqual({
+      rules: {
+        a: { '.indexOn': ['x', 'y'] },
+        b: { '.read': "'1,}' == '1,]'" },
+      },
+    });
+  });
+
+  test('still rejects a comma with no member before it', () => {
+    expect(() => parseRtdbRulesText('{ "rules": { , } }', (reason) => reason)).toThrow(/^not valid JSON: /);
+  });
 });

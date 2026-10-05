@@ -35,7 +35,7 @@
  */
 
 import { getOrCreateBackend } from '../../database/sandbox/backend-for.js';
-import { stripJsonComments } from '../../database/sandbox-controls.js';
+import { toStrictRulesJson } from '../../database/sandbox-controls.js';
 import { getAdminStorageSandbox, replaceStorageRules } from '../../storage/internal.js';
 import { Timestamp } from 'pyric/rules/internal';
 import { enginePayloadOf } from '../../firestore/sandbox/update-fields.js';
@@ -129,7 +129,7 @@ function parseDatabaseRuleset(source: string): DatabaseRuleset | null {
   if (!source.trim().startsWith('{')) return null;
   let parsed: unknown;
   try {
-    parsed = JSON.parse(stripJsonComments(source));
+    parsed = JSON.parse(toStrictRulesJson(source));
   } catch {
     return null;
   }

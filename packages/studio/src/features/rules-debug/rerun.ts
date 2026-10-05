@@ -44,7 +44,7 @@ import {
   getDocs,
   query,
 } from 'pyric/firestore';
-import { setRules as setRtdbRules, getActiveRules, snapshotState, stripJsonComments, type RtdbRulesJson } from 'pyric/sandbox/database';
+import { setRules as setRtdbRules, getActiveRules, snapshotState, toStrictRulesJson, type RtdbRulesJson } from 'pyric/sandbox/database';
 import { rtdbRules, type RtdbCase } from 'pyric/rules';
 import { lintFirestoreRules, type LintWarning } from 'pyric/rules/internal';
 import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
@@ -93,7 +93,7 @@ export function lintEditedRuleset(rules: string, service: string = 'firestore'):
   const isRtdb = service === 'rtdb';
   if (isRtdb) {
     try {
-      const parsed: unknown = JSON.parse(stripJsonComments(rules));
+      const parsed: unknown = JSON.parse(toStrictRulesJson(rules));
       // A ruleset production's deploy would refuse blocks the rerun as a
       // parse failure does; the remaining findings are surfaced.
       const rejection = rtdbRulesSourceRejection(parsed);
