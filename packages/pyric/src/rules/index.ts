@@ -65,6 +65,17 @@ export type {
   RtdbSimulationSummary,
 } from './api/case-types.js';
 
+// ─── RTDB rule coverage ──────────────────────────────────────────────
+export { renderRtdbCoverage } from './rtdb/coverage.js';
+export type {
+  RtdbCoverageOptions,
+  RtdbCoverageStatus,
+  RtdbCoverageSummary,
+  RtdbFileCoverage,
+  RtdbRuleCoverage,
+  RtdbCoverageKind,
+} from './rtdb/coverage.js';
+
 // ─── Structured trace types (plain data) ─────────────────────────────
 export type {
   RuleEvaluation,

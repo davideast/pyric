@@ -25,6 +25,7 @@ import {
   simulateRtdbRules,
   type CompiledRtdbRules,
 } from '../../rules/rtdb/compiled-rules.js';
+import { RtdbCoverageRecorder } from '../../rules/rtdb/coverage.js';
 import type { RtdbRuleEvaluation, SimulationInput } from '../../rules/rtdb/simulation/spec.js';
 import type { AuthState, RtdbDenialContext } from 'pyric/sandbox';
 import { SandboxClock } from 'pyric/sandbox';
@@ -196,6 +197,7 @@ export type RtdbDefaultPolicy = 'allow' | 'deny';
 export class RulesEvaluator {
   private compiled: CompiledRtdbRules | null = null;
   private defaultPolicy: RtdbDefaultPolicy = 'deny';
+  private coverage: RtdbCoverageRecorder | null = null;
 
   /**
    * @param clock The sandbox's clock, read for the rules engine's `now`. A
@@ -213,9 +215,24 @@ export class RulesEvaluator {
   setRules(rulesJson: { rules: Record<string, unknown> } | null): void {
     if (rulesJson === null) {
       this.compiled = null;
+      this.coverage = null;
       return;
     }
     this.compiled = compileRtdbRules(rulesJson);
+    if (this.coverage !== null) this.coverage = new RtdbCoverageRecorder(this.compiled);
+  }
+
+  /**
+   * Starts recording which rule nodes the operations evaluate and which
+   * `.indexOn` declarations queries use, and returns the recorder. Coverage
+   * describes the rules loaded when recording started: `setRules` starts a new
+   * recorder for the new rules, and `setRules(null)` stops recording.
+   * Returns `null` when no rules are loaded.
+   */
+  recordCoverage(): RtdbCoverageRecorder | null {
+    if (this.compiled === null) return null;
+    this.coverage ??= new RtdbCoverageRecorder(this.compiled);
+    return this.coverage;
   }
 
   /** True when rules have been deployed via `setRules`. */
@@ -236,12 +253,15 @@ export class RulesEvaluator {
     if (spec.orderBy.kind === 'key' || spec.orderBy.kind === 'priority') return null;
     const requiredIndex = resolveRequiredIndexKey(spec.orderBy);
     const matchingNodes = findMatchingNodesAtPath(this.compiled, path.split('/').filter(Boolean));
-    const hasIndex = matchingNodes.some((node) =>
+    const declaring = matchingNodes.filter((node) =>
       node.indexOn?.some(
         (idx) => idx === requiredIndex || idx.split('/').filter(Boolean).join('/') === requiredIndex,
       ),
     );
-    return hasIndex ? null : requiredIndex;
+    for (const node of declaring) this.coverage?.recordIndexUse(node.path);
+    if (declaring.length > 0) return null;
+    this.coverage?.recordMissingIndex(`/${path.split('/').filter(Boolean).join('/')}`, requiredIndex);
+    return requiredIndex;
   }
 
   /**
@@ -333,6 +353,7 @@ export class RulesEvaluator {
       query: simulatedQuery,
       now: ctx.now ?? this.clock.now(),
     });
+    if (result.success) this.coverage?.record(result.data.trace);
     if (!result.success) {
       // An engine error is reported as no-rule; user-mode callers fold it
       // to deny.

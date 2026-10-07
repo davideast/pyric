@@ -31,6 +31,11 @@ import {
 } from '../rtdb/compiled-rules.js';
 import type { SimulateResult } from '../rtdb/simulation/spec.js';
 import { simulateRtdbCase } from './rtdb-case-input.js';
+import {
+  RtdbCoverageRecorder,
+  type RtdbCoverageOptions,
+  type RtdbCoverageSummary,
+} from '../rtdb/coverage.js';
 import type { RuleIssue } from './issue.js';
 import { rtdbFindingToIssue, rtdbSecurityFindingToIssue } from './issue.js';
 import { lintRtdbRuleset } from '../rtdb/grammar/ruleset-lint.js';
@@ -46,6 +51,13 @@ export interface RtdbRuleset {
   lint(): RuleIssue[];
   /** Run every case. Never throws on a rule outcome. */
   simulate(cases: RtdbCase[]): RtdbSimulationSummary;
+  /**
+   * Which `.read`, `.write`, `.validate` and `.indexOn` nodes the given case
+   * results evaluated, and which they never reached. `simulate` returns this
+   * for its own cases; call it to merge several runs or to attach a file name
+   * and line numbers.
+   */
+  coverage(results: readonly RtdbCaseResult[], options?: RtdbCoverageOptions): RtdbCoverageSummary;
   /** The structured account of why one case resolved as it did. */
   explain(oneCase: RtdbCase): RtdbExplanation;
   /** The compiled `rules.json`. */
@@ -141,7 +153,13 @@ class DocumentRtdbRuleset implements RtdbRuleset {
       else if (r.passed) passed++;
       else failed++;
     }
-    return { passed, failed, unsupported, cases: caseResults };
+    return { passed, failed, unsupported, cases: caseResults, coverage: this.coverage(caseResults) };
+  }
+
+  coverage(results: readonly RtdbCaseResult[], options?: RtdbCoverageOptions): RtdbCoverageSummary {
+    const recorder = new RtdbCoverageRecorder(this.doc.compile());
+    for (const result of results) recorder.record(result.trace);
+    return recorder.summarize(options);
   }
 
   explain(oneCase: RtdbCase): RtdbExplanation {
