@@ -65,7 +65,9 @@ For a write by `mallory` to `/records/r1` that a `.write` rule refuses, the even
 set /records/r1 { uid: 'mallory' } /records/$id auth != null && newData.child('ownerId').val() === auth.uid
 No 'write' rule grants access; the deepest, at '/records/$id', evaluated to false
 ```
-The event also carries `request.data`, the value the request wrote, and `resourceBefore`, the data at the path before the write. These are the values the rule evaluated against. In Studio, the Traffic tab shows the same rows.
+The event also carries `request.data`, the value the request wrote, and `resourceBefore`, the data at the path before the write. These are the values the rule evaluated against.
+
+`e.rules.rtdbTrace` lists every `.read`, `.write`, and `.validate` rule the request evaluated, root first, each with its `path`, `kind`, `conditionText`, `verdict`, and the `$` variables bound at that node. For the read above, a root `.read` of `false` is listed ahead of the `/records/$recordId` rule that decided the denial. A listener event carries the same trace. In Studio, the Traffic tab shows the same rows, and Studio marks the line of the deciding rule in `database.rules.json`.
 
 ### Read the reason
 

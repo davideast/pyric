@@ -68,6 +68,9 @@ describe('docs: test Realtime Database rules', () => {
         '  read /records/r1 (expected ALLOW, got DENY)',
         "  matched auth != null && (data.child('ownerId').val() === auth.uid || data.child('reviewers').child(auth.uid).exists()) @ /records/$recordId",
         "  reason: No 'read' rule grants access; the deepest, at '/records/$recordId', evaluated to false",
+        '  rules evaluated:',
+        '    / .read -> DENY: false',
+        "    /records/$recordId .read -> DENY: auth != null && (data.child('ownerId').val() === auth.uid || data.child('reviewers').child(auth.uid).exists()) ($recordId = r1)",
       ].join('\n'),
     );
     expect(explainCase(rules.simulate([miss]).cases[0])).toContain('FAIL: unrelated user reads');
@@ -85,10 +88,14 @@ describe('docs: test Realtime Database rules', () => {
     databaseSandbox.setRules(getDatabase(sandbox), rules.toJSON());
     const alice = getDatabase(sandbox.withAuth({ uid: 'alice' }));
     const mallory = getDatabase(sandbox.withAuth({ uid: 'mallory' }));
-    const denials: Array<{ matchedPath?: string; reason?: string }> = [];
+    const denials: Array<{ matchedPath?: string; reason?: string; trace?: string[] }> = [];
     sandbox.onEvent((e) => {
       if (e.kind === 'operation' && e.service === 'rtdb' && e.result === 'deny') {
-        denials.push({ matchedPath: e.rules?.matchedPath, reason: e.rules?.reason });
+        denials.push({
+          matchedPath: e.rules?.matchedPath,
+          reason: e.rules?.reason,
+          trace: e.rules?.rtdbTrace?.map((t) => `${t.path} .${t.kind} -> ${t.verdict}`),
+        });
       }
     });
 
@@ -100,6 +107,7 @@ describe('docs: test Realtime Database rules', () => {
       {
         matchedPath: '/records/$recordId',
         reason: "No 'read' rule grants access; the deepest, at '/records/$recordId', evaluated to false",
+        trace: ['/ .read -> DENY', '/records/$recordId .read -> DENY'],
       },
     ]);
   });
@@ -166,9 +174,41 @@ describe('docs: how the simulator evaluates rules', () => {
         c: { '.read': 'data.nope()', '.write': true },
       },
     }).lint();
-    const bySeverity = (severity: string) => [...new Set(issues.filter((i) => i.severity === severity).map((i) => i.code))].sort();
-    expect(bySeverity('error')).toEqual(['NEWDATA_IN_READ', 'PARSE_ERROR', 'UNKNOWN_IDENTIFIER', 'UNKNOWN_METHOD']);
-    expect(bySeverity('warning')).toEqual(['DATA_IN_WRITE', 'HARDCODED_FALSE', 'HARDCODED_TRUE']);
+    const codes = (severity: string) => [...new Set(issues.filter((i) => i.severity === severity).map((i) => i.code))].sort();
+    expect(codes('error')).toEqual(
+      expect.arrayContaining(['NEWDATA_IN_READ', 'PARSE_ERROR', 'UNKNOWN_IDENTIFIER', 'UNKNOWN_METHOD']),
+    );
+    expect(codes('warning')).toEqual(expect.arrayContaining(['DATA_IN_WRITE', 'HARDCODED_FALSE', 'HARDCODED_TRUE']));
+  });
+
+  test('ruleset lint reports the security codes the lint page lists', () => {
+    const exposed = rtdbRules({
+      rules: {
+        '.read': true,
+        records: { $id: { '.write': "auth != null && newData.val() != null", '.validate': "newData.hasChild('title')", title: { '.validate': 'newData.isString()' } } },
+        open: { '.write': true },
+        anon: { '.write': "newData.isString() && newData.val().length < 10" },
+        deletable: { '.write': 'auth != null', '.validate': "data.exists() && newData.isString()" },
+        shielded: { '.read': true, inner: { '.read': false } },
+      },
+    }).lint();
+    const security = issues_codes(exposed).filter((c) => c.startsWith('RTDB-SEC-'));
+    expect(security).toEqual(['RTDB-SEC-1', 'RTDB-SEC-2', 'RTDB-SEC-3', 'RTDB-SEC-4', 'RTDB-SEC-5', 'RTDB-SEC-6', 'RTDB-SEC-7']);
+    const finding = exposed.find((i) => i.code === 'RTDB-SEC-7')!;
+    expect(finding.severity).toBe('warning');
+    expect(finding.rule).toBe('.validate');
+    expect(typeof finding.fix).toBe('string');
+    expect(exposed.find((i) => i.code === 'RTDB-SEC-1')!.severity).toBe('error');
+  });
+
+  test('the trace lists the rules the simulator ran, root first', () => {
+    const [result] = rules.simulate([cases[5]]).cases;
+    expect(result.trace.map((t) => `${t.path} .${t.kind} -> ${t.verdict}`)).toEqual([
+      '/ .write -> DENY',
+      '/records/$recordId .write -> ALLOW',
+      '/records/$recordId .validate -> ALLOW',
+      '/records/$recordId/title .validate -> DENY',
+    ]);
   });
 
   test('the simulate example in the lint page reports the title rule', () => {
@@ -202,6 +242,10 @@ describe('docs: how the simulator evaluates rules', () => {
     expect(results[0].reason).toBe('Validation rule evaluated to false');
   });
 });
+
+function issues_codes(issues: Array<{ code: string }>): string[] {
+  return [...new Set(issues.map((i) => i.code))].sort();
+}
 
 describe('docs: .indexOn', () => {
   const warnings: string[] = [];

@@ -57,7 +57,11 @@ revoke it. Lock the root, then open the smallest useful paths.
 
 4. **Lint, then simulate before shipping.** Run `rules.lint` (or
    `pyric rules lint --service database --rules-file database.rules.json`) and
-   fix every error. Then test with explicit cases, as the next section shows.
+   fix every error. Lint also reads the whole ruleset and reports `RTDB-SEC-1`
+   to `RTDB-SEC-7`, each with the rule it sits on and a `fix`: a public `.write`
+   or `.read`, a conditional `.write` that never reads `auth`, a deeper rule that
+   cannot revoke an ancestor's grant, a `.validate` that a delete skips, a
+   `.write` with no shape check, and a node with no `$other` rule. Then test with explicit cases, as the next section shows.
    Complete when lint reports no errors and four case families pass per path:
    the intended actor allowed, anonymous denied, cross-user denied, invalid
    shape denied.
@@ -132,7 +136,9 @@ for (const c of cases) test(c.description!, () => assertCase(rules, c));
 
 `rules.simulate(cases)` returns `{ passed, failed, unsupported, cases }` without
 throwing; for the six cases above it reports 6 passed, 0 failed, 0 unsupported.
-Each result has `decision`, `matchedPath`, `matchedRule`, and `reason`.
+Each result has `decision`, `matchedPath`, `matchedRule`, `reason`, and a `trace`
+of every rule the evaluation ran (root first, with a verdict of `ALLOW`, `DENY`,
+`ERROR`, or `UNSUPPORTED`).
 `assertCase` throws with the deciding rule in the message when a case misses.
 
 Case fields:
@@ -198,7 +204,8 @@ await get(ref(mallory, 'records/r1')); // rejects: PERMISSION_DENIED: Permission
 ```
 
 Denials appear in `sandbox.onEvent` as `kind: 'operation'`, `service: 'rtdb'`,
-`result: 'deny'`, with `rules.matchedPath`, `rules.matchedRule`, and `rules.reason`.
+`result: 'deny'`, with `rules.matchedPath`, `rules.matchedRule`, `rules.reason`, and
+`rules.rtdbTrace`, the same list of evaluated rules.
 
 ## Hot reload while iterating
 

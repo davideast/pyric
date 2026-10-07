@@ -127,6 +127,15 @@ reason:      Validation rule evaluated to false
 ```
 `matchedPath` is the rule's location in the ruleset, so it shows the `$recordId` wildcard rather than the concrete path. `UNSUPPORTED` means the case reached an expression the simulator cannot evaluate. It abstains rather than guesses.
 
+The result also carries a `trace` with every rule the simulator ran, in order. For the write above:
+```
+/ .write -> DENY: false
+/records/$recordId .write -> ALLOW: auth != null ($recordId = r1)
+/records/$recordId .validate -> ALLOW: newData.hasChildren(['ownerId', 'title']) ($recordId = r1)
+/records/$recordId/title .validate -> DENY: newData.isString() && newData.val().length <= 80 ($recordId = r1)
+```
+The cascade shows the root `.write` denying before the deeper rule grants, and the validate walk stops at the first failure. A rule that raises a runtime error appears with the verdict `ERROR` and the error message.
+
 The same simulation is on the command line. It reads the rules from a file and evaluates one request:
 ```bash
 pyric rules simulate --service database --rules-file database.rules.json --operation read --path /records/r1
@@ -141,7 +150,7 @@ Or in code:
 ```ts
 const issues = rules.lint();
 ```
-Each issue has a `code`, a `severity`, a `message`, and the `path` and `rule` it applies to. The Realtime Database linter reports these codes:
+Each issue has a `code`, a `severity`, a `message`, and the `path` and `rule` it applies to. The Realtime Database linter reports two groups of codes. The first group reads one expression at a time:
 
 | Code | Severity | What it means |
 |---|---|---|
@@ -154,7 +163,23 @@ Each issue has a `code`, a `severity`, a `message`, and the `path` and `rule` it
 | `HARDCODED_FALSE` | warning | A `.read` or `.write` rule is the literal `false`. This is often intentional, as in a locked root. |
 | `DATA_IN_WRITE` | warning | A `.write` rule reads `data` but never `newData`, so it may not check the incoming value. |
 
+The second group reads the whole ruleset, because the common RTDB mistakes come from how rules at different depths combine. Each finding names the rule it sits on and carries a `fix`. Findings at the `critical` and `high` levels are reported as errors, and `medium` as warnings.
+
+| Code | What it reports |
+|---|---|
+| `RTDB-SEC-1` | A `.write` of `true`, so anyone, signed in or not, can write, replace, or delete values under that path. |
+| `RTDB-SEC-2` | A `.read` of `true`, so anyone can read everything under that path. At the root, this exposes the entire database. |
+| `RTDB-SEC-3` | A conditional `.write` that never reads `auth`, so a signed-out client can write whenever the condition holds. |
+| `RTDB-SEC-4` | A rule that tries to restrict access that an ancestor already grants. A deeper rule cannot revoke an ancestor's grant, so the deeper rule restricts nothing. |
+| `RTDB-SEC-5` | A `.validate` that a delete skips. `.validate` runs only on a non-null new value, so a client that can write `null` at an ancestor bypasses it. |
+| `RTDB-SEC-6` | A `.write` that accepts any value: no `.validate` sits at or below it and the write rule does not check `newData`. |
+| `RTDB-SEC-7` | A node that names children in `.validate` but has no `$other` rule, so a write can add any other key under it. |
+
+For a ruleset that names children in `.validate`, `"$other": { ".validate": false }` rejects the keys it does not name.
+
 Lint a ruleset before you simulate it. A case that reaches an expression that does not parse comes back `UNSUPPORTED`, and the denial hides the real problem.
+
+`pyric database rules validate database.rules.json` reports the expression errors in a file. Each finding includes the `line` and `column` of its rule key in the file, and comments in the file do not shift them.
 
 ### Know how the simulator evaluates rules
 

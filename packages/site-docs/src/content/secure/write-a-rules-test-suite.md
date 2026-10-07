@@ -196,7 +196,12 @@ FAIL: unrelated user reads
   read /records/r1 (expected ALLOW, got DENY)
   matched auth != null && (data.child('ownerId').val() === auth.uid || data.child('reviewers').child(auth.uid).exists()) @ /records/$recordId
   reason: No 'read' rule grants access; the deepest, at '/records/$recordId', evaluated to false
+  rules evaluated:
+    / .read -> DENY: false
+    /records/$recordId .read -> DENY: auth != null && (data.child('ownerId').val() === auth.uid || data.child('reviewers').child(auth.uid).exists()) ($recordId = r1)
 ```
+`rules evaluated` lists every `.read`, `.write`, and `.validate` rule the simulator ran, root first, with its verdict (`ALLOW`, `DENY`, `ERROR` with the runtime error, or `UNSUPPORTED`) and the `$` variables bound at that node. The cascade stops at the first grant, and the validate walk stops at the first failure. The same list is on each result as `trace`.
+
 A simulator abstention throws `RulesUnsupportedError`, and an expectation miss throws `RulesAssertionError`, so a runner can treat them differently.
 
 ### Know what a write case checks
