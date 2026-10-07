@@ -1,0 +1,91 @@
+{
+  "name": "rtdb-rules-text-dialect",
+  "matrixRow": "rtdb-rules#23",
+  "rowIds": [
+    "rtdb-rules#23"
+  ],
+  "description": "Sends rules file text byte for byte to PUT /.settings/rules.json?dryRun=true, the request firebase deploy makes with the rules file, and records whether production accepts it or refuses it with its text: a rule string spanning lines (LF and CRLF), a raw tab and a backslash line break inside a rule string, trailing commas in objects and in an .indexOn array, comments, and a doubled or leading comma. The probes are TEXT_PROBES in packages/conformance/src/capture-rtdb-rules-text-dialect.ts. A dry run installs nothing; the active rules read back byte-identical after the run.",
+  "observedAt": "2026-10-07T23:50:27.919Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "calls": 12,
+    "probes": [
+      {
+        "name": "strict-json",
+        "text": "{\n  \"rules\": {\n    \"p\": { \".read\": \"true && true\" }\n  }\n}\n",
+        "status": 200,
+        "accepted": true
+      },
+      {
+        "name": "rule-string-spans-lines-lf",
+        "text": "{\n  \"rules\": {\n    \"p\": { \".read\": \"true\n      && true\" }\n  }\n}\n",
+        "status": 200,
+        "accepted": true
+      },
+      {
+        "name": "rule-string-spans-lines-crlf",
+        "text": "{\r\n  \"rules\": {\r\n    \"p\": { \".read\": \"true\r\n      && true\" }\r\n  }\r\n}\r\n",
+        "status": 200,
+        "accepted": true
+      },
+      {
+        "name": "rule-string-raw-tab",
+        "text": "{\n  \"rules\": {\n    \"p\": { \".read\": \"true\t&& true\" }\n  }\n}\n",
+        "status": 200,
+        "accepted": true
+      },
+      {
+        "name": "rule-string-backslash-line-break",
+        "text": "{\n  \"rules\": {\n    \"p\": { \".read\": \"true \\\n      && true\" }\n  }\n}\n",
+        "status": 400,
+        "accepted": false,
+        "message": "Invalid escape: '\\\n'"
+      },
+      {
+        "name": "trailing-comma-in-rule-object",
+        "text": "{\n  \"rules\": {\n    \"p\": { \".read\": \"true\", }\n  }\n}\n",
+        "status": 200,
+        "accepted": true
+      },
+      {
+        "name": "trailing-comma-in-every-object",
+        "text": "{\n  \"rules\": {\n    \"p\": { \".read\": \"true\", },\n  },\n}\n",
+        "status": 200,
+        "accepted": true
+      },
+      {
+        "name": "trailing-comma-in-index-array",
+        "text": "{\n  \"rules\": {\n    \"p\": { \".indexOn\": [\"a\", \"b\",] }\n  }\n}\n",
+        "status": 200,
+        "accepted": true
+      },
+      {
+        "name": "trailing-comma-before-comment",
+        "text": "{\n  \"rules\": {\n    \"p\": { \".read\": \"true\", // last\n    }\n  }\n}\n",
+        "status": 200,
+        "accepted": true
+      },
+      {
+        "name": "line-and-block-comments",
+        "text": "{\n  // line\n  \"rules\": {\n    /* block */\n    \"p\": { \".read\": \"true\" }\n  }\n}\n",
+        "status": 200,
+        "accepted": true
+      },
+      {
+        "name": "double-comma",
+        "text": "{\n  \"rules\": {\n    \"p\": { \".read\": \"true\",, }\n  }\n}\n",
+        "status": 400,
+        "accepted": false,
+        "message": "Expected '\"'."
+      },
+      {
+        "name": "leading-comma",
+        "text": "{\n  \"rules\": {\n    \"p\": { , \".read\": \"true\" }\n  }\n}\n",
+        "status": 400,
+        "accepted": false,
+        "message": "Unexpected ','."
+      }
+    ]
+  }
+}

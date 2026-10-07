@@ -20,6 +20,7 @@
 import { describe, it, expect } from 'bun:test';
 import {
   assertMatchingOracleProjects,
+  capturableRules,
   captureDeployScenario,
   createRunUser,
   instanceRulesForCapture,
@@ -363,6 +364,12 @@ describe('multi-instance capture rules', () => {
     for (const root of [{ '.read': true }, { '.write': 'auth != null' }]) {
       expect(() => instanceRulesForCapture('default', JSON.stringify({ rules: root }), AUDIT_KEY, {})).toThrow('refusing to run');
     }
+  });
+
+  it('reads the scenario capture\'s pre-run rules through the same refusals', () => {
+    expect(capturableRules('the database', '{ "rules": { ".read": false, "kept": { ".read": true } } }').rules).toEqual({ '.read': false, kept: { '.read': true } });
+    expect(() => capturableRules('the database', '{ "rules": { ".read": true } }')).toThrow('refusing to run: the root .read rule');
+    expect(() => capturableRules('the database', '// c\n{ "rules": {} }')).toThrow('refusing to run: the rules of the database are not plain JSON');
   });
 
   it('verifies a restore by exact text, or by the same rules when reformatted, and throws otherwise', () => {

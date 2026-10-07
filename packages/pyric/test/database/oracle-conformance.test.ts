@@ -41,6 +41,8 @@ import { createObservationGate } from '../../../../packages/conformance/src/obse
 import { RULES_DEPLOY_REFUSAL_CASES } from '../../../../packages/conformance/src/capture/rtdb-climb/rules-deploy-refusals.cases.ts';
 import { rtdbRules } from '../../src/rules/api/rtdb.js';
 import { buildRuleExpression } from '../../src/rules/rtdb/compiled-rules.js';
+import { rtdbRulesSourceRejection } from '../../src/rules/rtdb/source-rejection.js';
+import { toStrictRulesJson } from '../../src/database/sandbox-controls.js';
 import { initializeSandbox } from 'pyric/sandbox';
 import {
   getDatabase,
@@ -471,11 +473,31 @@ describe('oracle conformance (rtdb)', () => {
     expect(mismatches).toEqual([]);
   });
 
+  it('rtdb-rules-text-dialect: rules file text reads as the dry-run deploy reads it', () => {
+    const obs = load('rtdb-rules-text-dialect.json');
+    const probes = obs.probes as { name: string; text: string; accepted: boolean }[];
+    expect(probes.length).toBe(obs.calls as number);
+    // Every RTDB rules load path reads text through toStrictRulesJson, then the load-time check.
+    const readsLocally = (text: string): boolean => {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(toStrictRulesJson(text));
+      } catch {
+        return false;
+      }
+      return rtdbRulesSourceRejection(parsed) === null;
+    };
+    const mismatches = probes
+      .filter((probe) => readsLocally(probe.text) !== probe.accepted)
+      .map((probe) => `${probe.name}: production ${probe.accepted ? 'accepts' : 'refuses'} it`);
+    expect(mismatches).toEqual([]);
+  });
+
   // ── completeness: every `rtdb-*` (non-modular) observation is covered ──
 
   it('every rtdb (non-modular) observation is covered (no silent gaps)', () => {
     const r = obsGate.report();
-    expect(r.committed.length).toBe(16);
+    expect(r.committed.length).toBe(17);
     expect(r.loadedButUnused).toEqual([]); // a bare load() with no field read fails
     expect(r.uncovered).toEqual([]); // every capture is asserted or explicitly N/A
   });
