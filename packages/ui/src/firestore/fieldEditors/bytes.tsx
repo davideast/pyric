@@ -1,13 +1,15 @@
 import { Bytes } from 'pyric/firestore';
+import { coerceBytes } from '../types.js';
 import type { FieldEditorContract, FieldDisplayProps, FieldEditProps } from './types.js';
 
 function BytesDisplay({ value, path }: FieldDisplayProps<Bytes>) {
-  const b64 = value.toBase64();
+  const bytes = coerceBytes(value);
+  const b64 = bytes.toBase64();
   return (
     <code
       data-pyric-field-type="bytes"
       data-pyric-field-path={path}
-      data-byte-length={String(value.toUint8Array().byteLength)}
+      data-byte-length={String(bytes.toUint8Array().byteLength)}
     >
       {b64}
     </code>
@@ -30,7 +32,7 @@ function BytesEdit({ value, onChange, error, path }: FieldEditProps<Bytes>) {
       data-pyric-error={error ? '' : undefined}
     >
       <textarea
-        value={value.toBase64()}
+        value={coerceBytes(value).toBase64()}
         onChange={(e) => {
           try {
             onChange(Bytes.fromBase64String(e.target.value));
