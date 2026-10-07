@@ -25,6 +25,7 @@ import {
   simulateRtdbRules,
   type CompiledRtdbRules,
 } from '../../rules/rtdb/compiled-rules.js';
+import { nodesDeclaringIndex } from '../../rules/rtdb/index-lookup.js';
 import type { RtdbRuleEvaluation, SimulationInput } from '../../rules/rtdb/simulation/spec.js';
 import type { AuthState, RtdbDenialContext } from 'pyric/sandbox';
 import { SandboxClock } from 'pyric/sandbox';
@@ -77,26 +78,6 @@ export function querySpecToSimulationQuery(spec: QuerySpec): SimulationInput['qu
     q.limitToLast = spec.limit.n;
   }
   return q;
-}
-
-function findMatchingNodesAtPath(root: CompiledRtdbRules, segments: string[]): CompiledRtdbRules[] {
-  let currentNodes: CompiledRtdbRules[] = [root];
-  for (const seg of segments) {
-    const nextNodes: CompiledRtdbRules[] = [];
-    for (const node of currentNodes) {
-      for (const child of node.children) {
-        const childSegs = child.path.split('/').filter(Boolean);
-        const lastSeg = childSegs[childSegs.length - 1];
-        if (!lastSeg) continue;
-        if (lastSeg === seg || lastSeg.startsWith('$')) {
-          nextNodes.push(child);
-        }
-      }
-    }
-    currentNodes = nextNodes;
-    if (currentNodes.length === 0) break;
-  }
-  return currentNodes;
 }
 
 /**
@@ -235,13 +216,8 @@ export class RulesEvaluator {
     if (spec.orderBy === null) return null;
     if (spec.orderBy.kind === 'key' || spec.orderBy.kind === 'priority') return null;
     const requiredIndex = resolveRequiredIndexKey(spec.orderBy);
-    const matchingNodes = findMatchingNodesAtPath(this.compiled, path.split('/').filter(Boolean));
-    const hasIndex = matchingNodes.some((node) =>
-      node.indexOn?.some(
-        (idx) => idx === requiredIndex || idx.split('/').filter(Boolean).join('/') === requiredIndex,
-      ),
-    );
-    return hasIndex ? null : requiredIndex;
+    const declaring = nodesDeclaringIndex(this.compiled, path.split('/').filter(Boolean), requiredIndex);
+    return declaring.length > 0 ? null : requiredIndex;
   }
 
   /**

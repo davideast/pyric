@@ -208,21 +208,31 @@ export function locateRtdbRule(
 }
 
 /** An evaluation-trace entry with the line of its rule in the rules file. */
-export type LocatedRtdbRuleEvaluation = RtdbRuleEvaluation & {
+export type LocatedRtdbRuleEvaluation = Located<RtdbRuleEvaluation>;
+
+/** A rule node addressed by its rule-tree path and its kind without the dot. */
+export interface RtdbRuleAddress {
+  path: string;
+  kind: 'read' | 'write' | 'validate' | 'indexOn';
+}
+
+/** An entry with the line of its rule in the rules file. */
+export type Located<T> = T & {
   /** 1-based line of the rule key. Absent when the source does not contain the rule. */
   line?: number;
 };
 
 /**
- * Attaches to each evaluation-trace entry the line of the rule it evaluated.
- * The source is scanned once for the whole trace. An entry whose rule the
- * source does not contain, or every entry when the text is not valid JSON
- * with comments, carries no `line`.
+ * Attaches to each entry the line of the rule it addresses: the evaluation
+ * trace of a request, or any other list of rule nodes. The source is scanned
+ * once for the whole list. An entry whose rule the source does not contain,
+ * or every entry when the text is not valid JSON with comments, carries no
+ * `line`.
  */
-export function locateRtdbTrace(
+export function locateRtdbTrace<T extends RtdbRuleAddress>(
   source: string,
-  trace: readonly RtdbRuleEvaluation[],
-): LocatedRtdbRuleEvaluation[] {
+  trace: readonly T[],
+): Located<T>[] {
   const root = new Scanner(source).parseDocument();
   return trace.map((entry) => {
     const location = root ? locateIn(root, entry.path, `.${entry.kind}`) : null;

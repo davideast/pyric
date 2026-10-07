@@ -21,6 +21,7 @@ import type {
   WriteMode,
 } from '../test/spec.js';
 import type { EvaluatedRuleInfo } from '../test/spec.js';
+import type { RtdbCoverageSummary } from '../rtdb/coverage.js';
 import type { RtdbRuleEvaluation } from '../rtdb/simulation/spec.js';
 
 export type { RtdbRuleEvaluation };
@@ -219,4 +220,6 @@ export interface RtdbSimulationSummary {
   failed: number;
   unsupported: number;
   cases: RtdbCaseResult[];
+  /** Which rule nodes the cases evaluated, and which they never reached. */
+  coverage: RtdbCoverageSummary;
 }
