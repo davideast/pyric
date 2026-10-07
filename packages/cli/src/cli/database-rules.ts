@@ -12,6 +12,7 @@ import { dirname, resolve as resolvePath } from 'node:path';
 import {
   checkRtdbRules,
   compileRtdbRules,
+  rtdbRulesSourceRejection,
   locateRtdbRule,
   type CompiledRtdbRules,
   type RtdbRulesFinding,
@@ -151,6 +152,12 @@ export async function runDatabaseRulesGenerate(
 
   const resolvedOut = resolvePath(cwd, outPath);
   const rulesJson = loaded.document.toJSON();
+  // Writing rules production's deploy would refuse leaves a file that cannot be deployed.
+  const rejection = rtdbRulesSourceRejection(rulesJson);
+  if (rejection !== null) {
+    err.write(`pyric database rules generate: ${configPath} generates rules that would not deploy. ${rejection.message}\n`);
+    return 2;
+  }
   await mkdirFn(dirname(resolvedOut), { recursive: true });
   await writeFileFn(resolvedOut, `${JSON.stringify(rulesJson, null, 2)}\n`, 'utf-8');
 

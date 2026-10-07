@@ -107,6 +107,16 @@ function collectFindings(node: RtdbNode, kind: 'errors' | 'warnings'): RtdbRules
     ...collectExpressionFindings(node.path, '.read', node.read, kind),
     ...collectExpressionFindings(node.path, '.write', node.write, kind),
     ...collectExpressionFindings(node.path, '.validate', node.validate, kind),
+    // A shape problem whose deploy rejection was captured is an error; one
+    // inferred from a captured rejection's text is a warning.
+    ...(node.structure ?? [])
+      .filter((finding) => finding.severity === (kind === 'errors' ? 'error' : 'warning'))
+      .map((finding): RtdbRulesFinding => ({
+        path: finding.path,
+        rule: 'ruleset',
+        code: finding.code,
+        message: finding.message,
+      })),
   ];
 
   for (const child of node.children) {

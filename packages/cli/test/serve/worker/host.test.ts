@@ -922,6 +922,47 @@ describe('shared playground worker ops', () => {
     expect(status.value).toMatchObject({ status: 'active' });
   });
 
+  it('a database ruleset production would refuse keeps the active rules and reports the reason', async () => {
+    const ctx = await makeCtx();
+    const port = fakePort();
+    await sendOp(ctx, port, {
+      t: 'op',
+      id: 'good-rules',
+      method: 'setDatabaseRules',
+      source: { rules: { '.read': true, '.write': true } },
+    });
+
+    const refused = await sendOp(ctx, port, {
+      t: 'op',
+      id: 'bad-rules',
+      method: 'setDatabaseRules',
+      source: { rules: { rooms: { '.write': "auth.uid = 'x'" } } },
+    });
+    expect(refused.ok).toBe(true);
+    expect(refused.value).toMatchObject({ ok: false });
+    expect(JSON.stringify(refused.value)).toContain('/rooms/.write:');
+
+    const status = await sendOp(ctx, port, {
+      t: 'op',
+      id: 'bad-rules-status',
+      method: 'getRulesStatus',
+      service: 'database',
+    });
+    expect(status.value).toMatchObject({
+      status: 'error',
+      source: { rules: { '.read': true, '.write': true } },
+    });
+
+    const write = await sendOp(ctx, port, {
+      t: 'op',
+      id: 'still-open',
+      method: 'rtdb.set',
+      path: '/rooms/a',
+      value: 1,
+    });
+    expect(write.ok).toBe(true);
+  });
+
   it('RTDB shared ops honor the per-call auth lens', async () => {
     const ctx = await makeCtx();
     const port = fakePort();

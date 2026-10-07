@@ -13,7 +13,8 @@
  * is evaluated against whatever ruleset is in force, so rules are applied
  * before any data write.
  */
-import { setRules as setDatabaseRules, stripJsonComments } from 'pyric/sandbox/database';
+import { parseRtdbRulesText } from '../../rtdb/rules-json.js';
+import { loadDatabaseRules } from './database-rules-load.js';
 import type { LocalSandbox } from 'pyric/sandbox';
 import { getAdminFirestore, doc, setDoc } from 'pyric/firestore';
 import { getAdminDatabase, ref as databaseRef, set as databaseSet } from 'pyric/database';
@@ -105,11 +106,12 @@ export function applyUsers(sandbox: LocalSandbox, users: readonly SeedUserEntry[
 
 /**
  * Install the rules a seed carries, before any data write. Returns why each
- * Firestore or Storage source production would not load was refused.
+ * Firestore, Storage or Realtime Database source production would not load
+ * was refused.
  *
  * A seed may carry such rules on purpose, for lint tasks, so a refusal does
- * not throw: the sandbox keeps the rules in force, and lint and simulate read
- * the refused source.
+ * not throw: the sandbox keeps the rules in force, and lint reads the refused
+ * source (Firestore and Storage simulate read it too).
  */
 export async function applyRules(sandbox: LocalSandbox, seed: SandboxSeed): Promise<string[]> {
   const refusals: string[] = [];
@@ -125,8 +127,9 @@ export async function applyRules(sandbox: LocalSandbox, seed: SandboxSeed): Prom
   }
   const databaseRules = seed.databaseRules;
   if (databaseRules !== undefined) {
-    const parsed = JSON.parse(stripJsonComments(databaseRules)) as { rules: Record<string, unknown> };
-    setDatabaseRules(sandbox, parsed);
+    const parsed = parseRtdbRulesText(databaseRules, (reason) => reason);
+    const refused = loadDatabaseRules(sandbox, parsed);
+    if (refused !== null) refusals.push(refused);
   }
   const firestoreRules = seed.firestoreRules;
   if (firestoreRules !== undefined) {

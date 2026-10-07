@@ -17,9 +17,10 @@ import {
   rulesSourceRejection,
   type CompileLimitViolation,
 } from 'pyric/rules/internal';
+import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
 import { sandbox as rtdbSandbox } from 'pyric/database';
 
-import { stripJsonComments } from '../../../rtdb/rules-json.js';
+import { parseRtdbRulesText } from '../../../rtdb/rules-json.js';
 import type { OpMessage } from '../protocol.js';
 import { type HostCtx, type PortLike, ok, fail } from '../host-context.js';
 import { ensureRtdb } from './core.js';
@@ -27,7 +28,7 @@ import { ensureRtdb } from './core.js';
 export function normalizeDatabaseRules(source: unknown): { rules: Record<string, unknown> } | null {
   if (source === null) return null;
   if (typeof source === 'string') {
-    return JSON.parse(stripJsonComments(source)) as { rules: Record<string, unknown> };
+    return parseRtdbRulesText(source, (reason) => new Error(`RTDB rules did not parse: ${reason.message}.`));
   }
   if (typeof source === 'object' && source !== null) {
     return source as { rules: Record<string, unknown> };
@@ -118,6 +119,23 @@ export function handleRulesOp(
         const previous = ctx.activeRules?.database?.status === 'active'
           ? ctx.activeRules.database.source
           : ctx.activeRules?.database?.lastKnownGood;
+        // Production refuses a ruleset its deploy would reject. The sandbox
+        // keeps the active ruleset, and the status carries the reason.
+        const rejection = rules === null ? null : rtdbRulesSourceRejection(rules);
+        if (rejection !== null) {
+          ctx.activeRules ??= {};
+          const current = ctx.activeRules.database;
+          const messages = [{ severity: 'error' as const, text: rejection.message }];
+          ctx.activeRules.database = {
+            source: current?.source ?? rules,
+            updatedAt: Date.now(),
+            status: 'error',
+            messages,
+            ...(previous ? { lastKnownGood: previous } : {}),
+          };
+          ok(port, msg.id, { ok: false, messages });
+          break;
+        }
         rtdbSandbox.setRules(db, rules);
         ctx.activeRules ??= {};
         ctx.activeRules.database = {

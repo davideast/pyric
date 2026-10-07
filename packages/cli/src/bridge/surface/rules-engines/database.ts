@@ -2,13 +2,19 @@
 import { rtdbRules } from 'pyric/rules';
 import { locateRtdbTrace } from 'pyric/rules/internal/rtdb';
 import type { RtdbCase, RtdbRulesJson } from 'pyric/rules';
-import { getActiveRules, setRules, snapshotState } from 'pyric/sandbox/database';
+import { snapshotState } from 'pyric/sandbox/database';
+import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
+import { databaseRulesSource, installDatabaseRules } from '../database-rules-load.js';
 import { parseRtdbRulesText } from '../../../rtdb/rules-json.js';
 import { callSandboxTool, operationFailure } from '../context.js';
 import { requestInstant } from '../request-instant.js';
 import { markLintFindings } from '../rules-verdict.js';
 import type { SurfaceContext } from '../types.js';
 import type { RulesEngine, RulesRequest, RulesSourceProblem } from './types.js';
+
+/** The edit a ruleset that production's deploy would refuse takes. */
+const RECOMPILE_FIX =
+  "Fix the rules (call rules.lint for each finding), then call rules.set with service 'database'.";
 
 /** What a call has to do when it named no source and the sandbox holds none. */
 const NO_RULES_LOADED =
@@ -81,17 +87,21 @@ export const DATABASE_RULES: RulesEngine = {
 
   compileFailure(source): RulesSourceProblem | null {
     const parsed = parseRuleset(source);
-    if ('ruleset' in parsed) return null;
-    return {
-      body: `rules did not parse: ${parsed.problem}.`,
-      fix: "Pass rules JSON with a top-level 'rules' object, then call set again.",
-    };
+    if ('problem' in parsed) {
+      return {
+        body: `rules did not parse: ${parsed.problem}.`,
+        fix: "Pass rules JSON with a top-level 'rules' object, then call set again.",
+      };
+    }
+    // Production's deploy refuses a ruleset a rule of which carries an error.
+    const rejection = rtdbRulesSourceRejection(parsed.ruleset);
+    return rejection === null ? null : { body: rejection.message, fix: RECOMPILE_FIX };
   },
 
   async lint(ctx, rules) {
     let ruleset: RtdbRulesJson | null = null;
     if (rules === undefined) {
-      ruleset = getActiveRules(ctx.sandbox);
+      ruleset = databaseRulesSource(ctx.sandbox);
     } else {
       const parsed = parseRuleset(rules);
       if ('problem' in parsed) {
@@ -153,7 +163,8 @@ export const DATABASE_RULES: RulesEngine = {
         `Database rules did not parse: ${parsed.problem}. Pass rules JSON with a top-level 'rules' object, then call set again.`,
       );
     }
-    setRules(ctx.sandbox, parsed.ruleset);
+    const rejection = installDatabaseRules(ctx.sandbox, parsed.ruleset);
+    if (rejection !== null) return operationFailure(`${rejection.message} ${RECOMPILE_FIX}`);
     return { ok: true, summary: 'Database rules installed.' };
   },
 };

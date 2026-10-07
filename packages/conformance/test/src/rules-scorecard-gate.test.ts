@@ -29,6 +29,6 @@ describe('Unified rules scorecard gate CLI reporter', () => {
     expect(out).toContain('--- RTDB Rules Breakdown ---');
     expect(out).not.toContain('[diverged] rtdb.operator.add');
     expect(out).toContain('[diverged] rtdb.binding.query.orderByKey (diverged by: rtdb-rules#26)');
-    expect(out).toContain('[diverged] rtdb.rule-kind.sibling-wildcards (diverged by: rtdb-rules#27)');
+    expect(out).toContain('[diverged] rtdb.binding.query.orderByPriority (diverged by: rtdb-rules#26)');
   }, GATE_TIMEOUT_MS);
 });

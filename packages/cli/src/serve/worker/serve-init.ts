@@ -32,6 +32,7 @@ import { SERVE_HISTORY_LIMITS } from '../observation-limits.js';
 import { getFirestore } from 'pyric/firestore';
 import { seedDocuments, setRules, snapshotDocuments } from 'pyric/sandbox/firestore';
 import { rulesSourceRejection } from 'pyric/rules/internal';
+import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
 import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database';
 import { getAuth, sandbox as authOps, type SeedUser } from 'pyric/auth';
 import { getStorageSandbox } from 'pyric/storage';
@@ -118,6 +119,8 @@ export function setupWorkerHotReload(
         console.info(`[pyric worker] database.rules.json removed; RTDB reads/writes default to ${policy ?? 'deny'}`);
         return;
       }
+      const refusal = rtdbRulesSourceRejection(rules);
+      if (refusal !== null) throw new Error(`Realtime Database rules not loaded: ${refusal.message}`);
       rtdbSandbox.setRules(rtdb, rules);
       const isActiveRulesMissing = ctx.activeRules === undefined;
       if (isActiveRulesMissing) {
@@ -280,6 +283,8 @@ export function applyServeInit(
   }
   const rtdb = ctx.rtdb ??= getDatabase(ctx.sandbox);
   if (payload.databaseRules) {
+    const refusal = rtdbRulesSourceRejection(payload.databaseRules);
+    if (refusal !== null) throw new Error(`database.rules.json not loaded in the sandbox: ${refusal.message}`);
     rtdbSandbox.setRules(rtdb, payload.databaseRules);
     ctx.activeRules ??= {};
     ctx.activeRules.database = {
