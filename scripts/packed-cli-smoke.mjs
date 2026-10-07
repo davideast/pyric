@@ -282,7 +282,10 @@ expect(
   storageSimulate,
 );
 
-const databaseRules = JSON.stringify({ rules: { '.read': true, '.write': false } });
+// A public read below the root is a warning, not an error, so the ruleset
+// lints clean while the simulated read of notes/one is still allowed. A public
+// read at the root is an RTDB-SEC-2 error.
+const databaseRules = JSON.stringify({ rules: { notes: { '.read': true } } });
 const databaseLint = run(['rules', 'lint', '--service', 'database', '--rules', databaseRules, '--json']);
 expect(databaseLint.code === 0, 'pyric rules lint --service database must exit 0', databaseLint);
 expect(
