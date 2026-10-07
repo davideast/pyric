@@ -160,6 +160,9 @@ class PyricBridgeClient(
         if (isDisposed) throw disposedError()
         val current = synchronized(lock) {
             if (isDisposed) throw disposedError()
+            // An attach that finished after the check above leaves no attempt; starting
+            // one would attach again and re-send every subscription.
+            if (isConnected) return
             attempt
                 ?: if (reconnectJob != null) {
                     nextAttempt ?: CompletableDeferred<Unit>().also { nextAttempt = it }
@@ -278,8 +281,12 @@ class PyricBridgeClient(
     }
 
     private fun finishAttach(attemptGeneration: Int): Boolean {
+        val epoch: Long
         synchronized(lock) {
             if (attemptGeneration != generation || isDisposed) return false
+            // Taken before isConnected is set: a subscription that sees the attach
+            // claims its send on this epoch, and the re-send below skips it.
+            epoch = subscriptionManager.beginAttach()
             attempt = null
             handshake = null
             hasEverAttached = true
@@ -289,7 +296,7 @@ class PyricBridgeClient(
             isConnected = true
             setState(BridgeConnectionState.ATTACHED)
         }
-        subscriptionManager.restoreAll(::sendRawJson, JsonCodec::encodeToString)
+        subscriptionManager.restoreAll(epoch, ::sendRawJson, JsonCodec::encodeToString)
         return true
     }
 

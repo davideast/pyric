@@ -20,6 +20,7 @@ class BridgeSubscriptionManager(
 ) {
     private val subCounter = AtomicLong(0)
     private val activeSubs = ConcurrentHashMap<String, ActiveSubscription>()
+    private val attachEpoch = AtomicLong(0)
 
     private class ActiveSubscription(
         val subId: String,
@@ -30,11 +31,30 @@ class BridgeSubscriptionManager(
         @Volatile var hasValue: Boolean = false
         @Volatile var lastValue: Any? = null
         @Volatile var awaitsRestoredValue: Boolean = false
+        /** The latest attach this subscription was sent on. */
+        val sentEpoch = AtomicLong(0)
+    }
+
+    /**
+     * Starts a new attach. The client calls this before it reports itself attached,
+     * so a subscription that sees the attach also sees its epoch.
+     */
+    fun beginAttach(): Long = attachEpoch.incrementAndGet()
+
+    /** True for exactly one caller per subscription and attach. */
+    private fun claimSend(sub: ActiveSubscription, epoch: Long): Boolean {
+        while (true) {
+            val sent = sub.sentEpoch.get()
+            if (sent >= epoch) return false
+            if (sub.sentEpoch.compareAndSet(sent, epoch)) return true
+        }
     }
 
     /**
      * Registers a subscription that lives until the flow is cancelled. It is sent
-     * now when [isAttached], and by every later attach through [restoreAll].
+     * now when [isAttached], and by every later attach through [restoreAll]. When an
+     * attach completes between registration and the attach check, only one of the
+     * two sends it.
      */
     fun subscribe(
         target: Any,
@@ -67,7 +87,9 @@ class BridgeSubscriptionManager(
 
         if (isAttached()) {
             try {
-                sendJson(jsonSerializer(BridgeProtocol.createWorkerSubFrame(subId, subPayload)))
+                if (claimSend(record, attachEpoch.get())) {
+                    sendJson(jsonSerializer(BridgeProtocol.createWorkerSubFrame(subId, subPayload)))
+                }
             } catch (e: Throwable) {
                 activeSubs.remove(subId)
                 close(
@@ -160,9 +182,13 @@ class BridgeSubscriptionManager(
         activeSub.channel.trySend(value)
     }
 
-    /** Re-sends every live subscription on a new attach, with its original subId and payload. */
-    fun restoreAll(sendJson: (String) -> Unit, jsonSerializer: (Any?) -> String) {
+    /**
+     * Re-sends every live subscription on the attach [epoch] from [beginAttach], with
+     * its original subId and payload. A subscription already sent on this attach is skipped.
+     */
+    fun restoreAll(epoch: Long, sendJson: (String) -> Unit, jsonSerializer: (Any?) -> String) {
         for (sub in activeSubs.values) {
+            if (!claimSend(sub, epoch)) continue
             sub.awaitsRestoredValue = sub.hasValue
             try {
                 sendJson(jsonSerializer(BridgeProtocol.createWorkerSubFrame(sub.subId, sub.payload)))
