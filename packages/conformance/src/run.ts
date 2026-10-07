@@ -162,6 +162,12 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mintAccessToken } from './oracle-access-token.ts';
+import {
+  OracleRulesSession,
+  firestoreOracleTarget,
+  runWithOracleRulesRestored,
+  storageOracleTarget,
+} from './oracle-rules-session.ts';
 import { surfaceDescriptors } from '../surfaces/load.ts';
 import { soleLongestPrefixOwner } from './observation-surface.ts';
 import {
@@ -209,21 +215,7 @@ interface ServiceAccount {
 }
 
 const FIREBASE_API = 'https://firebase.googleapis.com/v1beta1';
-const RULES_API = 'https://firebaserules.googleapis.com/v1';
 const RTDB_API = 'https://firebasedatabase.googleapis.com/v1beta';
-
-const ORACLE_RULE_MARKER = '@pyric/oracle';
-const ORACLE_RULE_SNIPPET = `      // @pyric/oracle - read/write under pyric_oracle/* for the conformance oracle harness
-      match /pyric_oracle/{run}/{anything=**} {
-        allow read, write: if request.auth != null;
-      }`;
-const ORACLE_FRESH_RULES = `rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-${ORACLE_RULE_SNIPPET}
-  }
-}
-`;
 
 // RTDB rules counterpart. RTDB rules are JSON (not the
 // `service cloud.firestore { ... }` grammar), and the API endpoint is
@@ -260,22 +252,6 @@ const ORACLE_RTDB_RULES_BODY = {
     },
   },
 };
-
-// Storage rules counterpart. Mirrors the Firestore namespacing but
-// targets `service firebase.storage` + the `/b/{bucket}/o/...` path
-// pattern that's universal for Firebase Storage.
-const ORACLE_STORAGE_RULE_MARKER = '@pyric/oracle/storage';
-const ORACLE_STORAGE_FRESH_RULES = `rules_version = '2';
-service firebase.storage {
-  // ${ORACLE_STORAGE_RULE_MARKER} - read/write under pyric_oracle/* for the conformance oracle harness
-  match /b/{bucket}/o {
-    match /pyric_oracle/{run}/{allPaths=**} {
-      allow read, write: if request.auth != null;
-    }
-  }
-}
-`;
-
 
 /**
  * Auto-create a Web App in the project. Polls the long-running
@@ -334,204 +310,6 @@ async function fetchWebConfig(token: string, projectId: string): Promise<Firebas
 }
 
 /**
- * Idempotent rule installer: ensure the oracle-* namespace rule
- * exists alongside whatever else the project already deploys. Three
- * branches:
- *   - No release yet → deploy a fresh rules file containing only
- *     the oracle rule.
- *   - Existing rules already contain the marker → no-op.
- *   - Existing rules don't have it → inject the snippet at the top
- *     of the `documents { … }` block and redeploy.
- */
-async function ensureOracleRules(token: string, projectId: string): Promise<'fresh' | 'merged' | 'already-configured'> {
-  const releaseUrl = `${RULES_API}/projects/${encodeURIComponent(projectId)}/releases/cloud.firestore`;
-  const releaseRes = await fetch(releaseUrl, { headers: { Authorization: `Bearer ${token}` } });
-  let current: string | null = null;
-  if (releaseRes.status === 404) {
-    current = null;
-  } else if (releaseRes.ok) {
-    const release = (await releaseRes.json()) as { rulesetName: string };
-    const rulesetRes = await fetch(`${RULES_API}/${release.rulesetName}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!rulesetRes.ok) throw new Error(`fetch ruleset failed: ${rulesetRes.status} ${await rulesetRes.text()}`);
-    const ruleset = (await rulesetRes.json()) as { source: { files: { name: string; content: string }[] } };
-    const file = ruleset.source.files.find((f) => f.name.endsWith('.rules')) ?? ruleset.source.files[0];
-    if (!file) throw new Error('existing ruleset has no source files');
-    current = file.content;
-  } else {
-    throw new Error(`read release failed: ${releaseRes.status} ${await releaseRes.text()}`);
-  }
-
-  let next: string;
-  let outcome: 'fresh' | 'merged' | 'already-configured';
-  if (current === null) {
-    next = ORACLE_FRESH_RULES;
-    outcome = 'fresh';
-  } else if (current.includes(ORACLE_RULE_MARKER)) {
-    return 'already-configured';
-  } else {
-    const matchRe = /(match\s+\/databases\/\{database\}\/documents\s*\{)/;
-    const m = matchRe.exec(current);
-    if (!m) throw new Error('cannot locate `match /databases/{database}/documents` block in current rules');
-    const insertAt = m.index + m[0].length;
-    next = current.slice(0, insertAt) + '\n' + ORACLE_RULE_SNIPPET + '\n' + current.slice(insertAt);
-    outcome = 'merged';
-  }
-
-  // Two-step deploy: create ruleset, patch release to point at it.
-  const reqBody = JSON.stringify({ source: { files: [{ name: 'firestore.rules', content: next }] } });
-  const createRes = await fetch(
-    `${RULES_API}/projects/${encodeURIComponent(projectId)}/rulesets`,
-    {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: reqBody,
-    },
-  );
-  if (!createRes.ok) throw new Error(`create ruleset failed: ${createRes.status} ${await createRes.text()}`);
-  const created = (await createRes.json()) as { name: string };
-
-  const releaseName = `projects/${projectId}/releases/cloud.firestore`;
-  const patchRes = await fetch(`${RULES_API}/${releaseName}`, {
-    method: 'PATCH',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ release: { name: releaseName, rulesetName: created.name } }),
-  });
-  if (!patchRes.ok) throw new Error(`patch release failed: ${patchRes.status} ${await patchRes.text()}`);
-  return outcome;
-}
-
-/**
- * Storage-rules counterpart of `ensureOracleRules`. Firebase Storage
- * rules live on a **per-bucket** release name —
- * `projects/{p}/releases/firebase.storage/{bucketId}` — and use the
- * `service firebase.storage` grammar. Same three-branch logic as the
- * Firestore version:
- *
- *   - No release for this bucket → deploy a fresh rules file
- *     containing only the oracle Storage rule.
- *   - Existing rules contain the storage marker → no-op.
- *   - Existing rules don't have it → inject the
- *     `match /pyric_oracle/{run}/{allPaths=**}` block at the top of
- *     the `match /b/{bucket}/o { … }` block and redeploy.
- *
- * Returns `'skipped'` when the project has no Storage bucket
- * configured (Storage not enabled in the Firebase console). The
- * harness then runs Storage probes in skip-mode, recording
- * `skipped: true` observations instead of actual behaviors.
- */
-async function ensureOracleStorageRules(
-  token: string,
-  projectId: string,
-  bucketId: string | undefined,
-): Promise<'fresh' | 'merged' | 'already-configured' | 'skipped'> {
-  if (!bucketId) return 'skipped';
-  // Storage release names embed slashes inside the path segment after
-  // the trailing `/releases/`. Per the Firebase Rules API,
-  // `firebase.storage/{bucketId}` is one release name and the bucket
-  // id can be percent-encoded as a single segment — but the modern
-  // Firebase console encodes the slash literally. We follow suit so
-  // the URL matches the project's existing rules path.
-  const releaseSuffix = `firebase.storage/${bucketId}`;
-  const releaseUrl =
-    `${RULES_API}/projects/${encodeURIComponent(projectId)}/releases/${releaseSuffix}`;
-  const releaseRes = await fetch(releaseUrl, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  let current: string | null = null;
-  if (releaseRes.status === 404) {
-    current = null;
-  } else if (releaseRes.ok) {
-    const release = (await releaseRes.json()) as { rulesetName: string };
-    const rulesetRes = await fetch(`${RULES_API}/${release.rulesetName}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!rulesetRes.ok) {
-      throw new Error(`fetch storage ruleset failed: ${rulesetRes.status} ${await rulesetRes.text()}`);
-    }
-    const ruleset = (await rulesetRes.json()) as { source: { files: { name: string; content: string }[] } };
-    const file = ruleset.source.files.find((f) => f.name.endsWith('.rules')) ?? ruleset.source.files[0];
-    if (!file) throw new Error('existing storage ruleset has no source files');
-    current = file.content;
-  } else {
-    throw new Error(`read storage release failed: ${releaseRes.status} ${await releaseRes.text()}`);
-  }
-
-  let next: string;
-  let outcome: 'fresh' | 'merged' | 'already-configured';
-  if (current === null) {
-    next = ORACLE_STORAGE_FRESH_RULES;
-    outcome = 'fresh';
-  } else if (current.includes(ORACLE_STORAGE_RULE_MARKER)) {
-    return 'already-configured';
-  } else {
-    // Insert the oracle namespace block at the top of the bucket
-    // match block. Pattern targets `match /b/{bucket}/o {` which is
-    // the canonical Storage rules shape; if a project uses a custom
-    // shape we'd need a richer merge — log + bail.
-    const matchRe = /(match\s+\/b\/\{bucket\}\/o\s*\{)/;
-    const m = matchRe.exec(current);
-    if (!m) {
-      throw new Error(
-        'cannot locate `match /b/{bucket}/o` block in current storage rules — ' +
-        'use a non-default Storage rules shape? Deploy oracle rules manually ' +
-        'or extend ensureOracleStorageRules to handle this layout.',
-      );
-    }
-    const insertAt = m.index + m[0].length;
-    const inject = `\n    // ${ORACLE_STORAGE_RULE_MARKER} - read/write under pyric_oracle/* for the conformance oracle harness\n    match /pyric_oracle/{run}/{allPaths=**} {\n      allow read, write: if request.auth != null;\n    }\n`;
-    next = current.slice(0, insertAt) + inject + current.slice(insertAt);
-    outcome = 'merged';
-  }
-
-  // Two-step deploy: create ruleset, PATCH release. The release for
-  // a brand-new bucket may not exist yet, in which case PATCH 404s
-  // and we fall back to POST /releases.
-  const reqBody = JSON.stringify({
-    source: { files: [{ name: 'storage.rules', content: next }] },
-  });
-  const createRes = await fetch(
-    `${RULES_API}/projects/${encodeURIComponent(projectId)}/rulesets`,
-    {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: reqBody,
-    },
-  );
-  if (!createRes.ok) {
-    throw new Error(`create storage ruleset failed: ${createRes.status} ${await createRes.text()}`);
-  }
-  const created = (await createRes.json()) as { name: string };
-
-  const releaseName = `projects/${projectId}/releases/${releaseSuffix}`;
-  const patchRes = await fetch(`${RULES_API}/${releaseName}`, {
-    method: 'PATCH',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ release: { name: releaseName, rulesetName: created.name } }),
-  });
-  if (patchRes.ok) return outcome;
-
-  if (patchRes.status === 404) {
-    // First-time release — POST `releases.create`.
-    const createRelease = await fetch(
-      `${RULES_API}/projects/${encodeURIComponent(projectId)}/releases`,
-      {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: releaseName, rulesetName: created.name }),
-      },
-    );
-    if (!createRelease.ok) {
-      throw new Error(`create storage release failed: ${createRelease.status} ${await createRelease.text()}`);
-    }
-    return outcome;
-  }
-
-  throw new Error(`patch storage release failed: ${patchRes.status} ${await patchRes.text()}`);
-}
-
-/**
  * Discover the project's default RTDB instance via the Firebase
  * Database Management API. Returns the databaseUrl or null when:
  *   - the project has no RTDB instances (404 / empty list)
@@ -578,8 +356,9 @@ async function discoverRtdbInstance(
 }
 
 /**
- * RTDB-rules counterpart of `ensureOracleRules` / `ensureOracleStorageRules`.
- * RTDB rules are deployed as JSON via the database's own REST endpoint:
+ * RTDB counterpart of the Firestore and Storage rules deployments in
+ * `OracleRulesSession`. Unlike those, this deployment is not restored when
+ * the run ends. RTDB rules are deployed as JSON via the database's own REST endpoint:
  *
  *   GET   <databaseUrl>/.settings/rules.json?access_token=…
  *   PUT   <databaseUrl>/.settings/rules.json?access_token=…
@@ -682,6 +461,10 @@ async function ensureOracleRtdbRules(
 // has no RTDB instance.
 let serviceAccount: ServiceAccount | null = null;
 let rtdbAdminToken: string | null = null;
+// The Firestore and Storage rules deployments, restored when the run ends.
+// `null` under `PYRIC_ORACLE_FIREBASE_CONFIG`: without a service account the
+// harness deploys nothing and restores nothing.
+let oracleRulesSession: OracleRulesSession | null = null;
 
 async function loadConfig(): Promise<FirebaseWebConfig> {
   // Manual override path (no SA needed) — paste the Web config JSON.
@@ -707,31 +490,14 @@ async function loadConfig(): Promise<FirebaseWebConfig> {
   console.log(`[oracle] project: ${sa.project_id}`);
   const token = await mintAccessToken(sa, 'https://www.googleapis.com/auth/firebase');
   const cfg = await fetchWebConfig(token, sa.project_id);
-  const ruleOutcome = await ensureOracleRules(token, sa.project_id);
-  console.log(`[oracle] oracle rules: ${ruleOutcome}`);
-  // Storage rules deployment is best-effort. If the project has
-  // Storage enabled but the SA lacks the rules-deploy permission, or
-  // the rules layout doesn't match our merge regex, the harness logs
-  // the failure and proceeds — Storage probes will then observe the
-  // existing rules' behavior (likely `storage/unauthorized`).
-  let storageRuleOutcome: string = 'skipped';
-  try {
-    storageRuleOutcome = await ensureOracleStorageRules(token, sa.project_id, cfg.storageBucket);
-  } catch (e) {
-    storageRuleOutcome = `error: ${e instanceof Error ? e.message : String(e)}`;
-  }
-  console.log(`[oracle] storage rules: ${storageRuleOutcome}`);
-  // Newly-deployed rules take a few seconds to propagate before
-  // the next setDoc sees them. Existing-configured: no wait.
-  const ruleChanged = ruleOutcome !== 'already-configured';
-  const storageRuleChanged =
-    storageRuleOutcome !== 'already-configured' &&
-    storageRuleOutcome !== 'skipped' &&
-    !storageRuleOutcome.startsWith('error');
-  if (ruleChanged || storageRuleChanged) {
-    console.log('[oracle] waiting 10s for new rules to propagate');
-    await new Promise((r) => setTimeout(r, 10_000));
-  }
+  // The Firestore and Storage oracle rules are deployed by `main` inside
+  // `runWithOracleRulesRestored`, so the project's rules are put back when the
+  // run ends. The session mints a fresh token for each phase because a run can
+  // outlast one token.
+  oracleRulesSession = new OracleRulesSession({
+    projectId: sa.project_id,
+    accessToken: () => mintAccessToken(sa, 'https://www.googleapis.com/auth/firebase'),
+  });
   // Pick up the RTDB instance URL if the Web App config didn't carry
   // one. The Web App config only embeds `databaseURL` when an RTDB
   // existed at app-creation time, so we fall back to discovery via
@@ -9149,34 +8915,99 @@ async function main(): Promise<void> {
     console.log(`[oracle] running ${probes.length} probes against real cloud services`);
   }
 
-  for (const probe of selected) {
-    process.stdout.write(`[oracle] ${probe.name} (${probe.matrixRow}) ... `);
-    const t0 = Date.now();
+  const runProbes = async (): Promise<void> => {
+    for (const probe of selected) {
+      process.stdout.write(`[oracle] ${probe.name} (${probe.matrixRow}) ... `);
+      const t0 = Date.now();
+      try {
+        const behavior = await probe.observe();
+        const obs: Observation = {
+          name: probe.name,
+          matrixRow: probe.matrixRow,
+          rowIds: probe.rowIds,
+          description: probe.description,
+          observedAt: new Date().toISOString(),
+          fbSdkVersion: FB_SDK_VERSION,
+          projectId: config.projectId,
+          behavior,
+        };
+        writeObservation(obs);
+        const dt = Date.now() - t0;
+        console.log(`OK (${dt}ms) ${JSON.stringify(behavior)}`);
+      } catch (e) {
+        console.log(`FAIL ${e instanceof Error ? e.message : String(e)}`);
+        throw e;
+      } finally {
+        await purge(probe.name.replace(/^firestore-|^auth-/, ''));
+      }
+    }
+    await deleteApp(app);
+  };
+
+  const session = oracleRulesSession;
+  if (session === null) {
+    await runProbes();
+  } else {
+    // An interrupted run restores the project's rules before it exits.
+    const interrupted = (signal: NodeJS.Signals) => {
+      console.error(`[oracle] ${signal}: restoring the project's rules before exit`);
+      session.restoreAll().then(
+        () => process.exit(130),
+        (error: unknown) => {
+          console.error(error instanceof Error ? error.message : String(error));
+          process.exit(1);
+        },
+      );
+    };
+    process.once('SIGINT', interrupted);
+    process.once('SIGTERM', interrupted);
     try {
-      const behavior = await probe.observe();
-      const obs: Observation = {
-        name: probe.name,
-        matrixRow: probe.matrixRow,
-        rowIds: probe.rowIds,
-        description: probe.description,
-        observedAt: new Date().toISOString(),
-        fbSdkVersion: FB_SDK_VERSION,
-        projectId: config.projectId,
-        behavior,
-      };
-      writeObservation(obs);
-      const dt = Date.now() - t0;
-      console.log(`OK (${dt}ms) ${JSON.stringify(behavior)}`);
-    } catch (e) {
-      console.log(`FAIL ${e instanceof Error ? e.message : String(e)}`);
-      throw e;
+      await runWithOracleRulesRestored(session, async () => {
+        await deployOracleRules(session);
+        await runProbes();
+      });
+      console.log("[oracle] the project's Firestore and Storage rules are restored and verified");
     } finally {
-      await purge(probe.name.replace(/^firestore-|^auth-/, ''));
+      process.off('SIGINT', interrupted);
+      process.off('SIGTERM', interrupted);
     }
   }
-
-  await deleteApp(app);
   console.log('[oracle] observations written to observations/<surface>/');
+}
+
+/**
+ * Merge the oracle namespace into the project's Firestore and Storage rules.
+ * `main` calls this inside `runWithOracleRulesRestored`, which puts the
+ * project's own rules back when the run ends.
+ */
+async function deployOracleRules(session: OracleRulesSession): Promise<void> {
+  const firestoreOutcome = await session.deploy(firestoreOracleTarget());
+  console.log(`[oracle] oracle rules: ${firestoreOutcome}`);
+  // Storage rules deployment is best-effort. If the project has
+  // Storage enabled but the SA lacks the rules-deploy permission, or
+  // the rules layout doesn't match the merge pattern, the harness logs
+  // the failure and proceeds. Storage probes then observe the
+  // existing rules' behavior (likely `storage/unauthorized`). The session
+  // records the release before it writes, so a partial deployment is restored.
+  let storageOutcome: string = 'skipped';
+  if (config.storageBucket) {
+    try {
+      storageOutcome = await session.deploy(storageOracleTarget(config.storageBucket));
+    } catch (e) {
+      storageOutcome = `error: ${e instanceof Error ? e.message : String(e)}`;
+    }
+  }
+  console.log(`[oracle] storage rules: ${storageOutcome}`);
+  // Newly-deployed rules take a few seconds to propagate before
+  // the next setDoc sees them. Existing-configured: no wait.
+  const storageChanged =
+    storageOutcome !== 'already-configured' &&
+    storageOutcome !== 'skipped' &&
+    !storageOutcome.startsWith('error');
+  if (firestoreOutcome !== 'already-configured' || storageChanged) {
+    console.log('[oracle] waiting 10s for new rules to propagate');
+    await new Promise((r) => setTimeout(r, 10_000));
+  }
 }
 
 await main();
