@@ -7,6 +7,8 @@
  * and column of its key. Comments and string contents never produce keys.
  */
 
+import type { RtdbRuleEvaluation } from './simulation/spec.js';
+
 export type RtdbRuleKind = '.read' | '.write' | '.validate' | '.indexOn';
 
 export interface RtdbSourceLocation {
@@ -174,6 +176,18 @@ class Scanner {
   }
 }
 
+function locateIn(
+  root: Exclude<ScannedValue, null>,
+  path: string,
+  kind: RtdbRuleKind,
+): RtdbSourceLocation | null {
+  let node: ScannedValue = root.get('rules')?.value ?? null;
+  for (const segment of path.split('/').filter((s) => s.length > 0)) {
+    node = node?.get(segment)?.value ?? null;
+  }
+  return node?.get(kind)?.location ?? null;
+}
+
 /**
  * Finds the line and column of a rule key in `database.rules.json` source text.
  *
@@ -190,9 +204,28 @@ export function locateRtdbRule(
 ): RtdbSourceLocation | null {
   const root = new Scanner(source).parseDocument();
   if (!root) return null;
-  let node: ScannedValue = root.get('rules')?.value ?? null;
-  for (const segment of path.split('/').filter((s) => s.length > 0)) {
-    node = node?.get(segment)?.value ?? null;
-  }
-  return node?.get(kind)?.location ?? null;
+  return locateIn(root, path, kind);
+}
+
+/** An evaluation-trace entry with the line of its rule in the rules file. */
+export type LocatedRtdbRuleEvaluation = RtdbRuleEvaluation & {
+  /** 1-based line of the rule key. Absent when the source does not contain the rule. */
+  line?: number;
+};
+
+/**
+ * Attaches to each evaluation-trace entry the line of the rule it evaluated.
+ * The source is scanned once for the whole trace. An entry whose rule the
+ * source does not contain, or every entry when the text is not valid JSON
+ * with comments, carries no `line`.
+ */
+export function locateRtdbTrace(
+  source: string,
+  trace: readonly RtdbRuleEvaluation[],
+): LocatedRtdbRuleEvaluation[] {
+  const root = new Scanner(source).parseDocument();
+  return trace.map((entry) => {
+    const location = root ? locateIn(root, entry.path, `.${entry.kind}`) : null;
+    return location ? { ...entry, line: location.line } : { ...entry };
+  });
 }

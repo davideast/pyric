@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { locateRtdbRule } from '../../../src/rules/rtdb/source-locations.js';
+import { locateRtdbRule, locateRtdbTrace } from '../../../src/rules/rtdb/source-locations.js';
 
 // Line numbers are 1-based and noted at the end of each row of the fixture.
 const COMMENTED = [
@@ -85,5 +85,37 @@ describe('locateRtdbRule', () => {
   test('the last duplicate key wins, as JSON.parse reads it', () => {
     const src = '{\n"rules": {\n".read": false,\n".read": true\n}\n}';
     expect(locateRtdbRule(src, '/', '.read')?.line).toBe(4);
+  });
+});
+
+describe('locateRtdbTrace', () => {
+  const entry = (path: string, kind: 'read' | 'write' | 'validate') => ({
+    path,
+    kind,
+    conditionText: 'true',
+    verdict: 'ALLOW' as const,
+    pathVariableBindings: {},
+  });
+
+  test('gives each entry the line of its rule and keeps the entry otherwise unchanged', () => {
+    const trace = [
+      entry('/', 'read'),
+      entry('/rooms/$roomId', 'write'),
+      entry('/rooms/$roomId', 'validate'),
+    ];
+    const located = locateRtdbTrace(COMMENTED, trace);
+    expect(located.map((e) => e.line)).toEqual([6, 12, 13]);
+    expect(located[1]).toEqual({ ...trace[1], line: 12 });
+  });
+
+  test('leaves the line off an entry whose rule the source does not contain', () => {
+    const [located] = locateRtdbTrace(COMMENTED, [entry('/public', 'validate')]);
+    expect(located).toEqual(entry('/public', 'validate'));
+    expect('line' in located).toBe(false);
+  });
+
+  test('leaves every line off when the text is not valid JSON', () => {
+    const located = locateRtdbTrace('not json', [entry('/', 'read')]);
+    expect('line' in located[0]).toBe(false);
   });
 });

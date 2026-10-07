@@ -177,6 +177,17 @@ the rule-tree path and key, never the expression text, so identical rules at
 different paths and rules named inside comments or strings resolve correctly.
 An implicit deny has no deciding rule and marks no line.
 
+**Evaluation trace**: the verdict also carries `rtdbTrace`, one entry per rule
+the engine evaluated, root first (the cascade stops at the grant; the
+`.validate` walk stops at the first failure). `projectRtdbTrace(denial,
+rulesSource)` turns each entry into a row. The row's expression and verdict are
+a Firestore `TraceStep` (`ALLOW` is true, `DENY` is false, `ERROR` is an error
+carrying the runtime message, `UNSUPPORTED` carries what the simulator could not
+evaluate), so both services render through the same step component. A row adds
+the rule-tree path, the kind, the `$` bindings at the node, and, when the source
+is available, its line from `locateRtdbTrace`. The editor marks the deciding
+line until a row is clicked, then marks that row's line.
+
 **Re-runs**: both **live** — the pure `SimulateHandler` (`rtdbRules(rules).simulate`) is the mechanical substrate. Impersonated re-runs execute against active sandbox rules via `issueOp`, while edited-ruleset re-runs validate JSON syntax and re-simulate over an in-memory branch (`fork + setRules + simulate`). Re-running is honestly a simulation, never framed as a live inline enforcement gate.
 
 ### Storage
