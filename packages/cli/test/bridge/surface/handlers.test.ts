@@ -217,7 +217,11 @@ it('stores and reads back a Cloud Storage object', async () => {
 
 it('lints and simulates the rules of all three services', async () => {
   expect((await run('rules.lint', { service: 'firestore' })).ok).toBe(true);
-  expect((await run('rules.lint', { service: 'database', rules: DATABASE_RULES })).ok).toBe(true);
+  // The harness database rules grant public read and write at the root, which
+  // the security lint reports as errors.
+  const databaseLint = await run('rules.lint', { service: 'database', rules: DATABASE_RULES });
+  expect((databaseLint.data as { issues: Array<{ code: string }> }).issues.map((issue) => issue.code))
+    .toContain('RTDB-SEC-1');
   expect((await run('rules.lint', { service: 'storage', rules: STORAGE_RULES })).ok).toBe(true);
 
   const database = await run('rules.simulate', {
