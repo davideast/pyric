@@ -21,7 +21,7 @@ const DISCOVERED = {
   url: 'http://localhost:3473',
   base: 'http://127.0.0.1:3473',
   instanceId: 'abc',
-  source: 'test',
+  source: 'pointer test',
 };
 
 const TWO_CLIENTS: BridgeToolResult = {

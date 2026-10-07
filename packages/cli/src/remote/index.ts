@@ -53,7 +53,7 @@ import { cliVersion } from '../pkg-version.js';
 import { MAX_STORAGE_OP_BYTES, storagePayloadTooLarge } from '../serve/worker/protocol.js';
 import { hasValidAttachFields } from '../bridge/attach-validation.js';
 import { hasValidReplyOutcome, snapshotError } from '../serve/worker/outbound-validation.js';
-import { discoverServe } from '../serve/discovery.js';
+import { discoverServe, selectProjectHost, type Discovered } from '../serve/discovery.js';
 
 /** Sits just above the bridge's own 30s `callTimeoutMs` so a legitimately
  *  slow worker op still completes (same layering as `mcp-proxy`'s 35s). */
@@ -92,6 +92,8 @@ export interface ConnectRemoteSandboxOptions {
   cwd?: string;
   /** Explicit serve base URL (e.g. `http://127.0.0.1:5000`) — skips discovery. */
   url?: string;
+  /** Discovery used when no `url` is given. Injected in tests; defaults to the shared serve discovery. */
+  discover?: (cwd: string) => Promise<Discovered | null>;
   /** Per-op timeout in ms on the Node side (default 35s, above the bridge's 30s). */
   opTimeoutMs?: number;
 }
@@ -864,13 +866,15 @@ export async function connectRemoteSandbox(
     serveUrl = requestedUrl.replace(/\/$/, '');
     wsBase = serveUrl;
   } else {
-    const found = await discoverServe(cwd);
+    const refused: string[] = [];
+    const found = selectProjectHost(await (options.discover ?? discoverServe)(cwd), (m) => refused.push(m));
     const hasNoDiscovery = found === null;
     if (hasNoDiscovery) {
       throw remoteError(
         'not-found',
         'no running `pyric sandbox --bridge` found (looked for .pyric/serve.json in ' +
-          `${cwd} and the default ports) — start your dev server with the bridge enabled and retry.`,
+          `${cwd}) — start your dev server with the bridge enabled and retry.` +
+          (refused.length > 0 ? ` ${refused.join(' ')}` : ''),
       );
     }
     serveUrl = found.url;

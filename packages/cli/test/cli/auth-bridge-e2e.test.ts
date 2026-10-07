@@ -68,7 +68,7 @@ function deps(out: string[], err: string[]): BridgeCommandDeps {
       url: `http://127.0.0.1:${PORT}`,
       base: `http://127.0.0.1:${PORT}`,
       instanceId: null,
-      source: 'test',
+      source: 'pointer test',
     }),
   };
 }
