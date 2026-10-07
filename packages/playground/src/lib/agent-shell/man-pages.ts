@@ -97,7 +97,7 @@ READ BEFORE WRITING RULES
     stdlib fail compile — when unsure, firestore_rules_stdlib_list.
 
 VERIFY
-  - lint-rules            lint /workspace/firestore.rules (or a path)
+  - lint-rules            lint /workspace/firestore.rules (or a path, including database.rules.json)
   - test                  run the workspace suite (man test)
   - Unseeded docs are the classic false-DENY: owner-read/update cases
     need the doc to EXIST — declare it in the test file's "seed".
