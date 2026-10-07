@@ -141,7 +141,8 @@ class RulesDenialReport {
     final requestMethod = _asString(reqObj?['method']);
     final requestPath = _asString(reqObj?['path']);
     // RTDB writes may propose any JSON value, so the raw value is kept too.
-    final proposedValue = isRtdb ? reqObj?['data'] : reqObj?['resourceData'];
+    final dynamic proposedValue =
+        isRtdb ? (reqObj?['data']) : (reqObj?['resourceData']);
     final proposedData = _asStringMap(proposedValue);
 
     final resObj = _asStringMap(map['resource']);
