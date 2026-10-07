@@ -67,7 +67,9 @@ class PyricBridgeClient(
     private val directTransport: BridgeTransport? = null,
     /** Retry the first connection on the reconnect schedule instead of failing. */
     val retryInitialConnection: Boolean = false,
-    private val reconnectDelayMs: (Int) -> Long = { bridgeReconnectDelayMs(it) }
+    private val reconnectDelayMs: (Int) -> Long = { bridgeReconnectDelayMs(it) },
+    /** An attempt that has not attached within this time counts as failed. */
+    private val attachTimeoutMs: Long = 5_000L
 ) {
     private val clientScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Any()
@@ -82,6 +84,9 @@ class PyricBridgeClient(
     private var hostInstanceId: String? = null
     private var reconnectAttempt = 0
     private var reconnectJob: Job? = null
+    private var attachDeadlineJob: Job? = null
+    /** Callers waiting for the next scheduled attempt. */
+    private var nextAttempt: CompletableDeferred<Unit>? = null
 
     /** Runs on a re-attach to a replaced host, before subscriptions are re-sent. */
     @Volatile
@@ -147,14 +152,20 @@ class PyricBridgeClient(
 
     /**
      * Establishes the WebSocket connection and completes the attach / attach-ack
-     * handshake. While the connection is interrupted, starts the next attempt at once.
+     * handshake. Joins the attempt in progress or, while a retry is scheduled, the
+     * next scheduled attempt. Starts an attempt only when none is in progress or scheduled.
      */
     suspend fun connect() {
         if (isConnected) return
         if (isDisposed) throw disposedError()
         val current = synchronized(lock) {
             if (isDisposed) throw disposedError()
-            attempt ?: startAttemptLocked()
+            attempt
+                ?: if (reconnectJob != null) {
+                    nextAttempt ?: CompletableDeferred<Unit>().also { nextAttempt = it }
+                } else {
+                    startAttemptLocked()
+                }
         }
         current.await()
     }
@@ -174,6 +185,33 @@ class PyricBridgeClient(
         attempt = next
         handshake = nextHandshake
         if (!hasEverAttached) setState(BridgeConnectionState.CONNECTING)
+        val waiting = nextAttempt
+        nextAttempt = null
+        if (waiting != null) {
+            clientScope.launch {
+                try {
+                    next.await()
+                    waiting.complete(Unit)
+                } catch (e: Throwable) {
+                    waiting.completeExceptionally(e)
+                }
+            }
+        }
+        attachDeadlineJob?.cancel()
+        attachDeadlineJob = clientScope.launch {
+            delay(attachTimeoutMs)
+            val expired = synchronized(lock) { attempt === next }
+            if (expired) {
+                handleConnectionLoss(
+                    attemptGeneration,
+                    FirebaseFirestoreException(
+                        "Timed out connecting to the Pyric bridge.",
+                        FirebaseFirestoreException.Code.UNAVAILABLE
+                    ),
+                    null
+                )
+            }
+        }
         clientScope.launch { runAttempt(attemptGeneration, next, nextHandshake) }
         return next
     }
@@ -245,6 +283,8 @@ class PyricBridgeClient(
             attempt = null
             handshake = null
             hasEverAttached = true
+            attachDeadlineJob?.cancel()
+            attachDeadlineJob = null
             reconnectAttempt = 0
             isConnected = true
             setState(BridgeConnectionState.ATTACHED)
@@ -273,6 +313,8 @@ class PyricBridgeClient(
                 (hasEverAttached || retryInitialConnection) &&
                 closeCode != POLICY_CLOSE_CODE
             generation += 1
+            attachDeadlineJob?.cancel()
+            attachDeadlineJob = null
             wasAttached = connectionState == BridgeConnectionState.ATTACHED
             isConnected = false
             pendingHandshake = handshake
@@ -290,6 +332,8 @@ class PyricBridgeClient(
         }
 
         if (!permitsRetry) {
+            val waiting = synchronized(lock) { nextAttempt.also { nextAttempt = null } }
+            waiting?.completeExceptionally(error)
             operationDispatcher.failAll(error.code, error.message ?: CONNECTION_LOST, error.cause)
             subscriptionManager.failAll(error.code, error.message ?: CONNECTION_LOST, error.cause)
             return
@@ -397,6 +441,10 @@ class PyricBridgeClient(
             generation += 1
             reconnectJob?.cancel()
             reconnectJob = null
+            attachDeadlineJob?.cancel()
+            attachDeadlineJob = null
+            nextAttempt?.completeExceptionally(disposedError())
+            nextAttempt = null
             pendingHandshake = handshake
             pendingAttempt = attempt
             handshake = null
@@ -447,8 +495,9 @@ class PyricBridgeClient(
 
     private inner class BridgeClientListener(private val listenerGeneration: Int) : BridgeListener {
         // A supplied transport keeps one listener across attempts; it follows the latest one.
-        private fun currentGeneration(): Int =
-            if (directTransport != null) synchronized(lock) { generation } else listenerGeneration
+        // Every attempt installs its own listener, so a late callback from an
+        // earlier attempt (including on a supplied transport) is stale.
+        private fun currentGeneration(): Int = listenerGeneration
 
         private fun isStale(): Boolean = !isCurrent(currentGeneration())
 

@@ -63,11 +63,14 @@ class FakeReconnectBridge : BridgeTransportFactory {
     val sockets = CopyOnWriteArrayList<FakeReconnectSocket>()
     @Volatile var hostInstanceId = "host-a"
     @Volatile var refuseConnections = false
+    @Volatile var autoAck = true
+    val connectCalls = java.util.concurrent.atomic.AtomicInteger(0)
     private val io = Executors.newSingleThreadExecutor()
 
     val current: FakeReconnectSocket get() = sockets.last()
 
     override fun create(url: String, headers: Map<String, String>, listener: BridgeListener): BridgeTransport {
+        connectCalls.incrementAndGet()
         if (refuseConnections) throw IllegalStateException("connection refused")
         val socket = FakeReconnectSocket(this, listener)
         sockets.add(socket)
@@ -78,7 +81,7 @@ class FakeReconnectBridge : BridgeTransportFactory {
 
     fun record(frame: Map<String, Any?>, socket: FakeReconnectSocket) {
         frames.add(frame)
-        if (frame["type"] == "attach") {
+        if (frame["type"] == "attach" && autoAck) {
             val sessionId = frame["clientSessionId"] as? String ?: "session-1"
             val host = hostInstanceId
             io.execute {
@@ -121,16 +124,21 @@ class BridgeReconnectTest {
     private val clients = mutableListOf<PyricBridgeClient>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    private fun client(retryInitialConnection: Boolean = false): PyricBridgeClient =
+    private fun client(
+        retryInitialConnection: Boolean = false,
+        retryDelayMs: Long = 5L,
+        attachTimeoutMs: Long = 5_000L
+    ): PyricBridgeClient =
         PyricBridgeClient(
             url = "ws://127.0.0.1:5174/__pyric/sandbox",
             transportFactory = bridge,
             retryInitialConnection = retryInitialConnection,
-            reconnectDelayMs = { 5L }
+            reconnectDelayMs = { retryDelayMs },
+            attachTimeoutMs = attachTimeoutMs
         ).also { clients.add(it) }
 
     private suspend fun until(condition: () -> Boolean) {
-        withTimeout(5_000) {
+        withTimeout(10_000) {
             while (!condition()) delay(5)
         }
     }
@@ -364,5 +372,80 @@ class BridgeReconnectTest {
         until { snapshots.size == 3 }
         assertFalse(snapshots[2].metadata.isFromCache)
         assertEquals(listOf("a", "b"), snapshots[2].documents.map { it.id })
+    }
+
+    @Test
+    fun `before the first attach an operation waits for the next scheduled attempt instead of starting one`() = runBlocking {
+        bridge.refuseConnections = true
+        val client = client(retryInitialConnection = true, retryDelayMs = 300L)
+        assertThrows<FirebaseFirestoreException> { runBlocking { client.connect() } }
+        val callsBefore = bridge.connectCalls.get()
+
+        val queued = scope.async { client.op("getDoc", mapOf("path" to "rooms/a")) }
+        delay(50)
+        assertEquals(callsBefore, bridge.connectCalls.get(), "the operation must not start an attempt early")
+
+        bridge.refuseConnections = false
+        until { bridge.opsNamed("getDoc").isNotEmpty() }
+        assertEquals(callsBefore + 1, bridge.connectCalls.get())
+        val sent = bridge.opsNamed("getDoc").single()
+        bridge.current.deliver(mapOf("type" to "worker-res", "id" to sent["id"], "ok" to true, "value" to null))
+        queued.await()
+        Unit
+    }
+
+    @Test
+    fun `an attempt that is not acknowledged within the attach timeout fails`() = runBlocking {
+        bridge.autoAck = false
+        val client = client(attachTimeoutMs = 50L)
+        val error = assertThrows<FirebaseFirestoreException> { runBlocking { client.connect() } }
+        assertEquals(FirebaseFirestoreException.Code.UNAVAILABLE, error.code)
+        assertTrue(error.message!!.contains("Timed out"))
+    }
+
+    @Test
+    fun `a late close from an earlier attempt does not end a manual reconnect on a supplied transport`() = runBlocking {
+        val transport = RecordingTransport()
+        val client = PyricBridgeClient(transport).also { clients.add(it) }
+        until { transport.attachCount() == 1 }
+        transport.ack()
+        client.connect()
+        val firstListener = transport.listeners.last()
+
+        firstListener.onClosed(1006, "dropped")
+        until { client.connectionState == BridgeConnectionState.CLOSED }
+
+        val manual = scope.async { client.connect() }
+        until { transport.attachCount() == 2 }
+        firstListener.onClosed(1006, "late close")
+        delay(30)
+        assertFalse(manual.isCompleted, "the late close must not end the new attempt")
+
+        transport.ack()
+        manual.await()
+        assertTrue(client.isConnected)
+    }
+}
+
+/** A supplied transport that records every listener the client installs. */
+private class RecordingTransport : BridgeTransport {
+    val listeners = CopyOnWriteArrayList<BridgeListener>()
+    private val sent = CopyOnWriteArrayList<Map<String, Any?>>()
+
+    fun attachCount(): Int = sent.count { it["type"] == "attach" }
+
+    fun ack() {
+        listeners.last().onMessage("""{"type":"attach-ack","protocol":1,"peerConnected":true,"clientSessionId":"session-1"}""")
+    }
+
+    override fun send(text: String): Boolean {
+        sent.add(JsonCodec.decodeMap(text))
+        return true
+    }
+
+    override fun close(code: Int, reason: String?): Boolean = true
+
+    override fun setListener(listener: BridgeListener) {
+        listeners.add(listener)
     }
 }
