@@ -6,23 +6,29 @@ export const RTDB_EXPR_OHM_SOURCE = `RtdbExpr {
   Expr = Ternary
 
   Ternary
-    = Logical "?" Ternary ":" Ternary  -- ternary
-    | Logical
+    = LogicalOr "?" Ternary ":" Ternary  -- ternary
+    | LogicalOr
 
-  Logical
-    = Logical "&&" Comparison  -- and
-    | Logical "||" Comparison  -- or
+  LogicalOr
+    = LogicalOr "||" LogicalAnd  -- or
+    | LogicalAnd
+
+  LogicalAnd
+    = LogicalAnd "&&" Equality  -- and
+    | Equality
+
+  Equality
+    = Equality "===" Comparison  -- strictEq
+    | Equality "!==" Comparison  -- strictNeq
+    | Equality "==" Comparison   -- looseEq
+    | Equality "!=" Comparison   -- looseNeq
     | Comparison
 
   Comparison
-    = Comparison "===" Additive  -- strictEq
-    | Comparison "!==" Additive  -- strictNeq
-    | Comparison ">=" Additive   -- gte
+    = Comparison ">=" Additive   -- gte
     | Comparison "<=" Additive   -- lte
     | Comparison ">" Additive    -- gt
     | Comparison "<" Additive    -- lt
-    | Comparison "==" Additive   -- looseEq
-    | Comparison "!=" Additive   -- looseNeq
     | Additive
 
   Additive

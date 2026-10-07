@@ -3,7 +3,7 @@ import type { BackendState } from './backend-state.js';
 import type { ChildListeners } from './child-listeners.js';
 import { joinPath, pathSegments, type JsonValue } from './data-tree.js';
 import type { ChildListener, ValueListener } from './listener-types.js';
-import { normalizeWrite } from './normalize.js';
+import { extractInlinePriority, normalizeWrite, withPriorityMetadata } from './normalize.js';
 import { canonicalPath, denyResultFor, rtdbDenialContext, rtdbRulesDetail } from './operation-events.js';
 import { validatePriority } from './priority-state.js';
 import { PriorityWrites } from './priority-writes.js';
@@ -110,6 +110,11 @@ export class WritePlane {
     priority: Priority,
     prioritySupplied = true,
   ): void {
+    const inline = extractInlinePriority(value);
+    if (!prioritySupplied && inline.hasPriority) {
+      priority = inline.priority;
+      prioritySupplied = true;
+    }
     validatePriority(priority);
     const now = this.state.clock.now();
     const before = this.state.tree.read(path);
@@ -236,13 +241,16 @@ export class WritePlane {
     this.priorityWrites.set(auth, path, priority);
   }
 
-  validateSet(auth: AuthState, path: string, value: unknown): void {
+  validateSet(auth: AuthState, path: string, value: unknown, priority: Priority = null): void {
+    const inline = extractInlinePriority(value);
+    const effectivePriority = priority !== null ? priority : inline.priority;
+    validatePriority(effectivePriority);
     const now = this.state.clock.now();
     const resolved = normalizeWrite(
       resolveSentinels(value, now, this.state.tree.read(path)) as JsonValue,
       path === '/' ? '' : path,
     );
-    const evaluation = this.writeEvaluation(auth, path, resolved, now);
+    const evaluation = this.writeEvaluation(auth, path, resolved, now, effectivePriority);
     if (evaluation.check !== 'allow') {
       throw permissionDenied(rtdbDenialContext(evaluation, auth, 'onDisconnect', path, { data: resolved }));
     }
@@ -257,6 +265,17 @@ export class WritePlane {
         resolveSentinels(value, now, this.state.tree.read(absolute)) as JsonValue, absolute,
       ) };
     });
+    if (updates.length === 0) {
+      const targetPath = path === '/' ? '/' : path;
+      const before = this.state.tree.read(path);
+      const evaluation = this.state.rules.evaluate('write', targetPath, {
+        auth, mockData, newData: before, updates, now,
+      });
+      if (evaluation.check !== 'allow') {
+        throw permissionDenied(rtdbDenialContext(evaluation, auth, 'onDisconnect', targetPath, { data: before }));
+      }
+      return;
+    }
     for (const update of updates) {
       const evaluation = this.state.rules.evaluate('write', update.path, {
         auth, mockData, newData: update.value, updates, now,
@@ -277,6 +296,30 @@ export class WritePlane {
       pathSegments(absolute).at(-1)!, value,
     ]));
     const groupId = this.state.events.nextGroupId('update');
+    // An empty update writes nothing, but production still checks .write at
+    // its target path.
+    if (updates.length === 0) {
+      const targetPath = path === '/' ? '/' : path;
+      const at = this.state.clock.now();
+      const before = this.state.tree.read(path);
+      const evaluation = this.state.rules.evaluate('write', targetPath, {
+        auth, mockData, newData: before, updates, now,
+      });
+      const fields = {
+        at, durationMs: this.state.clock.now() - at, origin: 'batch' as const,
+        request: { data: patch, resourceData: patch },
+        resourceBefore: { data: before, exists: before !== null },
+        resourceAfter: { data: before, exists: before !== null },
+        groupId, groupKind: 'batch' as const,
+        detail: { multiPath: false, rootPath: canonicalPath(path), keys: [] as string[] },
+      };
+      if (evaluation.check !== 'allow') {
+        this.state.events.operation(auth, 'update', targetPath, denyResultFor(evaluation.check), evaluation, fields);
+        throw permissionDenied(rtdbDenialContext(evaluation, auth, 'update', targetPath, { data: patch }));
+      }
+      this.state.events.operation(auth, 'update', targetPath, 'allow', evaluation, fields);
+      return;
+    }
     // The update is atomic: a path's allow is recorded only once every path
     // in it is allowed, so a denied update records its denial alone.
     const allowed: Array<() => void> = [];
@@ -330,6 +373,12 @@ export class WritePlane {
     auth: AuthState, path: string, value: JsonValue,
     op: 'set' | 'remove', priority: Priority, prioritySupplied: boolean,
   ): void {
+    const inline = extractInlinePriority(value);
+    if (!prioritySupplied && inline.hasPriority) {
+      priority = inline.priority;
+      prioritySupplied = true;
+    }
+    validatePriority(priority);
     const now = this.state.clock.now();
     const resolved = normalizeWrite(
       resolveSentinels(value, now, this.state.tree.read(path)) as JsonValue,
@@ -338,7 +387,7 @@ export class WritePlane {
     const before = this.state.tree.read(path);
     const priorNodePriority = this.state.priorities.get(path);
     const at = this.state.clock.now();
-    const evaluation = this.writeEvaluation(auth, path, resolved, now);
+    const evaluation = this.writeEvaluation(auth, path, resolved, now, priority);
     const common = {
       at, durationMs: this.state.clock.now() - at,
       request: { data: value, resourceData: value },
@@ -450,9 +499,12 @@ export class WritePlane {
     });
   }
 
-  private writeEvaluation(auth: AuthState, path: string, newData: JsonValue, now: number) {
+  private writeEvaluation(auth: AuthState, path: string, newData: JsonValue, now: number, priority: Priority = null) {
     return this.state.rules.evaluate('write', path === '/' ? '/' : path, {
-      auth, mockData: this.state.tree.snapshot() as Record<string, unknown>, newData, now,
+      auth,
+      mockData: this.state.tree.snapshot() as Record<string, unknown>,
+      newData: withPriorityMetadata(newData, priority),
+      now,
     });
   }
 }

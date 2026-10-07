@@ -147,9 +147,16 @@ export function normalizeNode(value: unknown): JsonValue {
     return Object.keys(out).length === 0 ? null : out;
   }
 
-  // Plain object → prune null children + empty subtrees.
+  // Plain object → unwrap `.value` when present, strip `.priority` metadata,
+  // and prune null children + empty subtrees.
+  if (Object.hasOwn(value as object, '.value')) {
+    return normalizeNode((value as Record<string, unknown>)['.value']);
+  }
   const out: Record<string, JsonValue> = {};
   for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    if (key === '.priority') {
+      continue;
+    }
     if (key === '.sv') {
       // Server-value wrapper that survived (shouldn't normally reach
       // here post-sentinel-resolution) — keep verbatim.
@@ -161,6 +168,40 @@ export function normalizeNode(value: unknown): JsonValue {
     out[key] = normalized;
   }
   return Object.keys(out).length === 0 ? null : out;
+}
+
+export function extractInlinePriority(value: unknown): {
+  hasPriority: boolean;
+  priority: string | number | null;
+} {
+  if (
+    value !== null &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    Object.hasOwn(value, '.priority')
+  ) {
+    const raw = (value as Record<string, unknown>)['.priority'];
+    if (
+      raw !== null &&
+      typeof raw !== 'string' &&
+      (typeof raw !== 'number' || !Number.isFinite(raw))
+    ) {
+      throw new Error('priority must be a valid Firebase priority (string, finite number, or null)');
+    }
+    return { hasPriority: true, priority: raw as string | number | null };
+  }
+  return { hasPriority: false, priority: null };
+}
+
+export function withPriorityMetadata(
+  value: JsonValue,
+  priority: string | number | null,
+): JsonValue {
+  if (value === null || priority === null) return value;
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    return { ...value, '.priority': priority } as JsonValue;
+  }
+  return { '.value': value, '.priority': priority } as JsonValue;
 }
 
 /**
