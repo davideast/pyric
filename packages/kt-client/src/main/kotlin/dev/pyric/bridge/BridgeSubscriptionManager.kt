@@ -19,6 +19,8 @@ class BridgeSubscriptionManager(
     private val onDenial: ((FirebaseFirestoreException) -> Unit)? = null
 ) {
     private val subCounter = AtomicLong(0)
+    /** Counts attaches, so each subscription is sent once per attach. */
+    private val attachEpoch = AtomicLong(0)
     private val activeSubs = ConcurrentHashMap<String, ActiveSubscription>()
 
     private class ActiveSubscription(
@@ -30,6 +32,10 @@ class BridgeSubscriptionManager(
         @Volatile var hasValue: Boolean = false
         @Volatile var lastValue: Any? = null
         @Volatile var awaitsRestoredValue: Boolean = false
+        private val sentAttach = AtomicLong(-1)
+
+        /** True for the first caller to send this subscription on [attach]. */
+        fun claim(attach: Long): Boolean = sentAttach.getAndSet(attach) != attach
     }
 
     /**
@@ -66,18 +72,23 @@ class BridgeSubscriptionManager(
         activeSubs[subId] = record
 
         if (isAttached()) {
-            try {
-                sendJson(jsonSerializer(BridgeProtocol.createWorkerSubFrame(subId, subPayload)))
-            } catch (e: Throwable) {
-                activeSubs.remove(subId)
-                close(
-                    FirebaseFirestoreException(
-                        "Failed to dispatch subscription to bridge: ${e.message}",
-                        FirebaseFirestoreException.Code.UNAVAILABLE,
-                        e
+            // Read after the attach check: an attach that completed in between has
+            // already sent it through restoreAll and claimed its epoch.
+            val unsent = record.claim(attachEpoch.get())
+            if (unsent) {
+                try {
+                    sendJson(jsonSerializer(BridgeProtocol.createWorkerSubFrame(subId, subPayload)))
+                } catch (e: Throwable) {
+                    activeSubs.remove(subId)
+                    close(
+                        FirebaseFirestoreException(
+                            "Failed to dispatch subscription to bridge: ${e.message}",
+                            FirebaseFirestoreException.Code.UNAVAILABLE,
+                            e
+                        )
                     )
-                )
-                return@callbackFlow
+                    return@callbackFlow
+                }
             }
         } else {
             try {
@@ -162,7 +173,9 @@ class BridgeSubscriptionManager(
 
     /** Re-sends every live subscription on a new attach, with its original subId and payload. */
     fun restoreAll(sendJson: (String) -> Unit, jsonSerializer: (Any?) -> String) {
+        val attach = attachEpoch.incrementAndGet()
         for (sub in activeSubs.values) {
+            if (!sub.claim(attach)) continue
             sub.awaitsRestoredValue = sub.hasValue
             try {
                 sendJson(jsonSerializer(BridgeProtocol.createWorkerSubFrame(sub.subId, sub.payload)))
