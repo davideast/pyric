@@ -20,10 +20,10 @@ import {
   setup,
 } from './support.js';
 import { loadObservation } from '../modular/cdd-replay-helpers.js';
+import { assertQueryIndexEnforcement } from './query-index-contracts.js';
 
 const contentionObservation = loadObservation('rtdb-modular-concurrent-transforms');
 const currentValueObservation = loadObservation('rtdb-modular-runtransaction-current-value-arg');
-const valueIndexObservation = loadObservation('rtdb-modular-orderbyvalue-numeric');
 const referenceObservation = loadObservation('rtdb-modular-reference-shape-url');
 const missingObservation = loadObservation('rtdb-modular-onvalue-initial-no-data');
 const abortObservation = loadObservation('rtdb-modular-runtransaction-abort-undefined');
@@ -120,7 +120,7 @@ describe('rtdb-modular CDD: public operation rows', () => {
   row('183', async () => { const { db } = setup(); const target = api.ref(db, 'x'); let fires = 0; const callback = () => fires++; api.onValue(target, callback); api.onValue(target, callback); api.off(target, 'value', callback); await api.set(target, 1); expect(fires).toBe(3); api.off(target); });
   row('142', async () => expect(await queryKeys([api.orderByChild('score'), api.limitToFirst(2)])).toEqual(['a', 'b']));
   row('143', async () => expect(await queryKeys([api.orderByKey()], { '10': 1, '2': 1, '1': 1 })).toEqual(['1', '2', '10']));
-  row('144', async () => { expect(valueIndexObservation.threw).toBe(true); expect(await queryKeys([api.orderByValue()], { a: 2, b: 1 })).toEqual(['b', 'a']); });
+  row('144', assertQueryIndexEnforcement);
   row('145', async () => expect(await queryKeys([api.orderByChild('group'), api.equalTo('x')])).toEqual(['a', 'b']));
   row('146', async () => expect(await queryKeys([api.orderByChild('score'), api.startAt(2)])).toEqual(['b', 'c', 'd']));
   row('147', async () => expect(await queryKeys([api.orderByChild('score'), api.endAt(2)])).toEqual(['a', 'b']));

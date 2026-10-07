@@ -16,7 +16,9 @@ import {
   equalTo,
   limitToFirst,
   limitToLast,
+  sandbox as databaseSandbox,
 } from '../../../src/database/index.js';
+import { assertQueryIndexEnforcement } from '../cdd/query-index-contracts.js';
 import {
   load,
   setup,
@@ -48,36 +50,30 @@ describe('oracle conformance (rtdb-modular): query contracts', () => {
     expect(true).toBe(obs.windowInKeyOrder as boolean);
   });
 
-  it('rtdb-modular-orderbyvalue-numeric (KNOWN DIVERGENCE: no `.indexOn` enforcement)', async () => {
-    // Prod capture: `query(ref, orderByValue(), limitToFirst(3))` over
-    // primitive numeric children THREW — the oracle project lacks the
-    // required `.indexOn: ".value"`, so RTDB rejected the query
-    // (threw: true, message: "Index not defined, add \".indexOn\"…").
-    //
-    // The sandbox does NOT enforce `.indexOn` (COMPAT-noted); the same
-    // query resolves and returns the 3 smallest values ascending. Pin
-    // BOTH sides. (This observation is one of the registry's four
-    // `observationExceptions`.)
+  it('rtdb-modular-orderbyvalue-numeric', async () => {
+    // The oracle's rules grant `auth != null` reads under `pyric_oracle` and
+    // declare no `.value` index at the queried location, so production
+    // rejected the query. The same rules in the sandbox reject it the same way.
     const obs = load('rtdb-modular-orderbyvalue-numeric.json');
-    expect(obs.threw).toBe(true); // what prod did — index enforcement (the target)
-    expect(obs.ascendingFirstThree).toBe(false); // prod couldn't compute the window
-
     const { db } = setup();
-    await update(ref(db, 'scores'), { alice: 30, bob: 10, carol: 50, dave: 20, eve: 40 });
-    let threw = false;
-    let values: number[] = [];
-    let keys: string[] = [];
+    databaseSandbox.setRules(db, {
+      rules: { pyric_oracle: { '.read': 'auth != null', '.write': 'auth != null' } },
+    });
+    const run = 'pyric_oracle/1779078484857-q2jll9/mod-orderbyvalue/scores';
+    await update(ref(db, run), { alice: 30, bob: 10, carol: 50, dave: 20, eve: 40 });
+    let error: Error & { code?: unknown } | undefined;
     try {
-      const snap = await get(query(ref(db, 'scores'), orderByValue(), limitToFirst(3)));
-      values = snapValues<number>(snap);
-      keys = snapKeys(snap);
-    } catch {
-      threw = true;
+      await get(query(ref(db, run), orderByValue(), limitToFirst(3)));
+    } catch (caught) {
+      error = caught as Error;
     }
-    // Sandbox today: no throw, returns the ascending window.
-    expect(threw).toBe(false);
-    expect(values).toEqual([10, 20, 30]);
-    expect(keys).toEqual(['bob', 'dave', 'alice']);
+    expect({ threw: error !== undefined, code: error?.code ?? null, message: error?.message ?? null })
+      .toEqual({ threw: obs.threw, code: obs.code, message: obs.message });
+  });
+
+  it('rtdb-modular-query-index-enforcement', async () => {
+    load('rtdb-modular-query-index-enforcement.json');
+    await assertQueryIndexEnforcement();
   });
 
   it('rtdb-modular-query-orderbychild-limit', async () => {

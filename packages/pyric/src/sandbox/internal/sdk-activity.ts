@@ -162,6 +162,8 @@ export function createSdkActivityJournal(options: {
       silenced = true;
       try { return execute(); } finally { silenced = previous; }
     },
+    /** True inside {@link silence}: the running call is a host-side mirror call. */
+    isSilenced(): boolean { return silenced; },
     /** Synchronous registration scope, solely to join backend attach evidence. */
     registering<T>(activity: SdkActivityHandle, register: () => T): T {
       const previous = registrationId;

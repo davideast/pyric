@@ -6,7 +6,6 @@ import {
   queryKeys,
   setup,
 } from './support.js';
-import { loadObservation } from '../modular/cdd-replay-helpers.js';
 import {
   assertM50NameOrdering,
   assertM66ArrayCoercionThresholds,
@@ -28,17 +27,14 @@ import {
   assertM75cMovementCofire,
   assertM75dOnlyOnceOverloads,
 } from './listener-observation-contracts.js';
+import { assertQueryIndexEnforcement } from './query-index-contracts.js';
 
-const valueIndexObservation = loadObservation('rtdb-modular-orderbyvalue-numeric');
 const row = (id: string, assertion: () => unknown | Promise<unknown>) => it(`rtdb-modular#${id}`, assertion);
 
 describe('rtdb-modular CDD: query, normalization, and listener rows', () => {
   row('M49', async () => expect(await queryKeys([api.orderByChild('score'), api.startAt(2), api.endAt(3)])).toEqual(['b', 'c']));
   row('M50', assertM50NameOrdering);
-  row('M51', async () => {
-    expect(valueIndexObservation.threw).toBe(true);
-    expect(await queryKeys([api.orderByValue(), api.limitToFirst(2)], { a: 3, b: 1, c: 2 })).toEqual(['b', 'c']);
-  });
+  row('M51', assertQueryIndexEnforcement);
   row('M52', async () => expect(await queryKeys([api.orderByChild('group'), api.equalTo('x')])).toEqual(['a', 'b']));
   row('M53', async () => {
     const { db } = setup(); await api.set(api.ref(db, 'rows'), { a: { x: 1 } });

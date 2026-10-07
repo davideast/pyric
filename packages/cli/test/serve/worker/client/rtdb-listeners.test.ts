@@ -1,6 +1,8 @@
 /** RTDB worker-client value and child listener behavior. */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import {
+  getDatabase,
+  sandbox as databaseSandbox,
   limitToFirst as rtdbLimitToFirst,
   orderByChild as rtdbOrderByChild,
   orderByPriority as rtdbOrderByPriority,
@@ -220,5 +222,46 @@ describe('RTDB worker listeners', () => {
     stopValue();
     stopMoved();
     stopRemoved();
+  });
+
+  it('rejects an unindexed get, delivers the listener, and logs the index warning in the page', async () => {
+    const { ctx, db } = await connectClient();
+    databaseSandbox.setRules(getDatabase(ctx.sandbox), { rules: { scores: { '.read': true, '.write': true } } });
+    const rtdb = client.rtdbGetDatabase(db);
+    const scores = client.rtdbRef(rtdb, 'scores');
+    await client.rtdbSet(scores, { ada: { pos: 3 }, grace: { pos: 1 }, lin: { pos: 2 } });
+    const limited = buildRtdbQuery(scores as never, rtdbOrderByChild('pos'), rtdbLimitToFirst(2));
+
+    let error: (Error & { code?: unknown }) | undefined;
+    try { await client.rtdbGet(limited as never); } catch (caught) { error = caught as Error; }
+    expect(error?.message).toBe('Index not defined, add ".indexOn": "pos", for path "/scores", to the rules');
+
+    const warnings: unknown[][] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => { warnings.push(args); };
+    try {
+      const windows: string[][] = [];
+      const stopLimited = client.rtdbOnValue(limited as never, (snap) => {
+        const keys: string[] = [];
+        snap.forEach((child) => { keys.push(child.key!); return false; });
+        windows.push(keys);
+      });
+      await sleep();
+      await client.rtdbSet(client.rtdbChild(scores, 'ada'), { pos: 0 });
+      await sleep();
+      stopLimited();
+      expect(windows).toEqual([['grace', 'lin'], ['ada', 'grace']]);
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]![0]).toMatch(/^\[[^\]]+\] {2}@firebase\/database:$/);
+      expect(warnings[0]![1]).toBe('FIREBASE WARNING: Using an unspecified index. Your data will be downloaded and filtered on the client. Consider adding ".indexOn": "pos" at /scores to your security rules for better performance. ');
+
+      warnings.length = 0;
+      const stopUnlimited = client.rtdbOnValue(buildRtdbQuery(scores as never, rtdbOrderByChild('pos')) as never, () => {});
+      await sleep();
+      stopUnlimited();
+      expect(warnings).toEqual([]);
+    } finally {
+      console.warn = originalWarn;
+    }
   });
 });

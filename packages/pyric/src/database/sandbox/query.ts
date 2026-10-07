@@ -33,18 +33,9 @@
  *     (`rtdb-modular-orderbykey-window.json`).
  *   - `orderByValue()` sorts by the child's primitive value (number
  *     before string before boolean is RTDB's documented type order).
- *     In prod this requires `.indexOn: ".value"` — sandbox does NOT
- *     enforce indexes (no rules-engine integration here). Locked by
- *     `rtdb-modular-orderbyvalue-numeric.json` (note: the prod probe
- *     threw `Index not defined`; the sandbox returns the ordered window
- *     directly. Tests configure default-allow rules so the sandbox
- *     match is the semantic one — not the index-enforcement one).
  *
- * Note: this module deliberately does NOT model `.indexOn` rules — the
- * sandbox is for unit-test-fast iteration where the consumer's intent
- * is the query result, not rules conformance. Rules-engine-driven index
- * enforcement is a deferred follow-up (would naturally hang off
- * `RulesEvaluator` not here).
+ * This module computes query windows only. `.indexOn` enforcement lives in
+ * `RulesEvaluator.missingQueryIndex` and `query-index.ts`.
  */
 import type { Bound, LimitKind, OrderBy, QuerySpec } from '../internal/query-projection.js';
 

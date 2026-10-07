@@ -12,13 +12,13 @@ beforeAll(async () => {
 }, 60_000);
 
 describe('evidence linking and validation', () => {
-  it('acceptance example: rtdb-modular#144 orderByValue() divergence links observation and exact test line number (#L51)', () => {
-    const row = model.documentation.rows.find((r) => r.id === 'rtdb-modular#144');
+  it('acceptance example: rtdb-modular#M93 reference URL divergence links observation and exact test line number (#L33)', () => {
+    const row = model.documentation.rows.find((r) => r.id === 'rtdb-modular#M93');
     expect(row).toBeDefined();
     const formatted = formatRowEvidence(row!, model.documentation.observationPaths);
     
-    expect(formatted).toContain('https://github.com/davideast/pyric/blob/main/packages/conformance/observations/rtdb-modular/rtdb-modular-orderbyvalue-numeric.json');
-    expect(formatted).toContain('https://github.com/davideast/pyric/blob/main/packages/pyric/test/database/modular/oracle-conformance-queries.test.ts#L51');
+    expect(formatted).toContain('https://github.com/davideast/pyric/blob/main/packages/conformance/observations/rtdb-modular/rtdb-modular-reference-shape-url.json');
+    expect(formatted).toContain('https://github.com/davideast/pyric/blob/main/packages/pyric/test/database/modular/oracle-conformance-reference-writes.test.ts#L33');
   });
 
   it('appends trailing structured links with line hashes when items are not mentioned in prose', () => {
@@ -49,10 +49,10 @@ describe('evidence linking and validation', () => {
   });
 
   it('renders target="_blank" rel="noopener noreferrer" anchor elements in consolidated gap disclosures', () => {
-    const row = model.documentation.rows.find((r) => r.id === 'rtdb-modular#144');
+    const row = model.documentation.rows.find((r) => r.id === 'rtdb-modular#M93');
     expect(row).toBeDefined();
     const gaps = consolidatedGapSections([row!], model.documentation.observationPaths);
-    expect(gaps).toContain('<a href="https://github.com/davideast/pyric/blob/main/packages/conformance/observations/rtdb-modular/rtdb-modular-orderbyvalue-numeric.json" target="_blank" rel="noopener noreferrer">');
+    expect(gaps).toContain('<a href="https://github.com/davideast/pyric/blob/main/packages/conformance/observations/rtdb-modular/rtdb-modular-reference-shape-url.json" target="_blank" rel="noopener noreferrer">');
   });
 
   it('throws when structured evidence points to a non-existent file or untracked observation', () => {

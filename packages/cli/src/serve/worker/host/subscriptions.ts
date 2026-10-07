@@ -23,6 +23,7 @@ import {
   type DatabaseReference,
   type Query as RtdbQuery,
 } from 'pyric/database';
+import { listenIndexWarning } from 'pyric/database/internal';
 
 import type { FirestoreSubMessage, RtdbValueSubMessage, UnsubMessage } from '../protocol.js';
 import { serializeError, isRtdbSub } from '../protocol.js';
@@ -197,9 +198,17 @@ function handleRtdbSubImpl(ctx: HostCtx, port: PortLike, msg: RtdbValueSubMessag
     const options: { owners?: typeof msg.owners } = {};
     const hasOwners = Boolean(msg.owners);
     if (hasOwners) options.owners = msg.owners;
+    // The page logs the unspecified-index warning a production listen
+    // response carries; it rides on the listener's first snapshot.
+    let warning = listenIndexWarning(ref as DatabaseReference | RtdbQuery);
     const unsub = rtdbOnValue(
       ref as DatabaseReference | RtdbQuery,
-      (snap) => post(port, { t: 'snap', subId: msg.subId, value: rtdbSnapToWire(snap) }),
+      (snap) => {
+        const wire = rtdbSnapToWire(snap) as Record<string, unknown>;
+        const value = warning === null ? wire : { ...wire, warning };
+        warning = null;
+        post(port, { t: 'snap', subId: msg.subId, value });
+      },
       (err) => post(port, { t: 'snap', subId: msg.subId, value: { __error: serializeError(err) } }),
       // Same reason as the Firestore path: the owners belong to the page.
       options,

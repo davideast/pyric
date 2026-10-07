@@ -61,6 +61,13 @@ export class RtdbBackend {
   getQuery(auth: AuthState, path: string, spec: QuerySpec): QueryRow[] {
     return this.writes.getQuery(auth, path, spec);
   }
+  /**
+   * The warning a listener on this query logs because the rules declare no
+   * matching `.indexOn`, or `null` when no warning applies.
+   */
+  unspecifiedIndexWarning(path: string, spec: QuerySpec): string | null {
+    return this.state.unspecifiedIndexWarning(path, spec);
+  }
   set(auth: AuthState, path: string, value: JsonValue): void { this.writes.set(auth, path, value); }
   setWithPriority(auth: AuthState, path: string, value: JsonValue, priority: Priority): void {
     this.writes.setWithPriority(auth, path, value, priority);

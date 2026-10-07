@@ -10,6 +10,7 @@ import {
   orderByChild,
   orderByValue,
   orderByKey,
+  limitToFirst,
   limitToLast,
   onValue,
 } from '../../../src/database/index.js';
@@ -137,20 +138,43 @@ describe('Realtime Database Query Rule Expressions & .indexOn Sandbox Enforcemen
       expect(keySnap.exists()).toBe(true);
     });
 
-    it('enforces .indexOn on onValue query listeners when rules are active', async () => {
+    it('delivers unindexed listener queries filtered locally and warns when the query is limited', async () => {
       const sandbox = initializeSandbox({ projectId: 'r2-listener-project' });
       const db = getDatabase(sandbox);
       await setRules(db, {
         rules: {
           items: {
             '.read': true,
+            '.write': true,
           },
         },
       });
+      await set(ref(db, 'items'), { a: { price: 3 }, b: { price: 1 }, c: { price: 2 } });
 
-      expect(() => {
-        onValue(query(ref(db, 'items'), orderByChild('price')), () => {});
-      }).toThrow('Index not defined, add ".indexOn": "price", for path "/items", to the rules');
+      const warnings: string[] = [];
+      const originalWarn = console.warn;
+      console.warn = (...args: unknown[]) => { warnings.push(args.map(String).join(' ')); };
+      try {
+        const limited: unknown[] = [];
+        const stopLimited = onValue(query(ref(db, 'items'), orderByChild('price'), limitToFirst(2)), (snap) => {
+          limited.push(snap.val());
+        });
+        stopLimited();
+        expect(limited).toEqual([{ b: { price: 1 }, c: { price: 2 } }]);
+        expect(warnings).toHaveLength(1);
+        expect(warnings[0]).toMatch(/^\[[^\]]+\] {2}@firebase\/database: FIREBASE WARNING: Using an unspecified index\. Your data will be downloaded and filtered on the client\. Consider adding "\.indexOn": "price" at \/items to your security rules for better performance\. $/);
+
+        warnings.length = 0;
+        const unlimited: unknown[] = [];
+        const stopUnlimited = onValue(query(ref(db, 'items'), orderByChild('price')), (snap) => {
+          unlimited.push(snap.val());
+        });
+        stopUnlimited();
+        expect(unlimited).toHaveLength(1);
+        expect(warnings).toEqual([]);
+      } finally {
+        console.warn = originalWarn;
+      }
     });
   });
 });

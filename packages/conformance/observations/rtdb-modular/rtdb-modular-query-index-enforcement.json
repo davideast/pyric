@@ -1,0 +1,335 @@
+{
+  "name": "rtdb-modular-query-index-enforcement",
+  "matrixRow": "rtdb-modular#M51/#144",
+  "rowIds": [
+    "rtdb-modular#M51",
+    "rtdb-modular#144"
+  ],
+  "description": "Index enforcement for orderByChild, orderByValue and orderByKey queries, limited and unlimited, each with and without a matching `.indexOn`, through get(), onValue() and the REST API, recording rejections and client log warnings.",
+  "observedAt": "2026-10-07T03:31:58.115Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "repeatCount": 2,
+    "results": {
+      "indexed:orderByChild-limitToFirst": {
+        "get": {
+          "timing": "resolved",
+          "keys": [
+            "a",
+            "b"
+          ]
+        },
+        "getLogs": [],
+        "listen": {
+          "event": "value",
+          "keys": [
+            "a",
+            "b"
+          ]
+        },
+        "listenLogs": [],
+        "rest": {
+          "status": 200,
+          "keys": [
+            "a",
+            "b"
+          ]
+        }
+      },
+      "indexed:orderByValue-limitToFirst": {
+        "get": {
+          "timing": "resolved",
+          "keys": [
+            "bob",
+            "dave"
+          ]
+        },
+        "getLogs": [],
+        "listen": {
+          "event": "value",
+          "keys": [
+            "bob",
+            "dave"
+          ]
+        },
+        "listenLogs": [],
+        "rest": {
+          "status": 200,
+          "keys": [
+            "bob",
+            "dave"
+          ]
+        }
+      },
+      "indexed:orderByKey-limitToFirst": {
+        "get": {
+          "timing": "resolved",
+          "keys": [
+            "a",
+            "b"
+          ]
+        },
+        "getLogs": [],
+        "listen": {
+          "event": "value",
+          "keys": [
+            "a",
+            "b"
+          ]
+        },
+        "listenLogs": [],
+        "rest": {
+          "status": 200,
+          "keys": [
+            "a",
+            "b"
+          ]
+        }
+      },
+      "indexed:orderByChild-unlimited": {
+        "get": {
+          "timing": "resolved",
+          "keys": [
+            "a",
+            "b",
+            "c",
+            "d",
+            "e"
+          ]
+        },
+        "getLogs": [],
+        "listen": {
+          "event": "value",
+          "keys": [
+            "a",
+            "b",
+            "c",
+            "d",
+            "e"
+          ]
+        },
+        "listenLogs": [],
+        "rest": {
+          "status": 200,
+          "keys": [
+            "a",
+            "b",
+            "c",
+            "d",
+            "e"
+          ]
+        }
+      },
+      "indexed:orderByValue-unlimited": {
+        "get": {
+          "timing": "resolved",
+          "keys": [
+            "bob",
+            "dave",
+            "alice",
+            "eve",
+            "carol"
+          ]
+        },
+        "getLogs": [],
+        "listen": {
+          "event": "value",
+          "keys": [
+            "bob",
+            "dave",
+            "alice",
+            "eve",
+            "carol"
+          ]
+        },
+        "listenLogs": [],
+        "rest": {
+          "status": 200,
+          "keys": [
+            "alice",
+            "bob",
+            "carol",
+            "dave",
+            "eve"
+          ]
+        }
+      },
+      "indexed:orderByChild-startAt": {
+        "get": {
+          "timing": "resolved",
+          "keys": [
+            "b",
+            "c",
+            "d",
+            "e"
+          ]
+        },
+        "getLogs": [],
+        "listen": {
+          "event": "value",
+          "keys": [
+            "b",
+            "c",
+            "d",
+            "e"
+          ]
+        },
+        "listenLogs": [],
+        "rest": {
+          "status": 200,
+          "keys": [
+            "b",
+            "c",
+            "d",
+            "e"
+          ]
+        }
+      },
+      "unindexed:orderByChild-limitToFirst": {
+        "get": {
+          "timing": "asynchronous-reject",
+          "name": "Error",
+          "code": null,
+          "message": "Index not defined, add \".indexOn\": \"pos\", for path \"/<base>/unindexed/child/get-orderByChild-limitToFirst\", to the rules"
+        },
+        "getLogs": [],
+        "listen": {
+          "event": "value",
+          "keys": [
+            "a",
+            "b"
+          ]
+        },
+        "listenLogs": [
+          "warn: @firebase/database: FIREBASE WARNING: Using an unspecified index. Your data will be downloaded and filtered on the client. Consider adding \".indexOn\": \"pos\" at /<base>/unindexed/child/listen-orderByChild-limitToFirst to your security rules for better performance. "
+        ],
+        "rest": {
+          "status": 400,
+          "body": "{\"error\":\"Index not defined, add \\\".indexOn\\\": \\\"pos\\\", for path \\\"/<base>/unindexed/child/rest-orderByChild-limitToFirst\\\", to the rules\"}"
+        }
+      },
+      "unindexed:orderByValue-limitToFirst": {
+        "get": {
+          "timing": "asynchronous-reject",
+          "name": "Error",
+          "code": null,
+          "message": "Index not defined, add \".indexOn\": \".value\", for path \"/<base>/unindexed/value/get-orderByValue-limitToFirst\", to the rules"
+        },
+        "getLogs": [],
+        "listen": {
+          "event": "value",
+          "keys": [
+            "bob",
+            "dave"
+          ]
+        },
+        "listenLogs": [
+          "warn: @firebase/database: FIREBASE WARNING: Using an unspecified index. Your data will be downloaded and filtered on the client. Consider adding \".indexOn\": \".value\" at /<base>/unindexed/value/listen-orderByValue-limitToFirst to your security rules for better performance. "
+        ],
+        "rest": {
+          "status": 400,
+          "body": "{\"error\":\"Index not defined, add \\\".indexOn\\\": \\\".value\\\", for path \\\"/<base>/unindexed/value/rest-orderByValue-limitToFirst\\\", to the rules\"}"
+        }
+      },
+      "unindexed:orderByKey-limitToFirst": {
+        "get": {
+          "timing": "resolved",
+          "keys": [
+            "a",
+            "b"
+          ]
+        },
+        "getLogs": [],
+        "listen": {
+          "event": "value",
+          "keys": [
+            "a",
+            "b"
+          ]
+        },
+        "listenLogs": [],
+        "rest": {
+          "status": 200,
+          "keys": [
+            "a",
+            "b"
+          ]
+        }
+      },
+      "unindexed:orderByChild-unlimited": {
+        "get": {
+          "timing": "asynchronous-reject",
+          "name": "Error",
+          "code": null,
+          "message": "Index not defined, add \".indexOn\": \"pos\", for path \"/<base>/unindexed/child/get-orderByChild-unlimited\", to the rules"
+        },
+        "getLogs": [],
+        "listen": {
+          "event": "value",
+          "keys": [
+            "a",
+            "b",
+            "c",
+            "d",
+            "e"
+          ]
+        },
+        "listenLogs": [],
+        "rest": {
+          "status": 400,
+          "body": "{\"error\":\"Index not defined, add \\\".indexOn\\\": \\\"pos\\\", for path \\\"/<base>/unindexed/child/rest-orderByChild-unlimited\\\", to the rules\"}"
+        }
+      },
+      "unindexed:orderByValue-unlimited": {
+        "get": {
+          "timing": "asynchronous-reject",
+          "name": "Error",
+          "code": null,
+          "message": "Index not defined, add \".indexOn\": \".value\", for path \"/<base>/unindexed/value/get-orderByValue-unlimited\", to the rules"
+        },
+        "getLogs": [],
+        "listen": {
+          "event": "value",
+          "keys": [
+            "bob",
+            "dave",
+            "alice",
+            "eve",
+            "carol"
+          ]
+        },
+        "listenLogs": [],
+        "rest": {
+          "status": 400,
+          "body": "{\"error\":\"Index not defined, add \\\".indexOn\\\": \\\".value\\\", for path \\\"/<base>/unindexed/value/rest-orderByValue-unlimited\\\", to the rules\"}"
+        }
+      },
+      "unindexed:orderByChild-startAt": {
+        "get": {
+          "timing": "asynchronous-reject",
+          "name": "Error",
+          "code": null,
+          "message": "Index not defined, add \".indexOn\": \"pos\", for path \"/<base>/unindexed/child/get-orderByChild-startAt\", to the rules"
+        },
+        "getLogs": [],
+        "listen": {
+          "event": "value",
+          "keys": [
+            "b",
+            "c",
+            "d",
+            "e"
+          ]
+        },
+        "listenLogs": [
+          "warn: @firebase/database: FIREBASE WARNING: Using an unspecified index. Your data will be downloaded and filtered on the client. Consider adding \".indexOn\": \"pos\" at /<base>/unindexed/child/listen-orderByChild-startAt to your security rules for better performance. "
+        ],
+        "rest": {
+          "status": 400,
+          "body": "{\"error\":\"Index not defined, add \\\".indexOn\\\": \\\"pos\\\", for path \\\"/<base>/unindexed/child/rest-orderByChild-startAt\\\", to the rules\"}"
+        }
+      }
+    }
+  }
+}

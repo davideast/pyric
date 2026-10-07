@@ -101,10 +101,10 @@ describe('query(ref, orderByKey, startAt, endAt) — key-window (oracle: rtdb-mo
 });
 
 describe('query(ref, orderByValue, limitToFirst) — primitive children (oracle: rtdb-modular-orderbyvalue-numeric)', () => {
-  // Matrix row #144/#150. Oracle observation: prod threw `Index not defined`
-  // (sandbox doesn't enforce indexes — see COMPAT note). Semantic claim
-  // locked here: the executor returns the 3 smallest values in ascending
-  // order.
+  // Matrix row #150. No rules are loaded, so no index is required. Index
+  // enforcement under rules is replayed against
+  // `rtdb-modular-query-index-enforcement`. Semantic claim locked here: the
+  // executor returns the 3 smallest values in ascending order.
   it('returns the limitToFirst(N) smallest values, ascending', async () => {
     const { db } = setup();
     await update(ref(db, 'scores'), {
