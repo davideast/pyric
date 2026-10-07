@@ -261,7 +261,7 @@ describe('the sdk-service validator', () => {
       path: 'uploads/hello.txt',
     });
     expect(result.summary).toBe(
-      "rules.explainDenial: service 'storage' has no denial trace. explainDenial reads the Firestore rules engine only in this build. Pass service 'firestore', or call simulate for storage.",
+      "rules.explainDenial: service 'storage' has no denial trace. explainDenial reads the Firestore and database rules engines in this build. Pass service 'firestore' or 'database', or call simulate for storage.",
     );
   });
 

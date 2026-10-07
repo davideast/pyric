@@ -764,6 +764,18 @@ const RULES_ROUTES: DiscriminatorRoute[] = [
       return translated;
     },
   },
+  {
+    tool: 'diagnose_rule_denial',
+    action: null,
+    selects: on('service', 'database'),
+    operation: 'diagnose_database_denial',
+    translate: (args) => {
+      const translated: Args = { operation: args.operation, path: args.path };
+      assign(translated, 'uid', overrideUid(args));
+      assign(translated, 'data', parseJsonValue(text(args, 'resourceDataJson')));
+      return translated;
+    },
+  },
   ...(['firestore', 'database', 'storage'] as const).map((service) => ({
     tool: 'verify_security_rules',
     action: 'lint',
