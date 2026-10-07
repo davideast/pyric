@@ -119,6 +119,60 @@ describe('builtin routing', () => {
     expect(r.stderr).toContain('parse error');
   });
 
+  test('`lint-rules` lints a valid Realtime Database ruleset clean', async () => {
+    await writeVfs(
+      '/workspace/database.rules.json',
+      JSON.stringify({
+        rules: {
+          users: {
+            $uid: {
+              '.read': 'auth != null && auth.uid === $uid',
+              '.write': 'auth != null && auth.uid === $uid',
+            },
+          },
+        },
+      }),
+    );
+    const r = await shell.exec('lint-rules database.rules.json');
+    expect(r.stderr).toBe('');
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('clean');
+  });
+
+  test('`lint-rules` reports a Realtime Database rule that does not parse, exit 1', async () => {
+    await writeVfs(
+      '/workspace/database.rules.json',
+      JSON.stringify({ rules: { '.read': 'auth != null &&' } }),
+    );
+    const r = await shell.exec('lint-rules database.rules.json');
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr + r.stdout).toContain('.read');
+  });
+
+  test('`lint-rules` reports malformed Realtime Database JSON as a parse error, exit 1', async () => {
+    await writeVfs('/workspace/database.rules.json', '{ "rules": ');
+    const r = await shell.exec('lint-rules database.rules.json');
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain('parse error');
+  });
+
+  test('`lint-rules` lints a Storage ruleset with the same rules language clean', async () => {
+    await writeVfs(
+      '/workspace/storage.rules',
+      `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{uid}/{file=**} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}`,
+    );
+    const r = await shell.exec('lint-rules storage.rules');
+    expect(r.stderr).toBe('');
+    expect(r.exitCode).toBe(0);
+  });
+
   test('`lint-rules` on a missing file is an actionable error', async () => {
     const r = await shell.exec('lint-rules nope.rules');
     expect(r.exitCode).toBe(1);

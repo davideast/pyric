@@ -10,8 +10,10 @@
  *                         see session.ts). A green FULL-suite run
  *                         auto-commits a workspace checkpoint (W3.1
  *                         parity with the run_workspace_tests tool).
- *   lint-rules [path]     the same `lintFirestoreRules` linter the
- *                         write_file gate and firestore_lint_rules use
+ *   lint-rules [path]     lints a rules file with its service linter:
+ *                         Firestore and Storage source with the linter the
+ *                         write_file gate and firestore_lint_rules use,
+ *                         database.rules.json with the RTDB ruleset check
  *   man <topic>           paged docs on demand (man-pages.ts)
  *
  * Builtins read workspace files through `ctx.fs` — the SAME mounted
@@ -20,7 +22,7 @@
  * operate on what `cat` would show.
  */
 import type { Command, ExecResult } from 'just-bash';
-import { lintFirestoreRules } from 'pyric/rules/internal';
+import { lintRulesForPath } from '~/lib/rules/lint-by-service';
 
 import { commitCheckpoint } from '~/lib/checkpoints/service';
 import { RULES_PATH } from '~/lib/store/files';
@@ -150,28 +152,25 @@ export const lintRulesCommand: Command = {
     } catch {
       return fail('lint-rules', `${target}: no such file`);
     }
-    const result = lintFirestoreRules(source);
-    if (result.parseError) {
-      const pe = result.parseError;
+    const report = lintRulesForPath(target, source);
+    if (report.parseError) {
+      const pe = report.parseError;
       return fail(
         'lint-rules',
-        `${target}: parse error at ${pe.line}:${pe.column} — expected ${pe.expected}`,
+        pe.line !== undefined
+          ? `${target}: parse error at ${pe.line}:${pe.column} — expected ${pe.expected}`
+          : `${target}: parse error — ${pe.message}`,
       );
     }
-    if (result.warnings.length === 0) {
+    if (report.findings.length === 0) {
       return ok(`lint-rules: ${target}: clean\n`);
     }
-    const lines = result.warnings.map((w) => {
-      const loc = w.location;
-      const where = loc?.functionName
-        ? `in ${loc.functionName}: `
-        : loc?.matchPath
-          ? `at ${loc.matchPath}: `
-          : '';
+    const lines = report.findings.map((w) => {
+      const where = w.where ? `${w.where}: ` : '';
       const fix = w.fix ? ` — fix: ${w.fix}` : '';
       return `${w.severity}: ${where}[${w.rule}] ${w.message}${fix}`;
     });
-    const errors = result.warnings.filter((w) => w.severity === 'error').length;
+    const errors = report.findings.filter((w) => w.severity === 'error').length;
     return {
       stdout: `${lines.join('\n')}\n`,
       stderr: '',
