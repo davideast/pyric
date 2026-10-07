@@ -31,6 +31,7 @@ import type { ToolHandler } from '@inbrowser/agent';
 import { getFirestore, getAdminFirestore, type As } from 'pyric/firestore';
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import type { AuthLens, LocalSandbox } from 'pyric/sandbox';
+import { projectIdentity } from '../surface/identity.js';
 import { assertExactToolNames, toolFamilies } from '../tool-families.js';
 import { SANDBOX_HANDLER_FACTORIES, type SandboxBinding } from './tool-family-factories.js';
 
@@ -50,13 +51,13 @@ export type SandboxDispatch = (
 /**
  * The Firestore handle a call's OWN `as` argument names: the literal
  * `'admin'` (or an omitted argument on an identity-less dispatch) bypasses
- * rules, `{ uid, claims? }` enforces them as that user with the claims riding
- * the auth token, matching the rules `request.auth.token` shape.
+ * rules, `{ uid, tenant?, claims? }` enforces them as that user with the
+ * tenant and claims projected into the auth token by `projectIdentity`, so
+ * `request.auth.token.firebase.tenant` resolves as it does for a held identity.
  */
 function actorDb(sandbox: LocalSandbox, actor: As) {
-  return actor === 'admin'
-    ? getAdminFirestore(sandbox)
-    : getFirestore(sandbox.withAuth({ uid: actor.uid, token: actor.claims }));
+  if (actor === 'admin') return getAdminFirestore(sandbox);
+  return getFirestore(sandbox.withAuth(projectIdentity(actor.uid, actor.tenant, actor.claims)));
 }
 
 /**
