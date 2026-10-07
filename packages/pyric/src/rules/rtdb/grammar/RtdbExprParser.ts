@@ -39,6 +39,15 @@ function getIdentifierSemantics(): Semantics {
   return semantics;
 }
 
+/** Production's text for a rule that contains `=` outside `==`, `===`, `!=`, `<=` and `>=`. */
+export const ASSIGNMENT_MESSAGE = 'Rule expressions may not contain assignments.';
+
+/** Whether expression text holds a single `=` outside a string literal. */
+function containsAssignment(raw: string): boolean {
+  const withoutStrings = raw.replace(/'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/g, '""');
+  return /(^|[^=!<>])=(?!=)/.test(withoutStrings);
+}
+
 export function parseExpression(raw: string): ParsedExpression {
   const matched = matchRtdbExpression(raw);
 
@@ -46,7 +55,7 @@ export function parseExpression(raw: string): ParsedExpression {
     return {
       raw,
       valid: false,
-      errors: [{ code: 'PARSE_ERROR', message: matched.message }],
+      errors: [{ code: 'PARSE_ERROR', message: containsAssignment(raw) ? ASSIGNMENT_MESSAGE : matched.message }],
       warnings: [],
       referencedIdentifiers: [],
     };

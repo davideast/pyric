@@ -10,8 +10,16 @@
 /** A method that takes exactly one string argument. */
 export const ONE_STRING_ARGUMENT_METHODS = new Set(['contains', 'beginsWith', 'endsWith', 'child', 'hasChild']);
 
-export function argumentCountMessage(method: string, count: number): string {
-  return `${method}() expects ${count} argument${count === 1 ? '' : 's'}.`;
+/**
+ * Production's text for a call with the wrong argument count:
+ * `exists() expects no arguments.`, `child() expects 1 argument.`,
+ * `replace() expects two arguments.`, and for `matches()`
+ * `matches() expects 1 regular expression literal argument.`.
+ */
+export function argumentCountMessage(method: string, count: 0 | 1 | 2): string {
+  if (method === 'matches') return 'matches() expects 1 regular expression literal argument.';
+  if (count === 0) return `${method}() expects no arguments.`;
+  return count === 1 ? `${method}() expects 1 argument.` : `${method}() expects two arguments.`;
 }
 
 export function stringArgumentMessage(method: string): string {

@@ -40,6 +40,7 @@ import { join } from 'node:path';
 import { createObservationGate } from '../../../../packages/conformance/src/observation-gate.ts';
 import { RULES_DEPLOY_REFUSAL_CASES } from '../../../../packages/conformance/src/capture/rtdb-climb/rules-deploy-refusals.cases.ts';
 import { rtdbRules } from '../../src/rules/api/rtdb.js';
+import { buildRuleExpression } from '../../src/rules/rtdb/compiled-rules.js';
 import { initializeSandbox } from 'pyric/sandbox';
 import {
   getDatabase,
@@ -452,11 +453,29 @@ describe('oracle conformance (rtdb)', () => {
     }
   });
 
+  it('rtdb-rules-type-check: the validator refuses exactly the expressions production refuses at deploy, with its text first', () => {
+    const obs = load('rtdb-rules-type-check.json');
+    const probes = obs.probes as {
+      name: string; kind: 'read' | 'write' | 'validate'; expression: string; accepted: boolean; message?: string;
+    }[];
+    // Production accepts a call on a subscript; the expression grammar does not parse one.
+    const grammarGaps = new Set(['snapshot-index-method-name']);
+    expect(probes.length).toBe(obs.calls as number);
+    const mismatches = probes.filter((probe) => !grammarGaps.has(probe.name)).flatMap((probe) => {
+      const { errors } = buildRuleExpression(probe.expression, probe.kind, ['$id']).parsed;
+      if (probe.accepted) return errors.length === 0 ? [] : [`${probe.name}: refused locally`];
+      if (errors.length === 0) return [`${probe.name}: accepted locally`];
+      if (errors.every((error) => error.code === 'PARSE_ERROR')) return [];
+      return errors[0]!.message === probe.message ? [] : [`${probe.name}: ${errors[0]!.message}`];
+    });
+    expect(mismatches).toEqual([]);
+  });
+
   // ── completeness: every `rtdb-*` (non-modular) observation is covered ──
 
   it('every rtdb (non-modular) observation is covered (no silent gaps)', () => {
     const r = obsGate.report();
-    expect(r.committed.length).toBe(15);
+    expect(r.committed.length).toBe(16);
     expect(r.loadedButUnused).toEqual([]); // a bare load() with no field read fails
     expect(r.uncovered).toEqual([]); // every capture is asserted or explicitly N/A
   });
