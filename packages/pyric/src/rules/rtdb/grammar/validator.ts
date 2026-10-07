@@ -10,6 +10,7 @@ import {
   ROOT_VARIABLES,
   binaryResult,
   memberOf,
+  ternaryResult,
   operandsOf,
   typeError,
   type RtdbStaticType,
@@ -133,7 +134,7 @@ function getValidatorSemantics(): Semantics {
         return report(ctx, typeError('INVALID_OPERAND', 'condition of ? must be boolean.'));
       }
       if (consequentType === 'Error' || alternateType === 'Error') return ERROR;
-      return typed(consequentType === alternateType ? consequentType : 'Mixed');
+      return typed(ternaryResult(consequentType, alternateType));
     },
 
     Logical_and: logical,

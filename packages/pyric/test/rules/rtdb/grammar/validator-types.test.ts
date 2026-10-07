@@ -2,7 +2,7 @@
  * The RTDB validator type-checks a rule expression as production's rules
  * compiler does when `firebase deploy` validates database rules.
  *
- * `fixtures/type-check/captures.json` holds production's verdict for each
+ * The observation `rtdb-rules-type-check` holds production's verdict for each
  * probe, captured with `PUT /.settings/rules.json?dryRun=true` by
  * `packages/conformance/src/capture-rtdb-rules-type-check.ts`. Each probe places
  * one expression at `/p/$id`. The replay asserts that the local compile rejects
@@ -26,9 +26,12 @@ interface Capture {
   message?: string;
 }
 
-const fixture = JSON.parse(
-  readFileSync(join(import.meta.dir, 'fixtures', 'type-check', 'captures.json'), 'utf8'),
-) as { probes: Capture[] };
+const fixture = (JSON.parse(
+  readFileSync(
+    join(import.meta.dir, '..', '..', '..', '..', '..', 'conformance', 'observations', 'rtdb', 'rtdb-rules-type-check.json'),
+    'utf8',
+  ),
+) as { behavior: { probes: Capture[] } }).behavior;
 
 /**
  * Probes production accepts that the expression grammar does not parse: the
@@ -99,7 +102,7 @@ describe('validation error codes', () => {
     expect(codes(raw)[0]).toBe(code);
   });
 
-  test('an assignment is a parse error with production text, from the r28 deploy-rejection capture', () => {
+  test('an assignment is a parse error with production text, from the r29 deploy-rejection capture', () => {
     for (const raw of ["auth.uid = 'x'", "(auth.uid = 'x') && true"]) {
       expect(buildRuleExpression(raw, 'read', ['$id']).parsed.errors).toEqual([
         { code: 'PARSE_ERROR', message: 'Rule expressions may not contain assignments.' },

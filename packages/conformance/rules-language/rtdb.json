@@ -198,7 +198,7 @@
       "reference": "https://firebase.google.com/docs/reference/security/database/string#toUpperCase",
       "status": "accepted",
       "receiverType": "string",
-      "note": "Discrepancy: toUpperCase() is in the official RTDB String method set, but the parser validator's ALL_KNOWN_METHODS (rules/rtdb/grammar/validator.ts) lists toLowerCase without toUpperCase — the parser would reject it as UNKNOWN_METHOD."
+      "note": "toUpperCase() is a String method in the official language, and the validator's string method table (rules/rtdb/grammar/types.ts) accepts it with no arguments, as production's deploy validation does (observation rtdb-rules-type-check)."
     },
     {
       "id": "rtdb.method.string.length",
@@ -207,7 +207,7 @@
       "reference": "https://firebase.google.com/docs/reference/security/database/string#length",
       "status": "accepted",
       "receiverType": "string",
-      "note": "Discrepancy: length is a String PROPERTY in the official language (`ref.val().length`, accessed as member, no call), but the validator lists it inside STRING_METHODS alongside the callable methods (rules/rtdb/grammar/validator.ts)."
+      "note": "length is a String property in the official language (`ref.val().length`, read as a member, not called). The validator types it as a property of a string or stored value and refuses `length()` with production's text \"Type error: Function call on target that is not a function.\" (observation rtdb-rules-type-check)."
     },
     {
       "id": "rtdb.operator.strictEq",

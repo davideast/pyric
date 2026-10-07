@@ -32,7 +32,6 @@
  * the client SDK. See `packages/conformance/docs/oracle-project-setup.md` for that and
  * the one-time project setup.
  */
-import { createSign } from 'node:crypto';
 import { initializeApp, deleteApp } from 'firebase/app';
 import * as fbAuthNs from 'firebase/auth';
 import {
@@ -162,6 +161,7 @@ import {
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { mintAccessToken } from './oracle-access-token.ts';
 import { surfaceDescriptors } from '../surfaces/load.ts';
 import { soleLongestPrefixOwner } from './observation-surface.ts';
 import {
@@ -276,32 +276,6 @@ service firebase.storage {
 }
 `;
 
-/**
- * Mint an OAuth access token from a service account JSON, using
- * only node:crypto + fetch. Mirrors the pattern in
- * `ignored/check-sa-perms.ts`.
- */
-async function mintToken(sa: ServiceAccount, scope: string): Promise<string> {
-  const tokenUri = sa.token_uri ?? 'https://oauth2.googleapis.com/token';
-  const now = Math.floor(Date.now() / 1000);
-  const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
-  const payload = Buffer.from(
-    JSON.stringify({ iss: sa.client_email, scope, aud: tokenUri, iat: now, exp: now + 3600 }),
-  ).toString('base64url');
-  const signer = createSign('RSA-SHA256');
-  signer.update(`${header}.${payload}`);
-  const sig = signer.sign(sa.private_key).toString('base64url');
-  const res = await fetch(tokenUri, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-      assertion: `${header}.${payload}.${sig}`,
-    }),
-  });
-  if (!res.ok) throw new Error(`token exchange failed: ${res.status} ${await res.text()}`);
-  return ((await res.json()) as { access_token: string }).access_token;
-}
 
 /**
  * Auto-create a Web App in the project. Polls the long-running
@@ -731,7 +705,7 @@ async function loadConfig(): Promise<FirebaseWebConfig> {
   const sa = JSON.parse(readFileSync(saPath, 'utf8')) as ServiceAccount;
   serviceAccount = sa;
   console.log(`[oracle] project: ${sa.project_id}`);
-  const token = await mintToken(sa, 'https://www.googleapis.com/auth/firebase');
+  const token = await mintAccessToken(sa, 'https://www.googleapis.com/auth/firebase');
   const cfg = await fetchWebConfig(token, sa.project_id);
   const ruleOutcome = await ensureOracleRules(token, sa.project_id);
   console.log(`[oracle] oracle rules: ${ruleOutcome}`);
@@ -784,7 +758,7 @@ async function loadConfig(): Promise<FirebaseWebConfig> {
   let rtdbRuleOutcome: string = 'skipped';
   if (cfg.databaseURL) {
     try {
-      const rtdbToken = await mintToken(
+      const rtdbToken = await mintAccessToken(
         sa,
         'https://www.googleapis.com/auth/firebase.database https://www.googleapis.com/auth/userinfo.email',
       );

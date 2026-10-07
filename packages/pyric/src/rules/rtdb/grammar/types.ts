@@ -31,8 +31,11 @@ import {
  *   accept it; any member name is another `Auth`, except a string method.
  * - `Query`: `query`. `QueryValue`: one of its non-flag properties, a primitive
  *   with no members that is not a string argument.
- * - `Mixed`: a ternary whose branches differ in type. Operators and string
- *   arguments accept it; it has no members.
+ * - `Mixed`: a ternary whose branches differ in type and include no string,
+ *   stored value or auth value. Operators and string arguments accept it; it
+ *   has no members. A ternary whose differing branches include one of those
+ *   is a `Value`, so `(c ? newData.val() : '').length` reads a string's
+ *   `length`.
  * - `Error`: an operand that already failed. It satisfies every check, so one
  *   mistake reports one error.
  */
@@ -71,6 +74,14 @@ export const NUMERIC_OPERANDS = set('Number', 'Value', 'Auth', 'QueryValue', 'Mi
 /** Arguments a string parameter accepts, and `hasChildren()` array elements. */
 export const STRING_ARGUMENTS = set('String', 'Value', 'Auth', 'Mixed');
 
+
+const STRING_LIKE = new Set<RtdbStaticType>(['String', 'Value', 'Auth']);
+
+/** The type of `c ? a : b` whose branches passed their checks. */
+export function ternaryResult(consequent: RtdbStaticType, alternate: RtdbStaticType): RtdbStaticType {
+  if (consequent === alternate) return consequent;
+  return STRING_LIKE.has(consequent) || STRING_LIKE.has(alternate) ? 'Value' : 'Mixed';
+}
 
 /** The diagnostic for one failed check. */
 export function typeError(code: string, message: string): RuleError {

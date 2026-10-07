@@ -13,7 +13,7 @@
  * Each probe places one expression at `/p/$id` under the rule kind it names,
  * so `$id` is the only declared path variable.
  *
- * Output: packages/pyric/test/rules/rtdb/grammar/fixtures/type-check/captures.json
+ * Output: packages/conformance/observations/rtdb/rtdb-rules-type-check.json
  *
  * Credentials: the same contract as `run-rules-rtdb.ts`.
  *   PYRIC_ORACLE_FIREBASE_CONFIG  Web SDK config JSON with databaseURL.
@@ -22,14 +22,19 @@
  * Usage:
  *   bun --env-file=.env run packages/conformance/src/capture-rtdb-rules-type-check.ts
  */
-import { createSign } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  RTDB_RULES_SCOPE,
+  mintAccessToken,
+  rtdbRulesEndpoint,
+  type ServiceAccountKey,
+} from './oracle-access-token.ts';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
-const OUT_DIR = join(REPO_ROOT, 'packages', 'pyric', 'test', 'rules', 'rtdb', 'grammar', 'fixtures', 'type-check');
-const OUT = join(OUT_DIR, 'captures.json');
+export const OBSERVATION_NAME = 'rtdb-rules-type-check';
+const OUT = join(REPO_ROOT, 'packages', 'conformance', 'observations', 'rtdb', `${OBSERVATION_NAME}.json`);
 
 export type RtdbProbeKind = 'read' | 'write' | 'validate';
 
@@ -322,6 +327,11 @@ const NAMED_PROBES: readonly RtdbTypeProbe[] = [
   r('mixed-ternary-minus', "(true ? 'a' : 1) - 1 == 0"),
   r('mixed-ternary-child-argument', "data.child(true ? 'a' : 1).exists()"),
   r('boolean-ternary-rule', '(true ? true : false)'),
+  w('mixed-ternary-value-length', "(auth != null ? newData.val() : '').length > 0"),
+  w('mixed-ternary-value-contains', "(auth != null ? newData.val() : '').contains('a')"),
+  w('mixed-ternary-value-member', "(auth != null ? newData.val() : '').foo == 1"),
+  w('mixed-ternary-value-number-length', '(auth != null ? newData.val() : 1).length > 0'),
+  r('mixed-ternary-string-number-length', "(auth != null ? 'a' : 1).length > 0"),
 ];
 
 /** One expression of each static type, valid in a .read rule under /p/$id. */
@@ -411,29 +421,6 @@ export function probeRules(probe: RtdbTypeProbe): { rules: Record<string, unknow
 }
 
 interface FirebaseWebConfig { projectId: string; databaseURL?: string }
-interface ServiceAccount { client_email: string; private_key: string; project_id: string; token_uri?: string }
-
-async function mintToken(sa: ServiceAccount, scope: string): Promise<string> {
-  const tokenUri = sa.token_uri ?? 'https://oauth2.googleapis.com/token';
-  const now = Math.floor(Date.now() / 1000);
-  const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
-  const payload = Buffer.from(
-    JSON.stringify({ iss: sa.client_email, scope, aud: tokenUri, iat: now, exp: now + 3600 }),
-  ).toString('base64url');
-  const signer = createSign('RSA-SHA256');
-  signer.update(`${header}.${payload}`);
-  const sig = signer.sign(sa.private_key).toString('base64url');
-  const res = await fetch(tokenUri, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-      assertion: `${header}.${payload}.${sig}`,
-    }),
-  });
-  if (!res.ok) throw new Error(`token exchange failed: ${res.status}`);
-  return ((await res.json()) as { access_token: string }).access_token;
-}
 
 /** Production's rejection text without its `line:column: ` prefix and trailing newline. */
 export function rejectionMessage(body: string): string {
@@ -451,59 +438,43 @@ async function main(): Promise<void> {
   if (!rawConfig) throw new Error('PYRIC_ORACLE_FIREBASE_CONFIG is not set.');
   const config = JSON.parse(rawConfig) as FirebaseWebConfig;
   if (!config.databaseURL) throw new Error('PYRIC_ORACLE_FIREBASE_CONFIG has no databaseURL.');
-  const saPath = process.env.PYRIC_ORACLE_SA_PATH ? resolve(process.env.PYRIC_ORACLE_SA_PATH) : join(REPO_ROOT, 'ignored', 'service-account.json');
+  const saPath = process.env.PYRIC_ORACLE_SA_PATH
+    ? resolve(process.env.PYRIC_ORACLE_SA_PATH)
+    : join(REPO_ROOT, 'ignored', 'service-account.json');
   if (!existsSync(saPath)) throw new Error(`service account not found at ${saPath}. Set PYRIC_ORACLE_SA_PATH.`);
-  const sa = JSON.parse(readFileSync(saPath, 'utf8')) as ServiceAccount;
+  const sa = JSON.parse(readFileSync(saPath, 'utf8')) as ServiceAccountKey & { project_id: string };
   if (sa.project_id !== config.projectId) {
     throw new Error(`service account project ${sa.project_id} does not match config project ${config.projectId}.`);
   }
 
-  const token = await mintToken(
-    sa,
-    'https://www.googleapis.com/auth/firebase.database https://www.googleapis.com/auth/userinfo.email',
-  );
-  const rulesUrl = `${config.databaseURL}/.settings/rules.json?access_token=${encodeURIComponent(token)}`;
-  const readActive = async (): Promise<string> => {
-    const res = await fetch(rulesUrl);
-    if (!res.ok) throw new Error(`read rules failed: ${res.status}`);
-    return res.text();
-  };
-
-  const before = await readActive();
+  const endpoint = rtdbRulesEndpoint(config.databaseURL, await mintAccessToken(sa, RTDB_RULES_SCOPE));
+  const before = await endpoint.read();
   const probes: RtdbTypeProbeRecord[] = [];
   for (const probe of PROBES) {
     const rules = probeRules(probe);
-    const res = await fetch(`${rulesUrl}&dryRun=true`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(rules),
-    });
-    const body = await res.text();
-    if (res.status !== 200 && res.status !== 400) {
-      throw new Error(`probe ${probe.name}: unexpected status ${res.status}`);
-    }
-    const record: RtdbTypeProbeRecord = { ...probe, rules, status: res.status, accepted: res.ok };
-    if (!res.ok) record.message = rejectionMessage(body);
+    const { status, body } = await endpoint.dryRun(rules);
+    if (status !== 200 && status !== 400) throw new Error(`probe ${probe.name}: unexpected status ${status}`);
+    const record: RtdbTypeProbeRecord = { ...probe, rules, status, accepted: status === 200 };
+    if (status !== 200) record.message = rejectionMessage(body);
     probes.push(record);
     console.log(`  ${probe.name.padEnd(36)} ${record.accepted ? 'accepted' : 'REJECTED'} ${record.message ?? ''}`);
   }
-  const after = await readActive();
-  if (after !== before) {
+  if ((await endpoint.read()) !== before) {
     throw new Error('the active rules changed during the dry-run capture; inspect the database rules.');
   }
   console.log('[rtdb-type-check] active rules read back byte-identical to the pre-run read.');
 
-  mkdirSync(OUT_DIR, { recursive: true });
-  const fixture = {
-    schema: 'pyric.rtdb-rules-type-check.v1',
-    capturedAt: new Date().toISOString(),
+  const observation = {
+    name: OBSERVATION_NAME,
+    matrixRow: 'rtdb#89',
+    rowIds: ['rtdb#89'],
+    description:
+      'Validates one rule expression at a time with PUT /.settings/rules.json?dryRun=true, the request firebase deploy makes to validate database rules, and records whether production accepts it or refuses it with its text. Each probe places the expression at /p/$id under the rule kind it names. The probes are named constructs plus every typed sample (TYPE_SAMPLES) in every operand position (TYPE_POSITIONS) of packages/conformance/src/capture-rtdb-rules-type-check.ts. A dry run installs nothing; the active rules read back byte-identical after the run.',
+    observedAt: new Date().toISOString(),
     projectId: config.projectId,
-    method:
-      'PUT /.settings/rules.json?dryRun=true, the validation request firebase deploy makes, one ruleset per probe from PROBES in packages/conformance/src/capture-rtdb-rules-type-check.ts; status 200 accepts, status 400 rejects with the recorded message. Active rules read back unchanged.',
-    calls: probes.length,
-    probes,
+    behavior: { calls: probes.length, probes },
   };
-  writeFileSync(OUT, JSON.stringify(fixture, null, 2) + '\n');
+  writeFileSync(OUT, JSON.stringify(observation, null, 2) + '\n');
   console.log(`[rtdb-type-check] ${probes.length} dry-run validations; wrote ${OUT}`);
 }
 
