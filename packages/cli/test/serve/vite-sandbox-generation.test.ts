@@ -29,7 +29,7 @@ function harness(options: { functions?: boolean; rulesFile?: string | null; data
     summary: {
       rules: {
         firestore: { sourcePath: options.rulesFile ?? null, hash: null },
-        database: { sourcePath: options.databaseRulesFile ?? null, hash: null },
+        database: [],
         storage: { sourcePath: null, hash: null },
       },
       persistence: null,
@@ -41,10 +41,10 @@ function harness(options: { functions?: boolean; rulesFile?: string | null; data
     payload: () => ({}) as ReturnType<SandboxSession['payload']>,
     handle: () => { handled += 1; return false; },
     reloadFirestoreRules: async () => ({ kind: 'not-configured' }),
-    reloadDatabaseRules: async () => ({ kind: 'not-configured' }),
+    reloadDatabaseRules: async () => [],
     reloadStorageRules: async () => ({ kind: 'not-configured' }),
     firestoreRulesFiles: () => [options.rulesFile ?? '/project/firestore.rules'],
-    databaseRulesFile: () => options.databaseRulesFile ?? '/project/database.rules.json',
+    databaseRulesFiles: () => [options.databaseRulesFile ?? '/project/database.rules.json'],
     storageRulesFile: () => '/project/storage.rules',
     close: async () => { events.push('close:session'); },
   };

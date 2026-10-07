@@ -15,7 +15,7 @@ import {
   type VerifyRulesInput,
   type VerifyServiceResult,
 } from '../verify/index.js';
-import { readFirebaseJson, type FirebaseJson } from './firebase-json.js';
+import { readFirebaseJson, singleDatabaseRulesFile, type FirebaseJson } from './firebase-json.js';
 import type { FlagValue, ParsedArgs } from './parse-args.js';
 import { resolveScope } from '../credentials/node/scope.js';
 import { CAPTURE_RELATIVE_PATH } from '../serve/capture-store.js';
@@ -343,7 +343,7 @@ function parseRulesOverrides(flag: FlagValue | undefined): Map<VerifiableService
 
 function defaultRulesPath(config: FirebaseJson | null, service: VerifiableService): string | undefined {
   if (service === 'firestore') return config?.firestore?.rules;
-  if (service === 'rtdb') return config?.database?.rules;
+  if (service === 'rtdb') return singleDatabaseRulesFile(config);
   return undefined;
 }
 

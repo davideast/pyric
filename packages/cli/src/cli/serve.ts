@@ -240,7 +240,9 @@ async function startServeRuntime(opts: {
       }
       const hasDatabaseOverride = Boolean(ruleOverrides.database);
       if (hasDatabaseOverride) {
-        config.database = { ...config.database, rules: ruleOverrides.database };
+        // The override names one rules file, so it deploys to the default
+        // instance in place of any per-instance configuration.
+        config.database = { rules: ruleOverrides.database };
       }
       const hasStorageOverride = Boolean(ruleOverrides.storage);
       if (hasStorageOverride) {
@@ -408,6 +410,7 @@ async function startServeRuntime(opts: {
         logger.note(formatBeaconReceipt(report));
       },
       permissive: opts.permissive,
+      projectId: opts.project,
       hosted: opts.hosted,
       deployHostedRules: usesHostedSandbox ? mount?.deployHostedRules : undefined,
       logger,
@@ -564,27 +567,36 @@ async function startServeRuntime(opts: {
       rulesFiles.close();
     });
   }
-  // The Realtime Database rules file is watched the same way: created, changed,
-  // and deleted files all reload. A deleted file returns RTDB to the default
-  // policy, the state the server starts in without the file.
+  // Each Realtime Database instance's rules file is watched the same way:
+  // created, changed, and deleted files all reload, and only the instances
+  // that deploy the changed file reload. A deleted file returns its instances
+  // to the default policy, the state the server starts in without the file.
   if (isWatchEnabled) {
     let debounceDb: ReturnType<typeof setTimeout> | null = null;
+    const changedDatabaseFiles = new Set<string>();
     const dbRulesFiles = watchRulesFiles(
-      () => [session.databaseRulesFile()],
-      () => {
+      () => session.databaseRulesFiles(),
+      (file) => {
+        changedDatabaseFiles.add(file);
         const pendingReload = debounceDb;
         const hasPendingReload = pendingReload !== null;
         if (hasPendingReload) clearTimeout(pendingReload);
         debounceDb = setTimeout(() => {
-          void session.reloadDatabaseRules().then((result) => {
-            if (result.kind === 'reloaded') {
-              logger.note(`  ↻ rtdb rules reloaded (hash ${result.rulesHash}) → ${result.clients} page(s)`);
-            } else if (result.kind === 'rejected') {
-              logger.note(`  ⚠ rtdb rules NOT reloaded (last-good stays live): ${result.error.message}`);
-            } else if (result.kind === 'removed') {
-              logger.note(`  ⚠ ${formatDatabaseRulesRemoved(session.databaseRulesFile(), result.policy)} → ${result.clients} page(s)`);
-            }
-          });
+          const files = [...changedDatabaseFiles];
+          changedDatabaseFiles.clear();
+          for (const changed of files) {
+            void session.reloadDatabaseRules(changed).then((results) => {
+              for (const { instance, file: source, result } of results) {
+                if (result.kind === 'reloaded') {
+                  logger.note(`  ↻ rtdb rules reloaded for ${instance} (hash ${result.rulesHash}) → ${result.clients} page(s)`);
+                } else if (result.kind === 'rejected') {
+                  logger.note(`  ⚠ rtdb rules NOT reloaded for ${instance} (last-good stays live): ${result.error.message}`);
+                } else if (result.kind === 'removed') {
+                  logger.note(`  ⚠ ${formatDatabaseRulesRemoved(source, result.policy, instance)} → ${result.clients} page(s)`);
+                }
+              }
+            });
+          }
         }, 150);
       },
       (error) => {
@@ -654,9 +666,12 @@ async function startServeRuntime(opts: {
   } else {
     logger.info('• rules    no firestore.rules — sandbox runs with default rules');
   }
-  const hasDatabaseRules = Boolean(session.payload().databaseRules);
+  const loadedDatabaseRules = session.summary.rules.database;
+  const hasDatabaseRules = loadedDatabaseRules.length > 0;
   if (hasDatabaseRules) {
-    logger.info(`✔ rules    ${session.summary.rules.database.sourcePath} → deployed to the RTDB sandbox (hash ${session.summary.rules.database.hash})`);
+    for (const loaded of loadedDatabaseRules) {
+      logger.info(`✔ rules    ${loaded.sourcePath} → deployed to RTDB instance ${loaded.instance} (hash ${loaded.hash})`);
+    }
   } else {
     logger.info('• rules    no database.rules — RTDB sandbox runs with default rules');
   }
@@ -732,7 +747,9 @@ async function startServeRuntime(opts: {
   if (isWatchEnabled) {
     const [firestoreRulesFile] = session.firestoreRulesFiles();
     logger.info(`✔ watch    hot-reloading ${firestoreRulesFile} over /__pyric/events`);
-    logger.info(`✔ watch    hot-reloading ${session.databaseRulesFile()} over /__pyric/events`);
+    for (const databaseRulesFile of session.databaseRulesFiles()) {
+      logger.info(`✔ watch    hot-reloading ${databaseRulesFile} over /__pyric/events`);
+    }
     logger.info(`✔ watch    hot-reloading ${session.storageRulesFile()} over /__pyric/events`);
   }
   // Browser-honesty: the sandbox is browser-resident — firestore/auth and

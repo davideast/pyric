@@ -239,6 +239,7 @@ export async function createViteSandboxGeneration(
       deployHostedRules: usesHostedSandbox ? bridge?.deployHostedRules : undefined,
       flow: options.flow,
       firebaseConfig: rulesConfig,
+      projectId: functions.projectId ?? undefined,
       sdk,
       seedFile: options.seed,
       persistence,

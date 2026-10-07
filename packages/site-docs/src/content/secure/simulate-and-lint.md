@@ -230,13 +230,23 @@ A `.read` or `.write` rule that errors does not grant access, and evaluation con
 
 ### Keep the running sandbox in step with the file
 
-`pyric sandbox` and the Vite plugin watch the Realtime Database rules file and reload it when it changes. They watch the path `firebase.json` names under `database`, or `database.rules.json` when it names none. They watch it whether or not the file exists yet:
+`pyric sandbox` and the Vite plugin read `firebase.json` `database` the way `firebase deploy` reads it, so each database instance gets its own rules:
 
-- **Created.** A rules file you add after startup loads. Until then, Realtime Database follows its default policy: deny every client request, or allow when you start with `--permissive`.
-- **Changed.** Saving the file loads the new rules and logs `rtdb rules reloaded`. A file that is not valid rules JSON, or that has a lint error from the first group above, does not replace the running rules. The last good ruleset stays live and the log reads `rtdb rules NOT reloaded (last-good stays live)` with the reason.
-- **Deleted.** The sandbox returns to the default policy and logs `rtdb rules removed` with the path. A deleted Firestore rules file behaves differently: the last good Firestore rules stay in force and the log reports the deletion.
+- **One object.** `{ "rules": "database.rules.json" }` deploys to the default instance, `<projectId>-default-rtdb`. The project id comes from `--project`, then `.firebaserc` `projects.default`.
+- **An array of instances.** Each entry pairs an `instance` name with its `rules` file, for example `[{ "instance": "my-app-default-rtdb", "rules": "main.rules.json" }, { "instance": "my-app-logs", "rules": "logs.rules.json" }]`.
+- **Deploy targets.** An entry can name a `target` instead, which `.firebaserc` maps to one or more instances (`firebase target:apply database <target> <instance>`). When an entry names both, `target` wins.
 
-At startup, a rules file the deploy would refuse stops `pyric sandbox` with the same reason. The other load paths refuse it too: `pyric rules set --service database`, a seed's database rules, `pyric verify`, and `pyric database rules generate`, which writes nothing and exits with status 2. `sandbox.setRules` from `pyric/database` installs a ruleset as given, without this check.
+An entry with neither `instance` nor `target` stops startup with the Firebase CLI's error, `Must supply either "target" or "instance" in database config`, and so does a target `.firebaserc` does not map. Two entries that deploy different files to one instance stop startup too: `firebase deploy` would deploy both at once, and which one production keeps is not determined. Without a `database` key, `database.rules.json` loads into the default instance when it exists.
+
+The in-page sandbox applies each instance its own rules. Under the SharedWorker and the Node sandbox, every database URL reads and writes the default instance, which runs the default instance's rules.
+
+They watch each instance's rules file and reload it when it changes. Editing one instance's file reloads only that instance. They watch each file whether or not it exists yet:
+
+- **Created.** A rules file you add after startup loads. Until then, that instance follows the default policy: deny every client request, or allow when you start with `--permissive`.
+- **Changed.** Saving the file loads the new rules and logs `rtdb rules reloaded` with the instance name. A file that is not valid rules JSON, or that has a lint error from the first group above, does not replace the running rules. The last good ruleset stays live and the log reads `rtdb rules NOT reloaded (last-good stays live)` with the reason.
+- **Deleted.** That instance returns to the default policy, and the log reads `rtdb rules removed` with the path and the instance. A deleted Firestore rules file behaves differently: the last good Firestore rules stay in force and the log reports the deletion.
+
+At startup, a rules file the deploy would refuse stops `pyric sandbox` with the same reason, naming the instance and the file. The other load paths refuse it too: `pyric rules set --service database`, a seed's database rules, `pyric verify`, and `pyric database rules generate`, which writes nothing and exits with status 2. `sandbox.setRules` from `pyric/database` installs a ruleset as given, without this check.
 
 Pass `--no-watch` to `pyric sandbox` to turn hot reload off for Firestore, Realtime Database, and Storage rules.
 

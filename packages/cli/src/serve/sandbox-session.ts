@@ -12,10 +12,10 @@ import type { ActivityIncident } from 'pyric/firestore/internal';
 import { defaultAvatarSvg } from 'pyric/auth/internal';
 import type { FirebaseJson } from '../cli/firebase-json.js';
 import { createCaptureStore, type CaptureStore } from './capture-store.js';
-import type { InitPayload } from './init-payload.js';
+import type { DatabaseInstancesRules, InitPayload, RtdbRulesJson } from './init-payload.js';
 import {
-  databaseRulesPath,
   firestoreRulesPath,
+  loadDatabaseInstanceRules,
   loadProjectDatabaseRules,
   loadProjectRules,
   loadProjectStorageRules,
@@ -24,6 +24,7 @@ import {
   storageRulesPath,
   rulesHashOf,
   RulesPrepareError,
+  type DatabaseRulesTarget,
 } from './rules.js';
 import { createEventHub, createPyricNamespace } from './namespace.js';
 import type { BeaconReport } from '../register/beacon.js';
@@ -63,6 +64,10 @@ export interface SandboxSessionOptions {
    *  Absent behaves like `{ enabled: false }`: no avatar route is mounted. */
   avatars?: ResolvedAvatarsConfig;
   permissive?: boolean;
+  /** The project id that names the default Realtime Database instance and
+   *  selects `.firebaserc` deploy targets. Without it, `.firebaserc`
+   *  `projects.default` is used. */
+  projectId?: string;
   logger?: ServeLogger;
   activity?: (incident: ActivityIncident) => void;
   /** Receives one handshake beacon per pyric-launched child, the dev
@@ -76,7 +81,8 @@ export interface SandboxSessionOptions {
 export interface SandboxSessionSummary {
   rules: {
     firestore: { sourcePath: string | null; hash: string | null };
-    database: { sourcePath: string | null; hash: string | null };
+    /** Each Realtime Database instance whose rules loaded at startup. */
+    database: Array<{ instance: string; sourcePath: string; hash: string }>;
     storage: { sourcePath: string | null; hash: string | null };
   };
   persistence: null | {
@@ -99,7 +105,8 @@ export interface SandboxSession {
   payload(): InitPayload;
   handle(req: IncomingMessage, res: ServerResponse, url: URL): boolean | Promise<boolean>;
   reloadFirestoreRules(): Promise<RulesReloadResult>;
-  reloadDatabaseRules(): Promise<RulesReloadResult>;
+  /** Reload the rules of each database instance that deploys `file`. */
+  reloadDatabaseRules(file: string): Promise<DatabaseRulesReloadResult[]>;
   reloadStorageRules(): Promise<RulesReloadResult>;
   /** The Firestore rules source file, the module files it imported at the
    *  last successful load, and the module files a failed reload since then
@@ -107,9 +114,9 @@ export interface SandboxSession {
    *  source file is the path the rules load from, listed whether or not it
    *  exists, so creating it loads the rules. */
   firestoreRulesFiles(): readonly string[];
-  /** The Realtime Database rules file the rules load from, whether or not it
-   *  exists. */
-  databaseRulesFile(): string;
+  /** The Realtime Database rules files the instances load from, whether or
+   *  not they exist. */
+  databaseRulesFiles(): readonly string[];
   /** The Storage rules file the rules load from, whether or not it exists. */
   storageRulesFile(): string;
   close(): Promise<void>;
@@ -133,6 +140,13 @@ export type RulesReloadResult =
   /** The rules file was deleted. The service is back to the state it starts
    *  in without a rules file: no rules, and `policy` for every read and write. */
   | { kind: 'removed'; policy: 'allow' | 'deny'; clients: number };
+
+/** One database instance's reload after its rules file changed. */
+export interface DatabaseRulesReloadResult {
+  instance: string;
+  file: string;
+  result: RulesReloadResult;
+}
 
 /** The generated fallback every avatars configuration falls back to when a
  *  cache entry, pool, or configured source doesn't answer for a key: the
@@ -188,17 +202,19 @@ export async function createSandboxSession(
   // Preserve the established fail-fast order: Firestore, then RTDB, then
   // Storage. Callers historically surfaced the first error in this sequence.
   const firestore = await loadProjectRules(options.projectDir, options.firebaseConfig);
-  const database = await loadProjectDatabaseRules(options.projectDir, options.firebaseConfig);
+  const database = await loadProjectDatabaseRules(options.projectDir, options.firebaseConfig, { projectId: options.projectId });
   const storage = await loadProjectStorageRules(options.projectDir, options.firebaseConfig);
+  // Each declared instance's rules in force, null while its file is missing.
+  const liveDatabase = new Map<string, { rules: RtdbRulesJson; rulesHash: string } | null>(
+    database.targets.map((target) => [target.instance, database.instances.get(target.instance) ?? null]),
+  );
   const live = {
     rules: firestore.rules,
     rulesHash: firestore.rulesHash,
-    databaseRules: database.rules,
-    databaseRulesHash: database.rulesHash,
     storageRules: storage.rules,
     storageRulesHash: storage.rulesHash,
   };
-  const hasNoDatabaseRules = !database.sourcePath;
+  const hasNoDatabaseRules = database.instances.size === 0;
   if (hasNoDatabaseRules) {
     const isPermissive = Boolean(options.permissive);
     if (isPermissive) {
@@ -308,14 +324,19 @@ export async function createSandboxSession(
       }
     }
 
+    const databaseInstances = (): DatabaseInstancesRules => ({
+      defaultInstance: database.defaultInstance,
+      rules: Object.fromEntries([...liveDatabase].map(([instance, loaded]) => [instance, loaded?.rules ?? null])),
+    });
     const payload = (): InitPayload => {
       const hasPersistedState = state?.exists() === true;
+      const defaultDatabase = liveDatabase.get(database.defaultInstance) ?? null;
       return {
         rules: live.rules,
         rulesHash: live.rulesHash,
-        databaseRules: live.databaseRules,
-        databaseRulesHash: live.databaseRulesHash,
-        databaseUrl: database.databaseUrl,
+        databaseRules: defaultDatabase?.rules ?? null,
+        databaseRulesHash: defaultDatabase?.rulesHash ?? null,
+        databaseInstances: databaseInstances(),
         storageRules: live.storageRules,
         storageRulesHash: live.storageRulesHash,
         projectKey: options.projectDir,
@@ -342,7 +363,11 @@ export async function createSandboxSession(
     const summary: SandboxSessionSummary = {
       rules: {
         firestore: { sourcePath: firestore.sourcePath, hash: firestore.rulesHash },
-        database: { sourcePath: database.sourcePath, hash: database.rulesHash },
+        database: [...database.instances.values()].map((loaded) => ({
+          instance: loaded.instance,
+          sourcePath: loaded.sourcePath,
+          hash: loaded.rulesHash,
+        })),
         storage: { sourcePath: storage.sourcePath, hash: storage.rulesHash },
       },
       persistence: hasStateStore
@@ -398,7 +423,6 @@ export async function createSandboxSession(
     // last-good module files so fixing or creating one reloads.
     let attemptedModuleFiles: readonly string[] = [];
     const firestoreSourcePath = firestoreRulesPath(options.projectDir, options.firebaseConfig);
-    const databaseSourcePath = databaseRulesPath(options.projectDir, options.firebaseConfig);
     const reloadFirestoreRules = async (): Promise<RulesReloadResult> => {
       const sourcePath = firestoreSourcePath;
       const isSourceMissing = !existsSync(sourcePath);
@@ -434,43 +458,50 @@ export async function createSandboxSession(
     const firestoreRulesFiles = (): readonly string[] => {
       return [...new Set([firestoreSourcePath, ...firestore.moduleFiles, ...attemptedModuleFiles])];
     };
-    const databaseRulesFile = (): string => databaseSourcePath;
-    // Without a rules file, RTDB reads and writes follow the default policy:
-    // deny, as in production, unless the session is permissive.
-    const removeDatabaseRules = async (): Promise<RulesReloadResult> => {
-      const hasNoLoadedRules = live.databaseRules === null;
+    const databaseRulesFiles = (): readonly string[] => [...new Set(database.targets.map((target) => target.path))];
+    // The Node host holds one database store, which serves the default
+    // instance, so only the default instance's rules deploy to it.
+    const deployHostedDatabaseRules = async (instance: string, rules: RtdbRulesJson | null): Promise<void> => {
+      const isDefaultInstance = instance === database.defaultInstance;
+      if (isDefaultInstance) await options.deployHostedRules?.('database', rules === null ? null : JSON.stringify(rules));
+    };
+    // Without a rules file, an instance's reads and writes follow the default
+    // policy: deny, as in production, unless the session is permissive.
+    const removeDatabaseInstanceRules = async (instance: string): Promise<RulesReloadResult> => {
+      const hasNoLoadedRules = (liveDatabase.get(instance) ?? null) === null;
       if (hasNoLoadedRules) return { kind: 'not-configured' };
-      await options.deployHostedRules?.('database', null);
-      database.sourcePath = null;
-      live.databaseRules = null;
-      live.databaseRulesHash = null;
+      await deployHostedDatabaseRules(instance, null);
+      liveDatabase.set(instance, null);
       const policy = options.permissive ? 'allow' : 'deny';
-      events.broadcast('rtdb-rules-update', { rules: null, rulesHash: null, policy });
+      events.broadcast('rtdb-rules-update', { instance, rules: null, rulesHash: null, policy });
       return { kind: 'removed', policy, clients: events.clientCount() };
     };
-    const reloadDatabaseRules = async (): Promise<RulesReloadResult> => {
-      const isSourceMissing = !existsSync(databaseSourcePath);
-      if (isSourceMissing) return removeDatabaseRules();
+    const reloadDatabaseInstanceRules = async (target: DatabaseRulesTarget): Promise<RulesReloadResult> => {
+      const isSourceMissing = !existsSync(target.path);
+      if (isSourceMissing) return removeDatabaseInstanceRules(target.instance);
       try {
-        const updated = await loadProjectDatabaseRules(options.projectDir, options.firebaseConfig);
-        const isMissingUpdatedRules = updated.rules === null || updated.rulesHash === null;
-        if (isMissingUpdatedRules) {
-          return removeDatabaseRules();
-        }
-        await options.deployHostedRules?.('database', JSON.stringify(updated.rules));
-        database.sourcePath = updated.sourcePath;
-        live.databaseRules = updated.rules;
-        live.databaseRulesHash = updated.rulesHash;
-        events.broadcast('rtdb-rules-update', { rules: updated.rules, rulesHash: updated.rulesHash });
-        return { kind: 'reloaded', rulesHash: updated.rulesHash as string, clients: events.clientCount() };
+        const updated = await loadDatabaseInstanceRules(target);
+        if (updated === null) return removeDatabaseInstanceRules(target.instance);
+        await deployHostedDatabaseRules(target.instance, updated.rules);
+        liveDatabase.set(target.instance, { rules: updated.rules, rulesHash: updated.rulesHash });
+        events.broadcast('rtdb-rules-update', {
+          instance: target.instance,
+          rules: updated.rules,
+          rulesHash: updated.rulesHash,
+        });
+        return { kind: 'reloaded', rulesHash: updated.rulesHash, clients: events.clientCount() };
       } catch (error) {
-        const isErrorInstance = error instanceof Error;
-        let errorResult: Error = new Error(String(error));
-        if (isErrorInstance) {
-          errorResult = error as Error;
-        }
-        return { kind: 'rejected', error: errorResult };
+        const failure = error instanceof Error ? error : new Error(String(error));
+        return { kind: 'rejected', error: failure };
       }
+    };
+    const reloadDatabaseRules = async (file: string): Promise<DatabaseRulesReloadResult[]> => {
+      const changed = database.targets.filter((target) => target.path === file);
+      const results: DatabaseRulesReloadResult[] = [];
+      for (const target of changed) {
+        results.push({ instance: target.instance, file, result: await reloadDatabaseInstanceRules(target) });
+      }
+      return results;
     };
     const storageSourcePath = storageRulesPath(options.projectDir, options.firebaseConfig);
     const storageRulesFile = (): string => storageSourcePath;
@@ -523,7 +554,7 @@ export async function createSandboxSession(
       reloadDatabaseRules,
       reloadStorageRules,
       firestoreRulesFiles,
-      databaseRulesFile,
+      databaseRulesFiles,
       storageRulesFile,
       close,
     };
