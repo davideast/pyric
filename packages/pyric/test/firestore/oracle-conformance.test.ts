@@ -990,6 +990,58 @@ ${writeProjectionRules()}
     unsub();
   });
 
+  it('firestore-collection-group-listener', async () => {
+    const obs = load('firestore-collection-group-listener.json') as {
+      collectionGroup: string;
+      writes: Record<'ready' | 'nested' | 'root' | 'sibling', string>;
+      fires: { paths: string[]; changes: string[] }[];
+      siblingGroupFires: number;
+      siblingGroupErrors: { code: string }[];
+    };
+    const run = 'r0';
+    const real = (path: string) => path.split('<run>').join(run);
+    const redact = (path: string) => path.split(run).join('<run>');
+    const group = real(obs.collectionGroup);
+    const sibling = `cdd_other_${run}`;
+    const sandbox = initializeSandbox();
+    seedDocuments(sandbox, { [real(obs.writes.ready)]: { ready: true } });
+    // The probe rules the capture deployed for these two collection ids.
+    setRules(sandbox, `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{path=**}/${group}/{id} { allow read, write: if request.auth != null; }
+    match /__pyric_firestore_cdd/${run}/users/{uid}/${sibling}/{id} { allow read, write: if request.auth != null; }
+  }
+}`);
+    const db = getFirestore(sandbox.withAuth({ uid: 'probe' }));
+    const fires: { paths: string[]; changes: string[] }[] = [];
+    const siblingErrors: unknown[] = [];
+    let siblingFires = 0;
+    const stops = [
+      onSnapshot(collectionGroup(db, group), (s) => {
+        const snap = s as QuerySnapshot;
+        fires.push({
+          paths: snap.docs.map((d) => redact(d.ref.path)).sort(),
+          changes: snap.docChanges().map((c) => `${c.type} ${redact(c.doc.ref.path)}`),
+        });
+      }),
+      onSnapshot(collectionGroup(db, sibling), () => { siblingFires += 1; }, (e) => siblingErrors.push(e)),
+    ];
+    try {
+      await settle();
+      for (const key of ['nested', 'root', 'sibling'] as const) {
+        await setDoc(doc(db, real(obs.writes[key])), { n: 1 });
+        await settle();
+      }
+      expect(fires).toEqual(obs.fires.map(({ paths, changes }) => ({ paths, changes })));
+      expect(siblingFires).toBe(obs.siblingGroupFires);
+      expect(siblingErrors.map((e) => (e as { code: string }).code))
+        .toEqual(obs.siblingGroupErrors.map((e) => e.code));
+    } finally {
+      for (const stop of stops) stop();
+    }
+  });
+
   it('firestore-row-83-unsubscribe-stops-fires', async () => {
     const obs = load('firestore-row-83-unsubscribe-stops-fires.json');
     const db = freshDb();

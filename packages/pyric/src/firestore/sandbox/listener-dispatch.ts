@@ -27,10 +27,13 @@ import type {
 import {
   buildDocumentSnapshot,
   buildQuerySnapshot,
+  querySnapshotScope,
   SANDBOX_METADATA,
   SANDBOX_METADATA_PENDING,
+  type QuerySnapshotTarget,
 } from './snapshot-listeners.js';
-import { docDataEqual, anyPathInCollection } from './listener-delivery.js';
+import type { QueryScope } from './query-execution.js';
+import { docDataEqual, anyPathInQueryScope } from './listener-delivery.js';
 import { nextRequestEventId } from './request-events.js';
 import type { FirestoreEventBus } from './event-bus.js';
 import type { TriggerScope, TriggeringOps } from './trigger-scope.js';
@@ -59,13 +62,28 @@ export interface ListenerDispatchHost {
     bypassRules?: boolean,
   ): { allowed: true; data: DocumentData | null } | { allowed: false; error: FirestoreSimError };
   silentReadCollection(
-    collection: string,
+    scope: QueryScope,
     auth: ListenerAuth,
     constraints?: QueryConstraintInput,
     bypassRules?: boolean,
   ):
     | { allowed: true; docs: { path: string; data: DocumentData }[] }
     | { allowed: false; error: FirestoreSimError };
+}
+
+/** The public event shape of a query listener's target. */
+function queryEventTarget(
+  target: QuerySnapshotTarget,
+  withQuery = false,
+): { kind: 'query'; collection: string; collectionGroup?: true; query?: unknown } {
+  return {
+    kind: 'query',
+    collection: target.collection,
+    ...(target.collectionGroup ? { collectionGroup: true as const } : {}),
+    ...(withQuery && target.constraints?.activityQuery
+      ? { query: target.constraints.activityQuery }
+      : {}),
+  };
 }
 
 export class ListenerDispatch {
@@ -297,13 +315,7 @@ export class ListenerDispatch {
       listenerId: id,
       target: target.kind === 'doc'
         ? { kind: 'doc', path: target.path }
-        : {
-            kind: 'query',
-            collection: target.collection,
-            ...(target.constraints?.activityQuery
-              ? { query: target.constraints.activityQuery }
-              : {}),
-          },
+        : queryEventTarget(target, true),
       auth,
       owners: attachOwners,
     });
@@ -336,13 +348,7 @@ export class ListenerDispatch {
           listenerId: id,
           target: target.kind === 'doc'
             ? { kind: 'doc', path: target.path }
-            : {
-                kind: 'query',
-                collection: target.collection,
-                ...(target.constraints?.activityQuery
-                  ? { query: target.constraints.activityQuery }
-                  : {}),
-              },
+            : queryEventTarget(target, true),
           auth,
         });
       }
@@ -397,7 +403,7 @@ export class ListenerDispatch {
 
     // Query target.
     const result = this.host.silentReadCollection(
-      record.target.collection,
+      querySnapshotScope(record.target),
       record.auth,
       record.target.constraints,
       record.bypassRules,
@@ -420,7 +426,7 @@ export class ListenerDispatch {
     }
     this.emitSnapshotDelivery({
       listenerId: record.id,
-      target: { kind: 'query', collection: record.target.collection },
+      target: queryEventTarget(record.target),
       auth: record.auth,
       // Initial fire: every doc surfaces as `added`.
       addedCount: result.docs.length,
@@ -535,7 +541,7 @@ export class ListenerDispatch {
     for (const path of ops.paths) {
       const touches = target.kind === 'doc'
         ? target.path === path
-        : anyPathInCollection(new Set([path]), target.collection);
+        : anyPathInQueryScope(new Set([path]), querySnapshotScope(target));
       if (touches) return { method: ops.method, path };
     }
     return undefined;
@@ -652,14 +658,15 @@ export class ListenerDispatch {
 
   private notifyQueryListener(record: ListenerRecord, touchedPaths: ReadonlySet<string>): void {
     if (record.target.kind !== 'query') return;
-    // Cheap pre-filter: if no touched path lives in this collection,
+    // Cheap pre-filter: if no touched path lives in this query's scope,
     // skip the rules eval entirely. The silent collection read's
     // query-proof gate handles read-side visibility; this filter is
     // purely a write-path optimization.
-    if (!anyPathInCollection(touchedPaths, record.target.collection)) return;
+    const scope = querySnapshotScope(record.target);
+    if (!anyPathInQueryScope(touchedPaths, scope)) return;
 
     const result = this.host.silentReadCollection(
-      record.target.collection,
+      scope,
       record.auth,
       record.target.constraints,
       record.bypassRules,
@@ -670,6 +677,7 @@ export class ListenerDispatch {
     }
 
     const collection = record.target.collection;
+    const eventTarget = queryEventTarget(record.target);
     const prevDocs = record.currentDocs ?? [];
     // Item 3 — the write echo carries hasPendingWrites:true; the settled ack
     // (scheduled below for includeMetadataChanges listeners) carries false.
@@ -699,7 +707,7 @@ export class ListenerDispatch {
         }
         this.emitSnapshotDelivery({
           listenerId: record.id,
-          target: { kind: 'query', collection },
+          target: eventTarget,
           auth: record.auth,
           addedCount: 0,
           modifiedCount: 0,
@@ -708,12 +716,12 @@ export class ListenerDispatch {
           sample: { docs: result.docs.map((d) => ({ path: d.path, data: d.data })) },
           ...(this.triggerScope.current() ? { triggeredBy: this.triggerScope.current() } : {}),
         });
-        this.scheduleQueryMetadataAck(record, collection, result.docs);
+        this.scheduleQueryMetadataAck(record, record.target, result.docs);
         return;
       }
       this.emitSnapshotSuppressed({
         listenerId: record.id,
-        target: { kind: 'query', collection },
+        target: eventTarget,
         auth: record.auth,
         ...(this.triggerScope.current() ? { triggeredBy: this.triggerScope.current() } : {}),
       });
@@ -735,7 +743,7 @@ export class ListenerDispatch {
     }
     this.emitSnapshotDelivery({
       listenerId: record.id,
-      target: { kind: 'query', collection },
+      target: eventTarget,
       auth: record.auth,
       addedCount,
       modifiedCount,
@@ -744,7 +752,7 @@ export class ListenerDispatch {
       sample: { docs: result.docs.map((d) => ({ path: d.path, data: d.data })) },
       ...(this.triggerScope.current() ? { triggeredBy: this.triggerScope.current() } : {}),
     });
-    this.scheduleQueryMetadataAck(record, collection, result.docs);
+    this.scheduleQueryMetadataAck(record, record.target, result.docs);
   }
 
   /**
@@ -755,15 +763,16 @@ export class ListenerDispatch {
    */
   private scheduleQueryMetadataAck(
     record: ListenerRecord,
-    collection: string,
+    target: QuerySnapshotTarget,
     docs: { path: string; data: DocumentData }[],
   ): void {
     if (!record.options.includeMetadataChanges) return;
+    const eventTarget = queryEventTarget(target);
     this.scheduleTriggeredDelivery(this.triggerScope.current(), () => {
       if (!this.snapshotListeners.has(record.id)) return;
       if (record.errored) return;
       const ack = buildQuerySnapshot(
-        { path: collection },
+        { path: target.collection },
         docs,
         { excludesMetadataChanges: false },
         docs,
@@ -777,7 +786,7 @@ export class ListenerDispatch {
       }
       this.emitSnapshotDelivery({
         listenerId: record.id,
-        target: { kind: 'query', collection },
+        target: eventTarget,
         auth: record.auth,
         addedCount: 0,
         modifiedCount: 0,
@@ -940,7 +949,7 @@ export class ListenerDispatch {
   private reEvaluateQueryListener(record: ListenerRecord): void {
     if (record.target.kind !== 'query') return;
     const result = this.host.silentReadCollection(
-      record.target.collection,
+      querySnapshotScope(record.target),
       record.auth,
       record.target.constraints,
       record.bypassRules,

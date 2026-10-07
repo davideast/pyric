@@ -241,7 +241,11 @@ export class SandboxImpl implements LocalSandbox {
           target:
             target.kind === 'doc'
               ? { kind: 'doc', path: target.path }
-              : { kind: 'query', collection: target.collection },
+              : {
+                  kind: 'query',
+                  collection: target.collection,
+                  ...(target.collectionGroup ? { collectionGroup: true as const } : {}),
+                },
           auth: err.request?.auth ?? null,
           error: {
             code: 'permission-denied',

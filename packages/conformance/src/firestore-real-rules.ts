@@ -35,6 +35,19 @@ export function selectFirestoreRulesFile(
   return selected;
 }
 
+/**
+ * The collection id the collection-group listener probe queries. It carries
+ * the run id so the group matches only documents this run writes.
+ */
+export function collectionGroupProbeId(runId: string): string {
+  return `cdd_items_${runId}`;
+}
+
+/** A collection beside the probe group that only a concrete match governs. */
+export function collectionGroupSiblingId(runId: string): string {
+  return `cdd_other_${runId}`;
+}
+
 export function injectFirestoreProbeRules(source: string, runId: string): string {
   if (!/^[A-Za-z0-9_-]+$/.test(runId)) throw new Error('unsafe Firestore probe run id');
   const found = FIRESTORE_DOCUMENTS_MATCH.exec(source);
@@ -52,6 +65,12 @@ export function injectFirestoreProbeRules(source: string, runId: string): string
       allow read, write: if request.auth != null;
     }
     match /__pyric_firestore_cdd/${runId}/browser/{document=**} {
+      allow read, write: if request.auth != null;
+    }
+    match /{path=**}/${collectionGroupProbeId(runId)}/{id} {
+      allow read, write: if request.auth != null;
+    }
+    match /__pyric_firestore_cdd/${runId}/users/{uid}/${collectionGroupSiblingId(runId)}/{id} {
       allow read, write: if request.auth != null;
     }
     match /__pyric_firestore_cdd/${runId}/rules_get_after/{caseId} {

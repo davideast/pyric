@@ -46,6 +46,7 @@ import {
   captureQueryExecutionSpec,
   captureQueryScope,
   queryConstraintsForProof,
+  type QueryScope,
   type RunQueryRequest,
   type RunQueryResult,
 } from './query-execution.js';
@@ -228,8 +229,10 @@ export class RulesReadEngine implements ListenerDispatchHost {
   }
 
   /**
-   * Collection variant of {@link silentReadDoc}. Returns docs in
-   * `LocalState.list` order. Phantom parents are dropped here;
+   * Query variant of {@link silentReadDoc}, for a collection or a
+   * collection group. Gathers candidates and proves the `list` rule the same
+   * way {@link runQuery} does, so a listener and a one-shot read of one query
+   * agree on authorization and membership. Phantom parents are dropped;
    * agent-visible snapshots only contain real docs.
    *
    * **RULES-B11 — query-proof enforcement ("rules are not filters").**
@@ -252,7 +255,7 @@ export class RulesReadEngine implements ListenerDispatchHost {
    * bubbles through unchanged.
    */
   silentReadCollection(
-    collection: string,
+    scope: QueryScope,
     auth: ListenerAuth,
     constraints?: QueryConstraintInput,
     bypassRules = false,
@@ -277,29 +280,13 @@ export class RulesReadEngine implements ListenerDispatchHost {
       at: this.clock.now(),
     };
     const triggeredBy = this.triggerScope.current();
-    if (bypassRules) {
-      const docs = this.state.list(collection)
-        .filter((document) => !document.phantom)
-        .map((document) => ({ path: document.path, data: document.data }));
-      const constrained = execution ? executeQuery(docs, execution) : docs;
-      const authorization = this.listAuthorizer.authorize({
-        path: collection,
-        auth,
-        constraints: structured,
-        bypassRules,
-        ...(constraints?.activityQuery ? { activityQuery: constraints.activityQuery } : {}),
-        execution,
-        origin: 'listener',
-        ...(triggeredBy ? { triggeredBy } : {}),
-        timing,
-      });
-      if (!authorization.allowed) return authorization;
-      return { allowed: true, docs: constrained };
-    }
+    const captured = captureQueryScope(scope);
     const authorization = this.listAuthorizer.authorize({
-      path: collection,
+      path: captured.kind === 'collection' ? captured.path : captured.collectionId,
+      collectionGroup: captured.kind === 'collection-group',
       auth,
       constraints: structured,
+      bypassRules,
       ...(constraints?.activityQuery ? { activityQuery: constraints.activityQuery } : {}),
       execution,
       origin: 'listener',
@@ -307,11 +294,8 @@ export class RulesReadEngine implements ListenerDispatchHost {
       timing,
     });
     if (!authorization.allowed) return authorization;
-    const docs = this.state.list(collection)
-      .filter((document) => !document.phantom)
-      .map((document) => ({ path: document.path, data: document.data }));
-    const constrained = execution ? executeQuery(docs, execution) : docs;
-    return { allowed: true, docs: constrained };
+    const docs = gatherQueryRows(this.state, captured);
+    return { allowed: true, docs: execution ? executeQuery(docs, execution) : docs };
   }
 
   /**

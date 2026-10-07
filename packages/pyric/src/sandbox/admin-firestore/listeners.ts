@@ -118,6 +118,23 @@ function extractSnapshotConstraints(
 }
 
 /**
+ * The query's candidate scope from `QueryImpl.snapshotScope()`: a collection
+ * path, or a collection group's id. Structural lookup, like
+ * {@link extractSnapshotConstraints}.
+ */
+function extractSnapshotScope(
+  ref: unknown,
+): { kind: 'collection'; path: string } | { kind: 'collection-group'; collectionId: string } | undefined {
+  if (ref !== null && typeof ref === 'object') {
+    const fn = (ref as { snapshotScope?: unknown }).snapshotScope;
+    if (typeof fn === 'function') {
+      return (fn as () => { kind: 'collection'; path: string } | { kind: 'collection-group'; collectionId: string }).call(ref);
+    }
+  }
+  return undefined;
+}
+
+/**
  * Discriminate a `DocumentReference` from a `Query`/`CollectionReference`.
  * The Admin-shaped `DocumentReference` always has a `parent: CollectionReference`
  * field; `Query` and `CollectionReference` do not have a `parent` field.
@@ -288,8 +305,18 @@ export function onSnapshot(
   const env = getInternalEnv(ctx.sandbox);
 
   let target: import('pyric/sandbox/admin-compat').SnapshotTarget;
+  const scope = isDocumentReference(reference) ? undefined : extractSnapshotScope(reference);
   if (isDocumentReference(reference)) {
     target = { kind: 'doc', path: reference.path };
+  } else if (scope?.kind === 'collection-group') {
+    // A collection group has no collection path: the listener watches every
+    // collection with the id, and its list rule is proven as a group query.
+    target = {
+      kind: 'query',
+      collection: scope.collectionId,
+      collectionGroup: true,
+      constraints: extractSnapshotConstraints(reference),
+    };
   } else {
     const collectionPath = extractCollectionPath(reference);
     if (collectionPath === null) {

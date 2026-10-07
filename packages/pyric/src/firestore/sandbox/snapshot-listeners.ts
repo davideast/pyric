@@ -23,7 +23,7 @@ import type { Operation } from './local-environment.js';
 // `typeName` field and no `nanoseconds`). `read-translation.ts` carries no
 // admin-compat-surface dependency, so importing it here is cycle-free.
 import { translateReadData } from './admin-compat/read-translation.js';
-import type { QueryExecutionSpec } from './query-execution.js';
+import type { QueryExecutionSpec, QueryScope } from './query-execution.js';
 import type { QueryConstraints } from './list-query-proof.js';
 import {
   getSnapshotField,
@@ -67,10 +67,28 @@ export type QueryConstraintInput = QueryConstraintPlan | QueryConstraintApplier;
  * `orderBy` / `limit` constraints via {@link SnapshotTarget.constraints}
  * (FS-B2) so the listener delivers a filtered/ordered/limited view
  * rather than the whole collection.
+ *
+ * A collection-group listener sets `collectionGroup`, and `collection` holds
+ * the collection id: the listener watches every collection with that id at
+ * any depth, and its `list` rule is proven as a collection-group query.
  */
 export type SnapshotTarget =
   | { kind: 'doc'; path: string }
-  | { kind: 'query'; collection: string; constraints?: QueryConstraintInput };
+  | QuerySnapshotTarget;
+
+export interface QuerySnapshotTarget {
+  kind: 'query';
+  collection: string;
+  collectionGroup?: true;
+  constraints?: QueryConstraintInput;
+}
+
+/** Where a query listener gathers its documents. */
+export function querySnapshotScope(target: QuerySnapshotTarget): QueryScope {
+  return target.collectionGroup
+    ? { kind: 'collection-group', collectionId: target.collection }
+    : { kind: 'collection', path: target.collection };
+}
 
 /**
  * Mirrors `SnapshotListenOptions` from the Web SDK. `source: 'cache'` has
