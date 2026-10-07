@@ -1,6 +1,6 @@
 /** RTDB value/child listeners and Firebase-compatible `off` registration identity. */
 import type { InboundMessage } from '../protocol.js';
-import { executeQuery, queryIdentifier } from 'pyric/database/internal';
+import { executeQuery, logDatabaseWarning, queryIdentifier } from 'pyric/database/internal';
 import { sameRtdbValue } from '../rtdb-value-equality.js';
 import {
   _defaultLens,
@@ -28,6 +28,7 @@ import {
   makeRtdbSnapshot,
   valueAt,
   type RtdbWireEntry,
+  type RtdbWireSnapshot,
 } from './rtdb-snapshots.js';
 
 export type RtdbEventType =
@@ -104,6 +105,8 @@ function openValueSubscription(
   const subHandler = {
     port: ref.port,
     next: (wire: unknown) => {
+      const warning = (wire as RtdbWireSnapshot | null)?.warning;
+      if (typeof warning === 'string') logDatabaseWarning(warning);
       if (listenOptions?.onlyOnce && fired) return;
       fired = true;
       // Reported on the subscription id the sandbox also records as the

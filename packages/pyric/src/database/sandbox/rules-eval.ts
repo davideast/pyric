@@ -167,9 +167,8 @@ export interface EvalContext {
   updates?: { path: string; value: unknown }[];
   /** Optional query constraints for read rule evaluation. */
   query?: SimulationInput['query'];
-  /** Optional query spec from sandbox query execution; automatically converts to `query` and validates `.indexOn`. */
+  /** Optional query spec from sandbox query execution; converted to `query` for `query.*` rule expressions. */
   querySpec?: QuerySpec;
-  indexMethod?: 'get' | 'listen';
 }
 
 export type RtdbDefaultPolicy = 'allow' | 'deny';
@@ -182,10 +181,7 @@ export class RulesEvaluator {
    * @param clock The sandbox's clock, read for the rules engine's `now`. A
    * standalone evaluator keeps its own wall clock.
    */
-  constructor(
-    private readonly clock: SandboxClock = new SandboxClock(),
-    private readonly missingIndex?: (path: string, spec: QuerySpec, ctx: EvalContext) => void,
-  ) {}
+  constructor(private readonly clock: SandboxClock = new SandboxClock()) {}
 
   /** Set default access policy when no rules are loaded ('allow' or 'deny'). */
   setDefaultPolicy(policy: RtdbDefaultPolicy): void {
@@ -208,34 +204,24 @@ export class RulesEvaluator {
   }
 
   /**
-   * Enforce `.indexOn` rules for queries when security rules are active.
-   *
-   * Built-in orderings (`orderByKey`, `orderByPriority`, or default priority)
-   * and queries when no security rules are loaded (`this.compiled === null`)
-   * are exempt.
+   * The `.indexOn` value a query at `path` needs when the loaded rules do not
+   * declare it, or `null` when the query needs no index or the rules declare
+   * one. `orderByKey`, `orderByPriority` and the default ordering use built-in
+   * indexes. With no rules loaded, the sandbox's default policy governs reads
+   * and no index is required.
    */
-  assertQueryIndex(path: string, spec: QuerySpec): void {
-    if (this.compiled === null) return;
-    if (spec.orderBy === null) return;
-    if (spec.orderBy.kind === 'key' || spec.orderBy.kind === 'priority') return;
-
+  missingQueryIndex(path: string, spec: QuerySpec): string | null {
+    if (this.compiled === null) return null;
+    if (spec.orderBy === null) return null;
+    if (spec.orderBy.kind === 'key' || spec.orderBy.kind === 'priority') return null;
     const requiredIndex = resolveRequiredIndexKey(spec.orderBy);
-
-    const segments = path.split('/').filter(Boolean);
-    const normalizedPath = '/' + segments.join('/');
-
-    const matchingNodes = findMatchingNodesAtPath(this.compiled, segments);
+    const matchingNodes = findMatchingNodesAtPath(this.compiled, path.split('/').filter(Boolean));
     const hasIndex = matchingNodes.some((node) =>
       node.indexOn?.some(
         (idx) => idx === requiredIndex || idx.split('/').filter(Boolean).join('/') === requiredIndex,
       ),
     );
-
-    if (!hasIndex) {
-      throw new Error(
-        `Index not defined, add ".indexOn": "${requiredIndex}", for path "${normalizedPath}", to the rules`,
-      );
-    }
+    return hasIndex ? null : requiredIndex;
   }
 
   /**
@@ -346,13 +332,6 @@ export class RulesEvaluator {
         reason: result.data.reason,
         pathVariableBindings: result.data.pathVariableBindings,
       };
-    }
-    if (result.data.allowed && isReadOperation && ctx.querySpec) {
-      try { this.assertQueryIndex(path, ctx.querySpec); }
-      catch (error) {
-        try { this.missingIndex?.(path, ctx.querySpec, ctx); } catch { /* diagnostics do not change the SDK failure */ }
-        throw error;
-      }
     }
     return {
       check: result.data.allowed ? 'allow' : 'deny',

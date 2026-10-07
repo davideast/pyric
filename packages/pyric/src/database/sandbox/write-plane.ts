@@ -8,6 +8,7 @@ import { canonicalPath, denyResultFor } from './operation-events.js';
 import { validatePriority } from './priority-state.js';
 import { PriorityWrites } from './priority-writes.js';
 import { executeQuery, type Priority, type QueryRow, type QuerySpec } from './query.js';
+import { indexNotDefined } from './query-index.js';
 import { permissionDenied } from './rules-eval.js';
 import { resolveSentinels } from './sentinels.js';
 import { listenerPermissionDenied, type ValueListeners } from './value-listeners.js';
@@ -193,6 +194,13 @@ export class WritePlane {
         at, durationMs: this.state.clock.now() - at, request: { query: spec },
       });
       throw permissionDenied();
+    }
+    const missingIndex = this.state.rules.missingQueryIndex(path, spec);
+    if (missingIndex !== null) {
+      this.state.events.operation(auth, 'get', path, 'error', undefined, {
+        at, durationMs: this.state.clock.now() - at, request: { query: spec }, detail: { failure: 'missing-index' },
+      });
+      throw indexNotDefined(path, missingIndex);
     }
     const rows = executeQuery(this.state.tree.read(path), spec, this.state.priorities.forChild(path));
     this.state.events.operation(auth, 'get', path, 'allow', evaluation, {

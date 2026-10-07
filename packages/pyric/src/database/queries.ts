@@ -27,9 +27,10 @@ import { CONSTRAINT_SYMBOL, QUERY_SYMBOL, type DatabaseReference, type Query, ty
  *     (`rtdb-modular-orderbychild-window.json`).
  *   - `orderByKey() + startAt('b') + endAt('d')` matches `[b, c, d]`
  *     (`rtdb-modular-orderbykey-window.json`).
- *   - `orderByValue() + limitToFirst(3)` returns the 3 smallest by
- *     value (`rtdb-modular-orderbyvalue-numeric.json` — note: prod
- *     requires `.indexOn: ".value"`; sandbox does not enforce indexes).
+ *   - `orderByChild` and `orderByValue` need a matching `.indexOn` when
+ *     rules are loaded: `get()` rejects without one, and a listener
+ *     filters locally and logs a warning when limited or ranged
+ *     (`rtdb-modular-query-index-enforcement.json`).
  *   - `orderByChild('group') + equalTo('b')` returns ALL matching
  *     children (`rtdb-modular-equalTo-filter.json`).
  *   - `limitToFirst(N)` / `limitToLast(N)` take from the start / end of
@@ -110,11 +111,9 @@ export function orderByPriority(): QueryConstraint {
   });
 }
 
-/** `orderByValue()` — order children by primitive value. Prod requires
- *  `.indexOn: ".value"` (oracle: `rtdb-modular-orderbyvalue-numeric.json`
- *  threw `Index not defined` against blockingfun); sandbox does NOT
- *  enforce indexes (the rules engine here checks read-allow only, not
- *  query-index conformance). */
+/** `orderByValue()` orders children by primitive value. Requires
+ *  `.indexOn: ".value"` at the queried location when rules are loaded
+ *  (oracle: `rtdb-modular-query-index-enforcement.json`). */
 export function orderByValue(): QueryConstraint {
   return buildConstraint('orderByValue', {
     kind: 'orderBy',

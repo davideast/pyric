@@ -1,7 +1,10 @@
 import type { Sandbox } from 'pyric/sandbox';
 import { SandboxClock } from 'pyric/sandbox';
 import { getClock } from 'pyric/sandbox/internal';
+import { sdkActivity } from '../../sandbox/internal/sdk-activity.js';
 import { DataTree } from './data-tree.js';
+import type { QuerySpec } from '../internal/query-projection.js';
+import { loadsAllData, logDatabaseWarning, unspecifiedIndexWarning } from './query-index.js';
 import type { ChildListener, ValueListener } from './listener-types.js';
 import { MutationHistory } from './mutation-history.js';
 import { OperationEvents } from './operation-events.js';
@@ -29,11 +32,28 @@ export class BackendState {
   constructor(sandbox?: Sandbox) {
     this.events = new OperationEvents(sandbox);
     this.clock = sandbox ? getClock(sandbox) : new SandboxClock();
-    this.rules = new RulesEvaluator(this.clock, (path, spec, ctx) => {
-      this.events.operation(ctx.auth, ctx.indexMethod ?? 'get', path, 'error', undefined, {
-        request: { query: spec }, detail: { failure: 'missing-index' },
-      });
-    });
+    this.rules = new RulesEvaluator(this.clock);
+  }
+
+  /**
+   * The warning a listener on this query logs because the rules declare no
+   * matching `.indexOn`, or `null` when the query reads the whole location or
+   * is indexed.
+   */
+  unspecifiedIndexWarning(path: string, spec: QuerySpec): string | null {
+    if (loadsAllData(spec)) return null;
+    const index = this.rules.missingQueryIndex(path, spec);
+    return index === null ? null : unspecifiedIndexWarning(path, index);
+  }
+
+  /**
+   * Log the unspecified-index warning for a listener the rules allowed. A
+   * host-side mirror call leaves the warning to the page that made the SDK call.
+   */
+  warnOnUnspecifiedIndex(path: string, spec: QuerySpec | undefined): void {
+    if (spec === undefined || sdkActivity.isSilenced()) return;
+    const warning = this.unspecifiedIndexWarning(path, spec);
+    if (warning !== null) logDatabaseWarning(warning);
   }
 
   notifyWrite(): void {

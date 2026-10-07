@@ -33,7 +33,7 @@ const obsGate = createObservationGate({
 describe('oracle conformance (rtdb-modular): completeness', () => {
   it('every rtdb-modular observation is covered (no silent gaps)', () => {
     const report = obsGate.report();
-    expect(report.committed.length).toBe(54);
+    expect(report.committed.length).toBe(55);
     expect(report.loadedButUnused).toEqual([]);
     expect(report.uncovered).toEqual([]);
   });

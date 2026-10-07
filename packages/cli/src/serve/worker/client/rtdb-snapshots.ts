@@ -16,6 +16,8 @@ export interface RtdbWireSnapshot {
   priority?: string | number | null;
   exportValue?: unknown;
   entries?: RtdbWireEntry[];
+  /** On a listener's first snapshot: the unspecified-index warning the page logs. */
+  warning?: string;
 }
 
 export function valueAt(root: unknown, path: string): unknown {
