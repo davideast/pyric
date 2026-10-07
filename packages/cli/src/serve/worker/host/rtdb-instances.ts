@@ -27,7 +27,7 @@ import {
   UNNAMED_DEFAULT_DATABASE_INSTANCE,
   databaseInstanceNamed,
   defaultDatabaseInstanceName,
-  lockedInstanceNotice,
+  undeployedInstanceNotice,
   type DatabaseInstanceRegistry,
 } from 'pyric/sandbox/internal';
 import type { AuthLens } from 'pyric/sandbox';
@@ -53,11 +53,13 @@ export function rtdbInstances(ctx: HostCtx): DatabaseInstanceRegistry<HostRtdbIn
       const selector = key === registry.defaultKey ? undefined : key;
       const live = pyricGetDatabase(ctx.sandbox, selector);
       // The default instance's policy and rules are set with the project's
-      // rules. Every other instance starts locked, as production creates a new
-      // instance, until rules are deployed to it.
+      // rules. Until rules are deployed to it, every other instance starts
+      // locked, as production creates a new instance, or open in permissive
+      // mode, as the default instance is.
       if (selector !== undefined) {
-        rtdbSandbox.setDefaultPolicy(live, ctx.rtdbDefaultPolicy ?? 'deny');
-        rtdbSandbox.setRules(live, LOCKED_DATABASE_RULES);
+        const policy = ctx.rtdbDefaultPolicy ?? 'deny';
+        rtdbSandbox.setDefaultPolicy(live, policy);
+        rtdbSandbox.setRules(live, policy === 'allow' ? null : LOCKED_DATABASE_RULES);
       }
       return { key, selector, live, sessions: new Map(), lenses: new Map() };
     },
@@ -115,12 +117,12 @@ export function adoptAppDefaultRtdbInstance(ctx: HostCtx): void {
   ctx.defaultRtdbInstance = name;
 }
 
-/** Log, once per instance, that an instance without deployed rules is locked. */
-function noticeLockedInstance(entry: HostRtdbInstance): void {
-  const isLocked = entry.selector !== undefined && entry.rules === undefined;
-  if (!isLocked || entry.noticed) return;
+/** Log, once per instance, how an instance without deployed rules is served. */
+function noticeUndeployedInstance(ctx: HostCtx, entry: HostRtdbInstance): void {
+  const isUndeployed = entry.selector !== undefined && entry.rules === undefined;
+  if (!isUndeployed || entry.noticed) return;
   entry.noticed = true;
-  console.warn(lockedInstanceNotice(entry.key));
+  console.warn(undeployedInstanceNotice(entry.key, ctx.rtdbDefaultPolicy ?? 'deny'));
 }
 
 function sessionRtdb(ctx: HostCtx, entry: HostRtdbInstance, port: PortLike): Database {
@@ -148,7 +150,7 @@ export function lensRtdb(
   instance?: string,
 ): Database {
   const entry = rtdbInstance(ctx, instance);
-  noticeLockedInstance(entry);
+  noticeUndeployedInstance(ctx, entry);
   if (!actAs || actAs.mode === 'app-session') return sessionRtdb(ctx, entry, port);
   if (actAs.mode === 'admin') return (entry.admin ??= pyricGetAdminDatabase(ctx.sandbox, entry.selector));
   if (actAs.mode === 'anon') return (entry.anon ??= pyricGetDatabase(ctx.sandbox.withAuth(null), entry.selector));

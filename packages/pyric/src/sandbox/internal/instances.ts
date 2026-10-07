@@ -33,15 +33,17 @@ export const UNNAMED_DEFAULT_DATABASE_INSTANCE = '(default)';
 /**
  * The rules production creates a new instance with: locked, so every read
  * and write is denied until a deploy replaces them. A Pyric instance that
- * `firebase.json` deploys no rules to starts with these.
+ * `firebase.json` deploys no rules to starts with these, unless the runtime
+ * runs in permissive mode, which opens it as it opens the default instance.
  */
 export const LOCKED_DATABASE_RULES: { rules: Record<string, unknown> } = Object.freeze({
   rules: Object.freeze({ '.read': false, '.write': false }),
 });
 
-/** What Pyric logs the first time an instance without deployed rules is used. */
-export function lockedInstanceNotice(name: string): string {
-  return `pyric: RTDB instance "${name}" has no rules in firebase.json; it denies all reads and writes. Add {"instance": "${name}", "rules": "<file>"} to the database array.`;
+/** What Pyric logs the first time an instance without deployed rules is used, under the runtime's policy for unconfigured rules. */
+export function undeployedInstanceNotice(name: string, policy: 'allow' | 'deny'): string {
+  const access = policy === 'allow' ? 'permissive mode allows all reads and writes' : 'it denies all reads and writes';
+  return `pyric: RTDB instance "${name}" has no rules in firebase.json; ${access}. Add {"instance": "${name}", "rules": "<file>"} to the database array.`;
 }
 
 /** The default instance name production derives from a project id. */

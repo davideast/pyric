@@ -98,9 +98,6 @@ describe('host RTDB instances', () => {
 
   it('creates an instance without deployed rules on first use, denying every read and write, and says how to deploy its rules once', async () => {
     const ctx = makeCtx('locked-project');
-    // Even a runtime that opens unconfigured rules does not open an instance
-    // production would create locked.
-    ctx.rtdbDefaultPolicy = 'allow';
     const warnings = captureWarnings();
     try {
       const denied = await send(ctx, { method: 'rtdb.set', instance: 'on-demand', path: 'a', value: 1 });
@@ -113,6 +110,21 @@ describe('host RTDB instances', () => {
       setDatabaseRules(ctx, 'on-demand', OPEN);
       expect((await send(ctx, { method: 'rtdb.set', instance: 'on-demand', path: 'a', value: 1 })).ok).toBe(true);
       expect(warnings.lines).toHaveLength(1);
+    } finally {
+      warnings.restore();
+    }
+  });
+
+  it('under permissive mode, opens an instance without deployed rules as it opens the default instance, and says so once', async () => {
+    const ctx = makeCtx('permissive-project');
+    ctx.rtdbDefaultPolicy = 'allow';
+    const warnings = captureWarnings();
+    try {
+      expect((await send(ctx, { method: 'rtdb.set', instance: 'on-demand', path: 'a', value: 1 })).ok).toBe(true);
+      expect((await send(ctx, { method: 'rtdb.get', instance: 'on-demand', path: 'a' })).ok).toBe(true);
+      expect(warnings.lines).toEqual([
+        'pyric: RTDB instance "on-demand" has no rules in firebase.json; permissive mode allows all reads and writes. Add {"instance": "on-demand", "rules": "<file>"} to the database array.',
+      ]);
     } finally {
       warnings.restore();
     }
