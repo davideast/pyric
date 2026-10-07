@@ -13,6 +13,6 @@ test('RTDB served-entry integration runs with isolated browser globals', async (
       child.exited, new Response(child.stdout).text(), new Response(child.stderr).text(),
     ]);
     expect(code, stdout + stderr).toBe(0);
-    expect(stderr).toContain('3 pass');
+    expect(stderr).toContain('4 pass');
   } finally { clearTimeout(deadline); child.kill(); }
 }, 15_000);

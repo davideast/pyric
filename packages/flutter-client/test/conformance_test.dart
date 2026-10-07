@@ -34,7 +34,7 @@ void main() {
       expect(FirebaseFirestorePlatform.instance, isA<PyricFirestorePlatform>());
     });
 
-    test('firestore-flutter#2: FirebaseFirestorePlatform.instanceFor(app, databaseId) provides isolated platform instances', () async {
+    test('firestore-flutter#2: FirebaseFirestorePlatform.instanceFor(app, databaseId) provides a distinct platform handle per database', () async {
       final customApp = await Firebase.initializeApp(
         name: 'custom-app',
         options: const FirebaseOptions(

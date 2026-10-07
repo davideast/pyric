@@ -62,8 +62,8 @@ class ConformanceTest {
     }
 
     @Test
-    @DisplayName("firestore-kotlin#2: FirebaseFirestore.getInstance(database) provides isolated instance")
-    fun `firestore-kotlin#2 FirebaseFirestore getInstance database provides isolated instance`() {
+    @DisplayName("firestore-kotlin#2: FirebaseFirestore.getInstance(database) provides a distinct handle per database")
+    fun `firestore-kotlin#2 FirebaseFirestore getInstance database provides a distinct handle per database`() {
         val db1 = FirebaseFirestore.getInstance("db-1")
         val db2 = FirebaseFirestore.getInstance("db-2")
         assertNotNull(db1)

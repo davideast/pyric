@@ -11,6 +11,18 @@ const row1 = defineRows({
   },
 });
 
+/** Production gives each named database its own documents and rules
+ * evaluation context. Each row here names a Pyric path that resolves every
+ * database id to `(default)`, and the test that pins it. */
+const namedDatabaseRow = defineRows({
+  surface: "firestore",
+  defaults: {
+    section: "Named databases",
+    status: "diverged-documented",
+    automation: "unit-backed",
+  },
+});
+
 const row2 = defineRows({
   surface: "firestore",
   defaults: {
@@ -272,6 +284,48 @@ export const firestoreRegistry = {
           riskReasons: ["structural / routing-only claim"],
           automation: "unit-backed",
           conformanceTests: ["packages/pyric/test/firestore/sandbox-target.test.ts"],
+        }),
+      ],
+    },
+    {
+      kind: 'table',
+      prefix: "## Named databases\n\nIn production `getFirestore(app, databaseId)` selects a named database with its own documents, and rules see that id in the `database` path variable. Pyric models one database per app, `(default)`.\n",
+      rows: [
+        namedDatabaseRow({
+          rowRef: "MD1",
+          featureKeys: ["getFirestore"],
+          api: "getFirestore(app, databaseId)",
+          behavior: "In the sandbox, `getFirestore(app, databaseId)` ignores the database id and returns the app's `(default)` handle, so documents written under one id are read under every other id.",
+          statusNote: "every database id resolves to (default)",
+          evidence: "`packages/pyric/test/firestore/named-database.test.ts` asserts two database ids return the `(default)` handle and that a document written under one id reads back under another.",
+          conformanceTests: ["packages/pyric/test/firestore/named-database.test.ts"],
+        }),
+        namedDatabaseRow({
+          rowRef: "MD2",
+          featureKeys: ["getFirestore"],
+          api: "getFirestore(app, databaseId) (served mode)",
+          behavior: "The served `firebase/firestore` entry ignores the database id: the worker path returns the app's one handle and the in-page fallback delegates to the sandbox `getFirestore(app)`. The worker protocol carries no database id.",
+          statusNote: "every database id resolves to (default)",
+          evidence: "`packages/cli/test/serve/worker/composite-filters-served-entry.test.ts` imports the served entry over a worker host, asserts `getFirestore(app, 'reports')` returns the app's handle, and reads the `(default)` documents through it.",
+          conformanceTests: ["packages/cli/test/serve/worker/composite-filters-served-entry.test.ts"],
+        }),
+        namedDatabaseRow({
+          rowRef: "MD3",
+          featureKeys: ["getFirestore"],
+          api: "pyric-admin getFirestore(app, databaseId)",
+          behavior: "`pyric-admin` `getFirestore` takes no database id; a second argument is ignored and the handle reads and writes `(default)`. The Admin SDK's `getFirestore(app, databaseId)` selects the named database.",
+          statusNote: "no database id parameter; every call resolves to (default)",
+          evidence: "`packages/pyric-admin/test/firestore/named-database.test.ts` writes through `getFirestore(app, 'reports')` and reads the document through `getFirestore(app)` and `getFirestore(app, 'archive')`.",
+          conformanceTests: ["packages/pyric-admin/test/firestore/named-database.test.ts"],
+        }),
+        namedDatabaseRow({
+          rowRef: "MD4",
+          featureKeys: ["setRules"],
+          api: "Rules `match /databases/{database}/documents`",
+          behavior: "Rules evaluate the `database` path variable as `(default)` for every request, whatever database id the handle was created with. Production binds the named database's id.",
+          statusNote: "`database` is always (default)",
+          evidence: "`packages/pyric/test/firestore/named-database.test.ts` writes through a handle created for `reports`: a rule requiring `database == '(default)'` allows the write and a rule requiring `database == 'reports'` denies it.",
+          conformanceTests: ["packages/pyric/test/firestore/named-database.test.ts"],
         }),
       ],
     },

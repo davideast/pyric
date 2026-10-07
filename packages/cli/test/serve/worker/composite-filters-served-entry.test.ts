@@ -184,3 +184,19 @@ describe('composite or()/and() over the SharedWorker via the served firebase/fir
     expect((snap as { docs: Array<{ id: string }> }).docs.map((d) => d.id)).toEqual(['c', 'b']);
   });
 });
+
+// Production binds `getFirestore(app, databaseId)` to that named database. The
+// worker protocol carries no database id, so the served entry returns the
+// app's one handle and every id reads the (default) documents.
+describe('getFirestore(app, databaseId) via the served firebase/firestore entry', () => {
+  it('resolves every database id to the (default) database', async () => {
+    const getFirestoreWithDatabaseId = fs.getFirestore as unknown as (
+      app: FirebaseApp,
+      databaseId: string,
+    ) => typeof db;
+    const reports = getFirestoreWithDatabaseId(fixtureApp, 'reports');
+    expect(reports).toBe(db);
+    const snap = await fs.getDocs(fs.collection(reports, 'items'));
+    expect((snap as { docs: Array<{ id: string }> }).docs.map((d) => d.id).sort()).toEqual(['a', 'b', 'c', 'd']);
+  });
+});
