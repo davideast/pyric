@@ -26,25 +26,59 @@ import type {
  *  endpoint instead of keeping its own copy. */
 export const GEMINI_DEFAULT_BASE_URL = 'https://generativelanguage.googleapis.com';
 
+const ADC_COMMAND = 'gcloud auth application-default print-access-token';
+
+/**
+ * How long a looked-up ADC access token is reused. The command prints only
+ * the token, not its expiry. It refreshes the credential on every run, so the
+ * printed token is newly minted with the default lifetime of one hour; 30
+ * minutes stays well inside that. An upstream 401 also refreshes the token
+ * early.
+ */
+const ADC_TOKEN_TTL_MS = 30 * 60 * 1000;
+
+type ExecCallback = (error: Error | null, stdout: string) => void;
+type ExecFn = (command: string, options: Record<string, unknown>, callback: ExecCallback) => unknown;
+
 /**
  * BROWSER-CLEAN: acquires `node:child_process` lazily via `process.getBuiltinModule`
  * so no static node import exists for browser bundlers to resolve.
  */
-function getExecSync(): ((command: string, options: Record<string, unknown>) => string) | null {
+function getExec(): ExecFn | null {
   const get = (globalThis as { process?: { getBuiltinModule?: (id: string) => unknown } }).process
     ?.getBuiltinModule;
   const hasGetBuiltinModule = typeof get === 'function';
   if (!hasGetBuiltinModule) {
     return null;
   }
-  const cp = get.call(process, 'node:child_process') as
-    | { execSync?: (cmd: string, opts: unknown) => string }
-    | undefined;
-  const hasExecSync = cp !== undefined && typeof cp.execSync === 'function';
-  if (!hasExecSync) {
+  const cp = get.call(process, 'node:child_process') as { exec?: unknown } | undefined;
+  const hasExec = cp !== undefined && typeof cp.exec === 'function';
+  if (!hasExec) {
     return null;
   }
-  return cp.execSync as (command: string, options: Record<string, unknown>) => string;
+  return cp.exec as ExecFn;
+}
+
+/**
+ * Runs the gcloud ADC command without blocking the event loop. The command
+ * runs through the shell, as `gcloud` is a script on every platform. Stderr
+ * is captured and discarded. Resolves to the empty string when no runtime
+ * child process is available.
+ */
+function printAdcTokenWithGcloud(): Promise<string> {
+  const exec = getExec();
+  if (exec === null) {
+    return Promise.resolve('');
+  }
+  return new Promise((resolve, reject) => {
+    exec(ADC_COMMAND, { encoding: 'utf8', windowsHide: true }, (error, stdout) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve(String(stdout));
+    });
+  });
 }
 
 export interface GeminiEngineOptions {
@@ -54,17 +88,36 @@ export interface GeminiEngineOptions {
   baseUrl?: string;
   /** Explicit fetch seam for testing or custom transport. */
   fetch?: typeof fetch;
+  /** Prints an ADC access token. Defaults to running
+   *  `gcloud auth application-default print-access-token`. */
+  printAdcToken?: () => Promise<string>;
+  /** Clock for the ADC token lifetime, in milliseconds. Defaults to `Date.now`. */
+  now?: () => number;
+}
+
+interface UpstreamAuth {
+  token: string;
+  isBearer: boolean;
+  /** The token came from Application Default Credentials, so a 401 can be
+   *  answered by looking up a fresh one. */
+  isAdc: boolean;
 }
 
 export class GeminiEngine implements AnswerEngine {
   private readonly baseUrl: string;
   private readonly fetchImpl: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
   private readonly explicitKey?: string;
+  private readonly printAdcToken: () => Promise<string>;
+  private readonly now: () => number;
+  private adcToken: { token: string; expiresAt: number } | undefined;
+  private adcLookup: Promise<string> | undefined;
 
   constructor(options?: GeminiEngineOptions) {
     this.baseUrl = (options?.baseUrl ?? GEMINI_DEFAULT_BASE_URL).replace(/\/$/, '');
     this.fetchImpl = options?.fetch ?? ((input, init) => fetch(input, init));
     this.explicitKey = options?.apiKey;
+    this.printAdcToken = options?.printAdcToken ?? printAdcTokenWithGcloud;
+    this.now = options?.now ?? Date.now;
   }
 
   /**
@@ -88,7 +141,7 @@ export class GeminiEngine implements AnswerEngine {
    * environment variables, and finally Google Cloud Application Default
    * Credentials (`gcloud auth application-default print-access-token`).
    */
-  private async resolveAuthToken(): Promise<{ token: string; isBearer: boolean }> {
+  private async resolveAuthToken(): Promise<UpstreamAuth> {
     let key = this.explicitKey;
     if (key === undefined) {
       key = process.env.GEMINI_API_KEY;
@@ -104,25 +157,13 @@ export class GeminiEngine implements AnswerEngine {
       const trimmedKey = key.trim();
       const hasStaticKey = trimmedKey !== '';
       if (hasStaticKey) {
-        return { token: trimmedKey, isBearer: false };
+        return { token: trimmedKey, isBearer: false, isAdc: false };
       }
     }
 
-    try {
-      const execSyncFn = getExecSync();
-      const hasExecSyncFn = execSyncFn !== null;
-      if (hasExecSyncFn) {
-        const adcToken = execSyncFn('gcloud auth application-default print-access-token', {
-          encoding: 'utf8',
-          stdio: ['ignore', 'pipe', 'ignore'],
-        }).trim();
-        const hasAdcToken = adcToken !== '';
-        if (hasAdcToken) {
-          return { token: adcToken, isBearer: true };
-        }
-      }
-    } catch {
-      // Best-effort attempt to recover ADC credentials when env keys are absent
+    const adcToken = await this.cachedAdcToken();
+    if (adcToken !== '') {
+      return { token: adcToken, isBearer: true, isAdc: true };
     }
 
     throw new AiBrokerError(
@@ -132,6 +173,63 @@ export class GeminiEngine implements AnswerEngine {
         'UNAUTHENTICATED',
       ),
     );
+  }
+
+  /**
+   * The ADC access token, reused for {@link ADC_TOKEN_TTL_MS}. Concurrent
+   * callers share one lookup. A failed or empty lookup is not cached, so the
+   * next request tries again. Resolves to the empty string when ADC is
+   * unavailable.
+   */
+  private cachedAdcToken(): Promise<string> {
+    const cached = this.adcToken;
+    if (cached !== undefined && this.now() < cached.expiresAt) {
+      return Promise.resolve(cached.token);
+    }
+    if (this.adcLookup !== undefined) {
+      return this.adcLookup;
+    }
+    const lookup = this.lookUpAdcToken();
+    this.adcLookup = lookup;
+    void lookup.then(() => {
+      if (this.adcLookup === lookup) {
+        this.adcLookup = undefined;
+      }
+    });
+    return lookup;
+  }
+
+  private async lookUpAdcToken(): Promise<string> {
+    let token = '';
+    try {
+      token = (await this.printAdcToken()).trim();
+    } catch {
+      return '';
+    }
+    if (token !== '') {
+      this.adcToken = { token, expiresAt: this.now() + ADC_TOKEN_TTL_MS };
+    }
+    return token;
+  }
+
+  /**
+   * Sends one upstream request. When the token came from ADC and the
+   * upstream answers 401, the cached token is dropped and the request is
+   * sent once more with a fresh one.
+   */
+  private async send(model: string, action: string, body: unknown): Promise<Response> {
+    const resource = this.normalizeModel(model);
+    const auth = await this.resolveAuthToken();
+    const first = this.formatUpstreamRequest(resource, action, auth);
+    const response = await this.post(first.url, first.headers, body);
+    if (response.status === 401 && auth.isAdc) {
+      await response.body?.cancel().catch(() => {});
+      this.adcToken = undefined;
+      const retryAuth = await this.resolveAuthToken();
+      const retry = this.formatUpstreamRequest(resource, action, retryAuth);
+      return this.checkStatus(await this.post(retry.url, retry.headers, body));
+    }
+    return this.checkStatus(response);
   }
 
   /**
@@ -190,14 +288,13 @@ export class GeminiEngine implements AnswerEngine {
     };
   }
 
-  private async fetchUpstream(
+  private async post(
     url: string,
     headers: Record<string, string>,
     body: unknown,
   ): Promise<Response> {
-    let response: Response;
     try {
-      response = await this.fetchImpl(url, {
+      return await this.fetchImpl(url, {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
@@ -217,7 +314,9 @@ export class GeminiEngine implements AnswerEngine {
         ),
       );
     }
+  }
 
+  private async checkStatus(response: Response): Promise<Response> {
     const isSuccess = response.ok;
     if (!isSuccess) {
       const errorText = await response.text().catch(() => '');
@@ -234,10 +333,7 @@ export class GeminiEngine implements AnswerEngine {
   }
 
   async generateContent(req: GenerateContentRequest, model: string): Promise<WireResponse> {
-    const auth = await this.resolveAuthToken();
-    const resource = this.normalizeModel(model);
-    const { url, headers } = this.formatUpstreamRequest(resource, 'generateContent', auth);
-    const response = await this.fetchUpstream(url, headers, req);
+    const response = await this.send(model, 'generateContent', req);
     return (await response.json()) as WireResponse;
   }
 
@@ -245,14 +341,7 @@ export class GeminiEngine implements AnswerEngine {
     req: GenerateContentRequest,
     model: string,
   ): AsyncIterable<WireChunk> {
-    const auth = await this.resolveAuthToken();
-    const resource = this.normalizeModel(model);
-    const { url, headers } = this.formatUpstreamRequest(
-      resource,
-      'streamGenerateContent?alt=sse',
-      auth,
-    );
-    const response = await this.fetchUpstream(url, headers, req);
+    const response = await this.send(model, 'streamGenerateContent?alt=sse', req);
 
     const hasBody = response.body !== null && response.body !== undefined;
     if (!hasBody) {
@@ -318,10 +407,7 @@ export class GeminiEngine implements AnswerEngine {
   }
 
   async countTokens(req: CountTokensRequest, model: string): Promise<CountTokensResponse> {
-    const auth = await this.resolveAuthToken();
-    const resource = this.normalizeModel(model);
-    const { url, headers } = this.formatUpstreamRequest(resource, 'countTokens', auth);
-    const response = await this.fetchUpstream(url, headers, req);
+    const response = await this.send(model, 'countTokens', req);
     return (await response.json()) as CountTokensResponse;
   }
 }
