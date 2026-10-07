@@ -192,7 +192,7 @@ describe('pyric <tool> <method>', () => {
 
   it('exits 0 when a database rules file has no errors', async () => {
     const rulesFile = join(workDir, 'clean.database.rules.json');
-    writeFileSync(rulesFile, JSON.stringify({ rules: { notes: { $id: { '.write': 'auth != null' } } } }));
+    writeFileSync(rulesFile, JSON.stringify({ rules: { notes: { $id: { '.write': 'auth != null', '.validate': 'newData.isString()' } } } }));
     const linted = await run('rules.lint', [
       'rules',
       'lint',
@@ -209,7 +209,7 @@ describe('pyric <tool> <method>', () => {
     const plainFile = join(workDir, 'plain.database.rules.json');
     writeFileSync(
       plainFile,
-      JSON.stringify({ rules: { notes: { $uid: { '.read': 'auth != null && auth.uid == $uid', '.write': 'auth != null && auth.uid == $uid' } } } }),
+      JSON.stringify({ rules: { notes: { $uid: { '.read': 'auth != null && auth.uid == $uid', '.write': 'auth != null && auth.uid == $uid', '.validate': 'newData.isString()' } } } }),
     );
     const commentedFile = join(workDir, 'commented.database.rules.json');
     writeFileSync(
@@ -221,7 +221,8 @@ describe('pyric <tool> <method>', () => {
     "notes": {
       "$uid": {
         ".read": "auth != null && auth.uid == $uid", // the owner only
-        ".write": "auth != null && auth.uid == $uid"
+        ".write": "auth != null && auth.uid == $uid",
+        ".validate": "newData.isString()"
       }
     }
   }

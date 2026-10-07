@@ -12,13 +12,15 @@ import { createSurfaceContext } from '../../../../src/bridge/surface/context.js'
 import { DATABASE_RULES } from '../../../../src/bridge/surface/rules-engines/database.js';
 
 const OPEN_RULES = JSON.stringify({ rules: { '.read': true, '.write': true } });
+/** A public read below the root: a hardcoded-true lint warning and a medium security finding. */
+const WARNING_RULES = JSON.stringify({ rules: { scores: { '.read': true } } });
 const CLOSED_RULES = JSON.stringify({ rules: { '.read': false, '.write': false } });
 const GATE_INSTANT = Date.parse('2026-01-01T00:00:00.000Z');
 const NOW_GATED_RULES = JSON.stringify({ rules: { '.read': `now > ${GATE_INSTANT}` } });
 
 /** A rules file as written by hand: line and block comments around and inside the object. */
 const OWNER_RULES = `{
-  "rules": { "notes": { "$uid": { ".read": "auth != null && auth.uid == $uid", ".write": "auth != null && auth.uid == $uid" } } }
+  "rules": { "notes": { "$uid": { ".read": "auth != null && auth.uid == $uid", ".write": "auth != null && auth.uid == $uid", ".validate": "newData.isString()" } } }
 }`;
 const COMMENTED_OWNER_RULES = `/* Notes rules. */
 {
@@ -28,7 +30,8 @@ const COMMENTED_OWNER_RULES = `/* Notes rules. */
       /* One entry per user id. */
       "$uid": {
         ".read": "auth != null && auth.uid == $uid", // the owner only
-        ".write": "auth != null && auth.uid == $uid"
+        ".write": "auth != null && auth.uid == $uid",
+        ".validate": "newData.isString()"
       }
     }
   }
@@ -64,7 +67,7 @@ describe('lint', () => {
   });
 
   it('lints a supplied ruleset, reporting findings and errors', async () => {
-    const result = await DATABASE_RULES.lint(freshContext(), OPEN_RULES);
+    const result = await DATABASE_RULES.lint(freshContext(), WARNING_RULES);
     expect(result.ok).toBe(true);
     expect(result.data).toHaveProperty('issues');
   });
@@ -82,11 +85,19 @@ describe('lint', () => {
   });
 
   it('passes a supplied ruleset whose findings are warnings only', async () => {
-    const result = await DATABASE_RULES.lint(freshContext(), OPEN_RULES);
+    const result = await DATABASE_RULES.lint(freshContext(), WARNING_RULES);
     expect(result.ok).toBe(true);
     const issues = (result.data as { issues: Array<{ severity: string }> }).issues;
     expect(issues.length).toBeGreaterThan(0);
     expect(issues.every((issue) => issue.severity === 'warning')).toBe(true);
+  });
+
+  it('fails a ruleset that grants public read and write at the root, naming the security findings', async () => {
+    const result = await DATABASE_RULES.lint(freshContext(), OPEN_RULES);
+    expect(result.ok).toBe(false);
+    const issues = (result.data as { issues: Array<{ code: string; severity: string; path: string; fix?: string }> }).issues;
+    expect(issues).toContainEqual(expect.objectContaining({ code: 'RTDB-SEC-1', severity: 'error', path: '/', fix: expect.any(String) }));
+    expect(issues).toContainEqual(expect.objectContaining({ code: 'RTDB-SEC-2', severity: 'error', path: '/' }));
   });
 
   it('lints a supplied ruleset with line and block comments as it lints the same ruleset without them', async () => {
@@ -104,7 +115,7 @@ describe('lint', () => {
 
   it('lints the ruleset already installed when none is supplied', async () => {
     const ctx = freshContext();
-    await DATABASE_RULES.install(ctx, OPEN_RULES);
+    await DATABASE_RULES.install(ctx, WARNING_RULES);
     const result = await DATABASE_RULES.lint(ctx, undefined);
     expect(result.ok).toBe(true);
   });
