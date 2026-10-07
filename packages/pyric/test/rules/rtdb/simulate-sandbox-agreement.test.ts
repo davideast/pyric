@@ -12,6 +12,8 @@ import {
   query,
   ref,
   sandbox,
+  increment,
+  serverTimestamp,
   set,
   startAt,
   update,
@@ -268,6 +270,47 @@ describe('RTDB simulate agrees with the sandbox on scalar writes', () => {
       ]).cases;
       expect(verdict).toBe(expected);
       expect(result.decision).toBe(verdict);
+    });
+  }
+});
+
+// The server resolves a written server value before any rule runs: a
+// `serverTimestamp()` is `now`, and an `increment(n)` is the stored value plus
+// n. simulate takes the same `{ ".sv": ... }` value a client writes.
+const sentinelRules = {
+  rules: {
+    stamp: { '.write': 'auth != null', '.validate': 'newData.val() == now' },
+    count: { '.write': 'auth != null', '.validate': 'data.exists() && newData.val() == data.val() + 1' },
+    room: { '.write': 'auth != null', at: { '.validate': 'newData.val() == now' } },
+  },
+};
+
+const sentinelCases: Array<[label: string, path: string, value: unknown, sent: unknown, expected: Verdict]> = [
+  ['a server timestamp under newData.val() == now', '/stamp', { '.sv': 'timestamp' }, serverTimestamp(), 'ALLOW'],
+  ['a client time under newData.val() == now', '/stamp', 1_000_000_000_000, 1_000_000_000_000, 'DENY'],
+  ['a nested server timestamp', '/room', { at: { '.sv': 'timestamp' } }, { at: serverTimestamp() }, 'ALLOW'],
+  ['an increment of 1 under a step of 1', '/count', { '.sv': { increment: 1 } }, increment(1), 'ALLOW'],
+  ['an increment of 2 under a step of 1', '/count', { '.sv': { increment: 2 } }, increment(2), 'DENY'],
+];
+
+describe('RTDB simulate resolves server values as the sandbox does', () => {
+  for (const [label, path, value, sent, expected] of sentinelCases) {
+    test(label, async () => {
+      const box = initializeSandbox();
+      const admin = getDatabase(box.withAuth({ uid: 'admin' }));
+      sandbox.setRules(admin, sentinelRules);
+      sandbox.setData(admin, { '/count': 5 });
+      let verdict: Verdict = 'ALLOW';
+      try {
+        await set(ref(getDatabase(box.withAuth({ uid: 'alice' })), path.slice(1)), sent as never);
+      } catch {
+        verdict = 'DENY';
+      }
+      const [result] = rtdbRules(sentinelRules).simulate([
+        { expectation: expected, operation: 'write', path, auth: 'alice', data: { count: 5 }, newData: value },
+      ]).cases;
+      expect(verdict).toBe(expected);
+      expect(result.decision).toBe(expected);
     });
   }
 });

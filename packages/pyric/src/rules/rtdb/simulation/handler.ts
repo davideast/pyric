@@ -3,6 +3,7 @@ import type { EvalContext, SimulatedAuth } from '../grammar/simulator.js';
 import type { RtdbNode, RtdbRuleExpression } from '../types.js';
 import { SimulationInputSchema, type SimulationInput } from './spec.js';
 import { normalizeAuthState } from '../../../sandbox/sandbox-context.js';
+import { resolveSentinels } from '../../../database/sandbox/sentinels.js';
 import type { RtdbRuleEvaluation, SimulateResult } from './spec.js';
 
 interface AncestorMatch {
@@ -383,6 +384,16 @@ function buildSimulatedQueryContext(
   };
 }
 
+/** The value stored at `path` in a root tree, or undefined. */
+function valueAtPath(root: unknown, path: string): unknown {
+  let cursor: unknown = root;
+  for (const segment of path.split('/').filter(Boolean)) {
+    if (cursor === null || typeof cursor !== 'object') return undefined;
+    cursor = (cursor as Record<string, unknown>)[segment];
+  }
+  return cursor;
+}
+
 export class SimulateHandler {
   execute(compiled: RtdbNode, rawInput: unknown): SimulateResult {
     const parsed = SimulationInputSchema.safeParse(rawInput);
@@ -397,11 +408,22 @@ export class SimulateHandler {
       };
     }
 
-    const { operation, path, auth, mockData, newData, updates, query } = parsed.data;
+    const { operation, path, auth, mockData, query } = parsed.data;
     // `now` in an RTDB rule is the instant the request is evaluated. A caller
     // hosting a sandbox names it so a `now`-gated rule moves with the sandbox
     // clock; a standalone caller leaves it out and gets the wall clock.
     const evaluationNow = parsed.data.now ?? Date.now();
+    // The server replaces each written `{ ".sv": "timestamp" }` with the
+    // instant it evaluates the rules at, and each `{ ".sv": { increment } }`
+    // with the stored value plus the delta, before any rule runs. The sandbox
+    // resolves its writes the same way at its write boundary.
+    const newData = parsed.data.newData === undefined
+      ? undefined
+      : resolveSentinels(parsed.data.newData, evaluationNow, valueAtPath(mockData, path));
+    const updates = parsed.data.updates?.map((update) => ({
+      ...update,
+      value: resolveSentinels(update.value, evaluationNow, valueAtPath(mockData, update.path)),
+    }));
 
     // Every rule evaluated for this request, in evaluation order.
     const trace: RtdbRuleEvaluation[] = [];

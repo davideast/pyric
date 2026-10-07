@@ -61,7 +61,26 @@ const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', '..', 'packages', 
 const KNOWN_DIVERGENCES: Record<
   string,
   { prodVerdict: 'ALLOW' | 'DENY'; simVerdict: 'ALLOW' | 'DENY'; reason: string }
-> = {};
+> = Object.fromEntries(
+  [
+    'an unguarded step adds 1 to nothing stored',
+    'adding 1 to nothing stored, then or true',
+    'adding nothing stored to 1, then or true',
+    'subtracting 1 from nothing stored, then or true',
+    'multiplying nothing stored by 2, then or true',
+    'adding a string to nothing stored, then or true',
+    'negating nothing stored, then or true',
+    'comparing nothing stored with 1, then or true',
+  ].map((description) => [
+    `r27-stdlib-core-patterns :: ${description}`,
+    {
+      prodVerdict: 'DENY' as const,
+      simVerdict: 'ALLOW' as const,
+      reason:
+        'Production fails a rule in which `+`, `-`, `*`, unary `-` or `<` has a null operand, such as `data.val()` where nothing is stored, `|| true` included. The simulator applies JavaScript operators, so null computes as 0 or as the string null and the rule can grant.',
+    },
+  ]),
+);
 
 interface RulesObservation {
   name: string;

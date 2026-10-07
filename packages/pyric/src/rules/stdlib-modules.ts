@@ -1488,11 +1488,16 @@ export function suggestKey(
   input: string,
   service?: RulesService,
 ): string | null {
+  return closestKey(input, (service ? modulesForService(service) : STDLIB_MODULES).map((m) => m.key));
+}
+
+/** The key in `keys` closest to `input`, or null when none is reasonably close. */
+export function closestKey(input: string, keys: readonly string[]): string | null {
   const want = input.toLowerCase();
   let best: { key: string; d: number } | null = null;
-  for (const m of service ? modulesForService(service) : STDLIB_MODULES) {
-    const d = levenshtein(want, m.key.toLowerCase());
-    if (best === null || d < best.d) best = { key: m.key, d };
+  for (const key of keys) {
+    const d = levenshtein(want, key.toLowerCase());
+    if (best === null || d < best.d) best = { key, d };
   }
   // Only return a suggestion if it's reasonably close.
   if (best && best.d <= Math.max(2, Math.floor(want.length / 3))) return best.key;

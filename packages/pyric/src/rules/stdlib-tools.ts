@@ -23,8 +23,15 @@ import {
   allModuleKeys,
   modulesForService,
   suggestKey,
+  closestKey,
   type RulesService,
 } from './stdlib-modules.js';
+import {
+  RTDB_STDLIB_IMPORT,
+  RTDB_STDLIB_MODULES,
+  findRtdbStdlibModule,
+  rtdbImportLineFor,
+} from './rtdb/stdlib/catalog.js';
 
 function expectedServiceName(service: RulesService): string {
   return service === 'storage' ? 'firebase.storage' : 'cloud.firestore';
@@ -58,6 +65,60 @@ function listEntry(module: (typeof STDLIB_MODULES)[number]) {
           })),
         }
       : {}),
+  };
+}
+
+const RTDB_AUTHORING =
+  "RTDB rules have no functions, imports or let. Each builder returns the whole expression for one .write or .validate rule; compose builders with all, any and not inside defineRtdbRules, then check with rtdbRules(definition).lint() and .simulate(cases) and deploy rtdbRules(definition).toJSON(). Each entry's placement names the node and rule kind the result belongs in.";
+
+function listRtdbStdlib() {
+  return {
+    ok: true,
+    summary: `Listed ${RTDB_STDLIB_MODULES.length} Rules stdlib modules for database`,
+    data: {
+      authoring: `${RTDB_AUTHORING} ${RTDB_STDLIB_IMPORT}`,
+      lengths:
+        'functions[].length is the number of characters in the expression the documented example compiles to. Composing builders adds their lengths.',
+      modules: RTDB_STDLIB_MODULES.map((module) => ({
+        key: module.key,
+        kind: module.kind,
+        services: module.services,
+        description: module.description,
+        functions: module.entries.map((entry) => ({
+          name: entry.name,
+          placement: entry.placement,
+          ...(entry.length !== undefined ? { length: entry.length } : {}),
+        })),
+      })),
+    },
+  };
+}
+
+function getRtdbStdlib(key: string) {
+  const found = findRtdbStdlibModule(key);
+  if (!found) {
+    const firestoreModule = findModuleByKey(key);
+    const validKeys = RTDB_STDLIB_MODULES.map((module) => module.key);
+    const suggestion = closestKey(key, validKeys);
+    return {
+      ok: false,
+      summary: firestoreModule
+        ? `Stdlib module "${key}" is not compatible with database`
+        : `No database stdlib module named "${key}"` + (suggestion ? `; did you mean "${suggestion}"?` : ''),
+      data: {
+        unknownKey: key,
+        service: 'database',
+        ...(firestoreModule ? { compatibleServices: firestoreModule.services } : {}),
+        ...(suggestion ? { suggestion } : {}),
+        validKeys,
+      },
+    };
+  }
+  const importLine = rtdbImportLineFor(found);
+  return {
+    ok: true,
+    summary: `Stdlib module: ${found.key} (database). Author with: ${importLine}`,
+    data: { importLine, authoring: RTDB_AUTHORING, module: found },
   };
 }
 
@@ -236,19 +297,20 @@ export function createFirestoreRulesStdlibTools(): ToolHandler[] {
     {
       name: 'rules_stdlib_list',
       description:
-        'List the Security Rules Standard Library with service compatibility. Pass `firestore` or `storage` to see only modules that can be imported by that service. Call this before modeling protected fields, metadata, object paths, or authorization helpers.',
+        'List the Security Rules Standard Library with service compatibility. Pass `firestore` or `storage` to see only modules that can be imported by that service, or `database` for the Realtime Database builders (TypeScript functions that compile to RTDB rule expressions). Call this before modeling protected fields, metadata, object paths, or authorization helpers.',
       parameters: {
         type: 'object',
         properties: {
           service: {
             type: 'string',
-            enum: ['firestore', 'storage'],
+            enum: ['firestore', 'storage', 'database'],
             description: 'Optional service filter.',
           },
         },
       },
       async execute(args) {
-        const { service } = args as { service?: RulesService };
+        const { service } = args as { service?: RulesService | 'database' };
+        if (service === 'database') return listRtdbStdlib();
         const modules = service ? modulesForService(service) : STDLIB_MODULES;
         return {
           ok: true,
@@ -268,13 +330,13 @@ export function createFirestoreRulesStdlibTools(): ToolHandler[] {
     {
       name: 'rules_stdlib_get',
       description:
-        'Get one Security Rules Standard Library module for a specific service, including exact function signatures, examples, notes, and the import line. Use a key returned by rules_stdlib_list.',
+        'Get one Security Rules Standard Library module for a specific service, including exact function signatures, examples, notes, and the import line. For `database`, each entry also names where the result goes (node and rule kind) and the expression its example compiles to. Use a key returned by rules_stdlib_list.',
       parameters: {
         type: 'object',
         properties: {
           service: {
             type: 'string',
-            enum: ['firestore', 'storage'],
+            enum: ['firestore', 'storage', 'database'],
           },
           key: {
             type: 'string',
@@ -285,9 +347,10 @@ export function createFirestoreRulesStdlibTools(): ToolHandler[] {
       },
       async execute(args) {
         const { service, key } = args as {
-          service: RulesService;
+          service: RulesService | 'database';
           key: string;
         };
+        if (service === 'database') return getRtdbStdlib(key);
         const found = findModuleByKey(key, service);
         if (!found) {
           const incompatible = findModuleByKey(key);

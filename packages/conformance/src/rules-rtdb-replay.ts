@@ -101,17 +101,23 @@ function buildSimMock(
   return root;
 }
 
-function simulatorVerdict(scenario: RtdbScenario, testCase: RtdbTestCase): RtdbSimulatorOutcome {
+/** The scenario's subtree mounted under its id, compiled once per scenario. */
+function compileScenario(scenario: RtdbScenario): ReturnType<typeof compileRtdbRules> {
   const subtree = JSON.parse(scenario.rules) as Record<string, unknown>;
-  const compiled = compileRtdbRules(
-    {
-      rules: {
-        '.read': false,
-        '.write': false,
-        [scenario.id]: subtree,
-      },
+  return compileRtdbRules({
+    rules: {
+      '.read': false,
+      '.write': false,
+      [scenario.id]: subtree,
     },
-  );
+  });
+}
+
+function simulatorVerdict(
+  scenario: RtdbScenario,
+  compiled: ReturnType<typeof compileRtdbRules>,
+  testCase: RtdbTestCase,
+): RtdbSimulatorOutcome {
   const uid = testCase.authPresent ? REPLAY_UID : '';
   const opPath = substituteUid(testCase.opPath, uid);
   const simPath = `/${scenario.id}${opPath}`;
@@ -148,11 +154,12 @@ function simulatorVerdict(scenario: RtdbScenario, testCase: RtdbTestCase): RtdbS
 }
 
 export function replayRtdbScenario(scenario: RtdbScenario): RtdbReplayResult[] {
+  const compiled = compileScenario(scenario);
   return scenario.cases
     .filter((testCase) => !testCase.pendingCapture)
     .map((testCase) => ({
       caseKey: testCase.description,
       production: testCase.expectation,
-      simulator: simulatorVerdict(scenario, testCase),
+      simulator: simulatorVerdict(scenario, compiled, testCase),
     }));
 }

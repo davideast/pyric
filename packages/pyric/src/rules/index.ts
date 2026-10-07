@@ -137,6 +137,11 @@ export {
   ruleset,
   defineRtdbRules,
 } from './rtdb/constraints/index.js';
+
+// ─── RTDB rules standard library (builders grouped by module) ────────
+export { rtdbStdlib } from './rtdb/stdlib/index.js';
+export type { RtdbStdlib, FieldRule, ShapeOptions, ShapeResult } from './rtdb/stdlib/index.js';
+
 export type {
   Expr,
   PathDef,
