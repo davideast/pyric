@@ -1,0 +1,30 @@
+{
+  "name": "rules-rtdb-r27-method-argument-types",
+  "matrixRow": "rtdb-rules#17",
+  "rowIds": [
+    "rtdb-rules#17",
+    "rtdb-rules#11"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r27-method-argument-types\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). a method argument that is not a string must fail the rule as production does, never be converted to a string, so null from a missing value or an unauthenticated auth.uid cannot match the text \"null\".",
+  "observedAt": "2026-10-07T05:08:52.375Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "contains with a missing argument value": "DENY",
+    "contains with a number argument": "DENY",
+    "contains with a string argument": "ALLOW",
+    "beginsWith with a number argument": "DENY",
+    "beginsWith with a string argument": "ALLOW",
+    "hasChild with a missing argument value": "DENY",
+    "hasChild with a number argument": "DENY",
+    "hasChild with a string argument": "ALLOW",
+    "child of auth.uid when signed out": "DENY",
+    "child of auth.uid when signed in": "ALLOW",
+    "replace with a number replacement": "DENY",
+    "replace with a string replacement": "ALLOW",
+    "hasChildren of an empty array on an object": "ALLOW",
+    "hasChildren of an empty array on a leaf": "ALLOW",
+    "replace with a slash-delimited pattern on its literal text": "ALLOW",
+    "replace with a slash-delimited pattern on a regex match": "DENY"
+  }
+}

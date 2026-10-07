@@ -583,10 +583,13 @@ export const rtdbRegistry = {
           featureKeys: ["compileRtdbRules"],
           api: "compileRtdbRules",
           behavior: "`compileRtdbRules(rulesJson)` produces an environment-independent tree where each node carries its path, parsed expressions, and child nodes; `rtdbRules(rulesJson).lint()` reports the parse, validation, and lint findings those expressions carry, the same issues `lint()` reports on the definition the JSON was generated from",
-          evidence: "`unit:compiled-rules.test.ts`, `unit:rules/public-api.test.ts` (\"lint() on compiled { rules } JSON reports an expression that does not parse\", \"lint() on compiled { rules } JSON reports what lint() on the definition it came from reports\")",
+          evidence: "`unit:compiled-rules.test.ts`, `unit:rules/public-api.test.ts` (\"lint() on compiled { rules } JSON reports an expression that does not parse\", \"lint() on compiled { rules } JSON reports what lint() on the definition it came from reports\"). The validation findings include the refusals production's rules compiler makes before deploy, in its text: `oracle:rtdb-rules-deploy-refusals` (captured 2026-10-07) deploys one rule at a time and records production refusing a method argument literal of the wrong type, a wrong argument count, `hasChildren` given anything but one array literal of strings, a regular expression literal as a `replace` pattern, a `$variable` that no wildcard on the rule's path declares, and a snapshot operand of a comparison or arithmetic operator; `unit:rules/rtdb/grammar/method-argument-types.test.ts` reports each with production's message, and `unit:database/oracle-conformance.test.ts` replays every captured case. Production's refusal of `matches` given anything but a regular expression literal, of a regular expression flag other than `i`, and of an unterminated character class is not reported yet.",
+          oracleObservations: ["rtdb-rules-deploy-refusals"],
           conformanceTests: [
             "packages/pyric/test/rules/rtdb/compiled-rules.test.ts",
             "packages/pyric/test/rules/public-api.test.ts",
+            "packages/pyric/test/rules/rtdb/grammar/method-argument-types.test.ts",
+            "packages/pyric/test/database/oracle-conformance.test.ts",
           ],
         }),
         row4({
