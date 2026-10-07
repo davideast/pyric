@@ -432,23 +432,18 @@ describe('oracle conformance (rtdb)', () => {
   it('rtdb-rules-deploy-refusals: lint reports each refusal production makes, in its text, and nothing for an accepted rule', () => {
     const obs = load('rtdb-rules-deploy-refusals.json');
     const outcomes = obs.outcomes as Record<string, { accepted: boolean; message: string | null }>;
-    // Production refuses these at deploy; the validator does not report them yet.
-    const knownDivergences = new Set([
-      'matches with a string argument',
-      'matches with a slash-delimited string argument',
-      'matches with an unterminated character class',
-      'matches with the g flag',
-    ]);
+    // Production refuses this one in its lexer; the parser refuses it with its own text.
+    const parseRefusals = new Set(['matches with an unterminated character class']);
     expect(Object.keys(outcomes).sort()).toEqual(Object.keys(RULES_DEPLOY_REFUSAL_CASES).sort());
     for (const [label, subtree] of Object.entries(RULES_DEPLOY_REFUSAL_CASES)) {
       const outcome = outcomes[label]!;
-      const errors = rtdbRules({ rules: { probe: subtree } }).lint()
+      const issues = rtdbRules({ rules: { probe: subtree } }).lint()
         // Production's deploy refusals are compile findings; security lint is advice, not a refusal.
-        .filter((issue) => issue.severity === 'error' && !issue.code.startsWith('RTDB-SEC-'))
-        .map((issue) => issue.message);
-      if (knownDivergences.has(label)) {
+        .filter((issue) => issue.severity === 'error' && !issue.code.startsWith('RTDB-SEC-'));
+      const errors = issues.map((issue) => issue.message);
+      if (parseRefusals.has(label)) {
         expect(outcome.accepted, label).toBe(false);
-        expect(errors, label).toEqual([]);
+        expect(issues.map((issue) => issue.code), label).toEqual(['PARSE_ERROR']);
       } else if (outcome.accepted) {
         expect(errors, label).toEqual([]);
       } else {

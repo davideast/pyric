@@ -8,7 +8,10 @@ import {
   HAS_CHILDREN_ARGUMENT_COUNT,
   HAS_CHILDREN_ARRAY,
   HAS_CHILDREN_STRINGS,
+  MATCHES_REGEX_LITERAL,
   ONE_STRING_ARGUMENT_METHODS,
+  REGEX_FLAGS,
+  isSupportedRegexFlags,
   argumentCountMessage,
   operandMessage,
   replaceArgumentMessage,
@@ -179,6 +182,9 @@ function getValidatorSemantics(): Semantics {
       if (ONE_STRING_ARGUMENT_METHODS.has(method)) {
         if (argNodes.length !== 1) argumentError(argumentCountMessage(method, 1));
         else if (isKnownNonString(staticTypeOf(argNodes[0]!))) argumentError(stringArgumentMessage(method));
+      } else if (method === 'matches') {
+        if (argNodes.length !== 1) argumentError(argumentCountMessage(method, 1));
+        else if (staticTypeOf(argNodes[0]!) !== 'regex') argumentError(MATCHES_REGEX_LITERAL);
       } else if (method === 'replace') {
         if (argNodes.length !== 2) argumentError(argumentCountMessage(method, 2));
         else {
@@ -193,6 +199,12 @@ function getValidatorSemantics(): Semantics {
         else if (arrayElements(names).some((element) => isKnownNonString(staticTypeOf(element)))) {
           argumentError(HAS_CHILDREN_STRINGS);
         }
+      }
+    },
+
+    regex(_open, _body, _close, flags) {
+      if (!isSupportedRegexFlags(flags.sourceString)) {
+        (this.args.ctx as ValidateContext).errors.push({ code: 'INVALID_REGEX', message: REGEX_FLAGS });
       }
     },
 

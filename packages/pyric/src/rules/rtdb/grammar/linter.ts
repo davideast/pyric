@@ -4,15 +4,37 @@ import {
   matchRtdbExpression,
 } from '../expression-engine.js';
 import type { RuleLint } from '../types.js';
+import { evaluateRtdbExpression, type EvalContext } from './simulator.js';
 
 interface LintContext {
   warnings: RuleLint[];
   hasData: boolean;
   hasNewData: boolean;
   hasDataChildAccess: boolean;
+  /** Each comparison whose operands are both literals, with the value it always has. */
+  constantComparisons: Array<{ source: string; value: boolean }>;
 }
 
 let linterSemantics: Semantics | undefined;
+
+/**
+ * The value of a comparison whose operands are both literals, evaluated as
+ * the rules engine evaluates it (`==` does not convert types); undefined for
+ * any other comparison.
+ */
+function constantValue(node: any): boolean | undefined {
+  const [left, , right] = node.children;
+  if (!left.isLiteral() || !right.isLiteral()) return undefined;
+  return evaluateRtdbExpression(node.sourceString, {} as EvalContext) === true;
+}
+
+function lintComparison(action: any, left: any, right: any): void {
+  const ctx = action.args.ctx as LintContext;
+  left.lint(ctx);
+  right.lint(ctx);
+  const value = constantValue(action);
+  if (value !== undefined) ctx.constantComparisons.push({ source: action.sourceString, value });
+}
 
 function getLinterSemantics(): Semantics {
   if (linterSemantics) return linterSemantics;
@@ -43,15 +65,24 @@ function getLinterSemantics(): Semantics {
       if (name === 'newData') ctx.hasNewData = true;
     },
 
-    Comparison_looseEq(left, _op, right) {
-      (left as any).lint(this.args.ctx);
-      (right as any).lint(this.args.ctx);
+    Comparison_strictEq(left, _op, right) { lintComparison(this, left, right); },
+    Comparison_strictNeq(left, _op, right) { lintComparison(this, left, right); },
+    Comparison_gte(left, _op, right) { lintComparison(this, left, right); },
+    Comparison_lte(left, _op, right) { lintComparison(this, left, right); },
+    Comparison_gt(left, _op, right) { lintComparison(this, left, right); },
+    Comparison_lt(left, _op, right) { lintComparison(this, left, right); },
+    Comparison_looseEq(left, _op, right) { lintComparison(this, left, right); },
+    Comparison_looseNeq(left, _op, right) { lintComparison(this, left, right); },
+  });
+  // Whether an expression is a literal, through parentheses.
+  semantics.addOperation('isLiteral', {
+    _nonterminal(...children) {
+      return children.length === 1 ? (children[0] as any).isLiteral() : false;
     },
-
-    Comparison_looseNeq(left, _op, right) {
-      (left as any).lint(this.args.ctx);
-      (right as any).lint(this.args.ctx);
-    },
+    _iter() { return false; },
+    _terminal() { return false; },
+    Primary_paren(_open, inner, _close) { return (inner as any).isLiteral(); },
+    literal(_node) { return true; },
   });
   // The boolean an expression is, when the whole expression is a `true` or
   // `false` literal (parentheses allowed); undefined otherwise. A literal that
@@ -76,6 +107,14 @@ function getLinterSemantics(): Semantics {
     bool_false(_false) {
       return false;
     },
+    Comparison_strictEq(_l, _op, _r) { return constantValue(this); },
+    Comparison_strictNeq(_l, _op, _r) { return constantValue(this); },
+    Comparison_gte(_l, _op, _r) { return constantValue(this); },
+    Comparison_lte(_l, _op, _r) { return constantValue(this); },
+    Comparison_gt(_l, _op, _r) { return constantValue(this); },
+    Comparison_lt(_l, _op, _r) { return constantValue(this); },
+    Comparison_looseEq(_l, _op, _r) { return constantValue(this); },
+    Comparison_looseNeq(_l, _op, _r) { return constantValue(this); },
   });
   linterSemantics = semantics;
   return semantics;
@@ -94,6 +133,7 @@ export function lintExpression(
     hasData: false,
     hasNewData: false,
     hasDataChildAccess: false,
+    constantComparisons: [],
   };
 
   const node = getLinterSemantics()(match) as any;
@@ -107,6 +147,11 @@ export function lintExpression(
     ctx.warnings.push({ code: 'HARDCODED_TRUE', message: 'Rule expression is hardcoded to true' });
   } else if (literal === false) {
     ctx.warnings.push({ code: 'HARDCODED_FALSE', message: 'Rule expression is hardcoded to false' });
+  } else {
+    // A comparison between two literals has one value whatever the request.
+    for (const { source, value } of ctx.constantComparisons) {
+      ctx.warnings.push({ code: 'CONSTANT_COMPARISON', message: `Comparison ${source} is always ${value}.` });
+    }
   }
 
   if (context === 'write' && ctx.hasData && !ctx.hasNewData && !ctx.hasDataChildAccess) {

@@ -58,3 +58,11 @@ export function operandMessage(operator: TypedOperator, side: 'left' | 'right'):
 export function unknownVariableMessage(name: string): string {
   return `Unknown variable '${name}'.`;
 }
+
+export const MATCHES_REGEX_LITERAL = 'matches() expects a regular expression literal argument.';
+export const REGEX_FLAGS = 'regular expressions do not support flags other than i';
+
+/** Whether `flags` are ones production's regular expression literals accept: none, or `i`. */
+export function isSupportedRegexFlags(flags: string): boolean {
+  return flags === '' || flags === 'i';
+}
