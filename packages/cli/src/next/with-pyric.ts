@@ -8,9 +8,17 @@ import { augmentWebpackConfig } from './webpack-config.js';
 import { augmentTurbopackConfig } from './turbopack-config.js';
 import { augmentDevRewrites } from './dev-rewrites.js';
 import { augmentRuntimeEnv } from './runtime-env.js';
+import { findEdgeRuntimeFiles, formatEdgeRuntimeWarning } from './edge-runtime.js';
 
 function isFunctionConfig(config: NextConfig): config is NextConfigFunction {
   return typeof config === 'function';
+}
+
+function warnAboutEdgeRuntime(): void {
+  const warning = formatEdgeRuntimeWarning(findEdgeRuntimeFiles(process.cwd()));
+  if (warning !== null) {
+    console.warn(warning);
+  }
 }
 
 function applyPyricEnhancements(config: NextConfigObject, options?: PyricNextOptions): NextConfigObject {
@@ -49,6 +57,7 @@ export function withPyric(config: NextConfig = {}, options?: PyricNextOptions): 
     }
 
     enforceSandboxGuard(options);
+    warnAboutEdgeRuntime();
 
     const resolvedConfig = isFunctionConfig(config) ? await config(phase, defaults) : config;
     return applyPyricEnhancements(resolvedConfig, options);
