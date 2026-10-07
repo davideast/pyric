@@ -1,8 +1,9 @@
 /** RTDB database handles, references, path validation, and query target routing. */
-import type { RtdbQuerySpec } from '../protocol.js';
-import { isDisconnectedPort } from './core.js';
+import { logDatabaseWarning } from 'pyric/database/internal';
+import { RTDB_UNKNOWN_INSTANCE_CODE, type InboundMessage, type RtdbQuerySpec } from '../protocol.js';
+import { dataRpc, isDisconnectedPort } from './core.js';
 import { getFirestore } from './connection.js';
-import type { ClientDb, ClientPort, ClientRtdb, RtdbRefHandle } from './handles.js';
+import type { ClientDb, ClientPort, ClientRtdb, ClientRtdbInstance, RtdbRefHandle } from './handles.js';
 
 export type RtdbQueryLike = {
   readonly ref: RtdbRefHandle;
@@ -19,6 +20,63 @@ export function rtdbGetDatabase(source?: ClientDb | string | URL, name?: string)
   return { __kind: 'client-rtdb', port: firestore.port };
 }
 
+/** A handle on `db`'s port that reads and writes `instance`. */
+export function rtdbInstanceDatabase(db: ClientRtdb, instance: ClientRtdbInstance): ClientRtdb {
+  return { __kind: 'client-rtdb', port: db.port, instance };
+}
+
+/** The protocol's `instance` field for a reference: present only for a named instance. */
+export function instanceField(ref: { readonly instance?: ClientRtdbInstance }): { instance?: string } {
+  const name = ref.instance?.name;
+  return name === undefined ? {} : { instance: name };
+}
+
+const warnedInstances = new WeakMap<ClientPort, Set<string>>();
+
+/** Whether the host refused an operation because its instance is not served. */
+export function isUnknownRtdbInstance(error: unknown): boolean {
+  return (error as { code?: unknown } | null)?.code === RTDB_UNKNOWN_INSTANCE_CODE;
+}
+
+/**
+ * Production's behavior for an instance that does not exist: the server ends
+ * the connection, the SDK logs one warning naming the URL, and no operation
+ * or listener on the instance ever settles.
+ */
+export function reportUnknownRtdbInstance(port: ClientPort, instance: ClientRtdbInstance | undefined): void {
+  const url = instance?.url ?? 'worker://rtdb/';
+  let warned = warnedInstances.get(port);
+  if (warned === undefined) {
+    warned = new Set();
+    warnedInstances.set(port, warned);
+  }
+  if (warned.has(url)) return;
+  warned.add(url);
+  logDatabaseWarning(
+    `Firebase error. Please ensure that you have the URL of your Firebase Realtime Database instance configured correctly. (${url})`,
+  );
+}
+
+/** An RTDB operation on the reference's instance. An instance the host does
+ *  not serve answers as production's nonexistent instance does: never. */
+export async function rtdbRpc(
+  ref: { readonly port: ClientPort; readonly instance?: ClientRtdbInstance },
+  msg: InboundMessage & { t: 'op' },
+): Promise<unknown> {
+  try {
+    return await dataRpc(ref.port, { ...msg, ...instanceField(ref) } as InboundMessage & { t: 'op' });
+  } catch (error) {
+    if (!isUnknownRtdbInstance(error)) throw error;
+    reportUnknownRtdbInstance(ref.port, ref.instance);
+    return new Promise<never>(() => {});
+  }
+}
+
+/** Whether two references belong to the same database instance. */
+export function sameRtdbInstance(left: { readonly instance?: ClientRtdbInstance }, right: { readonly instance?: ClientRtdbInstance }): boolean {
+  return left.instance?.name === right.instance?.name;
+}
+
 export function normalizeRtdbPath(path?: string): string {
   const joined = (path ?? '/').split('/').filter(Boolean).join('/');
   return joined ? `/${joined}` : '/';
@@ -28,24 +86,40 @@ function rtdbKey(path: string): string | null {
   return path.split('/').filter(Boolean).at(-1) ?? null;
 }
 
-export function makeRtdbRef(port: ClientPort, path: string): RtdbRefHandle {
+/**
+ * A reference's string form. With a known instance it is production's:
+ * `Repo.toString()`, the scheme and host, followed by each path segment
+ * URL-encoded (`pathToUrlEncodedString`). A handle that names no URL keeps
+ * the worker form.
+ */
+function referenceString(instance: ClientRtdbInstance | undefined, path: string): string {
+  if (instance === undefined) return `worker://rtdb${path}`;
+  const hostEnd = instance.url.indexOf('/', instance.url.indexOf('//') + 2);
+  const repo = instance.url.slice(0, hostEnd);
+  const segments = path.split('/').filter(Boolean);
+  const encoded = segments.map((segment) => `/${encodeURIComponent(segment)}`).join('');
+  return repo + (encoded || '/');
+}
+
+export function makeRtdbRef(port: ClientPort, path: string, instance?: ClientRtdbInstance): RtdbRefHandle {
   const normalized = normalizeRtdbPath(path);
   const parts = normalized.split('/').filter(Boolean);
   const parentPath = parts.length > 0 ? `/${parts.slice(0, -1).join('/')}` : '/';
   const self: RtdbRefHandle = {
     __kind: 'rtdb-ref',
     port,
+    ...(instance === undefined ? {} : { instance }),
     path: normalized,
     _path: normalized,
     key: rtdbKey(normalized),
-    get parent() { return normalized === '/' ? null : makeRtdbRef(port, parentPath); },
-    get root() { return makeRtdbRef(port, '/'); },
+    get parent() { return normalized === '/' ? null : makeRtdbRef(port, parentPath, instance); },
+    get root() { return makeRtdbRef(port, '/', instance); },
     isEqual(other) {
       return other !== null && other.__kind === 'rtdb-ref'
-        && other.port === port && other.path === normalized;
+        && other.port === port && sameRtdbInstance(other, self) && other.path === normalized;
     },
-    toJSON() { return `worker://rtdb${normalized}`; },
-    toString() { return `worker://rtdb${normalized}`; },
+    toJSON() { return referenceString(instance, normalized); },
+    toString() { return referenceString(instance, normalized); },
   };
   return self;
 }
@@ -66,12 +140,12 @@ export function rtdbRef(db: ClientRtdb, path?: string): RtdbRefHandle {
     throw new Error('FIREBASE FATAL ERROR: Cannot call ref on a deleted database. ');
   }
   if (path !== undefined) validateRtdbPath(path, true);
-  return makeRtdbRef(db.port, path ?? '/');
+  return makeRtdbRef(db.port, path ?? '/', db.instance);
 }
 
 export function rtdbChild(parent: RtdbRefHandle, path: string): RtdbRefHandle {
   validateRtdbPath(path, false);
-  return makeRtdbRef(parent.port, `${parent.path}/${path}`);
+  return makeRtdbRef(parent.port, `${parent.path}/${path}`, parent.instance);
 }
 
 export function isRtdbQuery(target: RtdbTarget): target is RtdbQueryLike {

@@ -18,7 +18,7 @@
  * imports).
  */
 
-import { type HostCtx, type PortLike, post, ok, fail, bestEffortFlush } from './host-context.js';
+import { type HostCtx, type PortLike, post, ok, fail, bestEffortFlush, clearRtdbSessionHandles } from './host-context.js';
 import {
   deleteUser,
   getAuth,
@@ -126,7 +126,7 @@ function setPortSession(ctx: HostCtx, port: PortLike, session: MintedSession | n
 
   // Clear cached session handles so they rebuild with the new session/tenant state
   ctx.sessionDbs?.clear();
-  ctx.sessionRtdbs?.clear();
+  clearRtdbSessionHandles(ctx);
   ctx.sessionStorages?.clear();
 
   // Prod parity on auth transitions: re-establish this port's session-bound
@@ -171,7 +171,7 @@ function refreshPortAuthorization(
   // session-handle caches so this port and any same-uid sibling rebuild from
   // their own current session state on the next operation.
   ctx.sessionDbs?.clear();
-  ctx.sessionRtdbs?.clear();
+  clearRtdbSessionHandles(ctx);
   ctx.sessionStorages?.clear();
 
   // Existing Firestore/RTDB streams must reauthorize under the refreshed

@@ -109,38 +109,42 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'txnCommit'; reads: TxnReadEntry[]; writes: WriteDescriptor[] }
   | { t: 'op'; id: string; method: 'setRules'; source: string }
   | { t: 'op'; id: string; method: 'setFirestoreRules'; source: string }
-  | { t: 'op'; id: string; method: 'setDatabaseRules'; source: unknown }
-  | { t: 'op'; id: string; method: 'getActiveRules'; service?: 'firestore' | 'database' }
-  | { t: 'op'; id: string; method: 'getRulesStatus'; service?: 'firestore' | 'database' }
+  // `instance` names an RTDB instance (the SDK's namespace) on the RTDB ops,
+  // RTDB subscriptions and the database rules ops. Absent is the default
+  // instance.
+  | { t: 'op'; id: string; method: 'setDatabaseRules'; source: unknown; instance?: string }
+  | { t: 'op'; id: string; method: 'getActiveRules'; service?: 'firestore' | 'database'; instance?: string }
+  | { t: 'op'; id: string; method: 'getRulesStatus'; service?: 'firestore' | 'database'; instance?: string }
   | { t: 'op'; id: string; method: 'admin.getDocument'; path: string }
   | { t: 'op'; id: string; method: 'admin.listDocuments'; path: string }
   | { t: 'op'; id: string; method: 'admin.setDocument'; path: string; data: unknown }
   | { t: 'op'; id: string; method: 'admin.deleteDocument'; path: string }
   | { t: 'op'; id: string; method: 'admin.readState'; path?: string; maxDepth?: number }
-  | { t: 'op'; id: string; method: 'rtdb.get'; path: string; query?: RtdbQuerySpec }
-  | { t: 'op'; id: string; method: 'rtdb.set'; path: string; value: unknown }
-  | { t: 'op'; id: string; method: 'rtdb.setPriority'; path: string; priority: string | number | null }
-  | { t: 'op'; id: string; method: 'rtdb.setWithPriority'; path: string; value: unknown; priority: string | number | null }
-  | { t: 'op'; id: string; method: 'rtdb.update'; path: string; values: Record<string, unknown> }
-  | { t: 'op'; id: string; method: 'rtdb.remove'; path: string }
+  | { t: 'op'; id: string; method: 'rtdb.get'; instance?: string; path: string; query?: RtdbQuerySpec }
+  | { t: 'op'; id: string; method: 'rtdb.set'; instance?: string; path: string; value: unknown }
+  | { t: 'op'; id: string; method: 'rtdb.setPriority'; instance?: string; path: string; priority: string | number | null }
+  | { t: 'op'; id: string; method: 'rtdb.setWithPriority'; instance?: string; path: string; value: unknown; priority: string | number | null }
+  | { t: 'op'; id: string; method: 'rtdb.update'; instance?: string; path: string; values: Record<string, unknown> }
+  | { t: 'op'; id: string; method: 'rtdb.remove'; instance?: string; path: string }
   // `key` is the client's when the client needed it synchronously (the page's
   // `push()` returns a reference before the write lands). A caller that can
   // wait omits it, and the host mints one from the sandbox clock.
-  | { t: 'op'; id: string; method: 'rtdb.push'; path: string; key?: string; value?: unknown }
+  | { t: 'op'; id: string; method: 'rtdb.push'; instance?: string; path: string; key?: string; value?: unknown }
   // Read the sandbox clock. For a caller in another process, which cannot
   // mirror the stream a page port gets and can afford the round trip.
   | { t: 'op'; id: string; method: 'sandbox.clock' }
-  | { t: 'op'; id: string; method: 'rtdb.adminSnapshot' }
-  | { t: 'op'; id: string; method: 'rtdb.onDisconnectSet'; path: string; value: unknown; priority?: string | number | null }
-  | { t: 'op'; id: string; method: 'rtdb.onDisconnectUpdate'; path: string; values: Record<string, unknown> }
-  | { t: 'op'; id: string; method: 'rtdb.onDisconnectRemove'; path: string }
-  | { t: 'op'; id: string; method: 'rtdb.onDisconnectCancel'; path: string }
-  | { t: 'op'; id: string; method: 'rtdb.goOffline' }
-  | { t: 'op'; id: string; method: 'rtdb.goOnline' }
+  | { t: 'op'; id: string; method: 'rtdb.adminSnapshot'; instance?: string }
+  | { t: 'op'; id: string; method: 'rtdb.onDisconnectSet'; instance?: string; path: string; value: unknown; priority?: string | number | null }
+  | { t: 'op'; id: string; method: 'rtdb.onDisconnectUpdate'; instance?: string; path: string; values: Record<string, unknown> }
+  | { t: 'op'; id: string; method: 'rtdb.onDisconnectRemove'; instance?: string; path: string }
+  | { t: 'op'; id: string; method: 'rtdb.onDisconnectCancel'; instance?: string; path: string }
+  | { t: 'op'; id: string; method: 'rtdb.goOffline'; instance?: string }
+  | { t: 'op'; id: string; method: 'rtdb.goOnline'; instance?: string }
   | {
       t: 'op';
       id: string;
       method: 'rtdb.transactionCommit';
+      instance?: string;
       path: string;
       expected: unknown;
       value: unknown;
@@ -305,7 +309,7 @@ export interface EventSubMessage {
 export interface RtdbValueSubMessage {
   t: 'sub';
   subId: string;
-  target: { service: 'rtdb'; path: string; query?: RtdbQuerySpec };
+  target: { service: 'rtdb'; instance?: string; path: string; query?: RtdbQuerySpec };
   actAs?: AuthLens;
   /** The listener's owners, derived on the page. See {@link FirestoreSubMessage}. */
   owners?: ListenerOwner[];
@@ -315,6 +319,14 @@ export interface RtdbValueSubMessage {
 
 /** Structured-clone-safe query plan carried by `pyric/database` Query values. */
 export type RtdbQuerySpec = RtdbQuery['_spec'];
+
+/**
+ * The error code the host answers an RTDB operation or subscription with when
+ * it names an instance the project does not declare. The page's SDK turns it
+ * into production's behavior for an instance that does not exist: one
+ * connection warning, and operations that never settle.
+ */
+export const RTDB_UNKNOWN_INSTANCE_CODE = 'database/unknown-instance';
 
 export interface AiStreamSubMessage {
   t: 'sub';

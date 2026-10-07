@@ -7,6 +7,8 @@ import {
   databaseInstanceNamed,
   defaultDatabaseInstance,
   defaultDatabaseInstanceName,
+  isCustomDatabaseHost,
+  parseDatabaseLocationUrl,
   parseDatabaseUrl,
   resolveDatabaseInstance,
 } from '../../../src/sandbox/internal/instances.js';
@@ -163,6 +165,33 @@ describe('database instance names', () => {
     expect(databaseInstanceKey(undefined, 'p-default-rtdb')).toBe('p-default-rtdb');
     expect(databaseInstanceKey(parseDatabaseUrl('https://p-default-rtdb.europe-west1.firebasedatabase.app'), 'p-default-rtdb'))
       .toBe('p-default-rtdb');
+  });
+});
+
+describe('parseDatabaseLocationUrl matches the SDK refFromURL parse', () => {
+  it('returns the instance, host and decoded location', () => {
+    expect(parseDatabaseLocationUrl('https://Other.firebaseio.com/a/b%20c')).toEqual({
+      instance: { name: 'other', url: 'https://other.firebaseio.com/' },
+      host: 'other.firebaseio.com',
+      path: '/a/b c',
+    });
+    expect(parseDatabaseLocationUrl('https://reg.europe-west1.firebasedatabase.app').path).toBe('/');
+    expect(parseDatabaseLocationUrl('https://host.firebaseio.com/x?ns=nsname').instance)
+      .toEqual({ name: 'nsname', url: 'https://host.firebaseio.com/?ns=nsname' });
+  });
+
+  it('throws the SDK errors under the refFromURL name', () => {
+    expect(() => parseDatabaseLocationUrl('https://my-instance.firebaseio.com/a.b')).toThrow(
+      'refFromURL failed: url argument must be a valid firebase URL and the path can\'t contain ".", "#", "$", "[", or "]".',
+    );
+    expect(() => parseDatabaseLocationUrl('https://example.com/a')).toThrow(CANNOT_PARSE);
+  });
+
+  it('checks the host only for firebaseio.com and firebaseio-demo.com databases', () => {
+    expect(isCustomDatabaseHost('a.firebaseio.com')).toBe(false);
+    expect(isCustomDatabaseHost('a.firebaseio-demo.com')).toBe(false);
+    expect(isCustomDatabaseHost('a.europe-west1.firebasedatabase.app')).toBe(true);
+    expect(isCustomDatabaseHost('localhost:9000')).toBe(true);
   });
 });
 

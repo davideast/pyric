@@ -2,7 +2,8 @@
 import { runSdkWrite } from 'pyric/sandbox/internal';
 import { validateWritablePath } from 'pyric/database/internal';
 import { beginWorkerDatabaseActivity } from './sdk-activity.js';
-import { dataRpc, nextId } from './core.js';
+import { nextId } from './core.js';
+import { rtdbRpc } from './rtdb-references.js';
 import type { RtdbDataSnapshot, RtdbRefHandle } from './handles.js';
 import { hydrateRtdbSnapshot, type RtdbWireSnapshot } from './rtdb-snapshots.js';
 
@@ -35,13 +36,13 @@ export function rtdbRunTransaction<T>(
   validateWritablePath('Reference.transaction', ref.path);
   return runSdkWrite(beginWorkerDatabaseActivity(ref, 'runTransaction', 'operation'), async () => {
     for (let attempt = 0; attempt < 25; attempt++) {
-      const before = hydrateRtdbSnapshot(ref, await dataRpc(ref.port, {
+      const before = hydrateRtdbSnapshot(ref, await rtdbRpc(ref, {
         t: 'op', id: nextId(), method: 'rtdb.get', path: ref.path,
       }));
       const expected = before.val() as T | null;
       const value = transactionUpdate(expected);
       if (value === undefined) return transactionResult(false, before);
-      const wire = await dataRpc(ref.port, {
+      const wire = await rtdbRpc(ref, {
         t: 'op',
         id: nextId(),
         method: 'rtdb.transactionCommit',

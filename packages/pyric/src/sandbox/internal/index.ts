@@ -184,8 +184,11 @@ export {
   databaseInstanceNamed,
   defaultDatabaseInstance,
   defaultDatabaseInstanceName,
+  isCustomDatabaseHost,
+  parseDatabaseLocationUrl,
   parseDatabaseUrl,
   resolveDatabaseInstance,
   type DatabaseInstance,
   type DatabaseInstanceRegistry,
+  type DatabaseLocationUrl,
 } from './instances.js';

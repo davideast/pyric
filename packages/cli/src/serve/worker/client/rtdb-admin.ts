@@ -11,17 +11,24 @@ import {
 import type { ClientDb, ClientRtdb, Unsubscribe } from './handles.js';
 import { normalizeRtdbPath } from './rtdb-references.js';
 
-export async function adminReadRtdbState(db: ClientDb | ClientRtdb): Promise<unknown> {
-  return rpc(db.port, { t: 'op', id: nextId(), method: 'rtdb.adminSnapshot' });
+/** The protocol's `instance` field: the explicit name, else the handle's instance. */
+function instanceOf(db: ClientDb | ClientRtdb, instance: string | undefined): { instance?: string } {
+  const name = instance ?? ('instance' in db ? db.instance?.name : undefined);
+  return name === undefined ? {} : { instance: name };
+}
+
+export async function adminReadRtdbState(db: ClientDb | ClientRtdb, instance?: string): Promise<unknown> {
+  return rpc(db.port, { t: 'op', id: nextId(), method: 'rtdb.adminSnapshot', ...instanceOf(db, instance) });
 }
 
 export async function adminSetRtdbValue(
   db: ClientDb | ClientRtdb,
   path: string,
   value: unknown,
+  instance?: string,
 ): Promise<void> {
   await rpc(db.port, {
-    t: 'op', id: nextId(), method: 'rtdb.set', path, value, actAs: { mode: 'admin' },
+    t: 'op', id: nextId(), method: 'rtdb.set', path, value, actAs: { mode: 'admin' }, ...instanceOf(db, instance),
   });
 }
 
@@ -29,18 +36,20 @@ export async function adminUpdateRtdbValue(
   db: ClientDb | ClientRtdb,
   path: string,
   values: Record<string, unknown>,
+  instance?: string,
 ): Promise<void> {
   await rpc(db.port, {
-    t: 'op', id: nextId(), method: 'rtdb.update', path, values, actAs: { mode: 'admin' },
+    t: 'op', id: nextId(), method: 'rtdb.update', path, values, actAs: { mode: 'admin' }, ...instanceOf(db, instance),
   });
 }
 
 export async function adminDeleteRtdbValue(
   db: ClientDb | ClientRtdb,
   path: string,
+  instance?: string,
 ): Promise<void> {
   await rpc(db.port, {
-    t: 'op', id: nextId(), method: 'rtdb.remove', path, actAs: { mode: 'admin' },
+    t: 'op', id: nextId(), method: 'rtdb.remove', path, actAs: { mode: 'admin' }, ...instanceOf(db, instance),
   });
 }
 
@@ -50,6 +59,7 @@ export function adminSubscribeRtdbValue(
   path: string,
   next: (value: unknown) => void,
   error?: (err: unknown) => void,
+  instance?: string,
 ): Unsubscribe {
   const subId = nextSubId();
   const opened = openSnapshotSubscription(
@@ -63,7 +73,7 @@ export function adminSubscribeRtdbValue(
     stampIssuer({
       t: 'sub',
       subId,
-      target: { service: 'rtdb', path: normalizeRtdbPath(path) },
+      target: { service: 'rtdb', ...instanceOf(db, instance), path: normalizeRtdbPath(path) },
       actAs: { mode: 'admin' },
     } satisfies InboundMessage),
   );

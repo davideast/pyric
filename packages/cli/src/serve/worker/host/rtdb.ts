@@ -36,7 +36,7 @@ import {
 
 import type { OpMessage, RtdbQuerySpec } from '../protocol.js';
 import { type HostCtx, type PortLike, ok, fail, bestEffortFlush } from '../host-context.js';
-import { lensRtdb } from './core.js';
+import { lensRtdb, rtdbInstanceKey } from './rtdb-instances.js';
 import { sameRtdbValue } from '../rtdb-value-equality.js';
 
 /** Host execution is transport work, not another public SDK call. */
@@ -126,28 +126,40 @@ const RTDB_METHODS = new Set<string>([
 
 interface PortDisconnectMetadata {
   actAs?: OpMessage['actAs'];
+  /** The instance name the operation was registered on; absent is the default instance. */
+  instance?: string;
 }
 
 type PortDisconnectOperation = DisconnectOperation<PortDisconnectMetadata>;
 
-const disconnectQueues = new WeakMap<HostCtx, Map<PortLike, DisconnectOperationQueue<PortDisconnectMetadata>>>();
-const offlinePorts = new WeakMap<HostCtx, Set<PortLike>>();
+/** Each port's onDisconnect queue per instance, keyed by instance key. As in
+ *  production, every database instance is its own connection. */
+type PortQueues = Map<string, DisconnectOperationQueue<PortDisconnectMetadata>>;
 
-function offlinePortSet(ctx: HostCtx): Set<PortLike> {
+const disconnectQueues = new WeakMap<HostCtx, Map<PortLike, PortQueues>>();
+/** The instance keys each port has taken offline with `goOffline`. */
+const offlineInstances = new WeakMap<HostCtx, Map<PortLike, Set<string>>>();
+
+function portOfflineInstances(ctx: HostCtx, port: PortLike): Set<string> {
   hostDisconnectQueues(ctx);
-  const existing = offlinePorts.get(ctx);
-  const hasPorts = existing !== undefined;
-  if (hasPorts) return existing;
-  const ports = new Set<PortLike>();
-  offlinePorts.set(ctx, ports);
-  return ports;
+  let ports = offlineInstances.get(ctx);
+  if (ports === undefined) {
+    ports = new Map();
+    offlineInstances.set(ctx, ports);
+  }
+  let instances = ports.get(port);
+  if (instances === undefined) {
+    instances = new Set();
+    ports.set(port, instances);
+  }
+  return instances;
 }
 
-function hostDisconnectQueues(ctx: HostCtx): Map<PortLike, DisconnectOperationQueue<PortDisconnectMetadata>> {
+function hostDisconnectQueues(ctx: HostCtx): Map<PortLike, PortQueues> {
   const existing = disconnectQueues.get(ctx);
   const hasQueues = existing !== undefined;
   if (hasQueues) return existing;
-  const ports = new Map<PortLike, DisconnectOperationQueue<PortDisconnectMetadata>>();
+  const ports = new Map<PortLike, PortQueues>();
   disconnectQueues.set(ctx, ports);
   // The sandbox owns this subscription and releases it on disposal.
   ctx.sandbox.onEvent((event) => {
@@ -157,18 +169,23 @@ function hostDisconnectQueues(ctx: HostCtx): Map<PortLike, DisconnectOperationQu
   return ports;
 }
 
-function portQueue(ctx: HostCtx, port: PortLike): DisconnectOperationQueue<PortDisconnectMetadata> {
+function portQueue(ctx: HostCtx, port: PortLike, instanceKey: string): DisconnectOperationQueue<PortDisconnectMetadata> {
   const ports = hostDisconnectQueues(ctx);
-  const existing = ports.get(port);
+  let queues = ports.get(port);
+  if (queues === undefined) {
+    queues = new Map();
+    ports.set(port, queues);
+  }
+  const existing = queues.get(instanceKey);
   const hasQueue = existing !== undefined;
   if (hasQueue) return existing;
   const queue = new DisconnectOperationQueue<PortDisconnectMetadata>();
-  ports.set(port, queue);
+  queues.set(instanceKey, queue);
   return queue;
 }
 
 async function validateDisconnectOperation(ctx: HostCtx, port: PortLike, operation: PortDisconnectOperation): Promise<void> {
-  const db = lensRtdb(ctx, operation.actAs, port);
+  const db = lensRtdb(ctx, operation.actAs, port, operation.instance);
   const handle = rtdbOnDisconnect(rtdbRef(db, operation.path));
   if (operation.kind === 'update') await handle.update(operation.values);
   else if (operation.kind === 'remove') await handle.remove();
@@ -178,20 +195,33 @@ async function validateDisconnectOperation(ctx: HostCtx, port: PortLike, operati
 }
 
 async function queueDisconnectOperation(ctx: HostCtx, port: PortLike, operation: PortDisconnectOperation): Promise<void> {
+  const instanceKey = rtdbInstanceKey(ctx, operation.instance);
   await validateDisconnectOperation(ctx, port, operation);
-  const queue = portQueue(ctx, port);
-  queue.set(operation);
+  portQueue(ctx, port, instanceKey).set(operation);
 }
 
-export async function drainPortRtdbDisconnects(ctx: HostCtx, port: PortLike): Promise<void> {
-  const ports = disconnectQueues.get(ctx);
-  const queue = ports?.get(port);
-  if (!queue) return;
-  ports!.delete(port);
+/**
+ * Run a port's queued onDisconnect operations: those of one instance when
+ * `instanceKey` is given (that instance went offline), else every instance's
+ * (the port closed).
+ */
+export async function drainPortRtdbDisconnects(ctx: HostCtx, port: PortLike, instanceKey?: string): Promise<void> {
+  const queues = disconnectQueues.get(ctx)?.get(port);
+  if (!queues) return;
+  const drained = instanceKey === undefined ? [...queues.keys()] : [instanceKey];
+  const operations: PortDisconnectOperation[] = [];
+  for (const key of drained) {
+    const queue = queues.get(key);
+    if (!queue) continue;
+    queues.delete(key);
+    operations.push(...queue.takeAll());
+  }
+  if (queues.size === 0) disconnectQueues.get(ctx)?.delete(port);
+  if (operations.length === 0) return;
   const failures: unknown[] = [];
-  for (const operation of queue.takeAll()) {
+  for (const operation of operations) {
     try {
-      const db = lensRtdb(ctx, operation.actAs, port);
+      const db = lensRtdb(ctx, operation.actAs, port, operation.instance);
       const target = rtdbRef(db, operation.path);
       if (operation.kind === 'update') await rtdbUpdate(target, resolveRtdbSentinels(operation.values) as Record<string, unknown>);
       else if (operation.kind === 'remove') await rtdbRemove(target);
@@ -217,12 +247,12 @@ export async function drainPortRtdbDisconnects(ctx: HostCtx, port: PortLike): Pr
 
 function clearAllRtdbDisconnects(ctx: HostCtx): void {
   disconnectQueues.get(ctx)?.clear();
-  offlinePorts.get(ctx)?.clear();
+  offlineInstances.get(ctx)?.clear();
 }
 
 export function forgetPortRtdbConnection(ctx: HostCtx, port: PortLike): void {
   disconnectQueues.get(ctx)?.delete(port);
-  offlinePorts.get(ctx)?.delete(port);
+  offlineInstances.get(ctx)?.delete(port);
 }
 
 export function isRtdbOp(method: OpMessage['method']): boolean {
@@ -237,7 +267,7 @@ export async function handleRtdbOp(
   switch (msg.method) {
     case 'rtdb.get': {
       try {
-        const db = lensRtdb(ctx, msg.actAs, port);
+        const db = lensRtdb(ctx, msg.actAs, port, msg.instance);
         ok(port, msg.id, rtdbSnapToWire(await sdkActivity.silence(() => rtdbGet(rtdbTarget(db, msg.path, msg.query)))));
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -245,7 +275,7 @@ export async function handleRtdbOp(
 
     case 'rtdb.set': {
       try {
-        const db = lensRtdb(ctx, msg.actAs, port);
+        const db = lensRtdb(ctx, msg.actAs, port, msg.instance);
         const value = resolveRtdbSentinels(msg.value);
         await rtdbSet(rtdbRef(db, msg.path), value as never);
         await bestEffortFlush(ctx, msg.method);
@@ -256,7 +286,7 @@ export async function handleRtdbOp(
 
     case 'rtdb.setPriority': {
       try {
-        const db = lensRtdb(ctx, msg.actAs, port);
+        const db = lensRtdb(ctx, msg.actAs, port, msg.instance);
         await rtdbSetPriority(rtdbRef(db, msg.path), msg.priority);
         await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, null);
@@ -266,7 +296,7 @@ export async function handleRtdbOp(
 
     case 'rtdb.setWithPriority': {
       try {
-        const db = lensRtdb(ctx, msg.actAs, port);
+        const db = lensRtdb(ctx, msg.actAs, port, msg.instance);
         await rtdbSetWithPriority(
           rtdbRef(db, msg.path),
           resolveRtdbSentinels(msg.value) as never,
@@ -280,7 +310,7 @@ export async function handleRtdbOp(
 
     case 'rtdb.update': {
       try {
-        const db = lensRtdb(ctx, msg.actAs, port);
+        const db = lensRtdb(ctx, msg.actAs, port, msg.instance);
         await rtdbUpdate(rtdbRef(db, msg.path), resolveRtdbSentinels(msg.values) as Record<string, unknown>);
         await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, null);
@@ -290,7 +320,7 @@ export async function handleRtdbOp(
 
     case 'rtdb.remove': {
       try {
-        const db = lensRtdb(ctx, msg.actAs, port);
+        const db = lensRtdb(ctx, msg.actAs, port, msg.instance);
         await rtdbRemove(rtdbRef(db, msg.path));
         await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, null);
@@ -300,7 +330,7 @@ export async function handleRtdbOp(
 
     case 'rtdb.push': {
       try {
-        const db = lensRtdb(ctx, msg.actAs, port);
+        const db = lensRtdb(ctx, msg.actAs, port, msg.instance);
         // A caller that can wait for the reply omits `key`, and the key is
         // minted here from the sandbox clock. A page cannot wait: its `push()`
         // returns a reference synchronously, so it mints its own from the clock
@@ -325,7 +355,7 @@ export async function handleRtdbOp(
 
     case 'rtdb.adminSnapshot': {
       try {
-        ok(port, msg.id, rtdbSandbox.snapshotState(lensRtdb(ctx, { mode: 'admin' }, port)));
+        ok(port, msg.id, rtdbSandbox.snapshotState(lensRtdb(ctx, { mode: 'admin' }, port, msg.instance)));
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
@@ -333,7 +363,7 @@ export async function handleRtdbOp(
     case 'rtdb.onDisconnectSet': {
       try {
         await queueDisconnectOperation(ctx, port, {
-          kind: 'set', path: msg.path, value: resolveRtdbSentinels(msg.value), priority: msg.priority, actAs: msg.actAs,
+          kind: 'set', path: msg.path, value: resolveRtdbSentinels(msg.value), priority: msg.priority, actAs: msg.actAs, instance: msg.instance,
         });
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
@@ -343,7 +373,7 @@ export async function handleRtdbOp(
     case 'rtdb.onDisconnectUpdate': {
       try {
         await queueDisconnectOperation(ctx, port, {
-          kind: 'update', path: msg.path, values: resolveRtdbSentinels(msg.values) as Record<string, unknown>, actAs: msg.actAs,
+          kind: 'update', path: msg.path, values: resolveRtdbSentinels(msg.values) as Record<string, unknown>, actAs: msg.actAs, instance: msg.instance,
         });
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
@@ -352,25 +382,27 @@ export async function handleRtdbOp(
 
     case 'rtdb.onDisconnectRemove': {
       try {
-        await queueDisconnectOperation(ctx, port, { kind: 'remove', path: msg.path, actAs: msg.actAs });
+        await queueDisconnectOperation(ctx, port, { kind: 'remove', path: msg.path, actAs: msg.actAs, instance: msg.instance });
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
 
     case 'rtdb.onDisconnectCancel': {
-      const queue = portQueue(ctx, port);
-      queue.cancel(msg.path);
-      ok(port, msg.id, null);
+      try {
+        portQueue(ctx, port, rtdbInstanceKey(ctx, msg.instance)).cancel(msg.path);
+        ok(port, msg.id, null);
+      } catch (e) { fail(port, msg.id, e); }
       break;
     }
 
     case 'rtdb.goOffline': {
       try {
-        const offline = offlinePortSet(ctx);
-        if (!offline.has(port)) {
-          offline.add(port);
-          await drainPortRtdbDisconnects(ctx, port);
+        const instanceKey = rtdbInstanceKey(ctx, msg.instance);
+        const offline = portOfflineInstances(ctx, port);
+        if (!offline.has(instanceKey)) {
+          offline.add(instanceKey);
+          await drainPortRtdbDisconnects(ctx, port, instanceKey);
         }
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
@@ -378,14 +410,16 @@ export async function handleRtdbOp(
     }
 
     case 'rtdb.goOnline': {
-      offlinePortSet(ctx).delete(port);
-      ok(port, msg.id, null);
+      try {
+        portOfflineInstances(ctx, port).delete(rtdbInstanceKey(ctx, msg.instance));
+        ok(port, msg.id, null);
+      } catch (e) { fail(port, msg.id, e); }
       break;
     }
 
     case 'rtdb.transactionCommit': {
       try {
-        const db = lensRtdb(ctx, msg.actAs, port);
+        const db = lensRtdb(ctx, msg.actAs, port, msg.instance);
         const target = rtdbRef(db, msg.path);
         let retry = false;
         const result = await rtdbRunTransaction(

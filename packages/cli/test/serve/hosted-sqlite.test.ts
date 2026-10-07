@@ -108,6 +108,14 @@ test('the Node host replaces and removes Storage rules that a rules file reload 
   expect(await runNodeFixture('storage-rules')).toBe('Hosted Storage rules reload passed');
 });
 
+test('the Node host keeps each RTDB instance\'s data and rules, shares one Auth, and serves only declared instances', async () => {
+  expect(await runNodeFixture('rtdb-instances')).toBe('Hosted RTDB instances passed');
+});
+
+test('the Node host loads each instance of a firebase.json database array with its own rules', async () => {
+  expect(await runNodeFixture('rtdb-firebase-json')).toBe('Hosted RTDB firebase.json instances passed');
+});
+
 test('malformed Auth state refuses hosted startup instead of losing accounts', async () => {
   expect(await runNodeFixture('malformed')).toBe('Malformed state refused');
 });

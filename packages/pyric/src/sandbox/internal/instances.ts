@@ -45,6 +45,44 @@ export function defaultDatabaseInstance(projectId: string): DatabaseInstance {
  * Throws the SDK's error for a URL `getDatabase` rejects.
  */
 export function parseDatabaseUrl(databaseUrl: string): DatabaseInstance {
+  const parsed = parseRepoUrl(databaseUrl, 'Invalid Firebase Database URL');
+  if (parsed.path !== '/') {
+    throw fatal('Database URL must point to the root of a Firebase Database (not including a child path).');
+  }
+  return parsed.instance;
+}
+
+/** A database URL with a location, as the SDK's `refFromURL` parses it. */
+export interface DatabaseLocationUrl {
+  /** The instance the URL names. */
+  readonly instance: DatabaseInstance;
+  /** The lowercase host, with any port. */
+  readonly host: string;
+  /** The decoded location: `/` or `/<segment>/<segment>`. */
+  readonly path: string;
+}
+
+/**
+ * The instance and location a `refFromURL` URL names, as the production SDK
+ * parses it. Throws the SDK's error for a URL `refFromURL` rejects.
+ */
+export function parseDatabaseLocationUrl(url: string): DatabaseLocationUrl {
+  return parseRepoUrl(url, 'refFromURL');
+}
+
+/**
+ * Whether the SDK skips `refFromURL`'s host check for this host: every
+ * domain except `firebaseio.com` and `firebaseio-demo.com`, as
+ * `RepoInfo.isCustomHost()` decides.
+ */
+export function isCustomDatabaseHost(host: string): boolean {
+  const lowered = host.toLowerCase();
+  const domain = lowered.substring(lowered.indexOf('.') + 1);
+  return domain !== 'firebaseio.com' && domain !== 'firebaseio-demo.com';
+}
+
+// Port of `parseRepoInfo` and `validateUrl(fnName, …)`.
+function parseRepoUrl(databaseUrl: string, fnName: string): DatabaseLocationUrl {
   const parsed = parseUrlParts(databaseUrl);
   if (parsed.domain === 'firebase.com') {
     throw fatal(`${parsed.host} is no longer supported. Please use <YOUR FIREBASE>.firebaseio.com instead`);
@@ -54,21 +92,19 @@ export function parseDatabaseUrl(databaseUrl: string): DatabaseInstance {
     throw fatal('Cannot parse Firebase url. Please use https://<YOUR FIREBASE>.firebaseio.com');
   }
   const host = parsed.host.toLowerCase();
-  const rootPath = parsed.pathSegments.length === 0 ? '/' : `/${parsed.pathSegments.join('/')}`;
+  const path = parsed.pathSegments.length === 0 ? '/' : `/${parsed.pathSegments.join('/')}`;
   if (
     host.length === 0
     || (!isValidKey(namespace) && host.split(':')[0] !== 'localhost')
-    || !isValidRootPathString(rootPath)
+    || !isValidRootPathString(path)
   ) {
     throw new Error(
-      'Invalid Firebase Database URL failed: url argument must be a valid firebase URL and the path can\'t contain ".", "#", "$", "[", or "]".',
+      `${fnName} failed: url argument must be a valid firebase URL and the path can't contain ".", "#", "$", "[", or "]".`,
     );
   }
-  if (parsed.pathSegments.length > 0) {
-    throw fatal('Database URL must point to the root of a Firebase Database (not including a child path).');
-  }
   const query = namespace !== parsed.subdomain ? `?ns=${namespace}` : '';
-  return { name: namespace, url: `${parsed.secure ? 'https://' : 'http://'}${host}/${query}` };
+  const instance = { name: namespace, url: `${parsed.secure ? 'https://' : 'http://'}${host}/${query}` };
+  return { instance, host, path };
 }
 
 /**

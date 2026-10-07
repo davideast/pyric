@@ -9,7 +9,21 @@ import './init.js';
 import * as ip from 'pyric/database';
 import { getDatabase as pyricGetDatabase } from 'pyric/database';
 import { queryIdentifier } from 'pyric/database/internal';
-import { rtdbChild, rtdbGetDatabase, rtdbRef } from '../worker/client/rtdb-references.js';
+import {
+  defaultDatabaseInstanceName,
+  isCustomDatabaseHost,
+  parseDatabaseLocationUrl,
+  parseDatabaseUrl,
+  type DatabaseInstance,
+} from 'pyric/sandbox/internal';
+import {
+  rtdbChild,
+  rtdbGetDatabase,
+  rtdbInstanceDatabase,
+  rtdbRef,
+  sameRtdbInstance,
+} from '../worker/client/rtdb-references.js';
+import type { ClientRtdb } from '../worker/client/handles.js';
 import { rtdbGet } from '../worker/client/rtdb-reads.js';
 import {
   rtdbPush,
@@ -43,8 +57,6 @@ import { getApp, type FirebaseApp } from 'pyric/app';
 import { workerClientForApp } from './app-client.js';
 import { databaseRules } from './runtime.js';
 
-const workerDatabaseByApp = new WeakMap<FirebaseApp, ReturnType<typeof pyricGetDatabase>>();
-
 type WorkerSnapshot = Awaited<ReturnType<typeof rtdbGet>>;
 
 function wrapWorkerSnapshot(snapshot: WorkerSnapshot): ip.DataSnapshot {
@@ -65,21 +77,64 @@ function wrapWorkerSnapshot(snapshot: WorkerSnapshot): ip.DataSnapshot {
   });
 }
 
+/**
+ * The instance `getDatabase(app, url)` opens, as the production SDK resolves
+ * it: the URL, else the app's `databaseURL`, else the project's default
+ * instance. Throws the SDK's errors for a URL it rejects.
+ */
+function servedInstance(app: FirebaseApp, url: string | undefined): DatabaseInstance {
+  const projectId = app.options.projectId;
+  let databaseUrl = url || app.options.databaseURL;
+  if (databaseUrl === undefined) {
+    if (!projectId) {
+      throw new Error("FIREBASE FATAL ERROR: Can't determine Firebase Database URL. Be sure to include  a Project ID when calling firebase.initializeApp(). ");
+    }
+    databaseUrl = `${defaultDatabaseInstanceName(projectId)}.firebaseio.com`;
+  }
+  return parseDatabaseUrl(databaseUrl);
+}
+
+/** One app's served databases: by `getDatabase` URL argument, and the
+ *  instance root URLs already open, as production keys them. */
+interface AppDatabases {
+  byArgument: Map<string | undefined, ReturnType<typeof pyricGetDatabase>>;
+  openUrls: Set<string>;
+}
+
+const workerDatabasesByApp = new WeakMap<FirebaseApp, AppDatabases>();
+
 export const getDatabase = ((app?: FirebaseApp, url?: string) => {
   const resolved = app ?? getApp();
   if (!useWorker) {
     databaseRules.register(url ?? resolved.options.databaseURL);
     return pyricGetDatabase(resolved, url);
   }
-  const existing = workerDatabaseByApp.get(resolved);
+  let databases = workerDatabasesByApp.get(resolved);
+  if (databases === undefined) {
+    databases = { byArgument: new Map(), openUrls: new Set() };
+    workerDatabasesByApp.set(resolved, databases);
+  }
+  const existing = databases.byArgument.get(url);
   if (existing) return existing;
+  const instance = servedInstance(resolved, url);
+  // Production keeps one connection per instance per app. A second URL
+  // argument that names an open instance is refused, not shared.
+  if (databases.openUrls.has(instance.url)) {
+    throw new Error('FIREBASE FATAL ERROR: Database initialized multiple times. Please make sure the format of the database URL matches with each database() call. ');
+  }
+  const projectId = resolved.options.projectId;
+  const isDefault = projectId !== undefined && instance.name === defaultDatabaseInstanceName(projectId);
   const client = workerClientForApp(resolved);
   const handle = Object.assign(
     new ip.Database(undefined, resolved),
-    rtdbGetDatabase(client),
+    rtdbInstanceDatabase(rtdbGetDatabase(client), {
+      ...(isDefault ? {} : { name: instance.name }),
+      url: instance.url,
+    }),
     { app: resolved },
   ) as ReturnType<typeof pyricGetDatabase>;
-  workerDatabaseByApp.set(resolved, handle);
+  databases.byArgument.set(url, handle);
+  databases.openUrls.add(instance.url);
   return handle;
 }) as typeof pyricGetDatabase;
 
@@ -162,22 +217,24 @@ export const forceWebSockets = (() => {}) as typeof ip.forceWebSockets;
 export const enableLogging = ((_logger?: unknown, _persistent?: unknown) => {}) as typeof ip.enableLogging;
 
 /**
- * `refFromURL(db, url)` — parse the path out of the URL and delegate to the
- * picked `ref` (worker or in-page), so the resolved ref behaves exactly like
- * `ref(db, path)`. The URL host/namespace is not honored (served sandbox is
- * single-database) — matching the in-page `pyric/database` behavior.
+ * `refFromURL(db, url)` as production parses it: the URL names a location, and
+ * for a `firebaseio.com` database its host must be the database's host.
  */
-export const refFromURL = ((db: unknown, url: string) => {
-  let path: string;
-  try {
-    path = new URL(url).pathname;
-  } catch {
-    throw new Error(
-      `firebase/database refFromURL received a value that is not an absolute URL: ${url}`,
-    );
+function workerRefFromURL(db: ClientRtdb, url: string) {
+  const location = parseDatabaseLocationUrl(url);
+  const instance = db.instance;
+  if (instance !== undefined) {
+    const expectedHost = parseDatabaseLocationUrl(instance.url).host;
+    if (!isCustomDatabaseHost(expectedHost) && location.host !== expectedHost) {
+      throw new Error(
+        `FIREBASE FATAL ERROR: refFromURL: Host name does not match the current database: (found ${location.host} but expected ${expectedHost}) `,
+      );
+    }
   }
-  return (ref as (db: unknown, path?: string) => unknown)(db, path);
-}) as typeof ip.refFromURL;
+  return rtdbRef(db, location.path);
+}
+
+export const refFromURL = (useWorker ? workerRefFromURL : ip.refFromURL) as typeof ip.refFromURL;
 
 export const runTransaction = (
   useWorker
@@ -207,6 +264,7 @@ export const query = (
               && 'port' in built.ref
               && 'port' in other.ref
               && built.ref.port === other.ref.port
+              && sameRtdbInstance(built.ref as never, other.ref as never)
               && built.ref._path === other.ref._path
               && queryIdentifier(built._spec) === queryIdentifier(other._spec);
           },

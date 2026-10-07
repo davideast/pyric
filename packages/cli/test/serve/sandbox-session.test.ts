@@ -469,6 +469,33 @@ service firebase.storage {
     await session.close();
   });
 
+  it('deploys each reloaded database instance\'s rules to that instance on the Node sandbox', async () => {
+    const root = project();
+    const aPath = join(root, 'a.rules.json');
+    const bPath = join(root, 'b.rules.json');
+    writeFileSync(aPath, JSON.stringify({ rules: { a: { '.read': true } } }));
+    writeFileSync(bPath, JSON.stringify({ rules: { b: { '.read': true } } }));
+    const deployed: Array<[string, string | null, string | undefined]> = [];
+    const session = await createSandboxSession({
+      projectDir: root,
+      projectId: 'demo',
+      firebaseConfig: { database: [{ instance: 'demo-default-rtdb', rules: 'a.rules.json' }, { instance: 'second', rules: 'b.rules.json' }] },
+      sdk: { dir: join(root, 'sdk') },
+      deployHostedRules: async (service, source, instance) => {
+        deployed.push([service, source, instance]);
+      },
+    });
+    writeFileSync(bPath, JSON.stringify({ rules: { b: { '.read': false } } }));
+    await session.reloadDatabaseRules(bPath);
+    rmSync(aPath);
+    await session.reloadDatabaseRules(aPath);
+    expect(deployed).toEqual([
+      ['database', JSON.stringify({ rules: { b: { '.read': false } } }), 'second'],
+      ['database', null, 'demo-default-rtdb'],
+    ]);
+    await session.close();
+  });
+
   it('loads each firebase.json database instance its own rules', async () => {
     const root = project();
     writeFileSync(join(root, 'a.rules.json'), JSON.stringify({ rules: { a: { '.read': true } } }));

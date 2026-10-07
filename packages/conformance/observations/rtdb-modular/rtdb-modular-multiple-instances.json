@@ -1,0 +1,62 @@
+{
+  "name": "rtdb-modular-multiple-instances",
+  "matrixRow": "rtdb-modular#MI1",
+  "rowIds": [
+    "rtdb-modular#MI1",
+    "rtdb-modular#MI2"
+  ],
+  "description": "Two RTDB instances of one project, the default instance and a second one, each with a different ruleset deployed under a run-scoped key: client writes signed out and as one custom-token user, the value each instance holds afterwards read with an admin token, whether one ID token served every operation, and the SDK's behavior for an instance URL that names no instance. Captured by deploy-observe-restore on both instances; rules restored and read back, run data and the run user deleted.",
+  "observedAt": "2026-10-07T20:46:32.227Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "rules": {
+      "default": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      },
+      "second": {
+        "open": {
+          ".read": true,
+          ".write": true
+        },
+        "users": {
+          "$uid": {
+            ".read": "auth.uid === $uid",
+            ".write": "auth.uid === $uid"
+          }
+        }
+      }
+    },
+    "signedOut": {
+      "defaultWrite": "DENY",
+      "secondWrite": "ALLOW"
+    },
+    "isolation": {
+      "secondWriteReadOnSecond": "second",
+      "secondWriteReadOnDefault": null
+    },
+    "signedIn": {
+      "defaultWrite": "ALLOW",
+      "secondOwnUserPath": "ALLOW",
+      "secondOtherUserPath": "DENY",
+      "secondPathWithoutRules": "DENY",
+      "defaultReadOfSecondOnlyPath": "ALLOW"
+    },
+    "oneIdToken": {
+      "sameTokenAcrossInstances": true
+    },
+    "isolationAfterBothWrites": {
+      "defaultHolds": "default",
+      "secondHolds": "second",
+      "secondUserPathOnDefault": null
+    },
+    "missingInstance": {
+      "get": "pending after 20s",
+      "onValue": "pending after 20s",
+      "warnings": [
+        "@firebase/database: FIREBASE WARNING: Firebase error. Please ensure that you have the URL of your Firebase Realtime Database instance configured correctly. (https://<missing>.firebaseio.com/)"
+      ]
+    }
+  }
+}

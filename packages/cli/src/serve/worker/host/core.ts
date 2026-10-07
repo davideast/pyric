@@ -2,9 +2,9 @@
  * SharedWorker host — shared resolution layer (host/core.ts).
  *
  * The helpers every firestore-touching family module leans on:
- *   - the auth-lens → live-handle resolvers (`lensDb`/`lensRtdb`/`sessionDb`/…),
+ *   - the auth-lens → live-handle resolvers (`lensDb`/`sessionDb`/…; RTDB resolves per instance in `rtdb-instances.ts`),
  *     the single place a per-op `actAs` lens or a port session becomes a live
- *     Firestore/RTDB handle;
+ *     Firestore handle;
  *   - descriptor → live ref/query resolution (`resolveTarget`/`resolveConstraint`),
  *     used by both the read ops and the subscription handlers;
  *   - cross-port snapshot serialization (`serializeDocSnap`);
@@ -41,11 +41,6 @@ import {
 } from 'pyric/firestore';
 import { assertEncodedDocValueDepth, decodeDocValue, type DocValueEncoding } from 'pyric/firestore/internal/value-codec';
 import { FirebaseError } from 'pyric/app';
-import {
-  getDatabase as pyricGetDatabase,
-  getAdminDatabase as pyricGetAdminDatabase,
-  type Database,
-} from 'pyric/database';
 import type { AuthLens, EventProvenance } from 'pyric/sandbox';
 import type { MintedSession } from 'pyric/auth';
 
@@ -310,45 +305,6 @@ export function sessionDb(ctx: HostCtx, port: PortLike): Firestore {
     cache.set(key, handle);
   }
   return handle;
-}
-
-function sessionRtdb(ctx: HostCtx, port: PortLike): Database {
-  const session = portSession(ctx, port);
-  if (!session) return ensureRtdb(ctx);
-  const cache = (ctx.sessionRtdbs ??= new Map());
-  const key = sessionCacheKey(session);
-  let handle = cache.get(key);
-  if (!handle) {
-    handle = pyricGetDatabase(ctx.sandbox.withAuth(session.state));
-    cache.set(key, handle);
-  }
-  return handle;
-}
-
-export function lensRtdb(ctx: HostCtx, actAs: AuthLens | undefined, port: PortLike): Database {
-  if (!actAs || actAs.mode === 'app-session') {
-    return sessionRtdb(ctx, port);
-  }
-  if (actAs.mode === 'admin') {
-    return (ctx.adminRtdb ??= pyricGetAdminDatabase(ctx.sandbox));
-  }
-  // Genuinely unauthenticated — see the `anon` note on lensDb.
-  if (actAs.mode === 'anon') {
-    return (ctx.anonRtdb ??= pyricGetDatabase(ctx.sandbox.withAuth(null)));
-  }
-
-  const handles = (ctx.lensRtdbs ??= new Map());
-  const key = lensCacheKey(actAs);
-  let handle = handles.get(key);
-  if (!handle) {
-    handle = pyricGetDatabase(ctx.sandbox.withAuth(authStateForLens(actAs)));
-    handles.set(key, handle);
-  }
-  return handle;
-}
-
-export function ensureRtdb(ctx: HostCtx): Database {
-  return (ctx.rtdb ??= pyricGetDatabase(ctx.sandbox));
 }
 
 // ─── Op provenance ─────────────────────────────────────────────────────────

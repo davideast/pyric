@@ -4,7 +4,7 @@ import { createStorageByteRoute } from './storage-byte-route.js';
 import { uploadTokenOf } from '../worker/host/storage.js';
 import type { ServeLogger } from '../server.js';
 import { fetchAiUpstream, resolveAiProxyUpstream } from '../ai-proxy.js';
-import { handleRulesOp } from '../worker/host/rules.js';
+import { databaseInstanceRulesHost, handleRulesOp, setDatabaseRules } from '../worker/host/rules.js';
 import { SERVE_HISTORY_LIMITS } from '../observation-limits.js';
 import { randomUUID } from 'node:crypto';
 import { createOperationBudget } from '../../bridge/operation-budget.js';
@@ -330,18 +330,22 @@ export async function createHostedRuntime(
       return storageBytes(req, res, url);
     },
     /** A null database or Storage source clears the rules, so the default
-     *  policy applies: RTDB's configured policy, and deny-all for Storage. */
-    async deployRules(service: 'firestore' | 'database' | 'storage', source: string | null): Promise<void> {
+     *  policy applies: RTDB's configured policy, and deny-all for Storage.
+     *  `instance` names the RTDB instance a database ruleset deploys to, as
+     *  {@link setDatabaseRules} takes it; absent is the default instance. */
+    async deployRules(service: 'firestore' | 'database' | 'storage', source: string | null, instance?: string): Promise<void> {
       if (closed) throw new Error('The hosted sandbox is closed.');
       if (service === 'storage') {
         await replaceStorageRules(ctx.sandbox, source);
         return;
       }
-      const isFirestore = service === 'firestore';
-      if (isFirestore && source === null) throw new Error('Firestore rules source is required.');
-      const op = isFirestore
-        ? { t: 'op' as const, id: 'file-rules-reload', method: 'setFirestoreRules' as const, source: source as string }
-        : { t: 'op' as const, id: 'file-rules-reload', method: 'setDatabaseRules' as const, source };
+      if (service === 'database') {
+        const deployed = setDatabaseRules(ctx, instance, source);
+        if (!deployed.ok) throw new Error(deployed.messages.map((message) => message.text).join('; '));
+        return;
+      }
+      if (source === null) throw new Error('Firestore rules source is required.');
+      const op = { t: 'op' as const, id: 'file-rules-reload', method: 'setFirestoreRules' as const, source };
       handleRulesOp(ctx, {
         postMessage(reply) {
           const failed = reply.t === 'res' && !reply.ok;
@@ -349,6 +353,8 @@ export async function createHostedRuntime(
         },
       }, op, ctx.db);
     },
+    /** The Node host's per-instance RTDB rules, as `connectDatabaseInstanceRules` applies them. */
+    databaseRules: databaseInstanceRulesHost(ctx),
     instanceId,
     toolNames: SANDBOX_TOOL_NAMES,
     /** The admitted transport connection owns command ordering; JSON cannot choose another caller. */

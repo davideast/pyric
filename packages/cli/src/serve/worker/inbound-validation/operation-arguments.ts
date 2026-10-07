@@ -36,6 +36,16 @@ function assertSharedAuthFields(message: Record<string, unknown>): void {
   requireOptionalBoolean(message.forceRefresh, 'forceRefresh');
 }
 
+/** The RTDB ops and the database rules ops name their instance with an optional string. */
+function assertDatabaseInstance(message: Record<string, unknown>): void {
+  const method = message.method;
+  const namesInstance = typeof method === 'string' && (
+    method.startsWith('rtdb.')
+    || method === 'setDatabaseRules' || method === 'getActiveRules' || method === 'getRulesStatus'
+  );
+  if (namesInstance) requireOptionalString(message.instance, 'instance');
+}
+
 function assertSetOptions(value: unknown): void {
   const isAbsent = value === undefined;
   if (isAbsent) return;
@@ -55,6 +65,7 @@ export function assertOperationArguments(message: Record<string, unknown>): void
   requireOptionalBoolean(message.resumeSession, 'resumeSession');
   assertRequiredPath(message);
   assertSharedAuthFields(message);
+  assertDatabaseInstance(message);
   // Only the dispatch is typed; each payload field remains untrusted.
   // The default refuses methods outside the protocol at runtime.
   const method = message.method as OpMessage['method'];

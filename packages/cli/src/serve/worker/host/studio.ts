@@ -9,7 +9,6 @@
 
 import { setRules } from 'pyric/sandbox/firestore';
 import { sandbox as rtdbSandbox } from 'pyric/database';
-import { ensureRtdb } from './core.js';
 import { normalizeDatabaseRules } from './rules.js';
 
 import type { OpMessage } from '../protocol.js';
@@ -57,11 +56,14 @@ export async function handleStudioOp(
         const source = hasActiveRules ? firestoreRules.source : firestoreRules?.lastKnownGood;
         const hasRulesSource = typeof source === 'string';
         if (hasRulesSource) setRules(ctx.sandbox, source);
-        const databaseRules = ctx.activeRules?.database;
-        const hasActiveDatabaseRules = databaseRules?.status === 'active';
-        const databaseSource = hasActiveDatabaseRules ? databaseRules.source : databaseRules?.lastKnownGood;
-        const hasDatabaseSource = databaseSource !== undefined;
-        if (hasDatabaseSource) rtdbSandbox.setRules(ensureRtdb(ctx), normalizeDatabaseRules(databaseSource));
+        // Each RTDB instance gets its own rules back.
+        for (const [, instance] of ctx.rtdbInstances?.entries() ?? []) {
+          const databaseRules = instance.rules;
+          const hasActiveDatabaseRules = databaseRules?.status === 'active';
+          const databaseSource = hasActiveDatabaseRules ? databaseRules.source : databaseRules?.lastKnownGood;
+          const hasDatabaseSource = databaseSource !== undefined;
+          if (hasDatabaseSource) rtdbSandbox.setRules(instance.live, normalizeDatabaseRules(databaseSource));
+        }
         restoreFirestoreSubscriptions(ctx);
         // The server capture (`.pyric/last-session.json`) persists the event
         // history a rebooting worker re-primes into Traffic. Flush it NOW —

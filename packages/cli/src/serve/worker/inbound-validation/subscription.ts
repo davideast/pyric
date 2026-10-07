@@ -25,6 +25,7 @@ export function assertSubscription(message: Record<string, unknown>): void {
   switch (target.service) {
     case 'rtdb':
       requireString(target.path, 'target.path');
+      requireOptionalString(target.instance, 'target.instance');
       assertRtdbQuery(target.query);
       return;
     case 'ai': {

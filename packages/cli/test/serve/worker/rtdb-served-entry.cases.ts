@@ -2,7 +2,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { deleteApp, getApps, initializeApp } from 'pyric/app';
 import { createAppForSandbox } from 'pyric/app/internal';
-import * as sandboxDatabase from 'pyric/database';
 import { handleMessage, type PortLike } from '../../../src/serve/worker/host.js';
 import type { InboundMessage, OutboundMessage } from '../../../src/serve/worker/protocol.js';
 import * as client from '../../../src/serve/worker/index.js';
@@ -133,46 +132,6 @@ describe('RTDB served-entry integration', () => {
     await sleep();
     expect(removed).toEqual(['second']);
     unsubscribe();
-    await deleteApp(app);
-  });
-
-  // Production binds each URL to its own database instance. The worker
-  // protocol carries no instance, so the served entry returns one handle per
-  // app and the host runs every operation against its default database.
-  it('routes every getDatabase(app, url) instance to the default database', async () => {
-    const ctx = await makeHostCtx();
-    (globalThis as { SharedWorker?: unknown }).SharedWorker = class {
-      port: FakePort;
-      addEventListener() {}
-      constructor(_url: unknown, _opts: unknown) {
-        const { a: clientPort, b: hostPort } = portPair();
-        const hostPortLike: PortLike = {
-          postMessage: (message: OutboundMessage) => hostPort.postMessage(message),
-        };
-        hostPort.onmessage = (event) => {
-          void handleMessage(ctx, hostPortLike, event.data as InboundMessage);
-        };
-        this.port = clientPort;
-      }
-    };
-    const database = await import('../../../src/serve/entries/database.js');
-    const app = createAppForSandbox(
-      ctx.sandbox,
-      { projectId: 'served-database-instances' },
-      `served-database-instances-${Math.random()}`,
-    );
-    const first = database.getDatabase(app, 'https://first.firebaseio.com');
-    const second = database.getDatabase(app, 'https://second.firebaseio.com');
-    expect(second).toBe(first);
-    expect(database.getDatabase(app)).toBe(first);
-
-    await database.set(database.ref(first, 'instances/probe'), 'first');
-    expect((await database.get(database.ref(second, 'instances/probe'))).val()).toBe('first');
-
-    const hostDefault = sandboxDatabase.getAdminDatabase(ctx.sandbox);
-    const hostSecond = sandboxDatabase.getAdminDatabase(ctx.sandbox, 'https://second.firebaseio.com');
-    expect((await sandboxDatabase.get(sandboxDatabase.ref(hostDefault, 'instances/probe'))).val()).toBe('first');
-    expect((await sandboxDatabase.get(sandboxDatabase.ref(hostSecond, 'instances/probe'))).exists()).toBe(false);
     await deleteApp(app);
   });
 

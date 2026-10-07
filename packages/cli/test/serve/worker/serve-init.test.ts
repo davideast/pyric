@@ -662,34 +662,68 @@ describe('setupWorkerHotReload — the worker owns the single SSE', () => {
       rulesHash: 'hash123',
     }));
 
-    expect(ctx.activeRules?.database?.status).toBe('active');
-    expect(ctx.activeRules?.database?.source).toEqual({ rules: { '.read': 'false', '.write': 'false' } });
-    expect(ctx.rtdb).toBeDefined();
+    const instance = ctx.rtdbInstances?.get(ctx.rtdbInstances.defaultKey);
+    expect(instance?.rules?.status).toBe('active');
+    expect(instance?.rules?.source).toEqual({ rules: { '.read': 'false', '.write': 'false' } });
 
     dispose();
     expect(es.closed).toBe(true);
   });
 
-  it('applies only the default instance rules from rtdb-rules-update to its one database store', async () => {
+  it('applies each instance\'s rules from rtdb-rules-update to that instance\'s store', async () => {
     const ctx = await makeCtx();
-    const dispose = setupWorkerHotReload(ctx, (url) => new FakeES(url), 'demo-default-rtdb');
+    ctx.defaultRtdbInstance = 'demo-default-rtdb';
+    const dispose = setupWorkerHotReload(ctx, (url) => new FakeES(url));
     const es = FakeES.last!;
+    const rulesOf = (key: string) => ctx.rtdbInstances?.get(key)?.rules?.source;
 
     es.emit('rtdb-rules-update', JSON.stringify({
       instance: 'other',
       rules: { rules: { '.read': 'true' } },
       rulesHash: 'other',
     }));
-    expect(ctx.activeRules?.database).toBeUndefined();
+    expect(rulesOf('other')).toEqual({ rules: { '.read': 'true' } });
+    expect(rulesOf('demo-default-rtdb')).toBeUndefined();
 
     es.emit('rtdb-rules-update', JSON.stringify({
       instance: 'demo-default-rtdb',
       rules: { rules: { '.read': 'false' } },
       rulesHash: 'default',
     }));
-    expect(ctx.activeRules?.database?.source).toEqual({ rules: { '.read': 'false' } });
+    expect(rulesOf('demo-default-rtdb')).toEqual({ rules: { '.read': 'false' } });
+    expect(rulesOf('other')).toEqual({ rules: { '.read': 'true' } });
+
+    es.emit('rtdb-rules-update', JSON.stringify({ instance: 'other', rules: null, policy: 'deny' }));
+    expect(rulesOf('other')).toBeUndefined();
+    expect(rulesOf('demo-default-rtdb')).toEqual({ rules: { '.read': 'false' } });
 
     dispose();
+  });
+
+  it('applies firebase.json instances from the init payload, and serves only the declared ones', async () => {
+    const ctx = await makeCtx();
+    applyServeInit(ctx, {
+      ...basePayload,
+      databaseInstances: {
+        defaultInstance: 'demo-default-rtdb',
+        rules: {
+          'demo-default-rtdb': { rules: { '.read': true } },
+          second: { rules: { '.read': false } },
+        },
+      },
+    }, { fetch: recordingFetch() });
+    expect(ctx.rtdbInstances?.get('demo-default-rtdb')?.rules?.source).toEqual({ rules: { '.read': true } });
+    expect(ctx.rtdbInstances?.get('second')?.rules?.source).toEqual({ rules: { '.read': false } });
+    const read = async (id: string, instance?: string) => {
+      const port = fakePort();
+      await handleMessage(ctx, port, { t: 'op', id, method: 'rtdb.get', path: 'a', ...(instance ? { instance } : {}) });
+      return getRes(port, id);
+    };
+    expect((await read('default')).ok).toBe(true);
+    expect((await read('second', 'second')).ok).toBe(false);
+    const undeclared = await read('undeclared', 'third');
+    expect(undeclared.ok).toBe(false);
+    expect((undeclared as ResMessage & { ok: false }).error.code).toBe('database/unknown-instance');
   });
 
   it('replaces the Storage rules on storage-rules-update, and a null ruleset returns Storage to deny-all', async () => {
