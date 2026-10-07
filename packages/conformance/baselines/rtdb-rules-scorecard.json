@@ -113,15 +113,15 @@
       "unprobeable": 0
     },
     "localAcceptance": {
-      "accepted": 82,
-      "rejected": 9,
+      "accepted": 75,
+      "rejected": 16,
       "unsupported": 0,
       "unprobeable": 0
     },
     "localCapability": {
-      "implemented": 82,
+      "implemented": 75,
       "unsupported": 0,
-      "error": 9,
+      "error": 16,
       "unprobeable": 0
     },
     "productionEvidence": {
@@ -1322,8 +1322,8 @@
     },
     "rtdb.binding.query.unknown-field": {
       "productionAcceptance": "rejected",
-      "localAcceptance": "accepted",
-      "localCapability": "implemented",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
       "productionEvidence": "diverged",
       "classification": "diverged",
       "verifiedBy": [
@@ -1434,8 +1434,8 @@
     },
     "rtdb.method.string.length-call": {
       "productionAcceptance": "rejected",
-      "localAcceptance": "accepted",
-      "localCapability": "implemented",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
       "productionEvidence": "diverged",
       "classification": "diverged",
       "verifiedBy": [
@@ -1448,8 +1448,8 @@
     },
     "rtdb.operator.member.snapshot-property": {
       "productionAcceptance": "rejected",
-      "localAcceptance": "accepted",
-      "localCapability": "implemented",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
       "productionEvidence": "diverged",
       "classification": "diverged",
       "verifiedBy": [
@@ -1490,8 +1490,8 @@
     },
     "rtdb.operator.type-mismatch": {
       "productionAcceptance": "rejected",
-      "localAcceptance": "accepted",
-      "localCapability": "implemented",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
       "productionEvidence": "diverged",
       "classification": "diverged",
       "verifiedBy": [
@@ -1546,8 +1546,8 @@
     },
     "rtdb.rule-kind.non-expression-value": {
       "productionAcceptance": "rejected",
-      "localAcceptance": "accepted",
-      "localCapability": "implemented",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
       "productionEvidence": "diverged",
       "classification": "diverged",
       "verifiedBy": [
@@ -1602,8 +1602,8 @@
     },
     "rtdb.rule-kind.non-boolean-result": {
       "productionAcceptance": "rejected",
-      "localAcceptance": "accepted",
-      "localCapability": "implemented",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
       "productionEvidence": "diverged",
       "classification": "diverged",
       "verifiedBy": [
@@ -1616,8 +1616,8 @@
     },
     "rtdb.semantic.method-wrong-receiver": {
       "productionAcceptance": "rejected",
-      "localAcceptance": "accepted",
-      "localCapability": "implemented",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
       "productionEvidence": "diverged",
       "classification": "diverged",
       "verifiedBy": [
