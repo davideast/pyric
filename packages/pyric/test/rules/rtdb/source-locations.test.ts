@@ -1,0 +1,89 @@
+import { describe, test, expect } from 'bun:test';
+import { locateRtdbRule } from '../../../src/rules/rtdb/source-locations.js';
+
+// Line numbers are 1-based and noted at the end of each row of the fixture.
+const COMMENTED = [
+  '// database.rules.json: top comment with { braces', // 1
+  '{', // 2
+  '  /* block comment', // 3
+  '     ".read": true, fake key inside a comment */', // 4
+  '  "rules": {', // 5
+  '    ".read": false,', // 6
+  '    // ".write": true,', // 7
+  '    "rooms": {', // 8
+  '      ".indexOn": ["owner", "createdAt"],', // 9
+  '      "$roomId": {', // 10
+  '        ".read": "auth != null", // trailing comment', // 11
+  '        ".write": "data.val() == \'}\' && auth != null",', // 12
+  '        ".validate": "newData.isString()",', // 13
+  '        "members": {', // 14
+  '          "$uid": { ".write": "$uid === auth.uid" }', // 15
+  '        }', // 16
+  '      }', // 17
+  '    },', // 18
+  '    "public": {', // 19
+  '      ".read": true,', // 20
+  '      ".write": false', // 21
+  '    }', // 22
+  '  }', // 23
+  '}', // 24
+].join('\n');
+
+describe('locateRtdbRule', () => {
+  test('maps each rule node of a commented ruleset to its line', () => {
+    expect(locateRtdbRule(COMMENTED, '/', '.read')?.line).toBe(6);
+    expect(locateRtdbRule(COMMENTED, '/rooms', '.indexOn')?.line).toBe(9);
+    expect(locateRtdbRule(COMMENTED, '/rooms/$roomId', '.read')?.line).toBe(11);
+    expect(locateRtdbRule(COMMENTED, '/rooms/$roomId', '.write')?.line).toBe(12);
+    expect(locateRtdbRule(COMMENTED, '/rooms/$roomId', '.validate')?.line).toBe(13);
+    expect(locateRtdbRule(COMMENTED, '/rooms/$roomId/members/$uid', '.write')?.line).toBe(15);
+    expect(locateRtdbRule(COMMENTED, '/public', '.read')?.line).toBe(20);
+    expect(locateRtdbRule(COMMENTED, '/public', '.write')?.line).toBe(21);
+  });
+
+  test('does not match keys that appear only inside comments', () => {
+    expect(locateRtdbRule(COMMENTED, '/', '.write')).toBeNull();
+  });
+
+  test('reports the column of the rule key, counted from 1', () => {
+    expect(locateRtdbRule(COMMENTED, '/rooms/$roomId', '.read')).toEqual({ line: 11, column: 9 });
+    expect(locateRtdbRule(COMMENTED, '/rooms/$roomId/members/$uid', '.write')).toEqual({
+      line: 15,
+      column: 21,
+    });
+  });
+
+  test('accepts a path without a leading slash and with a trailing slash', () => {
+    expect(locateRtdbRule(COMMENTED, 'rooms/$roomId/', '.validate')?.line).toBe(13);
+    expect(locateRtdbRule(COMMENTED, '', '.read')?.line).toBe(6);
+  });
+
+  test('returns null for a missing path, a missing kind, or unparseable text', () => {
+    expect(locateRtdbRule(COMMENTED, '/nope', '.read')).toBeNull();
+    expect(locateRtdbRule(COMMENTED, '/public', '.validate')).toBeNull();
+    expect(locateRtdbRule('{ "rules": { ".read": ', '/', '.read')).toBeNull();
+    expect(locateRtdbRule('not json', '/', '.read')).toBeNull();
+  });
+
+  test('counts CRLF and lone CR line endings as one line each', () => {
+    const crlf = '{\r\n  "rules": {\r\n    ".read": true\r\n  }\r\n}';
+    expect(locateRtdbRule(crlf, '/', '.read')?.line).toBe(3);
+    const cr = '{\r  "rules": {\r    ".read": true\r  }\r}';
+    expect(locateRtdbRule(cr, '/', '.read')?.line).toBe(3);
+  });
+
+  test('line numbers survive a multi-line block comment before the rule', () => {
+    const src = '{\n"rules": {\n/* a\nb\nc */\n".write": true\n}\n}';
+    expect(locateRtdbRule(src, '/', '.write')?.line).toBe(6);
+  });
+
+  test('a key-like string value is not mistaken for a rule key', () => {
+    const src = '{\n"rules": {\n"a": { ".read": "\\".write\\"" ,\n".write": true }\n}\n}';
+    expect(locateRtdbRule(src, '/a', '.write')?.line).toBe(4);
+  });
+
+  test('the last duplicate key wins, as JSON.parse reads it', () => {
+    const src = '{\n"rules": {\n".read": false,\n".read": true\n}\n}';
+    expect(locateRtdbRule(src, '/', '.read')?.line).toBe(4);
+  });
+});

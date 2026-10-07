@@ -22,6 +22,7 @@ import type {
 } from 'pyric/sandbox';
 import { toOperationRecord } from 'pyric/sandbox';
 import type { EvaluatedRuleInfo, ExprTraceEntry } from 'pyric/rules/internal';
+import { locateRtdbRule } from 'pyric/rules/internal/rtdb';
 
 type DeniedSandboxEvent = RequestEvent | SandboxOperationEvent | SandboxListenerEvent;
 
@@ -327,6 +328,18 @@ function rtdbPhase(denial: Denial): RulePhase {
   if (denial.rules?.reason === 'Validation rule evaluated to false') return 'validate';
   const m = denial.method;
   return m === 'get' || m === 'list' || m === 'listen' ? 'read' : 'write';
+}
+
+/** 1-based line in `database.rules.json` of the RTDB rule that decided a
+ *  denial: the `.read`, `.write` or `.validate` key at the verdict's
+ *  `matchedPath`. Undefined for an implicit deny, for a verdict without a
+ *  matched path, or when the source is absent or does not contain the rule. */
+export function rtdbRuleLine(denial: Denial, rulesSource: string | undefined): number | undefined {
+  const matchedPath = denial.rules?.matchedPath;
+  if (!rulesSource || !matchedPath || denial.rules?.errorCode === 'NO_MATCHING_RULE') {
+    return undefined;
+  }
+  return locateRtdbRule(rulesSource, matchedPath, `.${rtdbPhase(denial)}`)?.line;
 }
 
 /** Static attribution is separate from the rule that actually evaluated. */

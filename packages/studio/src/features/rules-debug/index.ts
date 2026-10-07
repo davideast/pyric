@@ -14,6 +14,7 @@ export {
   selectRuleEvaluations,
   toDenial,
   explainDenial,
+  rtdbRuleLine,
   denialSeverity,
   projectTraceSteps,
   ruleVariables,

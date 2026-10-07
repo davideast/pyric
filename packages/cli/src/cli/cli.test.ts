@@ -176,6 +176,31 @@ describe('runDatabaseRulesValidate', () => {
     expect(out.errors).toEqual([expect.objectContaining({ code: 'PARSE_ERROR', path: '/notes/$id', rule: '.write' })]);
   });
 
+  it('names the file line and column of the rule behind each finding, through comments', async () => {
+    const io = bufferIo();
+    const source = [
+      '// rules with a comment first', // 1
+      '{', // 2
+      '  "rules": {', // 3
+      '    "notes": {', // 4
+      '      "$id": {', // 5
+      '        /* ".write": "x" */', // 6
+      '        ".write": "auth != null && ("', // 7
+      '      }', // 8
+      '    }', // 9
+      '  }', // 10
+      '}', // 11
+    ].join('\n');
+    const code = await runDatabaseRulesValidate(serviceArgs(['database', 'rules', 'validate', 'database.rules.json']), {
+      ...io,
+      cwd: '/tmp',
+      readFile: (async () => source) as never,
+    });
+    expect(code).toBe(2);
+    const out = JSON.parse(io.getOut()) as { errors: Array<Record<string, unknown>> };
+    expect(out.errors).toEqual([expect.objectContaining({ code: 'PARSE_ERROR', line: 7, column: 9 })]);
+  });
+
   it('exits 0 with no errors on rules whose expressions all parse', async () => {
     const io = bufferIo();
     const code = await runDatabaseRulesValidate(serviceArgs(['database', 'rules', 'validate', 'database.rules.json']), {

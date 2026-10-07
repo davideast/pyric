@@ -12,6 +12,7 @@ import { dirname, resolve as resolvePath } from 'node:path';
 import {
   checkRtdbRules,
   compileRtdbRules,
+  locateRtdbRule,
   type CompiledRtdbRules,
   type RtdbRulesFinding,
 } from 'pyric/rules/internal/rtdb';
@@ -61,7 +62,8 @@ function jsonError(code: string, message: string): { errors: RtdbRulesFinding[];
 /**
  * `pyric database rules validate <path>`
  *
- * Prints the error findings on every expression in a rules JSON file. Exits 0
+ * Prints the error findings on every expression in a rules JSON file, each
+ * with the `line` and `column` of its rule key in the file. Exits 0
  * when there are none, 1 on a usage or file-read error, and 2 when the file is
  * not rules JSON or any expression has an error finding.
  */
@@ -90,7 +92,11 @@ export async function runDatabaseRulesValidate(
     out.write(`${JSON.stringify(jsonError('INVALID_RULES_JSON', e instanceof Error ? e.message : String(e)), null, 2)}\n`);
     return 2;
   }
-  const { errors } = checkRtdbRules(() => compiled);
+  const errors = checkRtdbRules(() => compiled).errors.map((finding) => {
+    if (finding.rule === 'ruleset') return finding;
+    const location = locateRtdbRule(file.raw, finding.path, finding.rule);
+    return location ? { ...finding, ...location } : finding;
+  });
   out.write(`${JSON.stringify({ errors }, null, 2)}\n`);
   return errors.length === 0 ? 0 : 2;
 }
