@@ -19,13 +19,20 @@
 import { describe, expect, it } from 'bun:test';
 import { join } from 'node:path';
 import { createObservationGate } from '../../../../packages/conformance/src/observation-gate.ts';
-import { initializeSandbox } from 'pyric/sandbox';
+import { getClock, initializeSandbox } from 'pyric/sandbox';
 import {
   ActionCodeOperation,
   applyActionCode,
   AuthErrorCodes,
+  deleteUser,
+  EmailAuthProvider,
   getAdditionalUserInfo,
   getAuth,
+  linkWithCredential,
+  reauthenticateWithCredential,
+  updatePassword,
+  updateProfile,
+  verifyBeforeUpdateEmail,
   isSignInWithEmailLink,
   onAuthStateChanged,
   onIdTokenChanged,
@@ -771,6 +778,83 @@ describe('oracle conformance (auth)', () => {
     // rule the project never had.
     expect(weak.containsLowercaseLetter).toBeUndefined();
     expect(obs.weak.containsLowercaseLetter).toBeNull();
+  });
+
+  it('auth-requires-recent-login', async () => {
+    type Outcome = { code: string | null; message?: string };
+    const obs = load('auth-requires-recent-login.json') as {
+      freshUpdatePassword: Outcome;
+      windowBracket: Array<{ ageSeconds: number; deleteUser: string | null }>;
+      forcedRefresh: { issuedAtChanged: boolean; authTimeOlderThanIssuedAt: boolean };
+      gated: Record<'updateProfile' | 'getIdTokenForced' | 'updatePassword' | 'verifyBeforeUpdateEmail'
+        | 'deleteUser' | 'unlinkPassword' | 'anonymousLinkWithCredential' | 'anonymousDeleteUser'
+        | 'afterForcedRefreshUpdatePassword', Outcome> & { ageSeconds: number };
+      afterReauth: Record<'reauthenticate' | 'updatePassword' | 'deleteUser', Outcome>;
+    };
+    const outcome = async (p: Promise<unknown>): Promise<Outcome> => {
+      try {
+        await p;
+        return { code: null };
+      } catch (e) {
+        const err = e as { code: string; message: string };
+        return { code: err.code, message: err.message };
+      }
+    };
+    const password = 'oracle-pw-123';
+    let n = 0;
+    const emailSession = async (ageSeconds: number) => {
+      const sandbox = initializeSandbox();
+      const auth = getAuth(sandbox);
+      const email = `rrl-${n++}@example.com`;
+      const { user } = await createUserWithEmailAndPassword(auth, email, password);
+      getClock(sandbox).advance(ageSeconds * 1000);
+      return { sandbox, auth, user, email };
+    };
+    const anonymousSession = async (ageSeconds: number) => {
+      const sandbox = initializeSandbox();
+      const { user } = await signInAnonymously(getAuth(sandbox));
+      getClock(sandbox).advance(ageSeconds * 1000);
+      return user;
+    };
+
+    const fresh = await emailSession(0);
+    expect(await outcome(updatePassword(fresh.user, `${password}-fresh`))).toEqual(obs.freshUpdatePassword);
+
+    for (const { ageSeconds, deleteUser: code } of obs.windowBracket) {
+      const s = await emailSession(ageSeconds);
+      expect({ ageSeconds, code: (await outcome(deleteUser(s.user))).code }).toEqual({ ageSeconds, code });
+    }
+
+    const age = obs.gated.ageSeconds;
+    const stale = await emailSession(age);
+    const newEmail = 'rrl-new@example.com';
+    expect(await outcome(updateProfile(stale.user, { displayName: 'rrl' }))).toEqual(obs.gated.updateProfile);
+    expect(await outcome(stale.user.getIdToken(true))).toEqual(obs.gated.getIdTokenForced);
+    expect(await outcome(updatePassword(stale.user, `${password}-stale`))).toEqual(obs.gated.updatePassword);
+    expect(await outcome(verifyBeforeUpdateEmail(stale.user, newEmail))).toEqual(obs.gated.verifyBeforeUpdateEmail);
+    expect(await outcome(deleteUser(stale.user))).toEqual(obs.gated.deleteUser);
+
+    const unlinking = await emailSession(age);
+    expect(await outcome(unlink(unlinking.user, 'password'))).toEqual(obs.gated.unlinkPassword);
+    const linking = await anonymousSession(age);
+    const linkCredential = EmailAuthProvider.credential('rrl-link@example.com', password);
+    expect(await outcome(linkWithCredential(linking, linkCredential))).toEqual(obs.gated.anonymousLinkWithCredential);
+    const anonymous = await anonymousSession(age);
+    expect(await outcome(deleteUser(anonymous))).toEqual(obs.gated.anonymousDeleteUser);
+
+    // A forced refresh mints a new iat and keeps auth_time, so it does not
+    // restart the window.
+    const refreshing = await emailSession(120);
+    const refreshed = await refreshing.user.getIdTokenResult(true);
+    expect(refreshed.issuedAtTime !== refreshed.authTime).toBe(obs.forcedRefresh.issuedAtChanged);
+    expect(Date.parse(refreshed.authTime) < Date.parse(refreshed.issuedAtTime)).toBe(obs.forcedRefresh.authTimeOlderThanIssuedAt);
+    getClock(refreshing.sandbox).advance((age - 120) * 1000);
+    expect(await outcome(updatePassword(refreshing.user, `${password}-refresh`))).toEqual(obs.gated.afterForcedRefreshUpdatePassword);
+
+    const credential = EmailAuthProvider.credential(stale.email, password);
+    expect(await outcome(reauthenticateWithCredential(stale.user, credential))).toEqual(obs.afterReauth.reauthenticate);
+    expect(await outcome(updatePassword(stale.user, `${password}-after`))).toEqual(obs.afterReauth.updatePassword);
+    expect(await outcome(deleteUser(stale.user))).toEqual(obs.afterReauth.deleteUser);
   });
 
   // ── completeness: every observation is asserted or explicitly N/A ─────

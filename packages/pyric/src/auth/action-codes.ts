@@ -231,6 +231,7 @@ export async function sendEmailVerification(
  * NOT change yet — it changes when that code is redeemed, which is the
  * one guarantee separating this API from a bare `updateEmail`: the user
  * must prove they control the new address before it becomes theirs.
+ * Refused with `auth/requires-recent-login` on a stale session.
  */
 export async function verifyBeforeUpdateEmail(
   user: User,
@@ -244,6 +245,7 @@ export async function verifyBeforeUpdateEmail(
   if (!user.email) {
     throw makeAuthError('auth/missing-email', 'An email address must be provided.');
   }
+  target.backend.assertRecentLogin(user.uid);
   emit(target, {
     operation: ActionCodeOperation.VERIFY_AND_CHANGE_EMAIL,
     email: user.email,

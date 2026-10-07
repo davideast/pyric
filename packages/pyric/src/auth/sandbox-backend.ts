@@ -96,6 +96,17 @@ export type {
 } from './sandbox-backend-types.js';
 
 /**
+ * How long after an authentication production still accepts a sensitive
+ * account operation (`deleteUser`, `updatePassword`, `updateEmail`,
+ * `verifyBeforeUpdateEmail`) on a non-anonymous account. Older sessions get
+ * `auth/requires-recent-login`. Measured against the real service: allowed
+ * at an age of 295 seconds, refused at 305. The same capture found `unlink`,
+ * `linkWithCredential` on an anonymous account, and `deleteUser` on an
+ * anonymous account allowed at 330 seconds, so those are not gated.
+ */
+const RECENT_LOGIN_WINDOW_MS = 5 * 60 * 1000;
+
+/**
  * Per-app-session backend state. Repeated `getAuth(app)` calls are memoized;
  * sibling app backends share account/provider maps but not currentUser,
  * listeners, tokens, flow staging, or persistence mode.
@@ -215,6 +226,15 @@ export class SandboxBackend {
    *  argument; `null` for identities driven directly through the
    *  test driver (`sandbox.setUser`), which has no prod analog. */
   private readonly signInProviderByUid = new Map<string, string | null>();
+
+  /**
+   * Per-uid instant (sandbox-clock epoch milliseconds) at which the identity
+   * last authenticated: a sign-in, a re-authentication, or a session first
+   * established through the test driver. It is the token's `auth_time`,
+   * which a forced token refresh does not move, and the input to the
+   * recent-login gate ({@link assertRecentLogin}).
+   */
+  private readonly authenticatedAtByUid = new Map<string, number>();
 
   /**
    * Sign-in provider enablement — mirrors a real Firebase project's
@@ -1410,6 +1430,11 @@ export class SandboxBackend {
     if (isSignIn) {
       this.signInProviderByUid.set(user.uid, signInProvider);
     }
+    // A sign-in authenticates; so does the first session the test driver
+    // establishes for a uid. A same-uid update that is not a sign-in (an
+    // unlink, a profile write) keeps the earlier authentication instant.
+    const authenticates = isSignIn || !this.authenticatedAtByUid.has(user.uid);
+    if (authenticates) this.recordAuthentication(user.uid);
 
     // Look up custom claims for this uid (if we know them). Falls
     // back to the empty claims map for anonymous / freshly-minted
@@ -1825,6 +1850,7 @@ export class SandboxBackend {
     }
     this.tokenCache.delete(uid);
     this.signInProviderByUid.delete(uid);
+    this.authenticatedAtByUid.delete(uid);
     this.notifyUsersChanged();
     this.emitAuthEvent('user_delete', { path: uid, auth: null, before });
   }
@@ -1961,7 +1987,12 @@ export class SandboxBackend {
         let providerId = isProviderSignIn ? request.providerId : restoredProvider;
         const isCustomSignIn = request.kind === 'custom';
         if (isCustomSignIn) providerId = 'custom';
-        return this.establishDetachedSession(this.buildUserFromStored(stored), providerId, tenantId);
+        // A `uid` mint re-establishes or re-mints an existing session (a
+        // page reload, a reload(), a token re-mint after an account
+        // update). It is not an authentication, so it keeps the recorded
+        // instant the recent-login gate reads.
+        const authenticates = request.kind !== 'uid' || !this.authenticatedAtByUid.has(request.uid);
+        return this.establishDetachedSession(this.buildUserFromStored(stored), providerId, tenantId, authenticates);
       }
     }
   }
@@ -1973,8 +2004,10 @@ export class SandboxBackend {
     user: User,
     signInProvider: string,
     tenantId: string | null,
+    authenticates = true,
   ): MintedSession {
     this.signInProviderByUid.set(user.uid, signInProvider);
+    if (authenticates) this.recordAuthentication(user.uid);
     const stored = this.usersByUid.get(user.uid);
     const claims = stored?.customClaims ?? {};
     const hasStoredUser = stored !== undefined;
@@ -2048,11 +2081,14 @@ export class SandboxBackend {
     // recorded by setCurrentUser at sign-in time. Null for identities
     // driven via the test driver (no prod analog for that path).
     const signInProvider = this.signInProviderByUid.get(uid) ?? null;
+    // auth_time is the last authentication, not this mint: a forced refresh
+    // issues a new iat and keeps auth_time, as production does.
+    const authenticatedAt = new Date(this.authenticatedAtByUid.get(uid) ?? issuedAt.getTime());
     const fullClaims: Record<string, unknown> = {
       sub: uid,
       aud: 'pyric-sandbox',
       iss: 'https://sandbox.pyric.dev',
-      auth_time: Math.floor(issuedAt.getTime() / 1000),
+      auth_time: Math.floor(authenticatedAt.getTime() / 1000),
       iat: Math.floor(issuedAt.getTime() / 1000),
       exp: Math.floor(expires.getTime() / 1000),
       ...claims,
@@ -2071,7 +2107,7 @@ export class SandboxBackend {
       claims: tokenClaims,
       expirationTime: expires.toISOString(),
       issuedAtTime: issuedAt.toISOString(),
-      authTime: issuedAt.toISOString(),
+      authTime: authenticatedAt.toISOString(),
       signInProvider,
     };
     const entry = { token, result };
@@ -2346,14 +2382,42 @@ export class SandboxBackend {
     return after;
   }
 
+  /** Mark `uid` as having just authenticated, at the sandbox clock's now. */
+  recordAuthentication(uid: string): void {
+    this.authenticatedAtByUid.set(uid, this.now().getTime());
+  }
+
+  /**
+   * The recent-login gate. Production refuses a sensitive account operation
+   * when the session's last authentication is older than
+   * {@link RECENT_LOGIN_WINDOW_MS}, and a re-authentication clears it. The age
+   * is read from the sandbox clock, so advancing the clock past the window is
+   * how a test reaches the gate. Not gated: an anonymous account (production
+   * deleted one at 330 seconds) and a uid with no recorded authentication on
+   * this backend.
+   */
+  assertRecentLogin(uid: string): void {
+    const isAnonymous = this.usersByUid.get(uid)?.isAnonymous === true;
+    if (isAnonymous) return;
+    const authenticatedAt = this.authenticatedAtByUid.get(uid);
+    const neverAuthenticated = authenticatedAt === undefined;
+    if (neverAuthenticated) return;
+    const age = this.now().getTime() - authenticatedAt;
+    const stale = age > RECENT_LOGIN_WINDOW_MS;
+    // Production's SDK has no message for this code, so it reads `Error`.
+    if (stale) throw makeAuthError('auth/requires-recent-login', 'Error');
+  }
+
   /**
    * Backend for the top-level `deleteUser(user)` free function. Removes the
    * account from the store (via the same path admin {@link deleteUser} uses)
    * AND — unlike admin deletion — signs the user out if they are the current
    * user, matching `firebase/auth`'s `user.delete()` / `deleteUser(user)`,
    * which clears `auth.currentUser` and fans out `onAuthStateChanged(null)`.
+   * Refused with `auth/requires-recent-login` on a stale session.
    */
   deleteFor(user: User): void {
+    this.assertRecentLogin(user.uid);
     if (this.usersByUid.has(user.uid)) {
       this.deleteUser(user.uid);
     }
@@ -2369,13 +2433,14 @@ export class SandboxBackend {
    * against the NEW email, then mutates the passed `user` (and
    * `this.cachedUser`) in place so held references reflect the change.
    *
-   * Divergence: the sandbox applies the change directly. Real
-   * `firebase/auth.updateEmail` may require a recent login
-   * (`auth/requires-recent-login`) and, with email-enumeration protection
-   * on, is superseded by `verifyBeforeUpdateEmail`; the sandbox enforces
-   * neither.
+   * Refused with `auth/requires-recent-login` on a stale session.
+   *
+   * Divergence: with email-enumeration protection on, production refuses
+   * `updateEmail` with `auth/operation-not-allowed` and requires
+   * `verifyBeforeUpdateEmail`; the sandbox applies the change directly.
    */
   updateEmailFor(user: User, newEmail: string): void {
+    this.assertRecentLogin(user.uid);
     this.updateUser(user.uid, { email: newEmail });
     this.applyEmailToUser(user, newEmail);
     if (this.cachedUser && this.cachedUser.uid === user.uid && this.cachedUser !== user) {
@@ -2397,11 +2462,10 @@ export class SandboxBackend {
    * links the `password` provider). The sandbox DOES store + verify
    * passwords, so a subsequent `signInWithEmailAndPassword` with the new
    * password succeeds and the old one throws `auth/wrong-password`.
-   *
-   * Divergence: real `firebase/auth.updatePassword` may require a recent
-   * login (`auth/requires-recent-login`); the sandbox does not enforce it.
+   * Refused with `auth/requires-recent-login` on a stale session.
    */
   updatePasswordFor(user: User, newPassword: string): void {
+    this.assertRecentLogin(user.uid);
     this.updateUser(user.uid, { password: newPassword });
   }
 
