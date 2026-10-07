@@ -13,6 +13,7 @@ import {
   parseRepoFullName,
   validateFeatureBranch,
 } from './branch-policy';
+import { corsProxyForCredentials } from './cors-proxy-policy';
 import { getRepoDetails } from './github-api';
 import { getStoredPAT } from './github-auth';
 import {
@@ -20,8 +21,6 @@ import {
   fetchWorkspaceRemoteDefaultBranch,
 } from './workspace-github-remote';
 import { normalizedAdapter } from './normalized-fs';
-
-const DEFAULT_CORS_PROXY = 'https://cors.isomorphic-git.org';
 
 export interface PushBranchResult {
   repo: string;
@@ -44,6 +43,8 @@ export async function pushBranchToGitHub(opts: {
       'No GitHub personal access token configured. Add one in Settings → github.',
     );
   }
+
+  const corsProxy = corsProxyForCredentials();
 
   const repoDetails = await getRepoDetails(opts.repo);
   if (!repoDetails.canPush) {
@@ -89,7 +90,7 @@ export async function pushBranchToGitHub(opts: {
     remoteRef: opts.branch,
     force: false,
     onAuth: () => ({ username: token, password: 'x-oauth-basic' }),
-    corsProxy: DEFAULT_CORS_PROXY,
+    ...(corsProxy ? { corsProxy } : {}),
   });
 
   if (result.errors?.length) {

@@ -11,18 +11,21 @@
  *
  * CORS: github.com does NOT serve `Access-Control-Allow-Origin` on
  * its smart-HTTP endpoints (info/refs, git-upload-pack, git-receive-pack)
- * for arbitrary browser origins. isomorphic-git ships an `http`
- * client that supports a `corsProxy` parameter; we default to the
- * public proxy `cors.isomorphic-git.org` run by the isomorphic-git
- * team. Users running a self-hosted proxy can override via the
- * `corsProxy` argument on the operation methods, which falls back
- * to the constant below.
+ * for arbitrary browser origins, so requests go through a CORS proxy.
+ * The token never goes through the public proxy: see
+ * `./cors-proxy-policy`. Public clones may use it; anything that needs
+ * the token requires a proxy the deployment configures, or the
+ * `corsProxy` argument on the operation methods.
  */
-const DEFAULT_CORS_PROXY = 'https://cors.isomorphic-git.org';
 
 import * as git from 'isomorphic-git';
 import http from 'isomorphic-git/http/web';
 
+import {
+  authForProxy,
+  corsProxyForCredentials,
+  corsProxyForOptionalCredentials,
+} from './cors-proxy-policy';
 import { getStoredPAT } from './github-auth';
 import { ensureBufferPolyfill } from './buffer-polyfill';
 import { getVFS, type OPFSAdapter } from '~/lib/vfs';
@@ -40,7 +43,7 @@ export interface CloneOptions {
   depth?: number;
   singleBranch?: boolean;
   onProgress?: (p: GitProgress) => void;
-  /** Override the default CORS proxy. Pass an empty string to disable. */
+  /** Override the configured CORS proxy. Pass an empty string to disable. */
   corsProxy?: string;
 }
 
@@ -57,7 +60,7 @@ export interface PushOptions {
   ref?: string;
   remoteRef?: string;
   onProgress?: (p: GitProgress) => void;
-  /** Override the default CORS proxy. Pass an empty string to disable. */
+  /** Override the configured CORS proxy. Pass an empty string to disable. */
   corsProxy?: string;
 }
 
@@ -100,7 +103,7 @@ export class GitService {
 
   async clone(opts: CloneOptions): Promise<void> {
     ensureBufferPolyfill();
-    const corsProxy = opts.corsProxy ?? DEFAULT_CORS_PROXY;
+    const corsProxy = corsProxyForOptionalCredentials(opts.corsProxy);
     try {
       await git.clone({
         fs: this.fsArg,
@@ -110,7 +113,7 @@ export class GitService {
         ref: opts.ref,
         depth: opts.depth ?? 1,
         singleBranch: opts.singleBranch ?? true,
-        onAuth: () => this.onAuth(),
+        onAuth: authForProxy(corsProxy, () => this.onAuth()),
         onProgress: opts.onProgress,
         ...(corsProxy ? { corsProxy } : {}),
       });
@@ -157,7 +160,7 @@ export class GitService {
 
   async push(opts: PushOptions): Promise<git.PushResult> {
     ensureBufferPolyfill();
-    const corsProxy = opts.corsProxy ?? DEFAULT_CORS_PROXY;
+    const corsProxy = corsProxyForCredentials(opts.corsProxy);
     try {
       return await git.push({
         fs: this.fsArg,

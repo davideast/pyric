@@ -15,9 +15,11 @@ const REAL_GIT = { ...git };
 
 beforeEach(() => {
   resetVFS();
+  process.env.PUBLIC_GIT_CORS_PROXY = 'https://proxy.example.com';
 });
 
 afterEach(() => {
+  delete process.env.PUBLIC_GIT_CORS_PROXY;
   mock.module('isomorphic-git', () => REAL_GIT);
   mock.restore();
 });
@@ -108,7 +110,9 @@ describe('pushBranchToGitHub', () => {
       remoteRef: string;
       force: boolean;
       url: string;
+      corsProxy?: string;
     };
+    expect(call.corsProxy).toBe('https://proxy.example.com');
     expect(call.ref).toBe(BRANCH);
     expect(call.remoteRef).toBe(BRANCH);
     expect(call.force).toBe(false);
