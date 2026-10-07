@@ -69,7 +69,7 @@ Run only the applicable probes from [references/AUDIT.md](references/AUDIT.md):
 - Simulate representative ALLOW controls and nearby DENY mutations for each important authorization boundary: signed out, owner, other user, and relevant claim-holder.
 - Exercise query shapes as the relevant identity against representative local data when the data-plane tools support them.
 - Replay captured journeys against candidate rules with `pyric verify`; use the hosted engine only when already authorized and useful.
-- For RTDB, crawl structure without leaf values and simulate reads, writes, and validation against the active local rules.
+- For RTDB, crawl structure without leaf values and simulate reads, writes, and validation against the active local rules. For a rules-only question, evaluate explicit cases with `rtdbRules(...).simulate` from `pyric/rules` before building any SDK integration harness; [references/rtdb-security-rules.md](references/rtdb-security-rules.md) has the runnable example and the choice of test layer.
 - For AI Logic, prefer source inspection and deterministic scripted behavior. Use an already configured loopback model only when it would answer a material question. Do not contact a remote model or switch the project to production pass-through.
 
 Save transient reports outside the source tree or under a temporary directory. Delete them after findings and plans capture the evidence.
@@ -79,7 +79,7 @@ Save transient reports outside the source tree or under a temporary directory. D
 Audit every applicable category in the playbook. Whenever an audit touches a specialized Firebase service or architecture area, **lazy-load and consult its corresponding expert reference handbook** before making architectural judgments or logging findings:
 
 1. **Authorization & identity:** Consult [references/auth-model.md](references/auth-model.md), [references/firestore-rules.md](references/firestore-rules.md), [references/storage-rules.md](references/storage-rules.md), or [references/rtdb-security-rules.md](references/rtdb-security-rules.md) for the services in scope.
-2. **Data integrity & model fit:** Consult [references/rules-standard-library.md](references/rules-standard-library.md) for Firestore/Storage, [references/rtdb-data-model.md](references/rtdb-data-model.md) for RTDB, and [references/firebase-audit-playbook.md](references/firebase-audit-playbook.md).
+2. **Data integrity & model fit:** Consult [references/rules-standard-library.md](references/rules-standard-library.md) for Firestore/Storage, [references/rtdb-data-model.md](references/rtdb-data-model.md) and [references/rtdb-security-rules.md](references/rtdb-security-rules.md) (`.validate` and `.indexOn`) for RTDB, and [references/firebase-audit-playbook.md](references/firebase-audit-playbook.md).
 3. **Queries, indexes, performance & cost:** Consult [references/query-indexes.md](references/query-indexes.md).
 4. **Runtime behavior & side effects:** Consult [references/firebase-audit-playbook.md](references/firebase-audit-playbook.md). When AI Logic is active, also consult [references/ai-logic.md](references/ai-logic.md).
 5. **Production readiness & regression safety:** Confirm verified test parity and rules adherence across all active services. When Pyric is installed, consult [references/pyric-configuration.md](references/pyric-configuration.md) for the local/production boundary.

@@ -85,6 +85,106 @@ if (errors.length > 0) process.exit(1);
 ```
 A hallucinated method is always an error, because the named method literally does not exist. Blocking on it is never a false alarm.
 
+## Simulate and lint Realtime Database rules
+
+Realtime Database rules use the same two steps with a different entry point. `rtdbRules` accepts the compiled `{ rules }` JSON from `database.rules.json`, or a ruleset you wrote in TypeScript. See [write Realtime Database rules in TypeScript](./rtdb-rules-in-typescript.md) for the authoring side.
+
+### Simulate a request
+```ts
+import { rtdbRules } from 'pyric/rules';
+
+const rules = rtdbRules({
+  rules: {
+    '.read': false,
+    '.write': false,
+    records: {
+      $recordId: {
+        '.read': "auth != null && data.child('ownerId').val() === auth.uid",
+        '.validate': "newData.hasChildren(['ownerId', 'title'])",
+        '.write': 'auth != null',
+        title: { '.validate': 'newData.isString() && newData.val().length <= 80' },
+      },
+    },
+  },
+});
+
+const { cases } = rules.simulate([
+  {
+    description: 'a title over 80 characters is rejected',
+    expectation: 'DENY',
+    operation: 'write',
+    path: '/records/r1',
+    auth: 'alice',
+    newData: { ownerId: 'alice', title: 'x'.repeat(81) },
+  },
+]);
+```
+Each result carries the `decision` (`ALLOW`, `DENY`, or `UNSUPPORTED`), whether it `passed`, and three fields that name what decided it:
+```
+matchedPath: /records/$recordId/title
+matchedRule: newData.isString() && newData.val().length <= 80
+reason:      Validation rule evaluated to false
+```
+`matchedPath` is the rule's location in the ruleset, so it shows the `$recordId` wildcard rather than the concrete path. `UNSUPPORTED` means the case reached an expression the simulator cannot evaluate. It abstains rather than guesses.
+
+The same simulation is on the command line. It reads the rules from a file and evaluates one request:
+```bash
+pyric rules simulate --service database --rules-file database.rules.json --operation read --path /records/r1
+```
+Inside a running sandbox, the same evaluation decides every Realtime Database operation your app performs.
+
+### Lint a ruleset
+```bash
+pyric rules lint --service database --rules-file database.rules.json
+```
+Or in code:
+```ts
+const issues = rules.lint();
+```
+Each issue has a `code`, a `severity`, a `message`, and the `path` and `rule` it applies to. The Realtime Database linter reports these codes:
+
+| Code | Severity | What it means |
+|---|---|---|
+| `PARSE_ERROR` | error | The expression does not parse. Firebase rejects the ruleset at deploy. |
+| `UNKNOWN_IDENTIFIER` | error | The name is not available in this rule kind. |
+| `NEWDATA_IN_READ` | error | A `.read` rule uses `newData`, which exists only for writes. |
+| `UNKNOWN_METHOD` | error | The method is not in the rules language. |
+| `COMPILE_ERROR` | error | A TypeScript definition could not compile to rules JSON. |
+| `HARDCODED_TRUE` | warning | A `.read` or `.write` rule is the literal `true`, so it grants every request at that location. |
+| `HARDCODED_FALSE` | warning | A `.read` or `.write` rule is the literal `false`. This is often intentional, as in a locked root. |
+| `DATA_IN_WRITE` | warning | A `.write` rule reads `data` but never `newData`, so it may not check the incoming value. |
+
+Lint a ruleset before you simulate it. A case that reaches an expression that does not parse comes back `UNSUPPORTED`, and the denial hides the real problem.
+
+### Know how the simulator evaluates rules
+
+Three behaviors decide most surprising verdicts.
+
+**Equality is strict.** `==` and `!=` compare without converting types, as the production rules engine does. `5 == '5'` and `1 == true` are both false, and `==` and `===` give the same answer. A `.validate` rule such as `newData.val() == '5'` accepts the string `'5'` and rejects the number `5`:
+```
+write /scores/a  newData '5'  ->  ALLOW
+write /scores/a  newData 5    ->  DENY   Validation rule evaluated to false
+```
+A rule written against a loose-equality habit fails here the way it fails in production.
+
+**A rule that errors does not grant.** A runtime error, such as calling `toUpperCase()` on a number, fails that rule. A `.validate` rule that errors rejects the write, and the reason names the error:
+```
+Validation rule at '/names/$id' failed at evaluation: Method 'toUpperCase' is not defined on number.
+```
+A `.read` or `.write` rule that errors does not grant access, and evaluation continues to the next rule on the path, as it does after a rule that evaluates to false. If no other rule grants, the request is denied. The case is a `DENY`, not `UNSUPPORTED`.
+
+**Access cascades and validation does not.** The first `.read` or `.write` rule on the path from the root that evaluates to true grants the request, and a deeper rule cannot revoke it. A write also needs every `.validate` rule at and below the written path to pass.
+
+### Keep the running sandbox in step with the file
+
+`pyric sandbox` and the Vite plugin watch the Realtime Database rules file and reload it when it changes. They watch the path `firebase.json` names under `database`, or `database.rules.json` when it names none. They watch it whether or not the file exists yet:
+
+- **Created.** A rules file you add after startup loads. Until then, Realtime Database follows its default policy: deny every client request, or allow when you start with `--permissive`.
+- **Changed.** Saving the file loads the new rules and logs `rtdb rules reloaded`. A file that is not valid rules JSON does not replace the running rules. The last good ruleset stays live and the log reads `rtdb rules NOT reloaded (last-good stays live)` with the parse error.
+- **Deleted.** The sandbox returns to the default policy and logs `rtdb rules removed` with the path. A deleted Firestore rules file behaves differently: the last good Firestore rules stay in force and the log reports the deletion.
+
+Pass `--no-watch` to `pyric sandbox` to turn hot reload off for Firestore, Realtime Database, and Storage rules.
+
 ## Correct Rules through an agent
 
 This is the loop that keeps an agent honest. It calls `firestore_lint_rules` on the rules it wrote, reads the fixes in the warnings, and corrects itself before anything deploys. Then `firestore_simulate_rules` confirms the behavior. [Work with an agent](../agent/work-with-an-agent.md) shows the task prompts that drive this loop.
