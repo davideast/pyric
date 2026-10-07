@@ -38,6 +38,8 @@
 import { describe, it, expect } from 'bun:test';
 import { join } from 'node:path';
 import { createObservationGate } from '../../../../packages/conformance/src/observation-gate.ts';
+import { RULES_DEPLOY_REFUSAL_CASES } from '../../../../packages/conformance/src/capture/rtdb-climb/rules-deploy-refusals.cases.ts';
+import { rtdbRules } from '../../src/rules/api/rtdb.js';
 import { initializeSandbox } from 'pyric/sandbox';
 import {
   getDatabase,
@@ -425,11 +427,41 @@ describe('oracle conformance (rtdb)', () => {
     expect(JSON.stringify(adminData) === JSON.stringify(userData)).toBe(obs.shapesAgree as boolean);
   });
 
+  // ── rules refused before deploy ──────────────────────────────────────
+
+  it('rtdb-rules-deploy-refusals: lint reports each refusal production makes, in its text, and nothing for an accepted rule', () => {
+    const obs = load('rtdb-rules-deploy-refusals.json');
+    const outcomes = obs.outcomes as Record<string, { accepted: boolean; message: string | null }>;
+    // Production refuses these at deploy; the validator does not report them yet.
+    const knownDivergences = new Set([
+      'matches with a string argument',
+      'matches with a slash-delimited string argument',
+      'matches with an unterminated character class',
+      'matches with the g flag',
+    ]);
+    expect(Object.keys(outcomes).sort()).toEqual(Object.keys(RULES_DEPLOY_REFUSAL_CASES).sort());
+    for (const [label, subtree] of Object.entries(RULES_DEPLOY_REFUSAL_CASES)) {
+      const outcome = outcomes[label]!;
+      const errors = rtdbRules({ rules: { probe: subtree } }).lint()
+        // Production's deploy refusals are compile findings; security lint is advice, not a refusal.
+        .filter((issue) => issue.severity === 'error' && !issue.code.startsWith('RTDB-SEC-'))
+        .map((issue) => issue.message);
+      if (knownDivergences.has(label)) {
+        expect(outcome.accepted, label).toBe(false);
+        expect(errors, label).toEqual([]);
+      } else if (outcome.accepted) {
+        expect(errors, label).toEqual([]);
+      } else {
+        expect(errors, label).toEqual([outcome.message!]);
+      }
+    }
+  });
+
   // ── completeness: every `rtdb-*` (non-modular) observation is covered ──
 
   it('every rtdb (non-modular) observation is covered (no silent gaps)', () => {
     const r = obsGate.report();
-    expect(r.committed.length).toBe(14);
+    expect(r.committed.length).toBe(15);
     expect(r.loadedButUnused).toEqual([]); // a bare load() with no field read fails
     expect(r.uncovered).toEqual([]); // every capture is asserted or explicitly N/A
   });
