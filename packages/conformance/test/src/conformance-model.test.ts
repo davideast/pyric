@@ -254,9 +254,9 @@ describe('multi-axis conformance model', () => {
   });
 
   it('cannot silently drop a feature-bearing divergence from the query model', () => {
-    const result = one('reauthenticateWithCredential');
+    const result = canIUse(model, 'updateEmail').supports.find(({ surface }) => surface === 'auth')!;
     expect(result.fidelity).toBe('diverged');
-    expect(result.claims.map(({ id }) => id)).toContain('auth#176');
+    expect(result.claims.map(({ id }) => id)).toContain('auth#84');
   });
 
   it('reports onDisconnect as available with its priority and abrupt-loss divergences qualified', () => {

@@ -8830,6 +8830,146 @@ const probes: Probe[] = [
       };
     },
   },
+  {
+    name: 'auth-requires-recent-login',
+    matrixRow: 'auth #176',
+    rowIds: ['auth#176', 'auth#84', 'auth#85'],
+    description: 'The recent-login gate. Signs in several independent accounts (one Auth instance each, so every session keeps its own sign-in time), waits past the documented five-minute window, and records which sensitive operations refuse a stale session with which code and message. Brackets the window length with deleteUser at fixed ages, checks whether a forced token refresh restarts the window (it reads the sign-in time, not the token issue time), and checks that reauthenticateWithCredential clears the gate. Every account is removed through the Admin SDK at the end so no arm can leak one.',
+    async observe() {
+      if (!serviceAccount) return { skipped: true, reason: 'no service account (manual config?)' };
+      const { getAuth: getAdminAuth } = await import('firebase-admin/auth');
+      const { inMemoryPersistence, initializeAuth, updateEmail, updatePassword, updateProfile } = fbAuthNs;
+      const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const password = 'oracle-pw-123';
+      const apps: ReturnType<typeof initializeApp>[] = [];
+      const uids: string[] = [];
+      const freshAuth = (label: string): Auth => {
+        const a = initializeApp(config, `${appName}-rrl-${label}`);
+        apps.push(a);
+        return initializeAuth(a, { persistence: inMemoryPersistence });
+      };
+      const emailUser = async (label: string): Promise<{ user: User; email: string; signedInAt: number }> => {
+        const a = freshAuth(label);
+        const email = `oracle-rrl-${label}-${stamp}@oracle.test`;
+        const cred = await createUserWithEmailAndPassword(a, email, password);
+        uids.push(cred.user.uid);
+        return { user: cred.user, email, signedInAt: Date.now() };
+      };
+      const anonUser = async (label: string): Promise<{ user: User; signedInAt: number }> => {
+        const a = freshAuth(label);
+        const cred = await signInAnonymously(a);
+        uids.push(cred.user.uid);
+        return { user: cred.user, signedInAt: Date.now() };
+      };
+      const outcome = async (step: () => Promise<unknown>): Promise<{ code: string | null; message?: string }> => {
+        try {
+          await step();
+          return { code: null };
+        } catch (e) {
+          const err = e as { code?: string; message?: string };
+          return { code: err.code ?? String(e), message: err.message };
+        }
+      };
+      const waitUntilAge = async (signedInAt: number, ageMs: number): Promise<number> => {
+        const wait = signedInAt + ageMs - Date.now();
+        if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+        return Math.round((Date.now() - signedInAt) / 1000);
+      };
+
+      // Fresh-session control: a sensitive op right after sign-in runs.
+      const fresh = await emailUser('fresh');
+      const freshUpdatePassword = await outcome(() => updatePassword(fresh.user, `${password}-fresh`));
+
+      const bracket = await Promise.all([280, 295, 305, 320].map(async (s) => {
+        const u = await emailUser(`age${s}`);
+        return { s, u };
+      }));
+      const stale = await emailUser('stale');
+      const staleUnlink = await emailUser('unlink');
+      const refreshed = await emailUser('refresh');
+      const anonLink = await anonUser('anonlink');
+      const anonDelete = await anonUser('anondelete');
+
+      // A forced refresh at 120s mints a token with a new iat but the same
+      // auth_time. If the gate still fires at 330s, it reads auth_time.
+      await waitUntilAge(refreshed.signedInAt, 120_000);
+      const refreshedIatBefore = (await refreshed.user.getIdTokenResult()).issuedAtTime;
+      await refreshed.user.getIdToken(true);
+      const refreshedTokenAfter = await refreshed.user.getIdTokenResult();
+
+      const windowBracket = await Promise.all(bracket.map(async ({ s, u }) => {
+        const ageSeconds = await waitUntilAge(u.signedInAt, s * 1000);
+        const r = await outcome(() => deleteUser(u.user));
+        return { targetAgeSeconds: s, ageSeconds, deleteUser: r.code };
+      }));
+
+      const ageStale = await waitUntilAge(stale.signedInAt, 330_000);
+      const newEmail = `oracle-rrl-new-${stamp}@oracle.test`;
+      const gated = {
+        ageSeconds: ageStale,
+        updateProfile: await outcome(() => updateProfile(stale.user, { displayName: 'rrl' })),
+        getIdTokenForced: await outcome(() => stale.user.getIdToken(true)),
+        updatePassword: await outcome(() => updatePassword(stale.user, `${password}-stale`)),
+        updateEmail: await outcome(() => updateEmail(stale.user, newEmail)),
+        verifyBeforeUpdateEmail: await outcome(() => verifyBeforeUpdateEmail(stale.user, newEmail)),
+        deleteUser: await outcome(() => deleteUser(stale.user)),
+        unlinkPassword: await outcome(async () => {
+          await waitUntilAge(staleUnlink.signedInAt, 330_000);
+          await unlink(staleUnlink.user, 'password');
+        }),
+        anonymousLinkWithCredential: await outcome(async () => {
+          await waitUntilAge(anonLink.signedInAt, 330_000);
+          await linkWithCredential(anonLink.user, EmailAuthProvider.credential(`oracle-rrl-link-${stamp}@oracle.test`, password));
+        }),
+        anonymousDeleteUser: await outcome(async () => {
+          await waitUntilAge(anonDelete.signedInAt, 330_000);
+          await deleteUser(anonDelete.user);
+        }),
+        afterForcedRefreshUpdatePassword: await outcome(async () => {
+          await waitUntilAge(refreshed.signedInAt, 330_000);
+          await updatePassword(refreshed.user, `${password}-refresh`);
+        }),
+      };
+
+      const afterReauth = {
+        reauthenticate: await outcome(() =>
+          reauthenticateWithCredential(stale.user, EmailAuthProvider.credential(stale.email, password))),
+        updatePassword: await outcome(() => updatePassword(stale.user, `${password}-after`)),
+        deleteUser: await outcome(() => deleteUser(stale.user)),
+      };
+
+      // Remove every account this probe created, whatever each arm did.
+      let cleanupLeaked = false;
+      const adminApp = adminInitializeApp({
+        credential: adminCert({
+          projectId: serviceAccount.project_id,
+          clientEmail: serviceAccount.client_email,
+          privateKey: serviceAccount.private_key,
+        }),
+      }, `oracle-rrl-${RUN_ID}`);
+      try {
+        const res = await getAdminAuth(adminApp).deleteUsers(uids);
+        cleanupLeaked = res.failureCount > 0;
+      } catch {
+        cleanupLeaked = true;
+      } finally {
+        await adminDeleteApp(adminApp);
+        for (const a of apps) await deleteApp(a);
+      }
+
+      return {
+        freshUpdatePassword,
+        windowBracket,
+        forcedRefresh: {
+          issuedAtChanged: refreshedIatBefore !== refreshedTokenAfter.issuedAtTime,
+          authTimeOlderThanIssuedAt: Date.parse(refreshedTokenAfter.authTime) < Date.parse(refreshedTokenAfter.issuedAtTime),
+        },
+        gated,
+        afterReauth,
+        cleanupLeaked,
+      };
+    },
+  },
 ];
 
 // ─── Runner ───────────────────────────────────────────────────────────

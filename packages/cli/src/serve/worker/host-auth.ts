@@ -20,8 +20,11 @@
 
 import { type HostCtx, type PortLike, post, ok, fail, bestEffortFlush } from './host-context.js';
 import {
+  deleteUser,
   getAuth,
   sandbox as authSandboxOps,
+  updateEmail,
+  updatePassword,
   type Auth,
   type MintedSession,
 } from 'pyric/auth';
@@ -349,7 +352,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
     case 'auth.deleteUser': {
       try {
         const session = requirePortSession(portSession(ctx, port), 'deleteUser');
-        authSandboxOps.deleteUser(auth, session.user.uid);
+        await deleteUser(session.user);
         setPortSession(ctx, port, null);
         await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, null);
@@ -361,7 +364,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
       try {
         const session = requirePortSession(portSession(ctx, port), 'updateEmail');
         const email = msg.email ?? msg.newEmail ?? '';
-        authSandboxOps.updateUser(auth, session.user.uid, { email });
+        await updateEmail(session.user, email);
         const freshSession = remintSessionWithClaims(auth, session);
         setPortSession(ctx, port, freshSession);
         await bestEffortFlush(ctx, msg.method);
@@ -374,7 +377,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
       try {
         const session = requirePortSession(portSession(ctx, port), 'updatePassword');
         const password = msg.password ?? msg.newPassword ?? '';
-        authSandboxOps.updateUser(auth, session.user.uid, { password });
+        await updatePassword(session.user, password);
         const freshSession = remintSessionWithClaims(auth, session);
         setPortSession(ctx, port, freshSession);
         await bestEffortFlush(ctx, msg.method);
