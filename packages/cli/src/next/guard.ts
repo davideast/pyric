@@ -55,7 +55,7 @@ export function enforceSandboxGuard(options?: PyricNextOptions): void {
     '[Pyric] Next.js development server started without active Pyric sandbox environment variables.\n' +
     'To prevent accidental connections to production Firebase databases, launch this server using:\n' +
     '  pyric sandbox -- next dev\n' +
-    'or source environment keys via `pyric env`.\n' +
+    'or start the host alone with `pyric sandbox --no-run` and paste the printed export lines into the terminal that runs next dev.\n' +
     'To disable this guard, pass { guard: false } to withPyric(config, options).';
   throw new Error(errorMessage);
 }
