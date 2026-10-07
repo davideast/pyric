@@ -195,6 +195,8 @@ export function createConsumerSession(
   let workerSession: WorkerSessionLease | null = null;
   /** consumer subId → bridge-side unsubscribe. */
   const subs = new Map<string, () => void>();
+  /** Tags the operations this socket dispatches. */
+  const socketIdentity = {};
 
   function detach(): void {
     const retainedSession = workerSession;
@@ -208,7 +210,11 @@ export function createConsumerSession(
     if (hasNoRegistration) return;
     for (const unsubscribe of subs.values()) unsubscribe();
     subs.clear();
-    bridge.detachConsumer(clientSessionId);
+    // A client may already have re-attached this session on a new socket; this
+    // socket's close settles only its own operations and presence entry.
+    bridge.detachConsumer(clientSessionId, socketIdentity);
+    const ownsPresence = bridge.consumers.get(clientSessionId)?.send === send;
+    if (!ownsPresence) return;
     bridge.consumers.unregister(clientSessionId);
     bridge.broadcastConsumerPresence();
   }
@@ -318,7 +324,7 @@ export function createConsumerSession(
           ...msg.op,
           resumeSession: true,
         };
-        bridge.dispatchWorkerOp(opPayload, opSessionId).then(
+        bridge.dispatchWorkerOp(opPayload, opSessionId, socketIdentity).then(
           (value) => send({ type: 'worker-res', id: msg.id, clientSessionId: opSessionId, ok: true, value }),
           (err: Error & { code?: string; denialContext?: unknown; envelope?: unknown }) => {
             const error: WorkerResFrame['error'] = { code: err.code ?? 'unknown', message: err.message };
