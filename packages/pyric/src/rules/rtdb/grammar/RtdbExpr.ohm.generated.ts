@@ -87,7 +87,14 @@ export const RTDB_EXPR_OHM_SOURCE = `RtdbExpr {
 
   regexChar
     = "\\\\" any     -- escape
-    | ~("/" | "\\n") any  -- char
+    | regexClass   -- class
+    | ~("/" | "\\n" | "[") any  -- char
+
+  regexClass = "[" regexClassChar* "]"
+
+  regexClassChar
+    = "\\\\" any     -- escape
+    | ~("]" | "\\n") any  -- char
 
   regexFlags = alnum*
 

@@ -6,6 +6,9 @@ import {
 import type { RtdbRuleExpression } from '../types.js';
 import {
   HAS_CHILDREN_ARGUMENT_COUNT,
+  MATCHES_REGEX_LITERAL,
+  REGEX_FLAGS,
+  isSupportedRegexFlags,
   HAS_CHILDREN_ARRAY,
   HAS_CHILDREN_STRINGS,
   argumentCountMessage,
@@ -205,9 +208,8 @@ export class DataSnapshot {
 class RtdbString {
   constructor(private value: string) {}
 
-  matches(pattern: RegExp | string): boolean {
-    const r = pattern instanceof RegExp ? pattern : new RegExp(pattern);
-    return r.test(this.value);
+  matches(pattern: RegExp): boolean {
+    return pattern.test(this.value);
   }
 
   contains(other: string): boolean {
@@ -291,6 +293,14 @@ function childNamesArgument(args: readonly unknown[]): readonly string[] | undef
   if (!Array.isArray(names)) throw new RtdbRuleRuntimeError(HAS_CHILDREN_ARRAY);
   if (!names.every((name) => typeof name === 'string')) throw new RtdbRuleRuntimeError(HAS_CHILDREN_STRINGS);
   return names;
+}
+
+/** `matches`'s one argument, a regular expression literal. */
+function regexArgument(args: readonly unknown[]): RegExp {
+  if (args.length !== 1) throw new RtdbRuleRuntimeError(argumentCountMessage('matches', 1));
+  const [pattern] = args;
+  if (!(pattern instanceof RegExp)) throw new RtdbRuleRuntimeError(MATCHES_REGEX_LITERAL);
+  return pattern;
 }
 
 /** `replace`'s substring and replacement, both strings. */
@@ -411,7 +421,7 @@ function getEvalSemantics(): Semantics {
       if (typeof recv === 'string') {
         const str = new RtdbString(recv);
         switch (method) {
-          case 'matches': return str.matches(argValues[0] as RegExp | string);
+          case 'matches': return str.matches(regexArgument(argValues));
           case 'contains': return str.contains(oneStringArgument(method, argValues));
           case 'beginsWith': return str.beginsWith(oneStringArgument(method, argValues));
           case 'endsWith': return str.endsWith(oneStringArgument(method, argValues));
@@ -482,6 +492,7 @@ function getEvalSemantics(): Semantics {
     string(node) { return (node as any).eval(this.args.ctx); },
 
     regex(_slash1, body, _slash2, flags) {
+      if (!isSupportedRegexFlags(flags.sourceString)) throw new RtdbRuleRuntimeError(REGEX_FLAGS);
       return new RegExp(body.sourceString, flags.sourceString);
     },
 

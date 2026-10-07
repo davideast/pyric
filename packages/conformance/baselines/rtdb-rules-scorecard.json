@@ -113,15 +113,15 @@
       "unprobeable": 0
     },
     "localAcceptance": {
-      "accepted": 83,
-      "rejected": 8,
+      "accepted": 82,
+      "rejected": 9,
       "unsupported": 0,
       "unprobeable": 0
     },
     "localCapability": {
-      "implemented": 83,
+      "implemented": 82,
       "unsupported": 0,
-      "error": 8,
+      "error": 9,
       "unprobeable": 0
     },
     "productionEvidence": {
@@ -1630,8 +1630,8 @@
     },
     "rtdb.semantic.method-argument-type": {
       "productionAcceptance": "rejected",
-      "localAcceptance": "accepted",
-      "localCapability": "implemented",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
       "productionEvidence": "diverged",
       "classification": "diverged",
       "verifiedBy": [
