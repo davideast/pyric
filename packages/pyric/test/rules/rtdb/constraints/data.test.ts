@@ -11,8 +11,8 @@ describe('Data template helpers', () => {
     test('no path → data.val()', () => {
       expect(dataVal()).toBe('data.val()');
     });
-    test('with path → data.child("field").val()', () => {
-      expect(dataVal('status')).toBe('data.child("status").val()');
+    test("with path → data.child('field').val()", () => {
+      expect(dataVal('status')).toBe("data.child('status').val()");
     });
   });
 
@@ -20,8 +20,8 @@ describe('Data template helpers', () => {
     test('no path → newData.val()', () => {
       expect(newDataVal()).toBe('newData.val()');
     });
-    test('with path → newData.child("field").val()', () => {
-      expect(newDataVal('host')).toBe('newData.child("host").val()');
+    test("with path → newData.child('field').val()", () => {
+      expect(newDataVal('host')).toBe("newData.child('host').val()");
     });
   });
 
@@ -30,8 +30,8 @@ describe('Data template helpers', () => {
     test('no path → data.exists()', () => {
       expect(dataExists()).toBe('data.exists()');
     });
-    test('with path → data.child("field").exists()', () => {
-      expect(dataExists('guest')).toBe('data.child("guest").exists()');
+    test("with path → data.child('field').exists()", () => {
+      expect(dataExists('guest')).toBe("data.child('guest').exists()");
     });
   });
 
@@ -39,8 +39,8 @@ describe('Data template helpers', () => {
     test('no path → newData.exists()', () => {
       expect(newDataExists()).toBe('newData.exists()');
     });
-    test('with path → newData.child("field").exists()', () => {
-      expect(newDataExists('winner')).toBe('newData.child("winner").exists()');
+    test("with path → newData.child('field').exists()", () => {
+      expect(newDataExists('winner')).toBe("newData.child('winner').exists()");
     });
   });
 
@@ -54,29 +54,29 @@ describe('Data template helpers', () => {
   // --- Parent navigation ---
   describe('dataParentVal', () => {
     test('depth 1', () => {
-      expect(dataParentVal(1, 'field')).toBe('data.parent().child("field").val()');
+      expect(dataParentVal(1, 'field')).toBe("data.parent().child('field').val()");
     });
     test('depth 2', () => {
-      expect(dataParentVal(2, 'currentTurn')).toBe('data.parent().parent().child("currentTurn").val()');
+      expect(dataParentVal(2, 'currentTurn')).toBe("data.parent().parent().child('currentTurn').val()");
     });
   });
 
   describe('newDataParentVal', () => {
     test('depth 1', () => {
-      expect(newDataParentVal(1, 'xWins')).toBe('newData.parent().child("xWins").val()');
+      expect(newDataParentVal(1, 'xWins')).toBe("newData.parent().child('xWins').val()");
     });
   });
 
   describe('newDataParentExists', () => {
     test('depth 1', () => {
-      expect(newDataParentExists(1, 'winner')).toBe('newData.parent().child("winner").exists()');
+      expect(newDataParentExists(1, 'winner')).toBe("newData.parent().child('winner').exists()");
     });
   });
 
   // --- Comparisons ---
   describe('eq', () => {
     test('string right → quoted', () => {
-      expect(eq(dataVal(), 'X')).toBe('data.val() == "X"');
+      expect(eq(dataVal(), 'X')).toBe("data.val() == 'X'");
     });
     test('number right → unquoted', () => {
       expect(eq(newDataVal(), 0)).toBe('newData.val() == 0');
@@ -91,28 +91,28 @@ describe('Data template helpers', () => {
       expect(eq(newDataVal(), AUTH_UID)).toBe('newData.val() == auth.uid');
     });
     test('with child path', () => {
-      expect(eq(dataVal('status'), 'open')).toBe('data.child("status").val() == "open"');
+      expect(eq(dataVal('status'), 'open')).toBe("data.child('status').val() == 'open'");
     });
     test('parent val with string', () => {
-      expect(eq(dataParentVal(2, 'currentTurn'), 'X')).toBe('data.parent().parent().child("currentTurn").val() == "X"');
+      expect(eq(dataParentVal(2, 'currentTurn'), 'X')).toBe("data.parent().parent().child('currentTurn').val() == 'X'");
     });
     test('newData parent val with boolean', () => {
-      expect(eq(newDataParentVal(1, 'xWins'), true)).toBe('newData.parent().child("xWins").val() == true');
+      expect(eq(newDataParentVal(1, 'xWins'), true)).toBe("newData.parent().child('xWins').val() == true");
     });
   });
 
   describe('neq', () => {
     test('string right', () => {
-      expect(neq(newDataVal(), 'X')).toBe('newData.val() != "X"');
+      expect(neq(newDataVal(), 'X')).toBe("newData.val() != 'X'");
     });
     test('boolean right', () => {
       expect(neq(newDataVal(), true)).toBe('newData.val() != true');
     });
     test('null right', () => {
-      expect(neq(newDataParentVal(1, 'winner'), null)).toBe('newData.parent().child("winner").val() != null');
+      expect(neq(newDataParentVal(1, 'winner'), null)).toBe("newData.parent().child('winner').val() != null");
     });
     test('segment right (AUTH_UID)', () => {
-      expect(neq(dataVal('host'), AUTH_UID)).toBe('data.child("host").val() != auth.uid');
+      expect(neq(dataVal('host'), AUTH_UID)).toBe("data.child('host').val() != auth.uid");
     });
   });
 

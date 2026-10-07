@@ -36,22 +36,24 @@
  *   )
  */
 import type { Expr } from '../constraints/types.js';
-import { and, eq, exists, lit, negate, or, raw, val } from './expr.js';
+import { all, any, expr, not } from '../constraints/compose.js';
+import { AUTH_UID, dataVal, eq, newDataExists, newDataVal } from '../constraints/data.js';
+import { authenticated, isNew } from '../constraints/atoms.js';
 import { onlyFieldsChanged } from './lifecycle.js';
 
 /** The leaf fields of a match, in the convention above. */
 export const MATCH_FIELDS: readonly string[] = Object.freeze(['host', 'guest', 'status', 'currentTurn', 'winner', 'moveCount', 'rematchOf']);
 
-const signedIn = raw('auth != null');
+const signedIn = authenticated();
 
 /** The write creates the match with the writer as host, the guest seat open, and status 'waiting'. */
 export function validCreate(): Expr {
-  return and(
+  return all(
     signedIn,
-    negate(exists('data')),
-    eq(val('newData', 'host'), 'auth.uid'),
-    eq(val('newData', 'guest'), lit('')),
-    eq(val('newData', 'status'), lit('waiting')),
+    isNew(),
+    eq(newDataVal('host'), AUTH_UID),
+    eq(newDataVal('guest'), ''),
+    eq(newDataVal('status'), 'waiting'),
   );
 }
 
@@ -61,24 +63,24 @@ export function validCreate(): Expr {
  * other field in `fields` keeps its value.
  */
 export function validJoin(fields: readonly string[] = MATCH_FIELDS): Expr {
-  return and(
+  return all(
     signedIn,
-    eq(val('data', 'status'), lit('waiting')),
-    eq(val('data', 'guest'), lit('')),
-    eq(val('newData', 'guest'), 'auth.uid'),
-    raw(`auth.uid != ${val('data', 'host')}`),
-    eq(val('newData', 'status'), lit('playing')),
+    eq(dataVal('status'), 'waiting'),
+    eq(dataVal('guest'), ''),
+    eq(newDataVal('guest'), AUTH_UID),
+    expr(`auth.uid != ${dataVal('host')}`),
+    eq(newDataVal('status'), 'playing'),
     onlyFieldsChanged(['guest', 'status'], [...fields]),
   );
 }
 
 /** The host deletes the match while it is still waiting for a guest. */
 export function canCancel(): Expr {
-  return and(
+  return all(
     signedIn,
-    negate(exists('newData')),
-    eq(val('data', 'status'), lit('waiting')),
-    eq(val('data', 'host'), 'auth.uid'),
+    not(newDataExists()),
+    eq(dataVal('status'), 'waiting'),
+    eq(dataVal('host'), AUTH_UID),
   );
 }
 
@@ -91,15 +93,15 @@ export function canCancel(): Expr {
  * reads as null and is refused.
  */
 export function validRematch(): Expr {
-  const previous = `data.parent().child(${val('newData', 'rematchOf')})`;
-  return and(
+  const previous = `data.parent().child(${newDataVal('rematchOf')})`;
+  return all(
     validCreate(),
-    raw("newData.child('rematchOf').isString()"),
-    or(
-      eq(`${previous}.child('status').val()`, lit('won')),
-      eq(`${previous}.child('status').val()`, lit('draw')),
-      eq(`${previous}.child('status').val()`, lit('resigned')),
+    expr("newData.child('rematchOf').isString()"),
+    any(
+      eq(`${previous}.child('status').val()`, 'won'),
+      eq(`${previous}.child('status').val()`, 'draw'),
+      eq(`${previous}.child('status').val()`, 'resigned'),
     ),
-    or(eq(`${previous}.child('host').val()`, 'auth.uid'), eq(`${previous}.child('guest').val()`, 'auth.uid')),
+    any(eq(`${previous}.child('host').val()`, AUTH_UID), eq(`${previous}.child('guest').val()`, AUTH_UID)),
   );
 }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { pathOwnerOnly, rtdbStdlib } from 'pyric/rules';
+import { pathOwnerOnly, required, rtdbStdlib } from 'pyric/rules';
 import { runScenario, type StdlibScenario } from './harness.js';
 
 const { validation } = rtdbStdlib;
@@ -52,7 +52,7 @@ describe('rtdbStdlib.validation', () => {
     expect(validation.numberBetween(-1, 1)).toBe('newData.isNumber() && newData.val() >= -1 && newData.val() <= 1');
     expect(validation.oneOf('a', 1, true)).toBe("newData.val() == 'a' || newData.val() == 1 || newData.val() == true");
     expect(validation.matches('^[a-z]+$')).toBe('newData.isString() && newData.val().matches(/^[a-z]+$/)');
-    expect(validation.requiredFields('a', 'b')).toBe("newData.hasChildren(['a', 'b'])");
+    expect(required('a', 'b')).toBe("newData.hasChildren(['a', 'b'])");
   });
 
   test('shape types each field and closes the node', () => {

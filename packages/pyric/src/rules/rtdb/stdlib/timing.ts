@@ -23,21 +23,26 @@
  * posts and one stamp, and each post's `.validate` sees the same fresh stamp.
  */
 import type { Expr, Segment } from '../constraints/types.js';
-import { and, childPath, climb, exists, fieldName, finite, lit, negate, or, raw, val } from './expr.js';
+import { all, any, expr, fieldName, lit, not } from '../constraints/compose.js';
+import { dataExists, dataVal, newDataVal } from '../constraints/data.js';
+import { isNew } from '../constraints/atoms.js';
+import { childPath, climb, finite } from './expr.js';
 
-const at = (snapshot: 'data' | 'newData', field?: string) =>
-  field === undefined ? val(snapshot) : val(snapshot, fieldName('timing', field));
+const at = (snapshot: 'data' | 'newData', field?: string) => {
+  const read = snapshot === 'data' ? dataVal : newDataVal;
+  return field === undefined ? read() : read(fieldName('timing', field));
+};
 const present = (field?: string) =>
-  field === undefined ? exists('data') : exists('data', fieldName('timing', field));
+  field === undefined ? dataExists() : dataExists(fieldName('timing', field));
 
 /** The written value is the server timestamp. */
-export const isServerTimestamp = (field?: string): Expr => raw(`${at('newData', field)} == now`);
+export const isServerTimestamp = (field?: string): Expr => expr(`${at('newData', field)} == now`);
 
 /** The written value is a number no later than the server's clock. */
 export function notInFuture(field?: string): Expr {
   const value = at('newData', field);
   const node = field === undefined ? 'newData' : `newData.child(${lit(field)})`;
-  return and(raw(`${node}.isNumber()`), raw(`${value} <= now`));
+  return all(expr(`${node}.isNumber()`), expr(`${value} <= now`));
 }
 
 /**
@@ -46,7 +51,7 @@ export function notInFuture(field?: string): Expr {
  */
 export function cooldownElapsed(ms: number, field?: string): Expr {
   finite('cooldownElapsed', 'ms', ms);
-  return or(negate(present(field)), raw(`now > ${at('data', field)} + ${lit(ms)}`));
+  return any(not(present(field)), expr(`now > ${at('data', field)} + ${lit(ms)}`));
 }
 
 /**
@@ -54,7 +59,7 @@ export function cooldownElapsed(ms: number, field?: string): Expr {
  * write sets it to the server timestamp, and only once `ms` milliseconds
  * have passed since the stored one. Field node `.validate`.
  */
-export const throttled = (ms: number): Expr => and(isServerTimestamp(), cooldownElapsed(ms));
+export const throttled = (ms: number): Expr => all(isServerTimestamp(), cooldownElapsed(ms));
 
 /**
  * The same write sets the stamp at `segments` to the server timestamp. The
@@ -66,7 +71,7 @@ export const throttled = (ms: number): Expr => and(isServerTimestamp(), cooldown
  */
 export function stampedInSameWrite(levelsUp: number, segments: Segment[]): Expr {
   const base = climb('stampedInSameWrite', 'newData', requireLevels('stampedInSameWrite', levelsUp));
-  return raw(`${base}${childPath('stampedInSameWrite', segments)}.val() == now`);
+  return expr(`${base}${childPath('stampedInSameWrite', segments)}.val() == now`);
 }
 
 function requireLevels(builder: string, levelsUp: number): number {
@@ -93,21 +98,21 @@ export function windowedQuota(max: number, windowMs: number): Expr {
   if (windowMs <= 0) throw new Error(`windowedQuota: windowMs must be positive, got ${windowMs}.`);
   const storedStart = "data.child('windowStart')";
   const ends = `${storedStart}.val() + ${lit(windowMs)}`;
-  return and(
-    raw("newData.child('count').isNumber()"),
-    raw(`newData.child('count').val() <= ${lit(max)}`),
-    or(
-      and(
-        raw("newData.child('windowStart').val() == now"),
-        raw("newData.child('count').val() == 1"),
-        or(negate(exists('data')), and(raw(`${storedStart}.isNumber()`), raw(`now >= ${ends}`))),
+  return all(
+    expr("newData.child('count').isNumber()"),
+    expr(`newData.child('count').val() <= ${lit(max)}`),
+    any(
+      all(
+        expr("newData.child('windowStart').val() == now"),
+        expr("newData.child('count').val() == 1"),
+        any(isNew(), all(expr(`${storedStart}.isNumber()`), expr(`now >= ${ends}`))),
       ),
-      and(
-        raw(`${storedStart}.isNumber()`),
-        raw("data.child('count').isNumber()"),
-        raw(`newData.child('windowStart').val() == ${storedStart}.val()`),
-        raw(`now < ${ends}`),
-        raw("newData.child('count').val() == data.child('count').val() + 1"),
+      all(
+        expr(`${storedStart}.isNumber()`),
+        expr("data.child('count').isNumber()"),
+        expr(`newData.child('windowStart').val() == ${storedStart}.val()`),
+        expr(`now < ${ends}`),
+        expr("newData.child('count').val() == data.child('count').val() + 1"),
       ),
     ),
   );
@@ -123,8 +128,8 @@ export function windowedQuota(max: number, windowMs: number): Expr {
 export function countedInSameWrite(levelsUp: number, segments: Segment[]): Expr {
   const after = `${climb('countedInSameWrite', 'newData', requireLevels('countedInSameWrite', levelsUp))}${childPath('countedInSameWrite', segments)}`;
   const before = `${climb('countedInSameWrite', 'data', levelsUp)}${childPath('countedInSameWrite', segments)}`;
-  return or(
-    raw(`${after}.child('count').val() != ${before}.child('count').val()`),
-    raw(`${after}.child('windowStart').val() != ${before}.child('windowStart').val()`),
+  return any(
+    expr(`${after}.child('count').val() != ${before}.child('count').val()`),
+    expr(`${after}.child('windowStart').val() != ${before}.child('windowStart').val()`),
   );
 }

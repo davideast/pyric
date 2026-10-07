@@ -1,5 +1,6 @@
 export type { Expr, Segment, PathDef, RulesetContext } from './types.js';
-export { expr, all, any, not, deny, always, allow } from './compose.js';
+export { expr, all, any, not, deny, always, allow, lit } from './compose.js';
+export type { Literal } from './compose.js';
 export {
   authenticated, ownPath, ownField, isNew,
   hasChildren, hasChild, fieldIsString, fieldIsNumber, fieldIsBoolean, fieldEnum,

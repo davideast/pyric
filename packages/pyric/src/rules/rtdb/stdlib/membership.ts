@@ -12,7 +12,9 @@
  */
 import type { Expr, Segment } from '../constraints/types.js';
 import { pathOwnerOnly } from '../constraints/policies.js';
-import { and, childPath, climb, or, pathVariable, raw } from './expr.js';
+import { all, any, expr } from '../constraints/compose.js';
+import { authenticated } from '../constraints/atoms.js';
+import { childPath, climb, pathVariable } from './expr.js';
 
 /**
  * The signed-in user is a member: the stored value at `segments` is `true`.
@@ -22,7 +24,7 @@ import { and, childPath, climb, or, pathVariable, raw } from './expr.js';
  */
 export function memberOf(segments: Segment[], options: { levelsUp?: number } = {}): Expr {
   const path = `${climb('memberOf', 'data', options.levelsUp)}${childPath('memberOf', segments)}`;
-  return and(raw('auth != null'), raw(`${path}.val() == true`));
+  return all(authenticated(), expr(`${path}.val() == true`));
 }
 
 /**
@@ -34,11 +36,11 @@ export function memberOf(segments: Segment[], options: { levelsUp?: number } = {
  * needs an owner-only `.write` on the member node instead.
  */
 export function selfMembership(pathVar = '$uid'): Expr {
-  return and(
+  return all(
     pathOwnerOnly(pathVariable('selfMembership', pathVar)),
-    or(raw('newData.val() == true'), raw('!newData.exists()')),
+    any(expr('newData.val() == true'), expr('!newData.exists()')),
   );
 }
 
 /** A member node holds `true`. Member node `.validate`. */
-export const memberFlag = (): Expr => raw('newData.val() == true');
+export const memberFlag = (): Expr => expr('newData.val() == true');

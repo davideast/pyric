@@ -528,15 +528,15 @@ export const rtdbRegistry = {
         row3({
           rowRef: "85",
           featureKeys: ["atoms","policies","compose"],
-          behavior: "`policies` exports composite predicates that compose atoms: `pathOwnerOnly`, `fieldOwnerOnly`, `ownerOrNew`, `hasRole`, `isMember`, `required`, `transition`",
+          behavior: "`policies` exports composite predicates that compose atoms: `pathOwnerOnly`, `fieldOwnerOnly`, `ownerOrNew`, `hasRole`, `isMember`, `required` (single keys in one `newData.hasChildren([...])`, each nested path such as `puck/x` in its own `newData.hasChild(...)`, joined with `&&`; every key segment must be a valid RTDB key), `transition`",
           evidence: "`unit:constraints/policies.test.ts`",
           conformanceTests: ["packages/pyric/test/rules/rtdb/constraints/policies.test.ts"],
         }),
         row3({
           rowRef: "86",
           featureKeys: ["compose"],
-          behavior: "`compose` exports the boolean combinators `all`, `any`, `not`, `deny`, `always`, plus the raw `expr` constructor",
-          evidence: "`unit:constraints/compose.test.ts`",
+          behavior: "`compose` exports the boolean combinators `all`, `any`, `not`, `deny`, `always`, the raw `expr` constructor, and `lit`, the single-quoted rule literal every builder writes; `all` and `any` add only the parentheses an operand needs (an `||` or ternary under `&&`, an `&&` or ternary under `||`), and the RTDB standard library composes its builders from these. `all` or `any` with no non-empty operand throws, and `lit` throws on a string with a newline or another control character; its quote and backslash escapes match the Pyric simulator",
+          evidence: "`unit:constraints/compose.test.ts` pins the grouping, including an `||` inside parentheses, quotes or a regex literal left ungrouped, that a composition still parses, the empty `all`/`any` errors, the `lit` control-character refusal, and that each escaped literal reads back as its value in the simulator. These errors are Pyric authoring checks with no production counterpart. The RTDB standard library captures `rules-rtdb-r27-stdlib-core-patterns`, `rules-rtdb-r28-stdlib-presence-timing` and `rules-rtdb-r34-stdlib-auth-membership-quota` were recaptured after the standard library moved onto these combinators, with every verdict unchanged.",
           conformanceTests: ["packages/pyric/test/rules/rtdb/constraints/compose.test.ts"],
         }),
         row3({

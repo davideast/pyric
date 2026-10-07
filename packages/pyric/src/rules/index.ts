@@ -93,6 +93,7 @@ export {
   all,
   any,
   not,
+  lit,
   deny,
   always,
   allow,

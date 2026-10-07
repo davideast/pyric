@@ -11,7 +11,11 @@ description: "Compose Realtime Database rules from standard library modules for 
 
 The Firestore and Storage rules standard library is rules source you import. Realtime Database rules have no functions, no imports and no `let`, so the RTDB standard library is TypeScript instead: each module is a namespace of builders, and each builder returns the whole expression for one `.write` or `.validate` rule. You compose builders with `all`, `any` and `not` inside `defineRtdbRules`, and `toJSON()` gives you the `database.rules.json` Firebase deploys.
 
-The modules follow the same conventions as their Firestore counterparts, so a game that keeps its lobby in Firestore and its live play in the Realtime Database uses one data layout for both.
+The modules follow the same conventions as their Firestore counterparts, so a game that keeps its lobby in Firestore and its live play in the Realtime Database uses one data layout for both. The builders are composed from the constraints builders (`all`, `any`, `not`, `lit`, `dataVal`, `eq` and the rest), so a ruleset that mixes the two writes one quote style, single quotes, and only the parentheses each expression needs.
+
+- `lit` escapes a quote as `\'` and a backslash as `\\`, which match Pyric's simulator. It throws on a string with a newline or another control character, because Pyric does not model escapes for those.
+- `all()` and `any()` with no conditions throw. Use `allow()` or `deny()` for a constant rule.
+- `required` checks single keys with one `newData.hasChildren([...])` and a nested path such as `'puck/x'` with `newData.hasChild('puck/x')`, joined with `&&`.
 
 ## Build a match from modules
 

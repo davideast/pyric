@@ -21,12 +21,12 @@ describe('schemaRules', () => {
 
   test('z.enum() → val() == comparisons', () => {
     const result = schemaRules(z.object({ role: z.enum(['user', 'admin']) }));
-    expect(result.children.role.validate).toBe('newData.val() == "user" || newData.val() == "admin"');
+    expect(result.children.role.validate).toBe("newData.val() == 'user' || newData.val() == 'admin'");
   });
 
   test('z.literal(string) → val() == literal', () => {
     const result = schemaRules(z.object({ type: z.literal('post') }));
-    expect(result.children.type.validate).toBe('newData.val() == "post"');
+    expect(result.children.type.validate).toBe("newData.val() == 'post'");
   });
 
   test('z.literal(number) → val() == number', () => {
@@ -42,8 +42,8 @@ describe('schemaRules', () => {
   test('required fields generate parent validate with hasChild', () => {
     const result = schemaRules(z.object({ name: z.string(), email: z.string() }));
     expect(result.validate).toContain('newData.hasChildren()');
-    expect(result.validate).toContain('newData.hasChild("name")');
-    expect(result.validate).toContain('newData.hasChild("email")');
+    expect(result.validate).toContain("newData.hasChild('name')");
+    expect(result.validate).toContain("newData.hasChild('email')");
   });
 
   test('optional fields excluded from required list', () => {
@@ -51,8 +51,8 @@ describe('schemaRules', () => {
       name: z.string(),
       bio: z.string().optional(),
     }));
-    expect(result.validate).toContain('newData.hasChild("name")');
-    expect(result.validate).not.toContain('newData.hasChild("bio")');
+    expect(result.validate).toContain("newData.hasChild('name')");
+    expect(result.validate).not.toContain("newData.hasChild('bio')");
     // But bio still gets a child validate rule
     expect(result.children.bio.validate).toBe('newData.isString()');
   });
@@ -74,7 +74,7 @@ describe('schemaRules', () => {
     const result = schemaRules(z.object({
       value: z.union([z.string(), z.number()]),
     }));
-    expect(result.children.value.validate).toBe('(newData.isString()) || (newData.isNumber())');
+    expect(result.children.value.validate).toBe('newData.isString() || newData.isNumber()');
   });
 
   test('fieldConstraints merge with schema via all()', () => {
@@ -82,7 +82,7 @@ describe('schemaRules', () => {
       z.object({ author: z.string() }),
       { author: [expr('newData.val() == auth.uid')] },
     );
-    expect(result.children.author.validate).toBe('(newData.isString()) && (newData.val() == auth.uid)');
+    expect(result.children.author.validate).toBe('newData.isString() && newData.val() == auth.uid');
   });
 
   test('fieldConstraints with multiple constraints', () => {
@@ -105,7 +105,7 @@ describe('schemaRules', () => {
 
   test('empty object → just hasChildren()', () => {
     const result = schemaRules(z.object({}));
-    expect(result.validate).toBe('(newData.hasChildren())');
+    expect(result.validate).toBe('newData.hasChildren()');
     expect(Object.keys(result.children)).toHaveLength(0);
   });
 });

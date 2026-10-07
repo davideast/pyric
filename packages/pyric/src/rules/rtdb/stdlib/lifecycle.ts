@@ -15,12 +15,15 @@
  * value `==` can compare.
  */
 import type { Expr } from '../constraints/types.js';
-import { and, exists, fieldName, negate, ne, or, raw, sameAsBefore, val } from './expr.js';
+import { all, any, expr, fieldName, not } from '../constraints/compose.js';
+import { dataVal, neq, newDataExists, newDataVal } from '../constraints/data.js';
+import { authenticated, isNew } from '../constraints/atoms.js';
+import { sameAsBefore } from './expr.js';
 
 /** Each listed field holds the same value before and after the write. */
 export function unchanged(...fields: string[]): Expr {
   if (fields.length === 0) throw new Error('unchanged: pass at least one field.');
-  return and(...fields.map((f) => sameAsBefore(fieldName('unchanged', f))));
+  return all(...fields.map((f) => sameAsBefore(fieldName('unchanged', f))));
 }
 
 /**
@@ -29,7 +32,7 @@ export function unchanged(...fields: string[]): Expr {
  * `.validate`, which does not run on a delete, a delete passes.
  */
 export function immutableFields(...fields: string[]): Expr {
-  return or(negate(exists('data')), unchanged(...fields));
+  return any(isNew(), unchanged(...fields));
 }
 
 function checkSubset(builder: string, changed: string[], fields: string[]): string[] {
@@ -46,24 +49,24 @@ function checkSubset(builder: string, changed: string[], fields: string[]): stri
  */
 export function onlyFieldsChanged(changed: string[], fields: string[]): Expr {
   const rest = checkSubset('onlyFieldsChanged', changed, fields);
-  return rest.length === 0 ? raw('true') : unchanged(...rest);
+  return rest.length === 0 ? expr('true') : unchanged(...rest);
 }
 
 /** Every field in `changed` differs after the write, and every other field in `fields` is the same. */
 export function exactlyChanged(changed: string[], fields: string[]): Expr {
   if (changed.length === 0) throw new Error('exactlyChanged: pass at least one changed field.');
   const rest = checkSubset('exactlyChanged', changed, fields);
-  return and(
-    ...changed.map((f) => ne(val('newData', fieldName('exactlyChanged', f)), val('data', f))),
+  return all(
+    ...changed.map((f) => neq(newDataVal(fieldName('exactlyChanged', f)), { $: dataVal(f) })),
     ...(rest.length > 0 ? [unchanged(...rest)] : []),
   );
 }
 
 /** The write creates the node: nothing is stored there and something is written. `.write`. */
-export const createOnly = (): Expr => and(negate(exists('data')), exists('newData'));
+export const createOnly = (): Expr => all(isNew(), newDataExists());
 
 /** The write leaves a value at the node, so it is not a delete. `.write`. */
-export const noDelete = (): Expr => exists('newData');
+export const noDelete = (): Expr => newDataExists();
 
 /**
  * The signed-in user owns the record through `field`, a child holding the
@@ -72,12 +75,12 @@ export const noDelete = (): Expr => exists('newData');
  */
 export function ownedBy(field: string): Expr {
   const f = fieldName('ownedBy', field);
-  const newOwner = val('newData', f);
-  return and(
-    raw('auth != null'),
-    or(
-      and(negate(exists('data')), raw(`${newOwner} == auth.uid`)),
-      and(raw(`${val('data', f)} == auth.uid`), or(negate(exists('newData')), raw(`${newOwner} == auth.uid`))),
+  const newOwner = newDataVal(f);
+  return all(
+    authenticated(),
+    any(
+      all(isNew(), expr(`${newOwner} == auth.uid`)),
+      all(expr(`${dataVal(f)} == auth.uid`), any(not(newDataExists()), expr(`${newOwner} == auth.uid`))),
     ),
   );
 }
