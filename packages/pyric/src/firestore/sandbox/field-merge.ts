@@ -13,9 +13,11 @@
  *
  * Two entry points feed the same leaf-set engine:
  *
- *   - {@link applyUpdate} — `updateDoc(data)`. Each TOP-LEVEL key is a
+ *   - {@link applyUpdate}: `updateDoc(data)`. Each TOP-LEVEL key is an
+ *     encoded field path (`update-fields.ts`): a plain key is a
  *     dot-separated FieldPath, so `{'a.b': 2}` sets leaf `a.b` (preserving
- *     `a.c`). A nested *map value* (`{a: {b: 2}}`) is a single-segment
+ *     `a.c`), and a backtick-quoted segment is one literal field name, so
+ *     `{'`a.b`': 2}` sets the top-level field `a.b`. A nested *map value* (`{a: {b: 2}}`) is a single-segment
  *     path `a` whose value is the whole map — it REPLACES `a` wholesale,
  *     matching prod (`updateDoc` does not deep-merge map values; only
  *     dot-paths reach into a map). `DELETE_MARKER` leaves delete the leaf.
@@ -38,6 +40,7 @@ import {
 } from './value-resolver.js';
 import { FirebaseError } from '../../sandbox/internal/firebase-error.js';
 import { cloneDoc } from './document-copy.js';
+import { fieldPathKeySegments } from './update-fields.js';
 
 /** Split a dot-separated FieldPath string into segments. */
 function splitPath(key: string): string[] {
@@ -114,7 +117,7 @@ export function applyUpdate(
     if (value !== DELETE_MARKER && containsDeleteMarker(value)) {
       throw new DeleteFieldNestedError();
     }
-    setLeaf(out, splitPath(key), value);
+    setLeaf(out, fieldPathKeySegments(key), value);
   }
   return out;
 }

@@ -38,8 +38,14 @@ export type WireConstraint =
 /** Mirrors the protocol's `WriteDescriptor`. */
 export type WireWrite =
   | { method: 'set'; path: string; data: unknown; options?: { merge?: boolean; mergeFields?: string[] } }
-  | { method: 'update'; path: string; data: unknown }
+  | { method: 'update'; path: string; fields: WireUpdateField[] }
   | { method: 'delete'; path: string };
+
+/** One field of an update write: the literal segment vector and its encoded value. */
+export interface WireUpdateField {
+  path: string[];
+  value: unknown;
+}
 
 /** Mirrors the protocol's `SerializedDocData` — the JSON string envelope. */
 export interface WireDocData {

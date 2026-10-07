@@ -54,6 +54,10 @@
       "types": "./dist/firestore/internal/value-codec.d.ts",
       "import": "./dist/firestore/internal/value-codec.js"
     },
+    "./firestore/internal/update-fields": {
+      "types": "./dist/firestore/internal/update-fields.d.ts",
+      "import": "./dist/firestore/internal/update-fields.js"
+    },
     "./firestore/lite": {
       "types": "./dist/firestore/lite.d.ts",
       "import": "./dist/firestore/lite.js"

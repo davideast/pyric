@@ -37,6 +37,7 @@ import {
   collection,
   setDoc,
   updateDoc,
+  FieldPath,
   deleteDoc,
   addDoc,
   getDoc,
@@ -297,9 +298,19 @@ export async function issueOp(sandbox: Sandbox, denial: Denial): Promise<RerunRe
       case 'set':
         await setDoc(doc(db, denial.path), resourceData);
         break;
-      case 'update':
-        await updateDoc(doc(db, denial.path), resourceData);
+      case 'update': {
+        // An update's payload is a tree; its field paths re-issue it exactly,
+        // including a segment that contains `.`.
+        const mask = denial.updateMask;
+        if (mask === undefined || mask.length === 0) {
+          await updateDoc(doc(db, denial.path), resourceData);
+          break;
+        }
+        const pairs = mask.flatMap((path) => [new FieldPath(...path), valueAt(resourceData, path)]);
+        const [field, value, ...more] = pairs as [FieldPath, unknown, ...unknown[]];
+        await updateDoc(doc(db, denial.path), field, value, ...more);
         break;
+      }
       case 'delete':
         await deleteDoc(doc(db, denial.path));
         break;
@@ -330,6 +341,16 @@ function documentData(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {};
+}
+
+/** The value an update's field path names inside its payload tree. */
+function valueAt(tree: Record<string, unknown>, path: readonly string[]): unknown {
+  let value: unknown = tree;
+  for (const segment of path) {
+    const isMap = value !== null && typeof value === 'object' && !Array.isArray(value);
+    value = isMap && Object.hasOwn(value as object, segment) ? (value as Record<string, unknown>)[segment] : undefined;
+  }
+  return value;
 }
 
 function parentCollection(path: string): string {

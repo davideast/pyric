@@ -21,7 +21,7 @@ import type {
   QueryOrderDirection,
   QueryWhereFilterOp,
 } from '../query-execution.js';
-import type { SnapshotFieldPath } from './field-path.js';
+import type { FieldPath, SnapshotFieldPath } from './field-path.js';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Public surface — what agent code calls.
@@ -99,6 +99,8 @@ export interface DocumentReference {
   get(opts?: OperationOptions): Promise<DocumentSnapshot>;
   set(data: DocumentData, options?: SetOptions): Promise<void>;
   update(data: DocumentData, opts?: OperationOptions): Promise<void>;
+  update(field: string | FieldPath, value: unknown, ...moreFieldsAndValues: unknown[]): Promise<void>;
+  update(dataOrField: DocumentData | string | FieldPath, ...preconditionOrValues: unknown[]): Promise<void>;
   delete(opts?: OperationOptions): Promise<void>;
 }
 
@@ -219,6 +221,8 @@ export interface CollectionReference extends Query {
 export interface WriteBatch {
   set(ref: DocumentReference, data: DocumentData, options?: SetOptions): WriteBatch;
   update(ref: DocumentReference, data: DocumentData): WriteBatch;
+  update(ref: DocumentReference, field: string | FieldPath, value: unknown, ...moreFieldsAndValues: unknown[]): WriteBatch;
+  update(ref: DocumentReference, dataOrField: DocumentData | string | FieldPath, ...preconditionOrValues: unknown[]): WriteBatch;
   delete(ref: DocumentReference): WriteBatch;
   commit(opts?: OperationOptions): Promise<void>;
 }
@@ -233,6 +237,8 @@ export interface Transaction {
   get(query: Query): Promise<QuerySnapshot>;
   set(ref: DocumentReference, data: DocumentData, options?: SetOptions): Transaction;
   update(ref: DocumentReference, data: DocumentData): Transaction;
+  update(ref: DocumentReference, field: string | FieldPath, value: unknown, ...moreFieldsAndValues: unknown[]): Transaction;
+  update(ref: DocumentReference, dataOrField: DocumentData | string | FieldPath, ...preconditionOrValues: unknown[]): Transaction;
   delete(ref: DocumentReference): Transaction;
 }
 

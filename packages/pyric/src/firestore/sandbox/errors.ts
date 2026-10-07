@@ -55,8 +55,10 @@ export interface FirestoreEvalRequest {
   method: 'get' | 'list' | 'create' | 'update' | 'delete';
   path: string;
   auth: { uid: string; token?: Record<string, unknown> } | null;
-  /** `request.resource.data` after sentinel resolution. Absent for reads. */
+  /** The proposed write payload; a non-merge update holds its decoded field tree. Absent for reads. */
   resourceData?: Record<string, unknown>;
+  /** A non-merge update's field paths as segment vectors. */
+  updateMask?: string[][];
 }
 
 /**

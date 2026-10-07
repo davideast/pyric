@@ -26,6 +26,7 @@ import {
   arrayUnion,
   arrayRemove,
   deleteField,
+  FieldPath,
   type Firestore,
   type DocumentReference,
   type SetOptions,
@@ -33,9 +34,9 @@ import {
 import { assertEncodedDocValueDepth, rehydrateEncodedDocValue, requireDocumentData, type DocValueEncoding } from 'pyric/firestore/internal/value-codec';
 import { FirebaseError } from 'pyric/app';
 
-import type { OpMessage, WriteDescriptor, SentinelMarker, SerializedDocData } from '../protocol.js';
+import type { OpMessage, WriteDescriptor, SentinelMarker, SerializedDocData, UpdatePayload } from '../protocol.js';
 import { serializeDocData, isSentinelMarker } from '../protocol.js';
-import { assertAtomicList, requireFirestorePath } from '../protocol/firestore-validation.js';
+import { assertAtomicList, requireFirestorePath, requireSingleUpdateForm, requireUpdateFields } from '../protocol/firestore-validation.js';
 import { type HostCtx, type PortLike, post, ok, fail, bestEffortFlush } from '../host-context.js';
 
 // ─── Sentinel resolution ──────────────────────────────────────────────────
@@ -129,11 +130,49 @@ function indexMapToBase64Url(data: unknown): string {
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
+// ─── Update arguments ─────────────────────────────────────────────────────
+
+type UpdateArguments = [Record<string, unknown>] | [FieldPath, unknown, ...unknown[]];
+
+/**
+ * Rebuild the `update` arguments of an update payload. A field list becomes
+ * the field-and-value form with one `FieldPath` per segment vector, so a
+ * segment that contains `.` stays one literal field name.
+ */
+function prepareUpdateArguments(payload: UpdatePayload, valueEncoding?: DocValueEncoding): UpdateArguments {
+  // Batch and transaction descriptors reach here without inbound validation.
+  requireSingleUpdateForm(payload);
+  const fields = payload.fields;
+  if (fields === undefined) {
+    return [prepareWriteData(payload.data, valueEncoding) as Record<string, unknown>];
+  }
+  requireUpdateFields(fields);
+  if (fields.length === 0) return [{}];
+  const args: unknown[] = [];
+  for (const field of fields) {
+    args.push(new FieldPath(...field.path), prepareWriteData(field.value, valueEncoding));
+  }
+  return args as [FieldPath, unknown, ...unknown[]];
+}
+
+/** Call an overloaded `update` with prepared arguments in either form. */
+function callUpdate<R>(
+  args: UpdateArguments,
+  withData: (data: Record<string, unknown>) => R,
+  withFields: (field: FieldPath, value: unknown, ...moreFieldsAndValues: unknown[]) => R,
+): R {
+  const [first, value, ...moreFieldsAndValues] = args;
+  const isDataForm = args.length === 1;
+  if (isDataForm) return withData(first as Record<string, unknown>);
+  return withFields(first as FieldPath, value, ...moreFieldsAndValues);
+}
+
 // ─── Atomic write helper ──────────────────────────────────────────────────
 
 type AtomicWriter = {
   set(ref: DocumentReference, data: Record<string, unknown>, options?: SetOptions): void;
   update(ref: DocumentReference, data: Record<string, unknown>): void;
+  update(ref: DocumentReference, field: FieldPath, value: unknown, ...moreFieldsAndValues: unknown[]): void;
   delete(ref: DocumentReference): void;
 };
 
@@ -154,11 +193,13 @@ function applyAtomicWrite(
       writer.set(ref, data, write.options);
       return;
     }
-    case 'update': {
-      const data = prepareWriteData(write.data, write.valueEncoding) as Record<string, unknown>;
-      writer.update(ref, data);
+    case 'update':
+      callUpdate(
+        prepareUpdateArguments(write, write.valueEncoding),
+        (data) => writer.update(ref, data),
+        (field, value, ...more) => writer.update(ref, field, value, ...more),
+      );
       return;
-    }
     case 'delete':
       writer.delete(ref);
       return;
@@ -207,8 +248,12 @@ export async function handleFirestoreWriteOp(
     case 'updateDoc': {
       try {
         const ref = pyricDoc(db, msg.path);
-        const data = prepareWriteData(msg.data, msg.valueEncoding) as Record<string, unknown>;
-        await sdkActivity.silence(() => updateDoc(ref, data));
+        const args = prepareUpdateArguments(msg, msg.valueEncoding);
+        await sdkActivity.silence(() => callUpdate(
+          args,
+          (data) => updateDoc(ref, data),
+          (field, value, ...more) => updateDoc(ref, field, value, ...more),
+        ));
         await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }

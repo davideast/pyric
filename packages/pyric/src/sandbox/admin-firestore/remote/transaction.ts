@@ -25,7 +25,8 @@ import type {
 } from 'pyric/sandbox/admin-compat';
 import { READ_AFTER_WRITE_MESSAGE } from '../../../firestore/sandbox/transaction-types.js';
 import { armOp, type RemoteArm } from './channel.js';
-import { encodeWriteData } from './value-codec.js';
+import { encodeUpdateFields, encodeWriteData } from './value-codec.js';
+import { parseAdminUpdateArguments } from '../../../firestore/sandbox/admin-compat/field-path.js';
 import { makeDocumentSnapshot, makeQuerySnapshot } from './snapshots.js';
 import { buildDescriptor, queryStateOf, validateExecutable, type QueryState } from './query.js';
 import type { WireDocSnap, WireQuerySnap, WireTxnRead, WireWrite } from './wire-types.js';
@@ -70,8 +71,9 @@ export async function runRemoteTransaction<R>(
         writes.push({ method: 'set', path: ref.path, data: encodeWriteData(data) });
         return tx;
       },
-      update(ref: DocumentReference, data: DocumentData): Transaction {
-        writes.push({ method: 'update', path: ref.path, data: encodeWriteData(data) });
+      update(ref: DocumentReference, dataOrField: unknown, ...preconditionOrValues: unknown[]): Transaction {
+        const { fields } = parseAdminUpdateArguments(dataOrField, preconditionOrValues);
+        writes.push({ method: 'update', path: ref.path, fields: encodeUpdateFields(fields) });
         return tx;
       },
       delete(ref: DocumentReference): Transaction {

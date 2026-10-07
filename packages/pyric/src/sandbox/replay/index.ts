@@ -59,6 +59,7 @@ import {
 } from '../index.js';
 import { getInternalEnv } from '../internal/sandbox-impl.js';
 import { Timestamp } from 'pyric/rules/internal';
+import { enginePayloadOf } from '../../firestore/sandbox/update-fields.js';
 
 type DocData = Record<string, unknown>;
 
@@ -129,7 +130,7 @@ export function replay(
   // available.
   for (const wEv of writes) {
     const bypassRules = isAdminWrite(wEv);
-    const data = preResolutionDataFor(wEv, events) ?? wEv.data;
+    const data = preResolutionDataFor(wEv, events) ?? enginePayloadOf({ resourceData: wEv.data, updateMask: wEv.updateMask });
     const requestTime = pinRequestTime
       ? new Timestamp(wEv.requestTime.seconds, wEv.requestTime.nanoseconds)
       : undefined;
@@ -200,7 +201,7 @@ function preResolutionDataFor(
     const e = allEvents[i];
     if (!e || e.kind !== 'request') continue;
     if (e.path !== wEv.path) continue;
-    return e.request?.resourceData as DocData | undefined;
+    return enginePayloadOf(e.request) as DocData | undefined;
   }
   return undefined;
 }

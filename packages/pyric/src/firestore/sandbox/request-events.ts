@@ -30,7 +30,10 @@ export interface EmitRequestInput {
    *  `projectEvaluatedRule`). Surfaced on allow AND deny events (see
    *  `buildRequestEvent`); never on unsupported. */
   evaluatedRule?: EvaluatedRuleInfo;
+  /** The public write payload: a non-merge update's decoded field tree. */
   resourceData?: DocumentData;
+  /** A non-merge update's field paths as segment vectors. */
+  updateMask?: string[][];
   resourceBefore?: { data: DocumentData | null; exists: boolean };
   resourceAfter?: { data: DocumentData | null; exists: boolean };
   origin: 'user' | 'listener' | 'transaction' | 'batch';
@@ -92,6 +95,7 @@ export function buildRequestEvent(input: EmitRequestInput): import('../../sandbo
   };
   if (input.resourceData !== undefined) {
     out.request = { resourceData: input.resourceData };
+    if (input.updateMask !== undefined) out.request.updateMask = input.updateMask;
   }
   if (input.resourceBefore !== undefined) {
     out.resourceBefore = input.resourceBefore;

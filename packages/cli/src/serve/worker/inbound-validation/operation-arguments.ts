@@ -2,7 +2,7 @@ import { FirebaseError } from 'pyric/app';
 import type { OpMessage } from '../protocol.js';
 import { DELIVERY_STAGES } from 'pyric/messaging/internal';
 import { requireDocumentData } from 'pyric/firestore/internal/value-codec';
-import { requireFirestorePath } from '../protocol/firestore-validation.js';
+import { requireFirestorePath, requireSingleUpdateForm, requireUpdateFields } from '../protocol/firestore-validation.js';
 import { isMessageRecord, requireShape, requireRecord, requireString, requireOptionalString,
   requireOptionalBoolean, requireOptionalRecord, requireNumber, requireOptionalNumber } from './fields.js';
 import { assertRtdbQuery } from './rtdb-query.js';
@@ -67,7 +67,16 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       requireDocumentData(message.data);
       assertSetOptions(message.options);
       return;
-    case 'updateDoc':
+    case 'updateDoc': {
+      requireSingleUpdateForm(message);
+      const hasFields = message.fields !== undefined;
+      if (hasFields) {
+        requireUpdateFields(message.fields);
+        return;
+      }
+      requireDocumentData(message.data);
+      return;
+    }
     case 'admin.setDocument':
       requireDocumentData(message.data);
       return;

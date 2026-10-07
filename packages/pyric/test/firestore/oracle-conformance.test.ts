@@ -542,22 +542,15 @@ ${writeProjectionRules()}
         sandboxVerdicts.set(`${c.id}/${p.id}`, verdict);
       }
     }
-    // updateDoc(ref, fieldPath, value, ...) is not part of the sandbox's
-    // updateDoc surface, which takes (ref, data). The FieldPath is spread into
-    // the update data as an object, so the literal-dot cases diverge. Both sides
-    // are pinned: production's verdicts come from the capture, the sandbox's are
-    // its current behavior.
-    const FIELD_PATH_FORMS = new Set(['literal_dot_field_path', 'literal_dot_nested_segment']);
+    // Every recorded verdict replays, including the field-and-value
+    // `updateDoc(ref, new FieldPath('a.b'), 'x')` cases whose segments
+    // contain a literal dot.
     for (const c of obs.cases) {
       for (const p of c.predicates) {
         const key = `${c.case}/${p.id}`;
-        if (FIELD_PATH_FORMS.has(c.case)) continue;
         expect([key, sandboxVerdicts.get(key)]).toEqual([key, p.verdict]);
       }
     }
-    const literal = obs.cases.find((c) => c.case === 'literal_dot_field_path');
-    expect(literal?.predicates.find((p) => p.id === 'literal_key_present')?.verdict).toBe('allow');
-    expect(sandboxVerdicts.get('literal_dot_field_path/literal_key_present')).toBe('deny');
   });
 
   // ── scalar round-trips ───────────────────────────────────────────────

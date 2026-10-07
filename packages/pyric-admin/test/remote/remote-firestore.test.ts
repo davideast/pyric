@@ -342,6 +342,36 @@ describe('pyric-admin remote Firestore — arm selection', () => {
 
 // ─── CRUD + value fidelity ─────────────────────────────────────────────────
 
+describe('pyric-admin remote Firestore: update field paths cross the wire as segment vectors', () => {
+  it('writes literal-dot FieldPaths through update, WriteBatch.update and Transaction.update', async () => {
+    const { ctx, remote } = makeStack();
+    const db = getAdminFirestore(remote);
+    await db.doc('rooms/fp').set({ board: { c1r1: 'a' }, n: 1 });
+
+    await db.doc('rooms/fp').update(new FieldPath('a.b'), 'x', 'board.c1r1', 'y');
+    await db.batch().update(db.doc('rooms/fp'), new FieldPath('board', 'c1.r1'), 'z').commit();
+    await db.runTransaction(async (tx) => {
+      await tx.get(db.doc('rooms/fp'));
+      tx.update(db.doc('rooms/fp'), new FieldPath('n.m'), FieldValue.increment(2));
+    });
+
+    expect(JSON.parse((await workerGetDocRaw(ctx, 'rooms/fp')).json!)).toEqual({
+      board: { c1r1: 'y', 'c1.r1': 'z' },
+      n: 1,
+      'a.b': 'x',
+      'n.m': 2,
+    });
+  });
+
+  it('throws argument errors synchronously, as the Admin SDK does', () => {
+    const { remote } = makeStack();
+    const db = getAdminFirestore(remote);
+    expect(() => db.doc('rooms/fp').update('a..b', 1)).toThrow(
+      'Element at index 1 is not a valid field path. Paths must not contain ".." in them.',
+    );
+  });
+});
+
 describe('pyric-admin remote Firestore — CRUD + typed-value fidelity', () => {
   it('set / get / update / delete round-trip through the worker', async () => {
     const { ctx, remote } = makeStack();

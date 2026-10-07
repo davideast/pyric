@@ -11,6 +11,8 @@ import type {
   DocumentData,
   SetOptions as ChainSetOptions,
 } from 'pyric/sandbox/admin-firestore';
+import { parseChainUpdate } from './chain-update.js';
+import type { FieldPath } from './field-values.js';
 
 import {
   targetOf,
@@ -24,6 +26,7 @@ import type {
   DocumentReference,
   CollectionReference,
   FirestoreDataConverter,
+  UpdateData,
 } from './types.js';
 import { withFirestoreFirebaseError } from './errors.js';
 import { clientStateFor } from './client-state.js';
@@ -87,12 +90,29 @@ export async function setDoc<T = DocumentData>(
  * mismatch. Use the underlying `DocumentData` view (`withConverter(ref,
  * null)`) for typed-and-untyped mixed access if you need both styles
  * against the same path.
+ *
+ * Takes the data-object form or the field-and-value form
+ * (`updateDoc(ref, field, value, ...moreFieldsAndValues)`), where each
+ * field is a dot-separated string or a `FieldPath` whose segments are
+ * literal field names.
  */
-export async function updateDoc(ref: DocumentReference, data: DocumentData): Promise<void> {
+export function updateDoc(ref: DocumentReference<unknown>, data: UpdateData<DocumentData>): Promise<void>;
+export function updateDoc(
+  ref: DocumentReference<unknown>,
+  field: string | FieldPath,
+  value: unknown,
+  ...moreFieldsAndValues: unknown[]
+): Promise<void>;
+export function updateDoc(
+  ref: DocumentReference<unknown>,
+  dataOrField: UpdateData<DocumentData> | string | FieldPath,
+  ...valueAndMoreFieldsAndValues: unknown[]
+): Promise<void> {
   const target = targetOf(ref);
+  const args = parseChainUpdate('updateDoc', ref.path, dataOrField, valueAndMoreFieldsAndValues);
   return runSdkWrite(beginFirestoreActivity(target, ref, 'updateDoc', 'operation'), async () => {
     return clientStateFor(target).runWrite(
-      () => withFirestoreFirebaseError(() => chainDocFor(target, ref).update(data)),
+      () => withFirestoreFirebaseError(() => chainDocFor(target, ref).update(...args)),
       ref.path,
     );
   });
