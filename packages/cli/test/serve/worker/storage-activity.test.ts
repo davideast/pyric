@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
-import { createSdkRateMonitor } from 'pyric/sandbox/internal';
+import { createSdkRateMonitor, sdkActivity } from 'pyric/sandbox/internal';
 import { observeStorageOperation } from 'pyric/storage/internal';
+import { uploadBytesResumable } from '../../../src/serve/worker/client/resumable.js';
 import { getBytes, getStorage, ref } from '../../../src/serve/worker/client/storage.js';
 import { wirePort } from '../../../src/serve/worker/client/core.js';
 import type { ClientPort } from '../../../src/serve/worker/client/handles.js';
@@ -32,9 +33,7 @@ test('worker reads measure decoded bytes once and retain failed call activity', 
   } finally { monitor.dispose(); }
 });
 
-test('worker upload callbacks open render windows while transfer accounting stays once per task', async () => {
-  const { sdkActivity } = await import('pyric/sandbox/internal');
-  const { uploadBytesResumable } = await import('../../../src/serve/worker/client/resumable.js');
+async function uploadCallbackScenario(afterSubscribe?: () => void): Promise<void> {
   let requests = 0;
   const port: ClientPort = {
     onmessage: null, start() {}, close() {},
@@ -53,7 +52,14 @@ test('worker upload callbacks open render windows while transfer accounting stay
   const upload = observeStorageOperation('uploadBytesResumable', uploadBytesResumable);
   const monitor = createSdkRateMonitor();
   const phases: string[] = [];
-  const stop = sdkActivity.subscribe(event => { if (event.record.service === 'storage') phases.push(event.phase); });
+  // The journal is shared, so its pruning of other records, including an earlier upload's,
+  // also emits events; only this upload's own events decide what an observer callback sees.
+  let uploadId: string | undefined;
+  const stop = sdkActivity.subscribe(event => {
+    if (event.phase === 'start' && event.record.method === 'uploadBytesResumable') uploadId ??= event.record.id;
+    if (event.record.id === uploadId) phases.push(event.phase);
+  });
+  afterSubscribe?.();
   try {
     const task = upload(reference, new Uint8Array([1, 2, 3]));
     const beforeCallbacks: string[] = [];
@@ -81,4 +87,23 @@ test('worker upload callbacks open render windows while transfer accounting stay
     expect(service.methods.find(method => method.method === 'uploadBytesResumable')!.buckets.reduce((sum, bucket) => sum + bucket.calls, 0)).toBe(1);
     expect(service.usageBuckets!.reduce((sum, bucket) => sum + (bucket.uploadedBytes ?? 0), 0)).toBe(3);
   } finally { stop(); monitor.dispose(); }
+}
+
+test('worker upload callbacks open render windows while transfer accounting stays once per task', () => uploadCallbackScenario());
+
+test('upload callback windows are unaffected by records the shared journal prunes meanwhile', async () => {
+  // More completed records than the journal retains, each older than the correlation window,
+  // so the first progress signal prunes some of them and emits a 'remove' event for a record
+  // other than the upload. The wait is synchronous because the journal's own prune timer would
+  // otherwise run first; on a loaded runner that timer fires late and this is what happens.
+  await uploadCallbackScenario(() => {
+    const filler = { id: 'filler' };
+    for (let i = 0; i < 105; i++) {
+      const activity = sdkActivity.begin({ app: filler, method: 'getBytes', kind: 'operation',
+        source: { service: 'storage', target: `default/filler-${i}`, key: `storage:default/filler-${i}` } });
+      activity.delivered(undefined, {});
+      activity.complete();
+    }
+    Bun.sleepSync(300);
+  });
 });
