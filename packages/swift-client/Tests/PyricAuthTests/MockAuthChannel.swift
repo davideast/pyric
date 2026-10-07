@@ -116,4 +116,28 @@ public final class MockAuthChannel: WebSocketTransport, @unchecked Sendable {
             return res
         }
     }
+
+    /// Returns the next sent `worker-op` frame whose `op.method` equals `method`.
+    ///
+    /// A re-subscribe sends a `worker-unsub` for the old subscription and a `worker-sub`
+    /// for the new one from separate tasks, so their order relative to each other and to
+    /// a following operation is not fixed. Frames that are not the requested operation
+    /// are discarded.
+    public func awaitNextSentOp(
+        method: String,
+        timeoutSeconds: Double = 2.0
+    ) async throws -> [String: AnySendable] {
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        while true {
+            let remaining = deadline.timeIntervalSinceNow
+            if remaining <= 0 {
+                throw PyricBridgeError.deadlineExceeded("Timed out waiting for worker-op \(method)")
+            }
+            let frame = try await awaitNextSentMessage(timeoutSeconds: remaining)
+            if frame["type"]?.stringValue == "worker-op",
+               frame["op"]?.dictionaryValue?["method"]?.stringValue == method {
+                return frame
+            }
+        }
+    }
 }
