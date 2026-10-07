@@ -9,8 +9,8 @@ export const rig: RigManifestRecord = {
   network: 'firebase-production',
   requires: {
     env: [{
-      name: 'PARITY_SA_BASE64',
-      description: 'Base64-encoded service-account JSON for the Rules Test API project.',
+      name: 'GOOGLE_APPLICATION_CREDENTIALS',
+      description: 'Application Default Credentials file for the Rules Test API project. Without it the runner uses a firebase-tools login or the gcloud ADC file.',
       permission: 'firebaserules.rulesets.test',
     }],
     projectFeatures: [],

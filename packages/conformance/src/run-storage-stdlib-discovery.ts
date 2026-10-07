@@ -7,11 +7,11 @@
  * (14 requests). P2 probes Storage-native MapDiff/update/hash-shaped fields in
  * one 12-case request. Nothing is deployed and no Firebase data is mutated.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolvedFirebaseVersion } from './package-version.ts';
+import { hasParityCredential, NO_CREDENTIAL_MESSAGE } from '../../../packages/pyric/test/rules/parity/credential.ts';
 import type { ProjectScope } from '../../../packages/pyric/src/project-scope.ts';
 import {
   TestFirestoreRulesHandler,
@@ -49,7 +49,7 @@ export function plannedRequestCount(probes: readonly ProbeId[]): number {
 
 function printPlan(probes: ProbeId[]): void {
   const total = plannedRequestCount(probes);
-  console.log('[storage-stdlib:discovery] PARITY_SA_BASE64 not set — INERT preview; no network calls.');
+  console.log(`[storage-stdlib:discovery] ${NO_CREDENTIAL_MESSAGE} INERT preview; no network calls.`);
   console.log(`Would run ${total} serial, read-only projects.test request(s):`);
   for (const probe of probes) console.log(`  ${probe}: ${REQUEST_COUNTS[probe]} request(s)`);
 }
@@ -243,8 +243,7 @@ async function runP2(scope: ProjectScope): Promise<void> {
 
 async function run(): Promise<void> {
   const probes = selectedProbes(Bun.argv.slice(2));
-  const hasCliConfig = existsSync(join(homedir(), '.config', 'configstore', 'firebase-tools.json'));
-  if (!process.env.PARITY_SA_BASE64 && !hasCliConfig && !process.env.PARITY_PROJECT_ID) return printPlan(probes);
+  if (!hasParityCredential()) return printPlan(probes);
   const { parityScope } = await import('../../../packages/pyric/test/rules/parity/harness.ts');
   const scope = parityScope();
   for (const probe of probes) {

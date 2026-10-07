@@ -303,6 +303,6 @@ bun run compat:audit
 bun run compat:climb
 ```
 
-The credentialed acceptance probe is run separately with `PARITY_SA_BASE64`.
+The credentialed acceptance probe is run separately with a Rules Test API credential.
 Its result is recorded as evidence and reviewed; it never silently rewrites the
 denominator or converts an unknown into a conforming claim.

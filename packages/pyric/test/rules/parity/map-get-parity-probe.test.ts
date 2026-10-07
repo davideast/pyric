@@ -5,7 +5,7 @@
  * Resurrected from the pre-cutover suite (deleted in be3c2b2; restored per
  * the design rationale section 5 and round-3 track P3). Scenarios are
  * unchanged; only the bootstrap moved from `initializeAgentApp` to
- * `parityScope()` (firebase-admin cert credential from PARITY_SA_BASE64).
+ * `parityScope()` (credential.ts).
  *
  * Strategy: for each scenario we send rules to production —
  *   - `_eq_default`: allows if `m.get(key, 'SENTINEL') == 'SENTINEL'`
@@ -19,14 +19,14 @@
  * failure (missing key, missing intermediate, non-map intermediate) —
  * never null.
  *
- * Requires: PARITY_SA_BASE64 in env — a minimal service account that
+ * Requires: a Rules Test API credential (credential.ts); the CI identity
  * holds only `firebaserules.rulesets.test`. Skips cleanly when absent.
  */
 import { describe, test, beforeAll, expect } from 'bun:test';
 import type { ProjectScope } from '../../../src/project-scope.js';
 import { TestFirestoreRulesHandler } from '../../../src/rules/test/handler.js';
 import type { TestCase } from '../../../src/rules/test/spec.js';
-import { hasParitySecret, parityScope } from './harness.js';
+import { hasParityCredential, parityScope } from './harness.js';
 
 // ─── Probe scenarios ───────────────────────────────────────────────────────
 //
@@ -173,7 +173,7 @@ function buildCases(scenarios: Scenario[]): { cases: TestCase[]; meta: CaseMeta[
 
 // ─── Test ──────────────────────────────────────────────────────────────────
 
-const HAS_SA = hasParitySecret();
+const HAS_SA = hasParityCredential();
 let scope: ProjectScope;
 
 beforeAll(() => {

@@ -21,8 +21,9 @@
  *   captures.json and one `<suite>.rules` per suite.
  *
  * Credentials: the same contract as the Firestore rules oracle
- * (`run-rules.ts`): PARITY_SA_BASE64, PARITY_SA_PATH, or a firebase-tools
- * login with PARITY_PROJECT_ID. The caller needs `firebaserules.rulesets.test`.
+ * (`run-rules.ts`): GOOGLE_APPLICATION_CREDENTIALS, a firebase-tools login, or
+ * the gcloud ADC file, with PARITY_PROJECT_ID naming the project. The caller
+ * needs `firebaserules.rulesets.test`.
  * The Rules Test API evaluates the submitted ruleset without deploying it.
  *
  * Usage:
@@ -403,9 +404,6 @@ if (import.meta.main) {
   const args = process.argv.slice(2);
   const i = args.indexOf('--suite');
   const selected = i >= 0 ? args[i + 1]!.split(',') : null;
-  if (!process.env.PARITY_SA_BASE64 && process.env.PARITY_SA_PATH) {
-    process.env.PARITY_SA_BASE64 = Buffer.from(readFileSync(process.env.PARITY_SA_PATH)).toString('base64');
-  }
   if (args.includes('--positions')) await capturePositions();
   else await capture({ selected, reportsOnly: args.includes('--reports') });
 }

@@ -17,7 +17,7 @@
  * Usage:
  *   PARITY_PROJECT_ID=<project> bun run packages/conformance/src/capture-rules-name-resolution.ts
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { REPO_ROOT } from './rules-expression-cost-suites.ts';
 import { tools, type Issue, type ProbeCase } from './capture-rules-compile-limits.ts';
@@ -113,8 +113,5 @@ async function main(): Promise<void> {
 }
 
 if (import.meta.main) {
-  if (!process.env.PARITY_SA_BASE64 && process.env.PARITY_SA_PATH) {
-    process.env.PARITY_SA_BASE64 = Buffer.from(readFileSync(process.env.PARITY_SA_PATH)).toString('base64');
-  }
   await main();
 }

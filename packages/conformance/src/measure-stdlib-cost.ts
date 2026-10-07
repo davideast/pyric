@@ -51,10 +51,10 @@
  *    `bun run inline-stdlib` in packages/pyric afterwards.
  *
  * Credentials: the Firestore rules oracle contract (`run-rules.ts`).
- * PARITY_SA_BASE64 or PARITY_SA_PATH selects a service account holding
+ * GOOGLE_APPLICATION_CREDENTIALS selects an ADC credential holding
  * `firebaserules.rulesets.test`; otherwise the firebase-tools login is used
  * with PARITY_PROJECT_ID (default digame-mas). A service that answers
- * PERMISSION_DENIED or an auth failure with the service account retries with
+ * PERMISSION_DENIED or an auth failure with the ADC credential retries with
  * the firebase-tools login. The Rules Test API evaluates the submitted
  * ruleset without deploying it.
  *
@@ -460,20 +460,19 @@ async function testRules(
 }
 
 async function cliScope(): Promise<ProjectScope> {
-  const saved = process.env.PARITY_SA_BASE64;
-  delete process.env.PARITY_SA_BASE64;
-  try {
-    const { parityScope } = await import('../../pyric/test/rules/parity/harness.ts');
-    return parityScope() as ProjectScope;
-  } finally {
-    if (saved !== undefined) process.env.PARITY_SA_BASE64 = saved;
-  }
+  const { parityScope, firebaseToolsConfigPath, DEFAULT_PARITY_PROJECT_ID } = await import('../../pyric/test/rules/parity/credential.ts');
+  return parityScope({
+    source: 'firebase-tools',
+    projectId: process.env.PARITY_PROJECT_ID || DEFAULT_PARITY_PROJECT_ID,
+    configPath: firebaseToolsConfigPath(homedir()),
+  });
 }
 
 async function makeRunner(): Promise<Runner & { projects: Record<Service, string> }> {
-  const { parityScope } = await import('../../pyric/test/rules/parity/harness.ts');
+  const { parityScope, resolveParityCredential, firebaseToolsConfigPath } = await import('../../pyric/test/rules/parity/credential.ts');
   const scopes: Record<Service, ProjectScope> = { firestore: parityScope(), storage: parityScope() };
-  const hasCli = existsSync(join(homedir(), '.config', 'configstore', 'firebase-tools.json'));
+  // A firebase-tools login is a fallback only when the first choice was ADC.
+  const hasCli = resolveParityCredential().source === 'adc' && existsSync(firebaseToolsConfigPath(homedir()));
   const fellBack = new Set<Service>();
   const runner = {
     requests: 0,
@@ -651,9 +650,6 @@ async function main(): Promise<void> {
   const dryRun = args.includes('--dry-run');
   const mi = args.indexOf('--module');
   const selected = mi >= 0 ? new Set(args[mi + 1]!.split(',')) : null;
-  if (!process.env.PARITY_SA_BASE64 && process.env.PARITY_SA_PATH) {
-    process.env.PARITY_SA_BASE64 = Buffer.from(readFileSync(process.env.PARITY_SA_PATH)).toString('base64');
-  }
   const modules = loadModules().filter((m) => !selected || selected.has(m.name));
   const reach = reachablePadding();
   const runner = dryRun ? null : await makeRunner();

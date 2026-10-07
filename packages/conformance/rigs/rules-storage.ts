@@ -6,9 +6,9 @@ import type { RigManifestRecord } from './types.ts';
  * replays the storage rules conformance corpus
  * (`packages/conformance/rules-corpus/storage/`) against the SAME production Rules
  * Test API (`projects.test`, confirmed to accept Storage rulesets) and
- * captures a per-case verdict table as `rules-storage-` observations. Without
- * PARITY_SA_BASE64 the runner makes no network calls at all — it prints the
- * capture plan and exits 0.
+ * captures a per-case verdict table as `rules-storage-` observations. Without a
+ * credential the runner makes no network calls at all; it prints the capture
+ * plan and exits 0.
  */
 export const rig: RigManifestRecord = {
   description:
@@ -20,9 +20,9 @@ export const rig: RigManifestRecord = {
   requires: {
     env: [
       {
-        name: 'PARITY_SA_BASE64',
+        name: 'GOOGLE_APPLICATION_CREDENTIALS',
         description:
-          'Base64-encoded service-account JSON scoped to firebaserules.rulesets.test only — the identical credential contract as the Firestore rules rig. The project the service account belongs to is the project rules are tested against.',
+          'Application Default Credentials file for an identity scoped to firebaserules.rulesets.test only, the identical credential contract as the Firestore rules rig. CI writes it through Workload Identity Federation. Without it the runner uses a firebase-tools login or the gcloud ADC file. PARITY_PROJECT_ID names the project rules are tested against.',
         permission: 'firebaserules.rulesets.test',
       },
     ],

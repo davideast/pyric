@@ -15,8 +15,9 @@
  * Output: packages/pyric/test/rules/linter/fixtures/compile-limits/captures.json
  *
  * Credentials: the same contract as `capture-rules-expression-cost.ts`:
- * PARITY_SA_BASE64, PARITY_SA_PATH, or a firebase-tools login with
- * PARITY_PROJECT_ID. The caller needs `firebaserules.rulesets.test`.
+ * GOOGLE_APPLICATION_CREDENTIALS, a firebase-tools login, or the gcloud ADC
+ * file, with PARITY_PROJECT_ID naming the project. The caller needs
+ * `firebaserules.rulesets.test`.
  *
  * Usage:
  *   PARITY_PROJECT_ID=<project> bun run packages/conformance/src/capture-rules-compile-limits.ts
@@ -342,8 +343,5 @@ async function main(args: string[]): Promise<void> {
 }
 
 if (import.meta.main) {
-  if (!process.env.PARITY_SA_BASE64 && process.env.PARITY_SA_PATH) {
-    process.env.PARITY_SA_BASE64 = Buffer.from(readFileSync(process.env.PARITY_SA_PATH)).toString('base64');
-  }
   await main(process.argv.slice(2));
 }
