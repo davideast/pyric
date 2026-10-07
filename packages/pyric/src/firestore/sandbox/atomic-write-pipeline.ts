@@ -314,6 +314,12 @@ export class AtomicWritePipeline {
 
   emitAndNotify(decision: AtomicDecision): void {
     const { context, inputs, outcomes, serverTime } = decision;
+    // Schedule listener fan-out before the request and write events reach
+    // their subscribers, so a write issued from a subscriber enqueues its
+    // deliveries behind this call's.
+    if (decision.allowed) {
+      this.runtime.notify(context.origin, inputs.map((input) => input.path));
+    }
     for (const [index, outcome] of outcomes.entries()) {
       const input = inputs[index];
       const committed = decision.allowed && outcome.allowed;
@@ -355,15 +361,6 @@ export class AtomicWritePipeline {
         if (hasProvenance) write.provenance = context.provenance;
         this.runtime.emitWrite(write);
       }
-    }
-
-    const { allowed } = decision;
-    if (allowed) {
-      this.runtime.notify(
-        context.origin,
-        inputs[0]?.path ?? '',
-        new Set(inputs.map((input) => input.path)),
-      );
     }
   }
 

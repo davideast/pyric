@@ -9,7 +9,7 @@ import type {
 import type { RulesState } from './rules-state.js';
 import type { EventLog } from './event-log.js';
 import type { FirestoreEventBus } from './event-bus.js';
-import type { TriggerScope } from './trigger-scope.js';
+import type { TriggerScope, TriggeringOps } from './trigger-scope.js';
 import type { FirestoreSimError } from './errors.js';
 import type { Operation } from './writes.js';
 import type { EventProvenance, WriteSandboxEvent } from '../../sandbox/types/events.js';
@@ -24,7 +24,7 @@ registerDefaultConverters();
 
 export interface WriteRuntimeHost {
   readonly state: DocStore;
-  notifyListenersForPaths(paths: Set<string>): void;
+  notifyListenersForPaths(paths: Set<string>, ops?: TriggeringOps): void;
 }
 
 /** Shared rules, event, state, and notification policy for atomic write executors. */
@@ -206,10 +206,15 @@ export class WriteRuntime {
     return buildRulesTestCase(this.state, operation, serverTime);
   }
 
-  notify(method: string, path: string, touched: Set<string>): void {
+  /**
+   * Schedule listener fan-out for a committed write call. Callers invoke this
+   * before emitting the call's request and write events, so a write issued
+   * from an event subscriber enqueues its deliveries behind this call's.
+   */
+  notify(method: string, paths: readonly string[]): void {
     this.triggerScope.run(
-      { method, path },
-      () => this.host.notifyListenersForPaths(touched),
+      { method, path: paths[0] ?? '' },
+      () => this.host.notifyListenersForPaths(new Set(paths), { method, paths }),
     );
   }
 }

@@ -50,3 +50,15 @@ export class TriggerScope {
     return this.currentTrigger;
   }
 }
+
+/**
+ * The sub-operations of one write call, in the order the caller issued
+ * them. A single `execute` has one path; a batch or transaction has one per
+ * sub-operation. A listener's `triggeredBy` names the first path here that
+ * touches it, so a listener woken by the second sub-operation is not
+ * attributed to the first.
+ */
+export interface TriggeringOps {
+  method: string;
+  paths: readonly string[];
+}

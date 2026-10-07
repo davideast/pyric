@@ -212,11 +212,10 @@ describe('characterization: delivery ordering', () => {
     uC();
   });
 
-  test('a write performed inside an onWrite handler schedules its deliveries BEFORE the outer write’s deliveries', () => {
-    // onWrite subscribers fire synchronously inside execute(), before the
-    // outer write's listener fan-out is scheduled. A nested execute() in the
-    // handler therefore enqueues ITS deliveries first — the observable
-    // delivery order inverts causality. PIN of current behavior.
+  test('a write performed inside an onWrite handler schedules its deliveries AFTER the outer write’s deliveries', () => {
+    // The outer write's listener fan-out is scheduled before onWrite
+    // subscribers run, so a nested execute() in the handler enqueues its
+    // deliveries behind the write that caused it.
     const env = new LocalEnvironment();
     env.seed({
       rules: OPEN_RULES,
@@ -247,12 +246,45 @@ describe('characterization: delivery ordering', () => {
     });
     env.execute({ method: 'update', path: 'rooms/r1', auth: { uid: 'alice' }, data: { v: 1 } });
     env.flushListeners();
-    // The log delivery (caused by the nested write) lands before the room
-    // delivery (the write that caused it).
-    expect(order).toEqual(['log', 'room']);
+    expect(order).toEqual(['room', 'log']);
     offWrite();
     uR();
     uL();
+  });
+
+  test('the same holds for a batch: a write inside an onWrite handler delivers after the batch’s deliveries', () => {
+    const env = new LocalEnvironment();
+    env.seed({
+      rules: OPEN_RULES,
+      documents: { 'rooms/r1': { v: 0 }, 'rooms/r2': { v: 0 }, 'logs/l1': { n: 0 } },
+    });
+    const order: string[] = [];
+    const unsubs = [
+      env.addSnapshotListener({ kind: 'doc', path: 'rooms/r1' }, () => order.push('r1'), undefined, { uid: 'alice' }),
+      env.addSnapshotListener({ kind: 'doc', path: 'rooms/r2' }, () => order.push('r2'), undefined, { uid: 'alice' }),
+      env.addSnapshotListener({ kind: 'doc', path: 'logs/l1' }, () => order.push('log'), undefined, { uid: 'alice' }),
+    ];
+    env.flushListeners();
+    order.length = 0;
+
+    let reacted = false;
+    const offWrite = env.onWrite((event) => {
+      if (!reacted && event.path === 'rooms/r1') {
+        reacted = true;
+        env.execute({ method: 'update', path: 'logs/l1', auth: { uid: 'alice' }, data: { n: 1 } });
+      }
+    });
+    env.batch(
+      [
+        { method: 'update', path: 'rooms/r1', data: { v: 1 } },
+        { method: 'update', path: 'rooms/r2', data: { v: 1 } },
+      ],
+      { uid: 'alice' },
+    );
+    env.flushListeners();
+    expect(order).toEqual(['r1', 'r2', 'log']);
+    offWrite();
+    for (const u of unsubs) u();
   });
 
   test('initial snapshot fires before change snapshots when a write lands before the first drain', () => {

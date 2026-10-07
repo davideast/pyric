@@ -26,7 +26,7 @@ describe('WriteRuntime', () => {
       'notes/missing': null,
     });
 
-    runtime.notify('batch', 'notes/a', new Set(['notes/a']));
+    runtime.notify('batch', ['notes/a']);
     expect(notifications).toEqual([['notes/a']]);
   });
 });

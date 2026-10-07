@@ -70,7 +70,9 @@ describe('characterization: metadata and server ack', () => {
     // Give any stray scheduled ack a chance to drain on its own microtask.
     await new Promise<void>((resolve) => queueMicrotask(resolve));
     env.flushListeners();
-    // PIN: default listener's last-seen snapshot stays pending:true forever.
+    // Production agrees: the recorded capture firestore-include-metadata-changes
+    // shows a default listener firing twice for one write (initial, then the
+    // pending echo) and never receiving the settled metadata-only ack.
     expect(metas).toEqual([{ hasPendingWrites: true, fromCache: false }]);
     unsub();
   });

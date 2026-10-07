@@ -33,7 +33,7 @@ import {
 import { docDataEqual, anyPathInCollection } from './listener-delivery.js';
 import { nextRequestEventId } from './request-events.js';
 import type { FirestoreEventBus } from './event-bus.js';
-import type { TriggerScope } from './trigger-scope.js';
+import type { TriggerScope, TriggeringOps } from './trigger-scope.js';
 import type {
   ListenerOwner,
   SnapshotDeliveryEvent,
@@ -504,14 +504,17 @@ export class ListenerDispatch {
    * unsubscribe checks are re-run at delivery time because a listener may
    * detach or error between this write and the drain.
    */
-  notifyListenersForPaths(touchedPaths: ReadonlySet<string>): void {
+  notifyListenersForPaths(touchedPaths: ReadonlySet<string>, ops?: TriggeringOps): void {
     if (touchedPaths.size === 0) return;
     if (this.snapshotListeners.size === 0) return;
     // Capture the triggering op now; the deliveries run off-stack, by which
     // time the trigger scope has been restored to the microtask loop's state.
-    const trigger = this.triggerScope.current();
+    // For a multi-operation call each listener is attributed to the first
+    // sub-operation that touches it.
+    const current = this.triggerScope.current();
     const records = Array.from(this.snapshotListeners.values());
     for (const record of records) {
+      const trigger = ops ? this.attributeToOp(record, ops) ?? current : current;
       this.scheduleTriggeredDelivery(trigger, () => {
         if (!this.snapshotListeners.has(record.id)) return;
         if (record.errored) return;
@@ -522,6 +525,20 @@ export class ListenerDispatch {
         }
       });
     }
+  }
+
+  private attributeToOp(
+    record: ListenerRecord,
+    ops: TriggeringOps,
+  ): { method: string; path: string } | undefined {
+    const target = record.target;
+    for (const path of ops.paths) {
+      const touches = target.kind === 'doc'
+        ? target.path === path
+        : anyPathInCollection(new Set([path]), target.collection);
+      if (touches) return { method: ops.method, path };
+    }
+    return undefined;
   }
 
   private notifyDocListener(record: ListenerRecord, touchedPaths: ReadonlySet<string>): void {

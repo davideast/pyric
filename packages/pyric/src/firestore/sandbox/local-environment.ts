@@ -152,7 +152,7 @@ export class LocalEnvironment {
     this.writes = new WriteEngine(
       {
         get state() { return engine.state; },
-        notifyListenersForPaths: (paths) => engine.listeners.notifyListenersForPaths(paths),
+        notifyListenersForPaths: (paths, ops) => engine.listeners.notifyListenersForPaths(paths, ops),
       },
       this.rules,
       this.simulator,
