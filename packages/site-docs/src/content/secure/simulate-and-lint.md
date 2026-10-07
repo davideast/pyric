@@ -87,7 +87,7 @@ A hallucinated method is always an error, because the named method literally doe
 
 ## Simulate and lint Realtime Database rules
 
-Realtime Database rules use the same two steps with a different entry point. `rtdbRules` accepts the compiled `{ rules }` JSON from `database.rules.json`, or a ruleset you wrote in TypeScript. See [write Realtime Database rules in TypeScript](./rtdb-rules-in-typescript.md) for the authoring side.
+Realtime Database rules use the same two steps with a different entry point. `rtdbRules` accepts the `{ rules }` JSON from `database.rules.json`, or a ruleset you wrote in TypeScript. See [write Realtime Database rules in TypeScript](./rtdb-rules-in-typescript.md) for the authoring side.
 
 ### Simulate a request
 ```ts
@@ -127,20 +127,25 @@ reason:      Validation rule evaluated to false
 ```
 `matchedPath` is the rule's location in the ruleset, so it shows the `$recordId` wildcard rather than the concrete path. `UNSUPPORTED` means the case reached an expression the simulator cannot evaluate. It abstains rather than guesses.
 
-The result also carries a `trace` with every rule the simulator ran, in order. For the write above:
+The result also carries a `trace` with every rule the simulator ran, in order:
+```ts
+for (const step of cases[0].trace) {
+  console.log(`${step.path} .${step.kind} -> ${step.verdict}: ${step.conditionText}`);
+}
+```
 ```
 / .write -> DENY: false
-/records/$recordId .write -> ALLOW: auth != null ($recordId = r1)
-/records/$recordId .validate -> ALLOW: newData.hasChildren(['ownerId', 'title']) ($recordId = r1)
-/records/$recordId/title .validate -> DENY: newData.isString() && newData.val().length <= 80 ($recordId = r1)
+/records/$recordId .write -> ALLOW: auth != null
+/records/$recordId .validate -> ALLOW: newData.hasChildren(['ownerId', 'title'])
+/records/$recordId/title .validate -> DENY: newData.isString() && newData.val().length <= 80
 ```
-The cascade shows the root `.write` denying before the deeper rule grants, and the validate walk stops at the first failure. A rule that raises a runtime error appears with the verdict `ERROR` and the error message.
+The cascade shows the root `.write` denying before the deeper rule grants, and the validate walk stops at the first failure. Each step also carries `pathVariableBindings`, here `{ $recordId: 'r1' }`. A rule that raises a runtime error has the verdict `ERROR` and the error in `message`.
 
 The same simulation is on the command line. It reads the rules from a file and evaluates one request:
 ```bash
-pyric rules simulate --service database --rules-file database.rules.json --operation read --path /records/r1
+pyric rules simulate --service database --rules-file database.rules.json --operation read --path /records/r1 --uid alice
 ```
-Inside a running sandbox, the same evaluation decides every Realtime Database operation your app performs.
+It prints the `decision`, `matchedPath`, `matchedRule`, `reason`, and `trace`, and each trace step carries the `line` of its rule key in the file. Pass the written value as JSON with `--data`. Without `--rules-file`, it evaluates against the rules the sandbox is running.
 
 ### Lint a ruleset
 ```bash
@@ -150,20 +155,43 @@ Or in code:
 ```ts
 const issues = rules.lint();
 ```
-Each issue has a `code`, a `severity`, a `message`, and the `path` and `rule` it applies to. The Realtime Database linter reports two groups of codes. The first group reads one expression at a time:
+Each issue has a `code`, a `severity`, a `message`, and the `path` it applies to. An issue about one rule also names its `rule` (`.read`, `.write`, or `.validate`). An issue about the shape of the ruleset has no `rule`.
+
+The errors in the first group are the ones `firebase deploy` refuses, and each message is the text the deploy reports:
+
+| Code | What it reports |
+|---|---|
+| `PARSE_ERROR` | The expression does not parse. |
+| `NOT_BOOLEAN` | The rule does not evaluate to a boolean, such as a `.read` of `auth.uid`. |
+| `INVALID_OPERAND` | An operator gets an operand type it does not take, such as `data.val() > true`, or `!` on a string. |
+| `INVALID_ARGUMENT` | A method gets the wrong number or type of arguments, such as `child(1)`, or `matches()` with anything other than a regular expression literal. |
+| `INVALID_REGEX` | A regular expression literal has a flag other than `i`. |
+| `NO_SUCH_MEMBER` | The value has no such method or property, such as `data.nope()`. |
+| `NOT_AN_OBJECT` | A property access on a number, boolean, null, or regular expression. |
+| `NOT_A_FUNCTION` | A call on something that is not a method, such as `auth.uid()`. |
+| `INVALID_PROPERTY_ACCESS` | An index with a computed key, `x[expr]`, on anything other than `auth`. |
+| `UNEXPECTED_ARRAY` | An array literal anywhere other than the argument of `hasChildren()`. |
+| `UNKNOWN_IDENTIFIER` | The variable is not available, such as a `$name` that no enclosing key declares. |
+| `NEWDATA_IN_READ` | A `.read` rule uses `newData`, which exists only for writes. |
+| `MULTIPLE_WILDCARDS` | One location has two `$` children. |
+| `RULE_NOT_EXPRESSION` | A `.read`, `.write`, or `.validate` value is a number or a plain object rather than a boolean or a string. |
+| `INDEX_ON_SHAPE` | `.indexOn` is a number. |
+| `INVALID_KEY` | A key contains `#`, or an unknown key that starts with `.` holds an object. |
+| `EXPECTED_OBJECT` | An unknown key that starts with `.`, or a child key, holds a string. |
+
+`INDEX_ON_SHAPE` and `INVALID_KEY` are warnings, not errors, for related forms: any other `.indexOn` that is not a string or an array of strings, and a key that contains `.`, `/`, `[`, `]`, or an inner `$` but no `#`. Their text comes from the deploy's message for the related form, and no deploy of these forms has been recorded.
+
+The second group is the rest of the per-rule checks:
 
 | Code | Severity | What it means |
 |---|---|---|
-| `PARSE_ERROR` | error | The expression does not parse. Firebase rejects the ruleset at deploy. |
-| `UNKNOWN_IDENTIFIER` | error | The name is not available in this rule kind. |
-| `NEWDATA_IN_READ` | error | A `.read` rule uses `newData`, which exists only for writes. |
-| `UNKNOWN_METHOD` | error | The method is not in the rules language. |
 | `COMPILE_ERROR` | error | A TypeScript definition could not compile to rules JSON. |
 | `HARDCODED_TRUE` | warning | A `.read` or `.write` rule is the literal `true`, so it grants every request at that location. |
 | `HARDCODED_FALSE` | warning | A `.read` or `.write` rule is the literal `false`. This is often intentional, as in a locked root. |
 | `DATA_IN_WRITE` | warning | A `.write` rule reads `data` but never `newData`, so it may not check the incoming value. |
+| `CONSTANT_COMPARISON` | warning | A comparison between two literals, such as `'a' == 'b'`, which always has the same value. |
 
-The second group reads the whole ruleset, because the common RTDB mistakes come from how rules at different depths combine. Each finding names the rule it sits on and carries a `fix`. Findings at the `critical` and `high` levels are reported as errors, and `medium` as warnings.
+The third group reads the whole ruleset, because the common RTDB mistakes come from how rules at different depths combine. Each finding names the rule it sits on and carries a `fix`. Findings at the `critical` and `high` levels are reported as errors, and `medium` as warnings.
 
 | Code | What it reports |
 |---|---|
@@ -177,9 +205,9 @@ The second group reads the whole ruleset, because the common RTDB mistakes come 
 
 For a ruleset that names children in `.validate`, `"$other": { ".validate": false }` rejects the keys it does not name.
 
-Lint a ruleset before you simulate it. A case that reaches an expression that does not parse comes back `UNSUPPORTED`, and the denial hides the real problem.
+Lint a ruleset before you simulate it. `simulate` does not run the deploy check. A case that reaches an expression that does not parse comes back `UNSUPPORTED`, and a rule the deploy refuses can still evaluate: a `.read` of `auth.uid` grants any signed-in reader in the simulator, and production never loads that ruleset at all.
 
-`pyric database rules validate database.rules.json` reports the expression errors in a file. Each finding includes the `line` and `column` of its rule key in the file, and comments in the file do not shift them.
+`pyric database rules validate database.rules.json` prints the errors in a file and exits with status 2 when it finds any. A finding about one rule includes the `line` and `column` of its rule key in the file, and comments in the file do not shift them.
 
 ### Know how the simulator evaluates rules
 
@@ -192,7 +220,7 @@ write /scores/a  newData 5    ->  DENY   Validation rule evaluated to false
 ```
 A rule written against a loose-equality habit fails here the way it fails in production.
 
-**A rule that errors does not grant.** A runtime error, such as calling `toUpperCase()` on a number, fails that rule. A `.validate` rule that errors rejects the write, and the reason names the error:
+**A rule that errors does not grant.** A runtime error fails that rule. Calling `toUpperCase()` on a number is one. A `null` operand of an ordering or arithmetic operator is another, such as `data.child('n').val() > 1` when `n` does not exist. A `.validate` rule that errors rejects the write, and the reason names the error:
 ```
 Validation rule at '/names/$id' failed at evaluation: Method 'toUpperCase' is not defined on number.
 ```
@@ -205,8 +233,10 @@ A `.read` or `.write` rule that errors does not grant access, and evaluation con
 `pyric sandbox` and the Vite plugin watch the Realtime Database rules file and reload it when it changes. They watch the path `firebase.json` names under `database`, or `database.rules.json` when it names none. They watch it whether or not the file exists yet:
 
 - **Created.** A rules file you add after startup loads. Until then, Realtime Database follows its default policy: deny every client request, or allow when you start with `--permissive`.
-- **Changed.** Saving the file loads the new rules and logs `rtdb rules reloaded`. A file that is not valid rules JSON does not replace the running rules. The last good ruleset stays live and the log reads `rtdb rules NOT reloaded (last-good stays live)` with the parse error.
+- **Changed.** Saving the file loads the new rules and logs `rtdb rules reloaded`. A file that is not valid rules JSON, or that has a lint error from the first group above, does not replace the running rules. The last good ruleset stays live and the log reads `rtdb rules NOT reloaded (last-good stays live)` with the reason.
 - **Deleted.** The sandbox returns to the default policy and logs `rtdb rules removed` with the path. A deleted Firestore rules file behaves differently: the last good Firestore rules stay in force and the log reports the deletion.
+
+At startup, a rules file the deploy would refuse stops `pyric sandbox` with the same reason. The other load paths refuse it too: `pyric rules set --service database`, a seed's database rules, `pyric verify`, and `pyric database rules generate`, which writes nothing and exits with status 2. `sandbox.setRules` from `pyric/database` installs a ruleset as given, without this check.
 
 Pass `--no-watch` to `pyric sandbox` to turn hot reload off for Firestore, Realtime Database, and Storage rules.
 
