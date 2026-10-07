@@ -7,10 +7,12 @@ import {
   subscribePresence,
   type ClientDb,
 } from '../worker/client.js';
+import type { FirebaseError } from 'pyric/app';
+import type { HostedConnectionState } from '../worker/client/websocket-connection.js';
 import { getServiceWorkerFirestore } from '../worker/client/service-worker-connection.js';
 import { getDeferredFirestore } from '../worker/client/deferred-connection.js';
 import { getHostedFirestore } from '../worker/client/websocket-connection.js';
-import { initPayload } from './init-payload.js';
+import { currentSessionToken, forgetSessionToken, initPayload } from './init-payload.js';
 import type { WorkerInitPayload } from '../init-payload.js';
 import { toPageOriginWsUrl } from './bridge-url.js';
 import { isServiceWorkerRealm } from '../worker/service-worker-channel.js';
@@ -39,7 +41,14 @@ export let useWorker = isServiceWorker && typeof BroadcastChannel !== 'undefined
 export let workerDb: ClientDb | null = null;
 export let presenceSession: ReturnType<typeof startPresence> | null = null;
 
-function hostedTarget(): { url: string; projectKey: string; sessionToken: () => Promise<string | null> } {
+function hostedTarget(): {
+  url: string;
+  projectKey: string;
+  retryInitialConnection: true;
+  onConnection: (state: HostedConnectionState) => void;
+  onError: (error: FirebaseError) => void;
+  sessionToken: () => Promise<string | null>;
+} {
   const bridgeUrl = payload?.bridgeUrl;
   const isEndpointMissing = typeof bridgeUrl !== 'string';
   if (isEndpointMissing) throw new Error('The hosted sandbox has no bridge endpoint.');
@@ -49,8 +58,17 @@ function hostedTarget(): { url: string; projectKey: string; sessionToken: () => 
   return {
     url: toPageOriginWsUrl(bridgeUrl, location, 'page-origin'),
     projectKey,
+    // A page can load while the host is unreachable; the first attach retries like a reconnect.
+    retryInitialConnection: true,
+    onConnection: state => {
+      runtimeStatus.setHostedConnection(state);
+      // A host that returns may be a new boot with its own session token.
+      const lostHost = state === 'interrupted';
+      if (lostHost) forgetSessionToken();
+    },
+    onError: error => runtimeStatus.reportError(error, 'worker'),
     // The worker selection stamped into the page carries no session token; init.json does.
-    sessionToken: async () => (await initPayload)?.sessionToken ?? null,
+    sessionToken: currentSessionToken,
   };
 }
 
@@ -67,11 +85,7 @@ export const WORKER_NAME = workerNameForEpoch(
 );
 
 function createControlClient(workerRequested: boolean): ClientDb | null {
-  if (useHosted) return getHostedFirestore({
-    ...hostedTarget(),
-    onConnection: state => runtimeStatus.setHostedConnection(state),
-    onError: error => runtimeStatus.reportError(error, 'worker'),
-  });
+  if (useHosted) return getHostedFirestore(hostedTarget());
   const usesSharedWorker = workerRequested && hasSharedWorker;
   if (usesSharedWorker) {
     return connectRuntimeWorker(
@@ -91,17 +105,10 @@ export function openWorkerDb(appName: string): ClientDb {
     useHosted = configuration?.hosted === true;
     reportPersistenceHealth(configuration);
     runtimeStatus.setWorker({ mode: useHosted ? 'hosted' : 'shared-worker', runningEpoch: null });
-    if (useHosted) return port => getHostedFirestore({
-      ...hostedTarget(),
-      onConnection: state => runtimeStatus.setHostedConnection(state),
-      onError: error => runtimeStatus.reportError(error, 'worker'),
-    }, port);
+    if (useHosted) return port => getHostedFirestore(hostedTarget(), port);
     return port => getServiceWorkerFirestore(appName, port);
   }));
-  if (useHosted) return getHostedFirestore({
-    ...hostedTarget(),
-    onError: error => runtimeStatus.reportError(error, 'worker'),
-  });
+  if (useHosted) return getHostedFirestore(hostedTarget());
   if (hasSharedWorker) return getFirestore(WORKER_URL, WORKER_NAME);
   throw new Error('No Pyric worker transport is available in this browser context.');
 }
