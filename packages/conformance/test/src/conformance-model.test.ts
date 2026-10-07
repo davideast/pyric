@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { canIUse, deriveConformanceModel, registerImportEvidence, type ConformanceModel, type FeatureSupport } from '../../src/conformance-model.ts';
+import { assuranceNodeCountProblems } from '../../src/assurance-node-counts.ts';
 import { allCompatibilityRows } from '../../registry/index.ts';
 import { surfaceContracts } from '../../surfaces/load.ts';
 
@@ -17,7 +18,7 @@ function one(query: string): FeatureSupport {
 
 describe('multi-axis conformance model', () => {
   it('supplies the shared assurance and rules-report projections in memory', () => {
-    expect(Object.keys(model.assuranceNodeVerdicts)).toHaveLength(1694);
+    expect(assuranceNodeCountProblems(Object.keys(model.assuranceNodeVerdicts))).toEqual([]);
     expect(Object.keys(model.nodeVerdicts).length).toBeGreaterThan(Object.keys(model.assuranceNodeVerdicts).length);
     expect(model.rulesLanguage.capability.engines).toHaveLength(3);
     expect(model.rulesLanguage.coverage.engines).toHaveLength(3);
