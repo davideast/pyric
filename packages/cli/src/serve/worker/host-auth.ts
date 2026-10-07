@@ -352,7 +352,13 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
     case 'auth.deleteUser': {
       try {
         const session = requirePortSession(portSession(ctx, port), 'deleteUser');
-        await deleteUser(session.user);
+        const uid = session.user.uid;
+        const accountExists = authSandboxOps.listUsers(auth).some((record) => record.uid === uid);
+        // An account removed out of band reports `auth/user-not-found`
+        // through the store's own delete; a live account goes through the
+        // engine's deleteUser so the recent-login gate applies.
+        if (accountExists) await deleteUser(session.user);
+        else authSandboxOps.deleteUser(auth, uid);
         setPortSession(ctx, port, null);
         await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, null);

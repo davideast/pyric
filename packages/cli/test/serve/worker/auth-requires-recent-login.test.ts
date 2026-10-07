@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { getClock, initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
+import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 import { handleMessage, cleanupPort, type HostCtx, type PortLike } from '../../../src/serve/worker/host.js';
 import { portSession } from '../../../src/serve/worker/host-auth.js';
 import type { OpMessage, OutboundMessage, ResMessage } from '../../../src/serve/worker/protocol.js';
@@ -52,5 +53,29 @@ test('a port session older than five minutes is refused sensitive operations unt
       .toMatchObject({ ok: true });
     expect(await send({ t: 'op', id: 'gone', method: 'auth.deleteUser' })).toMatchObject({ ok: true });
     expect(portSession(context, port)).toBeNull();
+  } finally { await cleanupPort(context, port); }
+});
+
+test('deleteUser on a port session whose account was removed out of band reports auth/user-not-found', async () => {
+  const sandbox = initializeSandbox();
+  const context: HostCtx = {
+    sandbox, db: getFirestore(sandbox), instanceId: 'recent-login-missing', subs: new Map(),
+    flushPersistence: async () => {},
+  };
+  const messages: OutboundMessage[] = [];
+  const port: PortLike = { postMessage: message => messages.push(message) };
+  async function send(message: OpMessage): Promise<ResMessage> {
+    await handleMessage(context, port, message);
+    const response = messages.findLast((entry): entry is ResMessage => entry.t === 'res' && entry.id === message.id);
+    const missingResponse = response === undefined;
+    if (missingResponse) throw new Error('No response from host');
+    return response;
+  }
+  try {
+    await send({ t: 'op', id: 'create', method: 'auth.createUser', email: 'gone@example.com', password: 'secret-password' });
+    const uid = portSession(context, port)?.user.uid ?? 'missing';
+    authSandbox.deleteUser(getAuth(sandbox), uid);
+    expect(await send({ t: 'op', id: 'delete', method: 'auth.deleteUser' }))
+      .toMatchObject({ ok: false, error: { code: 'auth/user-not-found' } });
   } finally { await cleanupPort(context, port); }
 });
