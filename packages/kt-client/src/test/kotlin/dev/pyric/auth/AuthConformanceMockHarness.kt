@@ -13,6 +13,7 @@ class AuthConformanceMockHarness {
     val sentOps = CopyOnWriteArrayList<Map<String, Any?>>()
     val sentSubs = CopyOnWriteArrayList<Map<String, Any?>>()
     val sentUnsubs = CopyOnWriteArrayList<String>()
+    val frameLog = CopyOnWriteArrayList<String>()
     val transport = InMemoryBridgeTransport()
     val bridgeClient = PyricBridgeClient(transport)
     val app: FirebaseApp
@@ -26,6 +27,7 @@ class AuthConformanceMockHarness {
 
         transport.onServerReceive { messageJson ->
             val msg = JsonCodec.decodeMap(messageJson)
+            frameLog.add("${msg["type"]}:${msg["subId"] ?: msg["id"] ?: ""}@${Thread.currentThread().name}")
             val type = msg["type"] as? String
 
             when (type) {

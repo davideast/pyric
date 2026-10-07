@@ -116,7 +116,7 @@ class ConformanceTest {
         val result = Tasks.await(task)
         assertNotNull(result.user)
         assertEquals("user-new", result.user?.uid)
-        assertEquals("user-new", harness.auth.currentUser?.uid, "DIAG subs=${harness.sentSubs.map { it["target"] }} ops=${harness.sentOps.map { it["method"] }}")
+        assertEquals("user-new", harness.auth.currentUser?.uid, "DIAG frames=${harness.frameLog} subs=${harness.sentSubs.map { it["target"] }}")
         assertTrue(result.additionalUserInfo?.isNewUser == true)
     }
 
