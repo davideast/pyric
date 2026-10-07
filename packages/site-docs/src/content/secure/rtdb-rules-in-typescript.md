@@ -122,4 +122,4 @@ An agent authors and checks the same way you do: lint and simulate locally (`pyr
 
 ## Where to go next
 
-The full builder catalog, with the exact expression each one produces, is in the [constraints reference](pyric-database-reference-api.md). For matches, turns, results, counters and validated shapes, compose the [RTDB rules standard library](rtdb-rules-standard-library.md) instead of writing the expressions yourself. For the data side of RTDB, see [Sync realtime data](../build/realtime-database.md).
+The full builder catalog, with the exact expression each one produces, is in the [constraints reference](pyric-database-reference-api.md). For matches, turns, results, counters, presence, rate limits and validated shapes, compose the [RTDB rules standard library](rtdb-rules-standard-library.md) instead of writing the expressions yourself. For the data side of RTDB, see [Sync realtime data](../build/realtime-database.md).

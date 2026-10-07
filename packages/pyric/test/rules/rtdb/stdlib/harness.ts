@@ -125,10 +125,19 @@ function withServerTime(value: unknown, paths: string[] | undefined, stamp: unkn
   return out;
 }
 
+/** Replaces each written `{ ".sv": "timestamp" }` with `now`, as the server does before it evaluates the rules. */
+function resolveServerTimestamps(value: unknown, now: number): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map((item) => resolveServerTimestamps(item, now));
+  const record = value as Record<string, unknown>;
+  if (Object.keys(record).length === 1 && record['.sv'] === 'timestamp') return now;
+  return Object.fromEntries(Object.entries(record).map(([key, child]) => [key, resolveServerTimestamps(child, now)]));
+}
+
 /** The simulator's verdict for one case. */
 export function simulateCase(scenario: StdlibScenario, c: StdlibCase): Verdict | 'UNSUPPORTED' {
   const now = Date.now();
-  const newData = withServerTime(c.newData, c.serverTime, now);
+  const newData = resolveServerTimestamps(withServerTime(c.newData, c.serverTime, now), now);
   if (c.operation === 'update') {
     const compiled = compiledFor(scenario);
     const updates = Object.entries(newData as Record<string, unknown>).map(([key, value]) => ({

@@ -48,7 +48,7 @@ function entry({ build, ...rest }: EntryInput): RtdbStdlibEntry {
   return typeof output === 'string' ? { ...rest, output, length: output.length } : { ...rest, output };
 }
 
-const { validation, lifecycle, lobby, turns, results, counters } = rtdbStdlib;
+const { validation, lifecycle, lobby, turns, results, counters, presence, timing, collections } = rtdbStdlib;
 
 const MATCH_CONVENTION =
   "A match node such as /matches/$matchId with leaf children host (creator uid), guest ('' while open, then the joiner's uid), status ('waiting', 'playing', then 'won' | 'draw' | 'resigned'), currentTurn ('host' | 'guest'), winner ('host' | 'guest' | ''), moveCount (number). The same convention as the Firestore lobby, turns and results modules.";
@@ -178,6 +178,57 @@ const MODULES: Array<Omit<RtdbStdlibModule, 'kind' | 'services'>> = [
       entry({ name: 'oneIncremented', signature: 'oneIncremented(fields: string[], n: number, options?: { start?: number }): Expr', placement: 'node holding the counters .validate', description: 'Exactly one child counter grows by n and the others keep their values; with start, a create writes every field as start.', example: "counters.oneIncremented(['host', 'guest'], 1, { start: 0 })", build: () => counters.oneIncremented(['host', 'guest'], 1, { start: 0 }) }),
     ],
     relatedKeys: ['validation', 'turns'],
+  },
+  {
+    key: 'presence',
+    description: 'Who is online: a per-user node the owner writes, cleared by an onDisconnect write.',
+    purpose:
+      'One node per user under a presence collection such as /status/$uid. record() is the path definition for { state, lastChanged } with lastChanged the server timestamp; flag() for a boolean. The server checks the rules for an onDisconnect write when the client registers it and again when it runs, so the offline value passes the same rules as the online one.',
+    whenToUse: 'Showing who is connected, and letting a match react to a player who dropped.',
+    convention: "/status/$uid holds { state: 'online' | 'offline', lastChanged: <server timestamp> }; /online/$uid holds true or false.",
+    entries: [
+      entry({ name: 'ownPresence', signature: "ownPresence(pathVar?: string): Expr", placement: 'presence node .write', description: 'The signed-in user writes the node keyed by their uid.', example: 'presence.ownPresence()', build: () => presence.ownPresence() }),
+      entry({
+        name: 'record', signature: 'record(pathVar?: string): PathDef', placement: 'the path definition of /status/$uid',
+        description: "Owner-written { state: 'online' | 'offline', lastChanged: server timestamp } with no other child; signed-in users read it.",
+        example: "'/status/$uid': presence.record()", build: () => presence.record(),
+        notes: "Client: onDisconnect(ref).set({ state: 'offline', lastChanged: serverTimestamp() }) then set(ref, { state: 'online', lastChanged: serverTimestamp() }). onDisconnect(ref).remove() is a delete, which the owner's .write allows.",
+      }),
+      entry({ name: 'flag', signature: 'flag(pathVar?: string): PathDef', placement: 'the path definition of /online/$uid', description: 'Owner-written boolean presence.', example: "'/online/$uid': presence.flag()", build: () => presence.flag() }),
+    ],
+    relatedKeys: ['timing', 'results'],
+  },
+  {
+    key: 'timing',
+    description: 'Server timestamps, times not in the future, cooldowns and per-user rate limits.',
+    purpose:
+      'now is the server clock in milliseconds. A client writes serverTimestamp(), which the server replaces with now before it evaluates the rules. With no field a builder reads the node it is on; with a field, that child of the record.',
+    whenToUse: 'A trusted creation time, a move cooldown, or a limit of one post per interval per user.',
+    entries: [
+      entry({ name: 'isServerTimestamp', signature: 'isServerTimestamp(field?: string): Expr', placement: 'field node .validate, or record node with field', description: 'The written value is the server timestamp.', example: 'timing.isServerTimestamp()', build: () => timing.isServerTimestamp() }),
+      entry({ name: 'notInFuture', signature: 'notInFuture(field?: string): Expr', placement: 'field node .validate, or record node with field', description: 'A number no later than the server clock.', example: 'timing.notInFuture()', build: () => timing.notInFuture() }),
+      entry({ name: 'cooldownElapsed', signature: 'cooldownElapsed(ms: number, field?: string): Expr', placement: 'record node .write with field', description: 'Nothing stored yet, or the stored time is more than ms before now.', example: "timing.cooldownElapsed(2000, 'lastMoveAt')", build: () => timing.cooldownElapsed(2000, 'lastMoveAt'), notes: "Pair with timing.isServerTimestamp('lastMoveAt') so the client cannot write an old time." }),
+      entry({ name: 'throttled', signature: 'throttled(ms: number): Expr', placement: 'stamp node .validate, such as /lastPost/$uid', description: 'The stamp is set to the server time, and only once ms have passed since the stored one.', example: 'timing.throttled(60000)', build: () => timing.throttled(60000) }),
+      entry({
+        name: 'stampedInSameWrite', signature: 'stampedInSameWrite(levelsUp: number, segments: Array<string | { $: string }>): Expr', placement: 'rate-limited node .validate',
+        description: 'The same write sets the stamp at segments, read levelsUp levels above, to the server time.',
+        example: "timing.stampedInSameWrite(2, ['lastPost', { $: 'auth.uid' }])", build: () => timing.stampedInSameWrite(2, ['lastPost', { $: 'auth.uid' }]),
+        notes: "Write the post and the stamp in one multi-path update: update(ref(db), { 'posts/p1': post, ['lastPost/' + uid]: serverTimestamp() }).",
+      }),
+    ],
+    relatedKeys: ['presence', 'counters'],
+  },
+  {
+    key: 'collections',
+    description: 'Which keys a collection may hold, which bounds its size.',
+    purpose:
+      'RTDB rules cannot count children. A wildcard limited to the keys 0 to max - 1 (how a client stores an array) holds at most max children; keyIn limits it to a fixed list.',
+    whenToUse: 'Seats, slots, a fixed set of flags, or any list with a maximum length.',
+    entries: [
+      entry({ name: 'keyIn', signature: 'keyIn(pathVar: string, keys: string[]): Expr', placement: 'wildcard node .validate', description: 'The wildcard key is one of keys.', example: "collections.keyIn('$flag', ['red', 'blue'])", build: () => collections.keyIn('$flag', ['red', 'blue']) }),
+      entry({ name: 'slotKey', signature: 'slotKey(pathVar: string, max: number): Expr', placement: 'wildcard node .validate', description: "The wildcard key is '0' to max - 1.", example: "collections.slotKey('$slot', 4)", build: () => collections.slotKey('$slot', 4), notes: 'For free keys such as push IDs, keep a count next to the collection, bounded with validation.numberBetween and stepped with counters.changedBy(-1, 1), and write both in one multi-path update.' }),
+    ],
+    relatedKeys: ['validation', 'counters'],
   },
 ];
 

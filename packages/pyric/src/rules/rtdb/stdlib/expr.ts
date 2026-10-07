@@ -83,7 +83,10 @@ export function or(...operands: Expr[]): Expr {
 
 /** The negation of `operand`. */
 export function negate(operand: Expr): Expr {
-  return raw(/^[A-Za-z_$][\w$.]*(\([^()]*\))?$/.test(operand) ? `!${operand}` : `!(${operand})`);
+  // A member chain of plain names and calls with at most a quoted or plain
+  // argument, such as data.child('at').exists(), needs no parentheses.
+  const chain = /^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*(\((?:'[^'\\]*'|[\w$.]*)\))?)*$/;
+  return raw(chain.test(operand) ? `!${operand}` : `!(${operand})`);
 }
 
 /** `snapshot.child(path).val()`, or `snapshot.val()` for the node itself. */

@@ -16,8 +16,21 @@ import * as lobby from './lobby.js';
 import * as turns from './turns.js';
 import * as results from './results.js';
 import * as counters from './counters.js';
+import * as presence from './presence.js';
+import * as timing from './timing.js';
+import * as collections from './collections.js';
 
-export const rtdbStdlib = Object.freeze({ validation, lifecycle, lobby, turns, results, counters });
+export const rtdbStdlib = Object.freeze({
+  validation,
+  lifecycle,
+  lobby,
+  turns,
+  results,
+  counters,
+  presence,
+  timing,
+  collections,
+});
 
 export type RtdbStdlib = typeof rtdbStdlib;
 export type { FieldRule, ShapeOptions, ShapeResult } from './validation.js';

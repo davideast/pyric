@@ -60,11 +60,19 @@ function substituteUid<T>(value: T, uid: string): T {
   if (typeof value === 'object') {
     const out: Record<string, unknown> = {};
     for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-      out[key] = substituteUid(child, uid);
+      out[key.replaceAll('<UID>', uid)] = substituteUid(child, uid);
     }
     return out as unknown as T;
   }
   return value;
+}
+
+function resolveServerTimestamps(value: unknown, now: number): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map((item) => resolveServerTimestamps(item, now));
+  const record = value as Record<string, unknown>;
+  if (Object.keys(record).length === 1 && record['.sv'] === 'timestamp') return now;
+  return Object.fromEntries(Object.entries(record).map(([key, child]) => [key, resolveServerTimestamps(child, now)]));
 }
 
 function setAt(root: Record<string, unknown>, path: string, value: unknown): void {
@@ -128,8 +136,11 @@ function simulatorVerdict(
     ? { uid, token: { firebase: { sign_in_provider: 'anonymous' }, provider_id: 'anonymous' } }
     : null;
   const simMock = buildSimMock(scenario, simPath, mockData, testCase.seed, uid);
+  // The server replaces a written `{ ".sv": "timestamp" }` with the instant it
+  // evaluates the rules at, so the replay resolves it to the `now` it passes.
+  const now = Date.now();
   const newData = testCase.newData !== undefined
-    ? substituteUid(testCase.newData, uid)
+    ? resolveServerTimestamps(substituteUid(testCase.newData, uid), now)
     : undefined;
 
   if (testCase.operation === 'update') {
@@ -141,7 +152,7 @@ function simulatorVerdict(
       value,
     }));
     const outcomes = updates.map((update) => outcomeOf(simulateRtdbRules(compiled, {
-      operation: 'write', path: update.path, auth, mockData: simMock, newData: update.value, updates,
+      operation: 'write', path: update.path, auth, mockData: simMock, newData: update.value, updates, now,
     })));
     if (outcomes.includes('ERROR')) return 'ERROR';
     if (outcomes.includes('UNSUPPORTED')) return 'UNSUPPORTED';
@@ -149,7 +160,7 @@ function simulatorVerdict(
   }
 
   return outcomeOf(simulateRtdbRules(compiled, {
-    operation: testCase.operation, path: simPath, auth, mockData: simMock, newData,
+    operation: testCase.operation, path: simPath, auth, mockData: simMock, newData, now,
   }));
 }
 
