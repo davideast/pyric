@@ -84,8 +84,8 @@ export function setDatabaseRules(
  * The host's per-instance rules operations, as `connectDatabaseInstanceRules`
  * applies a project's `firebase.json` instances. Declaring instances creates
  * their stores so they are listed before first use; an instance no rules are
- * deployed to is still served, locked. A ruleset production would refuse
- * throws, leaving that instance's rules in force.
+ * deployed to is still served, locked or, in permissive mode, open. A ruleset
+ * production would refuse throws, leaving that instance's rules in force.
  */
 export function databaseInstanceRulesHost(ctx: HostCtx): DatabaseInstanceRulesHost {
   return {

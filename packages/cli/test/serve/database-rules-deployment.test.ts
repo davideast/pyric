@@ -66,27 +66,50 @@ test('serves the default instance rules to a database opened without a URL', asy
   expect((await get(ref(getDatabase(sandbox), 'a'))).val()).toBe(1);
 });
 
-test('an instance firebase.json deploys no rules to is locked in every mode, and its first use says how to deploy them', async () => {
-  const sandbox = initializeSandbox();
-  const deployment = createDatabaseRulesDeployment(sandbox);
-  const notices: string[] = [];
+/** The Pyric RTDB notices `console.warn` writes while `run` runs. */
+async function notices(run: () => Promise<void>): Promise<string[]> {
+  const lines: string[] = [];
   const warn = console.warn;
-  console.warn = (...args: unknown[]) => { notices.push(args.map(String).join(' ')); };
+  console.warn = (...args: unknown[]) => { lines.push(args.map(String).join(' ')); };
   try {
-    deployment.register('https://undeclared.firebaseio.com');
-    deployment.deploy({ defaultInstance: 'demo-default-rtdb', rules: { declared: OPEN } }, 'allow');
-    const undeclared = getDatabase(sandbox, 'https://undeclared.firebaseio.com');
-    await expect(get(ref(undeclared, 'x'))).rejects.toThrow('PERMISSION_DENIED');
-    await expect(set(ref(undeclared, 'x'), 1)).rejects.toThrow('PERMISSION_DENIED');
-    expect(notices).toEqual([
-      'pyric: RTDB instance "undeclared" has no rules in firebase.json; it denies all reads and writes. Add {"instance": "undeclared", "rules": "<file>"} to the database array.',
-    ]);
-    // A declared instance whose rules file is missing follows the default policy.
-    deployment.deploy({ defaultInstance: 'demo-default-rtdb', rules: { undeclared: null } }, 'allow');
-    expect((await get(ref(undeclared, 'x'))).exists()).toBe(false);
+    await run();
   } finally {
     console.warn = warn;
   }
+  return lines.filter((line) => line.startsWith('pyric: RTDB'));
+}
+
+test('an instance firebase.json deploys no rules to is locked, and its first use says how to deploy them', async () => {
+  const sandbox = initializeSandbox();
+  const deployment = createDatabaseRulesDeployment(sandbox);
+  const logged = await notices(async () => {
+    deployment.deploy({ defaultInstance: 'demo-default-rtdb', rules: { declared: OPEN } }, 'deny');
+    deployment.register('https://undeclared.firebaseio.com');
+    const undeclared = getDatabase(sandbox, 'https://undeclared.firebaseio.com');
+    await expect(get(ref(undeclared, 'x'))).rejects.toThrow('PERMISSION_DENIED');
+    await expect(set(ref(undeclared, 'x'), 1)).rejects.toThrow('PERMISSION_DENIED');
+    // A declared instance whose rules file is missing follows the default policy.
+    deployment.deploy({ defaultInstance: 'demo-default-rtdb', rules: { undeclared: null } }, 'allow');
+    expect((await get(ref(undeclared, 'x'))).exists()).toBe(false);
+  });
+  expect(logged).toEqual([
+    'pyric: RTDB instance "undeclared" has no rules in firebase.json; it denies all reads and writes. Add {"instance": "undeclared", "rules": "<file>"} to the database array.',
+  ]);
+});
+
+test('under permissive mode, an instance firebase.json deploys no rules to allows everything, and its first use says so', async () => {
+  const sandbox = initializeSandbox();
+  const deployment = createDatabaseRulesDeployment(sandbox);
+  const logged = await notices(async () => {
+    deployment.deploy({ defaultInstance: 'demo-default-rtdb', rules: { declared: OPEN } }, 'allow');
+    deployment.register('https://undeclared.firebaseio.com');
+    const undeclared = getDatabase(sandbox, 'https://undeclared.firebaseio.com');
+    await set(ref(undeclared, 'x'), 1);
+    expect((await get(ref(undeclared, 'x'))).val()).toBe(1);
+  });
+  expect(logged).toEqual([
+    'pyric: RTDB instance "undeclared" has no rules in firebase.json; permissive mode allows all reads and writes. Add {"instance": "undeclared", "rules": "<file>"} to the database array.',
+  ]);
 });
 
 test('serves the array\'s default instance rules to the default store once the app names its project', async () => {

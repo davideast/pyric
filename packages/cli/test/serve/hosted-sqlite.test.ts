@@ -116,6 +116,10 @@ test('the Node host loads each instance of a firebase.json database array with i
   expect(await runNodeFixture('rtdb-firebase-json')).toBe('Hosted RTDB firebase.json instances passed');
 });
 
+test('a permissive Node host opens an RTDB instance without rules as it opens the default instance', async () => {
+  expect(await runNodeFixture('rtdb-permissive')).toBe('Hosted RTDB permissive instances passed');
+});
+
 test('malformed Auth state refuses hosted startup instead of losing accounts', async () => {
   expect(await runNodeFixture('malformed')).toBe('Malformed state refused');
 });

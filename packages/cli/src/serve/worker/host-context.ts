@@ -92,9 +92,9 @@ export interface HostCtx {
    */
   defaultRtdbInstance?: string;
   /**
-   * Access for an instance whose rules were removed: `deny` unless the
-   * runtime opted into permissive access. An instance with no deployed rules
-   * is locked instead, as production creates one. Applies to instances
+   * Access for an instance without rules: `deny` unless the runtime opted
+   * into permissive access. Without permissive access, an instance with no
+   * deployed rules is locked, as production creates one. Applies to instances
    * created after it is set; the default instance's policy is set where its
    * rules are.
    */

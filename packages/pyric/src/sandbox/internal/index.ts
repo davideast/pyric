@@ -186,7 +186,7 @@ export {
   defaultDatabaseInstanceName,
   LOCKED_DATABASE_RULES,
   isCustomDatabaseHost,
-  lockedInstanceNotice,
+  undeployedInstanceNotice,
   parseDatabaseLocationUrl,
   parseDatabaseUrl,
   resolveDatabaseInstance,

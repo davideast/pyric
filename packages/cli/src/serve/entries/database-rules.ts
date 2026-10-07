@@ -4,7 +4,7 @@ import {
   LOCKED_DATABASE_RULES,
   UNNAMED_DEFAULT_DATABASE_INSTANCE,
   defaultDatabaseInstanceName,
-  lockedInstanceNotice,
+  undeployedInstanceNotice,
   resolveDatabaseInstance,
 } from 'pyric/sandbox/internal';
 import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
@@ -17,7 +17,8 @@ type Policy = 'allow' | 'deny';
  * its own ruleset, without sharing data between instances. A database opened
  * without a URL is the default instance the deployed config names. An
  * instance `firebase.json` deploys no rules to is locked, as production
- * creates a new instance, and its first use logs how to deploy its rules.
+ * creates a new instance, or open in permissive mode, and its first use logs
+ * how to deploy its rules.
  */
 export function createDatabaseRulesDeployment(sandbox: Sandbox) {
   /** Each opened store by instance name; the default instance under `undefined`. */
@@ -49,10 +50,13 @@ export function createDatabaseRulesDeployment(sandbox: Sandbox) {
       return;
     }
     const deployed = rulesByInstance.has(name);
-    controls.setRules(database, deployed ? rulesByInstance.get(name) ?? null : LOCKED_DATABASE_RULES);
+    // Without deployed rules an instance is locked, as production creates one,
+    // or open in permissive mode, as the default instance is.
+    const undeployed = defaultPolicy === 'allow' ? null : LOCKED_DATABASE_RULES;
+    controls.setRules(database, deployed ? rulesByInstance.get(name) ?? null : undeployed);
     if (!deployed && !noticed.has(name)) {
       noticed.add(name);
-      console.warn(lockedInstanceNotice(name));
+      console.warn(undeployedInstanceNotice(name, defaultPolicy));
     }
   }
 
