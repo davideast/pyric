@@ -43,7 +43,7 @@ void main() {
     final snapshots = <QuerySnapshotPlatform>[];
     final sub = firestore
         .collection('rooms')
-        .snapshots(includeMetadataChanges: true)
+        .snapshots(includeMetadataChanges: true, listenSource: ListenSource.defaultSource)
         .listen(snapshots.add, onError: (_) {});
     await until(() => bridge.subsFor('rooms').isNotEmpty);
     final subId = bridge.lastSubFor('rooms')['subId'];
@@ -81,7 +81,7 @@ void main() {
     final snapshots = <DocumentSnapshotPlatform>[];
     final sub = firestore
         .doc('rooms/a')
-        .snapshots()
+        .snapshots(listenSource: ListenSource.defaultSource)
         .listen(snapshots.add, onError: (_) {});
     await until(() => bridge.subsFor('rooms/a').isNotEmpty);
     final subId = bridge.lastSubFor('rooms/a')['subId'];
