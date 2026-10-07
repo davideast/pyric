@@ -425,6 +425,23 @@ class BridgeReconnectTest {
         manual.await()
         assertTrue(client.isConnected)
     }
+
+    @Test
+    fun `a connect that races the first attach completing joins it instead of attaching again`() = runBlocking {
+        // The window is between connect's attached check and its attempt lookup,
+        // so callers race the acknowledgement many times.
+        repeat(300) { round ->
+            val transport = RecordingTransport()
+            val client = PyricBridgeClient(transport)
+            until { transport.attachCount() == 1 }
+            val callers = (1..8).map { scope.async { client.connect() } }
+            transport.ack()
+            until { callers.all { it.isCompleted } || transport.attachCount() > 1 }
+            assertEquals(1, transport.attachCount(), "round $round sent ${transport.attachCount()} attach frames")
+            callers.forEach { it.await() }
+            client.disconnect()
+        }
+    }
 }
 
 /** A supplied transport that records every listener the client installs. */
