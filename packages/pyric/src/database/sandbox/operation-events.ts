@@ -1,4 +1,4 @@
-import type { AuthState, Sandbox, SandboxOperationEvent } from 'pyric/sandbox';
+import type { AuthState, RtdbDenialContext, Sandbox, SandboxOperationEvent } from 'pyric/sandbox';
 import type { ListenerOwner } from '../../sandbox/types/events.js';
 import { emitSandboxEvent, getClock, makeSandboxCommitEvent, makeSandboxListenerEvent, makeSandboxOperationEvent, makeServiceMutationEvent } from 'pyric/sandbox/internal';
 import { joinPath, pathSegments } from './data-tree.js';
@@ -27,6 +27,36 @@ export function rtdbRulesDetail(evaluation: RuleEvaluationDetails): NonNullable<
   };
   if (evaluation.trace !== undefined) rules.rtdbTrace = evaluation.trace;
   return rules;
+}
+
+/**
+ * The `denialContext` a denied RTDB operation's error carries: the same rule
+ * details as the operation event's `rules` block, plus the auth the rules saw
+ * and the request. `payload` is the event's `request` payload: `data` for a
+ * write (the priority for `setPriority`) and `query` for a query read. Keys
+ * whose value is undefined are left out, so the context is the same before and
+ * after a JSON round trip.
+ */
+export function rtdbDenialContext(
+  evaluation: RuleEvaluationDetails,
+  auth: AuthState,
+  method: RtdbDenialContext['request']['method'],
+  path: string,
+  payload: { data?: unknown; query?: unknown } = {},
+): RtdbDenialContext {
+  const request: RtdbDenialContext['request'] = { method, path: canonicalPath(path) };
+  if (payload.data !== undefined) request.data = structuredClone(payload.data);
+  if (payload.query !== undefined) request.query = structuredClone(payload.query);
+  const rules = Object.fromEntries(
+    Object.entries(rtdbRulesDetail(evaluation)).filter(([, value]) => value !== undefined),
+  ) as Omit<RtdbDenialContext, 'auth' | 'reasons' | 'request'>;
+  return {
+    ...rules,
+    engine: 'rtdb',
+    auth: auth === null ? null : structuredClone(auth),
+    reasons: [...evaluation.reasons],
+    request,
+  };
 }
 
 export function canonicalPath(path: string): string {

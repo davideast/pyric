@@ -889,13 +889,17 @@ export const rtdbRegistry = {
           featureKeys: ["set"],
           behavior: "Rules-denied write throws a plain `Error` (NOT a `FirebaseError`) with `.code === 'PERMISSION_DENIED'` (uppercase snake-case) and `.message === 'PERMISSION_DENIED: Permission denied'`",
           status: "conforms",
-          evidence: "Sandbox aligned: `unit:modular/sandbox-target.test.ts` (\"rules-denied set throws a plain Error with PERMISSION_DENIED code\"); matches oracle observation `packages/conformance/observations/rtdb/rtdb-rules-denied-error-code.json` (against blockingfun, fb-js-sdk 12.13.0)",
+          evidence: "Sandbox aligned: `unit:modular/sandbox-target.test.ts` (\"rules-denied set throws a plain Error with PERMISSION_DENIED code\"); matches oracle observation `packages/conformance/observations/rtdb/rtdb-rules-denied-error-code.json` (against blockingfun, fb-js-sdk 12.13.0). The sandbox adds an own enumerable `denialContext` (engine `rtdb`, the deciding rule, bindings and request) to the same plain `Error`; `unit:denial-context.test.ts` asserts class, name, code and message are unchanged for every denied operation, and the worker bridge test asserts served pages receive the context.",
           risk: ["specific-field","rules-denial"],
           riskScore: 3,
           riskReasons: ["asserts a specific field/property value","asserts rules-denial behavior"],
           automation: "oracle-backed",
           oracleObservations: ["rtdb-rules-denied-error-code"],
-          conformanceTests: ["packages/pyric/test/database/modular/sandbox-target.test.ts"],
+          conformanceTests: [
+            "packages/pyric/test/database/modular/sandbox-target.test.ts",
+            "packages/pyric/test/database/denial-context.test.ts",
+            "packages/cli/test/serve/worker/rtdb-denial-context.test.ts",
+          ],
           rowNumber: 23,
         }),
         row5({
@@ -910,7 +914,10 @@ export const rtdbRegistry = {
           riskReasons: ["asserts rules-denial behavior"],
           automation: "oracle-backed",
           oracleObservations: ["rtdb-rules-denied-error-code"],
-          conformanceTests: ["packages/pyric/test/database/modular/sandbox-target.test.ts"],
+          conformanceTests: [
+            "packages/pyric/test/database/modular/sandbox-target.test.ts",
+            "packages/pyric/test/database/denial-context.test.ts",
+          ],
           rowNumber: 24,
         }),
         row5({
@@ -924,7 +931,10 @@ export const rtdbRegistry = {
           riskScore: 2,
           riskReasons: ["asserts rules-denial behavior"],
           automation: "unit-backed",
-          conformanceTests: ["packages/pyric/test/database/modular/sandbox-target.test.ts"],
+          conformanceTests: [
+            "packages/pyric/test/database/modular/sandbox-target.test.ts",
+            "packages/pyric/test/database/denial-context.test.ts",
+          ],
           rowNumber: 25,
         }),
         row5({
@@ -1274,7 +1284,10 @@ export const rtdbRegistry = {
           riskReasons: ["asserts 1 specific value(s)","asserts a specific field/property value","asserts transaction/batch atomicity","asserts rules-denial behavior"],
           automation: "oracle-backed",
           oracleObservations: ["rtdb-modular-runtransaction-on-rules-denied-path"],
-          conformanceTests: ["packages/pyric/test/database/modular/transaction.test.ts"],
+          conformanceTests: [
+            "packages/pyric/test/database/modular/transaction.test.ts",
+            "packages/pyric/test/database/denial-context.test.ts",
+          ],
           rowNumber: 37,
         }),
         row5({
@@ -1720,7 +1733,10 @@ export const rtdbRegistry = {
           riskReasons: ["asserts listener semantics","asserts rules-denial behavior"],
           automation: "oracle-backed",
           oracleObservations: ["rtdb-modular-listener-cancellation"],
-          conformanceTests: ["packages/pyric/test/database/modular/listener-lifecycle-cdd.test.ts"],
+          conformanceTests: [
+            "packages/pyric/test/database/modular/listener-lifecycle-cdd.test.ts",
+            "packages/pyric/test/database/denial-context.test.ts",
+          ],
           conformanceChecks: [{
             finding: "RTDB-M75A",
             observation: "rtdb-modular-listener-cancellation",

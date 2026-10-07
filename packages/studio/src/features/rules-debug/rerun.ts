@@ -407,14 +407,19 @@ export async function rerunAsUser(
     await client.reissue(denial);
     return { outcome: 'allow' };
   } catch (e) {
-    const err = e as { code?: string; message?: string; reasons?: string[] };
+    const err = e as { code?: string; message?: string; denialContext?: { reasons?: string[] } };
     const code = err.code ?? 'unknown';
-    if (code === 'permission-denied') {
+    // Firestore denies with `permission-denied`, RTDB with `PERMISSION_DENIED`;
+    // a codeless RTDB transaction denial is known by its denial context.
+    const isDenial = code === 'permission-denied' || code === 'PERMISSION_DENIED'
+      || err.denialContext !== undefined;
+    if (isDenial) {
+      const reasons = err.denialContext?.reasons;
       return {
         outcome: 'deny',
         code,
         message: err.message ?? 'permission denied',
-        ...(err.reasons ? { reasons: err.reasons } : {}),
+        ...(reasons ? { reasons } : {}),
       };
     }
     return { outcome: 'error', code, message: err.message ?? String(e) };

@@ -2,7 +2,7 @@ import type { AuthState } from 'pyric/sandbox';
 import type { BackendState } from './backend-state.js';
 import type { ChildListeners } from './child-listeners.js';
 import type { JsonValue } from './data-tree.js';
-import { canonicalPath, denyResultFor } from './operation-events.js';
+import { canonicalPath, denyResultFor, rtdbDenialContext } from './operation-events.js';
 import { validatePriority } from './priority-state.js';
 import type { Priority } from './query.js';
 import { permissionDenied } from './rules-eval.js';
@@ -48,7 +48,7 @@ export class PriorityWrites {
       this.state.events.operation(
         auth, 'setPriority', path, denyResultFor(evaluation.check), evaluation, common,
       );
-      throw permissionDenied();
+      throw permissionDenied(rtdbDenialContext(evaluation, auth, 'setPriority', path, { data: priority }));
     }
     this.state.events.operation(auth, 'setPriority', path, 'allow', evaluation, common);
     if (current === null) return;

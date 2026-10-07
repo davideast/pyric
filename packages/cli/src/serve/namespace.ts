@@ -364,8 +364,12 @@ interface DenialRelayPayload {
    *  attach the suggested `where()` fix there; the client forwards it. */
   remediation?: unknown;
   denialContext?: {
+    engine?: string;
     auth?: { uid?: string } | null;
     request?: { method?: string; path?: string };
+    /** RTDB only: the rules node and expression that decided. */
+    matchedPath?: string;
+    matchedRule?: string;
     /** Fallback position, in case a denial path nests it in the context. */
     remediation?: string;
   } | null;
@@ -401,6 +405,11 @@ export function formatDenialBlock(payload: DenialRelayPayload): string {
   }
   const uid = ctx?.auth?.uid;
   lines.push(`      auth: ${uid ?? 'anonymous'}`);
+  // An RTDB message names no rule, so the block names the deciding one.
+  if (ctx?.engine === 'rtdb' && typeof ctx.matchedRule === 'string') {
+    const node = typeof ctx.matchedPath === 'string' ? `${ctx.matchedPath} ` : '';
+    lines.push(`      rule: ${node}${ctx.matchedRule}`);
+  }
   const remediation = typeof payload.remediation === 'string' ? payload.remediation : ctx?.remediation;
   if (remediation) lines.push(`      ${remediation}`);
   return lines.join('\n');

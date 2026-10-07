@@ -136,7 +136,7 @@ class ChallengerM4StressTest {
         assertEquals("true", context.reasons[2])
 
         assertEquals(listOf("ssn", "404", "secretSalary"), context.failedFields)
-        assertEquals("get", context.request?.method)
+        assertEquals("GET", context.request?.method)
 
         assertNotNull(context.query)
         assertEquals(2, context.query?.where?.size)

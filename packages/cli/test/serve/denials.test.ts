@@ -184,6 +184,25 @@ describe('createDenialThrottle', () => {
 });
 
 describe('formatDenialBlock', () => {
+  it('names the deciding rule of an RTDB denial', () => {
+    const block = formatDenialBlock({
+      message: 'PERMISSION_DENIED: Permission denied',
+      denialContext: {
+        engine: 'rtdb',
+        auth: { uid: 'alice' },
+        request: { method: 'set', path: '/rooms/bob' },
+        matchedPath: '/rooms/$roomId',
+        matchedRule: 'auth.uid == $roomId',
+      },
+    });
+    expect(block.split('\n')).toEqual([
+      '  ⚠ [pyric] denied: PERMISSION_DENIED: Permission denied',
+      '      set /rooms/bob',
+      '      auth: alice',
+      '      rule: /rooms/$roomId auth.uid == $roomId',
+    ]);
+  });
+
   it('renders a compact multi-line block: message, request, auth, remediation', () => {
     const block = formatDenialBlock({
       message: 'get tickets/T-1 denied by rules',

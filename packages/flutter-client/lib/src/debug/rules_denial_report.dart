@@ -21,6 +21,12 @@ Map<String, dynamic>? _asStringMap(dynamic v) {
   return result;
 }
 
+Map<String, String>? _asStringStringMap(dynamic v) {
+  final map = _asStringMap(v);
+  if (map == null) return null;
+  return map.map((key, value) => MapEntry(key, value.toString()));
+}
+
 List<String> _asStringList(dynamic v) {
   if (v is! List) return [];
   final result = <String>[];
@@ -32,8 +38,15 @@ List<String> _asStringList(dynamic v) {
   return result;
 }
 
-/// Structured representation of a Security Rules evaluation failure (CEL rejection).
+/// Structured representation of a Security Rules denial.
+///
+/// [engine] names the rules engine: `'firestore'` (the default when a denial
+/// context names none) or `'rtdb'`. An RTDB denial carries the deciding rules
+/// node ([matchedPath]), its expression ([matchedRule]), the `$` wildcard
+/// bindings, and the proposed value ([proposedValue]) in place of a line
+/// citation.
 class RulesDenialReport {
+  final String engine;
   final String file;
   final int? line;
   final int? col;
@@ -49,10 +62,19 @@ class RulesDenialReport {
   final Map<String, dynamic>? existingData;
   final List<String> failedFields;
   final Map<String, dynamic>? query;
+  final String? matchedPath;
+  final String? matchedRule;
+  final Map<String, String>? pathVariableBindings;
+  final String? reason;
+  final String? errorCode;
+  final dynamic proposedValue;
   final String errorMessage;
   final DateTime timestamp;
 
+  bool get isRtdb => engine == 'rtdb';
+
   RulesDenialReport({
+    this.engine = 'firestore',
     this.file = 'firestore.rules',
     this.line,
     this.col,
@@ -68,6 +90,12 @@ class RulesDenialReport {
     this.existingData,
     this.failedFields = const [],
     this.query,
+    this.matchedPath,
+    this.matchedRule,
+    this.pathVariableBindings,
+    this.reason,
+    this.errorCode,
+    this.proposedValue,
     this.errorMessage = 'Missing or insufficient permissions.',
     DateTime? timestamp,
   })  : citation = citation != null && citation.isNotEmpty
@@ -76,7 +104,9 @@ class RulesDenialReport {
                 ? col != null
                     ? '$file:$line:$col'
                     : '$file:$line'
-                : file,
+                : matchedPath != null
+                    ? '$file $matchedPath'
+                    : file,
         timestamp = timestamp ?? DateTime.now();
 
   /// Constructs a `RulesDenialReport` from a `denialContext` map and error message.
@@ -84,12 +114,17 @@ class RulesDenialReport {
     Map<dynamic, dynamic> map, {
     String errorMessage = 'Missing or insufficient permissions.',
   }) {
+    final engine = _asString(map['engine']) ?? 'firestore';
+    final isRtdb = engine == 'rtdb';
+    final matchedRule = _asString(map['matchedRule']);
+
     final ruleObj = _asStringMap(map['rule']);
-    final file = _asString(ruleObj?['file']) ?? 'firestore.rules';
+    final file = _asString(ruleObj?['file']) ??
+        (isRtdb ? 'database.rules.json' : 'firestore.rules');
     final line = _asInt(ruleObj?['line']);
     final col = _asInt(ruleObj?['col']) ?? _asInt(ruleObj?['column']);
     final citation = _asString(ruleObj?['citation']);
-    final expression = _asString(ruleObj?['expression']);
+    final expression = _asString(ruleObj?['expression']) ?? matchedRule;
 
     final reasons = _asStringList(map['reasons']);
     if (reasons.isEmpty) {
@@ -105,7 +140,10 @@ class RulesDenialReport {
     final reqObj = _asStringMap(map['request']);
     final requestMethod = _asString(reqObj?['method']);
     final requestPath = _asString(reqObj?['path']);
-    final proposedData = _asStringMap(reqObj?['resourceData']);
+    // RTDB writes may propose any JSON value, so the raw value is kept too.
+    final dynamic proposedValue =
+        isRtdb ? (reqObj?['data']) : (reqObj?['resourceData']);
+    final proposedData = _asStringMap(proposedValue);
 
     final resObj = _asStringMap(map['resource']);
     final existingData = _asStringMap(resObj?['data']);
@@ -115,6 +153,7 @@ class RulesDenialReport {
     final query = _asStringMap(map['query']);
 
     return RulesDenialReport(
+      engine: engine,
       file: file,
       line: line,
       col: col,
@@ -130,6 +169,12 @@ class RulesDenialReport {
       existingData: existingData,
       failedFields: failedFields,
       query: query,
+      matchedPath: _asString(map['matchedPath']),
+      matchedRule: matchedRule,
+      pathVariableBindings: _asStringStringMap(map['pathVariableBindings']),
+      reason: _asString(map['reason']),
+      errorCode: _asString(map['errorCode']),
+      proposedValue: proposedValue,
       errorMessage: errorMessage,
     );
   }
@@ -147,6 +192,7 @@ class RulesDenialReport {
   bool operator ==(Object other) {
     if (identical(this, other)) return true;
     return other is RulesDenialReport &&
+        other.engine == engine &&
         other.citation == citation &&
         other.expression == expression &&
         other.authUid == authUid &&
@@ -155,6 +201,7 @@ class RulesDenialReport {
 
   @override
   int get hashCode => Object.hash(
+        engine,
         citation,
         expression,
         authUid,

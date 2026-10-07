@@ -162,6 +162,7 @@ export function toSandboxError(err: unknown, ctx: SandboxContext): unknown {
   }
 
   const denialContext: DenialContext = {
+    engine: 'firestore',
     auth: ctx.auth,
     reasons: recoverReasons(err.message),
   };

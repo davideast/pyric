@@ -61,7 +61,9 @@ let package = Package(
         .testTarget(
             name: "PyricDebugUITests",
             dependencies: ["PyricDebugUI", "PyricFirestore", "FirebaseAuth"],
-            path: "Tests/PyricDebugUITests"
+            path: "Tests/PyricDebugUITests",
+            // Captured wire envelopes, read from disk by path.
+            exclude: ["Fixtures"]
         ),
     ]
 )

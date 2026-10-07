@@ -506,6 +506,30 @@ describe('rules-debug re-run: as the attempting user (impersonation client)', ()
     expect(client.lensCalls.at(-1)).toEqual({ mode: 'app-session' });
   });
 
+  it('reports deny with the denial context reasons when an RTDB re-issue is denied', async () => {
+    const client: ImpersonationClient = {
+      setLens() {},
+      async reissue() {
+        throw Object.assign(new Error('PERMISSION_DENIED: Permission denied'), {
+          code: 'PERMISSION_DENIED',
+          denialContext: {
+            engine: 'rtdb',
+            auth: { uid: 'alice' },
+            reasons: ['/rooms/$roomId write DENY: auth.uid == $roomId evaluated to false'],
+            request: { method: 'set', path: '/rooms/bob' },
+          },
+        });
+      },
+    };
+    const res = await rerunAsUser(client, { ...denial, service: 'rtdb', method: 'set', path: 'rooms/bob' });
+    expect(res).toEqual({
+      outcome: 'deny',
+      code: 'PERMISSION_DENIED',
+      message: 'PERMISSION_DENIED: Permission denied',
+      reasons: ['/rooms/$roomId write DENY: auth.uid == $roomId evaluated to false'],
+    });
+  });
+
   it('refuses an anonymous denial (no user to impersonate)', async () => {
     const client = fakeClient(false);
     const anon: Denial = { ...denial, auth: null };
