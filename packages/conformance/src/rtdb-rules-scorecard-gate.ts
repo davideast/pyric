@@ -167,7 +167,7 @@ async function main(): Promise<void> {
   console.log(
     `RTDB Rules conformance:      ${scorecard.score.numerator}/${scorecard.score.denominator} ` +
     `(${scorecard.score.percent}%) — ${scorecard.counts.diverged} diverged, ` +
-    `${scorecard.counts.unknown} unknown, ` +
+    `${scorecard.counts.unknown} unknown, ${scorecard.counts['acceptance-mismatch']} acceptance-mismatch, ` +
     `${scorecard.counts['local-unsupported']} local-unsupported, ${scorecard.counts['local-error']} local-error, ` +
     `${scorecard.counts.unprobeable} unprobeable.`,
   );

@@ -22,8 +22,8 @@ describe('generated conformance scoreboard', () => {
     expect(rulesRow).toContain('137 of 140 rules-language constructs verified');
     expect(rulesRow).toContain('<span class="compat-score-pct">97.7%</span>');
     expect(rulesRow).toContain('84 of 86 rules-language constructs verified');
-    expect(rulesRow).toContain('<span class="compat-score-pct">91.1%</span>');
-    expect(rulesRow).toContain('51 of 56 rules-language constructs verified');
+    expect(rulesRow).toContain('<span class="compat-score-pct">72.5%</span>');
+    expect(rulesRow).toContain('66 of 91 rules-language constructs verified');
     expect(rulesRow).not.toContain('Gathering metrics');
   });
 

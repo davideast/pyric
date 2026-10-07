@@ -62,7 +62,9 @@ export async function computeCoverageReport(): Promise<CoverageReport> {
     }
     const unresolved: EngineCoverage['unresolved'] = [];
     for (const scenario of scenarios) {
-      const result = analyze(engine, scenario.rules);
+      const result = scenario.constructs
+        ? { ids: new Set(scenario.constructs), unresolved: [] }
+        : analyze(engine, scenario.rules);
       const verified = twinIds.has(scenario.id);
       for (const id of result.ids) {
         const entry = coverage.get(id);

@@ -1,0 +1,34 @@
+{
+  "name": "rules-rtdb-r30-query-rules",
+  "matrixRow": "rtdb-rules#24",
+  "rowIds": [
+    "rtdb-rules#24",
+    "rtdb-rules#26"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r30-query-rules\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). a query-gated .read decides list access in production, so the simulator must read the same query fields with the same values, and the same nulls and booleans for a read without a query.",
+  "observedAt": "2026-10-07T06:32:12.140Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "orderByChild owner equalTo own uid is allowed": "ALLOW",
+    "orderByChild owner equalTo another uid is denied": "DENY",
+    "orderByChild on another child is denied": "DENY",
+    "a plain read of the owner-gated list is denied": "DENY",
+    "limitToFirst within the bound is allowed": "ALLOW",
+    "limitToFirst over the bound is denied": "DENY",
+    "a plain read of the limitToFirst-gated node is denied": "DENY",
+    "limitToLast within the bound is allowed": "ALLOW",
+    "limitToFirst does not satisfy a limitToLast bound": "DENY",
+    "orderByKey reads true under orderByKey": "ALLOW",
+    "orderByKey is not true for a plain read": "DENY",
+    "orderByValue reads true under orderByValue": "ALLOW",
+    "orderByPriority reads true under orderByPriority": "ALLOW",
+    "startAt and endAt read the range bounds": "ALLOW",
+    "a different startAt is denied": "DENY",
+    "orderByChild reads null for a plain read": "ALLOW",
+    "orderByChild is not null under orderByChild": "DENY",
+    "limitToFirst reads null for a plain read": "ALLOW",
+    "orderByKey reads false for a plain read": "ALLOW",
+    "signed out, the owner-gated query is denied": "DENY"
+  }
+}

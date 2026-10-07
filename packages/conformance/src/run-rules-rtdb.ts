@@ -27,6 +27,21 @@
  * Observations are written only once both invariants verify — a run that cannot
  * prove it left the database as it found it is not a clean capture.
  *
+ * DEPLOY SCENARIOS (records with `deployCases`) record whether production's
+ * rules endpoint accepts a ruleset. Each case is sent as a dry run,
+ * `PUT /.settings/rules.json?dryRun=true`, the validation request
+ * `firebase deploy` sends before it deploys: production validates and answers
+ * 200 or 400 with an error text, and deploys nothing. The dry-run body is the
+ * pre-run ruleset with the case's subtree merged under the run-scoped mount, so
+ * an endpoint that ignored the flag would still keep every existing rule. After
+ * every case the runner reads the live rules back and requires them unchanged.
+ *
+ * CUSTOM CLAIMS: a case with `claims` signs in with a custom token minted by the
+ * service account for one run-scoped uid. Custom-token sign-in needs no sign-in
+ * provider, so no Auth configuration changes. Every sign-in creates an Auth user,
+ * the custom-token uid and each anonymous uid, so the runner deletes each one at
+ * the end and proves the deletion with a lookup.
+ *
  * CREDENTIAL CONTRACT (mirrors the moved oracle run's RTDB rules deploy):
  *   PYRIC_ORACLE_FIREBASE_CONFIG — Web SDK config JSON (must carry databaseURL
  *     and apiKey). Provides the client used to run corpus ops and the RTDB
@@ -57,9 +72,13 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  ALL_RULES_RTDB_DEPLOY_SCENARIOS,
   ALL_RULES_RTDB_SCENARIOS,
   RULES_RTDB_OBSERVATION_PREFIX,
   rtdbObservationName,
+  type RtdbCaseQuery,
+  type RtdbDeployScenario,
+  type RtdbDeployVerdict,
   type RtdbScenario,
   type RtdbTestCase,
 } from '../rules-corpus/rtdb/index.ts';
@@ -102,7 +121,7 @@ interface ObservationLinkage {
 }
 
 /** Absolute path an observation for `scenario` writes to. */
-function observationPath(scenario: RtdbScenario): string {
+function observationPath(scenario: { id: string }): string {
   return join(OBS_DIR, `${rtdbObservationName(scenario)}.json`);
 }
 
@@ -110,7 +129,13 @@ function totalCases(scenarios: readonly RtdbScenario[]): number {
   return scenarios.reduce((n, scenario) => n + scenario.cases.length, 0);
 }
 
-export function selectRtdbScenarios(args: readonly string[]): RtdbScenario[] {
+/** The operation and deploy scenarios one run captures. */
+export interface RtdbSelection {
+  scenarios: RtdbScenario[];
+  deployScenarios: RtdbDeployScenario[];
+}
+
+export function selectRtdbScenarios(args: readonly string[]): RtdbSelection {
   let selectedId: string | undefined;
   for (let index = 0; index < args.length; index++) {
     const arg = args[index];
@@ -132,10 +157,14 @@ export function selectRtdbScenarios(args: readonly string[]): RtdbScenario[] {
     throw new Error(`unknown argument: ${arg}`);
   }
 
-  if (!selectedId) return ALL_RULES_RTDB_SCENARIOS;
+  if (!selectedId) {
+    return { scenarios: ALL_RULES_RTDB_SCENARIOS, deployScenarios: ALL_RULES_RTDB_DEPLOY_SCENARIOS };
+  }
   const scenario = ALL_RULES_RTDB_SCENARIOS.find((candidate) => candidate.id === selectedId);
-  if (!scenario) throw new Error(`unknown RTDB scenario: ${selectedId}`);
-  return [scenario];
+  if (scenario) return { scenarios: [scenario], deployScenarios: [] };
+  const deployScenario = ALL_RULES_RTDB_DEPLOY_SCENARIOS.find((candidate) => candidate.id === selectedId);
+  if (deployScenario) return { scenarios: [], deployScenarios: [deployScenario] };
+  throw new Error(`unknown RTDB scenario: ${selectedId}`);
 }
 
 export function observationLinkageOf(value: unknown): ObservationLinkage {
@@ -160,7 +189,7 @@ export function assertMatchingOracleProjects(
   }
 }
 
-function printInertPlan(scenarios: readonly RtdbScenario[]): void {
+function printInertPlan({ scenarios, deployScenarios }: RtdbSelection): void {
   console.log('[oracle:rules-rtdb] PYRIC_ORACLE_FIREBASE_CONFIG not set — INERT preview, no network calls.\n');
   console.log('  Credential env vars expected:');
   console.log('    PYRIC_ORACLE_FIREBASE_CONFIG  (Web SDK config JSON with databaseURL + apiKey; gates capture)');
@@ -182,6 +211,13 @@ function printInertPlan(scenarios: readonly RtdbScenario[]): void {
     );
   }
   console.log(`\n  Total: ${scenarios.length} scenarios, ${totalCases(scenarios)} cases.`);
+  console.log(`\n  Would dry-run ${deployScenarios.length} deploy scenario(s) (PUT /.settings/rules.json?dryRun=true, nothing deployed):`);
+  for (const scenario of deployScenarios) {
+    console.log(
+      `    - ${scenario.id.padEnd(28)} [${scenario.fm.padEnd(8)}] ` +
+        `${String(scenario.deployCases.length).padStart(2)} rulesets, expects deploy verdict → ${rtdbObservationName(scenario)}.json`,
+    );
+  }
   console.log('\n  To capture for real:');
   console.log('    PYRIC_ORACLE_FIREBASE_CONFIG="$(cat oracle-web-config.json)" \\');
   console.log('      PYRIC_ORACLE_SA_PATH=ignored/service-account.json \\');
@@ -261,6 +297,119 @@ export async function verifyRunDataCleanup(store: RunDataStore, auditKey: string
   }
 }
 
+/**
+ * The run's user-cleanup operations, narrowed so the contract can be tested
+ * against a fake. Only the custom-token uid the run minted is ever passed.
+ */
+export interface RunUserStore {
+  deleteUser(uid: string): Promise<void>;
+  userExists(uid: string): Promise<boolean>;
+}
+
+/**
+ * USER CLEANUP INVARIANT: a custom-token sign-in creates its uid in Auth. The
+ * runner deletes that one uid and proves the deletion by looking it up. A run
+ * that never signed in with a custom token finds no user and is clean.
+ */
+export async function verifyRunUserCleanup(store: RunUserStore, uid: string): Promise<void> {
+  if (await store.userExists(uid)) await store.deleteUser(uid);
+  if (await store.userExists(uid)) {
+    throw new Error(`user cleanup NOT verified — the custom-token user '${uid}' still exists after deletion.`);
+  }
+}
+
+/** One SDK query constraint: the `firebase/database` function name and its arguments. */
+export type QueryConstraintSpec =
+  | ['orderByChild', string]
+  | ['orderByKey']
+  | ['orderByValue']
+  | ['orderByPriority']
+  | ['equalTo' | 'startAt' | 'endAt', string | number | boolean | null]
+  | ['limitToFirst' | 'limitToLast', number];
+
+/** The constraints a case query applies: ordering first, then range, then limits. */
+export function queryConstraintsOf(query: RtdbCaseQuery): QueryConstraintSpec[] {
+  const out: QueryConstraintSpec[] = [];
+  if (query.orderByChild !== undefined) out.push(['orderByChild', query.orderByChild]);
+  if (query.orderByKey) out.push(['orderByKey']);
+  if (query.orderByValue) out.push(['orderByValue']);
+  if (query.orderByPriority) out.push(['orderByPriority']);
+  if (query.equalTo !== undefined) out.push(['equalTo', query.equalTo]);
+  if (query.startAt !== undefined) out.push(['startAt', query.startAt]);
+  if (query.endAt !== undefined) out.push(['endAt', query.endAt]);
+  if (query.limitToFirst !== undefined) out.push(['limitToFirst', query.limitToFirst]);
+  if (query.limitToLast !== undefined) out.push(['limitToLast', query.limitToLast]);
+  return out;
+}
+
+/**
+ * The two rules-endpoint calls a deploy scenario makes, narrowed so the
+ * capture contract can be tested against a fake.
+ */
+export interface RulesDeployEndpoint {
+  /** `PUT /.settings/rules.json?dryRun=true` with `{ rules }`. */
+  dryRun(rules: Record<string, unknown>): Promise<{ status: number; body: string }>;
+  /** The live ruleset's `rules` object. */
+  readRules(): Promise<Record<string, unknown>>;
+}
+
+/**
+ * The comparable part of a deploy error. The endpoint prefixes its message
+ * with `line:column` into the submitted body, which here is the pre-run rules
+ * plus the merged subtree, so the position moves with the live rules and is
+ * dropped. The run-scoped mount key is replaced, and trailing whitespace trimmed.
+ */
+export function normalizeDeployError(text: string, mountKey: string): string {
+  return text.replaceAll(mountKey, '<mount>').replace(/^\d+:\d+: /, '').trimEnd();
+}
+
+function deployErrorText(body: string): string {
+  try {
+    const parsed = JSON.parse(body) as { error?: unknown };
+    if (typeof parsed.error === 'string') return parsed.error;
+  } catch {
+    // Not JSON; record the body as sent.
+  }
+  return body;
+}
+
+/**
+ * Dry-run every case of a deploy scenario and record production's verdict.
+ * Each dry run carries the pre-run rules with the case's subtree merged under
+ * `/<mountKey>/<scenario.id>`. After each case the live rules are read back
+ * and must equal `beforeRules`; any other outcome throws.
+ */
+export async function captureDeployScenario(
+  endpoint: RulesDeployEndpoint,
+  input: { beforeRules: Record<string, unknown>; mountKey: string; scenario: RtdbDeployScenario },
+): Promise<Record<string, RtdbDeployVerdict>> {
+  const { beforeRules, mountKey, scenario } = input;
+  const beforeCanonical = canonicalize(beforeRules);
+  const behavior: Record<string, RtdbDeployVerdict> = {};
+  for (const deployCase of scenario.deployCases) {
+    const rules = {
+      ...beforeRules,
+      [mountKey]: { [scenario.id]: JSON.parse(deployCase.rules) as unknown },
+    };
+    const res = await endpoint.dryRun(rules);
+    if (res.status === 200) {
+      behavior[deployCase.description] = { verdict: 'ACCEPTED' };
+    } else if (res.status === 400) {
+      behavior[deployCase.description] = {
+        verdict: 'REJECTED',
+        error: normalizeDeployError(deployErrorText(res.body), mountKey),
+      };
+    } else {
+      throw new Error(`${scenario.id} :: ${deployCase.description}: dry run returned ${res.status}: ${res.body}`);
+    }
+    const after = await endpoint.readRules();
+    if (canonicalize(after) !== beforeCanonical) {
+      throw new Error(`${scenario.id} :: ${deployCase.description}: live rules changed after the dry run`);
+    }
+  }
+  return behavior;
+}
+
 /** Recursively substitute the `<UID>` token, mirroring the agreement probe. */
 function substituteUid<T>(v: T, uid: string): T {
   if (typeof v === 'string') return v.replaceAll('<UID>', uid) as unknown as T;
@@ -274,17 +423,27 @@ function substituteUid<T>(v: T, uid: string): T {
   return v;
 }
 
-async function capture(scenarios: readonly RtdbScenario[]): Promise<void> {
+async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<void> {
   // Heavy SDK imports are deferred to the credentialed path so the inert
   // preview stays dependency-light and always runnable.
   const { initializeApp, deleteApp } = await import('firebase/app');
-  const { getAuth, signInAnonymously, signOut } = await import('firebase/auth');
+  const { getAuth, signInAnonymously, signInWithCustomToken, signOut } = await import('firebase/auth');
   const {
     getDatabase,
     ref: rtdbRef,
     get: rtdbGet,
     set: rtdbSet,
     update: rtdbUpdate,
+    query: rtdbQuery,
+    orderByChild,
+    orderByKey,
+    orderByValue,
+    orderByPriority,
+    equalTo,
+    startAt,
+    endAt,
+    limitToFirst,
+    limitToLast,
   } = await import('firebase/database');
   const {
     cert: adminCert,
@@ -292,6 +451,7 @@ async function capture(scenarios: readonly RtdbScenario[]): Promise<void> {
     deleteApp: adminDeleteApp,
   } = await import('firebase-admin/app');
   const { getDatabaseWithUrl: getAdminDatabase } = await import('firebase-admin/database');
+  const { getAuth: getAdminAuth } = await import('firebase-admin/auth');
 
   const config = JSON.parse(process.env.PYRIC_ORACLE_FIREBASE_CONFIG!) as FirebaseWebConfig;
   if (!config.databaseURL) {
@@ -323,6 +483,17 @@ async function capture(scenarios: readonly RtdbScenario[]): Promise<void> {
     const body = (await res.json()) as Record<string, unknown>;
     return (body.rules ?? {}) as Record<string, unknown>;
   }
+  const endpoint: RulesDeployEndpoint = {
+    async dryRun(rules) {
+      const res = await fetch(`${rulesGetUrl}&dryRun=true`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rules }),
+      });
+      return { status: res.status, body: await res.text() };
+    },
+    readRules,
+  };
   async function writeRules(rules: Record<string, unknown>): Promise<void> {
     const res = await fetch(rulesPutUrl, {
       method: 'PUT',
@@ -374,82 +545,135 @@ async function capture(scenarios: readonly RtdbScenario[]): Promise<void> {
     `oracle-rules-rtdb-admin-${runId}`,
   );
   const adminDb = getAdminDatabase(config.databaseURL, adminApp);
+  const adminAuth = getAdminAuth(adminApp);
+  // The one uid every custom-token case signs in as. It and every anonymous
+  // uid the run signs in as are Auth users the run created; all are deleted
+  // at the end.
+  const claimsUid = `pyric-oracle-rulesrtdb-${runId}`;
+  const runUids = new Set<string>([claimsUid]);
+  const userStore: RunUserStore = {
+    async deleteUser(uid) {
+      await adminAuth.deleteUser(uid);
+    },
+    async userExists(uid) {
+      try {
+        await adminAuth.getUser(uid);
+        return true;
+      } catch (e) {
+        if ((e as { code?: string }).code === 'auth/user-not-found') return false;
+        throw e;
+      }
+    },
+  };
 
-  const observations: { scenario: RtdbScenario; behavior: Record<string, 'ALLOW' | 'DENY'> }[] = [];
+  const observations: { scenario: { id: string; fm: string; rationale: string }; behavior: Record<string, unknown> }[] = [];
   let restoreVerified = false;
   let dataCleanupVerified = false;
+  let userCleanupVerified = false;
+  // Set before the rules write, so a write that fails partway is still restored.
+  let deployed = false;
 
   try {
-    // Deploy every scenario's subtree under `<auditKey>/<scenario.id>`, merged with the
-    // existing rules so real rules are preserved.
-    const auditSubtree: Record<string, unknown> = {};
-    for (const scenario of scenarios) {
-      auditSubtree[scenario.id] = JSON.parse(scenario.rules);
-    }
-    await writeRules({ ...beforeRules, [auditKey]: auditSubtree });
-    console.log(`[oracle:rules-rtdb] deployed ${scenarios.length} scenario subtree(s) under /${auditKey}. Waiting 8s to propagate.`);
-    await new Promise((r) => setTimeout(r, 8_000));
-
-    await signInAnonymously(auth);
-
-    for (const scenario of scenarios) {
-      const behavior: Record<string, 'ALLOW' | 'DENY'> = {};
-      for (const tc of scenario.cases as RtdbTestCase[]) {
-        // Match auth context to the case.
-        if (tc.authPresent && !auth.currentUser) {
-          await signInAnonymously(auth);
-        } else if (!tc.authPresent && auth.currentUser) {
-          await signOut(auth);
-        }
-        const liveUid = auth.currentUser?.uid ?? '';
-        const opPath = substituteUid(tc.opPath, liveUid);
-        const newData = tc.newData !== undefined ? substituteUid(tc.newData, liveUid) : undefined;
-        const mockData = tc.mockData !== undefined ? substituteUid(tc.mockData, liveUid) : undefined;
-        const mountPath = `/${auditKey}/${scenario.id}`;
-        const fullPath = `${mountPath}${opPath}`;
-
-        // Replay starts every case from an empty root, then applies its declared
-        // seed and mockData. Production capture must start from the same state:
-        // clear only this scenario's run-scoped data, then write preconditions
-        // through the rules-bypassing admin adapter.
-        await adminDb.ref(mountPath).set(null);
-        for (const [seedPath, seedValue] of Object.entries(tc.seed ?? {})) {
-          await adminDb
-            .ref(`${mountPath}${substituteUid(seedPath, liveUid)}`)
-            .set(substituteUid(seedValue, liveUid));
-        }
-        if (mockData !== undefined && mockData !== null) {
-          await adminDb.ref(fullPath).set(mockData);
-        }
-
-        let allowed = false;
-        try {
-          if (tc.operation === 'read') {
-            await rtdbGet(rtdbRef(rtdb, fullPath));
-          } else if (tc.operation === 'update') {
-            await rtdbUpdate(rtdbRef(rtdb, fullPath), newData as Record<string, unknown>);
-          } else {
-            await rtdbSet(rtdbRef(rtdb, fullPath), newData ?? null);
-          }
-          allowed = true;
-        } catch {
-          allowed = false;
-        }
-        behavior[tc.description] = allowed ? 'ALLOW' : 'DENY';
-      }
+    // Deploy scenarios first: dry runs against the untouched pre-run rules.
+    for (const scenario of deployScenarios) {
+      const behavior = await captureDeployScenario(endpoint, { beforeRules, mountKey: auditKey, scenario });
       observations.push({ scenario, behavior });
-      const allows = Object.values(behavior).filter((v) => v === 'ALLOW').length;
-      const denies = Object.values(behavior).filter((v) => v === 'DENY').length;
-      console.log(`  ✓ ${scenario.id.padEnd(28)} allow=${allows} deny=${denies}`);
+      const rejected = Object.values(behavior).filter((v) => v.verdict === 'REJECTED').length;
+      console.log(`  ✓ ${scenario.id.padEnd(28)} accepted=${scenario.deployCases.length - rejected} rejected=${rejected} (dry run; live rules read back unchanged)`);
     }
 
-    if (auth.currentUser) {
-      try { await signOut(auth); } catch { /* ignored */ }
+    if (scenarios.length > 0) {
+      // Deploy every scenario's subtree under `<auditKey>/<scenario.id>`, merged with the
+      // existing rules so real rules are preserved.
+      const auditSubtree: Record<string, unknown> = {};
+      for (const scenario of scenarios) {
+        auditSubtree[scenario.id] = JSON.parse(scenario.rules);
+      }
+      deployed = true;
+      await writeRules({ ...beforeRules, [auditKey]: auditSubtree });
+      console.log(`[oracle:rules-rtdb] deployed ${scenarios.length} scenario subtree(s) under /${auditKey}. Waiting 8s to propagate.`);
+      await new Promise((r) => setTimeout(r, 8_000));
+
+      for (const scenario of scenarios) {
+        const behavior: Record<string, 'ALLOW' | 'DENY'> = {};
+        for (const tc of scenario.cases as RtdbTestCase[]) {
+          // Match auth context to the case. A claims case signs in fresh with a
+          // custom token carrying exactly its claims.
+          if (tc.claims) {
+            if (auth.currentUser) await signOut(auth);
+            await signInWithCustomToken(auth, await adminAuth.createCustomToken(claimsUid, tc.claims));
+          } else if (tc.authPresent && (!auth.currentUser || !auth.currentUser.isAnonymous)) {
+            if (auth.currentUser) await signOut(auth);
+            runUids.add((await signInAnonymously(auth)).user.uid);
+          } else if (!tc.authPresent && auth.currentUser) {
+            await signOut(auth);
+          }
+          const liveUid = auth.currentUser?.uid ?? '';
+          const opPath = substituteUid(tc.opPath, liveUid);
+          const newData = tc.newData !== undefined ? substituteUid(tc.newData, liveUid) : undefined;
+          const mockData = tc.mockData !== undefined ? substituteUid(tc.mockData, liveUid) : undefined;
+          const mountPath = `/${auditKey}/${scenario.id}`;
+          const fullPath = `${mountPath}${opPath}`;
+
+          // Replay starts every case from an empty root, then applies its declared
+          // seed and mockData. Production capture must start from the same state:
+          // clear only this scenario's run-scoped data, then write preconditions
+          // through the rules-bypassing admin adapter.
+          await adminDb.ref(mountPath).set(null);
+          for (const [seedPath, seedValue] of Object.entries(tc.seed ?? {})) {
+            await adminDb
+              .ref(`${mountPath}${substituteUid(seedPath, liveUid)}`)
+              .set(substituteUid(seedValue, liveUid));
+          }
+          if (mockData !== undefined && mockData !== null) {
+            await adminDb.ref(fullPath).set(mockData);
+          }
+
+          let allowed = false;
+          try {
+            if (tc.operation === 'read') {
+              await rtdbGet(rtdbRef(rtdb, fullPath));
+            } else if (tc.operation === 'query') {
+              const constraints = queryConstraintsOf(substituteUid(tc.query!, liveUid)).map((spec) => {
+                switch (spec[0]) {
+                  case 'orderByChild': return orderByChild(spec[1]);
+                  case 'orderByKey': return orderByKey();
+                  case 'orderByValue': return orderByValue();
+                  case 'orderByPriority': return orderByPriority();
+                  case 'equalTo': return equalTo(spec[1]);
+                  case 'startAt': return startAt(spec[1]);
+                  case 'endAt': return endAt(spec[1]);
+                  case 'limitToFirst': return limitToFirst(spec[1]);
+                  case 'limitToLast': return limitToLast(spec[1]);
+                }
+              });
+              await rtdbGet(rtdbQuery(rtdbRef(rtdb, fullPath), ...constraints));
+            } else if (tc.operation === 'update') {
+              await rtdbUpdate(rtdbRef(rtdb, fullPath), newData as Record<string, unknown>);
+            } else {
+              await rtdbSet(rtdbRef(rtdb, fullPath), newData ?? null);
+            }
+            allowed = true;
+          } catch {
+            allowed = false;
+          }
+          behavior[tc.description] = allowed ? 'ALLOW' : 'DENY';
+        }
+        observations.push({ scenario, behavior });
+        const allows = Object.values(behavior).filter((v) => v === 'ALLOW').length;
+        const denies = Object.values(behavior).filter((v) => v === 'DENY').length;
+        console.log(`  ✓ ${scenario.id.padEnd(28)} allow=${allows} deny=${denies}`);
+      }
+
+      if (auth.currentUser) {
+        try { await signOut(auth); } catch { /* ignored */ }
+      }
     }
   } finally {
-    // Restore + read-back verify ALWAYS runs, success or failure.
+    // Restore + read-back verify ALWAYS runs, success or failure. A run that
+    // only dry-ran deploys never wrote rules, so it only reads back.
     try {
-      await writeRules(beforeRules);
+      if (deployed) await writeRules(beforeRules);
       const afterRules = await readRules();
       if (canonicalize(afterRules) === beforeCanonical) {
         restoreVerified = true;
@@ -470,6 +694,13 @@ async function capture(scenarios: readonly RtdbScenario[]): Promise<void> {
     } catch (e) {
       console.error(`[oracle:rules-rtdb] DATA CLEANUP FAILED: ${e instanceof Error ? e.message : String(e)}`);
     }
+    try {
+      for (const uid of runUids) await verifyRunUserCleanup(userStore, uid);
+      userCleanupVerified = true;
+      console.log(`[oracle:rules-rtdb] user cleanup verified — ${runUids.size} run-created Auth uid(s) absent.`);
+    } catch (e) {
+      console.error(`[oracle:rules-rtdb] USER CLEANUP FAILED: ${e instanceof Error ? e.message : String(e)}`);
+    }
     try { await deleteApp(app); } catch { /* ignored */ }
     try { await adminDeleteApp(adminApp); } catch { /* ignored */ }
   }
@@ -483,6 +714,9 @@ async function capture(scenarios: readonly RtdbScenario[]): Promise<void> {
   if (!dataCleanupVerified) {
     throw new Error(`data cleanup invariant NOT verified — refusing to write observations. Delete /${auditKey} manually.`);
   }
+  if (!userCleanupVerified) {
+    throw new Error(`user cleanup invariant NOT verified — refusing to write observations. Delete the Auth users ${[...runUids].join(', ')} manually.`);
+  }
 
   mkdirSync(OBS_DIR, { recursive: true });
   for (const { scenario, behavior } of observations) {
@@ -494,7 +728,9 @@ async function capture(scenarios: readonly RtdbScenario[]): Promise<void> {
       name: rtdbObservationName(scenario),
       matrixRow: linkage.matrixRow,
       rowIds: linkage.rowIds,
-      description: `RTDB rules production verdicts for corpus scenario "${scenario.id}" (${scenario.fm}). Captured by deploy-observe-restore (RTDB has no server-side rules test API). ${scenario.rationale}`,
+      description: 'deployCases' in scenario
+        ? `RTDB rules deploy verdicts for corpus scenario "${scenario.id}" (${scenario.fm}). Captured by dry-run deploys to the rules endpoint, which validate without deploying. ${scenario.rationale}`
+        : `RTDB rules production verdicts for corpus scenario "${scenario.id}" (${scenario.fm}). Captured by deploy-observe-restore (RTDB has no server-side rules test API). ${scenario.rationale}`,
       observedAt: new Date().toISOString(),
       fbSdkVersion,
       projectId: config.projectId,
@@ -504,16 +740,16 @@ async function capture(scenarios: readonly RtdbScenario[]): Promise<void> {
     console.log(`  → wrote ${rtdbObservationName(scenario)}.json`);
   }
 
-  console.log('\n[oracle:rules-rtdb] capture complete — rules restored and run data removed, both read-back verified.');
+  console.log('\n[oracle:rules-rtdb] capture complete — rules restored, run data and run user removed, all read-back verified.');
   console.log('[oracle:rules-rtdb] Existing observation matrixRow/rowIds linkage was preserved.');
   console.log('[oracle:rules-rtdb] NEXT: review the observation diff, then run `bun run compat:validate`.');
 }
 
 if (import.meta.main) {
-  const scenarios = selectRtdbScenarios(process.argv.slice(2));
+  const selection = selectRtdbScenarios(process.argv.slice(2));
   if (!process.env.PYRIC_ORACLE_FIREBASE_CONFIG) {
-    printInertPlan(scenarios);
+    printInertPlan(selection);
     process.exit(0);
   }
-  await capture(scenarios);
+  await capture(selection);
 }

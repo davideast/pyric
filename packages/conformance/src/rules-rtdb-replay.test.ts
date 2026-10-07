@@ -1,7 +1,6 @@
 import { expect, test } from 'bun:test';
 import { ALL_RULES_RTDB_SCENARIOS } from '../rules-corpus/rtdb/index.ts';
-import { replayRtdbScenario, traceAgreesWithVerdict } from './rules-rtdb-replay.ts';
-
+import { replayRtdbDeployScenario, replayRtdbScenario, traceAgreesWithVerdict } from './rules-rtdb-replay.ts';
 test('replays one RTDB corpus scenario through the local simulator', () => {
   const scenario = ALL_RULES_RTDB_SCENARIOS.find((candidate) => candidate.id === 'r1-auth-only');
   expect(scenario).toBeDefined();
@@ -99,4 +98,65 @@ test('a result whose trace does not account for its verdict is not a verdict', (
   expect(traceAgreesWithVerdict({ ...base, allowed: true, trace: [grant, refusal] })).toBe(false);
   expect(traceAgreesWithVerdict({ ...base, allowed: false, trace: [grant] })).toBe(false);
   expect(traceAgreesWithVerdict({ ...base, allowed: true, trace: [] })).toBe(false);
+});
+
+test('replays query and custom-claim cases through the simulator', () => {
+  const results = replayRtdbScenario({
+    id: 'query-claims-replay',
+    fm: 'rtdb#71',
+    rationale: 'Query fields and token claims reach the rules.',
+    provenance: 'Synthetic replay-adapter specification.',
+    rules: JSON.stringify({
+      items: { '.read': "query.orderByChild == 'owner' && query.equalTo == auth.uid" },
+      admin: { '.write': 'auth.token.admin == true' },
+      provider: { '.write': "auth.token.firebase.sign_in_provider == 'custom'" },
+    }),
+    cases: [
+      { description: 'owner query', expectation: 'ALLOW', operation: 'query', opPath: '/items', authPresent: true, query: { orderByChild: 'owner', equalTo: '<UID>' } },
+      { description: 'plain read', expectation: 'DENY', operation: 'read', opPath: '/items', authPresent: true },
+      { description: 'admin claim', expectation: 'ALLOW', operation: 'write', opPath: '/admin', authPresent: true, claims: { admin: true }, newData: 1 },
+      { description: 'anonymous has no claim', expectation: 'DENY', operation: 'write', opPath: '/admin', authPresent: true, newData: 1 },
+      { description: 'custom-token provider', expectation: 'ALLOW', operation: 'write', opPath: '/provider', authPresent: true, claims: {}, newData: 1 },
+    ],
+  });
+  expect(results.map((result) => [result.caseKey, result.simulator])).toEqual([
+    ['owner query', 'ALLOW'],
+    ['plain read', 'DENY'],
+    ['admin claim', 'ALLOW'],
+    ['anonymous has no claim', 'DENY'],
+    ['custom-token provider', 'ALLOW'],
+  ]);
+});
+
+test('replays deploy cases through the local ruleset check', () => {
+  const results = replayRtdbDeployScenario({
+    id: 'deploy-replay',
+    fm: 'rtdb#71',
+    rationale: 'Local load-time checks against production deploy verdicts.',
+    provenance: 'Synthetic replay-adapter specification.',
+    deployCases: [
+      {
+        description: 'valid',
+        construct: 'rtdb.rule-kind.read',
+        rules: JSON.stringify({ a: { '.read': 'auth != null' } }),
+        expectation: { verdict: 'ACCEPTED' },
+      },
+      {
+        description: 'unknown variable',
+        construct: 'rtdb.binding.unknown-variable',
+        rules: JSON.stringify({ a: { '.read': 'foo == 1' } }),
+        expectation: { verdict: 'REJECTED', error: "Unknown variable 'foo'." },
+      },
+    ],
+  });
+  expect(results).toEqual([
+    { caseKey: 'valid', construct: 'rtdb.rule-kind.read', production: 'ACCEPTED', local: 'ACCEPTED', localErrors: [] },
+    {
+      caseKey: 'unknown variable',
+      construct: 'rtdb.binding.unknown-variable',
+      production: 'REJECTED',
+      local: 'REJECTED',
+      localErrors: [expect.stringContaining('foo')],
+    },
+  ]);
 });

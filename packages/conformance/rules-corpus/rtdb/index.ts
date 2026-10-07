@@ -13,18 +13,30 @@
  * the corpus, the captured observations, and the replay suite, and they double
  * as the subtree mount key at capture/replay time.
  */
-import { loadedRtdbScenarios } from './load.ts';
-import type { RtdbScenario } from './types.ts';
+import { loadedRtdbCorpus } from './load.ts';
+import type { RtdbDeployScenario, RtdbScenario } from './types.ts';
 
-export type { RtdbScenario, RtdbTestCase, RtdbScenarioRecord } from './types.ts';
+export type {
+  RtdbCaseQuery,
+  RtdbDeployCase,
+  RtdbDeployScenario,
+  RtdbDeployScenarioRecord,
+  RtdbDeployVerdict,
+  RtdbScenario,
+  RtdbScenarioRecord,
+  RtdbTestCase,
+} from './types.ts';
 
 /** The observation filename prefix for every RTDB rules capture. */
 export const RULES_RTDB_OBSERVATION_PREFIX = 'rules-rtdb-';
 
-/** Every RTDB rules scenario in the corpus, sorted by id. */
-export const ALL_RULES_RTDB_SCENARIOS: RtdbScenario[] = loadedRtdbScenarios;
+/** Every RTDB rules operation scenario in the corpus, sorted by id. */
+export const ALL_RULES_RTDB_SCENARIOS: RtdbScenario[] = loadedRtdbCorpus.scenarios;
+
+/** Every RTDB rules deploy scenario in the corpus, sorted by id. */
+export const ALL_RULES_RTDB_DEPLOY_SCENARIOS: RtdbDeployScenario[] = loadedRtdbCorpus.deployScenarios;
 
 /** The observation stem (no extension) a given scenario captures into. */
-export function rtdbObservationName(scenario: RtdbScenario): string {
+export function rtdbObservationName(scenario: { id: string }): string {
   return `${RULES_RTDB_OBSERVATION_PREFIX}${scenario.id}`;
 }

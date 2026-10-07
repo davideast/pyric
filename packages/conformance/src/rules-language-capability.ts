@@ -33,6 +33,8 @@ import {
 } from '../../../packages/pyric/src/rules/rtdb/compiled-rules.ts';
 import type { SimulationInput } from '../../../packages/pyric/src/rules/rtdb/simulation/spec.ts';
 import { loadSnapshot, type LanguageConstruct, type RulesEngine } from '../rules-language/load.ts';
+import { ALL_RULES_RTDB_DEPLOY_SCENARIOS, type RtdbCaseQuery } from '../rules-corpus/rtdb/index.ts';
+import { localDeployVerdict } from './rules-rtdb-replay.ts';
 import { evaluateFirestoreCapability } from './firestore-rules-capability-evaluation.ts';
 import { stProbeFor, stRun } from './rules-language-storage-capability.ts';
 export {
@@ -70,17 +72,46 @@ import { resolveFirestoreConstructProbe } from './firestore-rules-capability-pro
 // ════════════════════════════════════════════════════════════════════
 
 type RtProbe =
-  | { read: string; op?: 'read' | 'write'; newData?: unknown; mockData?: unknown }
+  | {
+    read: string;
+    op?: 'read' | 'write';
+    newData?: unknown;
+    mockData?: unknown;
+    /** The query a read probe applies. */
+    query?: RtdbCaseQuery;
+    /** Production's captured verdict for this exact probe, when one exists. */
+    expect?: 'ALLOW' | 'DENY';
+  }
   | { subtree: Record<string, unknown>; op: 'read' | 'write'; opPath?: string; newData?: unknown; mockData?: unknown }
+  | { deploy: { scenarioId: string; rules: string }[] }
   | { unprobeable: string };
 
-function rtRun(probe: RtProbe): { classification: Classification; detail: string } {
+type RtResult = Pick<ConstructCapability, 'classification' | 'detail' | 'evaluationAgreement'>;
+
+/**
+ * A construct isolated by deploy cases: the local load-time check runs on each
+ * case's ruleset. `error` means the check rejects every one of them, the
+ * local counterpart of production refusing the deploy.
+ */
+function rtDeployRun(cases: { scenarioId: string; rules: string }[]): RtResult {
+  const verdicts = cases.map((deployCase) => localDeployVerdict(deployCase.scenarioId, deployCase.rules));
+  if (verdicts.every((verdict) => verdict.verdict === 'REJECTED')) {
+    return { classification: 'error', detail: `rejected at load: ${verdicts.flatMap((verdict) => verdict.errors).join('; ')}` };
+  }
+  const rejected = verdicts.filter((verdict) => verdict.verdict === 'REJECTED').length;
+  return { classification: 'implemented', detail: `accepted at load (${cases.length - rejected} of ${cases.length} rulesets)` };
+}
+
+function rtRun(probe: RtProbe): RtResult {
   if ('unprobeable' in probe) return { classification: 'unprobeable', detail: probe.unprobeable };
+  if ('deploy' in probe) return rtDeployRun(probe.deploy);
   let subtree: Record<string, unknown>;
   let op: 'read' | 'write';
   let opPath: string;
   let newData: unknown;
   let mockData: unknown;
+  let query: RtdbCaseQuery | undefined;
+  let expected: 'ALLOW' | 'DENY' | undefined;
   if ('subtree' in probe) {
     subtree = probe.subtree;
     op = probe.op;
@@ -93,6 +124,8 @@ function rtRun(probe: RtProbe): { classification: Classification; detail: string
     opPath = '/probe';
     newData = probe.newData ?? (op === 'write' ? 'value' : undefined);
     mockData = probe.mockData ?? {};
+    query = probe.query;
+    expected = probe.expect;
   }
   const rules = { rules: { '.read': false, '.write': false, ...subtree } };
   let compiled: CompiledRtdbRules;
@@ -107,6 +140,7 @@ function rtRun(probe: RtProbe): { classification: Classification; detail: string
     auth: { uid: 'u', token: { admin: true } },
     mockData: (typeof mockData === 'object' && mockData !== null ? mockData : {}) as Record<string, unknown>,
     newData,
+    ...(query ? { query: query as SimulationInput['query'] } : {}),
   };
   let res;
   try {
@@ -124,7 +158,12 @@ function rtRun(probe: RtProbe): { classification: Classification; detail: string
     return { classification: 'error', detail: `${code}: ${message}` };
   }
   if (res.data.unsupported) return { classification: 'unsupported', detail: `abstained: ${res.data.reason}` };
-  return { classification: 'implemented', detail: `${res.data.allowed ? 'ALLOW' : 'DENY'}: ${res.data.reason}` };
+  const verdict = res.data.allowed ? 'ALLOW' : 'DENY';
+  return {
+    classification: 'implemented',
+    detail: `${verdict}: ${res.data.reason}${expected && expected !== verdict ? ` (production: ${expected})` : ''}`,
+    ...(expected ? { evaluationAgreement: expected === verdict } : {}),
+  };
 }
 
 const RT_EXPR: Record<string, RtProbe> = {
@@ -177,7 +216,38 @@ const RT_EXPR: Record<string, RtProbe> = {
   'rtdb.binding.newData': { op: 'write', read: 'newData.val() == newData.val()', newData: 'v' },
   'rtdb.binding.root': { read: "root.child('x').exists() == root.child('x').exists()" },
   'rtdb.binding.now': { op: 'write', read: 'now > 0', newData: 'v' },
+  // A custom claim, read from the probe token `{ admin: true }`.
+  'rtdb.binding.auth.token.custom-claim': { read: 'auth.token.admin == true', expect: 'ALLOW' },
+  // The query variable. Each probe and its expected verdict is a case
+  // production answered in the r30-query-rules capture.
+  'rtdb.binding.query': { read: 'query.orderByChild == null', expect: 'ALLOW' },
+  'rtdb.binding.query.orderByChild': { read: 'query.orderByChild == null', query: { orderByChild: 'owner' }, expect: 'DENY' },
+  'rtdb.binding.query.orderByKey': { read: 'query.orderByKey == false', expect: 'ALLOW' },
+  'rtdb.binding.query.orderByValue': { read: 'query.orderByValue == true', query: { orderByValue: true }, expect: 'ALLOW' },
+  'rtdb.binding.query.orderByPriority': { read: 'query.orderByPriority == true', query: { orderByPriority: true }, expect: 'ALLOW' },
+  'rtdb.binding.query.equalTo': {
+    read: "query.orderByChild == 'owner' && query.equalTo == auth.uid",
+    query: { orderByChild: 'owner', equalTo: 'u' },
+    expect: 'ALLOW',
+  },
+  'rtdb.binding.query.startAt': { read: "query.startAt == 'b' && query.endAt == 'm'", query: { orderByKey: true, startAt: 'b', endAt: 'm' }, expect: 'ALLOW' },
+  'rtdb.binding.query.endAt': { read: "query.startAt == 'b' && query.endAt == 'm'", query: { orderByKey: true, startAt: 'b', endAt: 'm' }, expect: 'ALLOW' },
+  'rtdb.binding.query.limitToFirst': { read: 'query.limitToFirst <= 2', query: { limitToFirst: 2 }, expect: 'ALLOW' },
+  'rtdb.binding.query.limitToLast': { read: 'query.limitToLast <= 2', query: { limitToLast: 2 }, expect: 'ALLOW' },
 };
+
+/** Deploy cases by the construct they isolate, across every deploy scenario. */
+const RT_DEPLOY_CASES: ReadonlyMap<string, { scenarioId: string; rules: string }[]> = (() => {
+  const out = new Map<string, { scenarioId: string; rules: string }[]>();
+  for (const scenario of ALL_RULES_RTDB_DEPLOY_SCENARIOS) {
+    for (const deployCase of scenario.deployCases) {
+      const list = out.get(deployCase.construct) ?? [];
+      list.push({ scenarioId: scenario.id, rules: deployCase.rules });
+      out.set(deployCase.construct, list);
+    }
+  }
+  return out;
+})();
 
 function rtProbeFor(c: LanguageConstruct): RtProbe {
   if (c.id in RT_EXPR) return RT_EXPR[c.id];
@@ -202,6 +272,8 @@ function rtProbeFor(c: LanguageConstruct): RtProbe {
     if (name === 'deny-by-default') return { subtree: { probe: {} }, op: 'read', opPath: '/probe' };
     if (name === 'regex-literal') return { op: 'write', read: 'newData.val().matches(/^a/)', newData: 'abc' };
   }
+  const deployCases = RT_DEPLOY_CASES.get(c.id);
+  if (deployCases) return { deploy: deployCases };
   return { unprobeable: `no generator for construct kind ${c.kind}` };
 }
 
