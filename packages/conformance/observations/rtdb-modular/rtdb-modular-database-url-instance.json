@@ -1,0 +1,132 @@
+{
+  "name": "rtdb-modular-database-url-instance",
+  "matrixRow": "rtdb-modular#M39",
+  "rowIds": [
+    "rtdb-modular#M39"
+  ],
+  "description": "getDatabase(app, url) for each database URL form: the instance name (namespace) and root URL the SDK derives, or the Error message it throws; plus the default instance for an app with only a project id.",
+  "observedAt": "2026-10-07T19:44:34.208Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "urls": {
+      "https://my-instance.firebaseio.com": {
+        "name": "my-instance",
+        "url": "https://my-instance.firebaseio.com/"
+      },
+      "https://my-instance.firebaseio.com/": {
+        "name": "my-instance",
+        "url": "https://my-instance.firebaseio.com/"
+      },
+      "HTTPS://MY-INSTANCE.FIREBASEIO.COM/": {
+        "name": "my-instance",
+        "url": "https://my-instance.firebaseio.com/"
+      },
+      "my-instance.firebaseio.com": {
+        "name": "my-instance",
+        "url": "https://my-instance.firebaseio.com/"
+      },
+      "wss://my-instance.firebaseio.com": {
+        "name": "my-instance",
+        "url": "https://my-instance.firebaseio.com/"
+      },
+      "https://my-instance.firebaseio.com:443": {
+        "name": "my-instance",
+        "url": "https://my-instance.firebaseio.com:443/"
+      },
+      "https://my-instance.firebaseio-demo.com": {
+        "name": "my-instance",
+        "url": "https://my-instance.firebaseio-demo.com/"
+      },
+      "https://my-instance.europe-west1.firebasedatabase.app": {
+        "name": "my-instance",
+        "url": "https://my-instance.europe-west1.firebasedatabase.app/"
+      },
+      "https://My-Instance.Europe-West1.Firebasedatabase.App/": {
+        "name": "my-instance",
+        "url": "https://my-instance.europe-west1.firebasedatabase.app/"
+      },
+      "https://my-instance.asia-southeast1.firebasedatabase.app": {
+        "name": "my-instance",
+        "url": "https://my-instance.asia-southeast1.firebasedatabase.app/"
+      },
+      "http://localhost:9000?ns=db1": {
+        "name": "db1",
+        "url": "http://localhost:9000/?ns=db1"
+      },
+      "http://localhost:9000/?ns=DB1": {
+        "name": "DB1",
+        "url": "http://localhost:9000/?ns=DB1"
+      },
+      "http://localhost:9000?NS=db1": {
+        "name": "",
+        "url": "http://localhost:9000/"
+      },
+      "http://localhost:9000": {
+        "name": "",
+        "url": "http://localhost:9000/"
+      },
+      "http://127.0.0.1:9000?ns=db1": {
+        "name": "db1",
+        "url": "http://127.0.0.1:9000/?ns=db1"
+      },
+      "https://proxy.example.com?ns=db1": {
+        "name": "db1",
+        "url": "https://proxy.example.com/?ns=db1"
+      },
+      "https://my-instance.firebaseio.com?ns=other": {
+        "name": "other",
+        "url": "https://my-instance.firebaseio.com/?ns=other"
+      },
+      "my-instance": {
+        "error": "FIREBASE FATAL ERROR: Cannot parse Firebase url. Please use https://<YOUR FIREBASE>.firebaseio.com ",
+        "errorClass": "Error"
+      },
+      "default": {
+        "error": "FIREBASE FATAL ERROR: Cannot parse Firebase url. Please use https://<YOUR FIREBASE>.firebaseio.com ",
+        "errorClass": "Error"
+      },
+      "https://example.com": {
+        "error": "FIREBASE FATAL ERROR: Cannot parse Firebase url. Please use https://<YOUR FIREBASE>.firebaseio.com ",
+        "errorClass": "Error"
+      },
+      "https://my-instance.firebaseio.com?ns=": {
+        "error": "FIREBASE FATAL ERROR: Cannot parse Firebase url. Please use https://<YOUR FIREBASE>.firebaseio.com ",
+        "errorClass": "Error"
+      },
+      "https://firebase.com": {
+        "error": "FIREBASE FATAL ERROR: firebase.com is no longer supported. Please use <YOUR FIREBASE>.firebaseio.com instead ",
+        "errorClass": "Error"
+      },
+      "https://x.firebase.com": {
+        "error": "FIREBASE FATAL ERROR: x.firebase.com is no longer supported. Please use <YOUR FIREBASE>.firebaseio.com instead ",
+        "errorClass": "Error"
+      },
+      "https://my-instance.firebaseio.com/users": {
+        "error": "FIREBASE FATAL ERROR: Database URL must point to the root of a Firebase Database (not including a child path). ",
+        "errorClass": "Error"
+      },
+      "https://my-instance.firebaseio.com/.info": {
+        "error": "FIREBASE FATAL ERROR: Database URL must point to the root of a Firebase Database (not including a child path). ",
+        "errorClass": "Error"
+      },
+      "https://my-instance.firebaseio.com/a.b": {
+        "error": "Invalid Firebase Database URL failed: url argument must be a valid firebase URL and the path can't contain \".\", \"#\", \"$\", \"[\", or \"]\".",
+        "errorClass": "Error"
+      },
+      "https://bad#name.firebaseio.com": {
+        "error": "Invalid Firebase Database URL failed: url argument must be a valid firebase URL and the path can't contain \".\", \"#\", \"$\", \"[\", or \"]\".",
+        "errorClass": "Error"
+      },
+      "https://my-instance.firebaseio.com?ns=a.b": {
+        "error": "Invalid Firebase Database URL failed: url argument must be a valid firebase URL and the path can't contain \".\", \"#\", \"$\", \"[\", or \"]\".",
+        "errorClass": "Error"
+      }
+    },
+    "projectDefault": {
+      "name": "genkit-idx-default-rtdb",
+      "url": "https://genkit-idx-default-rtdb.firebaseio.com/",
+      "nameIsProjectIdDefaultRtdb": true
+    }
+  }
+}

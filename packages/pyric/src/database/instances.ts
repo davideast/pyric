@@ -2,7 +2,8 @@ import type { Sandbox, SandboxContext } from 'pyric/sandbox';
 import { SandboxContextImpl } from 'pyric/sandbox';
 import type { FirebaseApp } from '../app/types.js';
 import { defaultClientApp, resolveClientApp } from '../sandbox/internal/client-app.js';
-import { canonicalizeDatabaseUrl, getOrCreateBackend } from './sandbox/backend-for.js';
+import { databaseInstanceKey, parseDatabaseUrl, resolveDatabaseInstance } from '../sandbox/internal/instances.js';
+import { getOrCreateBackend } from './sandbox/backend-for.js';
 import { RtdbConnectionLifecycle } from './connection-lifecycle.js';
 import { TARGET_SYMBOL, type SandboxLiveTarget, type SandboxTarget } from './routing.js';
 import { Database, type AppDatabase } from './types.js';
@@ -55,14 +56,18 @@ export function getDatabase(
     } catch {
       // If app is already deleted, reading app.options throws app/app-deleted.
     }
-    const finalUrl = effectiveUrl ?? appDbUrl;
-    const canonicalKey = canonicalizeDatabaseUrl(finalUrl);
+    // As in production, an empty URL falls back to the app's databaseURL and
+    // the URL is parsed with the SDK's rules. With neither, the handle is the
+    // sandbox's default instance.
+    const finalUrl = effectiveUrl || appDbUrl;
+    const instance = finalUrl ? parseDatabaseUrl(finalUrl) : undefined;
+    const instanceKey = databaseInstanceKey(instance);
 
-    return appRuntime.service(`database/${canonicalKey}`, () => {
+    return appRuntime.service(`database/${instanceKey}`, () => {
       const { sandbox, session } = appRuntime;
       let deleted = false;
       appRuntime.onDelete(() => { deleted = true; });
-      const backend = getOrCreateBackend(sandbox, finalUrl);
+      const backend = getOrCreateBackend(sandbox, instance);
       const connection = new RtdbConnectionLifecycle(
         backend,
         () => session.currentUser,
@@ -72,7 +77,7 @@ export function getDatabase(
       const t: SandboxLiveTarget = {
         kind: 'sandbox-live',
         activityApp: app,
-        activityScope: canonicalKey,
+        activityScope: instanceKey,
         backend,
         connection,
         sandbox,
@@ -90,14 +95,16 @@ export function getDatabase(
   }
 
   if (isSandboxContext(target)) {
-    const backend = getOrCreateBackend(target.sandbox, effectiveUrl);
+    const instance = resolveDatabaseInstance(effectiveUrl);
+    const backend = getOrCreateBackend(target.sandbox, instance);
     const connection = new RtdbConnectionLifecycle(backend, () => target.auth, false);
-    const t: SandboxTarget = { kind: 'sandbox', activityApp: target, activityScope: canonicalizeDatabaseUrl(effectiveUrl), backend, auth: target.auth, connection };
+    const t: SandboxTarget = { kind: 'sandbox', activityApp: target, activityScope: databaseInstanceKey(instance), backend, auth: target.auth, connection };
     return new Database(t);
   }
 
   if (isSandbox(target)) {
-    const backend = getOrCreateBackend(target, effectiveUrl);
+    const instance = resolveDatabaseInstance(effectiveUrl);
+    const backend = getOrCreateBackend(target, instance);
     const connection = new RtdbConnectionLifecycle(
       backend,
       () => target.currentUser,
@@ -106,7 +113,7 @@ export function getDatabase(
     const t: SandboxLiveTarget = {
       kind: 'sandbox-live',
       activityApp: target,
-      activityScope: canonicalizeDatabaseUrl(effectiveUrl),
+      activityScope: databaseInstanceKey(instance),
       backend,
       connection,
       sandbox: target,
@@ -142,7 +149,7 @@ export function getAdminDatabase(
       ? target
       : undefined;
   if (sandbox === undefined) throw packageResolutionError();
-  const backend = getOrCreateBackend(sandbox, url);
+  const backend = getOrCreateBackend(sandbox, resolveDatabaseInstance(url));
   const connection = new RtdbConnectionLifecycle(backend, () => null, true);
   const t: SandboxTarget = { kind: 'sandbox', backend, auth: null, admin: true, connection };
   return new Database(t);
