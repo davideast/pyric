@@ -476,21 +476,47 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   };
   clientUser = readCurrentUser();
 
+  /** A sign-in or sign-out that threw, shown in the Switch user section and announced. */
+  let identityError: { title: string; detail: string } | null = null;
+  /** The identity change just made, spoken once by the polite announcer. */
+  let identityNotice = '';
+  const failIdentityChange = (title: string, error: unknown): void => {
+    identityError = { title, detail: error instanceof Error && error.message !== '' ? error.message : 'The sandbox did not accept the change.' };
+    identityNotice = `${title}. ${identityError.detail}`;
+    render();
+  };
+
   const identity: RuntimeIdentityBindings = {
     listUsers: providedIdentity?.listUsers ?? (() => []),
     switchUser: async (uid) => {
-      if (providedIdentity?.switchUser) await providedIdentity.switchUser(uid);
-      else setLensFn({ mode: 'as', uid });
+      try {
+        if (providedIdentity?.switchUser) await providedIdentity.switchUser(uid);
+        else setLensFn({ mode: 'as', uid });
+      } catch (error) {
+        failIdentityChange('Could not sign in', error);
+        return;
+      }
       clientUser = readCurrentUser();
       identityQuery = '';
       identityPage = 0;
+      identityError = null;
+      const switched = knownUsers.find((candidate) => candidate.uid === uid);
+      const signedIn = clientUser?.uid === uid ? clientUser : null;
+      identityNotice = `Signed in as ${signedIn?.displayName ?? signedIn?.email ?? (switched === undefined ? uid : userDisplayLabel(switched))}.`;
       void loadUsers();
       render();
     },
     signOut: async () => {
-      if (providedIdentity?.signOut) await providedIdentity.signOut();
-      else setLensFn(undefined);
+      try {
+        if (providedIdentity?.signOut) await providedIdentity.signOut();
+        else setLensFn(undefined);
+      } catch (error) {
+        failIdentityChange('Could not sign out', error);
+        return;
+      }
       clientUser = null;
+      identityError = null;
+      identityNotice = 'Signed out.';
       render();
     },
     openCreateUser: providedIdentity?.openCreateUser ?? (() => {}),
@@ -688,6 +714,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   const showTab = (next: ChipTab): void => {
     if (next !== 'listeners') dataView?.leave();
     if (next === 'identity' && usersFailed) usersRequested = false;
+    identityNotice = '';
     tab = next;
     writeRememberedChipTab(tabStorage, next);
     render();
@@ -811,7 +838,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const pagination = available.length > USER_PAGE_SIZE ? `<div class="pagination"><div class="pagination-line"><span class="section-meta" data-user-range>${range}</span><span class="actions"><button class="btn icon-button" type="button" data-user-previous aria-label="Previous users"${identityPage === 0 ? ' disabled' : ''}>${iconHtml('chevron')}</button><button class="btn icon-button" type="button" data-user-next aria-label="Next users"${offset + USER_PAGE_SIZE >= available.length ? ' disabled' : ''}>${iconHtml('chevron')}</button></span></div></div>` : '';
     const update = updateRowHtml();
     return {
-      body: `${update ? `<div class="rows">${update}</div>` : ''}${sectionHtml('Current identity', `<div class="rows">${identityRecordHtml(current, record)}</div>`, isAdmin ? 'Rules bypassed' : getLensFn()?.mode === 'as' ? 'Impersonating' : '')}${sectionHtml('Switch user', `${search}${pagination}<div class="rows" data-user-rows>${matched.join('')}</div>${matched.length ? '' : empty}`, pluralize(available.length, 'user'))}`,
+      body: `${update ? `<div class="rows">${update}</div>` : ''}${sectionHtml('Current identity', `<div class="rows">${identityRecordHtml(current, record)}</div>`, isAdmin ? 'Rules bypassed' : getLensFn()?.mode === 'as' ? 'Impersonating' : '')}${sectionHtml('Switch user', `${identityError ? `<div data-identity-error>${emptyHtml(identityError.title, identityError.detail)}</div>` : ''}${search}${pagination}<div class="rows" data-user-rows>${matched.join('')}</div>${matched.length ? '' : empty}`, pluralize(available.length, 'user'))}`,
       bar: barHtml(buttons, isAdmin ? 'Rules bypassed' : 'Rules enforced'),
     };
   };
@@ -1120,7 +1147,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       </div></section>`
       : `<button class="chip${chipTone}" type="button" data-expand aria-label="Open pyric" aria-expanded="false"${chipTitle ? ` title="${chipTitle}"` : ''}>pyric</button>`;
 
-    const announcement = `${errorCount === 0 ? 'No runtime errors' : `${errorCount} runtime ${errorCount === 1 ? 'error' : 'errors'}`}.${current.missingIndex ? ' A query is missing an index in local configuration.' : ''}${current.rateThreshold ? ' Activity exceeded a threshold. Open Traffic to review.' : ''}${open ? ` ${CHIP_TAB_LABELS[tab]}.` : ''}`;
+    const announcement = `${errorCount === 0 ? 'No runtime errors' : `${errorCount} runtime ${errorCount === 1 ? 'error' : 'errors'}`}.${current.missingIndex ? ' A query is missing an index in local configuration.' : ''}${current.rateThreshold ? ' Activity exceeded a threshold. Open Traffic to review.' : ''}${open ? ` ${CHIP_TAB_LABELS[tab]}.` : ''}${identityNotice === '' ? '' : ` ${identityNotice}`}`;
     if (announcer.textContent !== announcement) announcer.textContent = announcement;
     // A view edited outside render (a refreshed rate cell, a copied-response
     // icon) is rebuilt from state even when the markup matches.

@@ -73,3 +73,26 @@ describe('chip-user-search', () => {
     expect(filterUsers(mockUsers, 'carol@example.com')).toEqual([]);
   });
 });
+
+describe('chip-user-search claim keys', () => {
+  const users: AuthUserRecord[] = [
+    { uid: 'a', customClaims: { isAdmin: true, orgId: 'Acme' } },
+    { uid: 'b', customClaims: { isAdmin: false } },
+  ];
+  const uids = (query: string) => filterUsers(users, query).map((u) => u.uid);
+
+  it('matches a camelCase claim key in the claim qualifier', () => {
+    expect(uids('claim:isAdmin=true')).toEqual(['a']);
+    expect(uids('claim:isAdmin')).toEqual(['a', 'b']);
+    expect(uids('claim:orgId:acme')).toEqual(['a']);
+  });
+
+  it('matches a camelCase claim key in a bare key:value query', () => {
+    expect(uids('isAdmin:true')).toEqual(['a']);
+    expect(uids('orgId=acme')).toEqual(['a']);
+  });
+
+  it('matches the key whatever case the developer types', () => {
+    expect(uids('claim:ISADMIN=true')).toEqual(['a']);
+  });
+});

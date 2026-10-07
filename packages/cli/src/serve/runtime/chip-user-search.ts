@@ -39,6 +39,15 @@ export function getUserProviders(user: AuthUserRecord): string[] {
   return providers;
 }
 
+/** A claim's value by key, ignoring case. The typed query is lowercased, so a
+ * camelCase claim key such as `isAdmin` is only reachable this way. */
+function claimValue(claims: Record<string, unknown>, lowerKey: string): unknown {
+  for (const key of Object.keys(claims)) {
+    if (key.toLowerCase() === lowerKey) return claims[key];
+  }
+  return undefined;
+}
+
 /** The users a typed query selects. A disabled account is never offered: the
  * page could not run as it. */
 export function filterUsers(
@@ -71,7 +80,7 @@ export function filterUsers(
       const [key, val] = spec.split(delimiter).map((s) => s.trim());
       const c = u.customClaims ?? {};
       if (key && val !== undefined) {
-        return String(c[key] ?? '').toLowerCase().includes(val);
+        return String(claimValue(c, key) ?? '').toLowerCase().includes(val);
       }
       return Object.keys(c).some((k) => k.toLowerCase().includes(spec));
     }
@@ -79,8 +88,9 @@ export function filterUsers(
       const delimiter = q.includes('=') ? '=' : ':';
       const [key, val] = q.split(delimiter).map((s) => s.trim());
       const c = u.customClaims ?? {};
-      if (key && c[key] !== undefined && val !== undefined) {
-        return String(c[key]).toLowerCase().includes(val);
+      const claim = key ? claimValue(c, key) : undefined;
+      if (claim !== undefined && val !== undefined) {
+        return String(claim).toLowerCase().includes(val);
       }
     }
 
