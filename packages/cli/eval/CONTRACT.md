@@ -76,6 +76,7 @@ An operation is one thing an agent can do to the sandbox. Every surface variant 
 | `lint_firestore_rules` | lint | firestore | rules | `rules?` (source; default current) | |
 | `simulate_firestore_rules` | simulate | firestore | rules | `operation`, `path`, `uid?`, `data?` (object), `cases?` (array of `{ operation, path, uid?, data? }`), `rules?` | Exactly one of the single form and `cases`. |
 | `diagnose_firestore_denial` | diagnose | firestore | denial | `operation`, `path`, `uid?`, `data?` | Trace of why a request was denied. |
+| `diagnose_database_denial` | diagnose | database | denial | `operation` (`read`, `write`, `update`, `validate`), `path`, `uid?`, `data?` (any JSON; the patch for `update`), `query?` (`read` only), `rules?` (a draft ruleset's file text), `source?` (the running ruleset's file text, for source lines only) | The deciding rule, its kind, path and expression, why it failed, and what would allow the request, with `evaluated` naming the running ruleset or the draft. |
 | `lint_database_rules` | lint | database | rules | `rules?` | |
 | `simulate_database_rules` | simulate | database | rules | `operation`, `path`, `uid?`, `data?`, `rules?` | |
 | `lint_storage_rules` | lint | storage | rules | `rules?` | |

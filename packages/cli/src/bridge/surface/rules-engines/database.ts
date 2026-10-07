@@ -17,11 +17,11 @@ const RECOMPILE_FIX =
   "Fix the rules (call rules.lint for each finding), then call rules.set with service 'database'.";
 
 /** What a call has to do when it named no source and the sandbox holds none. */
-const NO_RULES_LOADED =
+export const NO_RULES_LOADED =
   "No database rules were supplied and none are loaded in the sandbox. Pass rules, or call rules.set with service 'database' first.";
 
 /** What a call has to do when the source it named is not the JSON these rules take. */
-function notRules(problem: string): string {
+export function notRules(problem: string): string {
   return `The supplied database rules did not parse: ${problem}. Pass rules as a JSON object with a 'rules' key.`;
 }
 
@@ -29,7 +29,7 @@ function notRules(problem: string): string {
  * The ruleset a source describes, or why it is not a rules document. The
  * source is the text of a rules file, comments included.
  */
-function parseRuleset(source: string): { ruleset: RtdbRulesJson } | { problem: string } {
+export function parseRuleset(source: string): { ruleset: RtdbRulesJson } | { problem: string } {
   try {
     return { ruleset: parseRtdbRulesText(source, (reason) => reason) };
   } catch (error) {
@@ -38,7 +38,7 @@ function parseRuleset(source: string): { ruleset: RtdbRulesJson } | { problem: s
 }
 
 /** The identity a simulation runs as, in the shape the database tools take. */
-function identityFor(
+export function identityFor(
   ctx: SurfaceContext,
   uid: string | undefined,
 ): { uid: string; claims: Record<string, unknown> } | null {
@@ -52,15 +52,15 @@ function identityFor(
 }
 
 /** The rules engine addresses the tree from the root, whether the caller wrote the separator or not. */
-function rooted(path: string): string {
+export function rooted(path: string): string {
   return path.startsWith('/') ? path : `/${path}`;
 }
 
 /** Evaluate one case against a supplied ruleset rather than the running one. */
-function simulateAgainst(
+export function simulateAgainst(
   ctx: SurfaceContext,
   ruleset: RtdbRulesJson,
-  request: RulesRequest,
+  request: Omit<RulesRequest, 'data'> & { data?: unknown },
   auth: { uid: string; claims: Record<string, unknown> } | null,
 ) {
   const tree = snapshotState(ctx.sandbox);

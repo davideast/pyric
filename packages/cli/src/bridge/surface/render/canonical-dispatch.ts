@@ -254,6 +254,10 @@ const ROUTES: Readonly<Record<string, CanonicalRoute>> = {
     toMethodArgs: forService('storage', ['operation', 'path', 'uid', 'rules', 'requestTime']),
   },
   diagnose_firestore_denial: { key: 'rules.explainDenial' },
+  diagnose_database_denial: {
+    key: 'rules.explainDenial',
+    toMethodArgs: forService('database', ['operation', 'path', 'uid', 'data', 'query', 'rules', 'source']),
+  },
   list_rules_stdlib: { key: 'rules.listStdlib' },
   get_rules_stdlib: { key: 'rules.getStdlib' },
 
