@@ -14,11 +14,10 @@
 import {
   ref as storageRef,
   uploadBytes,
-  getBytes,
-  getMetadata,
   listAll,
   type FirebaseStorage,
 } from 'pyric/storage';
+import { getStorageService, targetOf } from 'pyric/storage/internal';
 
 /** One stored object, in the shape a capture holds it. */
 export interface StorageObjectRecord {
@@ -45,15 +44,24 @@ export async function listStoredPaths(storage: FirebaseStorage): Promise<string[
   return paths;
 }
 
-/** Read every object out of the bucket into records. */
+/**
+ * Read every object out of the bucket into records. Each object's bytes and
+ * metadata are read as one pair from the same write, so an overwrite during
+ * the export cannot pair one write's content type with another's bytes. An
+ * object deleted after the listing is left out.
+ */
 export async function exportStorage(storage: FirebaseStorage): Promise<StorageObjectRecord[]> {
+  const backend = (await getStorageService(storage)).backend;
+  const { bucket } = targetOf(storage);
   const records: StorageObjectRecord[] = [];
   for (const path of await listStoredPaths(storage)) {
-    const metadata = await getMetadata(storageRef(storage, path));
-    const bytes = await getBytes(storageRef(storage, path));
+    const object = await backend.getObject(path, bucket);
+    const deletedSinceListing = object === undefined;
+    if (deletedSinceListing) continue;
+    const { blob, metadata } = object;
     const record: StorageObjectRecord = {
       path,
-      contentBase64: Buffer.from(new Uint8Array(bytes)).toString('base64'),
+      contentBase64: Buffer.from(await blob.arrayBuffer()).toString('base64'),
       metadata: metadata.customMetadata ?? {},
     };
     if (metadata.contentType !== undefined) record.contentType = metadata.contentType;
