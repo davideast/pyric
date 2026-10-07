@@ -28,6 +28,10 @@ export function memberOf(segments: Segment[], options: { levelsUp?: number } = {
 /**
  * The writer adds or removes only their own key: the member node's key is
  * the writer's uid, and the write sets `true` or deletes it.
+ *
+ * With `memberOf`, this makes the list open to join: any signed-in user can
+ * add themselves and pass `memberOf` in the next write. An invite-only list
+ * needs an owner-only `.write` on the member node instead.
  */
 export function selfMembership(pathVar = '$uid'): Expr {
   return and(

@@ -78,5 +78,10 @@ describe('rtdbStdlib.auth', () => {
     expect(() => auth.roleAt([], 'x')).toThrow();
   });
 
+  test('hasClaim refuses null, which every token without the claim would satisfy', () => {
+    // @ts-expect-error null is excluded from the value type as well.
+    expect(() => auth.hasClaim('beta', null)).toThrow(/hasClaim: 'beta' compared to null/);
+  });
+
   runScenario(scenario);
 });

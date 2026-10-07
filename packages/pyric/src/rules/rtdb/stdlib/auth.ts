@@ -34,7 +34,10 @@ export const signedIn = (): Expr => signedInExpr;
 /** The signed-in user's email is verified (`auth.token.email_verified == true`). */
 export const emailVerified = (): Expr => and(signedInExpr, raw('auth.token.email_verified == true'));
 
-/** The signed-in user has a verified email ending in `@domain`. */
+/**
+ * The signed-in user has a verified email ending in `@domain`. The comparison
+ * is exact and case-sensitive, so it fails closed on a mixed-case address.
+ */
 export function emailDomain(domain: string): Expr {
   if (typeof domain !== 'string' || domain.length === 0 || domain.includes('@')) {
     throw new Error(`emailDomain: pass a domain such as 'example.com', got '${String(domain)}'.`);
@@ -42,8 +45,15 @@ export function emailDomain(domain: string): Expr {
   return and(emailVerified(), raw(`auth.token.email.endsWith(${lit(`@${domain}`)})`));
 }
 
-/** The custom claim `name` equals `value` (default `true`). */
-export function hasClaim(name: string, value: Literal = true): Expr {
+/**
+ * The custom claim `name` equals `value` (default `true`). `null` is refused:
+ * a token without the claim reads it as `null`, so the check would pass for
+ * every signed-in user who lacks the claim.
+ */
+export function hasClaim(name: string, value: Exclude<Literal, null> = true): Expr {
+  if (value === null) {
+    throw new Error(`hasClaim: '${name}' compared to null passes for every token without the claim; pass the value the claim must hold.`);
+  }
   return and(signedInExpr, eq(`auth.token.${claimName('hasClaim', name)}`, lit(value)));
 }
 
@@ -64,6 +74,10 @@ export function hasAnyRole(...roles: string[]): Expr {
  * rule reads. Without `levelsUp`, the segments start at `root`; with it,
  * they start `levelsUp` levels above the node the rule is placed on, in the
  * stored data, so the rules work wherever they are mounted.
+ *
+ * The roles node must not be writable by the user it describes, directly or
+ * through a `.write` on any parent: `.write` cascades, so a parent grant lets
+ * the user write their own role.
  */
 export function roleAt(segments: Segment[], role: string, options: { levelsUp?: number } = {}): Expr {
   const path = `${climb('roleAt', 'data', options.levelsUp)}${childPath('roleAt', segments)}`;

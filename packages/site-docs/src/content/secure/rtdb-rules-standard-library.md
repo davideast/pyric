@@ -149,9 +149,13 @@ paths: {
   },
 }
 ```
-`auth.token` carries `email` and `email_verified` only when the account has an email, and custom claims as you set them with the Admin SDK. Each builder checks `auth != null` first, and `emailDomain` checks `email_verified` before it reads `email`. Claims compare without type conversion: a claim stored as the string `'true'` does not pass `auth.hasClaim('beta')`. `auth.tenantIs(id)` and `auth.inTenant('$tenantId')` read `auth.token.firebase.tenant`.
+`auth.token` carries `email` and `email_verified` only when the account has an email, and custom claims as you set them with the Admin SDK. Each builder checks `auth != null` first, and `emailDomain` checks `email_verified` before it reads `email`. The `emailDomain` comparison is exact and case-sensitive: an address stored as `Ada@Example.com` does not pass `auth.emailDomain('example.com')`, so the check fails closed on mixed-case addresses. Claims compare without type conversion: a claim stored as the string `'true'` does not pass `auth.hasClaim('beta')`. `auth.hasClaim(name, null)` throws, because a token without the claim reads it as `null`. `auth.tenantIs(id)` and `auth.inTenant('$tenantId')` read `auth.token.firebase.tenant`.
+
+`roleAt` trusts the role stored in the database, so the roles node must not be writable by the user it describes. That includes a `.write` on any parent of the roles node: `.write` cascades, so a parent grant lets the user write their own role.
 
 A member is a key whose value is `true`. `memberOf` reads the stored data, so a write that adds the writer to the list cannot use that same write to pass the check. Pass `levelsUp` to read the list relative to the node, so the rules work wherever they are mounted; without it the segments start at `root`.
+
+`selfMembership` with `memberOf` makes a room open to join: any signed-in user can add themselves to the member list and then post in the next write. For an invite-only room, give the member node an owner-only `.write` instead of `selfMembership`.
 
 ## Limit writes per time window
 
