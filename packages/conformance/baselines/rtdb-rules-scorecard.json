@@ -720,7 +720,9 @@
         "r33-null-operands",
         "r9-quota-arithmetic"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#22"
+      ],
       "divergedByRows": []
     },
     "rtdb.operator.lte": {
@@ -738,7 +740,9 @@
         "r33-null-operands",
         "r9-quota-arithmetic"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#22"
+      ],
       "divergedByRows": []
     },
     "rtdb.operator.gte": {
@@ -754,7 +758,9 @@
         "r33-null-operands",
         "r9-quota-arithmetic"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#22"
+      ],
       "divergedByRows": []
     },
     "rtdb.operator.add": {
@@ -814,7 +820,9 @@
         "r33-null-operands",
         "r9-quota-arithmetic"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#22"
+      ],
       "divergedByRows": []
     },
     "rtdb.operator.mod": {
@@ -828,7 +836,9 @@
         "r33-null-operands",
         "r9-quota-arithmetic"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#22"
+      ],
       "divergedByRows": []
     },
     "rtdb.operator.and": {

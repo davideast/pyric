@@ -116,9 +116,20 @@ describe('RTDB operators with a null operand', () => {
     });
   }
 
-  test('== and != compare null without an error', () => {
-    expect(evaluateRtdbExpression('data.val() == null', ctx('x'))).toBe(true);
-    expect(evaluateRtdbExpression('data.val() != 1', ctx('x'))).toBe(true);
+  test('==, !=, === and !== compare null on either side without an error', () => {
+    const cases: Array<[string, boolean]> = [
+      ['data.val() == null', true], ['null == data.val()', true],
+      ['data.val() == 1', false], ['1 == data.val()', false],
+      ['data.val() != null', false], ['null != data.val()', false],
+      ['data.val() != 1', true], ['1 != data.val()', true],
+      ['data.val() === null', true], ['null === data.val()', true],
+      ['data.val() === 1', false], ['1 === data.val()', false],
+      ['data.val() !== null', false], ['null !== data.val()', false],
+      ['data.val() !== 1', true], ['1 !== data.val()', true],
+    ];
+    for (const [raw, expected] of cases) {
+      expect(evaluateRtdbExpression(raw, ctx('x')), raw).toBe(expected);
+    }
   });
 });
 
