@@ -26,7 +26,7 @@ void main() {
       expect(defaultDb.bridgeClient, same(harness.client));
     });
 
-    test('rtdb-flutter#instance-url: PyricDatabase.instanceFor(databaseURL) returns isolated instance', () {
+    test('rtdb-flutter#instance-url: PyricDatabase.instanceFor(databaseURL) returns a distinct handle per URL', () {
       final customDb = PyricDatabase.instanceFor(
         databaseURL: 'https://test-project-default-rtdb.firebaseio.com',
       );

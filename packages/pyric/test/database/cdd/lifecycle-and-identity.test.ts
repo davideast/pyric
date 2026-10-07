@@ -24,6 +24,8 @@ import {
   type DisconnectRulesObservation,
 } from './support.js';
 import { loadObservation } from '../modular/cdd-replay-helpers.js';
+import { getAdminDatabase } from '../../../src/database/index.js';
+import { canonicalizeDatabaseUrl } from '../../../src/database/internal.js';
 
 const abruptObservation = loadObservation('rtdb-modular-ondisconnect-abrupt-exit');
 const cleanDisconnectObservation = loadObservation('rtdb-modular-ondisconnect-clean-set');
@@ -268,4 +270,44 @@ describe('rtdb-modular CDD: lifecycle and runtime identity rows', () => {
   });
   row('107', async () => { const { db } = setup(); expect((await api.get(api.ref(db, 'missing'))).val()).toBeNull(); });
   row('108', async () => { const { db } = setup(); const target = api.ref(db, 'x'); expect((await api.get(target)).exists()).toBe(false); await api.set(target, 0); expect((await api.get(target)).exists()).toBe(true); });
+});
+
+// The MI rows record paths that route every database URL to one instance.
+// Their divergences are pinned in the CLI and pyric-admin suites the rows
+// name. These assertions pin the sandbox side of the boundary: the in-page
+// sandbox keeps one backend, one ruleset, and one canonical key per URL.
+describe('rtdb-modular CDD: multiple database instances', () => {
+  const FIRST = 'https://first.firebaseio.com';
+  const SECOND = 'https://second.firebaseio.com';
+
+  row('MI1', async () => {
+    const sandbox = initializeSandbox();
+    const first = api.getDatabase(sandbox, FIRST);
+    const second = api.getDatabase(sandbox, SECOND);
+    api.databaseSandbox.setDefaultPolicy(first, 'allow');
+    api.databaseSandbox.setDefaultPolicy(second, 'allow');
+    await api.set(api.ref(first, 'probe'), 'first');
+    expect((await api.get(api.ref(second, 'probe'))).exists()).toBe(false);
+    expect((await api.get(api.ref(api.getDatabase(sandbox, FIRST), 'probe'))).val()).toBe('first');
+  });
+  row('MI2', async () => {
+    const sandbox = initializeSandbox();
+    const first = api.getDatabase(sandbox, FIRST);
+    const second = api.getDatabase(sandbox, SECOND);
+    api.databaseSandbox.setRules(first, { rules: { '.read': true } });
+    api.databaseSandbox.setRules(second, { rules: { '.read': false } });
+    expect((await api.get(api.ref(first, 'probe'))).exists()).toBe(false);
+    await expect(api.get(api.ref(second, 'probe'))).rejects.toThrow('PERMISSION_DENIED');
+  });
+  row('MI3', () => {
+    expect(canonicalizeDatabaseUrl('first')).toBe(FIRST);
+    expect(canonicalizeDatabaseUrl(`${FIRST}/`)).toBe(FIRST);
+    expect(canonicalizeDatabaseUrl(undefined)).toBe('default');
+  });
+  row('MI4', async () => {
+    const sandbox = initializeSandbox();
+    await api.set(api.ref(getAdminDatabase(sandbox, FIRST), 'probe'), 'first');
+    expect((await api.get(api.ref(getAdminDatabase(sandbox, SECOND), 'probe'))).exists()).toBe(false);
+    expect((await api.get(api.ref(getAdminDatabase(sandbox, FIRST), 'probe'))).val()).toBe('first');
+  });
 });

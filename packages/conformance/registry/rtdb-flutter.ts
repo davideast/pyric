@@ -1,5 +1,5 @@
 import { defineRows } from './define-rows.ts';
-import type { CompatibilityRow, CompatibilitySurfaceRegistry } from './types.ts';
+import type { CompatibilityRow, CompatibilitySurfaceRegistry, CompatStatus } from './types.ts';
 
 const CONFORMANCE_SUITE = 'packages/flutter-client/test/rtdb_conformance_test.dart';
 
@@ -14,16 +14,19 @@ interface FlutterRtdbRowSeed {
   behavior: string;
   featureKeys: string[];
   evidence?: string;
+  /** Overrides the default `conforms` status. */
+  status?: CompatStatus;
+  statusNote?: string;
 }
 
 function row(seed: FlutterRtdbRowSeed): CompatibilityRow {
-  const { ref, evidence, ...rest } = seed;
+  const { ref, evidence, status, ...rest } = seed;
   const resolvedEvidence =
     evidence ?? 'Verified by packages/flutter-client/test/rtdb_conformance_test.dart.';
   return buildRow({
     ...rest,
     rowRef: ref,
-    status: 'conforms',
+    status: status ?? 'conforms',
     automation: 'unit-backed',
     conformanceTests: [CONFORMANCE_SUITE],
     risk: [],
@@ -55,8 +58,11 @@ export const rtdbFlutterRows: CompatibilityRow[] = [
     ref: 'instance-url',
     section: SEC_INSTANCE,
     api: 'PyricDatabase.instanceFor(databaseURL)',
-    behavior: 'Returns an isolated Realtime Database instance targeting a specific database URL.',
+    behavior: 'Returns a distinct Realtime Database handle for each database URL; production isolates the data and rules of each URL\'s database.',
     featureKeys: ['instanceFor'],
+    status: 'diverged-documented',
+    statusNote: 'each URL yields a distinct handle, but data and rules are not isolated: the bridge does not carry the instance, so every handle reaches the default database',
+    evidence: 'Verified by packages/flutter-client/test/rtdb_conformance_test.dart, which asserts the handle carries its URL; bridge operations carry no instance field.',
   }),
   row({
     ref: 'ref-root',

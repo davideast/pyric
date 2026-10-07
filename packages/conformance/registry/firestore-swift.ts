@@ -1,5 +1,5 @@
 import { defineRows } from './define-rows.ts';
-import type { CompatibilityRow, CompatibilitySurfaceRegistry } from './types.ts';
+import type { CompatibilityRow, CompatibilitySurfaceRegistry, CompatStatus } from './types.ts';
 
 const CONFORMANCE_SUITE = 'packages/swift-client/Tests/PyricFirestoreTests/ConformanceCoreTests.swift';
 const CONFORMANCE_QUERY_SUITE =
@@ -21,6 +21,9 @@ interface SwiftRowSeed {
   /** Tests beyond the conformance suite that also exercise this row. */
   tests?: string[];
   flipped?: 'unit-backed';
+  /** A unit-backed status other than `conforms`, set in place of `flipped`. */
+  status?: CompatStatus;
+  statusNote?: string;
 }
 
 function suiteForRef(ref: number): string {
@@ -31,15 +34,16 @@ function suiteForRef(ref: number): string {
 }
 
 function row(seed: SwiftRowSeed): CompatibilityRow {
-  const { ref, flipped, evidence, tests, ...rest } = seed;
+  const { ref, flipped, status, evidence, tests, ...rest } = seed;
   const suite = suiteForRef(ref);
-  const defaultEvidence = flipped
+  const unitBacked = flipped !== undefined || status !== undefined;
+  const defaultEvidence = unitBacked
     ? 'FirebaseFirestore Swift specification.'
     : 'FirebaseFirestore Swift specification; unverified locally.';
   const resolvedEvidence = evidence ?? defaultEvidence;
-  const climb = flipped
+  const climb = unitBacked
     ? {
-        status: 'conforms' as const,
+        status: status ?? ('conforms' as const),
         automation: 'unit-backed' as const,
         evidence: `${resolvedEvidence} Swift test: \`${suite}\` assertion set \`firestore-swift#${ref}\`.`,
         conformanceTests: [suite, ...(tests ?? [])],
@@ -79,18 +83,22 @@ export const firestoreSwiftRows: CompatibilityRow[] = [
   }),
   row({
     ref: 3,
-    flipped: 'unit-backed',
+    status: 'diverged-documented',
+    statusNote: 'each database ID yields a distinct handle, but data is not isolated: the bridge does not carry the database ID, so every handle reaches (default)',
+    evidence: 'FirebaseFirestore Swift specification. The test asserts the handle carries its database ID; bridge operations carry no database field.',
     section: '`Firestore` — instance & lifecycle',
     api: 'Firestore.firestore(app:database:)',
-    behavior: 'Returns a named database instance for the specified FirebaseApp.',
+    behavior: 'Returns a distinct handle per named database for the specified FirebaseApp; production isolates the documents and rules of each named database.',
     featureKeys: ['firestoreAppDatabase'],
   }),
   row({
     ref: 4,
-    flipped: 'unit-backed',
+    status: 'diverged-documented',
+    statusNote: 'each database ID yields a distinct handle, but data is not isolated: the bridge does not carry the database ID, so every handle reaches (default)',
+    evidence: 'FirebaseFirestore Swift specification. The test asserts the handle carries its database ID; bridge operations carry no database field.',
     section: '`Firestore` — instance & lifecycle',
     api: 'Firestore.firestore(database:)',
-    behavior: 'Returns a named database instance for the default FirebaseApp.',
+    behavior: 'Returns a distinct handle per named database for the default FirebaseApp; production isolates the documents and rules of each named database.',
     featureKeys: ['firestoreDatabase'],
   }),
   row({

@@ -55,8 +55,8 @@ class RtdbConformanceTest {
     }
 
     @Test
-    @DisplayName("rtdb-kotlin#instance-url: FirebaseDatabase.getInstance(url) returns isolated instance")
-    fun `rtdb-kotlin#instance-url FirebaseDatabase getInstance url returns isolated instance`() {
+    @DisplayName("rtdb-kotlin#instance-url: FirebaseDatabase.getInstance(url) returns a distinct handle per URL")
+    fun `rtdb-kotlin#instance-url FirebaseDatabase getInstance url returns a distinct handle per URL`() {
         val customUrl = "https://custom-instance.firebaseio.com"
         val customDb = FirebaseDatabase.getInstance(app, worker.createBridgeClient(), customUrl)
         assertNotNull(customDb)

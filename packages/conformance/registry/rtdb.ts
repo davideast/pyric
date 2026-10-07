@@ -88,6 +88,17 @@ const row6 = defineRows({
   },
 });
 
+/** Production gives each database URL its own data and rules. Each row here
+ * names a Pyric path that does not, and the test that pins it. */
+const multiInstanceRow = defineRows({
+  surface: "rtdb-modular",
+  defaults: {
+    section: "Multiple database instances",
+    status: "diverged-documented",
+    automation: "unit-backed",
+  },
+});
+
 const row7 = defineRows({
   surface: "rtdb",
   defaults: {
@@ -2251,6 +2262,55 @@ export const rtdbRegistry = {
           automation: "unit-backed",
           conformanceTests: ["packages/pyric/test/database/modular/database-instances-cdd.test.ts"],
           aliases: ["rtdb#99"],
+        }),
+      ],
+    },
+    {
+      kind: 'table',
+      prefix: "### Multiple database instances\n\nIn production each database URL is its own instance, with its own data and its own rules. The in-page sandbox keeps one backend per canonical URL, so `getDatabase(app, url)` isolates data there. The paths below route every URL to the default instance, or apply one ruleset to every instance.\n",
+      rows: [
+        multiInstanceRow({
+          rowRef: "MI1",
+          featureKeys: ["getDatabase"],
+          api: "getDatabase(app, url) (served mode)",
+          behavior: "Served mode returns one `Database` handle per app whatever the URL, and the worker host, in the SharedWorker and in the Node host, runs every RTDB operation against the sandbox's default instance. A write through one URL's handle is read through another URL's handle. Production keeps each URL's data separate.",
+          statusNote: "served mode routes every instance to the default instance",
+          evidence: "`packages/cli/test/serve/worker/rtdb-served-entry.cases.ts` (run by `rtdb-integration.test.ts`) imports the served `firebase/database` entry over a worker host, asserts `getDatabase(app, urlA)` and `getDatabase(app, urlB)` return the same handle, and reads the write from the host's default instance while the second URL's instance stays empty. The worker protocol's RTDB operations carry no instance field. CDD assertion `rtdb-modular#MI1` pins the in-page sandbox side: two URLs on one sandbox keep separate data.",
+          conformanceTests: [
+            "packages/cli/test/serve/worker/rtdb-integration.test.ts",
+            "packages/cli/test/serve/worker/rtdb-served-entry.cases.ts",
+            ...cddLifecycleTests,
+          ],
+          conformanceDisposition: "pending-fix",
+        }),
+        multiInstanceRow({
+          rowRef: "MI2",
+          featureKeys: ["getDatabase"],
+          api: "getDatabase(app, url) (served in-page fallback)",
+          behavior: "The served in-page fallback keeps each URL's data separate but deploys one ruleset, the project's `database.rules.json`, to every instance it registers. Production deploys rules per instance.",
+          statusNote: "one ruleset applies to every instance",
+          evidence: "`packages/cli/test/serve/database-rules-deployment.test.ts` registers two URLs, deploys one ruleset, and asserts both instances allow and deny the same paths; the earlier case in that file asserts their data stays separate. CDD assertion `rtdb-modular#MI2` pins the sandbox side: `setRules` on one URL's database leaves the other URL's rules unchanged.",
+          conformanceTests: ["packages/cli/test/serve/database-rules-deployment.test.ts", ...cddLifecycleTests],
+          conformanceDisposition: "pending-fix",
+        }),
+        multiInstanceRow({
+          rowRef: "MI3",
+          featureKeys: ["firebaseJsonDatabase"],
+          api: "firebase.json `database` array",
+          behavior: "When `firebase.json` `database` is an array, the dev server loads the rules file of the first entry with `rules` and does not read `instance`. It takes the database URL from a `url` key, which is Pyric-only; production names each entry's database with `instance` and deploys every entry's rules.",
+          statusNote: "only the first entry with rules is loaded; `instance` is ignored and a Pyric-only `url` key is read",
+          evidence: "`packages/cli/test/serve/database-rules-config.test.ts` loads a two-entry array and asserts the first entry's rules, a null database URL when entries name `instance`, and a URL read from a `url` key. CDD assertion `rtdb-modular#MI3` pins the canonical URL the sandbox derives from an instance name.",
+          conformanceTests: ["packages/cli/test/serve/database-rules-config.test.ts", ...cddLifecycleTests],
+          conformanceDisposition: "pending-fix",
+        }),
+        multiInstanceRow({
+          rowRef: "MI4",
+          featureKeys: ["getDatabase", "getDatabaseWithUrl"],
+          api: "pyric-admin getDatabase(app, url) / getDatabaseWithUrl(url, app)",
+          behavior: "`pyric-admin` `getDatabase(app, url)` and `getDatabaseWithUrl(url, app)` ignore the URL and return the app's one database tree. The Admin SDK binds each URL to its own instance.",
+          statusNote: "the URL is ignored; every URL reads and writes one tree",
+          evidence: "`packages/pyric-admin/test/database/get-database-with-url.test.ts` writes through one URL and reads the value through a second URL and through `getDatabase(app)`, for both functions. CDD assertion `rtdb-modular#MI4` pins the sandbox side: `getAdminDatabase(sandbox, url)` keeps separate data per URL.",
+          conformanceTests: ["packages/pyric-admin/test/database/get-database-with-url.test.ts", ...cddLifecycleTests],
         }),
       ],
     },

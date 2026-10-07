@@ -23,3 +23,18 @@ test('serves current rules to existing and later database URLs while keeping the
   await expect(get(ref(first))).rejects.toThrow('PERMISSION_DENIED');
   await expect(get(ref(second))).rejects.toThrow('PERMISSION_DENIED');
 });
+
+// Production deploys a ruleset per database instance. The deployment holds
+// one ruleset and applies it to every registered instance.
+test('applies the one deployed ruleset to every database instance', async () => {
+  const sandbox = initializeSandbox();
+  const deployment = createDatabaseRulesDeployment(sandbox);
+  deployment.register('https://first.firebaseio.com');
+  deployment.register('https://second.firebaseio.com');
+  deployment.deploy({ rules: { first: { '.read': true }, second: { '.read': false } } });
+  for (const url of ['https://first.firebaseio.com', 'https://second.firebaseio.com']) {
+    const database = getDatabase(sandbox, url);
+    expect((await get(ref(database, 'first'))).exists()).toBe(false);
+    await expect(get(ref(database, 'second'))).rejects.toThrow('PERMISSION_DENIED');
+  }
+});

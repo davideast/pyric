@@ -1,5 +1,5 @@
 import { defineRows } from './define-rows.ts';
-import type { CompatibilityRow, CompatibilitySurfaceRegistry } from './types.ts';
+import type { CompatibilityRow, CompatibilitySurfaceRegistry, CompatStatus } from './types.ts';
 
 const CONFORMANCE_SUITE = 'packages/swift-client/Tests/PyricDatabaseTests/RtdbConformanceTests.swift';
 
@@ -14,15 +14,18 @@ interface SwiftRtdbRowSeed {
   behavior: string;
   featureKeys: string[];
   evidence?: string;
+  /** Overrides the default `conforms` status. */
+  status?: CompatStatus;
+  statusNote?: string;
 }
 
 function row(seed: SwiftRtdbRowSeed): CompatibilityRow {
-  const { ref, evidence, ...rest } = seed;
+  const { ref, evidence, status, ...rest } = seed;
   const resolvedEvidence = evidence ?? 'FirebaseDatabase Swift specification.';
   return buildRow({
     ...rest,
     rowRef: ref,
-    status: 'conforms',
+    status: status ?? 'conforms',
     automation: 'unit-backed',
     evidence: `${resolvedEvidence} Swift test: \`${CONFORMANCE_SUITE}\` assertion set \`rtdb-swift#${ref}\`.`,
     conformanceTests: [CONFORMANCE_SUITE],
@@ -51,8 +54,11 @@ export const rtdbSwiftRows: CompatibilityRow[] = [
     ref: 'instance-url',
     section: SEC_INSTANCE,
     api: 'Database.database(url:)',
-    behavior: 'Returns an isolated Database instance targeting a specific database URL.',
+    behavior: 'Returns a distinct Database handle for each database URL; production isolates the data and rules of each URL\'s database.',
     featureKeys: ['databaseUrl'],
+    status: 'diverged-documented',
+    statusNote: 'each URL yields a distinct handle, but data and rules are not isolated: the bridge does not carry the instance, so every handle reaches the default database',
+    evidence: 'FirebaseDatabase Swift specification. The test asserts the handle carries its URL; bridge operations carry no instance field.',
   }),
   row({
     ref: 'ref-root',
