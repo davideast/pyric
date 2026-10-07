@@ -175,3 +175,17 @@ export {
   accountTokenClaims, assertNoReservedCustomClaims, RESERVED_CUSTOM_CLAIMS, tokenClaimAccount, withoutJwtClaims,
   type TokenClaimAccount, type TokenClaimRecord,
 } from './auth-token-claims.js';
+// Realtime Database instance identity: the instance name production and
+// firebase.json use, and the per-instance registry sandbox and served hosts share.
+export {
+  UNNAMED_DEFAULT_DATABASE_INSTANCE,
+  createDatabaseInstanceRegistry,
+  databaseInstanceKey,
+  databaseInstanceNamed,
+  defaultDatabaseInstance,
+  defaultDatabaseInstanceName,
+  parseDatabaseUrl,
+  resolveDatabaseInstance,
+  type DatabaseInstance,
+  type DatabaseInstanceRegistry,
+} from './instances.js';

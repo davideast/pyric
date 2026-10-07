@@ -10,7 +10,6 @@ import {
   TARGET_SYMBOL,
 } from '../../src/database/index.js';
 import { setRules, setDefaultPolicy } from '../../src/database/sandbox-controls.js';
-import { canonicalizeDatabaseUrl } from '../../src/database/sandbox/backend-for.js';
 
 describe('RTDB Multi-Instance Isolation & Routing', () => {
   it('maintains independent DataTree storage across instances', async () => {
@@ -170,21 +169,42 @@ describe('RTDB Multi-Instance Isolation & Routing', () => {
     expect((await get(ref(db2, 'notes/n1'))).val()).toBeNull();
   });
 
-  it('canonicalizes uppercase schemes, uppercase plain IDs, query parameters, and DEFAULT keyword', async () => {
-    expect(canonicalizeDatabaseUrl('HTTPS://MY-INSTANCE.FIREBASEIO.COM/')).toBe(
-      'https://my-instance.firebaseio.com',
-    );
-    expect(canonicalizeDatabaseUrl('MY-INSTANCE')).toBe('https://my-instance.firebaseio.com');
-    expect(canonicalizeDatabaseUrl('DEFAULT')).toBe('default');
-    expect(canonicalizeDatabaseUrl('default')).toBe('default');
-    expect(canonicalizeDatabaseUrl('  DEFAULT  ')).toBe('default');
-    expect(canonicalizeDatabaseUrl('http://localhost:9000?ns=DB1')).toBe(
-      'http://localhost:9000?ns=db1',
-    );
-    expect(canonicalizeDatabaseUrl('http://localhost:9000?NS=db1')).toBe(
-      'http://localhost:9000?ns=db1',
-    );
+  it('routes every URL form that names one instance to one tree', async () => {
+    const sandbox = initializeSandbox();
+    const legacy = getDatabase(sandbox, 'https://shared-db.firebaseio.com');
+    const regional = getDatabase(sandbox, 'https://Shared-DB.europe-west1.firebasedatabase.app/');
+    const namespaced = getDatabase(sandbox, 'http://localhost:9000?ns=shared-db');
+    const other = getDatabase(sandbox, 'https://shared-db.firebaseio.com?ns=other-db');
+    setDefaultPolicy(legacy, 'allow');
+    setDefaultPolicy(other, 'allow');
 
+    await set(ref(legacy, 'rooms/r1'), 'open');
+    expect((await get(ref(regional, 'rooms/r1'))).val()).toBe('open');
+    expect((await get(ref(namespaced, 'rooms/r1'))).val()).toBe('open');
+    expect((await get(ref(other, 'rooms/r1'))).val()).toBeNull();
+  });
+
+  it('rejects a database URL production rejects, with the SDK error', async () => {
+    const app = initializeApp(
+      { projectId: 'multi-db-app', databaseURL: 'https://app-default.firebaseio.com' },
+      `multi-app-reject-${Date.now()}`,
+    );
+    try {
+      expect(() => getDatabase(app, 'https://child-path.firebaseio.com/users')).toThrow(
+        'FIREBASE FATAL ERROR: Database URL must point to the root of a Firebase Database (not including a child path). ',
+      );
+      expect(() => getDatabase(app, 'bare-name')).toThrow(
+        'FIREBASE FATAL ERROR: Cannot parse Firebase url. Please use https://<YOUR FIREBASE>.firebaseio.com ',
+      );
+      expect(() => getDatabase(initializeSandbox(), 'https://example.com')).toThrow(
+        'FIREBASE FATAL ERROR: Cannot parse Firebase url. Please use https://<YOUR FIREBASE>.firebaseio.com ',
+      );
+    } finally {
+      await deleteApp(app);
+    }
+  });
+
+  it('accepts a bare instance name and the DEFAULT keyword on a sandbox handle', async () => {
     const sandbox = initializeSandbox();
     const dbUpper = getDatabase(sandbox, 'HTTPS://PROJECT-X.FIREBASEIO.COM/');
     const dbPlain = getDatabase(sandbox, 'project-x');
@@ -221,7 +241,7 @@ describe('RTDB Multi-Instance Isolation & Routing', () => {
       | { data?: Record<string, unknown>; instances?: Record<string, { data?: Record<string, unknown> }> }
       | undefined;
     expect(rtdbService1?.data?.default).toEqual({ item: 'val-default' });
-    expect(rtdbService1?.instances?.['https://secondary.firebaseio.com']?.data?.secondary).toEqual({ item: 'val-sec' });
+    expect(rtdbService1?.instances?.secondary?.data?.secondary).toEqual({ item: 'val-sec' });
 
     // 2. Second sandbox: restore from persistence
     const sandbox2 = initializeSandbox();

@@ -25,7 +25,13 @@ import {
 } from './support.js';
 import { loadObservation } from '../modular/cdd-replay-helpers.js';
 import { getAdminDatabase } from '../../../src/database/index.js';
-import { canonicalizeDatabaseUrl } from '../../../src/database/internal.js';
+import {
+  UNNAMED_DEFAULT_DATABASE_INSTANCE,
+  databaseInstanceKey,
+  databaseInstanceNamed,
+  parseDatabaseUrl,
+  resolveDatabaseInstance,
+} from '../../../src/sandbox/internal/instances.js';
 
 const abruptObservation = loadObservation('rtdb-modular-ondisconnect-abrupt-exit');
 const cleanDisconnectObservation = loadObservation('rtdb-modular-ondisconnect-clean-set');
@@ -300,9 +306,9 @@ describe('rtdb-modular CDD: multiple database instances', () => {
     await expect(api.get(api.ref(second, 'probe'))).rejects.toThrow('PERMISSION_DENIED');
   });
   row('MI3', () => {
-    expect(canonicalizeDatabaseUrl('first')).toBe(FIRST);
-    expect(canonicalizeDatabaseUrl(`${FIRST}/`)).toBe(FIRST);
-    expect(canonicalizeDatabaseUrl(undefined)).toBe('default');
+    expect(databaseInstanceNamed('first')).toEqual(parseDatabaseUrl(FIRST));
+    expect(parseDatabaseUrl(`${FIRST}/`)).toEqual({ name: 'first', url: `${FIRST}/` });
+    expect(databaseInstanceKey(resolveDatabaseInstance(undefined))).toBe(UNNAMED_DEFAULT_DATABASE_INSTANCE);
   });
   row('MI4', async () => {
     const sandbox = initializeSandbox();

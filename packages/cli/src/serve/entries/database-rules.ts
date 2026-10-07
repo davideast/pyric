@@ -1,6 +1,6 @@
 import type { Sandbox } from 'pyric/sandbox';
 import { getDatabase, sandbox as controls, type Database } from 'pyric/database';
-import { canonicalizeDatabaseUrl } from 'pyric/database/internal';
+import { databaseInstanceKey, resolveDatabaseInstance } from 'pyric/sandbox/internal';
 import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
 
 /** Deploy the served project's rules to each local database without sharing its data. */
@@ -15,7 +15,7 @@ export function createDatabaseRulesDeployment(sandbox: Sandbox) {
   }
 
   function register(url?: string): void {
-    const key = canonicalizeDatabaseUrl(url);
+    const key = databaseInstanceKey(resolveDatabaseInstance(url));
     if (databases.has(key)) return;
     const database = getDatabase(sandbox, url);
     apply(database);
