@@ -7,13 +7,14 @@
  * evaluated it and with which outcomes.
  *
  * `.read`, `.write` and `.validate` nodes are evaluated by a request.
- * An `.indexOn` node is evaluated by a query whose ordering the node's index
- * list satisfies; a query that finds no declaring node is reported under
- * `missingIndexes`.
+ * An `.indexOn` node is used by a read case whose query orders by a child path
+ * or by value and whose declared index list names that ordering; a query no
+ * node declares an index for is reported under `missingIndexes`.
  */
 import type { RtdbNode } from './types.js';
+import { nodesDeclaringIndex } from './index-lookup.js';
 import { locateRtdbRule } from './source-locations.js';
-import type { RtdbRuleEvaluation } from './simulation/spec.js';
+import type { RtdbRuleEvaluation, SimulationQuery } from './simulation/spec.js';
 
 export type RtdbCoverageKind = 'read' | 'write' | 'validate' | 'indexOn';
 
@@ -55,7 +56,10 @@ export interface RtdbFileCoverage {
   /** Nodes with at least one evaluation. */
   covered: number;
   neverEvaluated: number;
-  byKind: Record<RtdbCoverageKind, { total: number; covered: number }>;
+  /** Nodes the simulator could not evaluate, every time it reached them.
+   *  `covered + neverEvaluated + unsupported` is `total`. */
+  unsupported: number;
+  byKind: Record<RtdbCoverageKind, { total: number; covered: number; unsupported: number }>;
 }
 
 export interface RtdbCoverageSummary {
@@ -110,7 +114,7 @@ export class RtdbCoverageRecorder {
   private readonly rows = new Map<string, Row>();
   private readonly missing = new Map<string, { path: string; index: string }>();
 
-  constructor(compiled: RtdbNode) {
+  constructor(private readonly compiled: RtdbNode) {
     this.collect(compiled);
   }
 
@@ -145,15 +149,30 @@ export class RtdbCoverageRecorder {
     }
   }
 
-  /** Records that a query was served by the `.indexOn` declared at `path`. */
-  recordIndexUse(path: string): void {
-    const row = this.rows.get(keyOf(path, 'indexOn'));
-    if (row !== undefined) row.counts.allow++;
-  }
-
-  /** Records a query that needed `index` at `path` and found none declared. */
-  recordMissingIndex(path: string, index: string): void {
-    this.missing.set(`${path}\u0000${index}`, { path, index });
+  /**
+   * Folds in a read at `path` that carries `query`. A query ordered by child
+   * path or by value uses the `.indexOn` nodes at `path` that declare that
+   * ordering; when none does, the query is listed under `missingIndexes`.
+   * Key ordering and unordered queries use built-in indexes.
+   */
+  recordQuery(path: string, query: SimulationQuery | undefined): void {
+    if (query === undefined) return;
+    let required: string | null = null;
+    if (query.orderByValue === true) required = '.value';
+    else if (typeof query.orderByChild === 'string' && query.orderByChild !== '') {
+      required = query.orderByChild.split('/').filter(Boolean).join('/');
+    }
+    if (required === null) return;
+    const segments = path.split('/').filter(Boolean);
+    const declaring = nodesDeclaringIndex(this.compiled, segments, required);
+    for (const node of declaring) {
+      const row = this.rows.get(keyOf(node.path, 'indexOn'));
+      if (row !== undefined) row.counts.allow++;
+    }
+    if (declaring.length === 0) {
+      const at = `/${segments.join('/')}`;
+      this.missing.set(`${at}\u0000${required}`, { path: at, index: required });
+    }
   }
 
   summarize(options: RtdbCoverageOptions = {}): RtdbCoverageSummary {
@@ -178,14 +197,18 @@ export class RtdbCoverageRecorder {
       rules.push(entry);
     }
     const byKind = Object.fromEntries(
-      KINDS.map((kind) => [kind, { total: 0, covered: 0 }]),
+      KINDS.map((kind) => [kind, { total: 0, covered: 0, unsupported: 0 }]),
     ) as RtdbFileCoverage['byKind'];
     let covered = 0;
+    let unsupportedNodes = 0;
     for (const rule of rules) {
       byKind[rule.kind].total++;
       if (rule.evaluated > 0) {
         byKind[rule.kind].covered++;
         covered++;
+      } else if (rule.status === 'unsupported') {
+        byKind[rule.kind].unsupported++;
+        unsupportedNodes++;
       }
     }
     return {
@@ -198,6 +221,7 @@ export class RtdbCoverageRecorder {
           total: rules.length,
           covered,
           neverEvaluated: rules.filter((r) => r.status === 'never-evaluated').length,
+          unsupported: unsupportedNodes,
           byKind,
         },
       ],
@@ -210,10 +234,12 @@ export function renderRtdbCoverage(summary: RtdbCoverageSummary): string {
   const lines: string[] = [];
   for (const file of summary.files) {
     lines.push(`Rule coverage: ${file.file ?? 'rules'}`);
-    lines.push(`  ${file.covered} of ${file.total} rules evaluated, ${file.neverEvaluated} never evaluated`);
+    lines.push(
+      `  ${file.covered} of ${file.total} rules evaluated, ${file.neverEvaluated} never evaluated, ${file.unsupported} unsupported`,
+    );
     for (const kind of KINDS) {
-      const { total, covered } = file.byKind[kind];
-      if (total > 0) lines.push(`  .${kind}: ${covered} of ${total}`);
+      const { total, covered, unsupported } = file.byKind[kind];
+      if (total > 0) lines.push(`  .${kind}: ${covered} of ${total}${unsupported > 0 ? `, ${unsupported} unsupported` : ''}`);
     }
   }
   lines.push('');

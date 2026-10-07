@@ -1,7 +1,5 @@
 import { describe, expect, test } from 'bun:test';
 import { rtdbRules, renderRtdbCoverage } from '../../../src/rules/index.js';
-import { RulesEvaluator } from '../../../src/database/sandbox/rules-eval.js';
-import { emptySpec } from '../../../src/database/sandbox/query.js';
 import type { RtdbCase, RtdbSimulationSummary } from '../../../src/rules/api/case-types.js';
 
 const ruleset = {
@@ -105,22 +103,53 @@ describe('RTDB rule coverage from simulate', () => {
     expect(text).toContain('never evaluated');
     expect(text).toContain('/admin .read');
   });
-});
 
-describe('RTDB rule coverage from sandbox evaluation', () => {
-  test('a recording evaluator reports rules it evaluated and index declarations a query used', () => {
-    const evaluator = new RulesEvaluator();
-    evaluator.setRules(ruleset);
-    const recorder = evaluator.recordCoverage();
-    if (recorder === null) throw new Error('rules are loaded, so recording must start');
-    evaluator.check('read', '/open', { auth: null, mockData: {} });
-    const spec = emptySpec();
-    spec.orderBy = { kind: 'child', path: 'author' };
-    evaluator.missingQueryIndex('/posts', spec);
-    const summary = recorder.summarize();
-    const find = (path: string, kind: string) => summary.rules.find((r) => r.path === path && r.kind === kind);
-    expect(find('/open', 'read')?.status).toBe('allow');
-    expect(find('/posts', 'indexOn')?.status).toBe('allow');
-    expect(find('/unused', 'indexOn')?.status).toBe('never-evaluated');
+  test('a rule the simulator cannot evaluate is reported as unsupported and counted in the totals', () => {
+    const rules = {
+      rules: {
+        broken: { '.write': 'newData.val(' },
+        fine: { '.read': 'true' },
+        idle: { '.read': 'false' },
+      },
+    };
+    const summary = rtdbRules(rules).simulate([
+      { expectation: 'DENY', operation: 'write', path: '/broken', auth: 'alice', newData: 1 },
+      { expectation: 'ALLOW', operation: 'read', path: '/fine' },
+    ]);
+    expect(row(summary, '/broken', 'write')).toMatchObject({ status: 'unsupported', evaluated: 0, unsupported: 1 });
+    expect(summary.coverage.uncovered).toEqual(['/idle .read']);
+    const [file] = summary.coverage.files;
+    expect(file).toMatchObject({ total: 3, covered: 1, neverEvaluated: 1, unsupported: 1 });
+    expect(file.byKind.write).toEqual({ total: 1, covered: 0, unsupported: 1 });
+    expect(file.covered + file.neverEvaluated + file.unsupported).toBe(file.total);
+    expect(renderRtdbCoverage(summary.coverage)).toContain('1 of 3 rules evaluated, 1 never evaluated, 1 unsupported');
+  });
+
+  test('a read case whose query orders by a declared child uses that .indexOn', () => {
+    const summary = rtdbRules(ruleset).simulate([
+      { expectation: 'DENY', operation: 'read', path: '/posts', auth: 'alice', query: { orderByChild: 'author' } },
+    ]);
+    expect(row(summary, '/posts', 'indexOn').status).toBe('allow');
+    expect(row(summary, '/unused', 'indexOn').status).toBe('never-evaluated');
+    expect(summary.coverage.missingIndexes).toEqual([]);
+  });
+
+  test('a read case whose query orders by an undeclared child is listed under missingIndexes', () => {
+    const summary = rtdbRules(ruleset).simulate([
+      { expectation: 'DENY', operation: 'read', path: '/posts', auth: 'alice', query: { orderByChild: 'title' } },
+      { expectation: 'DENY', operation: 'read', path: '/posts', auth: 'alice', query: { orderByKey: true } },
+    ]);
+    expect(row(summary, '/posts', 'indexOn').status).toBe('never-evaluated');
+    expect(summary.coverage.missingIndexes).toEqual([{ path: '/posts', index: 'title' }]);
+    expect(renderRtdbCoverage(summary.coverage)).toContain('/posts needs .indexOn "title"');
+  });
+
+  test('a suite that evaluates every node reaches full coverage including .indexOn', () => {
+    const rules = { rules: { posts: { '.read': 'true', '.indexOn': ['author'] } } };
+    const summary = rtdbRules(rules).simulate([
+      { expectation: 'ALLOW', operation: 'read', path: '/posts', query: { orderByChild: 'author' } },
+    ]);
+    expect(summary.coverage.uncovered).toEqual([]);
+    expect(summary.coverage.files[0]).toMatchObject({ total: 2, covered: 2, neverEvaluated: 0, unsupported: 0 });
   });
 });

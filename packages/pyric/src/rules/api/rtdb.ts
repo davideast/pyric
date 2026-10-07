@@ -158,7 +158,10 @@ class DocumentRtdbRuleset implements RtdbRuleset {
 
   coverage(results: readonly RtdbCaseResult[], options?: RtdbCoverageOptions): RtdbCoverageSummary {
     const recorder = new RtdbCoverageRecorder(this.doc.compile());
-    for (const result of results) recorder.record(result.trace);
+    for (const result of results) {
+      recorder.record(result.trace);
+      if (result.case.operation === 'read') recorder.recordQuery(result.case.path, result.case.query);
+    }
     return recorder.summarize(options);
   }
 
