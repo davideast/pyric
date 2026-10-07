@@ -29,7 +29,16 @@ function importTarget(value: string | ExportConditions | undefined): string | un
   return importTarget(value.node) ?? importTarget(value.default);
 }
 
+let cachedPackages: Array<{ directory: string; manifest: PackageManifest }> | undefined;
+
+/** The package manifests do not change during a process, and module resolution
+ * asks for them once per import specifier, so they are read once. */
 function workspacePackages(): Array<{ directory: string; manifest: PackageManifest }> {
+  cachedPackages ??= readWorkspacePackages();
+  return cachedPackages;
+}
+
+function readWorkspacePackages(): Array<{ directory: string; manifest: PackageManifest }> {
   const packagesRoot = join(REPO_ROOT, 'packages');
   return readdirSync(packagesRoot, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && existsSync(join(packagesRoot, entry.name, 'package.json')))

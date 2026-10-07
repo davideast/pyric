@@ -23,12 +23,58 @@ const COMPILER_OPTIONS: ts.CompilerOptions = {
   skipLibCheck: true,
 };
 
+let sharedHost: ts.CompilerHost | undefined;
+
+function memoize<K, V>(cache: Map<K, V>, key: K, compute: () => V): V {
+  if (cache.has(key)) return cache.get(key)!;
+  const value = compute();
+  cache.set(key, value);
+  return value;
+}
+
 /** Resolve every workspace import in a source census back to authored source,
  * including transitive self-imports such as `pyric/sandbox/admin-firestore`.
  * Without this host, a dirty checkout follows `dist` while a clean checkout
- * leaves those aliases unresolved and silently loses their type symbols. */
+ * leaves those aliases unresolved and silently loses their type symbols.
+ *
+ * One host serves every program the census builds. Each census surface
+ * creates its own program, and every program re-resolves the same default
+ * library, `@types` packages and dependency graph. Without a shared cache that
+ * repeated file-system probing dominates the model derivation, most visibly in
+ * checkouts whose `node_modules` is a deep package store. Source files, file
+ * probes and module resolutions do not change during one derivation, so they
+ * are memoized for the process. */
 function sourceFirstCompilerHost(): ts.CompilerHost {
+  if (sharedHost) return sharedHost;
   const host = ts.createCompilerHost(COMPILER_OPTIONS);
+  const sourceFiles = new Map<string, ts.SourceFile | undefined>();
+  const fileExists = new Map<string, boolean>();
+  const directoryExists = new Map<string, boolean>();
+  const reads = new Map<string, string | undefined>();
+  const realpaths = new Map<string, string>();
+  const directories = new Map<string, string[]>();
+  const resolutionCache = ts.createModuleResolutionCache(
+    host.getCurrentDirectory(),
+    (name) => host.getCanonicalFileName(name),
+    COMPILER_OPTIONS,
+  );
+  const originalGetSourceFile = host.getSourceFile.bind(host);
+  const originalFileExists = host.fileExists.bind(host);
+  const originalReadFile = host.readFile.bind(host);
+  const originalDirectoryExists = host.directoryExists!.bind(host);
+  const originalRealpath = host.realpath!.bind(host);
+  const originalGetDirectories = host.getDirectories!.bind(host);
+  host.getSourceFile = (fileName, languageVersionOrOptions, onError, shouldCreate) => memoize(
+    sourceFiles,
+    `${fileName}\0${JSON.stringify(languageVersionOrOptions)}`,
+    () => originalGetSourceFile(fileName, languageVersionOrOptions, onError, shouldCreate),
+  );
+  host.fileExists = (fileName) => memoize(fileExists, fileName, () => originalFileExists(fileName));
+  host.readFile = (fileName) => memoize(reads, fileName, () => originalReadFile(fileName));
+  host.directoryExists = (directory) => memoize(directoryExists, directory, () => originalDirectoryExists(directory));
+  host.realpath = (path) => memoize(realpaths, path, () => originalRealpath(path));
+  host.getDirectories = (path) => memoize(directories, path, () => originalGetDirectories(path));
+  sharedHost = host;
   host.resolveModuleNames = (moduleNames, containingFile) => moduleNames.map((specifier) => {
     const source = workspaceSourceEntry(specifier);
     if (source) {
@@ -38,7 +84,7 @@ function sourceFirstCompilerHost(): ts.CompilerHost {
         isExternalLibraryImport: false,
       };
     }
-    return ts.resolveModuleName(specifier, containingFile, COMPILER_OPTIONS, host).resolvedModule;
+    return ts.resolveModuleName(specifier, containingFile, COMPILER_OPTIONS, host, resolutionCache).resolvedModule;
   });
   return host;
 }
