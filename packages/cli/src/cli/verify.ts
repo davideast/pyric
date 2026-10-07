@@ -19,6 +19,7 @@ import { readFirebaseJson, type FirebaseJson } from './firebase-json.js';
 import type { FlagValue, ParsedArgs } from './parse-args.js';
 import { resolveScope } from '../credentials/node/scope.js';
 import { CAPTURE_RELATIVE_PATH } from '../serve/capture-store.js';
+import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
 import { parseRtdbRulesText } from '../rtdb/rules-json.js';
 
 export type Fixture = PyricVerifyFixture;
@@ -355,10 +356,13 @@ async function readFirebaseJsonOrNull(cwd: string): Promise<FirebaseJson | null>
 }
 
 function parseRtdbRulesFile(path: string): { rules: Record<string, unknown> } {
-  return parseRtdbRulesText(
+  const rules = parseRtdbRulesText(
     readFileSync(path, 'utf8'),
     (reason) => new Error(`RTDB rules file ${path} did not parse: ${reason.message}`),
   );
+  const rejection = rtdbRulesSourceRejection(rules);
+  if (rejection !== null) throw new Error(`RTDB rules file ${path} would not deploy. ${rejection.message}`);
+  return rules;
 }
 
 function toVerifiableService(raw: string): VerifiableService {

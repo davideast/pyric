@@ -47,6 +47,7 @@ import {
 import { setRules as setRtdbRules, getActiveRules, snapshotState, stripJsonComments, type RtdbRulesJson } from 'pyric/sandbox/database';
 import { rtdbRules, type RtdbCase } from 'pyric/rules';
 import { lintFirestoreRules, type LintWarning } from 'pyric/rules/internal';
+import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
 import type { Denial } from './model.js';
 
 /** Outcome of a single re-run: did the rule allow it this time, or deny again? */
@@ -92,8 +93,22 @@ export function lintEditedRuleset(rules: string, service: string = 'firestore'):
   const isRtdb = service === 'rtdb';
   if (isRtdb) {
     try {
-      JSON.parse(stripJsonComments(rules));
-      return { parseable: true, findings: [] };
+      const parsed: unknown = JSON.parse(stripJsonComments(rules));
+      // A ruleset production's deploy would refuse blocks the rerun as a
+      // parse failure does; the remaining findings are surfaced.
+      const rejection = rtdbRulesSourceRejection(parsed);
+      if (rejection !== null) {
+        return { parseable: false, parseError: rejection.message, findings: [] };
+      }
+      const findings: RulesetLintFinding[] = rtdbRules(parsed as RtdbRulesJson)
+        .lint()
+        .map((issue) => ({
+          rule: issue.rule === undefined ? issue.code : `${issue.path ?? ''} ${issue.rule}`.trim(),
+          severity: issue.severity,
+          message: issue.message,
+          ...(issue.fix ? { fix: issue.fix } : {}),
+        }));
+      return { parseable: true, findings };
     } catch (e) {
       const err = e instanceof Error ? e.message : String(e);
       return {

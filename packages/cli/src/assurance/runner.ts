@@ -52,6 +52,7 @@ import {
   type FirebaseStorage,
 } from "pyric/storage";
 import { getAdminStorageSandbox } from "pyric/storage/internal";
+import { rtdbRulesSourceRejection } from "pyric/rules/internal/rtdb";
 import {
   initializeSandbox,
   type AuthState,
@@ -326,6 +327,8 @@ async function createRuntime(
   } else if (service === "rtdb") {
     const rtdb = getDatabase(context);
     const admin = getAdminDatabase(sandbox);
+    const refusal = rtdbRulesSourceRejection(target.rules.rtdb);
+    if (refusal !== null) throw new Error(`The assurance target's database rules would not deploy. ${refusal.message}`);
     rtdbSandbox.setRules(rtdb, target.rules.rtdb!);
     rtdbSandbox.setData(admin, { "/": target.state.rtdb ?? {} });
     runtime.rtdb = rtdb;

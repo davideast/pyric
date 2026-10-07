@@ -421,6 +421,26 @@ describe('rules-debug re-run: edited ruleset (lint + fork + diff)', () => {
   });
 });
 
+describe('rules-debug re-run: RTDB edited ruleset lint', () => {
+  it('blocks a ruleset that production would refuse as a parse failure', () => {
+    const lint = lintEditedRuleset(JSON.stringify({ rules: { '.write': "auth.uid = 'x'" } }), 'rtdb');
+    expect(lint.parseable).toBe(false);
+    expect(lint.parseError).toContain('/.write:');
+  });
+
+  it('blocks two wildcard siblings with production\'s text', () => {
+    const lint = lintEditedRuleset(JSON.stringify({ rules: { a: { $x: {}, $y: {} } } }), 'rtdb');
+    expect(lint.parseable).toBe(false);
+    expect(lint.parseError).toContain("Cannot have multiple default rules ('$x' and '$y').");
+  });
+
+  it('surfaces lint warnings of an accepted ruleset and still runs', () => {
+    const lint = lintEditedRuleset(JSON.stringify({ rules: { '.read': true } }), 'rtdb');
+    expect(lint.parseable).toBe(true);
+    expect(lint.findings.some((f) => f.message.includes('hardcoded'))).toBe(true);
+  });
+});
+
 describe('rules-debug re-run: RTDB edited ruleset simulation', () => {
   it('re-running a denied RTDB write against permissive JSON rules ALLOWS', async () => {
     const sandbox = initializeSandbox();

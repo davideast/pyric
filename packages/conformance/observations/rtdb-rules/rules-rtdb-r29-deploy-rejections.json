@@ -3,7 +3,8 @@
   "matrixRow": "rtdb-rules#23",
   "rowIds": [
     "rtdb-rules#23",
-    "rtdb-rules#27"
+    "rtdb-rules#27",
+    "rtdb#89"
   ],
   "description": "RTDB rules deploy verdicts for corpus scenario \"r29-deploy-rejections\" (rtdb#71). Captured by dry-run deploys to the rules endpoint, which validate without deploying. a ruleset production refuses to deploy must be refused when Pyric loads it, so each refusal and its text is the evidence that turns a local check from a warning into an error.",
   "observedAt": "2026-10-07T11:43:55.513Z",

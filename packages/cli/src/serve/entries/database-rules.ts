@@ -1,6 +1,7 @@
 import type { Sandbox } from 'pyric/sandbox';
 import { getDatabase, sandbox as controls, type Database } from 'pyric/database';
 import { canonicalizeDatabaseUrl } from 'pyric/database/internal';
+import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
 
 /** Deploy the served project's rules to each local database without sharing its data. */
 export function createDatabaseRulesDeployment(sandbox: Sandbox) {
@@ -24,7 +25,10 @@ export function createDatabaseRulesDeployment(sandbox: Sandbox) {
   register();
   return {
     register,
+    /** Throws, leaving the deployed rules in force, when production would not load `nextRules`. */
     deploy(nextRules: typeof rules, policy: typeof defaultPolicy = 'deny'): void {
+      const rejection = nextRules === null ? null : rtdbRulesSourceRejection(nextRules);
+      if (rejection !== null) throw new Error(`database.rules.json not loaded in the sandbox: ${rejection.message}`);
       rules = nextRules;
       defaultPolicy = policy;
       for (const database of databases.values()) apply(database);

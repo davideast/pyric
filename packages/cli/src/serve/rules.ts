@@ -24,6 +24,7 @@ import {
 import { asSentence } from 'pyric/sandbox/internal';
 import { parseStorageRules } from 'pyric/storage';
 import type { FirebaseJson } from '../cli/firebase-json.js';
+import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
 import { parseRtdbRulesText } from '../rtdb/rules-json.js';
 
 export interface LoadedRules {
@@ -359,6 +360,13 @@ export async function loadProjectDatabaseRules(
     raw,
     (reason) => new Error(`pyric sandbox: ${path} did not parse as RTDB rules JSON: ${reason.message}.`),
   );
+
+  // The check every rules load path runs: a ruleset production's deploy
+  // would refuse is not served, and the rules in force stay in force.
+  const rejection = rtdbRulesSourceRejection(rules);
+  if (rejection !== null) {
+    throw new Error(`pyric sandbox: ${path} is not valid RTDB rules. ${rejection.message} Fix the rules before serving.`);
+  }
 
   return {
     rules,

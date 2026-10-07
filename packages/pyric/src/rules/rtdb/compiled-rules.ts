@@ -4,9 +4,8 @@ import { lintExpression } from './grammar/linter.js';
 import { validateExpression } from './grammar/validator.js';
 import { SimulateHandler } from './simulation/handler.js';
 import type { SimulationInput, SimulateResult } from './simulation/spec.js';
+import { SYSTEM_KEYS, structuralFindings } from './structure.js';
 import type { RtdbNode, RtdbRuleExpression } from './types.js';
-
-const SYSTEM_KEYS = new Set(['.read', '.write', '.validate', '.indexOn']);
 
 /** The environment-independent tree produced from an RTDB rules document. */
 export type CompiledRtdbRules = RtdbNode;
@@ -73,8 +72,13 @@ function compileNode(
     node.indexOn = Array.isArray(indexOn) ? indexOn.map(String) : [String(indexOn)];
   }
 
+  const structure = structuralFindings(path, rulesObj);
+  if (structure.length > 0) node.structure = structure;
+
   for (const [key, child] of Object.entries(rulesObj)) {
-    if (SYSTEM_KEYS.has(key) || typeof child !== 'object' || child === null) continue;
+    // A dotted key that is not a rule key names no location, so it is never a child.
+    if (key.startsWith('.') || SYSTEM_KEYS.has(key)) continue;
+    if (typeof child !== 'object' || child === null) continue;
     const childPath = path === '/' ? `/${key}` : `${path}/${key}`;
     const childPathVariables = key.startsWith('$')
       ? [...pathVariables, key]

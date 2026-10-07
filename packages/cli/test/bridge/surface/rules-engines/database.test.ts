@@ -7,6 +7,7 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
 import { getClock, initializeSandbox } from 'pyric/sandbox';
+import { getActiveRules } from 'pyric/sandbox/database';
 
 import { createSurfaceContext } from '../../../../src/bridge/surface/context.js';
 import { DATABASE_RULES } from '../../../../src/bridge/surface/rules-engines/database.js';
@@ -132,6 +133,27 @@ describe('install', () => {
     const result = await DATABASE_RULES.install(freshContext(), OPEN_RULES);
     expect(result.ok).toBe(true);
     expect(result.summary).toBe('Database rules installed.');
+  });
+
+  it('refuses a ruleset production would refuse and keeps the rules in force', async () => {
+    const ctx = freshContext();
+    await DATABASE_RULES.install(ctx, OPEN_RULES);
+    const bad = JSON.stringify({ rules: { rooms: { '.write': "auth.uid = 'x'" } } });
+    expect(DATABASE_RULES.compileFailure(bad)?.body).toContain('/rooms/.write:');
+    const result = await DATABASE_RULES.install(ctx, bad);
+    expect(result.ok).toBe(false);
+    expect(result.summary).toContain('/rooms/.write:');
+    expect(getActiveRules(ctx.sandbox)).toEqual({ rules: { '.read': true, '.write': true } });
+  });
+
+  it('refuses a ruleset with two wildcard siblings, with production\'s text', async () => {
+    const ctx = freshContext();
+    await DATABASE_RULES.install(ctx, OPEN_RULES);
+    const bad = JSON.stringify({ rules: { a: { $x: {}, $y: {} } } });
+    expect(DATABASE_RULES.compileFailure(bad)?.body).toContain("Cannot have multiple default rules ('$x' and '$y').");
+    const result = await DATABASE_RULES.install(ctx, bad);
+    expect(result.ok).toBe(false);
+    expect(getActiveRules(ctx.sandbox)).toEqual({ rules: { '.read': true, '.write': true } });
   });
 
   it('installs a ruleset with comments, the source check accepting it', async () => {

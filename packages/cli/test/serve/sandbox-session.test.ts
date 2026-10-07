@@ -223,6 +223,39 @@ export function canRead() { return true; }`);
     await session.close();
   });
 
+  it('keeps last-good database rules when a reload carries a rule production would refuse', async () => {
+    const root = project();
+    const sourcePath = join(root, 'database.rules.json');
+    writeFileSync(sourcePath, JSON.stringify({ rules: { '.read': 'auth != null' } }));
+    const session = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: { database: { rules: 'database.rules.json' } },
+      sdk: { dir: join(root, 'sdk') },
+    });
+    const lastGoodHash = session.payload().databaseRulesHash;
+
+    writeFileSync(sourcePath, JSON.stringify({ rules: { rooms: { $id: { '.write': "auth.uid = 'x'" } } } }));
+    const rejected = await session.reloadDatabaseRules();
+    expect(rejected.kind).toBe('rejected');
+    if (rejected.kind === 'rejected') expect(rejected.error.message).toContain('/rooms/$id/.write:');
+    expect(session.payload().databaseRulesHash).toBe(lastGoodHash);
+    expect(session.payload().databaseRules).toEqual({ rules: { '.read': 'auth != null' } });
+
+    await session.close();
+  });
+
+  it('refuses to start on database rules production would refuse', async () => {
+    const root = project();
+    writeFileSync(join(root, 'database.rules.json'), JSON.stringify({ rules: { '.read': 'newData.exists()' } }));
+    await expect(
+      createSandboxSession({
+        projectDir: root,
+        firebaseConfig: { database: { rules: 'database.rules.json' } },
+        sdk: { dir: join(root, 'sdk') },
+      }),
+    ).rejects.toThrow('/.read:');
+  });
+
   it('dynamically discovers and reloads newly created database.rules.json when unconfigured at boot', async () => {
     const root = project();
     const session = await createSandboxSession({
