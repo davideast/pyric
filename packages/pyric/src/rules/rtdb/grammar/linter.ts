@@ -4,7 +4,7 @@ import {
   matchRtdbExpression,
 } from '../expression-engine.js';
 import type { RuleLint } from '../types.js';
-import { evaluateRtdbExpression, type EvalContext } from './simulator.js';
+import { RtdbRuleRuntimeError, evaluateRtdbExpression, type EvalContext } from './simulator.js';
 
 interface LintContext {
   warnings: RuleLint[];
@@ -25,7 +25,13 @@ let linterSemantics: Semantics | undefined;
 function constantValue(node: any): boolean | undefined {
   const [left, , right] = node.children;
   if (!left.isLiteral() || !right.isLiteral()) return undefined;
-  return evaluateRtdbExpression(node.sourceString, {} as EvalContext) === true;
+  try {
+    return evaluateRtdbExpression(node.sourceString, {} as EvalContext) === true;
+  } catch (error) {
+    // A comparison that fails the rule when it runs, such as `null > 1`, has no constant value.
+    if (error instanceof RtdbRuleRuntimeError) return undefined;
+    throw error;
+  }
 }
 
 function lintComparison(action: any, left: any, right: any): void {
@@ -82,7 +88,8 @@ function getLinterSemantics(): Semantics {
     _iter() { return false; },
     _terminal() { return false; },
     Primary_paren(_open, inner, _close) { return (inner as any).isLiteral(); },
-    literal(_node) { return true; },
+    // No capture pins how a regular expression literal compares, so one is never folded.
+    literal(node) { return node.ctorName !== 'regex'; },
   });
   // The boolean an expression is, when the whole expression is a `true` or
   // `false` literal (parentheses allowed); undefined otherwise. A literal that

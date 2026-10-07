@@ -12,6 +12,7 @@ import {
   evaluateRtdbExpression,
 } from '../../../../src/rules/rtdb/grammar/simulator.js';
 import { validateExpression } from '../../../../src/rules/rtdb/grammar/validator.js';
+import { rtdbRules } from '../../../../src/rules/api/rtdb.js';
 
 const ctx = (newData: unknown) => ({
   auth: null,
@@ -71,6 +72,20 @@ describe('RTDB lint of comparisons between literals', () => {
       .toEqual([{ code: 'CONSTANT_COMPARISON', message: 'Comparison 0 != 0 is always false.' }]);
     expect(lintExpression('1 == 1', 'validate'))
       .toEqual([{ code: 'CONSTANT_COMPARISON', message: 'Comparison 1 == 1 is always true.' }]);
+  });
+
+  test('a literal comparison that fails when it runs is not folded, and compiling it does not throw', () => {
+    expect(lintExpression('auth != null && null > 1', 'read')).toEqual([]);
+    expect(lintExpression('newData.val().matches(/a/g) || /a/g == /a/g', 'validate')).toEqual([]);
+    const rules = rtdbRules({
+      rules: {
+        a: { '.read': 'auth != null && null > 1' },
+        b: { '.write': true, '.validate': 'newData.val().matches(/a/g) || /a/g == /a/g' },
+      },
+    });
+    expect(rules.lint().map((issue) => issue.code)).not.toContain('COMPILE_ERROR');
+    const [read] = rules.simulate([{ expectation: 'DENY', operation: 'read', path: '/a', auth: { uid: 'u' } }]).cases;
+    expect(read!.decision).toBe('DENY');
   });
 
   test('a comparison that reads data is not constant', () => {
