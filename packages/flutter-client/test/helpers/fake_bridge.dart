@@ -107,9 +107,11 @@ class FakeBridge {
   List<Map<String, dynamic>> ofType(String type) =>
       frames.where((frame) => frame['type'] == type).toList();
 
-  List<Map<String, dynamic>> subsFor(String path) => ofType('worker-sub')
-      .where((frame) => (frame['sub'] as Map)['target']?['path'] == path)
-      .toList();
+  List<Map<String, dynamic>> subsFor(String path) =>
+      ofType('worker-sub').where((frame) {
+        final target = (frame['sub'] as Map)['target'];
+        return target is Map && target['path'] == path;
+      }).toList();
 
   Map<String, dynamic> lastSubFor(String path) => subsFor(path).last;
 
