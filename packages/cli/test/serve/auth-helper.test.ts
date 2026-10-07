@@ -11,8 +11,8 @@ import {
   sandbox as authSandbox,
 } from 'pyric/auth';
 import { child, getDatabase, ref } from 'pyric/database';
+import { customClaimsFromToken } from 'pyric/sandbox/internal';
 import {
-  customClaimsFromTokenClaims,
   ServeAuthHelper,
   type HelperIdentity,
 } from '../../src/serve/entries/auth-helper-core.js';
@@ -185,13 +185,27 @@ describe('ServeAuthHelper', () => {
     expect(cred.user.providerData?.[0]?.photoURL).toBe(photoURL);
   });
 
-  it('customClaimsFromTokenClaims strips the synthesized sub and firebase entries only', () => {
-    expect(customClaimsFromTokenClaims({
+  it('customClaimsFromToken strips the synthesized sub and firebase entries', () => {
+    expect(customClaimsFromToken({
       sub: 'uid-1',
       firebase: { sign_in_provider: 'google.com' },
       role: 'admin',
       plan: 'pro',
     })).toEqual({ role: 'admin', plan: 'pro' });
+  });
+
+  it('customClaimsFromToken strips the JWT and account claims of a sandbox-minted token', async () => {
+    // The in-page fallback resolves a credential through the sandbox backend,
+    // whose ID token carries the account's standard claims; none of them is a
+    // custom claim.
+    const auth = getAuth(initializeSandbox());
+    const cred = authSandbox.createSignInCredential(auth, {
+      providerId: 'google.com',
+      spec: { email: 'ada@example.com', displayName: 'Ada', customClaims: { role: 'admin' } },
+    });
+    const { claims } = await cred.user.getIdTokenResult();
+    expect(claims.email).toBe('ada@example.com');
+    expect(customClaimsFromToken(claims as Record<string, unknown>)).toEqual({ role: 'admin' });
   });
 
   it('non-delegated (in-page fallback): a disabled google.com popup throws operation-not-allowed', async () => {

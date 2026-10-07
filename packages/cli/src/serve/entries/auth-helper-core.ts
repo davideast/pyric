@@ -214,20 +214,6 @@ export class ServeAuthHelper {
   }
 }
 
-/**
- * Recover the original custom claims from a helper credential's token claims.
- * `bareCredential` (and the in-page backend mint) seed `sub` and the
- * synthesized `firebase` envelope alongside the custom claims; neither is a
- * custom claim, and seeding them back into the worker would persist
- * synthesized metadata as user data.
- */
-export function customClaimsFromTokenClaims(
-  claims: Record<string, unknown>,
-): Record<string, unknown> {
-  const { sub: _sub, firebase: _firebase, ...customClaims } = claims;
-  return customClaims;
-}
-
 /** Provider UIDs are opaque Firebase identifiers, not encoded credentials. */
 function mintProviderUid(): string {
   return `provider-${globalThis.crypto.randomUUID()}`;

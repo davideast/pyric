@@ -1,0 +1,173 @@
+{
+  "name": "auth-id-token-standard-claims",
+  "matrixRow": "auth #68b",
+  "rowIds": [
+    "auth#68b"
+  ],
+  "description": "The decoded ID token claim set per sign-in flow: anonymous, email and password (unverified, then with a display name and photo URL, then verified with a phone number set through the Admin SDK), an account whose custom claims reuse standard claim names, and a custom token for a new uid and for an existing email account. Records which standard claims (email, email_verified, name, picture, phone_number) appear and the shape of the firebase namespace (identities keyed by provider, sign_in_provider). Values that identify the test accounts are replaced by placeholders. Every account is removed through the Admin SDK at the end.",
+  "observedAt": "2026-10-07T11:25:22.652Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "anonymous": {
+      "signInProvider": "anonymous",
+      "claims": {
+        "aud": "<projectId>",
+        "auth_time": "<number>",
+        "exp": "<number>",
+        "firebase": {
+          "identities": {},
+          "sign_in_provider": "anonymous"
+        },
+        "iat": "<number>",
+        "iss": "https://securetoken.google.com/<projectId>",
+        "provider_id": "anonymous",
+        "sub": "<uid>",
+        "user_id": "<uid>"
+      }
+    },
+    "passwordUnverified": {
+      "signInProvider": "password",
+      "claims": {
+        "aud": "<projectId>",
+        "auth_time": "<number>",
+        "email": "<email>",
+        "email_verified": false,
+        "exp": "<number>",
+        "firebase": {
+          "identities": {
+            "email": [
+              "<email>"
+            ]
+          },
+          "sign_in_provider": "password"
+        },
+        "iat": "<number>",
+        "iss": "https://securetoken.google.com/<projectId>",
+        "sub": "<uid>",
+        "user_id": "<uid>"
+      }
+    },
+    "passwordWithProfile": {
+      "signInProvider": "password",
+      "claims": {
+        "aud": "<projectId>",
+        "auth_time": "<number>",
+        "email": "<email>",
+        "email_verified": false,
+        "exp": "<number>",
+        "firebase": {
+          "identities": {
+            "email": [
+              "<email>"
+            ]
+          },
+          "sign_in_provider": "password"
+        },
+        "iat": "<number>",
+        "iss": "https://securetoken.google.com/<projectId>",
+        "name": "<displayName>",
+        "picture": "<photoURL>",
+        "sub": "<uid>",
+        "user_id": "<uid>"
+      }
+    },
+    "passwordVerifiedWithPhone": {
+      "signInProvider": "password",
+      "claims": {
+        "aud": "<projectId>",
+        "auth_time": "<number>",
+        "email": "<email>",
+        "email_verified": true,
+        "exp": "<number>",
+        "firebase": {
+          "identities": {
+            "email": [
+              "<email>"
+            ],
+            "phone": [
+              "<phoneNumber>"
+            ]
+          },
+          "sign_in_provider": "password"
+        },
+        "iat": "<number>",
+        "iss": "https://securetoken.google.com/<projectId>",
+        "name": "<displayName>",
+        "phone_number": "<phoneNumber>",
+        "picture": "<photoURL>",
+        "sub": "<uid>",
+        "user_id": "<uid>"
+      }
+    },
+    "customClaimsOverlappingStandard": {
+      "signInProvider": "password",
+      "claims": {
+        "aud": "<projectId>",
+        "auth_time": "<number>",
+        "email": "<email>",
+        "email_verified": false,
+        "exp": "<number>",
+        "firebase": {
+          "identities": {
+            "email": [
+              "<email>"
+            ]
+          },
+          "sign_in_provider": "password"
+        },
+        "iat": "<number>",
+        "iss": "https://securetoken.google.com/<projectId>",
+        "name": "custom-name",
+        "sub": "<uid>",
+        "user_id": "<uid>"
+      }
+    },
+    "customTokenNewUid": {
+      "signInProvider": "custom",
+      "claims": {
+        "aud": "<projectId>",
+        "auth_time": "<number>",
+        "exp": "<number>",
+        "firebase": {
+          "identities": {},
+          "sign_in_provider": "custom"
+        },
+        "iat": "<number>",
+        "iss": "https://securetoken.google.com/<projectId>",
+        "role": "oracle",
+        "sub": "<uid>",
+        "user_id": "<uid>"
+      }
+    },
+    "customTokenExistingEmailAccount": {
+      "signInProvider": "custom",
+      "claims": {
+        "aud": "<projectId>",
+        "auth_time": "<number>",
+        "email": "<email>",
+        "email_verified": true,
+        "exp": "<number>",
+        "firebase": {
+          "identities": {
+            "email": [
+              "<email>"
+            ],
+            "phone": [
+              "<phoneNumber>"
+            ]
+          },
+          "sign_in_provider": "custom"
+        },
+        "iat": "<number>",
+        "iss": "https://securetoken.google.com/<projectId>",
+        "name": "<displayName>",
+        "phone_number": "<phoneNumber>",
+        "picture": "<photoURL>",
+        "sub": "<uid>",
+        "user_id": "<uid>"
+      }
+    },
+    "cleanupLeaked": false
+  }
+}
