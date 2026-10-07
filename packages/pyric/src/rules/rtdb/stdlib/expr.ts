@@ -83,7 +83,10 @@ export function or(...operands: Expr[]): Expr {
 
 /** The negation of `operand`. */
 export function negate(operand: Expr): Expr {
-  return raw(/^[A-Za-z_$][\w$.]*(\([^()]*\))?$/.test(operand) ? `!${operand}` : `!(${operand})`);
+  // A member chain of plain names and calls with at most a quoted or plain
+  // argument, such as data.child('at').exists(), needs no parentheses.
+  const chain = /^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*(\((?:'[^'\\]*'|[\w$.]*)\))?)*$/;
+  return raw(chain.test(operand) ? `!${operand}` : `!(${operand})`);
 }
 
 /** `snapshot.child(path).val()`, or `snapshot.val()` for the node itself. */
@@ -108,4 +111,12 @@ export function fieldName(builder: string, field: string): string {
     throw new Error(`${builder}: '${String(field)}' is not a field name; RTDB keys cannot be empty or contain . # $ [ ].`);
   }
   return field;
+}
+
+/** A path variable name such as `$uid`, or a thrown error naming the builder. */
+export function pathVariable(builder: string, name: string): string {
+  if (!/^\$[A-Za-z_][\w]*$/.test(name)) {
+    throw new Error(`${builder}: '${name}' is not a path variable such as '$uid'.`);
+  }
+  return name;
 }

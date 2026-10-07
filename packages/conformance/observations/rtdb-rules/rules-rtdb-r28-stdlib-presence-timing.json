@@ -1,0 +1,41 @@
+{
+  "name": "rules-rtdb-r28-stdlib-presence-timing",
+  "matrixRow": "rtdb-rules#12",
+  "rowIds": [
+    "rtdb-rules#12"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r28-stdlib-presence-timing\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). presence, rate limits and bounded collections from the standard library must deploy and decide as documented, including server timestamps written in the same multi-path update as the data they stamp.",
+  "observedAt": "2026-10-07T13:54:29.380Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "a user marks themself online with the server time": "ALLOW",
+    "a user writes presence for someone else": "DENY",
+    "a presence with a client clock time": "DENY",
+    "a presence with an unknown state": "DENY",
+    "a presence with an extra child": "DENY",
+    "a user removes their presence": "ALLOW",
+    "a signed-out presence write": "DENY",
+    "a user sets their online flag": "ALLOW",
+    "a flag written as a string": "DENY",
+    "a user sets the online flag of someone else": "DENY",
+    "a first post with its stamp in the same write": "ALLOW",
+    "a post once the cooldown has passed": "ALLOW",
+    "a post inside the cooldown": "DENY",
+    "a post without a stamp": "DENY",
+    "a post stamped with a client clock time": "DENY",
+    "a post stamped under another user": "DENY",
+    "a user deletes their stamp to reset the cooldown": "DENY",
+    "an event time in the past": "ALLOW",
+    "an event time in the future": "DENY",
+    "a creation time from the server": "ALLOW",
+    "a creation time from the client": "DENY",
+    "a seat in the last slot": "ALLOW",
+    "a seat past the last slot": "DENY",
+    "a list of four seats": "ALLOW",
+    "a list of five seats": "DENY",
+    "a listed flag": "ALLOW",
+    "a flag that is not listed": "DENY",
+    "two posts in one write with one stamp": "ALLOW"
+  }
+}

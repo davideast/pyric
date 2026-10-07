@@ -237,24 +237,26 @@ export class WritePlane {
   }
 
   validateSet(auth: AuthState, path: string, value: unknown): void {
+    const now = this.state.clock.now();
     const resolved = normalizeWrite(
-      resolveSentinels(value, this.state.clock.now(), this.state.tree.read(path)) as JsonValue,
+      resolveSentinels(value, now, this.state.tree.read(path)) as JsonValue,
       path === '/' ? '' : path,
     );
-    if (this.writeEvaluation(auth, path, resolved).check !== 'allow') throw permissionDenied();
+    if (this.writeEvaluation(auth, path, resolved, now).check !== 'allow') throw permissionDenied();
   }
 
   validateUpdate(auth: AuthState, path: string, patch: Record<string, unknown>): void {
+    const now = this.state.clock.now();
     const mockData = this.state.tree.snapshot() as Record<string, unknown>;
     const updates = Object.entries(patch).map(([key, value]) => {
       const absolute = joinPath([...pathSegments(path), ...pathSegments(key)]);
       return { path: absolute, value: normalizeWrite(
-        resolveSentinels(value, this.state.clock.now(), this.state.tree.read(absolute)) as JsonValue, absolute,
+        resolveSentinels(value, now, this.state.tree.read(absolute)) as JsonValue, absolute,
       ) };
     });
     for (const update of updates) {
       if (this.state.rules.evaluate('write', update.path, {
-        auth, mockData, newData: update.value, updates,
+        auth, mockData, newData: update.value, updates, now,
       }).check !== 'allow') throw permissionDenied();
     }
   }
@@ -273,7 +275,7 @@ export class WritePlane {
       const at = this.state.clock.now();
       const before = this.state.tree.read(update.path);
       const evaluation = this.state.rules.evaluate('write', update.path, {
-        auth, mockData, newData: update.value, updates,
+        auth, mockData, newData: update.value, updates, now,
       });
       const fields = {
         at, durationMs: this.state.clock.now() - at, origin: 'batch' as const,
@@ -326,7 +328,7 @@ export class WritePlane {
     const before = this.state.tree.read(path);
     const priorNodePriority = this.state.priorities.get(path);
     const at = this.state.clock.now();
-    const evaluation = this.writeEvaluation(auth, path, resolved);
+    const evaluation = this.writeEvaluation(auth, path, resolved, now);
     const common = {
       at, durationMs: this.state.clock.now() - at,
       request: { data: value, resourceData: value },
@@ -435,9 +437,9 @@ export class WritePlane {
     });
   }
 
-  private writeEvaluation(auth: AuthState, path: string, newData: JsonValue) {
+  private writeEvaluation(auth: AuthState, path: string, newData: JsonValue, now: number) {
     return this.state.rules.evaluate('write', path === '/' ? '/' : path, {
-      auth, mockData: this.state.tree.snapshot() as Record<string, unknown>, newData,
+      auth, mockData: this.state.tree.snapshot() as Record<string, unknown>, newData, now,
     });
   }
 }

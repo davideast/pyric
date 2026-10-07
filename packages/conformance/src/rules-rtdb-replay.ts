@@ -60,7 +60,7 @@ function substituteUid<T>(value: T, uid: string): T {
   if (typeof value === 'object') {
     const out: Record<string, unknown> = {};
     for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-      out[key] = substituteUid(child, uid);
+      out[key.replaceAll('<UID>', uid)] = substituteUid(child, uid);
     }
     return out as unknown as T;
   }
@@ -128,6 +128,9 @@ function simulatorVerdict(
     ? { uid, token: { firebase: { sign_in_provider: 'anonymous' }, provider_id: 'anonymous' } }
     : null;
   const simMock = buildSimMock(scenario, simPath, mockData, testCase.seed, uid);
+  // A written `{ ".sv": "timestamp" }` goes to the simulator as the client
+  // wrote it; the simulator resolves it to the `now` it is passed.
+  const now = Date.now();
   const newData = testCase.newData !== undefined
     ? substituteUid(testCase.newData, uid)
     : undefined;
@@ -141,7 +144,7 @@ function simulatorVerdict(
       value,
     }));
     const outcomes = updates.map((update) => outcomeOf(simulateRtdbRules(compiled, {
-      operation: 'write', path: update.path, auth, mockData: simMock, newData: update.value, updates,
+      operation: 'write', path: update.path, auth, mockData: simMock, newData: update.value, updates, now,
     })));
     if (outcomes.includes('ERROR')) return 'ERROR';
     if (outcomes.includes('UNSUPPORTED')) return 'UNSUPPORTED';
@@ -149,7 +152,7 @@ function simulatorVerdict(
   }
 
   return outcomeOf(simulateRtdbRules(compiled, {
-    operation: testCase.operation, path: simPath, auth, mockData: simMock, newData,
+    operation: testCase.operation, path: simPath, auth, mockData: simMock, newData, now,
   }));
 }
 

@@ -4,7 +4,7 @@ navLabel: "RTDB rules standard library"
 group: "Secure & debug"
 section: ""
 order: 65
-description: "Compose Realtime Database rules from standard library modules for matches, turns, results, counters, and validated shapes."
+description: "Compose Realtime Database rules from standard library modules for matches, turns, results, counters, presence, rate limits and validated shapes."
 ---
 
 # Use tested builders in Realtime Database rules
@@ -83,12 +83,52 @@ Each catalog entry names its placement. There are three:
 | `turns` | The seat on turn and the next turn, for two seats or a seat list | Match `.write` |
 | `results` | Resignation, win, draw, and moves that keep the result | Match `.write` |
 | `counters` | Steps, ranges, improving scores, one side of a score at a time | Counter `.validate` |
+| `presence` | A per-user online node only its owner writes, cleared by an onDisconnect write | The presence path's definition |
+| `timing` | Server timestamps, times not in the future, cooldowns, per-user rate limits | Field `.validate`, or the record with a field |
+| `collections` | Slot keys `'0'` to `max - 1` and fixed key lists, which bound a collection's size | Wildcard `.validate` |
 
 The match convention is the Firestore one: `host` and `guest` hold uids (`guest` is `''` while open), `status` is `'waiting'`, `'playing'`, then `'won'`, `'draw'` or `'resigned'`, `currentTurn` is `'host'` or `'guest'`, `winner` is `'host'`, `'guest'` or `''`, and `moveCount` is a number. A rematch also has `rematchOf`, the finished match it follows. `lobby.MATCH_FIELDS` lists all seven for the changed-field checks, so a join, move, resignation or finish leaves every field it does not name unchanged.
 
 Create the match with `currentTurn`, `winner` and `moveCount` as well as `host`, `guest` and `status`, for example `{ host: uid, guest: '', status: 'waiting', currentTurn: 'host', winner: '', moveCount: 0 }`. `validJoin` keeps those fields unchanged, so a match created without `currentTurn` never has a seat on turn and `turns.isMyTurn()` never allows a move. A seat list stores one uid per seat under `players/0` to `players/n-1` and the seat on turn in `turn`; RTDB rules have no loops, so `turns.isSeatTurn(n)` and `turns.turnAdvanced(n)` take the seat count when you build the rules and write one comparison per seat.
 
 RTDB rules cannot list a node's children. The changed-field checks therefore take the record's leaf field list and compare each field before and after the write. Pair them with `validation.shape` so a write cannot add a field the list does not name, and compare leaf fields only.
+
+## Show who is online
+
+```ts
+import { getDatabase, ref, set, onDisconnect, serverTimestamp } from 'firebase/database';
+
+// Rules: '/status/$uid': rtdbStdlib.presence.record()
+const statusRef = ref(getDatabase(), `status/${uid}`);
+await onDisconnect(statusRef).set({ state: 'offline', lastChanged: serverTimestamp() });
+await set(statusRef, { state: 'online', lastChanged: serverTimestamp() });
+```
+`presence.record()` lets only the owner write `/status/$uid`, as `{ state: 'online' | 'offline', lastChanged }` with `lastChanged` the server timestamp and no other child. Production checks the rules for an onDisconnect write when the client registers it and again when it runs, so the offline value must pass the same rules as the online one. Production's verdict for a server timestamp inside an onDisconnect value has not been captured; the sandbox resolves it when the write runs. `onDisconnect(statusRef).remove()` is a delete, which the owner's `.write` allows. `presence.flag()` is the same node as a boolean.
+
+RTDB has no functions, so a match reads a player's presence through `data.parent()`, for example to let the other player claim a forfeit once the guest's state is `'offline'`.
+
+## Limit how often a user writes
+
+```ts
+const { timing, lifecycle } = rtdbStdlib;
+
+paths: {
+  '/posts/$postId': {
+    write: authenticated(),
+    validate: timing.stampedInSameWrite(2, ['lastPost', { $: 'auth.uid' }]),
+  },
+  // A deleted stamp would reset the cooldown, so the owner may not delete it.
+  '/lastPost/$uid': { write: all(ownPath('$uid'), lifecycle.noDelete()), validate: timing.throttled(60_000) },
+}
+
+// Client: the post and the stamp in one multi-path update.
+await update(ref(db), { 'posts/p1': post, [`lastPost/${uid}`]: serverTimestamp() });
+```
+`now` is the server clock in milliseconds, and the server replaces a written `serverTimestamp()` with `now` before it evaluates the rules. The stamp's `.validate` requires the server timestamp and refuses it until 60 seconds after the stored one; the post's `.validate` requires the stamp in the same write. A post without a stamp, a stamp with a client clock time, a stamp under another uid, and a delete of the stamp are all refused. The limit is on writes, not posts: one multi-path update can carry several posts and one stamp. For a cooldown on one record, combine `timing.cooldownElapsed(ms, 'lastMoveAt')` with `timing.isServerTimestamp('lastMoveAt')` in its `.write`.
+
+## Bound a collection
+
+RTDB rules cannot count a node's children. Bound the keys instead: `collections.slotKey('$slot', 4)` on `'/seats/$slot'` allows the keys `'0'` to `'3'`, which is how a client stores an array, so a fifth seat is refused. `collections.keyIn('$flag', ['red', 'blue'])` allows a fixed list. The library has no builder for a collection with free keys, such as push IDs.
 
 ## Ask an agent
 
@@ -103,7 +143,7 @@ From the CLI bridge, `rules.listStdlib({ service: 'database' })` and `rules.getS
 
 Some Firestore modules have no RTDB counterpart:
 
-- **`content` (a document hidden from the other players until the match ends):** RTDB cannot hide part of a node someone can read, because `.read` cascades to every child. Store each player's hidden value at its own path, such as `/hands/$matchId/$uid` with `.read: auth.uid === $uid`, and copy it to a public path when the match ends.
+- **`content` (a document hidden from the other players until the match ends):** RTDB cannot hide part of a node someone can read, because `.read` cascades to every child. Store each player's hidden value at its own path, such as `/hands/$matchId/$uid` with `.read: auth.uid === $uid`, and make it write-once with `lifecycle.createOnly()`. When the match ends, the player copies it to a public path whose `.validate` compares the revealed value with the hidden one, for example `newData.val() == root.child('hands').child($matchId).child(auth.uid).val()`, so the reveal cannot differ from what was committed.
 - **`fairness` (commit and reveal):** RTDB rules have no hashing functions, so a rule cannot check a revealed value against its commitment.
 - **`geometry` (squares such as `'e4'`):** RTDB rules have no string-to-number conversion or character lookup. Store a square as two numbers, `file` and `rank`, and check them with `validation.numberBetween`.
 - **`storage/*`:** Storage only.

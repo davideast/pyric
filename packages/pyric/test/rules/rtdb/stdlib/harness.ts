@@ -128,7 +128,9 @@ function withServerTime(value: unknown, paths: string[] | undefined, stamp: unkn
 /** The simulator's verdict for one case. */
 export function simulateCase(scenario: StdlibScenario, c: StdlibCase): Verdict | 'UNSUPPORTED' {
   const now = Date.now();
-  const newData = withServerTime(c.newData, c.serverTime, now);
+  // simulate receives the same `{ ".sv": "timestamp" }` the client writes and
+  // resolves it to `now` itself.
+  const newData = withServerTime(c.newData, c.serverTime, { '.sv': 'timestamp' });
   if (c.operation === 'update') {
     const compiled = compiledFor(scenario);
     const updates = Object.entries(newData as Record<string, unknown>).map(([key, value]) => ({

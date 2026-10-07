@@ -268,7 +268,7 @@ function substituteUid<T>(v: T, uid: string): T {
   if (Array.isArray(v)) return v.map((item) => substituteUid(item, uid)) as unknown as T;
   if (typeof v === 'object') {
     const out: Record<string, unknown> = {};
-    for (const [k, val] of Object.entries(v as Record<string, unknown>)) out[k] = substituteUid(val, uid);
+    for (const [k, val] of Object.entries(v as Record<string, unknown>)) out[k.replaceAll('<UID>', uid)] = substituteUid(val, uid);
     return out as unknown as T;
   }
   return v;

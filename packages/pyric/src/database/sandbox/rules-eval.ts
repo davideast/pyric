@@ -172,6 +172,13 @@ export interface EvalContext {
   query?: SimulationInput['query'];
   /** Optional query spec from sandbox query execution; converted to `query` for `query.*` rule expressions. */
   querySpec?: QuerySpec;
+  /**
+   * The instant of the request, for the rules' `now`. A write passes the
+   * instant it resolved its server timestamps at, so `newData.val() == now`
+   * holds for a written `serverTimestamp()` as in production. Defaults to the
+   * sandbox clock.
+   */
+  now?: number;
 }
 
 export type RtdbDefaultPolicy = 'allow' | 'deny';
@@ -314,7 +321,7 @@ export class RulesEvaluator {
       newData: ctx.newData,
       updates: ctx.updates,
       query: simulatedQuery,
-      now: this.clock.now(),
+      now: ctx.now ?? this.clock.now(),
     });
     if (!result.success) {
       // An engine error is reported as no-rule; user-mode callers fold it
