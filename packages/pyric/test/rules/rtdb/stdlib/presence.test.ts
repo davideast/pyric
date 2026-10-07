@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { rtdbStdlib } from 'pyric/rules';
+import { pathOwnerOnly, rtdbStdlib } from 'pyric/rules';
 import { runScenario, type StdlibScenario } from './harness.js';
 
 const { presence } = rtdbStdlib;
@@ -31,9 +31,10 @@ scenario.cases.push(
 );
 
 describe('rtdbStdlib.presence', () => {
-  test('ownPresence compiles to the uid check', () => {
-    expect(presence.ownPresence()).toBe('auth != null && auth.uid == $uid');
-    expect(() => presence.ownPresence('uid')).toThrow();
+  test('record and flag write with pathOwnerOnly', () => {
+    expect(presence.record().write).toBe(pathOwnerOnly('$uid'));
+    expect(presence.flag('$user').write).toBe(pathOwnerOnly('$user'));
+    expect(() => presence.record('uid')).toThrow();
   });
 
   runScenario(scenario);

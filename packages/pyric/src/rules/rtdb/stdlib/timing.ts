@@ -18,6 +18,9 @@
  * fresh stamp before the cooldown ends, are both refused. A deleted stamp
  * would reset the cooldown, and `.validate` does not run on a delete, so the
  * stamp's `.write` refuses deletes with `lifecycle.noDelete()`.
+ *
+ * The limit is on writes, not posts: one multi-path update can carry several
+ * posts and one stamp, and each post's `.validate` sees the same fresh stamp.
  */
 import type { Expr, Segment } from '../constraints/types.js';
 import { and, exists, fieldName, finite, lit, negate, or, raw, val } from './expr.js';

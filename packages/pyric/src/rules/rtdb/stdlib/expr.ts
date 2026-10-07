@@ -112,3 +112,11 @@ export function fieldName(builder: string, field: string): string {
   }
   return field;
 }
+
+/** A path variable name such as `$uid`, or a thrown error naming the builder. */
+export function pathVariable(builder: string, name: string): string {
+  if (!/^\$[A-Za-z_][\w]*$/.test(name)) {
+    throw new Error(`${builder}: '${name}' is not a path variable such as '$uid'.`);
+  }
+  return name;
+}

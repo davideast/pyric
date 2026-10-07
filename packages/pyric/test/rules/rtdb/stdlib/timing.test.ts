@@ -39,6 +39,7 @@ scenario.cases.push(
   { description: 'a first post with its stamp in the same write', expectation: 'ALLOW', operation: 'update', path: '/', auth: 'alice', newData: { 'posts/p1': 'hello', 'lastPost/alice': 0 }, serverTime: ['lastPost/alice'] },
   { description: 'a post once the cooldown has passed', expectation: 'ALLOW', operation: 'update', path: '/', auth: 'alice', data: { lastPost: { alice: PAST } }, newData: { 'posts/p2': 'hello', 'lastPost/alice': 0 }, serverTime: ['lastPost/alice'] },
   { description: 'a post inside the cooldown', expectation: 'DENY', operation: 'update', path: '/', auth: 'alice', data: { lastPost: { alice: FUTURE } }, newData: { 'posts/p2': 'hello', 'lastPost/alice': 0 }, serverTime: ['lastPost/alice'] },
+  { description: 'two posts in one write with one stamp', expectation: 'ALLOW', operation: 'update', path: '/', auth: 'alice', newData: { 'posts/p7': 'one', 'posts/p8': 'two', 'lastPost/alice': 0 }, serverTime: ['lastPost/alice'] },
   { description: 'a post without a stamp', expectation: 'DENY', operation: 'write', path: '/posts/p3', auth: 'alice', newData: 'hello' },
   { description: 'a post stamped with a client clock time', expectation: 'DENY', operation: 'update', path: '/', auth: 'alice', newData: { 'posts/p4': 'hello', 'lastPost/alice': 5 } },
   { description: 'a post stamped under another user', expectation: 'DENY', operation: 'update', path: '/', auth: 'alice', newData: { 'posts/p5': 'hello', 'lastPost/bob': 0 }, serverTime: ['lastPost/bob'] },

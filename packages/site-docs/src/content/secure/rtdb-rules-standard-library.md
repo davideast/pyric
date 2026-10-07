@@ -103,7 +103,7 @@ const statusRef = ref(getDatabase(), `status/${uid}`);
 await onDisconnect(statusRef).set({ state: 'offline', lastChanged: serverTimestamp() });
 await set(statusRef, { state: 'online', lastChanged: serverTimestamp() });
 ```
-`presence.record()` lets only the owner write `/status/$uid`, as `{ state: 'online' | 'offline', lastChanged }` with `lastChanged` the server timestamp and no other child. The server checks the rules for an onDisconnect write when the client registers it and again when it runs, so the offline value passes the same rules as the online one. `onDisconnect(statusRef).remove()` is a delete, which the owner's `.write` allows. `presence.flag()` is the same node as a boolean.
+`presence.record()` lets only the owner write `/status/$uid`, as `{ state: 'online' | 'offline', lastChanged }` with `lastChanged` the server timestamp and no other child. Production checks the rules for an onDisconnect write when the client registers it and again when it runs, so the offline value must pass the same rules as the online one. Production's verdict for a server timestamp inside an onDisconnect value has not been captured; the sandbox resolves it when the write runs. `onDisconnect(statusRef).remove()` is a delete, which the owner's `.write` allows. `presence.flag()` is the same node as a boolean.
 
 RTDB has no functions, so a match reads a player's presence through `data.parent()`, for example to let the other player claim a forfeit once the guest's state is `'offline'`.
 
@@ -124,11 +124,11 @@ paths: {
 // Client: the post and the stamp in one multi-path update.
 await update(ref(db), { 'posts/p1': post, [`lastPost/${uid}`]: serverTimestamp() });
 ```
-`now` is the server clock in milliseconds, and the server replaces a written `serverTimestamp()` with `now` before it evaluates the rules. The stamp's `.validate` requires the server timestamp and refuses it until 60 seconds after the stored one; the post's `.validate` requires the stamp in the same write. A post without a stamp, a stamp with a client clock time, and a stamp under another uid are all refused. For a cooldown on one record, combine `timing.cooldownElapsed(ms, 'lastMoveAt')` with `timing.isServerTimestamp('lastMoveAt')` in its `.write`.
+`now` is the server clock in milliseconds, and the server replaces a written `serverTimestamp()` with `now` before it evaluates the rules. The stamp's `.validate` requires the server timestamp and refuses it until 60 seconds after the stored one; the post's `.validate` requires the stamp in the same write. A post without a stamp, a stamp with a client clock time, a stamp under another uid, and a delete of the stamp are all refused. The limit is on writes, not posts: one multi-path update can carry several posts and one stamp. For a cooldown on one record, combine `timing.cooldownElapsed(ms, 'lastMoveAt')` with `timing.isServerTimestamp('lastMoveAt')` in its `.write`.
 
 ## Bound a collection
 
-RTDB rules cannot count a node's children. Bound the keys instead: `collections.slotKey('$slot', 4)` on `'/seats/$slot'` allows the keys `'0'` to `'3'`, which is how a client stores an array, so a fifth seat is refused. `collections.keyIn('$flag', ['red', 'blue'])` allows a fixed list. For free keys such as push IDs, keep a count next to the collection with `validation.numberBetween(0, max)` and `counters.changedBy(-1, 1)`, and write the child and the count in one multi-path update.
+RTDB rules cannot count a node's children. Bound the keys instead: `collections.slotKey('$slot', 4)` on `'/seats/$slot'` allows the keys `'0'` to `'3'`, which is how a client stores an array, so a fifth seat is refused. `collections.keyIn('$flag', ['red', 'blue'])` allows a fixed list. The library has no builder for a collection with free keys, such as push IDs.
 
 ## Ask an agent
 
@@ -143,7 +143,7 @@ From the CLI bridge, `rules.listStdlib({ service: 'database' })` and `rules.getS
 
 Some Firestore modules have no RTDB counterpart:
 
-- **`content` (a document hidden from the other players until the match ends):** RTDB cannot hide part of a node someone can read, because `.read` cascades to every child. Store each player's hidden value at its own path, such as `/hands/$matchId/$uid` with `.read: auth.uid === $uid`, and copy it to a public path when the match ends.
+- **`content` (a document hidden from the other players until the match ends):** RTDB cannot hide part of a node someone can read, because `.read` cascades to every child. Store each player's hidden value at its own path, such as `/hands/$matchId/$uid` with `.read: auth.uid === $uid`, and make it write-once with `lifecycle.createOnly()`. When the match ends, the player copies it to a public path whose `.validate` compares the revealed value with the hidden one, for example `newData.val() == root.child('hands').child($matchId).child(auth.uid).val()`, so the reveal cannot differ from what was committed.
 - **`fairness` (commit and reveal):** RTDB rules have no hashing functions, so a rule cannot check a revealed value against its commitment.
 - **`geometry` (squares such as `'e4'`):** RTDB rules have no string-to-number conversion or character lookup. Store a square as two numbers, `file` and `rank`, and check them with `validation.numberBetween`.
 - **`storage/*`:** Storage only.

@@ -11,20 +11,12 @@
  * `'/seats/$slot': { validate: collections.slotKey('$slot', 4) }`. A child
  * with any other key is refused when it is written.
  *
- * For a collection whose keys must be free, such as push IDs, keep a count
- * next to it: `counters.changedBy(-1, 1)` and `validation.numberBetween(0,
- * max)` on the count, and a multi-path update that writes the child and the
- * count together.
+ * The library has no builder for a collection whose keys must be free, such
+ * as push IDs: bounding one needs a count that every add and delete moves in
+ * the same write, and it is not provided here.
  */
 import type { Expr } from '../constraints/types.js';
-import { lit, or, raw } from './expr.js';
-
-function pathVariable(builder: string, name: string): string {
-  if (!/^\$[A-Za-z_][\w]*$/.test(name)) {
-    throw new Error(`${builder}: '${name}' is not a path variable such as '$slot'.`);
-  }
-  return name;
-}
+import { lit, or, pathVariable, raw } from './expr.js';
 
 /** The wildcard's key is one of `keys`. */
 export function keyIn(pathVar: string, keys: string[]): Expr {

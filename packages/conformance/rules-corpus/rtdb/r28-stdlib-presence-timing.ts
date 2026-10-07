@@ -11,7 +11,8 @@
  *   - posts and lastPost: a per-user rate limit. A post must be written in
  *     the same multi-path update as the writer's stamp, set to the server
  *     timestamp, and the stamp moves only once 60 seconds have passed and
- *     cannot be deleted.
+ *     cannot be deleted. The limit is on writes: one update may carry two
+ *     posts and one stamp.
  *   - events: a time no later than the server clock, and a creation time
  *     that must be the server timestamp.
  *   - tables: slots '0' to '3' and a fixed list of flag keys.
@@ -28,7 +29,7 @@
 import type { RtdbScenarioRecord } from './types.ts';
 
 export const scenario: RtdbScenarioRecord = {
-  fm: 'rtdb#71',
+  fm: "rtdb#71",
   rationale:
     'presence, rate limits and bounded collections from the standard library must deploy and decide as documented, including server timestamps written in the same multi-path update as the data they stamp.',
   provenance:
@@ -54,7 +55,7 @@ export const scenario: RtdbScenarioRecord = {
     "online": {
       "$uid": {
         ".read": "auth != null",
-        ".write": "auth != null && auth.uid == $uid",
+        ".write": "(auth != null) && (auth.uid == $uid)",
         ".validate": "newData.isBoolean()"
       }
     },
@@ -68,7 +69,7 @@ export const scenario: RtdbScenarioRecord = {
     "status": {
       "$uid": {
         ".read": "auth != null",
-        ".write": "auth != null && auth.uid == $uid",
+        ".write": "(auth != null) && (auth.uid == $uid)",
         ".validate": "newData.hasChildren(['state', 'lastChanged'])",
         "$other": {
           ".validate": false
@@ -125,5 +126,6 @@ export const scenario: RtdbScenarioRecord = {
     {"description":"a list of five seats","expectation":"DENY","operation":"write","opPath":"/tables/t1/seats","authPresent":true,"newData":["a","b","c","d","e"]},
     {"description":"a listed flag","expectation":"ALLOW","operation":"write","opPath":"/tables/t1/flags/red","authPresent":true,"newData":true},
     {"description":"a flag that is not listed","expectation":"DENY","operation":"write","opPath":"/tables/t1/flags/green","authPresent":true,"newData":true},
+    {"description":"two posts in one write with one stamp","expectation":"ALLOW","operation":"update","opPath":"/","authPresent":true,"newData":{"posts/p7":"one","posts/p8":"two","lastPost/<UID>":{".sv":"timestamp"}}},
   ],
 };

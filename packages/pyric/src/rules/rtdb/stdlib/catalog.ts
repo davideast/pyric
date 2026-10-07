@@ -183,11 +183,10 @@ const MODULES: Array<Omit<RtdbStdlibModule, 'kind' | 'services'>> = [
     key: 'presence',
     description: 'Who is online: a per-user node the owner writes, cleared by an onDisconnect write.',
     purpose:
-      'One node per user under a presence collection such as /status/$uid. record() is the path definition for { state, lastChanged } with lastChanged the server timestamp; flag() for a boolean. The server checks the rules for an onDisconnect write when the client registers it and again when it runs, so the offline value passes the same rules as the online one.',
+      'One node per user under a presence collection such as /status/$uid. record() is the path definition for { state, lastChanged } with lastChanged the server timestamp; flag() for a boolean. Both write with pathOwnerOnly. Production checks the rules for an onDisconnect write when the client registers it and again when it runs, so the offline value passes the same rules as the online one; its verdict for a server timestamp inside an onDisconnect value is not captured.',
     whenToUse: 'Showing who is connected, and letting a match react to a player who dropped.',
     convention: "/status/$uid holds { state: 'online' | 'offline', lastChanged: <server timestamp> }; /online/$uid holds true or false.",
     entries: [
-      entry({ name: 'ownPresence', signature: "ownPresence(pathVar?: string): Expr", placement: 'presence node .write', description: 'The signed-in user writes the node keyed by their uid.', example: 'presence.ownPresence()', build: () => presence.ownPresence() }),
       entry({
         name: 'record', signature: 'record(pathVar?: string): PathDef', placement: 'the path definition of /status/$uid',
         description: "Owner-written { state: 'online' | 'offline', lastChanged: server timestamp } with no other child; signed-in users read it.",
@@ -213,7 +212,7 @@ const MODULES: Array<Omit<RtdbStdlibModule, 'kind' | 'services'>> = [
         name: 'stampedInSameWrite', signature: 'stampedInSameWrite(levelsUp: number, segments: Array<string | { $: string }>): Expr', placement: 'rate-limited node .validate',
         description: 'The same write sets the stamp at segments, read levelsUp levels above, to the server time.',
         example: "timing.stampedInSameWrite(2, ['lastPost', { $: 'auth.uid' }])", build: () => timing.stampedInSameWrite(2, ['lastPost', { $: 'auth.uid' }]),
-        notes: "Write the post and the stamp in one multi-path update: update(ref(db), { 'posts/p1': post, ['lastPost/' + uid]: serverTimestamp() }).",
+        notes: "Write the post and the stamp in one multi-path update: update(ref(db), { 'posts/p1': post, ['lastPost/' + uid]: serverTimestamp() }). It limits writes, not posts: one multi-path update can carry several posts and one stamp.",
       }),
     ],
     relatedKeys: ['presence', 'counters'],
@@ -226,9 +225,9 @@ const MODULES: Array<Omit<RtdbStdlibModule, 'kind' | 'services'>> = [
     whenToUse: 'Seats, slots, a fixed set of flags, or any list with a maximum length.',
     entries: [
       entry({ name: 'keyIn', signature: 'keyIn(pathVar: string, keys: string[]): Expr', placement: 'wildcard node .validate', description: 'The wildcard key is one of keys.', example: "collections.keyIn('$flag', ['red', 'blue'])", build: () => collections.keyIn('$flag', ['red', 'blue']) }),
-      entry({ name: 'slotKey', signature: 'slotKey(pathVar: string, max: number): Expr', placement: 'wildcard node .validate', description: "The wildcard key is '0' to max - 1.", example: "collections.slotKey('$slot', 4)", build: () => collections.slotKey('$slot', 4), notes: 'For free keys such as push IDs, keep a count next to the collection, bounded with validation.numberBetween and stepped with counters.changedBy(-1, 1), and write both in one multi-path update.' }),
+      entry({ name: 'slotKey', signature: 'slotKey(pathVar: string, max: number): Expr', placement: 'wildcard node .validate', description: "The wildcard key is '0' to max - 1.", example: "collections.slotKey('$slot', 4)", build: () => collections.slotKey('$slot', 4), notes: 'A collection with free keys, such as push IDs, has no builder here.' }),
     ],
-    relatedKeys: ['validation', 'counters'],
+    relatedKeys: ['validation'],
   },
 ];
 

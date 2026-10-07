@@ -67,14 +67,6 @@ function substituteUid<T>(value: T, uid: string): T {
   return value;
 }
 
-function resolveServerTimestamps(value: unknown, now: number): unknown {
-  if (value === null || typeof value !== 'object') return value;
-  if (Array.isArray(value)) return value.map((item) => resolveServerTimestamps(item, now));
-  const record = value as Record<string, unknown>;
-  if (Object.keys(record).length === 1 && record['.sv'] === 'timestamp') return now;
-  return Object.fromEntries(Object.entries(record).map(([key, child]) => [key, resolveServerTimestamps(child, now)]));
-}
-
 function setAt(root: Record<string, unknown>, path: string, value: unknown): void {
   const segments = path.split('/').filter(Boolean);
   if (segments.length === 0) return;
@@ -136,11 +128,11 @@ function simulatorVerdict(
     ? { uid, token: { firebase: { sign_in_provider: 'anonymous' }, provider_id: 'anonymous' } }
     : null;
   const simMock = buildSimMock(scenario, simPath, mockData, testCase.seed, uid);
-  // The server replaces a written `{ ".sv": "timestamp" }` with the instant it
-  // evaluates the rules at, so the replay resolves it to the `now` it passes.
+  // A written `{ ".sv": "timestamp" }` goes to the simulator as the client
+  // wrote it; the simulator resolves it to the `now` it is passed.
   const now = Date.now();
   const newData = testCase.newData !== undefined
-    ? resolveServerTimestamps(substituteUid(testCase.newData, uid), now)
+    ? substituteUid(testCase.newData, uid)
     : undefined;
 
   if (testCase.operation === 'update') {
