@@ -15,6 +15,7 @@ import type { ParseError } from '../grammar/FirestoreParser.js';
 import type { LintWarning } from '../linter/linter.js';
 import type { ValidationFinding } from '../grammar/FirestoreValidator.js';
 import type { RtdbRulesFinding } from '../rtdb/constraints/document.js';
+import type { RtdbSecurityFinding } from '../rtdb/grammar/ruleset-lint.js';
 import type { CompileLimitViolation } from '../grammar/compile-limits.js';
 
 /** Ordered by decreasing urgency. `info` is advisory. */
@@ -98,6 +99,15 @@ export function validationFindingToIssue(finding: ValidationFinding): RuleIssue 
     message: finding.message,
     path: finding.path,
     origin: 'validate',
+  };
+}
+
+/** An RTDB security finding is a validator finding on one rule, with a fix. */
+export function rtdbSecurityFindingToIssue(finding: RtdbSecurityFinding): RuleIssue {
+  return {
+    ...validationFindingToIssue(finding),
+    rule: finding.rule,
+    fix: finding.fix,
   };
 }
 

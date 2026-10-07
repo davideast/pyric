@@ -28,7 +28,8 @@ import {
 } from '../rtdb/compiled-rules.js';
 import type { SimulationInput, SimulateResult } from '../rtdb/simulation/spec.js';
 import type { RuleIssue } from './issue.js';
-import { rtdbFindingToIssue } from './issue.js';
+import { rtdbFindingToIssue, rtdbSecurityFindingToIssue } from './issue.js';
+import { lintRtdbRuleset } from '../rtdb/grammar/ruleset-lint.js';
 import type {
   RtdbCase,
   RtdbCaseResult,
@@ -78,10 +79,13 @@ class DocumentRtdbRuleset implements RtdbRuleset {
 
   lint(): RuleIssue[] {
     const check = this.doc.check();
-    return [
+    const issues = [
       ...check.errors.map((f) => rtdbFindingToIssue(f, 'error')),
       ...check.warnings.map((f) => rtdbFindingToIssue(f, 'warning')),
     ];
+    // A ruleset that does not compile has no tree to read.
+    if (check.errors.some((f) => f.code === 'COMPILE_ERROR')) return issues;
+    return [...issues, ...lintRtdbRuleset(this.doc.compile()).map(rtdbSecurityFindingToIssue)];
   }
 
   private runOne(c: RtdbCase): RtdbCaseResult {

@@ -339,12 +339,13 @@ describe('rtdbRules constructor', () => {
     ]).cases.map((result) => result.decision)).toEqual(['ALLOW', 'DENY']);
   });
 
-  test('lint() surfaces check findings as unified issues', () => {
+  test('lint() surfaces check findings and security findings as unified issues', () => {
     const ruleset = rtdbRules(def);
     const issues = ruleset.lint();
     expect(issues).toEqual([
       expect.objectContaining({ code: 'HARDCODED_TRUE', origin: 'lint', path: '/notes/$noteId', rule: '.read' }),
       expect.objectContaining({ code: 'HARDCODED_FALSE', origin: 'lint', path: '/notes/$noteId', rule: '.write' }),
+      expect.objectContaining({ code: 'RTDB-SEC-2', origin: 'validate', path: '/notes/$noteId', rule: '.read' }),
     ]);
   });
 
