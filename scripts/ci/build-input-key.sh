@@ -20,7 +20,7 @@ hash_tracked() {
 
 packages_key=$(hash_tracked \
   'packages/' \
-  ':!packages/*/test' \
+  ':(glob,exclude)packages/*/test/**' \
   ':!packages/playground' \
   ':!packages/site-docs' \
   'scripts/build.sh' \
@@ -28,7 +28,7 @@ packages_key=$(hash_tracked \
 
 site_key=$(hash_tracked \
   'packages/' \
-  ':!packages/*/test' \
+  ':(glob,exclude)packages/*/test/**' \
   ':!packages/playground' \
   'scripts/build.sh' \
   'scripts/build-site.sh' \
