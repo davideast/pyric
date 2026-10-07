@@ -99,6 +99,45 @@ describe('RTDB evaluation trace in the rules debugger', () => {
     expect(text).toContain('unsupported: root.child');
   });
 
+  it('marks no line when an unsupported rule is selected', () => {
+    const denial: Denial = {
+      id: 'u1', at: 0, result: 'deny', method: 'get', service: 'rtdb', path: '/rooms/alice',
+      auth: null, reasons: [], origin: 'user', unsupported: true,
+      rules: {
+        engine: 'rtdb',
+        rtdbTrace: [
+          { path: '/rooms', kind: 'read', conditionText: 'root.child("x").val()', verdict: 'UNSUPPORTED', message: 'root.child', pathVariableBindings: {} },
+        ],
+      },
+    };
+    const { container } = render(<RulesDebug denials={[denial]} rulesSource={RULES} />);
+    const row = container.querySelector('[data-pyric-ui="rtdb-trace-row"]')!;
+    fireEvent.click(row.querySelector('button')!);
+    const source = container.querySelector('[data-pyric-ui="rtdb-rule-source"]')!;
+    expect(row.getAttribute('aria-current')).toBe('true');
+    expect(source.hasAttribute('data-marked-line')).toBe(false);
+  });
+
+  it('shows the first 20 rows of a long trace and the rest on request', () => {
+    const entry = (i: number) => ({
+      path: `/rooms/$r${i}`, kind: 'validate' as const, conditionText: 'true',
+      verdict: 'ALLOW' as const, pathVariableBindings: {},
+    });
+    const denial: Denial = {
+      id: 'l1', at: 0, result: 'allow', method: 'set', service: 'rtdb', path: '/rooms',
+      auth: null, reasons: [], origin: 'user', unsupported: false,
+      rules: { engine: 'rtdb', rtdbTrace: Array.from({ length: 25 }, (_, i) => entry(i)) },
+    };
+    const { container } = render(<RulesDebug denials={[denial]} />);
+    const count = () => container.querySelectorAll('[data-pyric-ui="rtdb-trace-row"]').length;
+    expect(count()).toBe(20);
+    const showAll = container.querySelector('[data-pyric-ui="rtdb-trace-show-all"]')!;
+    expect(showAll.textContent).toContain('25');
+    fireEvent.click(showAll);
+    expect(count()).toBe(25);
+    expect(container.querySelector('[data-pyric-ui="rtdb-trace-show-all"]')).toBeNull();
+  });
+
   it('has no lines when the rules source is absent', async () => {
     const denial = await cascadeEvaluation();
     expect(projectRtdbTrace(denial, undefined).map((r) => r.line)).toEqual([

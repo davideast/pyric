@@ -641,8 +641,8 @@ export interface RtdbTraceRow {
  * Project the RTDB evaluation trace carried on a denial's rules verdict into
  * one row per evaluated rule, root first. `rulesSource` is the text of
  * `database.rules.json`; with it each row names the line of its rule. Returns
- * `[]` for an event with no RTDB trace (another service, or a worker that
- * predates the trace).
+ * `[]` for an event with no RTDB trace (another service, or an operation no rule
+ * of the requested kind covers).
  */
 export function projectRtdbTrace(denial: Denial, rulesSource?: string): RtdbTraceRow[] {
   const trace = denial.rules?.rtdbTrace;

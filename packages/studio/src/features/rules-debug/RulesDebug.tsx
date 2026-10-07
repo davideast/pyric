@@ -551,24 +551,28 @@ function RtdbRuleDetail({
   // A clicked trace row moves the editor's mark to that rule; until then the
   // mark stays on the rule that decided the operation.
   const [selectedRow, setSelectedRow] = useState<number | null>(null);
+  const [showAllRows, setShowAllRows] = useState(false);
+  const visibleRows = showAllRows ? rows : rows.slice(0, TRACE_ROWS_SHOWN);
   const selected = selectedRow === null ? undefined : rows[selectedRow];
-  const line = selected ? selected.line : decidingLine;
+  // An UNSUPPORTED rule is neither an allow nor a deny, so selecting it marks no line.
+  let line = decidingLine;
+  if (selected) line = selected.verdict === 'UNSUPPORTED' ? undefined : selected.line;
   const isAllowed = selected ? selected.verdict === 'ALLOW' : denial.result === 'allow';
   const hasSource = rulesSource !== undefined && rulesSource.trim().length > 0;
   let ruleNodeLabel: string;
   if (exp.implicitDeny || !exp.ruleNode) {
     ruleNodeLabel = 'rule node';
   } else if (decidingLine !== undefined) {
-    ruleNodeLabel = `rule node — ${exp.ruleNode} · line ${decidingLine}`;
+    ruleNodeLabel = `rule node: ${exp.ruleNode} · line ${decidingLine}`;
   } else {
-    ruleNodeLabel = `rule node — ${exp.ruleNode}`;
+    ruleNodeLabel = `rule node: ${exp.ruleNode}`;
   }
 
   let ariaLabelText: string;
   if (isAllowed) {
-    ariaLabelText = 'Deployed database.rules.json — the allowing rule is marked';
+    ariaLabelText = 'Deployed database.rules.json, the allowing rule is marked';
   } else {
-    ariaLabelText = 'Deployed database.rules.json — the denying rule is marked';
+    ariaLabelText = 'Deployed database.rules.json, the denying rule is marked';
   }
 
   return (
@@ -595,7 +599,7 @@ function RtdbRuleDetail({
       {rows.length > 0 ? (
         <Field label="evaluated rules, root first">
           <ul data-pyric-ui="rtdb-trace" className="flex flex-col gap-1">
-            {rows.map((row, i) => (
+            {visibleRows.map((row, i) => (
               <RtdbTraceRowItem
                 key={i}
                 row={row}
@@ -604,6 +608,16 @@ function RtdbRuleDetail({
               />
             ))}
           </ul>
+          {rows.length > visibleRows.length ? (
+            <button
+              type="button"
+              data-pyric-ui="rtdb-trace-show-all"
+              onClick={() => setShowAllRows(true)}
+              className="w-fit font-mono text-xs text-slate-gray hover:text-soft-white"
+            >
+              show all {rows.length} rules
+            </button>
+          ) : null}
         </Field>
       ) : null}
       {!hasSource && exp.ruleExpression ? (
@@ -631,11 +645,15 @@ function RtdbRuleDetail({
   );
 }
 
+/** The longest evaluation trace shown before "show all". A write to a deep path
+ *  evaluates one rule per ancestor plus the validate walk. */
+const TRACE_ROWS_SHOWN = 20;
+
 /** One rule of the RTDB evaluation trace: where it sits (rule-tree path, kind,
  *  file line), then the same step row Firestore's expression trace uses for its
  *  expression and verdict, then the `$` bindings at the node. A click selects the
- *  row; the whole row is the target, and the header button is its keyboard stop
- *  (its click bubbles to the row). */
+ *  row; the whole row is a pointer target, and the header button is its keyboard
+ *  stop and selects on its own. */
 function RtdbTraceRowItem({
   row,
   current,
@@ -658,6 +676,10 @@ function RtdbTraceRowItem({
     >
       <button
         type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          onSelect();
+        }}
         className="flex w-fit items-baseline gap-2 font-mono text-xs text-slate-gray"
       >
         <span className="text-soft-white">{row.path}</span>
