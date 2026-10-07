@@ -1,14 +1,17 @@
-import type { AuthState } from 'pyric/sandbox';
+import type { AuthState, RtdbDenialContext } from 'pyric/sandbox';
 import type { BackendState } from './backend-state.js';
 import type { ChildListeners } from './child-listeners.js';
 import { cloneJson, pathSegments, type JsonValue } from './data-tree.js';
 import { coerceArrays, normalizeWrite } from './normalize.js';
-import { canonicalPath, denyResultFor } from './operation-events.js';
+import { canonicalPath, denyResultFor, rtdbDenialContext } from './operation-events.js';
+import { withDenialContext } from './rules-eval.js';
 import { resolveSentinels } from './sentinels.js';
 import type { ValueListeners } from './value-listeners.js';
 
-function transactionPermissionDenied(): Error {
-  return new Error('permission_denied');
+/** Production rejects a denied transaction with a codeless plain `Error`
+ *  whose message is `permission_denied`. */
+function transactionPermissionDenied(context: RtdbDenialContext): Error {
+  return withDenialContext(new Error('permission_denied'), context);
 }
 
 export class Transactions {
@@ -77,7 +80,7 @@ export class Transactions {
         resourceAfter: { data: resolved, exists: resolved !== null },
         groupId, groupKind: 'transaction',
       });
-      throw transactionPermissionDenied();
+      throw transactionPermissionDenied(rtdbDenialContext(evaluation, auth, 'transaction', path, resolved));
     }
     if (applyLocally) {
       const currentPriority = this.state.priorities.get(path);

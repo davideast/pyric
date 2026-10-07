@@ -34,7 +34,7 @@ import type {
   ListenerOwner,
   SandboxClockState,
   SandboxEvent,
-  DenialContext,
+  AnyDenialContext,
 } from 'pyric/sandbox';
 import type { Query as RtdbQuery } from 'pyric/database';
 import type {
@@ -497,7 +497,8 @@ export interface SerializedError {
   aiEvidence?: Partial<AiEvidence>;
   code: string;
   message: string;
-  denialContext?: DenialContext;
+  /** Structured rules denial frame; `engine` tells an RTDB frame from a Firestore one. */
+  denialContext?: AnyDenialContext;
   aiEnvelope?: AiErrorEnvelopeWire;
   envelope?: FcmErrorEnvelope;
 }
@@ -524,13 +525,16 @@ function serializeErrorValue(err: unknown): SerializedError {
       };
     }
     const e = err as { code?: unknown; message?: unknown; denialContext?: unknown };
+    // A denied RTDB transaction rejects with a codeless Error, as production
+    // does, and still carries the sandbox's denial context.
+    const denial = e.denialContext !== null && typeof e.denialContext === 'object'
+      ? { denialContext: e.denialContext as AnyDenialContext }
+      : {};
     if (typeof e.code === 'string' && typeof e.message === 'string') {
-      return e.denialContext !== null && typeof e.denialContext === 'object'
-        ? { code: e.code, message: e.message, denialContext: e.denialContext as DenialContext }
-        : { code: e.code, message: e.message };
+      return { code: e.code, message: e.message, ...denial };
     }
     if (err instanceof Error) {
-      return { code: 'unknown', message: err.message };
+      return { code: 'unknown', message: err.message, ...denial };
     }
   }
   return { code: 'unknown', message: String(err) };

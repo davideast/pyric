@@ -26,7 +26,7 @@ import {
   type CompiledRtdbRules,
 } from '../../rules/rtdb/compiled-rules.js';
 import type { RtdbRuleEvaluation, SimulationInput } from '../../rules/rtdb/simulation/spec.js';
-import type { AuthState } from 'pyric/sandbox';
+import type { AuthState, RtdbDenialContext } from 'pyric/sandbox';
 import { SandboxClock } from 'pyric/sandbox';
 import type { QuerySpec } from './query.js';
 
@@ -109,10 +109,20 @@ function findMatchingNodesAtPath(root: CompiledRtdbRules, segments: string[]): C
  * `firebase/database` SDK does. A `class PermissionDeniedError extends Error`
  * would leak its name and break the oracle's shape claim.
  */
-export function permissionDenied(): Error {
+export function permissionDenied(context: RtdbDenialContext): Error {
   const err = new Error('PERMISSION_DENIED: Permission denied') as Error & { code: string };
   err.code = 'PERMISSION_DENIED';
-  return err;
+  return withDenialContext(err, context);
+}
+
+/**
+ * Attach the sandbox's rule evaluation to a production-shaped denial as an
+ * own, enumerable `denialContext` property, the same property Firestore
+ * sandbox errors carry. The error's class, name, code and message are not
+ * touched, so the production shape claim holds.
+ */
+export function withDenialContext<E extends Error>(error: E, context: RtdbDenialContext): E {
+  return Object.assign(error, { denialContext: context });
 }
 
 /**

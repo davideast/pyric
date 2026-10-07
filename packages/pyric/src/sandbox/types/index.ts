@@ -17,7 +17,9 @@
 export type { AuthState } from './auth-state.js';
 
 export type {
+  AnyDenialContext,
   DenialContext,
+  RtdbDenialContext,
   SandboxErrorCode,
   SandboxErrorOptions,
 } from './errors.js';

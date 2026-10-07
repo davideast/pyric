@@ -1,10 +1,10 @@
-import type { AuthState } from 'pyric/sandbox';
+import type { AuthState, RtdbDenialContext } from 'pyric/sandbox';
 import type { BackendState } from './backend-state.js';
 import type { ChildListeners } from './child-listeners.js';
 import { joinPath, pathSegments, type JsonValue } from './data-tree.js';
 import type { ChildListener, ValueListener } from './listener-types.js';
 import { normalizeWrite } from './normalize.js';
-import { canonicalPath, denyResultFor, rtdbRulesDetail } from './operation-events.js';
+import { canonicalPath, denyResultFor, rtdbDenialContext, rtdbRulesDetail } from './operation-events.js';
 import { validatePriority } from './priority-state.js';
 import { PriorityWrites } from './priority-writes.js';
 import { executeQuery, type Priority, type QueryRow, type QuerySpec } from './query.js';
@@ -186,7 +186,7 @@ export class WritePlane {
         at, durationMs: this.state.clock.now() - at,
         resourceBefore: { data: value, exists: value !== null },
       });
-      throw permissionDenied();
+      throw permissionDenied(rtdbDenialContext(evaluation, auth, 'get', path));
     }
     this.state.events.operation(auth, 'get', path, 'allow', evaluation, {
       at, durationMs: this.state.clock.now() - at,
@@ -202,7 +202,7 @@ export class WritePlane {
       this.state.events.operation(auth, 'get', path, denyResultFor(evaluation.check), evaluation, {
         at, durationMs: this.state.clock.now() - at, request: { query: spec },
       });
-      throw permissionDenied();
+      throw permissionDenied(rtdbDenialContext(evaluation, auth, 'get', path));
     }
     const missingIndex = this.state.rules.missingQueryIndex(path, spec);
     if (missingIndex !== null) {
@@ -242,7 +242,10 @@ export class WritePlane {
       resolveSentinels(value, now, this.state.tree.read(path)) as JsonValue,
       path === '/' ? '' : path,
     );
-    if (this.writeEvaluation(auth, path, resolved, now).check !== 'allow') throw permissionDenied();
+    const evaluation = this.writeEvaluation(auth, path, resolved, now);
+    if (evaluation.check !== 'allow') {
+      throw permissionDenied(rtdbDenialContext(evaluation, auth, 'onDisconnect', path, resolved));
+    }
   }
 
   validateUpdate(auth: AuthState, path: string, patch: Record<string, unknown>): void {
@@ -255,9 +258,12 @@ export class WritePlane {
       ) };
     });
     for (const update of updates) {
-      if (this.state.rules.evaluate('write', update.path, {
+      const evaluation = this.state.rules.evaluate('write', update.path, {
         auth, mockData, newData: update.value, updates, now,
-      }).check !== 'allow') throw permissionDenied();
+      });
+      if (evaluation.check !== 'allow') {
+        throw permissionDenied(rtdbDenialContext(evaluation, auth, 'onDisconnect', update.path, update.value));
+      }
     }
   }
 
@@ -292,7 +298,7 @@ export class WritePlane {
       };
       if (evaluation.check !== 'allow') {
         this.state.events.operation(auth, 'update', update.path, denyResultFor(evaluation.check), evaluation, fields);
-        throw permissionDenied();
+        throw permissionDenied(rtdbDenialContext(evaluation, auth, 'update', update.path, update.value));
       }
       allowed.push(() => this.state.events.operation(auth, 'update', update.path, 'allow', evaluation, fields));
     }
@@ -341,7 +347,7 @@ export class WritePlane {
     };
     if (evaluation.check !== 'allow') {
       this.state.events.operation(auth, op, path, denyResultFor(evaluation.check), evaluation, common);
-      throw permissionDenied();
+      throw permissionDenied(rtdbDenialContext(evaluation, auth, op, path, resolved));
     }
     this.state.events.operation(auth, op, path, 'allow', evaluation, common);
     const priors = this.children.snapshotParents();
@@ -381,6 +387,7 @@ export class WritePlane {
   private cancelDeniedListeners(): void {
     const mockData = this.state.tree.snapshot() as Record<string, unknown>;
     const deniedValues: ValueListener[] = [];
+    const contexts = new Map<ValueListener | ChildListener, RtdbDenialContext>();
     for (const listener of [...this.state.valueListeners]) {
       if (listener.admin) continue;
       const evaluation = this.state.rules.evaluate('read', listener.path, {
@@ -398,6 +405,7 @@ export class WritePlane {
         reasons: evaluation.reasons,
         rules: rulesObj,
       });
+      contexts.set(listener, rtdbDenialContext(evaluation, listener.auth, 'listen', listener.path));
       deniedValues.push(listener);
     }
     const deniedChildren: ChildListener[] = [];
@@ -417,6 +425,7 @@ export class WritePlane {
         reasons: evaluation.reasons,
         rules: rulesObj,
       });
+      contexts.set(listener, rtdbDenialContext(evaluation, listener.auth, 'listen', listener.path));
       deniedChildren.push(listener);
     }
     for (const listener of [...deniedValues, ...deniedChildren]) {
@@ -427,7 +436,7 @@ export class WritePlane {
       } catch { /* isolated teardown */ }
       try {
         if (listener.cancelCallback) {
-          listener.cancelCallback(listenerPermissionDenied(listener.path));
+          listener.cancelCallback(listenerPermissionDenied(listener.path, contexts.get(listener)!));
         }
       } catch { /* isolated callback */ }
     }
