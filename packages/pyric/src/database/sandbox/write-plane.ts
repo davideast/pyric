@@ -82,6 +82,15 @@ export class WritePlane {
   }
 
   adminGetQuery(path: string, spec: QuerySpec): QueryRow[] {
+    // Admin access bypasses rules, not the index requirement.
+    const missingIndex = this.state.rules.missingQueryIndex(path, spec);
+    if (missingIndex !== null) {
+      this.state.events.operation(null, 'get', path, 'error', undefined, {
+        at: this.state.clock.now(),
+        origin: 'admin', request: { query: spec }, detail: { failure: 'missing-index' },
+      });
+      throw indexNotDefined(path, missingIndex);
+    }
     const rows = executeQuery(this.state.tree.read(path), spec, this.state.priorities.forChild(path));
     this.state.events.operation(null, 'get', path, 'not-applicable', undefined, {
       at: this.state.clock.now(),

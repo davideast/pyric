@@ -85,6 +85,7 @@ export class ValueListeners {
   }
 
   adminOnValue(path: string, cb: (snap: ValueListenerSnapshot) => void, query?: QuerySpec): () => void {
+    this.state.warnOnUnspecifiedIndex(path, query);
     return this.attach(null, path, cb, query, {
       origin: 'admin', result: 'not-applicable', evaluation: undefined, at: this.state.clock.now(),
     });
