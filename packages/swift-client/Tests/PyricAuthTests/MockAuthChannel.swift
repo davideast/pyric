@@ -6,7 +6,7 @@ public final class MockAuthChannel: WebSocketTransport, @unchecked Sendable {
     private var incomingQueue: [String] = []
     private var receiveContinuations: [CheckedContinuation<String, Error>] = []
     private var sentQueue: [[String: AnySendable]] = []
-    private var sentContinuations: [CheckedContinuation<[String: AnySendable], Error>] = []
+    private var sentContinuations: [(id: UUID, continuation: CheckedContinuation<[String: AnySendable], Error>)] = []
     public private(set) var isClosed = false
 
     public init() {}
@@ -26,7 +26,7 @@ public final class MockAuthChannel: WebSocketTransport, @unchecked Sendable {
                let obj = try? JSONDecoder().decode(AnySendable.self, from: data),
                let dict = obj.dictionaryValue {
                 if !sentContinuations.isEmpty {
-                    let cont = sentContinuations.removeFirst()
+                    let cont = sentContinuations.removeFirst().continuation
                     return (cont, dict)
                 } else {
                     sentQueue.append(dict)
@@ -64,7 +64,7 @@ public final class MockAuthChannel: WebSocketTransport, @unchecked Sendable {
             isClosed = true
             let r = receiveContinuations
             receiveContinuations.removeAll()
-            let s = sentContinuations
+            let s = sentContinuations.map(\.continuation)
             sentContinuations.removeAll()
             return (r, s)
         }
@@ -93,18 +93,37 @@ public final class MockAuthChannel: WebSocketTransport, @unchecked Sendable {
     public func awaitNextSentMessage(timeoutSeconds: Double = 3.0) async throws -> [String: AnySendable] {
         try await withThrowingTaskGroup(of: [String: AnySendable].self) { group in
             group.addTask {
-                try await withCheckedThrowingContinuation { continuation in
-                    let msgToReturn: [String: AnySendable]? = self.withLock {
-                        if !self.sentQueue.isEmpty {
-                            return self.sentQueue.removeFirst()
-                        } else {
-                            self.sentContinuations.append(continuation)
-                            return nil
+                let waiterId = UUID()
+                return try await withTaskCancellationHandler {
+                    try await withCheckedThrowingContinuation { continuation in
+                        // A wait that is already cancelled must not register, or a later
+                        // frame would be delivered to a waiter that no longer exists.
+                        let (msgToReturn, cancelled): ([String: AnySendable]?, Bool) = self.withLock {
+                            if Task.isCancelled {
+                                return (nil, true)
+                            }
+                            if !self.sentQueue.isEmpty {
+                                return (self.sentQueue.removeFirst(), false)
+                            }
+                            self.sentContinuations.append((id: waiterId, continuation: continuation))
+                            return (nil, false)
+                        }
+                        if cancelled {
+                            continuation.resume(throwing: CancellationError())
+                        } else if let msgToReturn {
+                            continuation.resume(returning: msgToReturn)
                         }
                     }
-                    if let msgToReturn {
-                        continuation.resume(returning: msgToReturn)
+                } onCancel: {
+                    // Unregister the waiter so a frame sent after a timeout stays queued
+                    // for the next wait.
+                    let waiter: CheckedContinuation<[String: AnySendable], Error>? = self.withLock {
+                        guard let index = self.sentContinuations.firstIndex(where: { $0.id == waiterId }) else {
+                            return nil
+                        }
+                        return self.sentContinuations.remove(at: index).continuation
                     }
+                    waiter?.resume(throwing: CancellationError())
                 }
             }
             group.addTask {
@@ -114,6 +133,30 @@ public final class MockAuthChannel: WebSocketTransport, @unchecked Sendable {
             let res = try await group.next()!
             group.cancelAll()
             return res
+        }
+    }
+
+    /// Returns the next sent `worker-op` frame whose `op.method` equals `method`.
+    ///
+    /// A re-subscribe sends a `worker-unsub` for the old subscription and a `worker-sub`
+    /// for the new one from separate tasks, so their order relative to each other and to
+    /// a following operation is not fixed. Frames that are not the requested operation
+    /// are discarded.
+    public func awaitNextSentOp(
+        method: String,
+        timeoutSeconds: Double = 2.0
+    ) async throws -> [String: AnySendable] {
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        while true {
+            let remaining = deadline.timeIntervalSinceNow
+            if remaining <= 0 {
+                throw PyricBridgeError.deadlineExceeded("Timed out waiting for worker-op \(method)")
+            }
+            let frame = try await awaitNextSentMessage(timeoutSeconds: remaining)
+            if frame["type"]?.stringValue == "worker-op",
+               frame["op"]?.dictionaryValue?["method"]?.stringValue == method {
+                return frame
+            }
         }
     }
 }

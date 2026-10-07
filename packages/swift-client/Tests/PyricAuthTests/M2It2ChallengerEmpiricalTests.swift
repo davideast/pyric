@@ -266,8 +266,10 @@ struct M2It2ChallengerEmpiricalTests {
         let tokenResultTask = Task {
             try await user.getIDTokenResult(forcingRefresh: true)
         }
-        let frameToken = try await channel.awaitNextSentMessage(timeoutSeconds: 2.0)
-        let idToken = frameToken["id"]?.stringValue ?? "rop-token"
+        // The re-subscribe from step 3 may still be flushing a worker-unsub for the anon
+        // subscription, so select the token operation by method instead of by position.
+        let frameToken = try await channel.awaitNextSentOp(method: "auth.getIdTokenResult")
+        let idToken = try #require(frameToken["id"]?.stringValue)
         try channel.simulateServerMessage([
             "type": "worker-res",
             "id": idToken,
@@ -302,6 +304,32 @@ struct M2It2ChallengerEmpiricalTests {
         #expect(tokenMap?["premium"]?.boolValue == true)
 
         reg.remove()
+    }
+
+    @Test("awaitNextSentOp skips unsub and sub frames queued ahead of the requested operation")
+    func testAwaitNextSentOpSkipsStrayFrames() async throws {
+        let channel = MockAuthChannel()
+        try await channel.send(#"{"type":"worker-sub","subId":"rsub-2","sub":{}}"#)
+        try await channel.send(#"{"type":"worker-unsub","subId":"rsub-1"}"#)
+        try await channel.send(#"{"type":"worker-op","id":"rop-1","op":{"method":"auth.signOut"}}"#)
+        try await channel.send(#"{"type":"worker-op","id":"rop-2","op":{"method":"auth.getIdTokenResult"}}"#)
+
+        let frame = try await channel.awaitNextSentOp(method: "auth.getIdTokenResult")
+        #expect(frame["id"]?.stringValue == "rop-2")
+    }
+
+    @Test("A timed-out awaitNextSentMessage does not swallow the next sent frame")
+    func testTimedOutWaitLeavesNextFrameQueued() async throws {
+        let channel = MockAuthChannel()
+
+        await #expect(throws: PyricBridgeError.self) {
+            _ = try await channel.awaitNextSentMessage(timeoutSeconds: 0.05)
+        }
+
+        try await channel.send(#"{"type":"worker-sub","subId":"rsub-1","sub":{}}"#)
+
+        let frame = try await channel.awaitNextSentMessage(timeoutSeconds: 1.0)
+        #expect(frame["subId"]?.stringValue == "rsub-1")
     }
 
     // ── Test 4: Remote Sync Subscribes to Both authState and idToken ─────────
