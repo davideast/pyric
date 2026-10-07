@@ -24,6 +24,7 @@ import {
 } from './ast-utils.js';
 import { checkSyntaxHints, checkHallucinations } from './hallucinations.js';
 import { countDocumentAccessCalls } from '../grammar/document-access-count.js';
+import { recursiveScope, type RecursiveScope } from '../grammar/recursive-scope.js';
 import { callChainDepths, collectRulesetScopes, functionReferences } from '../grammar/function-scopes.js';
 import { EXPRESSION_LIMIT, estimateExpressionCosts, type RuleCostEstimate } from './expression-cost.js';
 import { ruleLibraryCalls } from './library-calls.js';
@@ -569,51 +570,8 @@ function checkPermissiveRules(
   }
 }
 
-/**
- * What an allow rule under a recursive wildcard governs, from the full match
- * path below the documents root. A recursive wildcard matches zero or more
- * segments. In the last position it governs every document under its
- * prefix (`subtree`). Followed by further segments, as in the
- * collection-group shape `/{path=**}/items/{id}`, it governs only documents
- * whose path ends in those segments (`suffix`).
- */
-interface RecursiveScope {
-  kind: 'subtree' | 'suffix';
-  fullPath: string;
-  description: string;
-}
-
 /** A recursive scope together with the rule's index in its match block. */
 type RuleScope = RecursiveScope & { ruleIndex: number };
-
-function renderSegments(segments: readonly PathSegment[]): string {
-  return segments.map((segment) => {
-    if (segment.type === 'literal') return `/${segment.value}`;
-    if (segment.type === 'wildcard') return `/{${segment.name}}`;
-    return `/{${segment.name}=**}`;
-  }).join('');
-}
-
-function recursiveScope(segments: readonly PathSegment[]): RecursiveScope | null {
-  const index = segments.findIndex((segment) => segment.type === 'recursive');
-  if (index === -1) return null;
-  const fullPath = renderSegments(segments);
-  const prefix = renderSegments(segments.slice(0, index));
-  const under = prefix ? ` under ${prefix}` : '';
-  const trailing = segments.slice(index + 1);
-  if (trailing.length === 0) {
-    return {
-      kind: 'subtree',
-      fullPath,
-      description: prefix ? `every document under ${prefix}` : 'every document in the database',
-    };
-  }
-  const [collection, document] = trailing;
-  const description = trailing.length === 2 && collection?.type === 'literal' && document?.type === 'wildcard'
-    ? `every document in a collection named ${collection.value} at any depth${under}`
-    : `every document whose path ends in ${renderSegments(trailing)}${under}`;
-  return { kind: 'suffix', fullPath, description };
-}
 
 /** The recursive scope of every allow rule whose full match path holds a
  *  recursive wildcard. */
