@@ -660,16 +660,22 @@ jobs:
     timeout-minutes: 30
     needs: plan
     if: needs.plan.outputs.check-set == 'full'
+    # The Kotlin client is experimental: its job runs and reports, but a
+    # failure does not fail the native-conformance result that CI / required reads.
+    continue-on-error: ${{ matrix.blocking == false }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - sdk: kotlin
             os: ubuntu-latest
+            blocking: false
           - sdk: flutter
             os: ubuntu-latest
+            blocking: true
           - sdk: swift
             os: macos-latest
+            blocking: true
     steps:
       - uses: actions/checkout@v4
 

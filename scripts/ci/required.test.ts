@@ -27,6 +27,15 @@ describe('required CI result', () => {
     );
   });
 
+  test('only the experimental Kotlin client is non-blocking in native conformance', () => {
+    const workflow = readFileSync(resolve(import.meta.dir, '../../.github/workflows/build.yml'), 'utf8');
+    const nativeJob = workflow.slice(workflow.indexOf('\n  native-conformance:'), workflow.indexOf('\n  required:'));
+    expect(nativeJob).toContain('continue-on-error: ${{ matrix.blocking == false }}');
+    const entries = [...nativeJob.matchAll(/- sdk: (\w+)\n\s+os: [\w-]+\n\s+blocking: (true|false)/g)]
+      .map(([, sdk, blocking]) => [sdk, blocking]);
+    expect(Object.fromEntries(entries)).toEqual({ kotlin: 'false', flutter: 'true', swift: 'true' });
+  });
+
   test('accepts skipped jobs only when their check set did not select them', () => {
     expect(requiredFailures({ checkSet: 'full', requirePackaging: false, results: success })).toEqual([]);
     expect(requiredFailures({
