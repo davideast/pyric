@@ -7,7 +7,7 @@
 #      secret is absent so external-contributor PRs don't fail).
 #
 # Post-mirror layout: simulator + grammar live under
-# packages/pyric/src/{sandbox/firestore,rules/{grammar,simulator}}/.
+# packages/pyric/src/{firestore/sandbox,rules/{grammar,simulator}}/.
 # The suite itself is at packages/pyric/test/{sandbox/firestore/simulator,
 # rules/simulator}/; the live parity packs at packages/pyric/test/rules/parity/.
 
@@ -16,7 +16,7 @@ name: Simulator Parity
 on:
   pull_request:
     paths:
-      - 'packages/pyric/src/sandbox/firestore/**'
+      - 'packages/pyric/src/firestore/sandbox/**'
       - 'packages/pyric/src/rules/grammar/**'
       - 'packages/pyric/src/rules/simulator/**'
       - 'packages/pyric/test/sandbox/firestore/simulator/**'
@@ -25,13 +25,18 @@ on:
   push:
     branches: [main]
     paths:
-      - 'packages/pyric/src/sandbox/firestore/**'
+      - 'packages/pyric/src/firestore/sandbox/**'
       - 'packages/pyric/src/rules/grammar/**'
       - 'packages/pyric/src/rules/simulator/**'
       - 'packages/pyric/test/sandbox/firestore/simulator/**'
       - 'packages/pyric/test/rules/**'
       - '.github/workflows/simulator-parity.yml'
   workflow_dispatch:
+
+concurrency:
+  # A new push to the same branch or PR cancels the in-flight run.
+  group: simulator-parity-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   simulator-tests:
