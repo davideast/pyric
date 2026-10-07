@@ -10,7 +10,7 @@
  */
 import 'fake-indexeddb/auto';
 import { afterAll, describe, expect, it } from 'bun:test';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -18,6 +18,7 @@ import { IN_PROCESS_STATE_RELATIVE } from '../../src/bridge/server/in-process.js
 import { runDatabaseRulesValidate } from '../../src/cli/database-rules.js';
 import { parseArgs } from '../../src/cli/parse-args.js';
 import { runSurfaceMethod } from '../../src/cli/surface-method-runner.js';
+import { setInlineStorageLimitForTesting } from 'pyric/sandbox/internal';
 
 const workDir = mkdtempSync(join(tmpdir(), 'pyric-surface-cli-'));
 
@@ -362,5 +363,25 @@ describe('pyric <tool> <method>', () => {
     expect(whoami.code).toBe(0);
     const appSession = JSON.parse(whoami.stdout).data.appSession as { uid: string } | null;
     expect(appSession?.uid).toBe('session-carrier');
+  });
+});
+
+describe('a Storage write past the inline limit', () => {
+  it('reports the result, says Storage was not saved, names the limit, and fails', async () => {
+    const restore = setInlineStorageLimitForTesting(4);
+    try {
+      const upload = await run('storage.uploadBytes', [
+        'storage', 'uploadBytes', '--in-process', '--path', 'big/five.bin', '--contentBase64', 'AQIDBAU=',
+      ]);
+      expect(upload.code).toBe(2);
+      expect(upload.stderr).toContain('pyric: Storage was not saved.');
+      expect(upload.stderr).toContain('MAX_INLINE_STORAGE_BYTES');
+      expect(upload.stderr).toContain('`pyric snapshot`');
+      const sidecar = join(workDir, '.pyric', 'state', 'storage.json');
+      const saved = existsSync(sidecar) ? readFileSync(sidecar, 'utf8') : '';
+      expect(saved).not.toContain('big/five.bin');
+    } finally {
+      restore();
+    }
   });
 });
