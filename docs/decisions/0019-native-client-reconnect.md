@@ -107,8 +107,15 @@ All three clients implement one reconnect protocol in their bridge client
    - On the drop, every Firestore listener that has delivered a snapshot and
      was registered with `includeMetadataChanges: true` receives a fresh
      snapshot of the documents it last delivered, with
-     `metadata.fromCache == true`, `hasPendingWrites == false` and no document
-     changes.
+     `metadata.fromCache == true` and no document changes. `hasPendingWrites`
+     keeps the value of the last frame the listener received rather than
+     reporting false: production keeps pending writes visible while offline
+     (observation `firestore-browser-lifecycle`,
+     `offlineSnapshotHasPendingWrites: true`). The Swift and Kotlin clients
+     rebuild the gap snapshot from that last frame, so their document and query
+     gap snapshots carry its `hasPendingWrites`. The Dart client's gap mapping
+     does not pass the frame's `hasPendingWrites` yet and reports false; that
+     divergence remains open.
    - After re-attach, the re-sent listener's first snapshot arrives with
      `fromCache == false`, and its document changes are computed against the
      last snapshot the listener delivered, so writes made during the gap appear
