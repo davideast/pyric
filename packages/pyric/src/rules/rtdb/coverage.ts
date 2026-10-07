@@ -13,7 +13,7 @@
  */
 import type { RtdbNode } from './types.js';
 import { nodesDeclaringIndex } from './index-lookup.js';
-import { locateRtdbRule } from './source-locations.js';
+import { locateRtdbTrace } from './source-locations.js';
 import type { RtdbRuleEvaluation, SimulationQuery } from './simulation/spec.js';
 
 export type RtdbCoverageKind = 'read' | 'write' | 'validate' | 'indexOn';
@@ -76,7 +76,7 @@ export interface RtdbCoverageOptions {
   file?: string;
   /**
    * The text of `database.rules.json`. Each row gains the 1-indexed `line` of
-   * its rule key, located with {@link locateRtdbRule}. A row whose key the
+   * its rule key, located with {@link locateRtdbTrace}. A row whose key the
    * text does not contain, or text that is not valid JSON with comments,
    * leaves `line` unset.
    */
@@ -176,7 +176,7 @@ export class RtdbCoverageRecorder {
   }
 
   summarize(options: RtdbCoverageOptions = {}): RtdbCoverageSummary {
-    const rules: RtdbRuleCoverage[] = [];
+    const counted: RtdbRuleCoverage[] = [];
     for (const row of this.rows.values()) {
       const { allow, deny, error, unsupported } = row.counts;
       const entry: RtdbRuleCoverage = {
@@ -190,12 +190,9 @@ export class RtdbCoverageRecorder {
         unsupported,
         status: statusOf(row.counts),
       };
-      const location = options.source === undefined
-        ? null
-        : locateRtdbRule(options.source, row.path, `.${row.kind}`);
-      if (location !== null) entry.line = location.line;
-      rules.push(entry);
+      counted.push(entry);
     }
+    const rules = options.source === undefined ? counted : locateRtdbTrace(options.source, counted);
     const byKind = Object.fromEntries(
       KINDS.map((kind) => [kind, { total: 0, covered: 0, unsupported: 0 }]),
     ) as RtdbFileCoverage['byKind'];
