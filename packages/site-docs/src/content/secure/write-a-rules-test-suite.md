@@ -102,9 +102,204 @@ if (escalate.length > 0) {
 ```
 Each hosted call is one HTTP round-trip, tens to hundreds of milliseconds. The simulator itself is held to that engine's answers by a parity corpus that runs in CI, so for most suites the local verdicts are the same verdicts, sooner.
 
+## Test Realtime Database rules
+
+Realtime Database rules have their own case type, `RtdbCase`, and their own entry point, `rtdbRules`. Both come from `pyric/rules`.
+
+### Choose a test layer
+
+A rules-only simulation answers most authorization questions. Add the other layers only for the questions it cannot answer.
+
+| Question | Layer | What you need | What it shows |
+|---|---|---|---|
+| Does this rule allow or deny this request? | Rules-only simulation: `rtdbRules(...).simulate` | The rules JSON and the case data | Behavior for the cases you wrote, and which rules they never reached |
+| Does my app code reach those rules with the right identity, and do listeners and errors behave? | Local SDK integration: the sandbox | A sandbox, SDK calls, and signed-in contexts | The local implementation handling your real calls |
+| Would a session I ran change verdicts under new rules? | `pyric verify` | A session captured by `pyric sandbox` | Each operation whose verdict changed, on the sandbox engine |
+| Does Firebase agree for this ruleset? | Live verification | A Firebase project that runs the rules | The only layer that establishes production behavior |
+
+Simulation needs no Auth user, no SDK module replacement, no browser, and no running database. It covers the cases you model. It does not establish production parity for your ruleset. For live verification, deploy the rules to a non-production project and run the same cases against it with the Firebase SDK.
+
+### Write the cases
+
+An `RtdbCase` describes one request:
+```ts
+import { rtdbRules, type RtdbCase } from 'pyric/rules';
+
+const rules = rtdbRules({
+  rules: {
+    '.read': false,
+    '.write': false,
+    records: {
+      $recordId: {
+        '.read':
+          "auth != null && (data.child('ownerId').val() === auth.uid || data.child('reviewers').child(auth.uid).exists())",
+        '.write':
+          "auth != null && (data.exists() ? data.child('ownerId').val() === auth.uid : newData.child('ownerId').val() === auth.uid)",
+        '.validate': "newData.hasChildren(['ownerId', 'title'])",
+        title: { '.validate': 'newData.isString() && newData.val().length <= 80' },
+      },
+    },
+  },
+});
+
+const stored = {
+  records: {
+    r1: { ownerId: 'alice', title: 'Quarterly plan', reviewers: { rita: true } },
+  },
+};
+const revised = { ownerId: 'alice', title: 'Revised plan', reviewers: { rita: true } };
+
+const cases: RtdbCase[] = [
+  { description: 'owner writes', expectation: 'ALLOW', operation: 'write', path: '/records/r1', auth: 'alice', data: stored, newData: revised },
+  { description: 'reviewer reads', expectation: 'ALLOW', operation: 'read', path: '/records/r1', auth: 'rita', data: stored },
+  { description: 'reviewer cannot write', expectation: 'DENY', operation: 'write', path: '/records/r1', auth: 'rita', data: stored, newData: revised },
+  { description: 'unrelated user cannot read', expectation: 'DENY', operation: 'read', path: '/records/r1', auth: 'mallory', data: stored },
+  { description: 'signed-out user cannot read', expectation: 'DENY', operation: 'read', path: '/records/r1', auth: null, data: stored },
+  { description: 'title over 80 characters', expectation: 'DENY', operation: 'write', path: '/records/r1', auth: 'alice', data: stored, newData: { ...revised, title: 'x'.repeat(81) } },
+];
+```
+The fields map onto what the rule sees:
+
+- `operation` is `read`, `write`, `update`, or `validate`.
+- `path` is an absolute path from the database root, such as `/records/r1`.
+- `auth` is a uid string, an object with `uid` and `token` for custom claims, or `null` for a signed-out request. Omitting it is the same as `null`.
+- `data` is the database tree before the request, **from the root**, not from `path`. Rules read it as `data`.
+- `newData` is the value the request writes at `path`, any JSON value. For an `update`, it is the patch, keyed by paths relative to `path`. Rules read the written value as `newData`.
+- `query` is the query a `read` carries, such as `{ orderByChild: 'ownerId', equalTo: 'alice' }`. Rules read it as `query`.
+- `now` is the instant, in epoch milliseconds, that `now` reports. Pin it for any rule that compares against `now`, so the verdict does not depend on the clock.
+
+Each allowed case has denied neighbors that use the same rules and the same `data`. Change one thing at a time: the identity, the operation, or the written value. A reviewer who can read but not write, and a title that breaks `.validate`, each prove a different rule.
+
+### Run the suite
+```ts
+const summary = rules.simulate(cases);
+console.log(`${summary.passed} passed, ${summary.failed} failed, ${summary.unsupported} unsupported`);
+```
+```
+6 passed, 0 failed, 0 unsupported
+```
+`simulate` never throws on a rule outcome. A case that fails its expectation counts as `failed`. A case that uses an expression the simulator cannot evaluate counts as `unsupported`, and it is never a guess.
+
+In a test runner, use `assertCase` so a miss throws with the deciding rule in the message:
+```ts
+import { test } from 'bun:test';
+import { assertCase } from 'pyric/rules';
+
+for (const c of cases) {
+  test(c.description!, () => assertCase(rules, c));
+}
+```
+A failing case reports what decided it:
+```
+FAIL: unrelated user reads
+  read /records/r1 (expected ALLOW, got DENY)
+  matched auth != null && (data.child('ownerId').val() === auth.uid || data.child('reviewers').child(auth.uid).exists()) @ /records/$recordId
+  reason: No 'read' rule grants access; the deepest, at '/records/$recordId', evaluated to false
+  rules evaluated:
+    / .read -> DENY: false
+    /records/$recordId .read -> DENY: auth != null && (data.child('ownerId').val() === auth.uid || data.child('reviewers').child(auth.uid).exists()) ($recordId = r1)
+```
+`rules evaluated` lists every `.read`, `.write`, and `.validate` rule the simulator ran, root first, with its verdict (`ALLOW`, `DENY`, `ERROR` with the runtime error, or `UNSUPPORTED`) and the `$` variables bound at that node. The cascade stops at the first grant, and the validate walk stops at the first failure. The same list is on each result as `trace`.
+
+A simulator abstention throws `RulesUnsupportedError`, and an expectation miss throws `RulesAssertionError`, so a runner can treat them differently.
+
+### Find the rules no case reaches
+
+`summary.coverage` reports, for each `.read`, `.write`, `.validate`, and `.indexOn` node in the ruleset, what the cases did with it. `renderRtdbCoverage` prints it. Call `rules.coverage` with the case results to name the file and, from the file's text, the line of each rule key:
+```ts
+import { renderRtdbCoverage } from 'pyric/rules';
+
+const source = JSON.stringify(rules.toJSON(), null, 2); // or the text of database.rules.json
+console.log(renderRtdbCoverage(rules.coverage(summary.cases, { file: 'database.rules.json', source })));
+```
+```
+Rule coverage: database.rules.json
+  6 of 6 rules evaluated, 0 never evaluated, 0 unsupported
+  .read: 2 of 2
+  .write: 2 of 2
+  .validate: 2 of 2
+
+/ .read (line 3): deny (allow 0, deny 3, error 0)
+/ .write (line 4): deny (allow 0, deny 3, error 0)
+/records/$recordId .read (line 7): mixed (allow 1, deny 2, error 0)
+/records/$recordId .write (line 8): mixed (allow 2, deny 1, error 0)
+/records/$recordId .validate (line 9): allow (allow 2, deny 0, error 0)
+/records/$recordId/title .validate (line 11): mixed (allow 1, deny 1, error 0)
+```
+Each rule node has a `status`: `allow`, `deny`, or `error` when every evaluation had that outcome, `mixed` when it had more than one, `unsupported` when the simulator could not evaluate it, and `never-evaluated` when no case reached it. `coverage.uncovered` lists the nodes no case reached.
+
+Every rule here was evaluated, but `/records/$recordId .validate` only ever allowed. No case writes a record without an `ownerId` or a `title`, so the suite does not show that the rule refuses one. Add that denied neighbor and the row becomes `mixed`.
+
+An `.indexOn` node counts as used when a `read` case's `query` orders by a child or by value that the node declares. A query that no node declares an index for is listed in `coverage.missingIndexes`.
+
+### Know what a case checks
+
+A `write` case evaluates the `.write` rules from the root to `path`, then every `.validate` rule at and below `path` that the written value reaches. A `.validate` failure denies the write and names the failing rule in `matchedPath` and `matchedRule`. An `operation: 'validate'` case evaluates only the `.validate` rules.
+
+An `update` case writes every path in its patch together, as `update()` does. Each path is judged by the `.write` rules on its own path and by the `.validate` rules against the tree the whole update produces, so one refused path denies the update:
+```ts
+const twoOwners = {
+  records: {
+    r1: { ownerId: 'alice', title: 'Quarterly plan' },
+    r2: { ownerId: 'bob', title: 'Roadmap' },
+  },
+};
+
+rules.simulate([
+  { description: 'owner retitles her record', expectation: 'ALLOW', operation: 'update', path: '/records', auth: 'alice', data: twoOwners, newData: { 'r1/title': 'Final plan' } },
+  { description: 'an update that also retitles another owner\'s record', expectation: 'DENY', operation: 'update', path: '/records', auth: 'alice', data: twoOwners, newData: { 'r1/title': 'Final plan', 'r2/title': 'Mine now' } },
+]);
+```
+A `read` case with a `query` evaluates rules that read `query.*`:
+```ts
+const listed = rtdbRules({
+  rules: {
+    records: {
+      '.indexOn': ['ownerId'],
+      '.read': "auth != null && query.orderByChild == 'ownerId' && query.equalTo == auth.uid",
+    },
+  },
+});
+
+listed.simulate([
+  { description: 'alice lists her own records', expectation: 'ALLOW', operation: 'read', path: '/records', auth: 'alice', query: { orderByChild: 'ownerId', equalTo: 'alice' } },
+  { description: 'alice cannot read every record', expectation: 'DENY', operation: 'read', path: '/records', auth: 'alice' },
+]);
+```
+Rule expressions compare with `==` and `!=` strictly, as production does. See [simulate and lint before you deploy](./simulate-and-lint.md#know-how-the-simulator-evaluates-rules). `simulate` does not run the deploy check, so [lint the ruleset](./simulate-and-lint.md#lint-a-ruleset) as part of the suite.
+
+### Test the SDK path with the sandbox
+
+When the question is about how your app calls the database, use the sandbox. Load the rules, write data as a signed-in user, and make requests through signed-in contexts:
+```ts
+import { initializeSandbox } from 'pyric/sandbox';
+import { getDatabase, ref, set, get, sandbox as databaseSandbox } from 'pyric/database';
+
+const sandbox = initializeSandbox();
+const admin = getDatabase(sandbox);
+databaseSandbox.setRules(admin, rules.toJSON());
+
+const alice = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+const mallory = getDatabase(sandbox.withAuth({ uid: 'mallory' }));
+
+await set(ref(alice, 'records/r1'), { ownerId: 'alice', title: 'Plan' });
+await get(ref(mallory, 'records/r1')); // rejects: PERMISSION_DENIED: Permission denied
+```
+The rejected call is a plain `Error` whose message is `PERMISSION_DENIED: Permission denied` and whose `code` is `PERMISSION_DENIED`, the same shape the Firebase SDK produces. The sandbox adds a `denialContext` with the deciding rule; see [read a Realtime Database denial](./read-a-denial.md#read-a-realtime-database-denial). `setRules` installs the ruleset as given, without the deploy check that `pyric sandbox` runs on `database.rules.json`.
+
+This layer also covers listeners, transactions, and `.indexOn` behavior, which a rules-only case cannot reach. See [run the same backend in tests and scripts](../ship/test-in-node.md) for the harness structure.
+
+### Replay a captured session against new rules
+
+`pyric verify` replays a session captured during development against a candidate ruleset and reports each operation whose verdict changed:
+```bash
+pyric verify --service rtdb --rules rtdb=database.rules.json
+```
+RTDB verification runs on the sandbox engine only. The hosted Rules Test API evaluates Firestore rules, so `--engine rules-test-api` is refused for `rtdb`. See [ship to production](../ship/ship-to-production.md).
+
 ## Run the suite through an agent
 
-An agent can run the local loop through `firestore_simulate_rules`, which means the rules it writes can arrive with explicit passing cases instead of a promise. See [Work with an agent](../agent/work-with-an-agent.md).
+An agent can run the local loop through `firestore_simulate_rules`, which means the rules it writes can arrive with explicit passing cases instead of a promise. For Realtime Database, the agent calls `rtdb_simulate_access` with an `operation` (`read`, `write`, `update`, or `validate`), a `path`, and optionally an `auth` of `{ uid, claims }`, a `newData` value, a `query`, and a `now`. The tool evaluates against the rules and data currently loaded in the sandbox, so it needs no separate rules-loading call. It uses the sandbox clock for `now` unless you pass one, and it returns `decision`, `matchedPath`, `matchedRule`, `reason`, and the `trace`. See [Work with an agent](../agent/work-with-an-agent.md).
 
 ## Where to go next
 
