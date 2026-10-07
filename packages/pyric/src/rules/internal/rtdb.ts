@@ -19,6 +19,9 @@ export {
 } from '../rtdb/compiled-rules.js';
 export type { CompiledRtdbRules } from '../rtdb/compiled-rules.js';
 
+export { locateRtdbRule } from '../rtdb/source-locations.js';
+export type { RtdbRuleKind, RtdbSourceLocation } from '../rtdb/source-locations.js';
+
 export { parseExpression } from '../rtdb/grammar/RtdbExprParser.js';
 export { validateExpression } from '../rtdb/grammar/validator.js';
 export { lintExpression } from '../rtdb/grammar/linter.js';

@@ -36,6 +36,7 @@ import {
   selectDenials,
   selectRuleEvaluations,
   explainDenial,
+  rtdbRuleLine,
   denialSeverity,
   projectTraceSteps,
   ruleVariables,
@@ -51,7 +52,7 @@ import {
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { RulesDebug } from './RulesDebug.js';
-import { findRtdbRuleLine } from './RulesDebug.js';
+import { stripJsonComments } from 'pyric/sandbox/database';
 
 const OWNER_RULES = `rules_version = '2';
 service cloud.firestore {
@@ -261,34 +262,67 @@ describe('rules-debug model: RTDB denial → rule node → bindings', () => {
   });
 });
 
-describe('rules-debug: RTDB source line resolution (findRtdbRuleLine)', () => {
-  const SAMPLE_RTDB_JSON = `{
-  "rules": {
-    "rooms": {
-      "$roomId": {
-        ".read": "auth != null",
-        ".write": false
-      }
-    },
-    "public": {
-      ".read": true,
-      ".write": false
-    }
-  }
-}`;
+describe('rules-debug: RTDB denial highlights the deciding rule line', () => {
+  // Rule lines are noted at the end of each row; comments hold braces and a
+  // decoy rule so a text search for the expression or key would pick wrongly.
+  const COMMENTED_RULES = [
+    '// database.rules.json { decoy: ".write": "false" }', // 1
+    '{', // 2
+    '  "rules": {', // 3
+    '    ".read": false,', // 4
+    '    "public": {', // 5
+    '      ".write": "false", /* ".write": "false" */', // 6
+    '      ".read": true', // 7
+    '    },', // 8
+    '    "rooms": {', // 9
+    '      "$roomId": {', // 10
+    '        // ".write": "false"', // 11
+    '        ".write": "false",', // 12
+    '        ".validate": "newData.isString()"', // 13
+    '      }', // 14
+    '    }', // 15
+    '  }', // 16
+    '}', // 17
+  ].join('\n');
 
-  it('locates a unique rule expression and phase line number in database.rules.json', () => {
-    const line = findRtdbRuleLine(SAMPLE_RTDB_JSON, 'read', 'auth != null', 'rooms/r1');
-    expect(line).toBe(5);
+  async function denialFor(path: string, value: unknown): Promise<Denial> {
+    const sandbox = initializeSandbox();
+    rtdbSandbox.setRules(
+      getDatabase(sandbox),
+      JSON.parse(stripJsonComments(COMMENTED_RULES)),
+    );
+    const events: SandboxEvent[] = [];
+    sandbox.onEvent((e) => events.push(e));
+    const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+    await set(ref(db, path), value as never).catch(() => undefined);
+    return selectDenials(events).find((x) => x.service === 'rtdb')!;
+  }
+
+  it('a .write denial resolves to the line of that rule, not an identical rule elsewhere', async () => {
+    const d = await denialFor('/rooms/r1', 'hello');
+    expect(d.rules?.matchedPath).toBe('/rooms/$roomId');
+    expect(rtdbRuleLine(d, COMMENTED_RULES)).toBe(12);
+    const pub = await denialFor('/public', 'hello');
+    expect(rtdbRuleLine(pub, COMMENTED_RULES)).toBe(6);
   });
 
-  it('disambiguates identical rules using preceding path segment context', () => {
-    // Both rooms/$roomId and public have ".write": false on lines 6 and 11
-    const lineRooms = findRtdbRuleLine(SAMPLE_RTDB_JSON, 'write', 'false', 'rooms/r1');
-    expect(lineRooms).toBe(6);
+  it('has no line without source, and none for an implicit deny', () => {
+    const implicit: Denial = {
+      result: 'deny',
+      id: 'r3', at: 0, method: 'set', path: 'unmatched/x', service: 'rtdb',
+      rules: { engine: 'rtdb', errorCode: 'NO_MATCHING_RULE' },
+      auth: null, reasons: [], origin: 'user', unsupported: false,
+    };
+    expect(rtdbRuleLine(implicit, COMMENTED_RULES)).toBeUndefined();
+    expect(rtdbRuleLine(implicit, undefined)).toBeUndefined();
+  });
 
-    const linePublic = findRtdbRuleLine(SAMPLE_RTDB_JSON, 'write', 'false', 'public/data');
-    expect(linePublic).toBe(11);
+  it('the rendered denial names the deciding line', async () => {
+    const d = await denialFor('/rooms/r1', 'hello');
+    const html = renderToStaticMarkup(
+      createElement(RulesDebug, { denials: [d], rulesSource: COMMENTED_RULES }),
+    );
+    expect(html).toContain('line 12');
   });
 });
 

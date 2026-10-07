@@ -30,6 +30,7 @@ import { Badge } from '@pyric/ui/primitives';
 import { truncateVectorsForDisplay } from '@pyric/ui/firestore';
 import {
   explainDenial,
+  rtdbRuleLine,
   queryProofFailure,
   denialSeverity,
   projectTraceSteps,
@@ -527,71 +528,6 @@ function ValueTree({ value, depth = 0 }: { value: unknown; depth?: number }) {
   );
 }
 
-/**
- * Resolves the 1-indexed source code line in `database.rules.json` that corresponds
- * to an evaluated Realtime Database access verdict. Matches the rule expression
- * and phase directive, using preceding path segment hits to break ties when
- * multiple paths declare identical boolean or common expressions.
- */
-export function findRtdbRuleLine(
-  rulesSource?: string,
-  phase?: string,
-  matchedRule?: string,
-  matchedPath?: string,
-): number | undefined {
-  const isMissingSource = !rulesSource || !matchedRule;
-  if (isMissingSource) return undefined;
-
-  const lines = rulesSource.split(/\r?\n/);
-  const hasPhase = phase !== undefined && phase.length > 0;
-  let targetDirective: string | null;
-  if (hasPhase) {
-    targetDirective = `".${phase}"`;
-  } else {
-    targetDirective = null;
-  }
-
-  const candidates: number[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const hasExpression = line.includes(matchedRule);
-    if (!hasExpression) continue;
-    const hasDirective = targetDirective === null || line.includes(targetDirective);
-    if (!hasDirective) continue;
-    candidates.push(i + 1);
-  }
-
-  const hasSingleMatch = candidates.length === 1;
-  if (hasSingleMatch) return candidates[0];
-  if (candidates.length === 0) return undefined;
-
-  const pathSegments = (matchedPath ?? '').split('/').filter(Boolean);
-  if (pathSegments.length === 0) return candidates[0];
-
-  let bestLine = candidates[0];
-  let bestScore = -1;
-
-  for (const candidateLine of candidates) {
-    let score = 0;
-    const zeroIndexedPrevLine = candidateLine - 2;
-    const searchWindowLimit = Math.max(0, zeroIndexedPrevLine - 30);
-    for (let j = zeroIndexedPrevLine; j >= searchWindowLimit; j--) {
-      const lineText = lines[j];
-      for (const segment of pathSegments) {
-        if (lineText.includes(`"${segment}"`)) {
-          score++;
-        }
-      }
-    }
-    if (score > bestScore) {
-      bestScore = score;
-      bestLine = candidateLine;
-    }
-  }
-
-  return bestLine;
-}
-
 /** RTDB: WHICH node in the cascade denied (`.write` vs `.validate`, at which
  *  rule-tree path), its raw rule text, and the `$variable` bindings —
  *  `SimulateHandler`'s verdict, not a re-derivation. When `rulesSource` is
@@ -605,7 +541,7 @@ function RtdbRuleDetail({
   exp: RuleExplanation;
   rulesSource?: string;
 }) {
-  const line = findRtdbRuleLine(rulesSource, exp.phase, exp.ruleExpression, denial.rules?.matchedPath);
+  const line = rtdbRuleLine(denial, rulesSource);
   const isAllowed = denial.result === 'allow';
   const hasSource = rulesSource !== undefined && rulesSource.trim().length > 0;
   let ruleNodeLabel: string;

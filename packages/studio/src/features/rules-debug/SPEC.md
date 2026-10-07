@@ -169,6 +169,14 @@ raw `matchedRule` expression are surfaced verbatim.
 path, the raw rule expression (`matchedRule`), `$variable` bindings, the data
 evaluated (proposed write / existing value), `request.auth`.
 
+**Deciding line**: when the deployed `database.rules.json` source is available,
+`rtdbRuleLine(denial, rulesSource)` resolves the key of the deciding rule
+(`.read`, `.write` or `.validate` at `matchedPath`) with `locateRtdbRule`, a
+scanner for JSON with comments, and the editor marks that line. The lookup uses
+the rule-tree path and key, never the expression text, so identical rules at
+different paths and rules named inside comments or strings resolve correctly.
+An implicit deny has no deciding rule and marks no line.
+
 **Re-runs**: both **live** — the pure `SimulateHandler` (`rtdbRules(rules).simulate`) is the mechanical substrate. Impersonated re-runs execute against active sandbox rules via `issueOp`, while edited-ruleset re-runs validate JSON syntax and re-simulate over an in-memory branch (`fork + setRules + simulate`). Re-running is honestly a simulation, never framed as a live inline enforcement gate.
 
 ### Storage
@@ -197,13 +205,12 @@ rules inspection for them.
 
 ## Re-run, mapped to real mechanical tools
 
-Two re-run actions, each graded `live` / `pending` / `absent` per service
-(`rerunSupport(denial)` in `model.ts`):
+Two re-run actions, each graded `live` / `pending` / `absent` per service:
 
 | Action | Firestore | RTDB | Storage |
 |---|---|---|---|
-| Impersonate attempting user | **live** — worker `setLens({mode:'as',uid})` seam, real backend | **pending** — needs a `SimulateHandler` re-run operation wired into the Studio worker | **absent** — evaluated events exist, but Studio has no Storage replay operation |
-| Test an edited ruleset | **live** — `fork` + `lintFirestoreRules` (surfaced pre-run) + `firestore_simulate_rules` (via `issueOp`) + structural `diff`, same now-denied/now-allowed classification `pyric verify`'s `deriveRulesTestCases` performs, applied to one op | **pending** — needs `RulesEvaluator.setRules` + a `SimulateHandler` re-run operation, and there is no whole-ruleset RTDB linter yet | **absent** — needs a Storage replay operation and temporary edited-rules deployment seam |
+| Impersonate attempting user | **live** — worker `setLens({mode:'as',uid})` seam, real backend | **live**: `issueOp` re-simulates the operation with `rtdbRules(rules).simulate` over the active sandbox rules | **absent** — evaluated events exist, but Studio has no Storage replay operation |
+| Test an edited ruleset | **live** — `fork` + `lintFirestoreRules` (surfaced pre-run) + `firestore_simulate_rules` (via `issueOp`) + structural `diff`, same now-denied/now-allowed classification `pyric verify`'s `deriveRulesTestCases` performs, applied to one op | **live**: `lintEditedRuleset` (JSON syntax, comments allowed), then `fork` + `setRules` + `issueOp` over the in-memory branch; no expression-level lint yet | **absent** — needs a Storage replay operation and temporary edited-rules deployment seam |
 
 For the edited-ruleset re-run, a **parse failure is the only hard blocker**:
 an unparseable ruleset can't be forked/simulated, so the re-run
