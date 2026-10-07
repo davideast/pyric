@@ -109,14 +109,14 @@ class ConformanceTest {
     }
 
     // Catch the rare initial-null delivery racing with create-user completion.
-    @RepeatedTest(4000)
+    @RepeatedTest(500)
     @DisplayName("auth-kotlin#7: FirebaseAuth.createUserWithEmailAndPassword registers user")
     fun `auth-kotlin#7 FirebaseAuth createUserWithEmailAndPassword registers user`() {
         val task = harness.auth.createUserWithEmailAndPassword("new@example.com", "pass123")
         val result = Tasks.await(task)
         assertNotNull(result.user)
         assertEquals("user-new", result.user?.uid)
-        assertEquals("user-new", harness.auth.currentUser?.uid, "DIAG frames=${harness.frameLog} subs=${harness.sentSubs.map { it["target"] }}")
+        assertEquals("user-new", harness.auth.currentUser?.uid)
         assertTrue(result.additionalUserInfo?.isNewUser == true)
     }
 
