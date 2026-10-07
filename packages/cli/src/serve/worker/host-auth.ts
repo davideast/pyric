@@ -42,6 +42,7 @@ import {
   resolveOAuthCredentialUser,
   type OAuthCredentialPayload,
 } from './host/auth-session-seeder.js';
+import { withoutJwtClaims } from 'pyric/sandbox/internal';
 
 import { linkSessionProvider } from './host/auth-linking.js';
 import { reauthenticateSession } from './host/auth-reauthentication.js';
@@ -162,7 +163,9 @@ function refreshPortAuthorization(
   session: MintedSession,
   claims: Record<string, unknown>,
 ): void {
-  session.state.token = { ...claims };
+  // Rules read the token's claim set without the JWT registered claims, as
+  // the in-process session does.
+  session.state.token = withoutJwtClaims(claims);
 
   // Frozen sandbox.withAuth handles capture the old token. Clear all
   // session-handle caches so this port and any same-uid sibling rebuild from

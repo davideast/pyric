@@ -135,6 +135,33 @@ describe('sandbox backend — createCustomToken / verifyIdToken roundtrip', () =
     expect(decoded.aud).toBe('pyric-sandbox');
   });
 
+  it('verifies a signed-in client token with the account standard claims', async () => {
+    const { getAuth: getClientAuth, signInWithEmailAndPassword, sandbox: clientAuthSandbox } = await import('pyric/auth');
+    const sandbox = initializeSandbox();
+    const clientAuth = getClientAuth(sandbox);
+    clientAuthSandbox.createUser(clientAuth, { email: 'ada@example.com', password: 'secret-pw', emailVerified: true });
+    const { user } = await signInWithEmailAndPassword(clientAuth, 'ada@example.com', 'secret-pw');
+    const decoded = await getAuth(initializeApp({ sandbox })).verifyIdToken(await user.getIdToken());
+    expect(decoded.uid).toBe(user.uid);
+    expect(decoded.email).toBe('ada@example.com');
+    expect(decoded.email_verified).toBe(true);
+    expect(decoded.firebase).toEqual({ identities: { email: ['ada@example.com'] }, sign_in_provider: 'password' });
+  });
+
+  it('setCustomUserClaims refuses reserved claim names with auth/reserved-claim', async () => {
+    const auth = getAuth(initializeApp({ sandbox: initializeSandbox() }));
+    const user = await auth.createUser({ email: 'ada@example.com' });
+    await expect(auth.setCustomUserClaims(user.uid, { sub: 'x' })).rejects.toMatchObject({
+      code: 'auth/reserved-claim',
+      message: 'Developer claim "sub" is reserved and cannot be specified.',
+    });
+    await expect(auth.setCustomUserClaims(user.uid, { firebase: {}, iat: 1 })).rejects.toMatchObject({
+      code: 'auth/reserved-claim',
+      message: 'Developer claims "iat", "firebase" are reserved and cannot be specified.',
+    });
+    await expect(auth.setCustomUserClaims(user.uid, { name: 'allowed' })).resolves.toBeUndefined();
+  });
+
   it('rejects client ID tokens with malformed claim JSON', async () => {
     const sandbox = initializeSandbox();
     const auth = getAuth(initializeApp({ sandbox }));

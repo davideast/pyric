@@ -171,3 +171,7 @@ export { requestStatusLabel } from '../types/request-observation.js';
 
 export { createActiveListenerState } from '../active-listeners.js';
 export { asSentence } from './sentence.js';
+export {
+  accountTokenClaims, assertNoReservedCustomClaims, RESERVED_CUSTOM_CLAIMS, tokenClaimAccount, withoutJwtClaims,
+  type TokenClaimAccount, type TokenClaimRecord,
+} from './auth-token-claims.js';

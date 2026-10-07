@@ -51,7 +51,9 @@ import {
 import { defaultAvatarMint, type AvatarMint } from './sandbox/default-avatar.js';
 
 import { normalizeAuthState, type AuthState, type Sandbox } from 'pyric/sandbox';
-import { emitSandboxEvent, getClock, makeServiceMutationEvent } from 'pyric/sandbox/internal';
+import {
+  accountTokenClaims, assertNoReservedCustomClaims, emitSandboxEvent, getClock, makeServiceMutationEvent, tokenClaimAccount, withoutJwtClaims,
+} from 'pyric/sandbox/internal';
 import type { AuthEventOperation } from './events.js';
 
 import {
@@ -114,12 +116,12 @@ const RECENT_LOGIN_WINDOW_MS = 5 * 60 * 1000;
 
 /**
  * The claims rules see on `auth.token` for a signed-in data context: the
- * custom claims, plus the `firebase` namespace the minted ID token carries
- * (`sign_in_provider`, and `tenant` for a tenant sign-in), as production's
- * decoded ID token does.
+ * minted ID token's claim set (custom claims, the account's standard claims,
+ * and the `firebase` namespace with `identities`, `sign_in_provider`, and
+ * `tenant` for a tenant sign-in) without the JWT registered claims.
  */
-function rulesTokenClaims(claims: Record<string, unknown>, minted: IdTokenResult): Record<string, unknown> {
-  return { ...claims, firebase: minted.claims.firebase };
+function rulesTokenClaims(minted: IdTokenResult): Record<string, unknown> {
+  return withoutJwtClaims(minted.claims);
 }
 
 export class SandboxBackend {
@@ -1462,7 +1464,7 @@ export class SandboxBackend {
     // Push to the sandbox under the guard so the synchronous subscriber
     // doesn't notify — we drive the fan-out below with the correct
     // id-token / auth-state split.
-    const signedInState: NonNullable<AuthState> = { uid: user.uid, token: rulesTokenClaims(claims, minted.result) };
+    const signedInState: NonNullable<AuthState> = { uid: user.uid, token: rulesTokenClaims(minted.result) };
     const hasTenant = typeof user.tenantId === 'string';
     if (hasTenant) signedInState.tenant = user.tenantId;
     const nextState: AuthState = signedInState;
@@ -1733,6 +1735,7 @@ export class SandboxBackend {
    *  `createUserWithEmailAndPassword`) — matches the emulator's
    *  add-user flow / admin SDK semantics. */
   createUser(req: CreateUserRequest): AuthUserRecord {
+    if (req.customClaims !== undefined) assertNoReservedCustomClaims(req.customClaims);
     const uid = req.uid ?? this.nextAvailableAdminUid();
     if (this.usersByUid.has(uid)) {
       throw makeAuthError(
@@ -1791,6 +1794,7 @@ export class SandboxBackend {
     if (!stored) {
       throw makeAuthError('auth/user-not-found', `No user found for uid ${uid}.`);
     }
+    if (update.customClaims !== undefined) assertNoReservedCustomClaims(update.customClaims);
     const before = this.toRecord(stored);
     if (update.email !== undefined) {
       validateEmailFormat(update.email);
@@ -2020,7 +2024,7 @@ export class SandboxBackend {
     // identity under different tenants and neither may overwrite the other.
     (user as Mutable<User>).tenantId = tenantId;
     const minted = this.mintToken(user.uid, claims, tenantId);
-    const state: NonNullable<AuthState> = { uid: user.uid, token: rulesTokenClaims(claims, minted.result) };
+    const state: NonNullable<AuthState> = { uid: user.uid, token: rulesTokenClaims(minted.result) };
     const hasTenant = tenantId !== null;
     if (hasTenant) state.tenant = tenantId;
     this.emitAuthEvent('sign_in', {
@@ -2084,6 +2088,10 @@ export class SandboxBackend {
     // auth_time is the last authentication, not this mint: a forced refresh
     // issues a new iat and keeps auth_time, as production does.
     const authenticatedAt = new Date(this.authenticatedAtByUid.get(uid) ?? issuedAt.getTime());
+    // The account's standard claims are read from the record at mint time,
+    // so a profile or verification change reaches the token on the next
+    // refresh, as custom claims do.
+    const stored = this.usersByUid.get(uid);
     const fullClaims: Record<string, unknown> = {
       sub: uid,
       aud: 'pyric-sandbox',
@@ -2091,17 +2099,13 @@ export class SandboxBackend {
       auth_time: Math.floor(authenticatedAt.getTime() / 1000),
       iat: Math.floor(issuedAt.getTime() / 1000),
       exp: Math.floor(expires.getTime() / 1000),
-      ...claims,
-      // Synthesized AFTER the custom-claims spread: `firebase` is a
-      // reserved claim namespace in prod (custom claims can't shadow
-      // it), so ours always wins. Mirrors the real JWT's
-      // `firebase.sign_in_provider`.
-      firebase: { sign_in_provider: signInProvider },
+      // Custom claims, the account's standard claims over them, and the
+      // reserved `firebase` namespace last (custom claims cannot shadow it).
+      ...accountTokenClaims(uid, stored ? tokenClaimAccount(stored) : null, claims, signInProvider),
     };
     const identity = normalizeAuthState({ uid, tenant: tenantId ?? undefined, token: fullClaims });
     const tokenClaims = identity?.token ?? fullClaims;
-    const sessionClaims = { ...claims, firebase: tokenClaims.firebase };
-    const token = sandboxTokenFor(uid, sessionClaims, serial);
+    const token = sandboxTokenFor(uid, withoutJwtClaims(tokenClaims), serial);
     const result: IdTokenResult = {
       token,
       claims: tokenClaims,
@@ -2154,7 +2158,7 @@ export class SandboxBackend {
         // Rules follow refreshed claims without turning a token refresh into a sign-in.
         this.applyingTransition = true;
         try {
-          this.session.currentUser = { ...current, token: rulesTokenClaims(claims, fresh.result) };
+          this.session.currentUser = { ...current, token: rulesTokenClaims(fresh.result) };
         } finally {
           this.applyingTransition = false;
         }

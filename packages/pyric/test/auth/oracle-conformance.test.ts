@@ -857,6 +857,108 @@ describe('oracle conformance (auth)', () => {
     expect(await outcome(deleteUser(stale.user))).toEqual(obs.afterReauth.deleteUser);
   });
 
+  it('auth-id-token-standard-claims', async () => {
+    type Arm = { signInProvider: string; claims: Record<string, unknown> };
+    const obs = load('auth-id-token-standard-claims.json') as Record<
+      | 'anonymous' | 'passwordUnverified' | 'passwordWithProfile' | 'passwordVerifiedWithPhone'
+      | 'customClaimsOverlappingStandard' | 'customClaimsOverlappingFullProfile' | 'customClaimsOverlappingAnonymous'
+      | 'reservedClaims' | 'customTokenNewUid' | 'customTokenExistingEmailAccount',
+      Arm
+    >;
+    const email = 'claims@example.com';
+    const displayName = 'Claims User';
+    const photoURL = 'https://example.com/claims.png';
+    const phoneNumber = '+16505550100';
+    const placeholders = new Map<unknown, string>([
+      [email, '<email>'], [displayName, '<displayName>'], [photoURL, '<photoURL>'], [phoneNumber, '<phoneNumber>'],
+    ]);
+    // The capture's normalization, applied to the sandbox claims. `aud` and
+    // `iss` name the real project in production and the sandbox issuer here,
+    // so the comparison leaves them out.
+    const shape = (value: unknown, key: string | null, uid: string): unknown => {
+      if (value === uid) return '<uid>';
+      if (placeholders.has(value)) return placeholders.get(value);
+      if (key !== null && ['auth_time', 'iat', 'exp'].includes(key)) return `<${typeof value}>`;
+      if (Array.isArray(value)) return value.map((v) => shape(v, null, uid));
+      if (value !== null && typeof value === 'object') {
+        const record = value as Record<string, unknown>;
+        return Object.fromEntries(Object.keys(record).sort().map((k) => [k, shape(record[k], k, uid)]));
+      }
+      return value;
+    };
+    const withoutIssuer = (claims: Record<string, unknown>): Record<string, unknown> => {
+      const { aud: _aud, iss: _iss, ...rest } = claims;
+      return rest;
+    };
+    const armOf = async (user: User, force: boolean): Promise<Arm> => {
+      const result = await user.getIdTokenResult(force);
+      return { signInProvider: result.signInProvider!, claims: withoutIssuer(shape(result.claims, null, user.uid) as Record<string, unknown>) };
+    };
+    const expected = (arm: Arm): Arm => ({ signInProvider: arm.signInProvider, claims: withoutIssuer(arm.claims) });
+
+    const anon = await signInAnonymously(freshAuth());
+    expect(await armOf(anon.user, false)).toEqual(expected(obs.anonymous));
+
+    const pwAuth = freshAuth();
+    const pw = await createUserWithEmailAndPassword(pwAuth, email, 'pw123456');
+    expect(await armOf(pw.user, false)).toEqual(expected(obs.passwordUnverified));
+    await updateProfile(pw.user, { displayName, photoURL });
+    expect(await armOf(pw.user, true)).toEqual(expected(obs.passwordWithProfile));
+
+    // The sandbox user-admin surface sets a phone number at creation only, so
+    // the verified-with-phone arm starts from a record that already has every field.
+    const fullAuth = freshAuth();
+    authSandbox.createUser(fullAuth, { email, password: 'pw123456', displayName, photoUrl: photoURL, phoneNumber, emailVerified: true });
+    const full = await signInWithEmailAndPassword(fullAuth, email, 'pw123456');
+    expect(await armOf(full.user, false)).toEqual(expected(obs.passwordVerifiedWithPhone));
+
+    const overlapAuth = freshAuth();
+    const overlap = await createUserWithEmailAndPassword(overlapAuth, email, 'pw123456');
+    authSandbox.updateUser(overlapAuth, overlap.user.uid, {
+      customClaims: { email_verified: true, email: 'custom@oracle.test', name: 'custom-name' },
+    });
+    expect(await armOf(overlap.user, true)).toEqual(expected(obs.customClaimsOverlappingStandard));
+
+    const fullOverlapAuth = freshAuth();
+    authSandbox.createUser(fullOverlapAuth, {
+      email, password: 'pw123456', displayName, photoUrl: photoURL, phoneNumber,
+      customClaims: {
+        email: 'custom@oracle.test', email_verified: true, name: 'custom-name', picture: 'custom-picture',
+        phone_number: 'custom-phone', user_id: 'custom-user-id', provider_id: 'custom-provider',
+      },
+    });
+    const fullOverlap = await signInWithEmailAndPassword(fullOverlapAuth, email, 'pw123456');
+    expect(await armOf(fullOverlap.user, false)).toEqual(expected(obs.customClaimsOverlappingFullProfile));
+
+    const anonOverlapAuth = freshAuth();
+    const anonOverlap = await signInAnonymously(anonOverlapAuth);
+    authSandbox.updateUser(anonOverlapAuth, anonOverlap.user.uid, {
+      customClaims: { provider_id: 'custom-provider', user_id: 'custom-user-id' },
+    });
+    expect(await armOf(anonOverlap.user, true)).toEqual(expected(obs.customClaimsOverlappingAnonymous));
+
+    const reserved = obs.reservedClaims as unknown as Record<'single' | 'multiple', { code: string; message: string }>;
+    const reservedOutcome = (claims: Record<string, unknown>): { code: string; message: string } | null => {
+      try {
+        authSandbox.updateUser(anonOverlapAuth, anonOverlap.user.uid, { customClaims: claims });
+        return null;
+      } catch (e) {
+        const err = e as { code: string; message: string };
+        return { code: err.code, message: err.message };
+      }
+    };
+    expect(reservedOutcome({ sub: 'x' })).toEqual(reserved.single);
+    // The Admin SDK lists the names in its own reserved-list order.
+    expect(reservedOutcome({ firebase: {}, iat: 1 })).toEqual(reserved.multiple);
+
+    const customAuth = freshAuth();
+    const custom = await signInWithCustomToken(customAuth, JSON.stringify({ uid: 'claims-custom', claims: { role: 'oracle' } }));
+    expect(await armOf(custom.user, false)).toEqual(expected(obs.customTokenNewUid));
+
+    const existing = await signInWithCustomToken(fullAuth, JSON.stringify({ uid: full.user.uid }));
+    expect(await armOf(existing.user, false)).toEqual(expected(obs.customTokenExistingEmailAccount));
+  });
+
   // ── completeness: every observation is asserted or explicitly N/A ─────
 
   it('every auth observation is covered (no silent gaps)', () => {

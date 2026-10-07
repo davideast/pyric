@@ -8970,6 +8970,187 @@ const probes: Probe[] = [
       };
     },
   },
+  {
+    name: 'auth-id-token-standard-claims',
+    matrixRow: 'auth #68b',
+    rowIds: ['auth#68b'],
+    description: 'The decoded ID token claim set per sign-in flow: anonymous, email and password (unverified, then with a display name and photo URL, then verified with a phone number set through the Admin SDK), accounts whose custom claims reuse standard claim names (one without a display name, one with every profile field, one anonymous), the Admin SDK refusal of reserved claim names, and a custom token for a new uid and for an existing email account. Records which standard claims (email, email_verified, name, picture, phone_number, user_id, provider_id) appear, which value wins when a custom claim reuses the name, and the shape of the firebase namespace (identities keyed by provider, sign_in_provider). Values that identify the test accounts are replaced by placeholders. Every account is removed through the Admin SDK at the end.',
+    async observe() {
+      if (!serviceAccount) return { skipped: true, reason: 'no service account (manual config?)' };
+      const { getAuth: getAdminAuth } = await import('firebase-admin/auth');
+      const { inMemoryPersistence, initializeAuth, updateProfile } = fbAuthNs;
+      const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const password = 'oracle-pw-123';
+      const email = `oracle-claims-${stamp}@oracle.test`;
+      const photoURL = `https://example.com/oracle-claims-${stamp}.png`;
+      const displayName = 'Oracle Claims';
+      const phoneNumber = `+1650555${String(Math.floor(Math.random() * 10_000)).padStart(4, '0')}`;
+      const customUid = `oracle-claims-custom-${stamp}`;
+      const apps: ReturnType<typeof initializeApp>[] = [];
+      const uids: string[] = [];
+      const freshAuth = (label: string): Auth => {
+        const a = initializeApp(config, `${appName}-claims-${label}`);
+        apps.push(a);
+        return initializeAuth(a, { persistence: inMemoryPersistence });
+      };
+      const adminApp = adminInitializeApp({
+        credential: adminCert({
+          projectId: serviceAccount.project_id,
+          clientEmail: serviceAccount.client_email,
+          privateKey: serviceAccount.private_key,
+        }),
+      }, `oracle-claims-${RUN_ID}`);
+      const adminAuth = getAdminAuth(adminApp);
+      // Values that identify this run's accounts become placeholders, and time
+      // claims become their type, so the observation records the claim shape
+      // rather than one run's data.
+      const placeholders = new Map<unknown, string>([
+        [email, '<email>'],
+        [photoURL, '<photoURL>'],
+        [displayName, '<displayName>'],
+        [phoneNumber, '<phoneNumber>'],
+        [config.projectId, '<projectId>'],
+        [`https://securetoken.google.com/${config.projectId}`, 'https://securetoken.google.com/<projectId>'],
+      ]);
+      const shape = (value: unknown, key: string | null, uid: string): unknown => {
+        if (value === uid) return '<uid>';
+        if (placeholders.has(value)) return placeholders.get(value);
+        if (key !== null && ['auth_time', 'iat', 'exp'].includes(key)) return `<${typeof value}>`;
+        if (Array.isArray(value)) return value.map((v) => shape(v, null, uid));
+        if (value !== null && typeof value === 'object') {
+          const record = value as Record<string, unknown>;
+          return Object.fromEntries(Object.keys(record).sort().map((k) => [k, shape(record[k], k, uid)]));
+        }
+        return value;
+      };
+      const claimsOf = async (user: User, force: boolean): Promise<unknown> => {
+        const result = await user.getIdTokenResult(force);
+        return { signInProvider: result.signInProvider, claims: shape(result.claims, null, user.uid) };
+      };
+      const arm = async (step: () => Promise<unknown>): Promise<unknown> => {
+        try {
+          return await step();
+        } catch (e) {
+          const err = e as { code?: string };
+          return { error: err.code ?? String(e) };
+        }
+      };
+
+      const out: Record<string, unknown> = {};
+      try {
+        out.anonymous = await arm(async () => {
+          const cred = await signInAnonymously(freshAuth('anon'));
+          uids.push(cred.user.uid);
+          return claimsOf(cred.user, false);
+        });
+
+        const passwordAuth = freshAuth('password');
+        let passwordUser: User | null = null;
+        out.passwordUnverified = await arm(async () => {
+          const cred = await createUserWithEmailAndPassword(passwordAuth, email, password);
+          passwordUser = cred.user;
+          uids.push(cred.user.uid);
+          return claimsOf(cred.user, false);
+        });
+        out.passwordWithProfile = await arm(async () => {
+          if (!passwordUser) return { skipped: true };
+          await updateProfile(passwordUser, { displayName, photoURL });
+          return claimsOf(passwordUser, true);
+        });
+        out.passwordVerifiedWithPhone = await arm(async () => {
+          if (!passwordUser) return { skipped: true };
+          await adminAuth.updateUser(passwordUser.uid, { emailVerified: true, phoneNumber });
+          return claimsOf(passwordUser, true);
+        });
+
+        // Custom claims that reuse standard claim names: setCustomUserClaims
+        // accepts them, and the observation records which value the token carries.
+        out.customClaimsOverlappingStandard = await arm(async () => {
+          const overlapEmail = `oracle-claims-overlap-${stamp}@oracle.test`;
+          placeholders.set(overlapEmail, '<email>');
+          const cred = await createUserWithEmailAndPassword(freshAuth('overlap'), overlapEmail, password);
+          uids.push(cred.user.uid);
+          const setClaims = await attemptCode(() =>
+            adminAuth.setCustomUserClaims(cred.user.uid, { email_verified: true, email: 'custom@oracle.test', name: 'custom-name' }));
+          if (setClaims !== null) return { setCustomUserClaims: setClaims };
+          return claimsOf(cred.user, true);
+        });
+        // The same overlap on an account that has every profile field, so each
+        // projected claim name meets a custom claim of that name.
+        out.customClaimsOverlappingFullProfile = await arm(async () => {
+          const fullEmail = `oracle-claims-full-${stamp}@oracle.test`;
+          const fullPhone = `+1650556${String(Math.floor(Math.random() * 10_000)).padStart(4, '0')}`;
+          placeholders.set(fullEmail, '<email>');
+          placeholders.set(fullPhone, '<phoneNumber>');
+          const record = await adminAuth.createUser({
+            email: fullEmail, password, displayName, photoURL, phoneNumber: fullPhone, emailVerified: false,
+          });
+          uids.push(record.uid);
+          const setClaims = await attemptCode(() => adminAuth.setCustomUserClaims(record.uid, {
+            email: 'custom@oracle.test', email_verified: true, name: 'custom-name', picture: 'custom-picture',
+            phone_number: 'custom-phone', user_id: 'custom-user-id', provider_id: 'custom-provider',
+          }));
+          if (setClaims !== null) return { setCustomUserClaims: setClaims };
+          const cred = await signInWithEmailAndPassword(freshAuth('overlap-full'), fullEmail, password);
+          return claimsOf(cred.user, false);
+        });
+        // An anonymous account whose custom claims reuse provider_id and user_id.
+        out.customClaimsOverlappingAnonymous = await arm(async () => {
+          const cred = await signInAnonymously(freshAuth('overlap-anon'));
+          uids.push(cred.user.uid);
+          const setClaims = await attemptCode(() => adminAuth.setCustomUserClaims(cred.user.uid, {
+            provider_id: 'custom-provider', user_id: 'custom-user-id',
+          }));
+          if (setClaims !== null) return { setCustomUserClaims: setClaims };
+          return claimsOf(cred.user, true);
+        });
+        // Reserved developer claim names: the Admin SDK refuses them before any request.
+        out.reservedClaims = await arm(async () => {
+          const target = uids[0] ?? customUid;
+          const outcome = async (claims: Record<string, unknown>): Promise<unknown> => {
+            try {
+              await adminAuth.setCustomUserClaims(target, claims);
+              return { code: null };
+            } catch (e) {
+              const err = e as { code?: string; message?: string };
+              return { code: err.code ?? String(e), message: err.message };
+            }
+          };
+          return {
+            single: await outcome({ sub: 'x' }),
+            multiple: await outcome({ firebase: {}, iat: 1 }),
+          };
+        });
+
+        out.customTokenNewUid = await arm(async () => {
+          const token = await adminAuth.createCustomToken(customUid, { role: 'oracle' });
+          uids.push(customUid);
+          const cred = await signInWithCustomToken(freshAuth('custom'), token);
+          return claimsOf(cred.user, false);
+        });
+        out.customTokenExistingEmailAccount = await arm(async () => {
+          if (!passwordUser) return { skipped: true };
+          const token = await adminAuth.createCustomToken(passwordUser.uid);
+          const cred = await signInWithCustomToken(freshAuth('custom-existing'), token);
+          return claimsOf(cred.user, false);
+        });
+      } finally {
+        // Remove every account this probe created, whatever each arm did.
+        let cleanupLeaked = false;
+        try {
+          const res = await adminAuth.deleteUsers(uids);
+          cleanupLeaked = res.failureCount > 0;
+        } catch {
+          cleanupLeaked = true;
+        } finally {
+          await adminDeleteApp(adminApp);
+          for (const a of apps) await deleteApp(a);
+        }
+        out.cleanupLeaked = cleanupLeaked;
+      }
+      return out;
+    },
+  },
 ];
 
 // ─── Runner ───────────────────────────────────────────────────────────
