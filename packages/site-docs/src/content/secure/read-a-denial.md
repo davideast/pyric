@@ -167,10 +167,10 @@ When an agent hits a denial, one `sandbox_inspect` call returns the current rule
 
 For a Realtime Database denial, the agent calls the `rules` tool's `explainDenial` method with `service: 'database'`. The same method is `pyric rules explainDenial --service database` on the command line. It takes the request: `operation` (`read`, `write`, `update`, or `validate`), `path`, `uid`, `data` (the written value, or for `update` the patch keyed by paths relative to `path`), and for a read, `query`. It evaluates the rules the sandbox is running, unless you pass one of two optional texts:
 
-- **`rules`** is the text of a draft rules file. The draft is evaluated instead of the running rules.
+- **`rules`** is the text of a draft rules file. The draft is evaluated instead of the running rules. A draft that `firebase deploy` would refuse is not evaluated: the call fails with the same reason the lint errors give.
 - **`source`** is the text of the file the running rules were loaded from. It adds file lines to the result and changes nothing else. When it does not parse to the running rules, the result has no lines and `case.notes` says so.
 
-A call takes one of them, not both. The result names what it evaluated in `evaluated`, `running` or `draft`, and explains the request in `case`: `matchedPath`, `matchedRule`, `ruleKind`, `why` (`evaluated-false`, `runtime-error`, `no-rule-grants`, or `unsupported`), `reason`, and the `trace` that `simulate` returns. With file text, `case.line` is the line of the deciding rule. When a change that would allow the request can be stated, `case.fix` states it.
+A call takes one of them, not both. The result names what it evaluated in `evaluated`, `running` or `draft`, and explains the request in `case`: `matchedPath`, `matchedRule`, `ruleKind`, `why` (`evaluated-false`, `runtime-error`, or `no-rule-grants`; `unsupported` appears only for rules installed with `sandbox.setRules` from `pyric/database`, which skips the deploy check), `reason`, and the `trace` that `simulate` returns. With file text, `case.line` is the line of the deciding rule. When a change that would allow the request can be stated, `case.fix` states it.
 
 From the command line, `--rules-file` reads the draft from a file:
 ```bash

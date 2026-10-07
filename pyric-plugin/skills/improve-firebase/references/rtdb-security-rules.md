@@ -234,11 +234,13 @@ The `rules` tool's `explainDenial` method with `service: 'database'` (CLI:
 `pyric rules explainDenial --service database`) takes `operation`, `path`,
 `uid`, `data` (the written value, or the patch for `update`) and, for a read,
 `query`. It evaluates the running sandbox rules, or a draft passed as `rules`
-(file text). `source`, the text the running rules were loaded from, adds file
+(file text); a draft `firebase deploy` would refuse is refused with the lint
+reason, not evaluated. `source`, the text the running rules were loaded from, adds file
 lines only; pass one of `rules` and `source`, not both. The result says
 `evaluated: 'running'` or `'draft'`, and `case` names `matchedPath`,
 `matchedRule`, `ruleKind`, `why` (`evaluated-false`, `runtime-error`,
-`no-rule-grants`, `unsupported`), `reason`, `trace`, `line` when file text is
+`no-rule-grants`; `unsupported` only for rules installed with the unchecked
+`databaseSandbox.setRules`), `reason`, `trace`, `line` when file text is
 known, and `fix` when one can be stated.
 
 ## Hot reload while iterating
