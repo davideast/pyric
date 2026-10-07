@@ -18,7 +18,7 @@ import {
   type RtdbRulesFinding,
 } from 'pyric/rules/internal/rtdb';
 import type { ParsedArgs } from './parse-args.js';
-import { readFirebaseJson, type FirebaseJson } from './firebase-json.js';
+import { readFirebaseJson, singleDatabaseRulesFile, type FirebaseJson } from './firebase-json.js';
 import {
   loadRtdbRulesDocument,
   type LoadRtdbRulesDocumentResult,
@@ -147,7 +147,7 @@ export async function runDatabaseRulesGenerate(
     } catch {
       firebaseJson = null;
     }
-    outPath = firebaseJson?.database?.rules ?? 'database.rules.json';
+    outPath = singleDatabaseRulesFile(firebaseJson) ?? 'database.rules.json';
   }
 
   const resolvedOut = resolvePath(cwd, outPath);

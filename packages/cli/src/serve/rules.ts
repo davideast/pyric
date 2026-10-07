@@ -12,7 +12,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, watch, type FSWatcher } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join } from 'node:path';
+import { dirname, extname, isAbsolute, join } from 'node:path';
 import {
   describeCompileLimitViolations,
   lintFirestoreRules,
@@ -21,10 +21,11 @@ import {
   sourceCompileLimitViolations,
   type ResolveResult,
 } from 'pyric/rules/internal';
-import { asSentence } from 'pyric/sandbox/internal';
+import { asSentence, databaseInstanceKey, databaseInstanceNamed, defaultDatabaseInstanceName } from 'pyric/sandbox/internal';
 import { parseStorageRules } from 'pyric/storage';
-import type { FirebaseJson } from '../cli/firebase-json.js';
+import { readFirebaseRcSync, type DatabaseRulesEntry, type FirebaseJson, type FirebaseRc } from '../cli/firebase-json.js';
 import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
+import type { RtdbRulesJson } from './init-payload.js';
 import { parseRtdbRulesText } from '../rtdb/rules-json.js';
 
 export interface LoadedRules {
@@ -45,13 +46,6 @@ export interface LoadedStorageRules {
   rules: string | null;
   rulesHash: string | null;
   sourcePath: string | null;
-}
-
-export interface LoadedDatabaseRules {
-  rules: { rules: Record<string, unknown> } | null;
-  rulesHash: string | null;
-  sourcePath: string | null;
-  databaseUrl: string | null;
 }
 
 export function rulesHashOf(source: string): string {
@@ -290,90 +284,218 @@ export async function loadProjectStorageRules(
   return { rules, rulesHash: rulesHashOf(rules), sourcePath: path };
 }
 
-function normalizeDatabaseEntries(block: unknown): Array<Record<string, unknown>> {
-  if (!block) {
-    return [];
-  }
-  if (Array.isArray(block)) {
-    return block.filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null);
-  }
-  if (typeof block === 'object' && block !== null) {
-    return [block as Record<string, unknown>];
-  }
-  return [];
+/** Where a project's database instance names come from. */
+export interface DatabaseRulesProject {
+  /** The project id. Without it, `.firebaserc` `projects.default` is used. */
+  projectId?: string;
+  /** Reads `.firebaserc`. Defaults to reading it from the project directory. */
+  readRc?: () => FirebaseRc | null;
 }
 
-function hasConfiguredRules(entry: Record<string, unknown>): entry is Record<string, unknown> & { rules: string } {
-  return typeof entry.rules === 'string';
+/** One rules file deployed to one database instance. */
+export interface DatabaseRulesTarget {
+  /** The instance name, as the SDK names it. */
+  instance: string;
+  /** Absolute path of the rules file. */
+  path: string;
+  /** True when `firebase.json` names the file, so a missing file is an error. */
+  configured: boolean;
 }
 
-function hasConfiguredUrl(entry: Record<string, unknown>): entry is Record<string, unknown> & { url: string } {
-  return typeof entry.url === 'string';
+/** The database instances `firebase.json` deploys rules to. */
+export interface DatabaseRulesTargets {
+  /** The instance `getDatabase()` selects without a URL. */
+  defaultInstance: string;
+  /** One entry per instance, in `firebase.json` order. */
+  targets: DatabaseRulesTarget[];
+}
+
+/** One instance's loaded rules. */
+export interface LoadedDatabaseInstanceRules {
+  instance: string;
+  rules: RtdbRulesJson;
+  rulesHash: string;
+  sourcePath: string;
+}
+
+export interface LoadedDatabaseRules extends DatabaseRulesTargets {
+  /** Every instance `firebase.json` deploys rules to, whether or not its file exists. */
+  declared: ReadonlySet<string>;
+  /** The rules of each declared instance whose rules file exists. */
+  instances: Map<string, LoadedDatabaseInstanceRules>;
+}
+
+const DEFAULT_DATABASE_RULES_FILE = 'database.rules.json';
+
+function databaseRulesFilePath(cwd: string, file: string): string {
+  return isAbsolute(file) ? file : join(cwd, file);
+}
+
+// The rules formats `firebase deploy` accepts (lib/deploy/database/prepare.js).
+function checkDatabaseRulesFormat(file: string, entry: string): void {
+  const extension = extname(file);
+  if (extension === '.json') return;
+  const reason = extension === '.bolt'
+    ? 'As of firebase-tools@15.0.0, .bolt rules are no longer supported.'
+    : `Unexpected rules format ${extension}`;
+  throw new Error(`pyric sandbox: ${entry}: ${reason}`);
 }
 
 /**
- * The Realtime Database rules file the project deploys: the first
- * `firebase.json` `database` entry with a `rules` path, else
- * `database.rules.json` in `cwd`. The file may not exist.
+ * The rules files `firebase.json` deploys and the database instance each
+ * deploys to, resolved as `firebase deploy` resolves them
+ * (`lib/database/rulesConfig.js` `getRulesConfig` in firebase-tools 15.23.0):
+ *
+ * - A single object's `rules` deploys to `<projectId>-default-rtdb`. Without
+ *   `rules` it deploys nothing.
+ * - An array entry's `rules` deploys to every instance `.firebaserc` maps its
+ *   `target` to, else to its `instance`. An entry with neither throws the
+ *   CLI's error, and so does a target `.firebaserc` does not map. An entry
+ *   without `rules` deploys nothing.
+ * - Without a `database` key, `database.rules.json` in `cwd` deploys to the
+ *   default instance when it exists.
+ *
+ * Instance names are normalized with {@link databaseInstanceNamed}. Two
+ * entries that deploy different files to one instance are refused: the CLI
+ * deploys both concurrently, so the configuration does not determine which
+ * ruleset production keeps.
  */
-export function databaseRulesPath(cwd: string, config: FirebaseJson | null): string {
-  const rel = normalizeDatabaseEntries(config?.database).find(hasConfiguredRules)?.rules ?? 'database.rules.json';
-  return isAbsolute(rel) ? rel : join(cwd, rel);
-}
-
-/** The notice a dev server logs when the Realtime Database rules file it
- *  loaded is deleted and RTDB returns to its default policy. */
-export function formatDatabaseRulesRemoved(path: string, policy: 'allow' | 'deny'): string {
-  const access = policy === 'allow' ? 'are open (permissive mode)' : 'default to DENY (matching production Firebase)';
-  return `rtdb rules removed: ${path} does not exist, client RTDB reads/writes ${access}`;
-}
-
-export async function loadProjectDatabaseRules(
+export function databaseRulesTargets(
   cwd: string,
   config: FirebaseJson | null,
-): Promise<LoadedDatabaseRules> {
-  const entries = normalizeDatabaseEntries(config?.database);
-  const configuredEntry = entries.find(hasConfiguredRules);
-  const configured = configuredEntry?.rules;
-  const path = databaseRulesPath(cwd, config);
-  const urlEntry = entries.find(hasConfiguredUrl);
-  const databaseUrl = urlEntry?.url ?? null;
+  project: DatabaseRulesProject = {},
+): DatabaseRulesTargets {
+  let rc: FirebaseRc | null | undefined;
+  const readRc = (): FirebaseRc | null => {
+    rc ??= (project.readRc ?? (() => readFirebaseRcSync(cwd)))();
+    return rc;
+  };
+  const projectId = project.projectId ?? readRc()?.projects?.default;
+  const defaultInstance = projectId === undefined
+    ? databaseInstanceKey(undefined)
+    : defaultDatabaseInstanceName(projectId);
+
+  const database = config?.database;
+  if (database === undefined || database === null) {
+    return {
+      defaultInstance,
+      targets: [{ instance: defaultInstance, path: join(cwd, DEFAULT_DATABASE_RULES_FILE), configured: false }],
+    };
+  }
+  if (!Array.isArray(database)) {
+    const rules = typeof database === 'object' ? database.rules : undefined;
+    if (typeof rules !== 'string' || rules === '') return { defaultInstance, targets: [] };
+    checkDatabaseRulesFormat(rules, 'firebase.json database.rules');
+    return {
+      defaultInstance,
+      targets: [{ instance: defaultInstance, path: databaseRulesFilePath(cwd, rules), configured: true }],
+    };
+  }
+
+  const targets: DatabaseRulesTarget[] = [];
+  const entryOf = new Map<string, string>();
+  database.forEach((raw, index) => {
+    const label = `firebase.json database[${index}]`;
+    const entry: DatabaseRulesEntry = raw !== null && typeof raw === 'object' ? raw : {};
+    let names: readonly string[];
+    if (entry.target) {
+      if (projectId === undefined) {
+        throw new Error(
+          `pyric sandbox: ${label}: target "${entry.target}" resolves through .firebaserc for a project, and no project id is set. Pass --project, or set projects.default in .firebaserc.`,
+        );
+      }
+      names = readRc()?.targets?.[projectId]?.database?.[entry.target] ?? [];
+      if (names.length === 0) {
+        throw new Error(
+          `pyric sandbox: ${label}: Deploy target ${entry.target} not configured for project ${projectId}. Configure with:\n\n  firebase target:apply database ${entry.target} <resources...>`,
+        );
+      }
+    } else if (entry.instance) {
+      names = [entry.instance];
+    } else {
+      throw new Error(`pyric sandbox: ${label}: Must supply either "target" or "instance" in database config`);
+    }
+    if (typeof entry.rules !== 'string' || entry.rules === '') return;
+    checkDatabaseRulesFormat(entry.rules, label);
+    const path = databaseRulesFilePath(cwd, entry.rules);
+    for (const name of names) {
+      let instance: string;
+      try {
+        instance = databaseInstanceNamed(name).name;
+      } catch (error) {
+        const reason = error instanceof Error ? error.message.trim() : String(error);
+        throw new Error(`pyric sandbox: ${label}: instance "${name}" is not a database instance name: ${reason}`);
+      }
+      const existing = targets.find((target) => target.instance === instance);
+      if (existing === undefined) {
+        targets.push({ instance, path, configured: true });
+        entryOf.set(instance, label);
+        continue;
+      }
+      if (existing.path === path) continue;
+      throw new Error(
+        `pyric sandbox: firebase.json deploys two rules files to database instance "${instance}": ${existing.path} from ${entryOf.get(instance)} and ${path} from ${label}. The Firebase CLI deploys both at once, so the configuration does not determine which one production keeps. Deploy one rules file to each instance.`,
+      );
+    }
+  });
+  return { defaultInstance, targets };
+}
+
+/**
+ * Load one instance's rules file through the check every rules load path
+ * runs: a ruleset production's deploy would refuse is not served. Returns
+ * null for a missing file `firebase.json` does not name. Throws, naming the
+ * instance and file, for a missing configured file and for refused rules.
+ */
+export async function loadDatabaseInstanceRules(target: DatabaseRulesTarget): Promise<LoadedDatabaseInstanceRules | null> {
+  const { instance, path } = target;
+  const label = `pyric sandbox: database instance "${instance}": ${path}`;
   let raw: string;
   try {
     raw = await readFile(path, 'utf8');
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
-      if (configured) {
-        throw new Error(`pyric sandbox: firebase.json points database.rules at ${path}, but it does not exist.`);
-      }
-      return {
-        rules: null,
-        rulesHash: null,
-        sourcePath: null,
-        databaseUrl,
-      };
+      if (target.configured) throw new Error(`${label} does not exist, and firebase.json deploys it.`);
+      return null;
     }
     throw e;
   }
-
   const rules = parseRtdbRulesText(
     raw,
-    (reason) => new Error(`pyric sandbox: ${path} did not parse as RTDB rules JSON: ${reason.message}.`),
+    (reason) => new Error(`${label} did not parse as RTDB rules JSON: ${reason.message}.`),
   );
-
-  // The check every rules load path runs: a ruleset production's deploy
-  // would refuse is not served, and the rules in force stay in force.
   const rejection = rtdbRulesSourceRejection(rules);
   if (rejection !== null) {
-    throw new Error(`pyric sandbox: ${path} is not valid RTDB rules. ${rejection.message} Fix the rules before serving.`);
+    throw new Error(`${label} is not valid RTDB rules. ${rejection.message} Fix the rules before serving.`);
   }
+  return { instance, rules, rulesHash: rulesHashOf(raw), sourcePath: path };
+}
 
+/** Load the rules of every database instance `firebase.json` deploys to. */
+export async function loadProjectDatabaseRules(
+  cwd: string,
+  config: FirebaseJson | null,
+  project: DatabaseRulesProject = {},
+): Promise<LoadedDatabaseRules> {
+  const { defaultInstance, targets } = databaseRulesTargets(cwd, config, project);
+  const instances = new Map<string, LoadedDatabaseInstanceRules>();
+  for (const target of targets) {
+    const loaded = await loadDatabaseInstanceRules(target);
+    if (loaded !== null) instances.set(target.instance, loaded);
+  }
   return {
-    rules,
-    rulesHash: rulesHashOf(raw),
-    sourcePath: path,
-    databaseUrl,
+    defaultInstance,
+    targets,
+    declared: new Set(targets.map((target) => target.instance)),
+    instances,
   };
+}
+
+/** The notice a dev server logs when an instance's Realtime Database rules
+ *  file is deleted and that instance returns to the default policy. */
+export function formatDatabaseRulesRemoved(path: string, policy: 'allow' | 'deny', instance: string): string {
+  const access = policy === 'allow' ? 'are open (permissive mode)' : 'default to DENY (matching production Firebase)';
+  return `rtdb rules removed: ${path} does not exist, client RTDB reads/writes on instance ${instance} ${access}`;
 }
 
 /**

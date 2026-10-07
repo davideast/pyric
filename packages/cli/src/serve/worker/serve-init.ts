@@ -81,6 +81,7 @@ export interface EventSourceLike {
 export function setupWorkerHotReload(
   ctx: HostCtx,
   makeEventSource: (url: string) => EventSourceLike,
+  defaultDatabaseInstance?: string,
 ): () => void {
   const events = makeEventSource('/__pyric/events');
   events.addEventListener('rules-changed', (ev) => {
@@ -98,11 +99,16 @@ export function setupWorkerHotReload(
   });
   events.addEventListener('rtdb-rules-update', (ev) => {
     try {
-      const { rules, policy } = JSON.parse(ev.data) as {
+      const { instance, rules, policy } = JSON.parse(ev.data) as {
+        instance?: string;
         rules: { rules: Record<string, unknown> } | null;
         rulesHash?: string | null;
         policy?: 'allow' | 'deny';
       };
+      // The worker holds one database store, which serves the default
+      // instance, so another instance's rules do not apply to it.
+      const isOtherInstance = instance !== undefined && defaultDatabaseInstance !== undefined && instance !== defaultDatabaseInstance;
+      if (isOtherInstance) return;
       const isRtdbMissing = ctx.rtdb === undefined;
       if (isRtdbMissing) {
         ctx.rtdb = getDatabase(ctx.sandbox);
@@ -388,7 +394,6 @@ export function applyServeInit(
         firestoreRules: payload.rules,
         rtdbRules: payload.databaseRules ?? null,
         rtdbState,
-        rtdbDatabaseUrl: payload.databaseUrl ?? null,
         authState: {
           users: authOps.exportUsers(auth),
           currentUser: ctx.sandbox.currentUser,
@@ -742,7 +747,7 @@ export async function buildWorkerCtx(bootEnv: WorkerBootEnv): Promise<HostCtx> {
   const makeEventSource = env.makeEventSource;
   const hasEventSource = typeof makeEventSource === 'function';
   if (hasEventSource) {
-    setupWorkerHotReload(ctx, makeEventSource);
+    setupWorkerHotReload(ctx, makeEventSource, payload?.databaseInstances?.defaultInstance);
   }
 
   return ctx;

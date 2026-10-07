@@ -2272,7 +2272,7 @@ export const rtdbRegistry = {
     },
     {
       kind: 'table',
-      prefix: "### Multiple database instances\n\nIn production each database URL is its own instance, with its own data and its own rules. The in-page sandbox keeps one backend per canonical URL, so `getDatabase(app, url)` isolates data there. The paths below route every URL to the default instance, or apply one ruleset to every instance.\n",
+      prefix: "### Multiple database instances\n\nIn production each database URL is its own instance, with its own data and its own rules. The in-page sandbox keeps one backend per canonical URL, so `getDatabase(app, url)` isolates data there, and the dev server loads each instance its own rules from `firebase.json`. The served worker paths route every URL to the default instance.\n",
       rows: [
         multiInstanceRow({
           rowRef: "MI1",
@@ -2292,21 +2292,24 @@ export const rtdbRegistry = {
           rowRef: "MI2",
           featureKeys: ["getDatabase"],
           api: "getDatabase(app, url) (served in-page fallback)",
-          behavior: "The served in-page fallback keeps each URL's data separate but deploys one ruleset, the project's `database.rules.json`, to every instance it registers. Production deploys rules per instance.",
-          statusNote: "one ruleset applies to every instance",
-          evidence: "`packages/cli/test/serve/database-rules-deployment.test.ts` registers two URLs, deploys one ruleset, and asserts both instances allow and deny the same paths; the earlier case in that file asserts their data stays separate. CDD assertion `rtdb-modular#MI2` pins the sandbox side: `setRules` on one URL's database leaves the other URL's rules unchanged.",
+          behavior: "The served in-page fallback keeps each URL's data separate and applies each instance the rules `firebase.json` deploys to it. A database opened without a URL is the project's default instance, and an instance without rules follows the default policy. A ruleset the load-time check refuses is not installed for its instance, and the other instances keep theirs. Production deploys rules per instance.",
+          status: "conforms",
+          evidence: "`packages/cli/test/serve/database-rules-deployment.test.ts` deploys two rulesets to two instances and asserts each instance allows and denies its own paths, that replacing one instance's rules leaves the other's in force, that a database opened without a URL gets the default instance's rules, and that a refused ruleset names its instance while the other instance loads. CDD assertion `rtdb-modular#MI2` pins the sandbox side: `setRules` on one URL's database leaves the other URL's rules unchanged.",
           conformanceTests: ["packages/cli/test/serve/database-rules-deployment.test.ts", ...cddLifecycleTests],
-          conformanceDisposition: "pending-fix",
         }),
         multiInstanceRow({
           rowRef: "MI3",
           featureKeys: ["firebaseJsonDatabase"],
           api: "firebase.json `database` array",
-          behavior: "When `firebase.json` `database` is an array, the dev server loads the rules file of the first entry with `rules` and does not read `instance`. It takes the database URL from a `url` key, which is Pyric-only; production names each entry's database with `instance` and deploys every entry's rules.",
-          statusNote: "only the first entry with rules is loaded; `instance` is ignored and a Pyric-only `url` key is read",
-          evidence: "`packages/cli/test/serve/database-rules-config.test.ts` loads a two-entry array and asserts the first entry's rules, a null database URL when entries name `instance`, and a URL read from a `url` key. CDD assertion `rtdb-modular#MI3` pins the instance the sandbox derives from a `firebase.json` instance name: the same name and root URL the production SDK derives from that instance's URL, as oracle `rtdb-modular-database-url-instance` records.",
-          conformanceTests: ["packages/cli/test/serve/database-rules-config.test.ts", ...cddLifecycleTests],
-          conformanceDisposition: "pending-fix",
+          behavior: "The dev server reads `firebase.json` `database` as `firebase deploy` reads it. A single object's `rules` deploys to `<projectId>-default-rtdb`. Each array entry's `rules` deploys to every instance `.firebaserc` maps its `target` to, else to its `instance`, and `target` wins when an entry names both. An entry with neither fails with `Must supply either \"target\" or \"instance\" in database config`, a target `.firebaserc` does not map fails with `Deploy target <name> not configured for project <id>`, an entry without `rules` deploys nothing, and a `.bolt` or other non-`.json` rules file fails with the CLI's message. Each instance's rules pass the load-time check on their own, and a refusal names the instance and file. Editing one instance's rules file reloads only that instance. Two entries that deploy different files to one instance are refused, because the CLI deploys both at once and the configuration does not determine which ruleset production keeps.",
+          status: "conforms",
+          evidence: "Matched against firebase-tools 15.23.0: `lib/database/rulesConfig.js` `getRulesConfig` (single object to `<project>-default-rtdb`, `target` resolved through `rc.requireTarget` and `rc.target` before `instance`, the missing-key error), `lib/rc.js` `requireTarget` (the unmapped-target error), and `lib/deploy/database/prepare.js` (entries without `rules` skipped, the `.bolt` and unexpected-format errors). `packages/cli/test/serve/database-rules-config.test.ts` asserts each shape and each error. `packages/cli/test/serve/sandbox-session.test.ts` loads two instances, reloads only the edited instance's file and broadcasts `rtdb-rules-update` with its `instance`, and refuses to start on one instance's refused rules naming that instance and file. `packages/cli/test/serve/vite-generation-rules-watch.test.ts` asserts an edit to one instance's file reloads only that file. CDD assertion `rtdb-modular#MI3` pins the instance the sandbox derives from a `firebase.json` instance name: the same name and root URL the production SDK derives from that instance's URL, as oracle `rtdb-modular-database-url-instance` records.",
+          conformanceTests: [
+            "packages/cli/test/serve/database-rules-config.test.ts",
+            "packages/cli/test/serve/sandbox-session.test.ts",
+            "packages/cli/test/serve/vite-generation-rules-watch.test.ts",
+            ...cddLifecycleTests,
+          ],
         }),
         multiInstanceRow({
           rowRef: "MI4",

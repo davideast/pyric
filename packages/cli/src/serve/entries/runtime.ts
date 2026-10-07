@@ -171,15 +171,12 @@ if (!useWorker) try {
     diagnostics.rulesDeployed = true;
     diagnostics.rulesHash = payload.rulesHash;
   }
-  if (payload.databaseRules) {
-    databaseRules.deploy(payload.databaseRules);
-    diagnostics.databaseRulesDeployed = true;
-    diagnostics.databaseRulesHash = payload.databaseRulesHash ?? null;
-  } else if (payload.permissive) {
-    databaseRules.deploy(null, 'allow');
-  } else {
-    databaseRules.deploy(null);
-  }
+  // Each instance gets its own rules. An instance without rules follows the
+  // default policy: deny, as in production, unless the session is permissive.
+  const databaseInstances = payload.databaseInstances ?? null;
+  databaseRules.deploy(databaseInstances, payload.permissive ? 'allow' : 'deny');
+  diagnostics.databaseRulesDeployed = Boolean(payload.databaseRules);
+  diagnostics.databaseRulesHash = payload.databaseRulesHash ?? null;
   // Open the ONE per-sandbox storage service eagerly: the FIRST open wins the
   // rules AND the project-scoped IDB name (`pyric-storage:<projectKey>`,
   // issue #359) — a lazy first open from app code would land on the legacy
@@ -354,7 +351,6 @@ if (!useWorker) try {
         firestoreRules: payload.rules,
         rtdbRules: payload.databaseRules ?? null,
         rtdbState,
-        rtdbDatabaseUrl: payload.databaseUrl ?? null,
         authState: {
           users: authOps.exportUsers(auth),
           currentUser: auth.currentUser,
@@ -613,19 +609,23 @@ if (!useWorker && typeof EventSource !== 'undefined') {
     try {
       // Null rules mean the rules file was deleted: `policy` then governs
       // every read and write, as it does when the page starts without rules.
-      const { rules, rulesHash, policy } = JSON.parse((e as MessageEvent).data as string) as {
+      const { instance, rules, rulesHash, policy } = JSON.parse((e as MessageEvent).data as string) as {
+        instance: string;
         rules: { rules: Record<string, unknown> } | null;
         rulesHash: string | null;
         policy?: 'allow' | 'deny';
       };
-      databaseRules.deploy(rules, policy ?? 'deny');
+      databaseRules.deployInstance(instance, rules, policy);
       const isRemoved = rules === null;
-      diagnostics.databaseRulesDeployed = !isRemoved;
-      diagnostics.databaseRulesHash = rulesHash ?? null;
+      const isDefaultInstance = instance === databaseRules.defaultInstance();
+      if (isDefaultInstance) {
+        diagnostics.databaseRulesDeployed = !isRemoved;
+        diagnostics.databaseRulesHash = rulesHash ?? null;
+      }
       if (isRemoved) {
-        console.info(`[pyric sandbox] database.rules.json removed; RTDB reads/writes default to ${policy ?? 'deny'}`);
+        console.info(`[pyric sandbox] RTDB rules for instance ${instance} removed; its reads/writes default to ${policy ?? 'deny'}`);
       } else {
-        console.info(`[pyric sandbox] database.rules.json hot-reloaded (hash ${rulesHash})`);
+        console.info(`[pyric sandbox] RTDB rules for instance ${instance} hot-reloaded (hash ${rulesHash})`);
       }
     } catch (err) {
       runtimeStatus.reportError(err, 'runtime');

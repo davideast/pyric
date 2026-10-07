@@ -1,5 +1,16 @@
 import type { AiEngineConfigWire } from './worker/protocol.js';
 
+/** A Realtime Database ruleset as `database.rules.json` holds it. */
+export type RtdbRulesJson = { rules: Record<string, unknown> };
+
+/** The Realtime Database instances a project deploys rules to, read as the Firebase CLI reads `firebase.json`. */
+export interface DatabaseInstancesRules {
+  /** The instance `getDatabase()` selects without a URL. */
+  defaultInstance: string;
+  /** Each declared instance's rules, keyed by instance name; null while its rules file does not exist. */
+  rules: Record<string, RtdbRulesJson | null>;
+}
+
 /** Browser-safe wire contract served by `/__pyric/init.json`. */
 export interface InitPayload {
   /** Per-server capability for the warning-only activity report endpoint. */
@@ -8,9 +19,11 @@ export interface InitPayload {
   sessionToken?: string;
   rules: string | null;
   rulesHash: string | null;
-  databaseRules?: { rules: Record<string, unknown> } | null;
+  /** The default instance's Realtime Database rules, for consumers that serve one database. */
+  databaseRules?: RtdbRulesJson | null;
   databaseRulesHash?: string | null;
-  databaseUrl?: string | null;
+  /** Every Realtime Database instance `firebase.json` deploys rules to, with its rules. */
+  databaseInstances?: DatabaseInstancesRules | null;
   /** Explicit opt-in to permissive default access when rules are unconfigured. */
   permissive?: boolean;
   /** Storage rules installed before the first Storage operation. A dev server

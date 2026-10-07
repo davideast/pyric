@@ -670,6 +670,28 @@ describe('setupWorkerHotReload — the worker owns the single SSE', () => {
     expect(es.closed).toBe(true);
   });
 
+  it('applies only the default instance rules from rtdb-rules-update to its one database store', async () => {
+    const ctx = await makeCtx();
+    const dispose = setupWorkerHotReload(ctx, (url) => new FakeES(url), 'demo-default-rtdb');
+    const es = FakeES.last!;
+
+    es.emit('rtdb-rules-update', JSON.stringify({
+      instance: 'other',
+      rules: { rules: { '.read': 'true' } },
+      rulesHash: 'other',
+    }));
+    expect(ctx.activeRules?.database).toBeUndefined();
+
+    es.emit('rtdb-rules-update', JSON.stringify({
+      instance: 'demo-default-rtdb',
+      rules: { rules: { '.read': 'false' } },
+      rulesHash: 'default',
+    }));
+    expect(ctx.activeRules?.database?.source).toEqual({ rules: { '.read': 'false' } });
+
+    dispose();
+  });
+
   it('replaces the Storage rules on storage-rules-update, and a null ruleset returns Storage to deny-all', async () => {
     const ctx = await makeCtx();
     applyServeInit(ctx, { ...basePayload, storageRules: null }, { fetch: recordingFetch() });
