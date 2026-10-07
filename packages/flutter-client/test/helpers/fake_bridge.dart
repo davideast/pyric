@@ -82,15 +82,18 @@ class FakeBridge {
   String hostInstanceId = 'host-a';
   bool peerConnected = true;
   bool refuseConnections = false;
+  bool autoAck = true;
+  int connectCalls = 0;
 
   FakeSocket get current => sockets.last;
 
   Future<WebSocketChannel> connect(Uri uri, Map<String, dynamic> headers) async {
+    connectCalls++;
     if (refuseConnections) throw StateError('connection refused');
     late final FakeSocket socket;
     socket = FakeSocket((frame) {
       frames.add(frame);
-      if (frame['type'] == 'attach') {
+      if (frame['type'] == 'attach' && autoAck) {
         scheduleMicrotask(() => socket.deliver({
               'type': 'attach-ack',
               'protocol': 1,
@@ -122,7 +125,7 @@ class FakeBridge {
 Future<void> settle() => Future<void>.delayed(const Duration(milliseconds: 5));
 
 Future<void> until(bool Function() condition) async {
-  for (var i = 0; i < 400; i++) {
+  for (var i = 0; i < 1200; i++) {
     if (condition()) return;
     await Future<void>.delayed(const Duration(milliseconds: 5));
   }

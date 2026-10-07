@@ -93,6 +93,9 @@ class PyricBridgeClient {
   /// The wait before each reconnect attempt.
   final Duration Function(int attempt) reconnectDelay;
 
+  /// An attempt that has not attached within this time counts as failed.
+  final Duration attachTimeout;
+
   /// Runs on a re-attach to a replaced host, before listens are re-sent.
   BridgeAuthRestorer? restoreAuth;
 
@@ -107,7 +110,10 @@ class PyricBridgeClient {
   int _connectionGeneration = 0;
   int _reconnectAttempt = 0;
   Timer? _reconnectTimer;
+  Timer? _attachDeadline;
   Completer<void>? _attempt;
+  // Callers waiting for the next scheduled attempt.
+  Completer<void>? _nextAttempt;
 
   int _opCounter = 0;
   int _subCounter = 0;
@@ -131,6 +137,7 @@ class PyricBridgeClient {
     this.channelFactory,
     this.retryInitialConnection = false,
     Duration Function(int attempt)? reconnectDelay,
+    this.attachTimeout = const Duration(seconds: 5),
   })  : uri = uri ?? Uri.parse('ws://localhost:5174/__pyric/sandbox'),
         headers = headers ?? const {'Host': 'localhost:5174'},
         reconnectDelay = reconnectDelay ?? bridgeReconnectDelay;
@@ -159,7 +166,9 @@ class PyricBridgeClient {
 
   /// Establishes the WebSocket connection and completes the `attach`/`attach-ack` handshake.
   ///
-  /// While the connection is interrupted, starts the next attempt at once.
+  /// Joins the attempt in progress or, while a retry is scheduled, the next
+  /// scheduled attempt. Starts an attempt only when none is in progress or
+  /// scheduled.
   Future<void> connect() {
     if (isConnected) return Future.value();
     if (_isDisposed) {
@@ -170,8 +179,11 @@ class PyricBridgeClient {
     }
     final inFlight = _attempt;
     if (inFlight != null) return inFlight.future;
-    _reconnectTimer?.cancel();
-    _reconnectTimer = null;
+    if (_reconnectTimer != null) {
+      final next = _nextAttempt ??= Completer<void>();
+      next.future.ignore();
+      return next.future;
+    }
     return _startAttempt();
   }
 
@@ -330,6 +342,16 @@ class PyricBridgeClient {
     attempt.future.ignore();
     _attempt = attempt;
     final generation = ++_connectionGeneration;
+    if (!_hasEverAttached) _setState(BridgeConnectionState.connecting);
+    final waiting = _nextAttempt;
+    _nextAttempt = null;
+    if (waiting != null) {
+      attempt.future.then(waiting.complete, onError: waiting.completeError);
+    }
+    _attachDeadline?.cancel();
+    _attachDeadline = Timer(attachTimeout, () {
+      _handleConnectionLoss(generation, 'Timed out connecting to the Pyric bridge.');
+    });
     _openChannel(generation);
     return attempt.future;
   }
@@ -396,6 +418,8 @@ class PyricBridgeClient {
     }
 
     _connectionGeneration++;
+    _attachDeadline?.cancel();
+    _attachDeadline = null;
     _releaseChannel();
     final attempt = _attempt;
     _attempt = null;
@@ -466,6 +490,8 @@ class PyricBridgeClient {
       if (isStale) return;
     }
 
+    _attachDeadline?.cancel();
+    _attachDeadline = null;
     _attempt = null;
     _hasEverAttached = true;
     _reconnectAttempt = 0;
@@ -737,6 +763,11 @@ class PyricBridgeClient {
     final attempt = _attempt;
     _attempt = null;
     if (attempt != null && !attempt.isCompleted) attempt.completeError(error);
+    final waiting = _nextAttempt;
+    _nextAttempt = null;
+    if (waiting != null && !waiting.isCompleted) waiting.completeError(error);
+    _attachDeadline?.cancel();
+    _attachDeadline = null;
 
     _releaseChannel();
   }

@@ -113,7 +113,8 @@ void main() {
 
     bridge.hostInstanceId = 'host-b';
     bridge.current.drop();
-    await until(() => bridge.ofType('worker-op').isNotEmpty);
+    await until(() => bridge.ofType('worker-op')
+        .any((f) => (f['op'] as Map)['method'] == 'auth.restorePortSession'));
     final restore = bridge.opNamed('auth.restorePortSession');
     expect((restore['op'] as Map)['uid'], 'u1');
     expect((restore['op'] as Map)['tenantId'], 'tenant-1');

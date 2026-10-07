@@ -9,11 +9,16 @@ void main() {
   late FakeBridge bridge;
   final clients = <PyricBridgeClient>[];
 
-  PyricBridgeClient createClient({bool retryInitialConnection = false}) {
+  PyricBridgeClient createClient({
+    bool retryInitialConnection = false,
+    Duration retryDelay = Duration.zero,
+    Duration attachTimeout = const Duration(seconds: 5),
+  }) {
     final client = PyricBridgeClient(
       channelFactory: bridge.connect,
       retryInitialConnection: retryInitialConnection,
-      reconnectDelay: (_) => Duration.zero,
+      reconnectDelay: (_) => retryDelay,
+      attachTimeout: attachTimeout,
     );
     clients.add(client);
     return client;
@@ -206,7 +211,8 @@ void main() {
 
     bridge.hostInstanceId = 'host-b';
     bridge.current.drop();
-    await until(() => bridge.ofType('worker-op').isNotEmpty);
+    await until(() => bridge.ofType('worker-op')
+        .any((f) => (f['op'] as Map)['method'] == 'auth.restorePortSession'));
     final restoreOp = bridge.opNamed('auth.restorePortSession');
     expect((restoreOp['op'] as Map)['uid'], 'u1');
     expect(bridge.ofType('worker-sub'), hasLength(2),
@@ -233,5 +239,56 @@ void main() {
       }
     }
     expect(bridgeReconnectDelay(60, low).inMilliseconds, lessThanOrEqualTo(5000));
+  });
+
+  test('before the first attach, an operation waits for the next scheduled attempt instead of starting one', () async {
+    bridge.refuseConnections = true;
+    final client = createClient(
+      retryInitialConnection: true,
+      retryDelay: const Duration(milliseconds: 150),
+    );
+    await expectLater(client.connect(), throwsA(isA<PyricBridgeException>()));
+    expect(bridge.connectCalls, 1);
+
+    final queued = client.op('getDoc', {'path': 'rooms/a'});
+    await settle();
+    expect(bridge.connectCalls, 1, reason: 'the operation must not start an attempt early');
+
+    bridge.refuseConnections = false;
+    await until(() => bridge.ofType('worker-op').isNotEmpty);
+    expect(bridge.connectCalls, 2);
+    final sent = bridge.opNamed('getDoc');
+    bridge.current.deliver({'type': 'worker-res', 'id': sent['id'], 'ok': true, 'value': null});
+    await queued;
+  });
+
+  test('every first-connection attempt reports connecting', () async {
+    bridge.refuseConnections = true;
+    final client = createClient(
+      retryInitialConnection: true,
+      retryDelay: const Duration(milliseconds: 20),
+    );
+    final states = <BridgeConnectionState>[];
+    client.connectionStates.listen(states.add);
+    client.connect().ignore();
+    await until(() => bridge.connectCalls >= 2);
+    bridge.refuseConnections = false;
+    await until(() => client.isConnected);
+    final firstAttached = states.indexOf(BridgeConnectionState.attached);
+    final beforeAttach = states.sublist(0, firstAttached);
+    expect(beforeAttach.where((s) => s == BridgeConnectionState.connecting).length,
+        greaterThanOrEqualTo(2));
+    expect(beforeAttach.last, BridgeConnectionState.connecting);
+  });
+
+  test('an attempt that is not acknowledged within the attach timeout fails', () async {
+    bridge.autoAck = false;
+    final client = createClient(attachTimeout: const Duration(milliseconds: 50));
+    await expectLater(
+      client.connect(),
+      throwsA(isA<PyricBridgeException>()
+          .having((e) => e.code, 'code', 'unavailable')
+          .having((e) => e.message, 'message', contains('Timed out'))),
+    );
   });
 }
