@@ -14,10 +14,10 @@
  * neither runs on a delete.
  */
 import type { Expr, PathDef } from '../constraints/types.js';
-import { all, any, expr, lit, type Literal } from '../constraints/compose.js';
+import { all, any, expr, fieldName, lit, type Literal } from '../constraints/compose.js';
 import { eq, newDataIs, newDataVal } from '../constraints/data.js';
 import { required } from '../constraints/policies.js';
-import { fieldName, finite } from './expr.js';
+import { finite } from './expr.js';
 
 /** The written value is a string. Field node `.validate`. */
 export const isString = (): Expr => newDataIs('String');

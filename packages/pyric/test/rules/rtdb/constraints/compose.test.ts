@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'bun:test';
 import { all, any, not, expr, deny, always, lit } from '../../../../src/rules/rtdb/constraints/compose.js';
-import { buildRuleExpression } from '../../../../src/rules/rtdb/compiled-rules.js';
+import { buildRuleExpression, compileRtdbRules, simulateRtdbRules } from '../../../../src/rules/rtdb/compiled-rules.js';
 
 describe('compose', () => {
   describe('expr()', () => {
@@ -23,9 +23,13 @@ describe('compose', () => {
       expect(all(expr('(a || b)'), expr("x == '||'"), expr('s.matches(/a||b/)'))).toBe("(a || b) && x == '||' && s.matches(/a||b/)");
     });
 
-    test('a single operand is returned as is, and no operands is true', () => {
+    test('a single operand is returned as is', () => {
       expect(all(expr('a || b'))).toBe('a || b');
-      expect(all()).toBe('true');
+    });
+
+    test('no operands, or only empty ones, is an error', () => {
+      expect(() => all()).toThrow(/all: pass at least one condition/);
+      expect(() => all(expr(''))).toThrow(/all: pass at least one condition/);
     });
   });
 
@@ -34,9 +38,13 @@ describe('compose', () => {
       expect(any(expr('a'), expr('b && c'))).toBe('a || (b && c)');
     });
 
-    test('a single operand is returned as is, and no operands is false', () => {
+    test('a single operand is returned as is', () => {
       expect(any(expr('a'))).toBe('a');
-      expect(any()).toBe('false');
+    });
+
+    test('no operands, or only empty ones, is an error', () => {
+      expect(() => any()).toThrow(/any: pass at least one condition/);
+      expect(() => any(expr(''))).toThrow(/any: pass at least one condition/);
     });
   });
 
@@ -60,6 +68,23 @@ describe('compose', () => {
       expect(lit(true)).toBe('true');
       expect(lit(null)).toBe('null');
       expect(() => lit(Number.NaN)).toThrow();
+    });
+
+    test("quote and backslash escapes read back as the original string in Pyric's simulator", () => {
+      for (const value of ["it's", 'a\\b', "\\'", "'\\"]) {
+        const compiled = compileRtdbRules({ rules: { v: { '.write': `newData.val() == ${lit(value)}` } } });
+        const result = simulateRtdbRules(compiled, { operation: 'write', path: '/v', auth: null, mockData: {}, newData: value });
+        if (!result.success) throw new Error(result.error.message);
+        expect(result.data.allowed).toBe(true);
+      }
+    });
+
+    test('refuses strings with newlines or other control characters', () => {
+      expect(() => lit('a\nb')).toThrow(/lit: .* control character/);
+      expect(() => lit('a\rb')).toThrow(/lit: .* control character/);
+      expect(() => lit('a\tb')).toThrow(/lit: .* control character/);
+      expect(() => lit('a\u0000b')).toThrow(/lit: .* control character/);
+      expect(() => lit('a\u007fb')).toThrow(/lit: .* control character/);
     });
   });
 

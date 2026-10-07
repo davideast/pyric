@@ -43,6 +43,20 @@ describe('Policies', () => {
     expect(required('title')).toBe("newData.hasChildren(['title'])");
   });
 
+  test('required groups single keys in hasChildren and checks each nested path with hasChild', () => {
+    expect(required('puck/x', 'puck/y', 'score')).toBe(
+      "newData.hasChildren(['score']) && newData.hasChild('puck/x') && newData.hasChild('puck/y')",
+    );
+    expect(required('puck/x')).toBe("newData.hasChild('puck/x')");
+  });
+
+  test('required refuses a key segment RTDB cannot hold', () => {
+    expect(() => required('a.b')).toThrow(/required: 'a.b' is not a field name/);
+    expect(() => required('puck/$x')).toThrow(/required: '\$x' is not a field name/);
+    expect(() => required('puck//x')).toThrow(/required: '' is not a field name/);
+    expect(() => required('')).toThrow(/required: '' is not a field name/);
+  });
+
   test('transition with single allowed transition', () => {
     expect(transition('phase', [['draft', 'published']])).toBe(
       "data.child('phase').val() == 'draft' && newData.child('phase').val() == 'published'",

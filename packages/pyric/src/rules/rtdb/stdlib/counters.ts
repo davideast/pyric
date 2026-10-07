@@ -18,10 +18,10 @@
  * `lifecycle.noDelete()`.
  */
 import type { Expr } from '../constraints/types.js';
-import { all, any, expr, lit, not } from '../constraints/compose.js';
+import { all, any, expr, fieldName, lit, not } from '../constraints/compose.js';
 import { dataExists, dataVal, newDataVal } from '../constraints/data.js';
 import { isNew } from '../constraints/atoms.js';
-import { fieldName, finite, sameAsBefore } from './expr.js';
+import { finite, sameAsBefore } from './expr.js';
 
 /**
  * The written number is the stored one plus `n`. With `start`, a create

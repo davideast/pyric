@@ -5,7 +5,7 @@
  * what the standard library adds on top of them.
  */
 import type { Expr } from '../constraints/types.js';
-import { lit } from '../constraints/compose.js';
+import { fieldName, lit } from '../constraints/compose.js';
 import { dataVal, eq, newDataVal } from '../constraints/data.js';
 
 /** A finite number argument, or a thrown error naming the builder. */
@@ -18,14 +18,6 @@ export function finite(builder: string, name: string, value: number): number {
 
 /** `newData.child(field).val() == data.child(field).val()`. */
 export const sameAsBefore = (field: string): Expr => eq(newDataVal(field), { $: dataVal(field) });
-
-/** A child key a builder reads: non-empty, with no characters RTDB keys reject. */
-export function fieldName(builder: string, field: string): string {
-  if (typeof field !== 'string' || field.length === 0 || /[.#$[\]]/.test(field)) {
-    throw new Error(`${builder}: '${String(field)}' is not a field name; RTDB keys cannot be empty or contain . # $ [ ].`);
-  }
-  return field;
-}
 
 /**
  * `.child(...)` calls for `segments`: a string is a key, `{ $: 'auth.uid' }`

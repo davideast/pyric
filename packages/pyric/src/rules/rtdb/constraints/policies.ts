@@ -1,5 +1,5 @@
 import type { Expr, Segment } from './types.js';
-import { all, any, expr, lit } from './compose.js';
+import { all, any, expr, fieldName, lit } from './compose.js';
 import { dataVal, eq, newDataVal } from './data.js';
 import { authenticated, ownPath, ownField, isNew, rootExists, rootEquals } from './atoms.js';
 
@@ -23,10 +23,23 @@ export const hasRole = (segments: Segment[], role: string): Expr =>
 export const isMember = (listName: string, pathVarName: string): Expr =>
   expr(`root.child(${lit(listName)}).child($${pathVarName}).child(auth.uid).exists()`);
 
-/** All specified fields must be present in the incoming data: `newData.hasChildren([...])`. */
+/**
+ * All specified fields must be present in the incoming data. Single keys are
+ * checked together with `newData.hasChildren([...])`; a nested path such as
+ * 'puck/x' is checked with `newData.hasChild('puck/x')`, joined with `&&`.
+ * Every segment of every field must be a valid RTDB key.
+ */
 export const required = (...fields: string[]): Expr => {
   if (fields.length === 0) throw new Error('required: pass at least one field.');
-  return expr(`newData.hasChildren([${fields.map((f) => lit(f)).join(', ')}])`);
+  for (const field of fields) {
+    for (const segment of String(field).split('/')) fieldName('required', segment);
+  }
+  const keys = fields.filter((f) => !f.includes('/'));
+  const paths = fields.filter((f) => f.includes('/'));
+  return all(
+    ...(keys.length > 0 ? [expr(`newData.hasChildren([${keys.map((f) => lit(f)).join(', ')}])`)] : []),
+    ...paths.map((p) => expr(`newData.hasChild(${lit(p)})`)),
+  );
 };
 
 /** State machine: only allowed transitions on a field */

@@ -15,10 +15,10 @@
  * value `==` can compare.
  */
 import type { Expr } from '../constraints/types.js';
-import { all, any, expr, not } from '../constraints/compose.js';
+import { all, any, expr, fieldName, not } from '../constraints/compose.js';
 import { dataVal, neq, newDataExists, newDataVal } from '../constraints/data.js';
 import { authenticated, isNew } from '../constraints/atoms.js';
-import { fieldName, sameAsBefore } from './expr.js';
+import { sameAsBefore } from './expr.js';
 
 /** Each listed field holds the same value before and after the write. */
 export function unchanged(...fields: string[]): Expr {

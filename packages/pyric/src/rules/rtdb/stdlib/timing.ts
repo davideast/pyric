@@ -23,10 +23,10 @@
  * posts and one stamp, and each post's `.validate` sees the same fresh stamp.
  */
 import type { Expr, Segment } from '../constraints/types.js';
-import { all, any, expr, lit, not } from '../constraints/compose.js';
+import { all, any, expr, fieldName, lit, not } from '../constraints/compose.js';
 import { dataExists, dataVal, newDataVal } from '../constraints/data.js';
 import { isNew } from '../constraints/atoms.js';
-import { childPath, climb, fieldName, finite } from './expr.js';
+import { childPath, climb, finite } from './expr.js';
 
 const at = (snapshot: 'data' | 'newData', field?: string) => {
   const read = snapshot === 'data' ? dataVal : newDataVal;
