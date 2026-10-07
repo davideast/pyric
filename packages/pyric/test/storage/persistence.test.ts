@@ -38,7 +38,7 @@ function makeMetadata(overrides: Partial<StoredMetadata> = {}): StoredMetadata {
     metageneration: '1',
     timeCreated: '2026-05-10T00:00:00.000Z',
     updated: '2026-05-10T00:00:00.000Z',
-    size: 17,
+    size: 0,
     contentType: 'application/json',
   };
   return { ...base, ...overrides };
@@ -54,7 +54,7 @@ describe('IndexedDB persistence', () => {
   it('put + getBlob round-trips the content', async () => {
     const { db } = await openClean('put-get');
     const payload = new Blob(['{"session":1}'], { type: 'application/json' });
-    await db.put('sessions/s1.json', payload, makeMetadata());
+    await db.put('sessions/s1.json', payload, makeMetadata({ size: payload.size }));
 
     const got = await db.getBlob('sessions/s1.json');
     expect(got).toBeDefined();
@@ -65,7 +65,7 @@ describe('IndexedDB persistence', () => {
   it('put + getMetadata round-trips the record', async () => {
     const { db } = await openClean('put-metadata');
     const md = makeMetadata({ size: 99, customMetadata: { sessionId: 'abc' } });
-    await db.put('sessions/s1.json', new Blob([]), md);
+    await db.put('sessions/s1.json', new Blob(['x'.repeat(99)]), md);
 
     const got = await db.getMetadata('sessions/s1.json');
     expect(got).toEqual(md);
@@ -81,7 +81,7 @@ describe('IndexedDB persistence', () => {
 
   it('delete removes both the blob and the metadata', async () => {
     const { db } = await openClean('delete');
-    await db.put('sessions/s1.json', new Blob(['x']), makeMetadata());
+    await db.put('sessions/s1.json', new Blob(['x']), makeMetadata({ size: 1 }));
 
     await db.delete('sessions/s1.json');
 
@@ -95,12 +95,12 @@ describe('IndexedDB persistence', () => {
     await db.put(
       'sessions/s1.json',
       new Blob(['old']),
-      makeMetadata({ generation: '1' }),
+      makeMetadata({ generation: '1', size: 3 }),
     );
     await db.put(
       'sessions/s1.json',
       new Blob(['new']),
-      makeMetadata({ generation: '2' }),
+      makeMetadata({ generation: '2', size: 3 }),
     );
 
     const blob = await db.getBlob('sessions/s1.json');
@@ -115,12 +115,12 @@ describe('IndexedDB persistence', () => {
     await db.put(
       'sessions/s1.json',
       new Blob(['original-payload']),
-      makeMetadata({ metageneration: '1' }),
+      makeMetadata({ metageneration: '1', size: 16 }),
     );
 
     await db.putMetadata(
       'sessions/s1.json',
-      makeMetadata({ metageneration: '2', customMetadata: { tag: 'review' } }),
+      makeMetadata({ metageneration: '2', size: 16, customMetadata: { tag: 'review' } }),
     );
 
     const blob = await db.getBlob('sessions/s1.json');
@@ -174,8 +174,8 @@ describe('IndexedDB persistence', () => {
 
   it('reset clears every entry from both stores', async () => {
     const { db } = await openClean('reset');
-    await db.put('sessions/s1.json', new Blob(['a']), makeMetadata({ fullPath: 'sessions/s1.json', name: 's1.json' }));
-    await db.put('sessions/s2.json', new Blob(['b']), makeMetadata({ fullPath: 'sessions/s2.json', name: 's2.json' }));
+    await db.put('sessions/s1.json', new Blob(['a']), makeMetadata({ fullPath: 'sessions/s1.json', name: 's1.json', size: 1 }));
+    await db.put('sessions/s2.json', new Blob(['b']), makeMetadata({ fullPath: 'sessions/s2.json', name: 's2.json', size: 1 }));
 
     await db.reset();
 
@@ -188,7 +188,7 @@ describe('IndexedDB persistence', () => {
   it('data survives close + reopen with the same database name', async () => {
     const { db, name } = await openClean('persistence');
     const payload = new Blob(['{"persisted":true}'], { type: 'application/json' });
-    await db.put('sessions/s1.json', payload, makeMetadata({ customMetadata: { tag: 'durable' } }));
+    await db.put('sessions/s1.json', payload, makeMetadata({ size: payload.size, customMetadata: { tag: 'durable' } }));
     db.close();
 
     const reopened = await openStorageBackend(name);

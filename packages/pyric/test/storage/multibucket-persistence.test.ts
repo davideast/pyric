@@ -55,7 +55,7 @@ function makeStoredMetadata(bucket: string, fullPath: string, overrides: Partial
     metageneration: '1',
     timeCreated: new Date().toISOString(),
     updated: new Date().toISOString(),
-    size: 10,
+    size: 0,
     contentType: 'text/plain',
     ...overrides,
   };
@@ -158,12 +158,12 @@ describe('Multi-Bucket Persistence Layer (Finding 4 Regression)', () => {
     await backend.put(
       'data.json',
       new Blob(['{}']),
-      makeStoredMetadata('bucket-1', 'data.json', { customMetadata: { status: 'draft' } }),
+      makeStoredMetadata('bucket-1', 'data.json', { size: 2, customMetadata: { status: 'draft' } }),
     );
     await backend.put(
       'data.json',
       new Blob(['{}']),
-      makeStoredMetadata('bucket-2', 'data.json', { customMetadata: { status: 'published' } }),
+      makeStoredMetadata('bucket-2', 'data.json', { size: 2, customMetadata: { status: 'published' } }),
     );
 
     // Update only bucket-1 metadata
@@ -189,8 +189,8 @@ describe('Multi-Bucket Persistence Layer (Finding 4 Regression)', () => {
     const dbName = uniqueDbName('idb-delete');
     const backend = await openStorageBackend(dbName);
 
-    await backend.put('shared/path.txt', new Blob(['A']), makeStoredMetadata('bucket-a', 'shared/path.txt'));
-    await backend.put('shared/path.txt', new Blob(['B']), makeStoredMetadata('bucket-b', 'shared/path.txt'));
+    await backend.put('shared/path.txt', new Blob(['A']), makeStoredMetadata('bucket-a', 'shared/path.txt', { size: 1 }));
+    await backend.put('shared/path.txt', new Blob(['B']), makeStoredMetadata('bucket-b', 'shared/path.txt', { size: 1 }));
 
     // Delete only from bucket-a
     await backend.delete('shared/path.txt', 'bucket-a');
@@ -232,8 +232,8 @@ describe('Multi-Bucket Persistence Layer (Finding 4 Regression)', () => {
     const dbName = uniqueDbName('idb-reset-bucket');
     const backend = await openStorageBackend(dbName);
 
-    await backend.put('file.txt', new Blob(['A']), makeStoredMetadata('bucket-a', 'file.txt'));
-    await backend.put('file.txt', new Blob(['B']), makeStoredMetadata('bucket-b', 'file.txt'));
+    await backend.put('file.txt', new Blob(['A']), makeStoredMetadata('bucket-a', 'file.txt', { size: 1 }));
+    await backend.put('file.txt', new Blob(['B']), makeStoredMetadata('bucket-b', 'file.txt', { size: 1 }));
 
     // Reset only bucket-a
     await backend.reset('bucket-a');

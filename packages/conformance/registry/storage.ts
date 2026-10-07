@@ -1170,6 +1170,7 @@ export const storageRegistry = {
           riskReasons: ["asserts a specific field/property value","asserts metadata shape"],
           automation: "oracle-backed",
           oracleObservations: ["storage-upload-then-getmetadata"],
+          conformanceTests: ["packages/pyric/test/storage/persistence-state.test.ts", "packages/cli/test/serve/hosted-sqlite.test.ts"],
         }),
         row13({
           rowRef: "90",

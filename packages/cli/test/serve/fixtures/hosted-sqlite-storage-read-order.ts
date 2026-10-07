@@ -11,10 +11,26 @@ try {
   const bytes = storage.getBlob(metadata.fullPath);
   const details = storage.getMetadata(metadata.fullPath);
   const listing = storage.listByPrefix('notes/');
+  const object = storage.getObject(metadata.fullPath);
   await upload;
   assert.equal(await (await bytes)?.text(), 'new');
   assert.deepEqual(await details, metadata);
   assert.deepEqual(await listing, [metadata]);
+  const pair = await object;
+  assert.equal(await pair?.blob.text(), 'new');
+  assert.deepEqual(pair?.metadata, metadata);
+
+  // An overwrite queued behind a capture's listing is read as one pair.
+  const longer = { ...metadata, size: 6, generation: '2' };
+  const listed = storage.listByPrefix('notes/');
+  const overwrite = storage.put(metadata.fullPath, new Blob(['longer']), longer);
+  const overwritten = storage.getObject(metadata.fullPath);
+  assert.deepEqual(await listed, [metadata]);
+  await overwrite;
+  const overwrittenPair = await overwritten;
+  assert.equal(await overwrittenPair?.blob.text(), 'longer');
+  assert.deepEqual(overwrittenPair?.metadata, longer);
+  await storage.put(metadata.fullPath, new Blob(['new']), metadata);
 
   const deletion = storage.delete(metadata.fullPath);
   const deletedBytes = storage.getBlob(metadata.fullPath);

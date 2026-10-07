@@ -183,6 +183,15 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit, o
         if (hasObject) return metadataOf(row);
         return undefined;
       },
+      async getObject(path, bucket = defaultBucket) {
+        await mutations;
+        // One row names both the metadata and the bytes of the same write.
+        const row = objectFileStmt().get(bucket, path);
+        const missingObject = row === undefined;
+        if (missingObject) return undefined;
+        const blob = new Blob([objects.read(storedBytesOf(row))], { type: sqlText(row, 'mime') });
+        return { blob, metadata: metadataOf(row) };
+      },
       async putMetadata(path, value, bucket = defaultBucket) {
         await enqueue(() => {
           const parsed = storedMetadataSchema.parse(value);
