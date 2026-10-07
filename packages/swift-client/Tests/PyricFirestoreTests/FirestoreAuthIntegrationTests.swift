@@ -140,12 +140,10 @@ struct FirestoreAuthIntegrationTests {
             }
         }
 
-        // Wait briefly for the initial worker-sub frame
-        try await Task.sleep(nanoseconds: 30_000_000)
+        // Wait for the initial worker-sub frame; the subscription registers on its own task
+        let initialSubs = try await harness.waitForSentMessages(type: "worker-sub", count: 1)
 
         // Verify initial subscription used anon lens
-        let initialSubs = harness.sentMessages.filter { $0["type"]?.stringValue == "worker-sub" }
-        #expect(!initialSubs.isEmpty)
         let initialSubPayload = initialSubs.first?["sub"]?.dictionaryValue
         #expect(initialSubPayload?["actAs"]?.dictionaryValue?["mode"]?.stringValue == "anon")
 
@@ -153,11 +151,8 @@ struct FirestoreAuthIntegrationTests {
         let memberLens = AuthLens.asUser(uid: "user-listener-1")
         auth.switchLens(memberLens)
 
-        // Wait briefly for coordinator to detect transition and reconnect
-        try await Task.sleep(nanoseconds: 50_000_000)
-
-        let allSubs = harness.sentMessages.filter { $0["type"]?.stringValue == "worker-sub" }
-        #expect(allSubs.count >= 2)
+        // Wait for the coordinator to detect the transition and send the second worker-sub
+        let allSubs = try await harness.waitForSentMessages(type: "worker-sub", count: 2)
         let latestSubPayload = allSubs.last?["sub"]?.dictionaryValue
         #expect(latestSubPayload?["actAs"]?.dictionaryValue?["mode"]?.stringValue == "as")
         #expect(latestSubPayload?["actAs"]?.dictionaryValue?["uid"]?.stringValue == "user-listener-1")

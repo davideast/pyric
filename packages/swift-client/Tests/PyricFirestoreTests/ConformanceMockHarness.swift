@@ -309,6 +309,21 @@ public final class ConformanceMockHarness: WebSocketTransport, @unchecked Sendab
         throw PyricBridgeError.unavailable("Timed out waiting for sent \(type) message.")
     }
 
+    /// Waits until at least `count` frames of `type` have been sent and returns all of them in send order.
+    public func waitForSentMessages(type: String, count: Int) async throws -> [[String: AnySendable]] {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while ContinuousClock.now < deadline {
+            lock.lock()
+            let matching = sentMessages.filter { $0["type"]?.stringValue == type }
+            lock.unlock()
+            if matching.count >= count {
+                return matching
+            }
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        throw PyricBridgeError.unavailable("Timed out waiting for \(count) sent \(type) messages.")
+    }
+
     // MARK: - Factory Lifecycle
 
     public static func create(sendDelayNanoseconds: UInt64 = 0) async throws -> ConformanceMockHarness {

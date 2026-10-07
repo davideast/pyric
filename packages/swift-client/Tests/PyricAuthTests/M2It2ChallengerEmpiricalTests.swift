@@ -318,6 +318,20 @@ struct M2It2ChallengerEmpiricalTests {
         #expect(frame["id"]?.stringValue == "rop-2")
     }
 
+    @Test("A timed-out awaitNextSentMessage does not swallow the next sent frame")
+    func testTimedOutWaitLeavesNextFrameQueued() async throws {
+        let channel = MockAuthChannel()
+
+        await #expect(throws: PyricBridgeError.self) {
+            _ = try await channel.awaitNextSentMessage(timeoutSeconds: 0.05)
+        }
+
+        try await channel.send(#"{"type":"worker-sub","subId":"rsub-1","sub":{}}"#)
+
+        let frame = try await channel.awaitNextSentMessage(timeoutSeconds: 1.0)
+        #expect(frame["subId"]?.stringValue == "rsub-1")
+    }
+
     // ── Test 4: Remote Sync Subscribes to Both authState and idToken ─────────
 
     @Test("Verify startRemoteSync subscribes to both authState and idToken channels")

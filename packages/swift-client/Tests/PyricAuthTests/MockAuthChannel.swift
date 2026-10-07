@@ -6,7 +6,7 @@ public final class MockAuthChannel: WebSocketTransport, @unchecked Sendable {
     private var incomingQueue: [String] = []
     private var receiveContinuations: [CheckedContinuation<String, Error>] = []
     private var sentQueue: [[String: AnySendable]] = []
-    private var sentContinuations: [CheckedContinuation<[String: AnySendable], Error>] = []
+    private var sentContinuations: [(id: UUID, continuation: CheckedContinuation<[String: AnySendable], Error>)] = []
     public private(set) var isClosed = false
 
     public init() {}
@@ -26,7 +26,7 @@ public final class MockAuthChannel: WebSocketTransport, @unchecked Sendable {
                let obj = try? JSONDecoder().decode(AnySendable.self, from: data),
                let dict = obj.dictionaryValue {
                 if !sentContinuations.isEmpty {
-                    let cont = sentContinuations.removeFirst()
+                    let cont = sentContinuations.removeFirst().continuation
                     return (cont, dict)
                 } else {
                     sentQueue.append(dict)
@@ -64,7 +64,7 @@ public final class MockAuthChannel: WebSocketTransport, @unchecked Sendable {
             isClosed = true
             let r = receiveContinuations
             receiveContinuations.removeAll()
-            let s = sentContinuations
+            let s = sentContinuations.map(\.continuation)
             sentContinuations.removeAll()
             return (r, s)
         }
@@ -93,18 +93,37 @@ public final class MockAuthChannel: WebSocketTransport, @unchecked Sendable {
     public func awaitNextSentMessage(timeoutSeconds: Double = 3.0) async throws -> [String: AnySendable] {
         try await withThrowingTaskGroup(of: [String: AnySendable].self) { group in
             group.addTask {
-                try await withCheckedThrowingContinuation { continuation in
-                    let msgToReturn: [String: AnySendable]? = self.withLock {
-                        if !self.sentQueue.isEmpty {
-                            return self.sentQueue.removeFirst()
-                        } else {
-                            self.sentContinuations.append(continuation)
-                            return nil
+                let waiterId = UUID()
+                return try await withTaskCancellationHandler {
+                    try await withCheckedThrowingContinuation { continuation in
+                        // A wait that is already cancelled must not register, or a later
+                        // frame would be delivered to a waiter that no longer exists.
+                        let (msgToReturn, cancelled): ([String: AnySendable]?, Bool) = self.withLock {
+                            if Task.isCancelled {
+                                return (nil, true)
+                            }
+                            if !self.sentQueue.isEmpty {
+                                return (self.sentQueue.removeFirst(), false)
+                            }
+                            self.sentContinuations.append((id: waiterId, continuation: continuation))
+                            return (nil, false)
+                        }
+                        if cancelled {
+                            continuation.resume(throwing: CancellationError())
+                        } else if let msgToReturn {
+                            continuation.resume(returning: msgToReturn)
                         }
                     }
-                    if let msgToReturn {
-                        continuation.resume(returning: msgToReturn)
+                } onCancel: {
+                    // Unregister the waiter so a frame sent after a timeout stays queued
+                    // for the next wait.
+                    let waiter: CheckedContinuation<[String: AnySendable], Error>? = self.withLock {
+                        guard let index = self.sentContinuations.firstIndex(where: { $0.id == waiterId }) else {
+                            return nil
+                        }
+                        return self.sentContinuations.remove(at: index).continuation
                     }
+                    waiter?.resume(throwing: CancellationError())
                 }
             }
             group.addTask {
