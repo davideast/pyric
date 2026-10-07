@@ -25,6 +25,8 @@ import { makeError } from 'pyric/sandbox/internal';
 import type { OperationResult } from 'pyric/sandbox/internal';
 import { lastSegment, parentCollectionPath } from './paths.js';
 import { makeDocSnapshot } from './snapshots.js';
+import { parseAdminUpdateArguments, type FieldPath } from './field-path.js';
+import { updateFieldsData } from '../update-fields.js';
 import {
   boundedActivityIdentity,
   registerActivityValue,
@@ -158,11 +160,12 @@ export class DocumentRefImpl implements DocumentReference {
     if (!result.allowed) throwFromDenial(result, 'set denied');
   }
 
-  async update(data: DocumentData, opts?: OperationOptions): Promise<void> {
+  async update(dataOrField: DocumentData | string | FieldPath, ...preconditionOrValues: unknown[]): Promise<void> {
+    const { fields, options: opts } = parseAdminUpdateArguments<OperationOptions>(dataOrField, preconditionOrValues);
     const result = this.env.execute({
       method: 'update',
       path: this.path,
-      data,
+      data: updateFieldsData(fields),
       auth: opts?.auth !== undefined ? opts.auth : this.auth,
       bypassRules: this.bypassRules,
     });

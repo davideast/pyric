@@ -19,6 +19,7 @@ import type {
   DocValueEncoding,
   AggregateSpecDescriptor,
   WriteDescriptor,
+  UpdatePayload,
   TxnReadEntry,
   FirestoreSubMessage,
 } from './protocol/firestore.js';
@@ -99,7 +100,7 @@ export type OpMessage = (
     }
   | { t: 'op'; id: string; method: 'getDocs'; source: TargetDescriptor }
   | { t: 'op'; id: string; method: 'setDoc'; path: string; data: unknown; valueEncoding?: DocValueEncoding; options?: { merge?: boolean; mergeFields?: string[] } }
-  | { t: 'op'; id: string; method: 'updateDoc'; path: string; data: unknown; valueEncoding?: DocValueEncoding }
+  | ({ t: 'op'; id: string; method: 'updateDoc'; path: string; valueEncoding?: DocValueEncoding } & UpdatePayload)
   | { t: 'op'; id: string; method: 'deleteDoc'; path: string }
   | { t: 'op'; id: string; method: 'addDoc'; collectionPath: string; data: unknown; valueEncoding?: DocValueEncoding }
   | { t: 'op'; id: string; method: 'count'; source: TargetDescriptor }

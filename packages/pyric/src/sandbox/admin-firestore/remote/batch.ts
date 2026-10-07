@@ -4,7 +4,8 @@
 import { SandboxError } from 'pyric/sandbox';
 import type { DocumentData, DocumentReference, OperationOptions, WriteBatch } from 'pyric/sandbox/admin-compat';
 import { armOp, type RemoteArm } from './channel.js';
-import { encodeWriteData } from './value-codec.js';
+import { encodeUpdateFields, encodeWriteData } from './value-codec.js';
+import { parseAdminUpdateArguments } from '../../../firestore/sandbox/admin-compat/field-path.js';
 import type { WireWrite } from './wire-types.js';
 
 export function makeWriteBatch(arm: RemoteArm): WriteBatch {
@@ -16,9 +17,10 @@ export function makeWriteBatch(arm: RemoteArm): WriteBatch {
       writes.push({ method: 'set', path: ref.path, data: encodeWriteData(data) });
       return batch;
     },
-    update(ref: DocumentReference, data: DocumentData): WriteBatch {
+    update(ref: DocumentReference, dataOrField: unknown, ...preconditionOrValues: unknown[]): WriteBatch {
       assertNotCommitted();
-      writes.push({ method: 'update', path: ref.path, data: encodeWriteData(data) });
+      const { fields } = parseAdminUpdateArguments(dataOrField, preconditionOrValues);
+      writes.push({ method: 'update', path: ref.path, fields: encodeUpdateFields(fields) });
       return batch;
     },
     delete(ref: DocumentReference): WriteBatch {

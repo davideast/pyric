@@ -20,7 +20,8 @@ import {
 import { generateAutoId } from '../../../firestore/sandbox/auto-id.js';
 import { armOp, type RemoteArm } from './channel.js';
 import { invalidArgument } from './errors.js';
-import { encodeWriteData } from './value-codec.js';
+import { encodeUpdateFields, encodeWriteData } from './value-codec.js';
+import { parseAdminUpdateArguments } from '../../../firestore/sandbox/admin-compat/field-path.js';
 import { makeDocumentSnapshot } from './snapshots.js';
 import { makeQuery } from './query.js';
 import {
@@ -88,8 +89,9 @@ export function makeDocRef(arm: RemoteArm, path: string): DocumentReference {
         ...(setOptionsForWire(options) ? { options: setOptionsForWire(options) } : {}),
       });
     },
-    async update(data: DocumentData, _opts?: OperationOptions): Promise<void> {
-      await armOp(arm, { method: 'updateDoc', path, data: encodeWriteData(data) });
+    async update(dataOrField: unknown, ...preconditionOrValues: unknown[]): Promise<void> {
+      const { fields } = parseAdminUpdateArguments(dataOrField, preconditionOrValues);
+      await armOp(arm, { method: 'updateDoc', path, fields: encodeUpdateFields(fields) });
     },
     async delete(_opts?: OperationOptions): Promise<void> {
       await armOp(arm, { method: 'deleteDoc', path });

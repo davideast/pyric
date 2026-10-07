@@ -24,6 +24,8 @@
 
 import type { Transaction as SimTransaction } from 'pyric/sandbox/internal';
 import { makeDocSnapshot } from './snapshots.js';
+import { updateFieldsData } from '../update-fields.js';
+import { parseAdminUpdateArguments, type FieldPath } from './field-path.js';
 import {
   type DocumentData,
   type DocumentReference,
@@ -86,8 +88,9 @@ export class TransactionImpl implements Transaction {
     return this;
   }
 
-  update(ref: DocumentReference, data: DocumentData): Transaction {
-    this.simTx.update(ref.path, data);
+  update(ref: DocumentReference, dataOrField: DocumentData | string | FieldPath, ...preconditionOrValues: unknown[]): Transaction {
+    const { fields } = parseAdminUpdateArguments(dataOrField, preconditionOrValues);
+    this.simTx.update(ref.path, updateFieldsData(fields));
     return this;
   }
 

@@ -21,6 +21,7 @@ import {
   type AdminQuerySnapshot,
 } from 'pyric/sandbox/admin-firestore';
 import type { SetOptions } from './writes.js';
+import type { FieldPath } from './field-values.js';
 import type { OperationOptions } from './sandbox/admin-compat/types.js';
 import type { AuthState, Sandbox, SandboxContext } from 'pyric/sandbox';
 import type { FirebaseApp } from '../app/types.js';
@@ -123,7 +124,8 @@ export interface QuerySnapshot<T = DocumentData> {
 }
 export interface WriteBatch {
   set<T = DocumentData>(ref: DocumentReference<T>, data: T, options?: SetOptions): WriteBatch;
-  update(ref: DocumentReference, data: DocumentData): WriteBatch;
+  update(ref: DocumentReference<unknown>, data: UpdateData<DocumentData>): WriteBatch;
+  update(ref: DocumentReference<unknown>, field: string | FieldPath, value: unknown, ...moreFieldsAndValues: unknown[]): WriteBatch;
   delete(ref: DocumentReference): WriteBatch;
   /** Retains the existing sandbox-only per-commit auth override. */
   commit(options?: OperationOptions): Promise<void>;
@@ -133,7 +135,8 @@ export interface Transaction {
   /** Existing sandbox query extension; modular Firebase transactions read documents. */
   get(query: ChainQuery): Promise<AdminQuerySnapshot>;
   set<T = DocumentData>(ref: DocumentReference<T>, data: T, options?: SetOptions): Transaction;
-  update(ref: DocumentReference, data: DocumentData): Transaction;
+  update(ref: DocumentReference<unknown>, data: UpdateData<DocumentData>): Transaction;
+  update(ref: DocumentReference<unknown>, field: string | FieldPath, value: unknown, ...moreFieldsAndValues: unknown[]): Transaction;
   delete(ref: DocumentReference): Transaction;
 }
 export type Unsubscribe = () => void;

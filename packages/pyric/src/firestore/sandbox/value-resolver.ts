@@ -48,6 +48,7 @@ import { documentReferenceConverter } from './converters/reference.js';
 import { vectorValueConverter } from './converters/vector.js';
 import { bytesConverter, geoPointConverter } from './converters/bytes-geopoint.js';
 import { isPlainObject } from '../plain-object.js';
+import { fieldPathKeySegments } from './update-fields.js';
 export { isPlainObject } from '../plain-object.js';
 
 export type DocumentData = Record<string, unknown>;
@@ -69,6 +70,12 @@ export interface ResolveContext {
    * field (e.g., `increment` reads `prior.<fieldPath>`).
    */
   fieldPath: string;
+  /**
+   * The same location as literal segments: field names, then array
+   * indices as numbers. A field name may contain `.`, so converters that
+   * read the prior value walk these segments, not `fieldPath`.
+   */
+  fieldSegments: readonly (string | number)[];
   /**
    * Server time for this write, if the caller wants every
    * `serverTimestamp()` sentinel in the tree to resolve to the SAME
@@ -148,11 +155,15 @@ export function listConverters(): string[] {
  */
 export function resolveValueTree(
   data: DocumentData,
-  ctx: Omit<ResolveContext, 'fieldPath'>,
+  ctx: Omit<ResolveContext, 'fieldPath' | 'fieldSegments'>,
 ): DocumentData {
   const out: DocumentData = {};
+  // An update's top-level keys are encoded field paths; every other
+  // write's top-level keys are literal field names.
+  const isUpdate = ctx.method === 'update';
   for (const [key, value] of Object.entries(data)) {
-    out[key] = resolveValue(value, { ...ctx, fieldPath: key });
+    const fieldSegments = isUpdate ? fieldPathKeySegments(key) : [key];
+    out[key] = resolveValue(value, { ...ctx, fieldPath: key, fieldSegments });
   }
   return out;
 }
@@ -171,14 +182,14 @@ export function resolveValue(value: unknown, ctx: ResolveContext): unknown {
   // No converter claimed it. Descend into containers; pass through everything else.
   if (Array.isArray(value)) {
     return value.map((v, i) =>
-      resolveValue(v, { ...ctx, fieldPath: `${ctx.fieldPath}[${i}]` }),
+      resolveValue(v, { ...ctx, fieldPath: `${ctx.fieldPath}[${i}]`, fieldSegments: [...ctx.fieldSegments, i] }),
     );
   }
   if (isPlainObject(value)) {
     const inner: DocumentData = {};
     for (const [k, v] of Object.entries(value)) {
       const childPath = ctx.fieldPath ? `${ctx.fieldPath}.${k}` : k;
-      inner[k] = resolveValue(v, { ...ctx, fieldPath: childPath });
+      inner[k] = resolveValue(v, { ...ctx, fieldPath: childPath, fieldSegments: [...ctx.fieldSegments, k] });
     }
     return inner;
   }

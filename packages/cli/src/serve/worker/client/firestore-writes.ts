@@ -5,14 +5,15 @@ import { beginWorkerFirestoreActivity } from './sdk-activity.js';
  * `runTransaction` with read-set validation + retry for multi-tab correctness.
  */
 
-import type { WriteDescriptor, TxnReadEntry } from '../protocol.js';
+import type { WriteDescriptor, TxnReadEntry, UpdateFieldDescriptor } from '../protocol.js';
+import { parseUpdateArguments } from 'pyric/firestore/internal/update-fields';
 import { encodeDocValue, requireDocumentData, DOC_VALUE_ENCODING } from 'pyric/firestore/internal/value-codec';
 import { nextId, dataRpc } from './core.js';
 import type { ClientDb, DocRefHandle, CollRefHandle } from './handles.js';
 import { makeDocSnapshot } from './snapshots.js';
 import type { RawDocResult, ClientDocSnapshot } from './snapshots.js';
 import { createDocumentReference } from './firestore-reference.js';
-import type { DocumentData, FirestoreDataConverter } from 'pyric/firestore';
+import type { DocumentData, FieldPath, FirestoreDataConverter } from 'pyric/firestore';
 
 interface ClientSetOptions {
   merge?: boolean;
@@ -56,17 +57,41 @@ export async function setDoc<T = DocumentData>(
   });
 }
 
-export async function updateDoc(
+/**
+ * Parse an update call with the Web SDK's rules and encode each field for
+ * the wire. Field paths travel as segment vectors, so a `FieldPath` segment
+ * that contains `.` stays one literal field name.
+ */
+function encodeUpdate(
+  methodName: string,
   ref: DocRefHandle,
-  data: Record<string, unknown>,
+  dataOrField: unknown,
+  rest: readonly unknown[],
+): UpdateFieldDescriptor[] {
+  return parseUpdateArguments(methodName, ref.descriptor.path, dataOrField, rest)
+    .map((field) => ({ path: [...field.path], value: encodeDocValue(field.value) }));
+}
+
+export function updateDoc(ref: DocRefHandle, data: Record<string, unknown>): Promise<void>;
+export function updateDoc(
+  ref: DocRefHandle,
+  field: string | FieldPath,
+  value: unknown,
+  ...moreFieldsAndValues: unknown[]
+): Promise<void>;
+export function updateDoc(
+  ref: DocRefHandle,
+  dataOrField: Record<string, unknown> | string | FieldPath,
+  ...valueAndMoreFieldsAndValues: unknown[]
 ): Promise<void> {
+  const fields = encodeUpdate('updateDoc', ref, dataOrField, valueAndMoreFieldsAndValues);
   return runSdkWrite(beginWorkerFirestoreActivity(ref, 'updateDoc', 'operation'), async () => {
     await dataRpc(ref.port, {
       t: 'op',
       id: nextId(),
       method: 'updateDoc',
       path: ref.descriptor.path,
-      data: encodeDocValue(data),
+      fields,
       valueEncoding: DOC_VALUE_ENCODING,
     });
   });
@@ -117,6 +142,7 @@ export async function addDoc(
 export interface ClientWriteBatch {
   set<T = DocumentData>(ref: DocRefHandle<T>, data: T, options?: ClientSetOptions): ClientWriteBatch;
   update(ref: DocRefHandle, data: Record<string, unknown>): ClientWriteBatch;
+  update(ref: DocRefHandle, field: string | FieldPath, value: unknown, ...moreFieldsAndValues: unknown[]): ClientWriteBatch;
   delete(ref: DocRefHandle): ClientWriteBatch;
   commit(): Promise<void>;
 }
@@ -132,8 +158,9 @@ export function writeBatch(db: ClientDb): ClientWriteBatch {
       writes.push({ method: 'set', path: ref.descriptor.path, data: encodeDocValue(payload), valueEncoding: DOC_VALUE_ENCODING, options: capturedOptions });
       return batch;
     },
-    update(ref, data) {
-      writes.push({ method: 'update', path: ref.descriptor.path, data: encodeDocValue(data), valueEncoding: DOC_VALUE_ENCODING });
+    update(ref: DocRefHandle, dataOrField: unknown, ...rest: unknown[]) {
+      const fields = encodeUpdate('WriteBatch.update', ref, dataOrField, rest);
+      writes.push({ method: 'update', path: ref.descriptor.path, fields, valueEncoding: DOC_VALUE_ENCODING });
       return batch;
     },
     delete(ref) {
@@ -162,6 +189,7 @@ export interface ClientTransaction {
   get<T = DocumentData>(ref: DocRefHandle<T>): Promise<ClientDocSnapshot<T>>;
   set<T = DocumentData>(ref: DocRefHandle<T>, data: T, options?: ClientSetOptions): void;
   update(ref: DocRefHandle, data: Record<string, unknown>): void;
+  update(ref: DocRefHandle, field: string | FieldPath, value: unknown, ...moreFieldsAndValues: unknown[]): void;
   delete(ref: DocRefHandle): void;
 }
 
@@ -239,8 +267,9 @@ export async function runTransaction<R>(
           const payload = convertSetData(ref, data);
           writes.push({ method: 'set', path: ref.descriptor.path, data: encodeDocValue(payload), valueEncoding: DOC_VALUE_ENCODING, options: capturedOptions });
         },
-        update(ref, data) {
-          writes.push({ method: 'update', path: ref.descriptor.path, data: encodeDocValue(data), valueEncoding: DOC_VALUE_ENCODING });
+        update(ref: DocRefHandle, dataOrField: unknown, ...rest: unknown[]) {
+          const fields = encodeUpdate('Transaction.update', ref, dataOrField, rest);
+          writes.push({ method: 'update', path: ref.descriptor.path, fields, valueEncoding: DOC_VALUE_ENCODING });
         },
         delete(ref) {
           writes.push({ method: 'delete', path: ref.descriptor.path });

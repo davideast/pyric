@@ -145,7 +145,7 @@ describe('ValueConverter contract', () => {
     };
     registerConverter(first);
     registerConverter(second);
-    const out = resolveValue('target', { path: 'p/x', method: 'create', prior: null, fieldPath: 'f' });
+    const out = resolveValue('target', { path: 'p/x', method: 'create', prior: null, fieldPath: 'f', fieldSegments: ['f'] });
     expect(out).toBe('first-claimed');
   });
 

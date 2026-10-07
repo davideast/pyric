@@ -21,6 +21,7 @@ import {
 } from './state.js';
 import { applyConverterToDocSnap, tagSnapshotRefs, wrapSandboxDocSnap } from './snapshots.js';
 import { requireDocumentData } from './internal/document-data.js';
+import { parseChainUpdate } from './chain-update.js';
 import type { DocumentData, DocumentReference, DocumentSnapshot, Firestore, FirestoreDataConverter, Transaction, TransactionOptions, WriteBatch } from './types.js';
 
 // ─── Transactions + batches ───────────────────────────────────────────
@@ -51,8 +52,8 @@ export async function runTransaction<R>(
         backing.set(database.doc(ref.path), payload, options);
         return transaction;
       },
-      update(ref, data) {
-        backing.update(database.doc(ref.path), data);
+      update(ref, dataOrField: unknown, ...rest: unknown[]) {
+        backing.update(database.doc(ref.path), ...parseChainUpdate('Transaction.update', ref.path, dataOrField, rest));
         return transaction;
       },
       delete(ref) {
@@ -96,8 +97,8 @@ export function writeBatch(db: Firestore): WriteBatch {
       writes++;
       return batch;
     },
-    update(ref, data) {
-      backing.update(database.doc(ref.path), data);
+    update(ref, dataOrField: unknown, ...rest: unknown[]) {
+      backing.update(database.doc(ref.path), ...parseChainUpdate('WriteBatch.update', ref.path, dataOrField, rest));
       writes++;
       return batch;
     },
