@@ -50,6 +50,16 @@ class RtdbDenialContextTest {
     }
 
     @Test
+    fun keepsACamelCaseMethodAsSent() {
+        val context = RulesDenialContext.fromMap(mapOf(
+            "engine" to "rtdb",
+            "request" to mapOf("method" to "setPriority", "path" to "/rooms/bob", "data" to 1)
+        ))
+        assertEquals("setPriority", context.request?.method)
+        assertEquals(1, (context.request?.proposedValue as Number).toInt())
+    }
+
+    @Test
     fun aContextWithoutAnEngineIsAFirestoreDenial() {
         val context = RulesDenialContext.fromMap(mapOf("reasons" to listOf("denied")))
         assertEquals("firestore", context.engine)

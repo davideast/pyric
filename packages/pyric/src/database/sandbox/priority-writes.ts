@@ -48,7 +48,7 @@ export class PriorityWrites {
       this.state.events.operation(
         auth, 'setPriority', path, denyResultFor(evaluation.check), evaluation, common,
       );
-      throw permissionDenied(rtdbDenialContext(evaluation, auth, 'setPriority', path, current));
+      throw permissionDenied(rtdbDenialContext(evaluation, auth, 'setPriority', path, { data: priority }));
     }
     this.state.events.operation(auth, 'setPriority', path, 'allow', evaluation, common);
     if (current === null) return;

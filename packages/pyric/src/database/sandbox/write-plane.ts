@@ -202,7 +202,7 @@ export class WritePlane {
       this.state.events.operation(auth, 'get', path, denyResultFor(evaluation.check), evaluation, {
         at, durationMs: this.state.clock.now() - at, request: { query: spec },
       });
-      throw permissionDenied(rtdbDenialContext(evaluation, auth, 'get', path));
+      throw permissionDenied(rtdbDenialContext(evaluation, auth, 'get', path, { query: spec }));
     }
     const missingIndex = this.state.rules.missingQueryIndex(path, spec);
     if (missingIndex !== null) {
@@ -244,7 +244,7 @@ export class WritePlane {
     );
     const evaluation = this.writeEvaluation(auth, path, resolved, now);
     if (evaluation.check !== 'allow') {
-      throw permissionDenied(rtdbDenialContext(evaluation, auth, 'onDisconnect', path, resolved));
+      throw permissionDenied(rtdbDenialContext(evaluation, auth, 'onDisconnect', path, { data: resolved }));
     }
   }
 
@@ -262,7 +262,7 @@ export class WritePlane {
         auth, mockData, newData: update.value, updates, now,
       });
       if (evaluation.check !== 'allow') {
-        throw permissionDenied(rtdbDenialContext(evaluation, auth, 'onDisconnect', update.path, update.value));
+        throw permissionDenied(rtdbDenialContext(evaluation, auth, 'onDisconnect', update.path, { data: update.value }));
       }
     }
   }
@@ -298,7 +298,7 @@ export class WritePlane {
       };
       if (evaluation.check !== 'allow') {
         this.state.events.operation(auth, 'update', update.path, denyResultFor(evaluation.check), evaluation, fields);
-        throw permissionDenied(rtdbDenialContext(evaluation, auth, 'update', update.path, update.value));
+        throw permissionDenied(rtdbDenialContext(evaluation, auth, 'update', update.path, { data: update.value }));
       }
       allowed.push(() => this.state.events.operation(auth, 'update', update.path, 'allow', evaluation, fields));
     }
@@ -347,7 +347,7 @@ export class WritePlane {
     };
     if (evaluation.check !== 'allow') {
       this.state.events.operation(auth, op, path, denyResultFor(evaluation.check), evaluation, common);
-      throw permissionDenied(rtdbDenialContext(evaluation, auth, op, path, resolved));
+      throw permissionDenied(rtdbDenialContext(evaluation, auth, op, path, { data: value }));
     }
     this.state.events.operation(auth, op, path, 'allow', evaluation, common);
     const priors = this.children.snapshotParents();

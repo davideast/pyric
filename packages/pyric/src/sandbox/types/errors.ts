@@ -123,8 +123,13 @@ export interface RtdbDenialContext {
     method: 'get' | 'listen' | 'set' | 'remove' | 'update' | 'setPriority' | 'transaction' | 'onDisconnect';
     /** Canonical path of the denied location, with a leading slash. */
     path: string;
-    /** Proposed value the write rules evaluated as `newData`. Absent for reads. */
+    /** The write's payload as the operation event records it: the written
+     *  value, the value at the denied path of an update, or the priority for
+     *  `setPriority`. Absent for reads. */
     data?: unknown;
+    /** The query spec of a denied query read or query listener, as the
+     *  operation event records it. */
+    query?: unknown;
   };
   /** Rules node that decided, written with its `$` wildcards. */
   matchedPath?: string;

@@ -80,7 +80,7 @@ export class Transactions {
         resourceAfter: { data: resolved, exists: resolved !== null },
         groupId, groupKind: 'transaction',
       });
-      throw transactionPermissionDenied(rtdbDenialContext(evaluation, auth, 'transaction', path, resolved));
+      throw transactionPermissionDenied(rtdbDenialContext(evaluation, auth, 'transaction', path, { data: proposed }));
     }
     if (applyLocally) {
       const currentPriority = this.state.priorities.get(path);

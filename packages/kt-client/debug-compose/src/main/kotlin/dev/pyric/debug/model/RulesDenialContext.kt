@@ -97,7 +97,8 @@ data class DeniedRequest(
     companion object {
         fun fromMap(map: Map<String, Any?>?): DeniedRequest? {
             if (map == null) return null
-            val method = (map["method"] as? String)?.lowercase()
+            // Kept as sent: RTDB methods such as `setPriority` are camelCase.
+            val method = map["method"] as? String
             val path = map["path"] as? String
             val proposed = map["resourceData"] ?: map["data"]
             @Suppress("UNCHECKED_CAST")

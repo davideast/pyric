@@ -61,7 +61,7 @@ export class ValueListeners {
         at, durationMs: this.state.clock.now() - at, request: requestVal, origin: 'listener',
       });
       const rulesObj = rtdbRulesDetail(evaluation);
-      const denial = rtdbDenialContext(evaluation, auth, 'listen', path);
+      const denial = rtdbDenialContext(evaluation, auth, 'listen', path, requestVal);
       this.state.events.listener('errored', { id: this.state.events.nextListenerId(), path }, auth, {
         event: 'value', result: 'deny',
         error: { code: 'PERMISSION_DENIED', message: 'PERMISSION_DENIED: Permission denied', reasons: evaluation.reasons },

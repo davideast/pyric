@@ -32,19 +32,21 @@ export function rtdbRulesDetail(evaluation: RuleEvaluationDetails): NonNullable<
 /**
  * The `denialContext` a denied RTDB operation's error carries: the same rule
  * details as the operation event's `rules` block, plus the auth the rules saw
- * and the request. `data` is the proposed value the write rules evaluated as
- * `newData`; it is omitted for reads. Keys whose value is undefined are left
- * out, so the context is the same before and after a JSON round trip.
+ * and the request. `payload` is the event's `request` payload: `data` for a
+ * write (the priority for `setPriority`) and `query` for a query read. Keys
+ * whose value is undefined are left out, so the context is the same before and
+ * after a JSON round trip.
  */
 export function rtdbDenialContext(
   evaluation: RuleEvaluationDetails,
   auth: AuthState,
   method: RtdbDenialContext['request']['method'],
   path: string,
-  data?: unknown,
+  payload: { data?: unknown; query?: unknown } = {},
 ): RtdbDenialContext {
   const request: RtdbDenialContext['request'] = { method, path: canonicalPath(path) };
-  if (data !== undefined) request.data = structuredClone(data);
+  if (payload.data !== undefined) request.data = structuredClone(payload.data);
+  if (payload.query !== undefined) request.query = structuredClone(payload.query);
   const rules = Object.fromEntries(
     Object.entries(rtdbRulesDetail(evaluation)).filter(([, value]) => value !== undefined),
   ) as Omit<RtdbDenialContext, 'auth' | 'reasons' | 'request'>;

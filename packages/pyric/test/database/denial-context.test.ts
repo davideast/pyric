@@ -8,10 +8,14 @@
  */
 import { describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
-import type { RtdbDenialContext } from 'pyric/sandbox';
+import type { RtdbDenialContext, SandboxEvent, SandboxOperationEvent } from 'pyric/sandbox';
 import {
   getDatabase,
   get,
+  limitToFirst,
+  onDisconnect,
+  orderByKey,
+  query,
   onChildAdded,
   onValue,
   ref,
@@ -63,6 +67,14 @@ function expectProductionShape(error: Error, code: string | undefined, message: 
   expect(error.name).toBe('Error');
   expect(error.message).toBe(message);
   expect((error as { code?: unknown }).code).toBe(code);
+}
+
+function deniedOperation(events: SandboxEvent[], method: string): SandboxOperationEvent {
+  const event = events.find((candidate): candidate is SandboxOperationEvent =>
+    candidate.kind === 'operation' && candidate.service === 'rtdb'
+    && candidate.method === method && candidate.result === 'deny');
+  expect(event).toBeDefined();
+  return event!;
 }
 
 const DENIED = 'PERMISSION_DENIED: Permission denied';
@@ -135,7 +147,47 @@ describe('RTDB sandbox denialContext', () => {
     const { db } = setup();
     const error = await rejection(() => setPriority(ref(db, 'rooms/bob'), 1));
     expectProductionShape(error, 'PERMISSION_DENIED', DENIED);
-    expect(contextOf(error).request).toMatchObject({ method: 'setPriority', path: '/rooms/bob' });
+    // The payload is the priority, as the operation event records it.
+    expect(contextOf(error).request).toEqual({ method: 'setPriority', path: '/rooms/bob', data: 1 });
+  });
+
+  it('query get: carries the query spec the event records', async () => {
+    const { db, sandbox } = setup();
+    const events: SandboxEvent[] = [];
+    sandbox.onEvent((event) => events.push(event));
+    const error = await rejection(() => get(query(ref(db, 'rooms/bob'), orderByKey(), limitToFirst(2))));
+    expectProductionShape(error, 'PERMISSION_DENIED', DENIED);
+    const context = contextOf(error);
+    const event = deniedOperation(events, 'get');
+    expect(context.request.method).toBe('get');
+    expect(context.request.query).toBeDefined();
+    expect(context.request.query).toEqual(event.request?.query);
+  });
+
+  it('onDisconnect: a denied registration carries the context', async () => {
+    const { db } = setup();
+    const error = await rejection(() => onDisconnect(ref(db, 'rooms/bob/online')).set(false));
+    expectProductionShape(error, 'PERMISSION_DENIED', DENIED);
+    expect(contextOf(error)).toMatchObject({
+      engine: 'rtdb',
+      request: { method: 'onDisconnect', path: '/rooms/bob/online', data: false },
+      matchedRule: 'auth.uid == $roomId',
+      pathVariableBindings: { $roomId: 'bob' },
+    });
+  });
+
+  it('the rule fields equal the denied operation event\'s rules block', async () => {
+    const { db, sandbox } = setup();
+    const events: SandboxEvent[] = [];
+    sandbox.onEvent((event) => events.push(event));
+    const error = await rejection(() => set(ref(db, 'rooms/alice/score'), 'high'));
+    const context = contextOf(error);
+    const event = deniedOperation(events, 'set');
+    const definedRules = JSON.parse(JSON.stringify(event.rules));
+    const { auth: _auth, reasons, request, ...ruleFields } = context;
+    expect(ruleFields).toEqual(definedRules);
+    expect(reasons).toEqual(event.reasons!);
+    expect(request.data).toEqual(event.request?.data);
   });
 
   it('runTransaction: keeps production\'s codeless error and carries the context', async () => {
