@@ -9,6 +9,7 @@ import dev.pyric.auth.AuthLens
 import dev.pyric.auth.CredentialsProvider
 import dev.pyric.bridge.PyricBridgeClient
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,7 +38,10 @@ class FirebaseFirestore(
     private val rulesDenialListeners = CopyOnWriteArrayList<RulesDenialListener>()
 
     init {
-        firestoreScope.launch {
+        // UNDISPATCHED runs the collector up to its first suspension on this thread, which
+        // registers the subscription before the constructor returns. The flow does not replay,
+        // so a denial emitted before the subscription exists would otherwise be dropped.
+        firestoreScope.launch(start = CoroutineStart.UNDISPATCHED) {
             bridgeClient.denialEvents.collect { exception ->
                 notifyRulesDenial(exception)
             }
