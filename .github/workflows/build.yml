@@ -72,7 +72,7 @@ jobs:
         with:
           bun-version: '1.3.11'
       - name: Test fail-closed selection policy
-        run: bun test scripts/ci/check-set.test.ts scripts/ci/plan.test.ts scripts/ci/required.test.ts scripts/ci/workflow-paths.test.ts
+        run: bun test scripts/ci/check-set.test.ts scripts/ci/plan.test.ts scripts/ci/required.test.ts scripts/ci/workflow-paths.test.ts scripts/ci/test-shard.test.ts
       - name: Select proof
         id: plan
         env:
