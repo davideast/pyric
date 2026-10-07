@@ -4,6 +4,7 @@ import type { JsonValue } from './sandbox/data-tree.js';
 import { authFor, targetOf } from './routing.js';
 import type { DataSnapshot, DatabaseReference } from './types.js';
 import { buildSandboxSnapFromRaw } from './snapshots.js';
+import { validateWritablePath } from './writable-path.js';
 
 // ─── Transactions (Tier 4) ───────────────────────────────────────────
 
@@ -81,11 +82,12 @@ export interface TransactionOptions {
  * A synchronous overlapping write during the update callback invalidates the
  * read and retries the callback. Writes to unrelated paths do not conflict.
  */
-export async function runTransaction<T>(
+export function runTransaction<T>(
   r: DatabaseReference,
   transactionUpdate: (current: T | null) => T | undefined,
   options?: TransactionOptions,
 ): Promise<TransactionResult> {
+  validateWritablePath('Reference.transaction', r._path);
   const target = targetOf(r as unknown as object);
   return runSdkWrite(beginDatabaseActivity(r, 'runTransaction', 'operation'), () => {
     const result = target.backend.runTransaction(

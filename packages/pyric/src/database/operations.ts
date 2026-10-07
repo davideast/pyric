@@ -7,6 +7,7 @@ import { finishSdkRead } from '../sandbox/internal/sdk-activity.js';
 import { beginDatabaseActivity } from './sdk-activity.js';
 import type { DataSnapshot, DatabaseReference, Query, ThenableReference } from './types.js';
 import { buildSandboxRef } from './references.js';
+import { validateUpdatePaths, validateWritablePath } from './writable-path.js';
 import { buildSandboxQuerySnap, buildSandboxSnap } from './snapshots.js';
 
 // ─── Reads ───────────────────────────────────────────────────────────
@@ -53,7 +54,8 @@ export function get(r: DatabaseReference | Query): Promise<DataSnapshot> {
  *
  * `serverTimestamp()` sentinels are resolved at write time.
  */
-export async function set(r: DatabaseReference, value: unknown): Promise<void> {
+export function set(r: DatabaseReference, value: unknown): Promise<void> {
+  validateWritablePath('set', r._path);
   const target = targetOf(r as unknown as object);
   return runSdkWrite(beginDatabaseActivity(r, 'set', 'operation'), () => {
     if (target.admin) {
@@ -64,10 +66,11 @@ export async function set(r: DatabaseReference, value: unknown): Promise<void> {
   });
 }
 
-export async function setPriority(
+export function setPriority(
   r: DatabaseReference,
   priority: string | number | null,
 ): Promise<void> {
+  validateWritablePath('setPriority', r._path);
   const target = targetOf(r as unknown as object);
   return runSdkWrite(beginDatabaseActivity(r, 'setPriority', 'operation'), () => {
     if (target.admin) {
@@ -78,11 +81,12 @@ export async function setPriority(
   });
 }
 
-export async function setWithPriority(
+export function setWithPriority(
   r: DatabaseReference,
   value: unknown,
   priority: string | number | null,
 ): Promise<void> {
+  validateWritablePath('setWithPriority', r._path);
   const target = targetOf(r as unknown as object);
   return runSdkWrite(beginDatabaseActivity(r, 'setWithPriority', 'operation'), () => {
     if (target.admin) {
@@ -127,24 +131,6 @@ export function update(
   });
 }
 
-function validateUpdatePaths(values: Record<string, unknown>): void {
-  const paths = Object.keys(values).map((path) => `/${pathSegments(path).join('/')}`);
-  for (let leftIndex = 0; leftIndex < paths.length; leftIndex++) {
-    for (let rightIndex = leftIndex + 1; rightIndex < paths.length; rightIndex++) {
-      const left = paths[leftIndex]!;
-      const right = paths[rightIndex]!;
-      const [ancestor, descendant] = left.length <= right.length
-        ? [left, right]
-        : [right, left];
-      if (ancestor === descendant || descendant.startsWith(`${ancestor}/`)) {
-        throw new Error(
-          `update failed: values argument contains a path ${ancestor} that is ancestor of another path ${descendant}`,
-        );
-      }
-    }
-  }
-}
-
 /**
  * `remove(ref)` — delete the subtree at the ref's path.
  *
@@ -152,7 +138,8 @@ function validateUpdatePaths(values: Record<string, unknown>): void {
  * to `set(ref, null)`. The sandbox backend dispatches `remove` through
  * the same code path as `set(_, null)`.
  */
-export async function remove(r: DatabaseReference): Promise<void> {
+export function remove(r: DatabaseReference): Promise<void> {
+  validateWritablePath('remove', r._path);
   const target = targetOf(r as unknown as object);
   return runSdkWrite(beginDatabaseActivity(r, 'remove', 'operation'), () => {
     if (target.admin) {
@@ -177,6 +164,7 @@ export async function remove(r: DatabaseReference): Promise<void> {
  * observation confirms this — the sandbox matches.
  */
 export function push(r: DatabaseReference, value?: unknown): ThenableReference {
+  validateWritablePath('push', r._path);
   const target = targetOf(r as unknown as object);
   // Mint the key SYNCHRONOUSLY (client-side, no rule check) so the
   // returned ref + `.key` are available even if the optional write is

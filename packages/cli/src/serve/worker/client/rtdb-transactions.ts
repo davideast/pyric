@@ -1,5 +1,6 @@
 /** Optimistic RTDB transaction loop over the worker RPC boundary. */
 import { runSdkWrite } from 'pyric/sandbox/internal';
+import { validateWritablePath } from 'pyric/database/internal';
 import { beginWorkerDatabaseActivity } from './sdk-activity.js';
 import { dataRpc, nextId } from './core.js';
 import type { RtdbDataSnapshot, RtdbRefHandle } from './handles.js';
@@ -26,11 +27,12 @@ function transactionResult(
   };
 }
 
-export async function rtdbRunTransaction<T>(
+export function rtdbRunTransaction<T>(
   ref: RtdbRefHandle,
   transactionUpdate: (current: T | null) => T | undefined,
   options?: RtdbTransactionOptions,
 ): Promise<RtdbTransactionResult> {
+  validateWritablePath('Reference.transaction', ref.path);
   return runSdkWrite(beginWorkerDatabaseActivity(ref, 'runTransaction', 'operation'), async () => {
     for (let attempt = 0; attempt < 25; attempt++) {
       const before = hydrateRtdbSnapshot(ref, await dataRpc(ref.port, {
