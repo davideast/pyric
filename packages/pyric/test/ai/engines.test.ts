@@ -251,6 +251,26 @@ describe('ai: openai engine translation', () => {
     expect(partsWithCall[0].functionCall.args).toEqual({ city: 'Paris' });
   });
 
+  rowTest('ai#openai-buffered-fncalls streamed tool_call arguments that are not JSON end the stream with MALFORMED_FUNCTION_CALL', async () => {
+    nextResponse = () =>
+      sseResponse([
+        JSON.stringify({
+          choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'call_1', function: { name: 'get_weather', arguments: '{not json' } }] } }],
+        }),
+        JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] }),
+        '[DONE]',
+      ]);
+    const { model } = openaiAi();
+    const result = await model.generateContentStream('weather stream');
+    const chunks = await collect(result.stream);
+    expect(chunks.at(-1).candidates[0].finishReason).toBe('MALFORMED_FUNCTION_CALL');
+    const response = await result.response;
+    expect(response.candidates[0].finishReason).toBe('MALFORMED_FUNCTION_CALL');
+    expect(() => response.functionCalls()).toThrow(
+      'Candidate was blocked due to MALFORMED_FUNCTION_CALL',
+    );
+  });
+
   rowTest('ai#openai-done-not-forwarded the [DONE] sentinel never surfaces as a Gemini chunk', async () => {
     nextResponse = () =>
       sseResponse([
