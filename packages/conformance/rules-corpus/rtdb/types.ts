@@ -36,11 +36,20 @@ export interface RtdbTestCase {
   expectation: 'ALLOW' | 'DENY';
   /** `write` is a `set()` of `newData` at `opPath`. `update` is an `update()` at
    *  `opPath` whose `newData` is the patch: an object keyed by paths relative to
-   *  `opPath`, each one a location the update writes. */
-  operation: 'read' | 'write' | 'update';
+   *  `opPath`, each one a location the update writes. `query` is a `get()` of
+   *  a query at `opPath` built from `query`. */
+  operation: 'read' | 'write' | 'update' | 'query';
   /** Path relative to the scenario's mount key. May contain the `<UID>` token. */
   opPath: string;
   authPresent: boolean;
+  /** Custom claims the signed-in user's ID token carries. Present only with
+   *  `authPresent: true`: capture signs in with a custom token minted for
+   *  these claims, so `auth.token.firebase.sign_in_provider` is `custom`.
+   *  Absent, a signed-in case is an anonymous sign-in. */
+  claims?: Record<string, unknown>;
+  /** The query a `query` case reads with. Required for `query` cases and
+   *  refused on every other operation. */
+  query?: RtdbCaseQuery;
   /** The value written (write ops) or the patch (update ops). `<UID>` tokens
    *  inside are substituted. */
   newData?: unknown;
@@ -58,6 +67,20 @@ export interface RtdbTestCase {
    *  No current case sets this — every agreement-observation tuple has a
    *  recorded verdict. */
   pendingCapture?: boolean;
+}
+
+/** The query constraints a `query` case applies, in the shape the rules
+ *  `query` variable exposes. At most one `orderBy*` field is set. */
+export interface RtdbCaseQuery {
+  orderByChild?: string;
+  orderByKey?: true;
+  orderByValue?: true;
+  orderByPriority?: true;
+  equalTo?: string | number | boolean | null;
+  startAt?: string | number | boolean | null;
+  endAt?: string | number | boolean | null;
+  limitToFirst?: number;
+  limitToLast?: number;
 }
 
 /**
@@ -92,3 +115,42 @@ export interface RtdbScenario {
  * it from the filename.
  */
 export type RtdbScenarioRecord = Omit<RtdbScenario, 'id'>;
+
+/**
+ * One ruleset production's deploy endpoint is asked to accept. `rules` is the
+ * JSON string of the subtree, mounted under the scenario id exactly as an
+ * operation scenario's subtree is. `construct` names the
+ * `rules-language/rtdb.json` construct the ruleset isolates.
+ */
+export interface RtdbDeployCase {
+  /** Unique within the scenario; the key in the observation's behavior table. */
+  description: string;
+  /** The construct id in `rules-language/rtdb.json` this ruleset isolates. */
+  construct: string;
+  /** JSON string of the subtree under test. */
+  rules: string;
+  /** Production's recorded answer: `ACCEPTED`, or `REJECTED` with the
+   *  deploy endpoint's error text verbatim (the run-scoped mount key replaced
+   *  by `<mount>`). */
+  expectation: RtdbDeployVerdict;
+}
+
+export type RtdbDeployVerdict =
+  | { verdict: 'ACCEPTED' }
+  | { verdict: 'REJECTED'; error: string };
+
+/**
+ * A deploy-acceptance scenario: rulesets sent to production's rules endpoint
+ * as a dry run (`PUT /.settings/rules.json?dryRun=true`, the validation step
+ * `firebase deploy` runs before it deploys). Production either accepts the
+ * ruleset or rejects it with an error text, and nothing is deployed either way.
+ */
+export interface RtdbDeployScenario {
+  id: string;
+  fm: string;
+  rationale: string;
+  provenance: string;
+  deployCases: RtdbDeployCase[];
+}
+
+export type RtdbDeployScenarioRecord = Omit<RtdbDeployScenario, 'id'>;

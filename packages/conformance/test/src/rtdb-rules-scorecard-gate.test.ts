@@ -54,3 +54,28 @@ describe('RTDB Rules scorecard baseline gate', () => {
     ]));
   });
 });
+
+describe('RTDB Rules scorecard classification', () => {
+  function classify(
+    status: 'accepted' | 'rejected',
+    capability: { classification: 'implemented' | 'error'; evaluationAgreement?: boolean },
+  ): string {
+    const card = deriveRtdbRulesScorecard({
+      constructs: [{ id: 'c', kind: 'binding', engine: 'rtdb', reference: 'https://example.com/reference', status, ...(status === 'rejected' ? { probeNote: 'x' } : {}) }],
+      capabilities: [{ id: 'c', kind: 'binding', detail: 'test', ...capability }],
+      coverage: [{ id: 'c', kind: 'binding', verdict: 'verified', exercisedBy: ['s'], verifiedBy: ['s'], verifiedByRows: [] }],
+    });
+    return card.constructs[0]!.classification;
+  }
+
+  it('credits a construct production rejects only when the local check rejects it too', () => {
+    expect(classify('rejected', { classification: 'error' })).toBe('conformant');
+    expect(classify('rejected', { classification: 'implemented' })).toBe('acceptance-mismatch');
+  });
+
+  it('withholds credit when the local verdict disagrees with the captured production verdict', () => {
+    expect(classify('accepted', { classification: 'implemented', evaluationAgreement: false })).toBe('acceptance-mismatch');
+    expect(classify('accepted', { classification: 'implemented', evaluationAgreement: true })).toBe('conformant');
+    expect(classify('accepted', { classification: 'implemented' })).toBe('conformant');
+  });
+});

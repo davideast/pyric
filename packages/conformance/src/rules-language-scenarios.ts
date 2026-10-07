@@ -4,12 +4,17 @@ import { fileURLToPath } from 'node:url';
 import type { RulesEngine } from '../rules-language/load.ts';
 import { ALL_RULES_FIRESTORE_SCENARIOS } from '../rules-corpus/firestore/index.ts';
 import { ALL_RULES_STORAGE_SCENARIOS } from '../rules-corpus/storage/index.ts';
-import { ALL_RULES_RTDB_SCENARIOS } from '../rules-corpus/rtdb/index.ts';
+import { ALL_RULES_RTDB_DEPLOY_SCENARIOS, ALL_RULES_RTDB_SCENARIOS } from '../rules-corpus/rtdb/index.ts';
 import { firestoreObservationMatchesScenario } from './firestore-rules-input-digest.ts';
 
 export interface RulesLanguageScenario {
   id: string;
   rules: string;
+  /** The constructs the scenario's capture adjudicates, when the analyzer
+   *  cannot derive them from `rules`. An RTDB deploy scenario records whether
+   *  production accepts each ruleset, so it credits exactly the construct each
+   *  case names, never every construct its rulesets happen to contain. */
+  constructs?: readonly string[];
 }
 
 const OBSERVATION_SURFACE: Record<RulesEngine, string> = {
@@ -49,9 +54,21 @@ export function loadRulesLanguageScenarios(
     }
     return { scenarios, twinIds };
   }
-  const corpus = engine === 'storage' ? ALL_RULES_STORAGE_SCENARIOS : ALL_RULES_RTDB_SCENARIOS;
+  if (engine === 'rtdb') {
+    return {
+      scenarios: [
+        ...ALL_RULES_RTDB_SCENARIOS.map(({ id, rules }) => ({ id, rules })),
+        ...ALL_RULES_RTDB_DEPLOY_SCENARIOS.map(({ id, deployCases }) => ({
+          id,
+          rules: '{}',
+          constructs: [...new Set(deployCases.map((deployCase) => deployCase.construct))],
+        })),
+      ],
+      twinIds: candidateTwinIds,
+    };
+  }
   return {
-    scenarios: corpus.map(({ id, rules }) => ({ id, rules })),
+    scenarios: ALL_RULES_STORAGE_SCENARIOS.map(({ id, rules }) => ({ id, rules })),
     twinIds: candidateTwinIds,
   };
 }

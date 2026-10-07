@@ -1,6 +1,7 @@
 import { compileRtdbRules, simulateRtdbRules } from '../../pyric/src/rules/rtdb/compiled-rules.ts';
+import { checkRtdbRules } from '../../pyric/src/rules/rtdb/constraints/document.ts';
 import type { SimulateResult, SimulationInput, SimulationResult } from '../../pyric/src/rules/rtdb/simulation/spec.ts';
-import type { RtdbScenario, RtdbTestCase } from '../rules-corpus/rtdb/types.ts';
+import type { RtdbDeployScenario, RtdbScenario, RtdbTestCase } from '../rules-corpus/rtdb/types.ts';
 
 const REPLAY_UID = 'THP041EPnYbzh9c8GGBniSDoUKc2';
 export type RtdbVerdict = 'ALLOW' | 'DENY';
@@ -101,6 +102,19 @@ function buildSimMock(
   return root;
 }
 
+/**
+ * The token production issues for the case's sign-in: an anonymous sign-in,
+ * or a custom-token sign-in whose token carries the case's claims beside the
+ * `firebase` claim production adds.
+ */
+function replayAuth(testCase: RtdbTestCase, uid: string): SimulationInput['auth'] {
+  if (!testCase.authPresent) return null;
+  if (testCase.claims) {
+    return { uid, token: { ...testCase.claims, firebase: { sign_in_provider: 'custom' } } };
+  }
+  return { uid, token: { firebase: { sign_in_provider: 'anonymous' }, provider_id: 'anonymous' } };
+}
+
 /** The scenario's subtree mounted under its id, compiled once per scenario. */
 function compileScenario(scenario: RtdbScenario): ReturnType<typeof compileRtdbRules> {
   const subtree = JSON.parse(scenario.rules) as Record<string, unknown>;
@@ -124,9 +138,7 @@ function simulatorVerdict(
   const mockData = testCase.mockData !== undefined
     ? substituteUid(testCase.mockData, uid)
     : undefined;
-  const auth: SimulationInput['auth'] = testCase.authPresent
-    ? { uid, token: { firebase: { sign_in_provider: 'anonymous' }, provider_id: 'anonymous' } }
-    : null;
+  const auth = replayAuth(testCase, uid);
   const simMock = buildSimMock(scenario, simPath, mockData, testCase.seed, uid);
   // A written `{ ".sv": "timestamp" }` goes to the simulator as the client
   // wrote it; the simulator resolves it to the `now` it is passed.
@@ -151,6 +163,12 @@ function simulatorVerdict(
     return outcomes.every((outcome) => outcome === 'ALLOW') ? 'ALLOW' : 'DENY';
   }
 
+  if (testCase.operation === 'query') {
+    return outcomeOf(simulateRtdbRules(compiled, {
+      operation: 'read', path: simPath, auth, mockData: simMock, query: substituteUid(testCase.query!, uid), now,
+    }));
+  }
+
   return outcomeOf(simulateRtdbRules(compiled, {
     operation: testCase.operation, path: simPath, auth, mockData: simMock, newData, now,
   }));
@@ -165,4 +183,45 @@ export function replayRtdbScenario(scenario: RtdbScenario): RtdbReplayResult[] {
       production: testCase.expectation,
       simulator: simulatorVerdict(scenario, compiled, testCase),
     }));
+}
+
+export type RtdbDeployOutcome = 'ACCEPTED' | 'REJECTED';
+
+export interface RtdbDeployReplayResult {
+  caseKey: string;
+  construct: string;
+  production: RtdbDeployOutcome;
+  local: RtdbDeployOutcome;
+  /** The local check's error findings, as `<path> <rule>: <message>`. */
+  localErrors: string[];
+}
+
+/**
+ * Pyric's load-time answer for one deploy case: the subtree mounted under the
+ * scenario id, compiled and checked as a loaded `database.rules.json` is. Any
+ * error finding is a rejection; warnings are not.
+ */
+export function localDeployVerdict(
+  scenarioId: string,
+  rules: string,
+): { verdict: RtdbDeployOutcome; errors: string[] } {
+  const subtree = JSON.parse(rules) as unknown;
+  const result = checkRtdbRules(() => compileRtdbRules({
+    rules: { '.read': false, '.write': false, [scenarioId]: subtree },
+  }));
+  const errors = result.errors.map((finding) => `${finding.path} ${finding.rule}: ${finding.message}`);
+  return { verdict: errors.length > 0 ? 'REJECTED' : 'ACCEPTED', errors };
+}
+
+export function replayRtdbDeployScenario(scenario: RtdbDeployScenario): RtdbDeployReplayResult[] {
+  return scenario.deployCases.map((deployCase) => {
+    const local = localDeployVerdict(scenario.id, deployCase.rules);
+    return {
+      caseKey: deployCase.description,
+      construct: deployCase.construct,
+      production: deployCase.expectation.verdict,
+      local: local.verdict,
+      localErrors: local.errors,
+    };
+  });
 }

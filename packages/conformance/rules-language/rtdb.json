@@ -419,6 +419,276 @@
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/reference/security/database/string#matches",
       "status": "accepted"
+    },
+    {
+      "id": "rtdb.binding.query",
+      "kind": "binding",
+      "engine": "rtdb",
+      "reference": "https://firebase.google.com/docs/reference/security/database#query",
+      "status": "accepted"
+    },
+    {
+      "id": "rtdb.binding.query.orderByChild",
+      "kind": "binding",
+      "engine": "rtdb",
+      "reference": "https://firebase.google.com/docs/reference/security/database#query",
+      "status": "accepted"
+    },
+    {
+      "id": "rtdb.binding.query.orderByKey",
+      "kind": "binding",
+      "engine": "rtdb",
+      "reference": "https://firebase.google.com/docs/reference/security/database#query",
+      "status": "accepted"
+    },
+    {
+      "id": "rtdb.binding.query.orderByValue",
+      "kind": "binding",
+      "engine": "rtdb",
+      "reference": "https://firebase.google.com/docs/reference/security/database#query",
+      "status": "accepted"
+    },
+    {
+      "id": "rtdb.binding.query.orderByPriority",
+      "kind": "binding",
+      "engine": "rtdb",
+      "reference": "https://firebase.google.com/docs/reference/security/database#query",
+      "status": "accepted"
+    },
+    {
+      "id": "rtdb.binding.query.equalTo",
+      "kind": "binding",
+      "engine": "rtdb",
+      "reference": "https://firebase.google.com/docs/reference/security/database#query",
+      "status": "accepted"
+    },
+    {
+      "id": "rtdb.binding.query.startAt",
+      "kind": "binding",
+      "engine": "rtdb",
+      "reference": "https://firebase.google.com/docs/reference/security/database#query",
+      "status": "accepted"
+    },
+    {
+      "id": "rtdb.binding.query.endAt",
+      "kind": "binding",
+      "engine": "rtdb",
+      "reference": "https://firebase.google.com/docs/reference/security/database#query",
+      "status": "accepted"
+    },
+    {
+      "id": "rtdb.binding.query.limitToFirst",
+      "kind": "binding",
+      "engine": "rtdb",
+      "reference": "https://firebase.google.com/docs/reference/security/database#query",
+      "status": "accepted"
+    },
+    {
+      "id": "rtdb.binding.query.limitToLast",
+      "kind": "binding",
+      "engine": "rtdb",
+      "reference": "https://firebase.google.com/docs/reference/security/database#query",
+      "status": "accepted"
+    },
+    {
+      "id": "rtdb.binding.query.unknown-field",
+      "kind": "binding",
+      "engine": "rtdb",
+      "reference": "https://firebase.google.com/docs/reference/security/database#query",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: No such method/property 'foo'."
+    },
+    {
+      "id": "rtdb.binding.auth.token.custom-claim",
+      "kind": "binding",
+      "engine": "rtdb",
+      "reference": "https://firebase.google.com/docs/reference/security/database#auth",
+      "status": "accepted"
+    },
+    {
+      "id": "rtdb.binding.unknown-variable",
+      "kind": "binding",
+      "engine": "rtdb",
+      "reference": "https://firebase.google.com/docs/reference/security/database",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: Unknown variable 'foo'."
+    },
+    {
+      "id": "rtdb.binding.unbound-path-variable",
+      "kind": "binding",
+      "engine": "rtdb",
+      "reference": "https://firebase.google.com/docs/reference/security/database#location",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: Unknown variable '$nope'."
+    },
+    {
+      "id": "rtdb.binding.newData-in-read",
+      "kind": "binding",
+      "engine": "rtdb",
+      "reference": "https://firebase.google.com/docs/reference/security/database#newdata",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: newData is invalid in .read expressions."
+    },
+    {
+      "id": "rtdb.method.snapshot.unknown",
+      "kind": "method",
+      "engine": "rtdb",
+      "reference": "https://firebase.google.com/docs/reference/security/database/rulesdatasnapshot",
+      "status": "rejected",
+      "receiverType": "snapshot",
+      "probeNote": "production rejects the deploy: No such method/property 'foo'."
+    },
+    {
+      "id": "rtdb.method.snapshot.arity",
+      "kind": "method",
+      "engine": "rtdb",
+      "reference": "https://firebase.google.com/docs/reference/security/database/rulesdatasnapshot#child",
+      "status": "rejected",
+      "receiverType": "snapshot",
+      "probeNote": "production rejects the deploy: child() expects 1 argument."
+    },
+    {
+      "id": "rtdb.method.string.unknown",
+      "kind": "method",
+      "engine": "rtdb",
+      "reference": "https://firebase.google.com/docs/reference/security/database/string",
+      "status": "rejected",
+      "receiverType": "string",
+      "probeNote": "production rejects the deploy: No such method/property 'bar'."
+    },
+    {
+      "id": "rtdb.method.string.length-call",
+      "kind": "method",
+      "engine": "rtdb",
+      "reference": "https://firebase.google.com/docs/reference/security/database/string#length",
+      "status": "rejected",
+      "receiverType": "string",
+      "probeNote": "production rejects the deploy: Type error: Function call on target that is not a function."
+    },
+    {
+      "id": "rtdb.operator.member.snapshot-property",
+      "kind": "operator",
+      "engine": "rtdb",
+      "reference": "https://firebase.google.com/docs/reference/security/database/rulesdatasnapshot",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: No such method/property 'foo'."
+    },
+    {
+      "id": "rtdb.operator.member.auth-unknown-property",
+      "kind": "operator",
+      "engine": "rtdb",
+      "reference": "https://firebase.google.com/docs/reference/security/database#auth",
+      "status": "accepted"
+    },
+    {
+      "id": "rtdb.operator.snapshot-operand",
+      "kind": "operator",
+      "engine": "rtdb",
+      "reference": "https://firebase.google.com/docs/reference/security/database/rulesdatasnapshot",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: Invalid > expression: left operand must be a number or string."
+    },
+    {
+      "id": "rtdb.operator.type-mismatch",
+      "kind": "operator",
+      "engine": "rtdb",
+      "reference": "https://firebase.google.com/docs/reference/security/database",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: Invalid - expression: left operand is not a number. | Invalid > expression: left operand must be a number or string. | ! only operates on booleans."
+    },
+    {
+      "id": "rtdb.operator.dynamic-operand",
+      "kind": "operator",
+      "engine": "rtdb",
+      "reference": "https://firebase.google.com/docs/reference/security/database",
+      "status": "accepted"
+    },
+    {
+      "id": "rtdb.rule-kind.sibling-wildcards",
+      "kind": "rule-kind",
+      "engine": "rtdb",
+      "reference": "https://firebase.google.com/docs/reference/security/database#location",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: Cannot have multiple default rules ('$x' and '$y')."
+    },
+    {
+      "id": "rtdb.rule-kind.unknown-key",
+      "kind": "rule-kind",
+      "engine": "rtdb",
+      "reference": "https://firebase.google.com/docs/database/security/core-syntax",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: Expected '{'. | String can't contain \".\", \"#\", \"$\", \"/\", \"[\", or \"]\""
+    },
+    {
+      "id": "rtdb.rule-kind.non-expression-value",
+      "kind": "rule-kind",
+      "engine": "rtdb",
+      "reference": "https://firebase.google.com/docs/database/security/core-syntax",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: Invalid rule expression.  Expected 'true', 'false', or an expression string."
+    },
+    {
+      "id": "rtdb.rule-kind.indexOn-non-string",
+      "kind": "rule-kind",
+      "engine": "rtdb",
+      "reference": "https://firebase.google.com/docs/database/security/indexing-data",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: Invalid indexOn expression. Must be either a string or an array of strings"
+    },
+    {
+      "id": "rtdb.rule-kind.invalid-key",
+      "kind": "rule-kind",
+      "engine": "rtdb",
+      "reference": "https://firebase.google.com/docs/database/web/structure-data",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: String can't contain \".\", \"#\", \"$\", \"/\", \"[\", or \"]\""
+    },
+    {
+      "id": "rtdb.rule-kind.non-object-child",
+      "kind": "rule-kind",
+      "engine": "rtdb",
+      "reference": "https://firebase.google.com/docs/database/security/core-syntax",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: Expected '{'."
+    },
+    {
+      "id": "rtdb.rule-kind.non-boolean-result",
+      "kind": "rule-kind",
+      "engine": "rtdb",
+      "reference": "https://firebase.google.com/docs/database/security/core-syntax",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: Expression must evaluate to a boolean."
+    },
+    {
+      "id": "rtdb.semantic.method-wrong-receiver",
+      "kind": "semantic",
+      "engine": "rtdb",
+      "reference": "https://firebase.google.com/docs/reference/security/database",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: Type error: Function call on target that is not a function. | No such method/property 'contains'."
+    },
+    {
+      "id": "rtdb.semantic.method-argument-type",
+      "kind": "semantic",
+      "engine": "rtdb",
+      "reference": "https://firebase.google.com/docs/reference/security/database",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: matches() expects a regular expression literal argument. | hasChild() expects a string argument."
+    },
+    {
+      "id": "rtdb.semantic.parse-error",
+      "kind": "semantic",
+      "engine": "rtdb",
+      "reference": "https://firebase.google.com/docs/database/security/core-syntax",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: Rule expressions may not contain assignments."
+    },
+    {
+      "id": "rtdb.semantic.rules-size-limit",
+      "kind": "semantic",
+      "engine": "rtdb",
+      "reference": "https://firebase.google.com/docs/database/usage/limits",
+      "status": "accepted"
     }
   ]
 }

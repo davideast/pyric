@@ -3,8 +3,8 @@
   "generatedNote": "Exact Realtime Database Rules conformance ratchet. Update only with reviewed evidence or implementation changes.",
   "universe": {
     "hashAlgorithm": "sha256",
-    "hash": "71f68b73015bf898fe670df10a0578f3701ebf8c4c366ace6e3dde606e4f852e",
-    "denominator": 56,
+    "hash": "057460e3fb5954aac3251803823bc0f501fd4c66e3e439002ca40519d7fcf2a1",
+    "denominator": 91,
     "constructIds": [
       "rtdb.binding.auth",
       "rtdb.binding.auth.uid",
@@ -61,44 +61,80 @@
       "rtdb.semantic.write-cascade",
       "rtdb.semantic.validate-non-cascade",
       "rtdb.semantic.deny-by-default",
-      "rtdb.semantic.regex-literal"
+      "rtdb.semantic.regex-literal",
+      "rtdb.binding.query",
+      "rtdb.binding.query.orderByChild",
+      "rtdb.binding.query.orderByKey",
+      "rtdb.binding.query.orderByValue",
+      "rtdb.binding.query.orderByPriority",
+      "rtdb.binding.query.equalTo",
+      "rtdb.binding.query.startAt",
+      "rtdb.binding.query.endAt",
+      "rtdb.binding.query.limitToFirst",
+      "rtdb.binding.query.limitToLast",
+      "rtdb.binding.query.unknown-field",
+      "rtdb.binding.auth.token.custom-claim",
+      "rtdb.binding.unknown-variable",
+      "rtdb.binding.unbound-path-variable",
+      "rtdb.binding.newData-in-read",
+      "rtdb.method.snapshot.unknown",
+      "rtdb.method.snapshot.arity",
+      "rtdb.method.string.unknown",
+      "rtdb.method.string.length-call",
+      "rtdb.operator.member.snapshot-property",
+      "rtdb.operator.member.auth-unknown-property",
+      "rtdb.operator.snapshot-operand",
+      "rtdb.operator.type-mismatch",
+      "rtdb.operator.dynamic-operand",
+      "rtdb.rule-kind.sibling-wildcards",
+      "rtdb.rule-kind.unknown-key",
+      "rtdb.rule-kind.non-expression-value",
+      "rtdb.rule-kind.indexOn-non-string",
+      "rtdb.rule-kind.invalid-key",
+      "rtdb.rule-kind.non-object-child",
+      "rtdb.rule-kind.non-boolean-result",
+      "rtdb.semantic.method-wrong-receiver",
+      "rtdb.semantic.method-argument-type",
+      "rtdb.semantic.parse-error",
+      "rtdb.semantic.rules-size-limit"
     ]
   },
   "score": {
-    "numerator": 51,
-    "denominator": 56,
-    "ratio": 0.9107142857142857,
-    "percent": 91.1
+    "numerator": 66,
+    "denominator": 91,
+    "ratio": 0.7252747252747253,
+    "percent": 72.5
   },
   "axes": {
     "productionAcceptance": {
       "unprobed": 0,
-      "accepted": 56,
-      "rejected": 0,
+      "accepted": 70,
+      "rejected": 21,
       "unprobeable": 0
     },
     "localAcceptance": {
-      "accepted": 56,
-      "rejected": 0,
+      "accepted": 86,
+      "rejected": 5,
       "unsupported": 0,
       "unprobeable": 0
     },
     "localCapability": {
-      "implemented": 56,
+      "implemented": 86,
       "unsupported": 0,
-      "error": 0,
+      "error": 5,
       "unprobeable": 0
     },
     "productionEvidence": {
-      "verified": 50,
-      "diverged": 5,
+      "verified": 65,
+      "diverged": 25,
       "unverified": 1
     }
   },
   "counts": {
-    "conformant": 51,
-    "diverged": 5,
+    "conformant": 66,
+    "diverged": 25,
     "unknown": 0,
+    "acceptance-mismatch": 0,
     "local-unsupported": 0,
     "local-error": 0,
     "unprobeable": 0
@@ -131,6 +167,8 @@
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
         "r3-data-exists",
+        "r30-query-rules",
+        "r31-token-claims",
         "r4-validate-structure",
         "r5-cascade-root-grant",
         "r7-pathvar-binding",
@@ -153,6 +191,7 @@
         "r22-strict-equality-types",
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
+        "r30-query-rules",
         "r7-pathvar-binding",
         "r8-combined-check"
       ],
@@ -167,9 +206,12 @@
       "classification": "conformant",
       "verifiedBy": [
         "r12-server-time-and-token",
-        "r16-auth-provider-and-tenant"
+        "r16-auth-provider-and-tenant",
+        "r31-token-claims"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#25"
+      ],
       "divergedByRows": []
     },
     "rtdb.binding.data": {
@@ -587,6 +629,8 @@
         "r26-rule-runtime-error",
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
+        "r30-query-rules",
+        "r31-token-claims",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -670,6 +714,7 @@
         "r12-server-time-and-token",
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
+        "r30-query-rules",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -684,6 +729,7 @@
       "verifiedBy": [
         "r11-string-validation",
         "r27-stdlib-core-patterns",
+        "r31-token-claims",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -778,6 +824,7 @@
         "r25-loose-equality-types",
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
+        "r30-query-rules",
         "r7-pathvar-binding",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -857,6 +904,8 @@
         "r22-strict-equality-types",
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
+        "r30-query-rules",
+        "r31-token-claims",
         "r7-pathvar-binding",
         "r8-combined-check"
       ],
@@ -900,12 +949,14 @@
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
         "r3-data-exists",
+        "r30-query-rules",
         "r4-validate-structure",
         "r5-cascade-root-grant",
         "r6-deny-everything",
         "r7-pathvar-binding",
         "r8-combined-check",
-        "r9-quota-arithmetic"
+        "r9-quota-arithmetic",
+        "r29-deploy-rejections"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -939,6 +990,7 @@
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
         "r3-data-exists",
+        "r31-token-claims",
         "r4-validate-structure",
         "r5-cascade-root-grant",
         "r6-deny-everything",
@@ -990,7 +1042,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "r13-priority-and-index-directive"
+        "r13-priority-and-index-directive",
+        "r30-query-rules"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -1084,6 +1137,496 @@
         "r27-stdlib-core-patterns"
       ],
       "verifiedByRows": [],
+      "divergedByRows": []
+    },
+    "rtdb.binding.query": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r30-query-rules"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#24"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.binding.query.orderByChild": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r30-query-rules"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#24"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.binding.query.orderByKey": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
+      "verifiedBy": [
+        "r30-query-rules"
+      ],
+      "verifiedByRows": [],
+      "divergedByRows": [
+        "rtdb-rules#26"
+      ]
+    },
+    "rtdb.binding.query.orderByValue": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r30-query-rules"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#24"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.binding.query.orderByPriority": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
+      "verifiedBy": [
+        "r30-query-rules"
+      ],
+      "verifiedByRows": [],
+      "divergedByRows": [
+        "rtdb-rules#26"
+      ]
+    },
+    "rtdb.binding.query.equalTo": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r30-query-rules"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#24"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.binding.query.startAt": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r30-query-rules"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#24"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.binding.query.endAt": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r30-query-rules"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#24"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.binding.query.limitToFirst": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
+      "verifiedBy": [
+        "r30-query-rules"
+      ],
+      "verifiedByRows": [],
+      "divergedByRows": [
+        "rtdb-rules#26"
+      ]
+    },
+    "rtdb.binding.query.limitToLast": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
+      "verifiedBy": [
+        "r30-query-rules"
+      ],
+      "verifiedByRows": [],
+      "divergedByRows": [
+        "rtdb-rules#26"
+      ]
+    },
+    "rtdb.binding.query.unknown-field": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [],
+      "divergedByRows": [
+        "rtdb-rules#27"
+      ]
+    },
+    "rtdb.binding.auth.token.custom-claim": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r31-token-claims"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#25"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.binding.unknown-variable": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#23"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.binding.unbound-path-variable": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [],
+      "divergedByRows": [
+        "rtdb-rules#27"
+      ]
+    },
+    "rtdb.binding.newData-in-read": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#23"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.method.snapshot.unknown": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#23"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.method.snapshot.arity": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [],
+      "divergedByRows": [
+        "rtdb-rules#27"
+      ]
+    },
+    "rtdb.method.string.unknown": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#23"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.method.string.length-call": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [],
+      "divergedByRows": [
+        "rtdb-rules#27"
+      ]
+    },
+    "rtdb.operator.member.snapshot-property": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [],
+      "divergedByRows": [
+        "rtdb-rules#27"
+      ]
+    },
+    "rtdb.operator.member.auth-unknown-property": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#23"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.operator.snapshot-operand": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [],
+      "divergedByRows": [
+        "rtdb-rules#27"
+      ]
+    },
+    "rtdb.operator.type-mismatch": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [],
+      "divergedByRows": [
+        "rtdb-rules#27"
+      ]
+    },
+    "rtdb.operator.dynamic-operand": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#23"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.rule-kind.sibling-wildcards": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [],
+      "divergedByRows": [
+        "rtdb-rules#27"
+      ]
+    },
+    "rtdb.rule-kind.unknown-key": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [],
+      "divergedByRows": [
+        "rtdb-rules#27"
+      ]
+    },
+    "rtdb.rule-kind.non-expression-value": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [],
+      "divergedByRows": [
+        "rtdb-rules#27"
+      ]
+    },
+    "rtdb.rule-kind.indexOn-non-string": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [],
+      "divergedByRows": [
+        "rtdb-rules#27"
+      ]
+    },
+    "rtdb.rule-kind.invalid-key": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [],
+      "divergedByRows": [
+        "rtdb-rules#27"
+      ]
+    },
+    "rtdb.rule-kind.non-object-child": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [],
+      "divergedByRows": [
+        "rtdb-rules#27"
+      ]
+    },
+    "rtdb.rule-kind.non-boolean-result": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [],
+      "divergedByRows": [
+        "rtdb-rules#27"
+      ]
+    },
+    "rtdb.semantic.method-wrong-receiver": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [],
+      "divergedByRows": [
+        "rtdb-rules#27"
+      ]
+    },
+    "rtdb.semantic.method-argument-type": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [],
+      "divergedByRows": [
+        "rtdb-rules#27"
+      ]
+    },
+    "rtdb.semantic.parse-error": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#23"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.semantic.rules-size-limit": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#23"
+      ],
       "divergedByRows": []
     }
   }

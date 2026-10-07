@@ -1,0 +1,142 @@
+{
+  "name": "rules-rtdb-r29-deploy-rejections",
+  "matrixRow": "rtdb-rules#23",
+  "rowIds": [
+    "rtdb-rules#23",
+    "rtdb-rules#27"
+  ],
+  "description": "RTDB rules deploy verdicts for corpus scenario \"r29-deploy-rejections\" (rtdb#71). Captured by dry-run deploys to the rules endpoint, which validate without deploying. a ruleset production refuses to deploy must be refused when Pyric loads it, so each refusal and its text is the evidence that turns a local check from a warning into an error.",
+  "observedAt": "2026-10-07T11:43:55.513Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "a valid ruleset is accepted": {
+      "verdict": "ACCEPTED"
+    },
+    "two $ children of one node": {
+      "verdict": "REJECTED",
+      "error": "Cannot have multiple default rules ('$x' and '$y')."
+    },
+    "a key starting with . that is not a rule": {
+      "verdict": "REJECTED",
+      "error": "Expected '{'."
+    },
+    "a number as a rule value": {
+      "verdict": "REJECTED",
+      "error": "Invalid rule expression.  Expected 'true', 'false', or an expression string."
+    },
+    "an object as a rule value": {
+      "verdict": "REJECTED",
+      "error": "Invalid rule expression.  Expected 'true', 'false', or an expression string."
+    },
+    "a number as the .indexOn value": {
+      "verdict": "REJECTED",
+      "error": "Invalid indexOn expression. Must be either a string or an array of strings"
+    },
+    "a child key containing #": {
+      "verdict": "REJECTED",
+      "error": "String can't contain \".\", \"#\", \"$\", \"/\", \"[\", or \"]\""
+    },
+    "an unknown variable": {
+      "verdict": "REJECTED",
+      "error": "Unknown variable 'foo'."
+    },
+    "a $ variable no ancestor declares": {
+      "verdict": "REJECTED",
+      "error": "Unknown variable '$nope'."
+    },
+    "newData in a .read rule": {
+      "verdict": "REJECTED",
+      "error": "newData is invalid in .read expressions."
+    },
+    "an unknown snapshot method": {
+      "verdict": "REJECTED",
+      "error": "No such method/property 'foo'."
+    },
+    "an unknown method on a value": {
+      "verdict": "REJECTED",
+      "error": "No such method/property 'bar'."
+    },
+    "length called as a method": {
+      "verdict": "REJECTED",
+      "error": "Type error: Function call on target that is not a function."
+    },
+    "a property read on a snapshot": {
+      "verdict": "REJECTED",
+      "error": "No such method/property 'foo'."
+    },
+    "a snapshot compared with a number": {
+      "verdict": "REJECTED",
+      "error": "Invalid > expression: left operand must be a number or string."
+    },
+    "a string plus a number compared with a string": {
+      "verdict": "ACCEPTED"
+    },
+    "a rule whose result is a string": {
+      "verdict": "REJECTED",
+      "error": "Expression must evaluate to a boolean."
+    },
+    "a rule whose result is a number": {
+      "verdict": "REJECTED",
+      "error": "Expression must evaluate to a boolean."
+    },
+    "child() with no argument": {
+      "verdict": "REJECTED",
+      "error": "child() expects 1 argument."
+    },
+    "a snapshot method on auth": {
+      "verdict": "REJECTED",
+      "error": "Type error: Function call on target that is not a function."
+    },
+    "a string method on a snapshot": {
+      "verdict": "REJECTED",
+      "error": "No such method/property 'contains'."
+    },
+    "an assignment instead of a comparison": {
+      "verdict": "REJECTED",
+      "error": "Rule expressions may not contain assignments."
+    },
+    "rules over 256 KB": {
+      "verdict": "ACCEPTED"
+    },
+    "a key starting with . whose value is an object": {
+      "verdict": "REJECTED",
+      "error": "String can't contain \".\", \"#\", \"$\", \"/\", \"[\", or \"]\""
+    },
+    "a child key whose value is a string": {
+      "verdict": "REJECTED",
+      "error": "Expected '{'."
+    },
+    "a string minus a number": {
+      "verdict": "REJECTED",
+      "error": "Invalid - expression: left operand is not a number."
+    },
+    "a boolean compared with a number": {
+      "verdict": "REJECTED",
+      "error": "Invalid > expression: left operand must be a number or string."
+    },
+    "not applied to a string": {
+      "verdict": "REJECTED",
+      "error": "! only operates on booleans."
+    },
+    "an unknown property on auth": {
+      "verdict": "ACCEPTED"
+    },
+    "an unknown property on query": {
+      "verdict": "REJECTED",
+      "error": "No such method/property 'foo'."
+    },
+    "child() with two arguments": {
+      "verdict": "REJECTED",
+      "error": "child() expects 1 argument."
+    },
+    "matches() with a string argument": {
+      "verdict": "REJECTED",
+      "error": "matches() expects a regular expression literal argument."
+    },
+    "hasChild() with a number argument": {
+      "verdict": "REJECTED",
+      "error": "hasChild() expects a string argument."
+    }
+  }
+}

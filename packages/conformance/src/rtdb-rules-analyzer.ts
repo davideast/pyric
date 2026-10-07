@@ -2,7 +2,17 @@ import * as ohm from 'ohm-js';
 import { createRtdbExpressionSemantics, matchRtdbExpression } from '../../pyric/src/rules/rtdb/expression-engine.ts';
 import type { AnalyzeResult } from './rules-language-analyzer.ts';
 
-const RTDB_BINDINGS = new Set(['auth', 'data', 'newData', 'root', 'now']);
+const RTDB_BINDINGS = new Set(['auth', 'data', 'newData', 'root', 'now', 'query']);
+const RTDB_QUERY_FIELDS = new Set([
+  'orderByChild', 'orderByKey', 'orderByValue', 'orderByPriority',
+  'equalTo', 'startAt', 'endAt', 'limitToFirst', 'limitToLast',
+]);
+/** The fields Firebase Authentication sets on every ID token; any other
+ *  `auth.token` member is a custom claim. */
+const RTDB_STANDARD_TOKEN_FIELDS = new Set([
+  'aud', 'auth_time', 'email', 'email_verified', 'exp', 'firebase', 'iat', 'iss',
+  'name', 'phone_number', 'picture', 'sub', 'user_id',
+]);
 const RTDB_SNAPSHOT_METHODS = new Set([
   'val', 'child', 'parent', 'hasChild', 'hasChildren', 'exists', 'getPriority', 'isNumber', 'isString', 'isBoolean',
 ]);
@@ -52,6 +62,10 @@ function rtdbSemantics(): ohm.Semantics {
       const recvSrc = (receiver as any).sourceString as string;
       if (recvSrc === 'auth' && (member === 'uid' || member === 'token')) {
         acc.ids.add(`rtdb.binding.auth.${member}`);
+      } else if (recvSrc === 'auth.token' && !RTDB_STANDARD_TOKEN_FIELDS.has(member)) {
+        acc.ids.add('rtdb.binding.auth.token.custom-claim');
+      } else if (recvSrc === 'query' && RTDB_QUERY_FIELDS.has(member)) {
+        acc.ids.add(`rtdb.binding.query.${member}`);
       } else if (member === 'length') {
         acc.ids.add('rtdb.method.string.length');
       }

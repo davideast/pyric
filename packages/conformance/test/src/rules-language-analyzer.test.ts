@@ -228,3 +228,21 @@ service cloud.firestore {
     expect(res.ids).not.toContain('firestore.semantic.error-absorption-or');
   });
 });
+
+describe('rtdb analyzer: query fields and custom claims', () => {
+  it('names each query field a rule reads, and the query binding', () => {
+    const ids = analyzeRtdb(JSON.stringify({ a: { '.read': "query.orderByChild == 'x' && query.limitToFirst <= 2" } })).ids;
+    expect(ids).toContain('rtdb.binding.query');
+    expect(ids).toContain('rtdb.binding.query.orderByChild');
+    expect(ids).toContain('rtdb.binding.query.limitToFirst');
+  });
+
+  it('names a custom claim read from auth.token, and not a standard token field', () => {
+    expect(analyzeRtdb(JSON.stringify({ a: { '.read': 'auth.token.admin == true' } })).ids)
+      .toContain('rtdb.binding.auth.token.custom-claim');
+    expect(analyzeRtdb(JSON.stringify({ a: { '.read': "auth.token.firebase.sign_in_provider == 'x'" } })).ids)
+      .not.toContain('rtdb.binding.auth.token.custom-claim');
+    expect(analyzeRtdb(JSON.stringify({ a: { '.read': 'auth.token.email_verified == true' } })).ids)
+      .not.toContain('rtdb.binding.auth.token.custom-claim');
+  });
+});
