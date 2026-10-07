@@ -50,6 +50,19 @@ describe('withPyric Next.js configuration wrapper', () => {
     expect(res.serverExternalPackages).toContain('firebase-admin');
   });
 
+  it('names only launch commands that the CLI dispatches', () => {
+    delete process.env.PYRIC_SANDBOX;
+    let message = '';
+    try {
+      withPyric({});
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain('pyric sandbox -- next dev');
+    expect(message).toContain('pyric sandbox --no-run');
+    expect(message).not.toContain('pyric env');
+  });
+
   it('throws an error if PYRIC_SANDBOX is missing during non-production builds (bundler guard)', () => {
     delete process.env.PYRIC_SANDBOX;
     expect(() => withPyric({})).toThrow(/Next\.js development server started without active Pyric sandbox/);
@@ -173,6 +186,17 @@ describe('withPyric Next.js configuration wrapper', () => {
     expect(rewrites[0]).toEqual({
       source: '/__pyric/:path*',
       destination: 'http://127.0.0.1:4000/__pyric/:path*',
+      basePath: false,
+    });
+  });
+
+  it('marks the Pyric rewrite basePath: false so a configured basePath does not prefix the source', async () => {
+    const res = withPyric({ basePath: '/app' }) as Record<string, any>;
+    const rewrites = await res.rewrites();
+    expect(rewrites[0]).toEqual({
+      source: '/__pyric/:path*',
+      destination: 'http://127.0.0.1:4000/__pyric/:path*',
+      basePath: false,
     });
   });
 
