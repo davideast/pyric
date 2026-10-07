@@ -38,6 +38,7 @@ import { getOrCreateBackend } from '../../database/sandbox/backend-for.js';
 import { stripJsonComments } from '../../database/sandbox-controls.js';
 import { getAdminStorageSandbox, replaceStorageRules } from '../../storage/internal.js';
 import { Timestamp } from 'pyric/rules/internal';
+import { enginePayloadOf } from '../../firestore/sandbox/update-fields.js';
 import {
   applyFullState,
   captureFullState,
@@ -198,7 +199,7 @@ export function apply(branch: Branch, events: readonly SandboxEvent[]): Branch {
   const writes = events.filter((event): event is WriteSandboxEvent => event.kind === 'write');
 
   for (const write of writes) {
-    const data = preResolutionDataFor(write, events) ?? write.data;
+    const data = preResolutionDataFor(write, events) ?? enginePayloadOf({ resourceData: write.data, updateMask: write.updateMask });
     const requestTime = new Timestamp(write.requestTime.seconds, write.requestTime.nanoseconds);
 
     if (write.autoId) {
@@ -257,7 +258,7 @@ function preResolutionDataFor(
     const event = allEvents[index];
     if (!event || event.kind !== 'request') continue;
     if (event.path !== write.path) continue;
-    return event.request?.resourceData as DocData | undefined;
+    return enginePayloadOf(event.request) as DocData | undefined;
   }
   return undefined;
 }

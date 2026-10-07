@@ -11,6 +11,8 @@ import { seedDocuments, setRules } from 'pyric/sandbox/firestore';
 import * as client from '../../../src/serve/worker/client.js';
 import { assertOperationArguments } from '../../../src/serve/worker/inbound-validation/operation-arguments.js';
 import { connectClientToHost, makeHostCtx } from './integration-support.js';
+import { handleMessage } from '../../../src/serve/worker/host.js';
+import type { InboundMessage } from '../../../src/serve/worker/protocol.js';
 
 // Updates are allowed only when rules see the literal top-level key and no
 // nested `a` map, or when the literal key sits inside `board`.
@@ -67,6 +69,36 @@ describe('served update field paths', () => {
     } finally {
       globalThis.SharedWorker = previous;
     }
+  });
+
+  it('applies a transform and deleteField at a literal-dot path', async () => {
+    const previous = globalThis.SharedWorker;
+    try {
+      const db = await connect();
+      const ref = client.doc(db, 'c/d');
+      await client.updateDoc(ref, new FieldPath('a.b'), 5);
+      await client.updateDoc(ref, new FieldPath('a.b'), client.increment(2));
+      expect(await stored(db)).toEqual({ ...SEED, 'a.b': 7 });
+      await client.updateDoc(ref, new FieldPath('a.b'), client.deleteField(), new FieldPath('board', 'c1.r1'), 'x');
+      expect(await stored(db)).toEqual({ board: { c1r1: 'a', 'c1.r1': 'x' }, keep: 1 });
+    } finally {
+      globalThis.SharedWorker = previous;
+    }
+  });
+
+  it('refuses a batch update descriptor that carries both data and fields', async () => {
+    const ctx = await makeHostCtx();
+    setRules(ctx.sandbox, RULES);
+    seedDocuments(ctx.sandbox, { 'c/d': structuredClone(SEED) });
+    const replies: Array<{ ok?: boolean; error?: { code?: string } }> = [];
+    const port = { postMessage: (message: unknown) => replies.push(message as (typeof replies)[number]) };
+    await handleMessage(ctx, port, {
+      t: 'op', id: 'both', method: 'batchCommit',
+      writes: [{ method: 'update', path: 'c/d', data: { keep: 2 }, fields: [{ path: ['a.b'], value: 'x' }] }],
+    } as unknown as InboundMessage);
+    const reply = replies.find((message) => (message as { id?: string }).id === 'both');
+    expect(reply?.ok).toBe(false);
+    expect(reply?.error?.code).toBe('invalid-argument');
   });
 
   it('rejects malformed arguments on the client with the Web SDK message', async () => {

@@ -6,10 +6,14 @@
  * cannot drift between one-shot, query, transaction, and listener reads.
  */
 
-import { fieldPathArgumentSegments, isFieldArgument, type UpdateField } from '../update-fields.js';
+import {
+  canonicalFieldPath,
+  fieldPathArgumentSegments,
+  isFieldArgument,
+  type UpdateField,
+} from '../update-fields.js';
 
 const FORBIDDEN_STRING_FIELD_PATH = /[*~/[\]]/;
-const SIMPLE_FIELD_NAME = /^[_a-zA-Z][_a-zA-Z0-9]*$/;
 
 export class FieldPath {
   /**
@@ -57,61 +61,19 @@ export class FieldPath {
   }
 
   toString(): string {
-    return this._internalPath.segments
-      .map((segment) => SIMPLE_FIELD_NAME.test(segment)
-        ? segment
-        : `\`${segment.replace(/\\/g, '\\\\').replace(/`/g, '\\`')}\``)
-      .join('.');
+    return canonicalFieldPath(this._internalPath.segments);
   }
 }
 
 export type SnapshotFieldPath = string | FieldPath;
 
-function invalidFieldPath(message: string): Error {
-  return new Error(`Value for argument "field" is not a valid field path. ${message}`);
-}
-
-/** Convert a validated string/FieldPath argument to literal path segments. */
-export function fieldPathSegments(fieldPath: SnapshotFieldPath): readonly string[] {
-  if (fieldPath instanceof FieldPath) {
-    return fieldPath._internalPath.segments;
-  }
-  // The Web-SDK-shaped listener surface has its own FieldPath class. It uses
-  // this exact internal segment vector; accepting it keeps the shared listener
-  // snapshot compatible on both canonical import paths.
-  const segments = fieldPathArgumentSegments(fieldPath);
-  if (segments !== undefined) return segments;
-  if (fieldPath === undefined) {
-    throw invalidFieldPath('The path cannot be omitted.');
-  }
-  if (typeof fieldPath !== 'string') {
-    throw invalidFieldPath('Paths can only be specified as strings or via a FieldPath object.');
-  }
-  if (fieldPath.includes('..')) {
-    throw invalidFieldPath('Paths must not contain ".." in them.');
-  }
-  if (fieldPath.startsWith('.') || fieldPath.endsWith('.')) {
-    throw invalidFieldPath('Paths must not start or end with ".".');
-  }
-  if (fieldPath.length === 0 || FORBIDDEN_STRING_FIELD_PATH.test(fieldPath)) {
-    throw invalidFieldPath('Paths can\'t be empty and must not contain\n    "*~/[]".');
-  }
-  return fieldPath.split('.');
-}
-
-function isMap(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
-}
-
-// ─── Admin SDK update arguments ───────────────────────────────────────
-
-const UPDATE_ARGUMENT_ERROR = 'Update() requires either a single JavaScript object or an '
-  + 'alternating list of field/value pairs that can be followed by an optional precondition.';
-
-/** `validateFieldPath` of the Admin SDK; `arg` is an element index or a key. */
-function updateFieldSegments(arg: number | string, field: unknown): readonly string[] {
+/**
+ * `validateFieldPath` of the Admin SDK: the literal segments of a string or
+ * `FieldPath` argument. `arg` names the argument in the message, as a
+ * parameter name or a varargs element index. A `FieldPath` from either
+ * mapped SDK carries the same internal segment vector and is accepted.
+ */
+function validatedFieldPathSegments(arg: number | string, field: unknown): readonly string[] {
   const segments = fieldPathArgumentSegments(field);
   if (segments !== undefined) return segments;
   const name = typeof arg === 'string' ? `Value for argument "${arg}"` : `Element at index ${arg}`;
@@ -129,6 +91,23 @@ function updateFieldSegments(arg: number | string, field: unknown): readonly str
   }
   return field.split('.');
 }
+
+/** Convert a validated string/FieldPath argument to literal path segments. */
+export function fieldPathSegments(fieldPath: SnapshotFieldPath): readonly string[] {
+  return validatedFieldPathSegments('field', fieldPath);
+}
+
+function isMap(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+// ─── Admin SDK update arguments ───────────────────────────────────────
+
+const UPDATE_ARGUMENT_ERROR = 'Update() requires either a single JavaScript object or an '
+  + 'alternating list of field/value pairs that can be followed by an optional precondition.';
+
 
 /**
  * Parse the arguments of an Admin SDK `DocumentReference.update`,
@@ -154,7 +133,7 @@ export function parseAdminUpdateArguments<Options extends object>(
           if (typeof trailing !== 'object' || trailing === null) throw new Error('Input is not an object.');
           options = trailing as Options;
         } else {
-          fields.push({ path: updateFieldSegments(i + 1, fieldsAndValues[i]), value: fieldsAndValues[i + 1] });
+          fields.push({ path: validatedFieldPathSegments(i + 1, fieldsAndValues[i]), value: fieldsAndValues[i + 1] });
         }
       }
     } catch (error) {
@@ -167,7 +146,7 @@ export function parseAdminUpdateArguments<Options extends object>(
         throw new Error('Value for argument "dataOrField" is not a valid Firestore document. Input is not a plain JavaScript object.');
       }
       for (const [key, value] of Object.entries(dataOrField)) {
-        fields.push({ path: updateFieldSegments(key, key), value });
+        fields.push({ path: validatedFieldPathSegments(key, key), value });
       }
     } catch (error) {
       throw new Error(`${UPDATE_ARGUMENT_ERROR} ${(error as Error).message}`);

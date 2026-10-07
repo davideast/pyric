@@ -74,6 +74,8 @@ export interface DenialContext {
      * Absent for reads (no proposed write) and for `delete` (no payload).
      */
     resourceData?: Record<string, unknown>;
+    /** A non-merge update's field paths as segment vectors; a segment may contain `.`. */
+    updateMask?: string[][];
   };
   /**
    * Eval-time existing-document snapshot — what the rule saw on

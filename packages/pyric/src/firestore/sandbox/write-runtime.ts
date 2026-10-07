@@ -60,6 +60,7 @@ export class WriteRuntime {
     path: string;
     auth: Operation['auth'];
     data?: Record<string, unknown>;
+    updateMask?: string[][];
     priorState: Record<string, unknown> | null;
     nextState: Record<string, unknown> | null;
     groupId?: string;
@@ -92,6 +93,8 @@ export class WriteRuntime {
     }
     const hasData = input.data !== undefined;
     if (hasData) event.data = input.data;
+    const hasUpdateMask = input.updateMask !== undefined;
+    if (hasUpdateMask) event.updateMask = input.updateMask;
     const hasGroupId = input.groupId !== undefined;
     if (hasGroupId) event.groupId = input.groupId;
     const hasGroupKind = input.groupKind !== undefined;

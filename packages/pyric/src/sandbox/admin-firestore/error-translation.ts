@@ -180,6 +180,8 @@ export function toSandboxError(err: unknown, ctx: SandboxContext): unknown {
       if (hasResourceData) {
         denialContext.request.resourceData = r.resourceData;
       }
+      const hasUpdateMask = r.updateMask !== undefined;
+      if (hasUpdateMask) denialContext.request.updateMask = r.updateMask;
     }
     const hasResource = sim!.resource !== undefined;
     if (hasResource) {

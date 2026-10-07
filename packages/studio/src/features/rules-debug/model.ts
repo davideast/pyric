@@ -66,8 +66,11 @@ export interface Denial {
   /** Raw simulator/enforcer trace lines (Firestore `Rule #N (ops) → deny`;
    *  RTDB `${path} write DENY: …`; Storage `match /… verb: condition false`). */
   reasons: string[];
-  /** Proposed write payload (create/update/set). Absent on reads + delete. */
+  /** Proposed write payload (create/update/set). Absent on reads + delete.
+   *  An update's payload is the fields it writes, as nested maps. */
   resourceData?: unknown;
+  /** An update's field paths as segment vectors; a segment may contain `.`. */
+  updateMask?: string[][];
   /** Existing doc state the rule saw (`null`/`exists:false` ⇒ absent doc). */
   resourceBefore?: { data: unknown; exists: boolean };
   /** The DECIDING rule's verdict + 1-indexed source line + condition text +
@@ -144,6 +147,15 @@ function requestDataOf(e: DeniedSandboxEvent): unknown {
   if ('resourceData' in request && request.resourceData !== undefined) return request.resourceData;
   if ('data' in request) return request.data;
   return undefined;
+}
+
+function updateMaskOf(e: DeniedSandboxEvent): string[][] | undefined {
+  if (!('request' in e) || !e.request) return undefined;
+  const request = e.request as { updateMask?: unknown };
+  const mask = request.updateMask;
+  const isMask = Array.isArray(mask)
+    && mask.every((path) => Array.isArray(path) && path.every((segment) => typeof segment === 'string'));
+  return isMask ? (mask as string[][]) : undefined;
 }
 
 function enrichListenerDenials(denials: Denial[], events: readonly SandboxEvent[]): Denial[] {
@@ -255,6 +267,8 @@ export function toDenial(e: DeniedSandboxEvent): Denial {
   if ('rules' in e && e.rules) d.rules = e.rules;
   const requestData = requestDataOf(e);
   if (requestData !== undefined) d.resourceData = requestData;
+  const updateMask = updateMaskOf(e);
+  if (updateMask !== undefined) d.updateMask = updateMask;
   if ('resourceBefore' in e && e.resourceBefore) {
     d.resourceBefore = {
       data: e.resourceBefore.data,

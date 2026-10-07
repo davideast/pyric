@@ -11,6 +11,7 @@ import type { Operation } from './writes.js';
 import type { EventProvenance } from '../../sandbox/types/events.js';
 import type { EmitRequestInput } from './request-events.js';
 import { walkForSentinels } from './sentinel-capture.js';
+import { publicWritePayload } from './update-fields.js';
 import { applyMerge } from './field-merge.js';
 import { WriteRuntime } from './write-runtime.js';
 
@@ -129,7 +130,7 @@ export class AtomicWritePipeline {
           groupId: context.groupId,
         };
         const includesData = this.includesRequestData(context, input);
-        if (includesData) request.resourceData = input.preData;
+        if (includesData) Object.assign(request, publicWritePayload(input, input.preData));
         const bypassesRules = context.bypassRules === true;
         if (bypassesRules) request.detail = { admin: true };
         const hasProvenance = context.provenance !== undefined;
@@ -267,7 +268,7 @@ export class AtomicWritePipeline {
         };
         const incData = this.includesRequestData(context, input);
         if (incData) {
-          errExtras.request.resourceData = input.preData;
+          Object.assign(errExtras.request, publicWritePayload(input, input.preData));
         }
         const hasRule = evalRule !== undefined;
         if (hasRule) {
@@ -339,7 +340,8 @@ export class AtomicWritePipeline {
 
       if (committed) {
         const hasPreData = input.preData !== undefined;
-        const sentinels = hasPreData ? walkForSentinels(input.preData) : undefined;
+        const payload = hasPreData ? publicWritePayload(input, input.preData!) : undefined;
+        const sentinels = payload ? walkForSentinels(payload.resourceData) : undefined;
         const isDelete = input.ruleMethod === 'delete';
         const write: Parameters<WriteRuntime['emitWrite']>[0] = {
           method: input.ruleMethod,
@@ -351,8 +353,11 @@ export class AtomicWritePipeline {
           groupKind: context.origin,
           requestTime: serverTime,
         };
-        const includesData = !isDelete && hasPreData;
-        if (includesData) write.data = input.preData;
+        const includesData = !isDelete && payload !== undefined;
+        if (includesData) {
+          write.data = payload.resourceData;
+          if (payload.updateMask !== undefined) write.updateMask = payload.updateMask;
+        }
         const hasSentinels = sentinels !== undefined && sentinels.length > 0;
         if (hasSentinels) write.sentinels = sentinels;
         const bypassesRules = context.bypassRules === true;
@@ -387,7 +392,7 @@ export class AtomicWritePipeline {
       groupId: context.groupId,
     };
     const includesData = this.includesRequestData(context, input);
-    if (includesData) request.resourceData = input.preData;
+    if (includesData) Object.assign(request, publicWritePayload(input, input.preData));
     const bypassesRules = context.bypassRules === true;
     if (bypassesRules) request.detail = { admin: true };
     const hasProvenance = context.provenance !== undefined;

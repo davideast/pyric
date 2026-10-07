@@ -156,9 +156,15 @@ export interface RequestEvent {
    *  shapes (`{ __type: 'serverTimestamp' }`, etc.) so the replay engine
    *  can re-resolve them. The rule engine evaluated against the resolved
    *  form internally; that resolved form lives on
-   *  {@link WriteSandboxEvent.nextState}, not here. */
+   *  {@link WriteSandboxEvent.nextState}, not here.
+   *
+   *  For an update, `resourceData` holds the fields the update writes as
+   *  nested maps (`{'board.c1r1': 'x'}` reads `{ board: { c1r1: 'x' } }`),
+   *  and `updateMask` lists the update's field paths as segment vectors. A
+   *  segment may contain `.`: `new FieldPath('a.b')` is `[['a.b']]`. */
   request?: {
     resourceData?: Record<string, unknown>;
+    updateMask?: string[][];
   };
   /** Existing document state before the write (or read target for get). */
   resourceBefore?: {
@@ -227,8 +233,12 @@ export interface WriteSandboxEvent {
    *  as marker shapes (`{ __type: 'serverTimestamp' }`, etc.) so the
    *  replay engine can re-resolve them. The rule engine evaluated
    *  against the resolved form internally; the resolved form lives on
-   *  {@link nextState}. Absent on `delete`. */
+   *  {@link nextState}. Absent on `delete`. For an update, the fields the
+   *  update writes as nested maps, with the field paths in
+   *  {@link updateMask}. */
   data?: Record<string, unknown>;
+  /** An update's field paths as segment vectors; a segment may contain `.`. */
+  updateMask?: string[][];
   /** State BEFORE this write. `null` for a non-existent doc. */
   priorState: Record<string, unknown> | null;
   /** State AFTER this write. `null` on `delete`. */

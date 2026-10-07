@@ -28,6 +28,7 @@ import { TriggerScope, type TriggeringOps } from './trigger-scope.js';
 import { assertNoNestedDeleteField } from './field-merge.js';
 import { generateAutoId } from './auto-id.js';
 import { walkForSentinels } from './sentinel-capture.js';
+import { publicWritePayload } from './update-fields.js';
 import type {
   Transaction,
   TransactionOptions,
@@ -115,6 +116,9 @@ export class WriteEngine {
   }
   execute(operation: WriteOperation): OperationResult {
     const { method, path, auth, data, autoId, requestTime: pinnedRequestTime, merge, bypassRules } = operation;
+    // Events and errors carry the public payload: a non-merge update as its
+    // decoded field tree plus its field paths, never the engine's encoded keys.
+    const payload = data ? publicWritePayload(operation, data) : undefined;
     const detail = bypassRules ? { admin: true } : undefined;
 
     // Write operations: evaluate rules. Capture only this path's prior state
@@ -171,7 +175,7 @@ export class WriteEngine {
       this.runtime.emitRequest({
         at: this.runtime.clock.now(), evalMs: 0, method, path, auth, result: 'deny',
         debugMessages: [`FieldValue resolve error: ${msg}`],
-        ...(resolvedData ? { resourceData: resolvedData } : data ? { resourceData: data } : {}),
+        ...(payload ?? {}),
         resourceBefore: { data: snapshot[path] ?? null, exists: (snapshot[path] ?? null) !== null },
         origin: 'user',
         ...(detail ? { detail } : {}),
@@ -203,7 +207,7 @@ export class WriteEngine {
       this.runtime.emitRequest({
         at: evalAt, evalMs, method, path, auth, result: 'deny',
         debugMessages: [`Simulation error: ${simResult.error.message}`],
-        ...(data ? { resourceData: data } : {}),
+        ...(payload ?? {}),
         resourceBefore: { data: snapshot[path] ?? null, exists: (snapshot[path] ?? null) !== null },
         origin: 'user',
         ...(detail ? { detail } : {}),
@@ -226,7 +230,7 @@ export class WriteEngine {
         at: evalAt, evalMs, method, path, auth, result: 'unsupported',
         rulesEvidence,
         debugMessages: renderLegacyDebugMessages(result),
-        ...(data ? { resourceData: data } : {}),
+        ...(payload ?? {}),
         resourceBefore: { data: snapshot[path] ?? null, exists: (snapshot[path] ?? null) !== null },
         origin: 'user',
         ...(detail ? { detail } : {}),
@@ -302,6 +306,7 @@ export class WriteEngine {
             path: string;
             auth: any;
             resourceData?: Record<string, unknown>;
+            updateMask?: string[][];
           };
           resource: { data: Record<string, unknown> | null; exists: boolean };
           rule?: any;
@@ -315,7 +320,7 @@ export class WriteEngine {
         };
         const hasData = data !== undefined;
         if (hasData) {
-          errExtras.request.resourceData = data;
+          Object.assign(errExtras.request, payload);
         }
         const hasRule = evalRule !== undefined;
         if (hasRule) {
@@ -350,7 +355,7 @@ export class WriteEngine {
       debugMessages: renderLegacyDebugMessages(result),
       evaluatedRule: projectEvaluatedRule(result),
       rulesEvidence,
-      ...(data ? { resourceData: data } : {}),
+      ...(payload ?? {}),
       resourceBefore: { data: priorDoc, exists: priorDoc !== null },
       ...(method !== 'delete'
         ? { resourceAfter: { data: finalDoc, exists: finalDoc !== null } }
@@ -368,7 +373,7 @@ export class WriteEngine {
       // the operation destructure); needed for replay so the engine can
       // re-issue the same FieldValue.* markers without consulting the
       // resolved values.
-      const sentinels = data ? walkForSentinels(data) : undefined;
+      const sentinels = payload ? walkForSentinels(payload.resourceData) : undefined;
       // Auto-id signal: createWithAutoId sets operation.autoId=true.
       // The last path segment IS the minted id; capture it so replay
       // mints a fresh one.
@@ -377,7 +382,7 @@ export class WriteEngine {
         method: method as 'create' | 'update' | 'set' | 'delete',
         path,
         auth,
-        ...(method !== 'delete' && data ? { data } : {}),
+        ...(method !== 'delete' && payload ? { data: payload.resourceData, ...(payload.updateMask ? { updateMask: payload.updateMask } : {}) } : {}),
         priorState: priorDoc,
         nextState: method === 'delete' ? null : finalDoc,
         ...(sentinels && sentinels.length > 0 ? { sentinels } : {}),

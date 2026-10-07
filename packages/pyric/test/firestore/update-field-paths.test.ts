@@ -5,7 +5,7 @@
  * Admin-shaped chain `update`, and the Web SDK and Admin SDK argument errors.
  */
 import { describe, expect, it } from 'bun:test';
-import { initializeSandbox } from 'pyric/sandbox';
+import { initializeSandbox, replay } from 'pyric/sandbox';
 import { seedDocuments, setRules } from 'pyric/sandbox/firestore';
 import {
   FieldPath,
@@ -15,6 +15,8 @@ import {
   getFirestore,
   increment,
   runTransaction,
+  serverTimestamp,
+  setDoc,
   updateDoc,
   writeBatch,
   type Firestore,
@@ -184,6 +186,140 @@ describe('Admin-shaped chain update', () => {
     expect(() => db.batch().update(db.doc('c/d'), { '.a': 1 })).toThrow(
       `${prefix} Value for argument ".a" is not a valid field path. Paths must not start or end with ".".`,
     );
+  });
+});
+
+describe('public payloads carry decoded update field paths', () => {
+  const DENY_LITERAL = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, create: if true;
+      allow update: if !('a.b' in request.resource.data);
+    }
+  }
+}`;
+
+  function deniedDb(): Firestore {
+    const sandbox = initializeSandbox();
+    setRules(sandbox, DENY_LITERAL);
+    seedDocuments(sandbox, { 'c/d': structuredClone(SEED) });
+    return getFirestore(sandbox.withAuth({ uid: 'alice' }));
+  }
+
+  it('request and write events hold the field tree and the segment-vector mask', async () => {
+    const owner = initializeSandbox();
+    setRules(owner, OPEN_RULES);
+    seedDocuments(owner, { 'c/d': structuredClone(SEED) });
+    const ownedDb = getFirestore(owner.withAuth({ uid: 'alice' }));
+    await updateDoc(doc(ownedDb, 'c/d'), new FieldPath('a.b'), 'x', 'board.c1r1', 'y');
+
+    const events = owner.history();
+    const request = events.find((event) => event.kind === 'request' && event.method === 'update');
+    expect(request?.kind === 'request' ? request.request : undefined).toEqual({
+      resourceData: { 'a.b': 'x', board: { c1r1: 'y' } },
+      updateMask: [['a.b'], ['board', 'c1r1']],
+    });
+    const write = events.find((event) => event.kind === 'write' && event.method === 'update');
+    expect(write?.kind === 'write' ? [write.data, write.updateMask] : undefined).toEqual([
+      { 'a.b': 'x', board: { c1r1: 'y' } },
+      [['a.b'], ['board', 'c1r1']],
+    ]);
+    expect(JSON.stringify(events)).not.toContain('`');
+  });
+
+  it('a denied update reports the decoded payload in its error and denial context', async () => {
+    const db = deniedDb();
+    let error: { code?: string; denialContext?: { request?: unknown } } | undefined;
+    try {
+      await updateDoc(doc(db, 'c/d'), new FieldPath('a.b'), 'x');
+    } catch (caught) {
+      error = caught as typeof error;
+    }
+    expect(error?.code).toBe('permission-denied');
+    expect(error?.denialContext?.request).toMatchObject({
+      resourceData: { 'a.b': 'x' },
+      updateMask: [['a.b']],
+    });
+    expect(JSON.stringify(error?.denialContext)).not.toContain('`');
+  });
+
+  it('the Admin-shaped error carries the decoded payload on its request', async () => {
+    const env = new LocalEnvironment();
+    env.seed({ rules: DENY_LITERAL, documents: { 'c/d': structuredClone(SEED) } });
+    const admin = new FirestoreImpl(env, { uid: 'alice' });
+    let error: { simError?: { request?: unknown } } | undefined;
+    try {
+      await admin.doc('c/d').update(new AdminFieldPath('a.b'), 'x');
+    } catch (caught) {
+      error = caught as typeof error;
+    }
+    expect(error?.simError?.request).toMatchObject({ resourceData: { 'a.b': 'x' }, updateMask: [['a.b']] });
+  });
+
+  it('rules read an update to a missing document by field path', async () => {
+    const sandbox = initializeSandbox();
+    setRules(sandbox, `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} { allow update: if 'a.b' in request.resource.data && !('a' in request.resource.data); }
+  }
+}`);
+    const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
+    let code: string | undefined;
+    try {
+      await updateDoc(doc(db, 'c/missing'), new FieldPath('a.b'), 'x');
+    } catch (caught) {
+      code = (caught as { code?: string }).code;
+    }
+    // Rules allow the projection; the write then fails because the document is missing.
+    expect(code).toBe('not-found');
+  });
+
+  it('replays a literal-dot update, classifying its transform by the same field path', async () => {
+    const sandbox = initializeSandbox();
+    setRules(sandbox, OPEN_RULES);
+    const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
+    await setDoc(doc(db, 'c/d'), structuredClone(SEED));
+    await updateDoc(doc(db, 'c/d'), new FieldPath('a.b'), 'x', 'board.c1r1', 'y');
+    await updateDoc(doc(db, 'c/d'), new FieldPath('t.s'), serverTimestamp());
+    const original = sandbox.snapshot().firestore;
+    const result = replay(sandbox.history(), OPEN_RULES, { pinRequestTime: false }, original);
+    expect(result.sandbox.snapshot().firestore['c/d']).toMatchObject({
+      board: { c1r1: 'y', c2r2: 'b' },
+      'a.b': 'x',
+    });
+    expect(result.divergences.filter((d) => d.kind === 'real-divergence')).toEqual([]);
+    // The transform is recorded at the literal-dot field and matched there.
+    const drift = result.divergences.filter((d) => d.kind === 'time-drift');
+    expect(drift.map((d) => (d as { field?: string }).field)).toEqual(
+      drift.length === 0 ? [] : ['t.s'],
+    );
+  });
+});
+
+describe('undefined field values', () => {
+  it('refuses undefined as the SDK does', () => {
+    const db = seededDb();
+    const ref = doc(db, 'c/d');
+    expect(() => updateDoc(ref, 'u', undefined)).toThrow(
+      'Function updateDoc() called with invalid data. Unsupported field value: undefined (found in field u in document c/d)',
+    );
+    expect(() => updateDoc(ref, { 'a.b': { c: undefined } })).toThrow(
+      'Function updateDoc() called with invalid data. Unsupported field value: undefined (found in field a.b.c in document c/d)',
+    );
+    expect(() => updateDoc(ref, new FieldPath('x.y'), [undefined])).toThrow(
+      'Function updateDoc() called with invalid data. Unsupported field value: undefined (found in document c/d)',
+    );
+  });
+});
+
+describe('Admin-shaped DocumentReference.update argument errors', () => {
+  it('throws synchronously', () => {
+    const env = new LocalEnvironment();
+    env.seed({ rules: OPEN_RULES, documents: {} });
+    const admin = new FirestoreImpl(env, { uid: 'alice' });
+    expect(() => admin.doc('c/d').update('a', 1, 'b')).toThrow('Input is not an object.');
   });
 });
 

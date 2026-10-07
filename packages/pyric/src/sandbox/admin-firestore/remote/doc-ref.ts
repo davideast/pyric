@@ -89,9 +89,11 @@ export function makeDocRef(arm: RemoteArm, path: string): DocumentReference {
         ...(setOptionsForWire(options) ? { options: setOptionsForWire(options) } : {}),
       });
     },
-    async update(dataOrField: unknown, ...preconditionOrValues: unknown[]): Promise<void> {
+    // Argument errors throw synchronously, as the Admin SDK's do.
+    update(dataOrField: unknown, ...preconditionOrValues: unknown[]): Promise<void> {
       const { fields } = parseAdminUpdateArguments(dataOrField, preconditionOrValues);
-      await armOp(arm, { method: 'updateDoc', path, fields: encodeUpdateFields(fields) });
+      const encoded = encodeUpdateFields(fields);
+      return armOp(arm, { method: 'updateDoc', path, fields: encoded }).then(() => undefined);
     },
     async delete(_opts?: OperationOptions): Promise<void> {
       await armOp(arm, { method: 'deleteDoc', path });

@@ -36,7 +36,7 @@ import { FirebaseError } from 'pyric/app';
 
 import type { OpMessage, WriteDescriptor, SentinelMarker, SerializedDocData, UpdatePayload } from '../protocol.js';
 import { serializeDocData, isSentinelMarker } from '../protocol.js';
-import { assertAtomicList, requireFirestorePath, requireUpdateFields } from '../protocol/firestore-validation.js';
+import { assertAtomicList, requireFirestorePath, requireSingleUpdateForm, requireUpdateFields } from '../protocol/firestore-validation.js';
 import { type HostCtx, type PortLike, post, ok, fail, bestEffortFlush } from '../host-context.js';
 
 // ─── Sentinel resolution ──────────────────────────────────────────────────
@@ -140,6 +140,8 @@ type UpdateArguments = [Record<string, unknown>] | [FieldPath, unknown, ...unkno
  * segment that contains `.` stays one literal field name.
  */
 function prepareUpdateArguments(payload: UpdatePayload, valueEncoding?: DocValueEncoding): UpdateArguments {
+  // Batch and transaction descriptors reach here without inbound validation.
+  requireSingleUpdateForm(payload);
   const fields = payload.fields;
   if (fields === undefined) {
     return [prepareWriteData(payload.data, valueEncoding) as Record<string, unknown>];

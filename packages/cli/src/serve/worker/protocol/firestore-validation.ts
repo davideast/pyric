@@ -14,6 +14,13 @@ export function assertAtomicList(value: unknown, kind: 'read' | 'write'): assert
   throw new FirebaseError('invalid-argument', `Firestore atomic ${kind} lists must be arrays.`);
 }
 
+/** An update payload carries `data` or `fields`, never both. */
+export function requireSingleUpdateForm(payload: { data?: unknown; fields?: unknown }): void {
+  const hasBothForms = payload.data !== undefined && payload.fields !== undefined;
+  if (!hasBothForms) return;
+  throw new FirebaseError('invalid-argument', 'A Firestore update carries either data or fields, not both.');
+}
+
 /** Check an update field list: each entry names a non-empty segment vector of non-empty strings. */
 export function requireUpdateFields(value: unknown): asserts value is { path: string[]; value: unknown }[] {
   const isFieldList = Array.isArray(value) && value.every((field: unknown) => {
