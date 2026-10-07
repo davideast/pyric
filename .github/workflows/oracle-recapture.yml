@@ -52,7 +52,8 @@ permissions:
   contents: read
 
 concurrency:
-  # One re-capture at a time; a manual dispatch supersedes an in-flight run.
+  # One re-capture at a time. A later run queues behind the in-flight one: a
+  # capture deploys temporary rules and must finish its restore step.
   group: oracle-recapture
   cancel-in-progress: false
 
