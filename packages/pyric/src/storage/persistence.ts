@@ -261,17 +261,6 @@ export interface StorageBackend {
    * `reference.sha256`, writing only its metadata.
    */
   putReference?(path: string, reference: { sha256: string; size: number }, mime: string, metadata: StoredMetadata): Promise<void>;
-
-  /**
-   * Read a slice of an object's bytes without loading the entire payload into memory.
-   */
-  readRange?(
-    bucket: string | undefined,
-    path: string,
-    offset: number,
-    length: number,
-    expectedGeneration?: string,
-  ): Promise<Uint8Array | undefined>;
 }
 
 /**
@@ -515,25 +504,6 @@ export class InMemoryStorageBackend implements StorageBackend {
     this.staging.abortUpload(uploadId);
   }
 
-  async readRange(
-    bucket: string | undefined,
-    path: string,
-    offset: number,
-    length: number,
-    expectedGeneration?: string,
-  ): Promise<Uint8Array | undefined> {
-    const object = await this.getObject(path, bucket ?? this._defaultBucket ?? DEFAULT_BUCKET);
-    if (!object) return undefined;
-    if (expectedGeneration !== undefined && object.metadata.generation !== expectedGeneration) {
-      const err = new Error('storage/object-changed: The object changed while reading. Re-read metadata and retry.') as Error & { code: string };
-      err.code = 'storage/object-changed';
-      throw err;
-    }
-    const slice = object.blob.slice(offset, offset + length);
-    const buf = await slice.arrayBuffer();
-    return new Uint8Array(buf);
-  }
-
   close(): void {}
 
   scoped(bucket: string): StorageBackend {
@@ -715,25 +685,6 @@ export class IndexedDbStorageBackend implements StorageBackend {
     this.staging.abortUpload(uploadId);
   }
 
-  async readRange(
-    bucket: string | undefined,
-    path: string,
-    offset: number,
-    length: number,
-    expectedGeneration?: string,
-  ): Promise<Uint8Array | undefined> {
-    const object = await this.getObject(path, bucket ?? this._defaultBucket ?? DEFAULT_BUCKET);
-    if (!object) return undefined;
-    if (expectedGeneration !== undefined && object.metadata.generation !== expectedGeneration) {
-      const err = new Error('storage/object-changed: The object changed while reading. Re-read metadata and retry.') as Error & { code: string };
-      err.code = 'storage/object-changed';
-      throw err;
-    }
-    const slice = object.blob.slice(offset, offset + length);
-    const buf = await slice.arrayBuffer();
-    return new Uint8Array(buf);
-  }
-
   close(): void {
     this.db.close();
   }
@@ -819,18 +770,6 @@ export class ScopedStorageBackend implements StorageBackend {
   abortUpload(uploadId: string): Promise<void> {
     if (this.underlying.abortUpload) return this.underlying.abortUpload(uploadId);
     return Promise.resolve();
-  }
-
-  readRange(
-    bucket: string | undefined,
-    path: string,
-    offset: number,
-    length: number,
-    expectedGeneration?: string,
-  ): Promise<Uint8Array | undefined> {
-    const b = bucket ?? this.bucket;
-    if (this.underlying.readRange) return this.underlying.readRange(b, path, offset, length, expectedGeneration);
-    return Promise.resolve(undefined);
   }
 
   close(): void {

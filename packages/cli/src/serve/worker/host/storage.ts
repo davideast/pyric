@@ -528,9 +528,14 @@ export async function handleStorageOp(
         const meta = await storageGetMetadata(r);
         const isRange = msg.offset !== undefined || msg.length !== undefined;
         if (isRange) {
-          if (msg.expectedGeneration !== undefined && meta.generation !== msg.expectedGeneration) {
-            throw new FirebaseError('storage/object-changed', 'The object changed while reading. Re-read metadata and retry.');
-          }
+          // The generation the caller expects, or the one the rules were
+          // evaluated against. The bytes are read with their metadata as one
+          // pair from the same write, and an overwrite since either generation
+          // was observed fails the read rather than mixing two writes.
+          const generation = msg.expectedGeneration ?? meta.generation;
+          const objectChanged = (): FirebaseError =>
+            new FirebaseError('storage/object-changed', 'The object changed while reading. Re-read metadata and retry.');
+          if (meta.generation !== generation) throw objectChanged();
           const offset = msg.offset ?? 0;
           const length = msg.length ?? (meta.size - offset);
           if (length > MAX_STORAGE_OP_BYTES) {
@@ -538,24 +543,17 @@ export async function handleStorageOp(
           }
           const target = targetOf(r.storage);
           const service = await getStorageService(r.storage);
-          let slice: Uint8Array | undefined;
-          if (service.backend.readRange) {
-            slice = await service.backend.readRange(target.bucket, r.fullPath, offset, length, msg.expectedGeneration);
-          } else {
-            const blob = await service.backend.getBlob(r.fullPath, target.bucket);
-            if (blob) {
-              const subBlob = blob.slice(offset, offset + length);
-              slice = new Uint8Array(await subBlob.arrayBuffer());
-            }
-          }
-          if (!slice) {
+          const object = await service.backend.getObject(r.fullPath, target.bucket);
+          if (!object) {
             throw new FirebaseError('storage/object-not-found', `object '${msg.path}' not found.`);
           }
+          if (object.metadata.generation !== generation) throw objectChanged();
+          const slice = new Uint8Array(await object.blob.slice(offset, offset + length).arrayBuffer());
           ok(port, msg.id, {
             dataB64: bytesToBase64(slice),
-            contentType: meta.contentType,
+            contentType: object.metadata.contentType,
             size: slice.byteLength,
-            generation: meta.generation,
+            generation: object.metadata.generation,
           });
         } else {
           const exceedsStoredLimit = meta.size > MAX_STORAGE_OP_BYTES;
