@@ -2,6 +2,7 @@ package com.google.firebase.firestore
 
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.TaskCompletionSource
+import dev.pyric.bridge.BridgeSubscriptionGap
 import dev.pyric.codecs.DocumentDataEnvelope
 import dev.pyric.codecs.SentinelValidator
 import dev.pyric.codecs.ValueCodec
@@ -12,7 +13,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
 
 class DocumentReference internal constructor(
@@ -155,29 +156,42 @@ class DocumentReference internal constructor(
         val target = mapOf("__ref" to "doc", "path" to path)
         val includeMetadata = (metadataChanges == MetadataChanges.INCLUDE)
         return firestore.authLensFlow.flatMapLatest { lens ->
+            var lastRaw: Any? = null
+            var hasRaw = false
             firestore.bridgeClient.subscribe(
                 target = target,
                 actAs = lens.toMap(),
                 includeMetadataChanges = includeMetadata
-            ).map { rawMsg ->
-                @Suppress("UNCHECKED_CAST")
-                val resMap = rawMsg as? Map<String, Any?> ?: emptyMap()
-                val docId = (resMap["id"] as? String) ?: id
-                val exists = resMap["exists"] == true
-                val rawData = resMap["data"]
-                val unpackedData = if (exists) {
-                    DocumentDataEnvelope.unpack(rawData) { p -> firestore.document(p) }
-                } else null
-
-                DocumentSnapshot(
-                    id = docId,
-                    reference = this@DocumentReference,
-                    exists = exists,
-                    rawData = unpackedData,
-                    metadata = SnapshotMetadata(hasPendingWrites = resMap["hasPendingWrites"] == true, isFromCache = false)
-                )
+            ).mapNotNull { rawMsg ->
+                if (rawMsg === BridgeSubscriptionGap) {
+                    // The document last delivered, now served from cache.
+                    if (hasRaw) snapshotFromWire(lastRaw, isFromCache = true) else null
+                } else {
+                    lastRaw = rawMsg
+                    hasRaw = true
+                    snapshotFromWire(rawMsg, isFromCache = false)
+                }
             }
         }
+    }
+
+    private fun snapshotFromWire(rawMsg: Any?, isFromCache: Boolean): DocumentSnapshot {
+        @Suppress("UNCHECKED_CAST")
+        val resMap = rawMsg as? Map<String, Any?> ?: emptyMap()
+        val docId = (resMap["id"] as? String) ?: id
+        val exists = resMap["exists"] == true
+        val rawData = resMap["data"]
+        val unpackedData = if (exists) {
+            DocumentDataEnvelope.unpack(rawData) { p -> firestore.document(p) }
+        } else null
+
+        return DocumentSnapshot(
+            id = docId,
+            reference = this,
+            exists = exists,
+            rawData = unpackedData,
+            metadata = SnapshotMetadata(hasPendingWrites = resMap["hasPendingWrites"] == true, isFromCache = isFromCache)
+        )
     }
 
     fun addSnapshotListener(listener: EventListener<DocumentSnapshot>): ListenerRegistration =

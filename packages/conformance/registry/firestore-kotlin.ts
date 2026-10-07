@@ -16,11 +16,13 @@ interface KotlinRowSeed {
   behavior: string;
   featureKeys: string[];
   evidence?: string;
+  /** Tests beyond the conformance suite that also exercise this row. */
+  tests?: string[];
   flipped?: 'unit-backed';
 }
 
 function row(seed: KotlinRowSeed): CompatibilityRow {
-  const { ref, flipped, evidence, ...rest } = seed;
+  const { ref, flipped, evidence, tests, ...rest } = seed;
   const defaultEvidence = flipped
     ? 'com.google.firebase.firestore specification.'
     : 'com.google.firebase.firestore specification; unverified locally.';
@@ -30,7 +32,7 @@ function row(seed: KotlinRowSeed): CompatibilityRow {
         status: 'conforms' as const,
         automation: 'unit-backed' as const,
         evidence: `${resolvedEvidence} Test: \`${CONFORMANCE_SUITE}\` assertion set \`firestore-kotlin#${ref}\`.`,
-        conformanceTests: [CONFORMANCE_SUITE],
+        conformanceTests: [CONFORMANCE_SUITE, ...(tests ?? [])],
       }
     : {
         status: 'unverified' as const,
@@ -142,7 +144,9 @@ export const firestoreKotlinRows: CompatibilityRow[] = [
   row({ ref: 42, section: 'Snapshots & metadata',
     api: 'DocumentSnapshot.toObject<T>()', behavior: 'Deserializes snapshot into typed data object via reified extension function.', featureKeys: ['toObject'], flipped: 'unit-backed' }),
   row({ ref: 43, section: 'Snapshots & metadata',
-    api: 'SnapshotMetadata (hasPendingWrites, isFromCache)', behavior: 'Exposes local cache and uncommitted pending write status on snapshots.', featureKeys: ['metadata'], flipped: 'unit-backed' }),
+    api: 'SnapshotMetadata (hasPendingWrites, isFromCache)', behavior: 'Exposes local cache and uncommitted pending write status on snapshots.', featureKeys: ['metadata'], flipped: 'unit-backed',
+    evidence: 'com.google.firebase.firestore specification. When the bridge connection drops, a listener registered with MetadataChanges.INCLUDE receives its last documents with isFromCache true, and its first snapshot after re-attach has isFromCache false; a listener with MetadataChanges.EXCLUDE receives neither, as production raises a metadata-only change only to listeners that include metadata changes. Reconnect tests: `BridgeReconnectTest.kt`.',
+    tests: ['packages/kt-client/src/test/kotlin/dev/pyric/bridge/BridgeReconnectTest.kt'] }),
   row({ ref: 44, section: 'Snapshots & metadata',
     api: 'QuerySnapshot.documents / documentChanges', behavior: 'Provides ordered List<DocumentSnapshot> and List<DocumentChange> detailing change types.', featureKeys: ['documents', 'documentChanges'], flipped: 'unit-backed' }),
 

@@ -60,6 +60,14 @@ class FirebaseAuth internal constructor(
     private var initialBridgeSnapshotReceived = false
 
     init {
+        // A replaced bridge host holds no user for this session. Sign the session
+        // back in before the observers are re-sent.
+        bridgeClient.restoreAuth = { op ->
+            val user = currentUser
+            if (user != null) {
+                op("auth.restorePortSession", mapOf("uid" to user.uid, "tenantId" to user.tenantId))
+            }
+        }
         scope.launch {
             try {
                 BridgeAuthOperations.subscribeAuthState(bridgeClient).collect { rawUser ->

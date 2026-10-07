@@ -8,42 +8,46 @@ import kotlinx.coroutines.flow.callbackFlow
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
+/**
+ * Emitted on a subscription opened with `includeMetadataChanges` when the bridge
+ * connection drops after the subscription delivered a value. The listener reports
+ * its last snapshot again with `isFromCache` set.
+ */
+object BridgeSubscriptionGap
+
 class BridgeSubscriptionManager(
     private val onDenial: ((FirebaseFirestoreException) -> Unit)? = null
 ) {
     private val subCounter = AtomicLong(0)
     private val activeSubs = ConcurrentHashMap<String, ActiveSubscription>()
 
-    private data class ActiveSubscription(
+    private class ActiveSubscription(
         val subId: String,
         val channel: ProducerScope<Any?>,
-        val target: Any,
-        val actAs: Map<String, Any?>?,
-        val includeMetadataChanges: Boolean,
-        val listenSource: String?
-    )
+        val payload: Map<String, Any?>,
+        val includeMetadataChanges: Boolean
+    ) {
+        @Volatile var hasValue: Boolean = false
+        @Volatile var lastValue: Any? = null
+        @Volatile var awaitsRestoredValue: Boolean = false
+    }
 
+    /**
+     * Registers a subscription that lives until the flow is cancelled. It is sent
+     * now when [isAttached], and by every later attach through [restoreAll].
+     */
     fun subscribe(
         target: Any,
         actAs: Map<String, Any?>? = null,
         includeMetadataChanges: Boolean = false,
         listenSource: String? = null,
+        isAttached: () -> Boolean,
         ensureConnected: suspend () -> Unit,
+        keepsSubscriptionOnConnectFailure: () -> Boolean,
         sendJson: (String) -> Unit,
         jsonSerializer: (Any?) -> String
     ): Flow<Any?> = callbackFlow {
-        ensureConnected()
-
         val subId = "rsub-${subCounter.incrementAndGet()}"
-        val subRecord = ActiveSubscription(
-            subId = subId,
-            channel = this,
-            target = target,
-            actAs = actAs,
-            includeMetadataChanges = includeMetadataChanges,
-            listenSource = listenSource
-        )
-        activeSubs[subId] = subRecord
 
         val actualTarget = if (target is Map<*, *> && target.containsKey("target") && target.size == 1) {
             target["target"]
@@ -57,23 +61,44 @@ class BridgeSubscriptionManager(
             subPayload["listenSource"] = listenSource
         }
 
-        val frame = BridgeProtocol.createWorkerSubFrame(subId, subPayload)
-        try {
-            sendJson(jsonSerializer(frame))
-        } catch (e: Throwable) {
-            activeSubs.remove(subId)
-            close(
-                FirebaseFirestoreException(
-                    "Failed to dispatch subscription to bridge: ${e.message}",
-                    FirebaseFirestoreException.Code.UNAVAILABLE,
-                    e
+        val record = ActiveSubscription(subId, this, subPayload, includeMetadataChanges)
+        // Registered before the attach check, so an attach that completes in between sends it.
+        activeSubs[subId] = record
+
+        if (isAttached()) {
+            try {
+                sendJson(jsonSerializer(BridgeProtocol.createWorkerSubFrame(subId, subPayload)))
+            } catch (e: Throwable) {
+                activeSubs.remove(subId)
+                close(
+                    FirebaseFirestoreException(
+                        "Failed to dispatch subscription to bridge: ${e.message}",
+                        FirebaseFirestoreException.Code.UNAVAILABLE,
+                        e
+                    )
                 )
-            )
-            return@callbackFlow
+                return@callbackFlow
+            }
+        } else {
+            try {
+                ensureConnected()
+            } catch (e: Throwable) {
+                if (!keepsSubscriptionOnConnectFailure()) {
+                    activeSubs.remove(subId)
+                    close(
+                        e as? FirebaseFirestoreException ?: FirebaseFirestoreException(
+                            "Failed to connect to Pyric bridge: ${e.message}",
+                            FirebaseFirestoreException.Code.UNAVAILABLE,
+                            e
+                        )
+                    )
+                    return@callbackFlow
+                }
+            }
         }
 
         awaitClose {
-            if (activeSubs.remove(subId) != null) {
+            if (activeSubs.remove(subId) != null && isAttached()) {
                 try {
                     val unsubFrame = BridgeProtocol.createWorkerUnsubFrame(subId)
                     sendJson(jsonSerializer(unsubFrame))
@@ -124,28 +149,34 @@ class BridgeSubscriptionManager(
             return
         }
 
+        if (activeSub.awaitsRestoredValue) {
+            activeSub.awaitsRestoredValue = false
+            val unchanged = activeSub.hasValue && activeSub.lastValue == value
+            // Production raises a sync-state-only change only to metadata listeners.
+            if (unchanged && !activeSub.includeMetadataChanges) return
+        }
+        activeSub.hasValue = true
+        activeSub.lastValue = value
         activeSub.channel.trySend(value)
     }
 
-    fun resubscribeAll(sendJson: (String) -> Unit, jsonSerializer: (Any?) -> String) {
+    /** Re-sends every live subscription on a new attach, with its original subId and payload. */
+    fun restoreAll(sendJson: (String) -> Unit, jsonSerializer: (Any?) -> String) {
         for (sub in activeSubs.values) {
-            val actualTarget = if (sub.target is Map<*, *> && (sub.target as Map<*, *>).containsKey("target") && (sub.target as Map<*, *>).size == 1) {
-                (sub.target as Map<*, *>)["target"]
-            } else {
-                sub.target
-            }
-            val subPayload = mutableMapOf<String, Any?>("target" to actualTarget)
-            if (sub.actAs != null) subPayload["actAs"] = sub.actAs
-            if (sub.includeMetadataChanges) subPayload["includeMetadataChanges"] = true
-            if (sub.listenSource != null && sub.listenSource != "defaultSource") {
-                subPayload["listenSource"] = sub.listenSource
-            }
-
-            val frame = BridgeProtocol.createWorkerSubFrame(sub.subId, subPayload)
+            sub.awaitsRestoredValue = sub.hasValue
             try {
-                sendJson(jsonSerializer(frame))
+                sendJson(jsonSerializer(BridgeProtocol.createWorkerSubFrame(sub.subId, sub.payload)))
             } catch (_: Throwable) {
-                // Ignored
+                // A failed send means the socket is closing; its close re-sends this.
+            }
+        }
+    }
+
+    /** Reports a dropped connection to subscriptions that asked for metadata changes. */
+    fun reportGap() {
+        for (sub in activeSubs.values) {
+            if (sub.includeMetadataChanges && sub.hasValue) {
+                sub.channel.trySend(BridgeSubscriptionGap)
             }
         }
     }
