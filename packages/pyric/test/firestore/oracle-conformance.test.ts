@@ -31,6 +31,14 @@ import { join } from 'node:path';
 import { createObservationGate } from '../../../../packages/conformance/src/observation-gate.ts';
 import { initializeSandbox, type Sandbox } from 'pyric/sandbox';
 import { FirebaseError } from '../../src/app/index.js';
+import {
+  SEED_DOCUMENT,
+  WRITE_CASES,
+  applyWrite,
+  predicateDocId,
+  writeProjectionRules,
+  type WriteSdk,
+} from '../../../../packages/conformance/src/firestore-write-request-resource-cases.ts';
 import { seedDocuments, setRules } from 'pyric/sandbox/firestore';
 import {
   getFirestore,
@@ -64,6 +72,7 @@ import {
   arrayUnion,
   arrayRemove,
   deleteField,
+  FieldPath,
   getCountFromServer,
   queryEqual,
   snapshotEqual,
@@ -483,6 +492,72 @@ describe('oracle conformance (firestore)', () => {
     expect(data.a.b).toBe(obs.nestedUpdated as number);
     expect(data.a.c).toBe(obs.siblingPreserved as number);
     expect('a.b' in data).toBe(obs.literalDotKeyPresent as boolean);
+  });
+
+  it('firestore-write-request-resource', async () => {
+    const obs = load('firestore-write-request-resource.json') as {
+      seed: Record<string, unknown>;
+      cases: Array<{
+        case: string;
+        write: unknown;
+        predicates: Array<{ id: string; expr: string; verdict: 'allow' | 'deny' }>;
+      }>;
+    };
+    expect(obs.seed).toEqual(JSON.parse(JSON.stringify(SEED_DOCUMENT)));
+    // The capture and this replay share one case table, so every recorded
+    // predicate is the rule text deployed in production.
+    expect(obs.cases.map((c) => [c.case, c.predicates.map((p) => [p.id, p.expr])])).toEqual(
+      WRITE_CASES.map((c) => [c.id, c.predicates.map((p) => [p.id, p.expr])]),
+    );
+    const rules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /__pyric_firestore_cdd/t {
+${writeProjectionRules()}
+    }
+  }
+}`;
+    const sdk = { updateDoc, setDoc, deleteField, FieldPath } as unknown as WriteSdk;
+    const sandboxVerdicts = new Map<string, 'allow' | 'deny'>();
+    const db = freshDb(rules);
+    const seeds: Record<string, Record<string, unknown>> = {};
+    for (const c of WRITE_CASES) {
+      for (const p of c.predicates) {
+        seeds[`__pyric_firestore_cdd/t/wrr/${predicateDocId(c.id, p.id)}`] = JSON.parse(
+          JSON.stringify(SEED_DOCUMENT),
+        );
+      }
+    }
+    seedDb(db, seeds);
+    for (const c of WRITE_CASES) {
+      for (const p of c.predicates) {
+        const path = `__pyric_firestore_cdd/t/wrr/${predicateDocId(c.id, p.id)}`;
+        let verdict: 'allow' | 'deny' = 'allow';
+        try {
+          await applyWrite(sdk, doc(db, path), c.write);
+        } catch (e) {
+          expect((e as { code?: unknown }).code).toBe('permission-denied');
+          verdict = 'deny';
+        }
+        sandboxVerdicts.set(`${c.id}/${p.id}`, verdict);
+      }
+    }
+    // updateDoc(ref, fieldPath, value, ...) is not part of the sandbox's
+    // updateDoc surface, which takes (ref, data). The FieldPath is spread into
+    // the update data as an object, so the literal-dot cases diverge. Both sides
+    // are pinned: production's verdicts come from the capture, the sandbox's are
+    // its current behavior.
+    const FIELD_PATH_FORMS = new Set(['literal_dot_field_path', 'literal_dot_nested_segment']);
+    for (const c of obs.cases) {
+      for (const p of c.predicates) {
+        const key = `${c.case}/${p.id}`;
+        if (FIELD_PATH_FORMS.has(c.case)) continue;
+        expect([key, sandboxVerdicts.get(key)]).toEqual([key, p.verdict]);
+      }
+    }
+    const literal = obs.cases.find((c) => c.case === 'literal_dot_field_path');
+    expect(literal?.predicates.find((p) => p.id === 'literal_key_present')?.verdict).toBe('allow');
+    expect(sandboxVerdicts.get('literal_dot_field_path/literal_key_present')).toBe('deny');
   });
 
   // ── scalar round-trips ───────────────────────────────────────────────
