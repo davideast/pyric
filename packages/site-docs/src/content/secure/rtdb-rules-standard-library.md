@@ -110,14 +110,15 @@ RTDB has no functions, so a match reads a player's presence through `data.parent
 ## Limit how often a user writes
 
 ```ts
-const { timing } = rtdbStdlib;
+const { timing, lifecycle } = rtdbStdlib;
 
 paths: {
   '/posts/$postId': {
     write: authenticated(),
     validate: timing.stampedInSameWrite(2, ['lastPost', { $: 'auth.uid' }]),
   },
-  '/lastPost/$uid': { write: ownPath('$uid'), validate: timing.throttled(60_000) },
+  // A deleted stamp would reset the cooldown, so the owner may not delete it.
+  '/lastPost/$uid': { write: all(ownPath('$uid'), lifecycle.noDelete()), validate: timing.throttled(60_000) },
 }
 
 // Client: the post and the stamp in one multi-path update.

@@ -5,7 +5,7 @@
     "rtdb-rules#12"
   ],
   "description": "RTDB rules production verdicts for corpus scenario \"r28-stdlib-presence-timing\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). presence, rate limits and bounded collections from the standard library must deploy and decide as documented, including server timestamps written in the same multi-path update as the data they stamp.",
-  "observedAt": "2026-10-07T11:32:47.477Z",
+  "observedAt": "2026-10-07T11:49:41.875Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "genkit-idx",
   "behavior": {
@@ -25,6 +25,7 @@
     "a post without a stamp": "DENY",
     "a post stamped with a client clock time": "DENY",
     "a post stamped under another user": "DENY",
+    "a user deletes their stamp to reset the cooldown": "DENY",
     "an event time in the past": "ALLOW",
     "an event time in the future": "DENY",
     "a creation time from the server": "ALLOW",

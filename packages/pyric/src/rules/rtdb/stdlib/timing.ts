@@ -15,7 +15,9 @@
  * have the rate-limited write update both in one multi-path update. The
  * limited node's `.validate` then requires the stamp in the same write with
  * `timing.stampedInSameWrite(...)`, so a write without a fresh stamp, and a
- * fresh stamp before the cooldown ends, are both refused.
+ * fresh stamp before the cooldown ends, are both refused. A deleted stamp
+ * would reset the cooldown, and `.validate` does not run on a delete, so the
+ * stamp's `.write` refuses deletes with `lifecycle.noDelete()`.
  */
 import type { Expr, Segment } from '../constraints/types.js';
 import { and, exists, fieldName, finite, lit, negate, or, raw, val } from './expr.js';

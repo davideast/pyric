@@ -10,7 +10,8 @@
  *     `{ state, lastChanged }` with the server timestamp, or as a boolean.
  *   - posts and lastPost: a per-user rate limit. A post must be written in
  *     the same multi-path update as the writer's stamp, set to the server
- *     timestamp, and the stamp moves only once 60 seconds have passed.
+ *     timestamp, and the stamp moves only once 60 seconds have passed and
+ *     cannot be deleted.
  *   - events: a time no later than the server clock, and a creation time
  *     that must be the server timestamp.
  *   - tables: slots '0' to '3' and a fixed list of flag keys.
@@ -46,7 +47,7 @@ export const scenario: RtdbScenarioRecord = {
     },
     "lastPost": {
       "$uid": {
-        ".write": "auth.uid == $uid",
+        ".write": "(auth.uid == $uid) && (newData.exists())",
         ".validate": "newData.val() == now && (!data.exists() || now > data.val() + 60000)"
       }
     },
@@ -113,6 +114,7 @@ export const scenario: RtdbScenarioRecord = {
     {"description":"a post without a stamp","expectation":"DENY","operation":"write","opPath":"/posts/p4","authPresent":true,"newData":"hello"},
     {"description":"a post stamped with a client clock time","expectation":"DENY","operation":"update","opPath":"/","authPresent":true,"newData":{"posts/p5":"hello","lastPost/<UID>":1000000000000}},
     {"description":"a post stamped under another user","expectation":"DENY","operation":"update","opPath":"/","authPresent":true,"newData":{"posts/p6":"hello","lastPost/other-user":{".sv":"timestamp"}}},
+    {"description":"a user deletes their stamp to reset the cooldown","expectation":"DENY","operation":"write","opPath":"/lastPost/<UID>","authPresent":true,"newData":null,"seed":{"/lastPost/<UID>":99999999999999}},
     {"description":"an event time in the past","expectation":"ALLOW","operation":"write","opPath":"/events/e1/at","authPresent":true,"newData":1000000000000},
     {"description":"an event time in the future","expectation":"DENY","operation":"write","opPath":"/events/e1/at","authPresent":true,"newData":99999999999999},
     {"description":"a creation time from the server","expectation":"ALLOW","operation":"write","opPath":"/events/e1/createdAt","authPresent":true,"newData":{".sv":"timestamp"}},

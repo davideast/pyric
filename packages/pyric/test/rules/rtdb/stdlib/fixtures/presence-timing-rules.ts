@@ -3,9 +3,9 @@
  * production capture `rules-rtdb-r28-stdlib-presence-timing` deploys the JSON
  * this compiles to; `corpus-lock.test.ts` fails when the two differ.
  */
-import { authenticated, ownPath, rtdbStdlib, type PathDef } from 'pyric/rules';
+import { all, authenticated, ownPath, rtdbStdlib, type PathDef } from 'pyric/rules';
 
-const { presence, timing, collections } = rtdbStdlib;
+const { presence, timing, collections, lifecycle } = rtdbStdlib;
 
 export const PRESENCE_TIMING_PATHS: Record<string, PathDef> = {
   '/status/$uid': presence.record(),
@@ -16,7 +16,7 @@ export const PRESENCE_TIMING_PATHS: Record<string, PathDef> = {
     validate: timing.stampedInSameWrite(2, ['lastPost', { $: 'auth.uid' }]),
   },
   '/lastPost/$uid': {
-    write: ownPath('$uid'),
+    write: all(ownPath('$uid'), lifecycle.noDelete()),
     validate: timing.throttled(60_000),
   },
   '/events/$id': {

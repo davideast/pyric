@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { all, authenticated, ownPath, rtdbStdlib } from 'pyric/rules';
 import { runScenario, type StdlibScenario } from './harness.js';
 
-const { timing } = rtdbStdlib;
+const { timing, lifecycle } = rtdbStdlib;
 
 // Stored times far in the past and far in the future decide the cooldown
 // whatever the clock reads when the test runs.
@@ -17,7 +17,8 @@ const scenario: StdlibScenario = {
       validate: timing.stampedInSameWrite(2, ['lastPost', { $: 'auth.uid' }]),
     },
     '/lastPost/$uid': {
-      write: ownPath('$uid'),
+      // A deleted stamp would reset the cooldown, so the owner may not delete it.
+      write: all(ownPath('$uid'), lifecycle.noDelete()),
       validate: timing.throttled(60_000),
     },
     '/events/$id': {
@@ -41,6 +42,7 @@ scenario.cases.push(
   { description: 'a post without a stamp', expectation: 'DENY', operation: 'write', path: '/posts/p3', auth: 'alice', newData: 'hello' },
   { description: 'a post stamped with a client clock time', expectation: 'DENY', operation: 'update', path: '/', auth: 'alice', newData: { 'posts/p4': 'hello', 'lastPost/alice': 5 } },
   { description: 'a post stamped under another user', expectation: 'DENY', operation: 'update', path: '/', auth: 'alice', newData: { 'posts/p5': 'hello', 'lastPost/bob': 0 }, serverTime: ['lastPost/bob'] },
+  { description: 'a user deletes their stamp to reset the cooldown', expectation: 'DENY', operation: 'write', path: '/lastPost/alice', auth: 'alice', data: { lastPost: { alice: FUTURE } }, newData: null },
   { description: 'an event time in the past', expectation: 'ALLOW', operation: 'write', path: '/events/e1/at', auth: 'alice', newData: PAST },
   { description: 'an event time in the future', expectation: 'DENY', operation: 'write', path: '/events/e1/at', auth: 'alice', newData: FUTURE },
   { description: 'an event time written as a string', expectation: 'DENY', operation: 'write', path: '/events/e1/at', auth: 'alice', newData: 'now' },
