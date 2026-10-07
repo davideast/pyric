@@ -33,8 +33,8 @@ export interface StdlibCase {
   operation: 'read' | 'write' | 'update';
   /** Absolute path of the request. */
   path: string;
-  /** Signed-in uid, or null for a signed-out request. */
-  auth: string | null;
+  /** Signed-in uid, a uid with ID token claims, or null for a signed-out request. */
+  auth: string | { uid: string; token?: Record<string, unknown> } | null;
   /** The database tree before the request, from the root. */
   data?: Record<string, unknown>;
   /** The value a write sets, or an update's patch keyed by relative paths. */
@@ -141,7 +141,7 @@ export function simulateCase(scenario: StdlibScenario, c: StdlibCase): Verdict |
       const result = simulateRtdbRules(compiled, {
         operation: 'write',
         path,
-        auth: c.auth === null ? null : { uid: c.auth, token: {} },
+        auth: c.auth === null ? null : typeof c.auth === 'string' ? { uid: c.auth, token: {} } : { uid: c.auth.uid, token: c.auth.token ?? {} },
         mockData: c.data ?? {},
         newData: value,
         updates,
@@ -174,7 +174,8 @@ export async function sandboxCase(scenario: StdlibScenario, c: StdlibCase): Prom
   const admin = getDatabase(box.withAuth({ uid: 'stdlib-admin' }));
   sandbox.setRules(admin, rulesJson(scenario));
   if (c.data && Object.keys(c.data).length > 0) sandbox.setData(admin, { '/': c.data });
-  const db = getDatabase(c.auth === null ? box : box.withAuth({ uid: c.auth }));
+  const identity = typeof c.auth === 'string' ? { uid: c.auth } : c.auth;
+  const db = getDatabase(identity === null ? box : box.withAuth(identity));
   const newData = withServerTime(c.newData, c.serverTime, serverTimestamp());
   const target = ref(db, c.path);
   try {

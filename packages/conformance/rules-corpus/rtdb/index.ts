@@ -17,6 +17,7 @@ import { loadedRtdbCorpus } from './load.ts';
 import type { RtdbDeployScenario, RtdbScenario } from './types.ts';
 
 export type {
+  RtdbCaseIdentity,
   RtdbCaseQuery,
   RtdbDeployCase,
   RtdbDeployScenario,

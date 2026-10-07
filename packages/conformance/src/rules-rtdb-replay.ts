@@ -1,7 +1,7 @@
 import { compileRtdbRules, simulateRtdbRules } from '../../pyric/src/rules/rtdb/compiled-rules.ts';
 import { checkRtdbRules } from '../../pyric/src/rules/rtdb/constraints/document.ts';
 import type { SimulateResult, SimulationInput, SimulationResult } from '../../pyric/src/rules/rtdb/simulation/spec.ts';
-import type { RtdbDeployScenario, RtdbScenario, RtdbTestCase } from '../rules-corpus/rtdb/types.ts';
+import type { RtdbCaseIdentity, RtdbDeployScenario, RtdbScenario, RtdbTestCase } from '../rules-corpus/rtdb/types.ts';
 
 const REPLAY_UID = 'THP041EPnYbzh9c8GGBniSDoUKc2';
 export type RtdbVerdict = 'ALLOW' | 'DENY';
@@ -54,6 +54,21 @@ function outcomeOf(result: SimulateResult): RtdbSimulatorOutcome {
   return result.data.allowed ? 'ALLOW' : 'DENY';
 }
 
+/**
+ * The ID token claims a custom-token sign-in as `identity` carries: the
+ * developer claims, the account's email and its verification when it has an
+ * email, and `custom` as the sign-in provider.
+ */
+export function identityToken(uid: string, identity: RtdbCaseIdentity): Record<string, unknown> {
+  return {
+    ...(identity.claims ?? {}),
+    ...(identity.emailDomain
+      ? { email: `${uid}@${identity.emailDomain}`, email_verified: identity.emailVerified ?? false }
+      : {}),
+    firebase: { sign_in_provider: 'custom' },
+  };
+}
+
 function substituteUid<T>(value: T, uid: string): T {
   if (typeof value === 'string') return value.replaceAll('<UID>', uid) as unknown as T;
   if (value === null || value === undefined) return value;
@@ -104,11 +119,12 @@ function buildSimMock(
 
 /**
  * The token production issues for the case's sign-in: an anonymous sign-in,
- * or a custom-token sign-in whose token carries the case's claims beside the
- * `firebase` claim production adds.
+ * an identity user's custom-token sign-in, or a custom-token sign-in whose
+ * token carries the case's claims beside the `firebase` claim production adds.
  */
 function replayAuth(testCase: RtdbTestCase, uid: string): SimulationInput['auth'] {
   if (!testCase.authPresent) return null;
+  if (testCase.identity) return { uid, token: identityToken(uid, testCase.identity) };
   if (testCase.claims) {
     return { uid, token: { ...testCase.claims, firebase: { sign_in_provider: 'custom' } } };
   }

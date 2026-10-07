@@ -86,6 +86,8 @@ Each catalog entry names its placement. There are three:
 | `presence` | A per-user online node only its owner writes, cleared by an onDisconnect write | The presence path's definition |
 | `timing` | Server timestamps, times not in the future, cooldowns, per-user rate limits | Field `.validate`, or the record with a field |
 | `collections` | Slot keys `'0'` to `max - 1` and fixed key lists, which bound a collection's size | Wildcard `.validate` |
+| `auth` | Signed in, a verified email or email domain, custom-claim roles, roles stored in the database, the tenant | Any `.read` or `.write` |
+| `membership` | A member list stored in the database, and members who add or remove only themselves | Any `.read` or `.write`; the member node |
 
 The match convention is the Firestore one: `host` and `guest` hold uids (`guest` is `''` while open), `status` is `'waiting'`, `'playing'`, then `'won'`, `'draw'` or `'resigned'`, `currentTurn` is `'host'` or `'guest'`, `winner` is `'host'`, `'guest'` or `''`, and `moveCount` is a number. A rematch also has `rematchOf`, the finished match it follows. `lobby.MATCH_FIELDS` lists all seven for the changed-field checks, so a join, move, resignation or finish leaves every field it does not name unchanged.
 
@@ -125,6 +127,56 @@ paths: {
 await update(ref(db), { 'posts/p1': post, [`lastPost/${uid}`]: serverTimestamp() });
 ```
 `now` is the server clock in milliseconds, and the server replaces a written `serverTimestamp()` with `now` before it evaluates the rules. The stamp's `.validate` requires the server timestamp and refuses it until 60 seconds after the stored one; the post's `.validate` requires the stamp in the same write. A post without a stamp, a stamp with a client clock time, a stamp under another uid, and a delete of the stamp are all refused. The limit is on writes, not posts: one multi-path update can carry several posts and one stamp. For a cooldown on one record, combine `timing.cooldownElapsed(ms, 'lastMoveAt')` with `timing.isServerTimestamp('lastMoveAt')` in its `.write`.
+
+## Check who the writer is
+
+```ts
+const { auth, membership } = rtdbStdlib;
+
+paths: {
+  '/staff': { write: auth.emailDomain('example.com') },           // verified email at the domain
+  '/admin': { write: auth.hasAnyRole('admin', 'editor') },          // custom claim role
+  '/orgs/$orgId/docs/$docId': {
+    // the role stored at /orgs/$orgId/roles/<uid>, two levels above the doc
+    write: auth.roleAt(['roles', { $: 'auth.uid' }], 'editor', { levelsUp: 2 }),
+  },
+  '/rooms/$roomId/messages/$msgId': {
+    read: membership.memberOf(['members', { $: 'auth.uid' }], { levelsUp: 2 }),
+  },
+  '/rooms/$roomId/members/$uid': {
+    write: membership.selfMembership('$uid'),
+    validate: membership.memberFlag(),
+  },
+}
+```
+`auth.token` carries `email` and `email_verified` only when the account has an email, and custom claims as you set them with the Admin SDK. Each builder checks `auth != null` first, and `emailDomain` checks `email_verified` before it reads `email`. The `emailDomain` comparison is exact and case-sensitive: an address stored as `Ada@Example.com` does not pass `auth.emailDomain('example.com')`, so the check fails closed on mixed-case addresses. Claims compare without type conversion: a claim stored as the string `'true'` does not pass `auth.hasClaim('beta')`. `auth.hasClaim(name, null)` throws, because a token without the claim reads it as `null`. `auth.tenantIs(id)` and `auth.inTenant('$tenantId')` read `auth.token.firebase.tenant`.
+
+`roleAt` trusts the role stored in the database, so the roles node must not be writable by the user it describes. That includes a `.write` on any parent of the roles node: `.write` cascades, so a parent grant lets the user write their own role.
+
+A member is a key whose value is `true`. `memberOf` reads the stored data, so a write that adds the writer to the list cannot use that same write to pass the check. Pass `levelsUp` to read the list relative to the node, so the rules work wherever they are mounted; without it the segments start at `root`.
+
+`selfMembership` with `memberOf` makes a room open to join: any signed-in user can add themselves to the member list and then post in the next write. For an invite-only room, give the member node an owner-only `.write` instead of `selfMembership`.
+
+## Limit writes per time window
+
+```ts
+paths: {
+  '/posts/$postId': {
+    write: all(authenticated(), lifecycle.createOnly()),
+    validate: timing.countedInSameWrite(2, ['quota', { $: 'auth.uid' }]),
+  },
+  // At most 10 posts per minute per user.
+  '/quota/$uid': {
+    write: all(ownPath('$uid'), lifecycle.noDelete()),
+    validate: timing.windowedQuota(10, 60_000),
+  },
+}
+
+// A post that opens a window, then one inside it:
+await update(ref(db), { 'posts/p1': post, [`quota/${uid}`]: { windowStart: serverTimestamp(), count: 1 } });
+await update(ref(db), { 'posts/p2': post, [`quota/${uid}/count`]: 2 });
+```
+The quota node holds `{ windowStart, count }`. A write either opens a new window, with `windowStart` the server timestamp and `count` 1, once nothing is stored or the stored window has ended, or adds 1 to `count` in the open window, up to the maximum. A post must move the quota in the same write. Like the cooldown stamp, the quota limits writes, not posts: one multi-path update can carry several posts and one count.
 
 ## Bound a collection
 

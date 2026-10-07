@@ -171,6 +171,7 @@
         "r31-token-claims",
         "r32-method-argument-types",
         "r33-null-operands",
+        "r34-stdlib-auth-membership-quota",
         "r4-validate-structure",
         "r5-cascade-root-grant",
         "r7-pathvar-binding",
@@ -195,6 +196,7 @@
         "r28-stdlib-presence-timing",
         "r30-query-rules",
         "r32-method-argument-types",
+        "r34-stdlib-auth-membership-quota",
         "r7-pathvar-binding",
         "r8-combined-check"
       ],
@@ -210,7 +212,8 @@
       "verifiedBy": [
         "r12-server-time-and-token",
         "r16-auth-provider-and-tenant",
-        "r31-token-claims"
+        "r31-token-claims",
+        "r34-stdlib-auth-membership-quota"
       ],
       "verifiedByRows": [
         "rtdb-rules#25"
@@ -233,6 +236,7 @@
         "r3-data-exists",
         "r32-method-argument-types",
         "r33-null-operands",
+        "r34-stdlib-auth-membership-quota",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -262,6 +266,7 @@
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
         "r32-method-argument-types",
+        "r34-stdlib-auth-membership-quota",
         "r4-validate-structure",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -290,7 +295,8 @@
       "verifiedBy": [
         "r12-server-time-and-token",
         "r27-stdlib-core-patterns",
-        "r28-stdlib-presence-timing"
+        "r28-stdlib-presence-timing",
+        "r34-stdlib-auth-membership-quota"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -306,6 +312,7 @@
         "r22-strict-equality-types",
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
+        "r34-stdlib-auth-membership-quota",
         "r7-pathvar-binding"
       ],
       "verifiedByRows": [],
@@ -331,6 +338,7 @@
         "r28-stdlib-presence-timing",
         "r32-method-argument-types",
         "r33-null-operands",
+        "r34-stdlib-auth-membership-quota",
         "r8-combined-check",
         "r9-quota-arithmetic"
       ],
@@ -355,6 +363,7 @@
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
         "r32-method-argument-types",
+        "r34-stdlib-auth-membership-quota",
         "r8-combined-check"
       ],
       "verifiedByRows": [
@@ -372,7 +381,8 @@
         "r10-snapshot-type-guards",
         "r23-validate-sibling-scope",
         "r27-stdlib-core-patterns",
-        "r28-stdlib-presence-timing"
+        "r28-stdlib-presence-timing",
+        "r34-stdlib-auth-membership-quota"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -421,7 +431,8 @@
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
         "r3-data-exists",
-        "r32-method-argument-types"
+        "r32-method-argument-types",
+        "r34-stdlib-auth-membership-quota"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -456,6 +467,7 @@
         "r26-rule-runtime-error",
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
+        "r34-stdlib-auth-membership-quota",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -473,7 +485,8 @@
         "r17-validate-runtime-error",
         "r21-validate-on-delete",
         "r23-validate-sibling-scope",
-        "r27-stdlib-core-patterns"
+        "r27-stdlib-core-patterns",
+        "r34-stdlib-auth-membership-quota"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -524,7 +537,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "r11-string-validation"
+        "r11-string-validation",
+        "r34-stdlib-auth-membership-quota"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -648,6 +662,7 @@
         "r31-token-claims",
         "r32-method-argument-types",
         "r33-null-operands",
+        "r34-stdlib-auth-membership-quota",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -682,6 +697,7 @@
         "r3-data-exists",
         "r32-method-argument-types",
         "r33-null-operands",
+        "r34-stdlib-auth-membership-quota",
         "r4-validate-structure",
         "r5-cascade-root-grant",
         "r7-pathvar-binding",
@@ -700,6 +716,7 @@
       "verifiedBy": [
         "r24-deny-without-rule",
         "r27-stdlib-core-patterns",
+        "r34-stdlib-auth-membership-quota",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [
@@ -738,6 +755,7 @@
         "r28-stdlib-presence-timing",
         "r30-query-rules",
         "r33-null-operands",
+        "r34-stdlib-auth-membership-quota",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [
@@ -756,6 +774,7 @@
         "r27-stdlib-core-patterns",
         "r31-token-claims",
         "r33-null-operands",
+        "r34-stdlib-auth-membership-quota",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [
@@ -773,6 +792,7 @@
         "r23-validate-sibling-scope",
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
+        "r34-stdlib-auth-membership-quota",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [
@@ -859,6 +879,7 @@
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
         "r30-query-rules",
+        "r34-stdlib-auth-membership-quota",
         "r7-pathvar-binding",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -877,6 +898,7 @@
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
         "r33-null-operands",
+        "r34-stdlib-auth-membership-quota",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -892,7 +914,8 @@
         "r26-rule-runtime-error",
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
-        "r3-data-exists"
+        "r3-data-exists",
+        "r34-stdlib-auth-membership-quota"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -942,6 +965,7 @@
         "r30-query-rules",
         "r31-token-claims",
         "r32-method-argument-types",
+        "r34-stdlib-auth-membership-quota",
         "r7-pathvar-binding",
         "r8-combined-check"
       ],
@@ -987,6 +1011,7 @@
         "r3-data-exists",
         "r30-query-rules",
         "r32-method-argument-types",
+        "r34-stdlib-auth-membership-quota",
         "r4-validate-structure",
         "r5-cascade-root-grant",
         "r6-deny-everything",
@@ -1030,6 +1055,7 @@
         "r31-token-claims",
         "r32-method-argument-types",
         "r33-null-operands",
+        "r34-stdlib-auth-membership-quota",
         "r4-validate-structure",
         "r5-cascade-root-grant",
         "r6-deny-everything",
@@ -1067,6 +1093,7 @@
         "r28-stdlib-presence-timing",
         "r32-method-argument-types",
         "r33-null-operands",
+        "r34-stdlib-auth-membership-quota",
         "r4-validate-structure",
         "r9-quota-arithmetic"
       ],
@@ -1106,6 +1133,7 @@
         "r24-deny-without-rule",
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
+        "r34-stdlib-auth-membership-quota",
         "r7-pathvar-binding"
       ],
       "verifiedByRows": [
@@ -1341,7 +1369,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "r31-token-claims"
+        "r31-token-claims",
+        "r34-stdlib-auth-membership-quota"
       ],
       "verifiedByRows": [
         "rtdb-rules#25"

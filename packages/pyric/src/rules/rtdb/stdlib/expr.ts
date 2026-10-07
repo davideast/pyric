@@ -113,6 +113,26 @@ export function fieldName(builder: string, field: string): string {
   return field;
 }
 
+/**
+ * `.child(...)` calls for `segments`: a string is a key, `{ $: 'auth.uid' }`
+ * or `{ $: '$roomId' }` a value the rule reads.
+ */
+export function childPath(builder: string, segments: ReadonlyArray<string | { $: string }>): string {
+  if (segments.length === 0) throw new Error(`${builder}: pass at least one segment.`);
+  return segments
+    .map((s) => (typeof s === 'string' ? `.child(${lit(fieldName(builder, s))})` : `.child(${s.$})`))
+    .join('');
+}
+
+/** `snapshot` followed by `levelsUp` `.parent()` calls, or `root` when `levelsUp` is undefined. */
+export function climb(builder: string, snapshot: 'data' | 'newData', levelsUp: number | undefined): string {
+  if (levelsUp === undefined) return 'root';
+  if (!Number.isInteger(levelsUp) || levelsUp < 0) {
+    throw new Error(`${builder}: levelsUp must be an integer of at least 0, got ${String(levelsUp)}.`);
+  }
+  return `${snapshot}${'.parent()'.repeat(levelsUp)}`;
+}
+
 /** A path variable name such as `$uid`, or a thrown error naming the builder. */
 export function pathVariable(builder: string, name: string): string {
   if (!/^\$[A-Za-z_][\w]*$/.test(name)) {

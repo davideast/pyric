@@ -79,6 +79,7 @@ import {
   type RtdbCaseQuery,
   type RtdbDeployScenario,
   type RtdbDeployVerdict,
+  type RtdbCaseIdentity,
   type RtdbScenario,
   type RtdbTestCase,
 } from '../rules-corpus/rtdb/index.ts';
@@ -224,6 +225,29 @@ function printInertPlan({ scenarios, deployScenarios }: RtdbSelection): void {
   console.log('      bun run packages/conformance/src/run-rules-rtdb.ts --scenario <scenario-id>');
 }
 
+/**
+ * A Firebase custom token for `uid` with developer `claims`, signed with the
+ * service account key. The issue time is set two minutes back so a local
+ * clock somewhat ahead of Google's does not make the token's `iat` lie in
+ * the future, which Auth rejects as an invalid custom token.
+ */
+function mintCustomToken(sa: ServiceAccount, uid: string, claims: Record<string, unknown>): string {
+  const iat = Math.floor(Date.now() / 1000) - 120;
+  const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
+  const payload = Buffer.from(JSON.stringify({
+    iss: sa.client_email,
+    sub: sa.client_email,
+    aud: 'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit',
+    iat,
+    exp: iat + 3600,
+    uid,
+    ...(Object.keys(claims).length > 0 ? { claims } : {}),
+  })).toString('base64url');
+  const signer = createSign('RSA-SHA256');
+  signer.update(`${header}.${payload}`);
+  return `${header}.${payload}.${signer.sign(sa.private_key).toString('base64url')}`;
+}
+
 /** Mint a short-lived OAuth access token from a service account for `scope`. */
 async function mintToken(sa: ServiceAccount, scope: string): Promise<string> {
   const tokenUri = sa.token_uri ?? 'https://oauth2.googleapis.com/token';
@@ -299,7 +323,8 @@ export async function verifyRunDataCleanup(store: RunDataStore, auditKey: string
 
 /**
  * The run's user-cleanup operations, narrowed so the contract can be tested
- * against a fake. Only the custom-token uid the run minted is ever passed.
+ * against a fake. Only uids the run created are ever passed: the custom-token
+ * uid, each identity user's uid, and each anonymous uid.
  */
 export interface RunUserStore {
   deleteUser(uid: string): Promise<void>;
@@ -307,15 +332,39 @@ export interface RunUserStore {
 }
 
 /**
- * USER CLEANUP INVARIANT: a custom-token sign-in creates its uid in Auth. The
- * runner deletes that one uid and proves the deletion by looking it up. A run
- * that never signed in with a custom token finds no user and is clean.
+ * USER CLEANUP INVARIANT: every sign-in the run makes creates its uid in Auth.
+ * The runner deletes each such uid and proves the deletion by looking it up. A
+ * recorded uid Auth never stored finds no user and is clean.
  */
 export async function verifyRunUserCleanup(store: RunUserStore, uid: string): Promise<void> {
   if (await store.userExists(uid)) await store.deleteUser(uid);
   if (await store.userExists(uid)) {
-    throw new Error(`user cleanup NOT verified — the custom-token user '${uid}' still exists after deletion.`);
+    throw new Error(`user cleanup NOT verified: the run-created user '${uid}' still exists after deletion.`);
   }
+}
+
+/** The Auth user a case identity signs in as: a run-scoped uid and, when the
+ *  identity names an email domain, its email and verification flag. */
+export interface RunUserProps {
+  uid: string;
+  email?: string;
+  emailVerified?: boolean;
+}
+
+/** The run's user-creation operation, narrowed so the contract can be tested
+ *  against a fake. */
+export interface RunUserCreator {
+  createUser(props: RunUserProps): Promise<void>;
+}
+
+/**
+ * Create an identity user and record its uid for the cleanup invariant. The uid
+ * is recorded before the creation request, so a request that fails after Auth
+ * stored the user still leaves the user in the set the run deletes.
+ */
+export async function createRunUser(creator: RunUserCreator, runUids: Set<string>, props: RunUserProps): Promise<void> {
+  runUids.add(props.uid);
+  await creator.createUser(props);
 }
 
 /** One SDK query constraint: the `firebase/database` function name and its arguments. */
@@ -546,11 +595,32 @@ async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<v
   );
   const adminDb = getAdminDatabase(config.databaseURL, adminApp);
   const adminAuth = getAdminAuth(adminApp);
-  // The one uid every custom-token case signs in as. It and every anonymous
-  // uid the run signs in as are Auth users the run created; all are deleted
-  // at the end.
+  // The one uid every claims case signs in as. It, every identity user's uid,
+  // and every anonymous uid the run signs in as are Auth users the run created;
+  // all are recorded here and deleted at the end.
   const claimsUid = `pyric-oracle-rulesrtdb-${runId}`;
   const runUids = new Set<string>([claimsUid]);
+  // Auth users created for case identities, one per distinct identity, with
+  // run-scoped uids and emails.
+  const identityUids = new Map<string, string>();
+  async function identityUser(identity: RtdbCaseIdentity): Promise<string> {
+    const key = JSON.stringify(identity);
+    const existing = identityUids.get(key);
+    if (existing) return existing;
+    const uid = `pyric-oracle-rulesrtdb-${runId}-${identityUids.size}`;
+    identityUids.set(key, uid);
+    await createRunUser(
+      { async createUser(props) { await adminAuth.createUser(props); } },
+      runUids,
+      {
+        uid,
+        ...(identity.emailDomain
+          ? { email: `${uid}@${identity.emailDomain}`, emailVerified: identity.emailVerified ?? false }
+          : {}),
+      },
+    );
+    return uid;
+  }
   const userStore: RunUserStore = {
     async deleteUser(uid) {
       await adminAuth.deleteUser(uid);
@@ -597,9 +667,32 @@ async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<v
       for (const scenario of scenarios) {
         const behavior: Record<string, 'ALLOW' | 'DENY'> = {};
         for (const tc of scenario.cases as RtdbTestCase[]) {
-          // Match auth context to the case. A claims case signs in fresh with a
-          // custom token carrying exactly its claims.
-          if (tc.claims) {
+          // Match auth context to the case. An identity case signs in as the
+          // run-scoped Auth user created for that identity. A claims case signs
+          // in fresh with a custom token carrying exactly its claims. Every other
+          // signed-in case uses an anonymous sign-in, whose uid is recorded for
+          // cleanup.
+          if (tc.identity) {
+            const uid = await identityUser(tc.identity);
+            if (auth.currentUser?.uid !== uid) {
+              if (auth.currentUser) await signOut(auth);
+              // Auth intermittently refuses a freshly minted custom token as
+              // invalid; a new token a moment later is accepted, so the sign-in
+              // is retried a bounded number of times before the run fails.
+              let lastError: unknown;
+              for (let attempt = 0; attempt < 5 && auth.currentUser?.uid !== uid; attempt++) {
+                if (attempt > 0) await new Promise((r) => setTimeout(r, 1500 * attempt));
+                try {
+                  await signInWithCustomToken(auth, mintCustomToken(serviceAccount, uid, tc.identity.claims ?? {}));
+                } catch (e) {
+                  lastError = e;
+                }
+              }
+              if (auth.currentUser?.uid !== uid) {
+                throw new Error(`custom-token sign-in for case "${tc.description}" failed: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
+              }
+            }
+          } else if (tc.claims) {
             if (auth.currentUser) await signOut(auth);
             await signInWithCustomToken(auth, await adminAuth.createCustomToken(claimsUid, tc.claims));
           } else if (tc.authPresent && (!auth.currentUser || !auth.currentUser.isAnonymous)) {
@@ -695,9 +788,19 @@ async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<v
       console.error(`[oracle:rules-rtdb] DATA CLEANUP FAILED: ${e instanceof Error ? e.message : String(e)}`);
     }
     try {
-      for (const uid of runUids) await verifyRunUserCleanup(userStore, uid);
+      // Every recorded uid is attempted, so one failure does not leave the
+      // rest behind.
+      const failures: string[] = [];
+      for (const uid of runUids) {
+        try {
+          await verifyRunUserCleanup(userStore, uid);
+        } catch (e) {
+          failures.push(e instanceof Error ? e.message : String(e));
+        }
+      }
+      if (failures.length > 0) throw new Error(failures.join('; '));
       userCleanupVerified = true;
-      console.log(`[oracle:rules-rtdb] user cleanup verified — ${runUids.size} run-created Auth uid(s) absent.`);
+      console.log(`[oracle:rules-rtdb] user cleanup verified: ${runUids.size} run-created Auth uid(s) deleted and absent from a lookup.`);
     } catch (e) {
       console.error(`[oracle:rules-rtdb] USER CLEANUP FAILED: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -715,7 +818,7 @@ async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<v
     throw new Error(`data cleanup invariant NOT verified — refusing to write observations. Delete /${auditKey} manually.`);
   }
   if (!userCleanupVerified) {
-    throw new Error(`user cleanup invariant NOT verified — refusing to write observations. Delete the Auth users ${[...runUids].join(', ')} manually.`);
+    throw new Error(`user cleanup invariant NOT verified; refusing to write observations. Delete the Auth users ${[...runUids].join(', ')} manually.`);
   }
 
   mkdirSync(OBS_DIR, { recursive: true });
@@ -740,7 +843,7 @@ async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<v
     console.log(`  → wrote ${rtdbObservationName(scenario)}.json`);
   }
 
-  console.log('\n[oracle:rules-rtdb] capture complete — rules restored, run data and run user removed, all read-back verified.');
+  console.log('\n[oracle:rules-rtdb] capture complete: rules restored, run data and run users removed, all read-back verified.');
   console.log('[oracle:rules-rtdb] Existing observation matrixRow/rowIds linkage was preserved.');
   console.log('[oracle:rules-rtdb] NEXT: review the observation diff, then run `bun run compat:validate`.');
 }

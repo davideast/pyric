@@ -48,7 +48,7 @@ function entry({ build, ...rest }: EntryInput): RtdbStdlibEntry {
   return typeof output === 'string' ? { ...rest, output, length: output.length } : { ...rest, output };
 }
 
-const { validation, lifecycle, lobby, turns, results, counters, presence, timing, collections } = rtdbStdlib;
+const { validation, lifecycle, lobby, turns, results, counters, presence, timing, collections, auth, membership } = rtdbStdlib;
 
 const MATCH_CONVENTION =
   "A match node such as /matches/$matchId with leaf children host (creator uid), guest ('' while open, then the joiner's uid), status ('waiting', 'playing', then 'won' | 'draw' | 'resigned'), currentTurn ('host' | 'guest'), winner ('host' | 'guest' | ''), moveCount (number). The same convention as the Firestore lobby, turns and results modules.";
@@ -214,6 +214,18 @@ const MODULES: Array<Omit<RtdbStdlibModule, 'kind' | 'services'>> = [
         example: "timing.stampedInSameWrite(2, ['lastPost', { $: 'auth.uid' }])", build: () => timing.stampedInSameWrite(2, ['lastPost', { $: 'auth.uid' }]),
         notes: "Write the post and the stamp in one multi-path update: update(ref(db), { 'posts/p1': post, ['lastPost/' + uid]: serverTimestamp() }). It limits writes, not posts: one multi-path update can carry several posts and one stamp.",
       }),
+      entry({
+        name: 'windowedQuota', signature: 'windowedQuota(max: number, windowMs: number): Expr', placement: 'quota node .validate, such as /quota/$uid',
+        description: '{ windowStart, count }: a write opens a new window (server timestamp, count 1) once the stored one ended, or adds 1 to count in the open window, up to max.',
+        example: 'timing.windowedQuota(10, 60000)', build: () => timing.windowedQuota(10, 60000),
+        notes: "Give the quota node's .write lifecycle.noDelete(): a deleted quota would reset it.",
+      }),
+      entry({
+        name: 'countedInSameWrite', signature: 'countedInSameWrite(levelsUp: number, segments: Array<string | { $: string }>): Expr', placement: 'quota-limited node .validate',
+        description: 'The same write moves the quota at segments: its count or windowStart changes.',
+        example: "timing.countedInSameWrite(2, ['quota', { $: 'auth.uid' }])", build: () => timing.countedInSameWrite(2, ['quota', { $: 'auth.uid' }]),
+        notes: 'It limits writes, not items: one multi-path update can carry several items and one count.',
+      }),
     ],
     relatedKeys: ['presence', 'counters'],
   },
@@ -228,6 +240,42 @@ const MODULES: Array<Omit<RtdbStdlibModule, 'kind' | 'services'>> = [
       entry({ name: 'slotKey', signature: 'slotKey(pathVar: string, max: number): Expr', placement: 'wildcard node .validate', description: "The wildcard key is '0' to max - 1.", example: "collections.slotKey('$slot', 4)", build: () => collections.slotKey('$slot', 4), notes: 'A collection with free keys, such as push IDs, has no builder here.' }),
     ],
     relatedKeys: ['validation'],
+  },
+  {
+    key: 'auth',
+    description: 'Signed in, a verified email or email domain, custom-claim roles, roles stored in the database, and the tenant.',
+    purpose:
+      'Builders read auth and auth.token, the decoded ID token. The token carries email and email_verified only when the account has an email, and custom claims as set with the Admin SDK. Each builder checks auth != null first; emailDomain checks email_verified before it reads email. Claims compare without type conversion.',
+    whenToUse: 'Any rule that depends on who the writer is rather than on the data.',
+    entries: [
+      entry({ name: 'signedIn', signature: 'signedIn(): Expr', placement: 'any .read or .write', description: 'The request is signed in.', example: 'auth.signedIn()', build: () => auth.signedIn() }),
+      entry({ name: 'emailVerified', signature: 'emailVerified(): Expr', placement: 'any .read or .write', description: 'auth.token.email_verified is true.', example: 'auth.emailVerified()', build: () => auth.emailVerified() }),
+      entry({ name: 'emailDomain', signature: 'emailDomain(domain: string): Expr', placement: 'any .read or .write', description: 'A verified email ending in @domain.', example: "auth.emailDomain('example.com')", build: () => auth.emailDomain('example.com') }),
+      entry({ name: 'hasClaim', signature: 'hasClaim(name: string, value?: string | number | boolean | null): Expr', placement: 'any .read or .write', description: 'The custom claim equals value (default true).', example: "auth.hasClaim('beta')", build: () => auth.hasClaim('beta') }),
+      entry({ name: 'hasRole', signature: "hasRole(role: string, options?: { claim?: string }): Expr", placement: 'any .read or .write', description: "The custom claim (default 'role') equals role.", example: "auth.hasRole('admin')", build: () => auth.hasRole('admin') }),
+      entry({ name: 'hasAnyRole', signature: 'hasAnyRole(...roles: string[]): Expr', placement: 'any .read or .write', description: "The custom claim 'role' equals one of roles.", example: "auth.hasAnyRole('admin', 'editor')", build: () => auth.hasAnyRole('admin', 'editor') }),
+      entry({
+        name: 'roleAt', signature: 'roleAt(segments: Array<string | { $: string }>, role: string, options?: { levelsUp?: number }): Expr', placement: 'any .read or .write',
+        description: 'The role stored in the database at segments equals role; segments start at root, or levelsUp levels above the node.',
+        example: "auth.roleAt(['roles', { $: 'auth.uid' }], 'editor', { levelsUp: 2 })", build: () => auth.roleAt(['roles', { $: 'auth.uid' }], 'editor', { levelsUp: 2 }),
+      }),
+      entry({ name: 'tenantIs', signature: 'tenantIs(tenantId: string): Expr', placement: 'any .read or .write', description: 'auth.token.firebase.tenant equals tenantId.', example: "auth.tenantIs('acme')", build: () => auth.tenantIs('acme') }),
+      entry({ name: 'inTenant', signature: 'inTenant(pathVar: string): Expr', placement: 'any .read or .write under a tenant path variable', description: 'auth.token.firebase.tenant equals the path variable.', example: "auth.inTenant('$tenantId')", build: () => auth.inTenant('$tenantId') }),
+    ],
+    relatedKeys: ['membership', 'lifecycle'],
+  },
+  {
+    key: 'membership',
+    description: 'A member list in the database, such as /rooms/$roomId/members/$uid: true, and the rules that read it.',
+    purpose:
+      'A member is a key whose value is true. memberOf reads the stored data, so a write that adds the writer to the list cannot use that same write to pass the check.',
+    whenToUse: 'Rooms, teams or groups whose content only their members read or write.',
+    entries: [
+      entry({ name: 'memberOf', signature: 'memberOf(segments: Array<string | { $: string }>, options?: { levelsUp?: number }): Expr', placement: 'any .read or .write', description: 'The stored value at segments is true; segments start at root, or levelsUp levels above the node.', example: "membership.memberOf(['members', { $: 'auth.uid' }], { levelsUp: 2 })", build: () => membership.memberOf(['members', { $: 'auth.uid' }], { levelsUp: 2 }) }),
+      entry({ name: 'selfMembership', signature: 'selfMembership(pathVar?: string): Expr', placement: 'member node .write', description: "The writer adds (true) or removes only their own key.", example: "membership.selfMembership('$uid')", build: () => membership.selfMembership('$uid') }),
+      entry({ name: 'memberFlag', signature: 'memberFlag(): Expr', placement: 'member node .validate', description: 'A member node holds true.', example: 'membership.memberFlag()', build: () => membership.memberFlag() }),
+    ],
+    relatedKeys: ['auth', 'collections'],
   },
 ];
 
