@@ -10,12 +10,18 @@ import {
   ROOT_VARIABLES,
   binaryResult,
   memberOf,
-  operandMessage,
   operandsOf,
   typeError,
   type RtdbStaticType,
   type RtdbTypedValue,
 } from './types.js';
+import {
+  REGEX_FLAGS,
+  isSupportedRegexFlags,
+  operandMessage,
+  unknownVariableMessage,
+  type TypedOperator,
+} from './type-rules.js';
 
 interface ValidateContext {
   errors: RuleError[];
@@ -48,12 +54,12 @@ function typeOf(node: Node, ctx: ValidateContext): RtdbTypedValue {
 
 function binary(this: Node, left: Node, op: Node, right: Node): RtdbTypedValue {
   const ctx = this.args.ctx as ValidateContext;
-  const operator = op.sourceString;
+  const operator = op.sourceString as TypedOperator;
   const leftType = use(ctx, typeOf(left, ctx));
   const rightType = use(ctx, typeOf(right, ctx));
   const accepted = operandsOf(operator);
-  if (!accepted.has(leftType)) return report(ctx, typeError('TYPE_MISMATCH', operandMessage(operator, 'left')));
-  if (!accepted.has(rightType)) return report(ctx, typeError('TYPE_MISMATCH', operandMessage(operator, 'right')));
+  if (!accepted.has(leftType)) return report(ctx, typeError('INVALID_OPERAND', operandMessage(operator, 'left')));
+  if (!accepted.has(rightType)) return report(ctx, typeError('INVALID_OPERAND', operandMessage(operator, 'right')));
   return typed(binaryResult(operator, leftType, rightType));
 }
 
@@ -63,10 +69,10 @@ function logical(this: Node, left: Node, op: Node, right: Node): RtdbTypedValue 
   const leftType = use(ctx, typeOf(left, ctx));
   const rightType = use(ctx, typeOf(right, ctx));
   if (!BOOLEAN_OPERANDS.has(leftType)) {
-    return report(ctx, typeError('TYPE_MISMATCH', `Left operand of ${operator} must be boolean.`));
+    return report(ctx, typeError('INVALID_OPERAND', `Left operand of ${operator} must be boolean.`));
   }
   if (!BOOLEAN_OPERANDS.has(rightType)) {
-    return report(ctx, typeError('TYPE_MISMATCH', `Right operand of ${operator} must be boolean.`));
+    return report(ctx, typeError('INVALID_OPERAND', `Right operand of ${operator} must be boolean.`));
   }
   return typed(leftType === 'Error' || rightType === 'Error' ? 'Error' : 'Boolean');
 }
@@ -124,7 +130,7 @@ function getValidatorSemantics(): Semantics {
       const consequentType = use(ctx, typeOf(consequent, ctx));
       const alternateType = use(ctx, typeOf(alternate, ctx));
       if (!BOOLEAN_OPERANDS.has(conditionType)) {
-        return report(ctx, typeError('TYPE_MISMATCH', 'condition of ? must be boolean.'));
+        return report(ctx, typeError('INVALID_OPERAND', 'condition of ? must be boolean.'));
       }
       if (consequentType === 'Error' || alternateType === 'Error') return ERROR;
       return typed(consequentType === alternateType ? consequentType : 'Mixed');
@@ -150,14 +156,14 @@ function getValidatorSemantics(): Semantics {
     UnaryExpr_not(_op, operand) {
       const ctx = this.args.ctx as ValidateContext;
       const type = use(ctx, typeOf(operand, ctx));
-      if (!BOOLEAN_OPERANDS.has(type)) return report(ctx, typeError('TYPE_MISMATCH', '! only operates on booleans.'));
+      if (!BOOLEAN_OPERANDS.has(type)) return report(ctx, typeError('INVALID_OPERAND', '! only operates on booleans.'));
       return typed(type === 'Error' ? 'Error' : 'Boolean');
     },
 
     UnaryExpr_neg(_op, operand) {
       const ctx = this.args.ctx as ValidateContext;
       const type = use(ctx, typeOf(operand, ctx));
-      if (!NUMERIC_OPERANDS.has(type)) return report(ctx, typeError('TYPE_MISMATCH', '- only operates on numbers.'));
+      if (!NUMERIC_OPERANDS.has(type)) return report(ctx, typeError('INVALID_OPERAND', '- only operates on numbers.'));
       return typed(type === 'Error' ? 'Error' : 'Number');
     },
 
@@ -214,7 +220,10 @@ function getValidatorSemantics(): Semantics {
     string(_s) {
       return typed('String');
     },
-    regex(_open, _body, _close, _flags) {
+    regex(_open, _body, _close, flags) {
+      if (!isSupportedRegexFlags(flags.sourceString)) {
+        return report(this.args.ctx as ValidateContext, typeError('INVALID_REGEX', REGEX_FLAGS));
+      }
       return typed('Regex');
     },
     bool(_b) {
@@ -229,13 +238,13 @@ function getValidatorSemantics(): Semantics {
       const name = this.sourceString;
       if (_dollar.sourceString === '$') {
         if (ctx.pathVars.has(name.slice(1))) return typed('String');
-        return report(ctx, typeError('UNKNOWN_IDENTIFIER', `Unknown variable '${name}'.`));
+        return report(ctx, typeError('UNKNOWN_IDENTIFIER', unknownVariableMessage(name)));
       }
       if (name === 'newData' && ctx.context === 'read') {
         return report(ctx, typeError('NEWDATA_IN_READ', 'newData is invalid in .read expressions.'));
       }
       const type = ROOT_VARIABLES.get(name);
-      if (!type) return report(ctx, typeError('UNKNOWN_IDENTIFIER', `Unknown variable '${name}'.`));
+      if (!type) return report(ctx, typeError('UNKNOWN_IDENTIFIER', unknownVariableMessage(name)));
       return typed(type);
     },
   });

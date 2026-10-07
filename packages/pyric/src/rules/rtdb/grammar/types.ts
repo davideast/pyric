@@ -9,6 +9,16 @@
  * `test/rules/rtdb/grammar/validator-types.test.ts` holds this file to it.
  */
 import type { RuleError } from '../types.js';
+import {
+  HAS_CHILDREN_ARGUMENT_COUNT,
+  HAS_CHILDREN_ARRAY,
+  HAS_CHILDREN_STRINGS,
+  MATCHES_REGEX_LITERAL,
+  argumentCountMessage,
+  replaceArgumentMessage,
+  stringArgumentMessage,
+  type TypedOperator,
+} from './type-rules.js';
 
 /**
  * A static type.
@@ -61,36 +71,14 @@ export const NUMERIC_OPERANDS = set('Number', 'Value', 'Auth', 'QueryValue', 'Mi
 /** Arguments a string parameter accepts, and `hasChildren()` array elements. */
 export const STRING_ARGUMENTS = set('String', 'Value', 'Auth', 'Mixed');
 
+
 /** The diagnostic for one failed check. */
 export function typeError(code: string, message: string): RuleError {
   return { code, message };
 }
 
-/** The message for an operand a binary operator does not accept. */
-export function operandMessage(operator: string, side: 'left' | 'right'): string {
-  switch (operator) {
-    case '==':
-    case '===':
-      return side === 'left'
-        ? 'Invalid == expression: left operand is not a number, boolean, string, null.'
-        : 'Invalid == expression: right operand is not a number, boolean, string, or null.';
-    case '!=':
-    case '!==':
-      return `Invalid != expression: ${side} operand is not a number, boolean, string, or null.`;
-    case '<':
-    case '<=':
-    case '>':
-    case '>=':
-      return `Invalid ${operator} expression: ${side} operand must be a number or string.`;
-    case '+':
-      return `Invalid + expression: ${side} operand is not a number or string.`;
-    default:
-      return `Invalid ${operator} expression: ${side} operand is not a number.`;
-  }
-}
-
 /** The operand set a binary operator accepts. */
-export function operandsOf(operator: string): ReadonlySet<RtdbStaticType> {
+export function operandsOf(operator: TypedOperator): ReadonlySet<RtdbStaticType> {
   switch (operator) {
     case '==':
     case '===':
@@ -109,7 +97,7 @@ export function operandsOf(operator: string): ReadonlySet<RtdbStaticType> {
 }
 
 /** The result type of a binary operator whose operands passed their checks. */
-export function binaryResult(operator: string, left: RtdbStaticType, right: RtdbStaticType): RtdbStaticType {
+export function binaryResult(operator: TypedOperator, left: RtdbStaticType, right: RtdbStaticType): RtdbStaticType {
   if (operator !== '+' && operator !== '-' && operator !== '*' && operator !== '/' && operator !== '%') return 'Boolean';
   if (left === 'Error' || right === 'Error') return 'Error';
   if (operator !== '+') return 'Number';
@@ -125,11 +113,12 @@ export interface RtdbMethod {
   check(name: string, args: readonly RtdbTypedValue[]): RuleError | null;
 }
 
+const invalidArgument = (message: string): RuleError => typeError('INVALID_ARGUMENT', message);
+
 function noArguments(returns: RtdbStaticType): RtdbMethod {
   return {
     returns,
-    check: (name, args) =>
-      args.length === 0 ? null : typeError('WRONG_ARGUMENT_COUNT', `${name}() expects no arguments.`),
+    check: (name, args) => (args.length === 0 ? null : invalidArgument(argumentCountMessage(name, 0))),
   };
 }
 
@@ -137,10 +126,8 @@ function oneString(returns: RtdbStaticType): RtdbMethod {
   return {
     returns,
     check(name, args) {
-      if (args.length !== 1) return typeError('WRONG_ARGUMENT_COUNT', `${name}() expects 1 argument.`);
-      return STRING_ARGUMENTS.has(args[0]!.type)
-        ? null
-        : typeError('ARGUMENT_TYPE', `${name}() expects a string argument.`);
+      if (args.length !== 1) return invalidArgument(argumentCountMessage(name, 1));
+      return STRING_ARGUMENTS.has(args[0]!.type) ? null : invalidArgument(stringArgumentMessage(name));
     },
   };
 }
@@ -149,42 +136,31 @@ const HAS_CHILDREN: RtdbMethod = {
   returns: 'Boolean',
   check(_name, args) {
     if (args.length === 0) return null;
-    if (args.length > 1) {
-      return typeError(
-        'WRONG_ARGUMENT_COUNT',
-        'hasChildren() expects only a single argument (containing an array of child names).',
-      );
-    }
+    if (args.length > 1) return invalidArgument(HAS_CHILDREN_ARGUMENT_COUNT);
     const list = args[0]!;
     if (list.type === 'Error') return null;
-    if (list.type !== 'Array') return typeError('ARGUMENT_TYPE', 'hasChildren() expects an array of child names.');
+    if (list.type !== 'Array') return invalidArgument(HAS_CHILDREN_ARRAY);
     return (list.elements ?? []).every((element) => STRING_ARGUMENTS.has(element))
       ? null
-      : typeError('ARGUMENT_TYPE', 'hasChildren() expects an array of strings.');
+      : invalidArgument(HAS_CHILDREN_STRINGS);
   },
 };
 
 const REPLACE: RtdbMethod = {
   returns: 'String',
-  check(_name, args) {
-    if (args.length !== 2) return typeError('WRONG_ARGUMENT_COUNT', 'replace() expects two arguments.');
+  check(name, args) {
+    if (args.length !== 2) return invalidArgument(argumentCountMessage(name, 2));
     const failed = args.findIndex((arg) => !STRING_ARGUMENTS.has(arg.type));
-    return failed === -1
-      ? null
-      : typeError('ARGUMENT_TYPE', `Argument ${failed + 1} of replace() must be a string.`);
+    return failed === -1 ? null : invalidArgument(replaceArgumentMessage(failed === 0 ? 1 : 2));
   },
 };
 
 const MATCHES: RtdbMethod = {
   returns: 'Boolean',
-  check(_name, args) {
-    if (args.length !== 1) {
-      return typeError('WRONG_ARGUMENT_COUNT', 'matches() expects 1 regular expression literal argument.');
-    }
+  check(name, args) {
+    if (args.length !== 1) return invalidArgument(argumentCountMessage(name, 1));
     const type = args[0]!.type;
-    return type === 'Regex' || type === 'Error'
-      ? null
-      : typeError('ARGUMENT_TYPE', 'matches() expects a regular expression literal argument.');
+    return type === 'Regex' || type === 'Error' ? null : invalidArgument(MATCHES_REGEX_LITERAL);
   },
 };
 

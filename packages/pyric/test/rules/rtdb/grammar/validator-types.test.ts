@@ -83,27 +83,36 @@ describe('validation error codes', () => {
     ['auth.exists()', 'NOT_A_FUNCTION'],
     ['now.foo == 1', 'NOT_AN_OBJECT'],
     ["'abc'[0] == 'a'", 'INVALID_PROPERTY_ACCESS'],
-    ['data > 1', 'TYPE_MISMATCH'],
-    ["data != 'locked'", 'TYPE_MISMATCH'],
-    ['!auth.uid', 'TYPE_MISMATCH'],
+    ['data > 1', 'INVALID_OPERAND'],
+    ["data != 'locked'", 'INVALID_OPERAND'],
+    ['!auth.uid', 'INVALID_OPERAND'],
     ['auth.uid', 'NOT_BOOLEAN'],
     ['data.val()', 'NOT_BOOLEAN'],
-    ['data.child().exists()', 'WRONG_ARGUMENT_COUNT'],
-    ['data.hasChild()', 'WRONG_ARGUMENT_COUNT'],
-    ['data.child(1).exists()', 'ARGUMENT_TYPE'],
-    ["auth.uid.matches('a')", 'ARGUMENT_TYPE'],
-    ["data.hasChildren('a')", 'ARGUMENT_TYPE'],
+    ['data.child().exists()', 'INVALID_ARGUMENT'],
+    ['data.hasChild()', 'INVALID_ARGUMENT'],
+    ['data.child(1).exists()', 'INVALID_ARGUMENT'],
+    ["auth.uid.matches('a')", 'INVALID_ARGUMENT'],
+    ["data.hasChildren('a')", 'INVALID_ARGUMENT'],
     ["['a'] == ['a']", 'UNEXPECTED_ARRAY'],
   ])('%s reports %s', (raw, code) => {
     expect(codes(raw)[0]).toBe(code);
+  });
+
+  test('an assignment is a parse error with production text, from the r28 deploy-rejection capture', () => {
+    for (const raw of ["auth.uid = 'x'", "(auth.uid = 'x') && true"]) {
+      expect(buildRuleExpression(raw, 'read', ['$id']).parsed.errors).toEqual([
+        { code: 'PARSE_ERROR', message: 'Rule expressions may not contain assignments.' },
+      ]);
+    }
+    expect(buildRuleExpression("auth.uid == '=' && auth.uid != 'a=b'", 'read').parsed.errors).toEqual([]);
   });
 
   test('newData in a .read rule reports NEWDATA_IN_READ', () => {
     expect(codes('newData.exists()')).toEqual(['NEWDATA_IN_READ']);
   });
 
-  test('snapshot operands in write arithmetic report TYPE_MISMATCH', () => {
-    expect(codes('newData + 1 > 0', 'write')[0]).toBe('TYPE_MISMATCH');
+  test('snapshot operands in write arithmetic report INVALID_OPERAND', () => {
+    expect(codes('newData + 1 > 0', 'write')[0]).toBe('INVALID_OPERAND');
   });
 
   test('query is readable in every rule kind', () => {
