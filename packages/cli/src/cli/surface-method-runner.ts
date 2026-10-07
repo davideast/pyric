@@ -25,7 +25,7 @@ import { validateArguments } from '../bridge/surface/method-validation.js';
 import { methodByKey } from '../bridge/surface/methods/registry.js';
 import { markDenial, thrownFailure } from '../bridge/surface/rules-verdict.js';
 import type { OperationResult } from '../bridge/surface/types.js';
-import { discoverServe } from '../serve/discovery.js';
+import { discoverServe, selectProjectHost } from '../serve/discovery.js';
 import { argumentsFromFlags } from './surface-method-args.js';
 import { selectAllowProduction } from './mcp-proxy.js';
 import { callHostedMethod } from './hosted-method.js';
@@ -107,8 +107,8 @@ export async function runSurfaceMethod(
   const discoversHost = parsed.flags.get('in-process') !== true;
   const printsJson = parsed.flags.get('json') === true;
   if (discoversHost) {
-    const found = await (deps.discover ?? discoverServe)(cwd);
-    const foundProjectHost = found !== null && found.source.startsWith('pointer');
+    const found = selectProjectHost(await (deps.discover ?? discoverServe)(cwd), (m) => stderr.write(`pyric: ${m}\n`));
+    const foundProjectHost = found !== null;
     if (foundProjectHost) {
       try {
         const result = await callHostedMethod(found, key, read.args, cwd, allowProduction);

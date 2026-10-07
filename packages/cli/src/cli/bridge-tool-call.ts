@@ -15,7 +15,7 @@
  */
 
 import type { ParsedArgs } from './parse-args.js';
-import { discoverServe, type Discovered } from '../serve/discovery.js';
+import { discoverServe, selectProjectHost, type Discovered } from '../serve/discovery.js';
 import { NO_BRIDGE_CLI_MESSAGE } from '../auth/identity.js';
 
 /** A tool result as the bridge returns it. */
@@ -114,7 +114,10 @@ export async function runBridgeCommand(
   const cwd = deps.cwd ?? process.cwd();
   const json = parsed.flags.get('json') === true;
 
-  const found = await (deps.discover ?? discoverServe)(cwd, () => {});
+  const found = selectProjectHost(
+    await (deps.discover ?? discoverServe)(cwd, () => {}),
+    (m) => err.write(`pyric ${command}: ${m}\n`),
+  );
   if (!found) {
     err.write(`${NO_BRIDGE_CLI_MESSAGE}\n`);
     return 1;

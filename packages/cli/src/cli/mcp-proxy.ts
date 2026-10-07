@@ -62,7 +62,7 @@
 import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/sdk/types.js';
 import type { ParsedArgs } from './parse-args.js';
 import { allowProductionFrom } from '../bridge/surface/method-effects.js';
-import { discoverServe, SCAN_PORTS, type Discovered } from '../serve/discovery.js';
+import { discoverServe, SCAN_PORTS, selectProjectHost, type Discovered } from '../serve/discovery.js';
 import { MCP_PROJECT_HEADER, MCP_INSTANCE_HEADER } from '../serve/mcp-project.js';
 
 // Discovery (pointer + identity-pinned health probing) lives in
@@ -224,16 +224,7 @@ export async function runMcpProxy(
   const discovered = await (deps.discover ?? discoverServe)(cwd, log);
   // Only a pointer selects a host. Its directory is then verified by the MCP
   // endpoint; the pointer's contents alone do not establish project ownership.
-  const hasPointer = discovered !== null && discovered.source.startsWith('pointer');
-  const found = hasPointer ? discovered : null;
-  const foundOnlyByScan = discovered !== null && found === null;
-  if (foundOnlyByScan) {
-    log(
-      `a sandbox server is answering at ${discovered.base} (${discovered.source}), but no ` +
-        '.pyric/serve.json in this project names it, so it is not attached to. Start `pyric serve` ' +
-        'from this project to write the pointer, or ignore the server if it belongs to another project.',
-    );
-  }
+  const found = selectProjectHost(discovered, log);
   const hasNoHost = found === null;
   const requiresMissingHost = hasNoHost && requiresRunningServe(parsed);
   if (requiresMissingHost) {
@@ -376,9 +367,9 @@ export async function runMcpProxy(
      * interrupted tool call is replayed.
      */
     const replaceSession = async (): Promise<string | null> => {
-      const target = await (deps.discover ?? discoverServe)(cwd, log);
-      const isPointerTarget = target !== null && target.source.startsWith('pointer');
-      if (!isPointerTarget) {
+      const discoveredAgain = await (deps.discover ?? discoverServe)(cwd, log);
+      const target = selectProjectHost(discoveredAgain, log);
+      if (target === null) {
         return (
           'no running sandbox for this project is reachable (looked for the .pyric/serve.json ' +
           'pointer). Start the dev server for this project; the next call reattaches.'

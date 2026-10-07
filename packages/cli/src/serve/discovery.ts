@@ -153,6 +153,27 @@ export function canonicalServeUrl(port: number, pointerUrl?: string): string {
   return `http://localhost:${port}`;
 }
 
+/**
+ * The host a command may attach to: one found through the project's
+ * `.pyric/serve.json` pointer. A server found only by the port scan may belong
+ * to another project, so it is logged as unattached and not returned. Every
+ * command that attaches to a running host selects it through this function.
+ */
+export function selectProjectHost(
+  discovered: Discovered | null,
+  log: (m: string) => void,
+): Discovered | null {
+  if (discovered === null) return null;
+  const foundByPointer = discovered.source.startsWith('pointer');
+  if (foundByPointer) return discovered;
+  log(
+    `a sandbox server is answering at ${discovered.base} (${discovered.source}), but no ` +
+      '.pyric/serve.json in this project names it, so it is not attached to. Start `pyric serve` ' +
+      'from this project to write the pointer, or ignore the server if it belongs to another project.',
+  );
+  return null;
+}
+
 /** Find the running serve: pointer first (in `cwd`), then a port scan. The
  *  pointer gives the PORT and (when present) the identity; the family is
  *  resolved by probing, so the returned base always uses the address the
