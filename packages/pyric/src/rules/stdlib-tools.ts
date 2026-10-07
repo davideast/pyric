@@ -104,7 +104,7 @@ function getRtdbStdlib(key: string) {
       ok: false,
       summary: firestoreModule
         ? `Stdlib module "${key}" is not compatible with database`
-        : `No database stdlib module named "${key}"` + (suggestion ? ` — did you mean "${suggestion}"?` : ''),
+        : `No database stdlib module named "${key}"` + (suggestion ? `; did you mean "${suggestion}"?` : ''),
       data: {
         unknownKey: key,
         service: 'database',
@@ -117,7 +117,7 @@ function getRtdbStdlib(key: string) {
   const importLine = rtdbImportLineFor(found);
   return {
     ok: true,
-    summary: `Stdlib module: ${found.key} (database) — author with: ${importLine}`,
+    summary: `Stdlib module: ${found.key} (database). Author with: ${importLine}`,
     data: { importLine, authoring: RTDB_AUTHORING, module: found },
   };
 }

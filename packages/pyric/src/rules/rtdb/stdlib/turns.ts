@@ -53,12 +53,15 @@ export function isSeatTurn(seatCount: number): Expr {
 }
 
 /**
- * `turn` moves to the next seat, wrapping from the last seat to seat 0, and
- * every seat in `players` keeps its uid.
+ * The stored `turn` is a number, `turn` moves to the next seat, wrapping
+ * from the last seat to seat 0, and every seat in `players` keeps its uid.
  */
 export function turnAdvanced(seatCount: number): Expr {
   const all = seats('turnAdvanced', seatCount);
   return and(
+    // Adding to a missing or non-number turn is an evaluation error that
+    // fails the whole rule in production, so the stored turn is checked first.
+    raw("data.child('turn').isNumber()"),
     raw(`${val('newData', 'turn')} == (${val('data', 'turn')} + 1) % ${seatCount}`),
     ...all.map((i) => sameAsBefore(`players/${i}`)),
   );

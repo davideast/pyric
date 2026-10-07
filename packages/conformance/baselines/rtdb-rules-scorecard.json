@@ -236,7 +236,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "r12-server-time-and-token"
+        "r12-server-time-and-token",
+        "r27-stdlib-core-patterns"
       ],
       "verifiedByRows": [],
       "divergedByRows": []

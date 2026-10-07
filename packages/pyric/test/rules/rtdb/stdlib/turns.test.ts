@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { all, authenticated, rtdbStdlib } from 'pyric/rules';
+import { all, any, authenticated, rtdbStdlib } from 'pyric/rules';
 import { runScenario, type StdlibScenario } from './harness.js';
 
 const { turns, lifecycle, counters, lobby } = rtdbStdlib;
@@ -18,6 +18,10 @@ const scenario: StdlibScenario = {
     '/tables/$tableId': {
       read: authenticated(),
       write: all(turns.isSeatTurn(3), turns.turnAdvanced(3)),
+    },
+    // turnAdvanced runs first here, on a board with no stored turn.
+    '/boards/$boardId': {
+      write: any(all(turns.turnAdvanced(3), turns.isSeatTurn(3)), all(authenticated(), lifecycle.createOnly())),
     },
   },
   cases: [],
@@ -42,6 +46,7 @@ scenario.cases.push(
   { description: 'a seat moves out of turn', expectation: 'DENY', operation: 'update', path: '/tables/t1', auth: 'ann', data: table(2), newData: { turn: 0 } },
   { description: 'a move that skips a seat', expectation: 'DENY', operation: 'update', path: '/tables/t1', auth: 'cat', data: table(2), newData: { turn: 1 } },
   { description: 'a move that also replaces a seat', expectation: 'DENY', operation: 'update', path: '/tables/t1', auth: 'cat', data: table(2), newData: { turn: 0, 'players/0': 'cat' } },
+  { description: 'a board created with no stored turn', expectation: 'ALLOW', operation: 'write', path: '/boards/b1', auth: 'ann', newData: { players: { 0: 'ann', 1: 'ben', 2: 'cat' }, turn: 0 } },
 );
 
 describe('rtdbStdlib.turns', () => {
@@ -62,7 +67,7 @@ describe('rtdbStdlib.turns', () => {
       "auth != null && ((data.child('turn').val() == 0 && data.child('players/0').val() == auth.uid) || (data.child('turn').val() == 1 && data.child('players/1').val() == auth.uid))",
     );
     expect(turns.turnAdvanced(2)).toBe(
-      "newData.child('turn').val() == (data.child('turn').val() + 1) % 2 && newData.child('players/0').val() == data.child('players/0').val() && newData.child('players/1').val() == data.child('players/1').val()",
+      "data.child('turn').isNumber() && newData.child('turn').val() == (data.child('turn').val() + 1) % 2 && newData.child('players/0').val() == data.child('players/0').val() && newData.child('players/1').val() == data.child('players/1').val()",
     );
     expect(() => turns.isSeatTurn(0)).toThrow();
     expect(() => turns.turnAdvanced(1.5)).toThrow();

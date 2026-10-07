@@ -4,10 +4,11 @@
   "rowIds": [
     "rtdb-rules#15",
     "rtdb-rules#19",
-    "rtdb-rules#22"
+    "rtdb-rules#22",
+    "rtdb-rules#12"
   ],
   "description": "RTDB rules production verdicts for corpus scenario \"r27-stdlib-core-patterns\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). the standard library builders must compile to rules production deploys and decides the way the builders document, for sets, updates and deletes of the patterns realtime games use.",
-  "observedAt": "2026-10-07T05:31:23.347Z",
+  "observedAt": "2026-10-07T13:48:52.018Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "genkit-idx",
   "behavior": {
@@ -66,6 +67,10 @@
     "multiplying nothing stored by 2, then or true": "DENY",
     "adding a string to nothing stored, then or true": "DENY",
     "negating nothing stored, then or true": "DENY",
-    "comparing nothing stored with 1, then or true": "DENY"
+    "comparing nothing stored with 1, then or true": "DENY",
+    "a board created with no stored turn": "ALLOW",
+    "a join that also rewrites rematchOf": "DENY",
+    "a server timestamp where the rule requires now": "ALLOW",
+    "a client time where the rule requires now": "DENY"
   }
 }

@@ -11,7 +11,14 @@
  *   currentTurn: 'host' | 'guest'
  *   winner: 'host' | 'guest' | ''
  *   moveCount: number
- * `MATCH_FIELDS` lists them for the changed-field checks.
+ *   rematchOf: string, the finished match a rematch follows; absent otherwise
+ * `MATCH_FIELDS` lists them for the changed-field checks, so a join, move,
+ * resignation or finish leaves every one it does not name unchanged.
+ *
+ * A create should write `currentTurn`, `winner` and `moveCount` along with
+ * `host`, `guest` and `status`: `validJoin` keeps them unchanged, so a match
+ * created without `currentTurn` never has a seat on turn and `turns.isMyTurn`
+ * never allows a move.
  *
  * Placement: the match node's `.write`. The builders read the stored match
  * (`data`) and the match after the write (`newData`), so a join written as an
@@ -33,7 +40,7 @@ import { and, eq, exists, lit, negate, or, raw, val } from './expr.js';
 import { onlyFieldsChanged } from './lifecycle.js';
 
 /** The leaf fields of a match, in the convention above. */
-export const MATCH_FIELDS: readonly string[] = Object.freeze(['host', 'guest', 'status', 'currentTurn', 'winner', 'moveCount']);
+export const MATCH_FIELDS: readonly string[] = Object.freeze(['host', 'guest', 'status', 'currentTurn', 'winner', 'moveCount', 'rematchOf']);
 
 const signedIn = raw('auth != null');
 

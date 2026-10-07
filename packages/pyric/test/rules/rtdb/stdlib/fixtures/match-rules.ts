@@ -49,6 +49,10 @@ export const CORE_PATTERN_PATHS: Record<string, PathDef> = {
     read: authenticated(),
     write: all(turns.isSeatTurn(3), turns.turnAdvanced(3)),
   },
+  // turnAdvanced runs first, so a create with no stored turn reaches it.
+  '/boards/$boardId': {
+    write: any(all(turns.turnAdvanced(3), turns.isSeatTurn(3)), all(authenticated(), lifecycle.createOnly())),
+  },
   '/notes/$noteId': {
     read: authenticated(),
     write: lifecycle.ownedBy('owner'),
