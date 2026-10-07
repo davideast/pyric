@@ -22,9 +22,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-# The four publishable libraries. @pyric/studio is embedded into @pyric/cli for
+# The five publishable packages. @pyric/studio is embedded into @pyric/cli for
 # `pyric sandbox --ui`, not published as part of this pack gate.
-PACKAGES=(pyric pyric-admin cli ui)
+PACKAGES=(pyric pyric-admin cli ui create-pyric)
 ATTW="$ROOT/node_modules/.bin/attw"
 PUBLINT="$ROOT/node_modules/.bin/publint"
 

@@ -13,13 +13,13 @@
 // looks at the `types` condition, and can't see the reverse gap at all. This does.
 //
 // Usage: node scripts/lib/check-exports.mjs <packageDir> [<packageDir> ...]
-//        node scripts/lib/check-exports.mjs --all      (the 4 publishable packages)
+//        node scripts/lib/check-exports.mjs --all      (the 5 publishable packages)
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const PUBLISHABLE = ['pyric', 'pyric-admin', 'cli', 'ui'].map((p) =>
+const PUBLISHABLE = ['pyric', 'pyric-admin', 'cli', 'ui', 'create-pyric'].map((p) =>
   join(REPO, 'packages', p),
 );
 
