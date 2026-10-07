@@ -16,13 +16,14 @@
  * the same write, and it is not provided here.
  */
 import type { Expr } from '../constraints/types.js';
-import { lit, or, pathVariable, raw } from './expr.js';
+import { any, expr, lit } from '../constraints/compose.js';
+import { pathVariable } from './expr.js';
 
 /** The wildcard's key is one of `keys`. */
 export function keyIn(pathVar: string, keys: string[]): Expr {
   const v = pathVariable('keyIn', pathVar);
   if (keys.length === 0) throw new Error('keyIn: pass at least one key.');
-  return or(...keys.map((key) => raw(`${v} == ${lit(key)}`)));
+  return any(...keys.map((key) => expr(`${v} == ${lit(key)}`)));
 }
 
 /** The wildcard's key is one of '0' to `max - 1`, so the collection holds at most `max` children. */

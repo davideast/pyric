@@ -29,6 +29,8 @@ describe('RTDB stdlib catalog', () => {
         const parsed = buildRuleExpression(entry.output, 'write', declared);
         expect({ name: entry.name, errors: parsed.parsed.errors }).toEqual({ name: entry.name, errors: [] });
         expect(entry.length).toBe(entry.output.length);
+        // One quote style: every rule string literal is single-quoted.
+        expect({ name: entry.name, doubleQuoted: entry.output.includes('"') }).toEqual({ name: entry.name, doubleQuoted: false });
       }
     });
   }

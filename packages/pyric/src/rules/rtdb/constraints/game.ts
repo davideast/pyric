@@ -17,10 +17,9 @@ export function turnGuard(
   statusField?: string,
   playingValue?: string,
 ): Expr {
-  const branches = Object.entries(players).map(([mark, playerField]) =>
-    `${eq(dataVal(turnField), mark)} && ${eq(dataVal(playerField), AUTH_UID)}`,
-  );
-  const playerCheck = branches.join(' || ') as Expr;
+  const playerCheck = any(...Object.entries(players).map(([mark, playerField]) =>
+    all(eq(dataVal(turnField), mark), eq(dataVal(playerField), AUTH_UID)),
+  ));
 
   if (statusField && playingValue) {
     return all(eq(dataVal(statusField), playingValue), playerCheck);

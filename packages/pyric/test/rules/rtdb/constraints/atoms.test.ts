@@ -74,10 +74,10 @@ describe('Constraint Atoms', () => {
   });
 
   test('fieldEnum with single value', () => {
-    expect(fieldEnum('status', ['active'])).toBe('newData.child("status").val() == "active"');
+    expect(fieldEnum('status', ['active'])).toBe("newData.child('status').val() == 'active'");
   });
 
   test('rootExists with all-literal segments', () => {
-    expect(rootExists(['config', 'features'])).toBe('root.child("config").child("features").exists()');
+    expect(rootExists(['config', 'features'])).toBe("root.child('config').child('features').exists()");
   });
 });

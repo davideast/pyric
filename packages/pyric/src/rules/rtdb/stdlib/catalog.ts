@@ -58,7 +58,7 @@ const MODULES: Array<Omit<RtdbStdlibModule, 'kind' | 'services'>> = [
     key: 'validation',
     description: 'Type and value of a written node, required fields, and the closed shape of a record.',
     purpose:
-      'Field checks read newData of the node they are placed on: put them in a field node\'s .validate. requiredFields and shape go on the record. shape types every field and refuses any other child through a $other wildcard whose .validate is false.',
+      'Field checks read newData of the node they are placed on: put them in a field node\'s .validate. shape goes on the record; it requires fields with the constraints `required`, which compiles to one newData.hasChildren([...]). shape types every field and refuses any other child through a $other wildcard whose .validate is false.',
     whenToUse: 'Every node a client writes: give the record a shape and each field a type and range.',
     entries: [
       entry({ name: 'isString', signature: 'isString(): Expr', placement: 'field node .validate', description: 'The written value is a string.', example: 'validation.isString()', build: () => validation.isString() }),
@@ -76,7 +76,6 @@ const MODULES: Array<Omit<RtdbStdlibModule, 'kind' | 'services'>> = [
         description: 'A string that matches the regular expression, written without slashes.', example: "validation.matches('^[a-z0-9_]+$')", build: () => validation.matches('^[a-z0-9_]+$'),
         notes: 'Anchor with ^ and $ to match the whole string. Escape / as \\/.',
       }),
-      entry({ name: 'requiredFields', signature: 'requiredFields(...fields: string[]): Expr', placement: 'record node .validate', description: 'The record has every listed child.', example: "validation.requiredFields('name', 'score')", build: () => validation.requiredFields('name', 'score') }),
       entry({
         name: 'shape', signature: 'shape(spec: Record<string, FieldRule>, options?: { required?: string[]; open?: boolean }): { validate?: Expr; children: Record<string, PathDef> }',
         placement: 'record node: spread into its path definition',

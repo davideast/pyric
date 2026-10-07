@@ -42,8 +42,8 @@ describe('defineRtdbRules', () => {
               '.indexOn': ['createdAt'],
               '$messageId': {
                 '.read': true,
-                '.write': '((auth != null) && (auth.uid == $messageId)) && (!data.exists() || newData.child("createdAt").val() == data.child("createdAt").val())',
-                '.validate': '(newData.hasChildren()) && (newData.hasChild("author")) && (newData.hasChild("text")) && (newData.hasChild("createdAt"))',
+                '.write': "auth != null && auth.uid == $messageId && (!data.exists() || newData.child('createdAt').val() == data.child('createdAt').val())",
+                '.validate': "newData.hasChildren() && newData.hasChild('author') && newData.hasChild('text') && newData.hasChild('createdAt')",
                 author: { '.validate': 'newData.isString()' },
                 text: { '.validate': 'newData.isString()' },
                 createdAt: { '.validate': 'newData.isNumber()' },

@@ -23,10 +23,12 @@
  * to let the other player claim a forfeit.
  */
 import type { PathDef } from '../constraints/types.js';
-import { pathOwnerOnly } from '../constraints/policies.js';
-import { pathVariable, raw } from './expr.js';
+import { pathOwnerOnly, required } from '../constraints/policies.js';
+import { expr } from '../constraints/compose.js';
+import { authenticated } from '../constraints/atoms.js';
+import { pathVariable } from './expr.js';
 import { isServerTimestamp } from './timing.js';
-import { oneOf, requiredFields } from './validation.js';
+import { oneOf } from './validation.js';
 
 /**
  * The presence node for `/status/$uid`: the owner writes it
@@ -36,13 +38,13 @@ import { oneOf, requiredFields } from './validation.js';
  */
 export function record(pathVar = '$uid'): PathDef {
   return {
-    read: raw('auth != null'),
+    read: authenticated(),
     write: pathOwnerOnly(pathVariable('record', pathVar)),
-    validate: requiredFields('state', 'lastChanged'),
+    validate: required('state', 'lastChanged'),
     children: {
       '/state': { validate: oneOf('online', 'offline') },
       '/lastChanged': { validate: isServerTimestamp() },
-      '/$other': { validate: raw('false') },
+      '/$other': { validate: expr('false') },
     },
   };
 }
@@ -50,8 +52,8 @@ export function record(pathVar = '$uid'): PathDef {
 /** The presence node for `/online/$uid` as a boolean: the owner writes `true` or `false`. */
 export function flag(pathVar = '$uid'): PathDef {
   return {
-    read: raw('auth != null'),
+    read: authenticated(),
     write: pathOwnerOnly(pathVariable('flag', pathVar)),
-    validate: raw('newData.isBoolean()'),
+    validate: expr('newData.isBoolean()'),
   };
 }

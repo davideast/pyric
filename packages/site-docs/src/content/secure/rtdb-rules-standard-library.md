@@ -11,7 +11,7 @@ description: "Compose Realtime Database rules from standard library modules for 
 
 The Firestore and Storage rules standard library is rules source you import. Realtime Database rules have no functions, no imports and no `let`, so the RTDB standard library is TypeScript instead: each module is a namespace of builders, and each builder returns the whole expression for one `.write` or `.validate` rule. You compose builders with `all`, `any` and `not` inside `defineRtdbRules`, and `toJSON()` gives you the `database.rules.json` Firebase deploys.
 
-The modules follow the same conventions as their Firestore counterparts, so a game that keeps its lobby in Firestore and its live play in the Realtime Database uses one data layout for both.
+The modules follow the same conventions as their Firestore counterparts, so a game that keeps its lobby in Firestore and its live play in the Realtime Database uses one data layout for both. The builders are composed from the constraints builders (`all`, `any`, `not`, `lit`, `dataVal`, `eq` and the rest), so a ruleset that mixes the two writes one quote style, single quotes, and only the parentheses each expression needs.
 
 ## Build a match from modules
 

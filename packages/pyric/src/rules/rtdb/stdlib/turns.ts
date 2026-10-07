@@ -15,24 +15,27 @@
  * (`data`), never the written one, so a player cannot hand themself the turn.
  */
 import type { Expr } from '../constraints/types.js';
-import { and, eq, lit, or, raw, sameAsBefore, val } from './expr.js';
+import { all, any, expr } from '../constraints/compose.js';
+import { AUTH_UID, dataVal, eq, newDataVal } from '../constraints/data.js';
+import { authenticated } from '../constraints/atoms.js';
+import { sameAsBefore } from './expr.js';
 
 /** The writer holds the seat named by the stored `currentTurn`. */
 export function isMyTurn(): Expr {
-  return and(
-    raw('auth != null'),
-    or(
-      and(eq(val('data', 'currentTurn'), lit('host')), eq(val('data', 'host'), 'auth.uid')),
-      and(eq(val('data', 'currentTurn'), lit('guest')), eq(val('data', 'guest'), 'auth.uid')),
+  return all(
+    authenticated(),
+    any(
+      all(eq(dataVal('currentTurn'), 'host'), eq(dataVal('host'), AUTH_UID)),
+      all(eq(dataVal('currentTurn'), 'guest'), eq(dataVal('guest'), AUTH_UID)),
     ),
   );
 }
 
 /** `currentTurn` passes to the other seat. */
 export function turnFlipped(): Expr {
-  return or(
-    and(eq(val('data', 'currentTurn'), lit('host')), eq(val('newData', 'currentTurn'), lit('guest'))),
-    and(eq(val('data', 'currentTurn'), lit('guest')), eq(val('newData', 'currentTurn'), lit('host'))),
+  return any(
+    all(eq(dataVal('currentTurn'), 'host'), eq(newDataVal('currentTurn'), 'guest')),
+    all(eq(dataVal('currentTurn'), 'guest'), eq(newDataVal('currentTurn'), 'host')),
   );
 }
 
@@ -45,10 +48,10 @@ function seats(builder: string, seatCount: number): number[] {
 
 /** The writer's uid is in the seat whose number the stored `turn` holds, for `seatCount` seats. */
 export function isSeatTurn(seatCount: number): Expr {
-  return and(
-    raw('auth != null'),
-    or(...seats('isSeatTurn', seatCount).map((i) =>
-      and(eq(val('data', 'turn'), lit(i)), eq(val('data', `players/${i}`), 'auth.uid')))),
+  return all(
+    authenticated(),
+    any(...seats('isSeatTurn', seatCount).map((i) =>
+      all(eq(dataVal('turn'), i), eq(dataVal(`players/${i}`), AUTH_UID)))),
   );
 }
 
@@ -57,12 +60,12 @@ export function isSeatTurn(seatCount: number): Expr {
  * from the last seat to seat 0, and every seat in `players` keeps its uid.
  */
 export function turnAdvanced(seatCount: number): Expr {
-  const all = seats('turnAdvanced', seatCount);
-  return and(
+  const seatNumbers = seats('turnAdvanced', seatCount);
+  return all(
     // Adding to a missing or non-number turn is an evaluation error that
     // fails the whole rule in production, so the stored turn is checked first.
-    raw("data.child('turn').isNumber()"),
-    raw(`${val('newData', 'turn')} == (${val('data', 'turn')} + 1) % ${seatCount}`),
-    ...all.map((i) => sameAsBefore(`players/${i}`)),
+    expr("data.child('turn').isNumber()"),
+    expr(`${newDataVal('turn')} == (${dataVal('turn')} + 1) % ${seatCount}`),
+    ...seatNumbers.map((i) => sameAsBefore(`players/${i}`)),
   );
 }

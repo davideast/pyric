@@ -59,14 +59,14 @@ describe('ruleset()', () => {
       const uidNode = root.children.find(c => c.path === '/users')!.children[0];
       // Parent has validate from schema
       expect(uidNode.validate?.raw).toContain('newData.hasChildren()');
-      expect(uidNode.validate?.raw).toContain('newData.hasChild("name")');
+      expect(uidNode.validate?.raw).toContain("newData.hasChild('name')");
       // Children have type checks
       const nameChild = uidNode.children.find(c => c.path.endsWith('/name'));
       expect(nameChild).toBeDefined();
       expect(nameChild!.validate?.raw).toBe('newData.isString()');
       const roleChild = uidNode.children.find(c => c.path.endsWith('/role'));
       expect(roleChild).toBeDefined();
-      expect(roleChild!.validate?.raw).toContain('newData.val() == "user"');
+      expect(roleChild!.validate?.raw).toContain("newData.val() == 'user'");
     });
 
     test('fieldConstraints merge with schema', () => {

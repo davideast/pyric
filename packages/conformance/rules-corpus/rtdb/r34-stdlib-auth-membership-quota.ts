@@ -57,13 +57,13 @@ export const scenario: RtdbScenarioRecord = {
     },
     "posts": {
       "$postId": {
-        ".write": "(auth != null) && (!data.exists() && newData.exists())",
+        ".write": "auth != null && !data.exists() && newData.exists()",
         ".validate": "newData.parent().parent().child('quota').child(auth.uid).child('count').val() != data.parent().parent().child('quota').child(auth.uid).child('count').val() || newData.parent().parent().child('quota').child(auth.uid).child('windowStart').val() != data.parent().parent().child('quota').child(auth.uid).child('windowStart').val()"
       }
     },
     "quota": {
       "$uid": {
-        ".write": "(auth.uid == $uid) && (newData.exists())",
+        ".write": "auth.uid == $uid && newData.exists()",
         ".validate": "newData.child('count').isNumber() && newData.child('count').val() <= 2 && ((newData.child('windowStart').val() == now && newData.child('count').val() == 1 && (!data.exists() || (data.child('windowStart').isNumber() && now >= data.child('windowStart').val() + 60000))) || (data.child('windowStart').isNumber() && data.child('count').isNumber() && newData.child('windowStart').val() == data.child('windowStart').val() && now < data.child('windowStart').val() + 60000 && newData.child('count').val() == data.child('count').val() + 1))"
       }
     },
@@ -81,14 +81,14 @@ export const scenario: RtdbScenarioRecord = {
       "$roomId": {
         "members": {
           "$uid": {
-            ".write": "(auth != null) && (auth.uid == $uid) && (newData.val() == true || !newData.exists())",
+            ".write": "auth != null && auth.uid == $uid && (newData.val() == true || !newData.exists())",
             ".validate": "newData.val() == true"
           }
         },
         "messages": {
           "$msgId": {
             ".read": "auth != null && data.parent().parent().child('members').child(auth.uid).val() == true",
-            ".write": "(auth != null && data.parent().parent().child('members').child(auth.uid).val() == true) && (!data.exists() && newData.exists())",
+            ".write": "auth != null && data.parent().parent().child('members').child(auth.uid).val() == true && !data.exists() && newData.exists()",
             ".validate": "newData.isString()"
           }
         }

@@ -29,7 +29,7 @@
 import type { RtdbScenarioRecord } from './types.ts';
 
 export const scenario: RtdbScenarioRecord = {
-  fm: "rtdb#71",
+  fm: 'rtdb#71',
   rationale:
     'presence, rate limits and bounded collections from the standard library must deploy and decide as documented, including server timestamps written in the same multi-path update as the data they stamp.',
   provenance:
@@ -48,14 +48,14 @@ export const scenario: RtdbScenarioRecord = {
     },
     "lastPost": {
       "$uid": {
-        ".write": "(auth.uid == $uid) && (newData.exists())",
+        ".write": "auth.uid == $uid && newData.exists()",
         ".validate": "newData.val() == now && (!data.exists() || now > data.val() + 60000)"
       }
     },
     "online": {
       "$uid": {
         ".read": "auth != null",
-        ".write": "(auth != null) && (auth.uid == $uid)",
+        ".write": "auth != null && auth.uid == $uid",
         ".validate": "newData.isBoolean()"
       }
     },
@@ -69,7 +69,7 @@ export const scenario: RtdbScenarioRecord = {
     "status": {
       "$uid": {
         ".read": "auth != null",
-        ".write": "(auth != null) && (auth.uid == $uid)",
+        ".write": "auth != null && auth.uid == $uid",
         ".validate": "newData.hasChildren(['state', 'lastChanged'])",
         "$other": {
           ".validate": false

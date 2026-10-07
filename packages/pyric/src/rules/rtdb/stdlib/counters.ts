@@ -18,7 +18,10 @@
  * `lifecycle.noDelete()`.
  */
 import type { Expr } from '../constraints/types.js';
-import { and, exists, fieldName, finite, lit, negate, or, raw, sameAsBefore, val } from './expr.js';
+import { all, any, expr, lit, not } from '../constraints/compose.js';
+import { dataExists, dataVal, newDataVal } from '../constraints/data.js';
+import { isNew } from '../constraints/atoms.js';
+import { fieldName, finite, sameAsBefore } from './expr.js';
 
 /**
  * The written number is the stored one plus `n`. With `start`, a create
@@ -27,10 +30,10 @@ import { and, exists, fieldName, finite, lit, negate, or, raw, sameAsBefore, val
  */
 export function incrementedBy(n: number, options: { start?: number } = {}): Expr {
   finite('incrementedBy', 'n', n);
-  const step = and(exists('data'), raw(`newData.val() == data.val() + ${lit(n)}`));
+  const step = all(dataExists(), expr(`newData.val() == data.val() + ${lit(n)}`));
   if (options.start === undefined) return step;
   finite('incrementedBy', 'start', options.start);
-  return or(and(negate(exists('data')), raw(`newData.val() == ${lit(options.start)}`)), step);
+  return any(all(isNew(), expr(`newData.val() == ${lit(options.start)}`)), step);
 }
 
 /** The written number differs from the stored one by `min` to `max`, inclusive. A create is refused. */
@@ -38,11 +41,11 @@ export function changedBy(min: number, max: number): Expr {
   finite('changedBy', 'min', min);
   finite('changedBy', 'max', max);
   if (min > max) throw new Error(`changedBy: min ${min} is greater than max ${max}.`);
-  return and(
-    raw('newData.isNumber()'),
-    exists('data'),
-    raw(`newData.val() - data.val() >= ${lit(min)}`),
-    raw(`newData.val() - data.val() <= ${lit(max)}`),
+  return all(
+    expr('newData.isNumber()'),
+    dataExists(),
+    expr(`newData.val() - data.val() >= ${lit(min)}`),
+    expr(`newData.val() - data.val() <= ${lit(max)}`),
   );
 }
 
@@ -56,7 +59,7 @@ export function improved(direction: 'up' | 'down'): Expr {
     throw new Error(`improved: direction must be 'up' or 'down', got '${String(direction)}'.`);
   }
   const op = direction === 'up' ? '>' : '<';
-  return and(raw('newData.isNumber()'), or(negate(exists('data')), raw(`newData.val() ${op} data.val()`)));
+  return all(expr('newData.isNumber()'), any(isNew(), expr(`newData.val() ${op} data.val()`)));
 }
 
 /**
@@ -69,15 +72,15 @@ export function oneIncremented(fields: string[], n: number, options: { start?: n
   finite('oneIncremented', 'n', n);
   if (n === 0) throw new Error('oneIncremented: n must not be 0.');
   const steps = fields.map((f) =>
-    and(
-      exists('data', f),
-      raw(`${val('newData', f)} == ${val('data', f)} + ${lit(n)}`),
+    all(
+      dataExists(f),
+      expr(`${newDataVal(f)} == ${dataVal(f)} + ${lit(n)}`),
       ...fields.filter((other) => other !== f).map((other) => sameAsBefore(other)),
     ));
-  if (options.start === undefined) return or(...steps);
+  if (options.start === undefined) return any(...steps);
   const start = lit(finite('oneIncremented', 'start', options.start));
-  return or(
-    and(negate(exists('data')), ...fields.map((f) => raw(`${val('newData', f)} == ${start}`))),
+  return any(
+    all(isNew(), ...fields.map((f) => expr(`${newDataVal(f)} == ${start}`))),
     ...steps,
   );
 }

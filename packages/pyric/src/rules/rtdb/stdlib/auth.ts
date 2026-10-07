@@ -16,9 +16,12 @@
  * as the string 'true' does not equal `true`.
  */
 import type { Expr, Segment } from '../constraints/types.js';
-import { and, childPath, climb, eq, lit, or, pathVariable, raw, type Literal } from './expr.js';
+import { all, any, expr, lit, not, type Literal } from '../constraints/compose.js';
+import { eq } from '../constraints/data.js';
+import { authenticated } from '../constraints/atoms.js';
+import { childPath, climb, pathVariable } from './expr.js';
 
-const signedInExpr = raw('auth != null');
+const signedInExpr = authenticated();
 
 /** A token claim name a rule can read with dot access. */
 function claimName(builder: string, name: string): string {
@@ -32,7 +35,7 @@ function claimName(builder: string, name: string): string {
 export const signedIn = (): Expr => signedInExpr;
 
 /** The signed-in user's email is verified (`auth.token.email_verified == true`). */
-export const emailVerified = (): Expr => and(signedInExpr, raw('auth.token.email_verified == true'));
+export const emailVerified = (): Expr => all(signedInExpr, expr('auth.token.email_verified == true'));
 
 /**
  * The signed-in user has a verified email ending in `@domain`. The comparison
@@ -42,7 +45,7 @@ export function emailDomain(domain: string): Expr {
   if (typeof domain !== 'string' || domain.length === 0 || domain.includes('@')) {
     throw new Error(`emailDomain: pass a domain such as 'example.com', got '${String(domain)}'.`);
   }
-  return and(emailVerified(), raw(`auth.token.email.endsWith(${lit(`@${domain}`)})`));
+  return all(emailVerified(), expr(`auth.token.email.endsWith(${lit(`@${domain}`)})`));
 }
 
 /**
@@ -54,7 +57,7 @@ export function hasClaim(name: string, value: Exclude<Literal, null> = true): Ex
   if (value === null) {
     throw new Error(`hasClaim: '${name}' compared to null passes for every token without the claim; pass the value the claim must hold.`);
   }
-  return and(signedInExpr, eq(`auth.token.${claimName('hasClaim', name)}`, lit(value)));
+  return all(signedInExpr, eq(`auth.token.${claimName('hasClaim', name)}`, value));
 }
 
 /** The custom claim `claim` (default 'role') equals `role`. */
@@ -65,7 +68,7 @@ export function hasRole(role: string, options: { claim?: string } = {}): Expr {
 /** The custom claim 'role' equals one of `roles`. */
 export function hasAnyRole(...roles: string[]): Expr {
   if (roles.length === 0) throw new Error('hasAnyRole: pass at least one role.');
-  return and(signedInExpr, or(...roles.map((role) => eq('auth.token.role', lit(role)))));
+  return all(signedInExpr, any(...roles.map((role) => eq('auth.token.role', role))));
 }
 
 /**
@@ -81,13 +84,13 @@ export function hasAnyRole(...roles: string[]): Expr {
  */
 export function roleAt(segments: Segment[], role: string, options: { levelsUp?: number } = {}): Expr {
   const path = `${climb('roleAt', 'data', options.levelsUp)}${childPath('roleAt', segments)}`;
-  return and(signedInExpr, eq(`${path}.val()`, lit(role)));
+  return all(signedInExpr, eq(`${path}.val()`, role));
 }
 
 /** The signed-in user belongs to the Identity Platform tenant `tenantId`. */
 export const tenantIs = (tenantId: string): Expr =>
-  and(signedInExpr, eq('auth.token.firebase.tenant', lit(tenantId)));
+  all(signedInExpr, eq('auth.token.firebase.tenant', tenantId));
 
 /** The signed-in user's tenant is the value of the path variable, such as `$tenantId`. */
 export const inTenant = (pathVar: string): Expr =>
-  and(signedInExpr, eq('auth.token.firebase.tenant', pathVariable('inTenant', pathVar)));
+  all(signedInExpr, eq('auth.token.firebase.tenant', { $: pathVariable('inTenant', pathVar) }));

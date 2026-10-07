@@ -1,6 +1,7 @@
 import type { Expr, Segment } from './types.js';
-import { all, any, expr } from './compose.js';
-import { authenticated, ownPath, ownField, isNew, hasChild, rootExists, rootEquals } from './atoms.js';
+import { all, any, expr, lit } from './compose.js';
+import { dataVal, eq, newDataVal } from './data.js';
+import { authenticated, ownPath, ownField, isNew, rootExists, rootEquals } from './atoms.js';
 
 /** Only the path owner (auth.uid == $pathVar) can access */
 export const pathOwnerOnly = (pathVar: string): Expr =>
@@ -20,17 +21,19 @@ export const hasRole = (segments: Segment[], role: string): Expr =>
 
 /** Cross-path membership check: root.child(list).child($var).child(auth.uid).exists() */
 export const isMember = (listName: string, pathVarName: string): Expr =>
-  expr(`root.child("${listName}").child($${pathVarName}).child(auth.uid).exists()`);
+  expr(`root.child(${lit(listName)}).child($${pathVarName}).child(auth.uid).exists()`);
 
-/** All specified fields must be present in the incoming data */
-export const required = (...fields: string[]): Expr =>
-  all(...fields.map(f => hasChild(f)));
+/** All specified fields must be present in the incoming data: `newData.hasChildren([...])`. */
+export const required = (...fields: string[]): Expr => {
+  if (fields.length === 0) throw new Error('required: pass at least one field.');
+  return expr(`newData.hasChildren([${fields.map((f) => lit(f)).join(', ')}])`);
+};
 
 /** State machine: only allowed transitions on a field */
 export const transition = (field: string, allowed: Array<[string, string]>): Expr =>
   any(...allowed.map(([from, to]) =>
     all(
-      expr(`data.child("${field}").val() == "${from}"`),
-      expr(`newData.child("${field}").val() == "${to}"`),
+      eq(dataVal(field), from),
+      eq(newDataVal(field), to),
     )
   ));

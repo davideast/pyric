@@ -36,16 +36,16 @@ describe('Policies', () => {
 
   // Reusability
   test('pathOwnerOnly with different var', () => {
-    expect(pathOwnerOnly('$memberId')).toBe('(auth != null) && (auth.uid == $memberId)');
+    expect(pathOwnerOnly('$memberId')).toBe('auth != null && auth.uid == $memberId');
   });
 
   test('required with single field', () => {
-    expect(required('title')).toBe('(newData.hasChild("title"))');
+    expect(required('title')).toBe("newData.hasChildren(['title'])");
   });
 
   test('transition with single allowed transition', () => {
     expect(transition('phase', [['draft', 'published']])).toBe(
-      '((data.child("phase").val() == "draft") && (newData.child("phase").val() == "published"))',
+      "data.child('phase').val() == 'draft' && newData.child('phase').val() == 'published'",
     );
   });
 });

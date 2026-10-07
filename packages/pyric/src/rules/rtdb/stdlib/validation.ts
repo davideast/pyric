@@ -4,32 +4,36 @@
  *
  * Placement: the value checks (`isString` to `matches`) read `newData` of the
  * node they are placed on, so they go in that node's `.validate`, usually a
- * field node under a record. `requiredFields` and `shape` go on the record.
+ * field node under a record. `shape`, and the constraints `required` it uses,
+ * go on the record.
  *
  * `.validate` runs only for the nodes a write carries and their ancestors,
  * against the merged value after the write, and never for a node whose new
  * value is null. So a field's check runs when the field is written, the
- * record's `requiredFields` runs for every write inside the record, and
+ * record's `required` runs for every write inside the record, and
  * neither runs on a delete.
  */
 import type { Expr, PathDef } from '../constraints/types.js';
-import { and, fieldName, finite, lit, or, raw, type Literal } from './expr.js';
+import { all, any, expr, lit, type Literal } from '../constraints/compose.js';
+import { eq, newDataIs, newDataVal } from '../constraints/data.js';
+import { required } from '../constraints/policies.js';
+import { fieldName, finite } from './expr.js';
 
 /** The written value is a string. Field node `.validate`. */
-export const isString = (): Expr => raw('newData.isString()');
+export const isString = (): Expr => newDataIs('String');
 
 /** The written value is a number. Field node `.validate`. */
-export const isNumber = (): Expr => raw('newData.isNumber()');
+export const isNumber = (): Expr => newDataIs('Number');
 
 /** The written value is a boolean. Field node `.validate`. */
-export const isBoolean = (): Expr => raw('newData.isBoolean()');
+export const isBoolean = (): Expr => newDataIs('Boolean');
 
 /** The written value is a string of `min` to `max` characters. Field node `.validate`. */
 export function stringLength(min: number, max: number): Expr {
   finite('stringLength', 'min', min);
   finite('stringLength', 'max', max);
   if (min > max) throw new Error(`stringLength: min ${min} is greater than max ${max}.`);
-  return and(isString(), raw(`newData.val().length >= ${lit(min)}`), raw(`newData.val().length <= ${lit(max)}`));
+  return all(isString(), expr(`newData.val().length >= ${lit(min)}`), expr(`newData.val().length <= ${lit(max)}`));
 }
 
 /** The written value is a number from `min` to `max`, inclusive. Field node `.validate`. */
@@ -37,7 +41,7 @@ export function numberBetween(min: number, max: number): Expr {
   finite('numberBetween', 'min', min);
   finite('numberBetween', 'max', max);
   if (min > max) throw new Error(`numberBetween: min ${min} is greater than max ${max}.`);
-  return and(isNumber(), raw(`newData.val() >= ${lit(min)}`), raw(`newData.val() <= ${lit(max)}`));
+  return all(isNumber(), expr(`newData.val() >= ${lit(min)}`), expr(`newData.val() <= ${lit(max)}`));
 }
 
 /**
@@ -46,7 +50,7 @@ export function numberBetween(min: number, max: number): Expr {
  */
 export function oneOf(...values: Literal[]): Expr {
   if (values.length === 0) throw new Error('oneOf: pass at least one value.');
-  return or(...values.map((value) => raw(`newData.val() == ${lit(value)}`)));
+  return any(...values.map((value) => eq(newDataVal(), value)));
 }
 
 /**
@@ -57,13 +61,7 @@ export function oneOf(...values: Literal[]): Expr {
 export function matches(pattern: string): Expr {
   if (typeof pattern !== 'string' || pattern.length === 0) throw new Error('matches: pass a non-empty pattern.');
   if (/(^|[^\\])\//.test(pattern)) throw new Error(`matches: escape '/' in the pattern as '\\/': ${pattern}`);
-  return and(isString(), raw(`newData.val().matches(/${pattern}/)`));
-}
-
-/** The record has every listed child. Record node `.validate`. */
-export function requiredFields(...fields: string[]): Expr {
-  if (fields.length === 0) throw new Error('requiredFields: pass at least one field.');
-  return raw(`newData.hasChildren([${fields.map((f) => lit(fieldName('requiredFields', f))).join(', ')}])`);
+  return all(isString(), expr(`newData.val().matches(/${pattern}/)`));
 }
 
 /** A field's rule in {@link shape}: a type name, an expression for its `.validate`, or a full path definition. */
@@ -100,12 +98,12 @@ export function shape(spec: Record<string, FieldRule>, options: ShapeOptions = {
   const names = Object.keys(spec);
   if (names.length === 0) throw new Error('shape: pass at least one field.');
   for (const name of names) fieldName('shape', name);
-  const required = options.required ?? names;
-  for (const name of required) {
+  const requiredNames = options.required ?? names;
+  for (const name of requiredNames) {
     if (!names.includes(name)) throw new Error(`shape: required field '${name}' is not in the spec.`);
   }
   const children: Record<string, PathDef> = {};
   for (const name of names) children[`/${name}`] = fieldDef(spec[name]!);
-  if (!options.open) children['/$other'] = { validate: raw('false') };
-  return required.length > 0 ? { validate: requiredFields(...required), children } : { children };
+  if (!options.open) children['/$other'] = { validate: expr('false') };
+  return requiredNames.length > 0 ? { validate: required(...requiredNames), children } : { children };
 }

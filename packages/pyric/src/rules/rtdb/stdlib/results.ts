@@ -10,7 +10,9 @@
  * list for the changed-field check and defaults to `MATCH_FIELDS`.
  */
 import type { Expr } from '../constraints/types.js';
-import { and, eq, lit, or, raw, val } from './expr.js';
+import { all, any } from '../constraints/compose.js';
+import { AUTH_UID, dataVal, eq, newDataVal } from '../constraints/data.js';
+import { authenticated } from '../constraints/atoms.js';
 import { onlyFieldsChanged, unchanged } from './lifecycle.js';
 import { MATCH_FIELDS } from './lobby.js';
 
@@ -19,14 +21,14 @@ import { MATCH_FIELDS } from './lobby.js';
  * other seat becomes the winner, and only status and winner change.
  */
 export function resignedBy(fields: readonly string[] = MATCH_FIELDS): Expr {
-  return and(
-    raw('auth != null'),
-    or(
-      and(eq(val('data', 'host'), 'auth.uid'), eq(val('newData', 'winner'), lit('guest'))),
-      and(eq(val('data', 'guest'), 'auth.uid'), eq(val('newData', 'winner'), lit('host'))),
+  return all(
+    authenticated(),
+    any(
+      all(eq(dataVal('host'), AUTH_UID), eq(newDataVal('winner'), 'guest')),
+      all(eq(dataVal('guest'), AUTH_UID), eq(newDataVal('winner'), 'host')),
     ),
-    eq(val('data', 'status'), lit('playing')),
-    eq(val('newData', 'status'), lit('resigned')),
+    eq(dataVal('status'), 'playing'),
+    eq(newDataVal('status'), 'resigned'),
     onlyFieldsChanged(['status', 'winner'], [...fields]),
   );
 }
@@ -53,10 +55,10 @@ export function finishedWithWinner(
   if (reason === 'draw' && winner !== '') {
     throw new Error(`finishedWithWinner: a 'draw' result has winner '', got '${String(winner)}'.`);
   }
-  return and(
-    eq(val('data', 'status'), lit('playing')),
-    eq(val('newData', 'status'), lit(reason)),
-    eq(val('newData', 'winner'), lit(winner)),
+  return all(
+    eq(dataVal('status'), 'playing'),
+    eq(newDataVal('status'), reason),
+    eq(newDataVal('winner'), winner),
     onlyFieldsChanged(['status', 'winner'], [...fields]),
   );
 }
