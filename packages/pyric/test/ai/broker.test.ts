@@ -35,6 +35,7 @@ import {
   type WireChunk,
   type WireResponse,
 } from '../../src/ai/broker/index.js';
+import { describeResponseBlock } from '../../src/ai/blocked.js';
 
 // ai-* observations live under the 'ai' surface subdirectory.
 const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations', 'ai');
@@ -610,9 +611,20 @@ describe('openai translation: response and chunk mapping', () => {
     buffer.add([{ index: 0, function: { name: 'get_', arguments: '' } } as any]);
     buffer.add([{ index: 0, function: { name: 'weather', arguments: '{"cit' } } as any]);
     buffer.add([{ index: 0, function: { arguments: 'y":"Paris"}' } } as any]);
-    const parts = buffer.flush();
-    expect(parts).toEqual([{ functionCall: { name: 'get_weather', args: { city: 'Paris' } } }]);
-    expect(buffer.flush()).toEqual([]); // emitted exactly once
+    expect(buffer.flush()).toEqual({
+      parts: [{ functionCall: { name: 'get_weather', args: { city: 'Paris' } } }],
+      malformed: false,
+    });
+    expect(buffer.flush()).toEqual({ parts: [], malformed: false }); // emitted exactly once
+  });
+
+  it('ToolCallBuffer flags arguments that do not parse and keeps the raw text', () => {
+    const buffer = new ToolCallBuffer();
+    buffer.add([{ index: 0, function: { name: 'f', arguments: '{not json' } } as any]);
+    expect(buffer.flush()).toEqual({
+      parts: [{ functionCall: { name: 'f', args: { __malformed: '{not json' } } }],
+      malformed: true,
+    });
   });
 
   it('SseParser handles LF LF and CRLF CRLF, split pushes, and surfaces [DONE] for the caller to skip', () => {
@@ -765,6 +777,37 @@ describe('openai engine (mocked fetch)', () => {
 
     // Nothing derived from the [DONE] sentinel (it would have JSON.parse-crashed anyway).
     expect(chunks.length).toBe(3); // two text chunks + one finish chunk
+  });
+
+  it('streams: tool-call arguments that are not JSON end the stream with MALFORMED_FUNCTION_CALL', async () => {
+    const frames = [
+      `data: {"id":"c","model":"llama3","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"t1","type":"function","function":{"name":"get_weather","arguments":"{not"}}]},"finish_reason":null}]}\n\n`,
+      `data: {"id":"c","model":"llama3","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":" json"}}]},"finish_reason":null}]}\n\n`,
+      `data: {"id":"c","model":"llama3","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}\n\n`,
+      `data: [DONE]\n\n`,
+    ];
+    const engine = new OpenAiEngine({
+      baseUrl: 'http://up/v1',
+      fetch: (async () => sseResponse(frames)) as typeof fetch,
+    });
+    const chunks = await collect(engine.streamGenerateContent(userReq('weather?'), MODEL));
+
+    const last = chunks.at(-1)!;
+    expect(last.candidates![0]!.finishReason).toBe('MALFORMED_FUNCTION_CALL');
+    expect(describeResponseBlock(last)).toEqual({ finishReason: 'MALFORMED_FUNCTION_CALL' });
+  });
+
+  it('streams: a well-formed tool call beside a malformed one still ends MALFORMED_FUNCTION_CALL', async () => {
+    const frames = [
+      `data: {"id":"c","model":"llama3","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"t1","type":"function","function":{"name":"a","arguments":"{}"}},{"index":1,"id":"t2","type":"function","function":{"name":"b","arguments":"{oops"}}]},"finish_reason":null}]}\n\n`,
+      `data: {"id":"c","model":"llama3","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}\n\n`,
+    ];
+    const engine = new OpenAiEngine({
+      baseUrl: 'http://up/v1',
+      fetch: (async () => sseResponse(frames)) as typeof fetch,
+    });
+    const chunks = await collect(engine.streamGenerateContent(userReq('two tools'), MODEL));
+    expect(chunks.at(-1)!.candidates![0]!.finishReason).toBe('MALFORMED_FUNCTION_CALL');
   });
 
   it('maps upstream content_filter to SAFETY', async () => {
