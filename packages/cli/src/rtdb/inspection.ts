@@ -3,6 +3,7 @@ import type { ToolHandler } from '@inbrowser/agent';
 import { rtdbRules, type RtdbCase } from 'pyric/rules';
 import { getClock, type LocalSandbox } from 'pyric/sandbox';
 import { getActiveRules, snapshotState } from 'pyric/sandbox/database';
+import { projectIdentity } from '../bridge/surface/identity.js';
 import { countDescendantObjects, crawlSnapshot } from './crawl-snapshot.js';
 
 export interface RtdbInspectionToolDeps {
@@ -12,7 +13,7 @@ export interface RtdbInspectionToolDeps {
 interface SimulateAccessArgs {
   operation: 'read' | 'write' | 'update' | 'validate';
   path: string;
-  auth?: { uid: string; claims?: Record<string, unknown> } | null;
+  auth?: { uid: string; tenant?: string; claims?: Record<string, unknown> } | null;
   /** The value written: any JSON value, or for `update` the patch keyed by the paths written. */
   newData?: unknown;
   /** The query a `read` carries, in the members rules read as `query.*`. */
@@ -55,6 +56,7 @@ export function createRtdbInspectionTools(
                 type: 'object',
                 properties: {
                   uid: { type: 'string' },
+                  tenant: { type: 'string' },
                   claims: { type: 'object' },
                 },
                 required: ['uid'],
@@ -105,7 +107,8 @@ export function createRtdbInspectionTools(
         }
         let identity: RtdbCase['auth'] = null;
         if (args.auth) {
-          identity = { uid: args.auth.uid, token: args.auth.claims ?? {} };
+          const projected = projectIdentity(args.auth.uid, args.auth.tenant, args.auth.claims);
+          identity = { uid: projected.uid, token: projected.token };
         }
         const oneCase: RtdbCase = {
           expectation: 'ALLOW',
