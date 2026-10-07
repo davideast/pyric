@@ -494,12 +494,16 @@ class PyricBridgeClient(
     }
 
     private inner class BridgeClientListener(private val listenerGeneration: Int) : BridgeListener {
-        // A supplied transport keeps one listener across attempts; it follows the latest one.
-        // Every attempt installs its own listener, so a late callback from an
-        // earlier attempt (including on a supplied transport) is stale.
+        // Every attempt installs its own listener, so a late close or failure from
+        // an earlier attempt is stale, including on a supplied transport.
         private fun currentGeneration(): Int = listenerGeneration
 
         private fun isStale(): Boolean = !isCurrent(currentGeneration())
+
+        // A supplied transport may still deliver frames through a listener it read
+        // before the latest attempt replaced it; its frames belong to the current attempt.
+        private fun messageGeneration(): Int =
+            if (directTransport != null) synchronized(lock) { generation } else listenerGeneration
 
         @Volatile private var opened = false
         @Volatile private var transportReady = false
@@ -534,7 +538,7 @@ class PyricBridgeClient(
         }
 
         override fun onMessage(text: String) {
-            if (isStale()) return
+            if (!isCurrent(messageGeneration())) return
             val msg = try {
                 JsonCodec.decodeMap(text)
             } catch (_: Exception) {
@@ -568,7 +572,7 @@ class PyricBridgeClient(
         }
 
         private fun handleAttachAck(msg: Map<String, Any?>) {
-            val attemptGeneration = currentGeneration()
+            val attemptGeneration = messageGeneration()
             val peerConnected = msg["peerConnected"] == true
             if (!peerConnected) {
                 handleConnectionLoss(
