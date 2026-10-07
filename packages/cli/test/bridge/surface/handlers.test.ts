@@ -246,6 +246,15 @@ it('reads the rules standard library', async () => {
   expect((await run('rules.getStdlib', { module: 'math' })).ok).toBe(true);
 });
 
+it('reads the RTDB standard library through the service argument', async () => {
+  const listed = await run('rules.listStdlib', { service: 'database' });
+  expect(listed.ok).toBe(true);
+  expect((listed.data as { modules: Array<{ key: string }> }).modules.map(({ key }) => key)).toContain('lobby');
+  const got = await run('rules.getStdlib', { module: 'turns', service: 'database' });
+  expect(got.ok).toBe(true);
+  expect((got.data as { importLine: string }).importLine).toContain('rtdbStdlib');
+});
+
 it('inspects, seeds, and resets the sandbox', async () => {
   const inspected = await run('sandbox.inspect');
   expect(inspected.ok).toBe(true);
