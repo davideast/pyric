@@ -96,6 +96,19 @@ ${Array.from({ length: 12 }, (_, i) => `      let v${i} = ${i};`).join('\n')}
     );
   });
 
+  it('fails to prepare a ruleset with a second recursive wildcard in one declaration path', () => {
+    const glob = 'Invalid glob match expression. Only one glob match is permitted in a match declaration path.';
+    const inPath = PLAIN.replace('match /pub/{id}', 'match /{p=**}/items/{q=**}');
+    expect(() => prepareProjectRules(inPath, 'glob.rules')).toThrow(
+      `pyric sandbox: glob.rules does not compile: Line 4: ${glob} Fix the rules before serving.`,
+    );
+    const nested = PLAIN.replace('match /pub/{id} { allow read: if true; }',
+      'match /{g=**}/groups/{gid} {\n      match /{rest=**} { allow read: if true; }\n    }');
+    expect(() => prepareProjectRules(nested, 'nested.rules')).toThrow(
+      `pyric sandbox: nested.rules does not compile: Line 5: ${glob} Fix the rules before serving.`,
+    );
+  });
+
   it('fails to prepare a Storage ruleset with production\'s message', () => {
     const storage = `rules_version = '2';
 service firebase.storage {

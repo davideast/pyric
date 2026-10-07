@@ -3,7 +3,7 @@
   "capturedAt": "2026-09-27T20:35:28.442Z",
   "projectId": "digame-mas",
   "method": "Rules Test API projects.test, one generated ruleset per probe; each case is a get with uid a (granted when the ruleset works) and uid b (denied). probeBlock() in packages/conformance/src/capture-rules-compile-limits.ts generates each shape.",
-  "calls": 61,
+  "calls": 69,
   "boundaries": [
     {
       "service": "firestore",
@@ -78,6 +78,18 @@
       "smallestFail": 4900
     },
     {
+      "service": "firestore",
+      "shape": "glob-in-path",
+      "largestPass": 1,
+      "smallestFail": 2
+    },
+    {
+      "service": "firestore",
+      "shape": "glob-nested",
+      "largestPass": 1,
+      "smallestFail": 2
+    },
+    {
       "service": "storage",
       "shape": "call-depth",
       "largestPass": 21,
@@ -118,6 +130,18 @@
       "shape": "slash-divisor",
       "largestPass": 1,
       "smallestFail": 0
+    },
+    {
+      "service": "storage",
+      "shape": "glob-in-path",
+      "largestPass": 1,
+      "smallestFail": 2
+    },
+    {
+      "service": "storage",
+      "shape": "glob-nested",
+      "largestPass": 1,
+      "smallestFail": 2
     }
   ],
   "probes": [
@@ -1329,6 +1353,142 @@
       "issues": [],
       "cases": [],
       "apiError": "500 INTERNAL: Internal error encountered."
+    },
+    {
+      "service": "firestore",
+      "shape": "glob-in-path",
+      "n": 1,
+      "compiles": true,
+      "issues": [],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "service": "firestore",
+      "shape": "glob-in-path",
+      "n": 2,
+      "compiles": false,
+      "issues": [
+        {
+          "severity": "ERROR",
+          "description": "Invalid glob match expression. Only one glob match is permitted in a match declaration path.",
+          "line": 4,
+          "column": 21
+        }
+      ],
+      "cases": []
+    },
+    {
+      "service": "firestore",
+      "shape": "glob-nested",
+      "n": 1,
+      "compiles": true,
+      "issues": [],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "service": "firestore",
+      "shape": "glob-nested",
+      "n": 2,
+      "compiles": false,
+      "issues": [
+        {
+          "severity": "ERROR",
+          "description": "Invalid glob match expression. Only one glob match is permitted in a match declaration path.",
+          "line": 5,
+          "column": 7
+        }
+      ],
+      "cases": []
+    },
+    {
+      "service": "storage",
+      "shape": "glob-in-path",
+      "n": 1,
+      "compiles": true,
+      "issues": [],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "service": "storage",
+      "shape": "glob-in-path",
+      "n": 2,
+      "compiles": false,
+      "issues": [
+        {
+          "severity": "ERROR",
+          "description": "Invalid glob match expression. Only one glob match is permitted in a match declaration path.",
+          "line": 4,
+          "column": 21
+        }
+      ],
+      "cases": []
+    },
+    {
+      "service": "storage",
+      "shape": "glob-nested",
+      "n": 1,
+      "compiles": true,
+      "issues": [],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "service": "storage",
+      "shape": "glob-nested",
+      "n": 2,
+      "compiles": false,
+      "issues": [
+        {
+          "severity": "ERROR",
+          "description": "Invalid glob match expression. Only one glob match is permitted in a match declaration path.",
+          "line": 5,
+          "column": 7
+        }
+      ],
+      "cases": []
     }
   ]
 }

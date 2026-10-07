@@ -114,13 +114,16 @@ export function collectMatches(
   }
 
   const remaining = pathSegments.slice(consumed);
-  if (remaining.length === 0) {
-    recorder?.push(entry({ matched: true }));
-    return [{ block, pathVariables: bindings, candidateVariables, functions: allFunctions }];
-  }
-
   const results: MatchResult[] = [];
-  for (const child of block.children) {
+  // When the block consumes the whole path, a nested block whose path is a
+  // single recursive wildcard still matches, binding zero segments.
+  const children = remaining.length > 0
+    ? block.children
+    : block.children.filter((child) => child.path.segments.every((segment) => segment.type === 'recursive'));
+  if (remaining.length === 0) {
+    results.push({ block, pathVariables: bindings, candidateVariables, functions: allFunctions });
+  }
+  for (const child of children) {
     for (const childResult of collectMatches(child, remaining, allFunctions, recorder)) {
       childResult.pathVariables = { ...bindings, ...childResult.pathVariables };
       childResult.candidateVariables = [...candidateVariables, ...childResult.candidateVariables];
