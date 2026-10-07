@@ -9,6 +9,7 @@ import { getAdminStorageSandbox, getStorageService } from 'pyric/storage/interna
 import { ref as storageRef, uploadBytes } from 'pyric/storage';
 
 import {
+  FIXTURE_EXPORT_DOCUMENT,
   exportStorage,
   listStoredPaths,
   restoreStorage,
@@ -55,11 +56,11 @@ describe('listStoredPaths', () => {
 
 describe('exportStorage / restoreStorage', () => {
   it('carries the bytes, the content type, and the custom metadata across buckets', async () => {
-    const records = await exportStorage(await seededBucket());
+    const records = await exportStorage(await seededBucket(), FIXTURE_EXPORT_DOCUMENT);
     const target = isolatedBucket();
     expect(await restoreStorage(target, records)).toBe(2);
 
-    const restored = await exportStorage(target);
+    const restored = await exportStorage(target, FIXTURE_EXPORT_DOCUMENT);
     expect(restored).toEqual(records);
     const top = restored.find((record) => record.path === 'top.txt');
     expect(top?.contentType).toBe('text/plain');
@@ -102,7 +103,7 @@ describe('exportStorage / restoreStorage', () => {
       return readObject(path, bucket);
     };
 
-    const [record] = await exportStorage(storage);
+    const [record] = await exportStorage(storage, FIXTURE_EXPORT_DOCUMENT);
     const bytes = [...Buffer.from(record?.contentBase64 ?? '', 'base64')];
     const write = bytes[0] === 2 ? 'second' : 'first';
     expect(record?.metadata).toEqual({ write });

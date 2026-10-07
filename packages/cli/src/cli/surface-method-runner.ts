@@ -162,7 +162,14 @@ export async function runSurfaceMethod(
     const changedState = result.ok && method.effect !== 'read';
     if (changedState) {
       saveSandboxSnapshot(sandbox, cwd);
-      await saveStorageSidecar(storage, cwd);
+      try {
+        await saveStorageSidecar(storage, cwd);
+      } catch (error) {
+        report(result, stdout, printsJson);
+        const reason = error instanceof Error ? error.message : String(error);
+        stderr.write(`pyric: Storage was not saved. ${reason}\n`);
+        return CALL_FAILED;
+      }
     }
     report(result, stdout, printsJson);
     const failed = !result.ok;

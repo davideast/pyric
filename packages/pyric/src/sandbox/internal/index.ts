@@ -18,6 +18,16 @@ export { getInternalEnv } from './sandbox-impl.js';
 export { decodeImportBundle, validatePersistenceEncoding } from '../persistence/import-bundle.js';
 export { validatePersistedService, persistedServiceHasData, UnsupportedPersistedServiceError } from '../persistence/validate-services.js';
 export { seedUserSchema, storedMetadataSchema } from './state-schemas.js';
+export {
+  BY_REFERENCE_ALTERNATIVE,
+  InlineStorageLimitError,
+  MAX_INLINE_STORAGE_BYTES,
+  assertInlineStorageFits,
+  base64DecodedLength,
+  inlineStorageLimit,
+  setInlineStorageLimitForTesting,
+  type InlineStorageDocument,
+} from './inline-storage-limit.js';
 export { captureIndexQuery, analyzeIndexQuery, readIndexConfig, type IndexQuery, type IndexFinding } from '../../rules/indexes/query-analysis.js';
 export type { IndexesConfig, IndexesConfigEntry } from '../../rules/indexes/types.js';
 export {

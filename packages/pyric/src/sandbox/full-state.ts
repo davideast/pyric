@@ -40,6 +40,7 @@ import {
   base64ToBytes,
   getAdminStorageSandbox,
   getStorageRulesResolution,
+  getStorageService,
   replaceStorageRules,
   referenceStorageState,
   resetStorageState,
@@ -49,6 +50,7 @@ import {
   type StorageStateRecord,
 } from '../storage/internal.js';
 import { getInternalEnv } from './internal/sandbox-impl.js';
+import { assertInlineStorageFits, base64DecodedLength, type InlineStorageDocument } from './internal/inline-storage-limit.js';
 import { encodeStateDocument, decodeStateDocument } from './internal/state-values.js';
 import { getClock, type SandboxClockState } from './clock.js';
 import type { LocalSandbox } from './types/service.js';
@@ -197,10 +199,36 @@ function databaseStateWithoutRules(backend: RtdbBackend): JsonValue {
   return envelope as unknown as JsonValue;
 }
 
+/** Where an inline capture's Storage ends up, and what to use past its limit. */
+export const INLINE_CAPTURE_DOCUMENT: InlineStorageDocument = {
+  document: 'An inline state capture, which forks, branch files, and in-process checkpoints are written from,',
+  instead: 'Branches carry their Storage bytes inline in every sandbox, so delete or shrink objects until the total ' +
+    'fits before forking. On the Node host (`pyric sandbox --hosted`), checkpoints and `pyric snapshot` refer to ' +
+    'object bytes by hash and are not bound by this limit.',
+};
+
+/** The object bytes a set of Storage entries carries inline, counted without decoding them. */
+export function inlineStorageBytes(objects: readonly StorageObjectState[]): number {
+  let total = 0;
+  for (const object of objects) {
+    if (holdsBytesInline(object)) total += base64DecodedLength(object.contentBase64);
+  }
+  return total;
+}
+
+/** Refuse an inline capture whose listed objects exceed the inline limit, before reading their bytes. */
+async function assertInlineCaptureFits(storage: FirebaseStorage): Promise<void> {
+  const service = await getStorageService(storage);
+  let total = 0;
+  for (const listed of await service.backend.listByPrefix('')) total += listed.size;
+  assertInlineStorageFits(total, INLINE_CAPTURE_DOCUMENT);
+}
+
 /** Read every Storage object out of the bucket, with its bytes or with its hash. */
 async function captureStorage(storage: FirebaseStorage, mode: 'inline' | 'reference'): Promise<StorageObjectState[]> {
   const byReference = mode === 'reference';
   if (byReference) return captureStorageReferences(storage);
+  await assertInlineCaptureFits(storage);
   const objects: StorageObjectState[] = [];
   const records = await snapshotStorageState(storage);
   records.sort((left, right) => {
@@ -222,6 +250,8 @@ async function captureStorage(storage: FirebaseStorage, mode: 'inline' | 'refere
     if (hasContentType) object.contentType = contentType;
     objects.push(object);
   }
+  // An overwrite after the listing can grow an object, so the bytes read are counted too.
+  assertInlineStorageFits(inlineStorageBytes(objects), INLINE_CAPTURE_DOCUMENT);
   return objects;
 }
 

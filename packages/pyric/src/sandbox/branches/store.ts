@@ -42,9 +42,11 @@ import { DOC_VALUE_ENCODING } from '../../firestore/internal/value-codec.js';
 import {
   SANDBOX_SERVICES,
   captureFullState,
+  inlineStorageBytes,
   type FullSandboxState,
   type SandboxService,
 } from '../full-state.js';
+import { assertInlineStorageFits, type InlineStorageDocument } from '../internal/inline-storage-limit.js';
 import { wallClockState, type SandboxClockState } from '../clock.js';
 import type { SandboxEvent } from '../types/index.js';
 import { fork, type Branch, type BranchCandidateRules } from './engine.js';
@@ -62,6 +64,14 @@ const CLOCK_FILE = 'clock.json';
 const FIRESTORE_ENCODING_FILE = 'firestore-encoding.json';
 const BASE_DIRECTORY = 'base';
 const STATE_DIRECTORY = 'state';
+
+/** A branch's Storage file, and what to use past the inline limit. */
+const BRANCH_STORAGE_FILE: InlineStorageDocument = {
+  document: "A branch's `storage.json`",
+  instead: 'Branches carry their Storage bytes inline in every sandbox, so delete or shrink objects until the total ' +
+    'fits before saving the branch. On the Node host (`pyric sandbox --hosted`), `pyric snapshot` saves the ' +
+    'project state with object bytes by reference.',
+};
 
 /** The names a branch may take: one path segment, so a name can never escape the store. */
 export const BRANCH_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
@@ -211,6 +221,10 @@ export async function saveBranch(
     eventCount: branch.events.length,
   };
   const current = await captureFullState(branch.sandbox);
+  // Checked for both states before the directory exists, so a refused save writes nothing.
+  for (const state of [branch.base, current]) {
+    assertInlineStorageFits(inlineStorageBytes(state.storage), BRANCH_STORAGE_FILE);
+  }
   mkdirSync(dir, { recursive: true });
   writeState(dir, BASE_DIRECTORY, branch.base);
   writeState(dir, STATE_DIRECTORY, current);
