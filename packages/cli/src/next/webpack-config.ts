@@ -90,22 +90,18 @@ export function augmentWebpackConfig(config: NextConfigObject): NextConfigObject
   const originalWebpack = updatedConfig.webpack;
 
   updatedConfig.webpack = (webpackConfig: any, webpackOptions: WebpackOptions) => {
-    if (isClientSideBuild(webpackOptions)) {
-      const currentResolve = webpackConfig.resolve;
-      webpackConfig.resolve = assembleClientResolveSection(currentResolve);
-
-      const currentExperiments = webpackConfig.experiments;
-      webpackConfig.experiments = assembleClientExperimentsSection(currentExperiments);
-
-      const currentOutput = webpackConfig.output;
-      webpackConfig.output = assembleClientOutputSection(currentOutput);
-
-      webpackConfig.entry = assembleClientEntry(webpackConfig.entry);
+    // The user's function runs first so it cannot replace the Pyric aliases,
+    // fallbacks and entry hook that the sandbox swap depends on.
+    const userResult = typeof originalWebpack === 'function' ? originalWebpack(webpackConfig, webpackOptions) : webpackConfig;
+    const resolvedConfig = userResult ?? webpackConfig;
+    if (!isClientSideBuild(webpackOptions)) {
+      return resolvedConfig;
     }
-    if (typeof originalWebpack === 'function') {
-      return originalWebpack(webpackConfig, webpackOptions);
-    }
-    return webpackConfig;
+    resolvedConfig.resolve = assembleClientResolveSection(resolvedConfig.resolve);
+    resolvedConfig.experiments = assembleClientExperimentsSection(resolvedConfig.experiments);
+    resolvedConfig.output = assembleClientOutputSection(resolvedConfig.output);
+    resolvedConfig.entry = assembleClientEntry(resolvedConfig.entry);
+    return resolvedConfig;
   };
 
   return updatedConfig;
