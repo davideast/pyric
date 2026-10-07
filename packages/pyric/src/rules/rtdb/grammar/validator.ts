@@ -5,263 +5,251 @@ import {
 } from '../expression-engine.js';
 import type { RuleError } from '../types.js';
 import {
-  HAS_CHILDREN_ARGUMENT_COUNT,
-  HAS_CHILDREN_ARRAY,
-  HAS_CHILDREN_STRINGS,
-  MATCHES_REGEX_LITERAL,
-  ONE_STRING_ARGUMENT_METHODS,
-  REGEX_FLAGS,
-  isSupportedRegexFlags,
-  argumentCountMessage,
+  BOOLEAN_OPERANDS,
+  NUMERIC_OPERANDS,
+  ROOT_VARIABLES,
+  binaryResult,
+  memberOf,
   operandMessage,
-  replaceArgumentMessage,
-  stringArgumentMessage,
-  unknownVariableMessage,
-  type TypedOperator,
-} from './type-rules.js';
-
-const ALLOWED_IDENTIFIERS: Record<string, Set<string>> = {
-  read: new Set(['auth', 'data', 'root', 'now', 'query']),
-  write: new Set(['auth', 'data', 'newData', 'root', 'now']),
-  validate: new Set(['auth', 'data', 'newData', 'root', 'now']),
-};
-
-const DATASNAPSHOT_METHODS = new Set([
-  'val', 'exists', 'hasChild', 'hasChildren', 'isString', 'isNumber',
-  'isBoolean', 'child', 'parent', 'getPriority',
-]);
-
-const STRING_METHODS = new Set([
-  'matches', 'contains', 'beginsWith', 'endsWith', 'replace', 'toLowerCase',
-  'toUpperCase', 'length',
-]);
-
-const ALL_KNOWN_METHODS = new Set([...DATASNAPSHOT_METHODS, ...STRING_METHODS]);
-
-/**
- * The type an expression has before it runs, as far as its text shows it.
- * `any` is a value whose type is known only at evaluation, such as `val()`.
- */
-type StaticType = 'snapshot' | 'string' | 'number' | 'boolean' | 'null' | 'regex' | 'array' | 'any';
-
-const SNAPSHOT_IDENTIFIERS = new Set(['data', 'newData', 'root']);
-
-const METHOD_RESULT_TYPES: Record<string, StaticType> = {
-  child: 'snapshot',
-  parent: 'snapshot',
-  exists: 'boolean',
-  hasChild: 'boolean',
-  hasChildren: 'boolean',
-  isString: 'boolean',
-  isNumber: 'boolean',
-  isBoolean: 'boolean',
-  contains: 'boolean',
-  beginsWith: 'boolean',
-  endsWith: 'boolean',
-  matches: 'boolean',
-  replace: 'string',
-  toLowerCase: 'string',
-  toUpperCase: 'string',
-};
-
-/** Whether a value of `type` is known before evaluation not to be a string. */
-const isKnownNonString = (type: StaticType): boolean => type !== 'string' && type !== 'any';
+  operandsOf,
+  typeError,
+  type RtdbStaticType,
+  type RtdbTypedValue,
+} from './types.js';
 
 interface ValidateContext {
   errors: RuleError[];
   context: 'read' | 'write' | 'validate';
+  /** Declared path variable names, without the leading `$`. */
   pathVars: Set<string>;
+}
+
+const ERROR: RtdbTypedValue = { type: 'Error' };
+const typed = (type: RtdbStaticType): RtdbTypedValue => ({ type });
+
+function report(ctx: ValidateContext, error: RuleError): RtdbTypedValue {
+  ctx.errors.push(error);
+  return ERROR;
+}
+
+/**
+ * The type of an operand about to be consumed. An array literal is legal only
+ * as the argument of `hasChildren()`; consumed anywhere else it is refused.
+ */
+function use(ctx: ValidateContext, value: RtdbTypedValue): RtdbStaticType {
+  if (value.type !== 'Array') return value.type;
+  report(ctx, typeError('UNEXPECTED_ARRAY', 'Unexpected array literal.'));
+  return 'Error';
+}
+
+function typeOf(node: Node, ctx: ValidateContext): RtdbTypedValue {
+  return (node as any).typeOf(ctx) as RtdbTypedValue;
+}
+
+function binary(this: Node, left: Node, op: Node, right: Node): RtdbTypedValue {
+  const ctx = this.args.ctx as ValidateContext;
+  const operator = op.sourceString;
+  const leftType = use(ctx, typeOf(left, ctx));
+  const rightType = use(ctx, typeOf(right, ctx));
+  const accepted = operandsOf(operator);
+  if (!accepted.has(leftType)) return report(ctx, typeError('TYPE_MISMATCH', operandMessage(operator, 'left')));
+  if (!accepted.has(rightType)) return report(ctx, typeError('TYPE_MISMATCH', operandMessage(operator, 'right')));
+  return typed(binaryResult(operator, leftType, rightType));
+}
+
+function logical(this: Node, left: Node, op: Node, right: Node): RtdbTypedValue {
+  const ctx = this.args.ctx as ValidateContext;
+  const operator = op.sourceString;
+  const leftType = use(ctx, typeOf(left, ctx));
+  const rightType = use(ctx, typeOf(right, ctx));
+  if (!BOOLEAN_OPERANDS.has(leftType)) {
+    return report(ctx, typeError('TYPE_MISMATCH', `Left operand of ${operator} must be boolean.`));
+  }
+  if (!BOOLEAN_OPERANDS.has(rightType)) {
+    return report(ctx, typeError('TYPE_MISMATCH', `Right operand of ${operator} must be boolean.`));
+  }
+  return typed(leftType === 'Error' || rightType === 'Error' ? 'Error' : 'Boolean');
+}
+
+/** Resolve `receiver.name` as a value: a method read without a call is a `SnapshotMethod`. */
+function property(ctx: ValidateContext, receiver: RtdbTypedValue, name: string): RtdbTypedValue {
+  const member = memberOf(use(ctx, receiver), name);
+  if (member.kind === 'error') return member.error ? report(ctx, member.error) : ERROR;
+  return typed(member.kind === 'method' ? 'SnapshotMethod' : member.type);
+}
+
+/** Unescape the text between a string literal's quotes. */
+function stringValue(literal: string): string {
+  return literal.slice(1, -1).replace(/\\(.)/g, '$1');
 }
 
 let validatorSemantics: Semantics | undefined;
 
-function staticTypeOf(node: Node): StaticType {
-  return (node as unknown as { staticType: StaticType }).staticType;
-}
-
 function getValidatorSemantics(): Semantics {
   if (validatorSemantics) return validatorSemantics;
   const semantics = createRtdbExpressionSemantics();
-  semantics.addAttribute<StaticType>('staticType', {
+  // The value of an expression that is only a string literal (parentheses
+  // allowed); undefined otherwise. `x['name']` reads the member `name`.
+  semantics.addOperation('literalString', {
     _nonterminal(...children) {
-      return children.length === 1 ? staticTypeOf(children[0]!) : 'any';
+      return children.length === 1 ? (children[0] as any).literalString() : undefined;
     },
-    _iter() { return 'any'; },
-    _terminal() { return 'any'; },
-    Ternary_ternary(_c, _q, _t, _colon, _e) { return 'any'; },
-    Logical_and(_l, _op, _r) { return 'boolean'; },
-    Logical_or(_l, _op, _r) { return 'boolean'; },
-    Comparison_strictEq(_l, _op, _r) { return 'boolean'; },
-    Comparison_strictNeq(_l, _op, _r) { return 'boolean'; },
-    Comparison_gte(_l, _op, _r) { return 'boolean'; },
-    Comparison_lte(_l, _op, _r) { return 'boolean'; },
-    Comparison_gt(_l, _op, _r) { return 'boolean'; },
-    Comparison_lt(_l, _op, _r) { return 'boolean'; },
-    Comparison_looseEq(_l, _op, _r) { return 'boolean'; },
-    Comparison_looseNeq(_l, _op, _r) { return 'boolean'; },
-    Additive_add(_l, _op, _r) { return 'any'; },
-    Additive_sub(_l, _op, _r) { return 'number'; },
-    Multiplicative_mul(_l, _op, _r) { return 'number'; },
-    Multiplicative_div(_l, _op, _r) { return 'number'; },
-    Multiplicative_mod(_l, _op, _r) { return 'number'; },
-    UnaryExpr_not(_op, _e) { return 'boolean'; },
-    UnaryExpr_neg(_op, _e) { return 'number'; },
-    CallExpr_methodCall(_receiver, _dot, methodName, _open, _args, _close) {
-      return METHOD_RESULT_TYPES[methodName.sourceString] ?? 'any';
+    _iter() {
+      return undefined;
     },
-    CallExpr_memberAccess(receiver, _dot, member) {
-      return member.sourceString === 'length' && staticTypeOf(receiver) === 'string' ? 'number' : 'any';
+    _terminal() {
+      return undefined;
     },
-    CallExpr_indexAccess(_receiver, _open, _index, _close) { return 'any'; },
-    Primary_paren(_open, expr, _close) { return staticTypeOf(expr); },
-    Array(_open, _elems, _close) { return 'array'; },
-    number(_node) { return 'number'; },
-    string(_node) { return 'string'; },
-    regex(_open, _body, _close, _flags) { return 'regex'; },
-    bool(_node) { return 'boolean'; },
-    null(_lit) { return 'null'; },
-    ident(_dollar, _start, _rest) {
-      const name = this.sourceString;
-      if (name.startsWith('$')) return 'string';
-      if (SNAPSHOT_IDENTIFIERS.has(name)) return 'snapshot';
-      if (name === 'now') return 'number';
-      return 'any';
+    Primary_paren(_open, inner, _close) {
+      return (inner as any).literalString();
+    },
+    string(_literal) {
+      return stringValue(this.sourceString);
     },
   });
-
-  /**
-   * Validate both operands of a typed operator, then report a snapshot
-   * operand. Production names the left one when both are snapshots.
-   */
-  function typedOperands(ctx: ValidateContext, operator: TypedOperator, left: Node, right: Node): void {
-    (left as any).validate(ctx);
-    (right as any).validate(ctx);
-    const side = staticTypeOf(left) === 'snapshot' ? 'left' : staticTypeOf(right) === 'snapshot' ? 'right' : null;
-    if (side !== null) ctx.errors.push({ code: 'INVALID_OPERAND', message: operandMessage(operator, side) });
-  }
-
-  semantics.addOperation('validate(ctx)', {
+  semantics.addOperation('typeOf(ctx)', {
     _nonterminal(...children) {
-      children.forEach(c => (c as any).validate(this.args.ctx));
+      return children.length === 1 ? typeOf(children[0]!, this.args.ctx) : ERROR;
     },
-    _iter(...children) {
-      children.forEach(c => (c as any).validate(this.args.ctx));
+    _iter() {
+      return ERROR;
     },
-    _terminal() {},
+    _terminal() {
+      return ERROR;
+    },
 
-    Comparison_strictEq(left, _op, right) { typedOperands(this.args.ctx as ValidateContext, '===', left, right); },
-    Comparison_strictNeq(left, _op, right) { typedOperands(this.args.ctx as ValidateContext, '!==', left, right); },
-    Comparison_gte(left, _op, right) { typedOperands(this.args.ctx as ValidateContext, '>=', left, right); },
-    Comparison_lte(left, _op, right) { typedOperands(this.args.ctx as ValidateContext, '<=', left, right); },
-    Comparison_gt(left, _op, right) { typedOperands(this.args.ctx as ValidateContext, '>', left, right); },
-    Comparison_lt(left, _op, right) { typedOperands(this.args.ctx as ValidateContext, '<', left, right); },
-    Comparison_looseEq(left, _op, right) { typedOperands(this.args.ctx as ValidateContext, '==', left, right); },
-    Comparison_looseNeq(left, _op, right) { typedOperands(this.args.ctx as ValidateContext, '!=', left, right); },
-    Additive_add(left, _op, right) { typedOperands(this.args.ctx as ValidateContext, '+', left, right); },
-    Additive_sub(left, _op, right) { typedOperands(this.args.ctx as ValidateContext, '-', left, right); },
-    Multiplicative_mul(left, _op, right) { typedOperands(this.args.ctx as ValidateContext, '*', left, right); },
-    Multiplicative_div(left, _op, right) { typedOperands(this.args.ctx as ValidateContext, '/', left, right); },
-    Multiplicative_mod(left, _op, right) { typedOperands(this.args.ctx as ValidateContext, '%', left, right); },
+    Ternary_ternary(condition, _q, consequent, _c, alternate) {
+      const ctx = this.args.ctx as ValidateContext;
+      const conditionType = use(ctx, typeOf(condition, ctx));
+      const consequentType = use(ctx, typeOf(consequent, ctx));
+      const alternateType = use(ctx, typeOf(alternate, ctx));
+      if (!BOOLEAN_OPERANDS.has(conditionType)) {
+        return report(ctx, typeError('TYPE_MISMATCH', 'condition of ? must be boolean.'));
+      }
+      if (consequentType === 'Error' || alternateType === 'Error') return ERROR;
+      return typed(consequentType === alternateType ? consequentType : 'Mixed');
+    },
+
+    Logical_and: logical,
+    Logical_or: logical,
+
+    Comparison_strictEq: binary,
+    Comparison_strictNeq: binary,
+    Comparison_gte: binary,
+    Comparison_lte: binary,
+    Comparison_gt: binary,
+    Comparison_lt: binary,
+    Comparison_looseEq: binary,
+    Comparison_looseNeq: binary,
+    Additive_add: binary,
+    Additive_sub: binary,
+    Multiplicative_mul: binary,
+    Multiplicative_div: binary,
+    Multiplicative_mod: binary,
+
+    UnaryExpr_not(_op, operand) {
+      const ctx = this.args.ctx as ValidateContext;
+      const type = use(ctx, typeOf(operand, ctx));
+      if (!BOOLEAN_OPERANDS.has(type)) return report(ctx, typeError('TYPE_MISMATCH', '! only operates on booleans.'));
+      return typed(type === 'Error' ? 'Error' : 'Boolean');
+    },
+
+    UnaryExpr_neg(_op, operand) {
+      const ctx = this.args.ctx as ValidateContext;
+      const type = use(ctx, typeOf(operand, ctx));
+      if (!NUMERIC_OPERANDS.has(type)) return report(ctx, typeError('TYPE_MISMATCH', '- only operates on numbers.'));
+      return typed(type === 'Error' ? 'Error' : 'Number');
+    },
 
     CallExpr_methodCall(receiver, _dot, methodName, _open, args, _close) {
       const ctx = this.args.ctx as ValidateContext;
-      (receiver as any).validate(ctx);
-      // Validate method name
-      const method = methodName.sourceString;
-      if (!ALL_KNOWN_METHODS.has(method)) {
-        ctx.errors.push({
-          code: 'UNKNOWN_METHOD',
-          message: `Unknown method '${method}'`,
-        });
+      const receiverType = use(ctx, typeOf(receiver, ctx));
+      const argValues = args.asIteration().children.map((arg) => typeOf(arg, ctx));
+      const name = methodName.sourceString;
+      const member = memberOf(receiverType, name);
+      if (member.kind === 'error') return member.error ? report(ctx, member.error) : ERROR;
+      if (member.kind === 'property') {
+        return report(
+          ctx,
+          typeError('NOT_A_FUNCTION', 'Type error: Function call on target that is not a function.'),
+        );
       }
-      // Recurse into args but NOT methodName (it's not an identifier in this context)
-      const argNodes = args.asIteration().children as Node[];
-      argNodes.forEach((a) => (a as any).validate(ctx));
-      const argumentError = (message: string) => ctx.errors.push({ code: 'INVALID_ARGUMENT', message });
-
-      if (ONE_STRING_ARGUMENT_METHODS.has(method)) {
-        if (argNodes.length !== 1) argumentError(argumentCountMessage(method, 1));
-        else if (isKnownNonString(staticTypeOf(argNodes[0]!))) argumentError(stringArgumentMessage(method));
-      } else if (method === 'matches') {
-        if (argNodes.length !== 1) argumentError(argumentCountMessage(method, 1));
-        else if (staticTypeOf(argNodes[0]!) !== 'regex') argumentError(MATCHES_REGEX_LITERAL);
-      } else if (method === 'replace') {
-        if (argNodes.length !== 2) argumentError(argumentCountMessage(method, 2));
-        else {
-          if (isKnownNonString(staticTypeOf(argNodes[0]!))) argumentError(replaceArgumentMessage(1));
-          if (isKnownNonString(staticTypeOf(argNodes[1]!))) argumentError(replaceArgumentMessage(2));
-        }
-      } else if (method === 'hasChildren' && argNodes.length > 0) {
-        // Production takes the child names only as an array literal.
-        const names = argNodes[0]!;
-        if (argNodes.length > 1) argumentError(HAS_CHILDREN_ARGUMENT_COUNT);
-        else if (staticTypeOf(names) !== 'array') argumentError(HAS_CHILDREN_ARRAY);
-        else if (arrayElements(names).some((element) => isKnownNonString(staticTypeOf(element)))) {
-          argumentError(HAS_CHILDREN_STRINGS);
-        }
-      }
+      const checked = argValues.map((value) => (name === 'hasChildren' ? value : typed(use(ctx, value))));
+      if (checked.some((value) => value.type === 'Error')) return ERROR;
+      const failure = member.method.check(name, checked);
+      return failure ? report(ctx, failure) : typed(member.method.returns);
     },
 
-    regex(_open, _body, _close, flags) {
-      if (!isSupportedRegexFlags(flags.sourceString)) {
-        (this.args.ctx as ValidateContext).errors.push({ code: 'INVALID_REGEX', message: REGEX_FLAGS });
-      }
-    },
-
-    CallExpr_memberAccess(receiver, _dot, _member) {
-      (receiver as any).validate(this.args.ctx);
-      // Skip validation of member name - it's a property, not a root identifier
+    CallExpr_memberAccess(receiver, _dot, member) {
+      const ctx = this.args.ctx as ValidateContext;
+      return property(ctx, typeOf(receiver, ctx), member.sourceString);
     },
 
     CallExpr_indexAccess(receiver, _open, index, _close) {
-      (receiver as any).validate(this.args.ctx);
-      (index as any).validate(this.args.ctx);
+      const ctx = this.args.ctx as ValidateContext;
+      const receiverValue = typeOf(receiver, ctx);
+      const name = (index as any).literalString() as string | undefined;
+      if (name !== undefined) return property(ctx, receiverValue, name);
+      const receiverType = use(ctx, receiverValue);
+      const indexType = use(ctx, typeOf(index, ctx));
+      if (receiverType === 'Error' || indexType === 'Error') return ERROR;
+      if (receiverType === 'Auth') return typed('Auth');
+      return report(ctx, typeError('INVALID_PROPERTY_ACCESS', 'Invalid property access.'));
+    },
+
+    Primary_paren(_open, inner, _close) {
+      return typeOf(inner, this.args.ctx);
+    },
+
+    Array(_open, elements, _close) {
+      const ctx = this.args.ctx as ValidateContext;
+      const types = elements.asIteration().children.map((element) => use(ctx, typeOf(element, ctx)));
+      const array: RtdbTypedValue = { type: 'Array', elements: types };
+      return array;
+    },
+
+    number(_n) {
+      return typed('Number');
+    },
+    string(_s) {
+      return typed('String');
+    },
+    regex(_open, _body, _close, _flags) {
+      return typed('Regex');
+    },
+    bool(_b) {
+      return typed('Boolean');
+    },
+    null(_n) {
+      return typed('Null');
     },
 
     ident(_dollar, _start, _rest) {
       const ctx = this.args.ctx as ValidateContext;
       const name = this.sourceString;
-      const dollar = _dollar.sourceString;
-
-      // A $variable is one a wildcard key on this rule's path declares.
-      if (dollar === '$') {
-        if (!ctx.pathVars.has(name.slice(1))) {
-          ctx.errors.push({ code: 'UNKNOWN_IDENTIFIER', message: unknownVariableMessage(name) });
-        }
-        return;
+      if (_dollar.sourceString === '$') {
+        if (ctx.pathVars.has(name.slice(1))) return typed('String');
+        return report(ctx, typeError('UNKNOWN_IDENTIFIER', `Unknown variable '${name}'.`));
       }
-
-      const allowed = ALLOWED_IDENTIFIERS[ctx.context];
-      if (!allowed) return;
-
-      if (!allowed.has(name) && !ctx.pathVars.has(name)) {
-        ctx.errors.push({
-          code: 'UNKNOWN_IDENTIFIER',
-          message: `Identifier '${name}' is not allowed in '${ctx.context}' context`,
-        });
-      }
-
       if (name === 'newData' && ctx.context === 'read') {
-        ctx.errors.push({
-          code: 'NEWDATA_IN_READ',
-          message: `'newData' is not available in 'read' context`,
-        });
+        return report(ctx, typeError('NEWDATA_IN_READ', 'newData is invalid in .read expressions.'));
       }
+      const type = ROOT_VARIABLES.get(name);
+      if (!type) return report(ctx, typeError('UNKNOWN_IDENTIFIER', `Unknown variable '${name}'.`));
+      return typed(type);
     },
   });
   validatorSemantics = semantics;
   return semantics;
 }
 
-/** The element expressions of an array literal, through any parentheses around it. */
-function arrayElements(node: Node): Node[] {
-  let current = node;
-  while (current.ctorName !== 'Array') {
-    current = current.ctorName === 'Primary_paren' ? current.child(1) : current.child(0);
-  }
-  return current.child(1).asIteration().children;
-}
-
+/**
+ * Type-check one rule expression as production's rules compiler does when a
+ * ruleset is deployed. Returns every error, each with production's message;
+ * an operand that fails is not reported again by the expressions around it.
+ * A rule must evaluate to a boolean. Returns no errors for an expression that
+ * does not parse: the parser reports those.
+ */
 export function validateExpression(
   raw: string,
   context: 'read' | 'write' | 'validate',
@@ -277,6 +265,9 @@ export function validateExpression(
     pathVars: new Set(pathVariables.map(v => v.startsWith('$') ? v.slice(1) : v)),
   };
 
-  (getValidatorSemantics()(match) as any).validate(ctx);
+  const result = use(ctx, (getValidatorSemantics()(match) as any).typeOf(ctx) as RtdbTypedValue);
+  if (!BOOLEAN_OPERANDS.has(result)) {
+    report(ctx, typeError('NOT_BOOLEAN', 'Expression must evaluate to a boolean.'));
+  }
   return ctx.errors;
 }
