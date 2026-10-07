@@ -201,9 +201,9 @@ export function onSnapshot(
     port,
     service: 'firestore' as const,
     next: (raw: unknown) => {
-      let snapshot: ClientDocSnapshot | ClientQuerySnapshot;
+      let decoded: ClientDocSnapshot | ClientQuerySnapshot | null;
       try {
-        snapshot = makeSnapshot(raw, port, target.converter, baseline);
+        decoded = makeSnapshot(raw, port, target.converter, baseline);
       } catch (error) {
         stop();
         const hasErrorCallback = errorCallback !== undefined;
@@ -211,6 +211,9 @@ export function onSnapshot(
         else console.error('pyric/firestore: Uncaught Error in snapshot listener:', error);
         return;
       }
+      // An unchanged re-established listener delivers nothing.
+      if (decoded === null) return;
+      const snapshot = decoded;
       // Reported on the subscription id the sandbox also records as the
       // listener id, immediately before the application's callback runs.
       const result = raw as { usage?: UsageEvidence };

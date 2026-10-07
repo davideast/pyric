@@ -174,7 +174,7 @@ class DocumentReference internal constructor(
                     reference = this@DocumentReference,
                     exists = exists,
                     rawData = unpackedData,
-                    metadata = SnapshotMetadata(hasPendingWrites = false, isFromCache = false)
+                    metadata = SnapshotMetadata(hasPendingWrites = resMap["hasPendingWrites"] == true, isFromCache = false)
                 )
             }
         }

@@ -97,6 +97,7 @@ export interface RawQueryResult {
 export interface QueryChangeBaseline {
   readonly excludesMetadataChanges: boolean;
   previous?: RawDocResult[];
+  previousHasPendingWrites?: boolean;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -110,24 +111,45 @@ function isDocumentResult(value: unknown): value is RawDocResult {
   const data = value.data;
   const hasValidData = data === undefined || (isRecord(data) && typeof data.json === 'string');
   const hasValidPath = value.path === undefined || typeof value.path === 'string';
-  return typeof value.id === 'string' && typeof value.exists === 'boolean' && hasValidPath && hasValidData;
+  return typeof value.id === 'string' && typeof value.exists === 'boolean' && hasValidPath && hasValidData
+    && hasValidPendingWrites(value);
+}
+
+function hasValidPendingWrites(value: Record<string, unknown>): boolean {
+  return value.hasPendingWrites === undefined || typeof value.hasPendingWrites === 'boolean';
 }
 
 function isQueryResult(value: unknown): value is RawQueryResult {
-  return isRecord(value) && Array.isArray(value.docs) && value.docs.every(isDocumentResult);
+  return isRecord(value) && Array.isArray(value.docs) && value.docs.every(isDocumentResult)
+    && hasValidPendingWrites(value);
 }
 
-/** Decode a listener delivery before invoking application code. */
+/**
+ * Decode a listener delivery before invoking application code.
+ *
+ * Returns `null` for a query frame that changes nothing the listener would
+ * observe: no document changes, and either the same `hasPendingWrites` or a
+ * listener that did not request metadata changes. The
+ * host sends such a frame when it re-establishes a listener (an auth change,
+ * a state replacement); the in-page sandbox re-evaluates in place and
+ * delivers nothing in that case.
+ */
 export function makeSnapshot(
   raw: unknown,
   port: ClientPort,
   converter: FirestoreDataConverter<unknown> | null,
   baseline: QueryChangeBaseline,
-): ClientDocSnapshot | ClientQuerySnapshot {
+): ClientDocSnapshot | ClientQuerySnapshot | null {
   const isQuery = isQueryResult(raw);
   if (isQuery) {
     const snapshot = makeQuerySnapshot(raw, port, converter, baseline);
+    const isUnchanged = baseline.previous !== undefined
+      && snapshot.docChanges().length === 0
+      && (baseline.excludesMetadataChanges
+        || snapshot.metadata.hasPendingWrites === baseline.previousHasPendingWrites);
+    if (isUnchanged) return null;
     baseline.previous = raw.docs;
+    baseline.previousHasPendingWrites = snapshot.metadata.hasPendingWrites;
     return snapshot;
   }
   const isDocument = isDocumentResult(raw);

@@ -48,6 +48,9 @@ public final class QuerySnapshot: @unchecked Sendable, RandomAccessCollection {
         previousDocs: [QueryDocumentSnapshot]? = nil
     ) -> QuerySnapshot {
         var docList: [QueryDocumentSnapshot] = []
+        // Listener frames carry the sandbox snapshot's pending-write state.
+        let pending = ((wireAny as? [String: Any])?["hasPendingWrites"] as? Bool) ?? false
+        let metadata = SnapshotMetadata(hasPendingWrites: pending, isFromCache: false)
 
         if let dict = wireAny as? [String: Any], let docs = dict["docs"] as? [Any] {
             for item in docs {
@@ -61,7 +64,7 @@ public final class QuerySnapshot: @unchecked Sendable, RandomAccessCollection {
                         QueryDocumentSnapshot(
                             firestore: firestore,
                             reference: snap.reference,
-                            metadata: snap.metadata,
+                            metadata: metadata,
                             rawData: snap.rawData ?? [:]
                         )
                     )
@@ -79,7 +82,7 @@ public final class QuerySnapshot: @unchecked Sendable, RandomAccessCollection {
                         QueryDocumentSnapshot(
                             firestore: firestore,
                             reference: snap.reference,
-                            metadata: snap.metadata,
+                            metadata: metadata,
                             rawData: snap.rawData ?? [:]
                         )
                     )
@@ -91,7 +94,7 @@ public final class QuerySnapshot: @unchecked Sendable, RandomAccessCollection {
         return QuerySnapshot(
             documents: docList,
             documentChanges: changes,
-            metadata: SnapshotMetadata(hasPendingWrites: false, isFromCache: false),
+            metadata: metadata,
             query: query
         )
     }

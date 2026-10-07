@@ -11,7 +11,10 @@ import { initializeSandbox } from 'pyric/sandbox';
 import { setRules } from 'pyric/sandbox/firestore';
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import * as inPage from 'pyric/firestore';
+import * as inPageAuth from 'pyric/auth';
 import * as client from '../../../src/serve/worker/client.js';
+import { makeSnapshot } from '../../../src/serve/worker/client/snapshots.js';
+import { refuseInvalidInboundMessage } from '../../../src/serve/worker/inbound-validation.js';
 import { makeHostCtx, connectClientToHost, sleep } from './integration-support.js';
 
 const OPEN_RULES = `rules_version = '2';
@@ -186,12 +189,14 @@ test('a served collection-group listener reports changes across collections with
   });
 });
 
-test('served and in-page listeners report identical change lists and metadata for the same writes', async () => {
+test('served and in-page listeners report identical change lists and metadata for the same writes and a resubscribe', async () => {
   type Writes = {
     set(path: string, data: Record<string, unknown>): Promise<void>;
     update(path: string, data: Record<string, unknown>): Promise<void>;
     remove(path: string): Promise<void>;
     batch(ops: Array<['set', string, Record<string, unknown>] | ['delete', string]>): Promise<void>;
+    /** Sign in. Production re-establishes the listen stream for the new identity. */
+    resubscribe(): Promise<void>;
   };
   const script = async (w: Writes, settle: () => Promise<void>) => {
     await w.set('widgets/a', { n: 1 }); await settle();
@@ -201,24 +206,25 @@ test('served and in-page listeners report identical change lists and metadata fo
     await w.set('widgets/b', { n: 2 }); await settle();
     await w.remove('widgets/c'); await settle();
     await w.batch([['delete', 'widgets/b'], ['set', 'widgets/d', { n: 0 }], ['set', 'widgets/a', { n: 4 }]]); await settle();
+    await w.resubscribe(); await settle();
+    await w.set('widgets/e', { n: 6 }); await settle();
   };
-  const record = (snaps: Snap[]) => snaps.map((s) => ({
+  const record = (snaps: Snap[], withMetadata: boolean) => snaps.map((s) => ({
     hasPendingWrites: s.metadata.hasPendingWrites,
     ids: s.docs.map((d) => d.id),
     changes: summarize(s.docChanges()),
-    metaChanges: summarize(s.docChanges({ includeMetadataChanges: true })),
+    ...(withMetadata ? { metaChanges: summarize(s.docChanges({ includeMetadataChanges: true })) } : {}),
   }));
 
   // In-page plane.
   const sandbox = initializeSandbox();
   setRules(sandbox, OPEN_RULES);
   const ipDb = inPage.getFirestore(sandbox);
-  const ipSnaps: Snap[] = [];
-  const ipStop = inPage.onSnapshot(
-    inPage.query(inPage.collection(ipDb, 'widgets'), inPage.orderBy('n')),
-    { includeMetadataChanges: true },
-    (s) => ipSnaps.push(s as unknown as Snap),
-  );
+  const ipQuery = inPage.query(inPage.collection(ipDb, 'widgets'), inPage.orderBy('n'));
+  const ipMeta: Snap[] = [];
+  const ipPlain: Snap[] = [];
+  const ipStopMeta = inPage.onSnapshot(ipQuery, { includeMetadataChanges: true }, (s) => ipMeta.push(s as unknown as Snap));
+  const ipStopPlain = inPage.onSnapshot(ipQuery, (s) => ipPlain.push(s as unknown as Snap));
   await sleep();
   await script({
     set: (p, d) => inPage.setDoc(inPage.doc(ipDb, p), d),
@@ -232,19 +238,21 @@ test('served and in-page listeners report identical change lists and metadata fo
       }
       await b.commit();
     },
+    resubscribe: async () => { await inPageAuth.signInAnonymously(inPageAuth.getAuth(sandbox)); },
   }, () => sleep());
-  ipStop();
+  ipStopMeta();
+  ipStopPlain();
   getInternalEnv(sandbox).dispose();
 
   // Served plane.
-  let servedSnaps: Snap[] = [];
+  let servedMeta: Snap[] = [];
+  let servedPlain: Snap[] = [];
   await withServed('doc-changes-parity', async (db) => {
-    const snaps: Snap[] = [];
-    const stop = client.onSnapshot(
-      client.query(client.collection(db, 'widgets'), client.orderBy('n')),
-      { includeMetadataChanges: true },
-      (s) => snaps.push(s as unknown as Snap),
-    );
+    const servedQuery = client.query(client.collection(db, 'widgets'), client.orderBy('n'));
+    const meta: Snap[] = [];
+    const plain: Snap[] = [];
+    const stopMeta = client.onSnapshot(servedQuery, { includeMetadataChanges: true }, (s) => meta.push(s as unknown as Snap));
+    const stopPlain = client.onSnapshot(servedQuery, (s) => plain.push(s as unknown as Snap));
     await sleep();
     await script({
       set: (p, d) => client.setDoc(client.doc(db, p), d),
@@ -258,11 +266,39 @@ test('served and in-page listeners report identical change lists and metadata fo
         }
         await b.commit();
       },
+      resubscribe: async () => { await client.signInAnonymously(client.getAuth(db)); },
     }, () => sleep());
-    stop();
-    servedSnaps = snaps;
+    stopMeta();
+    stopPlain();
+    servedMeta = meta;
+    servedPlain = plain;
   });
 
-  expect(ipSnaps.length).toBeGreaterThan(7);
-  expect(record(servedSnaps)).toEqual(record(ipSnaps));
+  const inPageMeta = record(ipMeta, true);
+  const changeTypes = new Set(inPageMeta.flatMap((s) => s.changes.map((c) => c.type)));
+  expect([...changeTypes].sort()).toEqual(['added', 'modified', 'removed']);
+  expect(inPageMeta.some((s) => s.changes.length > 1)).toBe(true);
+  expect(inPageMeta.at(-2)!.changes).toEqual([
+    { type: 'added', path: 'widgets/e', data: { n: 6 }, oldIndex: -1, newIndex: 2 },
+  ]);
+  expect(record(servedMeta, true)).toEqual(inPageMeta);
+  expect(record(servedPlain, false)).toEqual(record(ipPlain, false));
+});
+
+test('a snapshot frame with a non-boolean hasPendingWrites is refused as malformed', () => {
+  const port = {} as Parameters<typeof makeSnapshot>[1];
+  const baseline = { excludesMetadataChanges: true };
+  expect(() => makeSnapshot({ docs: [], hasPendingWrites: 'yes' }, port, null, baseline))
+    .toThrow('The sandbox sent a malformed Firestore snapshot.');
+  expect(() => makeSnapshot({ id: 'a', path: 'widgets/a', exists: false, hasPendingWrites: 1 }, port, null, baseline))
+    .toThrow('The sandbox sent a malformed Firestore snapshot.');
+});
+
+test('a Firestore subscription with a non-boolean includeMetadataChanges is refused', () => {
+  const replies: unknown[] = [];
+  const port = { postMessage: (message: unknown) => replies.push(message) } as Parameters<typeof refuseInvalidInboundMessage>[0];
+  const target = { __ref: 'collection', path: 'widgets' };
+  expect(refuseInvalidInboundMessage(port, { t: 'sub', subId: 's1', target, includeMetadataChanges: true })).toBe(false);
+  expect(refuseInvalidInboundMessage(port, { t: 'sub', subId: 's2', target, includeMetadataChanges: 'yes' })).toBe(true);
+  expect(replies).toEqual([{ t: 'snap', subId: 's2', value: { __error: { code: 'invalid-argument', message: expect.stringContaining('includeMetadataChanges') } } }]);
 });
