@@ -36,6 +36,15 @@
  * with "Missing 'match' keyword before path." while `1 / 0` compiles and
  * errors at evaluation with "Divide by zero error." (the `slash-divisor`
  * probes, identical for Firestore and Storage).
+ *
+ * A match declaration path holds at most one recursive wildcard, counted
+ * across the path of the block and every block it is nested in:
+ * `match /{a=**}/items/{b=**}`, and `match /{rest=**}` nested in
+ * `match /{g=**}/p/{gid}`, are rejected with "Invalid glob match expression.
+ * Only one glob match is permitted in a match declaration path." on the line
+ * of the declaration that holds the second one, while one recursive wildcard
+ * in either position compiles (the `glob-in-path` and `glob-nested` probes,
+ * identical for Firestore and Storage).
  */
 import type { Expression, FirestoreRules, FunctionDef, MatchBlock } from './FirestoreAST.js';
 import { parenthesizedGroups } from './paren-groups.js';
@@ -56,6 +65,7 @@ export const NESTING_LEVEL_LIMIT = 99;
 export const LET_LIMIT_MESSAGE = 'Maximum allowed variable count of 10 for a given function has been reached.';
 export const NESTING_MESSAGE = 'Expression is too complex to evaluate safely.';
 export const SLASH_STARTS_PATH_MESSAGE = "Missing 'match' keyword before path.";
+export const GLOB_MATCH_MESSAGE = 'Invalid glob match expression. Only one glob match is permitted in a match declaration path.';
 
 /** Production's call depth message for a stack of {@link CALL_DEPTH_LIMIT} function names. */
 export function callDepthMessage(stack: readonly string[]): string {
@@ -67,7 +77,7 @@ export function duplicateFunctionMessage(name: string): string {
   return `Function ${name} is already defined.`;
 }
 
-export type CompileLimitCode = 'CALL_DEPTH' | 'LET_LIMIT' | 'NESTING_DEPTH' | 'FUNCTION_REDEFINED' | 'SLASH_STARTS_PATH';
+export type CompileLimitCode = 'CALL_DEPTH' | 'LET_LIMIT' | 'NESTING_DEPTH' | 'FUNCTION_REDEFINED' | 'SLASH_STARTS_PATH' | 'GLOB_MATCH_COUNT';
 
 /** One compile rejection, carrying production's message verbatim. */
 export interface CompileLimitViolation {
@@ -123,7 +133,24 @@ export function compileLimitViolations(ast: FirestoreRules): CompileLimitViolati
   visitRules(ast.service.match);
   out.push(...callDepthViolations(graph));
   out.push(...redefinedFunctions(ast));
+  out.push(...secondGlobMatches(ast.service.match, 0));
   return out.sort((a, b) => (a.line ?? 0) - (b.line ?? 0));
+}
+
+/**
+ * One rejection per match block whose own path holds a recursive wildcard
+ * that is not the first on the full path from the service root: a second
+ * one in the block's own path, or one in a block nested under a block whose
+ * path already holds one. Reported on the block's line, where production
+ * reports it.
+ */
+function secondGlobMatches(match: MatchBlock, enclosing: number): CompileLimitViolation[] {
+  const own = match.path.segments.filter((segment) => segment.type === 'recursive').length;
+  const out: CompileLimitViolation[] = own > 0 && enclosing + own > 1
+    ? [{ code: 'GLOB_MATCH_COUNT', message: GLOB_MATCH_MESSAGE, ...lineOf(match.loc) }]
+    : [];
+  for (const child of match.children) out.push(...secondGlobMatches(child, enclosing + own));
+  return out;
 }
 
 function redefinedFunctions(ast: FirestoreRules): CompileLimitViolation[] {

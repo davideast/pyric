@@ -112,6 +112,19 @@ describe('collectMatches', () => {
     expect(resolve(rule, 'a/1/notes/n1')[1]?.candidateVariables).toEqual(['noteId']);
   });
 
+  test('a nested recursive wildcard matches zero segments after a block that consumed the path', () => {
+    const rule = `match /p/{gid} {
+      match /{rest=**} { allow read: if true; }
+    }`;
+    expect(resolve(rule, 'p/d1').map((match) => [renderMatchBlockPath(match.block), match.pathVariables])).toEqual([
+      ['/p/{gid}', { gid: 'd1' }],
+      ['/{rest=**}', { gid: 'd1', rest: '' }],
+    ]);
+    expect(resolve(rule, 'p/d1/q/e1').map((match) => match.pathVariables)).toEqual([
+      { gid: 'd1', rest: 'q/e1' },
+    ]);
+  });
+
   test('records literal near misses and unmatched child containers', () => {
     const ast = parse(`match /users/{userId} {
       match /items/{itemId} { allow read: if true; }
