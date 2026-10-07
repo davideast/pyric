@@ -5,7 +5,7 @@
     "rtdb-modular#MI1",
     "rtdb-modular#MI2"
   ],
-  "description": "Two RTDB instances of one project, the default instance and a second one, each with a different ruleset deployed under a run-scoped key: client writes signed out and as one custom-token user, the value each instance holds afterwards read with an admin token, whether one ID token served every operation, and the SDK's behavior for an instance URL that names no instance. Captured by deploy-observe-restore on both instances; rules restored and read back, run data and the run user deleted.",
+  "description": "Two RTDB instances of one project, the default instance and a second one, each with a different ruleset deployed under a run-scoped key: client writes signed out and as one custom-token user, the value each instance holds afterwards read with an admin token, and the SDK's behavior for an instance URL that names no instance. Captured by deploy-observe-restore on both instances; rules restored and read back, run data and the run user deleted.",
   "observedAt": "2026-10-07T20:46:32.227Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "genkit-idx",
@@ -43,9 +43,6 @@
       "secondPathWithoutRules": "DENY",
       "defaultReadOfSecondOnlyPath": "ALLOW"
     },
-    "oneIdToken": {
-      "sameTokenAcrossInstances": true
-    },
     "isolationAfterBothWrites": {
       "defaultHolds": "default",
       "secondHolds": "second",
@@ -57,6 +54,30 @@
       "warnings": [
         "@firebase/database: FIREBASE WARNING: Firebase error. Please ensure that you have the URL of your Firebase Realtime Database instance configured correctly. (https://<missing>.firebaseio.com/)"
       ]
+    },
+    "sdk": {
+      "referenceUrls": {
+        "defaultRoot": "https://sdk-project-default-rtdb.firebaseio.com/",
+        "secondPath": "https://second.firebaseio.com/a%20b/c",
+        "regional": "https://reg.europe-west1.firebasedatabase.app/a",
+        "namespaceQuery": "https://host.firebaseio.com/a"
+      },
+      "sameArgumentSameHandle": true,
+      "defaultUrlAfterDefault": {
+        "error": "FIREBASE FATAL ERROR: Database initialized multiple times. Please make sure the format of the database URL matches with each database() call. "
+      },
+      "trailingSlashAfterOpen": {
+        "error": "FIREBASE FATAL ERROR: Database initialized multiple times. Please make sure the format of the database URL matches with each database() call. "
+      },
+      "refFromUrlSameHost": {
+        "value": "https://second.firebaseio.com/a/b%20c"
+      },
+      "refFromUrlOtherHost": {
+        "error": "FIREBASE FATAL ERROR: refFromURL: Host name does not match the current database: (found third.firebaseio.com but expected second.firebaseio.com) "
+      },
+      "noProjectNoUrl": {
+        "error": "FIREBASE FATAL ERROR: Can't determine Firebase Database URL. Be sure to include  a Project ID when calling firebase.initializeApp(). "
+      }
     }
   }
 }

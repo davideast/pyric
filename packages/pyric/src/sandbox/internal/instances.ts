@@ -30,6 +30,20 @@ export interface DatabaseInstance {
  */
 export const UNNAMED_DEFAULT_DATABASE_INSTANCE = '(default)';
 
+/**
+ * The rules production creates a new instance with: locked, so every read
+ * and write is denied until a deploy replaces them. A Pyric instance that
+ * `firebase.json` deploys no rules to starts with these.
+ */
+export const LOCKED_DATABASE_RULES: { rules: Record<string, unknown> } = Object.freeze({
+  rules: Object.freeze({ '.read': false, '.write': false }),
+});
+
+/** What Pyric logs the first time an instance without deployed rules is used. */
+export function lockedInstanceNotice(name: string): string {
+  return `pyric: RTDB instance "${name}" has no rules in firebase.json; it denies all reads and writes. Add {"instance": "${name}", "rules": "<file>"} to the database array.`;
+}
+
 /** The default instance name production derives from a project id. */
 export function defaultDatabaseInstanceName(projectId: string): string {
   return `${projectId}-default-rtdb`;
@@ -151,6 +165,8 @@ export interface DatabaseInstanceRegistry<T> {
   /** The value for `key`, created with the registry's `create` on first use. */
   getOrCreate(key: string): T;
   get(key: string): T | undefined;
+  /** Forget the value for `key`; a later `getOrCreate` creates a new one. */
+  delete(key: string): boolean;
   /** Every created value with its key, in creation order. */
   entries(): IterableIterator<[string, T]>;
 }
@@ -174,6 +190,7 @@ export function createDatabaseInstanceRegistry<T>(options: {
       return value;
     },
     get: (key) => values.get(key),
+    delete: (key) => values.delete(key),
     entries: () => values.entries(),
   };
 }

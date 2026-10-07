@@ -26,7 +26,7 @@ const observed = JSON.parse(readFileSync(new URL(
     isolation: Record<string, unknown>;
     signedIn: Record<string, string>;
     isolationAfterBothWrites: Record<string, unknown>;
-    missingInstance: { get: string; onValue: string; warnings: string[] };
+    sdk: Record<string, unknown>;
   };
 };
 
@@ -57,14 +57,6 @@ async function servedApp(ctx: HostCtx) {
   const database = await import('../../../src/serve/entries/database.js');
   const app = createAppForSandbox(ctx.sandbox, { projectId: PROJECT }, `served-instances-${Math.random()}`);
   return { database, app };
-}
-
-/** Settles with the outcome, or reports `pending` when it has not settled after `ms`. */
-async function outcome(promise: Promise<unknown>, ms = 120): Promise<string> {
-  return Promise.race([
-    promise.then(() => 'resolved', (error: Error) => `rejected: ${error.message}`),
-    sleep(ms).then(() => 'pending'),
-  ]);
 }
 
 describe('served RTDB instances', () => {
@@ -216,33 +208,78 @@ describe('served RTDB instances', () => {
     await deleteApp(app);
   });
 
-  it('serves only declared instances when the project declares them', async () => {
+  it('locks an instance firebase.json deploys no rules to, and says how to deploy them once', async () => {
     const ctx = await makeHostCtx();
-    ctx.declaredRtdbInstances = new Set(['first-instance']);
     setDatabaseRules(ctx, 'first-instance', { rules: { '.read': true, '.write': true } });
     const { database, app } = await servedApp(ctx);
-    const warnings: string[] = [];
+    const notices: string[] = [];
     const warn = console.warn;
-    console.warn = (...args: unknown[]) => { warnings.push(args.map(String).join(' ')); };
+    console.warn = (...args: unknown[]) => {
+      const line = args.map(String).join(' ');
+      if (line.startsWith('pyric: RTDB')) notices.push(line);
+    };
     try {
       await database.set(database.ref(database.getDatabase(app, FIRST_URL), 'a'), 1);
-      const undeclared = database.getDatabase(app, 'https://second-instance.firebaseio.com');
-      // Production never settles an operation or a listener on an instance
-      // that does not exist, and logs one warning naming its URL.
-      const { missingInstance } = observed.behavior;
-      expect([missingInstance.get, missingInstance.onValue]).toEqual(['pending after 20s', 'pending after 20s']);
-      expect(await outcome(database.get(database.ref(undeclared, 'a')))).toBe('pending');
-      expect(await outcome(new Promise((resolve, reject) => {
-        database.onValue(database.ref(undeclared, 'a'), resolve, reject);
-      }))).toBe('pending');
-      expect(await outcome(database.set(database.ref(undeclared, 'a'), 1))).toBe('pending');
-      expect(warnings.map((line) => line.replace(/^\[[^\]]+\]\s+/, '').trim())).toEqual(
-        missingInstance.warnings.map((line) => line.replace('<missing>', 'second-instance')),
-      );
+      const locked = database.getDatabase(app, 'https://second-instance.firebaseio.com');
+      await expect(database.get(database.ref(locked, 'a'))).rejects.toThrow(/permission.denied/i);
+      await expect(database.set(database.ref(locked, 'a'), 1)).rejects.toThrow(/permission.denied/i);
+      const cancelled = await new Promise<unknown>((resolve) => {
+        database.onValue(database.ref(locked, 'a'), () => resolve('delivered'), resolve);
+      });
+      expect(String(cancelled)).toMatch(/permission.denied/i);
+      expect(notices).toEqual([
+        'pyric: RTDB instance "second-instance" has no rules in firebase.json; it denies all reads and writes. Add {"instance": "second-instance", "rules": "<file>"} to the database array.',
+      ]);
     } finally {
       console.warn = warn;
     }
-    expect([...(ctx.rtdbInstances?.entries() ?? [])].map(([key]) => key)).not.toContain('second-instance');
+    await deleteApp(app);
+  });
+
+  it('replays the production SDK\'s handle and reference identity across instances', async () => {
+    const sdk = observed.behavior.sdk;
+    const ctx = await makeHostCtx();
+    serveHost(ctx);
+    const database = await import('../../../src/serve/entries/database.js');
+    const app = createAppForSandbox(ctx.sandbox, { projectId: 'sdk-project' }, `served-instances-sdk-${Math.random()}`);
+    const noProject = createAppForSandbox(ctx.sandbox, { apiKey: 'unused' }, `served-instances-sdk-none-${Math.random()}`);
+    const outcome = (run: () => unknown) => {
+      try {
+        const value = run();
+        return { value: typeof value === 'string' ? value : 'returned' };
+      } catch (error) {
+        return { error: (error as Error).message };
+      }
+    };
+    const defaultDb = database.getDatabase(app);
+    const second = database.getDatabase(app, 'https://second.firebaseio.com');
+    expect({
+      referenceUrls: {
+        defaultRoot: database.ref(defaultDb).toString(),
+        secondPath: database.ref(second, 'a b/c').toString(),
+        regional: database.ref(database.getDatabase(app, 'https://reg.europe-west1.firebasedatabase.app'), 'a').toString(),
+        namespaceQuery: database.ref(database.getDatabase(app, 'https://host.firebaseio.com?ns=named'), 'a').toString(),
+      },
+      sameArgumentSameHandle: database.getDatabase(app, 'https://second.firebaseio.com') === second,
+      defaultUrlAfterDefault: outcome(() => database.getDatabase(app, 'https://sdk-project-default-rtdb.firebaseio.com')),
+      trailingSlashAfterOpen: outcome(() => database.getDatabase(app, 'https://second.firebaseio.com/')),
+      refFromUrlSameHost: outcome(() => database.refFromURL(second, 'https://second.firebaseio.com/a/b%20c').toString()),
+      refFromUrlOtherHost: outcome(() => database.refFromURL(second, 'https://third.firebaseio.com/a')),
+      noProjectNoUrl: outcome(() => database.getDatabase(noProject)),
+    }).toEqual(sdk);
+    await deleteApp(app);
+    await deleteApp(noProject);
+  });
+
+  it('throws as the SDK does when neither a URL nor a project id names the instance', async () => {
+    const ctx = await makeHostCtx();
+    serveHost(ctx);
+    const database = await import('../../../src/serve/entries/database.js');
+    const app = createAppForSandbox(ctx.sandbox, { apiKey: 'unused' }, `served-instances-no-project-${Math.random()}`);
+    expect(() => database.getDatabase(app)).toThrow(
+      "FIREBASE FATAL ERROR: Can't determine Firebase Database URL. Be sure to include  a Project ID when calling firebase.initializeApp(). ",
+    );
     await deleteApp(app);
   });
 });
+

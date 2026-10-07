@@ -1,6 +1,6 @@
 /**
  * The host's RTDB instances: protocol `instance` routing, per-instance rules
- * through the op and the exported host API, the declared-instances policy,
+ * through the op and the exported host API, locked instances without rules,
  * per-instance onDisconnect connections, and reset restoring each instance's
  * rules. The SharedWorker and the Node host run this same dispatch.
  */
@@ -9,16 +9,27 @@ import { initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
 import { getAdminDatabase, get, ref } from 'pyric/database';
 import { handleMessage, type HostCtx, type PortLike } from '../../../../src/serve/worker/host.js';
-import { setDatabaseRules } from '../../../../src/serve/worker/host/rules.js';
+import { databaseInstanceRulesHost, setDatabaseRules } from '../../../../src/serve/worker/host/rules.js';
+import { connectDatabaseInstanceRules } from '../../../../src/serve/database-instance-rules-host.js';
 import { drainPortRtdbDisconnects } from '../../../../src/serve/worker/host/rtdb.js';
 import {
-  RTDB_UNKNOWN_INSTANCE_CODE,
   type InboundMessage,
   type OutboundMessage,
   type ResMessage,
 } from '../../../../src/serve/worker/protocol.js';
 
 const OPEN = { rules: { '.read': true, '.write': true } };
+
+/** The Pyric RTDB notices `console.warn` writes while capturing. */
+function captureWarnings(): { lines: string[]; restore(): void } {
+  const lines: string[] = [];
+  const warn = console.warn;
+  console.warn = (...args: unknown[]) => { lines.push(args.map(String).join(' ')); };
+  return {
+    get lines() { return lines.filter((line) => line.startsWith('pyric: RTDB')); },
+    restore: () => { console.warn = warn; },
+  };
+}
 
 function makeCtx(projectId?: string): HostCtx {
   const defaultName = projectId === undefined ? {} : { defaultRtdbInstance: `${projectId}-default-rtdb` };
@@ -85,29 +96,47 @@ describe('host RTDB instances', () => {
     expect(reply.ok).toBe(false);
   });
 
-  it('serves only declared instances, and always the default instance', async () => {
+  it('creates an instance without deployed rules on first use, denying every read and write, and says how to deploy its rules once', async () => {
+    const ctx = makeCtx('locked-project');
+    // Even a runtime that opens unconfigured rules does not open an instance
+    // production would create locked.
+    ctx.rtdbDefaultPolicy = 'allow';
+    const warnings = captureWarnings();
+    try {
+      const denied = await send(ctx, { method: 'rtdb.set', instance: 'on-demand', path: 'a', value: 1 });
+      expect(denied.ok).toBe(false);
+      expect((await send(ctx, { method: 'rtdb.get', instance: 'on-demand', path: 'a' })).ok).toBe(false);
+      expect(warnings.lines).toEqual([
+        'pyric: RTDB instance "on-demand" has no rules in firebase.json; it denies all reads and writes. Add {"instance": "on-demand", "rules": "<file>"} to the database array.',
+      ]);
+      // Deployed rules replace the locked default, as a production deploy does.
+      setDatabaseRules(ctx, 'on-demand', OPEN);
+      expect((await send(ctx, { method: 'rtdb.set', instance: 'on-demand', path: 'a', value: 1 })).ok).toBe(true);
+      expect(warnings.lines).toHaveLength(1);
+    } finally {
+      warnings.restore();
+    }
+  });
+
+  it('lists the instances firebase.json declares, before any of them is used', () => {
     const ctx = makeCtx('declared-project');
-    ctx.declaredRtdbInstances = new Set(['first']);
-    setDatabaseRules(ctx, 'first', OPEN);
-    setDatabaseRules(ctx, undefined, OPEN);
-    expect((await send(ctx, { method: 'rtdb.set', instance: 'first', path: 'a', value: 1 })).ok).toBe(true);
-    expect((await send(ctx, { method: 'rtdb.set', path: 'a', value: 2 })).ok).toBe(true);
-    const undeclared = await send(ctx, { method: 'rtdb.get', instance: 'second', path: 'a' });
-    expect(undeclared).toMatchObject({ ok: false, error: { code: RTDB_UNKNOWN_INSTANCE_CODE } });
-    expect(() => setDatabaseRules(ctx, 'second', OPEN)).toThrow('declares no Realtime Database instance named "second"');
-    const snaps: OutboundMessage[] = [];
-    await handleMessage(ctx, { postMessage: (message) => snaps.push(message) }, {
-      t: 'sub', subId: 'undeclared', target: { service: 'rtdb', instance: 'second', path: 'a' },
-    });
-    expect(snaps).toMatchObject([{ t: 'snap', subId: 'undeclared', value: { __error: { code: RTDB_UNKNOWN_INSTANCE_CODE } } }]);
+    databaseInstanceRulesHost(ctx).declareInstances(new Set(['declared-project-default-rtdb', 'first']));
     expect([...ctx.rtdbInstances!.entries()].map(([key]) => key).sort()).toEqual(['declared-project-default-rtdb', 'first']);
   });
 
-  it('creates undeclared instances on demand when the project declares none', async () => {
+  it('serves the array\'s default instance rules to getDatabase(app) when no project id was known at startup', async () => {
+    // firebase.json names `p-default-rtdb`; without .firebaserc or --project
+    // the loader cannot tell that name is the default instance's.
     const ctx = makeCtx();
-    ctx.rtdbDefaultPolicy = 'allow';
-    expect((await send(ctx, { method: 'rtdb.set', instance: 'on-demand', path: 'a', value: 1 })).ok).toBe(true);
-    expect(await value(ctx, 'on-demand', 'a')).toBe(1);
+    connectDatabaseInstanceRules(databaseInstanceRulesHost(ctx), {
+      defaultInstance: '(default)',
+      rules: { 'p-default-rtdb': OPEN },
+    });
+    await handleMessage(ctx, sharedPort, { t: 'appConfig', options: { projectId: 'p' } });
+    expect((await send(ctx, { method: 'rtdb.set', path: 'a', value: 1 })).ok).toBe(true);
+    expect(await value(ctx, 'p-default-rtdb', 'a')).toBe(1);
+    expect(await send(ctx, { method: 'getRulesStatus', service: 'database' }))
+      .toMatchObject({ ok: true, value: { status: 'active', source: OPEN } });
   });
 
   it('runs a port\'s onDisconnect operations per instance', async () => {

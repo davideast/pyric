@@ -2,6 +2,8 @@
 import { describe, it, expect } from 'bun:test';
 import * as databaseModule from '../../../src/database/index.js';
 import { initializeSandbox } from 'pyric/sandbox';
+import { deleteApp } from '../../../src/app/index.js';
+import { createAppForSandbox } from '../../../src/app/internal.js';
 import { getAdminDatabase, getDatabase } from '../../../src/database/index.js';
 import {
   ref,
@@ -168,6 +170,38 @@ describe('oracle conformance (rtdb-modular): runtime identity', () => {
   });
 
   describe('multiple database instances', () => {
+    it('rtdb-modular#MI1 an app opens each instance once, and needs a URL or a project id', async () => {
+      const sdk = (load('rtdb-modular-multiple-instances.json') as { sdk: Record<string, unknown> }).sdk;
+      const app = createAppForSandbox(initializeSandbox(), { projectId: 'sdk-project' }, `mi1-sdk-${Math.random()}`);
+      const noProject = createAppForSandbox(initializeSandbox(), { apiKey: 'unused' }, `mi1-sdk-none-${Math.random()}`);
+      const outcome = (run: () => unknown) => {
+        try {
+          const value = run();
+          return { value: typeof value === 'string' ? value : 'returned' };
+        } catch (error) {
+          return { error: (error as Error).message };
+        }
+      };
+      try {
+        getDatabase(app);
+        const second = getDatabase(app, 'https://second.firebaseio.com');
+        expect({
+          sameArgumentSameHandle: getDatabase(app, 'https://second.firebaseio.com') === second,
+          defaultUrlAfterDefault: outcome(() => getDatabase(app, 'https://sdk-project-default-rtdb.firebaseio.com')),
+          trailingSlashAfterOpen: outcome(() => getDatabase(app, 'https://second.firebaseio.com/')),
+          noProjectNoUrl: outcome(() => getDatabase(noProject)),
+        }).toEqual({
+          sameArgumentSameHandle: sdk.sameArgumentSameHandle,
+          defaultUrlAfterDefault: sdk.defaultUrlAfterDefault,
+          trailingSlashAfterOpen: sdk.trailingSlashAfterOpen,
+          noProjectNoUrl: sdk.noProjectNoUrl,
+        });
+      } finally {
+        await deleteApp(app);
+        await deleteApp(noProject);
+      }
+    });
+
     it('rtdb-modular#MI1 rtdb-modular#MI2 each instance keeps its own data and rules, and one user reaches both', async () => {
       const obs = load('rtdb-modular-multiple-instances.json') as {
         rules: { default: Record<string, unknown>; second: Record<string, unknown> };

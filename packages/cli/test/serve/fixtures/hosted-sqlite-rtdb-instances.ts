@@ -55,9 +55,5 @@ try {
   assert.equal(await read('first', 'probe'), 'first');
   assert.equal(await read('second', 'probe'), 'second');
   assert.equal(await read(undefined, 'probe'), null);
-  runtime.databaseRules.declareInstances(new Set(['first']));
-  const undeclared = await request({ method: 'rtdb.get', instance: 'second', path: 'probe' });
-  assert.equal(undeclared.t === 'res' && !undeclared.ok && undeclared.error.code, 'database/unknown-instance');
-  assert.equal(await read('first', 'probe'), 'first');
 } finally { await runtime.close(); }
 console.log('Hosted RTDB instances passed');

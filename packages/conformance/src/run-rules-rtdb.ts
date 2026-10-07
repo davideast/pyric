@@ -864,19 +864,29 @@ export const MULTI_INSTANCE_RULES = {
 
 /**
  * The rules text deployed to an instance for the capture: the instance's
- * rules with `subtree` added under `auditKey`. Rules text that is not plain
- * JSON (it carries comments) cannot be merged, so the deployed text locks the
- * root and holds only the subtree; the original text is restored verbatim.
+ * rules with `subtree` added under `auditKey`, so every existing rule stays in
+ * force. Refuses to run, before anything is deployed, when the existing rules
+ * cannot be merged (they are not plain JSON, for example they carry comments)
+ * or when their root grants a read or a write, because a root grant cascades
+ * into the run's subtree and the recorded verdicts would be wrong.
  */
-export function instanceRulesForCapture(beforeText: string, auditKey: string, subtree: unknown): string {
+export function instanceRulesForCapture(instance: string, beforeText: string, auditKey: string, subtree: unknown): string {
   let before: { rules?: Record<string, unknown> } & Record<string, unknown>;
   try {
     before = JSON.parse(beforeText) as typeof before;
   } catch {
-    return JSON.stringify({ rules: { '.read': false, '.write': false, [auditKey]: subtree } });
+    throw new Error(`refusing to run: the rules of ${instance} are not plain JSON (they may carry comments), so the run cannot add its subtree and keep them in force.`);
   }
-  return JSON.stringify({ ...before, rules: { ...(before.rules ?? {}), [auditKey]: subtree } });
+  const root = before.rules ?? {};
+  for (const access of ['.read', '.write']) {
+    const grant = root[access];
+    if (grant !== undefined && grant !== false) {
+      throw new Error(`refusing to run: the root ${access} rule of ${instance} is not false, so it would grant access inside the run's subtree.`);
+    }
+  }
+  return JSON.stringify({ ...before, rules: { ...root, [auditKey]: subtree } });
 }
+
 
 /**
  * RULES RESTORED, per instance: the restored text must read back as the
@@ -966,6 +976,11 @@ async function captureMultiInstance(): Promise<void> {
   console.log('[oracle:rtdb-instances] snapshotted the rules of both instances.');
   const runId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const auditKey = `pyric_oracle_instances_${runId}`;
+  // Built before any app, user or deploy, so a refusal leaves both instances untouched.
+  const deploy = {
+    default: instanceRulesForCapture('the default instance', before.default, auditKey, MULTI_INSTANCE_RULES.default),
+    second: instanceRulesForCapture('the second instance', before.second, auditKey, MULTI_INSTANCE_RULES.second),
+  };
   const uid = `pyric-oracle-instances-${runId}`;
   const app = initializeApp(config, `oracle-rtdb-instances-${runId}`);
   const auth = getAuth(app);
@@ -1000,8 +1015,8 @@ async function captureMultiInstance(): Promise<void> {
 
   try {
     deployed = true;
-    await writeRulesText(defaultUrl, instanceRulesForCapture(before.default, auditKey, MULTI_INSTANCE_RULES.default));
-    await writeRulesText(second, instanceRulesForCapture(before.second, auditKey, MULTI_INSTANCE_RULES.second));
+    await writeRulesText(defaultUrl, deploy.default);
+    await writeRulesText(second, deploy.second);
     console.log(`[oracle:rtdb-instances] deployed a different subtree to each instance under /${auditKey}. Waiting 8s to propagate.`);
     await new Promise((r) => setTimeout(r, 8_000));
 
@@ -1029,17 +1044,12 @@ async function captureMultiInstance(): Promise<void> {
     if (auth.currentUser?.uid !== uid) {
       throw new Error(`custom-token sign-in failed: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
     }
-    const tokenBefore = await auth.currentUser.getIdToken();
     behavior.signedIn = {
       defaultWrite: await outcome(rtdbSet(rtdbRef(defaultDb, probe), 'default')),
       secondOwnUserPath: await outcome(rtdbSet(rtdbRef(secondDb, `${auditKey}/users/${uid}`), 'own')),
       secondOtherUserPath: await outcome(rtdbSet(rtdbRef(secondDb, `${auditKey}/users/another-user`), 'other')),
       secondPathWithoutRules: await outcome(rtdbGet(rtdbRef(secondDb, `${auditKey}/closed`))),
       defaultReadOfSecondOnlyPath: await outcome(rtdbGet(rtdbRef(defaultDb, `${auditKey}/users/${uid}`))),
-    };
-    // Every operation above ran under one ID token of one user.
-    behavior.oneIdToken = {
-      sameTokenAcrossInstances: (await auth.currentUser.getIdToken()) === tokenBefore,
     };
     behavior.isolationAfterBothWrites = {
       defaultHolds: await adminRead(defaultUrl, probe),
@@ -1113,15 +1123,74 @@ async function captureMultiInstance(): Promise<void> {
     name: MULTI_INSTANCE_OBSERVATION,
     matrixRow: 'rtdb-modular#MI1',
     rowIds: ['rtdb-modular#MI1', 'rtdb-modular#MI2'],
-    description: 'Two RTDB instances of one project, the default instance and a second one, each with a different ruleset deployed under a run-scoped key: client writes signed out and as one custom-token user, the value each instance holds afterwards read with an admin token, whether one ID token served every operation, and the SDK\'s behavior for an instance URL that names no instance. Captured by deploy-observe-restore on both instances; rules restored and read back, run data and the run user deleted.',
+    description: 'Two RTDB instances of one project, the default instance and a second one, each with a different ruleset deployed under a run-scoped key: client writes signed out and as one custom-token user, the value each instance holds afterwards read with an admin token, and the SDK\'s behavior for an instance URL that names no instance. Captured by deploy-observe-restore on both instances; rules restored and read back, run data and the run user deleted.',
     observedAt: new Date().toISOString(),
     fbSdkVersion,
     projectId: config.projectId,
-    behavior: { rules: MULTI_INSTANCE_RULES, ...behavior },
+    behavior: { rules: MULTI_INSTANCE_RULES, ...behavior, sdk: await captureMultiInstanceSdk() },
   };
   const path = join(HERE, '..', 'observations', 'rtdb-modular', `${MULTI_INSTANCE_OBSERVATION}.json`);
   writeFileSync(path, `${JSON.stringify(observation, null, 2).replaceAll(uid, '<UID>').replaceAll(auditKey, '<run>')}\n`);
   console.log(`  → wrote ${MULTI_INSTANCE_OBSERVATION}.json`);
+}
+
+/**
+ * The production SDK's handle and reference identity across instances, which
+ * it decides without a connection: the URL a reference reports, `refFromURL`'s
+ * host check, and a second URL argument naming an instance the app already
+ * opened. Read-only and offline; recorded under `behavior.sdk` of the
+ * multi-instance observation.
+ */
+export async function captureMultiInstanceSdk(): Promise<Record<string, unknown>> {
+  const { initializeApp, deleteApp } = await import('firebase/app');
+  const { getDatabase, ref, refFromURL } = await import('firebase/database');
+  const outcome = (run: () => unknown): Record<string, unknown> => {
+    try {
+      const value = run();
+      return { value: typeof value === 'string' ? value : 'returned' };
+    } catch (error) {
+      return { error: (error as Error).message };
+    }
+  };
+  const app = initializeApp({ projectId: 'sdk-project', apiKey: 'unused' }, `oracle-rtdb-instances-sdk-${Date.now()}`);
+  const noProject = initializeApp({ apiKey: 'unused' }, `oracle-rtdb-instances-sdk-none-${Date.now()}`);
+  // The SDK logs each fatal error before it throws it.
+  const error = console.error;
+  console.error = () => {};
+  try {
+    const defaultDb = getDatabase(app);
+    const second = getDatabase(app, 'https://second.firebaseio.com');
+    return {
+      referenceUrls: {
+        defaultRoot: ref(defaultDb).toString(),
+        secondPath: ref(second, 'a b/c').toString(),
+        regional: ref(getDatabase(app, 'https://reg.europe-west1.firebasedatabase.app'), 'a').toString(),
+        namespaceQuery: ref(getDatabase(app, 'https://host.firebaseio.com?ns=named'), 'a').toString(),
+      },
+      sameArgumentSameHandle: getDatabase(app, 'https://second.firebaseio.com') === second,
+      defaultUrlAfterDefault: outcome(() => getDatabase(app, 'https://sdk-project-default-rtdb.firebaseio.com')),
+      trailingSlashAfterOpen: outcome(() => getDatabase(app, 'https://second.firebaseio.com/')),
+      refFromUrlSameHost: outcome(() => refFromURL(second, 'https://second.firebaseio.com/a/b%20c').toString()),
+      refFromUrlOtherHost: outcome(() => refFromURL(second, 'https://third.firebaseio.com/a')),
+      noProjectNoUrl: outcome(() => getDatabase(noProject)),
+    };
+  } finally {
+    console.error = error;
+    await deleteApp(app);
+    await deleteApp(noProject);
+  }
+}
+
+if (import.meta.main && process.argv.includes('--multi-instance-sdk')) {
+  const path = join(HERE, '..', 'observations', 'rtdb-modular', `${MULTI_INSTANCE_OBSERVATION}.json`);
+  const observation = JSON.parse(readFileSync(path, 'utf8')) as Observation;
+  if (observation.fbSdkVersion !== resolvedFirebaseVersion()) {
+    throw new Error(`the observation records firebase ${observation.fbSdkVersion}; this checkout resolves ${resolvedFirebaseVersion()}.`);
+  }
+  observation.behavior.sdk = await captureMultiInstanceSdk();
+  writeFileSync(path, `${JSON.stringify(observation, null, 2)}\n`);
+  console.log(`  → recorded behavior.sdk in ${MULTI_INSTANCE_OBSERVATION}.json`);
+  process.exit(0);
 }
 
 if (import.meta.main && process.argv.includes('--multi-instance')) {

@@ -1,6 +1,5 @@
 /** RTDB database handles, references, path validation, and query target routing. */
-import { logDatabaseWarning } from 'pyric/database/internal';
-import { RTDB_UNKNOWN_INSTANCE_CODE, type InboundMessage, type RtdbQuerySpec } from '../protocol.js';
+import type { InboundMessage, RtdbQuerySpec } from '../protocol.js';
 import { dataRpc, isDisconnectedPort } from './core.js';
 import { getFirestore } from './connection.js';
 import type { ClientDb, ClientPort, ClientRtdb, ClientRtdbInstance, RtdbRefHandle } from './handles.js';
@@ -31,45 +30,12 @@ export function instanceField(ref: { readonly instance?: ClientRtdbInstance }): 
   return name === undefined ? {} : { instance: name };
 }
 
-const warnedInstances = new WeakMap<ClientPort, Set<string>>();
-
-/** Whether the host refused an operation because its instance is not served. */
-export function isUnknownRtdbInstance(error: unknown): boolean {
-  return (error as { code?: unknown } | null)?.code === RTDB_UNKNOWN_INSTANCE_CODE;
-}
-
-/**
- * Production's behavior for an instance that does not exist: the server ends
- * the connection, the SDK logs one warning naming the URL, and no operation
- * or listener on the instance ever settles.
- */
-export function reportUnknownRtdbInstance(port: ClientPort, instance: ClientRtdbInstance | undefined): void {
-  const url = instance?.url ?? 'worker://rtdb/';
-  let warned = warnedInstances.get(port);
-  if (warned === undefined) {
-    warned = new Set();
-    warnedInstances.set(port, warned);
-  }
-  if (warned.has(url)) return;
-  warned.add(url);
-  logDatabaseWarning(
-    `Firebase error. Please ensure that you have the URL of your Firebase Realtime Database instance configured correctly. (${url})`,
-  );
-}
-
-/** An RTDB operation on the reference's instance. An instance the host does
- *  not serve answers as production's nonexistent instance does: never. */
-export async function rtdbRpc(
+/** An RTDB operation on the reference's instance. */
+export function rtdbRpc(
   ref: { readonly port: ClientPort; readonly instance?: ClientRtdbInstance },
   msg: InboundMessage & { t: 'op' },
 ): Promise<unknown> {
-  try {
-    return await dataRpc(ref.port, { ...msg, ...instanceField(ref) } as InboundMessage & { t: 'op' });
-  } catch (error) {
-    if (!isUnknownRtdbInstance(error)) throw error;
-    reportUnknownRtdbInstance(ref.port, ref.instance);
-    return new Promise<never>(() => {});
-  }
+  return dataRpc(ref.port, { ...msg, ...instanceField(ref) } as InboundMessage & { t: 'op' });
 }
 
 /** Whether two references belong to the same database instance. */

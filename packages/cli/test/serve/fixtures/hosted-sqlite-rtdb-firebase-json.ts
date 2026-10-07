@@ -55,8 +55,8 @@ try {
   assert.equal((byName.value as { value: unknown }).value, 1);
   // The second instance runs second.rules.json and keeps its own data.
   assert.equal(succeeded(await request({ method: 'rtdb.set', instance: 'second', path: 'a', value: 2 })), false);
-  // An instance firebase.json does not declare is not served.
-  assert.equal(code(await request({ method: 'rtdb.get', instance: 'third', path: 'a' })), 'database/unknown-instance');
+  // An instance firebase.json deploys no rules to is locked.
+  assert.equal(succeeded(await request({ method: 'rtdb.get', instance: 'third', path: 'a' })), false);
   // A reload of one instance's rules file reaches only that instance.
   await runtime.deployRules('database', JSON.stringify({ rules: { '.read': true, '.write': true } }), 'second');
   assert.equal(succeeded(await request({ method: 'rtdb.set', instance: 'second', path: 'a', value: 2 })), true);

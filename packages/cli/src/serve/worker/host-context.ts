@@ -92,16 +92,11 @@ export interface HostCtx {
    */
   defaultRtdbInstance?: string;
   /**
-   * The instance names a project's `firebase.json` `database` array declares.
-   * When set, the host serves only these and the default instance, and an
-   * operation on any other instance fails as production fails for an instance
-   * that does not exist. Absent, every instance is created on first use.
-   */
-  declaredRtdbInstances?: ReadonlySet<string>;
-  /**
-   * Access for an RTDB instance with no deployed rules: `deny` unless the
-   * runtime opted into permissive access. Applies to instances created after
-   * it is set; the default instance's policy is set where its rules are.
+   * Access for an instance whose rules were removed: `deny` unless the
+   * runtime opted into permissive access. An instance with no deployed rules
+   * is locked instead, as production creates one. Applies to instances
+   * created after it is set; the default instance's policy is set where its
+   * rules are.
    */
   rtdbDefaultPolicy?: 'allow' | 'deny';
   /** The host serves Storage bytes over its HTTP byte route, and refuses
@@ -280,6 +275,8 @@ export interface HostRtdbInstance {
   readonly lenses: Map<string, Database>;
   /** The instance's deployed rules, for diagnostics, revert and reset. */
   rules?: ActiveRulesState;
+  /** Whether the notice that the instance has no deployed rules was logged. */
+  noticed?: boolean;
 }
 
 export interface ActiveRulesState {

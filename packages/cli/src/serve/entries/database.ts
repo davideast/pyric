@@ -106,7 +106,7 @@ const workerDatabasesByApp = new WeakMap<FirebaseApp, AppDatabases>();
 export const getDatabase = ((app?: FirebaseApp, url?: string) => {
   const resolved = app ?? getApp();
   if (!useWorker) {
-    databaseRules.register(url ?? resolved.options.databaseURL);
+    databaseRules.register(url || resolved.options.databaseURL, resolved.options.projectId);
     return pyricGetDatabase(resolved, url);
   }
   let databases = workerDatabasesByApp.get(resolved);

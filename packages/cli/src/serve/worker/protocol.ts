@@ -320,14 +320,6 @@ export interface RtdbValueSubMessage {
 /** Structured-clone-safe query plan carried by `pyric/database` Query values. */
 export type RtdbQuerySpec = RtdbQuery['_spec'];
 
-/**
- * The error code the host answers an RTDB operation or subscription with when
- * it names an instance the project does not declare. The page's SDK turns it
- * into production's behavior for an instance that does not exist: one
- * connection warning, and operations that never settle.
- */
-export const RTDB_UNKNOWN_INSTANCE_CODE = 'database/unknown-instance';
-
 export interface AiStreamSubMessage {
   t: 'sub';
   subId: string;

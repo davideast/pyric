@@ -13,6 +13,6 @@ test('served RTDB instances run with isolated browser globals', async () => {
       child.exited, new Response(child.stdout).text(), new Response(child.stderr).text(),
     ]);
     expect(code, stdout + stderr).toBe(0);
-    expect(stderr).toContain('5 pass');
+    expect(stderr).toContain('7 pass');
   } finally { clearTimeout(deadline); child.kill(); }
 }, 15_000);

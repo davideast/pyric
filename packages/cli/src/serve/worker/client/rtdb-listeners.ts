@@ -20,8 +20,6 @@ import type { SdkActivityHandle } from 'pyric/sandbox/internal';
 import {
   instanceField,
   isRtdbQuery,
-  isUnknownRtdbInstance,
-  reportUnknownRtdbInstance,
   rtdbChild,
   sameRtdbInstance,
   targetParts,
@@ -122,16 +120,7 @@ function openValueSubscription(
       }
       next(hydrateRtdbSnapshot(ref, wire));
     },
-    error: (cause: unknown) => {
-      // An instance the host does not serve never answers a listen, as a
-      // nonexistent production instance never does.
-      if (isUnknownRtdbInstance(cause)) {
-        reportUnknownRtdbInstance(ref.port, ref.instance);
-        return;
-      }
-      activity.fail();
-      error?.(cause);
-    },
+    error: (cause: unknown) => { activity.fail(); error?.(cause); },
     close: () => activity.close(),
   };
 

@@ -23,13 +23,15 @@ import {
 } from 'pyric/database';
 import {
   createDatabaseInstanceRegistry,
+  LOCKED_DATABASE_RULES,
+  UNNAMED_DEFAULT_DATABASE_INSTANCE,
   databaseInstanceNamed,
   defaultDatabaseInstanceName,
+  lockedInstanceNotice,
   type DatabaseInstanceRegistry,
 } from 'pyric/sandbox/internal';
 import type { AuthLens } from 'pyric/sandbox';
 
-import { RTDB_UNKNOWN_INSTANCE_CODE } from '../protocol.js';
 import type { HostCtx, HostRtdbInstance, PortLike } from '../host-context.js';
 import { portSession } from '../host-auth.js';
 import { authStateForLens, lensCacheKey, sessionCacheKey } from './core.js';
@@ -50,9 +52,13 @@ export function rtdbInstances(ctx: HostCtx): DatabaseInstanceRegistry<HostRtdbIn
     create: (key) => {
       const selector = key === registry.defaultKey ? undefined : key;
       const live = pyricGetDatabase(ctx.sandbox, selector);
-      // The default instance's policy is set with the project's rules; every
-      // other instance starts with the host's policy for unconfigured rules.
-      if (selector !== undefined) rtdbSandbox.setDefaultPolicy(live, ctx.rtdbDefaultPolicy ?? 'deny');
+      // The default instance's policy and rules are set with the project's
+      // rules. Every other instance starts locked, as production creates a new
+      // instance, until rules are deployed to it.
+      if (selector !== undefined) {
+        rtdbSandbox.setDefaultPolicy(live, ctx.rtdbDefaultPolicy ?? 'deny');
+        rtdbSandbox.setRules(live, LOCKED_DATABASE_RULES);
+      }
       return { key, selector, live, sessions: new Map(), lenses: new Map() };
     },
   });
@@ -60,39 +66,61 @@ export function rtdbInstances(ctx: HostCtx): DatabaseInstanceRegistry<HostRtdbIn
   return registry;
 }
 
-/** An error for an instance the project does not declare. */
-function unknownInstance(name: string): Error & { code: string } {
-  return Object.assign(
-    new Error(`The project declares no Realtime Database instance named "${name}". Production serves no such instance.`),
-    { code: RTDB_UNKNOWN_INSTANCE_CODE },
-  );
-}
-
 /**
  * The registry key for an instance name; `undefined` is the default instance.
- * Throws the SDK's URL error for an invalid name, and {@link unknownInstance}
- * for a name the project's declared instances leave out.
+ * Throws the SDK's URL error for an invalid name.
  */
 export function rtdbInstanceKey(ctx: HostCtx, name?: string): string {
   const registry = rtdbInstances(ctx);
   // The config's default name may be the unnamed default key when no project
   // id is known, so it is matched before it is parsed as an instance name.
-  if (name === undefined || name === ctx.defaultRtdbInstance) return registry.defaultKey;
+  if (name === undefined || name === ctx.defaultRtdbInstance || name === UNNAMED_DEFAULT_DATABASE_INSTANCE) return registry.defaultKey;
   const instance = databaseInstanceNamed(name);
   const appProject = ctx.appOptions?.projectId;
   const isDefault = instance.name === defaultInstanceNameOf(ctx)
     || (typeof appProject === 'string' && instance.name === defaultDatabaseInstanceName(appProject));
   if (isDefault) return registry.defaultKey;
-  const key = registry.keyOf(instance);
-  if (key === registry.defaultKey) return key;
-  const declared = ctx.declaredRtdbInstances;
-  if (declared !== undefined && !declared.has(key)) throw unknownInstance(key);
-  return key;
+  return registry.keyOf(instance);
 }
 
 /** The host's entry for an instance name; `undefined` is the default instance. */
 export function rtdbInstance(ctx: HostCtx, name?: string): HostRtdbInstance {
   return rtdbInstances(ctx).getOrCreate(rtdbInstanceKey(ctx, name));
+}
+
+/**
+ * Adopt the default instance's name once the first app port names its
+ * project. Without `.firebaserc` or `--project`, `firebase.json` rules for
+ * `<projectId>-default-rtdb` were deployed before the host knew that name is
+ * the default instance's; they move to the default instance, which
+ * `getDatabase(app)` reads and writes.
+ */
+export function adoptAppDefaultRtdbInstance(ctx: HostCtx): void {
+  const projectId = ctx.appOptions?.projectId;
+  const knowsDefault = ctx.defaultRtdbInstance !== undefined && ctx.defaultRtdbInstance !== UNNAMED_DEFAULT_DATABASE_INSTANCE;
+  if (typeof projectId !== 'string' || projectId.length === 0 || knowsDefault) return;
+  const name = defaultDatabaseInstanceName(projectId);
+  const registry = ctx.rtdbInstances;
+  const named = registry?.get(name);
+  if (registry !== undefined && named !== undefined && name !== registry.defaultKey) {
+    registry.delete(name);
+    const fallback = registry.getOrCreate(registry.defaultKey);
+    const deployed = named.rules;
+    if (deployed !== undefined) {
+      const enforced = deployed.status === 'active' ? deployed.source : deployed.lastKnownGood ?? null;
+      rtdbSandbox.setRules(fallback.live, enforced as { rules: Record<string, unknown> } | null);
+      fallback.rules = deployed;
+    }
+  }
+  ctx.defaultRtdbInstance = name;
+}
+
+/** Log, once per instance, that an instance without deployed rules is locked. */
+function noticeLockedInstance(entry: HostRtdbInstance): void {
+  const isLocked = entry.selector !== undefined && entry.rules === undefined;
+  if (!isLocked || entry.noticed) return;
+  entry.noticed = true;
+  console.warn(lockedInstanceNotice(entry.key));
 }
 
 function sessionRtdb(ctx: HostCtx, entry: HostRtdbInstance, port: PortLike): Database {
@@ -120,6 +148,7 @@ export function lensRtdb(
   instance?: string,
 ): Database {
   const entry = rtdbInstance(ctx, instance);
+  noticeLockedInstance(entry);
   if (!actAs || actAs.mode === 'app-session') return sessionRtdb(ctx, entry, port);
   if (actAs.mode === 'admin') return (entry.admin ??= pyricGetAdminDatabase(ctx.sandbox, entry.selector));
   if (actAs.mode === 'anon') return (entry.anon ??= pyricGetDatabase(ctx.sandbox.withAuth(null), entry.selector));

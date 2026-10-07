@@ -66,6 +66,7 @@ import { isRulesOp, handleRulesOp } from './rules.js';
 import { handleClockOp, isClockOp, subscribeClock, unsubscribeClock } from './clock.js';
 import { isAdminFirestoreOp, handleAdminFirestoreOp } from './admin-firestore.js';
 import { isRtdbOp, handleRtdbOp, drainPortRtdbDisconnects, forgetPortRtdbConnection } from './rtdb.js';
+import { adoptAppDefaultRtdbInstance } from './rtdb-instances.js';
 import { isStorageOp, handleStorageOp } from './storage.js';
 import { isConnectionOp, handleConnectionOp } from './connection.js';
 import { isStudioOp, handleStudioOp } from './studio.js';
@@ -228,6 +229,7 @@ export async function handleMessage(
     const hasNoAppOptions = ctx.appOptions === undefined;
     if (hasNoAppOptions) {
       ctx.appOptions = structuredClone(msg.options);
+      adoptAppDefaultRtdbInstance(ctx);
     } else {
       const optionsConflict = !firebaseOptionsEqual(ctx.appOptions, msg.options);
       if (optionsConflict) (ctx.rejectedConfigPorts ??= new WeakSet()).add(targetPort);

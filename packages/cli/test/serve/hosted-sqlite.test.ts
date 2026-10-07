@@ -108,7 +108,7 @@ test('the Node host replaces and removes Storage rules that a rules file reload 
   expect(await runNodeFixture('storage-rules')).toBe('Hosted Storage rules reload passed');
 });
 
-test('the Node host keeps each RTDB instance\'s data and rules, shares one Auth, and serves only declared instances', async () => {
+test('the Node host keeps each RTDB instance\'s data and rules apart, keeps the data across a restart, and shares one Auth', async () => {
   expect(await runNodeFixture('rtdb-instances')).toBe('Hosted RTDB instances passed');
 });
 

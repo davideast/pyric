@@ -349,16 +349,20 @@ describe('run-rules-rtdb identity user creation', () => {
 describe('multi-instance capture rules', () => {
   it('adds the run subtree to JSON rules and keeps every existing key', () => {
     const before = JSON.stringify({ rules: { '.read': false, kept: { '.read': true } } });
-    expect(JSON.parse(instanceRulesForCapture(before, AUDIT_KEY, { '.read': true }))).toEqual({
+    expect(JSON.parse(instanceRulesForCapture('default', before, AUDIT_KEY, { '.read': true }))).toEqual({
       rules: { '.read': false, kept: { '.read': true }, [AUDIT_KEY]: { '.read': true } },
     });
   });
 
-  it('locks the root around the run subtree when the rules text carries comments', () => {
+  it('refuses to run when the existing rules cannot be merged', () => {
     const before = '/* comment */ { "rules": { ".read": false } }';
-    expect(JSON.parse(instanceRulesForCapture(before, AUDIT_KEY, { open: { '.read': true } }))).toEqual({
-      rules: { '.read': false, '.write': false, [AUDIT_KEY]: { open: { '.read': true } } },
-    });
+    expect(() => instanceRulesForCapture('second', before, AUDIT_KEY, {})).toThrow('refusing to run: the rules of second are not plain JSON');
+  });
+
+  it('refuses to run when the existing root rules grant access', () => {
+    for (const root of [{ '.read': true }, { '.write': 'auth != null' }]) {
+      expect(() => instanceRulesForCapture('default', JSON.stringify({ rules: root }), AUDIT_KEY, {})).toThrow('refusing to run');
+    }
   });
 
   it('verifies a restore by exact text, or by the same rules when reformatted, and throws otherwise', () => {

@@ -82,21 +82,15 @@ export function setDatabaseRules(
 
 /**
  * The host's per-instance rules operations, as `connectDatabaseInstanceRules`
- * applies a project's `firebase.json` instances: declaring instances limits
- * the host to them and the default instance, and a ruleset production would
- * refuse throws, leaving that instance's rules in force.
+ * applies a project's `firebase.json` instances. Declaring instances creates
+ * their stores so they are listed before first use; an instance no rules are
+ * deployed to is still served, locked. A ruleset production would refuse
+ * throws, leaving that instance's rules in force.
  */
 export function databaseInstanceRulesHost(ctx: HostCtx): DatabaseInstanceRulesHost {
   return {
-    // A `firebase.json` `database` object deploys only the default instance's
-    // rules and declares no other instance, so other instances stay on demand.
-    // A declaration that names another instance limits the host to the
-    // declared instances.
     declareInstances(names) {
-      const defaultName = ctx.defaultRtdbInstance;
-      const namesOtherInstance = [...names].some((name) => name !== defaultName);
-      if (namesOtherInstance) ctx.declaredRtdbInstances = names;
-      else delete ctx.declaredRtdbInstances;
+      for (const name of names) rtdbInstance(ctx, name);
     },
     setDatabaseRules(instance, rules) {
       const result = setDatabaseRules(ctx, instance, rules);
@@ -214,7 +208,6 @@ export function handleRulesOp(
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
-
 
     default: {
       fail(port, msg.id, new Error(`Unknown method: ${String((msg as { method: unknown }).method)}`));

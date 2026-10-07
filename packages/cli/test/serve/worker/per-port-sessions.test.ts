@@ -23,6 +23,7 @@ import { initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
 import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 import { setRules as setDatabaseRules } from 'pyric/sandbox/database';
+import { setDatabaseRules as setHostDatabaseRules } from '../../../src/serve/worker/host/rules.js';
 import { getStorageSandbox } from 'pyric/storage';
 
 // Owner-only claims + admin-gated collection: pins uid AND token claims.
@@ -263,6 +264,48 @@ describe('per-port sessions drive data ops (#754)', () => {
     expect(listenerSnap?.value).toMatchObject({
       __error: { code: expect.stringMatching(/permission|denied/i) },
     });
+  });
+
+  it('sign-out and a forced token refresh re-check a listener on a non-default RTDB instance', async () => {
+    const ctx = await makeCtx();
+    setHostDatabaseRules(ctx, 'second', {
+      rules: {
+        admins: {
+          '.read': "auth != null && auth.token.role == 'admin'",
+          '.write': "auth != null && auth.token.role == 'admin'",
+        },
+      },
+    });
+    const port = fakePort();
+    authSandbox.seedUsers(ctx.auth!, [{
+      uid: 'instance-user', email: 'instance@example.com', password: 'password123', customClaims: { role: 'admin' },
+    }]);
+    const signIn = () => op(ctx, port, {
+      t: 'op', method: 'auth.signInEmail', email: 'instance@example.com', password: 'password123',
+    });
+    const listen = async (subId: string) => {
+      await handleMessage(ctx, port, { t: 'sub', subId, target: { service: 'rtdb', instance: 'second', path: 'admins' } });
+      await tick();
+    };
+    const lastSnap = (subId: string) => port.snaps.filter((snap) => snap.subId === subId).at(-1)?.value as { __error?: unknown };
+    const denied = { __error: { code: expect.stringMatching(/permission|denied/i) } };
+
+    expect((await signIn()).ok).toBe(true);
+    await listen('signed-in');
+    expect(lastSnap('signed-in').__error).toBeUndefined();
+    expect((await op(ctx, port, { t: 'op', method: 'auth.signOut' })).ok).toBe(true);
+    await tick();
+    expect(lastSnap('signed-in')).toMatchObject(denied);
+
+    expect((await signIn()).ok).toBe(true);
+    await listen('refreshed');
+    expect(lastSnap('refreshed').__error).toBeUndefined();
+    expect((await op(ctx, port, {
+      t: 'op', method: 'auth.adminUpdateUser', uid: 'instance-user', request: { customClaims: { role: 'member' } },
+    })).ok).toBe(true);
+    expect((await op(ctx, port, { t: 'op', method: 'auth.getIdTokenResult', forceRefresh: true })).ok).toBe(true);
+    await tick();
+    expect(lastSnap('refreshed')).toMatchObject(denied);
   });
 
   it('an explicit Studio lens still overrides the port session', async () => {

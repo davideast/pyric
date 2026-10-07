@@ -700,7 +700,7 @@ describe('setupWorkerHotReload — the worker owns the single SSE', () => {
     dispose();
   });
 
-  it('applies firebase.json instances from the init payload, and serves only the declared ones', async () => {
+  it('applies firebase.json instances from the init payload, and locks an instance it deploys no rules to', async () => {
     const ctx = await makeCtx();
     applyServeInit(ctx, {
       ...basePayload,
@@ -723,7 +723,7 @@ describe('setupWorkerHotReload — the worker owns the single SSE', () => {
     expect((await read('second', 'second')).ok).toBe(false);
     const undeclared = await read('undeclared', 'third');
     expect(undeclared.ok).toBe(false);
-    expect((undeclared as ResMessage & { ok: false }).error.code).toBe('database/unknown-instance');
+    expect(ctx.rtdbInstances?.get('third')?.rules).toBeUndefined();
   });
 
   it('replaces the Storage rules on storage-rules-update, and a null ruleset returns Storage to deny-all', async () => {
