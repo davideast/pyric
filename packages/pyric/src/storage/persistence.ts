@@ -130,6 +130,18 @@ export interface StoredMetadata {
   md5Hash?: string;
 }
 
+/** An object's bytes and metadata, both from the same write. */
+export interface StoredObject {
+  blob: Blob;
+  metadata: StoredMetadata;
+}
+
+/** Reject metadata whose size disagrees with the bytes it is stored with. */
+function assertMatchingSize(blob: Blob, metadata: StoredMetadata): void {
+  const mismatchedObject = metadata.size !== blob.size;
+  if (mismatchedObject) throw new Error('Storage metadata does not match its object.');
+}
+
 /**
  * Persistence-layer interface. Higher layers (Slice 4's
  * `StorageService`, Slice 5's reference operations) interact with
@@ -160,6 +172,12 @@ export interface StorageBackend {
    * `undefined` when no entry exists.
    */
   getMetadata(path: string, bucket?: string): Promise<StoredMetadata | undefined>;
+
+  /**
+   * Read the blob and metadata stored at `path` within `bucket` as one pair,
+   * both from the same write. Resolves to `undefined` when no entry exists.
+   */
+  getObject(path: string, bucket?: string): Promise<StoredObject | undefined>;
 
   /**
    * Replace the metadata record at `path` without touching the blob.
@@ -370,6 +388,7 @@ export class InMemoryStorageBackend implements StorageBackend {
     if (!this._defaultBucket) {
       this._defaultBucket = bucket;
     }
+    assertMatchingSize(blob, metadata);
     if (!metadata.bucket) {
       metadata.bucket = bucket;
     }
@@ -416,6 +435,15 @@ export class InMemoryStorageBackend implements StorageBackend {
       }
     }
     return undefined;
+  }
+
+  async getObject(path: string, bucket?: string): Promise<StoredObject | undefined> {
+    const key = toStorageKey(bucket ?? this._defaultBucket ?? DEFAULT_BUCKET, path);
+    const blob = this.blobs.get(key);
+    const metadata = this.metadata.get(key);
+    const missingObject = blob === undefined || metadata === undefined;
+    if (missingObject) return undefined;
+    return { blob, metadata };
   }
 
   async putMetadata(path: string, metadata: StoredMetadata, bucket?: string): Promise<void> {
@@ -494,17 +522,14 @@ export class InMemoryStorageBackend implements StorageBackend {
     length: number,
     expectedGeneration?: string,
   ): Promise<Uint8Array | undefined> {
-    const targetBucket = bucket ?? this._defaultBucket ?? DEFAULT_BUCKET;
-    const meta = await this.getMetadata(path, targetBucket);
-    if (!meta) return undefined;
-    if (expectedGeneration !== undefined && meta.generation !== expectedGeneration) {
+    const object = await this.getObject(path, bucket ?? this._defaultBucket ?? DEFAULT_BUCKET);
+    if (!object) return undefined;
+    if (expectedGeneration !== undefined && object.metadata.generation !== expectedGeneration) {
       const err = new Error('storage/object-changed: The object changed while reading. Re-read metadata and retry.') as Error & { code: string };
       err.code = 'storage/object-changed';
       throw err;
     }
-    const blob = await this.getBlob(path, targetBucket);
-    if (!blob) return undefined;
-    const slice = blob.slice(offset, offset + length);
+    const slice = object.blob.slice(offset, offset + length);
     const buf = await slice.arrayBuffer();
     return new Uint8Array(buf);
   }
@@ -534,6 +559,7 @@ export class IndexedDbStorageBackend implements StorageBackend {
     if (!this._defaultBucket) {
       this._defaultBucket = bucket;
     }
+    assertMatchingSize(blob, metadata);
     if (!metadata.bucket) {
       metadata.bucket = bucket;
     }
@@ -610,6 +636,19 @@ export class IndexedDbStorageBackend implements StorageBackend {
     });
   }
 
+  async getObject(path: string, bucket?: string): Promise<StoredObject | undefined> {
+    const key = toStorageKey(bucket ?? this._defaultBucket ?? DEFAULT_BUCKET, path);
+    // One transaction over both stores reads both halves of the same write.
+    const tx = this.db.transaction([BLOBS_STORE, METADATA_STORE], 'readonly');
+    const [blob, metadata] = await Promise.all([
+      awaitRequest<Blob | undefined>(tx.objectStore(BLOBS_STORE).get(key)),
+      awaitRequest<StoredMetadata | undefined>(tx.objectStore(METADATA_STORE).get(key)),
+    ]);
+    const missingObject = blob === undefined || metadata === undefined;
+    if (missingObject) return undefined;
+    return { blob, metadata };
+  }
+
   async putMetadata(path: string, metadata: StoredMetadata, bucket?: string): Promise<void> {
     const b = bucket ?? metadata.bucket ?? this._defaultBucket ?? DEFAULT_BUCKET;
     if (!metadata.bucket) metadata.bucket = b;
@@ -683,17 +722,14 @@ export class IndexedDbStorageBackend implements StorageBackend {
     length: number,
     expectedGeneration?: string,
   ): Promise<Uint8Array | undefined> {
-    const targetBucket = bucket ?? this._defaultBucket ?? DEFAULT_BUCKET;
-    const meta = await this.getMetadata(path, targetBucket);
-    if (!meta) return undefined;
-    if (expectedGeneration !== undefined && meta.generation !== expectedGeneration) {
+    const object = await this.getObject(path, bucket ?? this._defaultBucket ?? DEFAULT_BUCKET);
+    if (!object) return undefined;
+    if (expectedGeneration !== undefined && object.metadata.generation !== expectedGeneration) {
       const err = new Error('storage/object-changed: The object changed while reading. Re-read metadata and retry.') as Error & { code: string };
       err.code = 'storage/object-changed';
       throw err;
     }
-    const blob = await this.getBlob(path, targetBucket);
-    if (!blob) return undefined;
-    const slice = blob.slice(offset, offset + length);
+    const slice = object.blob.slice(offset, offset + length);
     const buf = await slice.arrayBuffer();
     return new Uint8Array(buf);
   }
@@ -735,6 +771,10 @@ export class ScopedStorageBackend implements StorageBackend {
 
   getMetadata(path: string, bucket?: string): Promise<StoredMetadata | undefined> {
     return this.underlying.getMetadata(path, bucket ?? this.bucket);
+  }
+
+  getObject(path: string, bucket?: string): Promise<StoredObject | undefined> {
+    return this.underlying.getObject(path, bucket ?? this.bucket);
   }
 
   putMetadata(path: string, metadata: StoredMetadata, bucket?: string): Promise<void> {

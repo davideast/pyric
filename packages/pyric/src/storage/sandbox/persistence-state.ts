@@ -10,13 +10,19 @@ export interface StorageStateRecord {
   metadata: StoredMetadata;
 }
 
+/**
+ * Each record's metadata and bytes are read together, so an object overwritten
+ * while the capture runs is recorded as one write's pair. An object deleted
+ * after the listing was read is left out.
+ */
 export async function snapshotStorageState(storage: FirebaseStorage): Promise<StorageStateRecord[]> {
   const service = await getStorageService(storage);
   const records: StorageStateRecord[] = [];
-  for (const metadata of await service.backend.listByPrefix('')) {
-    const blob = await service.backend.getBlob(metadata.fullPath, metadata.bucket);
-    const isMissingBlob = blob === undefined;
-    if (isMissingBlob) throw new Error(`Storage object '${metadata.fullPath}' has metadata without bytes.`);
+  for (const listed of await service.backend.listByPrefix('')) {
+    const object = await service.backend.getObject(listed.fullPath, listed.bucket);
+    const deletedSinceListing = object === undefined;
+    if (deletedSinceListing) continue;
+    const { blob, metadata } = object;
     records.push({
       dataBase64: arrayBufferToBase64(await blob.arrayBuffer()),
       blobType: blob.type,
