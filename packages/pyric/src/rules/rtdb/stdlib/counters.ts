@@ -12,6 +12,10 @@
  * runs `incrementedBy` and is refused. Write a step-checked counter on its
  * own, in a set of the counter or an update that names it, or use
  * `changedBy` with a range that includes 0.
+ *
+ * `.validate` does not run on a delete, so a counter is reset by deleting it
+ * unless a `.write` on its path refuses deletes, for example with
+ * `lifecycle.noDelete()`.
  */
 import type { Expr } from '../constraints/types.js';
 import { and, exists, fieldName, finite, lit, negate, or, raw, sameAsBefore, val } from './expr.js';

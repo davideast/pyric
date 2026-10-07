@@ -1,13 +1,14 @@
 import { describe, expect, test } from 'bun:test';
-import { authenticated, rtdbStdlib } from 'pyric/rules';
+import { all, authenticated, rtdbStdlib } from 'pyric/rules';
 import { runScenario, type StdlibScenario, type StdlibCase } from './harness.js';
 
-const { counters } = rtdbStdlib;
+const { counters, lifecycle } = rtdbStdlib;
 
 const scenario: StdlibScenario = {
   paths: {
     '/stats/$id': {
-      write: authenticated(),
+      // .validate does not run on a delete, so the .write refuses one.
+      write: all(authenticated(), lifecycle.noDelete()),
       children: {
         '/likes': { validate: counters.changedBy(-1, 1) },
         '/moves': { validate: counters.incrementedBy(1, { start: 0 }) },
@@ -16,7 +17,7 @@ const scenario: StdlibScenario = {
       },
     },
     '/scores/$id': {
-      write: authenticated(),
+      write: all(authenticated(), lifecycle.noDelete()),
       validate: counters.oneIncremented(['host', 'guest'], 1, { start: 0 }),
     },
   },

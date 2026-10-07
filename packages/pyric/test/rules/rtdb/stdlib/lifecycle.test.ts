@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { all, any, authenticated, isNew, ownPath, rtdbStdlib } from 'pyric/rules';
 import { runScenario, type StdlibScenario } from './harness.js';
 
-const { lifecycle } = rtdbStdlib;
+const { lifecycle, validation } = rtdbStdlib;
 
 const scenario: StdlibScenario = {
   paths: {
@@ -11,8 +11,8 @@ const scenario: StdlibScenario = {
       write: lifecycle.ownedBy('owner'),
       validate: lifecycle.immutableFields('createdAt'),
     },
-    '/receipts/$id': { write: all(authenticated(), lifecycle.createOnly()) },
-    '/ledger/$id': { write: all(authenticated(), lifecycle.noDelete()) },
+    '/receipts/$id': { write: all(authenticated(), lifecycle.createOnly()), ...validation.shape({ amount: 'number' }) },
+    '/ledger/$id': { write: all(authenticated(), lifecycle.noDelete()), validate: validation.isNumber() },
     '/profiles/$uid': {
       write: all(ownPath('$uid'), any(isNew(), lifecycle.onlyFieldsChanged(['name', 'bio'], ['name', 'bio', 'role']))),
     },
