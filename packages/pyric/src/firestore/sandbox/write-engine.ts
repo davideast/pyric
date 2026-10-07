@@ -24,7 +24,7 @@ import type {
 } from './writes.js';
 import { EventLog } from './event-log.js';
 import { FirestoreEventBus } from './event-bus.js';
-import { TriggerScope } from './trigger-scope.js';
+import { TriggerScope, type TriggeringOps } from './trigger-scope.js';
 import { assertNoNestedDeleteField } from './field-merge.js';
 import { generateAutoId } from './auto-id.js';
 import { walkForSentinels } from './sentinel-capture.js';
@@ -40,7 +40,7 @@ import { SandboxClock } from '../../sandbox/clock.js';
 
 interface WriteEngineHost {
   readonly state: DocStore;
-  notifyListenersForPaths(paths: Set<string>): void;
+  notifyListenersForPaths(paths: Set<string>, ops?: TriggeringOps): void;
 }
 
 /** Rules-aware Firestore write policy behind the stable LocalEnvironment facade. */
@@ -329,9 +329,17 @@ export class WriteEngine {
         this.runtime.emitDenial(out.error);
       }
     }
-    // Issue #307 — emit the request event before fan-out so subscribers
-    // see the user-origin event before any listener-origin events that
-    // notifyListenersForPaths will spawn. resourceAfter is the post-write
+    // Fan out to matching snapshot listeners before the request and write
+    // events reach their subscribers, so a write issued from a subscriber
+    // enqueues its deliveries behind this one. Only a committed write has
+    // anything to fan out; denials and structural errors leave state
+    // unchanged. TriggerScope.run saves/restores (not clear-on-finally)
+    // because a listener callback may itself call execute().
+    if (isAllowed) {
+      this.runtime.notify(method, [path]);
+    }
+    // Issue #307 — emit the request event; listener-origin events spawned by
+    // the fan-out above run off-stack, after it. resourceAfter is the post-write
     // state when the write committed; for denials/structural-errors it's
     // the unchanged prior (matches what callers see on rollback).
     const priorDoc = snapshot[path] ?? null;
@@ -379,20 +387,6 @@ export class WriteEngine {
       });
     }
 
-    // Slice 3 — fan out the write to any matching snapshot listeners.
-    // Only fires on a successful commit; rule denials and structural
-    // errors leave state unchanged so listeners have nothing to see.
-    // Method-aware: list/get never reach this branch (the early
-    // read-return above), so anything getting here is a write whose
-    // path is the touched key.
-    if (isAllowed) {
-      // Issue #307 — set the trigger so listener re-eval emits can
-      // attribute themselves to this user op via `triggeredBy`.
-      // TriggerScope.run saves/restores (not clear-on-finally) because a
-      // listener callback may itself call execute() — that nested call
-      // would otherwise wipe our trigger before subsequent listeners fire.
-      this.runtime.notify(method, path, new Set([path]));
-    }
     return out;
   }
   createWithAutoId(

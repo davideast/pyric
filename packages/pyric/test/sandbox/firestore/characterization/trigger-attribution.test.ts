@@ -79,7 +79,7 @@ describe('characterization: triggeredBy attribution', () => {
     unsub();
   });
 
-  test('batch-driven deliveries attribute to {method: "batch", path: <first sub-op path>}', () => {
+  test('batch-driven deliveries attribute to {method: "batch", path: <the sub-op that touched that listener>}', () => {
     const env = new LocalEnvironment();
     env.seed({
       rules: OPEN_RULES,
@@ -104,14 +104,57 @@ describe('characterization: triggeredBy attribution', () => {
       { uid: 'alice' },
     );
     env.flushListeners();
-    // PIN: attribution names the batch's FIRST sub-op path (rooms/r1), even
-    // for the listener that fired because of the SECOND sub-op (rooms/r2).
-    expect(triggers).toEqual([{ method: 'batch', path: 'rooms/r1' }]);
+    // The listener on rooms/r2 fired because of the SECOND sub-op.
+    expect(triggers).toEqual([{ method: 'batch', path: 'rooms/r2' }]);
     off();
     u1();
   });
 
-  test('transaction-driven deliveries attribute to {method: "transaction", path: <first sub-op path>}', () => {
+  test('a listener touched by several sub-ops attributes to the first of them', () => {
+    const env = new LocalEnvironment();
+    env.seed({
+      rules: OPEN_RULES,
+      documents: { 'rooms/r1': { v: 0 }, 'rooms/r2': { v: 0 }, 'other/o1': { v: 0 } },
+    });
+    const seen: Array<{ path: string; triggeredBy?: Trigger }> = [];
+    const off = env.onSnapshotDelivery((e) => {
+      const path = e.target.kind === 'doc' ? e.target.path : e.target.collection;
+      seen.push({ path, triggeredBy: e.triggeredBy });
+    });
+    const uQ = env.addSnapshotListener(
+      { kind: 'query', collection: 'rooms' },
+      () => {},
+      undefined,
+      { uid: 'alice' },
+    );
+    const uO = env.addSnapshotListener(
+      { kind: 'doc', path: 'other/o1' },
+      () => {},
+      undefined,
+      { uid: 'alice' },
+    );
+    env.flushListeners();
+    seen.length = 0;
+
+    env.batch(
+      [
+        { method: 'update', path: 'other/o1', data: { v: 1 } },
+        { method: 'update', path: 'rooms/r1', data: { v: 1 } },
+        { method: 'update', path: 'rooms/r2', data: { v: 1 } },
+      ],
+      { uid: 'alice' },
+    );
+    env.flushListeners();
+    expect(seen).toEqual([
+      { path: 'rooms', triggeredBy: { method: 'batch', path: 'rooms/r1' } },
+      { path: 'other/o1', triggeredBy: { method: 'batch', path: 'other/o1' } },
+    ]);
+    off();
+    uQ();
+    uO();
+  });
+
+  test('transaction-driven deliveries attribute to {method: "transaction", path: <the sub-op that touched that listener>}', () => {
     const env = new LocalEnvironment();
     env.seed({
       rules: OPEN_RULES,
@@ -137,7 +180,7 @@ describe('characterization: triggeredBy attribution', () => {
     );
     expect(r.allowed).toBe(true);
     env.flushListeners();
-    expect(triggers).toEqual([{ method: 'transaction', path: 'rooms/r1' }]);
+    expect(triggers).toEqual([{ method: 'transaction', path: 'rooms/r2' }]);
     off();
     u1();
   });

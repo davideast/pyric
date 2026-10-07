@@ -1165,7 +1165,7 @@ export const firestoreRegistry = {
           riskReasons: ["asserts a specific field/property value","asserts listener semantics"],
           automation: "oracle-backed",
           oracleObservations: ["firestore-row-81-onsnapshot-query-fires-on-write"],
-          conformanceTests: ["packages/pyric/test/firestore/sandbox-target.test.ts","packages/pyric/test/firestore/upstream-transform-txn-listener-probes.test.ts"],
+          conformanceTests: ["packages/pyric/test/firestore/sandbox-target.test.ts","packages/pyric/test/firestore/upstream-transform-txn-listener-probes.test.ts","packages/pyric/test/sandbox/firestore/characterization/trigger-attribution.test.ts","packages/pyric/test/sandbox/firestore/characterization/delivery-ordering.test.ts"],
         }),
         row13({
           rowRef: "81a",
@@ -1231,6 +1231,7 @@ export const firestoreRegistry = {
           riskReasons: ["asserts a specific listener fire count","asserts a specific field/property value","asserts listener semantics","asserts metadata shape"],
           automation: "oracle-backed",
           oracleObservations: ["firestore-include-metadata-changes"],
+          conformanceTests: ["packages/pyric/test/sandbox/firestore/characterization/metadata-ack.test.ts"],
         }),
         row13({
           rowRef: "86",
