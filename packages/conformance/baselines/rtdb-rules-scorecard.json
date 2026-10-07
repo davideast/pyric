@@ -129,6 +129,7 @@
         "r25-loose-equality-types",
         "r26-rule-runtime-error",
         "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
         "r3-data-exists",
         "r4-validate-structure",
         "r5-cascade-root-grant",
@@ -151,6 +152,7 @@
         "r2-own-uid",
         "r22-strict-equality-types",
         "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
         "r7-pathvar-binding",
         "r8-combined-check"
       ],
@@ -182,6 +184,7 @@
         "r25-loose-equality-types",
         "r26-rule-runtime-error",
         "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
         "r3-data-exists",
         "r9-quota-arithmetic"
       ],
@@ -210,6 +213,7 @@
         "r25-loose-equality-types",
         "r26-rule-runtime-error",
         "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
         "r4-validate-structure",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -237,7 +241,8 @@
       "classification": "conformant",
       "verifiedBy": [
         "r12-server-time-and-token",
-        "r27-stdlib-core-patterns"
+        "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -252,6 +257,7 @@
         "r2-own-uid",
         "r22-strict-equality-types",
         "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
         "r7-pathvar-binding"
       ],
       "verifiedByRows": [],
@@ -274,6 +280,7 @@
         "r25-loose-equality-types",
         "r26-rule-runtime-error",
         "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
         "r8-combined-check",
         "r9-quota-arithmetic"
       ],
@@ -296,6 +303,7 @@
         "r24-deny-without-rule",
         "r26-rule-runtime-error",
         "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
         "r8-combined-check"
       ],
       "verifiedByRows": [
@@ -312,7 +320,8 @@
       "verifiedBy": [
         "r10-snapshot-type-guards",
         "r23-validate-sibling-scope",
-        "r27-stdlib-core-patterns"
+        "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -339,6 +348,7 @@
         "r15-validate-ancestor-scope",
         "r21-validate-on-delete",
         "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
         "r4-validate-structure",
         "r8-combined-check"
       ],
@@ -356,6 +366,7 @@
         "r18-child-dot-segments",
         "r23-validate-sibling-scope",
         "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
         "r3-data-exists"
       ],
       "verifiedByRows": [],
@@ -390,6 +401,7 @@
         "r24-deny-without-rule",
         "r26-rule-runtime-error",
         "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -419,7 +431,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "r10-snapshot-type-guards"
+        "r10-snapshot-type-guards",
+        "r28-stdlib-presence-timing"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -573,6 +586,7 @@
         "r25-loose-equality-types",
         "r26-rule-runtime-error",
         "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -603,6 +617,7 @@
         "r25-loose-equality-types",
         "r26-rule-runtime-error",
         "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
         "r3-data-exists",
         "r4-validate-structure",
         "r5-cascade-root-grant",
@@ -638,6 +653,7 @@
       "verifiedBy": [
         "r17-validate-runtime-error",
         "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -653,6 +669,7 @@
         "r11-string-validation",
         "r12-server-time-and-token",
         "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -681,6 +698,7 @@
       "verifiedBy": [
         "r23-validate-sibling-scope",
         "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -759,6 +777,7 @@
         "r24-deny-without-rule",
         "r25-loose-equality-types",
         "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
         "r7-pathvar-binding",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -775,6 +794,7 @@
       "verifiedBy": [
         "r26-rule-runtime-error",
         "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -789,6 +809,7 @@
       "verifiedBy": [
         "r26-rule-runtime-error",
         "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
         "r3-data-exists"
       ],
       "verifiedByRows": [],
@@ -835,6 +856,7 @@
         "r2-own-uid",
         "r22-strict-equality-types",
         "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
         "r7-pathvar-binding",
         "r8-combined-check"
       ],
@@ -876,6 +898,7 @@
         "r24-deny-without-rule",
         "r26-rule-runtime-error",
         "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
         "r3-data-exists",
         "r4-validate-structure",
         "r5-cascade-root-grant",
@@ -914,6 +937,7 @@
         "r25-loose-equality-types",
         "r26-rule-runtime-error",
         "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
         "r3-data-exists",
         "r4-validate-structure",
         "r5-cascade-root-grant",
@@ -949,6 +973,7 @@
         "r25-loose-equality-types",
         "r26-rule-runtime-error",
         "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
         "r4-validate-structure",
         "r9-quota-arithmetic"
       ],
@@ -986,6 +1011,7 @@
         "r23-validate-sibling-scope",
         "r24-deny-without-rule",
         "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
         "r7-pathvar-binding"
       ],
       "verifiedByRows": [
