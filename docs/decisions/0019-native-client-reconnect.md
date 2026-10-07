@@ -60,7 +60,9 @@ All three clients implement one reconnect protocol in their bridge client
    which closes the client. Before the first attach, a failed attempt closes the
    client unless it was constructed with `retryInitialConnection: true`, in
    which case the first connection retries on the same schedule. An
-   `attach-ack` with `peerConnected: false` counts as a failed attempt.
+   `attach-ack` with `peerConnected: false` counts as a failed attempt, and so
+   does an attempt that has not attached within 5 seconds of starting,
+   including any Auth restore (the web client's attach deadline).
 
 3. **Backoff schedule.** Attempt `n` (starting at 0, reset to 0 on every
    successful attach) waits
@@ -91,7 +93,10 @@ All three clients implement one reconnect protocol in their bridge client
      `auth.restorePortSession { uid, tenantId }` for the user it had signed in,
      as the web client does on a replaced host. If that operation fails, the
      observers deliver the host's state (signed out), and listeners are still
-     restored.
+     restored. "Same host" means the same bridge process: `hostInstanceId`
+     names the process, not the sandbox behind it. A sandbox peer replaced
+     under the same bridge, such as a reloaded browser tab, is not detected,
+     and the observers then report the session as signed out.
    - **Messaging.** The native clients expose no Messaging surface, so there is
      nothing to restore. A Messaging subscription added later is a subscription
      like any other and is restored by the listener replay above.
@@ -120,10 +125,13 @@ All three clients implement one reconnect protocol in their bridge client
    connection was lost. Requests already sent may have completed; check state
    before retrying." It is never re-sent: the host may already have applied it.
    An operation issued while the client is `interrupted` fails at once with
-   `unavailable`. An operation issued while the first connection is still
-   `connecting` waits for that attempt; if the attempt fails, the operation
-   fails once with `unavailable` and is not sent by a later attempt.
-   Subscriptions opened before the first attach are sent when it succeeds.
+   `unavailable`. Before the first attach, an operation waits for the attempt
+   in progress or, while a retry is scheduled, for the next scheduled attempt;
+   it never starts an attempt ahead of the schedule. If that attempt fails, the
+   operation fails once with `unavailable` and is not sent by a later attempt.
+   Subscriptions opened before the first attach are sent when it succeeds. An
+   explicit `connect()` follows the same rule: it starts an attempt only when
+   none is in progress or scheduled.
 
 8. **Clients built on one supplied transport do not reconnect.** Swift's
    `init(channel:)` and Kotlin's `PyricBridgeClient(transport)` wrap a single
@@ -133,19 +141,31 @@ All three clients implement one reconnect protocol in their bridge client
 
 ## Consequences
 
-- A listener registered on a native client keeps delivering across a bridge or
-  network interruption, and an app can show an offline indicator from
-  `fromCache`, as it would against production.
+- A listener registered on a native client keeps delivering across any
+  interruption that the platform reports as a socket close or error, such as a
+  bridge restart, and an app can show an offline indicator from `fromCache`, as
+  it would against production.
+- There is no application-level liveness check. The bridge sends no `ping` to
+  consumers, and the native clients send none. A network loss that the
+  platform does not report leaves the socket half-open, and no gap is reported
+  until the platform closes it. The Kotlin client's OkHttp transport sends
+  WebSocket protocol pings every 30 seconds and detects that case; the Dart and
+  Swift transports do not.
 - Kotlin query snapshots carry no document changes today, before or after a
   gap; this decision does not add them.
-- Heartbeats stay as they are: the clients answer the bridge's `ping`. A
-  half-open socket is detected only when the platform reports the close. The
-  web client's liveness timer is not ported here.
-- If a client re-attaches before the bridge has processed the old socket's
-  close, the bridge's late `detach()` for the old socket fails relayed
-  operations the new socket has in flight for the same `clientSessionId` and
-  removes the session from presence until its next attach. Listeners are not
-  affected, because the old socket's `detach()` removes only its own
-  subscriptions. Fixing that needs the bridge to tag consumer sessions with a
-  generation, as `createWorkerSessions` does for `worker-port` sessions; it is
-  a server change and is not part of this decision.
+- A client can re-attach before the bridge has processed the old socket's
+  close. The bridge settles a consumer socket's close against that socket only:
+  it rejects the operations that socket dispatched and removes the presence
+  entry only while it still belongs to that socket, so the re-attached session
+  keeps its presence and its in-flight operations.
+
+## What this decision leaves out
+
+These parts of the web hosted client are not ported:
+
+- **Auth restore on a fresh session.** The web client also restores Auth when
+  its resume grant has expired and it attaches as a new session. The native
+  clients have no resume grant; they always re-attach with the same
+  `clientSessionId`, and restore Auth only on a changed `hostInstanceId`.
+- **The liveness timer.** The web client sends `ping` every 15 seconds and
+  treats 45 seconds without a frame as a drop.
