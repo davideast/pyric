@@ -166,13 +166,9 @@ function recordSourceLoc(
   sourceMap: RulesSourceMapEntry[],
   expression?: string,
 ): void {
-  const hasLoc = loc !== undefined;
-  if (hasLoc) {
-    let file = 'firestore.rules';
-    const hasFile = loc!.file !== undefined;
-    if (hasFile) {
-      file = loc!.file!;
-    }
+  const hasFile = loc !== undefined && loc.file !== undefined;
+  if (hasFile) {
+    const file = loc!.file!;
     const entry: RulesSourceMapEntry = {
       generatedLine,
       authoredLine: loc!.line,

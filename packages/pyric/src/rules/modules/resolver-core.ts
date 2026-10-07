@@ -711,22 +711,29 @@ export function resolveModulesWith(
 }
 
 export function attachAstSourceFile(ast: FirestoreRules, file: string): void {
+  const attachToFunction = (fn: { loc?: { file?: string }; lets: ReadonlyArray<{ loc?: { file?: string } }> }): void => {
+    if (fn.loc !== undefined) {
+      fn.loc.file = file;
+    }
+    for (const binding of fn.lets) {
+      if (binding.loc !== undefined) {
+        binding.loc.file = file;
+      }
+    }
+  };
+  if (ast.service.loc !== undefined) {
+    ast.service.loc.file = file;
+  }
   const hasFunctions = ast.functions !== undefined;
   if (hasFunctions) {
     for (const fn of ast.functions!) {
-      const hasLoc = fn.loc !== undefined;
-      if (hasLoc) {
-        fn.loc!.file = file;
-      }
+      attachToFunction(fn);
     }
   }
   const hasServiceFunctions = ast.service.functions !== undefined;
   if (hasServiceFunctions) {
     for (const fn of ast.service.functions!) {
-      const hasLoc = fn.loc !== undefined;
-      if (hasLoc) {
-        fn.loc!.file = file;
-      }
+      attachToFunction(fn);
     }
   }
   const stack: MatchBlock[] = [ast.service.match];
@@ -744,10 +751,7 @@ export function attachAstSourceFile(ast: FirestoreRules, file: string): void {
       }
     }
     for (const fn of block.functions) {
-      const hasFnLoc = fn.loc !== undefined;
-      if (hasFnLoc) {
-        fn.loc!.file = file;
-      }
+      attachToFunction(fn);
     }
     for (const child of block.children) {
       stack.push(child);
