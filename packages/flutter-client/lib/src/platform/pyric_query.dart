@@ -397,6 +397,14 @@ class PyricQuery extends QueryPlatform {
         previousDocs = snap.docs;
         return snap;
       },
+      // The documents last delivered, now served from cache, with no changes.
+      mapGap: (lastEvent) => PyricQuerySnapshot.fromWire(
+        firestore,
+        path,
+        lastEvent,
+        previousDocs: previousDocs,
+        isFromCache: true,
+      ),
     );
   }
 }

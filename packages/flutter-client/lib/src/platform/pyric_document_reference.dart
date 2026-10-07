@@ -88,6 +88,12 @@ class PyricDocumentReference extends DocumentReferencePlatform {
         path,
         event,
       ),
+      mapGap: (lastEvent) => PyricDocumentSnapshot.fromWire(
+        firestore,
+        path,
+        lastEvent,
+        isFromCache: true,
+      ),
     );
   }
 }
