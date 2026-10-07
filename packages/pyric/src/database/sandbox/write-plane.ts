@@ -271,6 +271,9 @@ export class WritePlane {
       pathSegments(absolute).at(-1)!, value,
     ]));
     const groupId = this.state.events.nextGroupId('update');
+    // The update is atomic: a path's allow is recorded only once every path
+    // in it is allowed, so a denied update records its denial alone.
+    const allowed: Array<() => void> = [];
     for (const update of updates) {
       const at = this.state.clock.now();
       const before = this.state.tree.read(update.path);
@@ -291,8 +294,9 @@ export class WritePlane {
         this.state.events.operation(auth, 'update', update.path, denyResultFor(evaluation.check), evaluation, fields);
         throw permissionDenied();
       }
-      this.state.events.operation(auth, 'update', update.path, 'allow', evaluation, fields);
+      allowed.push(() => this.state.events.operation(auth, 'update', update.path, 'allow', evaluation, fields));
     }
+    for (const record of allowed) record();
     const before = this.state.tree.read(path);
     const priors = this.children.snapshotParents();
     if (multiPath) this.state.tree.multiUpdate(expanded);

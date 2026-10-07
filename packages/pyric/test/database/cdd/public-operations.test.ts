@@ -21,6 +21,7 @@ import {
 } from './support.js';
 import { loadObservation } from '../modular/cdd-replay-helpers.js';
 import { assertQueryIndexEnforcement } from './query-index-contracts.js';
+import { assertM95InfoWrites } from './info-write-contracts.js';
 
 const contentionObservation = loadObservation('rtdb-modular-concurrent-transforms');
 const currentValueObservation = loadObservation('rtdb-modular-runtransaction-current-value-arg');
@@ -174,4 +175,5 @@ describe('rtdb-modular CDD: public operation rows', () => {
   row('172', () => expect(api.forceWebSockets()).toBeUndefined());
   row('173', () => expect(api.enableLogging(() => {}, true)).toBeUndefined());
   row('174', () => { const { db } = setup(); expect(referenceObservation.mismatchedHost.timing).toBe('synchronous-throw'); const parsed = api.refFromURL(db, 'ftp://other.example/a/b?ignored=1'); expect([parsed.key, parsed.toString()]).toEqual(['b', 'sandbox://rtdb/a/b']); expect(() => api.refFromURL(db, 'https://other.example/a#fragment')).toThrow(); });
+  row('M95', assertM95InfoWrites);
 });

@@ -1,4 +1,5 @@
 /** Per-port RTDB disconnect registration and explicit connection lifecycle. */
+import { validateWritablePath } from 'pyric/database/internal';
 import { dataRpc, nextId } from './core.js';
 import type { ClientPort, ClientRtdb, RtdbRefHandle } from './handles.js';
 
@@ -65,24 +66,28 @@ export class RtdbOnDisconnect {
   }
 
   remove(): Promise<void> {
+    validateWritablePath('OnDisconnect.remove', this._path);
     return dataRpc(this._repo.port, {
       t: 'op', id: nextId(), method: 'rtdb.onDisconnectRemove', path: this._path,
     }).then(() => undefined);
   }
 
   set(value: unknown): Promise<void> {
+    validateWritablePath('OnDisconnect.set', this._path);
     return dataRpc(this._repo.port, {
       t: 'op', id: nextId(), method: 'rtdb.onDisconnectSet', path: this._path, value,
     }).then(() => undefined);
   }
 
   setWithPriority(value: unknown, priority: string | number | null): Promise<void> {
+    validateWritablePath('OnDisconnect.setWithPriority', this._path);
     return dataRpc(this._repo.port, {
       t: 'op', id: nextId(), method: 'rtdb.onDisconnectSet', path: this._path, value, priority,
     }).then(() => undefined);
   }
 
   update(values: Record<string, unknown>): Promise<void> {
+    validateWritablePath('OnDisconnect.update', this._path);
     return dataRpc(this._repo.port, {
       t: 'op', id: nextId(), method: 'rtdb.onDisconnectUpdate', path: this._path, values,
     }).then(() => undefined);

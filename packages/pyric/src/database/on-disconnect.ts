@@ -1,5 +1,6 @@
 import { targetOf, type Target } from './routing.js';
 import type { DatabaseReference } from './types.js';
+import { validateWritablePath } from './writable-path.js';
 
 export class OnDisconnect {
   /** @internal Construct through {@link onDisconnect}. */
@@ -13,18 +14,22 @@ export class OnDisconnect {
   }
 
   remove(): Promise<void> {
+    validateWritablePath('OnDisconnect.remove', this._path);
     return this._repo.connection.register({ kind: 'remove', path: this._path });
   }
 
   set(value: unknown): Promise<void> {
+    validateWritablePath('OnDisconnect.set', this._path);
     return this._repo.connection.register({ kind: 'set', path: this._path, value });
   }
 
   setWithPriority(value: unknown, priority: string | number | null): Promise<void> {
+    validateWritablePath('OnDisconnect.setWithPriority', this._path);
     return this._repo.connection.register({ kind: 'set', path: this._path, value, priority });
   }
 
   update(values: Record<string, unknown>): Promise<void> {
+    validateWritablePath('OnDisconnect.update', this._path);
     return this._repo.connection.register({ kind: 'update', path: this._path, values });
   }
 }
