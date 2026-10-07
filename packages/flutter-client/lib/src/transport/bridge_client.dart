@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
+import 'package:collection/collection.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../auth/auth_lens.dart';
@@ -15,6 +17,45 @@ typedef WebSocketChannelFactory = FutureOr<WebSocketChannel> Function(
   Map<String, dynamic> headers,
 );
 
+/// Sends one worker operation on the connection being restored.
+typedef BridgeRestoreOperation = Future<dynamic> Function(
+  String method,
+  Map<String, dynamic> params,
+);
+
+/// Re-establishes the session's Auth user on a replaced bridge host.
+typedef BridgeAuthRestorer = Future<void> Function(BridgeRestoreOperation op);
+
+/// The bridge client's transport state.
+///
+/// `interrupted` covers every reconnect attempt after a drop. `closed` is
+/// terminal: the client was disconnected or hit a failure that permits no retry.
+enum BridgeConnectionState { connecting, attached, interrupted, closed }
+
+/// Delivered on a subscription registered with `includeMetadataChanges` when
+/// the connection drops after it has delivered a value. The listener reports
+/// its last snapshot again with `fromCache` set.
+class BridgeSubscriptionGap {
+  const BridgeSubscriptionGap._();
+
+  static const BridgeSubscriptionGap instance = BridgeSubscriptionGap._();
+}
+
+const String _connectionLost =
+    'The bridge connection was lost. Requests already sent may have completed; check state before retrying.';
+const int _policyCloseCode = 1008;
+const int _maxReconnectDelayMs = 5000;
+final math.Random _jitterSource = math.Random();
+
+/// The wait before reconnect attempt [attempt] (0-based): 250 ms doubling to a
+/// 5 s cap, plus up to 250 ms of jitter, never above 5 s.
+Duration bridgeReconnectDelay(int attempt, [math.Random? random]) {
+  final exponent = math.min(attempt, 10);
+  final base = math.min(_maxReconnectDelayMs, 250 * (1 << exponent));
+  final jitter = (random ?? _jitterSource).nextDouble() * math.min(250, base / 10);
+  return Duration(milliseconds: math.min(_maxReconnectDelayMs, base + jitter).floor());
+}
+
 class _PendingOp {
   final Completer<dynamic> completer;
   final Timer timer;
@@ -24,23 +65,55 @@ class _PendingOp {
 
 class _ActiveSub {
   final StreamController<dynamic> controller;
+  final Map<String, dynamic> payload;
+  bool hasValue = false;
+  dynamic lastValue;
+  bool awaitsRestoredValue = false;
 
-  _ActiveSub(this.controller);
+  _ActiveSub(this.controller, this.payload);
+
+  bool get includesMetadataChanges => payload['includeMetadataChanges'] == true;
 }
 
 /// Pure-Dart WebSocket transport connecting to the Pyric bridge server.
+///
+/// After the first attach, a dropped socket is reopened with bounded backoff.
+/// The client re-attaches with its `clientSessionId` and re-sends every live
+/// subscription. Operations in flight at the drop fail once with
+/// `unavailable` and are never re-sent.
 class PyricBridgeClient {
   final Uri uri;
   final Map<String, dynamic> headers;
   final Duration defaultOpTimeout;
   final WebSocketChannelFactory? channelFactory;
 
+  /// Retry the first connection on the reconnect schedule instead of closing.
+  final bool retryInitialConnection;
+
+  /// The wait before each reconnect attempt.
+  final Duration Function(int attempt) reconnectDelay;
+
+  /// An attempt that has not attached within this time counts as failed.
+  final Duration attachTimeout;
+
+  /// Runs on a re-attach to a replaced host, before listens are re-sent.
+  BridgeAuthRestorer? restoreAuth;
+
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _channelSubscription;
 
-  bool _connected = false;
+  BridgeConnectionState _state = BridgeConnectionState.connecting;
   bool _isDisposed = false;
+  bool _hasEverAttached = false;
   String? _clientSessionId;
+  String? _hostInstanceId;
+  int _connectionGeneration = 0;
+  int _reconnectAttempt = 0;
+  Timer? _reconnectTimer;
+  Timer? _attachDeadline;
+  Completer<void>? _attempt;
+  // Callers waiting for the next scheduled attempt.
+  Completer<void>? _nextAttempt;
 
   int _opCounter = 0;
   int _subCounter = 0;
@@ -52,24 +125,35 @@ class PyricBridgeClient {
       StreamController<AuthLens>.broadcast();
   final StreamController<PyricBridgeException> _denialController =
       StreamController<PyricBridgeException>.broadcast();
+  final StreamController<BridgeConnectionState> _stateController =
+      StreamController<BridgeConnectionState>.broadcast();
 
   static void Function(PyricBridgeException)? onDenial;
-
-  Completer<void>? _handshakeCompleter;
 
   PyricBridgeClient({
     Uri? uri,
     Map<String, dynamic>? headers,
     this.defaultOpTimeout = const Duration(seconds: 35),
     this.channelFactory,
+    this.retryInitialConnection = false,
+    Duration Function(int attempt)? reconnectDelay,
+    this.attachTimeout = const Duration(seconds: 5),
   })  : uri = uri ?? Uri.parse('ws://localhost:5174/__pyric/sandbox'),
-        headers = headers ?? const {'Host': 'localhost:5174'};
+        headers = headers ?? const {'Host': 'localhost:5174'},
+        reconnectDelay = reconnectDelay ?? bridgeReconnectDelay;
 
-  /// Reports whether the client is connected to bridge and handshake is acknowledged.
-  bool get isConnected => _connected && !_isDisposed;
+  /// Reports whether the client is attached to the bridge.
+  bool get isConnected =>
+      _state == BridgeConnectionState.attached && !_isDisposed;
 
   /// Reports whether the client has been permanently closed.
   bool get isDisposed => _isDisposed;
+
+  /// The current transport state.
+  BridgeConnectionState get connectionState => _state;
+
+  /// Transport state changes.
+  Stream<BridgeConnectionState> get connectionStates => _stateController.stream;
 
   /// Returns the client session ID assigned or acknowledged by the bridge server.
   String? get clientSessionId => _clientSessionId;
@@ -81,52 +165,26 @@ class PyricBridgeClient {
   Stream<PyricBridgeException> get denialStream => _denialController.stream;
 
   /// Establishes the WebSocket connection and completes the `attach`/`attach-ack` handshake.
-  Future<void> connect() async {
-    if (_connected) return;
+  ///
+  /// Joins the attempt in progress or, while a retry is scheduled, the next
+  /// scheduled attempt. Starts an attempt only when none is in progress or
+  /// scheduled.
+  Future<void> connect() {
+    if (isConnected) return Future.value();
     if (_isDisposed) {
-      throw const PyricBridgeException(
+      return Future.error(const PyricBridgeException(
         code: 'unavailable',
         message: 'Client is disposed.',
-      );
+      ));
     }
-    if (_handshakeCompleter != null) return _handshakeCompleter!.future;
-
-    _handshakeCompleter = Completer<void>();
-
-    try {
-      if (channelFactory != null) {
-        _channel = await channelFactory!(uri, headers);
-      } else {
-        _channel = WebSocketChannel.connect(uri);
-        await _channel!.ready;
-      }
-
-      _channelSubscription = _channel!.stream.listen(
-        _handleMessage,
-        onError: _handleChannelError,
-        onDone: _handleChannelDone,
-      );
-
-      // Send initial attach frame per protocol
-      _sendRaw({
-        'type': 'attach',
-        'protocol': 1,
-        if (_clientSessionId != null) 'clientSessionId': _clientSessionId,
-        'clientInfo': {
-          'platform': 'flutter',
-        },
-      });
-
-      await _handshakeCompleter!.future;
-      _connected = true;
-    } catch (e) {
-      await disconnect();
-      if (e is PyricBridgeException) rethrow;
-      throw PyricBridgeException(
-        code: 'unavailable',
-        message: 'Failed to connect to Pyric bridge: $e',
-      );
+    final inFlight = _attempt;
+    if (inFlight != null) return inFlight.future;
+    if (_reconnectTimer != null) {
+      final next = _nextAttempt ??= Completer<void>();
+      next.future.ignore();
+      return next.future;
     }
+    return _startAttempt();
   }
 
   /// Dispatches a one-shot worker operation and awaits the correlated result.
@@ -136,11 +194,23 @@ class PyricBridgeClient {
     Map<String, dynamic>? actAs,
     Duration? timeout,
   }) async {
-    if (!_connected && !_isDisposed) {
+    _ensureUsable();
+    if (!isConnected) {
+      if (_hasEverAttached) {
+        throw const PyricBridgeException(code: 'unavailable', message: _connectionLost);
+      }
       await connect();
     }
-    _ensureConnected();
+    _ensureUsable();
+    return _dispatchOp(method, params, actAs: actAs, timeout: timeout);
+  }
 
+  Future<dynamic> _dispatchOp(
+    String method,
+    Map<String, dynamic> params, {
+    Map<String, dynamic>? actAs,
+    Duration? timeout,
+  }) {
     final id = 'rop-${++_opCounter}';
     final completer = Completer<dynamic>();
     final opPayload = <String, dynamic>{
@@ -195,6 +265,9 @@ class PyricBridgeClient {
   }
 
   /// Establishes a raw subscription payload over the bridge (e.g. for auth or custom targets).
+  ///
+  /// The subscription survives a dropped connection: it is re-sent on every
+  /// re-attach until the listener cancels.
   Stream<dynamic> subscribeRaw(Map<String, dynamic> subPayload) {
     if (_isDisposed) {
       throw const PyricBridgeException(
@@ -204,61 +277,40 @@ class PyricBridgeClient {
     }
 
     late StreamController<dynamic> controller;
-    var listenGen = 0;
     String? currentSubId;
 
     controller = StreamController<dynamic>.broadcast(
-      onListen: () async {
-        final gen = ++listenGen;
+      onListen: () {
+        if (_isDisposed) {
+          controller.addError(const PyricBridgeException(
+            code: 'unavailable',
+            message: 'PyricBridgeClient has been disposed.',
+          ));
+          controller.close();
+          return;
+        }
         final subId = 'rsub-${++_subCounter}';
-        try {
-          if (!_connected) {
-            await connect();
-          }
-          if (gen != listenGen || _isDisposed) {
-            return;
-          }
-          _activeSubs[subId] = _ActiveSub(controller);
-          currentSubId = subId;
-          _sendRaw({
-            'type': 'worker-sub',
-            'subId': subId,
-            if (_clientSessionId != null) 'clientSessionId': _clientSessionId,
-            'sub': subPayload,
-          });
-        } catch (e) {
-          if (gen == listenGen) {
-            _activeSubs.remove(subId);
-            currentSubId = null;
-            if (!controller.isClosed) {
-              controller.addError(
-                e is PyricBridgeException
-                    ? e
-                    : PyricBridgeException(
-                        code: 'unavailable',
-                        message: 'Failed to dispatch subscription to bridge: $e',
-                      ),
-              );
-              controller.close();
-            }
-          }
+        currentSubId = subId;
+        final sub = _ActiveSub(controller, subPayload);
+        _activeSubs[subId] = sub;
+        if (isConnected) {
+          _sendSub(subId, sub);
+        } else if (!_hasEverAttached) {
+          // Sent by the attach that this starts or joins.
+          connect().ignore();
         }
       },
       onCancel: () {
-        listenGen++;
         final subId = currentSubId;
         currentSubId = null;
-        if (subId != null && _activeSubs.remove(subId) != null) {
-          if (_connected && !_isDisposed) {
-            try {
-              _sendRaw({
-                'type': 'worker-unsub',
-                'subId': subId,
-                if (_clientSessionId != null)
-                  'clientSessionId': _clientSessionId,
-              });
-            } catch (_) {}
-          }
+        if (subId != null && _activeSubs.remove(subId) != null && isConnected) {
+          try {
+            _sendRaw({
+              'type': 'worker-unsub',
+              'subId': subId,
+              if (_clientSessionId != null) 'clientSessionId': _clientSessionId,
+            });
+          } catch (_) {}
         }
       },
     );
@@ -282,19 +334,213 @@ class PyricBridgeClient {
     });
   }
 
-  // ─── Connection Lifecycle & Message Routing ───────────────────────────────
+  // ─── Connection Lifecycle ─────────────────────────────────────────────────
 
-  void _ensureConnected() {
+  Future<void> _startAttempt() {
+    final attempt = Completer<void>();
+    // Settled attempts nobody awaits must not surface as unhandled errors.
+    attempt.future.ignore();
+    _attempt = attempt;
+    final generation = ++_connectionGeneration;
+    if (!_hasEverAttached) _setState(BridgeConnectionState.connecting);
+    final waiting = _nextAttempt;
+    _nextAttempt = null;
+    if (waiting != null) {
+      attempt.future.then(waiting.complete, onError: waiting.completeError);
+    }
+    _attachDeadline?.cancel();
+    _attachDeadline = Timer(attachTimeout, () {
+      _handleConnectionLoss(generation, 'Timed out connecting to the Pyric bridge.');
+    });
+    _openChannel(generation);
+    return attempt.future;
+  }
+
+  Future<void> _openChannel(int generation) async {
+    final WebSocketChannel channel;
+    try {
+      if (channelFactory != null) {
+        channel = await channelFactory!(uri, headers);
+      } else {
+        channel = WebSocketChannel.connect(uri);
+        await channel.ready;
+      }
+    } catch (e) {
+      _handleConnectionLoss(generation, 'Failed to connect to Pyric bridge: $e');
+      return;
+    }
+
+    final isStale = generation != _connectionGeneration || _isDisposed;
+    if (isStale) {
+      try {
+        await channel.sink.close();
+      } catch (_) {}
+      return;
+    }
+
+    _channel = channel;
+    _channelSubscription = channel.stream.listen(
+      (raw) => _handleMessage(generation, raw),
+      onError: (Object error) => _handleConnectionLoss(
+        generation,
+        'WebSocket stream error: $error',
+      ),
+      onDone: () => _handleConnectionLoss(
+        generation,
+        'WebSocket closed by remote peer.',
+        closeCode: channel.closeCode,
+      ),
+    );
+
+    try {
+      _sendRaw({
+        'type': 'attach',
+        'protocol': 1,
+        if (_clientSessionId != null) 'clientSessionId': _clientSessionId,
+        'clientInfo': {
+          'platform': 'flutter',
+        },
+      });
+    } catch (e) {
+      _handleConnectionLoss(generation, 'Failed to send attach frame: $e');
+    }
+  }
+
+  void _handleConnectionLoss(int generation, String reason, {int? closeCode}) {
+    final isStale = generation != _connectionGeneration || _isDisposed;
+    if (isStale) return;
+    final error = PyricBridgeException(code: 'unavailable', message: reason);
+    final permitsRetry = (_hasEverAttached || retryInitialConnection) &&
+        closeCode != _policyCloseCode;
+    if (!permitsRetry) {
+      _shutdown(error);
+      return;
+    }
+
+    _connectionGeneration++;
+    _attachDeadline?.cancel();
+    _attachDeadline = null;
+    _releaseChannel();
+    final attempt = _attempt;
+    _attempt = null;
+    final wasAttached = _state == BridgeConnectionState.attached;
+    _setState(BridgeConnectionState.interrupted);
+    _failPendingOps(const PyricBridgeException(
+      code: 'unavailable',
+      message: _connectionLost,
+    ));
+    if (attempt != null && !attempt.isCompleted) attempt.completeError(error);
+    if (wasAttached) _reportGap();
+
+    final delay = reconnectDelay(_reconnectAttempt);
+    _reconnectAttempt++;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer(delay, () {
+      _reconnectTimer = null;
+      if (_isDisposed || _attempt != null) return;
+      _startAttempt();
+    });
+  }
+
+  void _reportGap() {
+    for (final sub in _activeSubs.values) {
+      final reportsGap = sub.includesMetadataChanges && sub.hasValue;
+      if (reportsGap && !sub.controller.isClosed) {
+        sub.controller.add(BridgeSubscriptionGap.instance);
+      }
+    }
+  }
+
+  void _handleAttachAck(int generation, Map<String, dynamic> msg) {
+    final attempt = _attempt;
+    if (attempt == null || attempt.isCompleted) return;
+    final peerConnected = msg['peerConnected'] == true;
+    if (!peerConnected) {
+      _handleConnectionLoss(
+        generation,
+        'No browser tab is connected to the sandbox; open pyric sandbox in a browser and retry.',
+      );
+      return;
+    }
+    final ackSessionId =
+        msg['clientSessionId'] as String? ?? msg['sessionId'] as String?;
+    if (ackSessionId != null) _clientSessionId = ackSessionId;
+    final ackHostId = msg['hostInstanceId'] as String?;
+    final changedHost = _hasEverAttached &&
+        _hostInstanceId != null &&
+        ackHostId != null &&
+        ackHostId != _hostInstanceId;
+    if (ackHostId != null) _hostInstanceId = ackHostId;
+    _finishAttach(generation, attempt, changedHost);
+  }
+
+  Future<void> _finishAttach(
+    int generation,
+    Completer<void> attempt,
+    bool changedHost,
+  ) async {
+    final restorer = restoreAuth;
+    if (changedHost && restorer != null) {
+      try {
+        await restorer((method, params) => _dispatchOp(method, params));
+      } catch (_) {
+        // The Auth observers report the host's state when the restore fails.
+      }
+      final isStale = generation != _connectionGeneration || _isDisposed;
+      if (isStale) return;
+    }
+
+    _attachDeadline?.cancel();
+    _attachDeadline = null;
+    _attempt = null;
+    _hasEverAttached = true;
+    _reconnectAttempt = 0;
+    _setState(BridgeConnectionState.attached);
+    for (final entry in _activeSubs.entries.toList()) {
+      final sub = entry.value;
+      sub.awaitsRestoredValue = sub.hasValue;
+      _sendSub(entry.key, sub);
+    }
+    if (!attempt.isCompleted) attempt.complete();
+  }
+
+  void _sendSub(String subId, _ActiveSub sub) {
+    try {
+      _sendRaw({
+        'type': 'worker-sub',
+        'subId': subId,
+        if (_clientSessionId != null) 'clientSessionId': _clientSessionId,
+        'sub': sub.payload,
+      });
+    } catch (_) {
+      // A failed send means the socket is closing; its close re-sends this.
+    }
+  }
+
+  void _setState(BridgeConnectionState next) {
+    if (_state == next) return;
+    _state = next;
+    if (!_stateController.isClosed) _stateController.add(next);
+  }
+
+  void _releaseChannel() {
+    final subscription = _channelSubscription;
+    final channel = _channel;
+    _channelSubscription = null;
+    _channel = null;
+    subscription?.cancel();
+    try {
+      channel?.sink.close();
+    } catch (_) {}
+  }
+
+  // ─── Message Routing ──────────────────────────────────────────────────────
+
+  void _ensureUsable() {
     if (_isDisposed) {
       throw const PyricBridgeException(
         code: 'unavailable',
         message: 'PyricBridgeClient has been disposed.',
-      );
-    }
-    if (!_connected) {
-      throw const PyricBridgeException(
-        code: 'unavailable',
-        message: 'PyricBridgeClient is not connected. Call connect() first.',
       );
     }
   }
@@ -309,7 +555,9 @@ class PyricBridgeClient {
     _channel!.sink.add(jsonEncode(message));
   }
 
-  void _handleMessage(dynamic raw) {
+  void _handleMessage(int generation, dynamic raw) {
+    final isStale = generation != _connectionGeneration || _isDisposed;
+    if (isStale) return;
     Map<String, dynamic> msg;
     try {
       if (raw is String) {
@@ -330,7 +578,7 @@ class PyricBridgeClient {
 
     switch (type) {
       case 'attach-ack':
-        _handleAttachAck(msg);
+        _handleAttachAck(generation, msg);
         break;
       case 'worker-res':
         _handleWorkerRes(msg);
@@ -389,25 +637,6 @@ class PyricBridgeClient {
     _remoteLensController.add(lens);
   }
 
-  void _handleAttachAck(Map<String, dynamic> msg) {
-    _clientSessionId =
-        msg['clientSessionId'] as String? ?? msg['sessionId'] as String?;
-    final peerConnected = msg['peerConnected'] == true;
-    if (_handshakeCompleter != null && !_handshakeCompleter!.isCompleted) {
-      if (peerConnected) {
-        _handshakeCompleter!.complete();
-      } else {
-        _handshakeCompleter!.completeError(
-          const PyricBridgeException(
-            code: 'unavailable',
-            message:
-                'No browser tab is connected to the sandbox — open pyric sandbox in a browser and retry.',
-          ),
-        );
-      }
-    }
-  }
-
   void _handleWorkerRes(Map<String, dynamic> msg) {
     final id = msg['id'] as String?;
     if (id == null) return;
@@ -454,7 +683,7 @@ class PyricBridgeClient {
     if (value is Map && value.containsKey('__error')) {
       // Terminal subscription error per Firestore contract
       _activeSubs.remove(subId);
-      if (!_isDisposed && _connected) {
+      if (isConnected) {
         try {
           _sendRaw({
             'type': 'worker-unsub',
@@ -485,6 +714,14 @@ class PyricBridgeClient {
       return;
     }
 
+    if (sub.awaitsRestoredValue) {
+      sub.awaitsRestoredValue = false;
+      final unchanged = const DeepCollectionEquality().equals(sub.lastValue, value);
+      // Production raises a sync-state-only change only to metadata listeners.
+      if (unchanged && !sub.includesMetadataChanges) return;
+    }
+    sub.hasValue = true;
+    sub.lastValue = value;
     sub.controller.add(value);
   }
 
@@ -497,91 +734,58 @@ class PyricBridgeClient {
     }
   }
 
-  void _handleChannelError(dynamic error) {
-    if (_handshakeCompleter != null && !_handshakeCompleter!.isCompleted) {
-      _handshakeCompleter!.completeError(
-        PyricBridgeException(
-          code: 'unavailable',
-          message: 'WebSocket connection error: $error',
-        ),
-      );
-    }
-    _failPendingOps('unavailable', 'WebSocket stream error: $error');
-  }
-
-  void _handleChannelDone() {
-    if (_handshakeCompleter != null && !_handshakeCompleter!.isCompleted) {
-      _handshakeCompleter!.completeError(
-        const PyricBridgeException(
-          code: 'unavailable',
-          message: 'WebSocket closed before attach-ack received.',
-        ),
-      );
-    }
-    _failPendingOps('unavailable', 'WebSocket closed by remote peer.');
-  }
-
-  void _failPendingOps(String code, String message) {
-    _connected = false;
-
-    for (final pending in _pendingOps.values) {
-      pending.timer.cancel();
-      pending.completer.completeError(
-        PyricBridgeException(code: code, message: message),
-      );
-    }
+  void _failPendingOps(PyricBridgeException error) {
+    final pending = _pendingOps.values.toList();
     _pendingOps.clear();
+    for (final op in pending) {
+      op.timer.cancel();
+      op.completer.completeError(error);
+    }
+  }
 
-    for (final sub in _activeSubs.values) {
-      sub.controller.addError(
-        PyricBridgeException(code: code, message: message),
-      );
+  void _shutdown(PyricBridgeException error) {
+    _isDisposed = true;
+    _connectionGeneration++;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _setState(BridgeConnectionState.closed);
+
+    _failPendingOps(error);
+
+    final subs = _activeSubs.values.toList();
+    _activeSubs.clear();
+    for (final sub in subs) {
+      if (sub.controller.isClosed) continue;
+      sub.controller.addError(error);
       sub.controller.close();
     }
-    _activeSubs.clear();
+
+    final attempt = _attempt;
+    _attempt = null;
+    if (attempt != null && !attempt.isCompleted) attempt.completeError(error);
+    final waiting = _nextAttempt;
+    _nextAttempt = null;
+    if (waiting != null && !waiting.isCompleted) waiting.completeError(error);
+    _attachDeadline?.cancel();
+    _attachDeadline = null;
+
+    _releaseChannel();
   }
 
   /// Closes the connection and cancels all outstanding operations and subscriptions.
   Future<void> disconnect() async {
-    _isDisposed = true;
-    _connected = false;
-
-    for (final pending in _pendingOps.values) {
-      pending.timer.cancel();
-      pending.completer.completeError(
-        const PyricBridgeException(
-          code: 'unavailable',
-          message: 'PyricBridgeClient disconnected.',
-        ),
-      );
-    }
-    _pendingOps.clear();
-
-    for (final sub in _activeSubs.values) {
-      sub.controller.addError(
-        const PyricBridgeException(
-          code: 'unavailable',
-          message: 'PyricBridgeClient disconnected.',
-        ),
-      );
-      sub.controller.close();
-    }
-    _activeSubs.clear();
-
-    if (_handshakeCompleter != null && !_handshakeCompleter!.isCompleted) {
-      _handshakeCompleter!.completeError(
-        const PyricBridgeException(
-          code: 'unavailable',
-          message: 'PyricBridgeClient disconnected.',
-        ),
-      );
-    }
-    _handshakeCompleter = null;
-
-    await _channelSubscription?.cancel();
+    if (_isDisposed) return;
+    final channelSubscription = _channelSubscription;
+    final channel = _channel;
     _channelSubscription = null;
-
-    await _channel?.sink.close();
     _channel = null;
+    _shutdown(const PyricBridgeException(
+      code: 'unavailable',
+      message: 'PyricBridgeClient disconnected.',
+    ));
+    await channelSubscription?.cancel();
+    try {
+      await channel?.sink.close();
+    } catch (_) {}
   }
 }

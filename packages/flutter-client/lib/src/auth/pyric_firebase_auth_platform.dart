@@ -156,6 +156,17 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
     _remoteLensSub = _bridgeClient.remoteLensStream.listen((lens) {
       switchAuthLens(lens);
     });
+
+    // A replaced bridge host holds no user for this session. Sign the session
+    // back in before the observers are re-sent.
+    _bridgeClient.restoreAuth = (op) async {
+      final user = _currentUser;
+      if (user == null) return;
+      await op('auth.restorePortSession', {
+        'uid': user.uid,
+        'tenantId': user.tenantId,
+      });
+    };
   }
 
   static Object _mapAuthError(dynamic error) {

@@ -16,11 +16,13 @@ interface FlutterRowSeed {
   behavior: string;
   featureKeys: string[];
   evidence?: string;
+  /** Tests beyond the conformance suite that also exercise this row. */
+  tests?: string[];
   flipped?: 'unit-backed';
 }
 
 function row(seed: FlutterRowSeed): CompatibilityRow {
-  const { ref, flipped, evidence, ...rest } = seed;
+  const { ref, flipped, evidence, tests, ...rest } = seed;
   const defaultEvidence = flipped ? 'cloud_firestore_platform_interface specification.' : 'cloud_firestore_platform_interface specification; unverified locally.';
   const resolvedEvidence = evidence ?? defaultEvidence;
   const climb = flipped
@@ -28,7 +30,7 @@ function row(seed: FlutterRowSeed): CompatibilityRow {
         status: 'conforms' as const,
         automation: 'unit-backed' as const,
         evidence: `${resolvedEvidence} Container test: \`${CONFORMANCE_SUITE}\` assertion set \`firestore-flutter#${ref}\`.`,
-        conformanceTests: [CONFORMANCE_SUITE],
+        conformanceTests: [CONFORMANCE_SUITE, ...(tests ?? [])],
       }
     : {
         status: 'unverified' as const,
@@ -144,7 +146,9 @@ export const firestoreFlutterRows: CompatibilityRow[] = [
   row({ ref: 41, flipped: 'unit-backed', section: 'Snapshots & metadata',
     api: 'DocumentSnapshotPlatform.get(field)', behavior: 'Extracts single field value supporting dot notation or FieldPath instances.', featureKeys: ['get'] }),
   row({ ref: 42, flipped: 'unit-backed', section: 'Snapshots & metadata',
-    api: 'SnapshotMetadataPlatform (hasPendingWrites, isFromCache)', behavior: 'Exposes local cache and uncommitted pending write status on snapshots.', featureKeys: ['metadata'] }),
+    api: 'SnapshotMetadataPlatform (hasPendingWrites, isFromCache)', behavior: 'Exposes local cache and uncommitted pending write status on snapshots.', featureKeys: ['metadata'],
+    evidence: 'cloud_firestore_platform_interface specification. When the bridge connection drops, a listener registered with includeMetadataChanges receives its last documents with isFromCache true and no changes, and its first snapshot after re-attach has isFromCache false; a listener without includeMetadataChanges receives neither, as production raises a metadata-only change only to listeners that include metadata changes. Reconnect tests: `platform_reconnect_test.dart`.',
+    tests: ['packages/flutter-client/test/platform_reconnect_test.dart'] }),
   row({ ref: 43, flipped: 'unit-backed', section: 'Snapshots & metadata',
     api: 'QuerySnapshotPlatform.docs', behavior: 'Provides ordered List<DocumentSnapshotPlatform> of all query result documents.', featureKeys: ['docs'] }),
   row({ ref: 44, flipped: 'unit-backed', section: 'Snapshots & metadata',
