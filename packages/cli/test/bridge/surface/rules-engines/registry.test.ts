@@ -26,7 +26,7 @@ describe('the engine records declare the services', () => {
     for (const service of RULES_SERVICES) {
       expect(rulesEngineFor(service).requestMethods.length).toBeGreaterThan(0);
     }
-    expect([...rulesEngineFor('database').requestMethods]).toEqual(['read', 'write', 'validate']);
+    expect([...rulesEngineFor('database').requestMethods]).toEqual(['read', 'write', 'update', 'validate']);
   });
 
   it('carries every service its own source check', () => {

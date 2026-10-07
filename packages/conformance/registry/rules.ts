@@ -1227,6 +1227,8 @@ export const rulesRegistry = {
           conformanceTests: [
             "packages/pyric/test/rules/rtdb/rules-conformance.test.ts",
             "packages/pyric/test/rules/rtdb/simulation/handler.test.ts",
+            "packages/pyric/test/rules/rtdb/case-update-query.test.ts",
+            "packages/pyric/test/rules/rtdb/simulate-sandbox-agreement.test.ts",
           ],
           constructs: ["rtdb.semantic.validate-non-cascade"],
         }),

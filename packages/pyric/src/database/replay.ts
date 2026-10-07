@@ -4,10 +4,13 @@ import {
   type Sandbox,
   type SandboxCommitEvent,
   type SandboxEvent,
+  type SandboxOperationEvent,
 } from '../sandbox/index.js';
 import {
+  get,
   getAdminDatabase,
   getDatabase,
+  query,
   ref,
   remove,
   runTransaction,
@@ -17,7 +20,10 @@ import {
   update,
   sandbox as rtdbSandbox,
   type Database,
+  type QueryConstraint,
 } from './index.js';
+import type { QuerySpec } from './internal/query-projection.js';
+import { buildConstraint } from './query-shape.js';
 import { isJsonObject, jsonValuesEqual } from './sandbox/data-tree.js';
 
 export interface RtdbReplayOptions {
@@ -73,7 +79,14 @@ export async function replay(
     await rewindRtdbCommits(adminDb, commits);
   }
 
-  for (const commit of commits) {
+  for (const event of events) {
+    if (isAllowedQueryRead(event)) {
+      checkedEvents += 1;
+      await replayRtdbQueryRead(sandbox, event, divergences);
+      continue;
+    }
+    if (!isRtdbCommit(event)) continue;
+    const commit = event;
     const path = commit.path ?? '/';
     const isAdmin = commit.detail?.admin === true;
     if (isAdmin) {
@@ -119,6 +132,67 @@ async function replayRtdbAppCommit(
   try {
     const db = getDatabase(sandbox);
     await replayRtdbCommitWithDatabase(db, commit, divergences);
+  } finally {
+    sandbox.currentUser = prev;
+  }
+}
+
+/**
+ * A one-shot read by an application user that carried a query and was
+ * allowed. Its `query.*` rule expressions are what the candidate rules are
+ * judged on. A read with no query, an admin read, and a denied read carry no
+ * claim the candidate rules must keep.
+ */
+function isAllowedQueryRead(event: SandboxEvent): event is SandboxOperationEvent {
+  return event.kind === 'operation'
+    && event.service === 'rtdb'
+    && event.method === 'get'
+    && event.origin !== 'admin'
+    && event.result === 'allow'
+    && event.request?.query !== undefined;
+}
+
+/** The constraints that rebuild a captured query, in the order the SDK applies them. */
+function constraintsOfSpec(spec: QuerySpec): QueryConstraint[] {
+  const constraints: QueryConstraint[] = [];
+  if (spec.orderBy !== null) {
+    const type = {
+      child: 'orderByChild',
+      key: 'orderByKey',
+      priority: 'orderByPriority',
+      value: 'orderByValue',
+    } as const;
+    constraints.push(buildConstraint(type[spec.orderBy.kind], { kind: 'orderBy', spec: spec.orderBy }));
+  }
+  for (const bound of spec.bounds) {
+    constraints.push(buildConstraint(bound.kind, { kind: 'bound', bound }));
+  }
+  if (spec.limit !== null) {
+    constraints.push(
+      buildConstraint(spec.limit.kind, { kind: 'limit', limitKind: spec.limit.kind, n: spec.limit.n }),
+    );
+  }
+  return constraints;
+}
+
+async function replayRtdbQueryRead(
+  sandbox: ReturnType<typeof initializeSandbox>,
+  event: SandboxOperationEvent,
+  divergences: RtdbReplayDivergence[],
+): Promise<void> {
+  const path = event.path ?? '/';
+  const prev = sandbox.currentUser;
+  sandbox.currentUser = event.auth;
+  try {
+    const db = getDatabase(sandbox);
+    await get(query(ref(db, path), ...constraintsOfSpec(event.request?.query as QuerySpec)));
+  } catch (e) {
+    divergences.push({
+      kind: 'now-denied',
+      path,
+      method: event.method,
+      reason: e instanceof Error ? e.message : String(e),
+    });
   } finally {
     sandbox.currentUser = prev;
   }

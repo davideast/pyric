@@ -118,6 +118,22 @@ export interface SimulationSummary {
 // ─── RTDB ────────────────────────────────────────────────────────────
 
 /**
+ * The query a Realtime Database read carries, in the members rules read as
+ * `query.*`. At most one `orderBy*` member and at most one limit may be set,
+ * as in the SDK.
+ */
+export interface RtdbCaseQuery {
+  orderByChild?: string;
+  orderByKey?: true;
+  orderByValue?: true;
+  equalTo?: string | number | boolean | null;
+  startAt?: string | number | boolean | null;
+  endAt?: string | number | boolean | null;
+  limitToFirst?: number;
+  limitToLast?: number;
+}
+
+/**
  * One Realtime Database rules case. `expectation` is required so a `simulate`
  * run can partition cases into passed/failed the same way Firestore does —
  * the RTDB simulator otherwise returns only a raw allow/deny with no notion
@@ -128,16 +144,30 @@ export interface RtdbCase {
   description?: string;
   /** Expected outcome. */
   expectation: 'ALLOW' | 'DENY';
-  /** RTDB rule kind under test. */
-  operation: 'read' | 'write' | 'validate';
+  /**
+   * RTDB rule kind under test. `update` is a multi-path `update()`: every
+   * path in `newData` is written together and each is judged against the
+   * tree the whole update produces.
+   */
+  operation: 'read' | 'write' | 'validate' | 'update';
   /** Absolute, root-relative tree path, e.g. `"/users/alice"`. */
   path: string;
   /** Auth context; a bare uid string, a full identity, or `null`. */
   auth?: string | { uid: string; token?: Record<string, unknown> } | null;
   /** Existing tree data the rule reads (`data`). */
   data?: Record<string, unknown>;
-  /** Proposed write value (`newData`), for write/validate cases. */
+  /**
+   * Proposed write value (`newData`), for write/validate cases. Any JSON
+   * value: a scalar such as `5` or `true` is a scalar write. For an `update`
+   * case it is the patch, an object keyed by paths relative to `path`, such
+   * as `{ "rooms/r1/title": "x", "rooms/r2/title": "y" }`.
+   */
   newData?: unknown;
+  /**
+   * The query a `read` case carries, so `query.*` rule expressions evaluate.
+   * Omit it to simulate a plain read of `path`.
+   */
+  query?: RtdbCaseQuery;
   /**
    * The instant `now` reports in this case, in epoch milliseconds. A caller
    * hosting a sandbox passes its sandbox clock so a `now`-gated rule moves

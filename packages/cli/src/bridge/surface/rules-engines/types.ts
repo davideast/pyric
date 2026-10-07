@@ -18,7 +18,14 @@ export interface RulesRequest {
   operation: string;
   path: string;
   uid?: string;
-  data?: Record<string, unknown>;
+  /**
+   * The value the request carries. Firestore takes an object. Database takes
+   * any JSON value, so `5` or `true` is a scalar write, and for an `update`
+   * request it is the patch keyed by the paths written.
+   */
+  data?: unknown;
+  /** The query a database `read` carries, in the members rules read as `query.*`. */
+  query?: Record<string, unknown>;
   rules?: string;
   /**
    * The instant `request.time` (Firestore, Storage) or `now` (database)

@@ -44,7 +44,8 @@ function caseFor(request: RulesRequest): SimulationRequest {
     path: request.path,
   };
   if (request.uid !== undefined) simulation.uid = request.uid;
-  if (request.data !== undefined) simulation.data = request.data;
+  // The method's validation has already refused a non-object value for this service.
+  if (request.data !== undefined) simulation.data = request.data as SimulationRequest['data'];
   if (request.rules !== undefined) simulation.rules = request.rules;
   if (request.requestTime !== undefined) simulation.requestTime = request.requestTime;
   return simulation;

@@ -71,11 +71,12 @@ function simulateAgainst(
     now: requestInstant(ctx, request.requestTime),
   };
   if (request.data !== undefined) oneCase.newData = request.data;
+  if (request.query !== undefined) oneCase.query = request.query as RtdbCase['query'];
   return rtdbRules(ruleset).simulate([oneCase]).cases[0];
 }
 
 export const DATABASE_RULES: RulesEngine = {
-  requestMethods: ['read', 'write', 'validate'],
+  requestMethods: ['read', 'write', 'update', 'validate'],
 
   compileFailure(source): RulesSourceProblem | null {
     const parsed = parseRuleset(source);
@@ -121,6 +122,7 @@ export const DATABASE_RULES: RulesEngine = {
         now: requestInstant(ctx, request.requestTime),
       };
       if (request.data !== undefined) call.newData = request.data;
+      if (request.query !== undefined) call.query = request.query;
       return callSandboxTool(ctx, 'rtdb_simulate_access', call);
     }
 
@@ -136,6 +138,7 @@ export const DATABASE_RULES: RulesEngine = {
         decision: evaluated.decision,
         allowed: evaluated.decision === 'ALLOW',
         matchedPath: evaluated.matchedPath,
+        matchedRule: evaluated.matchedRule,
         reason: evaluated.reason,
       },
     };

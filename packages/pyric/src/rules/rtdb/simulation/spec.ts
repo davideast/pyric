@@ -12,6 +12,36 @@ export const SimulationQuerySchema = z.object({
 });
 export type SimulationQuery = z.infer<typeof SimulationQuerySchema>;
 
+/**
+ * The reason a query cannot be a single Realtime Database query, or null when
+ * it can. The SDK allows one `orderBy*` and one limit per query, and a limit is
+ * a positive integer. A caller that builds a query from loose input checks it
+ * here so a shape the SDK would refuse is not evaluated as if it were a read.
+ */
+export function simulationQueryProblem(query: unknown): string | null {
+  const parsed = SimulationQuerySchema.strict().safeParse(query);
+  if (!parsed.success) {
+    return `query is not a Realtime Database query: ${parsed.error.issues.map((i) => i.message).join('; ')}`;
+  }
+  const q = parsed.data;
+  const orderings = [
+    q.orderByChild != null && q.orderByChild !== '',
+    q.orderByKey === true,
+    q.orderByValue === true,
+  ].filter(Boolean).length;
+  if (q.orderByChild === '') return 'query.orderByChild must name a child path.';
+  if (orderings > 1) return 'query names more than one of orderByChild, orderByKey and orderByValue.';
+  if (q.limitToFirst != null && q.limitToLast != null) {
+    return 'query names both limitToFirst and limitToLast.';
+  }
+  for (const [name, n] of [['limitToFirst', q.limitToFirst], ['limitToLast', q.limitToLast]] as const) {
+    if (n != null && (!Number.isInteger(n) || n <= 0)) {
+      return `query.${name} must be a positive integer.`;
+    }
+  }
+  return null;
+}
+
 export const SimulationInputSchema = z.object({
   operation: z.enum(['read', 'write', 'validate']),
   path: z.string().min(1).startsWith('/'),

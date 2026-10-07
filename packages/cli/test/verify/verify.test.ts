@@ -1,7 +1,11 @@
 import 'fake-indexeddb/auto';
 import { afterEach, describe, expect, it } from 'bun:test';
 import {
+  equalTo,
+  get,
   getDatabase,
+  orderByChild,
+  query,
   ref,
   remove,
   runTransaction,
@@ -328,6 +332,94 @@ describe('verifyFixture', () => {
         rulesTestApi: { scope: MOCK_SCOPE },
       }),
     ).rejects.toThrow(VerifyInputError);
+  });
+});
+
+// ─── RTDB case kinds: multi-path update, scalar write, query read ───────
+//
+// A captured journey replays each of these against candidate rules, so a
+// rule change that denies one of them is reported as a divergence.
+describe('verifyFixture RTDB case kinds', () => {
+  const CAPTURE_RULES = {
+    rules: {
+      '.read': true,
+      '.write': true,
+      items: { '.indexOn': ['owner'] },
+    },
+  };
+
+  async function captureCaseKinds(): Promise<PyricVerifyFixture> {
+    const sandbox = initializeSandbox();
+    const adminDb = getDatabase(sandbox);
+    rtdbSandbox.setRules(adminDb, CAPTURE_RULES);
+    rtdbSandbox.setData(adminDb, { '/items/a': { owner: 'alice' } });
+    const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+    await update(ref(db), { scores: 4, totals: 5 });
+    await set(ref(db, 'flag'), true);
+    await get(query(ref(db, 'items'), orderByChild('owner'), equalTo('alice')));
+    return buildVerifyFixture({
+      sandbox,
+      rtdbRules: CAPTURE_RULES,
+      rtdbState: rtdbSandbox.snapshotState(adminDb),
+    });
+  }
+
+  const candidate = (rules: Record<string, unknown>) => ({
+    rules: { '.read': false, '.write': true, items: { '.indexOn': ['owner'] }, ...rules },
+  });
+  const diverged = async (rules: Record<string, unknown>) => {
+    const result = await verifyFixture(await captureCaseKinds(), { rules: { rtdb: candidate(rules) } });
+    // A write the candidate rules refuse also leaves the replayed state short
+    // of the captured one, so the denial is the divergence under test.
+    return (result.services.rtdb?.divergences ?? []).filter((d) => d.kind === 'now-denied');
+  };
+
+  it('accepts candidate rules that allow every captured kind', async () => {
+    const result = await verifyFixture(await captureCaseKinds(), {
+      rules: {
+        rtdb: candidate({
+          items: {
+            '.indexOn': ['owner'],
+            '.read': "query.orderByChild == 'owner' && query.equalTo == auth.uid",
+          },
+        }),
+      },
+    });
+    expect(result.services.rtdb?.divergences).toEqual([]);
+    expect(result.ok).toBe(true);
+  });
+
+  it('reports a multi-path update a candidate rule now denies', async () => {
+    const found = await diverged({
+      totals: { '.validate': "newData.val() == newData.parent().child('scores').val() + 2" },
+      items: { '.indexOn': ['owner'], '.read': true },
+    });
+    expect(found).toEqual([expect.objectContaining({ kind: 'now-denied', method: 'update' })]);
+  });
+
+  it('reports a scalar write a candidate rule now denies', async () => {
+    const found = await diverged({
+      flag: { '.validate': 'newData.val() == false' },
+      items: { '.indexOn': ['owner'], '.read': true },
+    });
+    expect(found).toEqual([expect.objectContaining({ kind: 'now-denied', method: 'set' })]);
+  });
+
+  it('reports a query read a candidate rule now denies', async () => {
+    const found = await diverged({
+      items: {
+        '.indexOn': ['owner'],
+        '.read': "query.orderByChild == 'owner' && query.equalTo == 'bob'",
+      },
+    });
+    expect(found).toEqual([expect.objectContaining({ kind: 'now-denied', method: 'get', path: '/items' })]);
+  });
+
+  it('counts the query read as a checked event', async () => {
+    const result = await verifyFixture(await captureCaseKinds(), {
+      rules: { rtdb: candidate({ items: { '.indexOn': ['owner'], '.read': true } }) },
+    });
+    expect(result.services.rtdb?.checkedEvents).toBe(3);
   });
 });
 
