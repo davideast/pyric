@@ -115,4 +115,23 @@ describe('alpha publish safety contract', () => {
     expect(distTagAdds.every((c) => !c.endsWith(' alpha'))).toBe(true);
     expect(distTagAdds.some((c) => c.endsWith(' next'))).toBe(true);
   });
+
+  test('an experimental tag moves only itself: not latest, alpha, next, or the fb certificate', () => {
+    const { result, commands } = runPublish({ skip: true, publishTag: 'exp' });
+    expect(result.status).toBe(0);
+    expect(commands.filter((c) => c.startsWith('npm publish ')).every((c) => c.includes('--tag exp'))).toBe(true);
+    const distTagAdds = commands.filter((c) => c.startsWith('npm dist-tag add '));
+    expect(distTagAdds.length).toBeGreaterThan(0);
+    expect(distTagAdds.every((c) => c.endsWith(' exp'))).toBe(true);
+    expect(commands).not.toContain('bun run compat:check');
+  });
+
+  test('the default latest release still moves latest, alpha, and the fb certificate', () => {
+    const { result, commands } = runPublish({ skip: true });
+    expect(result.status).toBe(0);
+    const distTagAdds = commands.filter((c) => c.startsWith('npm dist-tag add '));
+    expect(distTagAdds.some((c) => c.endsWith(' latest'))).toBe(true);
+    expect(distTagAdds.some((c) => c.endsWith(' alpha'))).toBe(true);
+    expect(distTagAdds.some((c) => c.endsWith(' fb12.13'))).toBe(true);
+  });
 });

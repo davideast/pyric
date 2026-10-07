@@ -14,6 +14,11 @@
 # eyeball verification. Package versions must already be bumped (lockstep)
 # and merged; this script only ships what the tree builds.
 #
+# Channels: PYRIC_PUBLISH_TAG picks the dist-tag (default `latest`).
+#  - latest: moves latest and alpha, and the fb certificate when compat:check is green.
+#  - next: moves only next, plus the fb certificate when green.
+#  - any other tag (for example `exp`): moves only that tag; no fb certificate.
+#
 # Notes:
 #  - Tarball names are npm's flattened form (`@pyric/ui` → `pyric-ui-…`),
 #    which is why the two lists below differ.
@@ -93,21 +98,33 @@ if [ "$DRY_RUN" -eq 1 ]; then
 
   echo ""
   echo "Preflight complete. No packages or dist-tags were published or changed."
-  if [ "${PUBLISH_TAG}" = "next" ]; then
-    echo "A real release would move next to ${V}, and ${FB_TAG} on compatible packages."
-  else
-    echo "A real release would move alpha and latest to ${V}, and ${FB_TAG} on compatible packages."
-  fi
+  case "${PUBLISH_TAG}" in
+    latest) echo "A real release would move alpha and latest to ${V}, and ${FB_TAG} on compatible packages." ;;
+    next) echo "A real release would move next to ${V}, and ${FB_TAG} on compatible packages." ;;
+    *) echo "A real release would move only ${PUBLISH_TAG} to ${V}; no fb certificate." ;;
+  esac
   exit 0
 fi
 
+# Only a latest release moves latest and alpha. `next` and any other channel
+# (for example `exp`) move only their own tag.
 for p in pyric pyric-admin create-pyric @pyric/cli @pyric/ui; do
   npm dist-tag add "${p}@${V}" "${PUBLISH_TAG}"
-  if [ "${PUBLISH_TAG}" != "next" ]; then
-    npm dist-tag add "${p}@${V}" latest
+  if [ "${PUBLISH_TAG}" = "latest" ]; then
     npm dist-tag add "${p}@${V}" alpha
   fi
 done
+
+# An experimental channel carries no compatibility certificate.
+if [ "${PUBLISH_TAG}" != "latest" ] && [ "${PUBLISH_TAG}" != "next" ]; then
+  for p in pyric pyric-admin create-pyric @pyric/cli @pyric/ui; do
+    echo "== ${p}"; npm dist-tag ls "${p}"
+  done
+  echo ""
+  echo "Published under ${PUBLISH_TAG} only. Pin the commit so hotfixes can branch from it:"
+  echo "  git tag v${V} && git push origin v${V}"
+  exit 0
+fi
 
 # ─── fb<major>.<minor> compatibility certificate ───────────────────────
 # Tag only the currently pinned Firebase line (patch discarded), and only
