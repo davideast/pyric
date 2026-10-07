@@ -104,16 +104,19 @@ export class SsrfBlockedError extends Error {
 }
 
 /**
- * Assert a base URL is safe to fetch from a SERVER context. Throws
- * `SsrfBlockedError` on a non-http(s) scheme or an internal target.
- * IPv4/IPv6 literals are checked directly; a hostname is resolved via
- * `resolve` (when supplied) and every returned address is checked, so a
- * DNS name that points at `169.254.169.254` is caught too.
+ * Assert a base URL is safe to fetch from a SERVER context and return
+ * the address the fetch must connect to. Throws `SsrfBlockedError` on a
+ * non-http(s) scheme or an internal target. IPv4/IPv6 literals are
+ * checked directly and returned as they are; a hostname is resolved via
+ * `resolve` (when supplied), every returned address is checked, and the
+ * first is returned. The caller connects to that address and must not
+ * resolve the name again, because a second answer can differ from the
+ * vetted one (DNS rebinding).
  */
 export async function assertSafeServerBaseUrl(
   rawUrl: string,
   resolve?: HostResolver,
-): Promise<void> {
+): Promise<string> {
   let url: URL;
   try {
     url = new URL(rawUrl);
@@ -128,19 +131,22 @@ export async function assertSafeServerBaseUrl(
   if (literal.blocked) {
     throw new SsrfBlockedError(`blocked host ${host} (${literal.reason})`, literal.reason!);
   }
-  // If it's an IP literal it's already fully classified; only resolve
-  // real hostnames.
+  // An IP literal is already fully classified; only resolve real
+  // hostnames.
   const isLiteral = ipv4ToInt(host) !== null || host.includes(':');
-  if (!isLiteral && resolve) {
-    const addrs = await resolve(host);
-    for (const addr of addrs) {
-      const c = classifyAddress(addr);
-      if (c.blocked) {
-        throw new SsrfBlockedError(
-          `host ${host} resolves to blocked address ${addr} (${c.reason})`,
-          c.reason!,
-        );
-      }
+  if (isLiteral || !resolve) return host.replace(/^\[|\]$/g, '');
+  const addrs = await resolve(host);
+  if (addrs.length === 0) {
+    throw new SsrfBlockedError(`host ${host} did not resolve`, 'unresolved');
+  }
+  for (const addr of addrs) {
+    const c = classifyAddress(addr);
+    if (c.blocked) {
+      throw new SsrfBlockedError(
+        `host ${host} resolves to blocked address ${addr} (${c.reason})`,
+        c.reason!,
+      );
     }
   }
+  return addrs[0]!;
 }

@@ -58,7 +58,7 @@ describe('assertSafeServerBaseUrl', () => {
   });
 
   test('allows a normal https host (public IP literal, no DNS)', async () => {
-    await expect(assertSafeServerBaseUrl('https://93.184.216.34/v1')).resolves.toBeUndefined();
+    await expect(assertSafeServerBaseUrl('https://93.184.216.34/v1')).resolves.toBe('93.184.216.34');
   });
 
   test('resolves a hostname and rejects when it points at an internal IP', async () => {
@@ -72,6 +72,6 @@ describe('assertSafeServerBaseUrl', () => {
     const goodResolver: HostResolver = async () => ['93.184.216.34'];
     await expect(
       assertSafeServerBaseUrl('https://ollama.example.com', goodResolver),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe('93.184.216.34');
   });
 });
