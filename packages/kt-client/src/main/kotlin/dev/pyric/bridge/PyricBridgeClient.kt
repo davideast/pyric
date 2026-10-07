@@ -160,6 +160,9 @@ class PyricBridgeClient(
         if (isDisposed) throw disposedError()
         val current = synchronized(lock) {
             if (isDisposed) throw disposedError()
+            // An attach may have finished since the check above; starting another
+            // attempt would attach twice and re-send every subscription.
+            if (isConnected) return
             attempt
                 ?: if (reconnectJob != null) {
                     nextAttempt ?: CompletableDeferred<Unit>().also { nextAttempt = it }
