@@ -145,6 +145,48 @@ describe('install', () => {
   });
 });
 
+describe('simulate: evaluation trace', () => {
+  /** Line numbers are noted at the end of each row. */
+  const CASCADE_RULES = [
+    '// database.rules.json', // 1
+    '{', // 2
+    '  "rules": {', // 3
+    '    ".read": "false",', // 4
+    '    "rooms": {', // 5
+    '      ".read": "auth.token.admin === true",', // 6
+    '      "$roomId": {', // 7
+    '        ".read": "auth.uid === $roomId"', // 8
+    '      }', // 9
+    '    }', // 10
+    '  }', // 11
+    '}', // 12
+  ].join('\n');
+
+  const request = { operation: 'read', path: 'rooms/alice', uid: 'alice' } as const;
+
+  it('returns every evaluated rule of a supplied ruleset with its line in the supplied text', async () => {
+    const result = await DATABASE_RULES.simulate(freshContext(), { ...request, rules: CASCADE_RULES });
+    const trace = (result.data as { trace: Array<Record<string, unknown>> }).trace;
+    expect(
+      trace.map((entry) => [entry.path, entry.kind, entry.conditionText, entry.verdict, entry.line]),
+    ).toEqual([
+      ['/', 'read', 'false', 'DENY', 4],
+      ['/rooms', 'read', 'auth.token.admin === true', 'DENY', 6],
+      ['/rooms/$roomId', 'read', 'auth.uid === $roomId', 'ALLOW', 8],
+    ]);
+    expect(trace[2].pathVariableBindings).toEqual({ $roomId: 'alice' });
+  });
+
+  it('returns the trace of the running ruleset, without lines because the source text is not kept', async () => {
+    const ctx = freshContext();
+    await DATABASE_RULES.install(ctx, CASCADE_RULES);
+    const result = await DATABASE_RULES.simulate(ctx, request);
+    const trace = (result.data as { trace: Array<Record<string, unknown>> }).trace;
+    expect(trace.map((entry) => entry.verdict)).toEqual(['DENY', 'DENY', 'ALLOW']);
+    expect(trace.every((entry) => !('line' in entry))).toBe(true);
+  });
+});
+
 describe('simulate', () => {
   it('rejects a supplied source that is not valid JSON', async () => {
     const result = await DATABASE_RULES.simulate(freshContext(), {
@@ -162,7 +204,15 @@ describe('simulate', () => {
       const commented = await DATABASE_RULES.simulate(freshContext(), { ...request, rules: COMMENTED_OWNER_RULES });
       const plain = await DATABASE_RULES.simulate(freshContext(), { ...request, rules: OWNER_RULES });
       expect((commented.data as { decision: string }).decision).toBe(decision);
-      expect(commented).toEqual(plain);
+      // The decision and the evaluated rules match; only the lines differ,
+      // because the two texts place the rule on different lines.
+      const withoutLines = (result: typeof commented) => {
+        const data = result.data as { trace: Array<{ line?: number }> };
+        return { ...result, data: { ...data, trace: data.trace.map(({ line: _line, ...rest }) => rest) } };
+      };
+      expect(withoutLines(commented)).toEqual(withoutLines(plain));
+      expect((commented.data as { trace: Array<{ line: number }> }).trace.map((e) => e.line)).toEqual([8]);
+      expect((plain.data as { trace: Array<{ line: number }> }).trace.map((e) => e.line)).toEqual([2]);
     }
   });
 

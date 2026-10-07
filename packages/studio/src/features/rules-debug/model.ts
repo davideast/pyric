@@ -22,7 +22,8 @@ import type {
 } from 'pyric/sandbox';
 import { toOperationRecord } from 'pyric/sandbox';
 import type { EvaluatedRuleInfo, ExprTraceEntry } from 'pyric/rules/internal';
-import { locateRtdbRule } from 'pyric/rules/internal/rtdb';
+import { locateRtdbRule, locateRtdbTrace } from 'pyric/rules/internal/rtdb';
+import type { RtdbRuleEvaluation } from 'pyric/rules/internal/rtdb';
 
 type DeniedSandboxEvent = RequestEvent | SandboxOperationEvent | SandboxListenerEvent;
 
@@ -552,13 +553,15 @@ export function denialSeverity(denial: Denial): DenialSeverity {
  *   - `true` / `false`  the sub-expression evaluated to that boolean;
  *   - `skipped`         a `&&`/`||` operand short-circuited (not evaluated);
  *   - `error`           the sub-expression threw;
+ *   - `unsupported`     the simulator could not evaluate it (RTDB trace rows);
+ *                       `error` carries what it could not evaluate;
  *   - `value`           a non-boolean value (an operand feeding a comparison).
  * `depth` and `children` reconstruct the AST tree from the flat trace so the
  * view can indent operands under their operator. Pure — unit-tested.
  */
 export interface TraceStep {
   source: string;
-  outcome: 'true' | 'false' | 'skipped' | 'error' | 'value';
+  outcome: 'true' | 'false' | 'skipped' | 'error' | 'unsupported' | 'value';
   value?: unknown;
   error?: string;
   /** Set when this node recorded a `let name = …` binding inside a function. */
@@ -606,6 +609,65 @@ export function projectTraceSteps(denial: Denial): TraceStep[] {
     }
   });
   return roots;
+}
+
+// ─── RTDB evaluation trace ────────────────────────────────────────────────────
+
+/** How an RTDB rule verdict reads as a {@link TraceStep} outcome, so RTDB rows
+ *  render with the same step component as Firestore's expression trace. */
+const RTDB_VERDICT_OUTCOME: Record<RtdbRuleEvaluation['verdict'], TraceStep['outcome']> = {
+  ALLOW: 'true',
+  DENY: 'false',
+  ERROR: 'error',
+  UNSUPPORTED: 'unsupported',
+};
+
+/** One rule the RTDB engine evaluated, in evaluation order. */
+export interface RtdbTraceRow {
+  /** The rule node's path in the ruleset, such as `/rooms/$roomId`. */
+  path: string;
+  kind: RtdbRuleEvaluation['kind'];
+  verdict: RtdbRuleEvaluation['verdict'];
+  /** The rule's expression and verdict as a Firestore-style trace step. */
+  step: TraceStep;
+  /** The `$` wildcards bound at this node. */
+  bindings: Record<string, string>;
+  /** 1-based line of the rule in `database.rules.json`. Absent when the source
+   *  is unavailable or does not contain the rule. */
+  line?: number;
+}
+
+/**
+ * Project the RTDB evaluation trace carried on a denial's rules verdict into
+ * one row per evaluated rule, root first. `rulesSource` is the text of
+ * `database.rules.json`; with it each row names the line of its rule. Returns
+ * `[]` for an event with no RTDB trace (another service, or an operation no rule
+ * of the requested kind covers).
+ */
+export function projectRtdbTrace(denial: Denial, rulesSource?: string): RtdbTraceRow[] {
+  const trace = denial.rules?.rtdbTrace;
+  if (!trace || trace.length === 0) return [];
+  const located: Array<RtdbRuleEvaluation & { line?: number }> =
+    rulesSource === undefined ? [...trace] : locateRtdbTrace(rulesSource, trace);
+  return located.map((entry) => {
+    const step: TraceStep = {
+      source: entry.conditionText,
+      outcome: RTDB_VERDICT_OUTCOME[entry.verdict],
+      ...(entry.verdict === 'ALLOW' || entry.verdict === 'DENY' ? { value: entry.verdict === 'ALLOW' } : {}),
+      ...(entry.message !== undefined ? { error: entry.message } : {}),
+      depth: 0,
+      children: [],
+    };
+    const row: RtdbTraceRow = {
+      path: entry.path,
+      kind: entry.kind,
+      verdict: entry.verdict,
+      step,
+      bindings: entry.pathVariableBindings,
+    };
+    if (entry.line !== undefined) row.line = entry.line;
+    return row;
+  });
 }
 
 // ─── "What the rule saw": inspectable request/resource variables ────────────

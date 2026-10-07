@@ -1,5 +1,6 @@
 /** The Realtime Database rules engine behind the `rules` tool. */
 import { rtdbRules } from 'pyric/rules';
+import { locateRtdbTrace } from 'pyric/rules/internal/rtdb';
 import type { RtdbCase, RtdbRulesJson } from 'pyric/rules';
 import { getActiveRules, setRules, snapshotState } from 'pyric/sandbox/database';
 import { parseRtdbRulesText } from '../../../rtdb/rules-json.js';
@@ -140,6 +141,7 @@ export const DATABASE_RULES: RulesEngine = {
         matchedPath: evaluated.matchedPath,
         matchedRule: evaluated.matchedRule,
         reason: evaluated.reason,
+        trace: locateRtdbTrace(request.rules, evaluated.trace),
       },
     };
   },

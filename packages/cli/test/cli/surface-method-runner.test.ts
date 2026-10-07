@@ -258,7 +258,15 @@ describe('pyric <tool> <method>', () => {
       const simulatedCommented = await simulate(commentedFile, uid);
       const simulatedPlain = await simulate(plainFile, uid);
       expect(simulatedCommented.stdout).toContain(decision);
-      expect(simulatedCommented).toEqual(simulatedPlain);
+      // The trace names the line of each evaluated rule, and the two files
+      // place the rule on different lines; everything else is identical.
+      const withoutLines = (output: { code: number; stdout: string }) => ({
+        ...output,
+        stdout: output.stdout.replace(/"line": \d+/g, '"line": 0'),
+      });
+      expect(simulatedCommented.stdout).toContain('"line": 7');
+      expect(simulatedPlain.stdout).toContain('"line": 1');
+      expect(withoutLines(simulatedCommented)).toEqual(withoutLines(simulatedPlain));
     }
 
     expect(await validate(commentedFile)).toEqual({ code: 0, stdout: '{\n  "errors": []\n}\n' });

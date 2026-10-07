@@ -138,6 +138,7 @@ export function createRtdbInspectionTools(
             matchedPath: result.matchedPath,
             matchedRule: result.matchedRule,
             reason: result.reason,
+            trace: result.trace,
           },
         };
       },

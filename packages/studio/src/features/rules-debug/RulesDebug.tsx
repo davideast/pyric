@@ -34,11 +34,13 @@ import {
   queryProofFailure,
   denialSeverity,
   projectTraceSteps,
+  projectRtdbTrace,
   ruleVariables,
   type Denial,
   type DenialSeverity,
   type RuleExplanation,
   type TraceStep,
+  type RtdbTraceRow,
   type RuleVariable,
 } from './model.js';
 import { isQueryProofUnsupported } from './query-proof.js';
@@ -257,7 +259,7 @@ function RuleDetail({
 }) {
   const isRtdb = exp.engine === 'rtdb';
   const isStorage = exp.engine === 'storage';
-  if (isRtdb) return <RtdbRuleDetail denial={denial} exp={exp} rulesSource={rulesSource} />;
+  if (isRtdb) return <RtdbRuleDetail key={denial.id} denial={denial} exp={exp} rulesSource={rulesSource} />;
   if (isStorage) return <StorageRuleDetail exp={exp} />;
   return <FirestoreRuleDetail denial={denial} exp={exp} rulesSource={rulesSource} />;
 }
@@ -400,6 +402,7 @@ const OUTCOME_MARK: Record<TraceStep['outcome'], string> = {
   false: '✗',
   skipped: '⊘',
   error: '!',
+  unsupported: '?',
   value: '·',
 };
 
@@ -415,7 +418,9 @@ function TraceStepRow({ step }: { step: TraceStep }) {
       ? 'not evaluated (short-circuit)'
       : step.outcome === 'error'
         ? step.error
-        : `→ ${formatValue(step.value)}`;
+        : step.outcome === 'unsupported'
+          ? `unsupported${step.error ? `: ${step.error}` : ''}`
+          : `→ ${formatValue(step.value)}`;
   return (
     <>
       <div
@@ -541,37 +546,49 @@ function RtdbRuleDetail({
   exp: RuleExplanation;
   rulesSource?: string;
 }) {
-  const line = rtdbRuleLine(denial, rulesSource);
-  const isAllowed = denial.result === 'allow';
+  const decidingLine = rtdbRuleLine(denial, rulesSource);
+  const rows = projectRtdbTrace(denial, rulesSource);
+  // A clicked trace row moves the editor's mark to that rule; until then the
+  // mark stays on the rule that decided the operation.
+  const [selectedRow, setSelectedRow] = useState<number | null>(null);
+  const [showAllRows, setShowAllRows] = useState(false);
+  const visibleRows = showAllRows ? rows : rows.slice(0, TRACE_ROWS_SHOWN);
+  const selected = selectedRow === null ? undefined : rows[selectedRow];
+  // An UNSUPPORTED rule is neither an allow nor a deny, so selecting it marks no line.
+  let line = decidingLine;
+  if (selected) line = selected.verdict === 'UNSUPPORTED' ? undefined : selected.line;
+  const isAllowed = selected ? selected.verdict === 'ALLOW' : denial.result === 'allow';
   const hasSource = rulesSource !== undefined && rulesSource.trim().length > 0;
   let ruleNodeLabel: string;
   if (exp.implicitDeny || !exp.ruleNode) {
     ruleNodeLabel = 'rule node';
-  } else if (line !== undefined) {
-    ruleNodeLabel = `rule node — ${exp.ruleNode} · line ${line}`;
+  } else if (decidingLine !== undefined) {
+    ruleNodeLabel = `rule node: ${exp.ruleNode} · line ${decidingLine}`;
   } else {
-    ruleNodeLabel = `rule node — ${exp.ruleNode}`;
+    ruleNodeLabel = `rule node: ${exp.ruleNode}`;
   }
 
   let ariaLabelText: string;
   if (isAllowed) {
-    ariaLabelText = 'Deployed database.rules.json — the allowing rule is marked';
+    ariaLabelText = 'Deployed database.rules.json, the allowing rule is marked';
   } else {
-    ariaLabelText = 'Deployed database.rules.json — the denying rule is marked';
+    ariaLabelText = 'Deployed database.rules.json, the denying rule is marked';
   }
 
   return (
     <>
       <Field label={ruleNodeLabel}>
         {hasSource ? (
-          <LazyRulesCodeEditor
-            value={rulesSource}
-            readOnly
-            markLine={line}
-            markKind={isAllowed ? 'allow' : 'deny'}
-            minHeightRem={12}
-            ariaLabel={ariaLabelText}
-          />
+          <div data-pyric-ui="rtdb-rule-source" data-marked-line={line}>
+            <LazyRulesCodeEditor
+              value={rulesSource}
+              readOnly
+              markLine={line}
+              markKind={isAllowed ? 'allow' : 'deny'}
+              minHeightRem={12}
+              ariaLabel={ariaLabelText}
+            />
+          </div>
         ) : (
           <code className="font-mono text-xs text-soft-white">
             {exp.phase ? `.${exp.phase}` : '(no matching rule)'}
@@ -579,6 +596,30 @@ function RtdbRuleDetail({
           </code>
         )}
       </Field>
+      {rows.length > 0 ? (
+        <Field label="evaluated rules, root first">
+          <ul data-pyric-ui="rtdb-trace" className="flex flex-col gap-1">
+            {visibleRows.map((row, i) => (
+              <RtdbTraceRowItem
+                key={i}
+                row={row}
+                current={i === selectedRow}
+                onSelect={() => setSelectedRow(i)}
+              />
+            ))}
+          </ul>
+          {rows.length > visibleRows.length ? (
+            <button
+              type="button"
+              data-pyric-ui="rtdb-trace-show-all"
+              onClick={() => setShowAllRows(true)}
+              className="w-fit font-mono text-xs text-slate-gray hover:text-soft-white"
+            >
+              show all {rows.length} rules
+            </button>
+          ) : null}
+        </Field>
+      ) : null}
       {!hasSource && exp.ruleExpression ? (
         <Field label="rule expression">
           <pre className="overflow-auto rounded-md border border-border bg-content-bg p-3 font-mono text-xs text-slate-gray">
@@ -601,6 +642,57 @@ function RtdbRuleDetail({
         </Field>
       ) : null}
     </>
+  );
+}
+
+/** The longest evaluation trace shown before "show all". A write to a deep path
+ *  evaluates one rule per ancestor plus the validate walk. */
+const TRACE_ROWS_SHOWN = 20;
+
+/** One rule of the RTDB evaluation trace: where it sits (rule-tree path, kind,
+ *  file line), then the same step row Firestore's expression trace uses for its
+ *  expression and verdict, then the `$` bindings at the node. A click selects the
+ *  row; the whole row is a pointer target, and the header button is its keyboard
+ *  stop and selects on its own. */
+function RtdbTraceRowItem({
+  row,
+  current,
+  onSelect,
+}: {
+  row: RtdbTraceRow;
+  current: boolean;
+  onSelect: () => void;
+}) {
+  const bindings = Object.entries(row.bindings);
+  return (
+    <li
+      data-pyric-ui="rtdb-trace-row"
+      data-line={row.line}
+      aria-current={current ? 'true' : undefined}
+      onClick={onSelect}
+      className={`flex cursor-pointer flex-col gap-1 rounded-md border px-3 py-2 ${
+        current ? 'border-primary bg-primary/10' : 'border-border bg-content-bg hover:bg-sidebar-bg'
+      }`}
+    >
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          onSelect();
+        }}
+        className="flex w-fit items-baseline gap-2 font-mono text-xs text-slate-gray"
+      >
+        <span className="text-soft-white">{row.path}</span>
+        <span>.{row.kind}</span>
+        {row.line !== undefined ? <span>line {row.line}</span> : null}
+      </button>
+      <TraceStepRow step={row.step} />
+      {bindings.length > 0 ? (
+        <code className="font-mono text-xs text-slate-gray">
+          {bindings.map(([name, value]) => `${name} → ${value}`).join(', ')}
+        </code>
+      ) : null}
+    </li>
   );
 }
 
