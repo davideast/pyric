@@ -25,7 +25,17 @@ public final class URLSessionWebSocketTransport: WebSocketTransport, @unchecked 
     }
 
     public func receive() async throws -> String {
-        let msg = try await task.receive()
+        let msg: URLSessionWebSocketTask.Message
+        do {
+            msg = try await task.receive()
+        } catch {
+            let closeCode = task.closeCode
+            if closeCode != .invalid {
+                let reason = task.closeReason.flatMap { String(data: $0, encoding: .utf8) }
+                throw WebSocketCloseError(closeCode: closeCode.rawValue, reason: reason)
+            }
+            throw error
+        }
         switch msg {
         case .string(let text):
             return text

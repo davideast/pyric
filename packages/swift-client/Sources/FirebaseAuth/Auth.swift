@@ -94,6 +94,22 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
         self.bridgeClient = bridgeClient ?? Firestore.firestore(app: app).bridgeClient
         self._lastEmittedLens = computeCurrentLensLocked()
         startRemoteLensSync()
+        installAuthRestorer()
+    }
+
+    /// A replaced bridge host holds no user for this session. Sign the session
+    /// back in before subscriptions are re-sent.
+    private func installAuthRestorer() {
+        let client = bridgeClient
+        Task { [weak self] in
+            await client.setAuthRestorer { [weak self] op in
+                guard let user = self?.currentUser else { return }
+                _ = try await op("auth.restorePortSession", [
+                    "uid": .string(user.uid),
+                    "tenantId": user.tenantId.map { .string($0) } ?? .null,
+                ])
+            }
+        }
     }
 
     deinit {
