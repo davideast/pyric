@@ -6,7 +6,7 @@ import { FirebaseError } from 'pyric/app';
 import { BROWSER_FRAME_LIMIT_CLOSE_CODE, BRIDGE_FRAME_LIMIT_MESSAGE, encodeBridgeMessage } from '../../../bridge/frame-output.js';
 import type { InboundMessage, OutboundMessage } from '../protocol.js';
 import { hasValidOutboundEnvelope, hasValidReplyOutcome } from '../outbound-validation.js';
-import { nextId, rawRpc, rejectPendingRequests, restoreAuthSubscriptions, restoreObservationSubscriptions, restoreMessagingSubscriptions, wirePort } from './core.js';
+import { _pending, nextId, rawRpc, rejectPendingRequests, restoreAuthSubscriptions, restoreObservationSubscriptions, restoreMessagingSubscriptions, wirePort } from './core.js';
 import type { ClientDb, ClientPort } from './handles.js';
 
 /** The HTTP origin that serves a WebSocket endpoint. */
@@ -163,6 +163,13 @@ export function getHostedFirestore(target: {
     state = 'interrupted';
     socket = undefined;
     notifyConnectionChange();
+    // A request settled here must not be sent by a later attach. Subscriptions stay
+    // queued, so an app that started offline observes the host once it is reachable.
+    const dropsSettledRequests = !hasEverAttached;
+    if (dropsSettledRequests) {
+      const awaitingReply = queued.filter(message => !('id' in message && _pending.has(message.id)));
+      queued.splice(0, queued.length, ...awaitingReply);
+    }
     rejectPendingRequests(port, new FirebaseError('unavailable', CONNECTION_LOST));
     connection.close();
     const delay = Math.min(5_000, 250 * 2 ** reconnectAttempt);

@@ -7,7 +7,7 @@ const entry = new URL('../../../src/serve/entries/worker-runtime.ts', import.met
 
 // Browser transports are the I/O boundary. The bundled entry and its clients
 // run unchanged in a fresh realm for each case.
-export async function runtimeRealm(options: { sharedWorker?: boolean; blockedWorker?: boolean; serviceWorker?: boolean; forceInPage?: boolean; pageSdk?: boolean; hosted?: boolean } = {}) {
+export async function runtimeRealm(options: { sharedWorker?: boolean; blockedWorker?: boolean; serviceWorker?: boolean; forceInPage?: boolean; pageSdk?: boolean; hosted?: boolean; failedSockets?: number } = {}) {
   const { runInNewContext, createContext, SourceTextModule } = await import('node:vm');
   const { JSDOM } = await import('jsdom');
   const page = options.pageSdk && !options.serviceWorker ? new JSDOM('<html><head><meta name="pyric-runtime-chip" content="off"></head><body></body></html>', { url: 'https://app.example/' }) : undefined;
@@ -22,6 +22,7 @@ export async function runtimeRealm(options: { sharedWorker?: boolean; blockedWor
     globalName: 'entry', target: options.pageSdk ? 'es2022' : 'es2020', write: false, logLevel: 'silent',
   });
   const connections: string[] = [];
+  let socketsToFail = options.failedSockets ?? 0;
   const messages: InboundMessage[] = [];
   const timers = new Set<ReturnType<typeof setTimeout>>();
   let respond!: (response: Response) => void;
@@ -71,8 +72,17 @@ export async function runtimeRealm(options: { sharedWorker?: boolean; blockedWor
       backend = new Port();
       constructor(url: string) {
         connections.push(url);
+        const failsToOpen = socketsToFail > 0;
+        if (failsToOpen) {
+          socketsToFail -= 1;
+          queueMicrotask(() => {
+            this.readyState = 3;
+            this.listeners.get('close')?.(Object.assign(new MessageEvent('close'), { code: 1006 }));
+          });
+          return;
+        }
         this.backend.onmessage = event => this.receive({ type: 'worker-message-result', message: event.data });
-        if (options.pageSdk) queueMicrotask(() => { this.readyState = 1; this.listeners.get('open')?.(new MessageEvent('open')); });
+        if (options.pageSdk || options.failedSockets !== undefined) queueMicrotask(() => { this.readyState = 1; this.listeners.get('open')?.(new MessageEvent('open')); });
       }
       addEventListener(type: string, listener: (event: MessageEvent<string>) => void) { this.listeners.set(type, listener); }
       receive(message: BridgeMessage) {

@@ -91,3 +91,15 @@ test('closing a Service Worker client before init resolves does not open a trans
     expect(realm.connections).toEqual([]);
   } finally { realm.dispose(); }
 });
+
+test('a hosted page whose first socket fails keeps retrying instead of closing its port', async () => {
+  const realm = await runtimeRealm({ hosted: true, failedSockets: 1 });
+  try {
+    await new Promise(resolve => setTimeout(resolve, 700));
+    expect(realm.connections.length).toBeGreaterThanOrEqual(2);
+    expect((realm.status() as { hostedConnection: string }).hostedConnection).toBe('attached');
+  } finally {
+    realm.respond({ hosted: true });
+    realm.dispose();
+  }
+});
