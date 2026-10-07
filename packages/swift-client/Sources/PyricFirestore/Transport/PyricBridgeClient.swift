@@ -63,6 +63,8 @@ public actor PyricBridgeClient {
     private let fixedTransport: (any WebSocketTransport)?
     private let transportFactory: (@Sendable (URLRequest) async throws -> any WebSocketTransport)?
     private let reconnectDelay: @Sendable (Int) -> TimeInterval
+    /// Seconds an attempt may take to attach before it counts as failed.
+    private let attachTimeout: TimeInterval
 
     public private(set) var isConnected: Bool = false
     public private(set) var isDisposed: Bool = false
@@ -75,6 +77,9 @@ public actor PyricBridgeClient {
     private var connectionGeneration = 0
     private var reconnectAttempt = 0
     private var reconnectTask: Task<Void, Never>?
+    private var attachDeadlineTask: Task<Void, Never>?
+    /// Callers waiting for the next scheduled attempt.
+    private var nextAttemptWaiters: [CheckedContinuation<Void, Error>] = []
     private var authRestorer: BridgeAuthRestorer?
 
     private var opCounter: Int = 0
@@ -113,6 +118,7 @@ public actor PyricBridgeClient {
         defaultOpTimeout: TimeInterval = 35.0,
         retryInitialConnection: Bool = false,
         reconnectDelay: (@Sendable (Int) -> TimeInterval)? = nil,
+        attachTimeout: TimeInterval = 5.0,
         transportFactory: (@Sendable (URLRequest) async throws -> any WebSocketTransport)? = nil
     ) {
         self.endpoint = endpoint
@@ -120,6 +126,7 @@ public actor PyricBridgeClient {
         self.defaultOpTimeout = defaultOpTimeout
         self.retryInitialConnection = retryInitialConnection
         self.reconnectDelay = reconnectDelay ?? { bridgeReconnectDelay(attempt: $0) }
+        self.attachTimeout = attachTimeout
         self.transportFactory = transportFactory
         self.fixedTransport = nil
     }
@@ -135,6 +142,7 @@ public actor PyricBridgeClient {
         self.defaultOpTimeout = defaultOpTimeout
         self.retryInitialConnection = false
         self.reconnectDelay = { bridgeReconnectDelay(attempt: $0) }
+        self.attachTimeout = 5.0
         self.transport = channel
         self.fixedTransport = channel
         self.transportFactory = nil
@@ -191,7 +199,8 @@ public actor PyricBridgeClient {
     // ─── Connection Lifecycle ────────────────────────────────────────────────
 
     /// Establishes the WebSocket connection and completes the attach / attach-ack handshake.
-    /// While the connection is interrupted, starts the next attempt at once.
+    /// Joins the attempt in progress or, while a retry is scheduled, the next
+    /// scheduled attempt. Starts an attempt only when none is in progress or scheduled.
     public func connect() async throws {
         if isConnected { return }
         if isDisposed {
@@ -200,8 +209,12 @@ public actor PyricBridgeClient {
         if let existing = connectTask {
             return try await existing.value
         }
-        reconnectTask?.cancel()
-        reconnectTask = nil
+        if reconnectTask != nil {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                nextAttemptWaiters.append(continuation)
+            }
+            return
+        }
         try await startAttempt().value
     }
 
@@ -214,7 +227,41 @@ public actor PyricBridgeClient {
             try await self.runAttempt(generation: generation)
         }
         connectTask = task
+        let waiters = nextAttemptWaiters
+        nextAttemptWaiters.removeAll()
+        if !waiters.isEmpty {
+            Task {
+                do {
+                    try await task.value
+                    for waiter in waiters { waiter.resume() }
+                } catch {
+                    for waiter in waiters { waiter.resume(throwing: error) }
+                }
+            }
+        }
+        attachDeadlineTask?.cancel()
+        let timeout = attachTimeout
+        attachDeadlineTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            await self?.attachDeadlinePassed(generation: generation)
+        }
         return task
+    }
+
+    private func failNextAttemptWaiters(_ error: Error) {
+        let waiters = nextAttemptWaiters
+        nextAttemptWaiters.removeAll()
+        for waiter in waiters { waiter.resume(throwing: error) }
+    }
+
+    private func attachDeadlinePassed(generation: Int) {
+        guard isCurrent(generation), !isConnected else { return }
+        handleConnectionLoss(
+            generation: generation,
+            error: PyricBridgeError.unavailable("Timed out connecting to the Pyric bridge."),
+            closeCode: nil
+        )
     }
 
     private func isCurrent(_ generation: Int) -> Bool {
@@ -287,6 +334,8 @@ public actor PyricBridgeClient {
     }
 
     private func finishAttach() async {
+        attachDeadlineTask?.cancel()
+        attachDeadlineTask = nil
         connectTask = nil
         hasEverAttached = true
         reconnectAttempt = 0
@@ -298,6 +347,8 @@ public actor PyricBridgeClient {
         isConnected = true
         setState(.attached)
         for (subId, sub) in restored.sorted(by: { $0.key < $1.key }) {
+            // A listener cancelled while an earlier frame was being sent is not re-sent.
+            guard activeSubs[subId] != nil else { continue }
             try? await sendRaw(WorkerSubFrame(subId: subId, sub: sub.payload))
         }
     }
@@ -321,6 +372,8 @@ public actor PyricBridgeClient {
         connectionGeneration += 1
         connectTask = nil
         isConnected = false
+        attachDeadlineTask?.cancel()
+        attachDeadlineTask = nil
         receiveTask?.cancel()
         receiveTask = nil
         let closing = transport
@@ -331,6 +384,7 @@ public actor PyricBridgeClient {
             setState(.closed)
             failPendingOperations(code: error.code, message: error.message)
             failSubscriptions(code: error.code, message: error.message)
+            failNextAttemptWaiters(error)
             return
         }
 
@@ -828,8 +882,11 @@ public actor PyricBridgeClient {
         connectTask = nil
         reconnectTask?.cancel()
         reconnectTask = nil
+        attachDeadlineTask?.cancel()
+        attachDeadlineTask = nil
         authRestorer = nil
         setState(.closed)
+        failNextAttemptWaiters(PyricBridgeError.unavailable("PyricBridgeClient disconnected."))
 
         failPendingOperations(code: .unavailable, message: "PyricBridgeClient disconnected.")
         failSubscriptions(code: .unavailable, message: "PyricBridgeClient disconnected.")

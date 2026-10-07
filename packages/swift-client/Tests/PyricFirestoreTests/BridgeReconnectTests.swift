@@ -101,6 +101,22 @@ final class FakeReconnectBridge: @unchecked Sendable {
         set { lock.lock(); _refuseConnections = newValue; lock.unlock() }
     }
 
+    private var _autoAck = true
+    private var _connectCalls = 0
+
+    var autoAck: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return _autoAck }
+        set { lock.lock(); _autoAck = newValue; lock.unlock() }
+    }
+
+    var connectCalls: Int {
+        lock.lock(); defer { lock.unlock() }; return _connectCalls
+    }
+
+    private func countConnect() {
+        lock.lock(); _connectCalls += 1; lock.unlock()
+    }
+
     var frames: [[String: AnySendable]] {
         lock.lock(); defer { lock.unlock() }; return _frames
     }
@@ -114,6 +130,7 @@ final class FakeReconnectBridge: @unchecked Sendable {
     }
 
     func connect(_ request: URLRequest) async throws -> any WebSocketTransport {
+        countConnect()
         if refuseConnections { throw PyricBridgeError.unavailable("connection refused") }
         let socket = FakeReconnectSocket { [weak self] frame, socket in
             self?.record(frame, from: socket)
@@ -130,8 +147,9 @@ final class FakeReconnectBridge: @unchecked Sendable {
         lock.lock()
         _frames.append(frame)
         let host = _hostInstanceId
+        let acks = _autoAck
         lock.unlock()
-        guard frame["type"]?.stringValue == "attach" else { return }
+        guard frame["type"]?.stringValue == "attach", acks else { return }
         let sessionId = frame["clientSessionId"]?.stringValue ?? "session-1"
         Task {
             socket.deliver([
@@ -170,7 +188,7 @@ final class Collected<T: Sendable>: @unchecked Sendable {
 }
 
 func until(_ condition: @Sendable () async -> Bool) async throws {
-    for _ in 0..<400 {
+    for _ in 0..<1200 {
         if await condition() { return }
         try await Task.sleep(nanoseconds: 5_000_000)
     }
@@ -178,10 +196,16 @@ func until(_ condition: @Sendable () async -> Bool) async throws {
     throw PyricBridgeError.deadlineExceeded("condition not reached")
 }
 
-func makeReconnectingClient(_ bridge: FakeReconnectBridge, retryInitialConnection: Bool = false) -> PyricBridgeClient {
+func makeReconnectingClient(
+    _ bridge: FakeReconnectBridge,
+    retryInitialConnection: Bool = false,
+    retryDelay: TimeInterval = 0,
+    attachTimeout: TimeInterval = 5
+) -> PyricBridgeClient {
     PyricBridgeClient(
         retryInitialConnection: retryInitialConnection,
-        reconnectDelay: { _ in 0 },
+        reconnectDelay: { _ in retryDelay },
+        attachTimeout: attachTimeout,
         transportFactory: { request in try await bridge.connect(request) }
     )
 }
@@ -445,6 +469,44 @@ struct BridgeReconnectTests {
         #expect(restored.documentChanges.map(\.document.documentID) == ["b"])
         #expect(restored.documentChanges.map(\.type) == [.added])
         registration.remove()
+        await client.disconnect()
+    }
+
+    @Test("Before the first attach, an operation waits for the next scheduled attempt instead of starting one")
+    func preAttachOperationWaitsForScheduledAttempt() async throws {
+        let bridge = FakeReconnectBridge()
+        bridge.refuseConnections = true
+        let client = makeReconnectingClient(bridge, retryInitialConnection: true, retryDelay: 0.15)
+        await #expect(throws: PyricBridgeError.self) {
+            try await client.connect()
+        }
+        #expect(bridge.connectCalls == 1)
+
+        let queued = Task { try await client.op(method: "getDoc", params: ["path": .string("rooms/a")]) }
+        try await Task.sleep(nanoseconds: 30_000_000)
+        #expect(bridge.connectCalls == 1)
+
+        bridge.refuseConnections = false
+        try await until { bridge.ops(named: "getDoc").count == 1 }
+        #expect(bridge.connectCalls == 2)
+        let sent = bridge.ops(named: "getDoc")[0]
+        bridge.current.deliver(["type": "worker-res", "id": sent["id"]!.stringValue!, "ok": true, "value": NSNull()])
+        _ = try await queued.value
+        await client.disconnect()
+    }
+
+    @Test("An attempt that is not acknowledged within the attach timeout fails")
+    func attachTimeoutFailsTheAttempt() async throws {
+        let bridge = FakeReconnectBridge()
+        bridge.autoAck = false
+        let client = makeReconnectingClient(bridge, attachTimeout: 0.05)
+        do {
+            try await client.connect()
+            Issue.record("expected a timeout")
+        } catch let error as PyricBridgeError {
+            #expect(error.code == .unavailable)
+            #expect(error.message.contains("Timed out"))
+        }
         await client.disconnect()
     }
 }
