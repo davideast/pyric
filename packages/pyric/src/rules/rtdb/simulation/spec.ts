@@ -53,6 +53,37 @@ export const SimulateErrorCode = z.enum([
   'EVALUATION_ERROR',
 ]);
 
+/**
+ * One rule the simulator evaluated for a request, in evaluation order. A
+ * `.read` or `.write` entry is one step of the root-first cascade, which
+ * stops at the first rule that grants. A `.validate` entry is one node of the
+ * validation walk over the write paths and the written value, which stops at
+ * the first rule that fails.
+ *
+ * `verdict`, `conditionText` and `message` mean what they mean on the
+ * Firestore simulator's `RuleEvaluation`. For a `.validate` rule, `ALLOW`
+ * means the rule holds and `DENY` means it rejects the write.
+ */
+export const RtdbRuleEvaluationSchema = z.object({
+  /** The rule node's path in the ruleset, with wildcard segments as written,
+   *  such as `/rooms/$roomId`. */
+  path: z.string(),
+  /** The rule kind evaluated at that node. */
+  kind: z.enum(['read', 'write', 'validate']),
+  /** The rule expression as written in the ruleset. */
+  conditionText: z.string(),
+  /** `ALLOW` when the expression evaluated to true, `DENY` when it evaluated
+   *  to false, `ERROR` when it raised a runtime error that production also
+   *  raises, `UNSUPPORTED` when the simulator cannot evaluate it. */
+  verdict: z.enum(['ALLOW', 'DENY', 'ERROR', 'UNSUPPORTED']),
+  /** The runtime error's message on `ERROR`; what the simulator could not
+   *  evaluate on `UNSUPPORTED`. */
+  message: z.string().optional(),
+  /** The `$` wildcards bound at this node, keyed with the `$`. */
+  pathVariableBindings: z.record(z.string()),
+});
+export type RtdbRuleEvaluation = z.infer<typeof RtdbRuleEvaluationSchema>;
+
 export const SimulationResultSchema = z.object({
   allowed: z.boolean(),
   /** True when this outcome is a simulator gap — an unparseable/unevaluable
@@ -63,8 +94,11 @@ export const SimulationResultSchema = z.object({
   matchedRule: z.string(),
   reason: z.string(),
   pathVariableBindings: z.record(z.string()),
+  /** Every rule evaluated for the request, in evaluation order. Empty when no
+   *  rule of the requested kind exists on the path. */
+  trace: z.array(RtdbRuleEvaluationSchema),
 });
-export type SimulationResult = z.infer<typeof SimulationResultSchema>;
+export type SimulationResult= z.infer<typeof SimulationResultSchema>;
 
 export type SimulateResult =
   | { success: true; data: SimulationResult }

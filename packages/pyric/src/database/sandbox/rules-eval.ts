@@ -25,7 +25,7 @@ import {
   simulateRtdbRules,
   type CompiledRtdbRules,
 } from '../../rules/rtdb/compiled-rules.js';
-import type { SimulationInput } from '../../rules/rtdb/simulation/spec.js';
+import type { RtdbRuleEvaluation, SimulationInput } from '../../rules/rtdb/simulation/spec.js';
 import type { AuthState } from 'pyric/sandbox';
 import { SandboxClock } from 'pyric/sandbox';
 import type { QuerySpec } from './query.js';
@@ -145,6 +145,9 @@ export interface RuleEvaluationDetails {
   matchedRule?: string;
   reason?: string;
   pathVariableBindings?: Record<string, string>;
+  /** Every rule the engine evaluated for the request, in evaluation order.
+   *  Absent when no engine evaluation ran. */
+  trace?: RtdbRuleEvaluation[];
   errorCode?: string;
   errorMessage?: string;
 }
@@ -331,6 +334,7 @@ export class RulesEvaluator {
         matchedRule: result.data.matchedRule,
         reason: result.data.reason,
         pathVariableBindings: result.data.pathVariableBindings,
+        trace: result.data.trace,
       };
     }
     return {
@@ -342,6 +346,7 @@ export class RulesEvaluator {
       matchedRule: result.data.matchedRule,
       reason: result.data.reason,
       pathVariableBindings: result.data.pathVariableBindings,
+      trace: result.data.trace,
     };
   }
 }

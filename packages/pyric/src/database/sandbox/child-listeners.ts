@@ -2,7 +2,7 @@ import type { AuthState } from 'pyric/sandbox';
 import { jsonValuesEqual, joinPath, pathSegments, type JsonValue } from './data-tree.js';
 import type { BackendState } from './backend-state.js';
 import type { ChildListener, ChildParentSnapshot } from './listener-types.js';
-import { denyResultFor } from './operation-events.js';
+import { denyResultFor, rtdbRulesDetail } from './operation-events.js';
 import {
   compareValues, executeQuery, extractOrderValue,
   type QueryRow, type QuerySpec,
@@ -58,14 +58,7 @@ export class ChildListeners {
       this.state.events.operation(auth, 'listen', path, denyResultFor(evaluation.check), evaluation, {
         at, durationMs: this.state.clock.now() - at, origin: 'listener', detail: { event },
       });
-      const rulesObj = {
-        engine: 'rtdb' as const,
-        matchedPath: evaluation.matchedPath,
-        matchedRule: evaluation.matchedRule,
-        pathVariableBindings: evaluation.pathVariableBindings,
-        reason: evaluation.reason,
-        errorCode: evaluation.errorCode,
-      };
+      const rulesObj = rtdbRulesDetail(evaluation);
       this.state.events.listener('errored', { id, path }, auth, {
         event, result: 'deny',
         error: { code: 'PERMISSION_DENIED', message: 'PERMISSION_DENIED: Permission denied', reasons: evaluation.reasons },

@@ -3,7 +3,7 @@ import type { EvalContext, SimulatedAuth } from '../grammar/simulator.js';
 import type { RtdbNode, RtdbRuleExpression } from '../types.js';
 import { SimulationInputSchema, type SimulationInput } from './spec.js';
 import { normalizeAuthState } from '../../../sandbox/sandbox-context.js';
-import type { SimulateResult } from './spec.js';
+import type { RtdbRuleEvaluation, SimulateResult } from './spec.js';
 
 interface AncestorMatch {
   node: RtdbNode;
@@ -60,6 +60,38 @@ function evaluateRule(rule: RtdbRuleExpression, ctx: EvalContext): RuleOutcome {
   }
 }
 
+/**
+ * The trace entry for one rule at `node`. `outcome` is absent for a rule the
+ * simulator cannot evaluate, which is recorded as `UNSUPPORTED`.
+ */
+function traceEntry(
+  node: RtdbNode,
+  kind: RtdbRuleEvaluation['kind'],
+  rule: RtdbRuleExpression,
+  bindings: Record<string, string>,
+  outcome: RuleOutcome | undefined,
+): RtdbRuleEvaluation {
+  const entry: RtdbRuleEvaluation = {
+    path: node.path,
+    kind,
+    conditionText: rule.raw,
+    verdict: 'UNSUPPORTED',
+    pathVariableBindings: { ...bindings },
+  };
+  if (outcome === undefined) {
+    const details = rule.parsed.errors.map((e) => e.message).join('; ');
+    entry.message = details === ''
+      ? 'The simulator cannot evaluate this expression'
+      : `The simulator cannot evaluate this expression: ${details}`;
+  } else if (outcome.runtimeError !== undefined) {
+    entry.verdict = 'ERROR';
+    entry.message = outcome.runtimeError;
+  } else {
+    entry.verdict = outcome.holds ? 'ALLOW' : 'DENY';
+  }
+  return entry;
+}
+
 /** Own-enumerable keys of a snapshot's object value; empty for non-objects. */
 function snapshotChildKeys(snap: DataSnapshot): string[] {
   const value = snap.val();
@@ -109,7 +141,7 @@ function hasValidateRule(n: RtdbNode): boolean {
  * tree still wins over an unsupported node elsewhere (a confirmed DENY is
  * stronger evidence than an abstention). Returns the first real failure, else
  * the first unsupported node, else `null` when every applicable `.validate`
- * passes.
+ * passes. Every `.validate` the walk reaches is appended to `trace`.
  */
 function findFailingValidate(
   node: RtdbNode,
@@ -117,6 +149,7 @@ function findFailingValidate(
   newData: DataSnapshot,
   bindings: Record<string, string>,
   buildContext: ContextBuilder,
+  trace: RtdbRuleEvaluation[],
   pathToWrite: string[],
   updates?: readonly { path: string; value?: unknown }[],
 ): ValidateFailure | null {
@@ -142,11 +175,13 @@ function findFailingValidate(
       const rule = node.validate;
       if (rule) {
         if (!rule.parsed.valid) {
+          trace.push(traceEntry(node, 'validate', rule, bindings, undefined));
           if (!firstUnsupported) {
             firstUnsupported = { node, rule, bindings, unsupported: true };
           }
         } else {
           const outcome = evaluateRule(rule, buildContext(data, newData, bindings));
+          trace.push(traceEntry(node, 'validate', rule, bindings, outcome));
           if (!outcome.holds) return { node, rule, bindings, runtimeError: outcome.runtimeError };
         }
       }
@@ -244,7 +279,7 @@ function childFor(node: RtdbNode, key: string): { child: RtdbNode; variable?: st
 }
 
 /** The denial result for a failing `.validate` rule. */
-function toValidateFailureResult(failure: ValidateFailure): SimulateResult {
+function toValidateFailureResult(failure: ValidateFailure, trace: RtdbRuleEvaluation[]): SimulateResult {
   let reason = 'Validation rule evaluated to false';
   if (failure.unsupported) {
     reason = `Validation rule at '${failure.node.path}' contains an expression the simulator cannot evaluate: ${failure.rule.raw}. It was not evaluated; production may reject this write.`;
@@ -260,6 +295,7 @@ function toValidateFailureResult(failure: ValidateFailure): SimulateResult {
       matchedRule: failure.rule.raw,
       reason,
       pathVariableBindings: failure.bindings,
+      trace,
     },
   };
 }
@@ -367,6 +403,9 @@ export class SimulateHandler {
     // clock; a standalone caller leaves it out and gets the wall clock.
     const evaluationNow = parsed.data.now ?? Date.now();
 
+    // Every rule evaluated for this request, in evaluation order.
+    const trace: RtdbRuleEvaluation[] = [];
+
     try {
       const pathSegments = path.split('/').filter(Boolean);
       const rootNode = compiled;
@@ -429,8 +468,8 @@ export class SimulateHandler {
             error: { code: 'NO_MATCHING_RULE', message: `No 'validate' rule found for path '${path}'`, recoverable: true },
           };
         }
-        const failure = findFailingValidate(rootNode, rootData, mergedRootData, {}, buildContext, pathSegments, updates);
-        if (failure) return toValidateFailureResult(failure);
+        const failure = findFailingValidate(rootNode, rootData, mergedRootData, {}, buildContext, trace, pathSegments, updates);
+        if (failure) return toValidateFailureResult(failure, trace);
         return {
           success: true,
           data: {
@@ -439,6 +478,7 @@ export class SimulateHandler {
             matchedRule: deepestValidate.node.validate?.raw ?? 'true',
             reason: 'Validation rules evaluated to true',
             pathVariableBindings: deepestValidate.pathVariableBindings,
+            trace,
           },
         };
       }
@@ -460,6 +500,7 @@ export class SimulateHandler {
         const ruleExpr: RtdbRuleExpression | undefined = ancestor.node[operation];
         if (!ruleExpr) continue;
         if (!ruleExpr.parsed.valid) {
+          trace.push(traceEntry(ancestor.node, operation, ruleExpr, ancestor.pathVariableBindings, undefined));
           if (!firstUnsupportedAncestor) firstUnsupportedAncestor = ancestor;
           continue;
         }
@@ -472,6 +513,7 @@ export class SimulateHandler {
           ruleExpr,
           buildContext(dataAtAncestor, newDataAtAncestor, ancestor.pathVariableBindings),
         );
+        trace.push(traceEntry(ancestor.node, operation, ruleExpr, ancestor.pathVariableBindings, outcome));
         if (outcome.runtimeError !== undefined) runtimeErrors.set(ancestor, outcome.runtimeError);
 
         if (outcome.holds) {
@@ -488,10 +530,11 @@ export class SimulateHandler {
               mergedRootData,
               {},
               buildContext,
+              trace,
               pathSegments,
               updates,
             );
-            if (failure) return toValidateFailureResult(failure);
+            if (failure) return toValidateFailureResult(failure, trace);
           }
           return {
             success: true,
@@ -501,6 +544,7 @@ export class SimulateHandler {
               matchedRule: ruleExpr.raw,
               reason: 'Rule expression evaluated to true',
               pathVariableBindings: ancestor.pathVariableBindings,
+              trace,
             },
           };
         }
@@ -520,6 +564,7 @@ export class SimulateHandler {
             matchedRule: rule.raw,
             reason: `'${operation}' rule at '${firstUnsupportedAncestor.node.path}' contains an expression the simulator cannot evaluate: ${rule.raw} — not evaluated; production may reject or allow this ${operation}.`,
             pathVariableBindings: firstUnsupportedAncestor.pathVariableBindings,
+            trace,
           },
         };
       }
@@ -540,6 +585,7 @@ export class SimulateHandler {
             matchedRule: '',
             reason: `No '${operation}' rule on '${path}' or its ancestors grants access; denied by default`,
             pathVariableBindings: ancestors[ancestors.length - 1].pathVariableBindings,
+            trace,
           },
         };
       }
@@ -556,6 +602,7 @@ export class SimulateHandler {
           matchedRule: decidingRule.raw,
           reason: `No '${operation}' rule grants access; the deepest, at '${deciding.node.path}', ${decidingOutcome}`,
           pathVariableBindings: deciding.pathVariableBindings,
+          trace,
         },
       };
     } catch (e) {

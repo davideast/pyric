@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { ALL_RULES_RTDB_SCENARIOS } from '../rules-corpus/rtdb/index.ts';
-import { replayRtdbScenario } from './rules-rtdb-replay.ts';
+import { replayRtdbScenario, traceAgreesWithVerdict } from './rules-rtdb-replay.ts';
 
 test('replays one RTDB corpus scenario through the local simulator', () => {
   const scenario = ALL_RULES_RTDB_SCENARIOS.find((candidate) => candidate.id === 'r1-auth-only');
@@ -88,4 +88,15 @@ test('reports an engine error and an abstention apart from a DENY', () => {
     ],
   });
   expect(results.map((result) => result.simulator)).toEqual(['ERROR', 'ERROR', 'UNSUPPORTED', 'DENY']);
+});
+
+test('a result whose trace does not account for its verdict is not a verdict', () => {
+  const grant = { path: '/', kind: 'write' as const, conditionText: 'true', verdict: 'ALLOW' as const, pathVariableBindings: {} };
+  const refusal = { path: '/a', kind: 'validate' as const, conditionText: 'false', verdict: 'DENY' as const, pathVariableBindings: {} };
+  const base = { matchedPath: '/', matchedRule: 'true', reason: '', pathVariableBindings: {} };
+  expect(traceAgreesWithVerdict({ ...base, allowed: true, trace: [grant] })).toBe(true);
+  expect(traceAgreesWithVerdict({ ...base, allowed: false, trace: [grant, refusal] })).toBe(true);
+  expect(traceAgreesWithVerdict({ ...base, allowed: true, trace: [grant, refusal] })).toBe(false);
+  expect(traceAgreesWithVerdict({ ...base, allowed: false, trace: [grant] })).toBe(false);
+  expect(traceAgreesWithVerdict({ ...base, allowed: true, trace: [] })).toBe(false);
 });

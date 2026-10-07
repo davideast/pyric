@@ -1,5 +1,5 @@
 import { compileRtdbRules, simulateRtdbRules } from '../../pyric/src/rules/rtdb/compiled-rules.ts';
-import type { SimulateResult, SimulationInput } from '../../pyric/src/rules/rtdb/simulation/spec.ts';
+import type { SimulateResult, SimulationInput, SimulationResult } from '../../pyric/src/rules/rtdb/simulation/spec.ts';
 import type { RtdbScenario, RtdbTestCase } from '../rules-corpus/rtdb/types.ts';
 
 const REPLAY_UID = 'THP041EPnYbzh9c8GGBniSDoUKc2';
@@ -18,9 +18,37 @@ export interface RtdbReplayResult {
   simulator: RtdbSimulatorOutcome;
 }
 
-/** The simulator outcome of one simulate result. */
+/**
+ * True when a result's rule-by-rule trace accounts for its verdict. Replayed
+ * rulesets carry root `.read` and `.write` rules, so every replayed request
+ * evaluates at least one rule. An allow needs a granting `.read` or `.write`
+ * as the last cascade entry and no failing `.validate`. A deny needs either a
+ * failing `.validate` as the last entry or a cascade with no grant. An
+ * abstention needs an `UNSUPPORTED` entry.
+ */
+export function traceAgreesWithVerdict(result: SimulationResult): boolean {
+  const { trace } = result;
+  if (trace.length === 0) return false;
+  if (result.unsupported) return trace.some((entry) => entry.verdict === 'UNSUPPORTED');
+  const cascade = trace.filter((entry) => entry.kind !== 'validate');
+  const validateFailed = trace.some((entry) => entry.kind === 'validate' && entry.verdict !== 'ALLOW');
+  const granted = cascade.some((entry) => entry.verdict === 'ALLOW');
+  if (result.allowed) {
+    const cascadeGrants = cascade.length === 0 || cascade[cascade.length - 1].verdict === 'ALLOW';
+    return cascadeGrants && !validateFailed;
+  }
+  const last = trace[trace.length - 1];
+  const lastValidateFails = last.kind === 'validate' && last.verdict !== 'ALLOW';
+  return lastValidateFails || !granted;
+}
+
+/**
+ * The simulator outcome of one simulate result. A result whose trace does not
+ * account for its verdict is an engine error, not a verdict.
+ */
 function outcomeOf(result: SimulateResult): RtdbSimulatorOutcome {
   if (!result.success) return 'ERROR';
+  if (!traceAgreesWithVerdict(result.data)) return 'ERROR';
   if (result.data.unsupported) return 'UNSUPPORTED';
   return result.data.allowed ? 'ALLOW' : 'DENY';
 }
