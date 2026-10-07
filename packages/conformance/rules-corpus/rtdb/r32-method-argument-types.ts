@@ -1,5 +1,5 @@
 /**
- * ─── r27-method-argument-types ────────────────────────────────────────────
+ * ─── r32-method-argument-types ────────────────────────────────────────────
  * Snapshot and string methods whose argument is not a string at evaluation
  * time. Production refuses to deploy a rule that passes a literal of the wrong
  * type, so these rules pass the argument through `val()` or `auth.uid`, which
@@ -20,7 +20,7 @@ export const scenario: RtdbScenarioRecord = {
   rationale:
     'a method argument that is not a string must fail the rule as production does, never be converted to a string, so null from a missing value or an unauthenticated auth.uid cannot match the text "null".',
   provenance:
-    'Authored to pin method argument types at evaluation against production directly. Expectations are the production allow/deny verdicts recorded by the deploy-observe-restore capture in observations/rtdb-rules/rules-rtdb-r27-method-argument-types.json.',
+    'Authored to pin method argument types at evaluation against production directly. Expectations are the production allow/deny verdicts recorded by the deploy-observe-restore capture in observations/rtdb-rules/rules-rtdb-r32-method-argument-types.json.',
   rules: JSON.stringify({
     contains: {
       '.write': 'auth != null',

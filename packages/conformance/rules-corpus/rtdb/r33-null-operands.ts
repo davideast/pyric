@@ -1,5 +1,5 @@
 /**
- * ─── r28-null-operands ────────────────────────────────────────────────────
+ * ─── r33-null-operands ────────────────────────────────────────────────────
  * Arithmetic and ordering operators with a null operand, where nothing is
  * stored, under `|| true`. r27-stdlib-core-patterns records `+`, `-`, `*`,
  * unary `-` and `<` failing the whole rule this way; this scenario records
@@ -13,7 +13,7 @@ export const scenario: RtdbScenarioRecord = {
   rationale:
     'an operator with a null operand must fail the rule as production does, never compute null as 0, so a rule with `|| true` cannot grant through it.',
   provenance:
-    'Authored to pin the operators r27-stdlib-core-patterns does not cover. Expectations are the production allow/deny verdicts recorded by the deploy-observe-restore capture in observations/rtdb-rules/rules-rtdb-r28-null-operands.json.',
+    'Authored to pin the operators r27-stdlib-core-patterns does not cover. Expectations are the production allow/deny verdicts recorded by the deploy-observe-restore capture in observations/rtdb-rules/rules-rtdb-r33-null-operands.json.',
   rules: JSON.stringify({
     div: { '.write': 'auth != null', '.validate': 'data.val() / 2 == 0 || true' },
     mod: { '.write': 'auth != null', '.validate': 'data.val() % 2 == 0 || true' },

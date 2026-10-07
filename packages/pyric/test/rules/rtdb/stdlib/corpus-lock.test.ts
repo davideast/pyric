@@ -22,21 +22,6 @@ const CAPTURES: Array<{ id: string; paths: Record<string, PathDef> }> = [
   { id: 'r28-stdlib-presence-timing', paths: PRESENCE_TIMING_PATHS },
 ];
 
-// Pinned in rules-conformance.test.ts: the local engines compute with null
-// where production fails the rule. The builders never compute with null.
-const LOCAL_DIVERGENCES: Record<string, 'ALLOW' | 'DENY'> = Object.fromEntries(
-  [
-    'an unguarded step adds 1 to nothing stored',
-    'adding 1 to nothing stored, then or true',
-    'adding nothing stored to 1, then or true',
-    'subtracting 1 from nothing stored, then or true',
-    'multiplying nothing stored by 2, then or true',
-    'adding a string to nothing stored, then or true',
-    'negating nothing stored, then or true',
-    'comparing nothing stored with 1, then or true',
-  ].map((description) => [`r27-stdlib-core-patterns :: ${description}`, 'ALLOW']),
-);
-
 function substitute<T>(value: T): T {
   return JSON.parse(JSON.stringify(value ?? null).replaceAll('<UID>', UID)) as T;
 }
@@ -79,10 +64,9 @@ for (const { id, paths } of CAPTURES) {
     });
 
     for (const c of mounted.cases) {
-      const local = LOCAL_DIVERGENCES[`${id} :: ${c.description}`] ?? c.expectation;
       test(`${c.expectation} in production: ${c.description}`, async () => {
-        expect(simulateCase(mounted, c)).toBe(local);
-        expect(await sandboxCase(mounted, c)).toBe(local);
+        expect(simulateCase(mounted, c)).toBe(c.expectation);
+        expect(await sandboxCase(mounted, c)).toBe(c.expectation);
       });
     }
   });

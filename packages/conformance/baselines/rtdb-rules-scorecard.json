@@ -100,10 +100,10 @@
     ]
   },
   "score": {
-    "numerator": 66,
+    "numerator": 73,
     "denominator": 91,
-    "ratio": 0.7252747252747253,
-    "percent": 72.5
+    "ratio": 0.8021978021978022,
+    "percent": 80.2
   },
   "axes": {
     "productionAcceptance": {
@@ -113,26 +113,26 @@
       "unprobeable": 0
     },
     "localAcceptance": {
-      "accepted": 86,
-      "rejected": 5,
+      "accepted": 83,
+      "rejected": 8,
       "unsupported": 0,
       "unprobeable": 0
     },
     "localCapability": {
-      "implemented": 86,
+      "implemented": 83,
       "unsupported": 0,
-      "error": 5,
+      "error": 8,
       "unprobeable": 0
     },
     "productionEvidence": {
-      "verified": 65,
-      "diverged": 25,
+      "verified": 72,
+      "diverged": 18,
       "unverified": 1
     }
   },
   "counts": {
-    "conformant": 66,
-    "diverged": 25,
+    "conformant": 73,
+    "diverged": 18,
     "unknown": 0,
     "acceptance-mismatch": 0,
     "local-unsupported": 0,
@@ -169,6 +169,8 @@
         "r3-data-exists",
         "r30-query-rules",
         "r31-token-claims",
+        "r32-method-argument-types",
+        "r33-null-operands",
         "r4-validate-structure",
         "r5-cascade-root-grant",
         "r7-pathvar-binding",
@@ -192,6 +194,7 @@
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
         "r30-query-rules",
+        "r32-method-argument-types",
         "r7-pathvar-binding",
         "r8-combined-check"
       ],
@@ -228,6 +231,8 @@
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
         "r3-data-exists",
+        "r32-method-argument-types",
+        "r33-null-operands",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -256,6 +261,7 @@
         "r26-rule-runtime-error",
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
+        "r32-method-argument-types",
         "r4-validate-structure",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -323,6 +329,8 @@
         "r26-rule-runtime-error",
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
+        "r32-method-argument-types",
+        "r33-null-operands",
         "r8-combined-check",
         "r9-quota-arithmetic"
       ],
@@ -346,6 +354,7 @@
         "r26-rule-runtime-error",
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
+        "r32-method-argument-types",
         "r8-combined-check"
       ],
       "verifiedByRows": [
@@ -375,7 +384,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "r10-snapshot-type-guards"
+        "r10-snapshot-type-guards",
+        "r32-method-argument-types"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -391,6 +401,7 @@
         "r21-validate-on-delete",
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
+        "r32-method-argument-types",
         "r4-validate-structure",
         "r8-combined-check"
       ],
@@ -409,7 +420,8 @@
         "r23-validate-sibling-scope",
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
-        "r3-data-exists"
+        "r3-data-exists",
+        "r32-method-argument-types"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -486,7 +498,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "r11-string-validation"
+        "r11-string-validation",
+        "r32-method-argument-types"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -498,7 +511,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "r11-string-validation"
+        "r11-string-validation",
+        "r32-method-argument-types"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -535,7 +549,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "r11-string-validation"
+        "r11-string-validation",
+        "r32-method-argument-types"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -631,6 +646,8 @@
         "r28-stdlib-presence-timing",
         "r30-query-rules",
         "r31-token-claims",
+        "r32-method-argument-types",
+        "r33-null-operands",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -663,6 +680,8 @@
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
         "r3-data-exists",
+        "r32-method-argument-types",
+        "r33-null-operands",
         "r4-validate-structure",
         "r5-cascade-root-grant",
         "r7-pathvar-binding",
@@ -676,17 +695,17 @@
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "r24-deny-without-rule",
         "r27-stdlib-core-patterns",
         "r9-quota-arithmetic"
       ],
-      "verifiedByRows": [],
-      "divergedByRows": [
+      "verifiedByRows": [
         "rtdb-rules#22"
-      ]
+      ],
+      "divergedByRows": []
     },
     "rtdb.operator.gt": {
       "productionAcceptance": "accepted",
@@ -698,6 +717,7 @@
         "r17-validate-runtime-error",
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
+        "r33-null-operands",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -715,6 +735,7 @@
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
         "r30-query-rules",
+        "r33-null-operands",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -730,6 +751,7 @@
         "r11-string-validation",
         "r27-stdlib-core-patterns",
         "r31-token-claims",
+        "r33-null-operands",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -739,48 +761,48 @@
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "r23-validate-sibling-scope",
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
         "r9-quota-arithmetic"
       ],
-      "verifiedByRows": [],
-      "divergedByRows": [
+      "verifiedByRows": [
         "rtdb-rules#22"
-      ]
+      ],
+      "divergedByRows": []
     },
     "rtdb.operator.sub": {
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "r27-stdlib-core-patterns",
         "r9-quota-arithmetic"
       ],
-      "verifiedByRows": [],
-      "divergedByRows": [
+      "verifiedByRows": [
         "rtdb-rules#22"
-      ]
+      ],
+      "divergedByRows": []
     },
     "rtdb.operator.mul": {
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "r27-stdlib-core-patterns",
         "r9-quota-arithmetic"
       ],
-      "verifiedByRows": [],
-      "divergedByRows": [
+      "verifiedByRows": [
         "rtdb-rules#22"
-      ]
+      ],
+      "divergedByRows": []
     },
     "rtdb.operator.div": {
       "productionAcceptance": "accepted",
@@ -789,6 +811,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "r33-null-operands",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -802,6 +825,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "r27-stdlib-core-patterns",
+        "r33-null-operands",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -842,6 +866,7 @@
         "r26-rule-runtime-error",
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
+        "r33-null-operands",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -866,16 +891,16 @@
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "r27-stdlib-core-patterns",
         "r9-quota-arithmetic"
       ],
-      "verifiedByRows": [],
-      "divergedByRows": [
+      "verifiedByRows": [
         "rtdb-rules#22"
-      ]
+      ],
+      "divergedByRows": []
     },
     "rtdb.operator.ternary": {
       "productionAcceptance": "accepted",
@@ -906,6 +931,7 @@
         "r28-stdlib-presence-timing",
         "r30-query-rules",
         "r31-token-claims",
+        "r32-method-argument-types",
         "r7-pathvar-binding",
         "r8-combined-check"
       ],
@@ -950,6 +976,7 @@
         "r28-stdlib-presence-timing",
         "r3-data-exists",
         "r30-query-rules",
+        "r32-method-argument-types",
         "r4-validate-structure",
         "r5-cascade-root-grant",
         "r6-deny-everything",
@@ -991,6 +1018,8 @@
         "r28-stdlib-presence-timing",
         "r3-data-exists",
         "r31-token-claims",
+        "r32-method-argument-types",
+        "r33-null-operands",
         "r4-validate-structure",
         "r5-cascade-root-grant",
         "r6-deny-everything",
@@ -1026,6 +1055,8 @@
         "r26-rule-runtime-error",
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
+        "r32-method-argument-types",
+        "r33-null-operands",
         "r4-validate-structure",
         "r9-quota-arithmetic"
       ],
@@ -1255,29 +1286,29 @@
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "r30-query-rules"
       ],
-      "verifiedByRows": [],
-      "divergedByRows": [
-        "rtdb-rules#26"
-      ]
+      "verifiedByRows": [
+        "rtdb-rules#24"
+      ],
+      "divergedByRows": []
     },
     "rtdb.binding.query.limitToLast": {
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "r30-query-rules"
       ],
-      "verifiedByRows": [],
-      "divergedByRows": [
-        "rtdb-rules#26"
-      ]
+      "verifiedByRows": [
+        "rtdb-rules#24"
+      ],
+      "divergedByRows": []
     },
     "rtdb.binding.query.unknown-field": {
       "productionAcceptance": "rejected",
@@ -1323,8 +1354,8 @@
     },
     "rtdb.binding.unbound-path-variable": {
       "productionAcceptance": "rejected",
-      "localAcceptance": "accepted",
-      "localCapability": "implemented",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
       "productionEvidence": "diverged",
       "classification": "diverged",
       "verifiedBy": [
@@ -1365,8 +1396,8 @@
     },
     "rtdb.method.snapshot.arity": {
       "productionAcceptance": "rejected",
-      "localAcceptance": "accepted",
-      "localCapability": "implemented",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
       "productionEvidence": "diverged",
       "classification": "diverged",
       "verifiedBy": [
@@ -1435,8 +1466,8 @@
     },
     "rtdb.operator.snapshot-operand": {
       "productionAcceptance": "rejected",
-      "localAcceptance": "accepted",
-      "localCapability": "implemented",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
       "productionEvidence": "diverged",
       "classification": "diverged",
       "verifiedBy": [

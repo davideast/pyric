@@ -1193,8 +1193,8 @@ export const rulesRegistry = {
           rowRef: "11",
           featureKeys: ["String","matches","replace"],
           behavior: "String methods on a snapshot value: `beginsWith`, `contains`, `endsWith`, `matches` with a regex literal, `.length`, `toLowerCase`, `toUpperCase`, and replace-ALL `replace`, whose pattern is a string matched as text, so `replace('/a/g', 'z')` replaces the text `/a/g`",
-          evidence: "NEW ROW, 2026-07-12: production capture proves `String.replace` substitutes EVERY occurrence of the substring, not only the first: production ALLOWS the write whose rule is `newData.val().replace('_', '-') === 'a-b-c'` for the value `a_b_c`, which holds only under replace-all. The simulator delegated to JavaScript's `String.prototype.replace`, which given a string pattern substitutes only the first occurrence, and DENIED that write; the substitution now replaces every occurrence and the two-underscore case guards the regression. The same capture proves `toUpperCase` is a valid production rule method that the simulator's validator previously rejected outright as unknown. `oracle:rules-rtdb-r11-string-validation` matches production verdict-for-verdict on all 18 cases. `oracle:rules-rtdb-r27-method-argument-types` (captured 2026-10-07) records production ALLOWING `newData.val().replace('/a/g', 'z') == 'z'` for the value `/a/g` and DENYING it for `a`: a slash-delimited string pattern is text, not a regular expression. The simulator's `replace` takes only string arguments and matches both cases.",
-          oracleObservations: ["rules-rtdb-r11-string-validation", "rules-rtdb-r27-method-argument-types"],
+          evidence: "NEW ROW, 2026-07-12: production capture proves `String.replace` substitutes EVERY occurrence of the substring, not only the first: production ALLOWS the write whose rule is `newData.val().replace('_', '-') === 'a-b-c'` for the value `a_b_c`, which holds only under replace-all. The simulator delegated to JavaScript's `String.prototype.replace`, which given a string pattern substitutes only the first occurrence, and DENIED that write; the substitution now replaces every occurrence and the two-underscore case guards the regression. The same capture proves `toUpperCase` is a valid production rule method that the simulator's validator previously rejected outright as unknown. `oracle:rules-rtdb-r11-string-validation` matches production verdict-for-verdict on all 18 cases. `oracle:rules-rtdb-r32-method-argument-types` (captured 2026-10-07) records production ALLOWING `newData.val().replace('/a/g', 'z') == 'z'` for the value `/a/g` and DENYING it for `a`: a slash-delimited string pattern is text, not a regular expression. The simulator's `replace` takes only string arguments and matches both cases.",
+          oracleObservations: ["rules-rtdb-r11-string-validation", "rules-rtdb-r32-method-argument-types"],
         }),
         row3({
           rowRef: "12",
@@ -1254,12 +1254,12 @@ export const rulesRegistry = {
         row3({
           rowRef: "17",
           featureKeys: [],
-          behavior: "A `.read`, `.write`, or `.validate` expression that errors at evaluation, such as `.length` or a string method on a number or on null, or a method argument that is not a string (null from a missing value or a signed-out `auth.uid`, or a number), or a null operand of an arithmetic or ordering operator (`+`, `-`, `*`, `/`, `%`, unary `-`, `<`, `<=`, `>`, `>=`), fails as that rule; an argument is never converted to a string, and null is never computed as 0: the error fails the whole expression, including on the left of `||` and under `!`. A `.validate` that errors denies the write, and a `.read` or `.write` that errors does not grant, so a descendant rule on the path can still grant",
-          evidence: "`oracle:rules-rtdb-r17-validate-runtime-error`: production DENIES a number written under `newData.val().length > 2` and under `newData.val().toUpperCase() == 'OK'`, ALLOWS strings that satisfy them, and DENIES under a type guard that short-circuits first. The simulator matches all 5 cases. `oracle:rules-rtdb-r26-rule-runtime-error` (captured 2026-09-27) extends this to `.read` and `.write`: production DENIES a read and a write whose rule calls `toUpperCase()` on a number, ALLOWS a read and a write under a descendant rule that grants below an ancestor rule that errors, DENIES `newData.val().toUpperCase() == 'OK' || newData.isNumber()` and `!(newData.val().toUpperCase() == 'OK')` for the number 5, and DENIES `toUpperCase()` on a missing child value. `simulate` counts such an error as the rule failing, the verdict the sandbox returns, and matches all 13 cases. `oracle:rules-rtdb-r27-method-argument-types` (captured 2026-10-07) records production DENYING `contains`, `beginsWith` and `hasChild` given a missing value or a number, `child(auth.uid)` for a signed-out read with a `null` key stored, and `replace` given a number replacement, and ALLOWING each with a string argument and `hasChildren([])` on an object and on a leaf. The simulator raises the same error for each and matches all 16 cases. `oracle:rules-rtdb-r28-null-operands` (captured 2026-10-07) records production DENYING `/`, `%`, `<=`, `>` and `>=` with a null operand under `|| true`, on either side, and ALLOWING each with a stored number; the simulator fails the rule on a null operand of every arithmetic and ordering operator and matches all 11 cases.",
+          behavior: "A `.read`, `.write`, or `.validate` expression that errors at evaluation, such as `.length` or a string method on a number or on null, or a method argument that is not a string (null from a missing value or a signed-out `auth.uid`, or a number), fails as that rule; an argument is never converted to a string: the error fails the whole expression, including on the left of `||` and under `!`. A `.validate` that errors denies the write, and a `.read` or `.write` that errors does not grant, so a descendant rule on the path can still grant",
+          evidence: "`oracle:rules-rtdb-r17-validate-runtime-error`: production DENIES a number written under `newData.val().length > 2` and under `newData.val().toUpperCase() == 'OK'`, ALLOWS strings that satisfy them, and DENIES under a type guard that short-circuits first. The simulator matches all 5 cases. `oracle:rules-rtdb-r26-rule-runtime-error` (captured 2026-09-27) extends this to `.read` and `.write`: production DENIES a read and a write whose rule calls `toUpperCase()` on a number, ALLOWS a read and a write under a descendant rule that grants below an ancestor rule that errors, DENIES `newData.val().toUpperCase() == 'OK' || newData.isNumber()` and `!(newData.val().toUpperCase() == 'OK')` for the number 5, and DENIES `toUpperCase()` on a missing child value. `simulate` counts such an error as the rule failing, the verdict the sandbox returns, and matches all 13 cases. `oracle:rules-rtdb-r32-method-argument-types` (captured 2026-10-07) records production DENYING `contains`, `beginsWith` and `hasChild` given a missing value or a number, `child(auth.uid)` for a signed-out read with a `null` key stored, and `replace` given a number replacement, and ALLOWING each with a string argument and `hasChildren([])` on an object and on a leaf. The simulator raises the same error for each and matches all 16 cases.",
           risk: ["rules-denial"],
           riskScore: 2,
           riskReasons: ["asserts rules-denial behavior"],
-          oracleObservations: ["rules-rtdb-r17-validate-runtime-error", "rules-rtdb-r26-rule-runtime-error", "rules-rtdb-r27-method-argument-types", "rules-rtdb-r28-null-operands"],
+          oracleObservations: ["rules-rtdb-r17-validate-runtime-error", "rules-rtdb-r26-rule-runtime-error", "rules-rtdb-r32-method-argument-types"],
           conformanceTests: [
             "packages/pyric/test/rules/rtdb/rules-conformance.test.ts",
             "packages/pyric/test/rules/rtdb/simulation/handler.test.ts",
@@ -1330,13 +1330,17 @@ export const rulesRegistry = {
         row3({
           rowRef: "22",
           featureKeys: ["arithmetic","comparison"],
-          status: "bug",
-          behavior: "An operator with a null operand fails the rule: `+` with a number or a string on either side, `-`, `*`, unary `-` and `<` applied to `data.val()` where nothing is stored are evaluation errors, so `newData.val() == data.val() + 1` denies a create and `data.val() + 1 == 1 || true` denies",
-          evidence: "`oracle:rules-rtdb-r27-stdlib-core-patterns` (captured 2026-10-07) records production DENYING a write of 1 under `newData.val() == data.val() + 1` where nothing is stored, and under each of `data.val() + 1 == 1 || true`, `1 + data.val() == 1 || true`, `data.val() - 1 == -1 || true`, `data.val() * 2 == 0 || true`, `data.val() + 'a' == 'nulla' || true`, `-data.val() == 0 || true` and `data.val() < 1 || true`, and denying `data.val() + 1 != 1`. The `|| true` cases deny only if the left side is an error, so each operator with a null operand fails the whole rule. The simulator and the sandbox apply JavaScript operators instead: null computes as 0 or as the string 'null', and they ALLOW all eight `|| true` and step cases. `unit:rules/rtdb/rules-conformance.test.ts` pins both sides of each case in KNOWN_DIVERGENCES. Every RTDB rules standard library builder that computes with a stored value checks first that it exists or is a number, and the library's 49 cases in the same capture agree with production.",
+          behavior: "An arithmetic or ordering operator with a null operand fails the rule: `+` with a number or a string on either side, `-`, `*`, `/`, `%`, unary `-`, `<`, `<=`, `>` and `>=` applied to `data.val()` where nothing is stored are evaluation errors, so `newData.val() == data.val() + 1` denies a create and `data.val() + 1 == 1 || true` denies. `==` and `!=` compare null without an error",
+          evidence: "`oracle:rules-rtdb-r27-stdlib-core-patterns` (captured 2026-10-07) records production DENYING a write of 1 under `newData.val() == data.val() + 1` where nothing is stored, and under each of `data.val() + 1 == 1 || true`, `1 + data.val() == 1 || true`, `data.val() - 1 == -1 || true`, `data.val() * 2 == 0 || true`, `data.val() + 'a' == 'nulla' || true`, `-data.val() == 0 || true` and `data.val() < 1 || true`, and denying `data.val() + 1 != 1`. The `|| true` cases deny only if the left side is an error, so each operator with a null operand fails the whole rule. `oracle:rules-rtdb-r33-null-operands` (captured 2026-10-07) records production DENYING `/`, `%`, `<=`, `>` and `>=` with a null operand under `|| true`, on either side, and ALLOWING each with a stored number. The simulator and the sandbox raise a rule runtime error for a null operand of each of these operators and match every case in both captures (`unit:rules/rtdb/rules-conformance.test.ts`, `unit:rules/rtdb/stdlib/corpus-lock.test.ts`, `unit:rules/rtdb/grammar/method-argument-types.test.ts`). Every RTDB rules standard library builder that computes with a stored value checks first that it exists or is a number, and the library's 49 cases in the same capture agree with production.",
           risk: ["rules-denial"],
           riskScore: 3,
-          riskReasons: ["the local engines allow writes production denies"],
-          oracleObservations: ["rules-rtdb-r27-stdlib-core-patterns"],
+          riskReasons: ["asserts rules-denial behavior"],
+          oracleObservations: ["rules-rtdb-r27-stdlib-core-patterns", "rules-rtdb-r33-null-operands"],
+          conformanceTests: [
+            "packages/pyric/test/rules/rtdb/rules-conformance.test.ts",
+            "packages/pyric/test/rules/rtdb/stdlib/corpus-lock.test.ts",
+            "packages/pyric/test/rules/rtdb/grammar/method-argument-types.test.ts",
+          ],
           constructs: ["rtdb.operator.add", "rtdb.operator.sub", "rtdb.operator.mul", "rtdb.operator.neg", "rtdb.operator.lt"],
         }),
         row3({
@@ -1358,8 +1362,8 @@ export const rulesRegistry = {
         row3({
           rowRef: "24",
           featureKeys: [],
-          behavior: "A `.read` rule reads the request's query through `query`: `orderByChild`, `orderByValue`, `equalTo`, `startAt` and `endAt` carry the query's values, and `orderByChild` reads null for a read without a query",
-          evidence: "`oracle:rules-rtdb-r30-query-rules` runs 20 reads against production, 15 of them queries built with the Web SDK. Production allows an `orderByChild('owner').equalTo(uid)` list read for the user's own uid, and denies another uid, another child, a plain read, and a signed-out query; reads `orderByValue` as true under `orderByValue()`; reads `startAt` and `endAt` as the range bounds and denies a different `startAt`; and reads `orderByChild` as null for a plain read and not null under `orderByChild`. The simulator matches each of these cases. Row #26 records the four query cases where it does not.",
+          behavior: "A `.read` rule reads the request's query through `query`: `orderByChild`, `orderByValue`, `equalTo`, `startAt`, `endAt`, `limitToFirst` and `limitToLast` carry the query's values, `orderByChild` reads null for a read without a query, and a limit the query does not set reads null, so a bound on it fails the rule",
+          evidence: "`oracle:rules-rtdb-r30-query-rules` runs 20 reads against production, 15 of them queries built with the Web SDK. Production allows an `orderByChild('owner').equalTo(uid)` list read for the user's own uid, and denies another uid, another child, a plain read, and a signed-out query; reads `orderByValue` as true under `orderByValue()`; reads `startAt` and `endAt` as the range bounds and denies a different `startAt`; reads `orderByChild` as null for a plain read and not null under `orderByChild`; grants `limitToFirst <= 2` and `limitToLast <= 2` under a limit of 2 and denies a limit of 3; and denies `limitToFirst <= 2` for a plain read and `limitToLast <= 2` under `limitToFirst(1)`, where the unset limit is null and `<=` with a null operand fails the rule (row #22). The simulator matches each of these cases. Row #26 records the two query cases where it does not.",
           risk: ["rules-denial"],
           riskScore: 3,
           riskReasons: ["asserts query-gated read allow/deny behavior"],
@@ -1367,6 +1371,7 @@ export const rulesRegistry = {
           constructs: [
             "rtdb.binding.query", "rtdb.binding.query.orderByChild", "rtdb.binding.query.orderByValue",
             "rtdb.binding.query.equalTo", "rtdb.binding.query.startAt", "rtdb.binding.query.endAt",
+            "rtdb.binding.query.limitToFirst", "rtdb.binding.query.limitToLast",
           ],
         }),
         row3({
@@ -1383,17 +1388,14 @@ export const rulesRegistry = {
         row3({
           rowRef: "26",
           featureKeys: [],
-          behavior: "`query.limitToFirst`, `query.limitToLast`, `query.orderByKey` and `query.orderByPriority` read as production reads them, including for a read whose query does not set them",
+          behavior: "`query.orderByKey` and `query.orderByPriority` read as production reads them, including for a read whose query does not set them",
           status: "diverged-documented",
-          evidence: "`oracle:rules-rtdb-r30-query-rules` records production granting `limitToFirst <= 2` and `limitToLast <= 2` under a limit of 2 and denying a limit of 3; denying `limitToFirst <= 2` for a plain read and `limitToLast <= 2` under `limitToFirst(1)`, where the unset limit is null; reading `orderByKey` as true under `orderByKey()` and false for a plain read; and reading `orderByPriority` as true under `orderByPriority()`. The simulator differs on 4 cases, pinned with both verdicts in `KNOWN_DIVERGENCES`: it grants both limit bounds when the limit is null, because it orders null below 2 where production fails a comparison with a null operand, the gap row #22 records; it never reads `orderByPriority` as true; and it reads `orderByKey` as null rather than false for a plain read.",
+          evidence: "`oracle:rules-rtdb-r30-query-rules` records production reading `orderByKey` as true under `orderByKey()` and false for a plain read, and reading `orderByPriority` as true under `orderByPriority()`. The simulator differs on 2 cases, pinned with both verdicts in `KNOWN_DIVERGENCES`: it never reads `orderByPriority` as true, and it reads `orderByKey` as null rather than false for a plain read.",
           risk: ["rules-denial"],
           riskScore: 3,
-          riskReasons: ["documents query-gated reads the simulator grants and production denies"],
+          riskReasons: ["documents query-gated reads production grants and the simulator denies"],
           oracleObservations: ["rules-rtdb-r30-query-rules"],
-          constructs: [
-            "rtdb.binding.query.limitToFirst", "rtdb.binding.query.limitToLast",
-            "rtdb.binding.query.orderByKey", "rtdb.binding.query.orderByPriority",
-          ],
+          constructs: ["rtdb.binding.query.orderByKey", "rtdb.binding.query.orderByPriority"],
         }),
         row3({
           rowRef: "27",

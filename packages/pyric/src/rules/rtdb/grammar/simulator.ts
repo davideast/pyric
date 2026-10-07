@@ -316,7 +316,7 @@ function isInvalidOperand(operator: TypedOperator, value: unknown): boolean {
  * reads; production refuses to deploy such a rule, and the evaluator fails it.
  * Null, such as `data.val()` where nothing is stored, fails an arithmetic or
  * ordering operator, `|| true` included (captures r27-stdlib-core-patterns
- * and r28-null-operands); `==` and `!=` compare it.
+ * and r33-null-operands); `==` and `!=` compare it.
  */
 function evalBinaryPair(operator: TypedOperator, left: any, right: any, ctx: unknown): [any, any] {
   const l = left.eval(ctx);

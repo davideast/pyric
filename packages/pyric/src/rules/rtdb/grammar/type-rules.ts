@@ -4,7 +4,7 @@
  * rtdb-rules-deploy-refusals). The validator reports them for a rule whose
  * types it can see before deploy; the evaluator raises them as
  * `RtdbRuleRuntimeError` for a value whose type is known only when the rule
- * runs (corpus scenario r27-method-argument-types).
+ * runs (corpus scenario r32-method-argument-types).
  */
 
 /** A method that takes exactly one string argument. */

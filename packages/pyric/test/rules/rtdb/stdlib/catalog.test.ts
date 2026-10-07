@@ -24,7 +24,9 @@ describe('RTDB stdlib catalog', () => {
     test(`${module.key}: every expression output parses as a rule`, () => {
       for (const entry of module.entries) {
         if (typeof entry.output !== 'string') continue;
-        const parsed = buildRuleExpression(entry.output, 'write', ['$matchId']);
+        // An entry is placed under the wildcards its output names, so those are declared.
+        const declared = [...new Set(['$matchId', ...(entry.output.match(/\$\w+/g) ?? [])])];
+        const parsed = buildRuleExpression(entry.output, 'write', declared);
         expect({ name: entry.name, errors: parsed.parsed.errors }).toEqual({ name: entry.name, errors: [] });
         expect(entry.length).toBe(entry.output.length);
       }

@@ -4,7 +4,7 @@
  * types, argument count, variables or operand types are wrong where it can
  * see them (observation rtdb-rules-deploy-refusals), and fails a rule whose
  * argument turns out not to be a string when it runs (corpus scenario
- * r27-method-argument-types). An argument is never converted to a string.
+ * r32-method-argument-types). An argument is never converted to a string.
  */
 import { describe, expect, test } from 'bun:test';
 import {
@@ -103,7 +103,7 @@ describe('RTDB method arguments at evaluation', () => {
 });
 
 describe('RTDB operators with a null operand', () => {
-  // Captures r27-stdlib-core-patterns and r28-null-operands: each fails the rule, `|| true` included.
+  // Captures r27-stdlib-core-patterns and r33-null-operands: each fails the rule, `|| true` included.
   const failing = [
     'data.val() + 1 > 0', '1 + data.val() > 0', "data.val() + 'a' == 'nulla'", 'data.val() - 1 == 0',
     'data.val() * 2 == 0', 'data.val() / 2 == 0', 'data.val() % 2 == 0', '-data.val() == 0',

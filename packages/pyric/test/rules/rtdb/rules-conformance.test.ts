@@ -27,8 +27,8 @@
  * divergences" test so it can never hide.
  *
  * CURRENT STATE: the in-process simulator agrees with every captured
- * production verdict except the r27 null-operand cases and the r30
- * query-variable cases pinned in KNOWN_DIVERGENCES. The r15 ancestor-validate false ALLOW is resolved: the
+ * production verdict except the r30 query-variable cases pinned in
+ * KNOWN_DIVERGENCES. The r15 ancestor-validate false ALLOW is resolved: the
  * simulator now evaluates the full root-to-write validation path against the
  * merged post-write tree.
  *
@@ -70,36 +70,6 @@ const KNOWN_DIVERGENCES: Record<
   string,
   { prodVerdict: 'ALLOW' | 'DENY'; simVerdict: 'ALLOW' | 'DENY'; reason: string }
 > = {
-  ...Object.fromEntries(
-  [
-    'an unguarded step adds 1 to nothing stored',
-    'adding 1 to nothing stored, then or true',
-    'adding nothing stored to 1, then or true',
-    'subtracting 1 from nothing stored, then or true',
-    'multiplying nothing stored by 2, then or true',
-    'adding a string to nothing stored, then or true',
-    'negating nothing stored, then or true',
-    'comparing nothing stored with 1, then or true',
-  ].map((description) => [
-    `r27-stdlib-core-patterns :: ${description}`,
-    {
-      prodVerdict: 'DENY' as const,
-      simVerdict: 'ALLOW' as const,
-      reason:
-        'Production fails a rule in which `+`, `-`, `*`, unary `-` or `<` has a null operand, such as `data.val()` where nothing is stored, `|| true` included. The simulator applies JavaScript operators, so null computes as 0 or as the string null and the rule can grant.',
-    },
-  ]),
-  ),
-  'r30-query-rules :: a plain read of the limitToFirst-gated node is denied': {
-    prodVerdict: 'DENY',
-    simVerdict: 'ALLOW',
-    reason: 'Without a limit, query.limitToFirst is null. Production fails a rule in which `<=` has a null operand (rtdb-rules#22) and denies; the simulator orders null below 2 and grants.',
-  },
-  'r30-query-rules :: limitToFirst does not satisfy a limitToLast bound': {
-    prodVerdict: 'DENY',
-    simVerdict: 'ALLOW',
-    reason: 'Under limitToFirst, query.limitToLast is null. Production fails a rule in which `<=` has a null operand (rtdb-rules#22) and denies; the simulator orders null below 2 and grants.',
-  },
   'r30-query-rules :: orderByPriority reads true under orderByPriority': {
     prodVerdict: 'ALLOW',
     simVerdict: 'DENY',
