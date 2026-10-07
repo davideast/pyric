@@ -29,7 +29,7 @@ describe('multi-axis conformance model', () => {
       numerator: 84, denominator: 86, ratio: 84 / 86, percent: 97.7,
     });
     expect(model.rulesLanguage.rtdbScorecard.score).toEqual({
-      numerator: 56, denominator: 56, ratio: 1, percent: 100,
+      numerator: 51, denominator: 56, ratio: 51 / 56, percent: 91.1,
     });
     expect(model.documentation.registries.length).toBeGreaterThan(0);
     expect(model.documentation.descriptors.length).toBeGreaterThan(0);

@@ -1,6 +1,6 @@
 /** Read one Security Rules standard library module. */
 import { z } from 'zod';
-import { RENAMES, service } from '../../arguments/rules.js';
+import { RENAMES, service, SERVICES } from '../../arguments/rules.js';
 import { callSandboxTool } from '../../context.js';
 import type { MethodRecord } from '../../method-types.js';
 
@@ -9,7 +9,7 @@ export default {
   method: 'getStdlib',
   sdkOrigin: 'pyric',
   effect: 'read',
-  signature: 'getStdlib(module, service?)',
+  signature: `getStdlib(module, service?: ${SERVICES.join('|')})`,
   description: 'Read one standard library module signature list. Pass service database for the RTDB builders.',
   args: z.object({
     module: z.string().describe('Module key from the listing, for example math or timestamp.'),

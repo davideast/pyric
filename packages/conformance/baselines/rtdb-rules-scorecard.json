@@ -65,10 +65,10 @@
     ]
   },
   "score": {
-    "numerator": 56,
+    "numerator": 51,
     "denominator": 56,
-    "ratio": 1,
-    "percent": 100
+    "ratio": 0.9107142857142857,
+    "percent": 91.1
   },
   "axes": {
     "productionAcceptance": {
@@ -90,14 +90,14 @@
       "unprobeable": 0
     },
     "productionEvidence": {
-      "verified": 55,
-      "diverged": 0,
+      "verified": 50,
+      "diverged": 5,
       "unverified": 1
     }
   },
   "counts": {
-    "conformant": 56,
-    "diverged": 0,
+    "conformant": 51,
+    "diverged": 5,
     "unknown": 0,
     "local-unsupported": 0,
     "local-error": 0,
@@ -128,6 +128,7 @@
         "r24-deny-without-rule",
         "r25-loose-equality-types",
         "r26-rule-runtime-error",
+        "r27-stdlib-core-patterns",
         "r3-data-exists",
         "r4-validate-structure",
         "r5-cascade-root-grant",
@@ -149,6 +150,7 @@
       "verifiedBy": [
         "r2-own-uid",
         "r22-strict-equality-types",
+        "r27-stdlib-core-patterns",
         "r7-pathvar-binding",
         "r8-combined-check"
       ],
@@ -179,6 +181,7 @@
         "r23-validate-sibling-scope",
         "r25-loose-equality-types",
         "r26-rule-runtime-error",
+        "r27-stdlib-core-patterns",
         "r3-data-exists",
         "r9-quota-arithmetic"
       ],
@@ -206,6 +209,7 @@
         "r24-deny-without-rule",
         "r25-loose-equality-types",
         "r26-rule-runtime-error",
+        "r27-stdlib-core-patterns",
         "r4-validate-structure",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -246,6 +250,7 @@
       "verifiedBy": [
         "r2-own-uid",
         "r22-strict-equality-types",
+        "r27-stdlib-core-patterns",
         "r7-pathvar-binding"
       ],
       "verifiedByRows": [],
@@ -267,6 +272,7 @@
         "r24-deny-without-rule",
         "r25-loose-equality-types",
         "r26-rule-runtime-error",
+        "r27-stdlib-core-patterns",
         "r8-combined-check",
         "r9-quota-arithmetic"
       ],
@@ -288,6 +294,7 @@
         "r23-validate-sibling-scope",
         "r24-deny-without-rule",
         "r26-rule-runtime-error",
+        "r27-stdlib-core-patterns",
         "r8-combined-check"
       ],
       "verifiedByRows": [
@@ -303,7 +310,8 @@
       "classification": "conformant",
       "verifiedBy": [
         "r10-snapshot-type-guards",
-        "r23-validate-sibling-scope"
+        "r23-validate-sibling-scope",
+        "r27-stdlib-core-patterns"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -329,6 +337,7 @@
       "verifiedBy": [
         "r15-validate-ancestor-scope",
         "r21-validate-on-delete",
+        "r27-stdlib-core-patterns",
         "r4-validate-structure",
         "r8-combined-check"
       ],
@@ -345,6 +354,7 @@
         "r14-root-lookup",
         "r18-child-dot-segments",
         "r23-validate-sibling-scope",
+        "r27-stdlib-core-patterns",
         "r3-data-exists"
       ],
       "verifiedByRows": [],
@@ -378,6 +388,7 @@
         "r23-validate-sibling-scope",
         "r24-deny-without-rule",
         "r26-rule-runtime-error",
+        "r27-stdlib-core-patterns",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -394,7 +405,8 @@
         "r11-string-validation",
         "r17-validate-runtime-error",
         "r21-validate-on-delete",
-        "r23-validate-sibling-scope"
+        "r23-validate-sibling-scope",
+        "r27-stdlib-core-patterns"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -454,7 +466,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "r11-string-validation"
+        "r11-string-validation",
+        "r27-stdlib-core-patterns"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -505,7 +518,8 @@
       "classification": "conformant",
       "verifiedBy": [
         "r11-string-validation",
-        "r17-validate-runtime-error"
+        "r17-validate-runtime-error",
+        "r27-stdlib-core-patterns"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -557,6 +571,7 @@
         "r23-validate-sibling-scope",
         "r25-loose-equality-types",
         "r26-rule-runtime-error",
+        "r27-stdlib-core-patterns",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -586,6 +601,7 @@
         "r24-deny-without-rule",
         "r25-loose-equality-types",
         "r26-rule-runtime-error",
+        "r27-stdlib-core-patterns",
         "r3-data-exists",
         "r4-validate-structure",
         "r5-cascade-root-grant",
@@ -600,14 +616,17 @@
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "r24-deny-without-rule",
+        "r27-stdlib-core-patterns",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
-      "divergedByRows": []
+      "divergedByRows": [
+        "rtdb-rules#22"
+      ]
     },
     "rtdb.operator.gt": {
       "productionAcceptance": "accepted",
@@ -617,6 +636,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "r17-validate-runtime-error",
+        "r27-stdlib-core-patterns",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -631,6 +651,7 @@
       "verifiedBy": [
         "r11-string-validation",
         "r12-server-time-and-token",
+        "r27-stdlib-core-patterns",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -644,6 +665,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "r11-string-validation",
+        "r27-stdlib-core-patterns",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -653,38 +675,47 @@
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "r23-validate-sibling-scope",
+        "r27-stdlib-core-patterns",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
-      "divergedByRows": []
+      "divergedByRows": [
+        "rtdb-rules#22"
+      ]
     },
     "rtdb.operator.sub": {
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
+        "r27-stdlib-core-patterns",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
-      "divergedByRows": []
+      "divergedByRows": [
+        "rtdb-rules#22"
+      ]
     },
     "rtdb.operator.mul": {
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
+        "r27-stdlib-core-patterns",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
-      "divergedByRows": []
+      "divergedByRows": [
+        "rtdb-rules#22"
+      ]
     },
     "rtdb.operator.div": {
       "productionAcceptance": "accepted",
@@ -705,6 +736,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "r27-stdlib-core-patterns",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -725,6 +757,7 @@
         "r22-strict-equality-types",
         "r24-deny-without-rule",
         "r25-loose-equality-types",
+        "r27-stdlib-core-patterns",
         "r7-pathvar-binding",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -740,6 +773,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "r26-rule-runtime-error",
+        "r27-stdlib-core-patterns",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -753,6 +787,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "r26-rule-runtime-error",
+        "r27-stdlib-core-patterns",
         "r3-data-exists"
       ],
       "verifiedByRows": [],
@@ -762,13 +797,16 @@
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
+        "r27-stdlib-core-patterns",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
-      "divergedByRows": []
+      "divergedByRows": [
+        "rtdb-rules#22"
+      ]
     },
     "rtdb.operator.ternary": {
       "productionAcceptance": "accepted",
@@ -795,6 +833,7 @@
         "r17-validate-runtime-error",
         "r2-own-uid",
         "r22-strict-equality-types",
+        "r27-stdlib-core-patterns",
         "r7-pathvar-binding",
         "r8-combined-check"
       ],
@@ -835,6 +874,7 @@
         "r22-strict-equality-types",
         "r24-deny-without-rule",
         "r26-rule-runtime-error",
+        "r27-stdlib-core-patterns",
         "r3-data-exists",
         "r4-validate-structure",
         "r5-cascade-root-grant",
@@ -872,6 +912,7 @@
         "r24-deny-without-rule",
         "r25-loose-equality-types",
         "r26-rule-runtime-error",
+        "r27-stdlib-core-patterns",
         "r3-data-exists",
         "r4-validate-structure",
         "r5-cascade-root-grant",
@@ -906,6 +947,7 @@
         "r24-deny-without-rule",
         "r25-loose-equality-types",
         "r26-rule-runtime-error",
+        "r27-stdlib-core-patterns",
         "r4-validate-structure",
         "r9-quota-arithmetic"
       ],
@@ -942,6 +984,7 @@
         "r22-strict-equality-types",
         "r23-validate-sibling-scope",
         "r24-deny-without-rule",
+        "r27-stdlib-core-patterns",
         "r7-pathvar-binding"
       ],
       "verifiedByRows": [
@@ -1010,7 +1053,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "r11-string-validation"
+        "r11-string-validation",
+        "r27-stdlib-core-patterns"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
