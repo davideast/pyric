@@ -171,9 +171,15 @@ class BridgeSubscriptionManager(
         activeSub.channel.trySend(value)
     }
 
-    /** Re-sends every live subscription on a new attach, with its original subId and payload. */
-    fun restoreAll(sendJson: (String) -> Unit, jsonSerializer: (Any?) -> String) {
-        val attach = attachEpoch.incrementAndGet()
+    /**
+     * Starts a new attach epoch. The client calls this before it reports itself
+     * attached, so a subscription that sees the client attached claims this
+     * epoch, the same one [restoreAll] then claims.
+     */
+    fun beginAttach(): Long = attachEpoch.incrementAndGet()
+
+    /** Re-sends every live subscription on attach [attach], with its original subId and payload. */
+    fun restoreAll(attach: Long, sendJson: (String) -> Unit, jsonSerializer: (Any?) -> String) {
         for (sub in activeSubs.values) {
             if (!sub.claim(attach)) continue
             sub.awaitsRestoredValue = sub.hasValue

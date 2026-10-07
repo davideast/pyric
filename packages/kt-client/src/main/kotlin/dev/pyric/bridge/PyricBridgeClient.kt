@@ -281,6 +281,7 @@ class PyricBridgeClient(
     }
 
     private fun finishAttach(attemptGeneration: Int): Boolean {
+        val attach: Long
         synchronized(lock) {
             if (attemptGeneration != generation || isDisposed) return false
             attempt = null
@@ -289,10 +290,13 @@ class PyricBridgeClient(
             attachDeadlineJob?.cancel()
             attachDeadlineJob = null
             reconnectAttempt = 0
+            // Before isConnected: a subscription that sees the client attached
+            // claims this attach, so it and the restore below send it once.
+            attach = subscriptionManager.beginAttach()
             isConnected = true
             setState(BridgeConnectionState.ATTACHED)
         }
-        subscriptionManager.restoreAll(::sendRawJson, JsonCodec::encodeToString)
+        subscriptionManager.restoreAll(attach, ::sendRawJson, JsonCodec::encodeToString)
         return true
     }
 

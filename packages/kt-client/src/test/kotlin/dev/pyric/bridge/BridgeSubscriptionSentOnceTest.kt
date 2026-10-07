@@ -11,6 +11,19 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 class BridgeSubscriptionSentOnceTest {
 
+    private fun subscribeOnce(
+        manager: BridgeSubscriptionManager,
+        isAttached: () -> Boolean,
+        send: (String) -> Unit
+    ) = manager.subscribe(
+        target = "authState",
+        isAttached = isAttached,
+        ensureConnected = {},
+        keepsSubscriptionOnConnectFailure = { true },
+        sendJson = send,
+        jsonSerializer = JsonCodec::encodeToString
+    )
+
     @Test
     fun `a subscription registered while an attach completes is sent once`() = runBlocking {
         val manager = BridgeSubscriptionManager()
@@ -18,24 +31,33 @@ class BridgeSubscriptionSentOnceTest {
         val send: (String) -> Unit = { frames.add(JsonCodec.decodeMap(it)) }
         val attached = AtomicBoolean(false)
 
-        // The attach finishes after the subscription is registered and before
-        // the subscription checks whether the client is attached.
+        // The whole attach, restore included, finishes after the subscription is
+        // registered and before it checks whether the client is attached.
         val isAttached: () -> Boolean = {
-            if (attached.compareAndSet(false, true)) manager.restoreAll(send, JsonCodec::encodeToString)
+            if (attached.compareAndSet(false, true)) {
+                manager.restoreAll(manager.beginAttach(), send, JsonCodec::encodeToString)
+            }
             true
         }
 
-        val job = launch {
-            manager.subscribe(
-                target = "authState",
-                isAttached = isAttached,
-                ensureConnected = {},
-                keepsSubscriptionOnConnectFailure = { true },
-                sendJson = send,
-                jsonSerializer = JsonCodec::encodeToString
-            ).collect {}
-        }
+        val job = launch { subscribeOnce(manager, isAttached, send).collect {} }
         delay(100)
+
+        assertEquals(1, frames.count { it["type"] == "worker-sub" })
+        job.cancel()
+    }
+
+    @Test
+    fun `a subscription that sees the attach before its restore runs is sent once`() = runBlocking {
+        val manager = BridgeSubscriptionManager()
+        val frames = CopyOnWriteArrayList<Map<String, Any?>>()
+        val send: (String) -> Unit = { frames.add(JsonCodec.decodeMap(it)) }
+
+        // The client reports itself attached; its restore has not run yet.
+        val attach = manager.beginAttach()
+        val job = launch { subscribeOnce(manager, { true }, send).collect {} }
+        delay(100)
+        manager.restoreAll(attach, send, JsonCodec::encodeToString)
 
         assertEquals(1, frames.count { it["type"] == "worker-sub" })
         job.cancel()
@@ -47,19 +69,12 @@ class BridgeSubscriptionSentOnceTest {
         val frames = CopyOnWriteArrayList<Map<String, Any?>>()
         val send: (String) -> Unit = { frames.add(JsonCodec.decodeMap(it)) }
 
-        val job = launch {
-            manager.subscribe(
-                target = "authState",
-                isAttached = { true },
-                ensureConnected = {},
-                keepsSubscriptionOnConnectFailure = { true },
-                sendJson = send,
-                jsonSerializer = JsonCodec::encodeToString
-            ).collect {}
-        }
+        val first = manager.beginAttach()
+        val job = launch { subscribeOnce(manager, { true }, send).collect {} }
         delay(100)
-        manager.restoreAll(send, JsonCodec::encodeToString)
-        manager.restoreAll(send, JsonCodec::encodeToString)
+        manager.restoreAll(first, send, JsonCodec::encodeToString)
+        manager.restoreAll(manager.beginAttach(), send, JsonCodec::encodeToString)
+        manager.restoreAll(manager.beginAttach(), send, JsonCodec::encodeToString)
 
         assertEquals(3, frames.count { it["type"] == "worker-sub" })
         job.cancel()
