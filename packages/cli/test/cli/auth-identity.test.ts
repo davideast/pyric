@@ -31,7 +31,7 @@ const DISCOVERED = {
   url: 'http://localhost:3473',
   base: 'http://127.0.0.1:3473',
   instanceId: 'abc',
-  source: 'test',
+  source: 'pointer test',
 };
 
 /** Parse the CLI form and hand the handler the positionals it would receive. */
