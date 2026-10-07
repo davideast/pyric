@@ -29,13 +29,14 @@ const obsGate = createObservationGate({
     join(import.meta.dir, 'priority-metadata-cdd.test.ts'),
     join(import.meta.dir, 'query-validation.test.ts'),
     join(import.meta.dir, 'transaction-contention-cdd.test.ts'),
+    join(import.meta.dir, '..', '..', 'sandbox', 'internal', 'instances.test.ts'),
   ],
 });
 
 describe('oracle conformance (rtdb-modular): completeness', () => {
   it('every rtdb-modular observation is covered (no silent gaps)', () => {
     const report = obsGate.report();
-    expect(report.committed.length).toBe(57);
+    expect(report.committed.length).toBe(58);
     expect(report.loadedButUnused).toEqual([]);
     expect(report.uncovered).toEqual([]);
   });

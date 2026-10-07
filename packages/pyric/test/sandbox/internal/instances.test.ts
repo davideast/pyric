@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { load } from '../../database/modular/oracle-conformance.support.js';
 import {
   UNNAMED_DEFAULT_DATABASE_INSTANCE,
   createDatabaseInstanceRegistry,
@@ -11,11 +10,6 @@ import {
   parseDatabaseUrl,
   resolveDatabaseInstance,
 } from '../../../src/sandbox/internal/instances.js';
-
-const OBSERVATION = join(
-  import.meta.dir,
-  '../../../../conformance/observations/rtdb-modular/rtdb-modular-database-url-instance.json',
-);
 
 const CANNOT_PARSE =
   'FIREBASE FATAL ERROR: Cannot parse Firebase url. Please use https://<YOUR FIREBASE>.firebaseio.com ';
@@ -102,14 +96,11 @@ describe('parseDatabaseUrl matches the production SDK', () => {
   }
 
   it('rtdb-modular#M39 replays every URL form in the production SDK observation', () => {
-    const observation = JSON.parse(readFileSync(OBSERVATION, 'utf8')) as {
-      projectId: string;
-      behavior: {
-        urls: Record<string, { name: string; url: string } | { error: string; errorClass: string }>;
-        projectDefault: { name: string; url: string };
-      };
+    const behavior = load('rtdb-modular-database-url-instance.json') as {
+      urls: Record<string, { name: string; url: string } | { error: string; errorClass: string }>;
+      projectDefault: { name: string; url: string; nameIsProjectIdDefaultRtdb: boolean };
     };
-    for (const [input, observed] of Object.entries(observation.behavior.urls)) {
+    for (const [input, observed] of Object.entries(behavior.urls)) {
       if ('error' in observed) {
         let thrown: unknown;
         try {
@@ -123,8 +114,10 @@ describe('parseDatabaseUrl matches the production SDK', () => {
         expect({ input, ...parseDatabaseUrl(input) }).toEqual({ input, ...observed });
       }
     }
-    const { name, url } = observation.behavior.projectDefault;
-    expect(defaultDatabaseInstance(observation.projectId)).toEqual({ name, url });
+    const { name, url, nameIsProjectIdDefaultRtdb } = behavior.projectDefault;
+    expect(nameIsProjectIdDefaultRtdb).toBe(true);
+    const projectId = name.slice(0, -'-default-rtdb'.length);
+    expect(defaultDatabaseInstance(projectId)).toEqual({ name, url });
   });
 
   it('reports a URL that parses back to the same instance', () => {

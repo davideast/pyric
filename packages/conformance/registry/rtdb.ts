@@ -2304,7 +2304,7 @@ export const rtdbRegistry = {
           api: "firebase.json `database` array",
           behavior: "When `firebase.json` `database` is an array, the dev server loads the rules file of the first entry with `rules` and does not read `instance`. It takes the database URL from a `url` key, which is Pyric-only; production names each entry's database with `instance` and deploys every entry's rules.",
           statusNote: "only the first entry with rules is loaded; `instance` is ignored and a Pyric-only `url` key is read",
-          evidence: "`packages/cli/test/serve/database-rules-config.test.ts` loads a two-entry array and asserts the first entry's rules, a null database URL when entries name `instance`, and a URL read from a `url` key. CDD assertion `rtdb-modular#MI3` pins the canonical URL the sandbox derives from an instance name.",
+          evidence: "`packages/cli/test/serve/database-rules-config.test.ts` loads a two-entry array and asserts the first entry's rules, a null database URL when entries name `instance`, and a URL read from a `url` key. CDD assertion `rtdb-modular#MI3` pins the instance the sandbox derives from a `firebase.json` instance name: the same name and root URL the production SDK derives from that instance's URL, as oracle `rtdb-modular-database-url-instance` records.",
           conformanceTests: ["packages/cli/test/serve/database-rules-config.test.ts", ...cddLifecycleTests],
           conformanceDisposition: "pending-fix",
         }),
