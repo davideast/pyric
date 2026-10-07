@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * `@pyric/ui/rules` — headless components for Firestore rules debugging.
  *

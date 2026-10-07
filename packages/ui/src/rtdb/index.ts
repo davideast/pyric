@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * `@pyric/ui/rtdb` — the headless RTDB data viewer, in the Firebase console /
  * firebase-tools-ui form: an editable path bar (crumbs + direct path entry)
