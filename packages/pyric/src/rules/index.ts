@@ -58,6 +58,7 @@ export type {
   Explanation,
   SimulationSummary,
   RtdbCase,
+  RtdbCaseQuery,
   RtdbCaseResult,
   RtdbExplanation,
   RtdbRuleEvaluation,

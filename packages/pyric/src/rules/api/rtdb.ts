@@ -11,14 +11,17 @@
  * step before simulation. `toJSON` always returns compiled `rules.json`.
  */
 
-import { checkRtdbRules, defineRtdbRules } from '../rtdb/constraints/document.js';
+import {
+  checkRtdbRules,
+  defineRtdbRules,
+  normalizeSimulationInput,
+} from '../rtdb/constraints/document.js';
 import type {
   RtdbRulesCheckResult,
   RtdbRulesDefinition,
   RtdbRulesDocument,
   RtdbRulesDocumentInternal,
   RtdbRulesJson,
-  RtdbRulesSimulationAuth,
   RtdbRulesSimulationInput,
 } from '../rtdb/constraints/document.js';
 import {
@@ -26,7 +29,8 @@ import {
   simulateRtdbRules,
   type CompiledRtdbRules,
 } from '../rtdb/compiled-rules.js';
-import type { SimulationInput, SimulateResult } from '../rtdb/simulation/spec.js';
+import type { SimulateResult } from '../rtdb/simulation/spec.js';
+import { simulateRtdbCase } from './rtdb-case-input.js';
 import type { RuleIssue } from './issue.js';
 import { rtdbFindingToIssue, rtdbSecurityFindingToIssue } from './issue.js';
 import { lintRtdbRuleset } from '../rtdb/grammar/ruleset-lint.js';
@@ -89,19 +93,7 @@ class DocumentRtdbRuleset implements RtdbRuleset {
   }
 
   private runOne(c: RtdbCase): RtdbCaseResult {
-    // Assembled with explicit branches rather than conditional spreads: `data`,
-    // `newData`, and `now` each mean something different when absent, and an
-    // absent `now` in particular is the difference between "evaluate at this
-    // instant" and "evaluate at whatever the simulator decides".
-    const input: RtdbRulesSimulationInput = {
-      operation: c.operation,
-      path: c.path,
-      auth: c.auth ?? null,
-    };
-    if (c.data !== undefined) input.data = c.data;
-    if (c.newData !== undefined) input.newData = c.newData;
-    if (c.now !== undefined) input.now = c.now;
-    const result = this.doc.simulate(input);
+    const result = simulateRtdbCase(this.doc, c);
     if (!result.success) {
       // Could not evaluate — report as unsupported rather than throw.
       return {
@@ -171,12 +163,6 @@ class DocumentRtdbRuleset implements RtdbRuleset {
   }
 }
 
-function normalizeAuth(auth: RtdbRulesSimulationAuth | undefined): SimulationInput['auth'] {
-  if (auth === undefined || auth === null) return null;
-  if (typeof auth === 'string') return { uid: auth, token: {} };
-  return { uid: auth.uid, token: auth.token ?? {} };
-}
-
 /** Internal document adapter for already-compiled Firebase rules JSON. */
 class CompiledRtdbRulesDocument implements RtdbRulesDocumentInternal {
   private compiled: CompiledRtdbRules | undefined;
@@ -197,15 +183,7 @@ class CompiledRtdbRulesDocument implements RtdbRulesDocumentInternal {
   }
 
   simulate(input: RtdbRulesSimulationInput): SimulateResult {
-    const simulation: SimulationInput = {
-      operation: input.operation,
-      path: input.path,
-      auth: normalizeAuth(input.auth),
-      mockData: input.mockData ?? input.data ?? {},
-    };
-    if (input.newData !== undefined) simulation.newData = input.newData;
-    if (input.now !== undefined) simulation.now = input.now;
-    return simulateRtdbRules(this.compile(), simulation);
+    return simulateRtdbRules(this.compile(), normalizeSimulationInput(input));
   }
 }
 

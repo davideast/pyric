@@ -68,13 +68,13 @@ export interface RtdbRulesDocumentInternal extends RtdbRulesDocument {
   simulate(input: RtdbRulesSimulationInput): SimulateResult;
 }
 
-function normalizeAuth(auth: RtdbRulesSimulationAuth | undefined): SimulationInput['auth'] {
+export function normalizeAuth(auth: RtdbRulesSimulationAuth | undefined): SimulationInput['auth'] {
   if (auth === undefined || auth === null) return null;
   if (typeof auth === 'string') return { uid: auth, token: {} };
   return { uid: auth.uid, token: auth.token ?? {} };
 }
 
-function normalizeSimulationInput(input: RtdbRulesSimulationInput): SimulationInput {
+export function normalizeSimulationInput(input: RtdbRulesSimulationInput): SimulationInput {
   const simulation: SimulationInput = {
     operation: input.operation,
     path: input.path,
@@ -83,6 +83,8 @@ function normalizeSimulationInput(input: RtdbRulesSimulationInput): SimulationIn
   };
   if (input.newData !== undefined) simulation.newData = input.newData;
   if (input.now !== undefined) simulation.now = input.now;
+  if (input.updates !== undefined) simulation.updates = input.updates;
+  if (input.query !== undefined) simulation.query = input.query;
   return simulation;
 }
 

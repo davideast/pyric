@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import {
+  equalTo,
   getAdminDatabase,
   getDatabase,
+  limitToFirst,
+  orderByChild,
+  query,
   ref,
   get,
   remove,
@@ -144,5 +148,45 @@ describe('database replay()', () => {
     const result = await replay(sandbox.history(), { rules: ALLOW_ALL });
     expect(result.ok).toBe(true);
     expect((await get(ref(getDatabase(result.sandbox), '/ranked/item'))).priority).toBe(3);
+  });
+
+  describe('captured query reads', () => {
+    const CAPTURE = { rules: { '.read': true, '.write': true, items: { '.indexOn': ['owner'] } } };
+
+    async function captureQueryRead() {
+      const sandbox = initializeSandbox();
+      const adminDb = getDatabase(sandbox);
+      rtdbSandbox.setRules(adminDb, CAPTURE);
+      rtdbSandbox.setData(adminDb, { '/items/a': { owner: 'alice' } });
+      const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+      await get(query(ref(db, 'items'), orderByChild('owner'), equalTo('alice'), limitToFirst(5)));
+      await get(ref(db, 'items'));
+      return { events: sandbox.history(), state: rtdbSandbox.snapshotState(adminDb) };
+    }
+
+    it('checks each captured query read, and not the read that carried no query', async () => {
+      const { events, state } = await captureQueryRead();
+      const rules = {
+        rules: {
+          '.read': false,
+          items: {
+            '.indexOn': ['owner'],
+            '.read': "query.orderByChild == 'owner' && query.equalTo == auth.uid && query.limitToFirst <= 5",
+          },
+        },
+      };
+      const result = await replay(events, { rules, capturedState: state });
+      expect(result.divergences).toEqual([]);
+      expect(result.checkedEvents).toBe(1);
+    });
+
+    it('reports now-denied when the candidate rules reject the captured query', async () => {
+      const { events, state } = await captureQueryRead();
+      const rules = {
+        rules: { '.read': false, items: { '.indexOn': ['owner'], '.read': 'query.limitToFirst <= 4' } },
+      };
+      const result = await replay(events, { rules, capturedState: state });
+      expect(result.divergences).toEqual([expect.objectContaining({ kind: 'now-denied', method: 'get', path: '/items' })]);
+    });
   });
 });

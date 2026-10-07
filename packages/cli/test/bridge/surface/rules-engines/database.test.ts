@@ -49,7 +49,7 @@ function freshContext() {
 
 describe('requestMethods', () => {
   it('evaluates read, write, and validate', () => {
-    expect([...DATABASE_RULES.requestMethods]).toEqual(['read', 'write', 'validate']);
+    expect([...DATABASE_RULES.requestMethods]).toEqual(['read', 'write', 'update', 'validate']);
   });
 });
 

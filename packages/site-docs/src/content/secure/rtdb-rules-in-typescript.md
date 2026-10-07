@@ -65,6 +65,13 @@ const summary = rules.simulate([
 ```
 The simulator runs in-process against the same grammar the sandbox enforces. `data` is the database tree before the write, from the root; `newData` is the value written at `path`. `auth: 'alice'` is shorthand for `{ uid: 'alice', token: {} }`. Each case result carries the `decision`, whether it `passed`, and the `matchedPath` and `matchedRule` that decided it.
 
+A case can describe three more kinds of request:
+- A scalar write: `newData` is any JSON value, so `{ operation: 'write', path: '/scores/alice', newData: 5 }` is `set(ref, 5)`.
+- A multi-path update: `operation: 'update'` takes `newData` as the patch, keyed by paths relative to `path`, such as `{ operation: 'update', path: '/', newData: { 'rooms/r1/title': 'x', 'rooms/r2/title': 'y' } }`. Every written path is judged against the tree the whole update produces, and the case is `DENY` when any path is denied. `matchedPath` names the path that decided.
+- A query read: `query` on a `read` case sets the members `query.*` rules read, `orderByChild`, `orderByKey`, `orderByValue`, `equalTo`, `startAt`, `endAt`, `limitToFirst` and `limitToLast`. A rule such as `query.orderByChild == 'owner' && query.equalTo == auth.uid` is `ALLOW` for a case that carries that query and `DENY` for the same read without it.
+
+The same fields work in `rtdb_simulate_access` and `rules.simulate` (`data`, `query`, and `operation: 'update'`), and `pyric verify` replays captured updates, scalar writes and query reads against candidate rules.
+
 ## Ship the JSON
 ```ts
 import { writeFileSync } from 'node:fs';

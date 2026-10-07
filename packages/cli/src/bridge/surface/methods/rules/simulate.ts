@@ -15,7 +15,9 @@ import {
   checkRequestTime,
   data,
   operation,
+  checkRequestShape,
   path,
+  query,
   REQUEST_METHODS,
   RENAMES,
   service,
@@ -45,8 +47,9 @@ function requestOf(
   // Storage rules read the object rather than the payload, and the evaluator
   // takes no write value, so a data argument does not reach that engine.
   if (source.data !== undefined && service !== 'storage') {
-    request.data = source.data as Record<string, unknown>;
+    request.data = source.data;
   }
+  if (source.query !== undefined) request.query = source.query as Record<string, unknown>;
   return request;
 }
 
@@ -67,15 +70,16 @@ export default {
   method: 'simulate',
   sdkOrigin: 'pyric',
   effect: 'read',
-  signature: `simulate(service: ${SERVICES.join('|')}, operation?: ${REQUEST_METHODS.join('|')}, path?, uid?, data?, cases?, rules?, requestTime?)`,
+  signature: `simulate(service: ${SERVICES.join('|')}, operation?: ${REQUEST_METHODS.join('|')}, path?, uid?, data?, query?, cases?, rules?, requestTime?)`,
   description:
-    'Evaluate one request, or many through cases, at requestTime or the sandbox clock, and report allow or deny.',
+    'Evaluate one request, or many through cases, at requestTime or the sandbox clock, and report allow or deny. For database rules, data may be any JSON value, update takes a patch keyed by the paths written, and a read may carry a query.',
   args: z.object({
     service,
     operation: operation.optional(),
     path: path.optional(),
     uid: uid.optional(),
     data: data.optional(),
+    query: query.optional(),
     cases,
     rules: z
       .string()
@@ -95,7 +99,10 @@ export default {
   renames: RENAMES,
   example: { service: 'firestore', operation: 'get', path: 'users/alice', uid: 'alice' },
   validate: (args, { fail }) =>
-    checkOneForm(args, fail) ?? checkOperation(args, fail) ?? checkInstants(args, fail),
+    checkOneForm(args, fail) ??
+    checkOperation(args, fail) ??
+    checkRequestShape(args, fail) ??
+    checkInstants(args, fail),
   async handler(args, ctx) {
     const target = String(args.service);
     if (Array.isArray(args.cases)) {

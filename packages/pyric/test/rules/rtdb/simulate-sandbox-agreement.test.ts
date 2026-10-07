@@ -1,7 +1,23 @@
 import { describe, expect, test } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
-import { getDatabase, get, ref, set, sandbox } from 'pyric/database';
-import { rtdbRules } from 'pyric/rules';
+import {
+  endAt,
+  equalTo,
+  get,
+  getDatabase,
+  limitToFirst,
+  orderByChild,
+  orderByKey,
+  orderByValue,
+  query,
+  ref,
+  sandbox,
+  set,
+  startAt,
+  update,
+  type QueryConstraint,
+} from 'pyric/database';
+import { rtdbRules, type RtdbCaseQuery } from 'pyric/rules';
 
 // A request that no `.read` or `.write` rule grants is denied, whether or not
 // the deepest rules node on its path carries a rule of that kind. The sandbox
@@ -128,6 +144,130 @@ describe('RTDB simulate agrees with the sandbox on rules that error at evaluatio
       expect(verdict).toBe(expected);
       expect(result.decision).toBe(verdict);
       expect(result.unsupported).toBe(false);
+    });
+  }
+});
+
+// Multi-path updates, query reads and scalar writes reach the engine through a
+// case the same way the SDK sends them. The sandbox and `simulate` give each
+// the same verdict.
+const reachRules = {
+  rules: {
+    '.read': false,
+    '.write': false,
+    scores: { '.write': 'auth != null', '.validate': 'newData.isNumber()' },
+    totals: {
+      '.write': 'auth != null',
+      '.validate': "newData.val() == newData.parent().child('scores').val() + 1",
+    },
+    flag: { '.write': 'auth != null', '.validate': 'newData.val() == true' },
+    rooms: { $id: { title: { '.write': "auth != null && newData.val() != 'banned'" } } },
+    items: {
+      '.indexOn': ['owner'],
+      '.read': "query.orderByChild == 'owner' && query.equalTo == auth.uid",
+    },
+    feed: { '.read': 'query.orderByKey == true && query.limitToFirst <= 10' },
+    ranged: { '.indexOn': ['.value'], '.read': 'query.startAt == 5 && query.endAt == 9' },
+  },
+};
+
+type Verdict = 'ALLOW' | 'DENY';
+
+async function sandboxVerdict(
+  as: string | null,
+  run: (db: Db) => Promise<unknown>,
+): Promise<Verdict> {
+  const box = initializeSandbox();
+  sandbox.setRules(getDatabase(box.withAuth({ uid: 'admin' })), reachRules);
+  const db = getDatabase(as === null ? box : box.withAuth({ uid: as }));
+  try {
+    await run(db);
+    return 'ALLOW';
+  } catch (error) {
+    // Only a rules denial is a verdict; any other failure is a broken case.
+    const code = String((error as { code?: string }).code ?? error);
+    if (!/permission[_-]denied/i.test(code)) throw error;
+    return 'DENY';
+  }
+}
+
+const updateCases: Array<[label: string, as: string | null, patch: Record<string, unknown>, expected: Verdict]> = [
+  ['every written path passes', 'alice', { scores: 4, totals: 5 }, 'ALLOW'],
+  ['a sibling path in the same update changes what .validate reads', 'alice', { scores: 4, totals: 9 }, 'DENY'],
+  ['one written path fails .validate', 'alice', { scores: 'x', flag: true }, 'DENY'],
+  ['a nested multi-path key', 'alice', { 'rooms/r1/title': 'hello', 'rooms/r2/title': 'hi' }, 'ALLOW'],
+  ['a nested path whose rule denies', 'alice', { 'rooms/r1/title': 'hello', 'rooms/r2/title': 'banned' }, 'DENY'],
+  ['an unauthenticated update', null, { scores: 1 }, 'DENY'],
+];
+
+describe('RTDB simulate agrees with the sandbox on multi-path updates', () => {
+  for (const [label, as, patch, expected] of updateCases) {
+    test(label, async () => {
+      const verdict = await sandboxVerdict(as, (db) => update(ref(db), patch as never));
+      const [result] = rtdbRules(reachRules).simulate([
+        { expectation: expected, operation: 'update', path: '/', auth: as, newData: patch },
+      ]).cases;
+      expect(verdict).toBe(expected);
+      expect(result.decision).toBe(verdict);
+      expect(result.unsupported).toBe(false);
+    });
+  }
+});
+
+const queryCases: Array<{
+  label: string;
+  path: string;
+  query: RtdbCaseQuery;
+  constraints: QueryConstraint[];
+  expected: Verdict;
+}> = [
+  { label: 'equalTo the caller on the owner child', path: '/items', query: { orderByChild: 'owner', equalTo: 'alice' }, constraints: [orderByChild('owner'), equalTo('alice')], expected: 'ALLOW' },
+  { label: 'equalTo another user', path: '/items', query: { orderByChild: 'owner', equalTo: 'bob' }, constraints: [orderByChild('owner'), equalTo('bob')], expected: 'DENY' },
+  { label: 'orderByKey within the limit', path: '/feed', query: { orderByKey: true, limitToFirst: 10 }, constraints: [orderByKey(), limitToFirst(10)], expected: 'ALLOW' },
+  { label: 'orderByKey over the limit', path: '/feed', query: { orderByKey: true, limitToFirst: 11 }, constraints: [orderByKey(), limitToFirst(11)], expected: 'DENY' },
+  { label: 'a range that matches', path: '/ranged', query: { orderByValue: true, startAt: 5, endAt: 9 }, constraints: [orderByValue(), startAt(5), endAt(9)], expected: 'ALLOW' },
+  { label: 'a range that does not match', path: '/ranged', query: { orderByValue: true, startAt: 1, endAt: 9 }, constraints: [orderByValue(), startAt(1), endAt(9)], expected: 'DENY' },
+];
+
+describe('RTDB simulate agrees with the sandbox on query reads', () => {
+  for (const c of queryCases) {
+    test(c.label, async () => {
+      const verdict = await sandboxVerdict('alice', (db) => get(query(ref(db, c.path.slice(1)), ...c.constraints)));
+      const [result] = rtdbRules(reachRules).simulate([
+        { expectation: c.expected, operation: 'read', path: c.path, auth: 'alice', query: c.query },
+      ]).cases;
+      expect(verdict).toBe(c.expected);
+      expect(result.decision).toBe(verdict);
+      expect(result.unsupported).toBe(false);
+    });
+  }
+
+  test('the same read without a query is DENY in both', async () => {
+    const verdict = await sandboxVerdict('alice', (db) => get(ref(db, 'items')));
+    const [result] = rtdbRules(reachRules).simulate([
+      { expectation: 'DENY', operation: 'read', path: '/items', auth: 'alice' },
+    ]).cases;
+    expect(verdict).toBe('DENY');
+    expect(result.decision).toBe('DENY');
+  });
+});
+
+const scalarCases: Array<[label: string, path: string, value: unknown, expected: Verdict]> = [
+  ['a number where a number is required', '/scores', 5, 'ALLOW'],
+  ['a string where a number is required', '/scores', 'five', 'DENY'],
+  ['true where true is required', '/flag', true, 'ALLOW'],
+  ['false where true is required', '/flag', false, 'DENY'],
+];
+
+describe('RTDB simulate agrees with the sandbox on scalar writes', () => {
+  for (const [label, path, value, expected] of scalarCases) {
+    test(label, async () => {
+      const verdict = await sandboxVerdict('alice', (db) => set(ref(db, path.slice(1)), value as never));
+      const [result] = rtdbRules(reachRules).simulate([
+        { expectation: expected, operation: 'write', path, auth: 'alice', newData: value },
+      ]).cases;
+      expect(verdict).toBe(expected);
+      expect(result.decision).toBe(verdict);
     });
   }
 });
