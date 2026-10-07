@@ -12,6 +12,23 @@ export function denyResultFor(check: RuleCheck): 'deny' | 'unsupported' {
   return 'deny';
 }
 
+/**
+ * The `rules` block an RTDB operation or listener event carries: the deciding
+ * rule, the bindings, the reason, and the rule-by-rule trace.
+ */
+export function rtdbRulesDetail(evaluation: RuleEvaluationDetails): NonNullable<SandboxOperationEvent['rules']> {
+  const rules: NonNullable<SandboxOperationEvent['rules']> = {
+    engine: 'rtdb',
+    matchedPath: evaluation.matchedPath,
+    matchedRule: evaluation.matchedRule,
+    pathVariableBindings: evaluation.pathVariableBindings,
+    reason: evaluation.reason,
+    errorCode: evaluation.errorCode,
+  };
+  if (evaluation.trace !== undefined) rules.rtdbTrace = evaluation.trace;
+  return rules;
+}
+
 export function canonicalPath(path: string): string {
   return joinPath(pathSegments(path));
 }
@@ -70,14 +87,7 @@ export class OperationEvents {
     try {
       let rulesObj: SandboxOperationEvent['rules'] | undefined = undefined;
       if (evaluation) {
-        rulesObj = {
-          engine: 'rtdb',
-          matchedPath: evaluation.matchedPath,
-          matchedRule: evaluation.matchedRule,
-          pathVariableBindings: evaluation.pathVariableBindings,
-          reason: evaluation.reason,
-          errorCode: evaluation.errorCode,
-        };
+        rulesObj = rtdbRulesDetail(evaluation);
       }
       let originVal: 'user' | 'listener' | 'transaction' | 'batch' | 'admin' | 'system' = 'user';
       if (fields.origin) {

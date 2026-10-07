@@ -21,6 +21,9 @@ import type {
   WriteMode,
 } from '../test/spec.js';
 import type { EvaluatedRuleInfo } from '../test/spec.js';
+import type { RtdbRuleEvaluation } from '../rtdb/simulation/spec.js';
+
+export type { RtdbRuleEvaluation };
 
 // ─── Firestore ───────────────────────────────────────────────────────
 
@@ -163,6 +166,10 @@ export interface RtdbCaseResult {
   matchedRule: string;
   /** Engine-provided reason string. */
   reason: string;
+  /** Every `.read`, `.write` and `.validate` rule the engine evaluated, in
+   *  evaluation order. Empty when no rule of the operation's kind exists on
+   *  the path, or when the engine could not evaluate the case. */
+  trace: RtdbRuleEvaluation[];
 }
 
 export interface RtdbExplanation {
@@ -173,6 +180,8 @@ export interface RtdbExplanation {
   matchedPath: string;
   matchedRule: string;
   reason: string;
+  /** See {@link RtdbCaseResult.trace}. */
+  trace: RtdbRuleEvaluation[];
 }
 
 export interface RtdbSimulationSummary {

@@ -8,7 +8,7 @@ import {
 import { jsonValuesEqual, joinPath, pathSegments, type JsonValue } from './data-tree.js';
 import type { BackendState } from './backend-state.js';
 import type { ValueListener, ValueListenerSnapshot } from './listener-types.js';
-import { denyResultFor } from './operation-events.js';
+import { denyResultFor, rtdbRulesDetail } from './operation-events.js';
 import { executeQuery, type QueryRow, type QuerySpec } from './query.js';
 import { permissionDenied, type RuleEvaluationDetails } from './rules-eval.js';
 
@@ -60,14 +60,7 @@ export class ValueListeners {
       this.state.events.operation(auth, 'listen', path, denyResultFor(evaluation.check), evaluation, {
         at, durationMs: this.state.clock.now() - at, request: requestVal, origin: 'listener',
       });
-      const rulesObj = {
-        engine: 'rtdb' as const,
-        matchedPath: evaluation.matchedPath,
-        matchedRule: evaluation.matchedRule,
-        pathVariableBindings: evaluation.pathVariableBindings,
-        reason: evaluation.reason,
-        errorCode: evaluation.errorCode,
-      };
+      const rulesObj = rtdbRulesDetail(evaluation);
       this.state.events.listener('errored', { id: this.state.events.nextListenerId(), path }, auth, {
         event: 'value', result: 'deny',
         error: { code: 'PERMISSION_DENIED', message: 'PERMISSION_DENIED: Permission denied', reasons: evaluation.reasons },

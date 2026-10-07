@@ -60,6 +60,7 @@ export type {
   RtdbCase,
   RtdbCaseResult,
   RtdbExplanation,
+  RtdbRuleEvaluation,
   RtdbSimulationSummary,
 } from './api/case-types.js';
 

@@ -114,6 +114,7 @@ class DocumentRtdbRuleset implements RtdbRuleset {
         matchedPath: c.path,
         matchedRule: '',
         reason: result.error.message,
+        trace: [],
       };
     }
     const data = result.data;
@@ -134,6 +135,7 @@ class DocumentRtdbRuleset implements RtdbRuleset {
       matchedPath: data.matchedPath,
       matchedRule: data.matchedRule,
       reason: data.reason,
+      trace: data.trace,
     };
   }
 
@@ -160,6 +162,7 @@ class DocumentRtdbRuleset implements RtdbRuleset {
       matchedPath: r.matchedPath,
       matchedRule: r.matchedRule,
       reason: r.reason,
+      trace: r.trace,
     };
   }
 

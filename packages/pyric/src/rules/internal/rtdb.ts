@@ -27,8 +27,10 @@ export {
   SimulationInputSchema,
   SimulateErrorCode,
   SimulationResultSchema,
+  RtdbRuleEvaluationSchema,
 } from '../rtdb/simulation/spec.js';
 export type {
+  RtdbRuleEvaluation,
   SimulationInput,
   SimulationResult,
   SimulateResult,

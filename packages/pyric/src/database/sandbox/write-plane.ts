@@ -4,7 +4,7 @@ import type { ChildListeners } from './child-listeners.js';
 import { joinPath, pathSegments, type JsonValue } from './data-tree.js';
 import type { ChildListener, ValueListener } from './listener-types.js';
 import { normalizeWrite } from './normalize.js';
-import { canonicalPath, denyResultFor } from './operation-events.js';
+import { canonicalPath, denyResultFor, rtdbRulesDetail } from './operation-events.js';
 import { validatePriority } from './priority-state.js';
 import { PriorityWrites } from './priority-writes.js';
 import { executeQuery, type Priority, type QueryRow, type QuerySpec } from './query.js';
@@ -376,14 +376,7 @@ export class WritePlane {
       this.state.events.operation(listener.auth, 'listen', listener.path, denyResultFor(evaluation.check), evaluation, {
         origin: 'listener',
       });
-      const rulesObj = {
-        engine: 'rtdb' as const,
-        matchedPath: evaluation.matchedPath,
-        matchedRule: evaluation.matchedRule,
-        pathVariableBindings: evaluation.pathVariableBindings,
-        reason: evaluation.reason,
-        errorCode: evaluation.errorCode,
-      };
+      const rulesObj = rtdbRulesDetail(evaluation);
       this.state.events.listener('errored', listener, listener.auth, {
         event: 'value', result: 'deny',
         error: { code: 'PERMISSION_DENIED', message: 'PERMISSION_DENIED: Permission denied', reasons: evaluation.reasons },
@@ -402,14 +395,7 @@ export class WritePlane {
       this.state.events.operation(listener.auth, 'listen', listener.path, denyResultFor(evaluation.check), evaluation, {
         origin: 'listener', detail: { event: listener.event },
       });
-      const rulesObj = {
-        engine: 'rtdb' as const,
-        matchedPath: evaluation.matchedPath,
-        matchedRule: evaluation.matchedRule,
-        pathVariableBindings: evaluation.pathVariableBindings,
-        reason: evaluation.reason,
-        errorCode: evaluation.errorCode,
-      };
+      const rulesObj = rtdbRulesDetail(evaluation);
       this.state.events.listener('errored', listener, listener.auth, {
         event: listener.event, result: 'deny',
         error: { code: 'PERMISSION_DENIED', message: 'PERMISSION_DENIED: Permission denied', reasons: evaluation.reasons },

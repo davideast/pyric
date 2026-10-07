@@ -167,6 +167,30 @@ describe('event-stream subscription', () => {
     expect(flatEvents(port).length).toBe(before);
   });
 
+  it('an RTDB operation event carries the rule-by-rule trace through the stream', async () => {
+    const setRules = fakePort();
+    await handleMessage(ctx, setRules, {
+      t: 'op', id: 'r1', method: 'setDatabaseRules',
+      source: { rules: { '.write': 'false', items: { $id: { '.write': 'auth == null', '.validate': 'newData.isNumber()' } } } },
+    });
+    expect(getRes(setRules, 'r1')!.ok).toBe(true);
+    const sub = fakePort();
+    handleMessage(ctx, sub, { t: 'sub', subId: 'ev-1', target: 'events' });
+
+    await handleMessage(ctx, sub, { t: 'op', id: 'w1', method: 'rtdb.set', path: 'items/x', value: 'text' });
+    expect(getRes(sub, 'w1')!.ok).toBe(false);
+    await tick();
+
+    // Events cross the worker port by structured clone.
+    const delivered = structuredClone(flatEvents(sub));
+    const denied = delivered.find((e) => e.kind === 'operation' && e.service === 'rtdb' && e.result === 'deny');
+    expect(denied?.kind === 'operation' && denied.rules?.rtdbTrace).toEqual([
+      { path: '/', kind: 'write', conditionText: 'false', verdict: 'DENY', pathVariableBindings: {} },
+      { path: '/items/$id', kind: 'write', conditionText: 'auth == null', verdict: 'ALLOW', pathVariableBindings: { $id: 'x' } },
+      { path: '/items/$id', kind: 'validate', conditionText: 'newData.isNumber()', verdict: 'DENY', pathVariableBindings: { $id: 'x' } },
+    ]);
+  });
+
   it('cleanupPort drops the port event subscriptions', async () => {
     handleMessage(ctx, port, { t: 'sub', subId: 'ev-1', target: 'events' });
     cleanupPort(ctx, port);

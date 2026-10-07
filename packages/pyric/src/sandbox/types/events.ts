@@ -471,6 +471,9 @@ export interface SandboxOperationEvent {
     pathVariableBindings?: Record<string, string>;
     reason?: string;
     errorCode?: string;
+    /** RTDB only: every `.read`, `.write` and `.validate` rule the engine
+     *  evaluated for the request, in evaluation order. */
+    rtdbTrace?: import('../../rules/rtdb/simulation/spec.js').RtdbRuleEvaluation[];
   };
   request?: {
     data?: unknown;
