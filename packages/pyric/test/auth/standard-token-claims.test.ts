@@ -145,19 +145,48 @@ describe('getIdTokenResult().claims matches the production claim shape', () => {
     expect('email_verified' in claims).toBe(false);
   });
 
-  it('account values win over custom claims of the same name; a custom claim stays when the account has no value', async () => {
+  it('a same-named custom claim: the account wins for user_id, email, email_verified and phone_number; the custom value wins for name, picture and provider_id', async () => {
     const sandbox = initializeSandbox();
     const auth = getAuth(sandbox);
-    authSandbox.createUser(auth, {
+    const record = authSandbox.createUser(auth, {
       email: 'ada@example.com',
       password: 'secret-pw',
-      customClaims: { email_verified: true, email: 'custom@example.com', name: 'custom-name' },
+      displayName: 'Ada',
+      photoUrl: 'https://example.com/ada.png',
+      phoneNumber: '+16505550100',
+      customClaims: {
+        email: 'custom@example.com', email_verified: true, name: 'custom-name', picture: 'custom-picture',
+        phone_number: 'custom-phone', user_id: 'custom-user-id', provider_id: 'custom-provider',
+      },
     });
     await signInWithEmailAndPassword(auth, 'ada@example.com', 'secret-pw');
     const { claims } = await auth.currentUser!.getIdTokenResult();
+    expect(claims.user_id).toBe(record.uid);
     expect(claims.email).toBe('ada@example.com');
     expect(claims.email_verified).toBe(false);
+    expect(claims.phone_number).toBe('+16505550100');
     expect(claims.name).toBe('custom-name');
+    expect(claims.picture).toBe('custom-picture');
+    expect(claims.provider_id).toBe('custom-provider');
+  });
+
+  it('an anonymous account keeps provider_id anonymous over a custom claim of that name', async () => {
+    const auth = getAuth(initializeSandbox());
+    const { user } = await signInAnonymously(auth);
+    authSandbox.updateUser(auth, user.uid, { customClaims: { provider_id: 'custom-provider' } });
+    const { claims } = await user.getIdTokenResult(true);
+    expect(claims.provider_id).toBe('anonymous');
+  });
+
+  it('a reserved custom claim name is refused with auth/reserved-claim', () => {
+    const auth = getAuth(initializeSandbox());
+    expect(() => authSandbox.createUser(auth, { email: 'ada@example.com', customClaims: { sub: 'x' } }))
+      .toThrow(expect.objectContaining({ code: 'auth/reserved-claim', message: 'Developer claim "sub" is reserved and cannot be specified.' }));
+    const record = authSandbox.createUser(auth, { email: 'ada@example.com' });
+    expect(() => authSandbox.updateUser(auth, record.uid, { email: 'b@example.com', customClaims: { firebase: {} } }))
+      .toThrow(expect.objectContaining({ code: 'auth/reserved-claim' }));
+    // A refused update changes nothing.
+    expect(authSandbox.listUsers(auth).find((u) => u.uid === record.uid)?.email).toBe('ada@example.com');
   });
 
   it('a verification recorded after sign-in reaches rules on the next forced refresh', async () => {

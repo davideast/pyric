@@ -13,6 +13,7 @@ import type { LocalSandbox } from 'pyric/sandbox';
 import type { CheckpointBackend } from 'pyric/sandbox/checkpoints';
 import { buildSandboxDispatcher, type SandboxDispatch } from '../client/dispatch.js';
 import { getInProcessToolHandlers } from '../server/tool-metadata.js';
+import { accountLookupFor } from './app-session.js';
 import { SurfaceIdentity } from './identity.js';
 import type { OperationResult, SurfaceContext } from './types.js';
 
@@ -51,7 +52,7 @@ export function createSurfaceContext(
   return {
     sandbox,
     dispatch: buildSurfaceDispatch(sandbox),
-    identity: new SurfaceIdentity(),
+    identity: new SurfaceIdentity(accountLookupFor(sandbox)),
     projectDir,
     targetRouter,
     checkpoints,

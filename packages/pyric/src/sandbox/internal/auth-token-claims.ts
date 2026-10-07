@@ -1,50 +1,62 @@
 /**
  * The standard claims a Firebase ID token carries for an account, projected
- * from the account record. Shared by the Auth token minter and by the
- * `auth.token` value the Firestore, Realtime Database and Storage rules
- * engines read, so every service sees the same claim set.
+ * from the account record. Shared by the Auth token minter, the served worker,
+ * and the MCP identity surface, so every rules engine (Firestore, Realtime
+ * Database, Storage) reads the same `auth.token`.
  *
  * Shape, as decoded from production ID tokens per sign-in flow:
  *
+ * - `user_id` always equals the uid; `provider_id: 'anonymous'` appears on
+ *   anonymous accounts only.
  * - `email` and `email_verified` appear together when the account has an
  *   email address.
  * - `name`, `picture` and `phone_number` appear only when the account has a
  *   display name, photo URL or phone number.
- * - `user_id` always equals the uid; `provider_id: 'anonymous'` appears on
- *   anonymous accounts only.
  * - `firebase.identities` is always present: `{}` for an account with no
  *   email, phone number or linked federated provider; otherwise keyed by
  *   identity type. The email address is listed under `email` (also for a
  *   password account), the phone number under `phone`, and each linked
  *   federated provider under its provider ID.
- * - Account values win over custom claims that reuse the same name; a custom
- *   claim keeps its value when the account has no value for that claim.
+ *
+ * When a custom claim reuses one of these names, the account value wins for
+ * `user_id`, `email`, `email_verified`, `phone_number`, and `provider_id` on
+ * an anonymous account; the custom value wins for `name`, `picture`, and
+ * `provider_id` on any other account.
  */
+
+import { FirebaseError } from './firebase-error.js';
 
 /** JWT registered claims a minter adds around the account claim set. */
 const JWT_REGISTERED_CLAIMS = ['sub', 'aud', 'iss', 'auth_time', 'iat', 'exp'] as const;
 
-/** Claims projected from the account record (see {@link standardTokenClaims}). */
-const ACCOUNT_CLAIMS = ['user_id', 'provider_id', 'email', 'email_verified', 'name', 'picture', 'phone_number'] as const;
+/**
+ * Developer claim names the Admin SDK refuses with `auth/reserved-claim`
+ * (`RESERVED_CLAIMS` in firebase-admin's `auth-api-request`, confirmed by the
+ * auth-id-token-standard-claims capture).
+ */
+export const RESERVED_CUSTOM_CLAIMS: readonly string[] = [
+  'acr', 'amr', 'at_hash', 'aud', 'auth_time', 'azp', 'cnf', 'c_hash', 'exp', 'iat',
+  'iss', 'jti', 'nbf', 'nonce', 'sub', 'firebase',
+];
+
+/**
+ * Refuse a custom claim set that uses a reserved name, with the Admin SDK's
+ * `auth/reserved-claim` code and message.
+ */
+export function assertNoReservedCustomClaims(claims: Record<string, unknown>): void {
+  const used = RESERVED_CUSTOM_CLAIMS.filter((name) => Object.prototype.hasOwnProperty.call(claims, name));
+  if (used.length === 0) return;
+  const message = used.length > 1
+    ? `Developer claims "${used.join('", "')}" are reserved and cannot be specified.`
+    : `Developer claim "${used[0]}" is reserved and cannot be specified.`;
+  throw new FirebaseError('auth/reserved-claim', message);
+}
 
 /** A token claim set without the JWT registered claims: the value rules
  *  read on `auth.token`. */
 export function withoutJwtClaims(tokenClaims: Record<string, unknown>): Record<string, unknown> {
   const claims: Record<string, unknown> = { ...tokenClaims };
   for (const key of JWT_REGISTERED_CLAIMS) delete claims[key];
-  return claims;
-}
-
-/**
- * The custom claims recoverable from a decoded token: everything except the
- * JWT registered claims, the account claims, and the reserved `firebase`
- * namespace. A custom claim that reuses an account claim name is not
- * recoverable from the token alone and is dropped.
- */
-export function customClaimsFromToken(tokenClaims: Record<string, unknown>): Record<string, unknown> {
-  const claims = withoutJwtClaims(tokenClaims);
-  for (const key of ACCOUNT_CLAIMS) delete claims[key];
-  delete claims.firebase;
   return claims;
 }
 
@@ -61,46 +73,42 @@ export interface TokenClaimAccount {
   providerIds: readonly string[];
 }
 
-/** Top-level standard claims plus the `firebase.identities` map. */
-export interface StandardTokenClaims {
-  claims: Record<string, unknown>;
-  identities: Record<string, string[]>;
+/** An Auth account record, stored or listed: the fields the projection reads. */
+export interface TokenClaimRecord {
+  uid: string;
+  email: string | null;
+  emailVerified: boolean;
+  displayName: string | null;
+  photoUrl: string | null;
+  phoneNumber: string | null;
+  isAnonymous: boolean;
+  providerUserInfo: ReadonlyArray<{ providerId: string }>;
+}
+
+export function tokenClaimAccount(record: TokenClaimRecord): TokenClaimAccount {
+  return {
+    uid: record.uid,
+    email: record.email,
+    emailVerified: record.emailVerified,
+    displayName: record.displayName,
+    photoUrl: record.photoUrl,
+    phoneNumber: record.phoneNumber,
+    isAnonymous: record.isAnonymous,
+    providerIds: record.providerUserInfo.map((p) => p.providerId),
+  };
 }
 
 /** Provider IDs whose identity is listed under another key: a password
  *  account's identity is its email address, a phone account's its number. */
 const NON_FEDERATED_PROVIDERS = new Set(['password', 'phone', 'anonymous']);
 
-export function standardTokenClaims(account: TokenClaimAccount): StandardTokenClaims {
-  const claims: Record<string, unknown> = { user_id: account.uid };
-  const identities: Record<string, string[]> = {};
-  if (account.isAnonymous) claims.provider_id = 'anonymous';
-  if (account.email !== null) {
-    claims.email = account.email;
-    claims.email_verified = account.emailVerified;
-    identities.email = [account.email];
-  }
-  if (account.displayName !== null) claims.name = account.displayName;
-  if (account.photoUrl !== null) claims.picture = account.photoUrl;
-  if (account.phoneNumber !== null) {
-    claims.phone_number = account.phoneNumber;
-    identities.phone = [account.phoneNumber];
-  }
-  // The sandbox records no provider-side account ID for a federated link, so
-  // the uid stands in as the single listed identity.
-  for (const providerId of account.providerIds) {
-    if (NON_FEDERATED_PROVIDERS.has(providerId)) continue;
-    identities[providerId] = [account.uid];
-  }
-  return { claims, identities };
-}
-
 /**
- * The claim set an ID token carries: custom claims, then the account's
- * standard claims over them, then the reserved `firebase` namespace with the
- * identities map and the session's sign-in provider. A `null` account (an
- * identity with no record) yields the custom claims, `user_id`, and a
- * `firebase` namespace with empty identities.
+ * The claim set an ID token carries, without the JWT registered claims: the
+ * account's `name` and `picture`, custom claims over them, the account's
+ * other standard claims over those, then the reserved `firebase` namespace
+ * with the identities map and the session's sign-in provider. A `null`
+ * account (an identity with no record) yields the custom claims, `user_id`,
+ * and a `firebase` namespace with empty identities.
  */
 export function accountTokenClaims(
   uid: string,
@@ -108,10 +116,33 @@ export function accountTokenClaims(
   customClaims: Record<string, unknown>,
   signInProvider: string | null,
 ): Record<string, unknown> {
-  const standard = account === null ? { claims: { user_id: uid }, identities: {} } : standardTokenClaims(account);
+  const customOverrides: Record<string, unknown> = {};
+  const accountWins: Record<string, unknown> = { user_id: uid };
+  const identities: Record<string, string[]> = {};
+  if (account !== null) {
+    if (account.displayName !== null) customOverrides.name = account.displayName;
+    if (account.photoUrl !== null) customOverrides.picture = account.photoUrl;
+    if (account.isAnonymous) accountWins.provider_id = 'anonymous';
+    if (account.email !== null) {
+      accountWins.email = account.email;
+      accountWins.email_verified = account.emailVerified;
+      identities.email = [account.email];
+    }
+    if (account.phoneNumber !== null) {
+      accountWins.phone_number = account.phoneNumber;
+      identities.phone = [account.phoneNumber];
+    }
+    // The sandbox records no provider-side account ID for a federated link,
+    // so the uid stands in as the single listed identity.
+    for (const providerId of account.providerIds) {
+      if (NON_FEDERATED_PROVIDERS.has(providerId)) continue;
+      identities[providerId] = [account.uid];
+    }
+  }
   return {
+    ...customOverrides,
     ...customClaims,
-    ...standard.claims,
-    firebase: { identities: standard.identities, sign_in_provider: signInProvider },
+    ...accountWins,
+    firebase: { identities, sign_in_provider: signInProvider },
   };
 }

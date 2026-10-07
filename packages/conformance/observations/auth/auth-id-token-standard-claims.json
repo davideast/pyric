@@ -4,8 +4,8 @@
   "rowIds": [
     "auth#68b"
   ],
-  "description": "The decoded ID token claim set per sign-in flow: anonymous, email and password (unverified, then with a display name and photo URL, then verified with a phone number set through the Admin SDK), an account whose custom claims reuse standard claim names, and a custom token for a new uid and for an existing email account. Records which standard claims (email, email_verified, name, picture, phone_number) appear and the shape of the firebase namespace (identities keyed by provider, sign_in_provider). Values that identify the test accounts are replaced by placeholders. Every account is removed through the Admin SDK at the end.",
-  "observedAt": "2026-10-07T11:25:22.652Z",
+  "description": "The decoded ID token claim set per sign-in flow: anonymous, email and password (unverified, then with a display name and photo URL, then verified with a phone number set through the Admin SDK), accounts whose custom claims reuse standard claim names (one without a display name, one with every profile field, one anonymous), the Admin SDK refusal of reserved claim names, and a custom token for a new uid and for an existing email account. Records which standard claims (email, email_verified, name, picture, phone_number, user_id, provider_id) appear, which value wins when a custom claim reuses the name, and the shape of the firebase namespace (identities keyed by provider, sign_in_provider). Values that identify the test accounts are replaced by placeholders. Every account is removed through the Admin SDK at the end.",
+  "observedAt": "2026-10-07T13:45:01.028Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "genkit-idx",
   "behavior": {
@@ -121,6 +121,62 @@
         "name": "custom-name",
         "sub": "<uid>",
         "user_id": "<uid>"
+      }
+    },
+    "customClaimsOverlappingFullProfile": {
+      "signInProvider": "password",
+      "claims": {
+        "aud": "<projectId>",
+        "auth_time": "<number>",
+        "email": "<email>",
+        "email_verified": false,
+        "exp": "<number>",
+        "firebase": {
+          "identities": {
+            "email": [
+              "<email>"
+            ],
+            "phone": [
+              "<phoneNumber>"
+            ]
+          },
+          "sign_in_provider": "password"
+        },
+        "iat": "<number>",
+        "iss": "https://securetoken.google.com/<projectId>",
+        "name": "custom-name",
+        "phone_number": "<phoneNumber>",
+        "picture": "custom-picture",
+        "provider_id": "custom-provider",
+        "sub": "<uid>",
+        "user_id": "<uid>"
+      }
+    },
+    "customClaimsOverlappingAnonymous": {
+      "signInProvider": "anonymous",
+      "claims": {
+        "aud": "<projectId>",
+        "auth_time": "<number>",
+        "exp": "<number>",
+        "firebase": {
+          "identities": {},
+          "sign_in_provider": "anonymous"
+        },
+        "iat": "<number>",
+        "iss": "https://securetoken.google.com/<projectId>",
+        "provider_id": "anonymous",
+        "sub": "<uid>",
+        "user_id": "<uid>"
+      }
+    },
+    "reservedClaims": {
+      "single": {
+        "code": "auth/reserved-claim",
+        "message": "Developer claim \"sub\" is reserved and cannot be specified."
+      },
+      "multiple": {
+        "code": "auth/reserved-claim",
+        "message": "Developer claims \"iat\", \"firebase\" are reserved and cannot be specified."
       }
     },
     "customTokenNewUid": {

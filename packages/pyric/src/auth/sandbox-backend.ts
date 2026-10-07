@@ -52,7 +52,7 @@ import { defaultAvatarMint, type AvatarMint } from './sandbox/default-avatar.js'
 
 import { normalizeAuthState, type AuthState, type Sandbox } from 'pyric/sandbox';
 import {
-  accountTokenClaims, emitSandboxEvent, getClock, makeServiceMutationEvent, withoutJwtClaims, type TokenClaimAccount,
+  accountTokenClaims, assertNoReservedCustomClaims, emitSandboxEvent, getClock, makeServiceMutationEvent, tokenClaimAccount, withoutJwtClaims,
 } from 'pyric/sandbox/internal';
 import type { AuthEventOperation } from './events.js';
 
@@ -122,20 +122,6 @@ const RECENT_LOGIN_WINDOW_MS = 5 * 60 * 1000;
  */
 function rulesTokenClaims(minted: IdTokenResult): Record<string, unknown> {
   return withoutJwtClaims(minted.claims);
-}
-
-/** The account fields the shared token claim projection reads. */
-function tokenClaimAccount(stored: StoredUser): TokenClaimAccount {
-  return {
-    uid: stored.uid,
-    email: stored.email,
-    emailVerified: stored.emailVerified,
-    displayName: stored.displayName,
-    photoUrl: stored.photoUrl,
-    phoneNumber: stored.phoneNumber,
-    isAnonymous: stored.isAnonymous,
-    providerIds: stored.providerUserInfo.map((p) => p.providerId),
-  };
 }
 
 export class SandboxBackend {
@@ -1749,6 +1735,7 @@ export class SandboxBackend {
    *  `createUserWithEmailAndPassword`) — matches the emulator's
    *  add-user flow / admin SDK semantics. */
   createUser(req: CreateUserRequest): AuthUserRecord {
+    if (req.customClaims !== undefined) assertNoReservedCustomClaims(req.customClaims);
     const uid = req.uid ?? this.nextAvailableAdminUid();
     if (this.usersByUid.has(uid)) {
       throw makeAuthError(
@@ -1807,6 +1794,7 @@ export class SandboxBackend {
     if (!stored) {
       throw makeAuthError('auth/user-not-found', `No user found for uid ${uid}.`);
     }
+    if (update.customClaims !== undefined) assertNoReservedCustomClaims(update.customClaims);
     const before = this.toRecord(stored);
     if (update.email !== undefined) {
       validateEmailFormat(update.email);

@@ -150,15 +150,17 @@ export class ServeAuthHelper {
     }
     void Promise.resolve(
       this.mint({ kind: 'pick', identity, providerId: pending.req.providerId }),
-    ).then(pending.resolve, pending.reject);
+    ).then((credential) => resolveWithClaims(pending, credential, identity.customClaims), pending.reject);
   }
 
   add(spec: NewIdentitySpec): void {
     const pending = this.take();
     if (!pending) return;
+    // A same-email add resolves to the existing identity, so its claims apply.
+    const customClaims = this.findIdentityByEmail(spec.email)?.customClaims ?? spec.customClaims ?? {};
     void Promise.resolve(
       this.mint({ kind: 'add', spec, providerId: pending.req.providerId }),
-    ).then(pending.resolve, pending.reject);
+    ).then((credential) => resolveWithClaims(pending, credential, customClaims), pending.reject);
   }
 
   cancel(): void {
@@ -212,6 +214,28 @@ export class ServeAuthHelper {
       (identity) => identity.email?.toLowerCase() === normalized,
     );
   }
+}
+
+/** The custom claims of the identity each resolved credential was minted for. */
+const credentialCustomClaims = new WeakMap<UserCredential, Record<string, unknown>>();
+
+function resolveWithClaims(
+  pending: Pending,
+  credential: UserCredential,
+  customClaims: Record<string, unknown>,
+): void {
+  credentialCustomClaims.set(credential, { ...customClaims });
+  pending.resolve(credential);
+}
+
+/**
+ * The custom claims of the identity a helper credential was resolved for,
+ * taken from the identity itself rather than decoded from the token, so a
+ * custom claim that shares a name with a standard claim reaches the worker
+ * seed unchanged. `{}` for a credential the helper did not resolve.
+ */
+export function helperCustomClaims(credential: UserCredential): Record<string, unknown> {
+  return { ...(credentialCustomClaims.get(credential) ?? {}) };
 }
 
 /** Provider UIDs are opaque Firebase identifiers, not encoded credentials. */

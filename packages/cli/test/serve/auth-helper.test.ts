@@ -11,8 +11,8 @@ import {
   sandbox as authSandbox,
 } from 'pyric/auth';
 import { child, getDatabase, ref } from 'pyric/database';
-import { customClaimsFromToken } from 'pyric/sandbox/internal';
 import {
+  helperCustomClaims,
   ServeAuthHelper,
   type HelperIdentity,
 } from '../../src/serve/entries/auth-helper-core.js';
@@ -185,27 +185,28 @@ describe('ServeAuthHelper', () => {
     expect(cred.user.providerData?.[0]?.photoURL).toBe(photoURL);
   });
 
-  it('customClaimsFromToken strips the synthesized sub and firebase entries', () => {
-    expect(customClaimsFromToken({
-      sub: 'uid-1',
-      firebase: { sign_in_provider: 'google.com' },
-      role: 'admin',
-      plan: 'pro',
-    })).toEqual({ role: 'admin', plan: 'pro' });
-  });
-
-  it('customClaimsFromToken strips the JWT and account claims of a sandbox-minted token', async () => {
-    // The in-page fallback resolves a credential through the sandbox backend,
-    // whose ID token carries the account's standard claims; none of them is a
-    // custom claim.
+  it('helperCustomClaims returns the added identity custom claims, not the token claims', async () => {
+    // The in-page fallback mints through the sandbox backend, whose ID token
+    // carries JWT and account claims beside the custom ones. A custom claim
+    // that shares a name with a standard claim still reaches the seed.
     const auth = getAuth(initializeSandbox());
-    const cred = authSandbox.createSignInCredential(auth, {
-      providerId: 'google.com',
-      spec: { email: 'ada@example.com', displayName: 'Ada', customClaims: { role: 'admin' } },
-    });
+    const helper = helperForLocalAuth(auth);
+    const pending = helper.resolver().openPopup({ providerId: 'google.com', authType: 'signIn' });
+    helper.add({ email: 'ada@example.com', displayName: 'Ada', customClaims: { role: 'admin', name: 'custom-name' } });
+    const cred = await pending;
     const { claims } = await cred.user.getIdTokenResult();
     expect(claims.email).toBe('ada@example.com');
-    expect(customClaimsFromToken(claims as Record<string, unknown>)).toEqual({ role: 'admin' });
+    expect(helperCustomClaims(cred)).toEqual({ role: 'admin', name: 'custom-name' });
+  });
+
+  it('helperCustomClaims returns a picked identity custom claims', async () => {
+    const identity: HelperIdentity = {
+      uid: 'u-picked', email: 'pick@example.com', displayName: null, customClaims: { plan: 'pro', email: 'x' },
+    };
+    const helper = new ServeAuthHelper({ list: () => [identity] });
+    const pending = helper.resolver().openPopup({ providerId: 'google.com', authType: 'signIn' });
+    helper.pick('u-picked');
+    expect(helperCustomClaims(await pending)).toEqual({ plan: 'pro', email: 'x' });
   });
 
   it('non-delegated (in-page fallback): a disabled google.com popup throws operation-not-allowed', async () => {

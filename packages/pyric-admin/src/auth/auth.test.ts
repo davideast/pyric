@@ -148,6 +148,20 @@ describe('sandbox backend — createCustomToken / verifyIdToken roundtrip', () =
     expect(decoded.firebase).toEqual({ identities: { email: ['ada@example.com'] }, sign_in_provider: 'password' });
   });
 
+  it('setCustomUserClaims refuses reserved claim names with auth/reserved-claim', async () => {
+    const auth = getAuth(initializeApp({ sandbox: initializeSandbox() }));
+    const user = await auth.createUser({ email: 'ada@example.com' });
+    await expect(auth.setCustomUserClaims(user.uid, { sub: 'x' })).rejects.toMatchObject({
+      code: 'auth/reserved-claim',
+      message: 'Developer claim "sub" is reserved and cannot be specified.',
+    });
+    await expect(auth.setCustomUserClaims(user.uid, { firebase: {}, iat: 1 })).rejects.toMatchObject({
+      code: 'auth/reserved-claim',
+      message: 'Developer claims "iat", "firebase" are reserved and cannot be specified.',
+    });
+    await expect(auth.setCustomUserClaims(user.uid, { name: 'allowed' })).resolves.toBeUndefined();
+  });
+
   it('rejects client ID tokens with malformed claim JSON', async () => {
     const sandbox = initializeSandbox();
     const auth = getAuth(initializeApp({ sandbox }));

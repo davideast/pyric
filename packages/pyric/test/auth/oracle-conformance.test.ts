@@ -861,7 +861,8 @@ describe('oracle conformance (auth)', () => {
     type Arm = { signInProvider: string; claims: Record<string, unknown> };
     const obs = load('auth-id-token-standard-claims.json') as Record<
       | 'anonymous' | 'passwordUnverified' | 'passwordWithProfile' | 'passwordVerifiedWithPhone'
-      | 'customClaimsOverlappingStandard' | 'customTokenNewUid' | 'customTokenExistingEmailAccount',
+      | 'customClaimsOverlappingStandard' | 'customClaimsOverlappingFullProfile' | 'customClaimsOverlappingAnonymous'
+      | 'reservedClaims' | 'customTokenNewUid' | 'customTokenExistingEmailAccount',
       Arm
     >;
     const email = 'claims@example.com';
@@ -917,6 +918,38 @@ describe('oracle conformance (auth)', () => {
       customClaims: { email_verified: true, email: 'custom@oracle.test', name: 'custom-name' },
     });
     expect(await armOf(overlap.user, true)).toEqual(expected(obs.customClaimsOverlappingStandard));
+
+    const fullOverlapAuth = freshAuth();
+    authSandbox.createUser(fullOverlapAuth, {
+      email, password: 'pw123456', displayName, photoUrl: photoURL, phoneNumber,
+      customClaims: {
+        email: 'custom@oracle.test', email_verified: true, name: 'custom-name', picture: 'custom-picture',
+        phone_number: 'custom-phone', user_id: 'custom-user-id', provider_id: 'custom-provider',
+      },
+    });
+    const fullOverlap = await signInWithEmailAndPassword(fullOverlapAuth, email, 'pw123456');
+    expect(await armOf(fullOverlap.user, false)).toEqual(expected(obs.customClaimsOverlappingFullProfile));
+
+    const anonOverlapAuth = freshAuth();
+    const anonOverlap = await signInAnonymously(anonOverlapAuth);
+    authSandbox.updateUser(anonOverlapAuth, anonOverlap.user.uid, {
+      customClaims: { provider_id: 'custom-provider', user_id: 'custom-user-id' },
+    });
+    expect(await armOf(anonOverlap.user, true)).toEqual(expected(obs.customClaimsOverlappingAnonymous));
+
+    const reserved = obs.reservedClaims as unknown as Record<'single' | 'multiple', { code: string; message: string }>;
+    const reservedOutcome = (claims: Record<string, unknown>): { code: string; message: string } | null => {
+      try {
+        authSandbox.updateUser(anonOverlapAuth, anonOverlap.user.uid, { customClaims: claims });
+        return null;
+      } catch (e) {
+        const err = e as { code: string; message: string };
+        return { code: err.code, message: err.message };
+      }
+    };
+    expect(reservedOutcome({ sub: 'x' })).toEqual(reserved.single);
+    // The Admin SDK lists the names in its own reserved-list order.
+    expect(reservedOutcome({ firebase: {}, iat: 1 })).toEqual(reserved.multiple);
 
     const customAuth = freshAuth();
     const custom = await signInWithCustomToken(customAuth, JSON.stringify({ uid: 'claims-custom', claims: { role: 'oracle' } }));

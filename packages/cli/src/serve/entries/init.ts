@@ -26,10 +26,10 @@ import { initPayload } from './init-payload.js';
 import { sandbox } from './app-backend.js';
 import { installAvatarUpgrades } from './avatar-upgrade.js';
 import { useWorker, workerDb } from './worker-runtime.js';
-import { ServeAuthHelper } from './auth-helper-core.js';
+import { ServeAuthHelper, helperCustomClaims } from './auth-helper-core.js';
 import { installServeAuthResolver } from './auth-helper-runtime.js';
 import { mountAuthHelperDialog } from './auth-helper-dom.js';
-import { configureListenerAttribution, customClaimsFromToken } from 'pyric/sandbox/internal';
+import { configureListenerAttribution } from 'pyric/sandbox/internal';
 import { installPyricRuntimeChip } from '../runtime/chip-install.js';
 import { sandboxEventSource } from '../runtime/listener-event-source.js';
 import { getPyricRuntimeStatus } from '../runtime/status.js';
@@ -118,10 +118,7 @@ if (typeof document !== 'undefined' && typeof window !== 'undefined') {
       openCreateUser: async () => {
         try {
           const cred = await helper.promptCreateUser('password');
-          const tokenResult = await cred.user.getIdTokenResult();
-          const customClaims = customClaimsFromToken(
-            (tokenResult.claims ?? {}) as Record<string, unknown>,
-          );
+          const customClaims = helperCustomClaims(cred);
           const identity = {
             uid: cred.user.uid,
             email: cred.user.email,
