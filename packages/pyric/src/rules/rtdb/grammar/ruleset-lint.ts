@@ -161,9 +161,13 @@ function getFactsSemantics(): Semantics {
   return semantics;
 }
 
-/** The facts of a rule expression, or undefined when it does not parse. */
+/**
+ * The facts of a rule expression, or undefined when it does not parse or
+ * production refuses it at deploy: a refused rule never runs, so it grants
+ * nothing to lint.
+ */
 function factsOf(rule: RtdbRuleExpression | undefined): ExpressionFacts | undefined {
-  if (rule === undefined || !rule.parsed.valid) return undefined;
+  if (rule === undefined || !rule.parsed.valid || rule.parsed.errors.length > 0) return undefined;
   const matched = matchRtdbExpression(rule.raw);
   if (!matched.ok) return undefined;
   const node = getFactsSemantics()(matched.match) as any;

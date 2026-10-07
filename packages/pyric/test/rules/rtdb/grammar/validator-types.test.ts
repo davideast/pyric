@@ -13,6 +13,7 @@ import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ALL_RULES_RTDB_SCENARIOS } from '../../../../../conformance/rules-corpus/rtdb/index.ts';
+import { rtdbRules } from 'pyric/rules';
 import { buildRuleExpression, compileRtdbRules } from '../../../../src/rules/rtdb/compiled-rules.js';
 import { validateExpression } from '../../../../src/rules/rtdb/grammar/validator.js';
 import type { RtdbNode } from '../../../../src/rules/rtdb/types.js';
@@ -105,6 +106,14 @@ describe('validation error codes', () => {
       ]);
     }
     expect(buildRuleExpression("auth.uid == '=' && auth.uid != 'a=b'", 'read').parsed.errors).toEqual([]);
+  });
+
+  test('a rule production refuses draws its refusal and no security finding: it never runs', () => {
+    const issues = rtdbRules({ rules: { probe: { '.write': "data == 'locked'" } } }).lint()
+      .filter((issue) => issue.severity === 'error');
+    expect(issues.map((issue) => issue.message)).toEqual([
+      'Invalid == expression: left operand is not a number, boolean, string, null.',
+    ]);
   });
 
   test('newData in a .read rule reports NEWDATA_IN_READ', () => {
