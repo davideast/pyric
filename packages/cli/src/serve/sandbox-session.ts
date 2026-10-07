@@ -56,7 +56,7 @@ export interface SandboxSessionOptions {
   hosted?: boolean;
   /** Deploys file rules to the Node sandbox. A null database or Storage source
    *  clears the rules, so the sandbox's default policy applies. */
-  deployHostedRules?: (service: 'firestore' | 'database' | 'storage', source: string | null) => Promise<void>;
+  deployHostedRules?: (service: 'firestore' | 'database' | 'storage', source: string | null, instance?: string) => Promise<void>;
   ai?: InitPayload['ai'];
   aiProxyUpstream?: string;
   /** Resolved `avatars` option (already reduced by `avatars-config.ts` from
@@ -459,11 +459,10 @@ export async function createSandboxSession(
       return [...new Set([firestoreSourcePath, ...firestore.moduleFiles, ...attemptedModuleFiles])];
     };
     const databaseRulesFiles = (): readonly string[] => [...new Set(database.targets.map((target) => target.path))];
-    // The Node host holds one database store, which serves the default
-    // instance, so only the default instance's rules deploy to it.
+    // The Node host holds one store per instance, so each instance's rules
+    // deploy to that instance. Its startup rules arrive in the init payload.
     const deployHostedDatabaseRules = async (instance: string, rules: RtdbRulesJson | null): Promise<void> => {
-      const isDefaultInstance = instance === database.defaultInstance;
-      if (isDefaultInstance) await options.deployHostedRules?.('database', rules === null ? null : JSON.stringify(rules));
+      await options.deployHostedRules?.('database', rules === null ? null : JSON.stringify(rules), instance);
     };
     // Without a rules file, an instance's reads and writes follow the default
     // policy: deny, as in production, unless the session is permissive.

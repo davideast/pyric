@@ -66,14 +66,38 @@ test('serves the default instance rules to a database opened without a URL', asy
   expect((await get(ref(getDatabase(sandbox), 'a'))).val()).toBe(1);
 });
 
-test('an instance without rules follows the default policy', async () => {
+test('an instance firebase.json deploys no rules to is locked in every mode, and its first use says how to deploy them', async () => {
   const sandbox = initializeSandbox();
   const deployment = createDatabaseRulesDeployment(sandbox);
-  deployment.register('https://undeclared.firebaseio.com');
-  deployment.deploy({ defaultInstance: 'demo-default-rtdb', rules: { declared: OPEN } }, 'deny');
-  await expect(get(ref(getDatabase(sandbox, 'https://undeclared.firebaseio.com')))).rejects.toThrow('PERMISSION_DENIED');
-  deployment.deploy({ defaultInstance: 'demo-default-rtdb', rules: { declared: OPEN } }, 'allow');
-  expect((await get(ref(getDatabase(sandbox, 'https://undeclared.firebaseio.com'), 'x'))).exists()).toBe(false);
+  const notices: string[] = [];
+  const warn = console.warn;
+  console.warn = (...args: unknown[]) => { notices.push(args.map(String).join(' ')); };
+  try {
+    deployment.register('https://undeclared.firebaseio.com');
+    deployment.deploy({ defaultInstance: 'demo-default-rtdb', rules: { declared: OPEN } }, 'allow');
+    const undeclared = getDatabase(sandbox, 'https://undeclared.firebaseio.com');
+    await expect(get(ref(undeclared, 'x'))).rejects.toThrow('PERMISSION_DENIED');
+    await expect(set(ref(undeclared, 'x'), 1)).rejects.toThrow('PERMISSION_DENIED');
+    expect(notices).toEqual([
+      'pyric: RTDB instance "undeclared" has no rules in firebase.json; it denies all reads and writes. Add {"instance": "undeclared", "rules": "<file>"} to the database array.',
+    ]);
+    // A declared instance whose rules file is missing follows the default policy.
+    deployment.deploy({ defaultInstance: 'demo-default-rtdb', rules: { undeclared: null } }, 'allow');
+    expect((await get(ref(undeclared, 'x'))).exists()).toBe(false);
+  } finally {
+    console.warn = warn;
+  }
+});
+
+test('serves the array\'s default instance rules to the default store once the app names its project', async () => {
+  // firebase.json names `p-default-rtdb`; without .firebaserc or --project
+  // the loader cannot tell that name is the default instance's.
+  const sandbox = initializeSandbox();
+  const deployment = createDatabaseRulesDeployment(sandbox);
+  deployment.deploy({ defaultInstance: '(default)', rules: { 'p-default-rtdb': OPEN } });
+  deployment.register(undefined, 'p');
+  await set(ref(getDatabase(sandbox), 'a'), 1);
+  expect((await get(ref(getDatabase(sandbox), 'a'))).val()).toBe(1);
 });
 
 test('a refused ruleset names its instance, and the other instances still get theirs', async () => {

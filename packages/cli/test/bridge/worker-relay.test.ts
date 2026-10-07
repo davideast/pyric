@@ -257,6 +257,27 @@ describe('worker relay — op round-trip', () => {
     expect(await node.rtdb.get('rooms/lobby')).toBeNull();
   });
 
+  it('forInstance reads, writes and listens on the RTDB instance it names', async () => {
+    const bridge = makeRelayBridge();
+    const ctx = await makeWorkerCtx();
+    connectTab(bridge, ctx);
+    const node = connectNode(bridge);
+    await node.core.ready;
+    const second = node.rtdb.forInstance('second');
+
+    const snaps: RemoteRtdbSnapshot[] = [];
+    const stop = second.onValue('rooms/lobby', (snap) => snaps.push(snap));
+    await second.set('rooms/lobby', 'second');
+    await node.rtdb.set('rooms/lobby', 'default');
+    expect(await second.get('rooms/lobby')).toBe('second');
+    expect(await node.rtdb.get('rooms/lobby')).toBe('default');
+    const { path } = await second.push('messages', { text: 'hi' });
+    expect(await node.rtdb.get(path)).toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(snaps.map((snap) => snap.value)).toEqual([null, 'second']);
+    stop();
+  });
+
   it('push mints the key client-side and writes the value there', async () => {
     const bridge = makeRelayBridge();
     const ctx = await makeWorkerCtx();

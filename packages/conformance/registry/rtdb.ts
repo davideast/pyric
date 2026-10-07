@@ -89,7 +89,7 @@ const row6 = defineRows({
 });
 
 /** Production gives each database URL its own data and rules. Each row here
- * names a Pyric path that does not, and the test that pins it. */
+ * names one Pyric path that serves database URLs, and the test that pins it. */
 const multiInstanceRow = defineRows({
   surface: "rtdb-modular",
   defaults: {
@@ -2272,29 +2272,37 @@ export const rtdbRegistry = {
     },
     {
       kind: 'table',
-      prefix: "### Multiple database instances\n\nIn production each database URL is its own instance, with its own data and its own rules. The in-page sandbox keeps one backend per canonical URL, so `getDatabase(app, url)` isolates data there, and the dev server loads each instance its own rules from `firebase.json`. The served worker paths route every URL to the default instance.\n",
+      prefix: "### Multiple database instances\n\nIn production each database URL is its own instance, with its own data and its own rules. The in-page sandbox keeps one backend per canonical URL, so `getDatabase(app, url)` isolates data there, and the dev server loads each instance its own rules from `firebase.json`. The served worker host, in the SharedWorker and in the Node host, holds one store and one ruleset per instance.\n",
       rows: [
         multiInstanceRow({
           rowRef: "MI1",
           featureKeys: ["getDatabase"],
           api: "getDatabase(app, url) (served mode)",
-          behavior: "Served mode returns one `Database` handle per app whatever the URL, and the worker host, in the SharedWorker and in the Node host, runs every RTDB operation against the sandbox's default instance. A write through one URL's handle is read through another URL's handle. Production keeps each URL's data separate.",
-          statusNote: "served mode routes every instance to the default instance",
-          evidence: "`packages/cli/test/serve/worker/rtdb-served-entry.cases.ts` (run by `rtdb-integration.test.ts`) imports the served `firebase/database` entry over a worker host, asserts `getDatabase(app, urlA)` and `getDatabase(app, urlB)` return the same handle, and reads the write from the host's default instance while the second URL's instance stays empty. The worker protocol's RTDB operations carry no instance field. CDD assertion `rtdb-modular#MI1` pins the in-page sandbox side: two URLs on one sandbox keep separate data.",
+          behavior: "The served worker host, in the SharedWorker and in the Node host, holds one store and one ruleset per instance, and the instance name travels on every RTDB operation and listener from the page. A write to one instance is not visible on another, listeners on one instance do not fire for another's writes, each instance enforces its own rules, and one port session's Auth identity reaches every instance, including after sign-out and a forced token refresh. The default instance's URL and `getDatabase(app)` name one store. As the SDK does, served mode returns one handle per app and URL argument, throws `Database initialized multiple times` for a second URL form naming an open instance, throws `Can't determine Firebase Database URL` with neither a URL nor a project id, reports each reference's production URL, and checks `refFromURL`'s host. An instance `firebase.json` deploys no rules to is created on first use with locked rules, `.read` and `.write` false at the root as production creates a new instance, and its first use logs which `database` entry would deploy its rules.",
+          statusNote: "Studio's data browser, the MCP tools and the `pyric verify` capture reach only the default instance; the pyric-admin remote arm names an instance with `rtdb.forInstance`",
+          status: "conforms",
+          evidence: "Oracle `rtdb-modular-multiple-instances` deploys a different ruleset to `genkit-idx-default-rtdb` and `genkit-idx-second-rtdb` and records a signed-out write denied on one instance and allowed on the other, each write visible only on its own instance, and one custom-token user allowed on both under each instance's rules. Its `sdk` section, recorded offline from the production SDK, holds each reference URL form, the `refFromURL` host error, the `Database initialized multiple times` error, and the `Can't determine Firebase Database URL` error. `rtdb-instances.cases.ts` (run by `rtdb-instances.test.ts`) replays both sections through the served `firebase/database` entry over the shared host dispatch, and pins listener isolation, the default-URL store and the locked instance and its notice. `host/rtdb-instances.test.ts` pins per-instance rules ops, onDisconnect per instance, reset restoring each instance's rules, and `firebase.json` rules for `<projectId>-default-rtdb` reaching `getDatabase(app)` when the project id arrives with the first app. `per-port-sessions.test.ts` re-checks a listener on a non-default instance at sign-out and at a forced token refresh. `hosted-sqlite.test.ts` runs the Node host: per-instance data and rules, the data across a restart, one Auth session on both instances, and a `firebase.json` array loading each instance its own rules. `worker-relay.test.ts` pins `rtdb.forInstance`. `oracle-conformance-runtime-identity.test.ts` replays the observation's rules and handle identity on the in-page sandbox.",
+          automation: "oracle-backed",
+          oracleObservations: ["rtdb-modular-multiple-instances"],
           conformanceTests: [
-            "packages/cli/test/serve/worker/rtdb-integration.test.ts",
-            "packages/cli/test/serve/worker/rtdb-served-entry.cases.ts",
+            "packages/cli/test/serve/worker/rtdb-instances.test.ts",
+            "packages/cli/test/serve/worker/rtdb-instances.cases.ts",
+            "packages/cli/test/serve/worker/host/rtdb-instances.test.ts",
+            "packages/cli/test/serve/hosted-sqlite.test.ts",
+            "packages/cli/test/serve/worker/per-port-sessions.test.ts",
+            "packages/cli/test/bridge/worker-relay.test.ts",
+            "packages/pyric/test/database/modular/oracle-conformance-runtime-identity.test.ts",
             ...cddLifecycleTests,
           ],
-          conformanceDisposition: "pending-fix",
         }),
         multiInstanceRow({
           rowRef: "MI2",
           featureKeys: ["getDatabase"],
           api: "getDatabase(app, url) (served in-page fallback)",
-          behavior: "The served in-page fallback keeps each URL's data separate and applies each instance the rules `firebase.json` deploys to it. A database opened without a URL is the project's default instance, and an instance without rules follows the default policy. A ruleset the load-time check refuses is not installed for its instance, and the other instances keep theirs. Production deploys rules per instance.",
+          behavior: "The served in-page fallback keeps each URL's data separate and applies each instance the rules `firebase.json` deploys to it. A database opened without a URL is the project's default instance, and rules `firebase.json` deploys to `<projectId>-default-rtdb` reach it once the app names its project. An instance `firebase.json` deploys no rules to is locked, `.read` and `.write` false at the root as production creates a new instance, and its first use logs which `database` entry would deploy its rules; a declared instance whose rules file is missing follows the default policy. As the SDK does, a second URL form naming an open instance throws `Database initialized multiple times`, and neither a URL nor a project id throws `Can't determine Firebase Database URL`. A ruleset the load-time check refuses is not installed for its instance, and the other instances keep theirs. Production deploys rules per instance.",
           status: "conforms",
-          evidence: "`packages/cli/test/serve/database-rules-deployment.test.ts` deploys two rulesets to two instances and asserts each instance allows and denies its own paths, that replacing one instance's rules leaves the other's in force, that a database opened without a URL gets the default instance's rules, and that a refused ruleset names its instance while the other instance loads. CDD assertion `rtdb-modular#MI2` pins the sandbox side: `setRules` on one URL's database leaves the other URL's rules unchanged.",
+          evidence: "`packages/cli/test/serve/database-rules-deployment.test.ts` deploys two rulesets to two instances and asserts each instance allows and denies its own paths, that replacing one instance's rules leaves the other's in force, that a database opened without a URL gets the default instance's rules, and that a refused ruleset names its instance while the other instance loads. Oracle `rtdb-modular-multiple-instances` records production enforcing a different ruleset on each of two instances of one project. CDD assertion `rtdb-modular#MI2` pins the sandbox side: `setRules` on one URL's database leaves the other URL's rules unchanged.",
+          oracleObservations: ["rtdb-modular-multiple-instances"],
           conformanceTests: ["packages/cli/test/serve/database-rules-deployment.test.ts", ...cddLifecycleTests],
         }),
         multiInstanceRow({

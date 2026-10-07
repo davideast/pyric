@@ -22,12 +22,14 @@ import {
   assertMatchingOracleProjects,
   captureDeployScenario,
   createRunUser,
+  instanceRulesForCapture,
   normalizeDeployError,
   observationLinkageOf,
   queryConstraintsOf,
   selectRtdbScenarios,
   verifyRunDataCleanup,
   verifyRunUserCleanup,
+  verifyRulesTextRestored,
   type RulesDeployEndpoint,
   type RunDataStore,
   type RunUserCreator,
@@ -341,5 +343,32 @@ describe('run-rules-rtdb identity user creation', () => {
     await createRunUser(creator, runUids, props);
     expect([...runUids]).toEqual(['pyric-oracle-run-1']);
     expect(created).toEqual([props]);
+  });
+});
+
+describe('multi-instance capture rules', () => {
+  it('adds the run subtree to JSON rules and keeps every existing key', () => {
+    const before = JSON.stringify({ rules: { '.read': false, kept: { '.read': true } } });
+    expect(JSON.parse(instanceRulesForCapture('default', before, AUDIT_KEY, { '.read': true }))).toEqual({
+      rules: { '.read': false, kept: { '.read': true }, [AUDIT_KEY]: { '.read': true } },
+    });
+  });
+
+  it('refuses to run when the existing rules cannot be merged', () => {
+    const before = '/* comment */ { "rules": { ".read": false } }';
+    expect(() => instanceRulesForCapture('second', before, AUDIT_KEY, {})).toThrow('refusing to run: the rules of second are not plain JSON');
+  });
+
+  it('refuses to run when the existing root rules grant access', () => {
+    for (const root of [{ '.read': true }, { '.write': 'auth != null' }]) {
+      expect(() => instanceRulesForCapture('default', JSON.stringify({ rules: root }), AUDIT_KEY, {})).toThrow('refusing to run');
+    }
+  });
+
+  it('verifies a restore by exact text, or by the same rules when reformatted, and throws otherwise', () => {
+    const text = '/* c */ { "rules": { ".read": false } }';
+    expect(verifyRulesTextRestored('second', text, text)).toEqual({ exact: true });
+    expect(verifyRulesTextRestored('default', '{"rules":{"a":1}}', '{ "rules": { "a": 1 } }')).toEqual({ exact: false });
+    expect(() => verifyRulesTextRestored('second', text, '{"rules":{}}')).toThrow('restore NOT verified on second');
   });
 });

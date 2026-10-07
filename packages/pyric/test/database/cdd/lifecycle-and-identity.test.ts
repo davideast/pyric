@@ -278,10 +278,10 @@ describe('rtdb-modular CDD: lifecycle and runtime identity rows', () => {
   row('108', async () => { const { db } = setup(); const target = api.ref(db, 'x'); expect((await api.get(target)).exists()).toBe(false); await api.set(target, 0); expect((await api.get(target)).exists()).toBe(true); });
 });
 
-// The MI rows record paths that route every database URL to one instance.
-// Their divergences are pinned in the CLI and pyric-admin suites the rows
-// name. These assertions pin the sandbox side of the boundary: the in-page
-// sandbox keeps one backend, one ruleset, and one canonical key per URL.
+// The MI rows record how each Pyric path serves multiple database instances;
+// the CLI and pyric-admin suites the rows name pin each path. These
+// assertions pin the sandbox side of the boundary: the in-page sandbox keeps
+// one backend, one ruleset, and one canonical key per instance.
 describe('rtdb-modular CDD: multiple database instances', () => {
   const FIRST = 'https://first.firebaseio.com';
   const SECOND = 'https://second.firebaseio.com';
@@ -295,6 +295,17 @@ describe('rtdb-modular CDD: multiple database instances', () => {
     await api.set(api.ref(first, 'probe'), 'first');
     expect((await api.get(api.ref(second, 'probe'))).exists()).toBe(false);
     expect((await api.get(api.ref(api.getDatabase(sandbox, FIRST), 'probe'))).val()).toBe('first');
+
+    // The project's default instance URL opens the default instance, as
+    // `getDatabase(app)` does in production.
+    const byUrl = initializeApp({ projectId: 'cdd-mi1' }, 'cdd-mi1-url');
+    const implicit = initializeApp({ projectId: 'cdd-mi1' }, 'cdd-mi1-implicit');
+    const urlDb = api.getDatabase(byUrl, 'https://cdd-mi1-default-rtdb.firebaseio.com');
+    api.databaseSandbox.setDefaultPolicy(urlDb, 'allow');
+    await api.set(api.ref(urlDb, 'shared'), 'by url');
+    expect((await api.get(api.ref(api.getDatabase(implicit), 'shared'))).val()).toBe('by url');
+    await deleteApp(byUrl);
+    await deleteApp(implicit);
   });
   row('MI2', async () => {
     const sandbox = initializeSandbox();

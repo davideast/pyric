@@ -44,14 +44,28 @@ export interface ClientDb {
   readonly port: ClientPort;
 }
 
+/** The RTDB instance a served handle reads and writes. */
+export interface ClientRtdbInstance {
+  /** The instance name the protocol's `instance` field carries; absent is
+   *  the host's default instance. */
+  readonly name?: string;
+  /** The instance's root URL as the SDK reports it (`RepoInfo.toURLString()`). */
+  readonly url: string;
+}
+
 export interface ClientRtdb {
   readonly __kind: 'client-rtdb';
   readonly port: ClientPort;
+  /** Absent for a handle that names no URL, such as Studio's; it reads and
+   *  writes the default instance. */
+  readonly instance?: ClientRtdbInstance;
 }
 
 export interface RtdbRefHandle {
   readonly __kind: 'rtdb-ref';
   readonly port: ClientPort;
+  /** The instance the reference belongs to; see {@link ClientRtdb.instance}. */
+  readonly instance?: ClientRtdbInstance;
   readonly path: string;
   /** Firebase-mirror internal path consumed by the pure query builder. */
   readonly _path: string;

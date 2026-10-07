@@ -30,12 +30,12 @@ import { serializeError, isRtdbSub } from '../protocol.js';
 import { activityJourneyId, type HostCtx, type PortLike, post } from '../host-context.js';
 import {
   lensDb,
-  lensRtdb,
   opProvenance,
   resolveTarget,
   serializeDocSnap,
 } from './core.js';
 import { rtdbSnapToWire, rtdbTarget } from './rtdb.js';
+import { lensRtdb } from './rtdb-instances.js';
 
 /**
  * The original data-subscription messages, including explicit lenses. State
@@ -191,7 +191,7 @@ function handleRtdbSubImpl(ctx: HostCtx, port: PortLike, msg: RtdbValueSubMessag
 
   try {
     const ref = rtdbTarget(
-      lensRtdb(ctx, msg.actAs, port),
+      lensRtdb(ctx, msg.actAs, port, msg.target.instance),
       msg.target.path,
       msg.target.query,
     );

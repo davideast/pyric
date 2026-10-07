@@ -155,6 +155,8 @@ export interface RemoteRtdb {
     callback: (snapshot: RemoteRtdbSnapshot) => void,
     onError?: (err: Error & { code: string }) => void,
   ): () => void;
+  /** The same conveniences on the RTDB instance named `name`. */
+  forInstance(name: string): RemoteRtdb;
 }
 
 /**
@@ -548,41 +550,51 @@ export function createRemoteSandboxCore(
 /** firebase-admin's rules-bypass lens, pinned on every RTDB convenience op. */
 const ADMIN_LENS = { mode: 'admin' } as const;
 
-export function buildRemoteRtdb(channel: RemoteSandboxChannel): RemoteRtdb {
+/**
+ * The RTDB conveniences over the channel, on `instance` (the instance name;
+ * absent is the default instance). `forInstance` returns the same
+ * conveniences on another instance.
+ */
+export function buildRemoteRtdb(channel: RemoteSandboxChannel, instance?: string): RemoteRtdb {
+  const on = instance === undefined ? {} : { instance };
   return {
     async get(path) {
       const snap = (await channel.op({
         method: 'rtdb.get',
         path,
         actAs: ADMIN_LENS,
+        ...on,
       })) as RemoteRtdbSnapshot;
       return snap.value ?? null;
     },
     async set(path, value) {
-      await channel.op({ method: 'rtdb.set', path, value, actAs: ADMIN_LENS });
+      await channel.op({ method: 'rtdb.set', path, value, actAs: ADMIN_LENS, ...on });
     },
     async update(path, values) {
-      await channel.op({ method: 'rtdb.update', path, values, actAs: ADMIN_LENS });
+      await channel.op({ method: 'rtdb.update', path, values, actAs: ADMIN_LENS, ...on });
     },
     async remove(path) {
-      await channel.op({ method: 'rtdb.remove', path, actAs: ADMIN_LENS });
+      await channel.op({ method: 'rtdb.remove', path, actAs: ADMIN_LENS, ...on });
     },
     async push(path, value) {
       // The key is the worker's, minted from the sandbox clock. This arm can
       // wait for the reply, so it never mints one of its own from the wall
       // clock of a different process.
-      let op: WorkerOpPayload = { method: 'rtdb.push', path, actAs: ADMIN_LENS };
+      let op: WorkerOpPayload = { method: 'rtdb.push', path, actAs: ADMIN_LENS, ...on };
       if (value !== undefined) {
-        op = { method: 'rtdb.push', path, value, actAs: ADMIN_LENS };
+        op = { method: 'rtdb.push', path, value, actAs: ADMIN_LENS, ...on };
       }
       return (await channel.op(op)) as { key: string; path: string };
     },
     onValue(path, callback, onError) {
       return channel.subscribe(
-        { target: { service: 'rtdb', path }, actAs: ADMIN_LENS },
+        { target: { service: 'rtdb', ...on, path }, actAs: ADMIN_LENS },
         (value) => callback(value as RemoteRtdbSnapshot),
         onError,
       );
+    },
+    forInstance(name) {
+      return buildRemoteRtdb(channel, name);
     },
   };
 }

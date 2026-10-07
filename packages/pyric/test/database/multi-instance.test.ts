@@ -138,10 +138,12 @@ describe('RTDB Multi-Instance Isolation & Routing', () => {
 
     try {
       const defaultDb1 = getDatabase(app);
-      const defaultDb2 = getDatabase(app, 'https://app-default.firebaseio.com');
+      // As in production, naming the open default instance by URL is refused.
+      expect(() => getDatabase(app, 'https://app-default.firebaseio.com')).toThrow('Database initialized multiple times');
+      const defaultDb2 = getDatabase(app);
       const secondaryDb = getDatabase(app, 'https://app-secondary.firebaseio.com');
 
-      // Default URL lookup should cache the identical handle
+      // The same argument returns the cached handle
       expect(defaultDb1).toBe(defaultDb2);
 
       // Secondary URL should yield a distinct handle

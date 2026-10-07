@@ -2,7 +2,13 @@ import type { Sandbox, SandboxContext } from 'pyric/sandbox';
 import { SandboxContextImpl } from 'pyric/sandbox';
 import type { FirebaseApp } from '../app/types.js';
 import { defaultClientApp, resolveClientApp } from '../sandbox/internal/client-app.js';
-import { databaseInstanceKey, parseDatabaseUrl, resolveDatabaseInstance } from '../sandbox/internal/instances.js';
+import {
+  databaseInstanceKey,
+  defaultDatabaseInstanceName,
+  parseDatabaseUrl,
+  resolveDatabaseInstance,
+  type DatabaseInstance,
+} from '../sandbox/internal/instances.js';
 import { getOrCreateBackend } from './sandbox/backend-for.js';
 import { RtdbConnectionLifecycle } from './connection-lifecycle.js';
 import { TARGET_SYMBOL, type SandboxLiveTarget, type SandboxTarget } from './routing.js';
@@ -51,17 +57,31 @@ export function getDatabase(
   if (appRuntime) {
     const app = target as FirebaseApp;
     let appDbUrl: string | undefined;
+    let projectId: string | undefined;
+    let optionsRead = false;
     try {
       appDbUrl = app.options?.databaseURL;
+      projectId = app.options?.projectId;
+      optionsRead = true;
     } catch {
       // If app is already deleted, reading app.options throws app/app-deleted.
     }
-    // As in production, an empty URL falls back to the app's databaseURL and
-    // the URL is parsed with the SDK's rules. With neither, the handle is the
-    // sandbox's default instance.
+    // As in production, an empty URL falls back to the app's databaseURL, then
+    // to the project's default instance, and the URL is parsed with the SDK's
+    // rules. With neither a URL nor a project id the SDK cannot name an
+    // instance and throws. A URL naming the project's default instance opens
+    // the default instance.
     const finalUrl = effectiveUrl || appDbUrl;
-    const instance = finalUrl ? parseDatabaseUrl(finalUrl) : undefined;
+    if (optionsRead && !finalUrl && !projectId) {
+      throw new Error("FIREBASE FATAL ERROR: Can't determine Firebase Database URL. Be sure to include  a Project ID when calling firebase.initializeApp(). ");
+    }
+    const parsed = finalUrl ? parseDatabaseUrl(finalUrl) : undefined;
+    const instance = projectDefaultAsUndefined(parsed, projectId);
     const instanceKey = databaseInstanceKey(instance);
+    if (optionsRead) {
+      const rootUrl = parsed?.url ?? `https://${defaultDatabaseInstanceName(projectId!)}.firebaseio.com/`;
+      assertOpenedOnce(appRuntime, effectiveUrl, rootUrl);
+    }
 
     return appRuntime.service(`database/${instanceKey}`, () => {
       const { sandbox, session } = appRuntime;
@@ -140,8 +160,10 @@ export function getAdminDatabase(
   const appRuntime = resolveClientApp(target);
   if (appRuntime) {
     appRuntime.assertAlive();
-    const effectiveUrl = url ?? (target as FirebaseApp).options?.databaseURL;
-    return getAdminDatabase(appRuntime.sandbox, effectiveUrl);
+    const options = (target as FirebaseApp).options;
+    const effectiveUrl = url ?? options?.databaseURL;
+    const instance = projectDefaultAsUndefined(resolveDatabaseInstance(effectiveUrl), options?.projectId);
+    return getAdminDatabase(appRuntime.sandbox, instance?.name);
   }
   const sandbox = isSandboxContext(target)
     ? target.sandbox
@@ -153,6 +175,39 @@ export function getAdminDatabase(
   const connection = new RtdbConnectionLifecycle(backend, () => null, true);
   const t: SandboxTarget = { kind: 'sandbox', backend, auth: null, admin: true, connection };
   return new Database(t);
+}
+
+/** Each app runtime's open databases: by `getDatabase` URL argument, the instance root URL. */
+const openedByApp = new WeakMap<object, Map<string | undefined, string>>();
+
+/**
+ * The SDK keeps one connection per instance per app and caches each handle by
+ * its URL argument. A second argument that names an open instance, such as
+ * the default instance's URL after `getDatabase(app)`, is refused.
+ */
+function assertOpenedOnce(appRuntime: object, argument: string | undefined, rootUrl: string): void {
+  let opened = openedByApp.get(appRuntime);
+  if (opened === undefined) {
+    opened = new Map();
+    openedByApp.set(appRuntime, opened);
+  }
+  const known = opened.get(argument);
+  if (known !== undefined) return;
+  if ([...opened.values()].includes(rootUrl)) {
+    throw new Error('FIREBASE FATAL ERROR: Database initialized multiple times. Please make sure the format of the database URL matches with each database() call. ');
+  }
+  opened.set(argument, rootUrl);
+}
+
+/** `undefined` for the project's default instance named by its URL, as the
+ *  SDK resolves that URL and `getDatabase(app)` to one instance. */
+function projectDefaultAsUndefined(
+  instance: DatabaseInstance | undefined,
+  projectId: string | undefined,
+): DatabaseInstance | undefined {
+  const namesDefault = instance !== undefined && projectId !== undefined
+    && instance.name === defaultDatabaseInstanceName(projectId);
+  return namesDefault ? undefined : instance;
 }
 
 function packageResolutionError(): TypeError {

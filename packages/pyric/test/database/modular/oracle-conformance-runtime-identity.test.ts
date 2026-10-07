@@ -1,6 +1,10 @@
 /** Focused real-Firebase oracle replay: runtime identity. */
 import { describe, it, expect } from 'bun:test';
 import * as databaseModule from '../../../src/database/index.js';
+import { initializeSandbox } from 'pyric/sandbox';
+import { deleteApp } from '../../../src/app/index.js';
+import { createAppForSandbox } from '../../../src/app/internal.js';
+import { getAdminDatabase, getDatabase } from '../../../src/database/index.js';
 import {
   ref,
   get,
@@ -165,4 +169,79 @@ describe('oracle conformance (rtdb-modular): runtime identity', () => {
     });
   });
 
+  describe('multiple database instances', () => {
+    it('rtdb-modular#MI1 an app opens each instance once, and needs a URL or a project id', async () => {
+      const sdk = (load('rtdb-modular-multiple-instances.json') as { sdk: Record<string, unknown> }).sdk;
+      const app = createAppForSandbox(initializeSandbox(), { projectId: 'sdk-project' }, `mi1-sdk-${Math.random()}`);
+      const noProject = createAppForSandbox(initializeSandbox(), { apiKey: 'unused' }, `mi1-sdk-none-${Math.random()}`);
+      const outcome = (run: () => unknown) => {
+        try {
+          const value = run();
+          return { value: typeof value === 'string' ? value : 'returned' };
+        } catch (error) {
+          return { error: (error as Error).message };
+        }
+      };
+      try {
+        getDatabase(app);
+        const second = getDatabase(app, 'https://second.firebaseio.com');
+        expect({
+          sameArgumentSameHandle: getDatabase(app, 'https://second.firebaseio.com') === second,
+          defaultUrlAfterDefault: outcome(() => getDatabase(app, 'https://sdk-project-default-rtdb.firebaseio.com')),
+          trailingSlashAfterOpen: outcome(() => getDatabase(app, 'https://second.firebaseio.com/')),
+          noProjectNoUrl: outcome(() => getDatabase(noProject)),
+        }).toEqual({
+          sameArgumentSameHandle: sdk.sameArgumentSameHandle,
+          defaultUrlAfterDefault: sdk.defaultUrlAfterDefault,
+          trailingSlashAfterOpen: sdk.trailingSlashAfterOpen,
+          noProjectNoUrl: sdk.noProjectNoUrl,
+        });
+      } finally {
+        await deleteApp(app);
+        await deleteApp(noProject);
+      }
+    });
+
+    it('rtdb-modular#MI1 rtdb-modular#MI2 each instance keeps its own data and rules, and one user reaches both', async () => {
+      const obs = load('rtdb-modular-multiple-instances.json') as {
+        rules: { default: Record<string, unknown>; second: Record<string, unknown> };
+        signedOut: Record<string, string>;
+        isolation: Record<string, unknown>;
+        signedIn: Record<string, string>;
+        isolationAfterBothWrites: Record<string, unknown>;
+      };
+      const sandbox = initializeSandbox();
+      const SECOND = 'https://second.firebaseio.com';
+      // Production's root rules on both instances are `false`; the capture's
+      // rules sit under a run-scoped key, here `run`.
+      databaseModule.sandbox.setRules(getDatabase(sandbox), { rules: { '.read': false, '.write': false, run: obs.rules.default } });
+      databaseModule.sandbox.setRules(getDatabase(sandbox, SECOND), { rules: { '.read': false, '.write': false, run: obs.rules.second } });
+      const verdict = (operation: Promise<unknown>) => operation.then(() => 'ALLOW', () => 'DENY');
+      const held = async (url: string | undefined, path: string) => (await get(ref(getAdminDatabase(sandbox, url), path))).val();
+      const signedOut = sandbox.withAuth(null);
+      expect({
+        defaultWrite: await verdict(set(ref(getDatabase(signedOut), 'run/open/probe'), 'default')),
+        secondWrite: await verdict(set(ref(getDatabase(signedOut, SECOND), 'run/open/probe'), 'second')),
+      }).toEqual(obs.signedOut);
+      expect({
+        secondWriteReadOnSecond: await held(SECOND, 'run/open/probe'),
+        secondWriteReadOnDefault: await held(undefined, 'run/open/probe'),
+      }).toEqual(obs.isolation);
+      const user = sandbox.withAuth({ uid: 'one-user' });
+      const userDefault = getDatabase(user);
+      const userSecond = getDatabase(user, SECOND);
+      expect({
+        defaultWrite: await verdict(set(ref(userDefault, 'run/open/probe'), 'default')),
+        secondOwnUserPath: await verdict(set(ref(userSecond, 'run/users/one-user'), 'own')),
+        secondOtherUserPath: await verdict(set(ref(userSecond, 'run/users/another-user'), 'other')),
+        secondPathWithoutRules: await verdict(get(ref(userSecond, 'run/closed'))),
+        defaultReadOfSecondOnlyPath: await verdict(get(ref(userDefault, 'run/users/one-user'))),
+      }).toEqual(obs.signedIn);
+      expect({
+        defaultHolds: await held(undefined, 'run/open/probe'),
+        secondHolds: await held(SECOND, 'run/open/probe'),
+        secondUserPathOnDefault: await held(undefined, 'run/users/one-user'),
+      }).toEqual(obs.isolationAfterBothWrites);
+    });
+  });
 });

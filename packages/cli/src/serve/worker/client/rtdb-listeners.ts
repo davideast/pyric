@@ -11,15 +11,17 @@ import {
   stampIssuer,
   subscribeLens,
 } from './core.js';
-import type { ClientPort, RtdbDataSnapshot, Unsubscribe } from './handles.js';
+import type { ClientPort, ClientRtdbInstance, RtdbDataSnapshot, Unsubscribe } from './handles.js';
 import { pageListenerOwners } from './listener-owners.js';
 import { deliverWithRegions } from './listener-delivery.js';
 import { observeRtdbConnection } from './rtdb-connection-lifecycle.js';
 import { beginWorkerDatabaseActivity } from './sdk-activity.js';
 import type { SdkActivityHandle } from 'pyric/sandbox/internal';
 import {
+  instanceField,
   isRtdbQuery,
   rtdbChild,
+  sameRtdbInstance,
   targetParts,
   type RtdbTarget,
 } from './rtdb-references.js';
@@ -40,6 +42,7 @@ export type RtdbEventType =
 
 interface ListenerRegistration {
   readonly port: ClientPort;
+  readonly instance?: ClientRtdbInstance;
   readonly path: string;
   readonly scope?: string;
   readonly eventType: RtdbEventType;
@@ -97,8 +100,8 @@ function openValueSubscription(
 
   const makeSubMsg = (subId: string, lens: typeof _defaultLens): InboundMessage =>
     lens
-      ? { t: 'sub', subId, target: { service: 'rtdb', path: ref.path, ...(query ? { query } : {}) }, actAs: lens, ...ownerFields }
-      : { t: 'sub', subId, target: { service: 'rtdb', path: ref.path, ...(query ? { query } : {}) }, ...ownerFields };
+      ? { t: 'sub', subId, target: { service: 'rtdb', ...instanceField(ref), path: ref.path, ...(query ? { query } : {}) }, actAs: lens, ...ownerFields }
+      : { t: 'sub', subId, target: { service: 'rtdb', ...instanceField(ref), path: ref.path, ...(query ? { query } : {}) }, ...ownerFields };
 
   let unsubLens: () => void = () => {};
 
@@ -164,6 +167,7 @@ function registerListener(
   let closed = false;
   const registration: ListenerRegistration = {
     port: ref.port,
+    ...(ref.instance === undefined ? {} : { instance: ref.instance }),
     path: ref.path,
     scope: targetScope(target),
     eventType,
@@ -211,7 +215,7 @@ export function rtdbOnValue(
   let rawUnsubscribe: Unsubscribe;
   if (observesConnection) {
     let previousRows: RtdbWireEntry[] | undefined;
-    rawUnsubscribe = observeRtdbConnection(ref.port, (connected) => {
+    rawUnsubscribe = observeRtdbConnection(ref, (connected) => {
       const value = isMetadataRoot ? { connected, serverTimeOffset: 0 } : connected;
       const filtersChildren = isMetadataRoot && query !== undefined;
       if (filtersChildren) {
@@ -425,6 +429,7 @@ export function rtdbOff(target: RtdbTarget, eventType?: RtdbEventType, callback?
   const allViews = !isRtdbQuery(target);
   const matches = (registration: ListenerRegistration): boolean =>
     registration.port === ref.port
+      && sameRtdbInstance(registration, ref)
       && registration.path === ref.path
       && (allViews || registration.scope === scope)
       && (eventType === undefined || registration.eventType === eventType)
