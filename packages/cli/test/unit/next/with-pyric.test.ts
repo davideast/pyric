@@ -1,6 +1,15 @@
 import { describe, expect, it, beforeEach, afterEach } from 'bun:test';
 import { withPyric } from '../../../src/next/index.js';
 
+async function resolveWith(
+  config: any,
+  options?: any,
+  phase = 'phase-development-server',
+): Promise<Record<string, any>> {
+  const wrapped = withPyric(config, options) as (phase: string, defaults: Record<string, any>) => Promise<Record<string, any>>;
+  return wrapped(phase, {});
+}
+
 describe('withPyric Next.js configuration wrapper', () => {
   const origNodeEnv = process.env.NODE_ENV;
   const origPyricSandbox = process.env.PYRIC_SANDBOX;
@@ -33,28 +42,42 @@ describe('withPyric Next.js configuration wrapper', () => {
     }
   });
 
-  it('acts as an identity passthrough under NODE_ENV=production without force', () => {
-    process.env.NODE_ENV = 'production';
+  it('acts as an identity passthrough in the production build phase without force', async () => {
     delete process.env.PYRIC_SANDBOX;
     const originalConfig = { reactStrictMode: true };
-    const res = withPyric(originalConfig);
-    expect(res).toBe(originalConfig);
+    for (const phase of ['phase-production-build', 'phase-production-server', 'phase-export']) {
+      const res = await resolveWith(originalConfig, undefined, phase);
+      expect(res).toBe(originalConfig);
+    }
   });
 
-  it('activates under NODE_ENV=production when PYRIC_SANDBOX_FORCE=1 is set', () => {
+  it('keys the decision on the Next phase, not NODE_ENV', async () => {
+    // A shell that exports NODE_ENV=production still runs the development server phase with the sandbox.
     process.env.NODE_ENV = 'production';
+    const dev = await resolveWith({ reactStrictMode: true }, undefined, 'phase-development-server');
+    expect(dev.serverExternalPackages).toContain('firebase');
+
+    // A development NODE_ENV does not make a production build use the sandbox.
+    process.env.NODE_ENV = 'development';
+    delete process.env.PYRIC_SANDBOX;
+    const originalConfig = { reactStrictMode: true };
+    const build = await resolveWith(originalConfig, undefined, 'phase-production-build');
+    expect(build).toBe(originalConfig);
+  });
+
+  it('activates in a production phase when PYRIC_SANDBOX_FORCE=1 is set', async () => {
     process.env.PYRIC_SANDBOX_FORCE = '1';
     process.env.PYRIC_SANDBOX = 'local';
-    const res = withPyric({ reactStrictMode: true }) as Record<string, any>;
+    const res = await resolveWith({ reactStrictMode: true }, undefined, 'phase-production-build');
     expect(res.serverExternalPackages).toContain('firebase');
     expect(res.serverExternalPackages).toContain('firebase-admin');
   });
 
-  it('names only launch commands that the CLI dispatches', () => {
+  it('names only launch commands that the CLI dispatches', async () => {
     delete process.env.PYRIC_SANDBOX;
     let message = '';
     try {
-      withPyric({});
+      await resolveWith({});
     } catch (error) {
       message = (error as Error).message;
     }
@@ -63,25 +86,34 @@ describe('withPyric Next.js configuration wrapper', () => {
     expect(message).not.toContain('pyric env');
   });
 
-  it('throws an error if PYRIC_SANDBOX is missing during non-production builds (bundler guard)', () => {
-    delete process.env.PYRIC_SANDBOX;
-    expect(() => withPyric({})).toThrow(/Next\.js development server started without active Pyric sandbox/);
+  it('returns a config function so the phase is known when the decision is made', () => {
+    expect(typeof withPyric({})).toBe('function');
   });
 
-  it('allows execution when PYRIC_SANDBOX is missing if { guard: false } is passed', () => {
+  it('throws an error if PYRIC_SANDBOX is missing during the development server phase (bundler guard)', async () => {
     delete process.env.PYRIC_SANDBOX;
-    const res = withPyric({}, { guard: false }) as Record<string, any>;
+    await expect(resolveWith({})).rejects.toThrow(/Next\.js development server started without active Pyric sandbox/);
+  });
+
+  it('does not run the guard in a production build phase', async () => {
+    delete process.env.PYRIC_SANDBOX;
+    await expect(resolveWith({}, undefined, 'phase-production-build')).resolves.toEqual({});
+  });
+
+  it('allows execution when PYRIC_SANDBOX is missing if { guard: false } is passed', async () => {
+    delete process.env.PYRIC_SANDBOX;
+    const res = await resolveWith({}, { guard: false }) as Record<string, any>;
     expect(res.serverExternalPackages).toContain('firebase');
   });
 
-  it('injects firebase and firebase-admin into serverExternalPackages with deduplication', () => {
+  it('injects firebase and firebase-admin into serverExternalPackages with deduplication', async () => {
     const config = {
       serverExternalPackages: ['existing-pkg', 'firebase'],
       experimental: {
         serverComponentsExternalPackages: ['other-pkg', 'firebase-admin'],
       },
     };
-    const res = withPyric(config) as Record<string, any>;
+    const res = await resolveWith(config) as Record<string, any>;
     expect(res.serverExternalPackages).toEqual(['existing-pkg', 'firebase', 'firebase-admin']);
     expect(res.experimental.serverComponentsExternalPackages).toEqual([
       'other-pkg',
@@ -90,7 +122,7 @@ describe('withPyric Next.js configuration wrapper', () => {
     ]);
   });
 
-  it('configures client-side Webpack aliases and builtin fallbacks only for client builds (!isServer)', () => {
+  it('configures client-side Webpack aliases and builtin fallbacks only for client builds (!isServer)', async () => {
     let calledWithConfig: any = null;
     const customWebpack = (cfg: any, options: any) => {
       calledWithConfig = cfg;
@@ -98,7 +130,7 @@ describe('withPyric Next.js configuration wrapper', () => {
       return cfg;
     };
 
-    const res = withPyric({ webpack: customWebpack }) as Record<string, any>;
+    const res = await resolveWith({ webpack: customWebpack }) as Record<string, any>;
     expect(typeof res.webpack).toBe('function');
 
     // Server build: should NOT alias or add fallbacks
@@ -125,7 +157,7 @@ describe('withPyric Next.js configuration wrapper', () => {
   });
 
   it('puts the React hook first in the client entries, before React evaluates', async () => {
-    const res = withPyric({}) as Record<string, any>;
+    const res = await resolveWith({}) as Record<string, any>;
     const clientConfig: any = {
       entry: async () => ({
         'main-app': ['next/dist/client/app-next.js'],
@@ -163,8 +195,8 @@ describe('withPyric Next.js configuration wrapper', () => {
     }
   });
 
-  it('configures Turbopack aliases for client SDKs', () => {
-    const res = withPyric({
+  it('configures Turbopack aliases for client SDKs', async () => {
+    const res = await resolveWith({
       turbopack: { resolveAlias: { modern: 'alias' } },
       turbo: { resolveAlias: { existing: 'alias' } },
       experimental: { turbo: { resolveAlias: { legacy: 'alias' } } },
@@ -179,7 +211,7 @@ describe('withPyric Next.js configuration wrapper', () => {
   });
 
   it('configures dev-time rewrites to proxy /__pyric/:path* to sandbox target url', async () => {
-    const res = withPyric({}) as Record<string, any>;
+    const res = await resolveWith({}) as Record<string, any>;
     expect(typeof res.rewrites).toBe('function');
     const rewrites = await res.rewrites();
     expect(Array.isArray(rewrites)).toBe(true);
@@ -191,7 +223,7 @@ describe('withPyric Next.js configuration wrapper', () => {
   });
 
   it('marks the Pyric rewrite basePath: false so a configured basePath does not prefix the source', async () => {
-    const res = withPyric({ basePath: '/app' }) as Record<string, any>;
+    const res = await resolveWith({ basePath: '/app' });
     const rewrites = await res.rewrites();
     expect(rewrites[0]).toEqual({
       source: '/__pyric/:path*',
@@ -201,18 +233,18 @@ describe('withPyric Next.js configuration wrapper', () => {
   });
 
   it('respects port and url option overrides for dev-time rewrites', async () => {
-    const res = withPyric({}, { port: 5555 }) as Record<string, any>;
+    const res = await resolveWith({}, { port: 5555 }) as Record<string, any>;
     const rewrites = await res.rewrites();
     expect(rewrites[0].destination).toBe('http://127.0.0.1:5555/__pyric/:path*');
 
-    const resUrl = withPyric({}, { url: 'http://custom-host:8080/' }) as Record<string, any>;
+    const resUrl = await resolveWith({}, { url: 'http://custom-host:8080/' }) as Record<string, any>;
     const rewritesUrl = await resUrl.rewrites();
     expect(rewritesUrl[0].destination).toBe('http://custom-host:8080/__pyric/:path*');
   });
 
   it('wraps pre-existing user array rewrites and object rewrites (beforeFiles)', async () => {
     const userArrayRewrites = async () => [{ source: '/api/:path*', destination: '/custom/:path*' }];
-    const resArray = withPyric({ rewrites: userArrayRewrites }) as Record<string, any>;
+    const resArray = await resolveWith({ rewrites: userArrayRewrites }) as Record<string, any>;
     const arrayResult = await resArray.rewrites();
     expect(arrayResult).toHaveLength(2);
     expect(arrayResult[0].source).toBe('/__pyric/:path*');
@@ -222,7 +254,7 @@ describe('withPyric Next.js configuration wrapper', () => {
       beforeFiles: [{ source: '/before', destination: '/dest' }],
       afterFiles: [],
     });
-    const resObj = withPyric({ rewrites: userObjRewrites }) as Record<string, any>;
+    const resObj = await resolveWith({ rewrites: userObjRewrites }) as Record<string, any>;
     const objResult = await resObj.rewrites();
     expect(objResult.beforeFiles).toHaveLength(2);
     expect(objResult.beforeFiles[0].source).toBe('/__pyric/:path*');
@@ -235,39 +267,40 @@ describe('withPyric Next.js configuration wrapper', () => {
       defaults,
       reactStrictMode: true,
     });
-    const res = withPyric(funcConfig as any);
-    expect(typeof res).toBe('function');
-
-    const evalResult = await (res as any)('phase-develop', { dev: true });
-    expect(evalResult.phase).toBe('phase-develop');
+    const evalResult = await resolveWith(funcConfig, undefined, 'phase-development-server');
+    expect(evalResult.phase).toBe('phase-development-server');
     expect(evalResult.serverExternalPackages).toContain('firebase');
+
+    const productionResult = await resolveWith(funcConfig, undefined, 'phase-production-build');
+    expect(productionResult.phase).toBe('phase-production-build');
+    expect(productionResult.serverExternalPackages).toBeUndefined();
   });
 
-  it('configures PYRIC_RUNTIME_CHIP environment variables when runtimeChip option is passed', () => {
-    const resOff = withPyric({}, { runtimeChip: false }) as Record<string, any>;
+  it('configures PYRIC_RUNTIME_CHIP environment variables when runtimeChip option is passed', async () => {
+    const resOff = await resolveWith({}, { runtimeChip: false }) as Record<string, any>;
     expect(resOff.env?.PYRIC_RUNTIME_CHIP).toBe('off');
 
-    const resOpen = withPyric({}, { runtimeChip: { initiallyOpen: true } }) as Record<string, any>;
+    const resOpen = await resolveWith({}, { runtimeChip: { initiallyOpen: true } }) as Record<string, any>;
     expect(resOpen.env?.PYRIC_RUNTIME_CHIP).toBe('expanded');
   });
 
-  it('also configures the NEXT_PUBLIC_-prefixed runtime chip variable so browser client components can read it', () => {
-    const resOff = withPyric({}, { runtimeChip: false }) as Record<string, any>;
+  it('also configures the NEXT_PUBLIC_-prefixed runtime chip variable so browser client components can read it', async () => {
+    const resOff = await resolveWith({}, { runtimeChip: false }) as Record<string, any>;
     expect(resOff.env?.NEXT_PUBLIC_PYRIC_RUNTIME_CHIP).toBe('off');
 
-    const resOpen = withPyric({}, { runtimeChip: { initiallyOpen: true } }) as Record<string, any>;
+    const resOpen = await resolveWith({}, { runtimeChip: { initiallyOpen: true } }) as Record<string, any>;
     expect(resOpen.env?.NEXT_PUBLIC_PYRIC_RUNTIME_CHIP).toBe('expanded');
   });
 
-  it('configures NEXT_PUBLIC_PYRIC_STUDIO_URL matching the resolved sandbox target URL', () => {
-    const resDefault = withPyric({}) as Record<string, any>;
+  it('configures NEXT_PUBLIC_PYRIC_STUDIO_URL matching the resolved sandbox target URL', async () => {
+    const resDefault = await resolveWith({}) as Record<string, any>;
     expect(resDefault.env?.NEXT_PUBLIC_PYRIC_STUDIO_URL).toBe('http://127.0.0.1:4000/__pyric/ui/studio');
     expect(resDefault.env?.PYRIC_STUDIO_URL).toBe('http://127.0.0.1:4000/__pyric/ui/studio');
 
-    const resPort = withPyric({}, { port: 3473 }) as Record<string, any>;
+    const resPort = await resolveWith({}, { port: 3473 }) as Record<string, any>;
     expect(resPort.env?.NEXT_PUBLIC_PYRIC_STUDIO_URL).toBe('http://127.0.0.1:3473/__pyric/ui/studio');
 
-    const resUrl = withPyric({}, { url: 'http://localhost:3473' }) as Record<string, any>;
+    const resUrl = await resolveWith({}, { url: 'http://localhost:3473' }) as Record<string, any>;
     expect(resUrl.env?.NEXT_PUBLIC_PYRIC_STUDIO_URL).toBe('http://localhost:3473/__pyric/ui/studio');
   });
 });
