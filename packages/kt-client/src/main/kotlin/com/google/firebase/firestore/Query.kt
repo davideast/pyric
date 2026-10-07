@@ -240,6 +240,7 @@ open class Query internal constructor(
                 val resMap = rawMsg as? Map<String, Any?> ?: emptyMap()
                 @Suppress("UNCHECKED_CAST")
                 val rawDocs = (resMap["docs"] as? List<Map<String, Any?>>) ?: emptyList()
+                val metadata = SnapshotMetadata(hasPendingWrites = resMap["hasPendingWrites"] == true, isFromCache = false)
 
                 val docs = rawDocs.map { docMap ->
                     val docId = docMap["id"] as String
@@ -249,7 +250,7 @@ open class Query internal constructor(
                         id = docId,
                         reference = firestore.document(docPath),
                         dataMap = unpackedData,
-                        metadata = SnapshotMetadata(hasPendingWrites = false, isFromCache = false)
+                        metadata = metadata
                     )
                 }
 
@@ -257,7 +258,7 @@ open class Query internal constructor(
                     query = this@Query,
                     documents = docs,
                     documentChanges = emptyList(),
-                    metadata = SnapshotMetadata(hasPendingWrites = false, isFromCache = false)
+                    metadata = metadata
                 )
             }
         }

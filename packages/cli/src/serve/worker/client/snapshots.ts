@@ -9,6 +9,7 @@ import type { ClientPort, DocRefHandle } from './handles.js';
 import { createDocumentReference } from './firestore-reference.js';
 import { FirebaseError } from 'pyric/app';
 import type { DocumentData, FirestoreDataConverter, QueryDocumentSnapshot, SnapshotMetadata } from 'pyric/firestore';
+import { computeDocumentChanges, createDocChanges, type DocChangesOptions, type DocumentChange } from 'pyric/sandbox/internal';
 
 // ─── Rehydration (class instance restoration) ─────────────────────────────
 
@@ -27,7 +28,21 @@ export interface RawDocResult {
   data?: SerializedDocData;
 }
 
-export function makeDocSnapshot<T = DocumentData>(raw: RawDocResult, port: ClientPort, reference?: DocRefHandle<T>): ClientDocSnapshot<T> {
+const SETTLED_METADATA: SnapshotMetadata = Object.freeze({ fromCache: false, hasPendingWrites: false });
+const PENDING_METADATA: SnapshotMetadata = Object.freeze({ fromCache: false, hasPendingWrites: true });
+
+/** The snapshot frame's `hasPendingWrites` as Firestore `SnapshotMetadata`.
+ * The sandbox has no offline cache, so `fromCache` is always `false`. */
+function frameMetadata(raw: { hasPendingWrites?: unknown }): SnapshotMetadata {
+  return raw.hasPendingWrites === true ? PENDING_METADATA : SETTLED_METADATA;
+}
+
+export function makeDocSnapshot<T = DocumentData>(
+  raw: RawDocResult,
+  port: ClientPort,
+  reference?: DocRefHandle<T>,
+  metadata: SnapshotMetadata = SETTLED_METADATA,
+): ClientDocSnapshot<T> {
   const isMalformed = !isDocumentResult(raw);
   if (isMalformed) throw new FirebaseError('invalid-argument', 'The sandbox sent a malformed document result.');
   let data: Record<string, unknown> | undefined;
@@ -36,7 +51,6 @@ export function makeDocSnapshot<T = DocumentData>(raw: RawDocResult, port: Clien
   if (hasData) data = rehydrateDocData(serialized, port);
   const path = raw.path ?? raw.id;
   const ref = reference ?? createDocumentReference<T>(port, path);
-  const metadata = { fromCache: false, hasPendingWrites: false };
   const read = (): T | undefined => {
     const document = data;
     const isMissing = document === undefined;
@@ -69,6 +83,21 @@ export function makeDocSnapshot<T = DocumentData>(raw: RawDocResult, port: Clien
 
 export interface RawQueryResult {
   docs: RawDocResult[];
+  /** Listener frames only: the sandbox snapshot's `metadata.hasPendingWrites`. */
+  hasPendingWrites?: boolean;
+}
+
+/**
+ * Per-listener state for `docChanges()`: the previous query result the
+ * listener delivered, and whether it subscribed with
+ * `includeMetadataChanges`. A listener passes the same state to every
+ * {@link makeSnapshot} call, so each snapshot's changes are computed against
+ * the one before it.
+ */
+export interface QueryChangeBaseline {
+  readonly excludesMetadataChanges: boolean;
+  previous?: RawDocResult[];
+  previousHasPendingWrites?: boolean;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -82,44 +111,95 @@ function isDocumentResult(value: unknown): value is RawDocResult {
   const data = value.data;
   const hasValidData = data === undefined || (isRecord(data) && typeof data.json === 'string');
   const hasValidPath = value.path === undefined || typeof value.path === 'string';
-  return typeof value.id === 'string' && typeof value.exists === 'boolean' && hasValidPath && hasValidData;
+  return typeof value.id === 'string' && typeof value.exists === 'boolean' && hasValidPath && hasValidData
+    && hasValidPendingWrites(value);
+}
+
+function hasValidPendingWrites(value: Record<string, unknown>): boolean {
+  return value.hasPendingWrites === undefined || typeof value.hasPendingWrites === 'boolean';
 }
 
 function isQueryResult(value: unknown): value is RawQueryResult {
-  return isRecord(value) && Array.isArray(value.docs) && value.docs.every(isDocumentResult);
+  return isRecord(value) && Array.isArray(value.docs) && value.docs.every(isDocumentResult)
+    && hasValidPendingWrites(value);
 }
 
-/** Decode a listener delivery before invoking application code. */
+/**
+ * Decode a listener delivery before invoking application code.
+ *
+ * Returns `null` for a query frame that changes nothing the listener would
+ * observe: no document changes, and either the same `hasPendingWrites` or a
+ * listener that did not request metadata changes. The
+ * host sends such a frame when it re-establishes a listener (an auth change,
+ * a state replacement); the in-page sandbox re-evaluates in place and
+ * delivers nothing in that case.
+ */
 export function makeSnapshot(
   raw: unknown,
   port: ClientPort,
-  converter: FirestoreDataConverter<unknown> | null = null,
-): ClientDocSnapshot | ClientQuerySnapshot {
+  converter: FirestoreDataConverter<unknown> | null,
+  baseline: QueryChangeBaseline,
+): ClientDocSnapshot | ClientQuerySnapshot | null {
   const isQuery = isQueryResult(raw);
-  if (isQuery) return makeQuerySnapshot(raw, port, converter);
+  if (isQuery) {
+    const snapshot = makeQuerySnapshot(raw, port, converter, baseline);
+    const isUnchanged = baseline.previous !== undefined
+      && snapshot.docChanges().length === 0
+      && (baseline.excludesMetadataChanges
+        || snapshot.metadata.hasPendingWrites === baseline.previousHasPendingWrites);
+    if (isUnchanged) return null;
+    baseline.previous = raw.docs;
+    baseline.previousHasPendingWrites = snapshot.metadata.hasPendingWrites;
+    return snapshot;
+  }
   const isDocument = isDocumentResult(raw);
   if (isDocument) {
-    return makeDocSnapshot(raw, port, createDocumentReference(port, raw.path ?? raw.id, converter));
+    return makeDocSnapshot(
+      raw,
+      port,
+      createDocumentReference(port, raw.path ?? raw.id, converter),
+      frameMetadata(raw as { hasPendingWrites?: unknown }),
+    );
   }
   throw new FirebaseError('invalid-argument', 'The sandbox sent a malformed Firestore snapshot.');
 }
 
+/**
+ * Rehydrate a query result. A listener passes its {@link QueryChangeBaseline}
+ * so `docChanges()` reports the difference from its previous snapshot; a
+ * one-shot read passes none, and every document is `added`.
+ */
 export function makeQuerySnapshot(
   raw: RawQueryResult,
   port: ClientPort,
   converter: FirestoreDataConverter<unknown> | null = null,
+  baseline: QueryChangeBaseline = { excludesMetadataChanges: false },
 ): ClientQuerySnapshot {
   const isMalformed = !isQueryResult(raw);
   if (isMalformed) throw new FirebaseError('invalid-argument', 'The sandbox sent a malformed query result.');
-  const docs = raw.docs.map((doc) => makeDocSnapshot(
+  const metadata = frameMetadata(raw);
+  const snapshotOf = (doc: RawDocResult) => makeDocSnapshot(
     doc,
     port,
     createDocumentReference(port, doc.path ?? doc.id, converter),
-  ));
+    metadata,
+  );
+  const docs = raw.docs.map(snapshotOf);
+  const rows = raw.docs.map((doc) => ({ path: doc.path ?? doc.id, doc }));
+  const previous = baseline.previous?.map((doc) => ({ path: doc.path ?? doc.id, doc }));
+  const changes = computeDocumentChanges(
+    previous,
+    rows,
+    docs,
+    (before, after) => before.doc.data?.json === after.doc.data?.json,
+    (row) => snapshotOf(row.doc),
+  );
   return {
+    metadata,
     size: docs.length,
     empty: docs.length === 0,
     docs,
+    docChanges: createDocChanges(changes, baseline.excludesMetadataChanges),
   };
 }
 
@@ -136,7 +216,11 @@ export interface ClientDocSnapshot<T = DocumentData> {
 }
 
 export interface ClientQuerySnapshot {
+  readonly metadata: SnapshotMetadata;
   readonly size: number;
   readonly empty: boolean;
   readonly docs: ClientDocSnapshot[];
+  /** Production's `QuerySnapshot.docChanges`: the changes since the
+   * listener's previous snapshot, or every document `added` on the first. */
+  docChanges(options?: DocChangesOptions): DocumentChange<ClientDocSnapshot>[];
 }

@@ -87,6 +87,7 @@ class PyricDocumentReference extends DocumentReferencePlatform {
         firestore,
         path,
         event,
+        hasPendingWrites: event is Map && event['hasPendingWrites'] == true,
       ),
     );
   }

@@ -393,6 +393,7 @@ class PyricQuery extends QueryPlatform {
           path,
           event,
           previousDocs: previousDocs,
+          hasPendingWrites: event is Map && event['hasPendingWrites'] == true,
         );
         previousDocs = snap.docs;
         return snap;

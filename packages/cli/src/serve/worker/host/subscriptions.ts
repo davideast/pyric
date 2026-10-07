@@ -238,12 +238,16 @@ function registerListener(
     // The page derived the owners where its stack and its DOM are. Handing
     // them over makes the sandbox record those instead of capturing a frame
     // out of this worker's own bundle.
-    { ...(msg.owners ? { owners: msg.owners } : {}) },
+    {
+      ...(msg.owners ? { owners: msg.owners } : {}),
+      ...(msg.includeMetadataChanges === true ? { includeMetadataChanges: true } : {}),
+    },
     (snap) => {
       const usage = firestoreReadUsage(snap, true, initial);
       initial = false;
       // Detect doc vs query snapshot by shape.
       const snapAny = snap as {
+        metadata?: { hasPendingWrites?: boolean };
         id?: string;
         path?: string;
         exists?: boolean | (() => boolean);
@@ -256,18 +260,21 @@ function registerListener(
         }>;
       };
 
+      // The page rebuilds SnapshotMetadata from this flag. The sandbox has no
+      // offline cache, so `fromCache` is always false and is not sent.
+      const hasPendingWrites = snapAny.metadata?.hasPendingWrites === true;
       if (Array.isArray(snapAny.docs)) {
         // Query snapshot
         const docs = snapAny.docs.map((d) =>
           serializeDocSnap(d as Parameters<typeof serializeDocSnap>[0]),
         );
-        post(port, { t: 'snap', subId: msg.subId, value: { docs, usage } });
+        post(port, { t: 'snap', subId: msg.subId, value: { docs, hasPendingWrites, usage } });
       } else if (snapAny.id !== undefined) {
         // Doc snapshot
         post(port, {
           t: 'snap',
           subId: msg.subId,
-          value: { ...serializeDocSnap(snapAny as Parameters<typeof serializeDocSnap>[0]), usage },
+          value: { ...serializeDocSnap(snapAny as Parameters<typeof serializeDocSnap>[0]), hasPendingWrites, usage },
         });
       }
     },
