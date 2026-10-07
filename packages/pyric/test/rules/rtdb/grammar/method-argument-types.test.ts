@@ -102,6 +102,26 @@ describe('RTDB method arguments at evaluation', () => {
   });
 });
 
+describe('RTDB operators with a null operand', () => {
+  // Captures r27-stdlib-core-patterns and r28-null-operands: each fails the rule, `|| true` included.
+  const failing = [
+    'data.val() + 1 > 0', '1 + data.val() > 0', "data.val() + 'a' == 'nulla'", 'data.val() - 1 == 0',
+    'data.val() * 2 == 0', 'data.val() / 2 == 0', 'data.val() % 2 == 0', '-data.val() == 0',
+    'data.val() < 1', 'data.val() <= 1', 'data.val() > 1', 'data.val() >= 1', '1 > data.val()',
+  ];
+  for (const raw of failing) {
+    test(`${raw} || true fails the rule where nothing is stored`, () => {
+      expect(() => evaluateRtdbExpression(`${raw} || true`, ctx('x'))).toThrow(RtdbRuleRuntimeError);
+      expect(() => evaluateRtdbExpression(`${raw} || true`, ctx('x', 4))).not.toThrow();
+    });
+  }
+
+  test('== and != compare null without an error', () => {
+    expect(evaluateRtdbExpression('data.val() == null', ctx('x'))).toBe(true);
+    expect(evaluateRtdbExpression('data.val() != 1', ctx('x'))).toBe(true);
+  });
+});
+
 describe('RTDB method arguments, variables and operands before deploy', () => {
   test('hasChildren argument shape', () => {
     expect(messages("newData.hasChildren('a', 'b')"))

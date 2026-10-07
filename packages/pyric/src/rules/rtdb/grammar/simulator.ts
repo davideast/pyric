@@ -302,15 +302,27 @@ function replaceArguments(args: readonly unknown[]): [string, string] {
   return [from, to];
 }
 
+/** The operators that compare for equality, which read null like any other value. */
+const EQUALITY_OPERATORS = new Set<TypedOperator>(['==', '===', '!=', '!==']);
+
+/** Whether `value` fails an operator that takes it as an operand. */
+function isInvalidOperand(operator: TypedOperator, value: unknown): boolean {
+  if (value instanceof DataSnapshot) return true;
+  return value === null && !EQUALITY_OPERATORS.has(operator);
+}
+
 /**
  * Both operands of a typed operator. A snapshot is not a value an operator
  * reads; production refuses to deploy such a rule, and the evaluator fails it.
+ * Null, such as `data.val()` where nothing is stored, fails an arithmetic or
+ * ordering operator, `|| true` included (captures r27-stdlib-core-patterns
+ * and r28-null-operands); `==` and `!=` compare it.
  */
 function evalBinaryPair(operator: TypedOperator, left: any, right: any, ctx: unknown): [any, any] {
   const l = left.eval(ctx);
-  if (l instanceof DataSnapshot) throw new RtdbRuleRuntimeError(operandMessage(operator, 'left'));
+  if (isInvalidOperand(operator, l)) throw new RtdbRuleRuntimeError(operandMessage(operator, 'left'));
   const r = right.eval(ctx);
-  if (r instanceof DataSnapshot) throw new RtdbRuleRuntimeError(operandMessage(operator, 'right'));
+  if (isInvalidOperand(operator, r)) throw new RtdbRuleRuntimeError(operandMessage(operator, 'right'));
   return [l, r];
 }
 
@@ -366,7 +378,13 @@ function getEvalSemantics(): Semantics {
       }
       return !val;
     },
-    UnaryExpr_neg(_op, expr) { return -((expr as any).eval(this.args.ctx) as number); },
+    UnaryExpr_neg(_op, expr) {
+      const value = (expr as any).eval(this.args.ctx);
+      if (value === null || value instanceof DataSnapshot) {
+        throw new RtdbRuleRuntimeError('Invalid unary - expression: operand is not a number.');
+      }
+      return -(value as number);
+    },
     UnaryExpr(node) { return (node as any).eval(this.args.ctx); },
 
     CallExpr_methodCall(receiver, _dot, methodName, _open, args, _close) {
