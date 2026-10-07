@@ -553,6 +553,56 @@ service cloud.firestore {
       expect(hasRule(r, 'RECURSIVE_WILDCARD_OPEN')).toBe(false);
     });
 
+    const wrapRecursive = (inner: string) => `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+${inner}
+  }
+}`;
+    const recursiveFinding = (inner: string) =>
+      lintSource(wrapRecursive(inner)).warnings.find((w) => w.rule === 'RECURSIVE_WILDCARD_OPEN');
+
+    test('a final recursive wildcard at the root names every document in the database', () => {
+      const finding = recursiveFinding('match /{document=**} { allow read, write: if true; }');
+      expect(finding?.severity).toBe('error');
+      expect(finding?.message).toBe(
+        'match /{document=**} allows read, write on every document in the database with an always-true condition.',
+      );
+    });
+
+    test('a final recursive wildcard under a prefix names the prefix', () => {
+      const finding = recursiveFinding(`match /users/{uid} {
+      match /{document=**} { allow read: if true; }
+    }`);
+      expect(finding?.severity).toBe('error');
+      expect(finding?.message).toBe(
+        'match /users/{uid}/{document=**} allows read on every document under /users/{uid} with an always-true condition.',
+      );
+    });
+
+    test('the collection-group shape is not refused and draws no error', () => {
+      const r = lintSource(wrapRecursive('match /{path=**}/items/{id} { allow read: if true; }'));
+      expect(hasRule(r, 'RECURSIVE_WILDCARD_OPEN')).toBe(false);
+      expect(r.warnings.filter((w) => w.severity === 'error')).toEqual([]);
+    });
+
+    test('an open write on the collection-group shape is a PERMISSIVE_RULE warning naming the collection group', () => {
+      const r = lintSource(wrapRecursive('match /{path=**}/items/{id} { allow write: if true; }'));
+      expect(hasRule(r, 'RECURSIVE_WILDCARD_OPEN')).toBe(false);
+      const permissive = r.warnings.find((w) => w.rule === 'PERMISSIVE_RULE');
+      expect(permissive?.severity).toBe('warning');
+      expect(permissive?.message).toContain(
+        'every document in a collection named items at any depth',
+      );
+    });
+
+    test('a nested match after a final recursive wildcard is a collection-group match', () => {
+      const r = lintSource(wrapRecursive(`match /{document=**} {
+      match /notes/{noteId} { allow read: if true; }
+    }`));
+      expect(hasRule(r, 'RECURSIVE_WILDCARD_OPEN')).toBe(false);
+    });
+
     test('non-recursive open rule does NOT trigger RECURSIVE_WILDCARD_OPEN', () => {
       // PERMISSIVE_RULE will still fire; RECURSIVE_WILDCARD_OPEN should not.
       const r = lintSource(`rules_version = '2';

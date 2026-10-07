@@ -9,15 +9,22 @@ import {
 } from './list-rule-path-proof.js';
 
 /**
- * Projects the ruleset down to path-invariant, root-level `{document=**}`
- * list rules. Those rules govern every possible result of a collection-group
- * query, unlike a concrete root collection match.
+ * Projects the ruleset down to the path-invariant list rules that govern
+ * every collection named `collectionId`, wherever it is nested. Two top-level
+ * shapes qualify:
+ * - `match /{document=**}`, which governs every document.
+ * - `match /{path=**}/<collectionId>/{id}`, the collection-group shape, which
+ *   governs every document in a collection named `collectionId` at any depth.
  *
- * Group-specific `/{path=**}/items/{id}` proofs remain fail-closed until the
- * matcher can evaluate recursive wildcards with trailing segments.
+ * A rule qualifies only when its condition reads none of the block's path
+ * bindings, because a collection-group query has no single parent path or
+ * document id to bind them to. Concrete collection matches never qualify: each
+ * governs only one parent path, not the whole group. Nested blocks are
+ * dropped. Returns null when no rule qualifies.
  */
-export function proveGlobalCollectionGroupRules(
+export function proveCollectionGroupRules(
   ast: FirestoreRules | null,
+  collectionId: string,
 ): FirestoreRules | null {
   if (!ast) return null;
 
@@ -28,7 +35,7 @@ export function proveGlobalCollectionGroupRules(
   ];
   const requiredFunctions = new Set<string>();
   const children = ast.service.match.children.flatMap((block) => {
-    const projected = projectGlobalBlock(block, outerFunctions, requiredFunctions);
+    const projected = projectGroupBlock(block, collectionId, outerFunctions, requiredFunctions);
     return projected ? [projected] : [];
   });
   if (children.length === 0) return null;
@@ -51,13 +58,29 @@ export function proveGlobalCollectionGroupRules(
   };
 }
 
-function projectGlobalBlock(
+/** The names a block binds when it governs every `collectionId` collection,
+ *  or null when it does not. */
+function groupBindings(block: MatchBlock, collectionId: string): Set<string> | null {
+  const [first, second, third, ...rest] = block.path.segments;
+  if (first?.type !== 'recursive') return null;
+  if (!second) return new Set([first.name]);
+  if (
+    second.type === 'literal' && second.value === collectionId
+    && third?.type === 'wildcard' && rest.length === 0
+  ) {
+    return new Set([first.name, third.name]);
+  }
+  return null;
+}
+
+function projectGroupBlock(
   block: MatchBlock,
+  collectionId: string,
   outerFunctions: readonly FunctionDef[],
   requiredFunctions: Set<string>,
 ): MatchBlock | null {
-  const segment = block.path.segments[0];
-  if (block.path.segments.length !== 1 || segment?.type !== 'recursive') return null;
+  const bound = groupBindings(block, collectionId);
+  if (!bound) return null;
 
   const functionScope = buildListRuleFunctionScope([...outerFunctions, ...block.functions]);
 
@@ -67,7 +90,7 @@ function projectGlobalBlock(
     }
     const analysis = analyzeListRulePathInvariance(
       rule.condition,
-      new Set([segment.name]),
+      bound,
       functionScope.functions,
       functionScope.ambiguousNames,
     );

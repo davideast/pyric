@@ -213,6 +213,7 @@
         "get-after-and-exists-after",
         "global-and-service-scope-functions",
         "globals-request-path-and-resource-id",
+        "hierarchical-match-cascade",
         "int-float-and-division",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
@@ -257,6 +258,7 @@
         "get-after-and-exists-after",
         "global-and-service-scope-functions",
         "globals-request-path-and-resource-id",
+        "hierarchical-match-cascade",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
@@ -2240,6 +2242,7 @@
         "get-missing-doc",
         "global-and-service-scope-functions",
         "globals-request-path-and-resource-id",
+        "hierarchical-match-cascade",
         "int-float-and-division",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
@@ -2282,6 +2285,7 @@
         "functions-verbs-and-recursive",
         "get-after-and-exists-after",
         "globals-request-path-and-resource-id",
+        "hierarchical-match-cascade",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
@@ -2704,6 +2708,7 @@
         "get-missing-doc",
         "global-and-service-scope-functions",
         "globals-request-path-and-resource-id",
+        "hierarchical-match-cascade",
         "int-float-and-division",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
@@ -2786,6 +2791,7 @@
         "ast-strictness-and-unsupported-casts",
         "functions-verbs-and-recursive",
         "global-and-service-scope-functions",
+        "hierarchical-match-cascade",
         "optional-rules-version",
         "string-literals-and-regex",
         "unsupported-feature-witness"
@@ -3154,7 +3160,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "functions-verbs-and-recursive"
+        "functions-verbs-and-recursive",
+        "hierarchical-match-cascade"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
