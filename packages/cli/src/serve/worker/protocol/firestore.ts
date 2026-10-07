@@ -170,6 +170,13 @@ export interface FirestoreSubMessage {
    * the page derives them and the host records these instead.
    */
   owners?: ListenerOwner[];
+  /**
+   * The listener's `SnapshotListenOptions.includeMetadataChanges`. When
+   * `true` the host also delivers metadata-only snapshots (the settled
+   * acknowledgement after a pending write). Every snapshot frame carries
+   * `hasPendingWrites`.
+   */
+  includeMetadataChanges?: boolean;
   /** Mechanical op provenance. */
   issuer?: 'studio';
   /** Marks traffic relayed from a remote Node/agent consumer, never page app activity. */

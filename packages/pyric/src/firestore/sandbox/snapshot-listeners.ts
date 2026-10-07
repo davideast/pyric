@@ -275,9 +275,9 @@ export interface QueryDocumentSnapshot extends DocumentSnapshot {
   data(): DocumentData;
 }
 
-export interface DocumentChange {
+export interface DocumentChange<S = QueryDocumentSnapshot> {
   readonly type: DocumentChangeType;
-  readonly doc: QueryDocumentSnapshot;
+  readonly doc: S;
   /** -1 for `added`. */
   readonly oldIndex: number;
   /** -1 for `removed`. */
@@ -383,20 +383,16 @@ function buildQueryDocumentSnapshot(
 /**
  * Build a Web-SDK-shaped `QuerySnapshot`.
  *
- * `docList` carries the docs in their query-order (the caller is
- * responsible for ordering — for Slice 2 the order is whatever
- * `LocalState.list` returns, which is a path-ordered scan).
+ * `docList` carries the docs in query order (the caller is responsible
+ * for ordering).
  *
- * `prevDocs` is the previous snapshot's docs, used to compute
- * `oldIndex`. Pass `undefined` for an initial snapshot — every doc
- * surfaces as `added` with `oldIndex === -1`. Slice 3 will pass the
- * previous list to compute `modified` / `removed` entries.
+ * `prevDocs` is the previous snapshot's docs, the baseline for
+ * `docChanges()`. Pass `undefined` for an initial snapshot: every doc
+ * surfaces as `added` with `oldIndex === -1`.
  *
- * The returned `docChanges()` is cached by `includeMetadataChanges`
- * and throws on flag-mismatch when the listener didn't subscribe with
- * the option (per findings section 4) — that throw is wired by passing
- * `excludesMetadataChanges: !options.includeMetadataChanges` from the
- * listener record, which Slice 3 hooks into the dispatch path.
+ * `docChanges()` follows {@link createDocChanges}: cached per
+ * `includeMetadataChanges` value, and a throw when the listener did not
+ * subscribe with the option (`excludesMetadataChanges`).
  */
 export function buildQuerySnapshot(
   query: SnapshotQueryRef,
@@ -406,17 +402,13 @@ export function buildQuerySnapshot(
   metadata: SnapshotMetadata = SANDBOX_METADATA,
 ): QuerySnapshot {
   const docs = docList.map((d) => buildQueryDocumentSnapshot(d.path, d.data, metadata));
-
-  // Pre-compute the no-metadata-change view (Slice 2 semantics):
-  // initial fire → every current doc is `added`. Slice 3 will replace
-  // this with proper diffing against `prevDocs`.
-  const baseChanges: DocumentChange[] = prevDocs
-    ? computeChanges(prevDocs, docList, docs, metadata)
-    : docs.map((doc, newIndex) => ({ type: 'added' as const, doc, oldIndex: -1, newIndex }));
-
-  let cachedNoMetaChanges: DocumentChange[] | null = null;
-  let cachedWithMetaChanges: DocumentChange[] | null = null;
-
+  const changes = computeDocumentChanges(
+    prevDocs,
+    docList,
+    docs,
+    (before, after) => JSON.stringify(before.data) === JSON.stringify(after.data),
+    (row) => buildQueryDocumentSnapshot(row.path, row.data, metadata),
+  );
   return {
     query,
     metadata,
@@ -426,79 +418,88 @@ export function buildQuerySnapshot(
     forEach(cb) {
       for (const d of docs) cb(d);
     },
-    docChanges(opts?: DocChangesOptions) {
-      const wantMeta = !!opts?.includeMetadataChanges;
-      if (wantMeta && options.excludesMetadataChanges) {
-        // Production throws `FirestoreError(invalid-argument)` here. We
-        // throw a plain Error in the simulator core; the Web SDK adapter
-        // (Slice 4) re-tags this into a `FirestoreError` shape so agent
-        // code can pattern-match on `.code`.
-        throw new Error(
-          'To include metadata changes with your document changes, you must also pass ' +
-            '{ includeMetadataChanges: true } to onSnapshot().',
-        );
-      }
-      // Sandbox metadata never transitions (findings section 6) so the two
-      // cached arrays are identical in practice — keeping the cache key
-      // separate matches production's contract verbatim and lets us add
-      // distinct semantics later without breaking call sites.
-      if (wantMeta) {
-        if (!cachedWithMetaChanges) cachedWithMetaChanges = baseChanges.slice();
-        return cachedWithMetaChanges;
-      }
-      if (!cachedNoMetaChanges) cachedNoMetaChanges = baseChanges.slice();
-      return cachedNoMetaChanges;
-    },
+    docChanges: createDocChanges(changes, options.excludesMetadataChanges),
+  };
+}
+
+/** Production's message when `docChanges({ includeMetadataChanges: true })`
+ * is called on a snapshot whose listener did not request metadata changes. */
+export const METADATA_CHANGES_NOT_REQUESTED_MESSAGE =
+  'To include metadata changes with your document changes, you must also pass ' +
+  '{ includeMetadataChanges: true } to onSnapshot().';
+
+/**
+ * Build a `QuerySnapshot.docChanges` accessor over a precomputed change
+ * list. Each `includeMetadataChanges` value returns its own cached array,
+ * so repeat calls return the same array. Requesting metadata changes on a
+ * snapshot whose listener excluded them throws, as production does.
+ *
+ * Shared by the in-page snapshot and every client that rebuilds snapshots
+ * from a transport (the served worker client, the remote admin listener),
+ * so each plane reports the same change list for the same snapshots.
+ */
+export function createDocChanges<S>(
+  changes: readonly DocumentChange<S>[],
+  excludesMetadataChanges: boolean,
+): (options?: DocChangesOptions) => DocumentChange<S>[] {
+  let withoutMetadata: DocumentChange<S>[] | null = null;
+  let withMetadata: DocumentChange<S>[] | null = null;
+  return (options?: DocChangesOptions) => {
+    const wantsMetadata = options?.includeMetadataChanges === true;
+    if (wantsMetadata && excludesMetadataChanges) {
+      throw new Error(METADATA_CHANGES_NOT_REQUESTED_MESSAGE);
+    }
+    // The sandbox has no metadata-only document changes, so both views hold
+    // the same entries in separate arrays.
+    if (wantsMetadata) {
+      withMetadata ??= changes.slice();
+      return withMetadata;
+    }
+    withoutMetadata ??= changes.slice();
+    return withoutMetadata;
   };
 }
 
 /**
- * Diff `prev` against `curr` to produce `DocumentChange[]`. Slice 3
- * uses this from the notification path; Slice 2 only invokes it when
- * `prevDocs` is supplied (i.e. never on the initial fire).
+ * Diff the previous query result against the current one to produce
+ * `DocumentChange[]`. With no previous result every current row is
+ * `added` with `oldIndex === -1`.
  *
- * `oldIndex`/`newIndex` follow production's contract (-1 for added /
- * removed). Comparison uses path identity for membership and a shallow
- * `JSON.stringify` for "modified" detection — good enough for the
- * sandbox's data shapes (all `DocumentData` values are JSON-serialisable
- * after sentinel resolution). A deep-equal helper can land in Slice 3
- * if a probe surfaces a divergence.
+ * Rows are matched by `path`. `removed` entries come first, in previous
+ * order, with their previous index; then every current row that is new
+ * (`added`, `oldIndex === -1`) or whose value differs (`modified`), in
+ * current order. `sameValue` decides whether a row present in both results
+ * changed. `removedSnapshot` builds the snapshot a `removed` entry carries
+ * from the previous row.
  */
-function computeChanges(
-  prev: { path: string; data: DocumentData }[],
-  curr: { path: string; data: DocumentData }[],
-  currSnaps: QueryDocumentSnapshot[],
-  metadata: SnapshotMetadata = SANDBOX_METADATA,
-): DocumentChange[] {
+export function computeDocumentChanges<R extends { readonly path: string }, S>(
+  prev: readonly R[] | undefined,
+  curr: readonly R[],
+  currSnaps: readonly S[],
+  sameValue: (before: R, after: R) => boolean,
+  removedSnapshot: (row: R) => S,
+): DocumentChange<S>[] {
+  if (prev === undefined) {
+    return currSnaps.map((doc, newIndex) => ({ type: 'added' as const, doc, oldIndex: -1, newIndex }));
+  }
   const prevIndex = new Map<string, number>();
   prev.forEach((d, i) => prevIndex.set(d.path, i));
-  const currIndex = new Map<string, number>();
-  curr.forEach((d, i) => currIndex.set(d.path, i));
+  const currPaths = new Set(curr.map((d) => d.path));
 
-  const out: DocumentChange[] = [];
-  // Removed (in prev, not in curr) — keep `oldIndex` from prev.
+  const out: DocumentChange<S>[] = [];
   for (let i = 0; i < prev.length; i++) {
     const p = prev[i]!;
-    if (!currIndex.has(p.path)) {
-      out.push({
-        type: 'removed',
-        doc: buildQueryDocumentSnapshot(p.path, p.data, metadata),
-        oldIndex: i,
-        newIndex: -1,
-      });
+    if (!currPaths.has(p.path)) {
+      out.push({ type: 'removed', doc: removedSnapshot(p), oldIndex: i, newIndex: -1 });
     }
   }
-  // Added or modified (every curr entry).
   for (let i = 0; i < curr.length; i++) {
     const c = curr[i]!;
     const oldI = prevIndex.get(c.path);
     if (oldI === undefined) {
       out.push({ type: 'added', doc: currSnaps[i]!, oldIndex: -1, newIndex: i });
-    } else {
-      const prevData = prev[oldI]!.data;
-      if (JSON.stringify(prevData) !== JSON.stringify(c.data)) {
-        out.push({ type: 'modified', doc: currSnaps[i]!, oldIndex: oldI, newIndex: i });
-      }
+    } else if (!sameValue(prev[oldI]!, c)) {
+      out.push({ type: 'modified', doc: currSnaps[i]!, oldIndex: oldI, newIndex: i });
     }
   }
   return out;

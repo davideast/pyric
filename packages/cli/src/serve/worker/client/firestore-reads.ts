@@ -17,7 +17,7 @@ import { deliverWithRegions } from './listener-delivery.js';
 import { makeDocSnapshot, makeQuerySnapshot, makeSnapshot } from './snapshots.js';
 import { beginWorkerFirestoreActivity } from './sdk-activity.js';
 import { finishSdkRead, type UsageEvidence } from 'pyric/sandbox/internal';
-import type { RawDocResult, RawQueryResult, ClientDocSnapshot, ClientQuerySnapshot } from './snapshots.js';
+import type { RawDocResult, RawQueryResult, ClientDocSnapshot, ClientQuerySnapshot, QueryChangeBaseline } from './snapshots.js';
 import type { DocumentData } from 'pyric/firestore';
 
 // ─── Execution functions (RPC) ────────────────────────────────────────────
@@ -181,6 +181,11 @@ export function onSnapshot(
   // Derived before the message is built: `captureCreationFrame` reads the
   // stack this call is still on.
   const owners = pageListenerOwners(listenOptions);
+  const includeMetadataChanges = (listenOptions as { includeMetadataChanges?: unknown } | undefined)
+    ?.includeMetadataChanges === true;
+  // Kept across lens resubscriptions: the host's fresh snapshot after a
+  // resubscribe is diffed against what this listener last delivered.
+  const baseline: QueryChangeBaseline = { excludesMetadataChanges: !includeMetadataChanges };
   const callback = (hasDirectCallback
     ? optionsOrCallback
     : callbackOrError) as SnapshotCallback;
@@ -198,7 +203,7 @@ export function onSnapshot(
     next: (raw: unknown) => {
       let snapshot: ClientDocSnapshot | ClientQuerySnapshot;
       try {
-        snapshot = makeSnapshot(raw, port, target.converter);
+        snapshot = makeSnapshot(raw, port, target.converter, baseline);
       } catch (error) {
         stop();
         const hasErrorCallback = errorCallback !== undefined;
@@ -223,6 +228,7 @@ export function onSnapshot(
     if (hasLens) message.actAs = _defaultLens;
     const hasOwners = owners !== undefined;
     if (hasOwners) message.owners = owners;
+    if (includeMetadataChanges) message.includeMetadataChanges = true;
     const opened = openSnapshotSubscription(port, currentSubId, subscription, stampIssuer(message));
     const failedToOpen = !opened;
     if (failedToOpen) activity.fail();
