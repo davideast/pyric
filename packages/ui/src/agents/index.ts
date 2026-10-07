@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * `@pyric/ui/agents` — headless structural components for agentic UIs
  * (chat surfaces, tool-call drill-ins, streaming state indicators).

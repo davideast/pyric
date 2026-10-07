@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * Component attribution for listeners, on its own entry point.
  *

@@ -1,3 +1,5 @@
+'use client';
+
 export {
   useDenialTrace,
   type DenialRequest,

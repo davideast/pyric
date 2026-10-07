@@ -1,3 +1,5 @@
+'use client';
+
 export * from './hooks/index.js';
 
 // Injectable auth API bundle (Pyric Studio data-backend swap): defaults to

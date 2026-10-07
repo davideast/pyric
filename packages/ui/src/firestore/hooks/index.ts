@@ -1,3 +1,5 @@
+'use client';
+
 export { useFirestoreDoc, type SubscriptionState } from './useFirestoreDoc.js';
 export { useFirestoreCollection } from './useFirestoreCollection.js';
 export {
