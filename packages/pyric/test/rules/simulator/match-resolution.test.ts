@@ -72,6 +72,46 @@ describe('collectMatches', () => {
     expect(match && renderMatchBlockPath(match.block)).toBe('/{document=**}');
   });
 
+  test('a recursive wildcard followed by segments matches zero or more leading segments', () => {
+    const rule = 'match /{path=**}/items/{id} { allow read: if true; }';
+
+    expect(resolve(rule, 'items/a').map((match) => match.pathVariables)).toEqual([{ path: '', id: 'a' }]);
+    expect(resolve(rule, 'users/u1/items/a').map((match) => match.pathVariables))
+      .toEqual([{ path: 'users/u1', id: 'a' }]);
+    expect(resolve(rule, 'items/items/items/a').map((match) => match.pathVariables))
+      .toEqual([{ path: 'items/items', id: 'a' }]);
+    expect(resolve(rule, 'users/u1/items/a').map((match) => match.candidateVariables)).toEqual([['id']]);
+    expect(resolve(rule, 'users/u1/other/a')).toEqual([]);
+    expect(resolve(rule, 'users/u1/items/a/sub/b')).toEqual([]);
+    expect(resolve(rule, 'users/u1')).toEqual([]);
+  });
+
+  test('a block whose recursive wildcard is followed by segments reaches no nested match', () => {
+    const rule = `match /{group=**}/groups/{groupId} {
+      match /members/{memberId} { allow get: if true; }
+    }`;
+
+    expect(resolve(rule, 'groups/g1/members/m1')).toEqual([]);
+    expect(resolve(rule, 'orgs/o1/groups/g1/members/m1')).toEqual([]);
+  });
+
+  test('a final recursive wildcard lets a nested match continue at any depth, binding the longest prefix', () => {
+    const rule = `match /{document=**} {
+      allow read: if true;
+      match /notes/{noteId} { allow get: if true; }
+    }`;
+
+    expect(resolve(rule, 'notes/n1').map((match) => match.pathVariables)).toEqual([
+      { document: 'notes/n1' },
+      { document: '', noteId: 'n1' },
+    ]);
+    expect(resolve(rule, 'notes/n1/notes/n2').map((match) => match.pathVariables)).toEqual([
+      { document: 'notes/n1/notes/n2' },
+      { document: 'notes/n1', noteId: 'n2' },
+    ]);
+    expect(resolve(rule, 'a/1/notes/n1')[1]?.candidateVariables).toEqual(['noteId']);
+  });
+
   test('records literal near misses and unmatched child containers', () => {
     const ast = parse(`match /users/{userId} {
       match /items/{itemId} { allow read: if true; }

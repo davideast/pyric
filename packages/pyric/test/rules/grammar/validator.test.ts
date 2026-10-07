@@ -61,6 +61,29 @@ describe('Firestore Validator', () => {
       })]);
       expect(findCode(ast, 'SEC-2')).toHaveLength(0);
     });
+
+    test('names every document in the database for a root recursive wildcard', () => {
+      const ast = makeRules([makeMatch('/{document=**}', {
+        allows: [makeAllow(['read'], TRUE)],
+      })]);
+      expect(findCode(ast, 'SEC-2')[0]?.message)
+        .toBe('Public read at /{document=**}: every document in the database is readable');
+    });
+
+    test('names the prefix for a recursive wildcard nested under it', () => {
+      const ast = makeRules([makeMatch('/users/{uid}', {
+        children: [makeMatch('/{document=**}', { allows: [makeAllow(['read'], TRUE)] })],
+      })]);
+      expect(findCode(ast, 'SEC-2')[0]?.message)
+        .toBe('Public read at /users/{uid}/{document=**}: every document under /users/{uid} is readable');
+    });
+
+    test('does not flag the collection-group shape', () => {
+      const ast = makeRules([makeMatch('/{path=**}/posts/{postId}', {
+        allows: [makeAllow(['read'], TRUE)],
+      })]);
+      expect(findCode(ast, 'SEC-2')).toHaveLength(0);
+    });
   });
 
   describe('SEC-3: No auth check on write', () => {
@@ -134,6 +157,23 @@ describe('Firestore Validator', () => {
     test('does not flag false deny at recursive wildcard', () => {
       const ast = makeRules([makeMatch('/{document=**}', {
         allows: [makeAllow(['read', 'write'], FALSE)],
+      })]);
+      expect(findCode(ast, 'SEC-5')).toHaveLength(0);
+    });
+
+    test('names what the rule grants and how it combines with specific rules', () => {
+      const ast = makeRules([makeMatch('/{document=**}', {
+        allows: [makeAllow(['read'], AUTH_CHECK)],
+      })]);
+      expect(findCode(ast, 'SEC-5')[0]?.message).toBe(
+        'Recursive wildcard /{document=**} grants read on every document in the database when its condition holds; '
+        + 'a request is allowed when any matching rule allows it, so a more specific rule cannot narrow this grant',
+      );
+    });
+
+    test('does not flag the collection-group shape with a real condition', () => {
+      const ast = makeRules([makeMatch('/{path=**}/posts/{postId}', {
+        allows: [makeAllow(['read'], AUTH_CHECK)],
       })]);
       expect(findCode(ast, 'SEC-5')).toHaveLength(0);
     });

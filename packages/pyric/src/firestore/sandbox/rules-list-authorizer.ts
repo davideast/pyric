@@ -6,7 +6,7 @@ import type {
   TestCase,
 } from 'pyric/rules/internal';
 import { projectEvaluatedRule,renderLegacyDebugMessages, Timestamp } from 'pyric/rules/internal';
-import { proveGlobalCollectionGroupRules } from './collection-group-rule-proof.js';
+import { proveCollectionGroupRules } from './collection-group-rule-proof.js';
 import type { FirestoreEventBus } from './event-bus.js';
 import { makeError, type FirestoreSimError } from './errors.js';
 import {
@@ -33,7 +33,9 @@ export interface RulesListAuthorizerHost {
 }
 
 export interface ListAuthorizationRequest {
-  /** Collection groups require a symbolic all-path proof, never row sampling. */
+  /** A collection-group query, with `path` holding the collection id. It is
+   *  authorized only from rules that govern every collection with that id,
+   *  never from the stored rows. */
   collectionGroup?: boolean;
   path: string;
   auth: Operation['auth'];
@@ -100,12 +102,13 @@ export class RulesListAuthorizer {
 
     const deployedAst = this.rules.ast();
     const evaluationAst = request.collectionGroup
-      ? proveGlobalCollectionGroupRules(deployedAst)
+      ? proveCollectionGroupRules(deployedAst, path)
       : deployedAst;
     if (request.collectionGroup && !evaluationAst) {
       const message =
-        `list ${path} denied: symbolic collection-group proof is not supported; ` +
-        'the query is rejected rather than authorizing from the currently stored rows';
+        `list ${path} denied: no rule governs every '${path}' collection. A collection-group ` +
+        `query needs a list or read rule at match /{path=**}/${path}/{id} or match /{document=**} ` +
+        'whose condition reads no path binding';
       this.emitRequest({
         at: evalAt,
         evalMs: 0,

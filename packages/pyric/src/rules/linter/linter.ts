@@ -24,6 +24,7 @@ import {
 } from './ast-utils.js';
 import { checkSyntaxHints, checkHallucinations } from './hallucinations.js';
 import { countDocumentAccessCalls } from '../grammar/document-access-count.js';
+import { recursiveScope, type RecursiveScope } from '../grammar/recursive-scope.js';
 import { callChainDepths, collectRulesetScopes, functionReferences } from '../grammar/function-scopes.js';
 import { EXPRESSION_LIMIT, estimateExpressionCosts, type RuleCostEstimate } from './expression-cost.js';
 import { ruleLibraryCalls } from './library-calls.js';
@@ -536,6 +537,7 @@ const WRITE_OPS: ReadonlySet<string> = new Set([
 
 function checkPermissiveRules(
   rules: { rule: AllowRule; path: string }[],
+  scopes: ReadonlyMap<AllowRule, RuleScope>,
   warnings: LintWarning[],
 ) {
   for (let i = 0; i < rules.length; i++) {
@@ -558,7 +560,7 @@ function checkPermissiveRules(
       severity: 'warning',
       message:
         `allow ${ops} at ${r.path} resolves to a constant true predicate — `
-        + `this disables write security for the matched paths. If you reached `
+        + `this disables write security for ${scopes.get(r.rule)?.description ?? 'the matched paths'}. If you reached `
         + `for \`if true\` to escape a denial you don't understand, narrow `
         + `the predicate to the specific request shape instead (auth identity, `
         + `affected fields via diff, status transitions).`,
@@ -568,39 +570,53 @@ function checkPermissiveRules(
   }
 }
 
+/** A recursive scope together with the rule's index in its match block. */
+type RuleScope = RecursiveScope & { ruleIndex: number };
+
+/** The recursive scope of every allow rule whose full match path holds a
+ *  recursive wildcard. */
+function collectRecursiveScopes(
+  match: MatchBlock,
+  prefix: readonly PathSegment[],
+  scopes: Map<AllowRule, RuleScope>,
+): Map<AllowRule, RuleScope> {
+  const segments = [...prefix, ...match.path.segments];
+  const scope = recursiveScope(segments);
+  if (scope) match.allows.forEach((rule, ruleIndex) => scopes.set(rule, { ...scope, ruleIndex }));
+  for (const child of match.children) collectRecursiveScopes(child, segments, scopes);
+  return scopes;
+}
+
 /**
- * RECURSIVE_WILDCARD_OPEN — `match /{x=**} { allow read, write: if true }`
- * is the most permissive ruleset Firebase will accept. Distinct from
- * PERMISSIVE_RULE so the agent gets a specifically named diagnostic; the
- * recursive-wildcard form is what the playground trace ended up at after
- * the agent gave up debugging.
+ * RECURSIVE_WILDCARD_OPEN: an always-true allow on a recursive wildcard in
+ * the last position of the full match path, such as
+ * `match /{document=**} { allow read, write: if true; }`. That grants the
+ * operation on every document under the prefix, and at the root on every
+ * document in the database: the open-rules ruleset. Distinct from
+ * PERMISSIVE_RULE so the agent gets a specifically named diagnostic.
  *
- * Fires only when the path uses the recursive form AND the predicate
- * folds to constant true — a recursive wildcard with a real predicate
- * (e.g. `if request.auth.uid == userId`) is a legitimate pattern.
+ * A recursive wildcard followed by further segments, as in the
+ * collection-group shape `match /{path=**}/items/{id}`, governs only the
+ * documents whose path ends in those segments, so it does not fire here; an
+ * always-true write there is reported by PERMISSIVE_RULE like any other.
+ * A recursive wildcard with a real predicate never fires.
  */
 function checkRecursiveWildcardOpen(
-  match: MatchBlock,
+  scopes: ReadonlyMap<AllowRule, RuleScope>,
   warnings: LintWarning[],
 ) {
-  const hasRecursive = match.path.segments.some((s) => s.type === 'recursive');
-  if (hasRecursive) {
-    for (let i = 0; i < match.allows.length; i++) {
-      if (evalConstBool(match.allows[i]!.condition) === true) {
-        warnings.push({
-          rule: 'RECURSIVE_WILDCARD_OPEN',
-          severity: 'error',
-          message:
-            `Recursive wildcard match (${match.path.raw}) with an always-true `
-            + `predicate exposes every document under this prefix. This is the `
-            + `Firebase open-rules anti-pattern — never ship it.`,
-          location: { ruleIndex: i, matchPath: match.path.raw },
-          fix: 'Either narrow the match path to specific collections, or replace `if true` with a real predicate (auth identity, ownership, role).',
-        });
-      }
-    }
+  for (const [rule, scope] of scopes) {
+    if (scope.kind !== 'subtree' || evalConstBool(rule.condition) !== true) continue;
+    warnings.push({
+      rule: 'RECURSIVE_WILDCARD_OPEN',
+      severity: 'error',
+      message:
+        `match ${scope.fullPath} allows ${rule.operations.join(', ')} on `
+        + `${scope.description} with an always-true condition.`,
+      location: { ruleIndex: scope.ruleIndex, matchPath: scope.fullPath },
+      fix: 'Narrow the match path to the collections that must be open, for example match /{path=**}/<collection>/{id} for one collection group, or replace `if true` with a real predicate (auth identity, ownership, role).',
+    });
   }
-  for (const child of match.children) checkRecursiveWildcardOpen(child, warnings);
 }
 
 /**
@@ -937,8 +953,11 @@ function analyzeParsedRules(
   // Rule 9.5: Always-true predicates and recursive-wildcard open rules.
   // Severity: error so deployRules refuses to swap. The agent's #1
   // failure mode in the playground was escaping denials with `if true`.
-  checkPermissiveRules(allRules, warnings);
-  checkRecursiveWildcardOpen(ast.service.match, warnings);
+  // Paths are relative to the documents root, so its children start empty.
+  const recursiveScopes = new Map<AllowRule, RuleScope>();
+  for (const child of ast.service.match.children) collectRecursiveScopes(child, [], recursiveScopes);
+  checkPermissiveRules(allRules, recursiveScopes, warnings);
+  checkRecursiveWildcardOpen(recursiveScopes, warnings);
 
   // Rule 10: request.time without pinned TestCase.requestTime
   // (Item 0.F deferred follow-up). Only fires when caller passes a test suite.

@@ -337,9 +337,10 @@ export class RulesReadEngine implements ListenerDispatchHost {
    * The request is an immutable plan. This engine gathers collection or
    * collection-group candidates, proves the list rule, and executes the
    * filters/order/cursors/limit without exposing raw rows to the adapter.
-   * Rules-enforced collection-group reads use only universal recursive rules;
-   * group-specific recursive-suffix shapes fail closed until symbolic proof is
-   * supported. bypassRules remains available to the explicit admin lens.
+   * Rules-enforced collection-group reads are authorized only by rules that
+   * govern every collection with the queried id: `match /{path=**}/<id>/{doc}`
+   * or `match /{document=**}`. bypassRules remains available to the explicit
+   * admin lens.
    *
    * Emits `origin: 'user'` request events (one per `list`) so inspector
    * consumers see query reads the same way they see writes. UNSUPPORTED

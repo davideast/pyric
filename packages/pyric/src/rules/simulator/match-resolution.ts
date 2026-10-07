@@ -10,6 +10,8 @@ export interface MatchResult {
   functions: FunctionDef[];
 }
 
+type Recorder = { push(entry: PathResolutionEntry): void };
+
 /** Render a match path in the source form used by diagnostics. */
 export function renderMatchBlockPath(block: MatchBlock): string {
   const parts = block.path.segments.map((segment) => {
@@ -26,12 +28,22 @@ export function renderMatchBlockPath(block: MatchBlock): string {
  * the first match. Each result retains its own wildcard bindings and lexical
  * helper scope. An optional recorder receives matched and rejected attempts
  * for simulator diagnostics.
+ *
+ * A recursive wildcard matches zero or more segments. Its placement in the
+ * block's own path decides how far it reaches:
+ * - Followed by further segments (`/{path=**}/items/{id}`), it binds every
+ *   segment except the ones those trailing segments match, so the block
+ *   matches only a path that ends in them. Nested blocks are unreachable.
+ * - In the last position (`/{document=**}`), the block matches every
+ *   remaining segment, and each nested block also resolves at any depth
+ *   below it, with the recursive wildcard bound to the longest prefix that
+ *   lets the nested block match.
  */
 export function collectMatches(
   block: MatchBlock,
   pathSegments: string[],
   parentFunctions: FunctionDef[],
-  recorder?: { push(entry: PathResolutionEntry): void },
+  recorder?: Recorder,
 ): MatchResult[] {
   const allFunctions = [...parentFunctions, ...block.functions];
   const pattern = block.path.segments;
@@ -39,8 +51,10 @@ export function collectMatches(
   const candidateVariables: string[] = [];
   let consumed = 0;
   let failureReason: PathResolutionEntry['reason'] | undefined;
+  let finalRecursive: { name: string; start: number } | undefined;
 
-  for (const segment of pattern) {
+  for (let index = 0; index < pattern.length; index++) {
+    const segment = pattern[index]!;
     if (segment.type === 'literal') {
       if (consumed >= pathSegments.length) {
         failureReason = 'request-shorter';
@@ -60,35 +74,48 @@ export function collectMatches(
       if (consumed === pathSegments.length - 1) candidateVariables.push(segment.name);
       consumed++;
     } else {
-      bindings[segment.name] = pathSegments.slice(consumed).join('/');
-      if (consumed < pathSegments.length) candidateVariables.push(segment.name);
-      consumed = pathSegments.length;
+      const trailing = pattern.length - index - 1;
+      const length = pathSegments.length - consumed - trailing;
+      if (length < 0) {
+        failureReason = 'request-shorter';
+        break;
+      }
+      bindings[segment.name] = pathSegments.slice(consumed, consumed + length).join('/');
+      if (trailing === 0) {
+        finalRecursive = { name: segment.name, start: consumed };
+        if (length > 0) candidateVariables.push(segment.name);
+      }
+      consumed += length;
     }
   }
 
+  const entry = (extra: Partial<PathResolutionEntry>): PathResolutionEntry => ({
+    ...(block.loc ? { line: block.loc.line } : {}),
+    blockPath: renderMatchBlockPath(block),
+    matchedSegments: consumed,
+    totalSegments: pattern.length,
+    bindings,
+    matched: false,
+    ...extra,
+  });
+
   if (failureReason !== undefined) {
-    recorder?.push({
-      ...(block.loc ? { line: block.loc.line } : {}),
-      blockPath: renderMatchBlockPath(block),
-      matchedSegments: consumed,
-      totalSegments: pattern.length,
-      bindings,
-      matched: false,
-      reason: failureReason,
-    });
+    recorder?.push(entry({ reason: failureReason }));
     return [];
+  }
+
+  if (finalRecursive) {
+    const results = [
+      { block, pathVariables: bindings, candidateVariables, functions: allFunctions },
+      ...collectBelowRecursive(block, pathSegments, allFunctions, bindings, finalRecursive, recorder),
+    ];
+    recorder?.push(entry({ matched: true }));
+    return results;
   }
 
   const remaining = pathSegments.slice(consumed);
   if (remaining.length === 0) {
-    recorder?.push({
-      ...(block.loc ? { line: block.loc.line } : {}),
-      blockPath: renderMatchBlockPath(block),
-      matchedSegments: consumed,
-      totalSegments: pattern.length,
-      bindings,
-      matched: true,
-    });
+    recorder?.push(entry({ matched: true }));
     return [{ block, pathVariables: bindings, candidateVariables, functions: allFunctions }];
   }
 
@@ -101,15 +128,45 @@ export function collectMatches(
     }
   }
 
-  recorder?.push({
-    ...(block.loc ? { line: block.loc.line } : {}),
-    blockPath: renderMatchBlockPath(block),
-    matchedSegments: consumed,
-    totalSegments: pattern.length,
-    bindings,
-    ...(results.length > 0
-      ? { matched: true }
-      : { matched: false, reason: 'no-matching-child' as const }),
-  });
+  recorder?.push(entry(results.length > 0 ? { matched: true } : { reason: 'no-matching-child' }));
+  return results;
+}
+
+/**
+ * Nested blocks under a final recursive wildcard. Each resolved block keeps
+ * the binding with the longest recursive prefix that matches it. Attempts are
+ * recorded for the binding that produced a match, or for the longest one when
+ * none did.
+ */
+function collectBelowRecursive(
+  block: MatchBlock,
+  pathSegments: string[],
+  functions: FunctionDef[],
+  bindings: Record<string, string>,
+  recursive: { name: string; start: number },
+  recorder: Recorder | undefined,
+): MatchResult[] {
+  if (block.children.length === 0) return [];
+  const results: MatchResult[] = [];
+  const resolved = new Set<MatchBlock>();
+  let firstAttempts: PathResolutionEntry[] | undefined;
+  for (let end = pathSegments.length - 1; end >= recursive.start; end--) {
+    const remaining = pathSegments.slice(end);
+    const prefix = { ...bindings, [recursive.name]: pathSegments.slice(recursive.start, end).join('/') };
+    const attempts: PathResolutionEntry[] = [];
+    let produced = false;
+    for (const child of block.children) {
+      for (const childResult of collectMatches(child, remaining, functions, { push: (e) => attempts.push(e) })) {
+        if (resolved.has(childResult.block)) continue;
+        resolved.add(childResult.block);
+        produced = true;
+        childResult.pathVariables = { ...prefix, ...childResult.pathVariables };
+        results.push(childResult);
+      }
+    }
+    firstAttempts ??= attempts;
+    if (produced) for (const attempt of attempts) recorder?.push(attempt);
+  }
+  if (results.length === 0) for (const attempt of firstAttempts ?? []) recorder?.push(attempt);
   return results;
 }

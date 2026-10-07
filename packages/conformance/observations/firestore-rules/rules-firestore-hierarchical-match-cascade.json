@@ -4,18 +4,69 @@
   "rowIds": [
     "firestore-rules#187"
   ],
-  "description": "Firestore Rules Test API verdicts for corpus scenario \"hierarchical-match-cascade\" (CDD: hierarchical match cascade). A nested match must resolve relative to its parent: the exact child path allows while the parent, a sibling, and an extra descendant deny.",
-  "observedAt": "2026-07-21T23:43:05.601Z",
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"hierarchical-match-cascade\" (CDD: hierarchical match cascade). A nested match must resolve relative to its parent: the exact child path allows while the parent, a sibling, and an extra descendant deny. A recursive wildcard followed by further segments matches zero or more leading segments and reaches no nested match, while one in the last position lets a nested match resolve at any depth.",
+  "observedAt": "2026-10-07T03:40:48.465Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "5ac81772c3c2188c49805af56e9a5f0f7de21bd3466272d3a762505e4ee49933"
+    "value": "99c41599ff6f188d9ee1e9292fa5245f2ff4948115160cc5b81f1b6756e73819"
   },
   "behavior": {
     "exact nested child path ALLOW": "ALLOW",
     "parent path without child DENY": "DENY",
     "sibling path outside nested match DENY": "DENY",
-    "descendant beyond exact nested match DENY": "DENY"
+    "descendant beyond exact nested match DENY": "DENY",
+    "get in a subcollection items ALLOW": "ALLOW",
+    "get in the root items collection ALLOW": "ALLOW",
+    "get in a deeply nested items collection ALLOW": "ALLOW",
+    "get in an items collection under an items document ALLOW": "ALLOW",
+    "get in an items collection under a document with id items ALLOW": "ALLOW",
+    "anonymous get in items DENY": "DENY",
+    "get in a sibling collection DENY": "DENY",
+    "get under an items document DENY": "DENY",
+    "get of the parent document DENY": "DENY",
+    "list a subcollection items ALLOW": "ALLOW",
+    "list the root items collection ALLOW": "ALLOW",
+    "anonymous list of items DENY": "DENY",
+    "trailing wildcard binds the document id ALLOW": "ALLOW",
+    "trailing wildcard rejects another document id DENY": "DENY",
+    "nested match under a nested groups document DENY": "DENY",
+    "nested match under a root groups document DENY": "DENY",
+    "groups document without the nested segment DENY": "DENY",
+    "nested match after a final recursive wildcard at the root ALLOW": "ALLOW",
+    "nested match after a final recursive wildcard at depth ALLOW": "ALLOW",
+    "nested wildcard binds the last notes document DENY": "DENY",
+    "nested wildcard binds the last notes document ALLOW": "ALLOW"
+  },
+  "diagnostics": {
+    "anonymous get in items DENY": {
+      "notes": [
+        "Error: firestore.rules line [10], column [22]. Property auth is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 10,
+          "column": 22,
+          "currentOffset": 252,
+          "endOffset": 258
+        }
+      }
+    },
+    "anonymous list of items DENY": {
+      "notes": [
+        "Error: firestore.rules line [10], column [22]. Property auth is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 10,
+          "column": 22,
+          "currentOffset": 252,
+          "endOffset": 258
+        }
+      }
+    }
   }
 }

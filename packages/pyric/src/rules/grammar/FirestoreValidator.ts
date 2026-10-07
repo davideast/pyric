@@ -1,8 +1,9 @@
 import type {
-  FirestoreRules, MatchBlock, AllowRule, FunctionDef, Expression, Operation,
+  FirestoreRules, MatchBlock, AllowRule, FunctionDef, Expression, Operation, PathSegment,
 } from './FirestoreAST.js';
 import { countDocumentAccessCalls } from './document-access-count.js';
 import { compileLimitViolations } from './compile-limits.js';
+import { recursiveScope } from './recursive-scope.js';
 import {
   collectRulesetScopes, functionReferences, ruleReferences,
   type NameReferences, type RulesetScopes,
@@ -51,8 +52,17 @@ function walkMatch(
   match: MatchBlock,
   findings: ValidationFinding[],
   scopeFunctions: FunctionDef[],
+  /** Full path segments of the enclosing blocks below the documents root;
+   *  null for the documents root itself. */
+  parentSegments: readonly PathSegment[] | null = null,
 ) {
-  const isRecursiveWildcard = match.path.segments.some(s => s.type === 'recursive');
+  const segments = parentSegments === null ? [] : [...parentSegments, ...match.path.segments];
+  // SEC-2 and SEC-5 concern a recursive wildcard in the last position, which
+  // governs every document under its prefix. One followed by further
+  // segments, the collection-group shape, governs only documents whose path
+  // ends in them.
+  const subtree = recursiveScope(segments);
+  const recursiveSubtree = subtree?.kind === 'subtree' ? subtree : null;
   const pathStr = match.path.raw;
 
   // Merge scope: parent functions + this match's functions
@@ -80,19 +90,21 @@ function walkMatch(
       });
     }
 
-    // SEC-2: Public read at recursive wildcard
-    if (isRead && isLiteralTrue && isRecursiveWildcard) {
+    // SEC-2: Public read at a final recursive wildcard
+    if (isRead && isLiteralTrue && recursiveSubtree) {
       findings.push({
         code: 'SEC-2', severity: 'critical', path: pathStr, operation: opStr,
-        message: `Public read at recursive wildcard ${pathStr} — entire database is readable`,
+        message: `Public read at ${recursiveSubtree.fullPath}: ${recursiveSubtree.description} is readable`,
       });
     }
 
-    // SEC-5: Overly permissive recursive wildcard
-    if (isRecursiveWildcard && !isLiteralFalse) {
+    // SEC-5: A grant at a final recursive wildcard
+    if (recursiveSubtree && !isLiteralFalse) {
       findings.push({
         code: 'SEC-5', severity: 'high', path: pathStr, operation: opStr,
-        message: `Recursive wildcard ${pathStr} has a non-deny rule — overrides all specific rules`,
+        message: `Recursive wildcard ${recursiveSubtree.fullPath} grants ${opStr} on ${recursiveSubtree.description} `
+          + 'when its condition holds; a request is allowed when any matching rule allows it, '
+          + 'so a more specific rule cannot narrow this grant',
       });
     }
 
@@ -186,7 +198,7 @@ function walkMatch(
 
   // Recurse into children
   for (const child of match.children) {
-    walkMatch(child, findings, localScope);
+    walkMatch(child, findings, localScope, segments);
   }
 }
 
