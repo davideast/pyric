@@ -183,6 +183,15 @@ function recordProblems(file: string, id: string, value: unknown): string[] {
         fail(`cases[${i}] ('${c.description ?? i}'): 'claims' requires 'authPresent: true'`);
       }
     }
+    if (c.identity !== undefined) {
+      if (typeof c.identity !== 'object' || c.identity === null || Array.isArray(c.identity)) {
+        fail(`cases[${i}] ('${c.description ?? i}'): 'identity' must be an object`);
+      } else if (c.authPresent !== true) {
+        fail(`cases[${i}] ('${c.description ?? i}'): 'identity' requires 'authPresent: true'`);
+      } else if (c.claims !== undefined) {
+        fail(`cases[${i}] ('${c.description ?? i}'): a case declares 'identity' or 'claims', not both`);
+      }
+    }
     const isPatch = typeof c.newData === 'object' && c.newData !== null && !Array.isArray(c.newData);
     if (c.operation === 'update' && !isPatch) {
       fail(`cases[${i}] ('${c.description ?? i}'): an 'update' case's 'newData' must be a patch object keyed by relative paths`);

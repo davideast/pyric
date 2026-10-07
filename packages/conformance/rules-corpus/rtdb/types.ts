@@ -22,6 +22,16 @@
  * translation.
  */
 
+/** An account a case signs in as, beyond an anonymous sign-in. */
+export interface RtdbCaseIdentity {
+  /** The account has an email at this domain. */
+  emailDomain?: string;
+  /** The account's email is verified. Only meaningful with `emailDomain`. */
+  emailVerified?: boolean;
+  /** Developer claims in the custom token, read as `auth.token.<name>`. */
+  claims?: Record<string, unknown>;
+}
+
 /** A single (rule, op) tuple. `operation`/`opPath`/`authPresent`/`newData`/
  *  `mockData` reproduce the agreement probe's op verbatim; `expectation` is the
  *  production verdict frozen for that op. `opPath` is relative to the scenario's
@@ -50,6 +60,13 @@ export interface RtdbTestCase {
   /** The query a `query` case reads with. Required for `query` cases and
    *  refused on every other operation. */
   query?: RtdbCaseQuery;
+  /** The signed-in account, when the case needs more than an anonymous
+   *  sign-in: the capture creates an Auth user for it, with an email
+   *  `<generated>@<emailDomain>` when `emailDomain` is set, and signs in with
+   *  a custom token carrying `claims`; the replay gives the simulator the same
+   *  token claims. The capture deletes every user it created. Requires
+   *  `authPresent`, and is refused together with `claims`. */
+  identity?: RtdbCaseIdentity;
   /** The value written (write ops) or the patch (update ops). `<UID>` tokens
    *  inside are substituted. */
   newData?: unknown;

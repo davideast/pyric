@@ -21,6 +21,7 @@ import { describe, it, expect } from 'bun:test';
 import {
   assertMatchingOracleProjects,
   captureDeployScenario,
+  createRunUser,
   normalizeDeployError,
   observationLinkageOf,
   queryConstraintsOf,
@@ -29,6 +30,7 @@ import {
   verifyRunUserCleanup,
   type RulesDeployEndpoint,
   type RunDataStore,
+  type RunUserCreator,
   type RunUserStore,
 } from './run-rules-rtdb.ts';
 import type { RtdbDeployScenario } from '../rules-corpus/rtdb/index.ts';
@@ -312,5 +314,32 @@ describe('run-rules-rtdb custom-token user cleanup', () => {
   it('fails when the user still exists after deletion', async () => {
     await expect(verifyRunUserCleanup(fakeUsers({ exists: true, sticky: true }), 'pyric-oracle-uid'))
       .rejects.toThrow(/user cleanup NOT verified/);
+  });
+});
+
+describe('run-rules-rtdb identity user creation', () => {
+  it('records the uid before creating the user, so a creation that fails late is still cleaned up', async () => {
+    const runUids = new Set<string>();
+    const creator: RunUserCreator = {
+      async createUser() {
+        throw new Error('deadline exceeded after the user was written');
+      },
+    };
+    await expect(createRunUser(creator, runUids, { uid: 'pyric-oracle-run-0' })).rejects.toThrow(/deadline exceeded/);
+    expect([...runUids]).toEqual(['pyric-oracle-run-0']);
+  });
+
+  it('records the uid and creates the user with its email properties', async () => {
+    const runUids = new Set<string>();
+    const created: unknown[] = [];
+    const creator: RunUserCreator = {
+      async createUser(props) {
+        created.push(props);
+      },
+    };
+    const props = { uid: 'pyric-oracle-run-1', email: 'pyric-oracle-run-1@example.com', emailVerified: true };
+    await createRunUser(creator, runUids, props);
+    expect([...runUids]).toEqual(['pyric-oracle-run-1']);
+    expect(created).toEqual([props]);
   });
 });

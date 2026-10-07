@@ -5,7 +5,7 @@
     "rtdb-rules#12"
   ],
   "description": "RTDB rules production verdicts for corpus scenario \"r28-stdlib-presence-timing\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). presence, rate limits and bounded collections from the standard library must deploy and decide as documented, including server timestamps written in the same multi-path update as the data they stamp.",
-  "observedAt": "2026-10-07T13:54:29.380Z",
+  "observedAt": "2026-10-07T14:30:37.811Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "genkit-idx",
   "behavior": {

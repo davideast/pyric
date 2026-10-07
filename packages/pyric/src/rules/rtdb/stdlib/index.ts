@@ -19,6 +19,8 @@ import * as counters from './counters.js';
 import * as presence from './presence.js';
 import * as timing from './timing.js';
 import * as collections from './collections.js';
+import * as auth from './auth.js';
+import * as membership from './membership.js';
 
 export const rtdbStdlib = Object.freeze({
   validation,
@@ -30,6 +32,8 @@ export const rtdbStdlib = Object.freeze({
   presence,
   timing,
   collections,
+  auth,
+  membership,
 });
 
 export type RtdbStdlib = typeof rtdbStdlib;

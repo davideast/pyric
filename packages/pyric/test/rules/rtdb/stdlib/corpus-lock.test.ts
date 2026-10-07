@@ -13,6 +13,8 @@ import { defineRtdbRules, rtdbRules, type PathDef } from 'pyric/rules';
 import { ALL_RULES_RTDB_SCENARIOS } from '../../../../../conformance/rules-corpus/rtdb/index.ts';
 import { CORE_PATTERN_PATHS } from './fixtures/match-rules.js';
 import { PRESENCE_TIMING_PATHS } from './fixtures/presence-timing-rules.js';
+import { AUTH_MEMBERSHIP_PATHS } from './fixtures/auth-membership-rules.js';
+import { identityToken } from '../../../../../conformance/src/rules-rtdb-replay.ts';
 import { sandboxCase, simulateCase, type StdlibCase, type StdlibScenario } from './harness.js';
 
 const UID = 'corpus-user';
@@ -20,6 +22,7 @@ const UID = 'corpus-user';
 const CAPTURES: Array<{ id: string; paths: Record<string, PathDef> }> = [
   { id: 'r27-stdlib-core-patterns', paths: CORE_PATTERN_PATHS },
   { id: 'r28-stdlib-presence-timing', paths: PRESENCE_TIMING_PATHS },
+  { id: 'r34-stdlib-auth-membership-quota', paths: AUTH_MEMBERSHIP_PATHS },
 ];
 
 function substitute<T>(value: T): T {
@@ -51,7 +54,7 @@ for (const { id, paths } of CAPTURES) {
       expectation: c.expectation,
       operation: c.operation,
       path: `/${id}${substitute(c.opPath)}`.replace(/\/$/, ''),
-      auth: c.authPresent ? UID : null,
+      auth: !c.authPresent ? null : c.identity ? { uid: UID, token: identityToken(UID, c.identity) } : UID,
       data: seedTree(id, c.seed),
       ...(c.newData === undefined ? {} : { newData: substitute(c.newData) }),
     })),

@@ -23,7 +23,7 @@
  * posts and one stamp, and each post's `.validate` sees the same fresh stamp.
  */
 import type { Expr, Segment } from '../constraints/types.js';
-import { and, exists, fieldName, finite, lit, negate, or, raw, val } from './expr.js';
+import { and, childPath, climb, exists, fieldName, finite, lit, negate, or, raw, val } from './expr.js';
 
 const at = (snapshot: 'data' | 'newData', field?: string) =>
   field === undefined ? val(snapshot) : val(snapshot, fieldName('timing', field));
@@ -65,12 +65,66 @@ export const throttled = (ms: number): Expr => and(isServerTimestamp(), cooldown
  * `.validate` is `stampedInSameWrite(2, ['lastPost', { $: 'auth.uid' }])`.
  */
 export function stampedInSameWrite(levelsUp: number, segments: Segment[]): Expr {
-  if (!Number.isInteger(levelsUp) || levelsUp < 0) {
-    throw new Error(`stampedInSameWrite: levelsUp must be an integer of at least 0, got ${String(levelsUp)}.`);
-  }
-  if (segments.length === 0) throw new Error('stampedInSameWrite: pass at least one segment.');
-  const path = segments
-    .map((s) => (typeof s === 'string' ? `.child(${lit(fieldName('stampedInSameWrite', s))})` : `.child(${s.$})`))
-    .join('');
-  return raw(`newData${'.parent()'.repeat(levelsUp)}${path}.val() == now`);
+  const base = climb('stampedInSameWrite', 'newData', requireLevels('stampedInSameWrite', levelsUp));
+  return raw(`${base}${childPath('stampedInSameWrite', segments)}.val() == now`);
+}
+
+function requireLevels(builder: string, levelsUp: number): number {
+  if (typeof levelsUp !== 'number') throw new Error(`${builder}: pass levelsUp.`);
+  return levelsUp;
+}
+
+/**
+ * A quota node, such as `/quota/$uid`, that allows `max` counted writes per
+ * window of `windowMs` milliseconds. It holds `{ windowStart, count }`. A
+ * write either opens a new window, setting `windowStart` to the server
+ * timestamp and `count` to 1, once nothing is stored or the stored window has
+ * ended, or counts one more write in the open window, keeping `windowStart`
+ * and adding 1 to `count`, up to `max`. Quota node `.validate`; give the
+ * node's `.write` `lifecycle.noDelete()`, since a deleted quota would reset.
+ *
+ * The stored window is checked to be a number before the rule adds to it:
+ * production fails a rule that adds to a missing value.
+ */
+export function windowedQuota(max: number, windowMs: number): Expr {
+  finite('windowedQuota', 'max', max);
+  finite('windowedQuota', 'windowMs', windowMs);
+  if (!Number.isInteger(max) || max < 1) throw new Error(`windowedQuota: max must be an integer of at least 1, got ${max}.`);
+  if (windowMs <= 0) throw new Error(`windowedQuota: windowMs must be positive, got ${windowMs}.`);
+  const storedStart = "data.child('windowStart')";
+  const ends = `${storedStart}.val() + ${lit(windowMs)}`;
+  return and(
+    raw("newData.child('count').isNumber()"),
+    raw(`newData.child('count').val() <= ${lit(max)}`),
+    or(
+      and(
+        raw("newData.child('windowStart').val() == now"),
+        raw("newData.child('count').val() == 1"),
+        or(negate(exists('data')), and(raw(`${storedStart}.isNumber()`), raw(`now >= ${ends}`))),
+      ),
+      and(
+        raw(`${storedStart}.isNumber()`),
+        raw("data.child('count').isNumber()"),
+        raw(`newData.child('windowStart').val() == ${storedStart}.val()`),
+        raw(`now < ${ends}`),
+        raw("newData.child('count').val() == data.child('count').val() + 1"),
+      ),
+    ),
+  );
+}
+
+/**
+ * The same write moves the quota at `segments`, read `levelsUp` levels above
+ * the node the rule is placed on: its `count` or `windowStart` differs after
+ * the write. With `windowedQuota` on the quota node, any change is one
+ * counted write. Like `stampedInSameWrite`, it limits writes, not items: one
+ * multi-path update can carry several items and one count.
+ */
+export function countedInSameWrite(levelsUp: number, segments: Segment[]): Expr {
+  const after = `${climb('countedInSameWrite', 'newData', requireLevels('countedInSameWrite', levelsUp))}${childPath('countedInSameWrite', segments)}`;
+  const before = `${climb('countedInSameWrite', 'data', levelsUp)}${childPath('countedInSameWrite', segments)}`;
+  return or(
+    raw(`${after}.child('count').val() != ${before}.child('count').val()`),
+    raw(`${after}.child('windowStart').val() != ${before}.child('windowStart').val()`),
+  );
 }
