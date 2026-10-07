@@ -31,14 +31,14 @@ describe('served app conformance merge gate', () => {
     expect(mainJobEnd).toBeGreaterThan(mainJobStart);
     expect(mainJob).toContain('uses: ./.github/actions/restore-dist');
     expect(mainJob).toContain('flavor: packages');
-    expect(mainJob).toContain('bun run test:ci:cli');
+    expect(mainJob).toContain('bun scripts/ci/test-shard.ts --shard=');
     expect(mainJob).not.toContain('bun run test:ci:libraries');
     expect(libraryJobStart).toBeGreaterThanOrEqual(0);
     expect(libraryJobEnd).toBeGreaterThan(libraryJobStart);
     expect(libraryJob).toContain('uses: ./.github/actions/restore-dist');
     expect(libraryJob).toContain('flavor: packages');
     expect(libraryJob).toContain('bun run test:ci:libraries');
-    expect(libraryJob).not.toContain('bun run test:ci:cli');
+    expect(libraryJob).not.toContain('scripts/ci/test-shard.ts');
     const complete = rootPackage.scripts?.test?.split(' && ') ?? [];
     const split = [
       ...(rootPackage.scripts?.['test:ci:cli']?.split(' && ') ?? []),
