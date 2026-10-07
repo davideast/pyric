@@ -228,11 +228,13 @@ jobs:
           flavor: packages
 
       - name: Run CLI tests
-        # Sharded across 2 runners: the CLI suite is load-sensitive under CPU
-        # contention (verify replays flip verdicts when sharing a 2-core VM).
+        # Sharded across 2 runners by scripts/ci/test-shard.ts (bun test has no
+        # shard option, so files are split by index modulo 2). The CLI suite is
+        # load-sensitive under CPU contention (verify replays flip verdicts when
+        # sharing a 2-core VM).
         # Sharding gives each half of the suite its own dedicated 2-core VM
         # without CPU starvation, cutting job wall-clock time in half (~48s).
-        run: bun run test:ci:cli --shard=${{ matrix.shard }}/2
+        run: bun scripts/ci/test-shard.ts --shard=${{ matrix.shard }}/2
 
   library-tests:
     name: Run library + UI tests
