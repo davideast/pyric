@@ -2,12 +2,15 @@ import Foundation
 
 /// Coordinates subscription lifecycle against active security rules evaluation lenses.
 /// Automatically tears down and re-subscribes active bridge subscriptions upon auth transitions.
+/// A dropped connection does not end the subscription: the bridge client re-sends it on
+/// re-attach and reports the gap through `onGap`.
 internal final class SnapshotSubscriptionCoordinator: @unchecked Sendable {
     private let firestore: Firestore
     private let target: TargetDescriptor
     private let includeMetadataChanges: Bool
     private let listenSource: String?
     private let onEvent: @Sendable (AnySendable) -> Void
+    private let onGap: @Sendable () -> Void
     private let onError: @Sendable (Error) -> Void
 
     private var coordinatorTask: Task<Void, Never>?
@@ -21,6 +24,7 @@ internal final class SnapshotSubscriptionCoordinator: @unchecked Sendable {
         includeMetadataChanges: Bool,
         listenSource: String? = nil,
         onEvent: @escaping @Sendable (AnySendable) -> Void,
+        onGap: @escaping @Sendable () -> Void = {},
         onError: @escaping @Sendable (Error) -> Void
     ) {
         self.firestore = firestore
@@ -28,6 +32,7 @@ internal final class SnapshotSubscriptionCoordinator: @unchecked Sendable {
         self.includeMetadataChanges = includeMetadataChanges
         self.listenSource = listenSource
         self.onEvent = onEvent
+        self.onGap = onGap
         self.onError = onError
         start()
     }
@@ -68,6 +73,7 @@ internal final class SnapshotSubscriptionCoordinator: @unchecked Sendable {
             let includeMeta = self.includeMetadataChanges
             let listenSource = self.listenSource
             let onEvent = self.onEvent
+            let onGap = self.onGap
             let onError = self.onError
 
             activeChildTask = Task {
@@ -76,11 +82,16 @@ internal final class SnapshotSubscriptionCoordinator: @unchecked Sendable {
                     actAs: lens,
                     includeMetadataChanges: includeMeta,
                     listenSource: listenSource
-                )
+                ).events
                 do {
                     for try await event in stream {
                         guard !Task.isCancelled else { break }
-                        onEvent(event)
+                        switch event {
+                        case .value(let value):
+                            onEvent(value)
+                        case .gap:
+                            onGap()
+                        }
                     }
                 } catch {
                     guard !Task.isCancelled else { return }

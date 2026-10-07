@@ -335,6 +335,21 @@ public class Query: @unchecked Sendable {
                     previousDocs: stateBox.previousDocs
                 )
                 stateBox.previousDocs = snapshot.documents
+                stateBox.lastWire = event
+                db.settings.dispatchCallback {
+                    box.callback(snapshot, nil)
+                }
+            },
+            onGap: {
+                // The documents last delivered, now served from cache, with no changes.
+                guard let lastWire = stateBox.lastWire else { return }
+                let snapshot = QuerySnapshot.fromWire(
+                    firestore: db,
+                    query: self,
+                    wire: lastWire,
+                    previousDocs: stateBox.previousDocs ?? [],
+                    isFromCache: true
+                )
                 db.settings.dispatchCallback {
                     box.callback(snapshot, nil)
                 }
@@ -403,4 +418,5 @@ private final class CallbackBox<T: Sendable>: @unchecked Sendable {
 
 private final class QuerySnapshotStateBox: @unchecked Sendable {
     var previousDocs: [QueryDocumentSnapshot]?
+    var lastWire: AnySendable?
 }

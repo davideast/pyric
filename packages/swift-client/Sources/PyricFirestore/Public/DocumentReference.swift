@@ -260,12 +260,22 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
         let docPath = self.path
         let db = self.firestore
 
+        let lastWire = LastWireBox()
         let coordinator = SnapshotSubscriptionCoordinator(
             firestore: db,
             target: .doc(path: docPath),
             includeMetadataChanges: includeMetadataChanges,
             onEvent: { event in
+                lastWire.value = event
                 let snapshot = DocumentSnapshot.fromWire(firestore: db, path: docPath, wire: event)
+                db.settings.dispatchCallback {
+                    box.callback(snapshot, nil)
+                }
+            },
+            onGap: {
+                // The document last delivered, now served from cache.
+                guard let wire = lastWire.value else { return }
+                let snapshot = DocumentSnapshot.fromWire(firestore: db, path: docPath, wire: wire, isFromCache: true)
                 db.settings.dispatchCallback {
                     box.callback(snapshot, nil)
                 }
@@ -332,4 +342,9 @@ private final class ErrorCallbackBox: @unchecked Sendable {
     init(_ callback: (@Sendable (Error?) -> Void)?) {
         self.callback = callback
     }
+}
+
+/// The last bridge value a listener delivered; written and read on the listener's own task.
+private final class LastWireBox: @unchecked Sendable {
+    var value: AnySendable?
 }

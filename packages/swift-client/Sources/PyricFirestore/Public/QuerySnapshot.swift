@@ -36,28 +36,37 @@ public final class QuerySnapshot: @unchecked Sendable, RandomAccessCollection {
         firestore: Firestore,
         query: Query,
         wire: AnySendable,
-        previousDocs: [QueryDocumentSnapshot]? = nil
+        previousDocs: [QueryDocumentSnapshot]? = nil,
+        isFromCache: Bool = false
     ) -> QuerySnapshot {
-        fromWire(firestore: firestore, query: query, wireAny: wire.toAny(), previousDocs: previousDocs)
+        fromWire(
+            firestore: firestore,
+            query: query,
+            wireAny: wire.toAny(),
+            previousDocs: previousDocs,
+            isFromCache: isFromCache
+        )
     }
 
     internal static func fromWire(
         firestore: Firestore,
         query: Query,
         wireAny: Any?,
-        previousDocs: [QueryDocumentSnapshot]? = nil
+        previousDocs: [QueryDocumentSnapshot]? = nil,
+        isFromCache: Bool = false
     ) -> QuerySnapshot {
         var docList: [QueryDocumentSnapshot] = []
         // Listener frames carry the sandbox snapshot's pending-write state.
         let pending = ((wireAny as? [String: Any])?["hasPendingWrites"] as? Bool) ?? false
-        let metadata = SnapshotMetadata(hasPendingWrites: pending, isFromCache: false)
+        let metadata = SnapshotMetadata(hasPendingWrites: pending, isFromCache: isFromCache)
 
         if let dict = wireAny as? [String: Any], let docs = dict["docs"] as? [Any] {
             for item in docs {
                 let snap = DocumentSnapshot.fromWire(
                     firestore: firestore,
                     path: query.path,
-                    wireAny: item
+                    wireAny: item,
+                    isFromCache: isFromCache
                 )
                 if snap.exists {
                     docList.append(
@@ -75,7 +84,8 @@ public final class QuerySnapshot: @unchecked Sendable, RandomAccessCollection {
                 let snap = DocumentSnapshot.fromWire(
                     firestore: firestore,
                     path: query.path,
-                    wireAny: item
+                    wireAny: item,
+                    isFromCache: isFromCache
                 )
                 if snap.exists {
                     docList.append(
