@@ -169,13 +169,13 @@ written value.
 | Does this rule allow or deny this request? | Rules-only simulation (`rtdbRules(...).simulate`, `assertCase`, `rtdb_simulate_access`) | Rules JSON and case data | Behavior for the modeled cases |
 | Does the app's SDK code, identity, listeners, transactions, multi-path updates and queries hit the rules correctly? | Local SDK integration (sandbox with `withAuth` contexts) | `initializeSandbox`, `pyric/database`, signed-in contexts | The local implementation handling real calls |
 | Would a captured session change verdicts under new rules? | `pyric verify --service rtdb --rules rtdb=database.rules.json` | A captured session | Divergences between old and new rules on the sandbox engine only |
-| Is the deployed ruleset the one that was tested? | `rtdb_inspect_rules` (library tool, not on the default MCP bridge) | Read-only credentials for the database | The deployed rules and a node-level diff against `database.rules.json`; one GET, never writes |
+| Is the deployed ruleset the one that was tested? | `createRtdbInspectRulesTool` from `@pyric/cli` (library tool, not on the default MCP bridge) | Read-only credentials for the database | The deployed rules and a node-level diff against `database.rules.json`; one GET, never writes |
 | Does Firebase itself agree for this ruleset? | Live verification | A non-production Firebase project running the rules | The only evidence of production behavior |
 
 Full SDK integration setup is optional extra coverage, not a prerequisite for
 testing predicates. Local simulation does not establish production parity for
 your ruleset, and passing a database URL to an in-process evaluator is not a
-live check. `rtdb_inspect_rules` shows that the deployed text matches the local file, not how
+live check. The deployed-rules inspector shows that the deployed text matches the local file, not how
 it behaves. Live verification means deploying to a non-production project and
 exercising the same cases with the Firebase SDK. The hosted Rules Test API
 covers Firestore only, so `pyric verify --engine rules-test-api` is refused for

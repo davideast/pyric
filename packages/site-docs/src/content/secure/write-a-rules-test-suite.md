@@ -114,12 +114,12 @@ A rules-only simulation answers most authorization questions. Add the other laye
 |---|---|---|---|
 | Does this rule allow or deny this request? | Rules-only simulation: `rtdbRules(...).simulate` | The rules JSON and the case data | Behavior for the cases you wrote |
 | Does my app code reach those rules with the right identity, and do listeners and errors behave? | Local SDK integration: the sandbox | A sandbox, SDK calls, and signed-in contexts | The local implementation handling your real calls |
-| Is the deployed ruleset the one I tested? | `rtdb_inspect_rules` | Read-only credentials for the database | The deployed rules and a diff against your local file |
+| Is the deployed ruleset the one I tested? | `createRtdbInspectRulesTool` | Read-only credentials for the database | The deployed rules and a diff against your local file |
 | Does Firebase agree for this ruleset? | Live verification | A Firebase project that runs the rules | The only layer that establishes production behavior |
 
 Simulation needs no Auth user, no SDK module replacement, no browser, and no running database. Local simulation covers the cases you model. It does not establish production parity for your ruleset, and passing a database URL to an in-process evaluator does not make it a live check. For live verification, deploy the rules to a non-production project and run the same cases against it with the Firebase SDK.
 
-`rtdb_inspect_rules` answers a narrower question: whether the rules deployed to a database match your local `database.rules.json`. It sends one read-only `GET` of `<databaseURL>/.settings/rules.json` and returns the deployed rules plus the `.read`, `.write`, `.validate`, and `.indexOn` expressions added, removed, or changed by path. It never deploys or writes data. A match means the rules you tested are the rules that run. It does not show how those rules behave. The tool is a library tool from `@pyric/cli` (`createRtdbInspectRulesTool`) and is not on the default MCP bridge.
+The deployed-rules inspector, `createRtdbInspectRulesTool` from `@pyric/cli`, answers a narrower question: whether the rules deployed to a database match your local `database.rules.json`. It sends one read-only `GET` of `<databaseURL>/.settings/rules.json` and returns the deployed rules plus the `.read`, `.write`, `.validate`, and `.indexOn` expressions added, removed, or changed by path. It never deploys or writes data. A match means the rules you tested are the rules that run. It does not show how those rules behave. It is a library tool and is not on the default MCP bridge.
 
 ### Write the cases
 
