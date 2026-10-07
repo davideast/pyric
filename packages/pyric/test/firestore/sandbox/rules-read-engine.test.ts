@@ -178,7 +178,7 @@ describe('RulesReadEngine.silentReadCollection', () => {
     const ticks = [1_000, 1_100, 2_000];
     const nowSpy = spyOn(Date, 'now').mockImplementation(() => ticks.shift() ?? 2_000);
     try {
-      engine.silentReadCollection('games', null);
+      engine.silentReadCollection({ kind: 'collection', path: 'games' }, null);
     } finally {
       nowSpy.mockRestore();
     }
@@ -192,7 +192,7 @@ describe('RulesReadEngine.silentReadCollection', () => {
       'games/g1': { title: 'chess' },
       'games/g2/moves/m1': { n: 1 }, // makes games/g2 a phantom parent
     });
-    const r = engine.silentReadCollection('games', { uid: 'u1' });
+    const r = engine.silentReadCollection({ kind: 'collection', path: 'games' }, { uid: 'u1' });
     expect(r.allowed).toBe(true);
     if (r.allowed) {
       expect(r.docs.map((d) => d.path)).toEqual(['games/g1']);
@@ -205,7 +205,7 @@ describe('RulesReadEngine.silentReadCollection', () => {
     });
     const seen: RequestEvent[] = [];
     events.request.subscribe((e) => seen.push(e));
-    const r = engine.silentReadCollection('posts', { uid: 'u1' });
+    const r = engine.silentReadCollection({ kind: 'collection', path: 'posts' }, { uid: 'u1' });
     expect(r.allowed).toBe(false);
     if (!r.allowed) {
       expect(r.error.code).toBe('permission-denied');
@@ -220,7 +220,7 @@ describe('RulesReadEngine.silentReadCollection', () => {
     const { engine, events } = makeEngine(CLOSED_RULES, { 'games/g1': { n: 1 } });
     const seen: RequestEvent[] = [];
     events.request.subscribe((e) => seen.push(e));
-    const r = engine.silentReadCollection('games', null);
+    const r = engine.silentReadCollection({ kind: 'collection', path: 'games' }, null);
     expect(r.allowed).toBe(false);
     expect(seen).toHaveLength(1);
     expect(seen[0]!.method).toBe('list');
@@ -229,7 +229,7 @@ describe('RulesReadEngine.silentReadCollection', () => {
 
   test('bypassRules returns every doc under closed rules', () => {
     const { engine } = makeEngine(CLOSED_RULES, { 'games/g1': { n: 1 }, 'games/g2': { n: 2 } });
-    const r = engine.silentReadCollection('games', null, undefined, true);
+    const r = engine.silentReadCollection({ kind: 'collection', path: 'games' }, null, undefined, true);
     expect(r.allowed).toBe(true);
     if (r.allowed) expect(r.docs).toHaveLength(2);
   });
@@ -253,7 +253,7 @@ describe('RulesReadEngine.silentReadCollection', () => {
       },
     };
 
-    const result = engine.silentReadCollection('posts', null, constraints);
+    const result = engine.silentReadCollection({ kind: 'collection', path: 'posts' }, null, constraints);
 
     expect(reads).toBe(1);
     expect(result).toEqual({
@@ -278,7 +278,7 @@ describe('RulesReadEngine.silentReadCollection', () => {
       },
     };
 
-    const result = engine.silentReadCollection('posts', null, {
+    const result = engine.silentReadCollection({ kind: 'collection', path: 'posts' }, null, {
       execution: { filters: [filter], orders: [], limitFromEnd: false },
     });
 
@@ -296,7 +296,7 @@ describe('RulesReadEngine.silentReadCollection', () => {
     });
     const legacy: QueryConstraintApplier = (rows) => rows;
 
-    const result = engine.silentReadCollection('posts', null, legacy);
+    const result = engine.silentReadCollection({ kind: 'collection', path: 'posts' }, null, legacy);
 
     expect(result.allowed).toBe(false);
     if (!result.allowed) {

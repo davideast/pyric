@@ -89,6 +89,8 @@ export function registerOnSnapshotImpl(fn: OnSnapshotImpl): void {
  *   keeps `collectionPath` as a TypeScript-protected field on the
  *   underlying `QueryImpl`. Protected is a TS-only restriction; at
  *   runtime the field is readable, so the lookup matches.
+ * - A collection-group `Query` has an empty `collectionPath`; it is
+ *   recognized by the `snapshotScope()` method every `QueryImpl` carries.
  *
  * Snapshots, batches, transactions, and the Firestore handle itself
  * carry neither, so the shim correctly skips them.
@@ -107,9 +109,10 @@ function isModularValue(value: object): boolean {
 }
 
 function isRefLike(obj: object): boolean {
-  const o = obj as { path?: unknown; collectionPath?: unknown };
+  const o = obj as { path?: unknown; collectionPath?: unknown; snapshotScope?: unknown };
   return (typeof o.path === 'string' && o.path.length > 0)
-      || (typeof o.collectionPath === 'string' && o.collectionPath.length > 0);
+      || (typeof o.collectionPath === 'string' && o.collectionPath.length > 0)
+      || typeof o.snapshotScope === 'function';
 }
 
 /**

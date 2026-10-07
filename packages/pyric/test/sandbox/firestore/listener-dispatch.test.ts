@@ -22,10 +22,10 @@ function makeDispatch(docs: Record<string, DocumentData | null> = {}) {
   const scope = new TriggerScope();
   const host: ListenerDispatchHost = {
     silentReadDoc: (path) => ({ allowed: true, data: docs[path] ?? null }),
-    silentReadCollection: (collection) => ({
+    silentReadCollection: (scope) => ({
       allowed: true,
       docs: Object.entries(docs)
-        .filter(([p, d]) => d !== null && p.startsWith(`${collection}/`))
+        .filter(([p, d]) => d !== null && scope.kind === 'collection' && p.startsWith(`${scope.path}/`))
         .map(([p, d]) => ({ path: p, data: d! })),
     }),
   };

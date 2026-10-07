@@ -1,0 +1,74 @@
+{
+  "name": "firestore-collection-group-listener",
+  "matrixRow": "firestore #13",
+  "rowIds": [
+    "firestore#13"
+  ],
+  "description": "A Web SDK onSnapshot listener on collectionGroup(db, id) under match /{path=**}/<id>/{id}: the initial snapshot, then a write in a subcollection and in the root collection with that id, and no fire for a write in a sibling collection. A listener on a collection id that only a concrete match governs is denied.",
+  "observedAt": "2026-10-07T11:19:39.191Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "inputDigest": "974ae2e6fc878d9f7eef6da7c8a37ae8cc0f33b1b1d0c4531e38bff9a2c6c346",
+  "lifecycle": {
+    "originalRulesetName": "projects/genkit-idx/rulesets/eaf1ab95-2495-4647-99e5-8ec12cbce618",
+    "probeRulesetName": "projects/genkit-idx/rulesets/a942f5bf-bb6d-4fc7-bea7-75c94ac47969",
+    "restoredOriginalRelease": true
+  },
+  "behavior": {
+    "collectionGroup": "cdd_items_<run>",
+    "writes": {
+      "ready": "__pyric_firestore_cdd/<run>/users/u0/cdd_items_<run>/ready",
+      "nested": "__pyric_firestore_cdd/<run>/users/u1/cdd_items_<run>/a",
+      "root": "cdd_items_<run>/b",
+      "sibling": "__pyric_firestore_cdd/<run>/users/u1/cdd_other_<run>/c"
+    },
+    "fireCountAfterInitial": 1,
+    "fireCountAfterNestedWrite": 2,
+    "fireCountAfterRootWrite": 3,
+    "fireCountAfterSiblingWrite": 3,
+    "siblingWriteFired": false,
+    "fires": [
+      {
+        "paths": [
+          "__pyric_firestore_cdd/<run>/users/u0/cdd_items_<run>/ready"
+        ],
+        "changes": [
+          "added __pyric_firestore_cdd/<run>/users/u0/cdd_items_<run>/ready"
+        ],
+        "fromCache": true,
+        "hasPendingWrites": false
+      },
+      {
+        "paths": [
+          "__pyric_firestore_cdd/<run>/users/u0/cdd_items_<run>/ready",
+          "__pyric_firestore_cdd/<run>/users/u1/cdd_items_<run>/a"
+        ],
+        "changes": [
+          "added __pyric_firestore_cdd/<run>/users/u1/cdd_items_<run>/a"
+        ],
+        "fromCache": false,
+        "hasPendingWrites": true
+      },
+      {
+        "paths": [
+          "__pyric_firestore_cdd/<run>/users/u0/cdd_items_<run>/ready",
+          "__pyric_firestore_cdd/<run>/users/u1/cdd_items_<run>/a",
+          "cdd_items_<run>/b"
+        ],
+        "changes": [
+          "added cdd_items_<run>/b"
+        ],
+        "fromCache": false,
+        "hasPendingWrites": true
+      }
+    ],
+    "errors": [],
+    "siblingGroupFires": 0,
+    "siblingGroupErrors": [
+      {
+        "code": "permission-denied",
+        "message": "Missing or insufficient permissions."
+      }
+    ]
+  }
+}

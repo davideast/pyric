@@ -6,14 +6,18 @@ import { fileURLToPath } from 'node:url';
 import { initializeApp, deleteApp, type FirebaseOptions } from 'firebase/app';
 import { getAuth, signInWithCustomToken } from 'firebase/auth';
 import {
+  collectionGroup,
   deleteDoc,
   doc,
   getDoc,
+  getDocs,
   getFirestore,
+  onSnapshot,
   runTransaction,
   setDoc,
   terminate,
   updateDoc,
+  type QuerySnapshot,
 } from 'firebase/firestore';
 import { cert, deleteApp as deleteAdminApp, initializeApp as initializeAdminApp } from 'firebase-admin/app';
 import { getAuth as getAdminAuth } from 'firebase-admin/auth';
@@ -32,6 +36,8 @@ import {
 } from './storage-stdlib-real-api.ts';
 import {
   activateFirestoreRules,
+  collectionGroupProbeId,
+  collectionGroupSiblingId,
   hostedTestApiDiagnostics,
   injectFirestoreProbeRules,
   replaceSelectedRulesFile,
@@ -61,6 +67,13 @@ const RULES_GET_AFTER_OBSERVATION_PATH = join(
   'observations',
   'firestore-rules',
   'rules-firestore-get-after-and-exists-after.json',
+);
+const COLLECTION_GROUP_OBSERVATION_PATH = join(
+  HERE,
+  '..',
+  'observations',
+  'firestore',
+  'firestore-collection-group-listener.json',
 );
 const LOCK_PATH = '/tmp/pyric-firestore-real.lock';
 
@@ -229,6 +242,110 @@ async function captureTransactionContention(
     await Promise.allSettled([deleteDoc(retryRefA), deleteDoc(exhaustedRefA)]);
     await Promise.allSettled([terminate(firstDb), terminate(secondDb)]);
     await Promise.allSettled([deleteApp(firstApp), deleteApp(secondApp)]);
+    await deleteAdminApp(admin);
+  }
+}
+
+/**
+ * A Web SDK listener on a collection group under `match /{path=**}/<id>/{id}`:
+ * the initial snapshot, a write in a subcollection with the id, a write in the
+ * root collection with the id, and a write in a sibling collection. A second
+ * listener on the sibling collection's id, which only a concrete match governs,
+ * records the denial. Every recorded path replaces the run id with `<run>`.
+ */
+async function captureCollectionGroupListener(
+  web: WebConfig,
+  sa: ServiceAccount,
+  runId: string,
+): Promise<Record<string, unknown>> {
+  const admin = initializeAdminApp(
+    { credential: cert(sa as Parameters<typeof cert>[0]) },
+    `pyric-firestore-cg-admin-${runId}`,
+  );
+  const adminDb = getAdminFirestore(admin);
+  const token = await getAdminAuth(admin).createCustomToken(`pyric-cg-${runId}`);
+  const app = initializeApp(web as FirebaseOptions, `pyric-firestore-cg-${runId}`);
+  const db = getFirestore(app);
+  const group = collectionGroupProbeId(runId);
+  const sibling = collectionGroupSiblingId(runId);
+  const base = `__pyric_firestore_cdd/${runId}`;
+  const paths = {
+    ready: `${base}/users/u0/${group}/ready`,
+    nested: `${base}/users/u1/${group}/a`,
+    root: `${group}/b`,
+    sibling: `${base}/users/u1/${sibling}/c`,
+  };
+  const redact = (path: string) => path.split(runId).join('<run>');
+  const settle = () => waitForRulesPropagation(2_500);
+  const fires: Array<{ paths: string[]; changes: string[]; fromCache: boolean; hasPendingWrites: boolean }> = [];
+  const errors: Array<{ code: unknown; message: unknown }> = [];
+  const siblingErrors: Array<{ code: unknown; message: unknown }> = [];
+  let siblingFires = 0;
+  const stops: Array<() => void> = [];
+  try {
+    await signInWithCustomToken(getAuth(app), token);
+    await setWhenProbeRulesAreActive(doc(db, paths.ready), { ready: true });
+    const deadline = Date.now() + 45_000;
+    for (let ok = 0; ok < 3 && Date.now() < deadline;) {
+      try {
+        await getDocs(collectionGroup(db, group));
+        ok += 1;
+      } catch (error) {
+        if ((error as { code?: unknown }).code !== 'permission-denied') throw error;
+        ok = 0;
+      }
+      await waitForRulesPropagation(1_000);
+    }
+    console.log('[firestore:real] collection-group rules stable on data plane');
+
+    stops.push(onSnapshot(
+      collectionGroup(db, group),
+      (snap: QuerySnapshot) => fires.push({
+        paths: snap.docs.map((d) => redact(d.ref.path)).sort(),
+        changes: snap.docChanges().map((c) => `${c.type} ${redact(c.doc.ref.path)}`),
+        fromCache: snap.metadata.fromCache,
+        hasPendingWrites: snap.metadata.hasPendingWrites,
+      }),
+      (error) => errors.push({ code: error.code, message: error.message }),
+    ));
+    stops.push(onSnapshot(
+      collectionGroup(db, sibling),
+      () => { siblingFires += 1; },
+      (error) => siblingErrors.push({ code: error.code, message: error.message }),
+    ));
+    await settle();
+    const afterInitial = fires.length;
+    await setDoc(doc(db, paths.nested), { n: 1 });
+    await settle();
+    const afterNested = fires.length;
+    await setDoc(doc(db, paths.root), { n: 2 });
+    await settle();
+    const afterRoot = fires.length;
+    await setDoc(doc(db, paths.sibling), { n: 3 });
+    await settle();
+    const afterSibling = fires.length;
+    console.log('[firestore:real] collection-group listener captured');
+    return {
+      collectionGroup: redact(group),
+      writes: Object.fromEntries(Object.entries(paths).map(([key, path]) => [key, redact(path)])),
+      fireCountAfterInitial: afterInitial,
+      fireCountAfterNestedWrite: afterNested,
+      fireCountAfterRootWrite: afterRoot,
+      fireCountAfterSiblingWrite: afterSibling,
+      siblingWriteFired: afterSibling > afterRoot,
+      fires,
+      errors,
+      siblingGroupFires: siblingFires,
+      siblingGroupErrors: siblingErrors,
+    };
+  } finally {
+    for (const stop of stops) stop();
+    await Promise.allSettled(Object.values(paths).map((path) => adminDb.doc(path).delete()));
+    const remaining = await Promise.all(Object.values(paths).map(async (path) => (await adminDb.doc(path).get()).exists));
+    if (remaining.some(Boolean)) console.error('[firestore:real] collection-group probe documents remain after cleanup');
+    else console.log('[firestore:real] collection-group probe documents deleted');
+    await Promise.allSettled([terminate(db)]);
+    await Promise.allSettled([deleteApp(app)]);
     await deleteAdminApp(admin);
   }
 }
@@ -586,6 +703,8 @@ async function run(): Promise<void> {
   }
   const releaseLock = acquireRunLock(LOCK_PATH);
   const browserOnly = Bun.argv.includes('--browser-only');
+  // Captures only the collection-group listener observation.
+  const collectionGroupOnly = Bun.argv.includes('--collection-group-listener');
   let restoreVerified = false;
   try {
     const sa = resolveServiceAccount(credentialPath);
@@ -601,19 +720,49 @@ async function run(): Promise<void> {
     let behavior: Record<string, unknown> | undefined;
     let browserBehavior: Record<string, unknown> | undefined;
     let probeRulesetName: string | undefined;
+    let collectionGroupBehavior: Record<string, unknown> | undefined;
     try {
       activationAttempted = true;
       probeRulesetName = await activateFirestoreRules(sa, headers, snapshot, files);
       await waitForRulesPropagation();
-      behavior = browserOnly
-        ? (JSON.parse(readFileSync(OBSERVATION_PATH, 'utf8')) as { behavior: Record<string, unknown> }).behavior
-        : await captureTransactionContention(web, sa, runId);
-      browserBehavior = await captureBrowserLifecycle(web, sa, runId);
+      if (collectionGroupOnly) {
+        collectionGroupBehavior = await captureCollectionGroupListener(web, sa, runId);
+      } else {
+        behavior = browserOnly
+          ? (JSON.parse(readFileSync(OBSERVATION_PATH, 'utf8')) as { behavior: Record<string, unknown> }).behavior
+          : await captureTransactionContention(web, sa, runId);
+        browserBehavior = await captureBrowserLifecycle(web, sa, runId);
+      }
     } finally {
       if (activationAttempted) {
         await restoreFirestoreRules(headers, snapshot);
         restoreVerified = true;
       }
+    }
+    if (collectionGroupOnly) {
+      if (!collectionGroupBehavior || !probeRulesetName || !restoreVerified) {
+        throw new Error('probe did not complete with verified rules restoration');
+      }
+      const observation = {
+        name: 'firestore-collection-group-listener',
+        matrixRow: 'firestore #13',
+        rowIds: ['firestore#13'],
+        description: 'A Web SDK onSnapshot listener on collectionGroup(db, id) under match /{path=**}/<id>/{id}: the initial snapshot, then a write in a subcollection and in the root collection with that id, and no fire for a write in a sibling collection. A listener on a collection id that only a concrete match governs is denied.',
+        observedAt: new Date().toISOString(),
+        fbSdkVersion: resolvedFirebaseVersion(),
+        projectId: sa.project_id,
+        inputDigest: createHash('sha256').update(content).digest('hex'),
+        lifecycle: {
+          originalRulesetName: snapshot.release.rulesetName,
+          probeRulesetName,
+          restoredOriginalRelease: restoreVerified,
+        },
+        behavior: collectionGroupBehavior,
+      };
+      mkdirSync(dirname(COLLECTION_GROUP_OBSERVATION_PATH), { recursive: true });
+      writeFileSync(COLLECTION_GROUP_OBSERVATION_PATH, `${JSON.stringify(observation, null, 2)}\n`);
+      console.log(`[firestore:real] captured ${COLLECTION_GROUP_OBSERVATION_PATH}`);
+      return;
     }
     if (!behavior || !browserBehavior || !probeRulesetName || !restoreVerified) {
       throw new Error('probe did not complete with verified rules restoration');

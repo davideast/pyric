@@ -428,6 +428,14 @@ export class QueryImpl implements Query {
    * RULES-B11 — the read engine derives proof constraints from this same
    * execution plan, preventing proof/execution drift.
    */
+  /**
+   * Where a listener on this query gathers its documents: the collection,
+   * or for a collection group, every collection with the group's id.
+   */
+  snapshotScope(): QueryScope {
+    return this.queryScope();
+  }
+
   snapshotConstraints(): QueryConstraintPlan {
     return Object.freeze({
       execution: this.executionSpec(),

@@ -74,13 +74,17 @@ export interface DenialEvent {
  * quota, no concurrent transactions to conflict). Documented divergence
  * from production; new codes can be added if a sandbox-specific
  * scenario surfaces them.
+ *
+ * A query target with `collectionGroup` set is a collection-group
+ * listener, and `collection` holds the collection id; the same holds for
+ * the delivery, suppressed and lifecycle events below.
  */
 export interface SnapshotErrorEvent {
   code: 'permission-denied';
   message: string;
   target:
     | { kind: 'doc'; path: string }
-    | { kind: 'query'; collection: string; query?: unknown };
+    | { kind: 'query'; collection: string; collectionGroup?: true; query?: unknown };
   auth?: AuthState;
   request?: {
     method: 'get' | 'list' | 'create' | 'update' | 'delete';
@@ -353,7 +357,7 @@ export interface SnapshotDeliveryEvent {
   listenerId: string;
   target:
     | { kind: 'doc'; path: string }
-    | { kind: 'query'; collection: string };
+    | { kind: 'query'; collection: string; collectionGroup?: true };
   auth: AuthState;
   addedCount: number;
   modifiedCount: number;
@@ -390,7 +394,7 @@ export interface SnapshotSuppressedEvent {
   listenerId: string;
   target:
     | { kind: 'doc'; path: string }
-    | { kind: 'query'; collection: string };
+    | { kind: 'query'; collection: string; collectionGroup?: true };
   auth: AuthState;
   /** Why this re-eval was suppressed. v1 only emits `'no-op'`. */
   reason: 'no-op';
@@ -409,7 +413,7 @@ export interface ListenerLifecycleEvent {
   listenerId: string;
   target:
     | { kind: 'doc'; path: string }
-    | { kind: 'query'; collection: string; query?: unknown };
+    | { kind: 'query'; collection: string; collectionGroup?: true; query?: unknown };
   auth: AuthState;
   /** Populated on `listener_errored` only. */
   error?: {
