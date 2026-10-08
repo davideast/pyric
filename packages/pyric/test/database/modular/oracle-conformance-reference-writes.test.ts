@@ -16,6 +16,8 @@ import {
   orderByValue,
   startAt,
   endAt,
+  getAdminDatabase,
+  type DataSnapshot,
 } from '../../../src/database/index.js';
 import { sandbox as rtdbSandbox } from '../../../src/database/index.js';
 import {
@@ -205,6 +207,31 @@ describe('oracle conformance (rtdb-modular): reference and write contracts', () 
     expect(snap!.val()).toBe(obs.val as null); // null
     expect(snap!.exists()).toBe(obs.exists as boolean); // false
     expect(snap!.val() === null).toBe(obs.valIsNull as boolean);
+  });
+
+  it('rtdb-modular-get-missing-path: the root of an empty database reads as a missing path', async () => {
+    // The root is a node like any other: the production SDK's
+    // `DataSnapshot.exists()` is `!node.isEmpty()` at every path.
+    const obs = load('rtdb-modular-get-missing-path.json');
+    const { sandbox, db } = setup();
+    const empty = await get(ref(db));
+    expect(empty.val()).toBe(obs.val as null);
+    expect(empty.exists()).toBe(obs.exists as boolean);
+    expect(empty.size).toBe(0);
+    expect(empty.hasChildren()).toBe(false);
+    const admin = await get(ref(getAdminDatabase(sandbox)));
+    expect(admin.val()).toBe(obs.val as null);
+    expect(admin.exists()).toBe(obs.exists as boolean);
+    await set(ref(db, 'a'), 1);
+    await remove(ref(db, 'a'));
+    const emptied = await get(ref(db));
+    expect(emptied.val()).toBe(obs.val as null);
+    expect(emptied.exists()).toBe(obs.exists as boolean);
+    const delivered = await new Promise<DataSnapshot>((resolve) => {
+      onValue(ref(db), resolve, { onlyOnce: true });
+    });
+    expect(delivered.val()).toBe(obs.val as null);
+    expect(delivered.exists()).toBe(obs.exists as boolean);
   });
 
   it('rtdb-modular-get-snapshot-shape', async () => {

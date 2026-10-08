@@ -120,6 +120,10 @@ test('a permissive Node host opens an RTDB instance without rules as it opens th
   expect(await runNodeFixture('rtdb-permissive')).toBe('Hosted RTDB permissive instances passed');
 });
 
+test('the Node host reads the root of an empty database as a missing snapshot', async () => {
+  expect(await runNodeFixture('rtdb-empty-root')).toBe('Hosted RTDB empty root passed');
+});
+
 test('malformed Auth state refuses hosted startup instead of losing accounts', async () => {
   expect(await runNodeFixture('malformed')).toBe('Malformed state refused');
 });
