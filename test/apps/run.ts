@@ -19,7 +19,7 @@
  */
 import { chromium, type Browser } from '@playwright/test';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { AppRun, StepFailure, type Scenario } from './driver.ts';
 import { installApp, packWorkspace, tarballsIn, type Tarballs } from './install.ts';
@@ -187,7 +187,7 @@ async function main(): Promise<void> {
     console.log(`▸ packing the workspace${options.build ? ' (with a build)' : ' (current build)'}`);
     tarballs = await packWorkspace(root, options.build);
   }
-  const npmCache = process.env.PYRIC_APPS_NPM_CACHE ?? join(tmpdir(), 'pyric-app-scenarios-npm-cache');
+  const npmCache = process.env.PYRIC_APPS_NPM_CACHE ?? join(homedir(), '.cache', 'pyric-app-scenarios-npm');
   rmSync(resultsDir, { recursive: true, force: true });
 
   let browser: Promise<Browser> | undefined;

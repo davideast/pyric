@@ -45,8 +45,11 @@ export default scenario(async (app) => {
   });
 
   await app.step('the note written before the restart reads back after it', async () => {
-    await page.reload();
-    await page.waitForFunction(() => 'notes' in window);
-    assert.equal(await page.evaluate(() => notes.read()), 'before restart');
+    // Vite's client reloads the open tab on its own after a restart; read
+    // from a new tab so that reload cannot interrupt the read.
+    await page.close();
+    const fresh = await app.page(host.url);
+    await fresh.waitForFunction(() => 'notes' in window);
+    assert.equal(await fresh.evaluate(() => notes.read()), 'before restart');
   });
 });
