@@ -219,3 +219,7 @@ test('hosted startup names every Storage object repaired from its stored bytes',
     '    • pyric-default/notes/timings.json: recorded size 18, actual size 11',
   ]);
 });
+
+test('a repro recorded on a multi-instance host replays on the Node and worker hosts and reports a corrupted result', async () => {
+  expect(await runNodeFixture('repro', 60_000)).toBe('Repro passed');
+}, 90_000);

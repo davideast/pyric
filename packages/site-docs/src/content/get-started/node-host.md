@@ -181,6 +181,49 @@ This warning indicates that Pyric's automated self-healing synchronized the byte
 
 ---
 
+## Capture and share a repro
+
+When the host misbehaves, capture a repro file instead of describing the problem. The Node host keeps a bounded log of the recent operations on every connection, so you can capture after the problem appears without restarting anything.
+
+1. Reproduce the problem in your app while the host runs.
+2. In the project directory, write the repro file:
+   ```bash
+   pyric serve repro capture --out repro.json
+   ```
+3. Check that it reproduces on a fresh host:
+   ```bash
+   pyric serve repro replay repro.json
+   ```
+4. Attach `repro.json` to your bug report.
+
+A repro file contains:
+
+- The starting state: Firestore documents, the tree of every RTDB instance, Storage objects with their bytes, and Auth accounts.
+- The rules each service and each RTDB instance enforced.
+- The user each connection was signed in as, and the listeners it held.
+- Every operation since, with its RTDB instance, path, arguments, and result or error, and every listener event each connection received.
+
+`replay` runs the file on a fresh Node host and on a fresh SharedWorker host. For each, it reports the first result or listener event that differs from the recording. It also reports every frame where the two hosts disagree. It exits with code 1 on any difference. Pass `--json` for the full report.
+
+To keep a repro as a regression test, replay it in a test that runs on Node 22.15 or later:
+
+```ts
+import { readFileSync } from 'node:fs';
+import { replayRepro } from '@pyric/cli/repro';
+
+const report = await replayRepro(JSON.parse(readFileSync('repro.json', 'utf8')));
+assert.ok(report.ok, JSON.stringify(report.planes, null, 2));
+```
+
+Keep these limits in mind:
+
+- **Secrets**: A JSON Web Token keeps its header and claims and loses its signature. Private keys and service account records are removed. Sandbox account passwords and your data are included, so share the file only where your test data may go.
+- **Bounded log**: The log holds the most recent 1,000 to 2,000 entries. When older entries are dropped, the file starts from a later state and says so.
+- **Not replayed**: Changes made by `pyric <tool> <method>` commands are listed as warnings and are not replayed. Storage bytes that an app uploads over the HTTP byte route are not in the log.
+- **Order**: Replay sends operations one at a time in the order the host handled them. A problem that depends on two connections' operations running at the same moment appears as the first operation whose result differs.
+
+---
+
 ## Migrating from SharedWorker
 
 To migrate an existing Pyric project to Node host mode:

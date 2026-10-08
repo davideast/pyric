@@ -29,6 +29,9 @@ import { serializeError, type InboundMessage, type OutboundMessage } from '../wo
 import { createHostedPersistence, formatStorageRepairs, HOSTED_NAMESPACE, type HostedPersistence } from './persistence.js';
 import { requiresHealthyPersistence } from './persistence-admission.js';
 import { MAX_HOSTED_METHOD_OWNERS, type HostedMethodRequest } from './method-protocol.js';
+import { createReproRecorder, type ReproRecorder } from '../repro/recorder.js';
+import { buildReproFile, captureReproBase } from '../repro/capture.js';
+import type { ReproFile } from '../repro/format.js';
 
 type HostedTransport = 'worker-port' | 'worker-relay';
 
@@ -47,6 +50,10 @@ export interface HostedRuntimeOptions {
   persistence?: HostedPersistence;
   proxyUpstream?: string;
   logger?: ServeLogger;
+  /** Keep the bounded operation log a repro file is written from. Defaults to true. */
+  record?: boolean;
+  /** Entries one repro log window holds; see `createReproRecorder`. */
+  reproWindow?: number;
 }
 
 /** One Node-owned sandbox; each admitted consumer owns its ordered work. */
@@ -170,13 +177,33 @@ export async function createHostedRuntime(
   });
   const surfaceContext = createSurfaceContext(sandbox, ownedProjectDir, undefined, persistence.checkpoints);
   const ports = new Map<string, HostedPort>();
+  const recorder: ReproRecorder | undefined = ai.record === false ? undefined : createReproRecorder({
+    limit: ai.reproWindow,
+    capture: () => captureReproBase(ctx, [...ports].map(([id, owned]) => [id, owned.port] as [string, PortLike])),
+  });
+  // A replay host has no deploy targets, so the log names the instances a
+  // target's rules reach.
+  if (recorder !== undefined) {
+    ctx.onDatabaseTargetDeploy = ({ instance, rules }) => {
+      recorder.note({ kind: 'rules', at: Date.now(), service: 'database', instance, source: rules });
+    };
+  }
   const closingPorts = new Set<Promise<void>>();
   const methodWork = new Map<object, OperationQueue>();
   const toolWork = new Map<string, OperationQueue>();
   let closed = false;
   let closePromise: Promise<void> | undefined;
 
+  /** The log records an MCP caller's tool calls as a port of its own. */
+  function toolSession(message: ToolCallRequest): string {
+    return `mcp:${message.callerId ?? 'legacy'}`;
+  }
+
   async function handleToolCall(message: ToolCallRequest): Promise<void> {
+    await recorder?.inbound(toolSession(message), {
+      t: 'tool', id: message.id, name: message.name, args: message.args ?? {},
+      ...(message.actAs ? { actAs: message.actAs } : {}),
+    });
     try {
       const effect = sandboxToolEffect(message.name);
       const changesState = effect === 'write';
@@ -186,8 +213,11 @@ export async function createHostedRuntime(
       const isRead = effect === 'read';
       if (isRead) result = describeRead(result);
       send({ type: 'tool-result', id: message.id, ok: true, result });
+      recorder?.outbound(toolSession(message), { t: 'res', id: message.id, ok: true, value: result });
     } catch (error) {
-      send({ type: 'tool-result', id: message.id, ok: false, error: serializeError(error) });
+      const serialized = serializeError(error);
+      send({ type: 'tool-result', id: message.id, ok: false, error: serialized });
+      recorder?.outbound(toolSession(message), { t: 'res', id: message.id, ok: false, error: serialized });
     }
   }
 
@@ -252,6 +282,7 @@ export async function createHostedRuntime(
     if (hasExistingPort) return existing;
     const port: PortLike = {
       postMessage(message) {
+        recorder?.outbound(clientSessionId, message);
         const usesWorkerRelay = transport === 'worker-relay';
         if (usesWorkerRelay) relayMessage(clientSessionId, message);
         else send({ type: 'worker-message-result', clientSessionId, message });
@@ -277,7 +308,8 @@ export async function createHostedRuntime(
     }
     // Admission owns identity. A payload cannot address another app's port.
     const message = { ...incoming, clientSessionId: undefined, resumeSession: undefined };
-    owned.pending = owned.pending.then(() => {
+    owned.pending = owned.pending.then(async () => {
+      await recorder?.inbound(clientSessionId, message);
       const changesDurableState = message.t === 'op' && requiresHealthyPersistence(message);
       if (changesDurableState) requireHealthyPersistence();
       return handleMessage(ctx, owned.port, message);
@@ -336,6 +368,7 @@ export async function createHostedRuntime(
      *  an unresolved deploy target, as {@link setDatabaseTargetRules} takes it. */
     async deployRules(service: 'firestore' | 'database' | 'storage', source: string | null, instance?: DatabaseRulesDestination): Promise<void> {
       if (closed) throw new Error('The hosted sandbox is closed.');
+      if (typeof instance !== 'object') recorder?.note({ kind: 'rules', at: Date.now(), service, ...(instance === undefined ? {} : { instance }), source });
       if (service === 'storage') {
         await replaceStorageRules(ctx.sandbox, source);
         return;
@@ -355,6 +388,19 @@ export async function createHostedRuntime(
           if (failed) throw new Error(reply.error.message);
         },
       }, op, ctx.db);
+    },
+    /**
+     * The repro file for the operations recorded so far: the starting state,
+     * rules, signed-in ports and open listeners, then every frame since.
+     */
+    async captureRepro(callerProjectDir: string = ownedProjectDir): Promise<ReproFile> {
+      if (closed) throw new Error('The hosted sandbox is closed.');
+      const projectDistance = relative(ownedProjectDir, callerProjectDir);
+      const isOutsideProject = projectDistance === '..' || projectDistance.startsWith(`..${sep}`) || isAbsolute(projectDistance);
+      if (isOutsideProject) throw new Error('The discovered host belongs to another project.');
+      if (recorder === undefined) throw new Error('This host does not record operations.');
+      const log = await recorder.log();
+      return buildReproFile(log, sha256 => persistence.state.objectFile?.(sha256));
     },
     /** The Node host's per-instance RTDB rules, as `connectDatabaseInstanceRules` applies them. */
     databaseRules: databaseInstanceRulesHost(ctx),
@@ -387,6 +433,7 @@ export async function createHostedRuntime(
         const changesHeldIdentity = method.operation === 'switch_auth_identity';
         const changesDurableState = hasMutationEffect && !changesHeldIdentity;
         if (changesDurableState) requireHealthyPersistence();
+        if (changesDurableState) recorder?.note({ kind: 'external', at: Date.now(), source: 'command', name: key });
         let outcome = await callMethod(method, args, surfaceContext, call.allowProduction);
         if (changesDurableState) outcome = await persistMutationResult(outcome);
         const isRead = method.effect === 'read';

@@ -18,7 +18,7 @@ import type { CheckpointBackend } from 'pyric/sandbox/checkpoints';
 import type { Auth, MintedSession } from 'pyric/auth';
 import type { FirebaseStorage } from 'pyric/storage';
 import type { SandboxDispatch } from '../../bridge/client/dispatch.js';
-import type { PendingDatabaseTargets } from '../database-instance-rules-host.js';
+import type { DatabaseTargetDeploy, PendingDatabaseTargets } from '../database-instance-rules-host.js';
 import {
   serializeError,
   type OutboundMessage,
@@ -97,6 +97,11 @@ export interface HostCtx {
    * server started. The first app port's project id resolves them.
    */
   pendingDatabaseTargets?: PendingDatabaseTargets;
+  /**
+   * Called for each instance a deploy target's rules are set on, when the
+   * target resolves or its rules file changes after it resolved.
+   */
+  onDatabaseTargetDeploy?: (deploy: DatabaseTargetDeploy) => void;
   /**
    * Access for an instance without rules: `deny` unless the runtime opted
    * into permissive access. Without permissive access, an instance with no

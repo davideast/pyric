@@ -261,7 +261,9 @@ describe('pyric sandbox command surface', () => {
     // Named inspection commands remain; bare `pyric serve` is still retired.
     expect(stdout).toContain('pyric serve diagnostics');
     expect(stdout).toContain('pyric serve sessions');
-    expect(stdout).not.toMatch(/pyric serve(?!(?: sessions| diagnostics)\b)/);
+    expect(stdout).toContain('pyric serve repro capture');
+    expect(stdout).toContain('pyric serve repro replay');
+    expect(stdout).not.toMatch(/pyric serve(?!(?: sessions| diagnostics| repro capture| repro replay)\b)/);
   });
 
   it('rejects the removed serve spelling for the sandbox', async () => {

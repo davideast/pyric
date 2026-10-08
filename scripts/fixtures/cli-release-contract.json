@@ -18,7 +18,9 @@
     "database rules generate",
     "auth reset",
     "serve sessions",
-    "serve diagnostics"
+    "serve diagnostics",
+    "serve repro capture",
+    "serve repro replay"
   ],
   "derivedCommands": [
     "ai_logic clearScripts",
@@ -134,6 +136,7 @@
   "exports": [
     "./credentials/node",
     "./verify",
+    "./repro",
     "./conformance",
     "./conformance/browser",
     "./conformance/docs",

@@ -20,3 +20,10 @@ export const hostedMethodResult = z.object({
   summary: z.string(),
   data: z.unknown().optional(),
 });
+
+/** `pyric serve repro capture` reads the Node host's repro file here. */
+export const HOSTED_REPRO_PATH = '/__pyric/hosted/repro';
+export const hostedReproRequest = z.object({
+  instanceId: z.string(),
+  projectDir: z.string(),
+}).strict();

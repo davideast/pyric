@@ -34,7 +34,7 @@ import { MAX_BRIDGE_FRAME_BYTES, MAX_MOUNTED_MCP_SESSIONS, STORAGE_BYTE_ROUTE_CA
 import { STORAGE_ROUTE_PREFIX } from './worker/protocol/storage.js';
 import type { DatabaseRulesDestination, InitPayload } from './init-payload.js';
 import type { createHostedRuntime, HostedRuntimeOptions } from './hosted/runtime.js';
-import { HOSTED_METHOD_PATH, HOSTED_METHOD_BODY_LIMIT, hostedMethodRequest } from './hosted/method-protocol.js';
+import { HOSTED_METHOD_PATH, HOSTED_METHOD_BODY_LIMIT, HOSTED_REPRO_PATH, hostedMethodRequest, hostedReproRequest } from './hosted/method-protocol.js';
 import { MCP_PROJECT_HEADER, MCP_INSTANCE_HEADER, mcpProjectError } from './mcp-project.js';
 
 const WS_PATH = '/__pyric/sandbox';
@@ -280,7 +280,9 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
     async handler(req, res, url) {
       const isHealthRequest = url.pathname === HEALTH_PATH;
       const isMcpRequest = url.pathname === MCP_PATH;
-      const isHostedMethod = url.pathname === HOSTED_METHOD_PATH;
+      const isHostedRepro = url.pathname === HOSTED_REPRO_PATH;
+      // The repro route takes the same guards as a direct command.
+      const isHostedMethod = url.pathname === HOSTED_METHOD_PATH || isHostedRepro;
       const isStorageBytes = url.pathname.startsWith(STORAGE_ROUTE_PREFIX);
       const rejectsClosedRequest = closed && (isHealthRequest || isMcpRequest || isHostedMethod || isStorageBytes);
       if (rejectsClosedRequest) {
@@ -333,6 +335,34 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
           return true;
         }
         return runtime.storageHttp(req, res, url);
+      }
+      if (isHostedRepro) {
+        const runtime = hostedRuntime;
+        const hasNoHostedRuntime = runtime === undefined;
+        if (hasNoHostedRuntime) {
+          res.writeHead(404).end();
+          return true;
+        }
+        const rejectsHttpMethod = req.method !== 'POST';
+        if (rejectsHttpMethod) {
+          res.writeHead(405, { allow: 'POST' }).end();
+          return true;
+        }
+        try {
+          const call = hostedReproRequest.parse(await collectBody(req, HOSTED_METHOD_BODY_LIMIT));
+          const targetsAnotherInstance = call.instanceId !== bridge.instanceId;
+          if (targetsAnotherInstance) {
+            res.writeHead(409, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ error: 'The discovered host instance has changed.' }));
+            return true;
+          }
+          const repro = await runtime.captureRepro(call.projectDir);
+          res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify(repro));
+        } catch (error) {
+          res.writeHead(400, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
+        }
+        return true;
       }
       if (isHostedMethod) {
         const runtime = hostedRuntime;
