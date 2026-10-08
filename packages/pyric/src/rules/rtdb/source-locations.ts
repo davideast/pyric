@@ -1,8 +1,10 @@
 /**
  * Source positions for rule nodes in `database.rules.json`.
  *
- * Realtime Database rules files accept `//` and block comments. The scanner
- * below reads JSON with comments and records the position of every object key,
+ * Realtime Database rules files accept `//` and block comments, rule strings
+ * that span lines, and a trailing comma before `}` or `]`, as the rules
+ * endpoint `firebase deploy` sends them to does. The scanner below reads that
+ * text and records the position of every object key,
  * so a rule node addressed by its rule-tree path and kind resolves to the line
  * and column of its key. Comments and string contents never produce keys.
  */
@@ -126,6 +128,11 @@ class Scanner {
       const next = this.text[this.pos++];
       if (next === '}') return entries;
       if (next !== ',') throw new Error('expected comma');
+      this.skipTrivia();
+      if (this.text[this.pos] === '}') {
+        this.pos++;
+        return entries;
+      }
     }
   }
 
@@ -143,6 +150,11 @@ class Scanner {
       const next = this.text[this.pos++];
       if (next === ']') return;
       if (next !== ',') throw new Error('expected comma');
+      this.skipTrivia();
+      if (this.text[this.pos] === ']') {
+        this.pos++;
+        return;
+      }
     }
   }
 
@@ -158,13 +170,21 @@ class Scanner {
       } else if (c === '"') {
         this.pos++;
         break;
-      } else if (c === '\n' || c === '\r') {
-        throw new Error('newline in string');
+      } else if (c === '\n') {
+        this.pos++;
+        this.newline();
+      } else if (c === '\r') {
+        this.pos++;
+        if (t[this.pos] === '\n') this.pos++;
+        this.newline();
       } else {
         this.pos++;
       }
     }
-    return JSON.parse(t.slice(start, this.pos)) as string;
+    // A raw control character inside the string is part of its text.
+    // eslint-disable-next-line no-control-regex
+    const escaped = t.slice(start, this.pos).replace(/[\u0000-\u001f]/g, (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`);
+    return JSON.parse(escaped) as string;
   }
 
   private parseLiteral(): void {

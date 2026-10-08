@@ -240,6 +240,27 @@ describe('explainDenial for database', () => {
     expect(data.case.line).toBe(7);
   });
 
+  it('names file lines in a draft whose rule string spans lines and whose objects end in commas', async () => {
+    const draft = [
+      '{', // 1
+      '  "rules": {', // 2
+      '    "rooms": {', // 3
+      '      ".write": "auth.uid == \'admin\'', // 4
+      '        && false",', // 5
+      '      "$roomId": {', // 6
+      '        ".write": "auth.uid == \'admin\'",', // 7
+      '      },', // 8
+      '    },', // 9
+      '  },', // 10
+      '}', // 11
+    ].join('\n');
+    const { data } = await explain({ rooms: { '.write': true } }, { ...ROOM_WRITE, rules: draft });
+    expect(data.evaluated).toBe('draft');
+    expect(data.allowed).toBe(false);
+    expect(data.case.trace.map((entry) => entry.line)).toEqual([4, 7]);
+    expect(data.case.line).toBe(7);
+  });
+
   it('refuses rules and source together, and either for Firestore', async () => {
     const both = await explain({ '.write': true }, { ...ROOM_WRITE, rules: FILE_TEXT, source: FILE_TEXT });
     expect(both.result.ok).toBe(false);
