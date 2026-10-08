@@ -2,6 +2,7 @@ import type { FlowConfig } from './flow-config.js';
 import { existsSync } from 'node:fs';
 import type { ViteDevServer } from 'vite';
 import { readFirebaseJson, readFirebaseRc, type FirebaseJson } from '../cli/firebase-json.js';
+import { resolveFirebaseProject } from '../cli/firebase-project.js';
 import { registerModuleUrl } from '../cli/sandbox-runner.js';
 import {
   discoverFunctionsRtdbProject,
@@ -56,6 +57,8 @@ export interface ViteSandboxGenerationOptions {
   ui: boolean;
   functions: false | { region?: string; instance?: string; watch?: boolean };
   avatars: PyricAvatarsOptions | undefined;
+  /** The plugin's `project` option: the first source `resolveFirebaseProject` tries. */
+  project?: string;
 }
 
 export interface ViteSandboxGenerationInput {
@@ -75,6 +78,8 @@ export interface ViteSandboxGeneration {
 export interface ViteSandboxGenerationDependencies {
   readFirebaseJson: typeof readFirebaseJson;
   readFirebaseRc: typeof readFirebaseRc;
+  /** Environment for project resolution. */
+  env: NodeJS.ProcessEnv;
   resolveRulesConfig: typeof resolveViteRulesConfig;
   resolveAvatarsConfig: typeof resolveAvatarsConfig;
   prepareWorker(runtime: ViteWorkerRuntime, epochSalt: string): Promise<void>;
@@ -91,6 +96,7 @@ export interface ViteSandboxGenerationDependencies {
 const DEFAULT_DEPENDENCIES: ViteSandboxGenerationDependencies = {
   readFirebaseJson,
   readFirebaseRc,
+  env: process.env,
   resolveRulesConfig: resolveViteRulesConfig,
   resolveAvatarsConfig,
   prepareWorker: (runtime, epochSalt) => runtime.prepare(epochSalt),
@@ -173,13 +179,19 @@ export async function createViteSandboxGeneration(
       }
     }
 
-    const functionsInput = {
+    // One project for the database rules, deploy targets and functions child.
+    const firebaseProject = resolveFirebaseProject({
+      projectDir: cwd,
+      option: options.project,
+      env: dependencies.env,
+      rc: await dependencies.readFirebaseRc(cwd),
+    });
+    const functions = resolveViteGenerationFunctions({
       projectDir: cwd,
       options: options.functions,
       discover: dependencies.discoverFunctionsProject,
-      readFirebaseRc: dependencies.readFirebaseRc,
-    };
-    const functions = await resolveViteGenerationFunctions(functionsInput);
+      firebaseProject,
+    });
     const bridgeInput = {
       server,
       projectDir: cwd,
@@ -239,7 +251,7 @@ export async function createViteSandboxGeneration(
       deployHostedRules: usesHostedSandbox ? bridge?.deployHostedRules : undefined,
       flow: options.flow,
       firebaseConfig: rulesConfig,
-      projectId: functions.projectId ?? undefined,
+      project: firebaseProject,
       sdk,
       seedFile: options.seed,
       persistence,

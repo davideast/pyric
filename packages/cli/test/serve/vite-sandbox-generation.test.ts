@@ -7,7 +7,10 @@ import {
   type ViteSandboxGenerationInput,
 } from '../../src/serve/vite-sandbox-generation.js';
 import type { BridgeMount } from '../../src/serve/bridge-mount.js';
-import { SandboxSeedError, type SandboxSession } from '../../src/serve/sandbox-session.js';
+import { SandboxSeedError, type SandboxSession, type SandboxSessionOptions } from '../../src/serve/sandbox-session.js';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 type Middleware = (
   req: IncomingMessage & { originalUrl?: string },
@@ -244,5 +247,55 @@ describe('active Vite sandbox generation', () => {
     const generation = await createViteSandboxGeneration(h.input, h.dependencies);
     expect(h.events).toContain('watch:/project/database.rules.json');
     await generation.close();
+  });
+});
+
+describe('Vite sandbox generation project', () => {
+  // A temporary HOME keeps the developer's own `firebase use` state out of these tests.
+  const home = mkdtempSync(join(tmpdir(), 'pyric-vite-project-home-'));
+  const rc = { projects: { default: 'rc-default', staging: 'staging-id' } };
+
+  async function sessionProject(
+    options: { functions?: boolean; project?: string; env?: NodeJS.ProcessEnv },
+  ): Promise<{ session: SandboxSessionOptions['project']; functionsProjectId: string | undefined }> {
+    const h = harness({ functions: options.functions });
+    let session: SandboxSessionOptions['project'];
+    let functionsProjectId: string | undefined;
+    const create = h.dependencies.createSession!;
+    h.dependencies.createSession = async (sessionOptions) => {
+      session = sessionOptions.project;
+      return create(sessionOptions);
+    };
+    const attach = h.dependencies.attachFunctions!;
+    h.dependencies.attachFunctions = (functionsOptions) => {
+      functionsProjectId = functionsOptions.projectId;
+      return attach(functionsOptions);
+    };
+    h.dependencies.readFirebaseRc = async () => rc;
+    h.dependencies.env = { HOME: home, ...options.env };
+    h.input.options.project = options.project;
+    const generation = await createViteSandboxGeneration(h.input, h.dependencies);
+    await generation.close();
+    return { session, functionsProjectId };
+  }
+
+  it('takes PYRIC_PROJECT with functions off', async () => {
+    const { session } = await sessionProject({ functions: false, env: { PYRIC_PROJECT: 'env-id' } });
+    expect(session).toEqual({ projectId: 'env-id', source: 'PYRIC_PROJECT' });
+  });
+
+  it('takes the plugin project option over PYRIC_PROJECT, resolving a .firebaserc alias', async () => {
+    const { session } = await sessionProject({ project: 'staging', env: { PYRIC_PROJECT: 'env-id' } });
+    expect(session).toEqual({ projectId: 'staging-id', source: 'option', alias: 'staging' });
+  });
+
+  it('gives the functions child the same project as the session', async () => {
+    const { session, functionsProjectId } = await sessionProject({ functions: true, project: 'staging' });
+    expect(functionsProjectId).toBe('staging-id');
+    expect(session?.projectId).toBe('staging-id');
+  });
+
+  it('falls back to .firebaserc projects.default', async () => {
+    expect((await sessionProject({ functions: false })).session?.projectId).toBe('rc-default');
   });
 });

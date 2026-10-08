@@ -609,12 +609,20 @@ if (!useWorker && typeof EventSource !== 'undefined') {
     try {
       // Null rules mean the rules file was deleted: `policy` then governs
       // every read and write, as it does when the page starts without rules.
-      const { instance, rules, rulesHash, policy } = JSON.parse((e as MessageEvent).data as string) as {
+      const { instance, target, rules, rulesHash, policy } = JSON.parse((e as MessageEvent).data as string) as {
         instance: string;
+        target?: string;
         rules: { rules: Record<string, unknown> } | null;
         rulesHash: string | null;
         policy?: 'allow' | 'deny';
       };
+      // An unresolved deploy target's rules apply to its instances once the
+      // app's project resolved it, and are kept for that resolution until then.
+      if (target !== undefined) {
+        databaseRules.deployTarget(target, rules, policy);
+        console.info(`[pyric sandbox] RTDB rules for deploy target "${target}" ${rules === null ? 'removed' : `hot-reloaded (hash ${rulesHash})`}`);
+        return;
+      }
       databaseRules.deployInstance(instance, rules, policy);
       const isRemoved = rules === null;
       const isDefaultInstance = instance === databaseRules.defaultInstance();

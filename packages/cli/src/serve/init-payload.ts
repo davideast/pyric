@@ -9,6 +9,26 @@ export interface DatabaseInstancesRules {
   defaultInstance: string;
   /** Each declared instance's rules, keyed by instance name; null while its rules file does not exist. */
   rules: Record<string, RtdbRulesJson | null>;
+  /** `firebase.json` target entries no project resolved when the server started. */
+  pendingTargets?: PendingDatabaseTargetRules[];
+}
+
+/** Where a database ruleset deploys: an instance name, absent for the
+ *  default instance, or an unresolved deploy target. */
+export type DatabaseRulesDestination = string | { target: string };
+
+/**
+ * A `firebase.json` deploy target the server could not map to instances,
+ * because no project was set or the project does not map it. The sandbox
+ * applies its rules once the page's app config names a project.
+ */
+export interface PendingDatabaseTargetRules {
+  /** The deploy target name. */
+  target: string;
+  /** The target's rules; null while its rules file does not exist. */
+  rules: RtdbRulesJson | null;
+  /** The instance names `.firebaserc` maps the target to, by project id. */
+  instancesByProject: Record<string, string[]>;
 }
 
 /** Browser-safe wire contract served by `/__pyric/init.json`. */

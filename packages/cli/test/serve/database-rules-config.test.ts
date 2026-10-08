@@ -7,15 +7,21 @@
  * - an array entry's `rules` deploys to its `instance`, or to every instance
  *   `.firebaserc` maps its `target` to; `target` wins over `instance`;
  * - an entry with neither throws `Must supply either "target" or "instance"
- *   in database config`, and an unmapped target throws `Deploy target <name>
- *   not configured for project <id>`;
+ *   in database config`;
  * - entries without `rules` deploy nothing.
+ *
+ * Where `firebase deploy` throws `Deploy target <name> not configured for
+ * project <id>`, or needs a project and has none, the dev server starts: the
+ * target is unresolved, and its rules apply once the page's app config names
+ * a project `.firebaserc` maps the target for.
  */
 import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { databaseRulesTargets, loadProjectDatabaseRules } from '../../src/serve/rules.js';
+import { databaseRulesTargets, formatUnresolvedDatabaseTargets, loadProjectDatabaseRules } from '../../src/serve/rules.js';
+import { FIREBASE_PROJECT_SOURCES_TRIED, resolveFirebaseProject } from '../../src/cli/firebase-project.js';
+import { UNNAMED_DEFAULT_DATABASE_INSTANCE } from 'pyric/sandbox/internal';
 import type { FirebaseJson, FirebaseRc } from '../../src/cli/firebase-json.js';
 
 const FIRST_RULES = { rules: { first: { '.read': true } } };
@@ -43,11 +49,19 @@ describe('firebase.json database: single object', () => {
     expect(loaded.instances.get('demo-default-rtdb')?.sourcePath).toBe(join(dir, 'first.rules.json'));
   });
 
-  test('takes the project id from .firebaserc projects.default when none is given', async () => {
+  test('takes the project id the shared project resolution gives', async () => {
     const dir = project({ projects: { default: 'from-rc' } });
-    const loaded = await loadProjectDatabaseRules(dir, config({ rules: 'first.rules.json' }));
+    const resolution = resolveFirebaseProject({ projectDir: dir, env: { HOME: dir } });
+    const loaded = await loadProjectDatabaseRules(dir, config({ rules: 'first.rules.json' }), resolution);
     expect(loaded.defaultInstance).toBe('from-rc-default-rtdb');
     expect(loaded.instances.get('from-rc-default-rtdb')?.rules).toEqual(FIRST_RULES);
+  });
+
+  test('reads no project of its own: without one, the rules deploy to the unnamed default instance', async () => {
+    const dir = project({ projects: { default: 'from-rc' } });
+    const loaded = await loadProjectDatabaseRules(dir, config({ rules: 'first.rules.json' }));
+    expect(loaded.defaultInstance).toBe(UNNAMED_DEFAULT_DATABASE_INSTANCE);
+    expect(loaded.instances.get(UNNAMED_DEFAULT_DATABASE_INSTANCE)?.rules).toEqual(FIRST_RULES);
   });
 
   test('without rules deploys nothing', () => {
@@ -178,16 +192,44 @@ describe('firebase.json database: deploy targets', () => {
     expect(targets.map((target) => target.instance)).toEqual(['solo-db']);
   });
 
-  test('throws the Firebase CLI error for a target .firebaserc does not map', () => {
-    const dir = project(rc);
-    expect(() => databaseRulesTargets(dir, config([{ target: 'absent', rules: 'first.rules.json' }]), { projectId: 'demo' }))
-      .toThrow('Deploy target absent not configured for project demo. Configure with:\n\n  firebase target:apply database absent <resources...>');
+  test('a target the project does not map starts unresolved, keeping every project mapping for later', async () => {
+    const dir = project({ ...rc, targets: { ...rc.targets, other: { database: { absent: ['other-db'] } } } });
+    const loaded = await loadProjectDatabaseRules(dir, config([
+      { target: 'absent', rules: 'first.rules.json' },
+      { target: 'solo', rules: 'second.rules.json' },
+    ]), { projectId: 'demo', source: 'PYRIC_PROJECT' });
+    expect([...loaded.declared]).toEqual(['solo-db']);
+    expect(loaded.pending).toHaveLength(1);
+    expect(loaded.pending[0]).toMatchObject({
+      target: 'absent',
+      label: 'firebase.json database[0]',
+      path: join(dir, 'first.rules.json'),
+      rules: FIRST_RULES,
+      instancesByProject: { other: ['other-db'] },
+    });
+    expect(loaded.pending[0].reason).toBe(
+      'project "demo" (from PYRIC_PROJECT) has no .firebaserc mapping for it (firebase target:apply database absent <instance>)',
+    );
   });
 
-  test('throws for a target when no project id is known', () => {
+  test('a target starts unresolved when no project is known', async () => {
     const dir = project({ targets: rc.targets });
-    expect(() => databaseRulesTargets(dir, config([{ target: 'main', rules: 'first.rules.json' }])))
-      .toThrow('firebase.json database[0]: target "main" resolves through .firebaserc for a project, and no project id is set');
+    const loaded = await loadProjectDatabaseRules(dir, config([{ target: 'main', rules: 'first.rules.json' }]));
+    expect(loaded.targets).toEqual([]);
+    expect(loaded.pending.map((pending) => pending.target)).toEqual(['main']);
+    expect(loaded.pending[0].instancesByProject).toEqual({ demo: ['main-a', 'main-b'] });
+    expect(loaded.pending[0].reason).toBe('no Firebase project is set');
+  });
+
+  test('the startup warning names each unresolved target, what was tried, and the ways to set the project', async () => {
+    const dir = project({ targets: rc.targets });
+    const loaded = await loadProjectDatabaseRules(dir, config([{ target: 'main', rules: 'first.rules.json' }]));
+    const warning = formatUnresolvedDatabaseTargets(loaded.pending, 'deny');
+    expect(warning).toContain('RTDB deploy target "main" (firebase.json database[0]) is unresolved: no Firebase project is set.');
+    expect(warning).toContain(`Tried ${FIREBASE_PROJECT_SOURCES_TRIED}.`);
+    expect(warning).toContain('pass `project` to the Vite plugin (or --project to pyric sandbox), set PYRIC_PROJECT, or run `firebase use <alias>`');
+    expect(warning).toContain('deny every read and write');
+    expect(formatUnresolvedDatabaseTargets(loaded.pending, 'allow')).toContain('allow every read and write (permissive mode)');
   });
 });
 

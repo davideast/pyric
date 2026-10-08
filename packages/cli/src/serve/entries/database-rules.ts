@@ -9,6 +9,7 @@ import {
 } from 'pyric/sandbox/internal';
 import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
 import type { DatabaseInstancesRules, RtdbRulesJson } from '../init-payload.js';
+import { createPendingDatabaseTargets, type DatabaseTargetDeploy } from '../database-instance-rules-host.js';
 
 type Policy = 'allow' | 'deny';
 
@@ -27,6 +28,7 @@ export function createDatabaseRulesDeployment(sandbox: Sandbox) {
   let projectId: string | undefined;
   let rulesByInstance = new Map<string, RtdbRulesJson | null>();
   let defaultPolicy: Policy = 'deny';
+  let pendingTargets = createPendingDatabaseTargets();
   const noticed = new Set<string>();
 
   /** The default instance's name: the config's, else the app's project default once known. */
@@ -64,6 +66,25 @@ export function createDatabaseRulesDeployment(sandbox: Sandbox) {
     for (const [name, database] of databases) apply(name, database);
   }
 
+  /** Deploy targets no project resolved at server start take their rules
+   *  once the app's project id is known. */
+  function resolvePendingTargets(): void {
+    if (projectId === undefined) return;
+    const { deploys, notices } = pendingTargets.resolve(projectId);
+    for (const notice of notices) console.info(`[pyric sandbox] ${notice}`);
+    setTargetDeploys(deploys);
+  }
+
+  function setTargetDeploys(deploys: readonly DatabaseTargetDeploy[]): void {
+    const refusals: string[] = [];
+    for (const { instance, rules } of deploys) {
+      const refusal = refusalOf(instance, rules);
+      if (refusal !== null) refusals.push(refusal);
+      else rulesByInstance.set(instance, rules);
+    }
+    if (refusals.length > 0) throw new Error(`database rules not loaded in the sandbox: ${refusals.join('; ')}`);
+  }
+
   function refusalOf(instance: string, rules: RtdbRulesJson | null): string | null {
     const rejection = rules === null ? null : rtdbRulesSourceRejection(rules);
     if (rejection === null) return null;
@@ -79,6 +100,7 @@ export function createDatabaseRulesDeployment(sandbox: Sandbox) {
     const learnsProject = projectId === undefined && appProjectId !== undefined;
     if (learnsProject) {
       projectId = appProjectId;
+      resolvePendingTargets();
       applyAll();
     }
     const parsed = resolveDatabaseInstance(url)?.name;
@@ -110,8 +132,26 @@ export function createDatabaseRulesDeployment(sandbox: Sandbox) {
       defaultInstance = instances?.defaultInstance;
       rulesByInstance = next;
       defaultPolicy = policy;
-      applyAll();
+      pendingTargets = createPendingDatabaseTargets(instances?.pendingTargets);
+      try {
+        resolvePendingTargets();
+      } finally {
+        applyAll();
+      }
       if (refusals.length > 0) throw new Error(`database rules not loaded in the sandbox: ${refusals.join('; ')}`);
+    },
+    /**
+     * Replace an unresolved deploy target's rules. Once the app's project
+     * resolved the target, its instances take them; before that, they are
+     * kept for resolution.
+     */
+    deployTarget(target: string, rules: RtdbRulesJson | null, policy: Policy = defaultPolicy): void {
+      defaultPolicy = policy;
+      try {
+        setTargetDeploys(pendingTargets.update(target, rules));
+      } finally {
+        applyAll();
+      }
     },
     /** Replace one instance's rules. Throws, leaving its rules in force, when production would not load `rules`. */
     deployInstance(instance: string, rules: RtdbRulesJson | null, policy: Policy = defaultPolicy): void {

@@ -68,6 +68,15 @@ export interface PyricOptions {
   rules?: string;
   /** Project dir for `firebase.json` / rules discovery. Default: Vite's `root`. */
   root?: string;
+  /**
+   * The Firebase project the sandbox runs as: a project id or a `.firebaserc`
+   * alias. It names the default Realtime Database instance, selects the
+   * `.firebaserc` deploy targets a `firebase.json` `database` array names,
+   * and is the functions child's project. Without it, the project resolves as
+   * the Firebase CLI resolves it: `PYRIC_PROJECT`, then the `firebase use`
+   * active project for this directory, then `.firebaserc` `projects.default`.
+   */
+  project?: string;
   /** Persist sandbox state to `.pyric/state/state.json` so data + test users
    *  survive reloads/restarts. Off by default for SharedWorker; hosted mode
    *  always persists state. */
@@ -117,8 +126,8 @@ export interface PyricOptions {
    *  - `region`: the trigger location. Beats `PYRIC_FUNCTIONS_RTDB_REGION`;
    *    default `us-central1`.
    *  - `instance`: the RTDB instance name. Default `<projectId>-default-rtdb`,
-   *    where projectId is `PYRIC_PROJECT`, else `.firebaserc`'s default
-   *    project, else `demo-project`.
+   *    where projectId is the resolved `project` (see that option), else
+   *    `demo-project`.
    *  - `watch`: hot-reload the functions source (default `true`, matching
    *    rules). A save under the functions source dir stops the child and
    *    respawns it — redeploy semantics: in-flight executions in the old child
@@ -294,6 +303,7 @@ export function pyric(options: PyricOptions = {}): Plugin {
         functions: functionsOptions,
         avatars: options.avatars,
         flow: options.flow,
+        project: options.project,
       };
       const generationInput: ViteSandboxGenerationInput = {
         server,

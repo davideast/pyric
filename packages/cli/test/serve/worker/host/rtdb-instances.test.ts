@@ -9,8 +9,13 @@ import { initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
 import { getAdminDatabase, get, ref } from 'pyric/database';
 import { handleMessage, type HostCtx, type PortLike } from '../../../../src/serve/worker/host.js';
-import { databaseInstanceRulesHost, setDatabaseRules } from '../../../../src/serve/worker/host/rules.js';
-import { connectDatabaseInstanceRules } from '../../../../src/serve/database-instance-rules-host.js';
+import {
+  databaseInstanceRulesHost,
+  resolvePendingDatabaseTargets,
+  setDatabaseRules,
+  setDatabaseTargetRules,
+} from '../../../../src/serve/worker/host/rules.js';
+import { connectDatabaseInstanceRules, createPendingDatabaseTargets } from '../../../../src/serve/database-instance-rules-host.js';
 import { drainPortRtdbDisconnects } from '../../../../src/serve/worker/host/rtdb.js';
 import {
   type InboundMessage,
@@ -149,6 +154,47 @@ describe('host RTDB instances', () => {
     expect(await value(ctx, 'p-default-rtdb', 'a')).toBe(1);
     expect(await send(ctx, { method: 'getRulesStatus', service: 'database' }))
       .toMatchObject({ ok: true, value: { status: 'active', source: OPEN } });
+  });
+
+  it('applies an unresolved deploy target\'s rules once the app config names a project .firebaserc maps it for', async () => {
+    const ctx = makeCtx();
+    ctx.pendingDatabaseTargets = createPendingDatabaseTargets([
+      { target: 'main', rules: OPEN, instancesByProject: { p: ['main-a'], q: ['q-main'] } },
+    ]);
+    const info = console.info;
+    const notices: string[] = [];
+    console.info = (...args: unknown[]) => { notices.push(args.map(String).join(' ')); };
+    const warnings = captureWarnings();
+    try {
+      // Before the app config, the target's instance is locked like any undeployed instance.
+      expect((await send(ctx, { method: 'rtdb.set', instance: 'main-a', path: 'a', value: 1 })).ok).toBe(false);
+      await handleMessage(ctx, sharedPort, { t: 'appConfig', options: { projectId: 'p' } });
+    } finally {
+      console.info = info;
+      warnings.restore();
+    }
+    expect(notices).toContain('[pyric] RTDB deploy target "main" resolved with the app config project "p": its rules now apply to instance main-a.');
+    expect((await send(ctx, { method: 'rtdb.set', instance: 'main-a', path: 'a', value: 1 })).ok).toBe(true);
+    expect(await value(ctx, 'main-a', 'a')).toBe(1);
+    // A later rules change for the target reaches its resolved instance.
+    expect(setDatabaseTargetRules(ctx, 'main', { rules: { '.read': true, '.write': false } }).ok).toBe(true);
+    expect((await send(ctx, { method: 'rtdb.set', instance: 'main-a', path: 'b', value: 1 })).ok).toBe(false);
+  });
+
+  it('resolves unresolved deploy targets at init when an app port named its project first', async () => {
+    const ctx = makeCtx();
+    await handleMessage(ctx, sharedPort, { t: 'appConfig', options: { projectId: 'p' } });
+    ctx.pendingDatabaseTargets = createPendingDatabaseTargets([
+      { target: 'main', rules: OPEN, instancesByProject: { p: ['main-a'] } },
+    ]);
+    const info = console.info;
+    console.info = () => {};
+    try {
+      resolvePendingDatabaseTargets(ctx);
+    } finally {
+      console.info = info;
+    }
+    expect((await send(ctx, { method: 'rtdb.set', instance: 'main-a', path: 'a', value: 1 })).ok).toBe(true);
   });
 
   it('runs a port\'s onDisconnect operations per instance', async () => {

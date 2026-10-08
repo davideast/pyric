@@ -123,6 +123,35 @@ test('serves the array\'s default instance rules to the default store once the a
   expect((await get(ref(getDatabase(sandbox), 'a'))).val()).toBe(1);
 });
 
+test('applies an unresolved deploy target\'s rules once the app names a project .firebaserc maps it for', async () => {
+  const sandbox = initializeSandbox();
+  const deployment = createDatabaseRulesDeployment(sandbox);
+  const info = console.info;
+  const warn = console.warn;
+  const notices: string[] = [];
+  console.info = (...args: unknown[]) => { notices.push(args.map(String).join(' ')); };
+  console.warn = () => {};
+  try {
+    deployment.deploy({
+      defaultInstance: '(default)',
+      rules: {},
+      pendingTargets: [{ target: 'main', rules: OPEN, instancesByProject: { p: ['main-a'] } }],
+    });
+    const mainA = getDatabase(sandbox, 'https://main-a.firebaseio.com');
+    deployment.register('https://main-a.firebaseio.com');
+    await expect(set(ref(mainA, 'a'), 1)).rejects.toThrow('PERMISSION_DENIED');
+    deployment.register(undefined, 'p');
+    await set(ref(mainA, 'a'), 1);
+    expect((await get(ref(mainA, 'a'))).val()).toBe(1);
+    deployment.deployTarget('main', { rules: { '.read': true, '.write': false } });
+    await expect(set(ref(mainA, 'b'), 1)).rejects.toThrow('PERMISSION_DENIED');
+  } finally {
+    console.info = info;
+    console.warn = warn;
+  }
+  expect(notices).toContain('[pyric sandbox] RTDB deploy target "main" resolved with the app config project "p": its rules now apply to instance main-a.');
+});
+
 test('a refused ruleset names its instance, and the other instances still get theirs', async () => {
   const sandbox = initializeSandbox();
   const deployment = createDatabaseRulesDeployment(sandbox);

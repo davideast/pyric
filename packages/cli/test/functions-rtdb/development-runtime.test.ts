@@ -52,6 +52,7 @@ function runtimeOptions(
     serveUrl: 'http://localhost:4321',
     registerUrl: 'file:///register.js',
     instance: 'demo-project-default-rtdb',
+    projectId: 'demo-project',
     location: 'us-central1',
     readiness,
     onEvent: (event: FunctionsDevelopmentEvent) => events.push(event),

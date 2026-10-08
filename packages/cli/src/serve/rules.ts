@@ -24,6 +24,12 @@ import {
 import { asSentence, databaseInstanceKey, databaseInstanceNamed, defaultDatabaseInstanceName } from 'pyric/sandbox/internal';
 import { parseStorageRules } from 'pyric/storage';
 import { readFirebaseRcSync, type DatabaseRulesEntry, type FirebaseJson, type FirebaseRc } from '../cli/firebase-json.js';
+import {
+  describeFirebaseProject,
+  FIREBASE_PROJECT_FIXES,
+  FIREBASE_PROJECT_SOURCES_TRIED,
+  type FirebaseProjectResolution,
+} from '../cli/firebase-project.js';
 import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
 import type { RtdbRulesJson } from './init-payload.js';
 import { parseRtdbRulesText } from '../rtdb/rules-json.js';
@@ -284,12 +290,39 @@ export async function loadProjectStorageRules(
   return { rules, rulesHash: rulesHashOf(rules), sourcePath: path };
 }
 
-/** Where a project's database instance names come from. */
-export interface DatabaseRulesProject {
-  /** The project id. Without it, `.firebaserc` `projects.default` is used. */
-  projectId?: string;
+/**
+ * Where a project's database instance names come from: the project
+ * {@link resolveFirebaseProject} resolved. The loader reads no project of its
+ * own; without a project id, target entries start unresolved.
+ */
+export interface DatabaseRulesProject extends FirebaseProjectResolution {
   /** Reads `.firebaserc`. Defaults to reading it from the project directory. */
   readRc?: () => FirebaseRc | null;
+}
+
+/**
+ * A `firebase.json` target entry no `.firebaserc` mapping resolved at
+ * startup, because no project is set or the project does not map the target.
+ * Its rules apply once the page's app config names a project that
+ * `.firebaserc` maps the target for.
+ */
+export interface PendingDatabaseRulesTarget {
+  /** The deploy target name. */
+  target: string;
+  /** The `firebase.json` entry, as `firebase.json database[0]`. */
+  label: string;
+  /** Absolute path of the rules file. */
+  path: string;
+  /** The instance names `.firebaserc` maps the target to, by project id. */
+  instancesByProject: Record<string, string[]>;
+  /** Why the target did not resolve at startup. */
+  reason: string;
+}
+
+/** A pending target with its loaded rules. */
+export interface LoadedPendingDatabaseTarget extends PendingDatabaseRulesTarget {
+  rules: RtdbRulesJson;
+  rulesHash: string;
 }
 
 /** One rules file deployed to one database instance. */
@@ -308,6 +341,8 @@ export interface DatabaseRulesTargets {
   defaultInstance: string;
   /** One entry per instance, in `firebase.json` order. */
   targets: DatabaseRulesTarget[];
+  /** Target entries no `.firebaserc` mapping resolved, in `firebase.json` order. */
+  pending: PendingDatabaseRulesTarget[];
 }
 
 /** One instance's loaded rules. */
@@ -318,7 +353,9 @@ export interface LoadedDatabaseInstanceRules {
   sourcePath: string;
 }
 
-export interface LoadedDatabaseRules extends DatabaseRulesTargets {
+export interface LoadedDatabaseRules extends Omit<DatabaseRulesTargets, 'pending'> {
+  /** The unresolved target entries, with their rules. */
+  pending: LoadedPendingDatabaseTarget[];
   /** Every instance `firebase.json` deploys rules to, whether or not its file exists. */
   declared: ReadonlySet<string>;
   /** The rules of each declared instance whose rules file exists. */
@@ -350,8 +387,11 @@ function checkDatabaseRulesFormat(file: string, entry: string): void {
  *   `rules` it deploys nothing.
  * - An array entry's `rules` deploys to every instance `.firebaserc` maps its
  *   `target` to, else to its `instance`. An entry with neither throws the
- *   CLI's error, and so does a target `.firebaserc` does not map. An entry
- *   without `rules` deploys nothing.
+ *   CLI's error. An entry without `rules` deploys nothing.
+ * - Where the CLI throws because no project is set or the project does not
+ *   map a target, the target is returned in `pending` with every project's
+ *   mapping, so a dev server starts and applies it once the page's app
+ *   config names the project.
  * - Without a `database` key, `database.rules.json` in `cwd` deploys to the
  *   default instance when it exists.
  *
@@ -370,7 +410,7 @@ export function databaseRulesTargets(
     rc ??= (project.readRc ?? (() => readFirebaseRcSync(cwd)))();
     return rc;
   };
-  const projectId = project.projectId ?? readRc()?.projects?.default;
+  const projectId = project.projectId;
   const defaultInstance = projectId === undefined
     ? databaseInstanceKey(undefined)
     : defaultDatabaseInstanceName(projectId);
@@ -380,35 +420,34 @@ export function databaseRulesTargets(
     return {
       defaultInstance,
       targets: [{ instance: defaultInstance, path: join(cwd, DEFAULT_DATABASE_RULES_FILE), configured: false }],
+      pending: [],
     };
   }
   if (!Array.isArray(database)) {
     const rules = typeof database === 'object' ? database.rules : undefined;
-    if (typeof rules !== 'string' || rules === '') return { defaultInstance, targets: [] };
+    if (typeof rules !== 'string' || rules === '') return { defaultInstance, targets: [], pending: [] };
     checkDatabaseRulesFormat(rules, 'firebase.json database.rules');
     return {
       defaultInstance,
       targets: [{ instance: defaultInstance, path: databaseRulesFilePath(cwd, rules), configured: true }],
+      pending: [],
     };
   }
 
   const targets: DatabaseRulesTarget[] = [];
+  const pending: PendingDatabaseRulesTarget[] = [];
   const entryOf = new Map<string, string>();
   database.forEach((raw, index) => {
     const label = `firebase.json database[${index}]`;
     const entry: DatabaseRulesEntry = raw !== null && typeof raw === 'object' ? raw : {};
     let names: readonly string[];
+    let unresolved: string | null = null;
     if (entry.target) {
-      if (projectId === undefined) {
-        throw new Error(
-          `pyric sandbox: ${label}: target "${entry.target}" resolves through .firebaserc for a project, and no project id is set. Pass --project, or set projects.default in .firebaserc.`,
-        );
-      }
-      names = readRc()?.targets?.[projectId]?.database?.[entry.target] ?? [];
+      names = projectId === undefined ? [] : readRc()?.targets?.[projectId]?.database?.[entry.target] ?? [];
       if (names.length === 0) {
-        throw new Error(
-          `pyric sandbox: ${label}: Deploy target ${entry.target} not configured for project ${projectId}. Configure with:\n\n  firebase target:apply database ${entry.target} <resources...>`,
-        );
+        unresolved = projectId === undefined
+          ? 'no Firebase project is set'
+          : `project ${describeFirebaseProject(project)} has no .firebaserc mapping for it (firebase target:apply database ${entry.target} <instance>)`;
       }
     } else if (entry.instance) {
       names = [entry.instance];
@@ -418,6 +457,10 @@ export function databaseRulesTargets(
     if (typeof entry.rules !== 'string' || entry.rules === '') return;
     checkDatabaseRulesFormat(entry.rules, label);
     const path = databaseRulesFilePath(cwd, entry.rules);
+    if (unresolved !== null && entry.target) {
+      pending.push({ target: entry.target, label, path, instancesByProject: targetMappings(readRc(), entry.target), reason: unresolved });
+      return;
+    }
     for (const name of names) {
       let instance: string;
       try {
@@ -438,7 +481,37 @@ export function databaseRulesTargets(
       );
     }
   });
-  return { defaultInstance, targets };
+  return { defaultInstance, targets, pending };
+}
+
+/** The instance names `.firebaserc` maps `target` to, for each project that maps it. */
+function targetMappings(rc: FirebaseRc | null, target: string): Record<string, string[]> {
+  const mappings: Record<string, string[]> = {};
+  for (const [projectId, types] of Object.entries(rc?.targets ?? {})) {
+    const names = types?.database?.[target];
+    if (Array.isArray(names) && names.length > 0) mappings[projectId] = [...names];
+  }
+  return mappings;
+}
+
+/**
+ * The startup warning for target entries no project resolved: each target,
+ * why, the sources tried, how its instances are served meanwhile, and the
+ * ways to set the project.
+ */
+export function formatUnresolvedDatabaseTargets(
+  pending: readonly PendingDatabaseRulesTarget[],
+  policy: 'allow' | 'deny',
+): string {
+  const lines = pending.map((target) =>
+    `  ⚠ RTDB deploy target "${target.target}" (${target.label}) is unresolved: ${target.reason}.`);
+  const access = policy === 'allow' ? 'allow every read and write (permissive mode)' : 'deny every read and write';
+  lines.push(
+    `    Tried ${FIREBASE_PROJECT_SOURCES_TRIED}.`,
+    `    Until a project maps the target, its instances ${access}. When the page's app config names a project .firebaserc maps the target for, its rules apply then.`,
+    `    To set the project: ${FIREBASE_PROJECT_FIXES}.`,
+  );
+  return lines.join('\n');
 }
 
 /**
@@ -449,13 +522,34 @@ export function databaseRulesTargets(
  */
 export async function loadDatabaseInstanceRules(target: DatabaseRulesTarget): Promise<LoadedDatabaseInstanceRules | null> {
   const { instance, path } = target;
-  const label = `pyric sandbox: database instance "${instance}": ${path}`;
+  const loaded = await loadDatabaseRulesFile(path, `pyric sandbox: database instance "${instance}": ${path}`, target.configured);
+  return loaded === null ? null : { instance, ...loaded, sourcePath: path };
+}
+
+/**
+ * Load an unresolved target's rules file through the same check. Throws,
+ * naming the target and file, for a missing file and for refused rules.
+ */
+export async function loadPendingDatabaseTargetRules(
+  target: PendingDatabaseRulesTarget,
+): Promise<{ rules: RtdbRulesJson; rulesHash: string }> {
+  const label = `pyric sandbox: database deploy target "${target.target}": ${target.path}`;
+  const loaded = await loadDatabaseRulesFile(target.path, label, true);
+  if (loaded === null) throw new Error(`${label} does not exist, and firebase.json deploys it.`);
+  return loaded;
+}
+
+async function loadDatabaseRulesFile(
+  path: string,
+  label: string,
+  configured: boolean,
+): Promise<{ rules: RtdbRulesJson; rulesHash: string } | null> {
   let raw: string;
   try {
     raw = await readFile(path, 'utf8');
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
-      if (target.configured) throw new Error(`${label} does not exist, and firebase.json deploys it.`);
+      if (configured) throw new Error(`${label} does not exist, and firebase.json deploys it.`);
       return null;
     }
     throw e;
@@ -468,7 +562,7 @@ export async function loadDatabaseInstanceRules(target: DatabaseRulesTarget): Pr
   if (rejection !== null) {
     throw new Error(`${label} is not valid RTDB rules. ${rejection.message} Fix the rules before serving.`);
   }
-  return { instance, rules, rulesHash: rulesHashOf(raw), sourcePath: path };
+  return { rules, rulesHash: rulesHashOf(raw) };
 }
 
 /** Load the rules of every database instance `firebase.json` deploys to. */
@@ -477,15 +571,18 @@ export async function loadProjectDatabaseRules(
   config: FirebaseJson | null,
   project: DatabaseRulesProject = {},
 ): Promise<LoadedDatabaseRules> {
-  const { defaultInstance, targets } = databaseRulesTargets(cwd, config, project);
+  const { defaultInstance, targets, pending } = databaseRulesTargets(cwd, config, project);
   const instances = new Map<string, LoadedDatabaseInstanceRules>();
   for (const target of targets) {
     const loaded = await loadDatabaseInstanceRules(target);
     if (loaded !== null) instances.set(target.instance, loaded);
   }
+  const loadedPending: LoadedPendingDatabaseTarget[] = [];
+  for (const target of pending) loadedPending.push({ ...target, ...await loadPendingDatabaseTargetRules(target) });
   return {
     defaultInstance,
     targets,
+    pending: loadedPending,
     declared: new Set(targets.map((target) => target.instance)),
     instances,
   };
