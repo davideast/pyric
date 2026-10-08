@@ -37,7 +37,7 @@ export function rtdbRunTransaction<T>(
   return runSdkWrite(beginWorkerDatabaseActivity(ref, 'runTransaction', 'operation'), async () => {
     for (let attempt = 0; attempt < 25; attempt++) {
       const before = hydrateRtdbSnapshot(ref, await rtdbRpc(ref, {
-        t: 'op', id: nextId(), method: 'rtdb.get', path: ref.path,
+        t: 'op', id: nextId(), method: 'rtdb.get', path: ref.path, transaction: true,
       }));
       const expected = before.val() as T | null;
       const value = transactionUpdate(expected);
