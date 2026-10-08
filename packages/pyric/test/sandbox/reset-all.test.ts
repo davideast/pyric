@@ -77,10 +77,11 @@ describe('Sandbox.resetAll', () => {
     // Every service is empty afterwards.
     expect(Object.keys(sandbox.snapshot().firestore)).toHaveLength(0);
     expect(authSandbox.listUsers(auth)).toHaveLength(0);
-    // Matches a fresh sandbox: the root reads as an empty tree and the
-    // seeded path is gone.
+    // Matches a fresh sandbox: the root of the empty database reads as a
+    // missing snapshot and the seeded path is gone.
     const tree = await rtdbGet(rtdbRef(rtdb, '/'));
-    expect(tree.val()).toEqual({});
+    expect(tree.val()).toBeNull();
+    expect(tree.exists()).toBe(false);
     const presence = await rtdbGet(rtdbRef(rtdb, '/presence/u1'));
     expect(presence.val()).toBeNull();
     expect(await service.backend.listByPrefix('')).toHaveLength(0);
