@@ -33,6 +33,9 @@ export class DisconnectOperationQueue<TMetadata extends object = Record<never, n
   private readonly operations = new Map<string, DisconnectOperation<TMetadata>>();
 
   set(operation: DisconnectOperation<TMetadata>): void {
+    // The SDK registers nothing for an empty update, so a write queued at the
+    // same path stays queued.
+    if (operation.kind === 'update' && Object.keys(operation.values).length === 0) return;
     this.operations.set(operation.path, structuredClone(operation));
   }
 

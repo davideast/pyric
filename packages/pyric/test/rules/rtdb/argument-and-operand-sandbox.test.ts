@@ -1,5 +1,6 @@
 /**
- * The r32-method-argument-types and r33-null-operands captures, replayed
+ * The r20-priority-values, r32-method-argument-types, r33-null-operands and
+ * r35-operator-precedence captures, replayed
  * through `rtdbRules(json).simulate` and through the sandbox. Each case is
  * mounted under its scenario id, as the capture runner mounts it, and both
  * must give production's verdict.
@@ -47,7 +48,7 @@ function mount(scenario: RtdbScenario): StdlibScenario {
   };
 }
 
-for (const id of ['r32-method-argument-types', 'r33-null-operands']) {
+for (const id of ['r20-priority-values', 'r32-method-argument-types', 'r33-null-operands', 'r35-operator-precedence']) {
   const scenario = ALL_RULES_RTDB_SCENARIOS.find((s) => s.id === id);
   if (!scenario) throw new Error(`corpus scenario ${id} is missing`);
   const mounted = mount(scenario);

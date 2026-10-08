@@ -4,6 +4,7 @@ import {
   getAdminDatabase,
   getDatabase,
   get,
+  goOffline,
   onDisconnect,
   ref,
   sandbox as rtdbSandbox,
@@ -40,11 +41,8 @@ function makeEvalContext(overrides: Partial<EvalContext> = {}): EvalContext {
   };
 }
 
-describe('RTDB Security Rules Audit — Regression & Acceptance Suite (Issues 1, 3–7)', () => {
-  // ──────────────────────────────────────────────────────────────────────────
-  // Issue 1: Operator Precedence in RtdbExpr.ohm (&& vs ||, equality vs relational)
-  // ──────────────────────────────────────────────────────────────────────────
-  describe('Issue 1: Operator precedence in RtdbExpr.ohm', () => {
+describe('RTDB rules evaluation and sandbox writes match production', () => {
+  describe('operator precedence', () => {
     test('&& binds tighter than || in boolean expressions', () => {
       const ctx = makeEvalContext();
       // In production RTDB (and JS/CEL), `true || false && false` is `true || (false && false)` === true
@@ -79,10 +77,7 @@ describe('RTDB Security Rules Audit — Regression & Acceptance Suite (Issues 1,
     });
   });
 
-  // ──────────────────────────────────────────────────────────────────────────
-  // Issue 3: Silent JS type coercion on .length, relational, and arithmetic ops
-  // ──────────────────────────────────────────────────────────────────────────
-  describe('Issue 3: Runtime type errors on .length, relational, and arithmetic operators', () => {
+  describe('runtime type errors on .length, relational, and arithmetic operators', () => {
     test('accessing .length on a number or null fails the rule instead of returning null (0)', () => {
       const compiled = compileRtdbRules({
         rules: {
@@ -168,10 +163,7 @@ describe('RTDB Security Rules Audit — Regression & Acceptance Suite (Issues 1,
     });
   });
 
-  // ──────────────────────────────────────────────────────────────────────────
-  // Issue 4: Sandbox priority writes & { '.value', '.priority' } normalization
-  // ──────────────────────────────────────────────────────────────────────────
-  describe('Issue 4: Sandbox priority propagation to rules and .value/.priority normalization', () => {
+  describe('write priority reaches newData.getPriority() and storage', () => {
     test('setWithPriority, setPriority, and onDisconnect().setWithPriority pass priority to newData.getPriority()', async () => {
       const sandbox = initializeSandbox();
       const db = getDatabase(sandbox.withAuth({ uid: 'alice', token: {} }));
@@ -193,6 +185,64 @@ describe('RTDB Security Rules Audit — Regression & Acceptance Suite (Issues 1,
       await expect(onDisconnect(itemRef).setWithPriority('later', 10)).resolves.toBeUndefined();
     });
 
+    test('an inline .priority wins over the priority argument, for set and for onDisconnect().set', async () => {
+      const sandbox = initializeSandbox();
+      const db = getDatabase(sandbox.withAuth({ uid: 'alice', token: {} }));
+      rtdbSandbox.setRules(db, {
+        rules: { items: { $id: { '.read': 'true', '.write': 'true', '.validate': 'newData.getPriority() == 3' } } },
+      });
+
+      await expect(setWithPriority(ref(db, 'items/a'), { '.value': 'v', '.priority': 3 }, 10)).resolves.toBeUndefined();
+      expect((await get(ref(db, 'items/a'))).priority).toBe(3);
+      await expect(onDisconnect(ref(db, 'items/b')).setWithPriority({ '.value': 'v', '.priority': 3 }, 10)).resolves.toBeUndefined();
+      goOffline(db);
+      expect((await get(ref(getAdminDatabase(sandbox), 'items/b'))).priority).toBe(3);
+    });
+
+    test('a priority inside update() children reaches newData.getPriority() and storage', async () => {
+      const sandbox = initializeSandbox();
+      const db = getDatabase(sandbox.withAuth({ uid: 'alice', token: {} }));
+      rtdbSandbox.setRules(db, {
+        rules: { items: { $id: { '.read': 'true', '.write': 'true', '.validate': 'newData.getPriority() == 10' } } },
+      });
+
+      await expect(update(ref(db, 'items'), {
+        leaf: { '.value': 'v', '.priority': 10 },
+        node: { x: 1, '.priority': 10 },
+      })).resolves.toBeUndefined();
+      const leaf = await get(ref(db, 'items/leaf'));
+      const node = await get(ref(db, 'items/node'));
+      expect([leaf.val(), leaf.priority]).toEqual(['v', 10]);
+      expect([node.val(), node.priority]).toEqual([{ x: 1 }, 10]);
+      await expect(update(ref(db, 'items'), { other: 'v' })).rejects.toThrow(/PERMISSION_DENIED/);
+    });
+
+    test('a nested { ".value", ".priority" } keeps the child priority, and rules read it', async () => {
+      const sandbox = initializeSandbox();
+      const admin = getAdminDatabase(sandbox);
+      const db = getDatabase(sandbox.withAuth({ uid: 'alice', token: {} }));
+      rtdbSandbox.setRules(db, {
+        rules: {
+          leafpriority: { '.read': "data.child('leaf').getPriority() == 2" },
+          written: { '.write': 'true', '.validate': "newData.child('leaf').getPriority() == 4" },
+        },
+      });
+
+      await set(ref(admin, 'leafpriority'), { leaf: { '.value': 'x', '.priority': 2 } });
+      const leaf = await get(ref(admin, 'leafpriority/leaf'));
+      expect([leaf.val(), leaf.priority]).toEqual(['x', 2]);
+      await expect(get(ref(db, 'leafpriority'))).resolves.toBeDefined();
+      await expect(set(ref(db, 'written'), { leaf: { '.value': 'y', '.priority': 4 } })).resolves.toBeUndefined();
+      expect((await get(ref(admin, 'written/leaf'))).priority).toBe(4);
+    });
+
+    test('an inline priority of the wrong type throws the SDK assertion', async () => {
+      const admin = getAdminDatabase(initializeSandbox());
+      await expect(set(ref(admin, 'items/c'), { '.value': 'v', '.priority': true })).rejects.toThrow(
+        'Firebase Database (12.13.0) INTERNAL ASSERT FAILED: Invalid priority type found: boolean',
+      );
+    });
+
     test('set(ref, { ".value": v, ".priority": p }) unwraps .value and stores .priority metadata', async () => {
       const sandbox = initializeSandbox();
       const admin = getAdminDatabase(sandbox);
@@ -205,10 +255,7 @@ describe('RTDB Security Rules Audit — Regression & Acceptance Suite (Issues 1,
     });
   });
 
-  // ──────────────────────────────────────────────────────────────────────────
-  // Issue 5: Expression validator & path variable binding defects
-  // ──────────────────────────────────────────────────────────────────────────
-  describe('Issue 5: Validator and path variable binding', () => {
+  describe('validator and path variable binding', () => {
     test('validateExpression rejects undeclared $variables and bare path variable names without $', () => {
       const undeclaredErrors = validateExpression('$undeclared == auth.uid', 'read', ['$uid']);
       expect(undeclaredErrors.map((e) => e.code)).toContain('UNKNOWN_IDENTIFIER');
@@ -250,10 +297,7 @@ describe('RTDB Security Rules Audit — Regression & Acceptance Suite (Issues 1,
     });
   });
 
-  // ──────────────────────────────────────────────────────────────────────────
-  // Issue 6: defineRtdbRules().simulate() and rtdbRules().simulate() drop query & updates
-  // ──────────────────────────────────────────────────────────────────────────
-  describe('Issue 6: High-level rules document and rtdbRules() preserve query and updates', () => {
+  describe('defineRtdbRules().simulate() and rtdbRules().simulate() forward query constraints', () => {
     test('defineRtdbRules().simulate() forwards query constraints to simulator', () => {
       const doc = defineRtdbRules({
         paths: {
@@ -298,10 +342,7 @@ describe('RTDB Security Rules Audit — Regression & Acceptance Suite (Issues 1,
     });
   });
 
-  // ──────────────────────────────────────────────────────────────────────────
-  // Issue 7: Root multi-path update .validate blast radius & empty update(ref, {}) bypass
-  // ──────────────────────────────────────────────────────────────────────────
-  describe('Issue 7: Multi-path update validation scope and empty update() authorization', () => {
+  describe('the paths a write checks are the paths it writes', () => {
     test('multi-path update rooted at "/" does not run .validate on untouched branches', () => {
       const compiled = compileRtdbRules({
         rules: {
@@ -328,19 +369,27 @@ describe('RTDB Security Rules Audit — Regression & Acceptance Suite (Issues 1,
       }
     });
 
-    test('empty update(ref, {}) still enforces .write rules at the target path', async () => {
+    // The production SDK resolves an empty update without contacting the
+    // server, so no rule is evaluated and nothing is written.
+    test('update(ref, {}) resolves without evaluating rules and writes nothing', async () => {
       const sandbox = initializeSandbox();
       const db = getDatabase(sandbox.withAuth({ uid: 'alice', token: {} }));
-      rtdbSandbox.setRules(db, {
-        rules: {
-          restricted: {
-            '.read': 'false',
-            '.write': 'false',
-          },
-        },
-      });
+      rtdbSandbox.setRules(db, { rules: { restricted: { '.read': 'false', '.write': 'false' } } });
+      const before = rtdbSandbox.snapshotState(db);
 
-      await expect(update(ref(db, 'restricted'), {})).rejects.toThrow(/PERMISSION_DENIED/);
+      await expect(update(ref(db, 'restricted'), {})).resolves.toBeUndefined();
+      expect(rtdbSandbox.snapshotState(db)).toEqual(before);
+    });
+
+    test('onDisconnect().update({}) resolves without evaluating rules and leaves the queued write in place', async () => {
+      const sandbox = initializeSandbox();
+      const db = getDatabase(sandbox.withAuth({ uid: 'alice', token: {} }));
+      rtdbSandbox.setRules(db, { rules: { status: { '.read': 'true', '.write': "newData.val() == 'offline'" } } });
+      await onDisconnect(ref(db, 'status')).set('offline');
+
+      await expect(onDisconnect(ref(db, 'status')).update({})).resolves.toBeUndefined();
+      goOffline(db);
+      expect(rtdbSandbox.snapshotState(db)).toEqual({ status: 'offline' });
     });
   });
 });

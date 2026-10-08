@@ -49,7 +49,7 @@ export class ValueListeners {
     const at = this.state.clock.now();
     const evaluation = this.state.rules.evaluate('read', path === '/' ? '/' : path, {
       auth,
-      mockData: this.state.tree.snapshot() as Record<string, unknown>,
+      mockData: this.state.rulesSnapshot(),
       querySpec: query,
     });
     if (evaluation.check !== 'allow') {
