@@ -1,6 +1,9 @@
 import { joinPath, pathSegments, type JsonValue } from './data-tree.js';
 import type { Priority } from './query.js';
 
+/** Priorities by canonical path, as {@link PriorityState.atOrBelow} reads them. */
+export type PriorityRecord = Record<string, Exclude<Priority, null>>;
+
 export class PriorityState {
   private readonly values = new Map<string, Exclude<Priority, null>>();
 
@@ -11,6 +14,17 @@ export class PriorityState {
   forChild(path: string): (key: string) => Priority {
     const base = pathSegments(path);
     return (key) => this.get(joinPath([...base, key]));
+  }
+
+  /** The priorities at and below `path`, by canonical path. */
+  atOrBelow(path: string): PriorityRecord {
+    const canonical = joinPath(pathSegments(path));
+    const prefix = canonical === '/' ? '/' : `${canonical}/`;
+    const out: PriorityRecord = {};
+    for (const [key, priority] of this.values) {
+      if (key === canonical || key.startsWith(prefix)) out[key] = priority;
+    }
+    return out;
   }
 
   clear(): void {
