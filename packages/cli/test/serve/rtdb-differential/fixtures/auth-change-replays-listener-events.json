@@ -1,0 +1,17 @@
+{
+  "description": "Sign-in and sign-out under rules that keep the listeners readable change no data, so no listener fires. The sandbox re-delivers value and child_added events on each identity change; the served planes re-deliver value events on every sign-in and sign-out operation.",
+  "sequence": {
+    "seed": 9001,
+    "instances": 2,
+    "initialRules": [0, 0],
+    "steps": [
+      { "op": "set", "db": 0, "path": "items/a", "value": 1 },
+      { "op": "listen", "db": 0, "id": 0, "path": "items", "event": "value" },
+      { "op": "listen", "db": 0, "id": 1, "path": "items", "event": "child_added" },
+      { "op": "listen", "db": 1, "id": 2, "path": "items", "event": "value", "query": { "orderBy": "key", "limitToFirst": 2 } },
+      { "op": "signIn", "uid": "alice" },
+      { "op": "signOut" },
+      { "op": "signOut" }
+    ]
+  }
+}

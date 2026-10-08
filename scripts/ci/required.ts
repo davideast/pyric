@@ -5,6 +5,8 @@ import type { PrCheckSet } from './check-set.ts';
 interface RequiredInput {
   checkSet: PrCheckSet;
   requirePackaging: boolean;
+  /** The plan selected the RTDB differential gate. */
+  requireRtdbDifferential?: boolean;
   results: Record<string, string | undefined>;
 }
 
@@ -18,6 +20,7 @@ export function requiredFailures(input: RequiredInput): string[] {
   const required = [
     ...CHECK_SET_JOBS[input.checkSet],
     ...(input.requirePackaging ? ['packaging', 'install-matrix', 'standalone', 'release-contract'] : []),
+    ...(input.requireRtdbDifferential ? ['rtdb-differential'] : []),
   ];
   return required.flatMap((job) => input.results[job] === 'success'
     ? []
@@ -32,6 +35,7 @@ function main(): void {
   const failures = requiredFailures({
     checkSet,
     requirePackaging: process.env.CI_REQUIRE_PACKAGING === 'true',
+    requireRtdbDifferential: process.env.CI_REQUIRE_RTDB_DIFFERENTIAL === 'true',
     results,
   });
   const report = [
