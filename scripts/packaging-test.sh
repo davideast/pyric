@@ -159,6 +159,20 @@ assert_no_sdk_runtime_deps "$TARBALL_PYRIC" "pyric"
 assert_no_sdk_runtime_deps "$TARBALL_PYRIC_ADMIN" "pyric-admin"
 assert_no_sdk_runtime_deps "$TARBALL_PYRIC_CLI" "@pyric/cli"
 
+# A published .d.ts that imports a package missing from dependencies and
+# peerDependencies fails to type-check in a consumer that lacks that package,
+# and usually marks a runtime edge that only resolves through another
+# package's transitive dependencies.
+assert_declaration_deps_declared() {
+  local tarball="$1" tmp
+  tmp=$(mktemp -d)
+  tar -xzf "$tarball" -C "$tmp"
+  node "$ROOT/scripts/lib/check-declaration-deps.mjs" "$tmp/package"
+  rm -rf "$tmp"
+}
+assert_declaration_deps_declared "$TARBALL_PYRIC"
+assert_declaration_deps_declared "$TARBALL_PYRIC_CLI"
+
 # ─── Phase 2.5: publish file-set + runtime-asset presence ──────────────
 # Hermetic (NO registry): `npm pack --dry-run --json` computes the exact file set
 # npm would publish and validates the manifest — assert it's non-trivial and ships

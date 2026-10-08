@@ -14,7 +14,7 @@
  * so server-side hosts that pick up the whole rules-tool set get the
  * stdlib pair for free.
  */
-import type { ToolHandler } from '@inbrowser/agent';
+import type { ToolHandler } from '../sandbox/internal/tool-handler.js';
 import { lintFirestoreRules } from './linter/linter.js';
 import { resolveModulesBrowser } from './modules/resolver-browser.js';
 import {

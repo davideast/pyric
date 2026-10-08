@@ -12,7 +12,7 @@
  * (Node entry) which includes this tool + the rest of the rules
  * lifecycle (test, simulate, lint, resolve-modules).
  */
-import type { ToolHandler } from '@inbrowser/agent';
+import type { ToolHandler } from '../../sandbox/internal/tool-handler.js';
 import type { ProjectScope } from '../../project-scope.js';
 import { InspectFirestoreRulesHandler } from './handler.js';
 

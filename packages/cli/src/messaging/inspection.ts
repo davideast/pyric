@@ -1,4 +1,4 @@
-import type { ToolHandler } from '@inbrowser/agent';
+import type { ToolHandler } from 'pyric/sandbox/internal';
 import type { LocalSandbox } from 'pyric/sandbox';
 import { getMessagingBroker } from 'pyric/messaging/internal';
 

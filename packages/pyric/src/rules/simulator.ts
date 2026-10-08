@@ -19,7 +19,7 @@ import {
   createFirestoreSimulatorTools as createFirestoreSimulatorToolsImpl,
   type FirestoreSimulatorToolDeps as FirestoreSimulatorToolDepsImpl,
 } from './simulator-tools-impl.js';
-import type { ToolHandler } from '@inbrowser/agent';
+import type { ToolHandler } from '../sandbox/internal/tool-handler.js';
 
 export type FirestoreSimulatorToolDeps = Pick<
   FirestoreSimulatorToolDepsImpl,

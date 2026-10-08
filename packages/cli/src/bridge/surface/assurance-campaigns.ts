@@ -15,7 +15,7 @@
  */
 import { getActiveRules } from 'pyric/sandbox/database';
 import type { LocalSandbox } from 'pyric/sandbox';
-import type { ToolContext } from '@inbrowser/agent';
+import type { ToolContext } from 'pyric/sandbox/internal';
 
 import { createOwnedSandboxAttachmentProvider } from '../../assurance/attachment.js';
 import type { AssuranceToolName } from '../../assurance/tool-names.js';

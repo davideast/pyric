@@ -12,7 +12,7 @@
  * whichever backend they have.
  */
 
-import type { ToolHandler } from '@inbrowser/agent';
+import type { ToolHandler } from '../sandbox/internal/tool-handler.js';
 import { QUERY_WHERE_OPERATORS } from './sandbox/query-operators.js';
 import type { LocalSandbox } from 'pyric/sandbox';
 import { inspect } from './sandbox-controls.js';

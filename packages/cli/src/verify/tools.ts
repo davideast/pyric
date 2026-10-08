@@ -1,4 +1,4 @@
-import type { ToolHandler } from '@inbrowser/agent';
+import type { ToolHandler } from 'pyric/sandbox/internal';
 import type { ProjectScope } from '../credentials/core/types.js';
 import {
   deriveRulesTestCases,

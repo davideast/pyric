@@ -27,7 +27,7 @@
  * run as.
  */
 
-import type { ToolHandler } from '@inbrowser/agent';
+import type { ToolHandler } from 'pyric/sandbox/internal';
 import { getFirestore, getAdminFirestore, type As } from 'pyric/firestore';
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import type { AuthLens, LocalSandbox } from 'pyric/sandbox';

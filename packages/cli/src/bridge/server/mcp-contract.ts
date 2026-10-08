@@ -11,7 +11,7 @@
  * the page. Its names are authored in `bridge/tool-family-records/`; a tool
  * addition or removal there is a transport contract change.
  */
-import type { ToolHandler } from '@inbrowser/agent';
+import type { ToolHandler } from 'pyric/sandbox/internal';
 import { assertExactToolNames, toolFamilies } from '../tool-families.js';
 import { TOOLS } from '../surface/methods/registry.js';
 import {

@@ -1,4 +1,4 @@
-import type { ToolHandler } from '@inbrowser/agent';
+import type { ToolHandler } from 'pyric/sandbox/internal';
 import { loadRtdbRulesDocument } from './load-rules-document.js';
 
 /** Local RTDB artifact generation for the CLI's agent registry. */

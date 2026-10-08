@@ -1,5 +1,5 @@
 /** Local RTDB inspection tools bound to one authoritative sandbox. */
-import type { ToolHandler } from '@inbrowser/agent';
+import type { ToolHandler } from 'pyric/sandbox/internal';
 import { rtdbRules, type RtdbCase } from 'pyric/rules';
 import { getClock, type LocalSandbox } from 'pyric/sandbox';
 import { getActiveRules, snapshotState } from 'pyric/sandbox/database';

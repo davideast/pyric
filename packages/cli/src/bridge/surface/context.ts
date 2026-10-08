@@ -8,7 +8,7 @@
  * onto an existing tool therefore executes exactly the code path that tool
  * always did, whichever half it lives in.
  */
-import type { ToolHandler } from '@inbrowser/agent';
+import type { ToolHandler } from 'pyric/sandbox/internal';
 import type { LocalSandbox } from 'pyric/sandbox';
 import type { CheckpointBackend } from 'pyric/sandbox/checkpoints';
 import { buildSandboxDispatcher, type SandboxDispatch } from '../client/dispatch.js';

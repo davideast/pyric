@@ -26,7 +26,7 @@
  * application would.
  */
 
-import type { ToolHandler } from '@inbrowser/agent';
+import type { ToolHandler } from 'pyric/sandbox/internal';
 import {
   getAuth,
   sandbox as sandboxAuth,

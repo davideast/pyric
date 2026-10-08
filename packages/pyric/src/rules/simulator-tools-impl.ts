@@ -20,7 +20,7 @@
  * source of truth.
  */
 
-import type { ToolHandler } from '@inbrowser/agent';
+import type { ToolHandler } from '../sandbox/internal/tool-handler.js';
 import type { LocalEnvironment } from 'pyric/sandbox/internal';
 import type { ResolveResult } from './modules/resolver.js';
 import {

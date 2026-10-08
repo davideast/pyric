@@ -9,7 +9,7 @@
  * call here exercises the same `remote-lens` fan-out a Studio-driven one does.
  */
 import { describe, expect, it } from 'bun:test';
-import type { ToolHandler } from '@inbrowser/agent';
+import type { ToolHandler } from 'pyric/sandbox/internal';
 import { createConsumerRegistry } from '../../src/bridge/server/consumer-registry.js';
 import type { BridgeMessage } from '../../src/bridge/protocol.js';
 import { createAuthIdentityTools } from '../../src/auth/identity-tools.js';

@@ -14,6 +14,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import type { ToolResult } from 'pyric/sandbox/internal';
 import type {
   BridgeMessage,
   HealthReport,
@@ -37,12 +38,8 @@ import { createConsumerRegistry, type ConsumerRegistry } from './consumer-regist
 import { createWorkerSessions } from './worker-sessions.js';
 import { createCallerIdentity, type CallerIdentityStore } from '../../auth/identity.js';
 
-/** Subset of `@inbrowser/agent`'s `ToolResult` shape the bridge emits. */
-export interface BridgeToolResult {
-  ok: boolean;
-  summary: string;
-  data?: unknown;
-}
+/** The tool result shape the bridge emits. */
+export type BridgeToolResult = ToolResult;
 
 /** Function the bridge calls to send a message to the current sandbox peer. */
 export type SendToPeer = (msg: BridgeMessage) => void;

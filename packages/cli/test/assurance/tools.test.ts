@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import type { ToolHandler } from "@inbrowser/agent";
+import type { ToolHandler } from 'pyric/sandbox/internal';
 import {
   createAssuranceTools,
   type AssuranceVisualizationSnapshot,

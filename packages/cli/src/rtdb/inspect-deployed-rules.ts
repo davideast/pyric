@@ -8,7 +8,7 @@
  * bearer token travels in the `Authorization` header, so it is not part of any
  * URL, and it is not returned in any result or message.
  */
-import type { ToolHandler } from '@inbrowser/agent';
+import type { ToolHandler } from 'pyric/sandbox/internal';
 import { parseRtdbRulesText } from './rules-json.js';
 import { HOSTED_CREDENTIAL_SOURCES } from '../credentials/node/scope.js';
 

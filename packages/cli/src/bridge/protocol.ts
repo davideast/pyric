@@ -146,7 +146,7 @@ export interface ToolCallResponse {
   id: string;
   /** When `ok===false`, `error` is populated and `result` is omitted. */
   ok: boolean;
-  /** Tool result (matches `ToolResult` shape from `@inbrowser/agent`). */
+  /** Tool result (the `ToolResult` shape from `pyric/sandbox/internal`). */
   result?: {
     ok: boolean;
     summary: string;
