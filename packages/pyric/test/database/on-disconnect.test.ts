@@ -14,6 +14,7 @@ import {
   ref,
   set,
   serverTimestamp,
+  increment,
   sandbox as rtdbSandbox,
 } from '../../src/database/index.js';
 
@@ -144,6 +145,20 @@ describe('onDisconnect registration and clean lifecycle', () => {
     expect(typeof value.timestamp).toBe('number');
     expect(events.length > 1).toBe(obs.observerSawDisconnectEvents);
     unsubscribe();
+  });
+
+  it('keeps a queued server value whole when a path below it is cancelled', async () => {
+    const { db } = setup();
+    await set(ref(db, 'counter'), 5);
+    await onDisconnect(ref(db, 'stamp')).set(serverTimestamp());
+    await onDisconnect(ref(db, 'stamp/c')).cancel();
+    await onDisconnect(ref(db, 'counter')).set(increment(2));
+    await onDisconnect(ref(db, 'counter/c')).cancel();
+    goOffline(db);
+    const value = (await get(ref(db, '/'))).val() as Record<string, unknown>;
+    // A server value is a leaf: there is no child below it to cancel.
+    expect(typeof value.stamp).toBe('number');
+    expect(value.counter).toBe(7);
   });
 
   it('keeps disconnect queues independent for clients sharing one tree', async () => {

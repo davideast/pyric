@@ -213,6 +213,17 @@ describe('host RTDB instances', () => {
     expect(await value(ctx, 'second', 'presence')).toBe('second');
   });
 
+  it('keeps a queued server timestamp whole when a path below it is cancelled', async () => {
+    const ctx = makeCtx();
+    setDatabaseRules(ctx, 'first', OPEN);
+    const port = makePort();
+    const timestamp = { __rtdbSentinel: 'serverTimestamp' };
+    expect((await send(ctx, { method: 'rtdb.onDisconnectSet', instance: 'first', path: 'stamp', value: timestamp }, port)).ok).toBe(true);
+    expect((await send(ctx, { method: 'rtdb.onDisconnectCancel', instance: 'first', path: 'stamp/c' }, port)).ok).toBe(true);
+    expect((await send(ctx, { method: 'rtdb.goOffline', instance: 'first' }, port)).ok).toBe(true);
+    expect(typeof await value(ctx, 'first', 'stamp')).toBe('number');
+  });
+
   it('restores each instance\'s rules after resetAll', async () => {
     const ctx = makeCtx();
     setDatabaseRules(ctx, 'first', OPEN);
