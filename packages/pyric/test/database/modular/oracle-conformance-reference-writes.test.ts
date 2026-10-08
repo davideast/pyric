@@ -16,10 +16,8 @@ import {
   orderByValue,
   startAt,
   endAt,
-  getAdminDatabase,
-  type DataSnapshot,
 } from '../../../src/database/index.js';
-import { sandbox as rtdbSandbox } from '../../../src/database/index.js';
+import { sandbox as rtdbSandbox, getAdminDatabase, type DataSnapshot } from '../../../src/database/index.js';
 import {
   load,
   setup,
