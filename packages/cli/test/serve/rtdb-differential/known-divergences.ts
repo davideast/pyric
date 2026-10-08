@@ -50,28 +50,7 @@ function withoutReplays(events: unknown): string[] {
   return out;
 }
 
-/** An exported value without its priorities. */
-function withoutPriorities(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(withoutPriorities);
-  if (value !== null && typeof value === 'object') {
-    if ('.value' in value) return (value as Record<string, unknown>)['.value'];
-    return Object.fromEntries(Object.entries(value)
-      .filter(([key]) => key !== '.priority')
-      .map(([key, child]) => [key, withoutPriorities(child)]));
-  }
-  return value;
-}
-
 export const KNOWN_DIVERGENCES: KnownDivergence[] = [
-  {
-    // The sandbox's child_removed snapshot loses the removed child's
-    // priorities.
-    name: 'sandbox-child-removed-priority',
-    matches(mismatch) {
-      if (!/^events\.L\d+ child_removed /.test(mismatch.where) || !servedAgree(mismatch)) return false;
-      return stable(withoutPriorities(mismatch.values['sandbox'])) === stable(withoutPriorities(mismatch.values['worker']));
-    },
-  },
   {
     // A listener re-registered for a new Auth identity delivers its current
     // data again: the sandbox's on each identity change, the served hosts' on

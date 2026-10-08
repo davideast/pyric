@@ -2,6 +2,7 @@ import { sdkActivity, type SdkActivityHandle } from '../sandbox/internal/sdk-act
 import { beginDatabaseActivity } from './sdk-activity.js';
 import type { AuthState } from 'pyric/sandbox';
 import { ListenerRegistry, type ListenerRegistration } from './listener-registry.js';
+import type { ChildEventSnapshot } from './sandbox/listener-types.js';
 import { jsonValuesEqual, type JsonValue } from './sandbox/data-tree.js';
 import { authFor, targetOf, type Target } from './routing.js';
 import { isDefaultQuerySpec, isQuery, queryIdentifier } from './query-shape.js';
@@ -515,16 +516,13 @@ function onChildEvent(
   const spec = isQ ? (r as Query)._spec : undefined;
   const target = targetOf(baseRef as unknown as object);
   const scope = isQuery(r as object) ? queryScope(r) : undefined;
-  const wrapper = (raw: {
-    key: string;
-    val: JsonValue;
-    previousChildName: string | null;
-  }): void => {
+  const wrapper = (raw: ChildEventSnapshot): void => {
     // Synthesize a snapshot rooted at the child path so `snap.key`
     // and `snap.val()` match the upstream `onChildAdded` snapshot
-    // shape (key = the child's key, val = the child's value).
+    // shape (key = the child's key, val = the child's value). A removed
+    // child carries the priorities the tree no longer holds.
     const childRef = child(baseRef, raw.key);
-    const snap = buildSandboxSnapFromRaw(target, childRef, raw.val);
+    const snap = buildSandboxSnapFromRaw(target, childRef, raw.val, raw.priorities);
     try {
       cb(snap, event === 'child_removed' ? null : raw.previousChildName);
     } catch {
