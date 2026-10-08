@@ -53,7 +53,13 @@ import { cliVersion } from '../pkg-version.js';
 import { MAX_STORAGE_OP_BYTES, storagePayloadTooLarge } from '../serve/worker/protocol.js';
 import { hasValidAttachFields } from '../bridge/attach-validation.js';
 import { hasValidReplyOutcome, snapshotError } from '../serve/worker/outbound-validation.js';
-import { discoverServe, selectProjectHost, type Discovered } from '../serve/discovery.js';
+import {
+  discoverServe,
+  selectExplicitHost,
+  selectProjectHost,
+  type AnsweringHost,
+  type Discovered,
+} from '../serve/discovery.js';
 
 /** Sits just above the bridge's own 30s `callTimeoutMs` so a legitimately
  *  slow worker op still completes (same layering as `mcp-proxy`'s 35s). */
@@ -92,8 +98,22 @@ export interface ConnectRemoteSandboxOptions {
   cwd?: string;
   /** Explicit serve base URL (e.g. `http://127.0.0.1:5000`) — skips discovery. */
   url?: string;
-  /** Discovery used when no `url` is given. Injected in tests; defaults to the shared serve discovery. */
+  /**
+   * Serve base URL from configuration (`PYRIC_SANDBOX=remote:<url>`), which may
+   * be stale. It is used when the host answering there is this project's host
+   * or the one `instanceId` pins. Otherwise the connect falls back to this
+   * project's running host, with one warning per URL, or fails naming the URL
+   * as stale. Ignored when `url` is set.
+   */
+  configuredUrl?: string;
+  /** Host identity the launcher that set `configuredUrl` pinned (`PYRIC_SANDBOX_INSTANCE`). */
+  instanceId?: string;
+  /** Discovery of this project's host. Injected in tests; defaults to the shared serve discovery. */
   discover?: (cwd: string) => Promise<Discovered | null>;
+  /** Health probe of an explicit `url`. Injected in tests. */
+  probe?: (url: string) => Promise<AnsweringHost | null>;
+  /** Where the stale-URL fallback warning goes. Default: stderr. */
+  warn?: (message: string) => void;
   /** Per-op timeout in ms on the Node side (default 35s, above the bridge's 30s). */
   opTimeoutMs?: number;
 }
@@ -851,6 +871,17 @@ export function createRemoteSandboxHandle(opts: {
 
 // ─── connect ───────────────────────────────────────────────────────────────
 
+/** Explicit URLs whose stale-URL fallback this process has already reported. */
+const reportedStaleUrls = new Set<string>();
+
+function warnOncePerUrl(url: string, message: string, warn?: (message: string) => void): void {
+  const key = url.replace(/\/$/, '');
+  if (reportedStaleUrls.has(key)) return;
+  reportedStaleUrls.add(key);
+  if (warn) warn(message);
+  else process.stderr.write(`${message}\n`);
+}
+
 /**
  * Discover the running `pyric sandbox --bridge`, attach to its bridge WS as a
  * worker-relay CONSUMER (never a peer — attaching cannot kick the browser
@@ -874,9 +905,29 @@ export async function connectRemoteSandbox(
   let wsBase: string;
   const requestedUrl = options.url;
   const hasExplicitUrl = requestedUrl !== undefined && requestedUrl.length > 0;
+  const configuredUrl = options.configuredUrl;
+  const hasConfiguredUrl = configuredUrl !== undefined && configuredUrl.length > 0;
   if (hasExplicitUrl) {
     serveUrl = requestedUrl.replace(/\/$/, '');
     wsBase = serveUrl;
+  } else if (hasConfiguredUrl) {
+    const choice = await selectExplicitHost({
+      url: configuredUrl,
+      cwd,
+      launcherInstanceId: options.instanceId,
+      discover: options.discover,
+      probe: options.probe,
+    });
+    if (choice.kind === 'stale') throw remoteError('not-found', choice.message);
+    if (choice.kind === 'refused') throw remoteError('failed-precondition', choice.message);
+    if (choice.kind === 'project') {
+      warnOncePerUrl(configuredUrl, `pyric: ${choice.notice}`, options.warn);
+      serveUrl = choice.host.url;
+      wsBase = choice.host.base;
+    } else {
+      serveUrl = choice.serveUrl;
+      wsBase = choice.base;
+    }
   } else {
     const refused: string[] = [];
     const found = selectProjectHost(await (options.discover ?? discoverServe)(cwd), (m) => refused.push(m));
@@ -1061,7 +1112,7 @@ export function remoteSandbox(options: ConnectRemoteSandboxOptions = {}): LazyRe
  */
 export function createLazyRemoteSandbox(
   connect: () => Promise<RemoteSandbox>,
-  options: { url?: string } = {},
+  options: { url?: string; configuredUrl?: string } = {},
 ): LazyRemoteSandbox {
   let inner: Promise<RemoteSandbox> | null = null;
   let closed = false;
@@ -1130,7 +1181,7 @@ export function createLazyRemoteSandbox(
     // Before discovery the URL is unknown; op-level errors always carry the
     // real URL (they come from the inner connect), and `serveUrl` is patched
     // to the discovered value as soon as the first connect succeeds.
-    serveUrl: options.url?.replace(/\/$/, '') ?? '<pyric sandbox url (pending discovery)>',
+    serveUrl: (options.url ?? options.configuredUrl)?.replace(/\/$/, '') ?? '<pyric sandbox url (pending discovery)>',
     close() {
       if (closed) return;
       closed = true;

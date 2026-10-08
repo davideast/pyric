@@ -2,12 +2,14 @@ import { createServer } from 'vite';
 import { pyric } from '@pyric/cli/vite';
 
 const root = process.argv[2];
+const port = Number(process.argv[3] ?? 0);
+const host = process.argv[4] ?? 'localhost';
 const server = await createServer({
   configFile: false,
   logLevel: 'silent',
   root,
   plugins: [pyric({ bridge: { disableAuditLog: true } })],
-  server: { port: 0, host: 'localhost' },
+  server: { port, host },
   optimizeDeps: { noDiscovery: true },
 });
 await server.listen();

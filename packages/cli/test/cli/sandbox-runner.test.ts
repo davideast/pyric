@@ -159,6 +159,7 @@ describe('buildChildEnv', () => {
       },
     );
     expect(env.PYRIC_SANDBOX).toBe('remote:http://localhost:5000');
+    expect(env.PYRIC_SANDBOX_INSTANCE).toBeUndefined();
     expect(env.PYRIC_BEACON_TOKEN).toBe('launch-secret');
     expect(env.NODE_OPTIONS).toBe('--max-old-space-size=4096 --import file:///x/register/index.js');
     expect(env.PATH).toBe('/bin');
@@ -170,6 +171,23 @@ describe('buildChildEnv', () => {
       { serveUrl: 'http://h:1', registerUrl: 'file:///r.js', beaconToken: 't' },
     );
     expect(env.NODE_OPTIONS).toBe('--import file:///r.js');
+  });
+
+  it('pins the host identity beside the url it injects', () => {
+    const env = buildChildEnv(
+      {},
+      { serveUrl: 'http://h:1', registerUrl: 'file:///r.js', instanceId: 'host-identity' },
+    );
+    expect(env.PYRIC_SANDBOX).toBe('remote:http://h:1');
+    expect(env.PYRIC_SANDBOX_INSTANCE).toBe('host-identity');
+  });
+
+  it('drops an inherited host identity when the launcher has none to pin', () => {
+    const env = buildChildEnv(
+      { PYRIC_SANDBOX_INSTANCE: 'outer-host' },
+      { serveUrl: 'http://h:1', registerUrl: 'file:///r.js' },
+    );
+    expect('PYRIC_SANDBOX_INSTANCE' in env).toBe(false);
   });
 
   it('omits the beacon secret when the launcher runs no beacon receiver', () => {
@@ -288,7 +306,14 @@ describe('formatStartupEnvExport', () => {
       registerUrl: 'file:///usr/local/pyric/dist/register/index.js',
       beaconToken: 'launch-secret',
     });
-    expect(output).toContain('export PYRIC_SANDBOX="remote:http://localhost:3473"');
+    // The line to copy names no address: discovery finds the running host
+    // through the project's .pyric/serve.json, whatever port it took.
+    expect(output).toContain('  export PYRIC_SANDBOX=remote\n');
+    expect(output).not.toContain('export PYRIC_SANDBOX="remote:');
+    expect(output).toContain('.pyric/serve.json');
+    expect(output).toContain(
+      'From another directory or machine, set PYRIC_SANDBOX=remote:http://localhost:3473 instead.',
+    );
     expect(output).not.toContain('launch-secret');
     expect(output).not.toContain('PYRIC_BEACON_TOKEN');
     expect(output).toContain('Automatic interception confirmation requires launching the command through pyric.');
