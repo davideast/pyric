@@ -223,6 +223,38 @@ export function canRead() { return true; }`);
     await session.close();
   });
 
+  it('starts with a deploy target no project resolves, warns once, and carries the target for late resolution', async () => {
+    const root = project();
+    const sourcePath = join(root, 'main.rules.json');
+    writeFileSync(sourcePath, JSON.stringify({ rules: { '.read': true } }));
+    writeFileSync(join(root, '.firebaserc'), JSON.stringify({ targets: { p: { database: { main: ['main-a'] } } } }));
+    const notes: string[] = [];
+    const session = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: { database: [{ target: 'main', rules: 'main.rules.json' }] },
+      sdk: { dir: join(root, 'sdk') },
+      logger: { info: () => {}, note: (message) => { notes.push(message); } },
+    });
+    const warnings = notes.filter((note) => note.includes('RTDB deploy target'));
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('RTDB deploy target "main" (firebase.json database[0]) is unresolved: no Firebase project is set.');
+    expect(warnings[0]).toContain('run `firebase use <alias>`');
+    expect(notes.some((note) => note.includes('no database.rules.json found'))).toBe(false);
+    expect(session.payload().databaseInstances).toEqual({
+      defaultInstance: '(default)',
+      rules: {},
+      pendingTargets: [{ target: 'main', rules: { rules: { '.read': true } }, instancesByProject: { p: ['main-a'] } }],
+    });
+    expect(session.databaseRulesFiles()).toEqual([sourcePath]);
+
+    writeFileSync(sourcePath, JSON.stringify({ rules: { '.read': false } }));
+    const [reload] = await session.reloadDatabaseRules(sourcePath);
+    expect(reload).toMatchObject({ instance: 'deploy target "main"', result: { kind: 'reloaded' } });
+    expect(session.payload().databaseInstances?.pendingTargets?.[0]?.rules).toEqual({ rules: { '.read': false } });
+
+    await session.close();
+  });
+
   it('keeps last-good database rules when a reload carries a rule production would refuse', async () => {
     const root = project();
     const sourcePath = join(root, 'database.rules.json');
@@ -478,7 +510,7 @@ service firebase.storage {
     const deployed: Array<[string, string | null, string | undefined]> = [];
     const session = await createSandboxSession({
       projectDir: root,
-      projectId: 'demo',
+      project: { projectId: 'demo' },
       firebaseConfig: { database: [{ instance: 'demo-default-rtdb', rules: 'a.rules.json' }, { instance: 'second', rules: 'b.rules.json' }] },
       sdk: { dir: join(root, 'sdk') },
       deployHostedRules: async (service, source, instance) => {
@@ -503,7 +535,7 @@ service firebase.storage {
 
     const session = await createSandboxSession({
       projectDir: root,
-      projectId: 'demo',
+      project: { projectId: 'demo' },
       firebaseConfig: {
         database: [
           { instance: 'demo-default-rtdb', rules: 'a.rules.json' },
@@ -538,7 +570,7 @@ service firebase.storage {
     writeFileSync(bPath, JSON.stringify({ rules: { b: { '.read': true } } }));
     const session = await createSandboxSession({
       projectDir: root,
-      projectId: 'demo',
+      project: { projectId: 'demo' },
       firebaseConfig: { database: [{ instance: 'first', rules: 'a.rules.json' }, { instance: 'second', rules: 'b.rules.json' }] },
       sdk: { dir: join(root, 'sdk') },
     });
@@ -587,7 +619,7 @@ service firebase.storage {
     writeFileSync(join(root, 'b.rules.json'), JSON.stringify({ rules: { '.read': 'newData.exists()' } }));
     await expect(createSandboxSession({
       projectDir: root,
-      projectId: 'demo',
+      project: { projectId: 'demo' },
       firebaseConfig: { database: [{ instance: 'first', rules: 'a.rules.json' }, { instance: 'second', rules: 'b.rules.json' }] },
       sdk: { dir: join(root, 'sdk') },
     })).rejects.toThrow(`database instance "second": ${join(root, 'b.rules.json')} is not valid RTDB rules.`);

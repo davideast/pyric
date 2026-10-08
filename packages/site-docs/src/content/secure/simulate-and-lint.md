@@ -232,11 +232,15 @@ A `.read` or `.write` rule that errors does not grant access, and evaluation con
 
 `pyric sandbox` and the Vite plugin read `firebase.json` `database` the way `firebase deploy` reads it, so each database instance gets its own rules:
 
-- **One object.** `{ "rules": "database.rules.json" }` deploys to the default instance, `<projectId>-default-rtdb`. The project id comes from `--project`, then `.firebaserc` `projects.default`.
+- **One object.** `{ "rules": "database.rules.json" }` deploys to the default instance, `<projectId>-default-rtdb`.
 - **An array of instances.** Each entry pairs an `instance` name with its `rules` file, for example `[{ "instance": "my-app-default-rtdb", "rules": "main.rules.json" }, { "instance": "my-app-logs", "rules": "logs.rules.json" }]`.
-- **Deploy targets.** An entry can name a `target` instead, which `.firebaserc` maps to one or more instances (`firebase target:apply database <target> <instance>`). When an entry names both, `target` wins.
+- **Deploy targets.** An entry can name a `target` instead, which `.firebaserc` maps to one or more instances for each project (`firebase target:apply database <target> <instance>`). When an entry names both, `target` wins.
 
-An entry with neither `instance` nor `target` stops startup with the Firebase CLI's error, `Must supply either "target" or "instance" in database config`, and so does a target `.firebaserc` does not map. Two entries that deploy different files to one instance stop startup too: `firebase deploy` would deploy both at once, and which one production keeps is not determined. Without a `database` key, `database.rules.json` loads into the default instance when it exists.
+The project id resolves the way the Firebase CLI resolves it. The first of these that is set wins: `--project` for `pyric sandbox` or the `project` option of the Vite plugin, then `PYRIC_PROJECT`, then the `pyric.json` `project`, then the project `firebase use` made active for this directory or a parent directory, then the only `.firebaserc` alias, else `.firebaserc` `projects.default`. A value that names a `.firebaserc` alias resolves to that alias's project id.
+
+When no project resolves, or the project does not map a target, startup continues where `firebase deploy` would stop. The log names each such target, the reason, the sources tried, and the ways to set the project: the plugin `project` option or `--project`, `PYRIC_PROJECT`, or `firebase use <alias>`. The target's instances deny every client request, or allow them with `--permissive`, until the app's Firebase config names a project `.firebaserc` maps the target for. The sandbox then applies the target's rules to those instances and logs that it did. Editing the target's rules file reloads it before and after that point.
+
+An entry with neither `instance` nor `target` stops startup with the Firebase CLI's error, `Must supply either "target" or "instance" in database config`. Two entries that deploy different files to one instance stop startup too: `firebase deploy` would deploy both at once, and which one production keeps is not determined. Without a `database` key, `database.rules.json` loads into the default instance when it exists.
 
 The in-page sandbox applies each instance its own rules. Under the SharedWorker and the Node sandbox, every database URL reads and writes the default instance, which runs the default instance's rules.
 

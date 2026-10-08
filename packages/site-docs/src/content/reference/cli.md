@@ -53,7 +53,7 @@ The child receives `PYRIC_SANDBOX` and a `NODE_OPTIONS` import for `@pyric/cli/r
 | `--no-cache` | Rebuild browser SDK bundles. |
 | `--no-run` | Do not run an explicit or configured child command. |
 | `--json` | Print one machine-readable readiness line. A configured command is skipped unless it is also supplied explicitly. |
-| `--project <id>` | Set the project label. |
+| `--project <id>` | Set the Firebase project, a project id or a `.firebaserc` alias. It names the default Realtime Database instance, selects `.firebaserc` deploy targets, and labels the bridge. |
 | `--permissive` | Allow unauthenticated RTDB access when no RTDB rules file exists. Use only for local prototypes. |
 | `--allowed-host <host>` | Add allowed Host headers. Use commas for multiple hosts. |
 | `--only hosting` | Accepted for Firebase CLI compatibility. Hosting is the only supported value. |
@@ -108,7 +108,7 @@ Create `pyric.json` in the project root to define defaults:
 
 `rules` can also be a string when only one rules file is needed.
 
-Command-line values override `pyric.json`. `--project` overrides `PYRIC_PROJECT`, and `PYRIC_PROJECT` overrides the configured project.
+Command-line values override `pyric.json`. `--project` overrides `PYRIC_PROJECT`, and `PYRIC_PROJECT` overrides the configured project. Without any of them, the project is the one `firebase use` made active for this directory or a parent directory, then the only `.firebaserc` alias, else `.firebaserc` `projects.default`, as the Firebase CLI resolves it.
 
 ## Environment variables
 

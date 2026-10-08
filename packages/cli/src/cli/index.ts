@@ -150,7 +150,11 @@ CORE FLAGS (sandbox)
   --bridge           Also mount the MCP bridge on the serve origin. Agents point
                      at http://<host>:<port>/__pyric/mcp and drive the sandbox
                      living in the served page. --project labels health/audit.
-  --ui               Open Studio instead of the served page. Studio and docs
+  --project ID       Firebase project id or .firebaserc alias. Names the default
+                     RTDB instance and selects .firebaserc deploy targets.
+                     Without it: PYRIC_PROJECT, pyric.json project, the
+                     \`firebase use\` project, then .firebaserc projects.
+  --ui              Open Studio instead of the served page. Studio and docs
                      are served by default at <url>/__pyric/ui/.
   --no-ui            Do not serve Studio, docs, workspace, or project routes.
   --seed FILE        JSON map of "collection/doc" to fields, loaded with admin access.

@@ -76,7 +76,7 @@ export default {
   ],
 };
 ```
-Each field wins over its environment variable, which wins over firebase files, which win over the default. `region` beats `PYRIC_FUNCTIONS_RTDB_REGION` (default `us-central1`). `instance` replaces the derived `<projectId>-default-rtdb` name, where the project id comes from `PYRIC_PROJECT`, then `.firebaserc`, then `demo-project`.
+Each field wins over its environment variable, which wins over firebase files, which win over the default. `region` beats `PYRIC_FUNCTIONS_RTDB_REGION` (default `us-central1`). `instance` replaces the derived `<projectId>-default-rtdb` name. The project id is the one the server resolved, as [Vite development setup](../get-started/vite.md#choose-the-firebase-project) describes, else `demo-project`.
 
 Under the plugin, saving a file in the functions source directory restarts the process, like a redeploy: `↻ [pyric] functions reloaded`. In-flight executions in the old process can drop. Writes that land during the swap are treated as existing data by the new process and do not fire. A save that fails to load takes functions down until the next good save. Unlike rules, there is no last-good process to keep serving. `functions: { watch: false }` turns the reload off, matching `pyric sandbox`, where editing a function needs a server restart.
 

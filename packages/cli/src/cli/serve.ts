@@ -15,6 +15,7 @@ import { join, relative, resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import type { ParsedArgs } from './parse-args.js';
 import { readFirebaseJson, readFirebaseRc, type FirebaseJson } from './firebase-json.js';
+import { resolveFirebaseProject, type FirebaseProjectResolution } from './firebase-project.js';
 import { bundleSdk, bundleWorker, defaultSdkEntries, resolveSiteUiDir } from '../serve/bundler.js';
 import {
   isStandalone,
@@ -167,8 +168,12 @@ async function startServeRuntime(opts: {
   bridge?: boolean;
   /** Run the authoritative sandbox in this Node process. */
   hosted?: boolean;
-  /** Project label for the bridge health/audit surfaces. */
+  /** The explicit project (`--project`), and the label for the bridge
+   *  health/audit surfaces. */
   project?: string;
+  /** The resolved project. Absent, `project` is resolved with
+   *  `resolveFirebaseProject` as its explicit option. */
+  firebaseProject?: FirebaseProjectResolution;
   /** Disable the bridge audit writer (tests). */
   disableAuditLog?: boolean;
   /** Path to a seed JSON file (path → fields map), applied at page init. */
@@ -410,7 +415,7 @@ async function startServeRuntime(opts: {
         logger.note(formatBeaconReceipt(report));
       },
       permissive: opts.permissive,
-      projectId: opts.project,
+      project: opts.firebaseProject ?? resolveFirebaseProject({ projectDir: opts.cwd, option: opts.project }),
       hosted: opts.hosted,
       deployHostedRules: usesHostedSandbox ? mount?.deployHostedRules : undefined,
       logger,
@@ -837,19 +842,6 @@ function resolveServePort(flagPort: unknown, configPort?: number): number {
   return 3473;
 }
 
-function resolveProjectIdentifier(
-  flagProject?: unknown,
-  envProject?: string,
-  configProject?: string,
-  rcDefault?: string,
-): string {
-  if (typeof flagProject === 'string' && flagProject.length > 0) return flagProject;
-  if (typeof envProject === 'string' && envProject.length > 0) return envProject;
-  if (typeof configProject === 'string' && configProject.length > 0) return configProject;
-  if (typeof rcDefault === 'string' && rcDefault.length > 0) return rcDefault;
-  return 'demo-project';
-}
-
 function resolveExplicitCommand(parsed: ParsedArgs): string[] | null {
   if (parsed.passthrough && parsed.passthrough.length > 0) {
     return parsed.passthrough;
@@ -903,29 +895,25 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
   // Resolve the child plan BEFORE the server starts: a planned child implies
   // the bridge (see bridgeEnabledFor) — the child's injected PYRIC_SANDBOX
   // is useless without the /__pyric/sandbox WS mount.
+  // One project for the database rules, deploy targets and functions child.
   let discoveredFunctionsProject: FunctionsRtdbProject | null;
-  let resolvedFunctionsProjectId: string | null = null;
+  let firebaseProject: FirebaseProjectResolution;
   try {
-    const discovered = discoverFunctionsRtdbProject(cwd);
-    discoveredFunctionsProject = discovered;
-    const hasFunctionsProject = discovered !== null;
-    if (hasFunctionsProject) {
-      const flagProject = parsed.flags.get('project');
-      const rc = await readFirebaseRc(cwd);
-      resolvedFunctionsProjectId = resolveProjectIdentifier(
-        flagProject,
-        process.env.PYRIC_PROJECT,
-        pyricConfig.project,
-        rc?.projects?.default,
-      );
-    }
+    discoveredFunctionsProject = discoverFunctionsRtdbProject(cwd);
+    const flagProject = parsed.flags.get('project');
+    firebaseProject = resolveFirebaseProject({
+      projectDir: cwd,
+      option: typeof flagProject === 'string' ? flagProject : undefined,
+      configProject: pyricConfig.project,
+      rc: await readFirebaseRc(cwd),
+    });
   } catch (error) {
     const message = serveErrorMessage(error);
     process.stderr.write(`${message}\n`);
     return 2;
   }
   const functionsProject = discoveredFunctionsProject;
-  const functionsProjectId = resolvedFunctionsProjectId;
+  const functionsProjectId = functionsProject === null ? null : firebaseProject.projectId ?? 'demo-project';
 
   const explicitCommand = resolveExplicitCommand(parsed);
 
@@ -951,22 +939,6 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     if (hasAllowedHostsFlag) {
       allowedHosts = flagAllowedHosts.split(',').map((hostname) => hostname.trim()).filter(Boolean);
     }
-    const flagProject = parsed.flags.get('project');
-    const hasProjectFlag = typeof flagProject === 'string';
-    const environmentProject = process.env.PYRIC_PROJECT;
-    const hasEnvironmentProject = environmentProject !== undefined;
-    const configuredProject = pyricConfig.project;
-    const hasConfiguredProject = configuredProject !== undefined;
-    let project: string | undefined;
-    if (hasProjectFlag) {
-      project = flagProject;
-    } else if (hasEnvironmentProject) {
-      project = environmentProject;
-    } else if (hasConfiguredProject) {
-      project = configuredProject;
-    } else {
-      project = functionsProjectId ?? undefined;
-    }
     let logger: Parameters<typeof startServe>[0]['logger'];
     if (json) logger = stderrServeLogger();
     runtime = await startServe({
@@ -988,7 +960,8 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       // mirrors --no-open: default is true, one flag inverts it.
       capture,
       allowedHosts,
-      project,
+      project: firebaseProject.projectId,
+      firebaseProject,
     });
   } catch (e) {
     const message = serveErrorMessage(e);

@@ -61,7 +61,8 @@ export interface SpawnFunctionsRtdbChildOptions {
   instance: string;
   location: string;
   databaseHost?: string;
-  projectId?: string;
+  /** The project the child runs as, from `resolveFirebaseProject`. */
+  projectId: string;
   childModuleUrl?: string | URL;
   nodeExecutable?: string;
   onEvent?(event: FunctionsRtdbChildEvent): void;
@@ -104,39 +105,6 @@ export interface FunctionsChildEnvOptions {
   location: string;
   databaseHost: string;
   projectId: string;
-}
-
-/**
- * Resolve the project identifier for the functions child process.
- *
- * Precedence:
- * 1. Explicit options.projectId
- * 2. baseEnv.PYRIC_PROJECT
- * 3. Instance prefix when formatted as `<projectId>-default-rtdb`
- * 4. Default fallback to 'demo-project'
- */
-export function resolveChildProjectId(
-  explicitProjectId?: string,
-  instance?: string,
-  baseEnv?: NodeJS.ProcessEnv,
-): string {
-  if (typeof explicitProjectId === 'string' && explicitProjectId.length > 0) {
-    return explicitProjectId;
-  }
-
-  const pyricProject = baseEnv?.PYRIC_PROJECT;
-  if (typeof pyricProject === 'string' && pyricProject.length > 0) {
-    return pyricProject;
-  }
-
-  if (typeof instance === 'string' && instance.length > 0) {
-    const stripped = instance.replace(/-default-rtdb$/, '');
-    if (stripped.length > 0) {
-      return stripped;
-    }
-  }
-
-  return 'demo-project';
 }
 
 /**
@@ -204,7 +172,7 @@ export function spawnFunctionsRtdbChild(
   options: SpawnFunctionsRtdbChildOptions,
 ): FunctionsRtdbChildHandle {
   const childModulePath = resolveChildModulePath(options.childModuleUrl);
-  const projectId = resolveChildProjectId(options.projectId, options.instance, options.env);
+  const { projectId } = options;
   const databaseHost = resolveChildDatabaseHost(options.databaseHost);
   const childEnv = buildFunctionsChildEnv({
     baseEnv: options.env,

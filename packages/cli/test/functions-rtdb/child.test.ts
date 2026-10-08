@@ -4,46 +4,9 @@ import {
   buildFunctionsChildEnv,
   resolveChildDatabaseHost,
   resolveChildModulePath,
-  resolveChildProjectId,
 } from '../../src/functions-rtdb/child.js';
 
 describe('functions child metadata and environment resolution', () => {
-  describe('resolveChildProjectId', () => {
-    test('prefers explicit projectId when provided', () => {
-      const resolved = resolveChildProjectId('custom-proj', 'other-default-rtdb', {
-        PYRIC_PROJECT: 'env-proj',
-      });
-      expect(resolved).toBe('custom-proj');
-    });
-
-    test('prefers PYRIC_PROJECT from environment when explicit projectId is omitted', () => {
-      const resolved = resolveChildProjectId(undefined, 'instance-default-rtdb', {
-        PYRIC_PROJECT: 'env-proj',
-      });
-      expect(resolved).toBe('env-proj');
-    });
-
-    test('strips -default-rtdb from instance when explicit options are absent', () => {
-      const resolved = resolveChildProjectId(undefined, 'my-app-default-rtdb', {});
-      expect(resolved).toBe('my-app');
-    });
-
-    test('preserves instance without -default-rtdb suffix', () => {
-      const resolved = resolveChildProjectId(undefined, 'my-custom-instance', {});
-      expect(resolved).toBe('my-custom-instance');
-    });
-
-    test('falls back to demo-project when instance is empty', () => {
-      const resolved = resolveChildProjectId(undefined, '', {});
-      expect(resolved).toBe('demo-project');
-    });
-
-    test('falls back to demo-project when all arguments are undefined', () => {
-      const resolved = resolveChildProjectId();
-      expect(resolved).toBe('demo-project');
-    });
-  });
-
   describe('resolveChildDatabaseHost', () => {
     test('returns custom host when provided', () => {
       expect(resolveChildDatabaseHost('custom-host.local')).toBe('custom-host.local');

@@ -49,8 +49,8 @@ import { setupAiDiagnosticsRelay } from '../ai-diagnostics-relay.js';
 import { createWorkerDurableBackend, setupServerAuthFlush } from './durable-persistence.js';
 import { ensureAuth, getOrCreateInstanceId, type HostCtx } from './host.js';
 import { rtdbInstance } from './host/rtdb-instances.js';
-import { databaseInstanceRulesHost, setDatabaseRules } from './host/rules.js';
-import { connectDatabaseInstanceRules } from '../database-instance-rules-host.js';
+import { databaseInstanceRulesHost, resolvePendingDatabaseTargets, setDatabaseRules, setDatabaseTargetRules } from './host/rules.js';
+import { connectDatabaseInstanceRules, createPendingDatabaseTargets } from '../database-instance-rules-host.js';
 import { buildVerifyFixture, type PyricVerifyFixture } from '../../verify/fixture.js';
 
 const CAPTURE_MAX_DELAY_MS = 2_000;
@@ -101,12 +101,22 @@ export function setupWorkerHotReload(
   });
   events.addEventListener('rtdb-rules-update', (ev) => {
     try {
-      const { instance: name, rules, policy } = JSON.parse(ev.data) as {
+      const { instance: name, target, rules, policy } = JSON.parse(ev.data) as {
         instance?: string;
+        target?: string;
         rules: { rules: Record<string, unknown> } | null;
         rulesHash?: string | null;
         policy?: 'allow' | 'deny';
       };
+      // An unresolved deploy target's rules apply to its instances once the
+      // app config resolved it, and are kept for that resolution until then.
+      if (target !== undefined) {
+        const deployed = setDatabaseTargetRules(ctx, target, rules);
+        if (!deployed.ok) throw new Error(`Realtime Database rules not loaded: ${deployed.messages.map((message) => message.text).join('; ')}`);
+        // eslint-disable-next-line no-console
+        console.info(`[pyric worker] Realtime Database rules of deploy target "${target}" ${rules === null ? 'removed' : 'hot-reloaded'}`);
+        return;
+      }
       // The event names the instance whose rules file changed; absent is the
       // default instance. Each instance is its own store with its own rules.
       const label = name === undefined ? 'the default instance' : `instance "${name}"`;
@@ -284,11 +294,15 @@ export function applyServeInit(
   const rtdb = rtdbInstance(ctx);
   rtdbSandbox.setDefaultPolicy(rtdb.live, ctx.rtdbDefaultPolicy);
   if (instances) {
+    // Deploy targets no project resolved at server start wait for the first
+    // app port's project id; an app port that connected first resolves them now.
+    ctx.pendingDatabaseTargets = createPendingDatabaseTargets(instances.pendingTargets);
     try {
       connectDatabaseInstanceRules(databaseInstanceRulesHost(ctx), instances);
     } catch (error) {
       throw new Error(`database rules not loaded in the sandbox: ${error instanceof Error ? error.message : String(error)}`);
     }
+    resolvePendingDatabaseTargets(ctx);
   } else if (payload.databaseRules) {
     const refusal = rtdbRulesSourceRejection(payload.databaseRules);
     if (refusal !== null) throw new Error(`database.rules.json not loaded in the sandbox: ${refusal.message}`);

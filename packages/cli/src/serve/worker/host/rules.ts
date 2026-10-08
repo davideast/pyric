@@ -23,7 +23,7 @@ import { sandbox as rtdbSandbox } from 'pyric/database';
 
 import { parseRtdbRulesText } from '../../../rtdb/rules-json.js';
 import type { OpMessage } from '../protocol.js';
-import type { DatabaseInstanceRulesHost } from '../../database-instance-rules-host.js';
+import type { DatabaseInstanceRulesHost, DatabaseTargetDeploy } from '../../database-instance-rules-host.js';
 import { type ActiveRulesState, type HostCtx, type PortLike, ok, fail } from '../host-context.js';
 import { rtdbInstance, rtdbInstanceKey, rtdbInstances } from './rtdb-instances.js';
 
@@ -78,6 +78,43 @@ export function setDatabaseRules(
   rtdbSandbox.setRules(entry.live, rules);
   entry.rules = { source: rules, updatedAt: Date.now(), status: 'active', messages: [], ...lastKnownGood };
   return { ok: true, messages: [] };
+}
+
+/**
+ * Resolve the project's unresolved deploy targets with the first app port's
+ * project id, and set their rules on the instances `.firebaserc` maps them
+ * to. Does nothing before an app port names its project, and after the first
+ * resolution.
+ */
+export function resolvePendingDatabaseTargets(ctx: HostCtx): void {
+  const projectId = ctx.appOptions?.projectId;
+  const pending = ctx.pendingDatabaseTargets;
+  if (pending === undefined || typeof projectId !== 'string' || projectId.length === 0) return;
+  const { deploys, notices } = pending.resolve(projectId);
+  for (const notice of notices) console.info(`[pyric] ${notice}`);
+  applyTargetDeploys(ctx, deploys);
+}
+
+/**
+ * Replace an unresolved deploy target's rules after its rules file changed.
+ * Once the target resolved, its instances take the rules; before that, they
+ * are kept for resolution. Null rules return the instances to the default policy.
+ */
+export function setDatabaseTargetRules(ctx: HostCtx, target: string, source: unknown): DatabaseRulesDeployResult {
+  const rules = normalizeDatabaseRules(source);
+  const rejection = rules === null ? null : rtdbRulesSourceRejection(rules);
+  if (rejection !== null) return { ok: false, messages: [{ severity: 'error', text: rejection.message }] };
+  return applyTargetDeploys(ctx, ctx.pendingDatabaseTargets?.update(target, rules) ?? []);
+}
+
+function applyTargetDeploys(ctx: HostCtx, deploys: readonly DatabaseTargetDeploy[]): DatabaseRulesDeployResult {
+  const messages: DatabaseRulesDeployResult['messages'] = [];
+  for (const { instance, rules } of deploys) {
+    const result = setDatabaseRules(ctx, instance, rules);
+    for (const message of result.messages) messages.push({ ...message, text: `database instance "${instance}": ${message.text}` });
+  }
+  for (const message of messages) console.error(`[pyric] ${message.text}`);
+  return { ok: messages.length === 0, messages };
 }
 
 /**

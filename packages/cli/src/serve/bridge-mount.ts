@@ -32,7 +32,7 @@ import { pyricVersion } from './standalone-assets.js';
 import { getHeader, isAllowedHost, isAllowedLoopbackRequest, isAllowedOrigin, isAllowedUpgrade } from './server.js';
 import { MAX_BRIDGE_FRAME_BYTES, MAX_MOUNTED_MCP_SESSIONS, STORAGE_BYTE_ROUTE_CAPABILITY, WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY } from '../bridge/protocol.js';
 import { STORAGE_ROUTE_PREFIX } from './worker/protocol/storage.js';
-import type { InitPayload } from './init-payload.js';
+import type { DatabaseRulesDestination, InitPayload } from './init-payload.js';
 import type { createHostedRuntime, HostedRuntimeOptions } from './hosted/runtime.js';
 import { HOSTED_METHOD_PATH, HOSTED_METHOD_BODY_LIMIT, hostedMethodRequest } from './hosted/method-protocol.js';
 import { MCP_PROJECT_HEADER, MCP_INSTANCE_HEADER, mcpProjectError } from './mcp-project.js';
@@ -57,8 +57,9 @@ export interface BridgeMountOptions {
 
 export interface BridgeMount {
   /** A null database or Storage source clears the rules, so the default policy applies. */
-  /** `instance` names the RTDB instance a database ruleset deploys to; absent is the default instance. */
-  deployHostedRules(service: 'firestore' | 'database' | 'storage', source: string | null, instance?: string): Promise<void>;
+  /** `instance` names the RTDB instance a database ruleset deploys to, absent
+   *  for the default instance, or an unresolved deploy target. */
+  deployHostedRules(service: 'firestore' | 'database' | 'storage', source: string | null, instance?: DatabaseRulesDestination): Promise<void>;
   startHostedSandbox(payload: InitPayload, baseUrl: string | (() => string), ai?: HostedRuntimeOptions): Promise<void>;
   /** Stable per-process identity (mirrors `/__pyric/health`'s instanceId).
    *  The pointer writer records this so the proxy can verify it reached this

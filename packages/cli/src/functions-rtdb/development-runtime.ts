@@ -43,7 +43,8 @@ export interface FunctionsDevelopmentRuntimeOptions {
   beaconToken?: string | undefined;
   instance: string;
   location: string;
-  projectId?: string;
+  /** The project the child runs as, from `resolveFirebaseProject`. */
+  projectId: string;
   childModuleUrl?: string | URL;
   readiness: FunctionsPeerReadiness;
   onEvent?(event: FunctionsDevelopmentEvent): void;
@@ -223,7 +224,7 @@ export function createFunctionsDevelopmentRuntime(
         }),
         instance: options.instance,
         location: options.location,
-        ...(options.projectId === undefined ? {} : { projectId: options.projectId }),
+        projectId: options.projectId,
         ...(options.childModuleUrl === undefined ? {} : { childModuleUrl: options.childModuleUrl }),
         onEvent: (event) => emit({ type: 'child-event', event }),
       });

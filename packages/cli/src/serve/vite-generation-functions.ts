@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import type { Server as HttpServer } from 'node:http';
 import path from 'node:path';
 import type { ViteDevServer } from 'vite';
-import type { FirebaseRc } from '../cli/firebase-json.js';
+import type { FirebaseProjectResolution } from '../cli/firebase-project.js';
 import type {
   FunctionsRtdbProject,
 } from '../functions-rtdb/project.js';
@@ -18,25 +18,22 @@ export interface ResolvedViteGenerationFunctions {
   projectId: string | null;
 }
 
-export async function resolveViteGenerationFunctions(input: {
+/**
+ * The functions codebase this generation runs, and the project id its child
+ * runs as: the project `resolveFirebaseProject` resolved, else `demo-project`.
+ */
+export function resolveViteGenerationFunctions(input: {
   projectDir: string;
   options: false | { region?: string; instance?: string; watch?: boolean };
   discover(projectDir: string): FunctionsRtdbProject | null;
-  readFirebaseRc(projectDir: string): Promise<FirebaseRc | null>;
-}): Promise<ResolvedViteGenerationFunctions> {
-  const { projectDir, options, discover, readFirebaseRc } = input;
+  firebaseProject: FirebaseProjectResolution;
+}): ResolvedViteGenerationFunctions {
+  const { projectDir, options, discover, firebaseProject } = input;
   const project = options === false ? null : discover(projectDir);
-  let projectId: string | null = null;
-  if (project) {
-    projectId =
-      process.env.PYRIC_PROJECT ??
-      (await readFirebaseRc(projectDir))?.projects?.default ??
-      'demo-project';
-  }
   return {
     options: typeof options === 'object' ? options : {},
     project,
-    projectId,
+    projectId: project ? firebaseProject.projectId ?? 'demo-project' : null,
   };
 }
 

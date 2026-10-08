@@ -4,7 +4,7 @@ import { createStorageByteRoute } from './storage-byte-route.js';
 import { uploadTokenOf } from '../worker/host/storage.js';
 import type { ServeLogger } from '../server.js';
 import { fetchAiUpstream, resolveAiProxyUpstream } from '../ai-proxy.js';
-import { databaseInstanceRulesHost, handleRulesOp, setDatabaseRules } from '../worker/host/rules.js';
+import { databaseInstanceRulesHost, handleRulesOp, setDatabaseRules, setDatabaseTargetRules } from '../worker/host/rules.js';
 import { SERVE_HISTORY_LIMITS } from '../observation-limits.js';
 import { randomUUID } from 'node:crypto';
 import { createOperationBudget } from '../../bridge/operation-budget.js';
@@ -21,7 +21,7 @@ import { createSurfaceContext } from '../../bridge/surface/context.js';
 import { callMethod } from '../../bridge/surface/method-call.js';
 import { methodByKey } from '../../bridge/surface/methods/registry.js';
 import type { OperationResult } from '../../bridge/surface/types.js';
-import type { InitPayload } from '../init-payload.js';
+import type { DatabaseRulesDestination, InitPayload } from '../init-payload.js';
 import { applyServeInit } from '../worker/serve-init.js';
 import { cleanupPortWithDisconnect, handleMessage, type HostCtx, type PortLike } from '../worker/host.js';
 import { drainPortRtdbDisconnects } from '../worker/host/rtdb.js';
@@ -332,15 +332,18 @@ export async function createHostedRuntime(
     /** A null database or Storage source clears the rules, so the default
      *  policy applies: RTDB's configured policy, and deny-all for Storage.
      *  `instance` names the RTDB instance a database ruleset deploys to, as
-     *  {@link setDatabaseRules} takes it; absent is the default instance. */
-    async deployRules(service: 'firestore' | 'database' | 'storage', source: string | null, instance?: string): Promise<void> {
+     *  {@link setDatabaseRules} takes it, absent for the default instance, or
+     *  an unresolved deploy target, as {@link setDatabaseTargetRules} takes it. */
+    async deployRules(service: 'firestore' | 'database' | 'storage', source: string | null, instance?: DatabaseRulesDestination): Promise<void> {
       if (closed) throw new Error('The hosted sandbox is closed.');
       if (service === 'storage') {
         await replaceStorageRules(ctx.sandbox, source);
         return;
       }
       if (service === 'database') {
-        const deployed = setDatabaseRules(ctx, instance, source);
+        const deployed = typeof instance === 'object'
+          ? setDatabaseTargetRules(ctx, instance.target, source)
+          : setDatabaseRules(ctx, instance, source);
         if (!deployed.ok) throw new Error(deployed.messages.map((message) => message.text).join('; '));
         return;
       }
