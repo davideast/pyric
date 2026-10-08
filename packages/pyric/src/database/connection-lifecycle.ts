@@ -36,10 +36,12 @@ export class RtdbConnectionLifecycle {
           this.backend.validateUpdate(this.auth(), operation.path, operation.values);
         } else {
           const isRemove = operation.kind === 'remove';
+          const priority = operation.kind === 'set' ? (operation.priority ?? null) : null;
           this.backend.validateSet(
             this.auth(),
             operation.path,
             isRemove ? null : operation.value,
+            priority,
           );
         }
       }

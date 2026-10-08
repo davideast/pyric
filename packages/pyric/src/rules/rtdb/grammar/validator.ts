@@ -137,17 +137,17 @@ function getValidatorSemantics(): Semantics {
       return typed(ternaryResult(consequentType, alternateType));
     },
 
-    Logical_and: logical,
-    Logical_or: logical,
+    LogicalAnd_and: logical,
+    LogicalOr_or: logical,
 
-    Comparison_strictEq: binary,
-    Comparison_strictNeq: binary,
+    Equality_strictEq: binary,
+    Equality_strictNeq: binary,
     Comparison_gte: binary,
     Comparison_lte: binary,
     Comparison_gt: binary,
     Comparison_lt: binary,
-    Comparison_looseEq: binary,
-    Comparison_looseNeq: binary,
+    Equality_looseEq: binary,
+    Equality_looseNeq: binary,
     Additive_add: binary,
     Additive_sub: binary,
     Multiplicative_mul: binary,

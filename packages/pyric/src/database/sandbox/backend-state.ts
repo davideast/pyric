@@ -2,7 +2,8 @@ import type { Sandbox } from 'pyric/sandbox';
 import { SandboxClock } from 'pyric/sandbox';
 import { getClock } from 'pyric/sandbox/internal';
 import { sdkActivity } from '../../sandbox/internal/sdk-activity.js';
-import { DataTree } from './data-tree.js';
+import { DataTree, pathSegments } from './data-tree.js';
+import { withPriorities, type InlinePriority } from './normalize.js';
 import type { QuerySpec } from '../internal/query-projection.js';
 import { loadsAllData, logDatabaseWarning, unspecifiedIndexWarning } from './query-index.js';
 import type { ChildListener, ValueListener } from './listener-types.js';
@@ -33,6 +34,27 @@ export class BackendState {
     this.events = new OperationEvents(sandbox);
     this.clock = sandbox ? getClock(sandbox) : new SandboxClock();
     this.rules = new RulesEvaluator(this.clock);
+  }
+
+  /**
+   * The stored tree as rules read it: each stored priority is on its node as a
+   * `.priority` key, so `data.getPriority()` and `root` lookups report it.
+   */
+  rulesSnapshot(): Record<string, unknown> {
+    const entries = [...this.priorities.entries()].map(([path, priority]) => ({ segments: pathSegments(path), priority }));
+    return withPriorities(this.tree.snapshot(), entries) as Record<string, unknown>;
+  }
+
+  /** The stored priorities strictly below `path`, relative to it. */
+  prioritiesBelow(path: string): InlinePriority[] {
+    const base = pathSegments(path);
+    const below: InlinePriority[] = [];
+    for (const [stored, priority] of this.priorities.entries()) {
+      const segments = pathSegments(stored);
+      const isBelow = segments.length > base.length && base.every((segment, i) => segments[i] === segment);
+      if (isBelow) below.push({ segments: segments.slice(base.length), priority });
+    }
+    return below;
   }
 
   /**

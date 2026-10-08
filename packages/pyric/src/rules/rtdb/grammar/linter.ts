@@ -71,14 +71,14 @@ function getLinterSemantics(): Semantics {
       if (name === 'newData') ctx.hasNewData = true;
     },
 
-    Comparison_strictEq(left, _op, right) { lintComparison(this, left, right); },
-    Comparison_strictNeq(left, _op, right) { lintComparison(this, left, right); },
+    Equality_strictEq(left, _op, right) { lintComparison(this, left, right); },
+    Equality_strictNeq(left, _op, right) { lintComparison(this, left, right); },
     Comparison_gte(left, _op, right) { lintComparison(this, left, right); },
     Comparison_lte(left, _op, right) { lintComparison(this, left, right); },
     Comparison_gt(left, _op, right) { lintComparison(this, left, right); },
     Comparison_lt(left, _op, right) { lintComparison(this, left, right); },
-    Comparison_looseEq(left, _op, right) { lintComparison(this, left, right); },
-    Comparison_looseNeq(left, _op, right) { lintComparison(this, left, right); },
+    Equality_looseEq(left, _op, right) { lintComparison(this, left, right); },
+    Equality_looseNeq(left, _op, right) { lintComparison(this, left, right); },
   });
   // Whether an expression is a literal, through parentheses.
   semantics.addOperation('isLiteral', {
@@ -114,14 +114,14 @@ function getLinterSemantics(): Semantics {
     bool_false(_false) {
       return false;
     },
-    Comparison_strictEq(_l, _op, _r) { return constantValue(this); },
-    Comparison_strictNeq(_l, _op, _r) { return constantValue(this); },
+    Equality_strictEq(_l, _op, _r) { return constantValue(this); },
+    Equality_strictNeq(_l, _op, _r) { return constantValue(this); },
     Comparison_gte(_l, _op, _r) { return constantValue(this); },
     Comparison_lte(_l, _op, _r) { return constantValue(this); },
     Comparison_gt(_l, _op, _r) { return constantValue(this); },
     Comparison_lt(_l, _op, _r) { return constantValue(this); },
-    Comparison_looseEq(_l, _op, _r) { return constantValue(this); },
-    Comparison_looseNeq(_l, _op, _r) { return constantValue(this); },
+    Equality_looseEq(_l, _op, _r) { return constantValue(this); },
+    Equality_looseNeq(_l, _op, _r) { return constantValue(this); },
   });
   linterSemantics = semantics;
   return semantics;

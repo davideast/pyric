@@ -133,7 +133,7 @@ function getFactsSemantics(): Semantics {
       const value = (operand as any).constant() as boolean | undefined;
       return value === undefined ? undefined : !value;
     },
-    Logical_and(left, _op, right) {
+    LogicalAnd_and(left, _op, right) {
       const l = (left as any).constant() as boolean | undefined;
       if (l === false) return false;
       const r = (right as any).constant() as boolean | undefined;
@@ -142,7 +142,7 @@ function getFactsSemantics(): Semantics {
       if (r === false) return false;
       return l === true ? r : undefined;
     },
-    Logical_or(left, _op, right) {
+    LogicalOr_or(left, _op, right) {
       const l = (left as any).constant() as boolean | undefined;
       if (l === true) return true;
       // An error on the left of `||` fails the rule, so `X || true` is not

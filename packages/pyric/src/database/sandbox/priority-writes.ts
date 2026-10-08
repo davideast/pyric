@@ -2,6 +2,7 @@ import type { AuthState } from 'pyric/sandbox';
 import type { BackendState } from './backend-state.js';
 import type { ChildListeners } from './child-listeners.js';
 import type { JsonValue } from './data-tree.js';
+import { withPriorities } from './normalize.js';
 import { canonicalPath, denyResultFor, rtdbDenialContext } from './operation-events.js';
 import { validatePriority } from './priority-state.js';
 import type { Priority } from './query.js';
@@ -34,8 +35,8 @@ export class PriorityWrites {
     const at = this.state.clock.now();
     const evaluation = this.state.rules.evaluate('write', path === '/' ? '/' : path, {
       auth,
-      mockData: this.state.tree.snapshot() as Record<string, unknown>,
-      newData: current as JsonValue,
+      mockData: this.state.rulesSnapshot(),
+      newData: withPriorities(current as JsonValue, [{ segments: [], priority }, ...this.state.prioritiesBelow(path)]),
     });
     const priorPriority = this.state.priorities.get(path);
     const common = {

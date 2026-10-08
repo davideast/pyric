@@ -111,9 +111,9 @@ export class RtdbBackend {
     assertWritable(path);
     this.writes.setPriority(auth, path, priority);
   }
-  validateSet(auth: AuthState, path: string, value: unknown): void {
+  validateSet(auth: AuthState, path: string, value: unknown, priority: Priority = null): void {
     assertWritable(path);
-    this.writes.validateSet(auth, path, value);
+    this.writes.validateSet(auth, path, value, priority);
   }
   validateUpdate(auth: AuthState, path: string, patch: Record<string, unknown>): void {
     assertWritable(path, patch);

@@ -3,7 +3,7 @@ import type { BackendState } from './backend-state.js';
 import type { ChildListeners } from './child-listeners.js';
 import { joinPath, pathSegments, type JsonValue } from './data-tree.js';
 import type { ChildListener, ValueListener } from './listener-types.js';
-import { normalizeWrite } from './normalize.js';
+import { normalizeWrite, withPriorities, writePriority, type InlinePriority } from './normalize.js';
 import { canonicalPath, denyResultFor, rtdbDenialContext, rtdbRulesDetail } from './operation-events.js';
 import { validatePriority } from './priority-state.js';
 import { PriorityWrites } from './priority-writes.js';
@@ -36,6 +36,9 @@ export class WritePlane {
       this.state.tree.write(path, normalizeWrite(
         resolveSentinels(value, this.state.clock.now()) as JsonValue, path === '/' ? '' : path,
       ));
+      const { priority, nested } = writePriority(value, null);
+      this.state.priorities.replace(path, this.state.tree.read(path) === null ? null : priority);
+      this.storeNestedPriorities(path, nested);
     }
     this.state.mutations.mark('/');
     this.state.notifyWrite();
@@ -110,12 +113,15 @@ export class WritePlane {
     priority: Priority,
     prioritySupplied = true,
   ): void {
-    validatePriority(priority);
     const now = this.state.clock.now();
     const before = this.state.tree.read(path);
     const resolved = normalizeWrite(
       resolveSentinels(value, now, before) as JsonValue, path === '/' ? '' : path,
     );
+    const written = writePriority(value, priority);
+    priority = written.priority;
+    prioritySupplied ||= written.inline;
+    validatePriority(priority);
     const method = resolved === null ? 'remove' : 'set';
     this.state.events.operation(null, method, path, 'not-applicable', undefined, {
       at: now,
@@ -128,6 +134,7 @@ export class WritePlane {
     const previousPriority = this.state.priorities.stateAtOrBelow(path);
     this.state.tree.write(path, resolved);
     this.state.priorities.replace(path, resolved === null ? null : priority);
+    this.storeNestedPriorities(path, written.nested);
     const priorityChanged = previousPriority !== this.state.priorities.stateAtOrBelow(path);
     this.changed([path], priors, priorityChanged ? path : undefined);
     const after = this.state.tree.read(path);
@@ -145,6 +152,7 @@ export class WritePlane {
     const now = this.state.clock.now();
     const before = this.state.tree.read(path);
     const expanded = this.resolvePatch(path, patch, now);
+    const inline = this.patchPriorities(path, patch);
     const multiPath = Object.keys(patch).some((key) => key.includes('/'));
     this.state.events.operation(null, 'update', path, 'not-applicable', undefined, {
       at: now,
@@ -160,6 +168,7 @@ export class WritePlane {
       Object.entries(expanded).map(([absolute, value]) => [pathSegments(absolute).at(-1)!, value]),
     ));
     this.state.priorities.applyUpdate(Object.entries(expanded).map(([writePath, value]) => ({ path: writePath, value })));
+    this.storePatchPriorities(inline);
     this.changed(Object.keys(expanded), priors);
     const detail = multiPath
       ? { admin: true, multiPath: true, paths: Object.keys(expanded) }
@@ -236,26 +245,33 @@ export class WritePlane {
     this.priorityWrites.set(auth, path, priority);
   }
 
-  validateSet(auth: AuthState, path: string, value: unknown): void {
+  validateSet(auth: AuthState, path: string, value: unknown, priority: Priority = null): void {
     const now = this.state.clock.now();
     const resolved = normalizeWrite(
       resolveSentinels(value, now, this.state.tree.read(path)) as JsonValue,
       path === '/' ? '' : path,
     );
-    const evaluation = this.writeEvaluation(auth, path, resolved, now);
+    const written = writePriority(value, priority);
+    validatePriority(written.priority);
+    const newData = withPriorities(resolved, [{ segments: [], priority: written.priority }, ...written.nested]);
+    const evaluation = this.writeEvaluation(auth, path, newData, now);
     if (evaluation.check !== 'allow') {
       throw permissionDenied(rtdbDenialContext(evaluation, auth, 'onDisconnect', path, { data: resolved }));
     }
   }
 
   validateUpdate(auth: AuthState, path: string, patch: Record<string, unknown>): void {
+    // The SDK resolves an empty update without contacting the server.
+    if (Object.keys(patch).length === 0) return;
     const now = this.state.clock.now();
-    const mockData = this.state.tree.snapshot() as Record<string, unknown>;
+    const mockData = this.state.rulesSnapshot();
+    const inline = this.patchPriorities(path, patch);
     const updates = Object.entries(patch).map(([key, value]) => {
       const absolute = joinPath([...pathSegments(path), ...pathSegments(key)]);
-      return { path: absolute, value: normalizeWrite(
+      const resolved = normalizeWrite(
         resolveSentinels(value, now, this.state.tree.read(absolute)) as JsonValue, absolute,
-      ) };
+      );
+      return { path: absolute, value: withPriorities(resolved, inline.get(absolute) ?? []) };
     });
     for (const update of updates) {
       const evaluation = this.state.rules.evaluate('write', update.path, {
@@ -268,11 +284,18 @@ export class WritePlane {
   }
 
   update(auth: AuthState, path: string, patch: Record<string, JsonValue>): void {
+    // The SDK resolves an empty update without contacting the server, so no
+    // rule is evaluated and nothing is written.
+    if (Object.keys(patch).length === 0) return;
     const now = this.state.clock.now();
     const expanded = this.resolvePatch(path, patch, now);
+    const inline = this.patchPriorities(path, patch);
     const multiPath = Object.keys(patch).some((key) => key.includes('/'));
-    const mockData = this.state.tree.snapshot() as Record<string, unknown>;
+    const mockData = this.state.rulesSnapshot();
     const updates = Object.entries(expanded).map(([writePath, value]) => ({ path: writePath, value }));
+    const ruleUpdates = updates.map((update) => ({
+      path: update.path, value: withPriorities(update.value, inline.get(update.path) ?? []),
+    }));
     const shallowPatch = Object.fromEntries(Object.entries(expanded).map(([absolute, value]) => [
       pathSegments(absolute).at(-1)!, value,
     ]));
@@ -280,11 +303,11 @@ export class WritePlane {
     // The update is atomic: a path's allow is recorded only once every path
     // in it is allowed, so a denied update records its denial alone.
     const allowed: Array<() => void> = [];
-    for (const update of updates) {
+    for (const [index, update] of updates.entries()) {
       const at = this.state.clock.now();
       const before = this.state.tree.read(update.path);
       const evaluation = this.state.rules.evaluate('write', update.path, {
-        auth, mockData, newData: update.value, updates, now,
+        auth, mockData, newData: ruleUpdates[index]!.value, updates: ruleUpdates, now,
       });
       const fields = {
         at, durationMs: this.state.clock.now() - at, origin: 'batch' as const,
@@ -308,6 +331,7 @@ export class WritePlane {
     if (multiPath) this.state.tree.multiUpdate(expanded);
     else this.state.tree.shallowUpdate(path, shallowPatch);
     this.state.priorities.applyUpdate(updates);
+    this.storePatchPriorities(inline);
     this.changed(Object.keys(expanded), priors);
     const after = this.state.tree.read(path);
     this.state.events.commit(auth, 'update', path, {
@@ -335,10 +359,15 @@ export class WritePlane {
       resolveSentinels(value, now, this.state.tree.read(path)) as JsonValue,
       path === '/' ? '' : path,
     );
+    const written = writePriority(value, priority);
+    priority = written.priority;
+    prioritySupplied ||= written.inline;
+    validatePriority(priority);
     const before = this.state.tree.read(path);
     const priorNodePriority = this.state.priorities.get(path);
     const at = this.state.clock.now();
-    const evaluation = this.writeEvaluation(auth, path, resolved, now);
+    const newData = withPriorities(resolved, [{ segments: [], priority }, ...written.nested]);
+    const evaluation = this.writeEvaluation(auth, path, newData, now);
     const common = {
       at, durationMs: this.state.clock.now() - at,
       request: { data: value, resourceData: value },
@@ -354,6 +383,7 @@ export class WritePlane {
     const priorPriorityState = this.state.priorities.stateAtOrBelow(path);
     this.state.tree.write(path, resolved);
     this.state.priorities.replace(path, resolved === null ? null : priority);
+    this.storeNestedPriorities(path, written.nested);
     const priorityChanged = priorPriorityState !== this.state.priorities.stateAtOrBelow(path);
     this.changed([path], priors, priorityChanged ? path : undefined);
     const after = this.state.tree.read(path);
@@ -385,7 +415,7 @@ export class WritePlane {
   }
 
   private cancelDeniedListeners(): void {
-    const mockData = this.state.tree.snapshot() as Record<string, unknown>;
+    const mockData = this.state.rulesSnapshot();
     const deniedValues: ValueListener[] = [];
     const contexts = new Map<ValueListener | ChildListener, RtdbDenialContext>();
     for (const listener of [...this.state.valueListeners]) {
@@ -445,14 +475,43 @@ export class WritePlane {
   private readEvaluation(auth: AuthState, path: string, spec?: QuerySpec) {
     return this.state.rules.evaluate('read', path === '/' ? '/' : path, {
       auth,
-      mockData: this.state.tree.snapshot() as Record<string, unknown>,
+      mockData: this.state.rulesSnapshot(),
       querySpec: spec,
     });
   }
 
+  /** `newData` carries its priorities as `.priority` keys (see `withPriorities`). */
   private writeEvaluation(auth: AuthState, path: string, newData: JsonValue, now: number) {
     return this.state.rules.evaluate('write', path === '/' ? '/' : path, {
-      auth, mockData: this.state.tree.snapshot() as Record<string, unknown>, newData, now,
+      auth, mockData: this.state.rulesSnapshot(), newData, now,
     });
+  }
+
+  /** Store the priorities a written value carries below `base`, on nodes the write kept. */
+  private storeNestedPriorities(base: string, nested: readonly InlinePriority[]): void {
+    for (const { segments, priority } of nested) {
+      const path = joinPath([...pathSegments(base), ...segments]);
+      this.state.priorities.set(path, this.state.tree.read(path) === null ? null : priority);
+    }
+  }
+
+  /** The `.priority` keys each value of an update patch carries, by absolute write path. */
+  private patchPriorities(path: string, patch: Record<string, unknown>): Map<string, InlinePriority[]> {
+    const byPath = new Map<string, InlinePriority[]>();
+    for (const [key, value] of Object.entries(patch)) {
+      const { priority, inline, nested } = writePriority(value, null);
+      const absolute = joinPath([...pathSegments(path), ...pathSegments(key)]);
+      byPath.set(absolute, inline ? [{ segments: [], priority }, ...nested] : nested);
+    }
+    return byPath;
+  }
+
+  /** Store the priorities an update patch carries, after the update is applied. */
+  private storePatchPriorities(inline: ReadonlyMap<string, readonly InlinePriority[]>): void {
+    for (const [path, entries] of inline) {
+      const own = entries.find((entry) => entry.segments.length === 0);
+      if (own) this.state.priorities.set(path, this.state.tree.read(path) === null ? null : own.priority);
+      this.storeNestedPriorities(path, entries.filter((entry) => entry.segments.length > 0));
+    }
   }
 }

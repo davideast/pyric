@@ -663,6 +663,7 @@
         "r32-method-argument-types",
         "r33-null-operands",
         "r34-stdlib-auth-membership-quota",
+        "r35-operator-precedence",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -717,6 +718,7 @@
         "r24-deny-without-rule",
         "r27-stdlib-core-patterns",
         "r34-stdlib-auth-membership-quota",
+        "r35-operator-precedence",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [
@@ -793,6 +795,7 @@
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
         "r34-stdlib-auth-membership-quota",
+        "r35-operator-precedence",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [
@@ -808,6 +811,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "r27-stdlib-core-patterns",
+        "r35-operator-precedence",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [
@@ -823,6 +827,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "r27-stdlib-core-patterns",
+        "r35-operator-precedence",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [
@@ -838,6 +843,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "r33-null-operands",
+        "r35-operator-precedence",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [
@@ -854,6 +860,7 @@
       "verifiedBy": [
         "r27-stdlib-core-patterns",
         "r33-null-operands",
+        "r35-operator-precedence",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [
@@ -880,6 +887,7 @@
         "r28-stdlib-presence-timing",
         "r30-query-rules",
         "r34-stdlib-auth-membership-quota",
+        "r35-operator-precedence",
         "r7-pathvar-binding",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -899,6 +907,7 @@
         "r28-stdlib-presence-timing",
         "r33-null-operands",
         "r34-stdlib-auth-membership-quota",
+        "r35-operator-precedence",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -915,7 +924,8 @@
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
         "r3-data-exists",
-        "r34-stdlib-auth-membership-quota"
+        "r34-stdlib-auth-membership-quota",
+        "r35-operator-precedence"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -928,6 +938,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "r27-stdlib-core-patterns",
+        "r35-operator-precedence",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [
@@ -942,6 +953,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "r35-operator-precedence",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -1012,6 +1024,7 @@
         "r30-query-rules",
         "r32-method-argument-types",
         "r34-stdlib-auth-membership-quota",
+        "r35-operator-precedence",
         "r4-validate-structure",
         "r5-cascade-root-grant",
         "r6-deny-everything",

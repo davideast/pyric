@@ -161,8 +161,9 @@ function findFailingValidate(
     for (const u of updates) {
       writePathStrings.add(u.path.split('/').filter(Boolean).join('/'));
     }
+  } else {
+    writePathStrings.add(pathToWrite.filter(Boolean).join('/'));
   }
-  writePathStrings.add(pathToWrite.filter(Boolean).join('/'));
   const allWritePaths = Array.from(writePathStrings).map((p) => p.split('/').filter(Boolean));
 
   function walk(
@@ -462,11 +463,7 @@ export class SimulateHandler {
       const contextQuery = buildSimulatedQueryContext(operation, query);
 
       const buildContext: ContextBuilder = (data, newDataArg, bindings) => {
-        const pvBindings: Record<string, string> = {};
-        for (const [k, v] of Object.entries(bindings)) {
-          pvBindings[k] = v;
-          pvBindings[k.slice(1)] = v;
-        }
+        const pvBindings: Record<string, string> = { ...bindings };
         return {
           auth: contextAuth,
           data,

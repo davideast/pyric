@@ -82,6 +82,44 @@ describe('locateRtdbRule', () => {
     expect(locateRtdbRule(src, '/a', '.write')?.line).toBe(4);
   });
 
+  test('reads a rule string that spans lines and counts its line breaks', () => {
+    const src = [
+      '{', // 1
+      '  "rules": {', // 2
+      '    ".read": "auth != null', // 3
+      '      && auth.uid != null",', // 4
+      '    ".write": "true\r', // 5
+      '      && true",', // 6
+      '    ".validate": "true"', // 7
+      '  }', // 8
+      '}', // 9
+    ].join('\n');
+    expect(locateRtdbRule(src, '/', '.read')?.line).toBe(3);
+    expect(locateRtdbRule(src, '/', '.write')?.line).toBe(5);
+    expect(locateRtdbRule(src, '/', '.validate')?.line).toBe(7);
+  });
+
+  test('reads trailing commas in objects and arrays, before a comment too', () => {
+    const src = [
+      '{', // 1
+      '  "rules": {', // 2
+      '    "a": { ".indexOn": ["x", "y",], },', // 3
+      '    "b": {', // 4
+      '      ".read": "true", // last member', // 5
+      '    },', // 6
+      '  },', // 7
+      '}', // 8
+    ].join('\n');
+    expect(locateRtdbRule(src, '/a', '.indexOn')?.line).toBe(3);
+    expect(locateRtdbRule(src, '/b', '.read')?.line).toBe(5);
+  });
+
+  test('refuses the comma forms production refuses', () => {
+    expect(locateRtdbRule('{ "rules": { ".read": true,, } }', '/', '.read')).toBeNull();
+    expect(locateRtdbRule('{ "rules": { , ".read": true } }', '/', '.read')).toBeNull();
+    expect(locateRtdbRule('{ "rules": { ".indexOn": [,"a"] } }', '/', '.indexOn')).toBeNull();
+  });
+
   test('the last duplicate key wins, as JSON.parse reads it', () => {
     const src = '{\n"rules": {\n".read": false,\n".read": true\n}\n}';
     expect(locateRtdbRule(src, '/', '.read')?.line).toBe(4);
@@ -112,6 +150,12 @@ describe('locateRtdbTrace', () => {
     const [located] = locateRtdbTrace(COMMENTED, [entry('/public', 'validate')]);
     expect(located).toEqual(entry('/public', 'validate'));
     expect('line' in located).toBe(false);
+  });
+
+  test('gives lines for a ruleset with a multi-line rule string and trailing commas', () => {
+    const src = '{\n  "rules": {\n    ".read": "true\n      && true",\n    "a": { ".write": "true", },\n  },\n}';
+    const located = locateRtdbTrace(src, [entry('/', 'read'), entry('/a', 'write')]);
+    expect(located.map((e) => e.line)).toEqual([3, 5]);
   });
 
   test('leaves every line off when the text is not valid JSON', () => {

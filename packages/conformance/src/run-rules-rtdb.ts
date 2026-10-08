@@ -529,8 +529,7 @@ async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<v
   async function readRules(): Promise<Record<string, unknown>> {
     const res = await fetch(rulesGetUrl);
     if (!res.ok) throw new Error(`read rules failed: ${res.status} ${await res.text()}`);
-    const body = (await res.json()) as Record<string, unknown>;
-    return (body.rules ?? {}) as Record<string, unknown>;
+    return capturableRules('the database', await res.text()).rules;
   }
   const endpoint: RulesDeployEndpoint = {
     async dryRun(rules) {
@@ -871,6 +870,19 @@ export const MULTI_INSTANCE_RULES = {
  * into the run's subtree and the recorded verdicts would be wrong.
  */
 export function instanceRulesForCapture(instance: string, beforeText: string, auditKey: string, subtree: unknown): string {
+  const before = capturableRules(instance, beforeText);
+  return JSON.stringify({ ...before, rules: { ...before.rules, [auditKey]: subtree } });
+}
+
+/**
+ * The parsed rules document of an instance the capture may merge a run-scoped
+ * subtree into. Throws, before anything is deployed, when the rules text is
+ * not plain JSON or when the root `.read` or `.write` is anything but false.
+ */
+export function capturableRules(
+  instance: string,
+  beforeText: string,
+): { rules: Record<string, unknown> } & Record<string, unknown> {
   let before: { rules?: Record<string, unknown> } & Record<string, unknown>;
   try {
     before = JSON.parse(beforeText) as typeof before;
@@ -884,7 +896,7 @@ export function instanceRulesForCapture(instance: string, beforeText: string, au
       throw new Error(`refusing to run: the root ${access} rule of ${instance} is not false, so it would grant access inside the run's subtree.`);
     }
   }
-  return JSON.stringify({ ...before, rules: { ...root, [auditKey]: subtree } });
+  return { ...before, rules: root };
 }
 
 

@@ -1,4 +1,5 @@
 import type { RtdbRulesDocument } from 'pyric/rules/internal/rtdb';
+import { toStrictRulesJson } from 'pyric/sandbox/database';
 
 export interface RtdbRulesJson {
   rules: Record<string, unknown>;
@@ -29,109 +30,19 @@ function isRtdbRulesObject(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Strip JavaScript-style line comments (`//...`) and block comments (`/*...*\/`)
- * from JSON source text without altering string literals. Firebase Realtime
- * Database security rules files (`database.rules.json`) permit comment blocks,
- * requiring pre-processing before evaluation with standard JSON parsers.
- */
-export function stripJsonComments(text: string): string {
-  let result = '';
-  let inString = false;
-  let inSingleLineComment = false;
-  let inMultiLineComment = false;
-  let i = 0;
-
-  while (i < text.length) {
-    const char = text[i];
-    const nextChar = i + 1 < text.length ? text[i + 1] : '';
-
-    if (inSingleLineComment) {
-      const isNewline = char === '\n' || char === '\r';
-      if (isNewline) {
-        inSingleLineComment = false;
-        result += char;
-      }
-      i++;
-      continue;
-    }
-
-    if (inMultiLineComment) {
-      const isEndOfBlock = char === '*' && nextChar === '/';
-      if (isEndOfBlock) {
-        inMultiLineComment = false;
-        i += 2;
-      } else {
-        const isNewline = char === '\n' || char === '\r';
-        if (isNewline) {
-          result += char; // Preserve line numbering for accurate diagnostics
-        }
-        i++;
-      }
-      continue;
-    }
-
-    if (inString) {
-      const isEscape = char === '\\';
-      if (isEscape) {
-        result += char;
-        if (nextChar !== '') {
-          result += nextChar;
-          i++;
-        }
-        i++;
-        continue;
-      }
-      const isQuote = char === '"';
-      if (isQuote) {
-        inString = false;
-      }
-      result += char;
-      i++;
-      continue;
-    }
-
-    const isQuote = char === '"';
-    if (isQuote) {
-      inString = true;
-      result += char;
-      i++;
-      continue;
-    }
-
-    const isLineCommentStart = char === '/' && nextChar === '/';
-    if (isLineCommentStart) {
-      inSingleLineComment = true;
-      i += 2;
-      continue;
-    }
-
-    const isBlockCommentStart = char === '/' && nextChar === '*';
-    if (isBlockCommentStart) {
-      inMultiLineComment = true;
-      i += 2;
-      continue;
-    }
-
-    result += char;
-    i++;
-  }
-
-  return result;
-}
-
-/**
  * Parse the text of a Realtime Database rules file into a `{ rules }` document.
- * The text may carry line and block comments, as a deployed rules file may.
- * `rules lint`, `rules simulate`, `rules set`, `database rules validate`,
- * `verify`, and the served sandbox's rules loader parse rules text here, so
- * they accept the same files. `onInvalid` receives the reason the text is not a rules document and
- * returns the error to throw.
+ * The text may carry what a deployed rules file may: line and block comments,
+ * rule expressions broken across lines, and trailing commas (see
+ * `toStrictRulesJson`). `rules lint`, `rules simulate`, `rules set`,
+ * `database rules validate`, `verify`, and the served sandbox's rules loader
+ * parse rules text here, so they accept the same files. `onInvalid` receives
+ * the reason the text is not a rules document and returns the error to throw.
  */
 export function parseRtdbRulesText(
   text: string,
   onInvalid: (error: Error) => Error,
 ): RtdbRulesJson {
-  const clean = stripJsonComments(text);
+  const clean = toStrictRulesJson(text);
   let parsed: unknown;
   try {
     parsed = JSON.parse(clean);

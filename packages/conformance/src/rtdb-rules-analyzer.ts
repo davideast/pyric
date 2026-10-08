@@ -21,10 +21,10 @@ const RTDB_STRING_METHODS = new Set([
 ]);
 const RTDB_OP_CTOR: Record<string, string> = {
   Ternary_ternary: 'ternary',
-  Logical_and: 'and', Logical_or: 'or',
-  Comparison_strictEq: 'strictEq', Comparison_strictNeq: 'strictNeq',
+  LogicalAnd_and: 'and', LogicalOr_or: 'or',
+  Equality_strictEq: 'strictEq', Equality_strictNeq: 'strictNeq',
+  Equality_looseEq: 'looseEq', Equality_looseNeq: 'looseNeq',
   Comparison_gte: 'gte', Comparison_lte: 'lte', Comparison_gt: 'gt', Comparison_lt: 'lt',
-  Comparison_looseEq: 'looseEq', Comparison_looseNeq: 'looseNeq',
   Additive_add: 'add', Additive_sub: 'sub',
   Multiplicative_mul: 'mul', Multiplicative_div: 'div', Multiplicative_mod: 'mod',
   UnaryExpr_not: 'not', UnaryExpr_neg: 'neg',

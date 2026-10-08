@@ -70,7 +70,7 @@ export class Transactions {
     );
     const at = this.state.clock.now();
     const evaluation = this.state.rules.evaluate('write', path, {
-      auth, mockData: this.state.tree.snapshot() as Record<string, unknown>, newData: resolved, now,
+      auth, mockData: this.state.rulesSnapshot(), newData: resolved, now,
     });
     if (evaluation.check !== 'allow') {
       this.state.events.operation(auth, 'transaction', path, denyResultFor(evaluation.check), evaluation, {

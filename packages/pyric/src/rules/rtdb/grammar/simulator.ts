@@ -356,20 +356,24 @@ function getEvalSemantics(): Semantics {
     },
     Ternary(node) { return (node as any).eval(this.args.ctx); },
 
-    Logical_and(left, _op, right) { return (left as any).eval(this.args.ctx) && (right as any).eval(this.args.ctx); },
-    Logical_or(left, _op, right) { return (left as any).eval(this.args.ctx) || (right as any).eval(this.args.ctx); },
-    Logical(node) { return (node as any).eval(this.args.ctx); },
+    LogicalOr_or(left, _op, right) { return (left as any).eval(this.args.ctx) || (right as any).eval(this.args.ctx); },
+    LogicalOr(node) { return (node as any).eval(this.args.ctx); },
 
-    Comparison_strictEq(left, _op, right) { const [l, r] = evalBinaryPair('===', left, right, this.args.ctx); return l === r; },
-    Comparison_strictNeq(left, _op, right) { const [l, r] = evalBinaryPair('!==', left, right, this.args.ctx); return l !== r; },
+    LogicalAnd_and(left, _op, right) { return (left as any).eval(this.args.ctx) && (right as any).eval(this.args.ctx); },
+    LogicalAnd(node) { return (node as any).eval(this.args.ctx); },
+
+    Equality_strictEq(left, _op, right) { const [l, r] = evalBinaryPair('===', left, right, this.args.ctx); return l === r; },
+    Equality_strictNeq(left, _op, right) { const [l, r] = evalBinaryPair('!==', left, right, this.args.ctx); return l !== r; },
+    // RTDB `==` and `!=` do not convert types: the number 5 does not equal the
+    // string '5', and the number 1 does not equal true.
+    Equality_looseEq(left, _op, right) { const [l, r] = evalBinaryPair('==', left, right, this.args.ctx); return l === r; },
+    Equality_looseNeq(left, _op, right) { const [l, r] = evalBinaryPair('!=', left, right, this.args.ctx); return l !== r; },
+    Equality(node) { return (node as any).eval(this.args.ctx); },
+
     Comparison_gte(left, _op, right) { const [l, r] = evalBinaryPair('>=', left, right, this.args.ctx); return l >= r; },
     Comparison_lte(left, _op, right) { const [l, r] = evalBinaryPair('<=', left, right, this.args.ctx); return l <= r; },
     Comparison_gt(left, _op, right) { const [l, r] = evalBinaryPair('>', left, right, this.args.ctx); return l > r; },
     Comparison_lt(left, _op, right) { const [l, r] = evalBinaryPair('<', left, right, this.args.ctx); return l < r; },
-    // RTDB `==` and `!=` do not convert types: the number 5 does not equal the
-    // string '5', and the number 1 does not equal true.
-    Comparison_looseEq(left, _op, right) { const [l, r] = evalBinaryPair('==', left, right, this.args.ctx); return l === r; },
-    Comparison_looseNeq(left, _op, right) { const [l, r] = evalBinaryPair('!=', left, right, this.args.ctx); return l !== r; },
     Comparison(node) { return (node as any).eval(this.args.ctx); },
 
     Additive_add(left, _op, right) { const [l, r] = evalBinaryPair('+', left, right, this.args.ctx); return (l as number) + (r as number); },
@@ -505,8 +509,15 @@ function getEvalSemantics(): Semantics {
     ident(_dollar, _start, _rest) {
       const ctx = this.args.ctx as EvalContext;
       const name = this.sourceString;
-      if (ctx?.pathVariableBindings && name in ctx.pathVariableBindings) {
-        return ctx.pathVariableBindings[name];
+      // Only a `$` name reads a path variable, so a `$data` wildcard never
+      // shadows the built-in `data` snapshot.
+      if (_dollar.sourceString === '$') {
+        const bindings = ctx?.pathVariableBindings;
+        if (bindings !== undefined) {
+          if (name in bindings) return bindings[name];
+          if (name.slice(1) in bindings) return bindings[name.slice(1)];
+        }
+        return undefined;
       }
       switch (name) {
         case 'auth': return ctx?.auth ?? null;

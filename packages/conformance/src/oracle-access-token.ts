@@ -49,6 +49,8 @@ export interface RtdbRulesEndpoint {
    * and installs nothing. Status 200 accepts; status 400 refuses with the body.
    */
   dryRun(rules: { rules: Record<string, unknown> }): Promise<{ status: number; body: string }>;
+  /** The same dry run with the request body sent as the given rules file text, byte for byte. */
+  dryRunText(text: string): Promise<{ status: number; body: string }>;
 }
 
 export function rtdbRulesEndpoint(databaseURL: string, accessToken: string): RtdbRulesEndpoint {
@@ -59,11 +61,14 @@ export function rtdbRulesEndpoint(databaseURL: string, accessToken: string): Rtd
       if (!response.ok) throw new Error(`read rules failed: ${response.status}`);
       return response.text();
     },
-    async dryRun(rules) {
+    dryRun(rules) {
+      return this.dryRunText(JSON.stringify(rules));
+    },
+    async dryRunText(text) {
       const response = await fetch(`${url}&dryRun=true`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(rules),
+        body: text,
       });
       return { status: response.status, body: await response.text() };
     },

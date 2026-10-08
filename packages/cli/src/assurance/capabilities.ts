@@ -346,11 +346,27 @@ function rtdbRequirements(
         ),
       )
     : [];
-  const serialized = ruleSources.map((item) => item.source).join("\n");
-  const invalidExpressions = ruleSources
-    .filter((item) => !item.source || !parseRtdbExpression(item.source).valid)
-    .map((item) => item.path);
-  const queryDependent = /\bquery\b/.test(serialized);
+  const parsedRules = ruleSources.map((rule) => ({
+    rule,
+    parsed: rule.source ? parseRtdbExpression(rule.source) : undefined,
+  }));
+  const invalidExpressions = parsedRules
+    .filter(({ parsed }) => !parsed || !parsed.valid)
+    .map(({ rule }) => rule.path);
+  const queryDependent = parsedRules.some(
+    ({ parsed }) => parsed?.referencedIdentifiers.includes("query") ?? false,
+  );
+  const ancestorDataDependent = parsedRules.some(({ rule, parsed }) => {
+    const usesDataOrNewData =
+      (parsed?.referencedIdentifiers.includes("data") ?? false) ||
+      (parsed?.referencedIdentifiers.includes("newData") ?? false);
+    if (!usesDataOrNewData) return false;
+    return operations.some((operation) => {
+      if (!rtdbRuleAppliesToOperation(rule, operation)) return false;
+      const opSegments = operation.path.split("/").filter(Boolean);
+      return rule.segments.length < opSegments.length;
+    });
+  });
   const requirements = [
     requirement(
       "rtdb.rules-present",
@@ -373,8 +389,8 @@ function rtdbRequirements(
     ),
     requirement(
       "rtdb.rule-location-data",
-      !/\b(?:data|newData)\b/.test(serialized),
-      /\b(?:data|newData)\b/.test(serialized)
+      !ancestorDataDependent,
+      ancestorDataDependent
         ? "The current evaluator cannot prove ancestor rule-location data/newData merged-tree semantics."
         : "The rules used by this probe do not depend on data/newData.",
     ),

@@ -51,7 +51,7 @@ export class ChildListeners {
     const attachOwners = listenerAttachOwners();
     const evaluation = this.state.rules.evaluate('read', path === '/' ? '/' : path, {
       auth,
-      mockData: this.state.tree.snapshot() as Record<string, unknown>,
+      mockData: this.state.rulesSnapshot(),
       querySpec: spec,
     });
     if (evaluation.check !== 'allow') {
