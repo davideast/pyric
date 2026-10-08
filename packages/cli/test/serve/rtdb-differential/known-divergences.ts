@@ -114,15 +114,6 @@ export const KNOWN_DIVERGENCES: KnownDivergence[] = [
     },
   },
   {
-    // An Error without a `code` reaches the page with `code: 'unknown'`.
-    name: 'served-codeless-error',
-    matches(mismatch) {
-      const sandbox = stepError(mismatch, 'sandbox');
-      if (sandbox === undefined || !sandbox.startsWith('code=none; ') || !servedAgree(mismatch)) return false;
-      return stepError(mismatch, 'worker') === sandbox.replace('code=none; ', 'code=unknown; ');
-    },
-  },
-  {
     // A served transaction reads its location under the read rules before it
     // runs the update function.
     name: 'served-transaction-read-denied',
