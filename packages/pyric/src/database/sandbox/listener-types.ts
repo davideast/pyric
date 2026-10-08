@@ -1,7 +1,7 @@
 import type { AuthState } from 'pyric/sandbox';
 import type { ListenerOwner } from '../../sandbox/types/events.js';
 import type { JsonValue } from './data-tree.js';
-import type { QueryRow, QuerySpec } from './query.js';
+import type { Priority, QueryRow, QuerySpec } from './query.js';
 
 export interface ValueListenerSnapshot {
   val: JsonValue;
@@ -39,4 +39,5 @@ export interface ChildListener {
   lastWindow?: QueryRow[];
 }
 
-export type ChildParentSnapshot = Map<string, Map<string, JsonValue>>;
+/** Each listened parent's children before a write: value and own priority, by key. */
+export type ChildParentSnapshot = Map<string, Map<string, { val: JsonValue; priority: Priority }>>;

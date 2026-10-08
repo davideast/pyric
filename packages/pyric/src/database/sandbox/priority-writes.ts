@@ -25,7 +25,7 @@ export class PriorityWrites {
     this.state.priorities.set(path, priority);
     this.state.mutations.mark(path);
     if (changed) this.values.fanOut([path]);
-    this.children.fanOut(priors, changed ? path : undefined);
+    this.children.fanOut(priors);
     this.state.notifyWrite();
   }
 
@@ -58,7 +58,7 @@ export class PriorityWrites {
     this.state.priorities.set(path, priority);
     this.state.mutations.mark(path);
     if (changed) this.values.fanOut([path]);
-    this.children.fanOut(priors, changed ? path : undefined);
+    this.children.fanOut(priors);
     if (changed) {
       this.state.events.commit(auth, 'setPriority', path, {
         data: priority, priorState: priorPriority, nextState: priority,
