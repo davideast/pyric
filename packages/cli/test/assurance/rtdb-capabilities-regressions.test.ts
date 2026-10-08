@@ -11,7 +11,7 @@ const targetBase = {
   state: {},
 } as const;
 
-describe("Issue 8: RTDB Assurance capability qualification (AST over regex & supported features)", () => {
+describe("RTDB assurance qualification reads rule identifiers from the parse", () => {
   it("does not falsely flag string literals or property accesses containing 'data', 'newData', or 'query'", () => {
     const target: LocalFirebaseTarget = {
       ...targetBase,

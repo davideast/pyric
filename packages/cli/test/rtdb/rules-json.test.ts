@@ -4,8 +4,8 @@ import {
   isRtdbRulesJson,
   parseRtdbRulesJson,
   parseRtdbRulesText,
-  stripJsonComments,
 } from '../../src/rtdb/rules-json.js';
+import { stripJsonComments } from 'pyric/sandbox/database';
 
 describe('RTDB rules JSON parser', () => {
   test('accepts a top-level rules object', () => {

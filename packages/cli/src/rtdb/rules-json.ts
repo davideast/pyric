@@ -1,8 +1,5 @@
 import type { RtdbRulesDocument } from 'pyric/rules/internal/rtdb';
-import { stripJsonComments, toStrictRulesJson } from 'pyric/sandbox/database';
-
-// One reader for rules text, shared with the sandbox foundation.
-export { stripJsonComments, toStrictRulesJson };
+import { toStrictRulesJson } from 'pyric/sandbox/database';
 
 export interface RtdbRulesJson {
   rules: Record<string, unknown>;
