@@ -1,0 +1,12 @@
+{
+  "description": "A transaction on a location the rules deny: the update function runs and an abort resolves uncommitted, and a write rejects with the codeless 'permission_denied'. The served planes first read the location under the read rules and reject with PERMISSION_DENIED.",
+  "sequence": {
+    "seed": 34,
+    "instances": 2,
+    "initialRules": [6, 0],
+    "steps": [
+      { "op": "transaction", "db": 0, "path": "counters/y", "script": "abort" },
+      { "op": "transaction", "db": 0, "path": "counters/y", "script": "delete" }
+    ]
+  }
+}

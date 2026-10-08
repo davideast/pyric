@@ -1,0 +1,11 @@
+{
+  "description": "get() of an unindexed orderByChild query rejects with a plain Error that has no code; the served planes add code 'unknown'.",
+  "sequence": {
+    "seed": 3,
+    "instances": 2,
+    "initialRules": [0, 0],
+    "steps": [
+      { "op": "get", "db": 0, "path": "counters/x", "query": { "orderBy": { "child": "n" } } }
+    ]
+  }
+}

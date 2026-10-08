@@ -1,5 +1,34 @@
 import { describe, expect, test } from 'bun:test';
-import { parseNameStatus, determinePackaging } from './plan.ts';
+import { parseNameStatus, determinePackaging, determineRtdbDifferential } from './plan.ts';
+
+describe('RTDB differential selection', () => {
+  test('runs for a pull request touching the served hosts, the RTDB engine, or the rules engine', () => {
+    for (const path of [
+      'packages/cli/src/serve/worker/host/rtdb.ts',
+      'packages/pyric/src/database/listeners.ts',
+      'packages/pyric/src/rules/internal/rtdb.ts',
+      'packages/cli/test/serve/rtdb-differential/generator.ts',
+    ]) {
+      expect(determineRtdbDifferential({ event: 'pull_request', paths: [{ path }] })).toBe(true);
+    }
+  });
+
+  test('runs for a rename out of a selected directory', () => {
+    expect(determineRtdbDifferential({
+      event: 'pull_request',
+      paths: [{ path: 'packages/cli/src/other.ts', previousPath: 'packages/cli/src/serve/other.ts' }],
+    })).toBe(true);
+  });
+
+  test('skips a pull request that touches none of them', () => {
+    expect(determineRtdbDifferential({ event: 'pull_request', paths: [{ path: 'packages/pyric/src/storage/index.ts' }] })).toBe(false);
+  });
+
+  test('always runs outside pull requests', () => {
+    expect(determineRtdbDifferential({ event: 'schedule', paths: [] })).toBe(true);
+    expect(determineRtdbDifferential({ event: 'push', paths: [] })).toBe(true);
+  });
+});
 
 describe('CI change input', () => {
   test('preserves both sides of renames and ordinary changed paths', () => {

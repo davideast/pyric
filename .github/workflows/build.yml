@@ -39,6 +39,7 @@ jobs:
       check-set: ${{ steps.plan.outputs.check-set }}
       predicted-check-set: ${{ steps.plan.outputs.predicted-check-set }}
       packaging: ${{ steps.plan.outputs.packaging }}
+      rtdb-differential: ${{ steps.plan.outputs.rtdb-differential }}
     steps:
       - uses: actions/checkout@v4
       - name: Fetch PR endpoints and resolve merge base
@@ -282,6 +283,39 @@ jobs:
         # the release gates; scripts/ci/library-split.test.ts pins
         # core = libraries minus conformance so the split cannot drift.
         run: bun run test:ci:libraries:core
+
+  rtdb-differential:
+    name: RTDB differential (sandbox, SharedWorker host, Node host)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [plan, build-packages]
+    # Selected by scripts/ci/plan.ts for changes to the served hosts, the RTDB
+    # engine, or the rules engine, and always outside pull requests.
+    if: needs.plan.outputs.rtdb-differential == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+      - name: Install
+        run: bun install --frozen-lockfile --filter '!@pyric/playground'
+      - uses: ./.github/actions/restore-dist
+        with:
+          flavor: packages
+      - name: Fixed seeds and saved fixtures
+        run: bun test --cwd packages/cli ./test/serve/rtdb-differential/rtdb-differential.gate.ts
+      - name: Nightly sweep
+        # The nightly run adds 2000 longer sequences; any mismatch prints its
+        # shrunk sequence.
+        if: github.event_name == 'schedule'
+        run: bun packages/cli/test/serve/rtdb-differential/differential.ts --start=1000 --count=2000 --steps=40 --chunks=2
 
   conformance-suite:
     name: Conformance suite
@@ -722,7 +756,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: always()
-    needs: [plan, build-packages, build-and-test, library-tests, conformance-suite, browser-conformance, conformance-gates, native-conformance, release-contract, packaging, install-matrix, standalone]
+    needs: [plan, build-packages, build-and-test, library-tests, conformance-suite, browser-conformance, conformance-gates, native-conformance, release-contract, packaging, install-matrix, standalone, rtdb-differential]
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -732,5 +766,6 @@ jobs:
         env:
           CI_CHECK_SET: ${{ needs.plan.outputs.check-set }}
           CI_REQUIRE_PACKAGING: ${{ contains(github.event.pull_request.labels.*.name, 'ci-packaging') }}
+          CI_REQUIRE_RTDB_DIFFERENTIAL: ${{ needs.plan.outputs.rtdb-differential }}
           CI_NEEDS_JSON: ${{ toJSON(needs) }}
         run: bun scripts/ci/required.ts

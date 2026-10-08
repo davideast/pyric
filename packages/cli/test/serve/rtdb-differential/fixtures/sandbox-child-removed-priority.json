@@ -1,0 +1,16 @@
+{
+  "description": "A child_removed snapshot holds the removed child as it was, priorities included. The sandbox's loses the child's priority and its descendants' priorities.",
+  "sequence": {
+    "seed": 8598,
+    "instances": 2,
+    "initialRules": [0, 0],
+    "steps": [
+      { "op": "listen", "db": 0, "id": 0, "path": "items", "event": "child_removed" },
+      { "op": "setWithPriority", "db": 0, "path": "items/b", "value": 5, "priority": 50 },
+      { "op": "remove", "db": 0, "path": "items/b" },
+      { "op": "listen", "db": 1, "id": 1, "path": "items", "event": "child_removed", "query": { "orderBy": { "child": "n" }, "limitToLast": 3 } },
+      { "op": "set", "db": 1, "path": "items/c", "value": { "n": 1, "d": { "x": 2, ".priority": 7 } } },
+      { "op": "remove", "db": 1, "path": "items/c" }
+    ]
+  }
+}

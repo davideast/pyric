@@ -45,6 +45,29 @@ describe('required CI result', () => {
     })).toEqual([]);
   });
 
+  test('requires the RTDB differential gate only when the plan selected it', () => {
+    expect(requiredFailures({
+      checkSet: 'full', requirePackaging: false, requireRtdbDifferential: false,
+      results: { ...success, 'rtdb-differential': 'skipped' },
+    })).toEqual([]);
+    expect(requiredFailures({
+      checkSet: 'full', requirePackaging: false, requireRtdbDifferential: true,
+      results: { ...success, 'rtdb-differential': 'skipped' },
+    })).toEqual(['rtdb-differential: skipped']);
+    expect(requiredFailures({
+      checkSet: 'full', requirePackaging: false, requireRtdbDifferential: true,
+      results: { ...success, 'rtdb-differential': 'success' },
+    })).toEqual([]);
+  });
+
+  test('the aggregate job receives the RTDB differential result and the plan\'s selection', () => {
+    const workflow = readFileSync(resolve(import.meta.dir, '../../.github/workflows/build.yml'), 'utf8');
+    const requiredJob = workflow.slice(workflow.indexOf('\n  required:'));
+    const needsLine = requiredJob.match(/\n    needs: \[([^\]]+)\]/)?.[1] ?? '';
+    expect(needsLine.split(',').map((job) => job.trim())).toContain('rtdb-differential');
+    expect(requiredJob).toContain('CI_REQUIRE_RTDB_DIFFERENTIAL: ${{ needs.plan.outputs.rtdb-differential }}');
+  });
+
   test('rejects a skipped conformance-gates job on the full check set', () => {
     expect(requiredFailures({
       checkSet: 'full',

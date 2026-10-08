@@ -54,6 +54,27 @@ export function determinePackaging(input: {
   return input.event === 'push' || input.labels.includes('ci-packaging') || requiresPackagingProof(input.paths);
 }
 
+/** The code the RTDB differential gate compares: the served hosts, the RTDB
+ *  and rules engines, and the gate itself. */
+const RTDB_DIFFERENTIAL_INPUTS = [
+  /^packages\/cli\/src\/serve\//,
+  /^packages\/cli\/src\/rtdb\//,
+  /^packages\/pyric\/src\/database\//,
+  /^packages\/pyric\/src\/rules\//,
+  /^packages\/cli\/test\/serve\/rtdb-differential\//,
+  /^\.github\/workflows\/build\.yml$/,
+];
+
+export function determineRtdbDifferential(input: {
+  event: CheckSetInput['event'];
+  paths: ChangedPath[];
+}): boolean {
+  if (input.event !== 'pull_request') return true;
+  const touches = (path: string): boolean => RTDB_DIFFERENTIAL_INPUTS.some((pattern) => pattern.test(path));
+  return input.paths.some(({ path, previousPath }) =>
+    touches(path) || (previousPath !== undefined && touches(previousPath)));
+}
+
 function main(): void {
   const event = env('CI_EVENT_NAME') as CheckSetInput['event'];
   const paths = event === 'pull_request'
@@ -70,8 +91,9 @@ function main(): void {
   // orthogonal to how much of the suite runs. It is forced by a push to main,
   // by the ci-packaging label, or by a diff that invalidates what it proves.
   const packaging = determinePackaging({ event, labels: prLabels, paths });
+  const rtdbDifferential = effectiveCheckSet === 'full' && determineRtdbDifferential({ event, paths });
   const summary = JSON.stringify(
-    { mode, predictedCheckSet: checkSet, checkSet: effectiveCheckSet, packaging, paths },
+    { mode, predictedCheckSet: checkSet, checkSet: effectiveCheckSet, packaging, rtdbDifferential, paths },
     null,
     2,
   );
@@ -81,6 +103,7 @@ function main(): void {
     appendFileSync(output, `check-set=${effectiveCheckSet}\n`);
     appendFileSync(output, `predicted-check-set=${checkSet}\n`);
     appendFileSync(output, `packaging=${String(packaging)}\n`);
+    appendFileSync(output, `rtdb-differential=${String(rtdbDifferential)}\n`);
     appendFileSync(output, `paths-json=${JSON.stringify(paths)}\n`);
   }
 }
