@@ -231,9 +231,10 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'storage.getBlob'; path: string }
   /** firebase-admin's `File.setMetadata`, on the admin lens only: custom keys merge, `null` removes one. */
   | { t: 'op'; id: string; method: 'storage.setMetadata'; path: string; patch: StorageMetadataPatchWire }
-  | { t: 'op'; id: string; method: 'storage.putBytes'; path: string; dataB64: string; contentType?: string; metadata?: Record<string, unknown> }
+  /** An upload. `downloadTokens`, as firebase-admin's `save` sets them, is taken on the admin lens only. */
+  | { t: 'op'; id: string; method: 'storage.putBytes'; path: string; dataB64: string; contentType?: string; metadata?: Record<string, unknown>; downloadTokens?: string }
   | { t: 'op'; id: string; method: 'storage.getBytes'; path: string; offset?: number; length?: number; expectedGeneration?: string }
-  | { t: 'op'; id: string; method: 'storage.beginUpload'; path: string; size: number; contentType?: string; metadata?: Record<string, unknown> }
+  | { t: 'op'; id: string; method: 'storage.beginUpload'; path: string; size: number; contentType?: string; metadata?: Record<string, unknown>; downloadTokens?: string }
   | { t: 'op'; id: string; method: 'storage.putPart'; uploadId: string; partIndex: number; dataB64: string }
   | { t: 'op'; id: string; method: 'storage.finishUpload'; uploadId: string }
   | { t: 'op'; id: string; method: 'storage.abortUpload'; uploadId: string }

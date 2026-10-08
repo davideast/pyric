@@ -78,6 +78,10 @@ test('pyric-admin on the Node host replays the production admin metadata and dow
   expect(await runNodeFixture('admin-metadata-oracle', 30_000)).toBe('Admin metadata oracle replay passed');
 }, 60_000);
 
+test('pyric-admin on the Node host saves a file with firebaseStorageDownloadTokens, and that token grants its byte route URL', async () => {
+  expect(await runNodeFixture('admin-save-download-tokens', 30_000)).toBe('Admin save download tokens passed');
+}, 60_000);
+
 test('the Node host replays the production download URL observations', async () => {
   expect(await runNodeFixture('download-url-oracle', 30_000)).toBe('Download URL oracle replay passed');
 }, 60_000);

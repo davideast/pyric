@@ -154,11 +154,13 @@ export function assertOperationArguments(message: Record<string, unknown>): void
     case 'storage.putBytes':
       requireOptionalRecord(message.metadata, 'metadata');
       requireOptionalString(message.contentType, 'contentType');
+      requireOptionalString(message.downloadTokens, 'downloadTokens');
       return;
     case 'storage.beginUpload':
       requireNumber(message.size, 'size');
       requireOptionalRecord(message.metadata, 'metadata');
       requireOptionalString(message.contentType, 'contentType');
+      requireOptionalString(message.downloadTokens, 'downloadTokens');
       return;
     case 'storage.putPart':
       requireString(message.uploadId, 'uploadId');
