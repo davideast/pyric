@@ -161,9 +161,12 @@ function activate(): void {
   }
 
   // The factory global — exact contract shared with pyric-admin's ambient
-  // init: synchronous, returns the lazy branded handle.
+  // init: synchronous, returns the lazy branded handle. The url comes from
+  // PYRIC_SANDBOX=remote:<url> and may be stale, so it is checked against
+  // this project's host. A launcher that sets the url also pins the identity
+  // of the host it started, so that url holds from any working directory.
   (globalThis as Record<symbol, unknown>)[SANDBOX_FACTORY] = (opts?: { url?: string }) =>
-    remoteSandbox(opts);
+    remoteSandbox({ configuredUrl: opts?.url, instanceId: process.env.PYRIC_SANDBOX_INSTANCE });
 
   process.stderr.write(
     `@pyric/cli/register: active. firebase-admin/firebase imports now resolve to the ` +

@@ -108,6 +108,10 @@ export interface ServeRuntime {
   /** The per-launch secret a beacon must present, placed in every child's
    *  `PYRIC_BEACON_TOKEN`. */
   beaconToken: string;
+  /** The bridge's host identity, the `instanceId` its `.pyric/serve.json`
+   *  records; placed in every child's `PYRIC_SANDBOX_INSTANCE`. Undefined
+   *  without the bridge mount. */
+  instanceId: string | undefined;
 }
 
 /** The `--json` stdout contract — one line, keep stable; agents parse this.
@@ -770,7 +774,7 @@ async function startServeRuntime(opts: {
   }
   let mcpUrl: string | null = null;
   if (hasBridge) mcpUrl = mount.mcpUrl(origin);
-  return { handle, publicDir, payload, uiUrl, mcpUrl, persist: persistSummary, beaconCount, beaconToken };
+  return { handle, publicDir, payload, uiUrl, mcpUrl, persist: persistSummary, beaconCount, beaconToken, instanceId: mount?.instanceId };
 }
 
 /**
@@ -1082,6 +1086,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       serveUrl: runtime.handle.url,
       registerUrl: registerModuleUrl(),
       beaconToken: runtime.beaconToken,
+      hostInstanceId: runtime.instanceId,
       instance: `${functionsProjectId}-default-rtdb`,
       location: process.env.PYRIC_FUNCTIONS_RTDB_REGION ?? 'us-central1',
       projectId: functionsProjectId ?? 'demo-project',
@@ -1164,6 +1169,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       serveUrl: runtime.handle.url,
       registerUrl: registerModuleUrl(),
       beaconToken: runtime.beaconToken,
+      instanceId: runtime.instanceId,
       guardAllow: aiGuardAllow,
     });
     // What we are handing the child, stated before it starts: the interlock

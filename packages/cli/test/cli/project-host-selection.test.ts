@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'bun:test';
 import { runBridgeCommand } from '../../src/cli/bridge-tool-call.js';
 import { parseArgs } from '../../src/cli/parse-args.js';
-import { selectProjectHost, type Discovered } from '../../src/serve/discovery.js';
+import { selectExplicitHost, selectProjectHost, type Discovered } from '../../src/serve/discovery.js';
 import { connectRemoteSandbox } from '../../src/remote/index.js';
 
 function sandbox(port: number, source: string, pointerProjectDir?: string): Discovered {
@@ -97,5 +97,158 @@ describe('connectRemoteSandbox when the scan finds another project\'s sandbox', 
     await expect(
       connectRemoteSandbox({ cwd: '/workspace', discover: async () => otherProjectsScanHit }),
     ).rejects.toMatchObject({ code: 'not-found' });
+  });
+});
+
+describe('selectExplicitHost: PYRIC_SANDBOX=remote:<url>', () => {
+  const answering = (base: string, instanceId: string) => async () => ({ base, instanceId });
+  const nothingAnswers = async () => null;
+
+  it('uses the url when it answers as the host this project\'s pointer names', async () => {
+    const choice = await selectExplicitHost({
+      url: 'http://localhost:5192',
+      cwd: '/workspace/app',
+      discover: async () => mine,
+      probe: answering('http://127.0.0.1:5192', 'instance-5192'),
+    });
+    expect(choice).toEqual({ kind: 'explicit', serveUrl: 'http://localhost:5192', base: 'http://127.0.0.1:5192' });
+  });
+
+  it('uses the url when it answers as the host the launcher pinned, with no pointer', async () => {
+    const choice = await selectExplicitHost({
+      url: 'http://localhost:4100/',
+      cwd: '/elsewhere',
+      launcherInstanceId: 'launcher-host',
+      discover: async () => null,
+      probe: answering('http://127.0.0.1:4100', 'launcher-host'),
+    });
+    expect(choice).toEqual({ kind: 'explicit', serveUrl: 'http://localhost:4100', base: 'http://127.0.0.1:4100' });
+  });
+
+  it('falls back to this project\'s host when nothing answers at the url', async () => {
+    const choice = await selectExplicitHost({
+      url: 'http://localhost:5173',
+      cwd: '/workspace/app',
+      discover: async () => mine,
+      probe: nothingAnswers,
+    });
+    expect(choice.kind).toBe('project');
+    if (choice.kind !== 'project') throw new Error('unreachable');
+    expect(choice.host).toBe(mine);
+    expect(choice.notice).toContain('PYRIC_SANDBOX=remote:http://localhost:5173');
+    expect(choice.notice).toContain('nothing answers');
+    expect(choice.notice).toContain(mine.url);
+    expect(choice.notice).toContain('Set PYRIC_SANDBOX=remote');
+  });
+
+  it('falls back to this project\'s host when another host answers at the url', async () => {
+    const choice = await selectExplicitHost({
+      url: 'http://localhost:3473',
+      cwd: '/workspace/app',
+      discover: async () => mine,
+      probe: answering('http://127.0.0.1:3473', 'another-projects-host'),
+    });
+    expect(choice.kind).toBe('project');
+    if (choice.kind !== 'project') throw new Error('unreachable');
+    expect(choice.host).toBe(mine);
+    expect(choice.notice).toContain('not the host this project');
+  });
+
+  it('reports a stale url when nothing answers and this project has no running host', async () => {
+    const choice = await selectExplicitHost({
+      url: 'http://localhost:5173',
+      cwd: '/workspace/app',
+      discover: async () => null,
+      probe: nothingAnswers,
+    });
+    expect(choice.kind).toBe('stale');
+    if (choice.kind !== 'stale') throw new Error('unreachable');
+    expect(choice.message).toContain('PYRIC_SANDBOX=remote:http://localhost:5173 is stale');
+    expect(choice.message).toContain('nothing answers');
+    expect(choice.message).toContain('Set PYRIC_SANDBOX=remote');
+  });
+
+  it('refuses a url that answers when no pointer in this project names that host', async () => {
+    const choice = await selectExplicitHost({
+      url: 'http://localhost:3473',
+      cwd: '/workspace',
+      discover: async () => otherProjectsScanHit,
+      probe: answering('http://127.0.0.1:3473', 'instance-3473'),
+    });
+    expect(choice.kind).toBe('refused');
+    if (choice.kind !== 'refused') throw new Error('unreachable');
+    expect(choice.message).toContain('PYRIC_SANDBOX=remote:http://localhost:3473');
+    expect(choice.message).toContain('another project');
+    expect(choice.message).toContain('not attached to');
+  });
+
+  it('does not accept a launcher pin from a host that answers with a different identity', async () => {
+    const choice = await selectExplicitHost({
+      url: 'http://localhost:3473',
+      cwd: '/workspace',
+      launcherInstanceId: 'launcher-host',
+      discover: async () => null,
+      probe: answering('http://127.0.0.1:3473', 'some-other-host'),
+    });
+    expect(choice.kind).toBe('refused');
+  });
+});
+
+describe('connectRemoteSandbox with a configured url', () => {
+  it('takes a programmatic url as given, without discovery or a probe', async () => {
+    let consulted = false;
+    await expect(
+      connectRemoteSandbox({
+        url: 'http://127.0.0.1:1',
+        cwd: '/workspace',
+        discover: async () => { consulted = true; return null; },
+        probe: async () => { consulted = true; return null; },
+      }),
+    ).rejects.toThrow(/failed to connect|timed out/);
+    expect(consulted).toBe(false);
+  });
+
+  it('rejects a stale url with no running host for this project as not-found', async () => {
+    await expect(
+      connectRemoteSandbox({
+        configuredUrl: 'http://127.0.0.1:1',
+        cwd: '/workspace',
+        discover: async () => null,
+        probe: async () => null,
+      }),
+    ).rejects.toMatchObject({
+      code: 'not-found',
+      message: expect.stringContaining('is stale'),
+    });
+  });
+
+  it('rejects a url that answers for another project as failed-precondition', async () => {
+    await expect(
+      connectRemoteSandbox({
+        configuredUrl: 'http://localhost:3473',
+        cwd: '/workspace',
+        discover: async () => otherProjectsScanHit,
+        probe: async () => ({ base: 'http://127.0.0.1:3473', instanceId: 'instance-3473' }),
+      }),
+    ).rejects.toMatchObject({ code: 'failed-precondition' });
+  });
+
+  it('warns once per url when it falls back to this project\'s host', async () => {
+    const warnings: string[] = [];
+    // The fallback host is a closed port, so the attach itself fails; the
+    // warning is what this test observes.
+    const closedHost = { ...mine, base: 'http://127.0.0.1:1', url: 'http://localhost:1' };
+    const attempt = () =>
+      connectRemoteSandbox({
+        configuredUrl: 'http://localhost:59173',
+        cwd: '/workspace/app',
+        discover: async () => closedHost,
+        probe: async () => null,
+        warn: (m) => warnings.push(m),
+      }).catch(() => undefined);
+    await attempt();
+    await attempt();
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('PYRIC_SANDBOX=remote:http://localhost:59173');
   });
 });

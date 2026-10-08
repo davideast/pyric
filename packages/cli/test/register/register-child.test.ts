@@ -162,6 +162,26 @@ console.log('ESM_OK');
 `,
   );
 
+  // Stale-url fixture: the factory takes the PYRIC_SANDBOX url as a setting
+  // that may be stale. Nothing answers there and this project runs no host,
+  // so the first connect names the url as stale.
+  writeFileSync(
+    join(fixtureDir, 'stale.mjs'),
+    `import assert from 'node:assert';
+const factory = globalThis[Symbol.for('pyric.remote.sandboxFactory')];
+const url = process.env.PYRIC_SANDBOX.slice('remote:'.length);
+const handle = factory({ url });
+await assert.rejects(handle.ready, (error) => {
+  assert.strictEqual(error.code, 'not-found');
+  assert.ok(error.message.includes('PYRIC_SANDBOX=remote:' + url + ' is stale'), error.message);
+  assert.ok(error.message.includes('Set PYRIC_SANDBOX=remote'), error.message);
+  return true;
+});
+handle.close();
+console.log('STALE_OK');
+`,
+  );
+
   // CJS fixture: require() interception (sync hooks + the ESM-only exports
   // fallback → require(esm)).
   writeFileSync(
@@ -278,6 +298,13 @@ describe('@pyric/cli/register (child process)', () => {
     const res = runNode('main.mjs', { PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000' });
     expect(res.stderr).toContain('@pyric/cli/register: active');
     expect(res.stdout).toContain('ESM_OK');
+    expect(res.status).toBe(0);
+  });
+
+  it('reports a stale PYRIC_SANDBOX url when nothing answers and the project runs no host', () => {
+    // Port 1 is reliably not listening.
+    const res = runNode('stale.mjs', { PYRIC_SANDBOX: 'remote:http://127.0.0.1:1' });
+    expect(res.stdout).toContain('STALE_OK');
     expect(res.status).toBe(0);
   });
 

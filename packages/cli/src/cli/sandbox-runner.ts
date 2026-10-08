@@ -5,7 +5,8 @@
  * activated so their unchanged firebase-admin/firebase imports resolve to the
  * pyric sandbox:
  *
- *   PYRIC_SANDBOX=remote:<serve url>          (the activator)
+ *   PYRIC_SANDBOX=remote:<serve url>          (the activator, computed at launch)
+ *   PYRIC_SANDBOX_INSTANCE=<host identity>    (pins the host at that url)
  *   NODE_OPTIONS += --import @pyric/cli/register   (the substitution seam)
  *
  * Child-command precedence: `--no-run`, an explicit command, `--json`, the
@@ -163,6 +164,10 @@ export interface ChildActivation {
    *  Absent when the launcher runs no beacon receiver, as the Vite plugin's
    *  Functions runtime does; the child then reports on stderr only. */
   readonly beaconToken?: string | undefined;
+  /** Identity of the host at `serveUrl`. The child's remote client trusts the
+   *  injected url when that host answers with this identity, wherever the
+   *  child's working directory is. */
+  readonly instanceId?: string | undefined;
   /** Hosts or URLs the child's network guard permits in addition to the
    *  developer's own `PYRIC_GUARD_ALLOW`, such as the configured AI upstream. */
   readonly guardAllow?: readonly string[];
@@ -186,6 +191,9 @@ export function buildChildEnv(
     NODE_OPTIONS: base.NODE_OPTIONS ? `${base.NODE_OPTIONS} ${importFlag}` : importFlag,
   };
   if (opts.beaconToken !== undefined) env.PYRIC_BEACON_TOKEN = opts.beaconToken;
+  // An inherited identity names an outer launcher's host, not this one.
+  delete env.PYRIC_SANDBOX_INSTANCE;
+  if (opts.instanceId !== undefined) env.PYRIC_SANDBOX_INSTANCE = opts.instanceId;
   const guardAllow = childGuardAllow(base.PYRIC_GUARD_ALLOW, opts.guardAllow ?? []);
   if (guardAllow !== undefined) env.PYRIC_GUARD_ALLOW = guardAllow;
   return env;
@@ -210,11 +218,17 @@ function childGuardAllow(
  * Grouped in a cleanly formatted console block for easy selection and copying
  * into a separate terminal (for example, when running Next.js independently).
  *
+ * The activator printed for copying is bare `remote`: the client finds the
+ * running host through the project's `.pyric/serve.json`, so the line keeps
+ * working when the host takes another port or the project moves to another
+ * machine. The explicit url is named only for the case discovery cannot
+ * cover, a command started outside this project directory.
+ *
  * Only the spawned-child environment receives the beacon secret. Printed
  * output is safe to share; independently started commands still intercept.
  */
 export function formatStartupEnvExport(opts: ChildActivation): string {
-  const lines = [`export PYRIC_SANDBOX="remote:${opts.serveUrl}"`];
+  const lines = ['export PYRIC_SANDBOX=remote'];
   lines.push(`export NODE_OPTIONS="--import ${opts.registerUrl}"`);
   const width = Math.max(...lines.map((line) => line.length));
   const divider = '─'.repeat(width + 4);
@@ -225,6 +239,8 @@ export function formatStartupEnvExport(opts: ChildActivation): string {
     `  ${divider}\n` +
     body +
     `  ${divider}\n` +
+    '  PYRIC_SANDBOX=remote finds this host through .pyric/serve.json from this project directory.\n' +
+    `  From another directory or machine, set PYRIC_SANDBOX=remote:${opts.serveUrl} instead.\n` +
     '  Automatic interception confirmation requires launching the command through pyric.\n'
   );
 }

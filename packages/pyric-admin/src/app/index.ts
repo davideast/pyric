@@ -224,7 +224,7 @@ function parsePyricSandboxEnv(env: string): RemoteSandboxFactoryOptions {
       throw new Error(
         'pyric-admin: PYRIC_SANDBOX=remote: has an empty url. Use ' +
           'PYRIC_SANDBOX=remote to auto-discover the running `pyric sandbox`, ' +
-          'or PYRIC_SANDBOX=remote:<url> with the host url.',
+          'or, from outside the project directory, PYRIC_SANDBOX=remote:<url> with the host url.',
       );
     }
     return { url };
