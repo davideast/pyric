@@ -28,6 +28,10 @@
       "types": "./dist/verify/index.d.ts",
       "import": "./dist/verify/index.js"
     },
+    "./repro": {
+      "types": "./dist/serve/repro/index.d.ts",
+      "import": "./dist/serve/repro/index.js"
+    },
     "./conformance": {
       "types": "./dist/conformance/index.d.ts",
       "import": "./dist/conformance/index.js"

@@ -17,6 +17,8 @@
  *   pyric database rules generate [--config <path>] [--out <path>]
  *   pyric serve diagnostics [--url URL] [--json]
  *   pyric serve sessions [--json]
+ *   pyric serve repro capture [--out FILE]
+ *   pyric serve repro replay <file> [--plane node|worker] [--json]
  *   pyric --help
  *   pyric --version
  *
@@ -71,6 +73,8 @@ USAGE
   pyric database rules generate [--config <path>] [--out <path>]
   pyric serve diagnostics [--url URL] [--json]
   pyric serve sessions [--json]
+  pyric serve repro capture [--out FILE]
+  pyric serve repro replay <file> [--plane node|worker] [--json]
   pyric <tool> <method> [--<arg> <value>...]
   pyric --help
   pyric --version
@@ -126,7 +130,15 @@ COMMANDS
   serve sessions             List the clients connected to the running bridge with
                              their target ids, platforms, and the identity each
                              acts as. Requires a running bridge. --json.
-  auth reset                 Follow the application session again. --target <id>
+  serve repro capture        Write the running Node host's repro file: its starting
+                             state, rules, signed-in ports, and the operations and
+                             listener events since. --out FILE (default
+                             pyric-repro.json), --force. Tokens keep only their claims.
+  serve repro replay <file>  Replay a repro file on a fresh Node host and a fresh
+                             worker host; report the first divergence on each and
+                             where they disagree. --plane node|worker, --json.
+                             Exit 1 on divergence.
+  auth reset                Follow the application session again. --target <id>
                              resets another connected client instead of you;
                              \`pyric serve sessions\` lists the ids.
                              Requires a running bridge. --json.
