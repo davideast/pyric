@@ -4,7 +4,12 @@ import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import type { RemoteSandbox } from '../remote/index.js';
+import type { WorkerOpPayload, WorkerSubPayload } from '../bridge/protocol.js';
+import {
+  createRemoteSandboxHandle,
+  type RemoteSandbox,
+  type RemoteSandboxChannel,
+} from '../remote/index.js';
 import {
   startOnValueCreatedExecution,
   type OnValueCreatedExecutionHost,
@@ -311,6 +316,46 @@ async function loadFunctionsExports(entry: string): Promise<Record<string, unkno
   return await import(pathToFileURL(entry).href) as Record<string, unknown>;
 }
 
+/**
+ * The configured instance name is the name of the default instance: the
+ * `functions.instance` option renames `<projectId>-default-rtdb`, and the host
+ * serves that instance without a name. Wrap the remote sandbox factory that
+ * `@pyric/cli/register` installs so every RTDB op and value subscription this
+ * child sends for `name`, from firebase-admin or from trigger delivery,
+ * reaches the default instance.
+ */
+function serveInstanceAsDefault(name: string): void {
+  const key = Symbol.for('pyric.remote.sandboxFactory');
+  const global = globalThis as Record<symbol, unknown>;
+  const factory = global[key] as ((options?: { url?: string }) => RemoteSandbox) | undefined;
+  if (typeof factory !== 'function') return;
+  global[key] = (options?: { url?: string }): RemoteSandbox => {
+    const inner = factory(options);
+    return createRemoteSandboxHandle({
+      channel: aliasDefaultInstance(inner.channel, name),
+      serveUrl: inner.serveUrl,
+      close: () => inner.close(),
+    });
+  };
+}
+
+/** A channel that sends `instance: name` as the default instance. */
+function aliasDefaultInstance(channel: RemoteSandboxChannel, name: string): RemoteSandboxChannel {
+  const alias = (instance: unknown): unknown => (instance === name ? undefined : instance);
+  return {
+    op: (payload) => channel.op(
+      'instance' in payload ? { ...payload, instance: alias(payload.instance) } as WorkerOpPayload : payload,
+    ),
+    subscribe: (sub, onSnap, onError) => {
+      const target = sub.target;
+      const isRtdb = typeof target === 'object' && target !== null && 'service' in target && target.service === 'rtdb';
+      const aliased = isRtdb ? { ...sub, target: { ...target, instance: alias(target.instance) } } as WorkerSubPayload : sub;
+      return channel.subscribe(aliased, onSnap, onError);
+    },
+    byteRoute: () => channel.byteRoute?.() ?? Promise.resolve(undefined),
+  };
+}
+
 async function runFunctionsRtdbChild(): Promise<void> {
   const entry = process.env.PYRIC_FUNCTIONS_ENTRY;
   const instance = process.env.PYRIC_FUNCTIONS_INSTANCE;
@@ -322,6 +367,7 @@ async function runFunctionsRtdbChild(): Promise<void> {
 
   const requireFromEntry = createRequire(entry);
   const adminApp = requireFromEntry('firebase-admin/app') as AdminAppModule;
+  serveInstanceAsDefault(instance);
   const app = adminApp.initializeApp();
   let host: OnValueCreatedExecutionHost | undefined;
   let closing: Promise<void> | undefined;
@@ -372,9 +418,11 @@ async function runFunctionsRtdbChild(): Promise<void> {
           effectiveInstances.join(', '),
       );
     }
+    // Deliver from the instance the triggers name.
+    const rtdb = app.sandbox.rtdb.forInstance(effectiveInstances[0] ?? instance);
     host = startOnValueCreatedExecution({
       exported,
-      delivery: new RemoteRtdbTriggerDelivery(app.sandbox.rtdb),
+      delivery: new RemoteRtdbTriggerDelivery(rtdb),
       eventOptions: async (_projection, sequence, trigger) => ({
         id: `${randomUUID()}-${sequence}`,
         // The delivery's instant is the sandbox's, not this process's: the

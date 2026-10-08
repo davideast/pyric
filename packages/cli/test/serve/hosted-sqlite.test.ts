@@ -116,6 +116,10 @@ test('the Node host keeps each RTDB instance\'s data and rules apart, keeps the 
   expect(await runNodeFixture('rtdb-instances')).toBe('Hosted RTDB instances passed');
 });
 
+test('a pyric-admin write through getDatabaseWithUrl reaches a client on that instance of the Node host, and not the default instance', async () => {
+  expect(await runNodeFixture('admin-rtdb-instances', 30_000)).toBe('Admin RTDB instances passed');
+});
+
 test('the Node host loads each instance of a firebase.json database array with its own rules', async () => {
   expect(await runNodeFixture('rtdb-firebase-json')).toBe('Hosted RTDB firebase.json instances passed');
 });

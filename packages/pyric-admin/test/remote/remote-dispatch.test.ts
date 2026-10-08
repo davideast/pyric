@@ -55,7 +55,7 @@ import type {
 } from '../../../cli/src/serve/worker/protocol.js';
 
 import { initializeApp, deleteApp, getApps } from '../../src/app/index.js';
-import { getDatabase } from '../../src/database/index.js';
+import { getDatabase, getDatabaseWithUrl } from '../../src/database/index.js';
 import { getAuth } from '../../src/auth/index.js';
 
 // ─── Harness (checkpoint 1's, minus persistence — not needed here) ─────────
@@ -362,6 +362,106 @@ describe('pyric-admin remote dispatch — RTDB', () => {
     expect(() => ref.transaction(() => null)).toThrow(/not implemented/);
     expect(() => ref.orderByChild('y')).toThrow(/not implemented/);
     expect(() => ref.onDisconnect()).toThrow(/not implemented/);
+  });
+});
+
+// ─── RTDB instances ─────────────────────────────────────────────────────────
+
+describe('pyric-admin remote dispatch: RTDB instances', () => {
+  const SHARD_URL = 'https://demo-app-shard-1.firebaseio.com';
+  const SHARD = 'demo-app-shard-1';
+
+  async function workerInstanceGet(ctx: HostCtx, instance: string | undefined, path: string): Promise<unknown> {
+    const wire = (await workerOp(ctx, {
+      method: 'rtdb.get',
+      instance,
+      path,
+      actAs: { mode: 'admin' },
+    })) as { value: unknown };
+    return wire.value ?? null;
+  }
+
+  it('getDatabaseWithUrl writes land in the instance the URL names, not the default instance', async () => {
+    const { ctx, app } = makeStack();
+    const shard = getDatabaseWithUrl(SHARD_URL, app);
+
+    await shard.ref('rooms/r1').set({ members: { u1: true } });
+
+    expect(await workerInstanceGet(ctx, SHARD, 'rooms/r1')).toEqual({ members: { u1: true } });
+    expect(await workerInstanceGet(ctx, undefined, 'rooms/r1')).toBeNull();
+    expect((await getDatabase(app).ref('rooms/r1').get()).exists()).toBe(false);
+    expect((await shard.ref('rooms/r1').get()).val()).toEqual({ members: { u1: true } });
+  });
+
+  it('update, push and remove name the instance', async () => {
+    const { ctx, app } = makeStack();
+    const shard = getDatabase(app, SHARD_URL);
+
+    await shard.ref('rooms/r1').update({ name: 'one' });
+    const pushed = await shard.ref('rooms/r1/log').push('entry');
+    expect(await workerInstanceGet(ctx, SHARD, 'rooms/r1')).toEqual({ name: 'one', log: { [pushed.key!]: 'entry' } });
+
+    await shard.ref('rooms/r1').remove();
+    expect(await workerInstanceGet(ctx, SHARD, 'rooms/r1')).toBeNull();
+    expect(await workerInstanceGet(ctx, undefined, 'rooms')).toBeNull();
+  });
+
+  it("on('value') and once('value') listen on the instance", async () => {
+    const { ctx, app } = makeStack();
+    const shard = getDatabaseWithUrl(SHARD_URL, app);
+    await workerOp(ctx, { method: 'rtdb.set', instance: SHARD, path: 'state', value: 1, actAs: { mode: 'admin' } });
+    await workerOp(ctx, { method: 'rtdb.set', path: 'state', value: 'default', actAs: { mode: 'admin' } });
+
+    expect((await shard.ref('state').once('value')).val()).toBe(1);
+    const values: unknown[] = [];
+    const cb = shard.ref('state').on('value', (snap) => values.push(snap.val()));
+    await tick();
+    await workerOp(ctx, { method: 'rtdb.set', instance: SHARD, path: 'state', value: 2, actAs: { mode: 'admin' } });
+    await workerOp(ctx, { method: 'rtdb.set', path: 'state', value: 'default-2', actAs: { mode: 'admin' } });
+    await tick();
+    shard.ref('state').off('value', cb);
+
+    expect(values).toEqual([1, 2]);
+  });
+
+  it('one Database per remote handle and instance', () => {
+    const { app } = makeStack();
+
+    expect(getDatabaseWithUrl(SHARD_URL, app)).toBe(getDatabaseWithUrl(SHARD_URL, app));
+    expect(getDatabaseWithUrl(SHARD_URL, app)).not.toBe(getDatabase(app));
+  });
+
+  it('a bare initializeApp() reads databaseURL from FIREBASE_CONFIG', async () => {
+    const bridge = createBridge({ mode: 'sandbox', version: 'test' });
+    const ctx = makeWorkerCtx();
+    connectTab(bridge, ctx);
+    const remote = connectRemote(bridge);
+    const g = globalThis as { [REMOTE_SANDBOX_FACTORY]?: unknown };
+    const prevFactory = g[REMOTE_SANDBOX_FACTORY];
+    const prevEnv = process.env.PYRIC_SANDBOX;
+    const prevConfig = process.env.FIREBASE_CONFIG;
+    const prevWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = (() => true) as typeof process.stderr.write;
+    try {
+      process.env.PYRIC_SANDBOX = 'remote';
+      process.env.FIREBASE_CONFIG = JSON.stringify({ projectId: 'demo-app', databaseURL: SHARD_URL });
+      g[REMOTE_SANDBOX_FACTORY] = () => remote;
+
+      initializeApp();
+      await getDatabase().ref('probe').set('shard');
+
+      expect(await workerInstanceGet(ctx, SHARD, 'probe')).toBe('shard');
+      expect(await workerInstanceGet(ctx, undefined, 'probe')).toBeNull();
+      expect(getDatabase()).toBe(getDatabaseWithUrl(SHARD_URL));
+    } finally {
+      process.stderr.write = prevWrite;
+      if (prevEnv === undefined) delete process.env.PYRIC_SANDBOX;
+      else process.env.PYRIC_SANDBOX = prevEnv;
+      if (prevConfig === undefined) delete process.env.FIREBASE_CONFIG;
+      else process.env.FIREBASE_CONFIG = prevConfig;
+      if (prevFactory === undefined) delete g[REMOTE_SANDBOX_FACTORY];
+      else g[REMOTE_SANDBOX_FACTORY] = prevFactory;
+    }
   });
 });
 

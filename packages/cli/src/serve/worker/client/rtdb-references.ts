@@ -24,16 +24,19 @@ export function rtdbInstanceDatabase(db: ClientRtdb, instance: ClientRtdbInstanc
   return { __kind: 'client-rtdb', port: db.port, instance };
 }
 
-/** The protocol's `instance` field for a reference: present only for a named instance. */
-export function instanceField(ref: { readonly instance?: ClientRtdbInstance }): { instance?: string } {
-  const name = ref.instance?.name;
-  return name === undefined ? {} : { instance: name };
+/** The protocol's `instance` field for a reference: the instance name, or `undefined` for the default instance. */
+export function instanceField(ref: { readonly instance?: ClientRtdbInstance }): { instance: string | undefined } {
+  return { instance: ref.instance?.name };
 }
+
+/** An RTDB op message without its `instance`, which {@link rtdbRpc} takes from the reference. */
+type RtdbOpOnReference<M = Extract<InboundMessage, { t: 'op'; method: `rtdb.${string}` }>> =
+  M extends unknown ? Omit<M, 'instance'> : never;
 
 /** An RTDB operation on the reference's instance. */
 export function rtdbRpc(
   ref: { readonly port: ClientPort; readonly instance?: ClientRtdbInstance },
-  msg: InboundMessage & { t: 'op' },
+  msg: RtdbOpOnReference,
 ): Promise<unknown> {
   return dataRpc(ref.port, { ...msg, ...instanceField(ref) } as InboundMessage & { t: 'op' });
 }
