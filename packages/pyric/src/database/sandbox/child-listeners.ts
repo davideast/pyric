@@ -4,8 +4,8 @@ import type { BackendState } from './backend-state.js';
 import type { ChildListener, ChildParentSnapshot } from './listener-types.js';
 import { denyResultFor, rtdbDenialContext, rtdbRulesDetail } from './operation-events.js';
 import {
-  compareValues, executeQuery, extractOrderValue,
-  type QueryRow, type QuerySpec,
+  executeQuery, extractOrderValue,
+  type Priority, type QueryRow, type QuerySpec,
 } from './query.js';
 import { permissionDenied } from './rules-eval.js';
 import { listenerPermissionDenied, ownersFor } from './value-listeners.js';
@@ -23,15 +23,6 @@ function previousName(rows: QueryRow[], key: string): string | null {
 function previousValueName(rows: Array<{ key: string; val: JsonValue }>, key: string): string | null {
   const index = rows.findIndex((row) => row.key === key);
   return index > 0 ? rows[index - 1]!.key : null;
-}
-
-function directChildKey(parentPath: string, changedPath?: string): string | null {
-  if (changedPath === undefined) return null;
-  const parent = pathSegments(parentPath);
-  const changed = pathSegments(changedPath);
-  if (changed.length !== parent.length + 1) return null;
-  if (!parent.every((segment, index) => changed[index] === segment)) return null;
-  return changed[changed.length - 1] ?? null;
 }
 
 export class ChildListeners {
@@ -128,17 +119,17 @@ export class ChildListeners {
     for (const listener of this.state.childListeners) {
       const path = joinPath(pathSegments(listener.path));
       if (result.has(path)) continue;
-      result.set(path, new Map(this.directChildren(path).map(({ key, val }) => [key, val])));
+      result.set(path, this.childStates(path));
     }
     return result;
   }
 
-  fanOut(priorByParent: ChildParentSnapshot, priorityChangedPath?: string): void {
+  fanOut(priorByParent: ChildParentSnapshot): void {
     if (this.state.childListeners.size === 0) return;
     const byParent = new Map<string, ChildListener[]>();
     for (const listener of this.state.childListeners) {
       if (listener.spec) {
-        this.fanOutQuery(listener, priorityChangedPath);
+        this.fanOutQuery(listener);
         continue;
       }
       const path = joinPath(pathSegments(listener.path));
@@ -147,28 +138,27 @@ export class ChildListeners {
       byParent.set(path, listeners);
     }
     for (const [parentPath, listeners] of byParent) {
-      const prior = priorByParent.get(parentPath) ?? new Map<string, JsonValue>();
-      const next = new Map(this.directChildren(parentPath).map(({ key, val }) => [key, val]));
-      const nextRows = [...next].map(([key, val]) => ({ key, val }));
-      const priorRows = [...prior].map(([key, val]) => ({ key, val }));
+      const prior = priorByParent.get(parentPath) ?? new Map<string, { val: JsonValue; priority: Priority }>();
+      const next = this.childStates(parentPath);
+      const nextRows = [...next].map(([key, { val }]) => ({ key, val }));
+      const priorRows = [...prior].map(([key, { val }]) => ({ key, val }));
       const events: Record<ChildEvent, ChildSnapshot[]> = {
         child_added: [], child_changed: [], child_removed: [], child_moved: [],
       };
-      for (const [key, val] of next) {
-        if (!prior.has(key)) events.child_added.push({ key, val, previousChildName: previousValueName(nextRows, key) });
-        else if (!jsonValuesEqual(prior.get(key)!, val)) {
-          events.child_changed.push({ key, val, previousChildName: previousValueName(nextRows, key) });
+      for (const [key, { val, priority }] of next) {
+        const before = prior.get(key);
+        if (before === undefined) {
+          events.child_added.push({ key, val, previousChildName: previousValueName(nextRows, key) });
+          continue;
         }
+        const previousChildName = previousValueName(nextRows, key);
+        if (!jsonValuesEqual(before.val, val)) events.child_changed.push({ key, val, previousChildName });
+        // A plain reference orders by priority: a child moves when its own
+        // priority changes, whatever happens to its neighbors or descendants.
+        if (before.priority !== priority) events.child_moved.push({ key, val, previousChildName });
       }
-      for (const [key, val] of prior) {
+      for (const [key, { val }] of prior) {
         if (!next.has(key)) events.child_removed.push({ key, val, previousChildName: previousValueName(priorRows, key) });
-      }
-      const movedKey = directChildKey(parentPath, priorityChangedPath);
-      if (movedKey !== null && prior.has(movedKey) && next.has(movedKey)) {
-        events.child_moved.push({
-          key: movedKey, val: next.get(movedKey)!,
-          previousChildName: previousValueName(nextRows, movedKey),
-        });
       }
       for (const listener of listeners) {
         for (const snapshot of events[listener.event]) this.deliver(listener, snapshot, {});
@@ -189,7 +179,13 @@ export class ChildListeners {
     ).map(({ key, value: val }) => ({ key, val }));
   }
 
-  private fanOutQuery(listener: ChildListener, priorityChangedPath?: string): void {
+  /** A parent's children in priority order, each with its value and own priority. */
+  private childStates(path: string): Map<string, { val: JsonValue; priority: Priority }> {
+    const priorityOf = this.state.priorities.forChild(path);
+    return new Map(this.directChildren(path).map(({ key, val }) => [key, { val, priority: priorityOf(key) }]));
+  }
+
+  private fanOutQuery(listener: ChildListener): void {
     const prior = listener.lastWindow ?? [];
     const next = executeQuery(
       this.state.tree.read(listener.path), listener.spec!,
@@ -212,26 +208,16 @@ export class ChildListeners {
         events.push({ key: row.key, val: row.value, previousChildName: previousName(prior, row.key) });
       }
     } else if (listener.spec?.orderBy && listener.spec.orderBy.kind !== 'key') {
-      const priorityKey = listener.spec.orderBy.kind === 'priority'
-        ? directChildKey(listener.path, priorityChangedPath) : null;
-      let handledPriorityMove = false;
-      if (priorityKey !== null) {
-        const row = next.find((candidate) => candidate.key === priorityKey);
-        if (row && priorByKey.has(priorityKey)) {
+      // A child moves when its indexed value changes, as production's index
+      // compares it: by equality, so a change that keeps its rank still moves.
+      const priorRows = new Map(prior.map((row) => [row.key, row]));
+      for (const row of next) {
+        const beforeRow = priorRows.get(row.key);
+        if (!beforeRow) continue;
+        const before = extractOrderValue(listener.spec.orderBy, beforeRow.key, beforeRow.value, beforeRow.priority);
+        const after = extractOrderValue(listener.spec.orderBy, row.key, row.value, row.priority);
+        if (!jsonValuesEqual(before, after)) {
           events.push({ key: row.key, val: row.value, previousChildName: previousName(next, row.key) });
-          handledPriorityMove = true;
-        }
-      }
-      if (!handledPriorityMove) {
-        const priorRows = new Map(prior.map((row) => [row.key, row]));
-        for (const row of next) {
-          const beforeRow = priorRows.get(row.key);
-          if (!beforeRow) continue;
-          const before = extractOrderValue(listener.spec.orderBy, beforeRow.key, beforeRow.value, beforeRow.priority);
-          const after = extractOrderValue(listener.spec.orderBy, row.key, row.value, row.priority);
-          if (compareValues(before, after) !== 0) {
-            events.push({ key: row.key, val: row.value, previousChildName: previousName(next, row.key) });
-          }
         }
       }
     }

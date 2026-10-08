@@ -131,12 +131,10 @@ export class WritePlane {
     });
     const priors = this.children.snapshotParents();
     const priorNodePriority = this.state.priorities.get(path);
-    const previousPriority = this.state.priorities.stateAtOrBelow(path);
     this.state.tree.write(path, resolved);
     this.state.priorities.replace(path, resolved === null ? null : priority);
     this.storeNestedPriorities(path, written.nested);
-    const priorityChanged = previousPriority !== this.state.priorities.stateAtOrBelow(path);
-    this.changed([path], priors, priorityChanged ? path : undefined);
+    this.changed([path], priors);
     const after = this.state.tree.read(path);
     this.state.events.commit(null, after === null ? 'remove' : 'set', path, {
       data: value, priorState: before, nextState: after,
@@ -380,12 +378,10 @@ export class WritePlane {
     }
     this.state.events.operation(auth, op, path, 'allow', evaluation, common);
     const priors = this.children.snapshotParents();
-    const priorPriorityState = this.state.priorities.stateAtOrBelow(path);
     this.state.tree.write(path, resolved);
     this.state.priorities.replace(path, resolved === null ? null : priority);
     this.storeNestedPriorities(path, written.nested);
-    const priorityChanged = priorPriorityState !== this.state.priorities.stateAtOrBelow(path);
-    this.changed([path], priors, priorityChanged ? path : undefined);
+    this.changed([path], priors);
     const after = this.state.tree.read(path);
     const effectiveOp = after === null ? 'remove' : op;
     this.state.events.commit(auth, effectiveOp, path, {
@@ -408,10 +404,10 @@ export class WritePlane {
     }));
   }
 
-  private changed(paths: string[], priors: ReturnType<ChildListeners['snapshotParents']>, priorityPath?: string): void {
+  private changed(paths: string[], priors: ReturnType<ChildListeners['snapshotParents']>): void {
     this.state.mutations.mark(paths);
     this.values.fanOut(paths);
-    this.children.fanOut(priors, priorityPath);
+    this.children.fanOut(priors);
   }
 
   private cancelDeniedListeners(): void {

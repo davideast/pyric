@@ -9,6 +9,10 @@ import {
   set,
   setPriority,
   setWithPriority,
+  onChildMoved,
+  query,
+  orderByValue,
+  orderByChild,
   sandbox as rtdbSandbox,
 } from '../../../src/database/index.js';
 
@@ -67,5 +71,43 @@ describe('priority metadata value-listener fanout', () => {
     await setPriority(parent, 9);
 
     expect(deliveries).toBe(1);
+  });
+});
+
+describe('child_moved follows the indexed value', () => {
+  it('fires when an object child changes under orderByValue without changing rank', async () => {
+    const db = setup();
+    const moved: string[] = [];
+    onChildMoved(query(ref(db, 'items'), orderByValue()), (snapshot) => moved.push(snapshot.key!));
+    await set(ref(db, 'items/a'), { x: 1 });
+    await set(ref(db, 'items/a'), { x: 2 });
+    expect(moved).toEqual(['a']);
+  });
+
+  it('fires when an object child field changes under orderByChild without changing rank', async () => {
+    const db = setup();
+    const moved: string[] = [];
+    onChildMoved(query(ref(db, 'items'), orderByChild('n')), (snapshot) => moved.push(snapshot.key!));
+    await set(ref(db, 'items/a'), { n: { v: 1 } });
+    await set(ref(db, 'items/a'), { n: { v: 2 } });
+    expect(moved).toEqual(['a']);
+  });
+
+  it('does not fire on a plain reference when only a descendant\'s priority changes', async () => {
+    const db = setup();
+    const moved: string[] = [];
+    onChildMoved(ref(db, 'items'), (snapshot) => moved.push(snapshot.key!));
+    await set(ref(db, 'items/a/n'), { a: 46, '.priority': 'p' });
+    await set(ref(db, 'items/a'), { t: 96 });
+    expect(moved).toEqual([]);
+  });
+
+  it('fires once per child whose own priority one write changes', async () => {
+    const db = setup();
+    await set(ref(db, 'items'), { a: 1, b: 2 });
+    const moved: string[] = [];
+    onChildMoved(ref(db, 'items'), (snapshot) => moved.push(snapshot.key!));
+    await set(ref(db, 'items'), { a: { '.value': 1, '.priority': 1 }, b: { '.value': 2, '.priority': 2 } });
+    expect(moved).toEqual(['a', 'b']);
   });
 });

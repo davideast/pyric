@@ -62,28 +62,7 @@ function withoutPriorities(value: unknown): unknown {
   return value;
 }
 
-function isSubsequence(shorter: unknown[], longer: unknown[]): boolean {
-  let index = 0;
-  for (const item of longer) {
-    if (index < shorter.length && stable(item) === stable(shorter[index])) index++;
-  }
-  return index === shorter.length;
-}
-
 export const KNOWN_DIVERGENCES: KnownDivergence[] = [
-  {
-    // The sandbox decides child_moved by sort comparison and by which path a
-    // write's priority touched, not by whether the child's indexed value
-    // changed.
-    name: 'sandbox-child-moved-indexed-value',
-    matches(mismatch) {
-      if (!/^events\.L\d+ child_moved /.test(mismatch.where) || !servedAgree(mismatch)) return false;
-      const sandbox = mismatch.values['sandbox'];
-      const served = mismatch.values['worker'];
-      if (!Array.isArray(sandbox) || !Array.isArray(served)) return false;
-      return isSubsequence(sandbox, served) || isSubsequence(served, sandbox);
-    },
-  },
   {
     // The sandbox's child_removed snapshot loses the removed child's
     // priorities.
