@@ -27,7 +27,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
-import { createPyricNamespace } from '../../src/serve/namespace.js';
+import { createDenialThrottle, createPyricNamespace, noteAiDiagnostic } from '../../src/serve/namespace.js';
 import {
   formatAiBlockedBlock,
   formatAiModelSubstitutionBlock,
@@ -550,6 +550,25 @@ describe('AI model substitutions → dev terminal', () => {
     expect(notes.some((n) => n.includes('ai request rejected'))).toBe(true);
   });
 
+  it('prints a substitution once per model for the server lifetime, past the throttle window', () => {
+    const { logger, notes } = recordingLogger();
+    const throttle = createDenialThrottle(0);
+    const swap = { kind: 'ai-model-substituted', requestedModel: 'models/gemini-2.5-pro', effectiveModel: 'llama3', engine: 'openai' };
+    const rejection = { kind: 'ai-rejection', model: 'models/gemini-2.5-pro', message: 'bad role' };
+    for (let i = 0; i < 3; i += 1) {
+      noteAiDiagnostic(throttle, logger, swap);
+      noteAiDiagnostic(throttle, logger, rejection);
+    }
+    noteAiDiagnostic(throttle, logger, { ...swap, effectiveModel: 'qwen3' });
+
+    expect(notes.filter((n) => n.includes('ai model substituted'))).toEqual([
+      '  ⚠ [pyric] ai model substituted: models/gemini-2.5-pro → llama3 (openai)',
+      '  ⚠ [pyric] ai model substituted: models/gemini-2.5-pro → qwen3 (openai)',
+    ]);
+    // A rejection keeps the windowed throttle: a zero window prints each one.
+    expect(notes.filter((n) => n.includes('ai request rejected')).length).toBe(3);
+  });
+
   it('relays a model_substituted event and ignores a no-op (requested === effective)', () => {
     const calls: string[] = [];
     const spyFetch = ((url: string) => {
@@ -580,13 +599,13 @@ describe('formatAiModelSubstitutionBlock', () => {
     const line = formatAiModelSubstitutionBlock({
       kind: 'ai-model-substituted',
       requestedModel: 'models/gemini-2.5-flash',
-      effectiveModel: 'gemini-flash-lite-latest',
-      engine: 'gemini',
-      reason: 'experimental alias',
+      effectiveModel: 'qwen3',
+      engine: 'openai',
+      reason: 'engine modelMap',
     });
     expect(line.split('\n').length).toBe(1);
     expect(line).toBe(
-      '  ⚠ [pyric] ai model substituted: models/gemini-2.5-flash → gemini-flash-lite-latest (gemini, experimental alias)',
+      '  ⚠ [pyric] ai model substituted: models/gemini-2.5-flash → qwen3 (openai, engine modelMap)',
     );
   });
 

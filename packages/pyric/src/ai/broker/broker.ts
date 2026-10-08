@@ -27,7 +27,7 @@ import { aiEndpoint, getAiEvidence, setAiEvidence, type AiEvidence } from '../..
  *
  * The same goes for a model SUBSTITUTION ({@link emitModelSubstitution}): an
  * engine that redirects the requested model (an openai `modelMap` entry or
- * catch-all `model`, a gemini experimental alias) answers normally, so
+ * catch-all `model`) answers normally, so
  * nothing anywhere says the developer tested a model they never named.
  *
  * Event emission is best-effort behind one small choke-point ({@link emit}):
@@ -231,10 +231,10 @@ export class AiBroker {
    *
    * A substitution is the quietest failure the broker has: nothing throws,
    * content comes back, and the developer concludes they tested model X when
-   * model Y answered (an openai `modelMap` entry or catch-all `model`, a
-   * gemini experimental alias). Only engines that actually redirect implement
-   * {@link AnswerEngine.resolveEffectiveModel}; the rest are silent by
-   * construction.
+   * model Y answered (an openai `modelMap` entry or catch-all `model`). Only
+   * a {@link AnswerEngine.resolveEffectiveModel} answer that differs from the
+   * requested model is announced; the gemini engine always passes the
+   * requested model through, so it never is.
    *
    * Fired at REQUEST time, before delegating: the swap is a property of the
    * call about to go out, so it lands even when that call then fails.

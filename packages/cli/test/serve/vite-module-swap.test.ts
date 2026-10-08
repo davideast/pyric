@@ -5,6 +5,7 @@ import {
   createViteModuleContext,
   createViteModuleSwap,
 } from '../../src/serve/vite-module-swap.js';
+import { sdkImportMap } from '../../src/serve/html-injection.js';
 
 const context = createViteModuleContext();
 const swap = createViteModuleSwap(context);
@@ -65,10 +66,32 @@ describe('Vite module swap', () => {
     ).toBe(true);
   });
 
-  it('swaps firebase/ai and firebase/app normally in production AI mode to route through server broker', () => {
+  it('leaves firebase/ai to the Firebase SDK and serves the passthrough app in production AI mode', () => {
     const prodSwap = createViteModuleSwap(context, { getAiMode: () => 'production' });
-    expect(prodSwap.resolveId('firebase/ai', userImporter)).toBe(context.entries['ai']);
-    expect(prodSwap.resolveId('firebase/app', userImporter)).toBe(context.entries['app']);
+    expect(prodSwap.resolveId('firebase/ai', userImporter)).toBeNull();
+    expect(prodSwap.resolveId('firebase/app', userImporter)).toBe(context.entries['app-ai-passthrough']);
     expect(prodSwap.resolveId('firebase/firestore', userImporter)).toBe(context.entries['firestore']);
+    // The passthrough app's own firebase/app import reaches the Firebase SDK.
+    expect(prodSwap.resolveId('firebase/app', '/cli/src/serve/entries/app-ai-passthrough.ts')).toBeNull();
   });
+});
+
+describe('import map and Vite resolver agree', () => {
+  for (const mode of ['sandbox', 'production'] as const) {
+    it(`serves the same entry for every Firebase module in ${mode} mode`, () => {
+      const modeSwap = createViteModuleSwap(context, { getAiMode: () => mode });
+      const importMap = sdkImportMap(mode);
+      for (const specifier of SDK_MODULES) {
+        const viteEntry = modeSwap.resolveId(specifier, userImporter);
+        const mapped = importMap[specifier];
+        if (mapped === undefined) {
+          expect({ specifier, viteEntry }).toEqual({ specifier, viteEntry: null });
+          continue;
+        }
+        const key = mapped.slice('/__pyric/sdk/'.length, -'.js'.length);
+        expect({ specifier, viteEntry }).toEqual({ specifier, viteEntry: context.entries[key] });
+      }
+      expect(Object.keys(importMap).every((specifier) => (SDK_MODULES as readonly string[]).includes(specifier))).toBe(true);
+    });
+  }
 });

@@ -28,17 +28,7 @@ import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as esbuild from 'esbuild';
 
-/** Modules the import map serves. Keys are the bare specifiers app code uses. */
-export const SDK_MODULES = [
-  'firebase/ai',
-  'firebase/app',
-  'firebase/auth',
-  'firebase/firestore',
-  'firebase/database',
-  'firebase/messaging',
-  'firebase/messaging/sw',
-  'firebase/storage',
-] as const;
+export { SDK_MODULES } from './firebase-module-swap.js';
 
 /**
  * The wrapper entries shipped with @pyric/cli, located relative to this

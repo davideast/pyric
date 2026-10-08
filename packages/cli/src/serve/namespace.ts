@@ -378,19 +378,20 @@ interface DenialRelayPayload {
 /** Per-dev-server-instance throttle: at most one printed line per (path,
  *  message) pair within {@link DENIAL_THROTTLE_MS}. Exported for unit tests. */
 export function createDenialThrottle(windowMs: number = DENIAL_THROTTLE_MS): {
-  shouldPrint(key: string, now: number): boolean;
+  /** `window` overrides the throttle's window for this key; `Infinity` prints once. */
+  shouldPrint(key: string, now: number, window?: number): boolean;
 } {
   const lastPrinted = new Map<string, number>();
   return {
-    shouldPrint(key, now) {
+    shouldPrint(key, now, window = windowMs) {
       const last = lastPrinted.get(key);
-      if (last !== undefined && now - last < windowMs) return false;
+      if (last !== undefined && now - last < window) return false;
       lastPrinted.set(key, now);
       return true;
     },
   };
 }
-type DenialThrottle = ReturnType<typeof createDenialThrottle>;
+export type DenialThrottle = ReturnType<typeof createDenialThrottle>;
 
 /** Format a relayed denial into the compact terminal block: the message,
  *  then (when present) the request method/path, the auth uid, and any
@@ -422,7 +423,26 @@ export function formatDenialBlock(payload: DenialRelayPayload): string {
  */
 const THROTTLE_KEY_SEPARATOR = '\x00';
 
-/** Handle `POST /__pyric/denials`: a rules denial, or (discriminated by
+/**
+ * Print one AI diagnostic (a broker rejection, blocked response, or model
+ * substitution) under the shared throttle. The denials route calls it for a
+ * relayed body; the hosted runtime calls it for its own broker's events,
+ * since a Node-owned broker has no page to relay from. Returns nothing and
+ * ignores a payload whose `kind` is not an AI diagnostic.
+ */
+export function noteAiDiagnostic(
+  throttle: DenialThrottle,
+  logger: ServeLogger | undefined,
+  payload: AiDiagnosticPayload,
+): void {
+  const aiBlock = aiTerminalBlockFor(payload.kind);
+  if (aiBlock === null || logger === undefined) return;
+  const key = `${aiBlock.throttleTarget(payload)}${THROTTLE_KEY_SEPARATOR}${aiBlock.throttleReason(payload)}`;
+  const window = aiBlock.printsOnce ? Number.POSITIVE_INFINITY : undefined;
+  if (throttle.shouldPrint(key, Date.now(), window)) logger.note(aiBlock.format(payload));
+}
+
+/** Handle `POST /__pyric/denials`:a rules denial, or (discriminated by
  *  `kind`) an AI broker rejection, blocked response, or model substitution
  *  relayed off the sandbox event stream. All four share the throttle map: an
  *  agent retry loop re-sends the SAME malformed (or filter-tripping) AI
@@ -442,22 +462,16 @@ async function handleDenials(
   }
   try {
     const payload = (await collectBody(req)) as DenialRelayPayload & AiDiagnosticPayload;
-    const aiBlock = aiTerminalBlockFor(payload.kind);
-    let target: string;
-    let reason: string;
-    let render: () => string;
-    if (aiBlock === null) {
-      target = payload.denialContext?.request?.path ?? '';
-      reason = typeof payload.message === 'string' ? payload.message : 'permission denied';
-      render = () => formatDenialBlock(payload);
+    const isAiDiagnostic = aiTerminalBlockFor(payload.kind) !== null;
+    if (isAiDiagnostic) {
+      noteAiDiagnostic(throttle, logger, payload);
     } else {
-      target = aiBlock.throttleTarget(payload);
-      reason = aiBlock.throttleReason(payload);
-      render = () => aiBlock.format(payload);
-    }
-    const key = `${target}${THROTTLE_KEY_SEPARATOR}${reason}`;
-    if (logger && throttle.shouldPrint(key, Date.now())) {
-      logger.note(render());
+      const target = payload.denialContext?.request?.path ?? '';
+      const reason = typeof payload.message === 'string' ? payload.message : 'permission denied';
+      const key = `${target}${THROTTLE_KEY_SEPARATOR}${reason}`;
+      if (logger && throttle.shouldPrint(key, Date.now())) {
+        logger.note(formatDenialBlock(payload));
+      }
     }
   } catch {
     /* malformed body: drop it; this is a diagnostics side channel */

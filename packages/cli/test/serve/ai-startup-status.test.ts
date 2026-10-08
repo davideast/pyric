@@ -97,12 +97,19 @@ describe('pyric dev AI startup status', () => {
   });
 
   it('reports a gemini engine without ever printing the key', () => {
-    expect(
-      formatAiStatusLine({ engine: { kind: 'gemini', apiKey: 'AIzaSyTOPSECRET' }, mode: 'production' }),
-    ).toBe(
-      '✔ ai       gemini (production passthrough, API key set) → https://generativelanguage.googleapis.com',
+    expect(formatAiStatusLine({ engine: { kind: 'gemini', apiKey: 'AIzaSyTOPSECRET' } })).toBe(
+      '✔ ai       gemini (API key set) → https://generativelanguage.googleapis.com',
     );
     expect(formatAiStatusLine({ engine: { kind: 'gemini' } })).toContain('no API key');
+  });
+
+  it('reports production mode as the Firebase SDK, with no engine and no key demand', () => {
+    const line = formatAiStatusLine({ mode: 'production' });
+    expect(line).toBe(
+      "✔ ai       production passthrough; firebase/ai is the Firebase SDK, calling Google AI or Vertex AI with the app's initializeApp config",
+    );
+    expect(line).not.toContain('GEMINI_API_KEY');
+    expect(formatAiStatusNote({ mode: 'production', hosted: true })).toContain('[pyric] ai: production passthrough');
   });
 
   it('redacts credential params in the proxy upstream', () => {

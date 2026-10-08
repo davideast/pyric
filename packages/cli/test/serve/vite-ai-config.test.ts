@@ -114,22 +114,17 @@ describe('Vite AI configuration', () => {
     });
   });
 
-  it('resolves production mode when configured in options or environment', () => {
-    expect(resolveViteAiConfig({ mode: 'production' }, {})).toEqual({
-      mode: 'production',
-      engineWire: { kind: 'gemini' },
-      proxyUpstream: undefined,
-    });
-    expect(resolveViteAiConfig(undefined, { PYRIC_AI_MODE: 'production' })).toEqual({
-      mode: 'production',
-      engineWire: { kind: 'gemini' },
-      proxyUpstream: undefined,
-    });
-    expect(resolveViteAiConfig(undefined, { PYRIC_AI_PASSTHROUGH: '1' })).toEqual({
-      mode: 'production',
-      engineWire: { kind: 'gemini' },
-      proxyUpstream: undefined,
-    });
+  it('resolves production mode with no engine, since firebase/ai is the Firebase SDK', () => {
+    const production = { mode: 'production', engineWire: undefined, proxyUpstream: undefined };
+    expect(resolveViteAiConfig({ mode: 'production' }, {})).toEqual(production);
+    expect(resolveViteAiConfig(undefined, { PYRIC_AI_MODE: 'production' })).toEqual(production);
+    expect(resolveViteAiConfig(undefined, { PYRIC_AI_PASSTHROUGH: '1' })).toEqual(production);
+    // A server-side Gemini key does not select an engine in production mode.
+    expect(resolveViteAiConfig(undefined, { PYRIC_AI_MODE: 'production', GEMINI_API_KEY: 'k' })).toEqual(production);
+  });
+
+  it('lets the plugin option override the environment mode', () => {
+    expect(resolveViteAiConfig({ mode: 'sandbox' }, { PYRIC_AI_MODE: 'production' }).mode).toBe('sandbox');
   });
 
   it('rejects configuring model or engine when mode is production', () => {

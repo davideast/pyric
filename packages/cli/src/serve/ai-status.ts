@@ -30,7 +30,8 @@ export interface AiStartupStatus {
    *  `getAI(...)` chooses the engine at runtime, and the server cannot know
    *  which (there is no CLI surface for it under `pyric dev`). */
   engine?: AiEngineConfigWire;
-  /** `ai.mode`: `production` passes through to Google AI instead of mirroring. */
+  /** `ai.mode` or `PYRIC_AI_MODE`: `production` leaves `firebase/ai` to the
+   *  Firebase SDK, so no engine runs on this server. */
   mode?: 'sandbox' | 'production';
   /** Configured OpenAI-compatible upstream (`ai.proxyUpstream`). Absent falls
    *  back to `PYRIC_AI_PROXY_UPSTREAM`, then the local-Ollama default. */
@@ -62,6 +63,14 @@ function describeAiStatus(status: AiStartupStatus): { mark: string; body: string
     ? `${upstreamTarget} (direct from Node)`
     : `${AI_PROXY_ROUTE} → ${upstreamTarget}`;
 
+  if (status.mode === 'production') {
+    // No broker, no key on this server: the page's `firebase/ai` is the
+    // Firebase SDK and authenticates with the app's own config.
+    return {
+      mark: '✔',
+      body: "production passthrough; firebase/ai is the Firebase SDK, calling Google AI or Vertex AI with the app's initializeApp config",
+    };
+  }
   const engine = status.engine;
   if (engine === undefined) {
     // Visible absence, the `• rules    no firestore.rules ...` idiom: AI
@@ -81,14 +90,12 @@ function describeAiStatus(status: AiStartupStatus): { mark: string; body: string
     return { mark: '✔', body: `openai (${model}) → ${endpoint}` };
   }
   if (engine.kind === 'gemini') {
-    let passthrough = '';
-    if (status.mode === 'production') passthrough = 'production passthrough, ';
     const hasKey = engine.apiKey !== undefined && engine.apiKey !== '';
     let key = 'no API key; set GEMINI_API_KEY';
     if (hasKey) key = 'API key set';
     let endpoint = GEMINI_DEFAULT_BASE_URL;
     if (engine.baseUrl !== undefined) endpoint = redactUrl(engine.baseUrl);
-    return { mark: '✔', body: `gemini (${passthrough}${key}) → ${endpoint}` };
+    return { mark: '✔', body: `gemini (${key}) → ${endpoint}` };
   }
   const responses = engine.script?.length ?? 0;
   return { mark: '✔', body: `scripted (${responses} canned response(s), no network)` };

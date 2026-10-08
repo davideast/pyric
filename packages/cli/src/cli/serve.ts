@@ -31,6 +31,7 @@ import type { InitPayload } from '../serve/namespace.js';
 import { formatAiStatusLine } from '../serve/ai-status.js';
 import { aiUpstreamGuardAllowance } from '../serve/ai-proxy.js';
 import { injectServeTags } from '../serve/html-injection.js';
+import { resolveAiMode } from '../serve/firebase-module-swap.js';
 import { formatActivityWarning } from '../serve/activity-warning.js';
 import { consoleServeLogger, startStaticServer, stderrServeLogger, type ServeHandle } from '../serve/server.js';
 import { createBridgeMount } from '../serve/bridge-mount.js';
@@ -391,6 +392,7 @@ async function startServeRuntime(opts: {
   const usesPersistence = Boolean(opts.persist || opts.hosted);
   const persistenceOptions = usesPersistence ? { fresh: opts.fresh } : undefined;
   const studioOptions: Parameters<typeof createSandboxSession>[0]['studio'] = mountsStudio ? { siteUiDir } : false;
+  const aiMode = resolveAiMode(undefined, process.env);
   const usesHostedSandbox = opts.hosted === true;
   let session: SandboxSession;
   try {
@@ -469,7 +471,7 @@ async function startServeRuntime(opts: {
       // Never force in-page: serve always serves the worker, and the bridge peer
       // routes agent tool-calls THROUGH the worker (see connectBridgePeer), so app
       // + Studio + agent share the one sandbox even under --bridge.
-      transformHtml: (html) => injectServeTags(html, { workerVersion, hosted }),
+      transformHtml: (html) => injectServeTags(html, { workerVersion, hosted, aiMode }),
       allowedHosts: opts.allowedHosts,
       logger,
     });
@@ -707,7 +709,7 @@ async function startServeRuntime(opts: {
   // choice (resolved lazily in the browser, since nothing here instantiates a
   // broker to find out); what this server does decide is where the proxy
   // forwards, and that is what the line reports.
-  logger.info(formatAiStatusLine({ hosted: usesHostedSandbox }));
+  logger.info(formatAiStatusLine({ hosted: usesHostedSandbox, mode: aiMode }));
   let persistSummary: ServeRuntime['persist'] = null;
   const persistence = session.summary.persistence;
   const hasPersistence = persistence !== null;
