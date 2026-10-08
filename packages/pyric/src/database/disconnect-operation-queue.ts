@@ -12,8 +12,17 @@ function isAncestorPath(ancestor: string, descendant: string): boolean {
   return descendant !== ancestor && descendant.startsWith(prefix);
 }
 
+/**
+ * A value with children a cancellation can reach. A server value
+ * (`{ ".sv": ... }`) is a leaf, as the SDK holds it, so a path below it names
+ * nothing and cancelling that path leaves it whole.
+ */
+function hasChildren(value: unknown): value is object {
+  return value !== null && typeof value === 'object' && !Object.hasOwn(value, '.sv');
+}
+
 function withoutNestedPath(value: unknown, segments: string[]): unknown {
-  if (segments.length === 0 || value === null || typeof value !== 'object') return value;
+  if (segments.length === 0 || !hasChildren(value)) return value;
   const clone = (Array.isArray(value)
     ? Object.fromEntries(value.flatMap((entry, index) => entry == null ? [] : [[String(index), structuredClone(entry)]]))
     : structuredClone(value)) as Record<string, unknown>;
@@ -49,7 +58,7 @@ export class DisconnectOperationQueue<TMetadata extends object = Record<never, n
       if (!isAncestorPath(queuedPath, path)) continue;
       const queued = this.operations.get(queuedPath)!;
       const relative = pathSegments(path).slice(pathSegments(queuedPath).length);
-      if (queued.kind === 'set' && queued.value !== null && typeof queued.value === 'object') {
+      if (queued.kind === 'set' && hasChildren(queued.value)) {
         this.operations.set(queuedPath, {
           ...queued,
           value: withoutNestedPath(queued.value, relative),

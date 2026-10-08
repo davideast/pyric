@@ -72,15 +72,6 @@ function isSubsequence(shorter: unknown[], longer: unknown[]): boolean {
 
 export const KNOWN_DIVERGENCES: KnownDivergence[] = [
   {
-    // Cancelling a descendant of a queued onDisconnect set splits the set's
-    // server value as if it were an object: the sandbox then writes the raw
-    // `{".sv": ...}` sentinel and the served hosts write nothing.
-    name: 'disconnect-cancel-splits-server-value',
-    matches(mismatch) {
-      return stable(mismatch.values['sandbox'] ?? null).includes('".sv"');
-    },
-  },
-  {
     // The sandbox decides child_moved by sort comparison and by which path a
     // write's priority touched, not by whether the child's indexed value
     // changed.
