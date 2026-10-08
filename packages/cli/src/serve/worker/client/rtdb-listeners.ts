@@ -71,6 +71,12 @@ function targetScope(target: RtdbTarget): string {
  */
 type ValueListenOptions = { readonly onlyOnce?: boolean; readonly owner?: unknown };
 
+/** What a value snapshot shows the page: whether it exists, and its data with priorities. */
+function deliveredContent(wire: unknown): string {
+  const snapshot = wire as Partial<RtdbWireSnapshot> | null;
+  return JSON.stringify([snapshot?.exists ?? null, snapshot?.exportValue ?? null, snapshot?.entries?.map((entry) => entry.key) ?? null]);
+}
+
 function removeRegistration(registration: ListenerRegistration): void {
   const index = registrations.indexOf(registration);
   if (index >= 0) registrations.splice(index, 1);
@@ -104,6 +110,11 @@ function openValueSubscription(
       : { t: 'sub', subId, target: { service: 'rtdb', ...instanceField(ref), path: ref.path, ...(query ? { query } : {}) }, ...ownerFields };
 
   let unsubLens: () => void = () => {};
+  // The host re-registers a listener when the port's session or the page's
+  // lens changes, and the new registration sends the current data again. An
+  // identity change does not change data, so a snapshot equal to the last
+  // one delivered is not a new event.
+  let delivered: string | undefined;
 
   const subHandler = {
     port: ref.port,
@@ -111,6 +122,9 @@ function openValueSubscription(
       const warning = (wire as RtdbWireSnapshot | null)?.warning;
       if (typeof warning === 'string') logDatabaseWarning(warning);
       if (listenOptions?.onlyOnce && fired) return;
+      const content = deliveredContent(wire);
+      if (fired && content === delivered) return;
+      delivered = content;
       fired = true;
       // Reported on the subscription id the sandbox also records as the
       // listener id, immediately before the application's callback runs.
