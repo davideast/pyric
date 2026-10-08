@@ -56,11 +56,6 @@ export default scenario(async (app) => {
     return page;
   });
 
-  await app.step('the dev server leaves firebase/ai to the Firebase SDK', async () => {
-    const main = await (await fetch(`${host.url}/main.js`)).text();
-    assert.doesNotMatch(main, /serve\/entries\/ai\.js/, `firebase/ai was swapped:\n${main.split('\n').slice(0, 3).join('\n')}`);
-  });
-
   await app.step('VertexAIBackend calls Google with the app project, key, and model', async () => {
     const outcome = await page.evaluate(([model]) => runRepro('vertex', model!), [MODEL]);
     assert.equal(captured.length, 1, `requests that left the browser for Google: ${captured.map((c) => c.url.href).join(', ') || 'none'}; app saw ${JSON.stringify(outcome)}`);
@@ -88,6 +83,11 @@ export default scenario(async (app) => {
     assert.match(request.url.pathname, /\/projects\/my-real-project\/models\//);
     assert.equal(request.model, MODEL);
     assert.equal(outcome.ok, true, JSON.stringify(outcome));
+  });
+
+  await app.step('the dev server leaves firebase/ai to the Firebase SDK', async () => {
+    const main = await (await fetch(`${host.url}/main.js`)).text();
+    assert.doesNotMatch(main, /serve\/entries\/ai\.js/, `firebase/ai was swapped:\n${main.split('\n').slice(0, 3).join('\n')}`);
   });
 
   await app.step('no AI request reached the dev server broker', () => {

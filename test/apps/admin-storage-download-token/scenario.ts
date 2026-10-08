@@ -27,21 +27,21 @@ export default scenario(async (app) => {
     return JSON.parse(line) as ServerReport;
   });
 
-  await app.step('createResumableUpload rejects as not implemented', () => {
-    assert.equal(report.typeofCreateResumableUpload, 'function');
-    assert.equal(report.createResumableUpload, undefined);
-    assert.match(report.createResumableUploadError ?? '', /not implemented/i);
-  });
-
-  await app.step('the host serves the token URL to the server and refuses other tokens', () => {
-    assert.deepEqual(report.statuses, { token: 200, wrong: 403, none: 403 });
-  });
-
   await app.step('the browser downloads the bytes through the token URL', async () => {
     const page = await app.page(host.url);
     await page.waitForFunction(() => 'download' in window);
     assert.deepEqual(await page.evaluate((url) => download(url), report.downloadUrl), { status: 200, text: 'hello' });
     const wrong = await page.evaluate((url) => download(url), report.wrongTokenUrl);
     assert.equal(wrong.status, 403);
+  });
+
+  await app.step('the host serves the token URL to the server and refuses other tokens', () => {
+    assert.deepEqual(report.statuses, { token: 200, wrong: 403, none: 403 });
+  });
+
+  await app.step('createResumableUpload rejects as not implemented', () => {
+    assert.equal(report.typeofCreateResumableUpload, 'function');
+    assert.equal(report.createResumableUpload, undefined);
+    assert.match(report.createResumableUploadError ?? '', /not implemented/i);
   });
 });
