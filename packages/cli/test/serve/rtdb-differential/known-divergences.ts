@@ -52,9 +52,8 @@ function withoutReplays(events: unknown): string[] {
 
 export const KNOWN_DIVERGENCES: KnownDivergence[] = [
   {
-    // A listener re-registered for a new Auth identity delivers its current
-    // data again: the sandbox's on each identity change, the served hosts' on
-    // every sign-in and sign-out operation.
+    // A served listener re-registered for a new Auth identity delivers its
+    // current data again, on every sign-in and sign-out operation.
     name: 'auth-change-replays-listener-events',
     matches(mismatch) {
       if (!mismatch.where.startsWith('events.')) return false;

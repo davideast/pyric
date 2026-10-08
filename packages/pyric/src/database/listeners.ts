@@ -19,13 +19,21 @@ import { buildSandboxQuerySnap, buildSandboxSnapFromRaw } from './snapshots.js';
  * that app's session changes, replace the backend registration with one made
  * under the new identity. Registrations belonging to other app sessions are
  * untouched even though all equal-config apps share one data backend.
+ *
+ * An identity change does not change data, so the replacement registration's
+ * initial deliveries, which the backend makes synchronously, repeat what the
+ * listener already received; `replaying()` is true while they run, and the
+ * caller drops them. A replacement the new identity may not read is
+ * cancelled as before.
  */
 function subscribeWithLiveAuth(
   target: Target,
-  subscribe: (auth: AuthState, onCanceled: () => void) => Unsubscribe,
+  subscribe: (auth: AuthState, onCanceled: () => void, replaying: () => boolean) => Unsubscribe,
   onTerminal?: () => void,
 ): Unsubscribe {
   let stopped = false;
+  let replacing = false;
+  const replaying = (): boolean => replacing;
   let backendUnsubscribe: Unsubscribe = () => {};
   let sessionUnsubscribe: Unsubscribe | undefined;
   let release: Unsubscribe | undefined;
@@ -38,16 +46,19 @@ function subscribeWithLiveAuth(
     onTerminal?.();
   };
 
-  backendUnsubscribe = subscribe(authFor(target), stop);
+  backendUnsubscribe = subscribe(authFor(target), stop, replaying);
   sessionUnsubscribe = target.kind === 'sandbox-live'
     ? target.onCurrentUserChanged?.(() => {
       if (stopped) return;
       backendUnsubscribe();
+      replacing = true;
       try {
-        backendUnsubscribe = subscribe(authFor(target), stop);
+        backendUnsubscribe = subscribe(authFor(target), stop, replaying);
       } catch {
         backendUnsubscribe = () => {};
         stop();
+      } finally {
+        replacing = false;
       }
     })
     : undefined;
@@ -244,10 +255,10 @@ function onValueInternal(
     } else {
       subscribed = subscribeWithLiveAuth(
         target,
-        (auth, onCanceled) => target.backend.onValue(
+        (auth, onCanceled, replaying) => target.backend.onValue(
           auth,
           q.ref._path,
-          deliver,
+          (snapshot) => { if (!replaying()) deliver(snapshot); },
           q._spec,
           reportsCancel ? (error) => { activity.fail(); cancelCallback(error); } : undefined,
           () => { activity.fail(); onCanceled(); },
@@ -287,10 +298,10 @@ function onValueInternal(
   } else {
     subscribed = subscribeWithLiveAuth(
       target,
-      (auth, onCanceled) => target.backend.onValue(
+      (auth, onCanceled, replaying) => target.backend.onValue(
         auth,
         ref0._path,
-        wrapper,
+        (raw) => { if (!replaying()) wrapper(raw); },
         undefined,
         reportsCancel ? (error) => { activity.fail(); cancelCallback(error); } : undefined,
         () => { activity.fail(); onCanceled(); },
@@ -539,11 +550,11 @@ function onChildEvent(
   };
   const unsub = subscribeWithLiveAuth(
     target,
-    (auth, onCanceled) => target.backend.onChild(
+    (auth, onCanceled, replaying) => target.backend.onChild(
       auth,
       event,
       baseRef._path,
-      wrapper,
+      (raw) => { if (!replaying()) wrapper(raw); },
       spec,
       cancelCallback,
       () => { activity.fail(); onCanceled(); },
