@@ -40,6 +40,7 @@ jobs:
       predicted-check-set: ${{ steps.plan.outputs.predicted-check-set }}
       packaging: ${{ steps.plan.outputs.packaging }}
       rtdb-differential: ${{ steps.plan.outputs.rtdb-differential }}
+      app-scenarios: ${{ steps.plan.outputs.app-scenarios }}
     steps:
       - uses: actions/checkout@v4
       - name: Fetch PR endpoints and resolve merge base
@@ -316,6 +317,74 @@ jobs:
         # shrunk sequence.
         if: github.event_name == 'schedule'
         run: bun packages/cli/test/serve/rtdb-differential/differential.ts --start=1000 --count=2000 --steps=40 --chunks=2
+
+  app-scenarios:
+    name: App scenarios (real apps on the packed packages)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [plan, build-packages]
+    # Selected by scripts/ci/plan.ts for changes to the Vite plugin and served
+    # hosts, the register hook, pyric-admin, the AI broker, the published
+    # manifests, packaging, or test/apps, and always outside pull requests.
+    if: needs.plan.outputs.app-scenarios == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.15'
+      # Each app installs firebase, firebase-admin and vite from the registry.
+      # The shared npm cache reuses those downloads; resolution still runs.
+      - name: Cache app npm downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pyric-app-scenarios-npm
+          key: app-scenarios-npm-${{ runner.os }}-${{ hashFiles('test/apps/*/package.json', 'packages/*/package.json') }}
+          restore-keys: app-scenarios-npm-${{ runner.os }}-
+      - name: Install
+        run: bun install --frozen-lockfile --filter '!@pyric/playground'
+      - uses: ./.github/actions/restore-dist
+        with:
+          flavor: packages
+      - name: Cache Playwright Chromium
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ env.ImageOS }}-${{ hashFiles('packages/cli/package.json', 'package.json') }}
+          restore-keys: |
+            playwright-chromium-${{ runner.os }}-${{ env.ImageOS }}-
+            playwright-chromium-${{ runner.os }}-
+      - name: Install Chromium browser
+        # Unconditional: the runner resolves the root @playwright/test, whose
+        # Chromium build can differ from the one a shared cache entry holds.
+        # With the build present this is a no-op.
+        run: bunx playwright install chromium
+      - name: Pack the published packages
+        run: bash scripts/pack-packages.sh --skip-build
+      - name: App scenarios
+        # Each app in test/apps installs from the tarballs above plus registry
+        # firebase, firebase-admin and vite, runs its own Vite dev server and
+        # server scripts, and drives its page in Chromium. npm downloads go to
+        # ~/.cache/pyric-app-scenarios-npm, the cache restored above.
+        run: bun test/apps/run.ts --packages dist/packages
+      - name: Upload app scenario logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-scenarios-logs-${{ github.run_attempt }}
+          path: test-results/apps/
+          if-no-files-found: warn
+          retention-days: 7
 
   conformance-suite:
     name: Conformance suite
@@ -756,7 +825,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: always()
-    needs: [plan, build-packages, build-and-test, library-tests, conformance-suite, browser-conformance, conformance-gates, native-conformance, release-contract, packaging, install-matrix, standalone, rtdb-differential]
+    needs: [plan, build-packages, build-and-test, library-tests, conformance-suite, browser-conformance, conformance-gates, native-conformance, release-contract, packaging, install-matrix, standalone, rtdb-differential, app-scenarios]
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -767,5 +836,6 @@ jobs:
           CI_CHECK_SET: ${{ needs.plan.outputs.check-set }}
           CI_REQUIRE_PACKAGING: ${{ contains(github.event.pull_request.labels.*.name, 'ci-packaging') }}
           CI_REQUIRE_RTDB_DIFFERENTIAL: ${{ needs.plan.outputs.rtdb-differential }}
+          CI_REQUIRE_APP_SCENARIOS: ${{ needs.plan.outputs.app-scenarios }}
           CI_NEEDS_JSON: ${{ toJSON(needs) }}
         run: bun scripts/ci/required.ts

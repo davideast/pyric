@@ -75,6 +75,34 @@ export function determineRtdbDifferential(input: {
     touches(path) || (previousPath !== undefined && touches(previousPath)));
 }
 
+/** The code the app scenarios run as an installed user project: the Vite
+ *  plugin and served hosts, the register hook and remote sandbox client, the
+ *  Firebase project resolution, pyric-admin, the AI broker, the published
+ *  manifests and the packaging that builds the tarballs, and the apps. */
+const APP_SCENARIO_INPUTS = [
+  /^packages\/cli\/src\/serve\//,
+  /^packages\/cli\/src\/register\//,
+  /^packages\/cli\/src\/remote\//,
+  /^packages\/cli\/src\/cli\/firebase-project\.ts$/,
+  /^packages\/pyric-admin\/src\//,
+  /^packages\/pyric\/src\/ai\//,
+  /^packages\/[^/]+\/package\.json$/,
+  /^scripts\/pack-packages\.sh$/,
+  /^scripts\/lib\/rewrite-workspace-deps\.mjs$/,
+  /^test\/apps\//,
+  /^\.github\/workflows\/build\.yml$/,
+];
+
+export function determineAppScenarios(input: {
+  event: CheckSetInput['event'];
+  paths: ChangedPath[];
+}): boolean {
+  if (input.event !== 'pull_request') return true;
+  const touches = (path: string): boolean => APP_SCENARIO_INPUTS.some((pattern) => pattern.test(path));
+  return input.paths.some(({ path, previousPath }) =>
+    touches(path) || (previousPath !== undefined && touches(previousPath)));
+}
+
 function main(): void {
   const event = env('CI_EVENT_NAME') as CheckSetInput['event'];
   const paths = event === 'pull_request'
@@ -92,8 +120,9 @@ function main(): void {
   // by the ci-packaging label, or by a diff that invalidates what it proves.
   const packaging = determinePackaging({ event, labels: prLabels, paths });
   const rtdbDifferential = effectiveCheckSet === 'full' && determineRtdbDifferential({ event, paths });
+  const appScenarios = effectiveCheckSet === 'full' && determineAppScenarios({ event, paths });
   const summary = JSON.stringify(
-    { mode, predictedCheckSet: checkSet, checkSet: effectiveCheckSet, packaging, rtdbDifferential, paths },
+    { mode, predictedCheckSet: checkSet, checkSet: effectiveCheckSet, packaging, rtdbDifferential, appScenarios, paths },
     null,
     2,
   );
@@ -104,6 +133,7 @@ function main(): void {
     appendFileSync(output, `predicted-check-set=${checkSet}\n`);
     appendFileSync(output, `packaging=${String(packaging)}\n`);
     appendFileSync(output, `rtdb-differential=${String(rtdbDifferential)}\n`);
+    appendFileSync(output, `app-scenarios=${String(appScenarios)}\n`);
     appendFileSync(output, `paths-json=${JSON.stringify(paths)}\n`);
   }
 }

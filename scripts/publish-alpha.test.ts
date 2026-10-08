@@ -60,6 +60,23 @@ describe('alpha publish safety contract', () => {
     expect(pack).toBeLessThan(publish);
   });
 
+  test('runs the app scenarios on the packed tarballs before the first publish', () => {
+    const { result, commands } = runPublish();
+    expect(result.status).toBe(0);
+    const pack = commands.indexOf('bash scripts/pack-packages.sh');
+    const apps = commands.indexOf('bun test/apps/run.ts --packages dist/packages');
+    const publish = commands.findIndex((command) => command.startsWith('npm publish '));
+    expect(pack).toBeGreaterThanOrEqual(0);
+    expect(pack).toBeLessThan(apps);
+    expect(apps).toBeLessThan(publish);
+  });
+
+  test('a failed app scenario prevents every publish', () => {
+    const { result, commands } = runPublish({ failBunCommand: 'test/apps/run.ts --packages dist/packages' });
+    expect(result.status).toBe(17);
+    expect(commands.some((command) => command.startsWith('npm publish '))).toBe(false);
+  });
+
   test('a failed proof prevents every publish', () => {
     const { result, commands } = runPublish({ failBunCommand: 'run test:packaging' });
     expect(result.status).toBe(17);
@@ -71,6 +88,7 @@ describe('alpha publish safety contract', () => {
     expect(result.status).toBe(0);
     expect(commands).not.toContain('bun run test');
     expect(commands).not.toContain('bun run test:packaging');
+    expect(commands).not.toContain('bun test/apps/run.ts --packages dist/packages');
     expect(commands).toContain('bash scripts/pack-packages.sh');
     expect(commands.filter((command) => command.startsWith('npm publish '))).toHaveLength(5);
   });
