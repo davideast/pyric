@@ -179,7 +179,6 @@
     "smoke:vendor": "bun scripts/standalone-vendor-smoke.ts"
   },
   "dependencies": {
-    "@inbrowser/agent": "0.4.2",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "create-pyric": "workspace:*",
     "esbuild": "^0.28.0",

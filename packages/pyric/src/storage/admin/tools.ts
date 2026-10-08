@@ -3,11 +3,11 @@
  *
  * `createStorageAdminTools({ scope })` returns the two
  * provisioning/status tools as `ToolHandler[]`, consumable by
- * an `@inbrowser/agent` registry.
+ * an agent tool registry.
  * Uses the same tool-factory shape as `createFirestoreRulesTools`: a
  * `ProjectScope` in, JSON-Schema-typed `ToolHandler`s out.
  */
-import type { ToolHandler } from '@inbrowser/agent';
+import type { ToolHandler } from '../../sandbox/internal/tool-handler.js';
 import type { ProjectScope } from '../../project-scope.js';
 import { InspectStorageHandler, ProvisionStorageHandler } from './handler.js';
 import type { ProvisionStorageInput } from './spec.js';

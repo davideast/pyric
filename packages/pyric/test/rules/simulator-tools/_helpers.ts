@@ -25,8 +25,7 @@
  * call inside `seedEnv()` is just a normal seed, no env-creation
  * dance.
  */
-import type { ToolHandler } from '@inbrowser/agent';
-import { LocalEnvironment } from 'pyric/sandbox/internal';
+import { LocalEnvironment, type ToolHandler } from 'pyric/sandbox/internal';
 import { createFirestoreSimulatorTools } from '../../../src/rules/simulator.js';
 
 const ABORT_CTX = { signal: new AbortController().signal };

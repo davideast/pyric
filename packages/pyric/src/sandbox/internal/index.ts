@@ -15,6 +15,7 @@
  * scope summary".
  */
 export { getInternalEnv } from './sandbox-impl.js';
+export type { ToolContext, ToolHandler, ToolParameters, ToolResult } from './tool-handler.js';
 export { decodeImportBundle, validatePersistenceEncoding } from '../persistence/import-bundle.js';
 export { validatePersistedService, persistedServiceHasData, UnsupportedPersistedServiceError } from '../persistence/validate-services.js';
 export { seedUserSchema, storedMetadataSchema } from './state-schemas.js';

@@ -8,7 +8,7 @@
 import { beforeEach, describe, expect, it } from 'bun:test';
 import { initializeSandbox, type LocalSandbox } from 'pyric/sandbox';
 import { getAuth, sandbox as sandboxAuth } from 'pyric/auth';
-import type { ToolHandler } from '@inbrowser/agent';
+import type { ToolHandler } from 'pyric/sandbox/internal';
 import { createAuthUsersTools, mintSandboxCustomToken } from '../../src/auth/users.js';
 
 interface Result {

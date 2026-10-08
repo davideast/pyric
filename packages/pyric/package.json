@@ -204,16 +204,16 @@
     "bench:rules:capture": "bun bench/rules/capture.ts"
   },
   "dependencies": {
-    "@inbrowser/agent": "0.4.2",
     "fake-indexeddb": "^6.0.0",
     "ohm-js": "^17.1.0",
+    "typescript": "^5.7.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {
+    "@inbrowser/agent": "0.4.2",
     "@types/bun": "1.3.14",
     "firebase": "^12.12.0",
-    "firebase-admin": "^13.0.0",
-    "typescript": "^5.7.0"
+    "firebase-admin": "^13.0.0"
   },
   "engines": {
     "node": ">=22"
