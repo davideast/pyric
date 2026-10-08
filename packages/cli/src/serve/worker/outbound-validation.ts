@@ -38,6 +38,7 @@ export function hasValidOutboundEnvelope(value: unknown): boolean {
 
 interface SnapshotError {
   code: string;
+  codeless?: true;
   message: string;
   denialContext?: unknown;
   aiEnvelope?: unknown;
@@ -64,6 +65,7 @@ export function snapshotError(frame: { value?: unknown }): SnapshotError | undef
   if (isInvalidError) return malformed;
   const evidence = error.aiEvidence;
   const hasEvidence = isRecord(evidence);
-  return { code, message, denialContext: error.denialContext,
+  const codeless = error.codeless === true ? { codeless: true as const } : {};
+  return { code, ...codeless, message, denialContext: error.denialContext,
     aiEnvelope: error.aiEnvelope, aiEvidence: hasEvidence ? evidence : undefined, envelope: error.envelope };
 }

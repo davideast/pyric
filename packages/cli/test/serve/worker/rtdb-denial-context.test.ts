@@ -85,6 +85,8 @@ test('update rejects with the context of the denied path', async () => {
 test('a denied transaction keeps its message and carries the context', async () => {
   const error = await rejection(() => client.rtdbRunTransaction(client.rtdbRef(rtdb, 'open/count'), () => 1));
   expect(error.message).toBe('permission_denied');
+  // Production's transaction rejection is a plain Error with no `code`.
+  expect('code' in error).toBe(false);
   expect(error.denialContext).toMatchObject({
     engine: 'rtdb',
     request: { method: 'transaction', path: '/open/count', data: 1 },
@@ -118,6 +120,7 @@ test('serializeError forwards a denial context on a codeless error', () => {
   });
   expect(serializeError(error)).toEqual({
     code: 'unknown',
+    codeless: true,
     message: 'permission_denied',
     denialContext: { engine: 'rtdb', auth: null, reasons: [], request: { method: 'transaction', path: '/a' } },
   });

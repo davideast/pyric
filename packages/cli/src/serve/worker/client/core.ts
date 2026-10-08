@@ -41,7 +41,7 @@ export const _pending = new Map<string, {
   budget?: ReturnType<typeof createOperationBudget>;
   release?: () => void;
   resolve: (v: unknown) => void;
-  reject: (e: Error & { code: string }) => void;
+  reject: (e: Error & { code?: string }) => void;
 }>();
 
 /**
@@ -272,13 +272,13 @@ interface DenialRelayPayload {
  *  `fetch` isn't available (non-browser host). */
 function relayDenial(
   kind: 'listener' | 'read',
-  err: { message: string; code: string; denialContext?: unknown; remediation?: unknown },
+  err: { message: string; code?: string; denialContext?: unknown; remediation?: unknown },
 ): void {
   if (err.denialContext === undefined) return;
   if (typeof fetch !== 'function') return;
   const payload: DenialRelayPayload = {
     kind,
-    code: err.code,
+    code: err.code ?? 'unknown',
     message: err.message,
     denialContext: err.denialContext,
     ...(typeof err.remediation === 'string' ? { remediation: err.remediation } : {}),
@@ -333,11 +333,12 @@ export function wirePort(port: ClientPort): void {
         pending.resolve(msg.value);
       } else {
         const err = new Error(msg.error.message) as Error & {
-          code: string;
+          code?: string;
           denialContext?: unknown;
           aiEnvelope?: unknown;
         };
-        err.code = msg.error.code;
+        const hasCode = msg.error.codeless !== true;
+        if (hasCode) err.code = msg.error.code;
         // Structured denial context (spike gap 6): re-attach so consumers —
         // and the bridge relay, which re-serializes thrown errors — see the
         // same shape a local SandboxError carries.
@@ -366,8 +367,9 @@ export function wirePort(port: ClientPort): void {
       const hasError = errPayload !== undefined;
       if (hasError) {
         closeSubscription(port, msg.subId, sub.message?.clientSessionId);
-        const err = new Error(errPayload.message) as Error & { code: string; denialContext?: unknown; aiEnvelope?: unknown };
-        err.code = errPayload.code;
+        const err = new Error(errPayload.message) as Error & { code?: string; denialContext?: unknown; aiEnvelope?: unknown };
+        const hasCode = errPayload.codeless !== true;
+        if (hasCode) err.code = errPayload.code;
         const hasDenialContext = errPayload.denialContext !== undefined;
         if (hasDenialContext) err.denialContext = errPayload.denialContext;
         const aiEvidence = errPayload.aiEvidence;

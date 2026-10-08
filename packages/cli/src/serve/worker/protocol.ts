@@ -500,6 +500,8 @@ export type OutboundMessage = (
 export interface SerializedError {
   aiEvidence?: Partial<AiEvidence>;
   code: string;
+  /** The source error had no `code`, so the page's error has none either; `code` is then `unknown`. */
+  codeless?: true;
   message: string;
   /** Structured rules denial frame; `engine` tells an RTDB frame from a Firestore one. */
   denialContext?: AnyDenialContext;
@@ -529,8 +531,9 @@ function serializeErrorValue(err: unknown): SerializedError {
       };
     }
     const e = err as { code?: unknown; message?: unknown; denialContext?: unknown };
-    // A denied RTDB transaction rejects with a codeless Error, as production
-    // does, and still carries the sandbox's denial context.
+    // A denied RTDB transaction and an unindexed RTDB query reject with a
+    // codeless Error, as production does; the page rebuilds it without a
+    // `code`. A denial still carries the sandbox's denial context.
     const denial = e.denialContext !== null && typeof e.denialContext === 'object'
       ? { denialContext: e.denialContext as AnyDenialContext }
       : {};
@@ -538,7 +541,8 @@ function serializeErrorValue(err: unknown): SerializedError {
       return { code: e.code, message: e.message, ...denial };
     }
     if (err instanceof Error) {
-      return { code: 'unknown', message: err.message, ...denial };
+      const codeless = e.code === undefined ? { codeless: true as const } : {};
+      return { code: 'unknown', ...codeless, message: err.message, ...denial };
     }
   }
   return { code: 'unknown', message: String(err) };
