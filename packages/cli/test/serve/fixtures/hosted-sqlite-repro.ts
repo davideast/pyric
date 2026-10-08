@@ -4,15 +4,17 @@ import { join } from 'node:path';
 import { createHostedRuntime } from '../../../src/serve/hosted/runtime.js';
 import { replayRepro } from '../../../src/serve/repro/index.js';
 import type { BridgeMessage } from '../../../src/bridge/protocol.js';
+import type { InitPayload } from '../../../src/serve/init-payload.js';
 import type { InboundMessage, OutboundMessage } from '../../../src/serve/worker/protocol.js';
 
 const OPEN = JSON.stringify({ rules: { '.read': true, '.write': true } });
 const SIGNED_IN = JSON.stringify({ rules: { '.read': 'auth != null', '.write': 'auth != null' } });
 type Res = Extract<OutboundMessage, { t: 'res' }>;
 
-async function host(directory: string, reproWindow?: number) {
-  const payload = { rules: null, rulesHash: null, storageRules: null, storageRulesHash: null,
-    bridgeUrl: null, seed: null, capture: false, hosted: true, projectKey: directory };
+async function host(directory: string, reproWindow?: number, databaseInstances?: InitPayload['databaseInstances']) {
+  const payload: InitPayload = { rules: null, rulesHash: null, storageRules: null, storageRulesHash: null,
+    bridgeUrl: null, seed: null, capture: false, hosted: true, projectKey: directory,
+    ...(databaseInstances === undefined ? {} : { databaseInstances }) };
   const waiting = new Map<string, (response: Res) => void>();
   const runtime = await createHostedRuntime(payload, 'http://127.0.0.1:1', (frame: BridgeMessage) => {
     const isReply = frame.type === 'worker-message-result' && frame.message.t === 'res';
@@ -120,4 +122,29 @@ const bounded = await record(join(root, 'bounded'), 6);
 assert.equal(bounded.repro.truncated, true);
 const boundedReport = await replayRepro(bounded.repro);
 assert.equal(boundedReport.ok, true, JSON.stringify(boundedReport, null, 2));
+// Rules a deploy target reaches are logged under each instance it resolves
+// to, since a replay host has no deploy targets.
+const targetDirectory = join(root, 'target');
+mkdirSync(targetDirectory, { recursive: true });
+const targeted = await host(targetDirectory, undefined, {
+  defaultInstance: 'p-default-rtdb', rules: {},
+  pendingTargets: [{ target: 'main', rules: JSON.parse(OPEN), instancesByProject: { p: ['main-a'] } }],
+});
+let targetRepro: Record<string, unknown>;
+const info = console.info;
+console.info = () => {};
+try {
+  targeted.runtime.receive({ type: 'worker-message', clientSessionId: 'tab-a', message: { t: 'appConfig', options: { projectId: 'p' } } as InboundMessage });
+  value(await targeted.request('tab-a', { method: 'rtdb.set', instance: 'main-a', path: 'open', value: 1 }));
+  await targeted.runtime.deployRules('database', SIGNED_IN, { target: 'main' });
+  assert.equal((await targeted.request('tab-a', { method: 'rtdb.set', instance: 'main-a', path: 'closed', value: 1 })).ok, false);
+  targetRepro = await targeted.runtime.captureRepro() as unknown as Record<string, unknown>;
+} finally {
+  console.info = info;
+  await targeted.runtime.close();
+}
+const targetRules = (targetRepro.entries as Array<Record<string, unknown>>).filter(entry => entry.kind === 'rules');
+assert.deepEqual(targetRules.map(entry => [entry.instance, entry.source]), [['main-a', JSON.parse(OPEN)], ['main-a', JSON.parse(SIGNED_IN)]]);
+const targetReport = await replayRepro(targetRepro);
+assert.equal(targetReport.ok, true, JSON.stringify(targetReport, null, 2));
 console.log('Repro passed');

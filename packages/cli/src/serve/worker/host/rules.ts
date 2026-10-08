@@ -109,7 +109,9 @@ export function setDatabaseTargetRules(ctx: HostCtx, target: string, source: unk
 
 function applyTargetDeploys(ctx: HostCtx, deploys: readonly DatabaseTargetDeploy[]): DatabaseRulesDeployResult {
   const messages: DatabaseRulesDeployResult['messages'] = [];
-  for (const { instance, rules } of deploys) {
+  for (const deploy of deploys) {
+    const { instance, rules } = deploy;
+    ctx.onDatabaseTargetDeploy?.(deploy);
     const result = setDatabaseRules(ctx, instance, rules);
     for (const message of result.messages) messages.push({ ...message, text: `database instance "${instance}": ${message.text}` });
   }

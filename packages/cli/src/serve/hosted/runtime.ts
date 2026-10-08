@@ -181,6 +181,13 @@ export async function createHostedRuntime(
     limit: ai.reproWindow,
     capture: () => captureReproBase(ctx, [...ports].map(([id, owned]) => [id, owned.port] as [string, PortLike])),
   });
+  // A replay host has no deploy targets, so the log names the instances a
+  // target's rules reach.
+  if (recorder !== undefined) {
+    ctx.onDatabaseTargetDeploy = ({ instance, rules }) => {
+      recorder.note({ kind: 'rules', at: Date.now(), service: 'database', instance, source: rules });
+    };
+  }
   const closingPorts = new Set<Promise<void>>();
   const methodWork = new Map<object, OperationQueue>();
   const toolWork = new Map<string, OperationQueue>();
@@ -361,7 +368,7 @@ export async function createHostedRuntime(
      *  an unresolved deploy target, as {@link setDatabaseTargetRules} takes it. */
     async deployRules(service: 'firestore' | 'database' | 'storage', source: string | null, instance?: DatabaseRulesDestination): Promise<void> {
       if (closed) throw new Error('The hosted sandbox is closed.');
-      recorder?.note({ kind: 'rules', at: Date.now(), service, ...(instance === undefined ? {} : { instance }), source });
+      if (typeof instance !== 'object') recorder?.note({ kind: 'rules', at: Date.now(), service, ...(instance === undefined ? {} : { instance }), source });
       if (service === 'storage') {
         await replaceStorageRules(ctx.sandbox, source);
         return;
