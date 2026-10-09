@@ -66,3 +66,6 @@ The dev server port comes from the command line, which overrides any `server.por
 | `process.waitForLog(pattern, { since })` | Waits for a log line. `process.mark()` gives the `since` offset. |
 | `app.readFile` / `app.writeFile` | Read or edit a file in the installed app, for example `vite.config.js`. |
 | `app.freePort()` | A port nothing listens on. |
+| `app.expectHostError(pattern)` | Allows a page request to a `/__pyric/` route to answer with an error, matched against `"<status> <method> <path>?<query>"`. |
+
+A page request that a `/__pyric/` route answers with a 4xx or 5xx status fails the app after its scenario finishes, even when every step passed. A user sees those errors in the browser console on every page load, so a scenario that triggers one on purpose, such as a download URL with the wrong token, declares it with `app.expectHostError` just before the request.
