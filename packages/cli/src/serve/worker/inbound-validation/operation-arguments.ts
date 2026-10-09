@@ -110,9 +110,14 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       requireShape(hasValidDepth, 'maxDepth');
       return;
     }
-    case 'rtdb.get':
+    case 'rtdb.get': {
       assertRtdbQuery(message.query);
+      const hasValidTransaction = message.transaction === undefined || message.transaction === true;
+      requireShape(hasValidTransaction, 'transaction');
+      const readsTransactionTarget = message.transaction === true;
+      if (readsTransactionTarget) requireShape(message.query === undefined, 'query');
       return;
+    }
     case 'rtdb.update':
     case 'rtdb.onDisconnectUpdate': {
       const hasValues = isMessageRecord(message.values);

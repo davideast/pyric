@@ -120,7 +120,13 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'admin.setDocument'; path: string; data: unknown }
   | { t: 'op'; id: string; method: 'admin.deleteDocument'; path: string }
   | { t: 'op'; id: string; method: 'admin.readState'; path?: string; maxDepth?: number }
-  | { t: 'op'; id: string; method: 'rtdb.get'; instance: string | undefined; path: string; query?: RtdbQuerySpec }
+  | {
+      t: 'op'; id: string; method: 'rtdb.get'; instance: string | undefined; path: string; query?: RtdbQuerySpec;
+      /** A transaction's read of its current value: the sandbox's transaction
+       *  engine reads it without evaluating read rules, so this read does not
+       *  either. The commit evaluates the write rules. */
+      transaction?: true;
+    }
   | { t: 'op'; id: string; method: 'rtdb.set'; instance: string | undefined; path: string; value: unknown }
   | { t: 'op'; id: string; method: 'rtdb.setPriority'; instance: string | undefined; path: string; priority: string | number | null }
   | { t: 'op'; id: string; method: 'rtdb.setWithPriority'; instance: string | undefined; path: string; value: unknown; priority: string | number | null }

@@ -94,6 +94,22 @@ test('a denied transaction keeps its message and carries the context', async () 
   });
 });
 
+test('a transaction on a location the rules deny reading runs its update function, as the sandbox does', async () => {
+  const calls: unknown[] = [];
+  const aborted = await client.rtdbRunTransaction(client.rtdbRef(rtdb, 'rooms/bob'), (current) => {
+    calls.push(current);
+    return undefined;
+  });
+  expect(calls).toEqual([null]);
+  expect(aborted.committed).toBe(false);
+  expect(aborted.snapshot.val()).toBeNull();
+  // A write the rules deny rejects with the transaction's own error and writes nothing.
+  rtdbSandbox.setData(getDatabase(ctx.sandbox), { '/rooms/bob': 5 });
+  const error = await rejection(() => client.rtdbRunTransaction(client.rtdbRef(rtdb, 'rooms/bob'), () => 1));
+  expect(error.message).toBe('permission_denied');
+  expect(rtdbSandbox.snapshotState(getDatabase(ctx.sandbox))).toEqual({ rooms: { bob: 5 } });
+});
+
 test('an initially denied listener cancels with the context', async () => {
   const error = await new Promise<Error & { denialContext?: unknown }>((resolve) => {
     client.rtdbOnValue(client.rtdbRef(rtdb, 'rooms/bob'), () => {}, resolve);
