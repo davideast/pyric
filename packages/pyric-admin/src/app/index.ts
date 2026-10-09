@@ -30,9 +30,10 @@ export interface SandboxAdminApp {
   readonly options: AdminAppOptions;
 }
 
-/** The app options the sandbox reads: `databaseURL` selects the app's RTDB instance, and `projectId` names its default instance. */
+/** The app options the sandbox reads: `databaseURL` selects the app's RTDB instance, `projectId` names its default instance, and `storageBucket` names its default Storage bucket. */
 export interface AdminAppOptions {
   readonly databaseURL?: string;
+  readonly storageBucket?: string;
   readonly projectId?: string;
 }
 
@@ -254,12 +255,13 @@ export function isSandboxAdminApp(app: PyricAdminApp): app is SandboxAdminApp {
   return app[ADMIN_APP_TARGET] === 'sandbox';
 }
 
-/** The `databaseURL` and `projectId` string options of an initialization config. */
+/** The `databaseURL`, `projectId` and `storageBucket` string options of an initialization config. */
 function appOptionsFrom(config: object | undefined): AdminAppOptions {
   if (config === undefined) return {};
-  const { databaseURL, projectId } = config as Record<string, unknown>;
+  const { databaseURL, projectId, storageBucket } = config as Record<string, unknown>;
   return {
     ...(typeof databaseURL === 'string' ? { databaseURL } : {}),
+    ...(typeof storageBucket === 'string' && storageBucket !== '' ? { storageBucket } : {}),
     ...(typeof projectId === 'string' ? { projectId } : {}),
   };
 }

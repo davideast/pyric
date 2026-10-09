@@ -123,6 +123,8 @@ export interface HostCtx {
   /** Per-session Storage handles so app-session rules see the initiating
    * port's authenticated identity. */
   sessionStorages?: Map<string, FirebaseStorage>;
+  /** Storage handles for buckets other than the default one, keyed by bucket and lens. */
+  bucketStorages?: Map<string, FirebaseStorage>;
   /** Cached genuinely-UNAUTHENTICATED Firestore handle for the
    *  `{ mode: 'anon' }` lens — `getFirestore(sandbox.withAuth(null))`, so
    *  rules evaluate with `request.auth == null`. The remote arm's

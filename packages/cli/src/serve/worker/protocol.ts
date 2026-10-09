@@ -77,6 +77,17 @@ export interface AiErrorEnvelopeWire {
  * All one-shot operation messages share the `t:'op'` discriminator and a
  * correlation `id` that the worker echoes back in the `res` reply.
  */
+/**
+ * The bucket a Storage object op names. Without `bucket`, the op is on the
+ * host's default bucket. `defaultBucket` is the caller's name for that default
+ * bucket, as its app's `storageBucket` option names it: the op then reaches the
+ * default bucket under that name too, and so do byte route URLs that carry it.
+ */
+export interface StorageBucketWire {
+  bucket?: string;
+  defaultBucket?: string;
+}
+
 /** A metadata change from the admin plane, as `pyric/storage/internal`'s `patchObjectMetadata` takes it. */
 export interface StorageMetadataPatchWire {
   settable?: {
@@ -223,22 +234,38 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'auth.adminClearUsers' }
   | { t: 'op'; id: string; method: 'auth.getProviderConfig' }
   | { t: 'op'; id: string; method: 'auth.setProviderConfig'; providerId: string; enabled: boolean }
-  // Storage ops
-  | { t: 'op'; id: string; method: 'storage.listAll'; path: string }
-  | { t: 'op'; id: string; method: 'storage.getMetadata'; path: string }
+  // Storage ops. An object op names its bucket with `bucket`, or the host's
+  // default bucket without one (see StorageBucketWire).
+  | ({ t: 'op'; id: string; method: 'storage.listAll'; path: string } & StorageBucketWire)
+  | ({ t: 'op'; id: string; method: 'storage.getMetadata'; path: string } & StorageBucketWire)
   /** The object's download path on the byte route, carrying its persistent download token. */
-  | { t: 'op'; id: string; method: 'storage.getDownloadURL'; path: string }
-  | { t: 'op'; id: string; method: 'storage.getBlob'; path: string }
+  | ({ t: 'op'; id: string; method: 'storage.getDownloadURL'; path: string } & StorageBucketWire)
+  | ({ t: 'op'; id: string; method: 'storage.getBlob'; path: string } & StorageBucketWire)
   /** firebase-admin's `File.setMetadata`, on the admin lens only: custom keys merge, `null` removes one. */
-  | { t: 'op'; id: string; method: 'storage.setMetadata'; path: string; patch: StorageMetadataPatchWire }
+  | ({ t: 'op'; id: string; method: 'storage.setMetadata'; path: string; patch: StorageMetadataPatchWire } & StorageBucketWire)
   /** An upload. `downloadTokens`, as firebase-admin's `save` sets them, is taken on the admin lens only. */
-  | { t: 'op'; id: string; method: 'storage.putBytes'; path: string; dataB64: string; contentType?: string; metadata?: Record<string, unknown>; downloadTokens?: string }
-  | { t: 'op'; id: string; method: 'storage.getBytes'; path: string; offset?: number; length?: number; expectedGeneration?: string }
-  | { t: 'op'; id: string; method: 'storage.beginUpload'; path: string; size: number; contentType?: string; metadata?: Record<string, unknown>; downloadTokens?: string }
+  | ({ t: 'op'; id: string; method: 'storage.putBytes'; path: string; dataB64: string; contentType?: string; metadata?: Record<string, unknown>; downloadTokens?: string } & StorageBucketWire)
+  | ({ t: 'op'; id: string; method: 'storage.getBytes'; path: string; offset?: number; length?: number; expectedGeneration?: string } & StorageBucketWire)
+  | ({ t: 'op'; id: string; method: 'storage.beginUpload'; path: string; size: number; contentType?: string; metadata?: Record<string, unknown>; downloadTokens?: string } & StorageBucketWire)
   | { t: 'op'; id: string; method: 'storage.putPart'; uploadId: string; partIndex: number; dataB64: string }
   | { t: 'op'; id: string; method: 'storage.finishUpload'; uploadId: string }
   | { t: 'op'; id: string; method: 'storage.abortUpload'; uploadId: string }
-  | { t: 'op'; id: string; method: 'storage.deleteObject'; path: string }
+  | ({ t: 'op'; id: string; method: 'storage.deleteObject'; path: string } & StorageBucketWire)
+  /**
+   * firebase-admin's `File.copy`, on the admin lens only. The copy keeps the
+   * source's metadata; `patch` changes it on the copy. `destinationBucket`
+   * names the copy's bucket as `bucket` names the source's.
+   */
+  | ({ t: 'op'; id: string; method: 'storage.copyObject'; path: string; destinationBucket?: string; destinationPath: string; patch?: StorageMetadataPatchWire } & StorageBucketWire)
+  /**
+   * firebase-admin's `File.createResumableUpload`, on the admin lens only, on a
+   * host with an HTTP byte route. Answers `{ uploadUrl }`, a byte route path
+   * that takes the object's bytes in one `PUT`, or in `Content-Range` slices
+   * whose first one names the total size. The object is created with this
+   * metadata when its last byte arrives. `origin` is the page origin the URL
+   * answers cross-origin requests from.
+   */
+  | ({ t: 'op'; id: string; method: 'storage.createUploadSession'; path: string; contentType?: string; metadata?: Record<string, unknown>; downloadTokens?: string; origin?: string } & StorageBucketWire)
   // AI ops
   | { t: 'op'; id: string; method: 'ai.generateContent'; model: string; request: Record<string, unknown>; engine?: AiEngineConfigWire }
   | { t: 'op'; id: string; method: 'ai.countTokens'; model: string; request: Record<string, unknown>; engine?: AiEngineConfigWire }

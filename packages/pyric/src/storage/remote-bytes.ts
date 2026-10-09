@@ -44,6 +44,10 @@ function receivedFrom(response: Response, size: number): number {
 }
 
 export interface RemoteUploadRequest {
+  /** The bucket the object is stored in; absent, the host's default bucket. */
+  bucket?: string;
+  /** The caller's name for the host's default bucket, which the host then answers to. */
+  defaultBucket?: string;
   path: string;
   data: Blob;
   contentType?: string;
@@ -55,9 +59,11 @@ export interface RemoteUploadRequest {
 
 /** Upload over the byte route; resolves with the object's metadata from `finishUpload`. */
 export async function uploadOverByteRoute(channel: OperationChannel, route: RemoteByteRoute, request: RemoteUploadRequest): Promise<unknown> {
-  const { path, data, contentType, metadata, downloadTokens, actAs } = request;
+  const { bucket, defaultBucket, path, data, contentType, metadata, downloadTokens, actAs } = request;
   const begun = (await channel.op({
     method: 'storage.beginUpload',
+    ...(bucket !== undefined ? { bucket } : {}),
+    ...(defaultBucket !== undefined ? { defaultBucket } : {}),
     path,
     size: data.size,
     ...(contentType !== undefined ? { contentType } : {}),

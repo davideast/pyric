@@ -312,7 +312,9 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
         }
       }
       if (isStorageBytes) {
-        // Only a page this server serves, or a process with no Origin, reaches object bytes.
+        // Only a page this server serves, or a process with no Origin, reaches
+        // object bytes. An upload session also takes its bytes from the origin
+        // its creator named.
         const guard = opts.upgradeGuard;
         const checksHosts = guard?.allowedHosts !== true;
         if (checksHosts) {
@@ -321,8 +323,9 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
           const extra = Array.isArray(allowedHosts) ? allowedHosts : [];
           const hostHeader = getHeader(req, 'host');
           const originHeader = getHeader(req, 'origin');
-          const allowed = isAllowedHost(hostHeader, boundHost, extra)
-            && isAllowedOrigin(originHeader, boundHost, extra, req.socket.localPort);
+          const allowedOrigin = isAllowedOrigin(originHeader, boundHost, extra, req.socket.localPort)
+            || hostedRuntime?.storageAllowsOrigin(url, originHeader) === true;
+          const allowed = isAllowedHost(hostHeader, boundHost, extra) && allowedOrigin;
           if (!allowed) {
             res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: invalid host or origin');
             return true;

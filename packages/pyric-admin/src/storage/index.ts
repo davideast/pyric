@@ -9,8 +9,13 @@
  *     `connectRemoteSandbox()`/`remoteSandbox()` relays every data
  *     operation to the sandbox's host (admin lens pinned — rules bypass).
  *     Bytes move over the host's HTTP byte route when it has one, and as
- *     frames when it does not (a browser tab's SharedWorker). Single bucket;
- *     `getSignedUrl` stays the local stub. See the remote arm section below.
+ *     frames when it does not (a browser tab's SharedWorker). Each bucket
+ *     name is its own bucket on the host; the default bucket is the host's
+ *     default one. `createResumableUpload` gives a session URL on the byte
+ *     route. `getSignedUrl` stays the local stub. See the remote arm section below.
+ *
+ *   - **Default bucket**: `bucket()` is the bucket the app's `storageBucket`
+ *     option names, or `'pyric-default'` without one, on both paths.
  *
  *   - **Sandbox path** — returns an in-process {@link Storage} backed
  *     by an in-memory `Map<bucketName, Map<path, FileEntry>>`. State
@@ -37,12 +42,12 @@
  *       - `file.delete()` — idempotent
  *       - `file.exists()` → `[boolean]`
  *       - `file.getSignedUrl(options)` → `['pyric-sandbox-storage://…']`
+ *       - `file.copy(destination, options?)`, within a bucket or across buckets
  *
  *     **Deferred in the sandbox backend** (throws `"not implemented in
- *     pyric-admin/storage sandbox backend"`): resumable uploads and
- *     `file.createResumableUpload` upload sessions, signed
- *     cookies, IAM policies, lifecycle rules, ACLs, copy/move,
- *     notifications.
+ *     pyric-admin/storage sandbox backend"`): `file.createResumableUpload`
+ *     upload sessions, which need an HTTP host, signed cookies, IAM
+ *     policies, lifecycle rules, ACLs, move, notifications.
  */
 
 import { createWriteStream as createFileWriteStream, openAsBlob, type WriteStream } from 'node:fs';
@@ -136,11 +141,22 @@ export interface File {
    */
   createWriteStream(options?: CreateWriteStreamOptions): Writable;
   /**
-   * `@google-cloud/storage`'s resumable upload session. The sandbox does not
-   * model upload sessions, so this rejects with a not-implemented error. Upload
-   * with {@link File.save} or {@link File.createWriteStream} instead.
+   * `@google-cloud/storage`'s resumable upload session: a URL that takes the
+   * object's bytes from a browser, and creates the object with
+   * `options.metadata` when the last byte arrives. A remote sandbox whose host
+   * serves HTTP (the hosted dev server) gives one. In process, and on a
+   * browser tab's SharedWorker host, there is no HTTP host to take the bytes,
+   * so this rejects with a not-implemented error there.
    */
-  createResumableUpload(options?: Record<string, unknown>): Promise<[string]>;
+  createResumableUpload(options?: CreateResumableUploadOptions): Promise<[string]>;
+  /**
+   * Copy the object, with its content type, custom metadata and download
+   * tokens, to `destination`: a path in this bucket, a `gs://` URL, another
+   * {@link Bucket} (same path), or another {@link File}. `options` change the
+   * copy's metadata; a custom key set to `null` is left off the copy.
+   * Resolves `[copy, copyMetadata]`.
+   */
+  copy(destination: CopyDestination, options?: CopyOptions): Promise<[File, FileMetadata]>;
   /** The file's metadata, as a `[metadata]` tuple. Throws if the file does not exist. */
   getMetadata(): Promise<[FileMetadata]>;
   /**
@@ -182,9 +198,8 @@ export interface SaveOptions {
    */
   contentType?: string;
   /**
-   * `resumable: false` is the only mode the sandbox models (single-
-   * shot writes). The sandbox throws when set to `true` since resumable
-   * uploads are deferred.
+   * How `@google-cloud/storage` sends the bytes. The sandbox stores the
+   * object in one write either way, so the stored object is the same.
    */
   resumable?: boolean;
 }
@@ -208,6 +223,28 @@ export interface CreateWriteStreamOptions {
   metadata?: Record<string, unknown>;
   /** Content type stored on the file. */
   contentType?: string;
+}
+
+/** Options bag for {@link File.createResumableUpload}. Subset of `@google-cloud/storage`'s `CreateResumableUploadOptions`. */
+export interface CreateResumableUploadOptions {
+  /** The object's metadata, as {@link SaveOptions.metadata} takes it. */
+  metadata?: Record<string, unknown>;
+  /** The page origin whose cross-origin requests the session URL answers. */
+  origin?: string;
+}
+
+/** Where {@link File.copy} copies to. */
+export type CopyDestination = string | Bucket | File;
+
+/** Options bag for {@link File.copy}. Subset of `@google-cloud/storage`'s `CopyOptions`. */
+export interface CopyOptions {
+  contentType?: string;
+  cacheControl?: string;
+  contentDisposition?: string;
+  contentEncoding?: string;
+  contentLanguage?: string;
+  /** Custom keys for the copy, merged over the source's; `null` leaves a key off. */
+  metadata?: Record<string, string | number | boolean | null>;
 }
 
 /** The custom metadata key holding a file's download tokens, comma-separated. */
@@ -281,10 +318,11 @@ export function getStorage(app?: StorageApp): Storage {
     // must never touch a remote handle — local state keyed off a remote
     // handle would be a private server-side store the browser never sees,
     // and `onEvent` throws on remote handles by design.
+    const defaultBucket = resolved.options.storageBucket ?? DEFAULT_SANDBOX_BUCKET;
     if (isRemoteSandbox(resolved.sandbox)) {
-      return getRemoteStorage(resolved.sandbox);
+      return getRemoteStorage(resolved.sandbox, defaultBucket);
     }
-    return getSandboxStorage(resolved);
+    return getSandboxStorage(resolved, defaultBucket);
   }
   // Defensive: the union is closed at the type level. A runtime value
   // that lands here means a caller forged a handle without going
@@ -387,10 +425,10 @@ function ensureBucketMap(sandbox: Sandbox): BucketMap {
   return map;
 }
 
-function getSandboxStorage(app: SandboxAdminApp): Storage {
+function getSandboxStorage(app: SandboxAdminApp, defaultBucket: string): Storage {
   const sandbox = app.sandbox;
   const buckets = ensureBucketMap(sandbox);
-  return new SandboxStorage(buckets);
+  return new SandboxStorage(buckets, defaultBucket);
 }
 
 /**
@@ -400,16 +438,19 @@ function getSandboxStorage(app: SandboxAdminApp): Storage {
  * `@google-cloud/storage` returns lightweight per-call handles.
  */
 class SandboxStorage implements Storage {
-  constructor(private readonly buckets: BucketMap) {}
+  constructor(
+    private readonly buckets: BucketMap,
+    private readonly defaultBucket: string,
+  ) {}
 
   bucket(name?: string): Bucket {
-    const bucketName = name ?? DEFAULT_SANDBOX_BUCKET;
+    const bucketName = name ?? this.defaultBucket;
     let files = this.buckets.get(bucketName);
     if (!files) {
       files = new Map();
       this.buckets.set(bucketName, files);
     }
-    return new SandboxBucket(bucketName, files);
+    return new SandboxBucket(bucketName, files, this);
   }
 }
 
@@ -417,6 +458,7 @@ class SandboxBucket implements Bucket {
   constructor(
     readonly name: string,
     private readonly files: Map<string, FileEntry>,
+    readonly storage: Storage,
   ) {}
 
   file(path: string): File {
@@ -427,19 +469,18 @@ class SandboxBucket implements Bucket {
 class SandboxFile implements File {
   constructor(
     readonly name: string,
-    readonly bucket: Bucket,
+    readonly bucket: SandboxBucket,
     private readonly files: Map<string, FileEntry>,
   ) {}
 
+  /**
+   * Store `data` in one write. `resumable` only chooses how
+   * `@google-cloud/storage` sends the bytes; the stored object is the same.
+   */
   async save(
     data: Buffer | string | Uint8Array,
     options: SaveOptions = {},
   ): Promise<void> {
-    if (options.resumable === true) {
-      throw new Error(
-        'not implemented in pyric-admin/storage sandbox backend: resumable uploads',
-      );
-    }
     const bytes = toBytes(data);
     const saved = savedMetadataOf(options.metadata ?? {});
     const contentType = options.contentType ?? saved.settable.contentType;
@@ -539,8 +580,35 @@ class SandboxFile implements File {
   async createResumableUpload(): Promise<[string]> {
     throw new Error(
       'not implemented in pyric-admin/storage sandbox backend: resumable upload sessions (createResumableUpload). ' +
-        'Upload with file.save() or file.createWriteStream().',
+        'The in-process sandbox has no HTTP host to take the bytes; upload with file.save() or file.createWriteStream().',
     );
+  }
+
+  async copy(destination: CopyDestination, options: CopyOptions = {}): Promise<[File, FileMetadata]> {
+    const target = copyTargetOf(this, destination, this.bucket.storage);
+    const local = target instanceof SandboxFile;
+    if (!local) throw new Error('pyric-admin/storage: File.copy copies to a File from the same getStorage() sandbox.');
+    const source = this.entry();
+    const patch = patchOf(copyMetadataOf(options), { strict: false });
+    const custom = { ...source.custom };
+    for (const [key, value] of Object.entries(patch.customMetadata)) {
+      if (value === null) delete custom[key];
+      else custom[key] = value;
+    }
+    if (patch.downloadTokens === null) delete custom[DOWNLOAD_TOKENS_KEY];
+    else if (patch.downloadTokens !== undefined) custom[DOWNLOAD_TOKENS_KEY] = patch.downloadTokens;
+    const now = new Date().toISOString();
+    const copied: FileEntry = {
+      data: source.data,
+      settable: { ...source.settable, ...patch.settable },
+      custom,
+      generation: nextGeneration(),
+      metageneration: 1,
+      timeCreated: now,
+      updated: now,
+    };
+    target.files.set(target.name, copied);
+    return [target, target.metadataOf(copied)];
   }
 
   async delete(): Promise<void> {
@@ -569,13 +637,15 @@ class SandboxFile implements File {
 // the browser never sees, and the local arm's `onEvent` reset hook throws
 // on remote handles by design.
 //
+// Buckets: every op names its bucket, and gives the app's name for the
+// default bucket, so the host stores each named bucket apart and answers to
+// the configured default name, in ops and in byte route URLs alike.
+//
 // Divergences from the local arm, all LOUD:
-//   - single bucket: the worker's `pyric/storage` store is single-bucket
-//     ("the data store is shared" — bucket names only round-trip in
-//     metadata), so `bucket('non-default')` throws instead of silently
-//     merging buckets. The default bucket name matches the local arm.
 //   - a host with an HTTP byte route takes and serves bytes there; a
 //     SharedWorker host has none and takes frames, in 4 MiB parts past that.
+//   - a host with a byte route gives `createResumableUpload` session URLs;
+//     the local arm and a SharedWorker host reject it.
 // `getSignedUrl` does NOT relay: it stays the byte-identical local stub.
 
 /** firebase-admin's rules-bypass lens, pinned on every relayed operation. */
@@ -593,14 +663,19 @@ const MAX_STORAGE_PART_BYTES = 4 * 1024 * 1024;
 /** Maximum whole-object size supported by the sandbox backend (512 MiB). Matches MAX_STORAGE_OBJECT_BYTES. */
 const MAX_STORAGE_OBJECT_BYTES = 512 * 1024 * 1024;
 
-/** One remote `Storage` per remote handle (handles only — never data). */
-const remoteStorageBySandbox = new WeakMap<Sandbox, Storage>();
+/** One remote `Storage` per remote handle and default bucket name (handles only, never data). */
+const remoteStorageBySandbox = new WeakMap<Sandbox, Map<string, Storage>>();
 
-function getRemoteStorage(sandbox: RemoteSandbox): Storage {
-  let storage = remoteStorageBySandbox.get(sandbox);
+function getRemoteStorage(sandbox: RemoteSandbox, defaultBucket: string): Storage {
+  let byDefault = remoteStorageBySandbox.get(sandbox);
+  if (!byDefault) {
+    byDefault = new Map();
+    remoteStorageBySandbox.set(sandbox, byDefault);
+  }
+  let storage = byDefault.get(defaultBucket);
   if (!storage) {
-    storage = new RemoteStorage(sandbox.channel);
-    remoteStorageBySandbox.set(sandbox, storage);
+    storage = new RemoteStorage(sandbox.channel, defaultBucket);
+    byDefault.set(defaultBucket, storage);
   }
   return storage;
 }
@@ -612,22 +687,21 @@ interface RemoteGetBytesResult {
   size: number;
 }
 
-class RemoteStorage implements Storage {
-  constructor(private readonly channel: RemoteSandboxChannel) {}
+/** How a relayed op names its bucket (`@pyric/cli`'s `StorageBucketWire`). */
+interface BucketWire {
+  bucket?: string;
+  defaultBucket?: string;
+}
 
+class RemoteStorage implements Storage {
+  constructor(
+    private readonly channel: RemoteSandboxChannel,
+    readonly defaultBucket: string,
+  ) {}
+
+  /** Each bucket name is its own bucket on the host; the default one is the host's default bucket. */
   bucket(name?: string): Bucket {
-    // The worker's object store is single-bucket. A non-default name can't
-    // be faithfully relayed — throw loudly instead of silently merging
-    // buckets (the local arm has REAL multi-bucket isolation; this is the
-    // sharpest local/remote divergence, so it must be explicit).
-    if (name !== undefined && name !== DEFAULT_SANDBOX_BUCKET) {
-      throw new Error(
-        `pyric-admin/storage: the remote (browser) sandbox has a single bucket — ` +
-          `bucket('${name}') cannot be isolated. Use bucket() (the default ` +
-          `'${DEFAULT_SANDBOX_BUCKET}' bucket) instead.`,
-      );
-    }
-    return new RemoteBucket(DEFAULT_SANDBOX_BUCKET, this.channel);
+    return new RemoteBucket(name ?? this.defaultBucket, this.channel, this);
   }
 }
 
@@ -635,7 +709,22 @@ class RemoteBucket implements Bucket {
   constructor(
     readonly name: string,
     private readonly channel: RemoteSandboxChannel,
+    readonly storage: RemoteStorage,
   ) {}
+
+  /**
+   * How ops name this bucket: the default bucket has no `bucket`, and every op
+   * gives the app's name for the default bucket, so the host answers to it.
+   */
+  get wire(): BucketWire {
+    const defaultName = this.storage.defaultBucket;
+    const namesDefault = defaultName !== DEFAULT_SANDBOX_BUCKET;
+    const isDefault = this.name === defaultName;
+    return {
+      ...(isDefault ? {} : { bucket: this.name }),
+      ...(namesDefault ? { defaultBucket: defaultName } : {}),
+    };
+  }
 
   file(path: string): File {
     return new RemoteFile(path, this, this.channel);
@@ -645,19 +734,18 @@ class RemoteBucket implements Bucket {
 class RemoteFile implements File {
   constructor(
     readonly name: string,
-    readonly bucket: Bucket,
+    readonly bucket: RemoteBucket,
     private readonly channel: RemoteSandboxChannel,
   ) {}
 
+  /**
+   * Store `data` in one upload. `resumable` only chooses how
+   * `@google-cloud/storage` sends the bytes; the stored object is the same.
+   */
   async save(
     data: Buffer | string | Uint8Array,
     options: SaveOptions = {},
   ): Promise<void> {
-    if (options.resumable === true) {
-      throw new Error(
-        'not implemented in pyric-admin/storage remote sandbox backend: resumable uploads',
-      );
-    }
     const rawLength = typeof data === 'string' ? Buffer.byteLength(data, 'utf8') : data.byteLength;
     if (rawLength > MAX_STORAGE_OBJECT_BYTES) {
       throw quotaExceeded(rawLength, `save() payload for '${this.name}'`);
@@ -685,11 +773,51 @@ class RemoteFile implements File {
     });
   }
 
-  async createResumableUpload(): Promise<[string]> {
-    throw new Error(
-      'not implemented in pyric-admin/storage remote sandbox backend: resumable upload sessions (createResumableUpload). ' +
-        'Upload with file.save() or file.createWriteStream().',
-    );
+  /**
+   * A session URL on the host's byte route that takes this object's bytes,
+   * as `@google-cloud/storage` returns a resumable upload URI. A browser sends
+   * them in one `PUT`, or in `Content-Range` slices whose first one names the
+   * total size, and the object is created with `metadata` when the last byte
+   * arrives. With `origin`, the URL answers that page origin's cross-origin
+   * requests. A host without a byte route (a browser tab's SharedWorker) has
+   * no URL to give, so this rejects there.
+   */
+  async createResumableUpload(options: CreateResumableUploadOptions = {}): Promise<[string]> {
+    const route = await this.channel.byteRoute?.();
+    const routed = route !== undefined;
+    if (!routed) {
+      throw new Error(
+        'not implemented in pyric-admin/storage remote sandbox backend: resumable upload sessions (createResumableUpload) ' +
+          'on a host without an HTTP byte route. Upload with file.save() or file.createWriteStream().',
+      );
+    }
+    const { uploadUrl } = (await this.channel.op({
+      method: 'storage.createUploadSession',
+      ...this.bucket.wire,
+      path: this.name,
+      ...uploadRequestOf({ ...(options.metadata !== undefined ? { metadata: options.metadata } : {}) }),
+      ...(options.origin !== undefined ? { origin: options.origin } : {}),
+      actAs: STORAGE_REMOTE_ADMIN_LENS,
+    })) as { uploadUrl: string };
+    return [new URL(uploadUrl, route.baseUrl).href];
+  }
+
+  /** Copy this object, with its metadata, to `destination`; `options` change the copy's metadata. */
+  async copy(destination: CopyDestination, options: CopyOptions = {}): Promise<[File, FileMetadata]> {
+    const target = copyTargetOf(this, destination, this.bucket.storage);
+    const remote = target instanceof RemoteFile && target.channel === this.channel;
+    if (!remote) throw new Error('pyric-admin/storage: File.copy copies to a File from the same remote sandbox.');
+    const destinationWire = target.bucket.wire;
+    const full = await this.missingAsNoSuchObject(this.channel.op({
+      method: 'storage.copyObject',
+      ...this.bucket.wire,
+      path: this.name,
+      ...(destinationWire.bucket !== undefined ? { destinationBucket: destinationWire.bucket } : {}),
+      destinationPath: target.name,
+      patch: patchOf(copyMetadataOf(options), { strict: false }),
+      actAs: STORAGE_REMOTE_ADMIN_LENS,
+    })) as HostMetadata;
+    return [target, fileMetadataOf(full)];
   }
 
   /**
@@ -698,13 +826,7 @@ class RemoteFile implements File {
    * as `setMetadata` sends it, and the other custom keys stay custom metadata.
    */
   private async upload(data: Blob, options: CreateWriteStreamOptions): Promise<void> {
-    const saved = options.metadata === undefined ? undefined : savedMetadataOf(options.metadata);
-    const hasCustom = saved !== undefined && Object.keys(saved.custom).length > 0;
-    const request = {
-      ...(options.contentType !== undefined ? { contentType: options.contentType } : {}),
-      ...(saved !== undefined ? { metadata: { ...saved.settable, ...(hasCustom ? { metadata: saved.custom } : {}) } } : {}),
-      ...(saved?.downloadTokens !== undefined ? { downloadTokens: saved.downloadTokens } : {}),
-    };
+    const request = { ...this.bucket.wire, ...uploadRequestOf(options) };
     const route = await this.channel.byteRoute?.();
     const routed = route !== undefined;
     if (routed) {
@@ -755,6 +877,7 @@ class RemoteFile implements File {
   private async *read(options: DownloadOptions): AsyncGenerator<Uint8Array> {
     const metadata = await this.missingAsNoSuchObject(this.channel.op({
       method: 'storage.getMetadata',
+      ...this.bucket.wire,
       path: this.name,
       actAs: STORAGE_REMOTE_ADMIN_LENS,
     })) as { bucket: string; size: number; generation: string };
@@ -766,6 +889,7 @@ class RemoteFile implements File {
     }
     const response = await this.missingAsNoSuchObject(fetchFromByteRoute(route, {
       bucket: metadata.bucket,
+      ...this.bucket.wire,
       path: this.name,
       start: options.start,
       end: options.end,
@@ -789,6 +913,7 @@ class RemoteFile implements File {
     if (metadata.size <= MAX_STORAGE_PART_BYTES) {
       const wire = await this.missingAsNoSuchObject(this.channel.op({
         method: 'storage.getBytes',
+        ...this.bucket.wire,
         path: this.name,
         actAs: STORAGE_REMOTE_ADMIN_LENS,
       })) as RemoteGetBytesResult;
@@ -799,6 +924,7 @@ class RemoteFile implements File {
     for (let offset = options.start ?? 0; offset < last; offset += MAX_STORAGE_PART_BYTES) {
       const wire = await this.missingAsNoSuchObject(this.channel.op({
         method: 'storage.getBytes',
+        ...this.bucket.wire,
         path: this.name,
         offset,
         length: Math.min(MAX_STORAGE_PART_BYTES, last - offset),
@@ -812,6 +938,7 @@ class RemoteFile implements File {
   async getMetadata(): Promise<[FileMetadata]> {
     const full = await this.missingAsNoSuchObject(this.channel.op({
       method: 'storage.getMetadata',
+      ...this.bucket.wire,
       path: this.name,
       actAs: STORAGE_REMOTE_ADMIN_LENS,
     })) as HostMetadata;
@@ -821,6 +948,7 @@ class RemoteFile implements File {
   async setMetadata(metadata: FileMetadataUpdate): Promise<[FileMetadata]> {
     const full = await this.missingAsNoSuchObject(this.channel.op({
       method: 'storage.setMetadata',
+      ...this.bucket.wire,
       path: this.name,
       patch: patchOf(metadata, { strict: true }),
       actAs: STORAGE_REMOTE_ADMIN_LENS,
@@ -832,6 +960,7 @@ class RemoteFile implements File {
   async [DOWNLOAD_URL](): Promise<string> {
     const { path } = await this.missingAsNoSuchObject(this.channel.op({
       method: 'storage.getDownloadURL',
+      ...this.bucket.wire,
       path: this.name,
       actAs: STORAGE_REMOTE_ADMIN_LENS,
     })) as { path: string };
@@ -856,6 +985,7 @@ class RemoteFile implements File {
     try {
       await this.channel.op({
         method: 'storage.deleteObject',
+        ...this.bucket.wire,
         path: this.name,
         actAs: STORAGE_REMOTE_ADMIN_LENS,
       });
@@ -872,6 +1002,7 @@ class RemoteFile implements File {
     try {
       await this.channel.op({
         method: 'storage.getMetadata',
+        ...this.bucket.wire,
         path: this.name,
         actAs: STORAGE_REMOTE_ADMIN_LENS,
       });
@@ -948,6 +1079,36 @@ function quotaExceeded(sizeBytes: number, what: string): Error & { code: string 
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────
+
+/**
+ * The File a copy writes: a path in the source's bucket, a `gs://` URL, the
+ * source's path in another Bucket, or a File.
+ */
+function copyTargetOf(source: File, destination: CopyDestination, storage: Storage): File {
+  if (typeof destination === 'string') {
+    const url = /^gs:\/\/([^/]+)\/(.+)$/.exec(destination);
+    return url === null ? source.bucket.file(destination) : storage.bucket(url[1]).file(url[2]!);
+  }
+  const isFile = 'save' in destination;
+  return isFile ? destination : destination.file(source.name);
+}
+
+/** {@link CopyOptions} as the metadata `save` takes: settable fields, and custom keys under `metadata`. */
+function copyMetadataOf(options: CopyOptions): Record<string, unknown> {
+  const { metadata, ...settable } = options;
+  return { ...settable, ...(metadata !== undefined ? { metadata } : {}) };
+}
+
+/** What an upload sends besides its bytes: settable fields and custom metadata, with the download tokens apart. */
+function uploadRequestOf(options: CreateWriteStreamOptions): { contentType?: string; metadata?: Record<string, unknown>; downloadTokens?: string } {
+  const saved = options.metadata === undefined ? undefined : savedMetadataOf(options.metadata);
+  const hasCustom = saved !== undefined && Object.keys(saved.custom).length > 0;
+  return {
+    ...(options.contentType !== undefined ? { contentType: options.contentType } : {}),
+    ...(saved !== undefined ? { metadata: { ...saved.settable, ...(hasCustom ? { metadata: saved.custom } : {}) } } : {}),
+    ...(saved?.downloadTokens !== undefined ? { downloadTokens: saved.downloadTokens } : {}),
+  };
+}
 
 /** A metadata change in the form hosts take: settable fields, custom keys, and the download tokens apart. */
 interface MetadataPatch {
