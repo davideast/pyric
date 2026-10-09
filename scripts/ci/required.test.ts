@@ -68,6 +68,29 @@ describe('required CI result', () => {
     expect(requiredJob).toContain('CI_REQUIRE_RTDB_DIFFERENTIAL: ${{ needs.plan.outputs.rtdb-differential }}');
   });
 
+  test('requires the app scenarios only when the plan selected them', () => {
+    expect(requiredFailures({
+      checkSet: 'full', requirePackaging: false, requireAppScenarios: false,
+      results: { ...success, 'app-scenarios': 'skipped' },
+    })).toEqual([]);
+    expect(requiredFailures({
+      checkSet: 'full', requirePackaging: false, requireAppScenarios: true,
+      results: { ...success, 'app-scenarios': 'failure' },
+    })).toEqual(['app-scenarios: failure']);
+    expect(requiredFailures({
+      checkSet: 'full', requirePackaging: false, requireAppScenarios: true,
+      results: { ...success, 'app-scenarios': 'success' },
+    })).toEqual([]);
+  });
+
+  test('the aggregate job receives the app scenario result and the plan\'s selection', () => {
+    const workflow = readFileSync(resolve(import.meta.dir, '../../.github/workflows/build.yml'), 'utf8');
+    const requiredJob = workflow.slice(workflow.indexOf('\n  required:'));
+    const needsLine = requiredJob.match(/\n    needs: \[([^\]]+)\]/)?.[1] ?? '';
+    expect(needsLine.split(',').map((job) => job.trim())).toContain('app-scenarios');
+    expect(requiredJob).toContain('CI_REQUIRE_APP_SCENARIOS: ${{ needs.plan.outputs.app-scenarios }}');
+  });
+
   test('rejects a skipped conformance-gates job on the full check set', () => {
     expect(requiredFailures({
       checkSet: 'full',

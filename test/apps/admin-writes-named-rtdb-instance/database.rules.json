@@ -1,0 +1,9 @@
+{
+  "rules": {
+    "rooms": {
+      "$roomId": {
+        ".read": "auth != null && data.child('members').child(auth.uid).exists()"
+      }
+    }
+  }
+}

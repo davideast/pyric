@@ -7,6 +7,8 @@ interface RequiredInput {
   requirePackaging: boolean;
   /** The plan selected the RTDB differential gate. */
   requireRtdbDifferential?: boolean;
+  /** The plan selected the app scenarios. */
+  requireAppScenarios?: boolean;
   results: Record<string, string | undefined>;
 }
 
@@ -21,6 +23,7 @@ export function requiredFailures(input: RequiredInput): string[] {
     ...CHECK_SET_JOBS[input.checkSet],
     ...(input.requirePackaging ? ['packaging', 'install-matrix', 'standalone', 'release-contract'] : []),
     ...(input.requireRtdbDifferential ? ['rtdb-differential'] : []),
+    ...(input.requireAppScenarios ? ['app-scenarios'] : []),
   ];
   return required.flatMap((job) => input.results[job] === 'success'
     ? []
@@ -36,6 +39,7 @@ function main(): void {
     checkSet,
     requirePackaging: process.env.CI_REQUIRE_PACKAGING === 'true',
     requireRtdbDifferential: process.env.CI_REQUIRE_RTDB_DIFFERENTIAL === 'true',
+    requireAppScenarios: process.env.CI_REQUIRE_APP_SCENARIOS === 'true',
     results,
   });
   const report = [

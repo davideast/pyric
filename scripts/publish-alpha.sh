@@ -7,7 +7,8 @@
 # Steps: gates (`bun run test` + `bun run test:packaging` — publishing is
 # irreversible, so the tree proves itself first; skip with
 # PYRIC_PUBLISH_SKIP_GATES=1 only when they just ran on this exact tree)
-# → pack (full rebuild) → publish each tarball under the `alpha`
+# → pack (full rebuild) → release smoke and the app scenarios
+# (test/apps) on the packed tarballs → publish each tarball under the `alpha`
 # dist-tag → point `latest` at the same version → run `compat:check`
 # against the pinned Firebase version and move the `fb<major>.<minor>`
 # compatibility certificate tag if it is green → print the dist-tags for
@@ -73,6 +74,14 @@ bash scripts/pack-packages.sh
 # Behavioral smoke against the exact tarballs about to ship: installed-CLI
 # can-i-use exit codes and both conformance subpaths (scripts/release-smoke.sh).
 bash scripts/release-smoke.sh "$V"
+
+# Real apps installed from the same tarballs: each runs its Vite dev server,
+# its server scripts under @pyric/cli/register, and its page in Chromium
+# (test/apps). A proof like the gates above, so the escape hatch skips it.
+if [ "${PYRIC_PUBLISH_SKIP_GATES:-0}" != "1" ]; then
+  echo "━━━ pre-publish gates: app scenarios on the packed tarballs ━━━"
+  bun test/apps/run.ts --packages dist/packages
+fi
 
 PUBLISH_TAG="${PYRIC_PUBLISH_TAG:-latest}"
 PUBLISH_ARGS=(--tag "$PUBLISH_TAG" --access public)
