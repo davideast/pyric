@@ -12,9 +12,8 @@ import type { ClientDb, ClientRtdb, Unsubscribe } from './handles.js';
 import { normalizeRtdbPath } from './rtdb-references.js';
 
 /** The protocol's `instance` field: the explicit name, else the handle's instance. */
-function instanceOf(db: ClientDb | ClientRtdb, instance: string | undefined): { instance?: string } {
-  const name = instance ?? ('instance' in db ? db.instance?.name : undefined);
-  return name === undefined ? {} : { instance: name };
+function instanceOf(db: ClientDb | ClientRtdb, instance: string | undefined): { instance: string | undefined } {
+  return { instance: instance ?? ('instance' in db ? db.instance?.name : undefined) };
 }
 
 export async function adminReadRtdbState(db: ClientDb | ClientRtdb, instance?: string): Promise<unknown> {

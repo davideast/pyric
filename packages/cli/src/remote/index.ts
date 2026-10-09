@@ -576,7 +576,7 @@ const ADMIN_LENS = { mode: 'admin' } as const;
  * conveniences on another instance.
  */
 export function buildRemoteRtdb(channel: RemoteSandboxChannel, instance?: string): RemoteRtdb {
-  const on = instance === undefined ? {} : { instance };
+  const on = { instance };
   return {
     async get(path) {
       const snap = (await channel.op({

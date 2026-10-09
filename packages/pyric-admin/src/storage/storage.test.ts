@@ -35,6 +35,7 @@ function sandboxAdminApp(): SandboxAdminApp {
     [ADMIN_APP_TARGET]: 'sandbox',
     sandbox,
     name: 'storage-test',
+    options: {},
   };
 }
 

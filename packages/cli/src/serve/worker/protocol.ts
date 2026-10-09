@@ -120,31 +120,31 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'admin.setDocument'; path: string; data: unknown }
   | { t: 'op'; id: string; method: 'admin.deleteDocument'; path: string }
   | { t: 'op'; id: string; method: 'admin.readState'; path?: string; maxDepth?: number }
-  | { t: 'op'; id: string; method: 'rtdb.get'; instance?: string; path: string; query?: RtdbQuerySpec }
-  | { t: 'op'; id: string; method: 'rtdb.set'; instance?: string; path: string; value: unknown }
-  | { t: 'op'; id: string; method: 'rtdb.setPriority'; instance?: string; path: string; priority: string | number | null }
-  | { t: 'op'; id: string; method: 'rtdb.setWithPriority'; instance?: string; path: string; value: unknown; priority: string | number | null }
-  | { t: 'op'; id: string; method: 'rtdb.update'; instance?: string; path: string; values: Record<string, unknown> }
-  | { t: 'op'; id: string; method: 'rtdb.remove'; instance?: string; path: string }
+  | { t: 'op'; id: string; method: 'rtdb.get'; instance: string | undefined; path: string; query?: RtdbQuerySpec }
+  | { t: 'op'; id: string; method: 'rtdb.set'; instance: string | undefined; path: string; value: unknown }
+  | { t: 'op'; id: string; method: 'rtdb.setPriority'; instance: string | undefined; path: string; priority: string | number | null }
+  | { t: 'op'; id: string; method: 'rtdb.setWithPriority'; instance: string | undefined; path: string; value: unknown; priority: string | number | null }
+  | { t: 'op'; id: string; method: 'rtdb.update'; instance: string | undefined; path: string; values: Record<string, unknown> }
+  | { t: 'op'; id: string; method: 'rtdb.remove'; instance: string | undefined; path: string }
   // `key` is the client's when the client needed it synchronously (the page's
   // `push()` returns a reference before the write lands). A caller that can
   // wait omits it, and the host mints one from the sandbox clock.
-  | { t: 'op'; id: string; method: 'rtdb.push'; instance?: string; path: string; key?: string; value?: unknown }
+  | { t: 'op'; id: string; method: 'rtdb.push'; instance: string | undefined; path: string; key?: string; value?: unknown }
   // Read the sandbox clock. For a caller in another process, which cannot
   // mirror the stream a page port gets and can afford the round trip.
   | { t: 'op'; id: string; method: 'sandbox.clock' }
-  | { t: 'op'; id: string; method: 'rtdb.adminSnapshot'; instance?: string }
-  | { t: 'op'; id: string; method: 'rtdb.onDisconnectSet'; instance?: string; path: string; value: unknown; priority?: string | number | null }
-  | { t: 'op'; id: string; method: 'rtdb.onDisconnectUpdate'; instance?: string; path: string; values: Record<string, unknown> }
-  | { t: 'op'; id: string; method: 'rtdb.onDisconnectRemove'; instance?: string; path: string }
-  | { t: 'op'; id: string; method: 'rtdb.onDisconnectCancel'; instance?: string; path: string }
-  | { t: 'op'; id: string; method: 'rtdb.goOffline'; instance?: string }
-  | { t: 'op'; id: string; method: 'rtdb.goOnline'; instance?: string }
+  | { t: 'op'; id: string; method: 'rtdb.adminSnapshot'; instance: string | undefined }
+  | { t: 'op'; id: string; method: 'rtdb.onDisconnectSet'; instance: string | undefined; path: string; value: unknown; priority?: string | number | null }
+  | { t: 'op'; id: string; method: 'rtdb.onDisconnectUpdate'; instance: string | undefined; path: string; values: Record<string, unknown> }
+  | { t: 'op'; id: string; method: 'rtdb.onDisconnectRemove'; instance: string | undefined; path: string }
+  | { t: 'op'; id: string; method: 'rtdb.onDisconnectCancel'; instance: string | undefined; path: string }
+  | { t: 'op'; id: string; method: 'rtdb.goOffline'; instance: string | undefined }
+  | { t: 'op'; id: string; method: 'rtdb.goOnline'; instance: string | undefined }
   | {
       t: 'op';
       id: string;
       method: 'rtdb.transactionCommit';
-      instance?: string;
+      instance: string | undefined;
       path: string;
       expected: unknown;
       value: unknown;
@@ -310,7 +310,7 @@ export interface EventSubMessage {
 export interface RtdbValueSubMessage {
   t: 'sub';
   subId: string;
-  target: { service: 'rtdb'; instance?: string; path: string; query?: RtdbQuerySpec };
+  target: { service: 'rtdb'; instance: string | undefined; path: string; query?: RtdbQuerySpec };
   actAs?: AuthLens;
   /** The listener's owners, derived on the page. See {@link FirestoreSubMessage}. */
   owners?: ListenerOwner[];

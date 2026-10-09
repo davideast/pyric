@@ -40,11 +40,12 @@
  *         backing rule state to expose.
  *
  *     Sandbox state lives on the underlying `Sandbox` via a `WeakMap`
- *     keyed by the `Sandbox` instance — `sandbox.reset()` wipes it via
- *     the sandbox's `session_boundary` event with `phase: 'reset'`.
- *     Successive `getDatabase(app)` calls for the same sandbox return
- *     handles that share data (matches firebase-admin's
- *     singleton-per-app semantics).
+ *     keyed by the `Sandbox` instance, with one tree per RTDB instance
+ *     (the instance a database URL names). `sandbox.reset()` wipes every
+ *     tree via the sandbox's `session_boundary` event.
+ *     Successive `getDatabase(app)` calls for the same sandbox and instance
+ *     return the same handle (matches firebase-admin's one database per
+ *     app and URL).
  *
  *   - **Remote sandbox arm** (sandbox target whose `Sandbox` carries the
  *     `pyric/sandbox` remote brand — a Node-side handle onto the
@@ -52,7 +53,9 @@
  *     `connectRemoteSandbox()`) — every `Reference` data operation routes
  *     through the handle's worker-relay channel (`rtdb.get/set/update/
  *     remove/push` ops with `actAs: { mode: 'admin' }` pinned — firebase-
- *     admin's rules-bypass semantics), NOT into the process-local tree:
+ *     admin's rules-bypass semantics, and the instance the database
+ *     URL names on every op and value subscription), NOT into the
+ *     process-local tree:
  *     a local tree on a remote handle would be private server-side data
  *     the browser never sees. Differences from the local arm, both
  *     deliberate upgrades:
@@ -77,6 +80,16 @@ import {
   type RemoteSandboxChannel,
   type Sandbox,
 } from 'pyric/sandbox';
+
+import {
+  createDatabaseInstanceRegistry,
+  defaultDatabaseInstanceName,
+  isCustomDatabaseHost,
+  parseDatabaseLocationUrl,
+  parseDatabaseUrl,
+  type DatabaseInstance,
+  type DatabaseInstanceRegistry,
+} from 'pyric/sandbox/internal';
 
 import {
   ADMIN_APP_TARGET,
@@ -154,20 +167,22 @@ type AdminEventType = EventType;
  *
  * Signature mirrors `firebase-admin/database`'s `getDatabase(app?)`.
  *
- *   - `getDatabase()` — default database for the DEFAULT app (resolved
+ *   - `getDatabase()`: default database for the DEFAULT app (resolved
  *     through `pyric-admin/app`'s registry, exactly like firebase-admin's
  *     no-arg `getDatabase()`; throws `app/no-app` when no default app has
  *     been initialized). Works for local and remote sandbox apps.
- *   - `getDatabase(app)` — default database for the app.
- *   - `getDatabase(app, url)` — legacy Pyric-only compatibility form. New
- *     code should use the upstream-shaped {@link getDatabaseWithUrl} export.
+ *   - `getDatabase(app)`: the database the app's `databaseURL` option names,
+ *     else the default instance.
+ *   - `getDatabase(app, url)`: the database `url` names, as
+ *     {@link getDatabaseWithUrl} selects it.
  *
- * The sandbox brand returns the local or remote `Database` backed by the
- * per-`Sandbox` state described in the module-level docs.
+ * Each RTDB instance has its own data: one `Database` per sandbox and
+ * instance, backed by the per-`Sandbox` state described in the module-level
+ * docs. A URL that does not parse as a database URL throws the SDK's error.
  */
 export function getDatabase(
   app?: PyricAdminApp,
-  _url?: string,
+  url?: string,
 ): AdminDatabase {
   if (app === undefined) {
     // No-arg mirror of firebase-admin's `getDatabase()` — resolve the
@@ -176,7 +191,7 @@ export function getDatabase(
   }
   assertAdminAppActive(app);
   if (app[ADMIN_APP_TARGET] === 'sandbox') {
-    return getSandboxDatabase(app.sandbox);
+    return getSandboxDatabase(app.sandbox, adminDatabaseInstance(app, url));
   }
   throw new TypeError(
     'pyric-admin/database: getDatabase expected a PyricAdminApp ' +
@@ -185,19 +200,46 @@ export function getDatabase(
 }
 
 /**
- * Returns the {@link AdminDatabase} service selected by an upstream-shaped
- * database URL.
+ * Returns the {@link AdminDatabase} service for the RTDB instance `url` names.
  *
  * This is the exact `firebase-admin/database` argument order used by the
- * Firebase Functions SDK: `getDatabaseWithUrl(url, app?)`. The first Pyric
- * Functions slice has one shared RTDB instance, so the URL selects that
- * instance rather than creating a second sandbox database.
+ * Firebase Functions SDK: `getDatabaseWithUrl(url, app?)`.
  */
 export function getDatabaseWithUrl(
-  _url: string,
+  url: string,
   app?: PyricAdminApp,
 ): AdminDatabase {
-  return getDatabase(app);
+  if (typeof url !== 'string' || url === '') {
+    throw invalidDatabaseUrl();
+  }
+  return getDatabase(app, url);
+}
+
+/** firebase-admin's error for a missing or empty database URL. */
+function invalidDatabaseUrl(): Error {
+  return Object.assign(
+    new Error('Database URL must be a valid, non-empty URL string.'),
+    { code: 'database/invalid-argument' },
+  );
+}
+
+/**
+ * The instance an admin database targets: `url`, else the app's `databaseURL`
+ * option, parsed as the production SDK parses it. `undefined` is the default
+ * instance, which the instance named `<projectId>-default-rtdb` also is when
+ * the app's options name the project.
+ */
+function adminDatabaseInstance(
+  app: PyricAdminApp,
+  url: string | undefined,
+): DatabaseInstance | undefined {
+  if (url === '') throw invalidDatabaseUrl();
+  const source = url ?? app.options.databaseURL;
+  if (source === undefined) return undefined;
+  const instance = parseDatabaseUrl(source);
+  const projectId = app.options.projectId;
+  const isProjectDefault = projectId !== undefined && instance.name === defaultDatabaseInstanceName(projectId);
+  return isProjectDefault ? undefined : instance;
 }
 
 // ─── Sandbox backend ─────────────────────────────────────────────────
@@ -218,54 +260,61 @@ type JsonValue =
   | { [key: string]: JsonValue };
 
 /**
- * Per-sandbox state. One instance per `Sandbox`; the WeakMap below
- * keys this off the `Sandbox` reference so `sandbox.reset()` can wipe
- * everything in one swap. The `Database` handle returned to consumers
- * holds onto the `SandboxState` directly so reads / writes don't
- * re-resolve through the WeakMap on every op.
+ * One RTDB instance's in-memory tree. The `Database` handle returned to
+ * consumers holds onto the `SandboxState` directly so reads / writes don't
+ * re-resolve through the registry on every op.
  */
 interface SandboxState {
   root: Record<string, JsonValue>;
 }
 
-/** One backend per `Sandbox`. Successive `getDatabase(app)` calls for
- *  the same sandbox return handles that share data — matches
- *  firebase-admin's singleton-per-app semantics. */
-const stateBySandbox = new WeakMap<Sandbox, SandboxState>();
+/** One instance's tree and the one `Database` handle over it, built on first use. */
+interface LocalInstance {
+  state: SandboxState;
+  db?: AdminDatabase;
+}
 
-function getOrCreateState(sandbox: Sandbox): SandboxState {
-  let state = stateBySandbox.get(sandbox);
-  if (state !== undefined) return state;
-  state = { root: {} };
-  stateBySandbox.set(sandbox, state);
-  // Wire `sandbox.reset()` → wipe the tree. `session_boundary` fires
-  // before the env swap, so consumer code that observes a reset sees
+/** One registry of instances per `Sandbox`. Successive `getDatabase(app)`
+ *  calls for the same sandbox and instance return the same handle, and
+ *  each instance keeps its own tree, as firebase-admin keeps one database
+ *  per URL. */
+const localInstancesBySandbox = new WeakMap<Sandbox, DatabaseInstanceRegistry<LocalInstance>>();
+
+function localInstances(sandbox: Sandbox): DatabaseInstanceRegistry<LocalInstance> {
+  const existing = localInstancesBySandbox.get(sandbox);
+  if (existing !== undefined) return existing;
+  const registry: DatabaseInstanceRegistry<LocalInstance> = createDatabaseInstanceRegistry({
+    create: () => ({ state: { root: {} } }),
+  });
+  localInstancesBySandbox.set(sandbox, registry);
+  // Wire `sandbox.reset()` → wipe every instance's tree. `session_boundary`
+  // fires before the env swap, so consumer code that observes a reset sees
   // the freshly-cleared tree on the next read. `dispose` also fires a
   // boundary; treat it the same (the sandbox is being torn down — any
   // in-flight handle on the tree gets an empty view).
   sandbox.onEvent((event) => {
     if (event.kind === 'session_boundary') {
-      state!.root = {};
+      for (const [, entry] of registry.entries()) entry.state.root = {};
     }
   });
-  return state;
+  return registry;
 }
 
-/** Build (or reuse) the sandbox Database handle for `sandbox`.
+/** Build (or reuse) the sandbox Database handle for `sandbox` and `instance`
+ *  (`undefined` is the default instance).
  *
  *  REMOTE handles dispatch here, BEFORE any local state is touched: a
  *  remote sandbox must never get a `SandboxState` (a private local tree)
  *  or a `sandbox.onEvent` wire-up (which throws on remote handles). */
-function getSandboxDatabase(sandbox: Sandbox): AdminDatabase {
+function getSandboxDatabase(sandbox: Sandbox, instance: DatabaseInstance | undefined): AdminDatabase {
   if (isRemoteSandbox(sandbox)) {
-    return getRemoteDatabase(sandbox);
+    return getRemoteDatabase(sandbox, instance);
   }
-  const state = getOrCreateState(sandbox);
-  return buildSandboxDatabase(state);
-}
-
-function buildSandboxDatabase(state: SandboxState): AdminDatabase {
-  return buildDatabaseShell((db, path) => buildSandboxRef(state, db, path));
+  const registry = localInstances(sandbox);
+  const entry = registry.getOrCreate(registry.keyOf(instance));
+  const state = entry.state;
+  entry.db ??= buildDatabaseShell(instance, (handle, path) => buildSandboxRef(state, handle, path));
+  return entry.db;
 }
 
 /**
@@ -275,18 +324,26 @@ function buildSandboxDatabase(state: SandboxState): AdminDatabase {
  * local emulator).
  */
 function buildDatabaseShell(
+  instance: DatabaseInstance | undefined,
   refFactory: (db: AdminDatabase, path: string) => AdminReference,
 ): AdminDatabase {
   const db = {
     ref(path?: string): AdminReference {
       return refFactory(db as unknown as AdminDatabase, path ?? '/');
     },
+    /** As the SDK parses it: the URL names a location, and for a
+     *  `firebaseio.com` database its host must be this database's host. */
     refFromURL(url: string): AdminReference {
-      // Best-effort: strip the `https://<host>` prefix and treat the
-      // remainder as a path. The sandbox has no notion of multi-database
-      // hosts, so the host portion is ignored.
-      const u = url.replace(/^https?:\/\/[^/]+/, '');
-      return refFactory(db as unknown as AdminDatabase, u || '/');
+      const location = parseDatabaseLocationUrl(url);
+      if (instance !== undefined) {
+        const expectedHost = parseDatabaseLocationUrl(instance.url).host;
+        if (!isCustomDatabaseHost(expectedHost) && location.host !== expectedHost) {
+          throw new Error(
+            `FIREBASE FATAL ERROR: refFromURL: Host name does not match the current database: (found ${location.host} but expected ${expectedHost}) `,
+          );
+        }
+      }
+      return refFactory(db as unknown as AdminDatabase, location.path);
     },
     // Admin-only metadata methods — not modeled in the sandbox. The
     // sandbox is rule-bypass by construction; surfacing rule JSON would
@@ -845,30 +902,60 @@ interface RemoteWireSnapshot {
 }
 
 /**
- * Per-remote-handle state: the relay channel plus the `on('value')`
- * listener registry (`path → callback → detach`) that `off()` consults.
+ * Per-remote-handle, per-instance state: the relay channel, the instance
+ * every op and subscription names (`undefined` is the default instance),
+ * and the `on('value')` listener registry (`path → callback → detach`) that
+ * `off()` consults.
  */
 interface RemoteDbState {
   channel: RemoteSandboxChannel;
+  instance: string | undefined;
   listeners: Map<string, Map<unknown, () => void>>;
 }
 
-/** One `Database` per remote handle — successive `getDatabase(app)` calls
- *  share the listener registry (matches the local arm's singleton-per-
- *  sandbox semantics). Keyed off the handle object; the data itself lives
- *  in the browser worker. */
-const remoteDbBySandbox = new WeakMap<Sandbox, AdminDatabase>();
+/** One `Database` per remote handle and instance. Successive
+ *  `getDatabase(app)` calls for an instance share the listener registry
+ *  (matches the local arm's singleton-per-instance semantics). Keyed off
+ *  the handle object; the data itself lives in the host. */
+const remoteDbsBySandbox = new WeakMap<Sandbox, DatabaseInstanceRegistry<{ db?: AdminDatabase }>>();
 
-function getRemoteDatabase(sandbox: RemoteSandbox): AdminDatabase {
-  let db = remoteDbBySandbox.get(sandbox);
-  if (db !== undefined) return db;
+function getRemoteDatabase(sandbox: RemoteSandbox, instance: DatabaseInstance | undefined): AdminDatabase {
+  let registry = remoteDbsBySandbox.get(sandbox);
+  if (registry === undefined) {
+    registry = createDatabaseInstanceRegistry({ create: () => ({}) });
+    remoteDbsBySandbox.set(sandbox, registry);
+  }
+  const entry = registry.getOrCreate(registry.keyOf(instance));
+  if (entry.db !== undefined) return entry.db;
   const state: RemoteDbState = {
     channel: sandbox.channel,
+    instance: instance?.name,
     listeners: new Map(),
   };
-  db = buildDatabaseShell((dbHandle, path) => buildRemoteRef(state, dbHandle, path));
-  remoteDbBySandbox.set(sandbox, db);
-  return db;
+  entry.db = buildDatabaseShell(instance, (dbHandle, path) => buildRemoteRef(state, dbHandle, path));
+  return entry.db;
+}
+
+/** An RTDB op this arm relays, without the instance and lens {@link relayRtdbOp} adds. */
+type RemoteRtdbOp = { method: `rtdb.${string}`; path: string } & Record<string, unknown>;
+
+/** Relay `op` on the state's instance, under firebase-admin's rules-bypass lens. */
+function relayRtdbOp(state: RemoteDbState, op: RemoteRtdbOp): Promise<unknown> {
+  return state.channel.op({ ...op, instance: state.instance, actAs: REMOTE_ADMIN_LENS });
+}
+
+/** Subscribe to the value at `path` on the state's instance, under the admin lens. */
+function subscribeRtdbValue(
+  state: RemoteDbState,
+  path: string,
+  onSnap: (value: unknown) => void,
+  onError: (err: Error & { code: string }) => void,
+): () => void {
+  return state.channel.subscribe(
+    { target: { service: 'rtdb', instance: state.instance, path }, actAs: REMOTE_ADMIN_LENS },
+    onSnap,
+    onError,
+  );
 }
 
 /**
@@ -910,20 +997,18 @@ function buildRemoteRef(
 
     /** Set `value` at this path. `null` deletes. Relays `rtdb.set`. */
     async set(value: unknown): Promise<void> {
-      await state.channel.op({
+      await relayRtdbOp(state, {
         method: 'rtdb.set',
         path: canonical,
         value: value ?? null,
-        actAs: REMOTE_ADMIN_LENS,
       });
     },
 
     /** Read this path (`rtdb.get`). Resolves to a `DataSnapshot`. */
     async get(): Promise<AdminDataSnapshot> {
-      const wire = (await state.channel.op({
+      const wire = (await relayRtdbOp(state, {
         method: 'rtdb.get',
         path: canonical,
-        actAs: REMOTE_ADMIN_LENS,
       })) as RemoteWireSnapshot;
       return snapFromWire(wire);
     },
@@ -943,8 +1028,9 @@ function buildRemoteRef(
       return new Promise<AdminDataSnapshot>((resolve, reject) => {
         let detach: (() => void) | null = null;
         let settled = false;
-        detach = state.channel.subscribe(
-          { target: { service: 'rtdb', path: canonical }, actAs: REMOTE_ADMIN_LENS },
+        detach = subscribeRtdbValue(
+          state,
+          canonical,
           (value) => {
             if (settled) return;
             settled = true;
@@ -971,20 +1057,18 @@ function buildRemoteRef(
           'pyric-admin/database sandbox: update expected an object.',
         );
       }
-      await state.channel.op({
+      await relayRtdbOp(state, {
         method: 'rtdb.update',
         path: canonical,
         values: values as Record<string, unknown>,
-        actAs: REMOTE_ADMIN_LENS,
       });
     },
 
     /** Delete the subtree at this path (`rtdb.remove`). */
     async remove(): Promise<void> {
-      await state.channel.op({
+      await relayRtdbOp(state, {
         method: 'rtdb.remove',
         path: canonical,
-        actAs: REMOTE_ADMIN_LENS,
       });
     },
 
@@ -1003,14 +1087,7 @@ function buildRemoteRef(
       const write: Promise<void> =
         value === undefined
           ? Promise.resolve()
-          : state.channel
-              .op({
-                method: 'rtdb.push',
-                path: canonical,
-                key: id,
-                value,
-                actAs: REMOTE_ADMIN_LENS,
-              })
+          : relayRtdbOp(state, { method: 'rtdb.push', path: canonical, key: id, value })
               .then(() => undefined);
       // Surface completion without forcing the caller to await: `.then`'s
       // rejection handler also keeps a fire-and-forget push from becoming
@@ -1069,8 +1146,9 @@ function buildRemoteRef(
         typeof cancelCallbackOrContext === 'function'
           ? (cancelCallbackOrContext as (err: Error) => unknown)
           : undefined;
-      const detach = state.channel.subscribe(
-        { target: { service: 'rtdb', path: canonical }, actAs: REMOTE_ADMIN_LENS },
+      const detach = subscribeRtdbValue(
+        state,
+        canonical,
         (value) => {
           callback(snapFromWire(value as RemoteWireSnapshot));
         },

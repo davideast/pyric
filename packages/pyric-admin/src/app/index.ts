@@ -11,6 +11,8 @@ import {
   type RemoteSandboxFactoryOptions,
   type Sandbox,
 } from 'pyric/sandbox';
+import { readFileSync } from 'node:fs';
+
 import { assertAdminAppActive, markAdminAppDeleted } from './lifecycle.js';
 
 /** Brand carried by every sandbox admin app. */
@@ -24,10 +26,18 @@ export interface SandboxAdminApp {
   readonly [ADMIN_APP_TARGET]: 'sandbox';
   readonly sandbox: Sandbox;
   readonly name: string;
+  /** The options the app was initialized with, as firebase-admin's `App.options` keeps them. */
+  readonly options: AdminAppOptions;
+}
+
+/** The app options the sandbox reads: `databaseURL` selects the app's RTDB instance, and `projectId` names its default instance. */
+export interface AdminAppOptions {
+  readonly databaseURL?: string;
+  readonly projectId?: string;
 }
 
 export type PyricAdminApp = SandboxAdminApp;
-export type InitializeAdminAppConfig = { sandbox: Sandbox };
+export type InitializeAdminAppConfig = { sandbox: Sandbox } & AdminAppOptions;
 
 /**
  * Firebase Functions' ESM runtime statically imports this credential factory
@@ -118,7 +128,7 @@ export function initializeApp(
       }
       throw alreadyExists(name, 'invalid-app-options');
     }
-    const app = initializeAmbientApp(name);
+    const app = initializeAmbientApp(name, ambientAppOptions(config));
     appRegistry.set(name, app);
     ambientApps.add(app);
     return app;
@@ -136,6 +146,7 @@ export function initializeApp(
     [ADMIN_APP_TARGET]: 'sandbox',
     sandbox: config.sandbox,
     name,
+    options: appOptionsFrom(config),
   };
   appRegistry.set(name, app);
   return app;
@@ -174,7 +185,7 @@ export function deleteApp(app: PyricAdminApp): Promise<void> {
   return Promise.resolve();
 }
 
-function initializeAmbientApp(name: string): PyricAdminApp {
+function initializeAmbientApp(name: string, options: AdminAppOptions): PyricAdminApp {
   const env = process.env.PYRIC_SANDBOX;
   if (env === undefined || env.trim() === '') {
     throw new Error(
@@ -209,7 +220,7 @@ function initializeAmbientApp(name: string): PyricAdminApp {
   process.stderr.write(
     `pyric: firebase-admin routed to sandbox${opts.url !== undefined ? ` at ${opts.url}` : ''}\n`,
   );
-  return { [ADMIN_APP_TARGET]: 'sandbox', sandbox, name };
+  return { [ADMIN_APP_TARGET]: 'sandbox', sandbox, name, options };
 }
 
 function parsePyricSandboxEnv(env: string): RemoteSandboxFactoryOptions {
@@ -241,4 +252,29 @@ function isSandboxConfig(config: unknown): config is { sandbox: Sandbox } {
 
 export function isSandboxAdminApp(app: PyricAdminApp): app is SandboxAdminApp {
   return app[ADMIN_APP_TARGET] === 'sandbox';
+}
+
+/** The `databaseURL` and `projectId` string options of an initialization config. */
+function appOptionsFrom(config: object | undefined): AdminAppOptions {
+  if (config === undefined) return {};
+  const { databaseURL, projectId } = config as Record<string, unknown>;
+  return {
+    ...(typeof databaseURL === 'string' ? { databaseURL } : {}),
+    ...(typeof projectId === 'string' ? { projectId } : {}),
+  };
+}
+
+/**
+ * The options of a bare or ambient `initializeApp(options?)`. As firebase-admin
+ * does, a call without options reads `FIREBASE_CONFIG`: a JSON object, or the
+ * path of a file that holds one. The Functions runtime sets it.
+ */
+function ambientAppOptions(config: object | undefined): AdminAppOptions {
+  if (config !== undefined) return appOptionsFrom(config);
+  const raw = process.env.FIREBASE_CONFIG;
+  if (raw === undefined || raw.trim() === '') return {};
+  const text = raw.trim().startsWith('{') ? raw : readFileSync(raw, 'utf8');
+  const parsed: unknown = JSON.parse(text);
+  const isObject = typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed);
+  return isObject ? appOptionsFrom(parsed) : {};
 }

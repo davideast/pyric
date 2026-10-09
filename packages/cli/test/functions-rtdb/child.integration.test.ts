@@ -262,6 +262,43 @@ describe('isolated Functions RTDB child', () => {
     expect(await child.stop()).toBe(0);
   }, 15_000);
 
+  test('a trigger on a named instance fires on that instance and writes back to it', async () => {
+    const entry = join(fixtureDir, 'functions/shard.cjs');
+    writeFileSync(entry, `const { onValueCreated } = require('firebase-functions/v2/database');
+exports.makeUppercase = onValueCreated(
+  { ref: '/shard-messages/{id}/original', instance: 'demo-project-shard-1' },
+  event => event.data.ref.parent.child('uppercase').set(event.data.val().toUpperCase()),
+);
+`);
+    child = spawnFunctionsRtdbChild({
+      cwd: join(fixtureDir, 'functions'),
+      entry,
+      childModuleUrl: pathToFileURL(childModule),
+      env: buildChildEnv(process.env, {
+        serveUrl: runtime.handle.url,
+        registerUrl: registerModuleUrl(),
+      }),
+      instance: 'demo-project-default-rtdb',
+      projectId: 'demo-project',
+      location: 'us-central1',
+    });
+    expect((await child.ready).triggerCount).toBe(1);
+    const shard = observer.rtdb.forInstance('demo-project-shard-1');
+
+    // A write to the default instance at the trigger's path does not fire it.
+    await observer.rtdb.set('shard-messages/other/original', 'default');
+    await shard.set('shard-messages/id/original', 'hello');
+    const deadline = Date.now() + 5_000;
+    while ((await shard.get('shard-messages/id/uppercase')) !== 'HELLO' && Date.now() < deadline) {
+      await new Promise((resolveSleep) => setTimeout(resolveSleep, 20));
+    }
+
+    expect(await shard.get('shard-messages/id/uppercase')).toBe('HELLO');
+    expect(await observer.rtdb.get('shard-messages/id')).toBeNull();
+    expect(await observer.rtdb.get('shard-messages/other/uppercase')).toBeNull();
+    expect(await child.stop()).toBe(0);
+  }, 15_000);
+
   test('rejects exports spanning more than one effective database instance', async () => {
     const entry = join(fixtureDir, 'functions/multi-instance.cjs');
     writeFileSync(entry, `const { onValueCreated } = require('firebase-functions/v2/database');
