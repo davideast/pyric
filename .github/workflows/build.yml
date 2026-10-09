@@ -84,6 +84,61 @@ jobs:
           CI_PR_LABELS_JSON: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: bun scripts/ci/plan.ts
 
+  deletion-guard:
+    # A removed test cannot fail, so a pull request that deletes test files or
+    # CI jobs (a rebase that reverts merged changes, for one) stays green.
+    # This job fails such a pull request unless its body has a line
+    # `Removes tests: <reason>`. The body is read live, so editing it and
+    # re-running this job picks up the change.
+    name: Test and CI job removals acknowledged
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch PR endpoints and resolve merge base
+        # Same fetch as the plan job: both endpoints by SHA, deepened until
+        # they share a merge base.
+        env:
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$CI_BASE_SHA" "$CI_HEAD_SHA"
+          depth=50
+          until git merge-base "$CI_BASE_SHA" "$CI_HEAD_SHA" >/dev/null 2>&1; do
+            if [ "$depth" -gt 6400 ]; then
+              git fetch --no-tags --unshallow origin
+              break
+            fi
+            git fetch --no-tags --deepen="$depth" origin
+            depth=$((depth * 4))
+          done
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+      - name: Test the guard
+        run: bun test scripts/ci/deletion-guard.test.ts
+      - name: Read the pull request body
+        # The event payload holds the body as it was when the run started; a
+        # re-run after an edit needs the current one. Falls back to the
+        # payload when the API read fails.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json body --jq .body > "$RUNNER_TEMP/pr-body.md"; then
+            echo "PR_BODY_FILE=$RUNNER_TEMP/pr-body.md" >> "$GITHUB_ENV"
+          fi
+      - name: Check removals against the merge base
+        env:
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bun scripts/ci/deletion-guard.ts "$CI_BASE_SHA" "$CI_HEAD_SHA"
+
   knip-audit:
     name: Advisory Knip audit
     runs-on: ubuntu-latest
@@ -825,7 +880,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: always()
-    needs: [plan, build-packages, build-and-test, library-tests, conformance-suite, browser-conformance, conformance-gates, native-conformance, release-contract, packaging, install-matrix, standalone, rtdb-differential, app-scenarios]
+    needs: [plan, deletion-guard, build-packages, build-and-test, library-tests, conformance-suite, browser-conformance, conformance-gates, native-conformance, release-contract, packaging, install-matrix, standalone, rtdb-differential, app-scenarios]
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -837,5 +892,6 @@ jobs:
           CI_REQUIRE_PACKAGING: ${{ contains(github.event.pull_request.labels.*.name, 'ci-packaging') }}
           CI_REQUIRE_RTDB_DIFFERENTIAL: ${{ needs.plan.outputs.rtdb-differential }}
           CI_REQUIRE_APP_SCENARIOS: ${{ needs.plan.outputs.app-scenarios }}
+          CI_REQUIRE_DELETION_GUARD: ${{ github.event_name == 'pull_request' }}
           CI_NEEDS_JSON: ${{ toJSON(needs) }}
         run: bun scripts/ci/required.ts

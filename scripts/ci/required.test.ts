@@ -91,6 +91,31 @@ describe('required CI result', () => {
     expect(requiredJob).toContain('CI_REQUIRE_APP_SCENARIOS: ${{ needs.plan.outputs.app-scenarios }}');
   });
 
+  test('requires the removal guard on every pull request, whatever the check set', () => {
+    for (const checkSet of ['full', 'release-only', 'docs-only'] as const) {
+      expect(requiredFailures({
+        checkSet, requirePackaging: false, requireDeletionGuard: true,
+        results: { 'deletion-guard': 'failure' },
+      })).toContain('deletion-guard: failure');
+    }
+    expect(requiredFailures({
+      checkSet: 'docs-only', requirePackaging: false, requireDeletionGuard: true,
+      results: { 'deletion-guard': 'success' },
+    })).toEqual([]);
+    expect(requiredFailures({
+      checkSet: 'docs-only', requirePackaging: false, requireDeletionGuard: false,
+      results: { 'deletion-guard': 'skipped' },
+    })).toEqual([]);
+  });
+
+  test('the aggregate job receives the removal guard result, required on pull requests', () => {
+    const workflow = readFileSync(resolve(import.meta.dir, '../../.github/workflows/build.yml'), 'utf8');
+    const requiredJob = workflow.slice(workflow.indexOf('\n  required:'));
+    const needsLine = requiredJob.match(/\n    needs: \[([^\]]+)\]/)?.[1] ?? '';
+    expect(needsLine.split(',').map((job) => job.trim())).toContain('deletion-guard');
+    expect(requiredJob).toContain("CI_REQUIRE_DELETION_GUARD: ${{ github.event_name == 'pull_request' }}");
+  });
+
   test('rejects a skipped conformance-gates job on the full check set', () => {
     expect(requiredFailures({
       checkSet: 'full',
