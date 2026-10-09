@@ -47,7 +47,9 @@
  *     **Deferred in the sandbox backend** (throws `"not implemented in
  *     pyric-admin/storage sandbox backend"`): `file.createResumableUpload`
  *     upload sessions, which need an HTTP host, signed cookies, IAM
- *     policies, lifecycle rules, ACLs, move, notifications.
+ *     policies, lifecycle rules, ACLs, move, notifications. Every other
+ *     `Bucket` and `File` method is a deferred member listed in
+ *     `deferred-members.ts`.
  */
 
 import { createWriteStream as createFileWriteStream, openAsBlob, type WriteStream } from 'node:fs';
@@ -71,6 +73,8 @@ import {
   type SandboxAdminApp,
 } from '../app/index.js';
 import { assertAdminAppActive } from '../app/lifecycle.js';
+import { defineDeferredMembers } from 'pyric/app/internal';
+import { BUCKET_DEFERRED_MEMBERS, FILE_DEFERRED_MEMBERS } from './deferred-members.js';
 
 // ─── Public surface ─────────────────────────────────────────────────────
 
@@ -1263,4 +1267,16 @@ function normalizeExpires(expires: number | string | Date): number {
   // `NaN`, which is still embeddable in the URL; we don't enforce
   // strictness because the value only feeds the deterministic sandbox stub.
   return new Date(expires).getTime();
+}
+
+// ─── Deferred members ────────────────────────────────────────────────────
+//
+// The `Bucket` and `File` methods neither arm models fail with an error that
+// names the method instead of reading as `undefined`. See deferred-members.ts.
+
+for (const bucket of [SandboxBucket, RemoteBucket]) {
+  defineDeferredMembers(bucket.prototype, 'pyric-admin/storage', 'Bucket', BUCKET_DEFERRED_MEMBERS);
+}
+for (const file of [SandboxFile, RemoteFile]) {
+  defineDeferredMembers(file.prototype, 'pyric-admin/storage', 'File', FILE_DEFERRED_MEMBERS);
 }
