@@ -96,6 +96,42 @@ test('a file created with its directory is reported when the watch moves down', 
   watch.close();
 });
 
+test('a file created with several missing directories is reported when the watch moves down past them', async () => {
+  const file = '/s/games/pool/pool.rules';
+  existing.add('/s');
+  const changed: string[] = [];
+  const watch = watchRulesFiles(() => [file], (f) => changed.push(f), (e) => { throw e; }, watchFileOrWhenCreatedWith(fileSystem));
+  expect(openUnder('/s')).toEqual(['/s']);
+
+  // `mkdir -p games/pool` and the write both land before the watch moves.
+  existing.add('/s/games');
+  existing.add('/s/games/pool');
+  existing.add(file);
+  fire('/s', 'games');
+  await tick();
+  expect(openUnder('/s')).toEqual(['/s/games/pool']);
+  expect(changed).toEqual([file]);
+  watch.close();
+});
+
+test('a watch that moves down past missing directories reports nothing while the file is still missing', async () => {
+  const file = '/t/games/pool/pool.rules';
+  existing.add('/t');
+  const changed: string[] = [];
+  const watch = watchRulesFiles(() => [file], (f) => changed.push(f), (e) => { throw e; }, watchFileOrWhenCreatedWith(fileSystem));
+  existing.add('/t/games');
+  existing.add('/t/games/pool');
+  fire('/t', 'games');
+  await tick();
+  expect(openUnder('/t')).toEqual(['/t/games/pool']);
+  expect(changed).toEqual([]);
+
+  existing.add(file);
+  fire('/t/games/pool', 'pool.rules');
+  expect(changed).toEqual([file]);
+  watch.close();
+});
+
 test('a watched file that is deleted and created again is reported both times', async () => {
   const file = '/q/b.rules';
   existing.add('/q');

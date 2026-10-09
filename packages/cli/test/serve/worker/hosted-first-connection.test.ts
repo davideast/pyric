@@ -97,6 +97,10 @@ test('operations issued before the first attach fail once and are not replayed, 
   expect(await failed).toBe('unavailable');
   startHost(port, received);
   await until(() => states.includes('attached'));
+  // The client resumes subscriptions after it reports the attach. Its socket
+  // is ordered, so once a later op is answered the host has received every
+  // message the client sent before it.
+  expect(await rawRpc(db.port, { t: 'op', id: nextId(), method: 'ping' } as unknown as InboundMessage)).toBe('done');
   const workerMessages = received
     .filter(message => message.type === 'worker-message')
     .map(message => (message as { message: { t: string; id?: string; subId?: string } }).message);
