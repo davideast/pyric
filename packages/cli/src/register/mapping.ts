@@ -12,6 +12,8 @@
  * merely *containing* "firebase" pass through untouched.
  */
 
+import { isShadowAppImporter, resolveAiMode, type AiMode } from '../serve/firebase-module-swap.js';
+
 const MAPPINGS: ReadonlyArray<readonly [from: string, to: string]> = [
   // firebase-admin first — `firebase-admin` must never match the bare
   // `firebase` root (it can't today, but the order documents the intent).
@@ -26,31 +28,15 @@ const MAPPINGS: ReadonlyArray<readonly [from: string, to: string]> = [
 export function mapFirebaseSpecifier(
   specifier: string,
   importer?: string,
-  options?: { aiMode?: 'sandbox' | 'production' },
+  options?: { aiMode?: AiMode },
 ): string | null {
-  const isShadowBridgeImporter = importer !== undefined &&
-    (importer.includes('app-bridge') || importer.includes('app-ai-passthrough'));
   const isFirebaseAppSpecifier = specifier === 'firebase/app';
-  const isBypassedBridgeImport = isShadowBridgeImporter && isFirebaseAppSpecifier;
+  const isBypassedBridgeImport = isShadowAppImporter(importer) && isFirebaseAppSpecifier;
   if (isBypassedBridgeImport) {
     return null;
   }
 
-  let mode: 'sandbox' | 'production' = 'sandbox';
-  const explicitMode = options?.aiMode;
-  const hasExplicitMode = explicitMode !== undefined;
-  if (hasExplicitMode) {
-    mode = explicitMode;
-  } else {
-    const isEnvProductionMode = process.env.PYRIC_AI_MODE === 'production';
-    const isEnvPassthroughFlag = process.env.PYRIC_AI_PASSTHROUGH === '1';
-    const isProductionEnv = isEnvProductionMode || isEnvPassthroughFlag;
-    if (isProductionEnv) {
-      mode = 'production';
-    }
-  }
-
-  const isProductionMode = mode === 'production';
+  const isProductionMode = resolveAiMode(options?.aiMode, process.env) === 'production';
   const isFirebaseAiSpecifier = specifier === 'firebase/ai';
   const isProductionAiPassthrough = isProductionMode && isFirebaseAiSpecifier;
   if (isProductionAiPassthrough) {

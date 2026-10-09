@@ -9,18 +9,17 @@ import {
   NODE_BUILTIN_RE,
   NODE_BUILTIN_SHIMS,
 } from './bundler.js';
+import {
+  isShadowAppImporter,
+  swappedFirebaseEntries,
+  type AiMode,
+  type ServedFirebaseSpecifier,
+} from './firebase-module-swap.js';
 
 const FIREBASE_SPECIFIER = /^firebase\/([a-z-]+(?:\/[a-z-]+)*)$/;
-const SERVED_FIREBASE_SUBPATHS = new Set(
-  SDK_MODULES.map((specifier) => specifier.slice('firebase/'.length)),
-);
 const NODE_SHIM_PREFIX = '\0pyric:node-shim:';
 type OptimizerOptions = NonNullable<DepOptimizationOptions['esbuildOptions']>;
 type OptimizerPlugin = NonNullable<OptimizerOptions['plugins']>[number];
-
-function entryKey(subpath: string): string {
-  return subpath.replaceAll('/', '-');
-}
 
 function packageRootOf(file: string): string {
   let dir = path.dirname(file);
@@ -48,7 +47,9 @@ export function createViteModuleContext(): ViteModuleContext {
 }
 
 export interface ViteModuleSwapOptions {
-  getAiMode?: () => 'sandbox' | 'production';
+  /** The resolved AI mode. Read on each resolution, since Vite resolves the
+   *  mode from its env files after the plugin is constructed. */
+  getAiMode?: () => AiMode;
 }
 
 /** Own the Vite and optimizer forms of the Firebase-module swap. */
@@ -75,19 +76,17 @@ export function createViteModuleSwap(
   const shimFor = (specifier: string): string =>
     NODE_BUILTIN_SHIMS[specifier.replace(/^node:/, '')];
 
+  const aiMode = (): AiMode => options?.getAiMode?.() ?? 'sandbox';
+
   function resolveId(source: string, importer: string | undefined): string | null {
-    const isShadowBridgeImporter = importer !== undefined &&
-      (importer.includes('app-ai-passthrough') || importer.includes('app-bridge'));
-    const isFirebaseAppSpecifier = source === 'firebase/app';
-    const isBypassedBridgeImport = isShadowBridgeImporter && isFirebaseAppSpecifier;
+    const isBypassedBridgeImport = isShadowAppImporter(importer) && source === 'firebase/app';
     if (isBypassedBridgeImport) return null;
 
-    const firebaseMatch = FIREBASE_SPECIFIER.exec(source);
-    const isFirebaseSpecifier = firebaseMatch !== null;
+    const isFirebaseSpecifier = FIREBASE_SPECIFIER.test(source);
     if (isFirebaseSpecifier) {
-      const subpath = firebaseMatch[1] ?? '';
-      const isServedSubpath = SERVED_FIREBASE_SUBPATHS.has(subpath);
-      return isServedSubpath ? entries[entryKey(subpath)] ?? null : null;
+      const swapped = swappedFirebaseEntries(aiMode());
+      const key = swapped.get(source as ServedFirebaseSpecifier);
+      return key === undefined ? null : entries[key] ?? null;
     }
 
     const nodeMatch = NODE_BUILTIN_RE.exec(source);

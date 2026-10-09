@@ -2,12 +2,15 @@
  * The Gemini AnswerEngine: Gemini wire in, Google AI Studio / Vertex AI REST API
  * out, Gemini wire back.
  *
- * Unlike the browser-side `@firebase/ai` SDK (which calls Vertex AI directly
- * from the browser and fails with HTTP 401 for sandboxed mock auth users),
- * `GeminiEngine` runs on Pyric's backend server, authenticating via a local
- * API key (`GEMINI_API_KEY` / `GOOGLE_GENAI_API_KEY` / `VITE_GEMINI_API_KEY`)
- * or Google Cloud Application Default Credentials (`gcloud auth application-default login`)
- * without exposing secrets to the browser.
+ * A sandbox engine an app selects with `engine: { kind: 'gemini' }`. It runs
+ * on Pyric's backend server, authenticating via a local API key
+ * (`GEMINI_API_KEY` / `GOOGLE_GENAI_API_KEY` / `VITE_GEMINI_API_KEY`) or Google
+ * Cloud Application Default Credentials (`gcloud auth application-default login`)
+ * without exposing secrets to the browser. AI production mode does not use
+ * it: there `firebase/ai` is the Firebase SDK.
+ *
+ * The requested model id goes upstream unchanged, and an upstream error
+ * reaches the caller with the upstream's own code, status and message.
  */
 
 import { AiBrokerError, errorEnvelope, redactUrl } from './synthesizer.js';
@@ -79,6 +82,20 @@ function printAdcTokenWithGcloud(): Promise<string> {
       resolve(String(stdout));
     });
   });
+}
+
+/** The `message` and `status` of a Gemini `{ error: { ... } }` body, or null. */
+function parseUpstreamError(text: string): { message: string; status: string } | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const error = (parsed as { error?: { message?: unknown; status?: unknown } } | null)?.error;
+  const isEnvelope = typeof error?.message === 'string' && typeof error.status === 'string';
+  if (!isEnvelope) return null;
+  return { message: error.message as string, status: error.status as string };
 }
 
 export interface GeminiEngineOptions {
@@ -169,7 +186,7 @@ export class GeminiEngine implements AnswerEngine {
     throw new AiBrokerError(
       errorEnvelope(
         401,
-        'Pyric AI production passthrough mode requires GEMINI_API_KEY, GOOGLE_GENAI_API_KEY, or VITE_GEMINI_API_KEY in your server environment (or Application Default Credentials via `gcloud auth application-default login`).',
+        'The Pyric gemini AI engine requires GEMINI_API_KEY, GOOGLE_GENAI_API_KEY, or VITE_GEMINI_API_KEY in your server environment (or Application Default Credentials via `gcloud auth application-default login`).',
         'UNAUTHENTICATED',
       ),
     );
@@ -233,24 +250,13 @@ export class GeminiEngine implements AnswerEngine {
   }
 
   /**
-   * Which model this engine ACTUALLY calls upstream, and why it differs.
-   * Experimental and superseded flash aliases are redirected onto the served
-   * `gemini-flash-lite-latest`; everything else passes through. Reported so
-   * the broker can announce the redirect rather than let a developer believe
-   * `gemini-2.5-flash` answered when `gemini-flash-lite-latest` did
+   * The model this engine calls upstream: always the requested one. The
+   * upstream decides whether a model id is served, so a retired id fails
+   * with the upstream's own 404 and a `-latest` alias resolves upstream
    * ({@link AnswerEngine.resolveEffectiveModel}).
    */
   resolveEffectiveModel(model: string): ModelResolution {
-    const stripped = model.replace(/^models\//, '');
-    const isExperimentalFlashLite =
-      stripped === 'gemini-3.5-flash-lite' ||
-      stripped === 'gemini-2.5-flash' ||
-      stripped === 'gemini-2.5-flash-lite' ||
-      stripped === 'gemini-1.5-flash';
-    if (isExperimentalFlashLite) {
-      return { model: 'gemini-flash-lite-latest', reason: 'experimental alias' };
-    }
-    return { model: stripped, reason: 'passthrough' };
+    return { model: model.replace(/^models\//, ''), reason: 'passthrough' };
   }
 
   private normalizeModel(model: string): string {
@@ -316,20 +322,29 @@ export class GeminiEngine implements AnswerEngine {
     }
   }
 
+  /**
+   * A non-2xx upstream answer becomes an {@link AiBrokerError} carrying the
+   * upstream's own error envelope: its HTTP code, `status` and message. A
+   * body that is not a Gemini error envelope keeps the HTTP code and reports
+   * the body text.
+   */
   private async checkStatus(response: Response): Promise<Response> {
     const isSuccess = response.ok;
-    if (!isSuccess) {
-      const errorText = await response.text().catch(() => '');
+    if (isSuccess) return response;
+    const errorText = await response.text().catch(() => '');
+    const upstream = parseUpstreamError(errorText);
+    if (upstream !== null) {
       throw new AiBrokerError(
-        errorEnvelope(
-          response.status,
-          `Gemini API returned status ${response.status}: ${redactUrl(errorText)}`,
-          'INTERNAL',
-        ),
+        errorEnvelope(response.status, redactUrl(upstream.message), upstream.status),
       );
     }
-
-    return response;
+    throw new AiBrokerError(
+      errorEnvelope(
+        response.status,
+        `Gemini API returned status ${response.status}: ${redactUrl(errorText)}`,
+        'INTERNAL',
+      ),
+    );
   }
 
   async generateContent(req: GenerateContentRequest, model: string): Promise<WireResponse> {

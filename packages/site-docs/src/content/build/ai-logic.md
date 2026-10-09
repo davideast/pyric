@@ -142,7 +142,15 @@ pyric({
 })
 ```
 
-In production mode, Pyric stops intercepting `getAI()` and `getGenerativeModel()` calls with local sandbox responses or same-origin proxies. Instead, requests pass directly through to Google AI and Vertex AI backend endpoints.
+The plugin option takes precedence over `PYRIC_AI_MODE`.
+
+In production mode, Pyric stops intercepting `getAI()` and `getGenerativeModel()` calls with local sandbox responses or same-origin proxies. `firebase/ai` is the Firebase SDK, and it calls Google AI or Vertex AI with the `apiKey` and `projectId` your app passes to `initializeApp`. The dev server needs no Gemini API key. The startup banner confirms the mode:
+
+```text
+✔ [pyric] ai: production passthrough; firebase/ai is the Firebase SDK, calling Google AI or Vertex AI with the app's initializeApp config
+```
+
+The model id you request goes to the backend unchanged. A model the backend does not serve fails with the backend's own error, as it would in production, and `modelVersion` is the value the backend reports. Other Firebase modules, such as `firebase/firestore` and `firebase/auth`, still run against the local sandbox.
 
 ### Project configuration requirements
 

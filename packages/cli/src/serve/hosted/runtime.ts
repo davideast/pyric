@@ -1,4 +1,5 @@
-import { createDenialThrottle } from '../namespace.js';
+import { createDenialThrottle, noteAiDiagnostic } from '../namespace.js';
+import { aiDiagnosticPayloadFor } from '../ai-diagnostics-relay.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createStorageByteRoute } from './storage-byte-route.js';
 import { uploadTokenOf } from '../worker/host/storage.js';
@@ -169,6 +170,13 @@ export async function createHostedRuntime(
     closeOwnedPersistence();
     throw error;
   }
+  // The broker runs in this process, so no page relays its diagnostics to the
+  // denials route. Print them here through the same formatter and throttle.
+  const aiDiagnosticsThrottle = createDenialThrottle();
+  const unsubscribeAiDiagnostics = sandbox.onEvent((event) => {
+    const diagnostic = aiDiagnosticPayloadFor(event);
+    if (diagnostic !== null) noteAiDiagnostic(aiDiagnosticsThrottle, ai.logger, diagnostic);
+  });
   const unsubscribeFailure = persistence.onFailure(() => {
     emitSandboxEvent(sandbox, makeSandboxRuntimeErrorEvent({
       at: Date.now(), service: 'runtime', method: 'persist', auth: null,
@@ -516,6 +524,7 @@ export async function createHostedRuntime(
           if (healthy) await flushPersistence();
         } finally {
           unsubscribeFailure();
+          unsubscribeAiDiagnostics();
           initialized.dispose();
           sandbox.dispose();
           closeOwnedPersistence();

@@ -2,6 +2,7 @@ import type { AIOptions } from 'pyric/ai';
 import path from 'node:path';
 import { loadEnv } from 'vite';
 import type { AiEngineConfigWire } from './worker/protocol.js';
+import { resolveAiMode } from './firebase-module-swap.js';
 
 const AI_PROXY_PATH = '/__pyric/ai-proxy';
 
@@ -9,7 +10,7 @@ const AI_PROXY_PATH = '/__pyric/ai-proxy';
 export type PyricAiEngineConfig = Extract<NonNullable<AIOptions['engine']>, { kind: string }>;
 
 export interface PyricAiOptions {
-  /** Mode for AI Logic: 'sandbox' (local mirrors) or 'production' (pass-through to Google AI / Vertex AI). */
+  /** Mode for AI Logic: 'sandbox' (local mirrors) or 'production' (`firebase/ai` is the Firebase SDK, calling Google AI or Vertex AI with the app's config). Overrides `PYRIC_AI_MODE`. */
   mode?: 'sandbox' | 'production';
   /** Simple OpenAI-compatible model selection through Pyric's same-origin proxy. */
   model?: string;
@@ -115,20 +116,7 @@ export function resolveViteAiConfig(
     throw new Error('@pyric/cli/vite: Choose either ai.model or ai.engine, not both.');
   }
 
-  let mode: 'sandbox' | 'production' = 'sandbox';
-  const explicitMode = options?.mode;
-  const hasExplicitMode = explicitMode !== undefined;
-  if (hasExplicitMode) {
-    mode = explicitMode;
-  } else {
-    const isEnvProductionMode = env.PYRIC_AI_MODE === 'production';
-    const isEnvPassthroughFlag = env.PYRIC_AI_PASSTHROUGH === '1';
-    const isProductionEnv = isEnvProductionMode || isEnvPassthroughFlag;
-    if (isProductionEnv) {
-      mode = 'production';
-    }
-  }
-
+  const mode = resolveAiMode(options?.mode, env);
   const isProductionMode = mode === 'production';
   const hasAnyEngineConfig = hasModelOption || hasEngineOption;
   const isInvalidProductionConfig = isProductionMode && hasAnyEngineConfig;
@@ -148,13 +136,11 @@ export function resolveViteAiConfig(
     model = undefined;
   }
 
+  // Production mode has no engine: `firebase/ai` is the Firebase SDK, which
+  // calls Google AI or Vertex AI with the app's own config.
   let engineWire: AiEngineConfigWire | undefined = undefined;
   if (isProductionMode) {
-    const apiKey = env.GEMINI_API_KEY ?? env.GOOGLE_GENAI_API_KEY ?? env.VITE_GEMINI_API_KEY;
-    engineWire = {
-      kind: 'gemini',
-      ...(apiKey !== undefined && apiKey.trim() !== '' ? { apiKey: apiKey.trim() } : {}),
-    };
+    engineWire = undefined;
   } else if (explicitEngine !== undefined) {
     engineWire = engineConfigToWire(explicitEngine);
   } else if (model !== undefined) {

@@ -8,9 +8,9 @@
  *   - usageMetadata synthesis: token counts estimated at ~chars/4,
  *     `promptTokensDetails: [{ modality: 'TEXT', tokenCount }]`,
  *     `serviceTier: 'standard'` (captured usage key set).
- *   - modelVersion: `-latest` aliases resolve to a fixed sandbox name via a
- *     small table (capture: `gemini-flash-lite-latest` served as
- *     `gemini-3.1-flash-lite`); unknown names pass through.
+ *   - modelVersion: the requested model name, without the `models/` prefix.
+ *     Production resolves `-latest` aliases to a dated model that changes
+ *     over time, so the sandbox reports the name it was asked for.
  *   - responseId: deterministic counter-based `sbx-<n>` per synthesizer
  *     instance. PINNED: two identical calls on one broker produce identical
  *     envelopes EXCEPT the responseId sequence; two fresh brokers produce
@@ -35,24 +35,16 @@ import type {
   WireUsageMetadata,
 } from './types.js';
 
-// ── Model alias table ───────────────────────────────────────────────────────
+// ── Synthesized model version ───────────────────────────────────────────────
 
 /**
- * `-latest` aliases → the fixed model version the sandbox reports. The
- * capture pinned `gemini-flash-lite-latest` → `gemini-3.1-flash-lite`;
- * siblings follow the same family shape. Anything unknown passes through
- * (model-name volatility is expected drift, cdd-deltas #99.4).
+ * The `modelVersion` a synthesized envelope reports: the requested model
+ * without its `models/` prefix. Production resolves a `-latest` alias to a
+ * dated model, but which one changes over time, so the sandbox does not
+ * guess. The gemini engine returns its upstream's own value instead.
  */
-const MODEL_VERSION_ALIASES: Record<string, string> = {
-  'gemini-flash-lite-latest': 'gemini-3.1-flash-lite',
-  'gemini-flash-latest': 'gemini-3.1-flash',
-  'gemini-pro-latest': 'gemini-3.1-pro',
-};
-
-/** Strip an optional `models/` prefix and resolve `-latest` aliases. */
 export function resolveModelVersion(model: string): string {
-  const bare = model.startsWith('models/') ? model.slice('models/'.length) : model;
-  return MODEL_VERSION_ALIASES[bare] ?? bare;
+  return model.startsWith('models/') ? model.slice('models/'.length) : model;
 }
 
 // ── Deterministic primitives ────────────────────────────────────────────────

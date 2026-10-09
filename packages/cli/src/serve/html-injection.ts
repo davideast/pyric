@@ -1,49 +1,25 @@
 import { stampHostedTarget } from './runtime/hosted-target.js';
 import { REACT_BOOTSTRAP } from './react-bootstrap.js';
 import { SANDBOX_BUILD_MARKER } from './sandbox-marker.js';
+import { swappedFirebaseEntries, type AiMode } from './firebase-module-swap.js';
 
-/** The import-map targets. Spec → served URL. */
-export function sdkImportMap(options?: { aiMode?: 'sandbox' | 'production' }): Record<string, string> {
-  const explicitMode = options?.aiMode;
-  let mode: 'sandbox' | 'production' = 'sandbox';
-  const hasExplicitMode = explicitMode !== undefined;
-  if (hasExplicitMode) {
-    mode = explicitMode;
-  } else {
-    const isEnvProductionMode = process.env.PYRIC_AI_MODE === 'production';
-    const isEnvPassthroughFlag = process.env.PYRIC_AI_PASSTHROUGH === '1';
-    const isProductionEnv = isEnvProductionMode || isEnvPassthroughFlag;
-    if (isProductionEnv) {
-      mode = 'production';
-    }
+/**
+ * The import-map targets, specifier to served URL, for one AI mode. Derived
+ * from the shared swap table, so the Vite resolver serves the same modules.
+ */
+export function sdkImportMap(mode: AiMode = 'sandbox'): Record<string, string> {
+  const imports: Record<string, string> = {};
+  for (const [specifier, entryKey] of swappedFirebaseEntries(mode)) {
+    imports[specifier] = `/__pyric/sdk/${entryKey}.js`;
   }
-  const isProductionMode = mode === 'production';
-  if (isProductionMode) {
-    return {
-      'firebase/app': '/__pyric/sdk/app-ai-passthrough.js',
-      'firebase/auth': '/__pyric/sdk/auth.js',
-      'firebase/database': '/__pyric/sdk/database.js',
-      'firebase/firestore': '/__pyric/sdk/firestore.js',
-      'firebase/messaging': '/__pyric/sdk/messaging.js',
-      'firebase/messaging/sw': '/__pyric/sdk/messaging-sw.js',
-      'firebase/storage': '/__pyric/sdk/storage.js',
-    };
-  }
-  return {
-    'firebase/ai': '/__pyric/sdk/ai.js',
-    'firebase/app': '/__pyric/sdk/app.js',
-    'firebase/auth': '/__pyric/sdk/auth.js',
-    'firebase/database': '/__pyric/sdk/database.js',
-    'firebase/firestore': '/__pyric/sdk/firestore.js',
-    'firebase/messaging': '/__pyric/sdk/messaging.js',
-    'firebase/messaging/sw': '/__pyric/sdk/messaging-sw.js',
-    'firebase/storage': '/__pyric/sdk/storage.js',
-  };
+  return imports;
 }
 
 /** Inject the sandbox import map and boot tags before application modules. */
 export interface ServeTagOptions {
   importMap?: Record<string, string>;
+  /** Selects the import map when `importMap` is absent. Defaults to sandbox. */
+  aiMode?: AiMode;
   workerVersion?: string;
   forceInPage?: boolean;
   hosted?: { projectKey: string };
@@ -54,7 +30,7 @@ export function injectServeTags(html: string, options: ServeTagOptions = {}): st
 }
 
 function injectRuntimeTags(html: string, options: ServeTagOptions): string {
-  const importMap = options.importMap ?? sdkImportMap();
+  const importMap = options.importMap ?? sdkImportMap(options.aiMode);
   const { workerVersion, forceInPage = false } = options;
   const marker = 'data-pyric-serve';
   const isAlreadyInjected = html.includes(marker);
