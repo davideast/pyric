@@ -1,7 +1,8 @@
 /**
  * `rtdbRules(...)` — the deep handle on a Realtime Database ruleset.
  *
- * Accepts any of three inputs and normalizes them to one handle:
+ * Accepts any of four inputs and normalizes them to one handle:
+ *   - the text of a `database.rules.json` file, comments included
  *   - an {@link RtdbRulesDefinition} (the `{ paths }` object)
  *   - the value {@link defineRtdbRules} returns (an {@link RtdbRulesDocument})
  *   - compiled `{ rules }` JSON
@@ -36,6 +37,8 @@ import {
   type RtdbCoverageOptions,
   type RtdbCoverageSummary,
 } from '../rtdb/coverage.js';
+import { toStrictRulesJson } from '../rtdb/rules-text.js';
+import { RulesCompileError } from './errors.js';
 import type { RuleIssue } from './issue.js';
 import { rtdbFindingToIssue, rtdbSecurityFindingToIssue } from './issue.js';
 import { lintRtdbRuleset } from '../rtdb/grammar/ruleset-lint.js';
@@ -209,10 +212,38 @@ class CompiledRtdbRulesDocument implements RtdbRulesDocumentInternal {
 }
 
 /**
- * Build a deep handle on a Realtime Database ruleset from a definition, a
- * compiled document, or compiled `{ rules }` JSON.
+ * Read the text of a `database.rules.json` file as the sandbox reads it: line
+ * and block comments, rule strings broken across lines, and trailing commas
+ * are accepted, as production accepts them.
  */
-export function rtdbRules(input: RtdbRulesInput): RtdbRuleset {
+function parseRulesText(text: string): RtdbRulesJson {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(toStrictRulesJson(text));
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw rulesTextError(`Realtime Database rules text is not valid JSON: ${detail}`);
+  }
+  const rules = (parsed as { rules?: unknown } | null)?.rules;
+  const hasRulesObject = typeof rules === 'object' && rules !== null && !Array.isArray(rules);
+  if (!hasRulesObject) throw rulesTextError('Realtime Database rules text has no top-level "rules" object');
+  return parsed as RtdbRulesJson;
+}
+
+function rulesTextError(message: string): RulesCompileError {
+  return new RulesCompileError(message, [{ code: 'PARSE_ERROR', severity: 'error', message, origin: 'parse' }]);
+}
+
+/**
+ * Build a deep handle on a Realtime Database ruleset from the text of a
+ * `database.rules.json` file, a definition, a compiled document, or compiled
+ * `{ rules }` JSON.
+ *
+ * @throws {RulesCompileError} when rules text is not JSON (after comments
+ *   and trailing commas) or has no top-level `rules` object.
+ */
+export function rtdbRules(input: RtdbRulesInput | string): RtdbRuleset {
+  if (typeof input === 'string') input = parseRulesText(input);
   if (isDocument(input)) return new DocumentRtdbRuleset(input);
   if (isCompiledJson(input)) {
     return new DocumentRtdbRuleset(new CompiledRtdbRulesDocument(input));
