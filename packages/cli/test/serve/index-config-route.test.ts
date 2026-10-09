@@ -97,6 +97,27 @@ test('GET /__pyric/indexes returns 200 unconfigured when neither firestore nor d
   expect((await rtdbRes.json()).status).toBe('unconfigured');
 }));
 
+test('GET /__pyric/indexes answers 200 for a database list, and the page client reports why a list with a rules file per entry cannot be edited', () => fixture(async (root, serverUrl, token) => {
+  await writeFile(join(root, 'firebase.json'), JSON.stringify({ database: [
+    { instance: 'demo-app-default-rtdb', rules: 'database.rules.json' },
+    { instance: 'demo-app-shard-1', rules: 'database.rules.json' },
+  ] }));
+  await writeFile(join(root, 'database.rules.json'), JSON.stringify({ rules: {} }));
+  const shared = await fetch(`${serverUrl}/__pyric/indexes?service=rtdb`, { headers: { 'x-pyric-session-token': token } });
+  expect(shared.status).toBe(200);
+  expect((await shared.json()).status).toBe('configured');
+
+  await writeFile(join(root, 'firebase.json'), JSON.stringify({ database: [
+    { instance: 'demo-app-default-rtdb', rules: 'main.rules.json' },
+    { instance: 'demo-app-shard-1', rules: 'shard.rules.json' },
+  ] }));
+  const split = await fetch(`${serverUrl}/__pyric/indexes?service=rtdb`, { headers: { 'x-pyric-session-token': token } });
+  expect(split.status).toBe(200);
+  expect((await split.json()).status).toBe('unavailable');
+  const fetcher = ((path: string, options?: RequestInit) => fetch(serverUrl + path, options)) as typeof fetch;
+  await expect(createIndexConfigClient(fetcher).read('rtdb')).rejects.toThrow('main.rules.json, shard.rules.json');
+}));
+
 test('POST /__pyric/indexes returns 400 when previewing an unconfigured service', () => fixture(async (root, serverUrl, token) => {
   await writeFile(join(root, 'firebase.json'), JSON.stringify({ database: { rules: 'database.rules.json' } }));
   await writeFile(join(root, 'database.rules.json'), JSON.stringify({ rules: {} }));
