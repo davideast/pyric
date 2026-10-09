@@ -29,13 +29,13 @@ import { getStorage } from './index.js';
  * `ADMIN_APP_TARGET` brand, and that's the only surface that matters
  * here.
  */
-function sandboxAdminApp(): SandboxAdminApp {
+function sandboxAdminApp(options: SandboxAdminApp['options'] = {}): SandboxAdminApp {
   const sandbox = initializeSandbox();
   return {
     [ADMIN_APP_TARGET]: 'sandbox',
     sandbox,
     name: 'storage-test',
-    options: {},
+    options,
   };
 }
 
@@ -196,14 +196,53 @@ describe('pyric-admin/storage — sandbox backend', () => {
     expect(await storage.bucket('two').file('b.txt').exists()).toEqual([false]);
   });
 
-  it('resumable: true on save throws the deferred-feature error', async () => {
+  it('resumable: true on save stores the same object as a single-shot save', async () => {
     const app = sandboxAdminApp();
     const storage = getStorage(app);
     const file = storage.bucket().file('big.bin');
 
-    await expect(file.save('payload', { resumable: true })).rejects.toThrow(
-      /not implemented in pyric-admin\/storage sandbox backend/,
-    );
+    await file.save('payload', { resumable: true, metadata: { contentType: 'text/plain' } });
+
+    expect((await file.download())[0].toString()).toBe('payload');
+    expect((await file.getMetadata())[0].contentType).toBe('text/plain');
+  });
+
+  it('bucket() is the bucket the app\'s storageBucket option names', async () => {
+    const configured = sandboxAdminApp({ storageBucket: 'demo-app.appspot.com' });
+    const storage = getStorage(configured);
+    expect(storage.bucket().name).toBe('demo-app.appspot.com');
+    await storage.bucket().file('a.txt').save('a');
+    expect(await storage.bucket('demo-app.appspot.com').file('a.txt').exists()).toEqual([true]);
+    expect((await storage.bucket().file('a.txt').getMetadata())[0].bucket).toBe('demo-app.appspot.com');
+
+    expect(getStorage(sandboxAdminApp()).bucket().name).toBe('pyric-default');
+  });
+
+  it('copy() copies an object with its metadata, within a bucket and across buckets', async () => {
+    const storage = getStorage(sandboxAdminApp({ storageBucket: 'demo-app.appspot.com' }));
+    const staged = storage.bucket('demo-app-upload-staging').file('staging/u1/upload-1');
+    await staged.save(Buffer.from([1, 2, 3]), { metadata: { contentType: 'image/png', metadata: { owner: 'u1' } } });
+
+    const [copy, metadata] = await staged.copy(storage.bucket().file('uploads/u1/a.png'), {
+      metadata: { firebaseStorageDownloadTokens: 'tok-1' },
+    });
+    expect(copy.bucket.name).toBe('demo-app.appspot.com');
+    expect(metadata).toMatchObject({ bucket: 'demo-app.appspot.com', name: 'uploads/u1/a.png', contentType: 'image/png', size: '3' });
+    expect(metadata.metadata).toEqual({ owner: 'u1', firebaseStorageDownloadTokens: 'tok-1' });
+    expect([...(await copy.download())[0]]).toEqual([1, 2, 3]);
+    // The source keeps its own metadata, and the default bucket did not hold the staged path.
+    expect((await staged.getMetadata())[0].metadata).toEqual({ owner: 'u1' });
+    expect(await storage.bucket().file('staging/u1/upload-1').exists()).toEqual([false]);
+
+    const [sameBucket] = await staged.copy('staging/u1/copy');
+    expect(sameBucket.bucket.name).toBe('demo-app-upload-staging');
+    const [byUrl] = await staged.copy('gs://other-bucket/x.png');
+    expect(byUrl.bucket.name).toBe('other-bucket');
+    const [byBucket] = await staged.copy(storage.bucket('archive'));
+    expect(byBucket.name).toBe('staging/u1/upload-1');
+    expect(await storage.bucket('archive').file('staging/u1/upload-1').exists()).toEqual([true]);
+
+    await expect(storage.bucket().file('missing').copy('elsewhere')).rejects.toThrow(/No such object/);
   });
 
   it('stores contentType and metadata payloads alongside the bytes', async () => {

@@ -1,7 +1,7 @@
 // A server process saves an object with metadata.firebaseStorageDownloadTokens
 // through firebase-admin. The download URL carrying that token serves the
-// bytes to the browser; any other token is refused. Resumable upload sessions
-// are not modeled and say so.
+// bytes to the browser; any other token is refused. A resumable upload session
+// gives a URL on the host's byte route.
 import assert from 'node:assert/strict';
 import { scenario } from '../driver.ts';
 
@@ -40,9 +40,9 @@ export default scenario(async (app) => {
     assert.deepEqual(report.statuses, { token: 200, wrong: 403, none: 403 });
   });
 
-  await app.step('createResumableUpload rejects as not implemented', () => {
+  await app.step('createResumableUpload gives a session URL on the byte route', () => {
     assert.equal(report.typeofCreateResumableUpload, 'function');
-    assert.equal(report.createResumableUpload, undefined);
-    assert.match(report.createResumableUploadError ?? '', /not implemented/i);
+    assert.equal(report.createResumableUploadError, undefined);
+    assert.match(report.createResumableUpload ?? '', /^http:\/\/127\.0\.0\.1:\d+\/__pyric\/storage\/v0\/b\/demo-app\.appspot\.com\/o\?/);
   });
 });

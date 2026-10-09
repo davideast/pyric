@@ -19,7 +19,7 @@ function assertRequiredPath(message: Record<string, unknown>): void {
     case 'rtdb.onDisconnectSet': case 'rtdb.onDisconnectUpdate': case 'rtdb.onDisconnectRemove': case 'rtdb.onDisconnectCancel':
     case 'storage.listAll': case 'storage.getMetadata': case 'storage.getBlob': case 'storage.getDownloadURL': case 'storage.setMetadata':
     case 'storage.getBytes': case 'storage.deleteObject': case 'storage.putBytes':
-    case 'storage.beginUpload':
+    case 'storage.beginUpload': case 'storage.copyObject': case 'storage.createUploadSession':
       requireString(message.path, 'path');
       return;
   }
@@ -46,6 +46,26 @@ function assertDatabaseInstance(message: Record<string, unknown>): void {
   if (namesInstance) requireOptionalString(message.instance, 'instance');
 }
 
+/** Storage ops name their bucket, and the caller's name for the default bucket, with optional strings. */
+function assertStorageBucket(message: Record<string, unknown>): void {
+  const method = message.method;
+  const isStorageMethod = typeof method === 'string' && method.startsWith('storage.');
+  if (!isStorageMethod) return;
+  requireOptionalString(message.bucket, 'bucket');
+  requireOptionalString(message.defaultBucket, 'defaultBucket');
+}
+
+/** A metadata change from the admin plane: settable strings, custom keys set or removed, and the download tokens. */
+function assertMetadataPatch(patch: unknown): void {
+  requireRecord(patch, 'patch');
+  const { settable, customMetadata, downloadTokens } = patch;
+  requireOptionalRecord(settable, 'patch.settable');
+  requireShape(settable === undefined || Object.values(settable as object).every(value => typeof value === 'string'), 'patch.settable');
+  requireOptionalRecord(customMetadata, 'patch.customMetadata');
+  requireShape(customMetadata === undefined || Object.values(customMetadata as object).every(value => value === null || typeof value === 'string'), 'patch.customMetadata');
+  requireShape(downloadTokens === undefined || downloadTokens === null || typeof downloadTokens === 'string', 'patch.downloadTokens');
+}
+
 function assertSetOptions(value: unknown): void {
   const isAbsent = value === undefined;
   if (isAbsent) return;
@@ -66,6 +86,7 @@ export function assertOperationArguments(message: Record<string, unknown>): void
   assertRequiredPath(message);
   assertSharedAuthFields(message);
   assertDatabaseInstance(message);
+  assertStorageBucket(message);
   // Only the dispatch is typed; each payload field remains untrusted.
   // The default refuses methods outside the protocol at runtime.
   const method = message.method as OpMessage['method'];
@@ -145,17 +166,22 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       requireShape(hasEnabledFlag, 'enabled');
       return;
     }
-    case 'storage.setMetadata': {
-      const patch = message.patch;
-      requireRecord(patch, 'patch');
-      const { settable, customMetadata, downloadTokens } = patch;
-      requireOptionalRecord(settable, 'patch.settable');
-      requireShape(settable === undefined || Object.values(settable as object).every(value => typeof value === 'string'), 'patch.settable');
-      requireOptionalRecord(customMetadata, 'patch.customMetadata');
-      requireShape(customMetadata === undefined || Object.values(customMetadata as object).every(value => value === null || typeof value === 'string'), 'patch.customMetadata');
-      requireShape(downloadTokens === undefined || downloadTokens === null || typeof downloadTokens === 'string', 'patch.downloadTokens');
+    case 'storage.setMetadata':
+      assertMetadataPatch(message.patch);
+      return;
+    case 'storage.copyObject': {
+      requireString(message.destinationPath, 'destinationPath');
+      requireOptionalString(message.destinationBucket, 'destinationBucket');
+      const hasPatch = message.patch !== undefined;
+      if (hasPatch) assertMetadataPatch(message.patch);
       return;
     }
+    case 'storage.createUploadSession':
+      requireOptionalRecord(message.metadata, 'metadata');
+      requireOptionalString(message.contentType, 'contentType');
+      requireOptionalString(message.downloadTokens, 'downloadTokens');
+      requireOptionalString(message.origin, 'origin');
+      return;
     case 'storage.putBytes':
       requireOptionalRecord(message.metadata, 'metadata');
       requireOptionalString(message.contentType, 'contentType');

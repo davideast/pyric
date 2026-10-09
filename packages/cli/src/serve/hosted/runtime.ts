@@ -2,7 +2,7 @@ import { createDenialThrottle, noteAiDiagnostic } from '../namespace.js';
 import { aiDiagnosticPayloadFor } from '../ai-diagnostics-relay.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createStorageByteRoute } from './storage-byte-route.js';
-import { uploadTokenOf } from '../worker/host/storage.js';
+import { finishUploadSession, openUploadSession, storeBucketOf, uploadSessionOf, uploadTokenOf } from '../worker/host/storage.js';
 import type { ServeLogger } from '../server.js';
 import { fetchAiUpstream, resolveAiProxyUpstream } from '../ai-proxy.js';
 import { databaseInstanceRulesHost, handleRulesOp, setDatabaseRules, setDatabaseTargetRules } from '../worker/host/rules.js';
@@ -362,12 +362,22 @@ export async function createHostedRuntime(
     storage: persistence.storage,
     sessionToken: payload.sessionToken,
     uploadToken: uploadId => uploadTokenOf(ctx, uploadId),
+    bucketOf: name => storeBucketOf(ctx, name),
+    sessions: {
+      get: sessionId => uploadSessionOf(ctx, sessionId),
+      open: (sessionId, size) => openUploadSession(ctx, sessionId, size),
+      finish: sessionId => finishUploadSession(ctx, sessionId),
+    },
   });
 
   return {
     /** The HTTP byte route; resolves false for any other path. */
     storageHttp(req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> {
       return storageBytes(req, res, url);
+    },
+    /** Whether a byte route request from `origin` is an upload session's, from the origin the session names. */
+    storageAllowsOrigin(url: URL, origin: string | undefined): boolean {
+      return storageBytes.allowsOrigin(url, origin);
     },
     /** A null database or Storage source clears the rules, so the default
      *  policy applies: RTDB's configured policy, and deny-all for Storage.

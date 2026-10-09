@@ -25,8 +25,8 @@ const out = {
   statuses: {},
 };
 try {
-  await bucket.file("staging/u1/upload-1").createResumableUpload({ metadata: { contentType: "image/png" } });
-  out.createResumableUpload = "resolved";
+  const [sessionUrl] = await bucket.file("staging/u1/upload-1").createResumableUpload({ metadata: { contentType: "image/png" } });
+  out.createResumableUpload = sessionUrl;
 } catch (error) {
   out.createResumableUploadError = String(error?.message ?? error);
 }

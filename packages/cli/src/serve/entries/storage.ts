@@ -39,7 +39,11 @@ export function getStorage(app?: FirebaseApp, _bucketUrl?: string): FirebaseStor
   const existing = workerStorageByApp.get(resolved);
   if (existing) return existing;
   const client = workerClientForApp(resolved);
-  const handle = Object.assign(workerGetStorage(client), { app: resolved }) as unknown as FirebaseStorage;
+  // The default bucket goes by the app's `storageBucket` option, as the host
+  // and firebase-admin name it.
+  const configured = resolved.options?.storageBucket;
+  const bucket = typeof configured === 'string' && configured !== '' ? configured : undefined;
+  const handle = Object.assign(workerGetStorage(client, undefined, bucket), { app: resolved }) as unknown as FirebaseStorage;
   workerStorageByApp.set(resolved, handle);
   return handle;
 }
