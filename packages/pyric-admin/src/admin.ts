@@ -7,7 +7,8 @@
  *
  * As upstream, the `firestore` and `database` accessors also carry their
  * namespace values (`admin.firestore.FieldValue`, `admin.database.ServerValue`).
- * The accessors of services the sandbox does not model are deferred: calling
+ * `admin.app(name?)` returns an initialized app and `admin.apps` lists them,
+ * so `if (!admin.apps.length) admin.initializeApp()` works. The accessors of services the sandbox does not model are deferred: calling
  * one throws a `PyricDeferredApiError` naming it.
  */
 import { deferredExport } from 'pyric/app/internal';
@@ -45,8 +46,10 @@ export const database = Object.assign((app?: appModule.PyricAdminApp) => getData
 export const storage = (app?: appModule.PyricAdminApp) => getStorage(app);
 export const messaging = (app?: appModule.PyricAdminApp) => getMessaging(app);
 
+/** As upstream `admin.app(name?)`: the named app, or the default app. */
+export const app = (name?: string) => appModule.getApp(name);
+
 const SUBPATH = 'pyric-admin';
-export const app = deferredExport(SUBPATH, 'app');
 export const appCheck = deferredExport(SUBPATH, 'appCheck');
 export const installations = deferredExport(SUBPATH, 'installations');
 export const instanceId = deferredExport(SUBPATH, 'instanceId');
@@ -71,6 +74,10 @@ const admin = {
   projectManagement,
   remoteConfig,
   securityRules,
+  /** As upstream `admin.apps`: every initialized app, read when accessed. */
+  get apps() {
+    return appModule.getApps();
+  },
 };
 
 export default admin;
