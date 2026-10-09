@@ -87,7 +87,16 @@ A hallucinated method is always an error, because the named method literally doe
 
 ## Simulate and lint Realtime Database rules
 
-Realtime Database rules use the same two steps with a different entry point. `rtdbRules` accepts the `{ rules }` JSON from `database.rules.json`, or a ruleset you wrote in TypeScript. See [write Realtime Database rules in TypeScript](./rtdb-rules-in-typescript.md) for the authoring side.
+Realtime Database rules use the same two steps with a different entry point. `rtdbRules` accepts the text of `database.rules.json`, its `{ rules }` JSON, or a ruleset you wrote in TypeScript. See [write Realtime Database rules in TypeScript](./rtdb-rules-in-typescript.md) for the authoring side.
+
+To test the file you deploy, pass its text. `rtdbRules` reads it as the sandbox and `firebase deploy` do, so comments, rule strings broken across lines, and trailing commas are accepted:
+```ts
+import { readFileSync } from 'node:fs';
+import { rtdbRules } from 'pyric/rules';
+
+const rules = rtdbRules(readFileSync('database.rules.json', 'utf8'));
+```
+Text that is not JSON after those allowances, or that has no top-level `rules` object, throws a `RulesCompileError` that says which.
 
 ### Simulate a request
 ```ts

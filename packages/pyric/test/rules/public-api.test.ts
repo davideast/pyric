@@ -317,6 +317,47 @@ describe('rtdbRules constructor', () => {
     expect(ruleset.toJSON().rules).toBeDefined();
   });
 
+  test('reads the text of a database.rules.json file, comments and trailing commas included', () => {
+    const text = `{
+  "rules": {
+    // rooms are readable by their members
+    "rooms": {
+      "$roomId": {
+        /* membership is a child of the room */
+        ".read": "auth != null && data.child('members').child(auth.uid).exists()",
+      },
+    },
+  },
+}`;
+    const ruleset = rtdbRules(text);
+    expect(ruleset.toJSON()).toEqual({
+      rules: { rooms: { $roomId: { '.read': "auth != null && data.child('members').child(auth.uid).exists()" } } },
+    });
+    const summary = ruleset.simulate([
+      { expectation: 'ALLOW', operation: 'read', path: '/rooms/r1', auth: 'alice', data: { rooms: { r1: { members: { alice: true } } } } },
+      { expectation: 'DENY', operation: 'read', path: '/rooms/r1', auth: 'bob', data: { rooms: { r1: { members: { alice: true } } } } },
+    ]);
+    expect([summary.passed, summary.failed]).toEqual([2, 0]);
+  });
+
+  test('rules text that is not a rules document throws RulesCompileError naming why', () => {
+    const notJson = () => rtdbRules('{ "rules": { ".read": true ');
+    expect(notJson).toThrow(RulesCompileError);
+    expect(notJson).toThrow(/^Realtime Database rules text is not valid JSON: /);
+    const noRules = () => rtdbRules('{ "paths": {} }');
+    expect(noRules).toThrow(RulesCompileError);
+    expect(noRules).toThrow('Realtime Database rules text has no top-level "rules" object');
+    let thrown: unknown;
+    try {
+      rtdbRules('[]');
+    } catch (error) {
+      thrown = error;
+    }
+    expect((thrown as RulesCompileError).issues).toEqual([
+      { code: 'PARSE_ERROR', severity: 'error', message: 'Realtime Database rules text has no top-level "rules" object', origin: 'parse' },
+    ]);
+  });
+
   test('simulates compiled { rules } JSON directly', () => {
     const compiled = { rules: { '.read': 'auth != null', '.write': false } };
     const ruleset = rtdbRules(compiled);
