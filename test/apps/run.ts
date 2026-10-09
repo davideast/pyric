@@ -111,6 +111,10 @@ async function runApp(name: string, context: {
     const module = await import(join(appsDir, name, 'scenario.ts')) as { default?: Scenario };
     if (typeof module.default !== 'function') throw new StepFailure('load scenario', new Error('scenario.ts has no default export from scenario()'));
     await withTimeout(module.default(run), APP_TIMEOUT_MS, run);
+    const hostErrors = run.unexpectedHostErrors();
+    if (hostErrors.length > 0) {
+      throw new StepFailure('every Pyric host route the page requested answered without an error', new Error(hostErrors.join('\n')));
+    }
   } catch (error) {
     failure = error;
   } finally {

@@ -31,6 +31,7 @@ export default scenario(async (app) => {
     const page = await app.page(host.url);
     await page.waitForFunction(() => 'download' in window);
     assert.deepEqual(await page.evaluate((url) => download(url), report.downloadUrl), { status: 200, text: 'hello' });
+    app.expectHostError(/^403 GET \/__pyric\/storage\/.*token=wrong$/);
     const wrong = await page.evaluate((url) => download(url), report.wrongTokenUrl);
     assert.equal(wrong.status, 403);
   });
