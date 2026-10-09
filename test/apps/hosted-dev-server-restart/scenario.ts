@@ -23,6 +23,16 @@ export default scenario(async (app) => {
     return page;
   });
 
+  await app.step('the page console says the sandbox runs on the dev server', async () => {
+    const tab = await (await app.browser()).newPage();
+    const line = tab.waitForEvent('console', { predicate: (message) => message.text().startsWith('[pyric sandbox] firebase/*'), timeout: 15_000 });
+    await tab.goto(host.url);
+    const text = (await line).text();
+    await tab.close();
+    assert.match(text, /on the dev server/, text);
+    assert.doesNotMatch(text, /SharedWorker/, text);
+  });
+
   const before = await app.step('read the host instance', () => hostInstance(host.url));
 
   await app.step('edit vite.config.js; Vite restarts the server', async () => {

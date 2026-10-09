@@ -442,11 +442,13 @@ if (!useWorker) {
 // once, and explain any stack frame that points into /__pyric/sdk/. ────────
 console.info(
   `[pyric sandbox] firebase/* on this page is served by the Pyric sandbox` +
-    (useWorker
-      ? ' in a SharedWorker (one backend for all tabs; rules/seed/persist owned by the worker)'
-      : diagnostics.rulesHash || diagnostics.databaseRulesHash || diagnostics.storageRulesHash
-        ? ' (project rules loaded)'
-        : ' (no project rules)') +
+    (useHosted
+      ? ' on the dev server (one backend for all tabs and server processes; rules/seed/persist owned by the dev server)'
+      : useWorker
+        ? ' in a SharedWorker (one backend for all tabs; rules/seed/persist owned by the worker)'
+        : diagnostics.rulesHash || diagnostics.databaseRulesHash || diagnostics.storageRulesHash
+          ? ' (project rules loaded)'
+          : ' (no project rules)') +
     ` — diagnostics: globalThis.__pyricServe`,
 );
 
