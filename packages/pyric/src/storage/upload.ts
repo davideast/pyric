@@ -30,7 +30,7 @@ import { enforceRules } from './enforce.js';
 import { resourceFromStored, requestResourceFor } from './sandbox/rules-resources.js';
 import { toFullMetadata, type SettableMetadata, type UploadResult } from './metadata.js';
 import { planeOf, uploadContentDisposition } from './content-defaults.js';
-import { invalidRootOperation, invalidFormat } from './errors.js';
+import { StorageError, invalidRootOperation, invalidFormat } from './errors.js';
 import type { StoredMetadata } from './persistence.js';
 import type { StorageReference } from './reference.js';
 
@@ -61,14 +61,43 @@ export async function uploadBytes(
   metadata?: SettableMetadata,
   provenance?: EventProvenance,
 ): Promise<UploadResult> {
+  return uploadObject(ref, data, metadata, { provenance });
+}
+
+/** What {@link uploadObject} takes besides the bytes and settable metadata. */
+export interface UploadObjectOptions {
+  provenance?: EventProvenance;
+  /**
+   * Download tokens the object is created with, comma-separated, as
+   * firebase-admin's `save` sets them through the
+   * `firebaseStorageDownloadTokens` custom key. Only the admin plane sets them.
+   */
+  downloadTokens?: string;
+}
+
+/**
+ * The upload pipeline behind {@link uploadBytes}. The admin plane can also
+ * create the object with download tokens, in the same write as its bytes.
+ */
+export async function uploadObject(
+  ref: StorageReference,
+  data: Blob | Uint8Array | ArrayBuffer,
+  metadata: SettableMetadata | undefined,
+  { provenance, downloadTokens }: UploadObjectOptions = {},
+): Promise<UploadResult> {
   guardNonRoot(ref, 'uploadBytes');
   const target = targetOf(ref.storage);
+  const setsTokens = downloadTokens !== undefined;
+  if (setsTokens && planeOf(target) !== 'admin') {
+    throw new StorageError('unauthorized', 'Only the admin plane sets download tokens on upload.');
+  }
   const operationProvenance = storageOperationProvenance(target, provenance);
   const blob = toBlob(data, metadata?.contentType);
   // Server-set object times come from the sandbox clock, so `timeCreated` and
   // `updated` agree with the `request.time` the rules see for this same upload.
   const uploadedAt = getClock(target.sandbox).date();
   const stored = buildStoredMetadata({ ref, blob, settable: metadata, now: uploadedAt });
+  if (setsTokens) stored.downloadTokens = downloadTokens;
   const service = await getStorageService(ref.storage);
   const existing = await service.backend.getMetadata(ref.fullPath);
   enforceRules(service, {

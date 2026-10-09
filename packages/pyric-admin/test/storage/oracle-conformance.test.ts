@@ -12,7 +12,7 @@
 import 'fake-indexeddb/auto';
 import { afterEach, describe, expect, it } from 'bun:test';
 import { join } from 'node:path';
-import { initializeSandbox } from 'pyric/sandbox';
+import { initializeSandbox, isRemoteSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
 import { getStorageSandbox } from 'pyric/storage';
 import { createObservationGate } from '../../../../packages/conformance/src/observation-gate.ts';
@@ -201,5 +201,63 @@ describe('storage-admin observations', () => {
     expect(report.committed.length).toBeGreaterThanOrEqual(1);
     expect(report.loadedButUnused).toEqual([]);
     expect(report.uncovered).toEqual([]);
+  });
+});
+
+// ─── Download tokens set at save ───────────────────────────────────────────
+
+/** What the host stores, as a client SDK's getMetadata reads it, on a remote arm; undefined in process. */
+async function hostView(app: PyricAdminApp, path: string): Promise<{ downloadTokens?: string; customMetadata?: Record<string, string> } | undefined> {
+  const sandbox = app.sandbox;
+  if (!isRemoteSandbox(sandbox)) return undefined;
+  return await sandbox.channel.op({ method: 'storage.getMetadata', path, actAs: { mode: 'admin' } }) as { downloadTokens?: string; customMetadata?: Record<string, string> };
+}
+
+describe.each(ARMS)('pyric-admin/storage save with firebaseStorageDownloadTokens, %s', (_arm, open) => {
+  const uploads: Array<[string, (file: File, bytes: Buffer, metadata: Record<string, unknown>) => Promise<void>]> = [
+    ['save', (file, bytes, metadata) => file.save(bytes, { resumable: false, metadata })],
+    ['createWriteStream', (file, bytes, metadata) => new Promise<void>((resolve, reject) => {
+      const stream = file.createWriteStream({ metadata });
+      stream.on('error', reject).on('finish', () => resolve());
+      stream.end(bytes);
+    })],
+  ];
+
+  it.each(uploads)('%s stores the token as the download token, as setMetadata does', async (_upload, upload) => {
+    const app = open();
+    const file = getStorage(app).bucket().file('public/hello.txt');
+    await upload(file, Buffer.from('hello'), { contentType: 'text/plain', metadata: { firebaseStorageDownloadTokens: 'tok-1', note: 'kept' } });
+    const [metadata] = await file.getMetadata();
+    expect(metadata.contentType).toBe('text/plain');
+    expect(metadata.metadata).toEqual({ note: 'kept', firebaseStorageDownloadTokens: 'tok-1' });
+    const view = await hostView(app, file.name);
+    if (view !== undefined) {
+      expect(view.downloadTokens).toBe('tok-1');
+      expect(view.customMetadata).toEqual({ note: 'kept' });
+    }
+    // getDownloadURL keeps the token it was saved with.
+    await getDownloadURL(file);
+    expect((await file.getMetadata())[0].metadata?.firebaseStorageDownloadTokens).toBe('tok-1');
+  });
+
+  it('a save past one frame stores the token too', async () => {
+    const app = open();
+    const file = getStorage(app).bucket().file('public/large.bin');
+    const bytes = Buffer.alloc(5 * 1024 * 1024, 7);
+    await file.save(bytes, { metadata: { metadata: { firebaseStorageDownloadTokens: 'tok-large' } } });
+    expect((await file.getMetadata())[0].metadata).toEqual({ firebaseStorageDownloadTokens: 'tok-large' });
+    const view = await hostView(app, file.name);
+    if (view !== undefined) {
+      expect(view.downloadTokens).toBe('tok-large');
+      expect(view.customMetadata).toBeUndefined();
+    }
+  });
+
+  it('createResumableUpload rejects as not implemented', async () => {
+    const file = getStorage(open()).bucket().file('staging/upload-1');
+    expect(typeof file.createResumableUpload).toBe('function');
+    await expect(file.createResumableUpload({ metadata: { contentType: 'image/png' } })).rejects.toThrow(
+      /^not implemented in pyric-admin\/storage (remote )?sandbox backend: resumable upload sessions \(createResumableUpload\)/,
+    );
   });
 });

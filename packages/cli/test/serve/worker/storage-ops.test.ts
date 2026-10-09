@@ -332,3 +332,56 @@ describe('storage worker ops — actAs lens against page-configured rules', () =
     await opOk(ctx, { method: 'storage.getMetadata', path: 'users/ada/notes.txt', ...ADMIN });
   });
 });
+
+describe('storage worker ops: download tokens set by an upload', () => {
+  const text = (value: string) => bytesToBase64(new TextEncoder().encode(value));
+
+  it('the admin lens creates the object with its download tokens, apart from custom metadata', async () => {
+    const ctx = makeCtx();
+    await opOk(ctx, {
+      method: 'storage.putBytes',
+      path: 'public/hello.txt',
+      dataB64: text('hello'),
+      metadata: { metadata: { note: 'kept' } },
+      downloadTokens: 'tok-1',
+      ...ADMIN,
+    });
+    const meta = (await opOk(ctx, { method: 'storage.getMetadata', path: 'public/hello.txt', ...ADMIN })) as {
+      downloadTokens?: string;
+      customMetadata?: Record<string, string>;
+      metageneration: string;
+    };
+    expect(meta.downloadTokens).toBe('tok-1');
+    expect(meta.customMetadata).toEqual({ note: 'kept' });
+    expect(meta.metageneration).toBe('1');
+    const { path } = (await opOk(ctx, { method: 'storage.getDownloadURL', path: 'public/hello.txt', ...ADMIN })) as { path: string };
+    expect(new URL(path, 'http://host').searchParams.get('token')).toBe('tok-1');
+  });
+
+  it('a chunked upload on the admin lens keeps its download tokens to finishUpload', async () => {
+    const ctx = makeCtx();
+    const { uploadId } = (await opOk(ctx, {
+      method: 'storage.beginUpload',
+      path: 'public/parts.bin',
+      size: 5,
+      downloadTokens: 'tok-parts',
+      ...ADMIN,
+    })) as { uploadId: string };
+    await opOk(ctx, { method: 'storage.putPart', uploadId, partIndex: 0, dataB64: text('hello'), ...ADMIN });
+    await opOk(ctx, { method: 'storage.finishUpload', uploadId, ...ADMIN });
+    const meta = (await opOk(ctx, { method: 'storage.getMetadata', path: 'public/parts.bin', ...ADMIN })) as { downloadTokens?: string };
+    expect(meta.downloadTokens).toBe('tok-parts');
+  });
+
+  it('refuses download tokens on any lens but admin, as no client SDK can set them', async () => {
+    const ctx = makeCtx();
+    for (const actAs of [undefined, { mode: 'anon' }, { mode: 'as', uid: 'ada' }]) {
+      const lens = actAs === undefined ? {} : { actAs };
+      const put = await opFail(ctx, { method: 'storage.putBytes', path: 'public/x.txt', dataB64: text('x'), downloadTokens: 'tok', ...lens });
+      expect(put.code).toBe('storage/unauthorized');
+      const begun = await opFail(ctx, { method: 'storage.beginUpload', path: 'public/x.txt', size: 1, downloadTokens: 'tok', ...lens });
+      expect(begun.code).toBe('storage/unauthorized');
+    }
+    expect(await opFail(ctx, { method: 'storage.getMetadata', path: 'public/x.txt', ...ADMIN })).toMatchObject({ code: 'storage/object-not-found' });
+  });
+});

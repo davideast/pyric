@@ -26,6 +26,9 @@
  *       - `file.download(options?)` → `[Buffer]`, whole or `start..end`
  *       - `file.createReadStream(options?)`, whole or `start..end`
  *       - `file.createWriteStream(options?)`
+ *       - `save` and `createWriteStream` take `firebaseStorageDownloadTokens`
+ *         under `metadata.metadata` as the file's download tokens, which grant
+ *         its download URL as `getDownloadURL` mints them
  *       - `file.getMetadata()` / `file.setMetadata(metadata)`: settable fields
  *         and custom metadata; a custom key set to `null` is removed
  *       - `getDownloadURL(file)`: mints a token into
@@ -36,7 +39,8 @@
  *       - `file.getSignedUrl(options)` → `['pyric-sandbox-storage://…']`
  *
  *     **Deferred in the sandbox backend** (throws `"not implemented in
- *     pyric-admin/storage sandbox backend"`): resumable uploads, signed
+ *     pyric-admin/storage sandbox backend"`): resumable uploads and
+ *     `file.createResumableUpload` upload sessions, signed
  *     cookies, IAM policies, lifecycle rules, ACLs, copy/move,
  *     notifications.
  */
@@ -131,6 +135,12 @@ export interface File {
    * stream finishes, as {@link File.save} does.
    */
   createWriteStream(options?: CreateWriteStreamOptions): Writable;
+  /**
+   * `@google-cloud/storage`'s resumable upload session. The sandbox does not
+   * model upload sessions, so this rejects with a not-implemented error. Upload
+   * with {@link File.save} or {@link File.createWriteStream} instead.
+   */
+  createResumableUpload(options?: Record<string, unknown>): Promise<[string]>;
   /** The file's metadata, as a `[metadata]` tuple. Throws if the file does not exist. */
   getMetadata(): Promise<[FileMetadata]>;
   /**
@@ -160,10 +170,10 @@ export interface File {
 /** Options bag for {@link File.save}. Subset of `@google-cloud/storage`'s `SaveOptions`. */
 export interface SaveOptions {
   /**
-   * Arbitrary metadata stored alongside the file. The sandbox stores
-   * it verbatim; consumers that need to round-trip `contentType`,
-   * `metadata.custom`, etc. get it back via internal admin tooling
-   * (not exposed on `File` itself yet).
+   * Metadata stored alongside the file: the settable fields `setMetadata`
+   * takes, and custom keys under `metadata`. A
+   * `firebaseStorageDownloadTokens` custom key sets the file's download
+   * tokens. Other fields are ignored. Read it back with {@link File.getMetadata}.
    */
   metadata?: Record<string, unknown>;
   /**
@@ -431,12 +441,11 @@ class SandboxFile implements File {
       );
     }
     const bytes = toBytes(data);
-    const saved = patchOf(options.metadata ?? {}, { strict: false });
+    const saved = savedMetadataOf(options.metadata ?? {});
     const contentType = options.contentType ?? saved.settable.contentType;
     const now = new Date().toISOString();
-    const custom: Record<string, string> = {};
-    for (const [key, value] of Object.entries(saved.customMetadata)) if (value !== null) custom[key] = value;
-    const hasTokens = typeof saved.downloadTokens === 'string';
+    const custom = { ...saved.custom };
+    const hasTokens = saved.downloadTokens !== undefined;
     if (hasTokens) custom[DOWNLOAD_TOKENS_KEY] = saved.downloadTokens!;
     this.files.set(this.name, {
       data: bytes,
@@ -525,6 +534,13 @@ class SandboxFile implements File {
 
   createWriteStream(options: CreateWriteStreamOptions = {}): Writable {
     return spooledWriteStream(async spooled => this.save(await readFile(spooled), options));
+  }
+
+  async createResumableUpload(): Promise<[string]> {
+    throw new Error(
+      'not implemented in pyric-admin/storage sandbox backend: resumable upload sessions (createResumableUpload). ' +
+        'Upload with file.save() or file.createWriteStream().',
+    );
   }
 
   async delete(): Promise<void> {
@@ -669,11 +685,25 @@ class RemoteFile implements File {
     });
   }
 
-  /** Store `data` over the host's byte route, or as one frame when the host has none. */
+  async createResumableUpload(): Promise<[string]> {
+    throw new Error(
+      'not implemented in pyric-admin/storage remote sandbox backend: resumable upload sessions (createResumableUpload). ' +
+        'Upload with file.save() or file.createWriteStream().',
+    );
+  }
+
+  /**
+   * Store `data` over the host's byte route, or as one frame when the host has
+   * none. `firebaseStorageDownloadTokens` becomes the object's download tokens,
+   * as `setMetadata` sends it, and the other custom keys stay custom metadata.
+   */
   private async upload(data: Blob, options: CreateWriteStreamOptions): Promise<void> {
+    const saved = options.metadata === undefined ? undefined : savedMetadataOf(options.metadata);
+    const hasCustom = saved !== undefined && Object.keys(saved.custom).length > 0;
     const request = {
       ...(options.contentType !== undefined ? { contentType: options.contentType } : {}),
-      ...(options.metadata !== undefined ? { metadata: options.metadata } : {}),
+      ...(saved !== undefined ? { metadata: { ...saved.settable, ...(hasCustom ? { metadata: saved.custom } : {}) } } : {}),
+      ...(saved?.downloadTokens !== undefined ? { downloadTokens: saved.downloadTokens } : {}),
     };
     const route = await this.channel.byteRoute?.();
     const routed = route !== undefined;
@@ -956,6 +986,26 @@ function patchOf(metadata: FileMetadataUpdate | Record<string, unknown>, { stric
     else patch.customMetadata[key] = next;
   }
   return patch;
+}
+
+/** Metadata a new object is saved with: settable fields, custom keys, and the download tokens apart. */
+interface SavedMetadata {
+  settable: Partial<Record<SettableField, string>>;
+  custom: Record<string, string>;
+  downloadTokens?: string;
+}
+
+/**
+ * The metadata `save` and `createWriteStream` create an object with. It is the
+ * {@link patchOf} split `setMetadata` uses, so `firebaseStorageDownloadTokens`
+ * becomes the object's download tokens on every path; a `null` key is not stored.
+ */
+function savedMetadataOf(metadata: Record<string, unknown>): SavedMetadata {
+  const patch = patchOf(metadata, { strict: false });
+  const custom: Record<string, string> = {};
+  for (const [key, value] of Object.entries(patch.customMetadata)) if (value !== null) custom[key] = value;
+  const tokens = patch.downloadTokens;
+  return { settable: patch.settable, custom, ...(typeof tokens === 'string' ? { downloadTokens: tokens } : {}) };
 }
 
 /** A `data:` URI carrying `bytes`, the download URL where no host serves them over HTTP. */

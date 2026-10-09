@@ -48,18 +48,21 @@ export interface RemoteUploadRequest {
   data: Blob;
   contentType?: string;
   metadata?: Record<string, unknown>;
+  /** Download tokens the object is created with. The host takes them on the admin lens only. */
+  downloadTokens?: string;
   actAs?: unknown;
 }
 
 /** Upload over the byte route; resolves with the object's metadata from `finishUpload`. */
 export async function uploadOverByteRoute(channel: OperationChannel, route: RemoteByteRoute, request: RemoteUploadRequest): Promise<unknown> {
-  const { path, data, contentType, metadata, actAs } = request;
+  const { path, data, contentType, metadata, downloadTokens, actAs } = request;
   const begun = (await channel.op({
     method: 'storage.beginUpload',
     path,
     size: data.size,
     ...(contentType !== undefined ? { contentType } : {}),
     ...(metadata !== undefined ? { metadata } : {}),
+    ...(downloadTokens !== undefined ? { downloadTokens } : {}),
     ...(actAs !== undefined ? { actAs } : {}),
   })) as { uploadId: string; uploadUrl?: string };
   const uploadUrl = begun.uploadUrl;

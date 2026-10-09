@@ -22,7 +22,6 @@ import {
   getMetadata as storageGetMetadata,
   getBlob as storageGetBlob,
   getBytes as storageGetBytes,
-  uploadBytes as storageUploadBytes,
   deleteObject as storageDeleteObject,
   type FirebaseStorage,
   type SettableMetadata,
@@ -40,6 +39,7 @@ import {
   enforceRules,
   requestResourceFor,
   resourceFromStored,
+  uploadObject,
 } from 'pyric/storage/internal';
 import { FirebaseError } from 'pyric/app';
 import type { AuthLens } from 'pyric/sandbox';
@@ -69,6 +69,8 @@ import { portSession } from '../host-auth.js';
 interface PendingUpload {
   path: string;
   settable: SettableMetadata;
+  /** Download tokens the object is created with, set on the admin lens. */
+  downloadTokens?: string;
   /** Authorizes sending this upload's bytes over the byte route, and nothing else. */
   token: string;
 }
@@ -200,6 +202,20 @@ function toSettableMetadata(msg: {
   if (contentLanguage !== undefined) settable.contentLanguage = contentLanguage;
   if (customMetadata !== undefined) settable.customMetadata = customMetadata;
   return settable;
+}
+
+/**
+ * The download tokens an upload creates its object with. firebase-admin's
+ * `save` sets them; no client SDK can, so they are taken on the admin lens only.
+ */
+function uploadDownloadTokens(msg: { downloadTokens?: string; actAs?: AuthLens }): string | undefined {
+  const tokens = msg.downloadTokens;
+  const setsTokens = tokens !== undefined;
+  const adminPlane = msg.actAs?.mode === 'admin';
+  if (setsTokens && !adminPlane) {
+    throw new FirebaseError('storage/unauthorized', 'An upload sets download tokens on the admin lens only (firebase-admin File.save).');
+  }
+  return tokens;
 }
 
 /** The storage op methods routed to {@link handleStorageOp}. */
@@ -369,10 +385,11 @@ export async function handleStorageOp(
           lensStorage(ctx, msg.actAs, port),
           opProvenance(msg),
         );
-        const result = await storageUploadBytes(
+        const result = await uploadObject(
           storageRef(storage, msg.path),
           bytes,
           toSettableMetadata(msg),
+          { downloadTokens: uploadDownloadTokens(msg) },
         );
         await bestEffortFlush(ctx, msg.method);
         // FullMetadata — plain JSON, relay-safe.
@@ -392,6 +409,7 @@ export async function handleStorageOp(
         if (msg.size > MAX_STORAGE_OBJECT_BYTES) {
           throw storageQuotaExceeded(msg.size, `storage.beginUpload for '${msg.path}'`);
         }
+        const downloadTokens = uploadDownloadTokens(msg);
         const storage = bindStorageOperationContext(
           lensStorage(ctx, msg.actAs, port),
           opProvenance(msg),
@@ -430,7 +448,7 @@ export async function handleStorageOp(
           settable.customMetadata,
         );
         const token = mintCapabilityToken();
-        pendingUploads(ctx).set(uploadId, { path: r.fullPath, settable, token });
+        pendingUploads(ctx).set(uploadId, { path: r.fullPath, settable, ...(downloadTokens !== undefined ? { downloadTokens } : {}), token });
         // A host with a byte route takes the bytes at this URL; others ignore it.
         ok(port, msg.id, { uploadId, uploadUrl: storageUploadPath(target.bucket, r.fullPath, uploadId, token) });
       } catch (e) { fail(port, msg.id, e); }
@@ -488,7 +506,7 @@ export async function handleStorageOp(
         // A Blob of the staged bytes; a backend that staged them in a file keeps
         // that file as the object instead of reading it.
         const staged = await service.backend.readUpload(msg.uploadId);
-        const result = await storageUploadBytes(storageRef(storage, pending!.path), staged, pending!.settable);
+        const result = await uploadObject(storageRef(storage, pending!.path), staged, pending!.settable, { downloadTokens: pending!.downloadTokens });
         pendingUploads(ctx).delete(msg.uploadId);
         await service.backend.abortUpload?.(msg.uploadId);
         await bestEffortFlush(ctx, msg.method);
