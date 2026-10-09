@@ -280,7 +280,6 @@ export const ALLOWLIST: readonly AllowlistGroup[] = [
       'parent',
       'projectId',
       'signer',
-      'storage',
       'unreachable',
       'userProject',
     ],
