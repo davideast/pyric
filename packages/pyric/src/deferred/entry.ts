@@ -66,6 +66,18 @@ export class PyricDeferredApiError extends Error {
 }
 
 /**
+ * The brand on every deferred entry export and every deferred member (see
+ * `member.ts`). A surface check reads it to tell a not-implemented stub apart
+ * from an implemented API without calling it.
+ */
+export const DEFERRED_API: unique symbol = Symbol.for('pyric.deferred.api') as never;
+
+/** Whether `value` is a deferred entry export or a deferred member. */
+export function isDeferredApi(value: unknown): boolean {
+  return typeof value === 'function' && (value as unknown as Record<symbol, unknown>)[DEFERRED_API] === true;
+}
+
+/**
  * The static type of a deferred export.
  *
  * It is callable, constructible, and indexable so a deferred symbol can stand
@@ -111,11 +123,12 @@ const INERT_PROPERTIES: ReadonlySet<string> = new Set([
  * constructed, wrapped in a proxy so member reads (the enum-constant shape)
  * throw the same error.
  */
-function deferredSymbol(subpath: string, symbol: string, message: string): DeferredApi {
+export function deferredSymbol(subpath: string, symbol: string, message: string): DeferredApi {
   const throwing = function deferred(): never {
     throw new PyricDeferredApiError(subpath, symbol, message);
   };
   Object.defineProperty(throwing, 'name', { value: symbol, configurable: true });
+  Object.defineProperty(throwing, DEFERRED_API, { value: true });
 
   return new Proxy(throwing, {
     get(target, property, receiver) {

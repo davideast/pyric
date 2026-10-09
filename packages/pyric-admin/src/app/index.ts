@@ -63,6 +63,14 @@ export function cert(serviceAccountPathOrObject: unknown): object {
   return { [Symbol.for('pyric.admin.credential')]: 'cert' };
 }
 
+/**
+ * Link-compatible mirror of `firebase-admin/app`'s `refreshToken(refreshTokenPathOrObject)`.
+ * Returns an inert sandbox credential token, as {@link cert} does.
+ */
+export function refreshToken(refreshTokenPathOrObject: unknown): object {
+  return { [Symbol.for('pyric.admin.credential')]: 'refreshToken', token: refreshTokenPathOrObject };
+}
+
 /** Local error with the observable firebase-admin app-error shape. */
 class FirebaseAppError extends Error {
   readonly code: string;

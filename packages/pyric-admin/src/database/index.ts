@@ -98,6 +98,11 @@ import {
 } from '../app/index.js';
 import { assertAdminAppActive } from '../app/lifecycle.js';
 import { increment, serverTimestamp } from 'pyric/database';
+import { deferredExport } from 'pyric/app/internal';
+
+/** `firebase-admin/database`'s `enableLogging`. The sandbox does not model
+ *  the client logger, so it fails with an error naming it. */
+export const enableLogging = deferredExport('pyric-admin/database', 'enableLogging');
 
 /** Mirror of `firebase-admin/database`'s `ServerValue` constant and sentinel constructors. */
 export const ServerValue: {
