@@ -24,15 +24,15 @@
  * Any SIM_BUG row here is a round-4 ledger candidate — do not "fix" the
  * test, record the row.
  *
- * Requires: PARITY_SA_BASE64 (firebaserules-only SA). Skips cleanly when
- * the secret is absent.
+ * Requires: a Rules Test API credential (credential.ts). Skips cleanly when
+ * none resolves.
  */
 import { describe, test, beforeAll, afterAll } from 'bun:test';
 import type { ProjectScope } from '../../../src/project-scope.js';
 import {
   type Scenario,
   type CaseRow,
-  hasParitySecret,
+  hasParityCredential,
   parityScope,
   runScenario,
   reportParity,
@@ -43,7 +43,7 @@ const SCENARIOS: Scenario[] = FIX_CLASS_SCENARIOS;
 
 // ─── Test ──────────────────────────────────────────────────────────────────
 
-const HAS_SA = hasParitySecret();
+const HAS_SA = hasParityCredential();
 let scope: ProjectScope;
 const allRows: CaseRow[] = [];
 

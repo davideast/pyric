@@ -205,7 +205,7 @@ derivations in memory and never read these files.
 ```sh
 bun run packages/conformance/src/rules-language-coverage.ts    # -> coverage-report.json
 bun run packages/conformance/src/rules-language-capability.ts  # -> capability-report.json
-bun run packages/conformance/src/rules-language-acceptance.ts  # -> acceptance-report.json (PRODUCTION probe, needs PARITY_SA_BASE64)
+bun run packages/conformance/src/rules-language-acceptance.ts  # -> acceptance-report.json (PRODUCTION probe, needs a Rules Test API credential)
 bun run compat:rules-score                                   # canonical Firestore score + exact baseline gate
 ```
 
@@ -800,8 +800,8 @@ Blocked (7):
   - messaging-web: missing env: PYRIC_MESSAGING_FIREBASE_CONFIG, PYRIC_MESSAGING_VAPID_KEY, PYRIC_MESSAGING_SA_BASE64
   - oracle-run: missing env: PYRIC_ORACLE_FIREBASE_CONFIG, PYRIC_ORACLE_SA_PATH
   - rtdb-rules: missing env: PYRIC_ORACLE_FIREBASE_CONFIG, PYRIC_ORACLE_SA_PATH
-  - rules-firestore: missing env: PARITY_SA_BASE64
-  - rules-storage: missing env: PARITY_SA_BASE64
+  - rules-firestore: missing env: GOOGLE_APPLICATION_CREDENTIALS
+  - rules-storage: missing env: GOOGLE_APPLICATION_CREDENTIALS
 ```
 
 `packages/conformance/docs/oracle-project-setup.md` is the project contract: what
@@ -828,8 +828,8 @@ These two are pure in-process probes of installed library code. That is why
 |---|---|---|
 | `oracle-run` | 130 observations across five surfaces: `auth-` (28), `firestore-` (40), `rtdb-` (14), `rtdb-modular-` (39), `storage-` (9) | `PYRIC_ORACLE_FIREBASE_CONFIG` (web config JSON) plus `PYRIC_ORACLE_SA_PATH` (service-account file). The project needs Anonymous sign-in enabled and Firestore rules scoped to the `pyric_oracle` namespace. An RTDB instance and a Storage bucket are optional: those probes self-skip when absent. |
 | `rtdb-rules` | 8 `rules-rtdb-` observations: per-case ALLOW/DENY verdicts for the RTDB rules corpus | The same two vars as `oracle-run`. The service account must additionally hold a role granting the `firebase.database` scope, so `/.settings/rules.json` PUT and GET both succeed. |
-| `rules-firestore` | 28 `rules-firestore-` observations: per-case ALLOW/DENY/UNSUPPORTED verdicts from the production Firestore Rules Test API, each SHA-256-bound to its exact rules/request inputs | `PARITY_SA_BASE64`: a base64 service account holding ONLY `firebaserules.rulesets.test`. It cannot read or write any data. |
-| `rules-storage` | 8 `rules-storage-` observations, via the same `projects.test` endpoint | `PARITY_SA_BASE64`, same minimal scope. |
+| `rules-firestore` | 28 `rules-firestore-` observations: per-case ALLOW/DENY/UNSUPPORTED verdicts from the production Firestore Rules Test API, each SHA-256-bound to its exact rules/request inputs | A Rules Test API credential: see [Rules Test API credentials](#rules-test-api-credentials). CI's identity holds ONLY `firebaserules.rulesets.test`. It cannot read or write any data. |
+| `rules-storage` | 8 `rules-storage-` observations, via the same `projects.test` endpoint | The same credential and minimal scope. |
 | `ai-logic` | 14 `ai-` observations: error, SSE-framing, envelope, function-call, and countTokens facts from the production Firebase AI Logic proxy | `PYRIC_AI_FIREBASE_CONFIG`. The project needs Firebase AI Logic enabled, with the Gemini Developer API backend reachable through the `firebasevertexai.googleapis.com` proxy. |
 | `messaging-send` | 10 `messaging-send-` observations: what the production FCM v1 `messages:send` endpoint accepts, and its exact error envelopes | `PYRIC_MESSAGING_SA_BASE64`. The project needs Cloud Messaging (FCM v1) enabled. |
 
@@ -842,6 +842,89 @@ These two are pure in-process probes of installed library code. That is why
 There is no emulator anywhere in this fleet, and there never will be. Every
 observation is captured against real production, because an emulator's behavior
 is only ever a claim about an emulator.
+
+### Rules Test API credentials
+
+The Rules Test API rigs (`rules-firestore`, `rules-storage`, the stdlib and
+acceptance probes) and the live parity packs in
+`packages/pyric/test/rules/parity/` share one credential lookup,
+`packages/pyric/test/rules/parity/credential.ts`. It takes the first source
+that exists:
+
+1. `GOOGLE_APPLICATION_CREDENTIALS`, an Application Default Credentials file.
+   CI sets it through Workload Identity Federation. Locally you can point it at
+   a key file, in your shell or in the root `.env`.
+2. A firebase-tools login (`firebase login`).
+3. The gcloud ADC file (`gcloud auth application-default login`). Log in with
+   `--impersonate-service-account=<parity-sa-email>` so the token is the
+   service account's; a plain user ADC token can be refused for lack of a
+   quota project.
+
+`PARITY_PROJECT_ID` names the project the rules are tested against. Without it,
+an ADC source uses `GOOGLE_CLOUD_PROJECT` or `GCLOUD_PROJECT`, and every source
+falls back to `digame-mas`. With no source, the parity packs skip and the
+capture scripts print their inert plan. `PARITY_REQUIRE_CREDENTIAL=1` turns a
+missing credential into a failure; CI sets it so a job that should run live
+cannot pass by skipping. A credential that is present but cannot mint a token
+(a revoked key, a rejected federation exchange) fails the run.
+
+#### One-time CI setup: Workload Identity Federation
+
+CI holds no service account key. The `parity-stress` job in
+`simulator-parity.yml` and the rules legs of `oracle-recapture.yml` exchange
+the job's GitHub OIDC token for short-lived credentials of the parity service
+account. Both skip with a warning until the `GCP_WIF_PROVIDER` repository
+variable is set. Run these once, as a project owner, with your values in the
+first three lines:
+
+```sh
+PROJECT_ID=<project-id>
+PROJECT_NUMBER=<project-number>
+SA_EMAIL=<parity-sa-name>@<project-id>.iam.gserviceaccount.com
+
+# APIs the token exchange and impersonation use.
+gcloud services enable iam.googleapis.com iamcredentials.googleapis.com sts.googleapis.com \
+  --project="$PROJECT_ID"
+
+# A pool, and an OIDC provider that accepts only this repository's tokens.
+gcloud iam workload-identity-pools create github \
+  --project="$PROJECT_ID" --location=global \
+  --display-name="GitHub Actions"
+
+gcloud iam workload-identity-pools providers create-oidc pyric \
+  --project="$PROJECT_ID" --location=global \
+  --workload-identity-pool=github \
+  --display-name="davideast/pyric" \
+  --issuer-uri="https://token.actions.githubusercontent.com" \
+  --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository" \
+  --attribute-condition="assertion.repository=='davideast/pyric'"
+
+# Let workflows from this repository impersonate the parity service account.
+gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" \
+  --project="$PROJECT_ID" \
+  --role="roles/iam.workloadIdentityUser" \
+  --member="principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/attribute.repository/davideast/pyric"
+
+# The two repository variables the workflows read.
+gh variable set GCP_WIF_PROVIDER --repo davideast/pyric \
+  --body "projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/pyric"
+gh variable set PARITY_SA_EMAIL --repo davideast/pyric --body "$SA_EMAIL"
+```
+
+The service account keeps the role it already has for
+`firebaserules.rulesets.test`; nothing else changes on it. Trigger
+`simulator-parity.yml` with `workflow_dispatch` and confirm the parity packs
+report production verdicts. Then remove the stored key:
+
+```sh
+gh secret delete PARITY_SA_BASE64 --repo davideast/pyric
+
+# List the user-managed keys, then delete each one by its KEY_ID.
+gcloud iam service-accounts keys list --iam-account="$SA_EMAIL" \
+  --project="$PROJECT_ID" --managed-by=user
+gcloud iam service-accounts keys delete <key-id> --iam-account="$SA_EMAIL" \
+  --project="$PROJECT_ID"
+```
 
 ### The safety invariant: deploy, capture, restore, read back
 
@@ -938,10 +1021,14 @@ The lane runs two of the three tiers from
 - The **unattended** rigs (`admin-app`, `app-registry`) always run — they need
   no secret.
 - The **credentialed** rigs `oracle-run`, `messaging-send`, `rules-firestore`,
-  and `rules-storage` each run only when their secret is present. When a secret
-  is absent (a fork, or a repo that has not provisioned the oracle project) that
-  rig's leg skips cleanly with a warning and the run stays green, the same
-  secret-absent contract `simulator-parity.yml` uses. `messaging-send` carries
+  and `rules-storage` each run only when their credential is configured: a
+  secret for `oracle-run` and `messaging-send`, the `GCP_WIF_PROVIDER`
+  variable for the two rules legs
+  ([Workload Identity Federation](#one-time-ci-setup-workload-identity-federation)).
+  When it is absent (a fork, or a repo that has not provisioned the oracle
+  project) that rig's leg skips cleanly with a warning and the run stays green,
+  the same contract `simulator-parity.yml` uses. A configured credential that
+  fails to authenticate fails the leg. `messaging-send` carries
   the highest-drift-risk records, the purely server-side `messaging-admin`
   facts, so it is the one to prioritize provisioning.
 

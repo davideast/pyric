@@ -16,10 +16,11 @@
 #      they always run.
 #   2. credentialed — oracle-run, messaging-send, rules-firestore,
 #      rules-storage: each reaches a real Firebase project and needs a
-#      provisioned secret. Each matrix leg gates on its own secret and skips
-#      cleanly (a warning, a green run) when it is absent — the same
-#      secret-absent pattern simulator-parity.yml uses so a fork or an
-#      unconfigured repo never sees a red run.
+#      provisioned credential. oracle-run and messaging-send gate on their
+#      secrets; the two rules legs authenticate through Workload Identity
+#      Federation and gate on the GCP_WIF_PROVIDER repository variable. Each
+#      leg skips cleanly (a warning, a green run) when its guard is absent, so
+#      an unconfigured repo never sees a red run.
 #
 # Deliberately excluded:
 #   - rtdb-rules      — the one rig that MUTATES a live project (deploys a
@@ -104,12 +105,21 @@ jobs:
           - rig: messaging-send
             script: packages/conformance/src/messaging-send-probes.ts
             guard: PYRIC_MESSAGING_SA_BASE64
+          # The Rules Test API legs authenticate through Workload Identity
+          # Federation, so their guard is the GCP_WIF_PROVIDER variable.
           - rig: rules-firestore
             script: packages/conformance/src/run-rules.ts
-            guard: PARITY_SA_BASE64
+            guard: GCP_WIF_PROVIDER
+            wif: true
           - rig: rules-storage
             script: packages/conformance/src/run-rules-storage.ts
-            guard: PARITY_SA_BASE64
+            guard: GCP_WIF_PROVIDER
+            wif: true
+    # id-token: write lets google-github-actions/auth exchange this job's
+    # GitHub OIDC token for short-lived Google credentials on the wif legs.
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -117,21 +127,36 @@ jobs:
           bun-version: '1.3.11'
       - name: Check credential availability
         id: secret-check
-        # Skip cleanly when this rig's secret is absent (fork / unconfigured
-        # repo), exactly like simulator-parity's parity-stress job. The guard
-        # var name is per-rig; ${!GUARD} reads whichever one this leg needs.
+        # Skip cleanly when this rig's guard (a secret, or GCP_WIF_PROVIDER for
+        # the wif legs) is absent. The guard var name is per-rig; ${!GUARD}
+        # reads whichever one this leg needs. A wif leg with a provider but no
+        # service account is a broken configuration and fails.
         env:
           GUARD: ${{ matrix.guard }}
+          WIF: ${{ matrix.wif && 'true' || 'false' }}
           PYRIC_ORACLE_FIREBASE_CONFIG: ${{ secrets.PYRIC_ORACLE_FIREBASE_CONFIG }}
           PYRIC_MESSAGING_SA_BASE64: ${{ secrets.PYRIC_MESSAGING_SA_BASE64 }}
-          PARITY_SA_BASE64: ${{ secrets.PARITY_SA_BASE64 }}
+          GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
+          PARITY_SA_EMAIL: ${{ vars.PARITY_SA_EMAIL }}
         run: |
           if [ -z "${!GUARD}" ]; then
             echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::$GUARD not configured — ${{ matrix.rig }} re-capture skipped. Add the oracle secret to enable production drift detection for this rig."
+            echo "::warning::$GUARD not configured. ${{ matrix.rig }} re-capture skipped. Configure it to enable production drift detection for this rig."
+          elif [ "$WIF" = "true" ] && [ -z "$PARITY_SA_EMAIL" ]; then
+            echo "::error::GCP_WIF_PROVIDER is set but PARITY_SA_EMAIL is not. Set both repository variables."
+            exit 1
           else
             echo "available=true" >> "$GITHUB_OUTPUT"
           fi
+      # Writes an external-account credentials file and exports
+      # GOOGLE_APPLICATION_CREDENTIALS and GOOGLE_CLOUD_PROJECT. Fails the leg
+      # when the provider or the service account binding rejects the exchange.
+      - name: Authenticate to Google Cloud
+        if: steps.secret-check.outputs.available == 'true' && matrix.wif
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.PARITY_SA_EMAIL }}
       # Bun re-downloads every dependency from the registry without this;
       # persisting its install cache lets `bun install` reuse prior downloads.
       # Gated like Install itself: no point restoring/saving a cache for a
@@ -152,7 +177,9 @@ jobs:
         env:
           PYRIC_ORACLE_FIREBASE_CONFIG: ${{ secrets.PYRIC_ORACLE_FIREBASE_CONFIG }}
           PYRIC_MESSAGING_SA_BASE64: ${{ secrets.PYRIC_MESSAGING_SA_BASE64 }}
-          PARITY_SA_BASE64: ${{ secrets.PARITY_SA_BASE64 }}
+          # On a wif leg, a missing credential exits 1 instead of printing the
+          # inert plan, which would otherwise report no drift.
+          PARITY_REQUIRE_CREDENTIAL: ${{ matrix.wif && '1' || '' }}
         run: bun run ${{ matrix.script }}
       - name: Detect observation drift
         if: steps.secret-check.outputs.available == 'true'

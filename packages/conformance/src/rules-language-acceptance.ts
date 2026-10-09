@@ -44,13 +44,13 @@
  * the same generator that abstains for the local simulator abstains here.
  *
  * CREDENTIAL CONTRACT (identical to run-rules.ts / run-rules-storage.ts):
- *   PARITY_SA_BASE64 — base64-encoded service-account JSON holding only
- *   `firebaserules.rulesets.test`. Read via `parityScope()`
- *   (packages/pyric/test/rules/parity/harness.ts); never logged, echoed, or
- *   written anywhere by this script.
+ *   `parityScope()` (packages/pyric/test/rules/parity/credential.ts) selects
+ *   GOOGLE_APPLICATION_CREDENTIALS, then a firebase-tools login, then the
+ *   gcloud ADC file. The credential needs `firebaserules.rulesets.test`; this
+ *   script never logs, echoes, or writes it.
  *
  * RUNNABLE-BUT-INERT WITHOUT CREDENTIALS:
- *   With PARITY_SA_BASE64 absent, this script makes NO network calls. It
+ *   With no credential, this script makes NO network calls. It
  *   prints exactly what it WOULD probe (per engine: how many constructs need
  *   a network acceptance call vs. how many are unprobeable) then exits 0.
  *
@@ -184,9 +184,8 @@ function firestoreRequest(c: LanguageConstruct): { rules: string; cases: TestCas
 // ── Inert plan ───────────────────────────────────────────────────────────
 
 function printInertPlan(): void {
-  console.log('[rules-language:acceptance] PARITY_SA_BASE64 not set — INERT preview, no network calls.\n');
-  console.log('  Credential env var expected: PARITY_SA_BASE64');
-  console.log('    (base64-encoded service-account JSON with firebaserules.rulesets.test)\n');
+  console.log('[rules-language:acceptance] No Rules Test API credential: INERT preview, no network calls.\n');
+  console.log('  Set GOOGLE_APPLICATION_CREDENTIALS, run `firebase login`, or run `gcloud auth application-default login`.\n');
   let grandTotal = 0;
   let grandNetwork = 0;
   for (const engine of selectedEngines()) {
@@ -493,8 +492,8 @@ async function run(): Promise<void> {
 }
 
 if (import.meta.main) {
-  const { hasParitySecret } = await import('../../../packages/pyric/test/rules/parity/harness.ts');
-  if (!hasParitySecret()) {
+  const { hasParityCredential } = await import('../../../packages/pyric/test/rules/parity/credential.ts');
+  if (!hasParityCredential()) {
     printInertPlan();
     process.exit(0);
   }

@@ -120,7 +120,7 @@ const clientOnlyNodeShims = {
  *  code only, leaving SSR `process.env` accesses live so Astro
  *  endpoints can read env vars at runtime. The previous shape used
  *  `vite.define['process.env']`, which is global — it broke SSR
- *  reads of `process.env.PARITY_SA_BASE64` and friends because
+ *  reads of `process.env.DEPLOY_SA_JSON_BASE64` and friends because
  *  EVERY `process.env.X` in every module got rewritten to
  *  `({}).X === undefined`. Now the rewrite only fires for non-SSR
  *  code paths. */
