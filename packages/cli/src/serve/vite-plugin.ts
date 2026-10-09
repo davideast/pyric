@@ -48,10 +48,11 @@ import type { PyricAvatarsOptions } from './avatars-config.js';
 import type { PyricRuntimeChipOption } from './runtime/chip-config.js';
 import {
   createViteSandboxGeneration,
-  type ViteSandboxGeneration,
+  generationStateScope,
   type ViteSandboxGenerationInput,
   type ViteSandboxGenerationOptions,
 } from './vite-sandbox-generation.js';
+import { localGenerationSlot, projectGenerationSlot } from './vite-generation-registry.js';
 import { createViteModuleContext, createViteModuleSwap } from './vite-module-swap.js';
 import { createVitePageRuntime } from './vite-page-runtime.js';
 import { stampHostedTarget } from './runtime/hosted-target.js';
@@ -235,7 +236,9 @@ export function pyric(options: PyricOptions = {}): Plugin {
   const bridgeSetting = options.bridge;
   const usesDefaultBridgeOptions = bridgeSetting === true;
   const bridgeOpts = usesDefaultBridgeOptions ? {} : bridgeSetting || null;
-  let activeGeneration: ViteSandboxGeneration | null = null;
+  // A generation that owns project state is held process-wide, so the plugin
+  // instance a Vite restart builds closes it before claiming the same files.
+  const instanceSlot = localGenerationSlot();
   let hostedProjectKey: string | undefined;
 
   return {
@@ -283,11 +286,12 @@ export function pyric(options: PyricOptions = {}): Plugin {
     },
 
     async configureServer(server) {
-      const priorGeneration = activeGeneration;
-      activeGeneration = null;
-      await priorGeneration?.close();
-
       const projectDir = resolveFirebaseProjectDir(server.config.root, options.root);
+      const stateScope = generationStateScope(options);
+      const ownsProjectState = stateScope !== null;
+      const slot = ownsProjectState ? projectGenerationSlot(projectDir, stateScope) : instanceSlot;
+      await slot.take()?.close();
+
       const uiEnabled = options.ui ?? true;
       const functionsOptions = resolveFunctionsOptions(options.functions);
       const ai = pageRuntime.ai();
@@ -314,14 +318,14 @@ export function pyric(options: PyricOptions = {}): Plugin {
         ai,
       };
       const generation = await createViteSandboxGeneration(generationInput);
-      activeGeneration = generation;
+      slot.set(generation);
       hostedProjectKey = options.hosted ? projectDir : undefined;
       // Vite creates a replacement before closing the old server. Cleanup
-      // belongs to this server, even when another generation is now active.
+      // belongs to this server, even when another generation is now active;
+      // closing a generation its replacement already closed is a no-op.
       const closeServer = server.close.bind(server);
       server.close = async () => {
-        const ownsActiveGeneration = activeGeneration === generation;
-        if (ownsActiveGeneration) activeGeneration = null;
+        slot.release(generation);
         try {
           await generation.close();
         } finally {

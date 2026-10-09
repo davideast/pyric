@@ -43,7 +43,7 @@ import {
 } from './vite-generation-functions.js';
 import { attachViteGenerationMiddleware } from './vite-generation-middleware.js';
 import { watchViteGenerationRules } from './vite-generation-rules-watch.js';
-import { claimProjectState } from './hosted/project-ownership.js';
+import { claimProjectState, type ProjectStateScope } from './hosted/project-ownership.js';
 
 export interface ViteSandboxGenerationOptions {
   hosted?: boolean;
@@ -72,6 +72,21 @@ export interface ViteSandboxGenerationInput {
 
 export interface ViteSandboxGeneration {
   close(): Promise<void>;
+}
+
+/**
+ * The project state a generation with these options claims, or null when it
+ * keeps no state on disk. A hosted generation keeps its state in
+ * `.pyric/state/hosted`; a persisting browser generation writes `state.json`.
+ */
+export function generationStateScope(
+  options: { hosted?: boolean; persist?: boolean },
+): ProjectStateScope | null {
+  const usesHostedSandbox = options.hosted === true;
+  if (usesHostedSandbox) return 'host';
+  const persistsBrowserState = options.persist === true;
+  if (persistsBrowserState) return 'browser-state';
+  return null;
 }
 
 /** Internal adapters used to force lifecycle failures through the module interface. */
@@ -149,10 +164,10 @@ export async function createViteSandboxGeneration(
     if (lacksHttpServer) {
       throw new Error('@pyric/cli/vite: hosted requires Vite’s HTTP server; middleware mode is unsupported.');
     }
-    const persistsState = options.persist === true || usesHostedSandbox;
-    // A hosted generation keeps its state in `.pyric/state/hosted`; a persisting
-    // browser generation writes `state.json`. Each holds only its own files.
-    if (persistsState) stateOwner = await claimProjectState(cwd, usesHostedSandbox ? 'host' : 'browser-state');
+    // Each generation holds only the state files of its own scope.
+    const stateScope = generationStateScope(options);
+    const persistsState = stateScope !== null;
+    if (persistsState) stateOwner = await claimProjectState(cwd, stateScope);
     let firebaseConfig: FirebaseJson | null = null;
     try {
       firebaseConfig = await dependencies.readFirebaseJson(cwd);
