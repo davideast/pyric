@@ -35,7 +35,9 @@ export const watchFileOrWhenCreatedWith = (fileSystem: WatchFileSystem): WatchFi
   const directory = dirname(file);
   const fileName = basename(file);
 
-  const attach = (): void => {
+  // Watch the deepest existing directory on the way to `file`. Returns true
+  // when that is the file's own directory.
+  const attach = (): boolean => {
     current?.close();
     current = null;
     let target = directory;
@@ -56,10 +58,13 @@ export const watchFileOrWhenCreatedWith = (fileSystem: WatchFileSystem): WatchFi
             // watcher that is delivering this event.
             setImmediate(() => {
               if (closed) return;
-              attach();
-              // The directory and the file can appear together, as with
-              // `mkdir -p` followed by a write before the watch moves down.
-              if (next === directory && fileSystem.existsSync(file)) listener();
+              // Any number of missing segments, and the file itself, can
+              // appear before the watch moves, as with `mkdir -p` followed by
+              // a write. The file was missing while an ancestor was watched,
+              // so finding it once the watch reaches its directory means it
+              // was created.
+              const watchesDirectory = attach();
+              if (watchesDirectory && fileSystem.existsSync(file)) listener();
             });
           });
         break;
@@ -71,6 +76,7 @@ export const watchFileOrWhenCreatedWith = (fileSystem: WatchFileSystem): WatchFi
       }
     }
     current.on('error', (error) => events.emit('error', error));
+    return target === directory;
   };
 
   // The path one segment below `dir` on the way to `file`.
