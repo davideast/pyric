@@ -14,6 +14,11 @@ async function hostInstance(url: string): Promise<string> {
 }
 
 export default scenario(async (app) => {
+  // The restart interrupts the page's connection, and the page posts that to
+  // /__pyric/diagnostics. A post made before the new server generation mounts
+  // Pyric's routes answers 404, and the page keeps the report in memory.
+  app.expectHostError(/^404 POST \/__pyric\/diagnostics$/);
+
   const host = await app.step('start the hosted dev server', () => app.devServer());
 
   const page = await app.step('write a note from the page', async () => {
