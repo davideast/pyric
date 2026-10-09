@@ -117,6 +117,12 @@ export interface App {
   writeFile(path: string, text: string): void;
   /** A free TCP port on 127.0.0.1. */
   freePort(): Promise<number>;
+  /**
+   * Declares that a page request to a `/__pyric/` route may answer with an
+   * error status, such as a download URL with the wrong token. Any other error
+   * a `/__pyric/` route answers to a page fails the app after its scenario.
+   */
+  expectHostError(pattern: RegExp): void;
 }
 
 export type Scenario = (app: App) => Promise<void>;
@@ -182,6 +188,9 @@ export class AppRun implements App {
   readonly processes: AppProcess[] = [];
   readonly browserLog: string[] = [];
   currentStep = 'setup';
+  /** Error responses from `/__pyric/` routes to the app's pages, with the step each happened in. */
+  private readonly hostErrors: { step: string; request: string }[] = [];
+  private readonly expectedHostErrors: RegExp[] = [];
   private context: BrowserContext | undefined;
   private serverCount = 0;
   private scriptCount = 0;
@@ -278,7 +287,12 @@ export class AppRun implements App {
     page.on('console', (message) => this.browserLog.push(`[page ${index} console.${message.type()}] ${message.text()}`));
     page.on('pageerror', (error) => this.browserLog.push(`[page ${index} error] ${error.stack ?? error.message}`));
     page.on('response', (response) => {
-      if (response.status() >= 400) this.browserLog.push(`[page ${index} response ${response.status()}] ${response.request().method()} ${response.url()}`);
+      if (response.status() < 400) return;
+      this.browserLog.push(`[page ${index} response ${response.status()}] ${response.request().method()} ${response.url()}`);
+      const url = new URL(response.url());
+      if (url.pathname.startsWith('/__pyric/')) {
+        this.hostErrors.push({ step: this.currentStep, request: `${response.status()} ${response.request().method()} ${url.pathname}${url.search}` });
+      }
     });
     await page.goto(url);
     return page;
@@ -290,6 +304,17 @@ export class AppRun implements App {
 
   writeFile(path: string, text: string): void {
     writeFileSync(join(this.dir, path), text);
+  }
+
+  expectHostError(pattern: RegExp): void {
+    this.expectedHostErrors.push(pattern);
+  }
+
+  /** Error responses from `/__pyric/` routes that no `expectHostError` pattern matches. */
+  unexpectedHostErrors(): string[] {
+    return this.hostErrors
+      .filter(({ request }) => !this.expectedHostErrors.some((pattern) => pattern.test(request)))
+      .map(({ step, request }) => `${request} (during "${step}")`);
   }
 
   async close(): Promise<void> {
