@@ -79,7 +79,9 @@ export function listDenials(repro: ReproFile, filter: DenialFilter): DenialGroup
     if (denial === null) continue;
     const { context } = denial;
     const engine = context.engine;
-    const service: DenialService = engine === 'rtdb' || engine === 'storage' ? engine : 'firestore';
+    const isFirestore = engine === undefined || engine === 'firestore';
+    if (engine !== 'rtdb' && engine !== 'storage' && !isFirestore) continue;
+    const service: DenialService = isFirestore ? 'firestore' : engine;
     if (filter.service !== undefined && filter.service !== service) continue;
     if (filter.sinceAt !== undefined && entry.at < filter.sinceAt) continue;
     const request = requests.get(`${entry.session}${KEY_SEPARATOR}${denial.key}`);
