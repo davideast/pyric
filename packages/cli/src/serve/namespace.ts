@@ -363,6 +363,8 @@ interface DenialRelayPayload {
   /** Sibling of `denialContext` on the sandbox error — query-proof denials
    *  attach the suggested `where()` fix there; the client forwards it. */
   remediation?: unknown;
+  /** The named RTDB instance the denied request addressed, when it named one. */
+  instance?: unknown;
   denialContext?: {
     engine?: string;
     auth?: { uid?: string } | null;
@@ -402,7 +404,8 @@ export function formatDenialBlock(payload: DenialRelayPayload): string {
   const ctx = payload.denialContext;
   const request = ctx?.request;
   if (request?.method && request?.path) {
-    lines.push(`      ${request.method} ${request.path}`);
+    const instance = typeof payload.instance === 'string' ? ` (${payload.instance})` : '';
+    lines.push(`      ${request.method} ${request.path}${instance}`);
   }
   const uid = ctx?.auth?.uid;
   lines.push(`      auth: ${uid ?? 'anonymous'}`);

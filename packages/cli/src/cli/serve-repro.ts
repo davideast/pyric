@@ -27,6 +27,53 @@ export interface ServeReproDeps {
 
 const DEFAULT_OUT = 'pyric-repro.json';
 
+/**
+ * Ask the running Node host for its repro file. Returns the body, or the exit
+ * code after writing why to `err`. `command` prefixes each message.
+ */
+export async function fetchReproBody(
+  command: string,
+  cwd: string,
+  err: Output,
+  discover: ServeReproDeps['discover'],
+): Promise<string | { exit: number }> {
+  const host = await (discover ?? discoverServe)(cwd);
+  const hasNoHost = host === null || host.instanceId === null;
+  if (hasNoHost) {
+    err.write(`pyric ${command}: no running Node host found for this project. Start \`pyric sandbox\` or the Vite dev server, reproduce the problem, then run this command.\n`);
+    return { exit: 2 };
+  }
+  let response: Response;
+  try {
+    response = await fetch(new URL(HOSTED_REPRO_PATH, host.base), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ instanceId: host.instanceId, projectDir: realpathSync(cwd) }),
+      signal: AbortSignal.timeout(60_000),
+    });
+  } catch (error) {
+    err.write(`pyric ${command}: the host at ${host.base} did not answer: ${error instanceof Error ? error.message : String(error)}\n`);
+    return { exit: 2 };
+  }
+  const isUnsupported = response.status === 404;
+  if (isUnsupported) {
+    err.write(`pyric ${command}: the running server is not a Node host. It reads the Node host that \`pyric sandbox\` and the Vite plugin start.\n`);
+    return { exit: 2 };
+  }
+  const body = await response.text();
+  if (!response.ok) {
+    let message = body;
+    try {
+      message = (JSON.parse(body) as { error?: string }).error ?? body;
+    } catch {
+      // The body is not JSON; print it as it came.
+    }
+    err.write(`pyric ${command}: ${message}\n`);
+    return { exit: 1 };
+  }
+  return body;
+}
+
 export async function runServeReproCapture(parsed: ParsedArgs, deps: ServeReproDeps = {}): Promise<number> {
   const cwd = deps.cwd ?? process.cwd();
   const out = deps.stdout ?? process.stdout;
@@ -39,40 +86,9 @@ export async function runServeReproCapture(parsed: ParsedArgs, deps: ServeReproD
     err.write(`pyric serve repro capture: ${target} already exists. Pass --force to overwrite it.\n`);
     return 2;
   }
-  const host = await (deps.discover ?? discoverServe)(cwd);
-  const hasNoHost = host === null || host.instanceId === null;
-  if (hasNoHost) {
-    err.write('pyric serve repro capture: no running Node host found for this project. Start `pyric sandbox` or the Vite dev server, reproduce the problem, then run this command.\n');
-    return 2;
-  }
-  let response: Response;
-  try {
-    response = await fetch(new URL(HOSTED_REPRO_PATH, host.base), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ instanceId: host.instanceId, projectDir: realpathSync(cwd) }),
-      signal: AbortSignal.timeout(60_000),
-    });
-  } catch (error) {
-    err.write(`pyric serve repro capture: the host at ${host.base} did not answer: ${error instanceof Error ? error.message : String(error)}\n`);
-    return 2;
-  }
-  const isUnsupported = response.status === 404;
-  if (isUnsupported) {
-    err.write('pyric serve repro capture: the running server is not a Node host. Repro capture records the Node host that `pyric sandbox` and the Vite plugin start.\n');
-    return 2;
-  }
-  const body = await response.text();
-  if (!response.ok) {
-    let message = body;
-    try {
-      message = (JSON.parse(body) as { error?: string }).error ?? body;
-    } catch {
-      // The body is not JSON; print it as it came.
-    }
-    err.write(`pyric serve repro capture: ${message}\n`);
-    return 1;
-  }
+  const fetched = await fetchReproBody('serve repro capture', cwd, err, deps.discover);
+  if (typeof fetched !== 'string') return fetched.exit;
+  const body = fetched;
   writeFileSync(target, body);
   const repro = JSON.parse(body) as { entries: unknown[]; truncated: boolean };
   out.write(`Wrote ${repro.entries.length} log entries and the starting state to ${target}.\n`);

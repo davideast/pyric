@@ -17,6 +17,8 @@
  *   pyric database rules generate [--config <path>] [--out <path>]
  *   pyric serve diagnostics [--url URL] [--json]
  *   pyric serve sessions [--json]
+  pyric serve denials [--json] [--since <ms|duration>] [--service rtdb|firestore|storage]
+ *   pyric serve denials [--json] [--since <ms|duration>] [--service rtdb|firestore|storage]
  *   pyric serve repro capture [--out FILE]
  *   pyric serve repro replay <file> [--plane node|worker] [--json]
  *   pyric --help
@@ -130,6 +132,10 @@ COMMANDS
   serve sessions             List the clients connected to the running bridge with
                              their target ids, platforms, and the identity each
                              acts as. Requires a running bridge. --json.
+  serve denials              List the rules denials the running Node host recorded,
+                             grouped by service, instance, rule node and rule, with
+                             counts, times, identities and the rule trace.
+                             --since <ms|duration>, --service, --json.
   serve repro capture        Write the running Node host's repro file: its starting
                              state, rules, signed-in ports, and the operations and
                              listener events since. --out FILE (default

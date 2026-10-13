@@ -38,6 +38,8 @@ export function nextSubId(): string { return `sub-${++_subCounter}`; }
 export const _pending = new Map<string, {
   port: ClientPort;
   clientSessionId?: string;
+  /** The request this reply answers; a denial relay names its RTDB instance. */
+  message?: InboundMessage;
   budget?: ReturnType<typeof createOperationBudget>;
   release?: () => void;
   resolve: (v: unknown) => void;
@@ -265,6 +267,20 @@ interface DenialRelayPayload {
   /** Sibling of denialContext on the sandbox error (query-proof denials
    *  attach the suggested where() fix there); forwarded when present. */
   remediation?: string;
+  /** The named RTDB instance the denied request addressed; absent for the default one. */
+  instance?: string;
+}
+
+/** The RTDB instance a request addressed: an operation's `instance`, or a
+ *  listener registration's `target.instance`. Undefined for the default
+ *  instance and for every other service. */
+function requestInstance(message: InboundMessage | undefined): string | undefined {
+  if (message === undefined) return undefined;
+  const carrier = message as { instance?: unknown; target?: unknown };
+  const target = carrier.target;
+  const hasRtdbTarget = typeof target === 'object' && target !== null;
+  const named = hasRtdbTarget ? (target as { instance?: unknown }).instance : carrier.instance;
+  return typeof named === 'string' && named.length > 0 ? named : undefined;
 }
 
 /** POST a denial to the dev server for terminal visibility. No-op when the
@@ -273,6 +289,7 @@ interface DenialRelayPayload {
 function relayDenial(
   kind: 'listener' | 'read',
   err: { message: string; code?: string; denialContext?: unknown; remediation?: unknown },
+  request?: InboundMessage,
 ): void {
   if (err.denialContext === undefined) return;
   if (typeof fetch !== 'function') return;
@@ -282,6 +299,7 @@ function relayDenial(
     message: err.message,
     denialContext: err.denialContext,
     ...(typeof err.remediation === 'string' ? { remediation: err.remediation } : {}),
+    ...(requestInstance(request) === undefined ? {} : { instance: requestInstance(request) }),
   };
   try {
     void fetch('/__pyric/denials', {
@@ -356,7 +374,7 @@ export function wirePort(port: ClientPort): void {
         if (hasAiEnvelope) {
           err.aiEnvelope = msg.error.aiEnvelope;
         }
-        relayDenial('read', err);
+        relayDenial('read', err, pending.message);
         pending.reject(err);
       }
     } else if (isSnapshot) {
@@ -377,7 +395,7 @@ export function wirePort(port: ClientPort): void {
         if (hasAiEvidence) setAiEvidence(err, aiEvidence);
         const hasAiEnvelope = errPayload.aiEnvelope !== undefined;
         if (hasAiEnvelope) err.aiEnvelope = errPayload.aiEnvelope;
-        relayDenial('listener', err);
+        relayDenial('listener', err, sub.message);
         // Surface an unobserved listener error instead of swallowing it — the
         // worker-path twin of the in-page default (a denied listener after a
         // rules change / sign-out must not fail silently on the page console).
@@ -587,6 +605,7 @@ export function rawRpc(
     _pending.set(opMsg.id, {
       port,
       clientSessionId: msg.clientSessionId,
+      message: msg,
       budget,
       release: reservation?.release,
       resolve,

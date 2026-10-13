@@ -203,6 +203,15 @@ describe('formatDenialBlock', () => {
     ]);
   });
 
+  it('names the RTDB instance the denied request addressed', () => {
+    const block = formatDenialBlock({
+      message: 'PERMISSION_DENIED',
+      instance: 'demo-app-shard-1',
+      denialContext: { engine: 'rtdb', auth: { uid: 'alice' }, request: { method: 'listen', path: '/rooms/r1' } },
+    });
+    expect(block.split('\n')[1]).toBe('      listen /rooms/r1 (demo-app-shard-1)');
+  });
+
   it('renders a compact multi-line block: message, request, auth, remediation', () => {
     const block = formatDenialBlock({
       message: 'get tickets/T-1 denied by rules',
