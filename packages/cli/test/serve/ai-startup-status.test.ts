@@ -13,7 +13,7 @@
  *     proxy endpoint, with credential-bearing URL params redacted the same way
  *     the ai-proxy warning redacts them.
  */
-import { afterAll, afterEach, describe, expect, it } from 'bun:test';
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -100,7 +100,35 @@ describe('pyric dev AI startup status', () => {
     expect(formatAiStatusLine({ engine: { kind: 'gemini', apiKey: 'AIzaSyTOPSECRET' } })).toBe(
       '✔ ai       gemini (API key set) → https://generativelanguage.googleapis.com',
     );
-    expect(formatAiStatusLine({ engine: { kind: 'gemini' } })).toContain('no API key');
+  });
+
+  describe('gemini key from the environment', () => {
+    const names = ['GEMINI_API_KEY', 'GOOGLE_GENAI_API_KEY', 'VITE_GEMINI_API_KEY'] as const;
+    const saved = new Map<string, string | undefined>();
+    beforeEach(() => {
+      for (const name of names) {
+        saved.set(name, process.env[name]);
+        delete process.env[name];
+      }
+    });
+    afterEach(() => {
+      for (const name of names) {
+        const value = saved.get(name);
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    });
+
+    it('says no key when the option and every variable are absent', () => {
+      expect(formatAiStatusLine({ engine: { kind: 'gemini' } })).toContain('no API key');
+    });
+
+    it('says the key is set when only the environment (a loaded .env) has it', () => {
+      process.env.GEMINI_API_KEY = 'AIzaSyFromDotEnv';
+      const line = formatAiStatusLine({ engine: { kind: 'gemini' } });
+      expect(line).toContain('gemini (API key set)');
+      expect(line).not.toContain('AIzaSyFromDotEnv');
+    });
   });
 
   it('reports production mode as the Firebase SDK, with no engine and no key demand', () => {

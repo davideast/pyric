@@ -90,7 +90,14 @@ function describeAiStatus(status: AiStartupStatus): { mark: string; body: string
     return { mark: '✔', body: `openai (${model}) → ${endpoint}` };
   }
   if (engine.kind === 'gemini') {
-    const hasKey = engine.apiKey !== undefined && engine.apiKey !== '';
+    // The engine falls back to these variables at call time, and the Vite
+    // plugin has copied `.env` into `process.env` by the time this prints.
+    const hasKey = [
+      engine.apiKey,
+      process.env.GEMINI_API_KEY,
+      process.env.GOOGLE_GENAI_API_KEY,
+      process.env.VITE_GEMINI_API_KEY,
+    ].some((candidate) => candidate !== undefined && candidate.trim() !== '');
     let key = 'no API key; set GEMINI_API_KEY';
     if (hasKey) key = 'API key set';
     let endpoint = GEMINI_DEFAULT_BASE_URL;
