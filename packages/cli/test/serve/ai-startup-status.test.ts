@@ -20,6 +20,7 @@ import { join } from 'node:path';
 import { startServe, type ServeRuntime } from '../../src/cli/serve.js';
 import { AI_PROXY_DEFAULT_UPSTREAM } from '../../src/serve/ai-proxy.js';
 import { formatAiStatusLine, formatAiStatusNote } from '../../src/serve/ai-status.js';
+import { loadViteAiEnv } from '../../src/serve/vite-ai-config.js';
 import type { ServeLogger } from '../../src/serve/server.js';
 
 function project(): string {
@@ -123,11 +124,31 @@ describe('pyric dev AI startup status', () => {
       expect(formatAiStatusLine({ engine: { kind: 'gemini' } })).toContain('no API key');
     });
 
-    it('says the key is set when only the environment (a loaded .env) has it', () => {
-      process.env.GEMINI_API_KEY = 'AIzaSyFromDotEnv';
+    it.each(names)('says the key is set when only %s has it', (name) => {
+      process.env[name] = 'AIzaSyFromEnv';
       const line = formatAiStatusLine({ engine: { kind: 'gemini' } });
       expect(line).toContain('gemini (API key set)');
-      expect(line).not.toContain('AIzaSyFromDotEnv');
+      expect(line).not.toContain('AIzaSyFromEnv');
+    });
+
+    it('says no key for a whitespace-only value', () => {
+      process.env.GEMINI_API_KEY = '   ';
+      expect(formatAiStatusLine({ engine: { kind: 'gemini' } })).toContain('no API key');
+    });
+
+    it('follows the engine: a blank earlier variable shadows a later real one', () => {
+      process.env.GEMINI_API_KEY = '';
+      process.env.VITE_GEMINI_API_KEY = 'AIzaSyFromEnv';
+      expect(formatAiStatusLine({ engine: { kind: 'gemini' } })).toContain('no API key');
+    });
+
+    it('sees a key that only a project .env holds once loadViteAiEnv has run (#950)', () => {
+      const root = mkdtempSync(join(tmpdir(), 'pyric-ai-env-'));
+      writeFileSync(join(root, '.env'), 'GEMINI_API_KEY=AIzaSyFromDotEnv\n');
+      loadViteAiEnv('development', root, undefined);
+      expect(formatAiStatusNote({ hosted: true, engine: { kind: 'gemini' } })).toContain(
+        'gemini (API key set)',
+      );
     });
   });
 

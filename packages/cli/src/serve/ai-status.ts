@@ -9,7 +9,7 @@
  * Vite plugin can never disagree about what AI resolved to.
  */
 import type { AiEngineConfigWire } from './worker/protocol.js';
-import { GEMINI_DEFAULT_BASE_URL, redactUrl } from 'pyric/ai/internal';
+import { GEMINI_DEFAULT_BASE_URL, hasGeminiStaticKey, redactUrl } from 'pyric/ai/internal';
 import { AI_PROXY_ROUTE, resolveAiProxyUpstream } from './ai-proxy.js';
 import { sanitizeForTerminal } from './ai-terminal-text.js';
 
@@ -90,14 +90,10 @@ function describeAiStatus(status: AiStartupStatus): { mark: string; body: string
     return { mark: '✔', body: `openai (${model}) → ${endpoint}` };
   }
   if (engine.kind === 'gemini') {
-    // The engine falls back to these variables at call time, and the Vite
-    // plugin has copied `.env` into `process.env` by the time this prints.
-    const hasKey = [
-      engine.apiKey,
-      process.env.GEMINI_API_KEY,
-      process.env.GOOGLE_GENAI_API_KEY,
-      process.env.VITE_GEMINI_API_KEY,
-    ].some((candidate) => candidate !== undefined && candidate.trim() !== '');
+    // The engine's own check, so the banner and the engine cannot disagree.
+    // It reads `process.env`, which the Vite plugin has already filled from
+    // `.env` (`loadViteAiEnv`) before this prints.
+    const hasKey = hasGeminiStaticKey(engine.apiKey);
     let key = 'no API key; set GEMINI_API_KEY';
     if (hasKey) key = 'API key set';
     let endpoint = GEMINI_DEFAULT_BASE_URL;
