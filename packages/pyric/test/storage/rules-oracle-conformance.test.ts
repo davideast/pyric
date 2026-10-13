@@ -181,7 +181,7 @@ describe('oracle conformance (rules-storage)', () => {
     it('no rules-storage observations captured yet (staging) — skipping replay', () => {
       // Intentionally passes: the machinery is staged, the corpus is in place,
       // but no captures have been run. Run `packages/conformance/src/run-rules-storage.ts`
-      // with PARITY_SA_BASE64 to produce observations, after which these
+      // with a Rules Test API credential to produce observations, after which these
       // assertions go live automatically.
       expect(files.length).toBe(0);
     });

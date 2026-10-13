@@ -14,28 +14,27 @@
  * storage evaluator against.
  *
  * CREDENTIAL CONTRACT (identical to the Firestore runner / parity harness):
- *   PARITY_SA_BASE64 — base64-encoded service-account JSON holding only
- *   `firebaserules.rulesets.test`. The project the SA belongs to is the
- *   project the rules are tested against.
+ *   packages/pyric/test/rules/parity/credential.ts selects the credential:
+ *   GOOGLE_APPLICATION_CREDENTIALS, then a firebase-tools login, then the
+ *   gcloud ADC file. PARITY_PROJECT_ID names the project the rules are tested
+ *   against.
  *
  * RUNNABLE-BUT-INERT WITHOUT CREDENTIALS:
- *   With PARITY_SA_BASE64 absent, this runner makes NO network calls. It prints
- *   exactly what it WOULD capture (every scenario, its case count, and the
- *   observation file path each scenario lands in) plus the env var name it needs,
- *   then exits 0. This is the intended state of the staging branch: the
- *   machinery is in place, but no captures have been run and no observation
- *   files have been fabricated.
+ *   With no credential, this runner makes NO network calls. It prints exactly
+ *   what it WOULD capture (every scenario, its case count, and the observation
+ *   file path each scenario lands in), then exits 0.
+ *   PARITY_REQUIRE_CREDENTIAL=1 makes a missing credential exit 1 instead.
  *
  * Usage:
- *   # inert preview (no secret):
+ *   # inert preview (no credential):
  *   bun run packages/conformance/src/run-rules-storage.ts
  *   # real capture (credentialed):
- *   PARITY_SA_BASE64="$(base64 < firebaserules-sa.json)" \
+ *   GOOGLE_APPLICATION_CREDENTIALS=/path/to/credentials.json \
  *     bun run packages/conformance/src/run-rules-storage.ts
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { hasParityCredential, NO_CREDENTIAL_MESSAGE } from '../../../packages/pyric/test/rules/parity/credential.ts';
 import { fileURLToPath } from 'node:url';
 import type { TestFirestoreRulesResult, TestResult } from '../../../packages/pyric/src/rules/test/spec.ts';
 import {
@@ -135,9 +134,8 @@ export function selectStorageScenarios(
 }
 
 function printInertPlan(scenarios: StorageScenario[]): void {
-  console.log('[oracle:rules-storage] PARITY_SA_BASE64 not set — INERT preview, no network calls.\n');
-  console.log(`  Credential env var expected: PARITY_SA_BASE64`);
-  console.log(`    (base64-encoded service-account JSON with firebaserules.rulesets.test)\n`);
+  console.log('[oracle:rules-storage] No Rules Test API credential: INERT preview, no network calls.\n');
+  console.log(`  ${NO_CREDENTIAL_MESSAGE}\n`);
   console.log(`  Observation output directory: ${OBS_DIR}`);
   console.log(`  Observation filename prefix:  ${RULES_STORAGE_OBSERVATION_PREFIX}\n`);
   console.log(`  Would capture ${scenarios.length} scenario(s):`);
@@ -151,7 +149,7 @@ function printInertPlan(scenarios: StorageScenario[]): void {
   }
   console.log(`\n  Total: ${scenarios.length} scenarios, ${totalCases} cases.`);
   console.log('\n  To capture for real:');
-  console.log('    PARITY_SA_BASE64="$(base64 < firebaserules-sa.json)" \\');
+  console.log('    GOOGLE_APPLICATION_CREDENTIALS=/path/to/credentials.json \\');
   console.log('      bun run packages/conformance/src/run-rules-storage.ts');
 }
 
@@ -212,8 +210,7 @@ async function capture(scenarios: StorageScenario[]): Promise<void> {
 
 if (import.meta.main) {
   const scenarios = selectStorageScenarios(Bun.argv.slice(2));
-  const hasCliConfig = existsSync(join(homedir(), '.config', 'configstore', 'firebase-tools.json'));
-  if (!process.env.PARITY_SA_BASE64 && !hasCliConfig && !process.env.PARITY_PROJECT_ID) {
+  if (!hasParityCredential()) {
     printInertPlan(scenarios);
     process.exit(0);
   }
