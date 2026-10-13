@@ -55,6 +55,42 @@ export function storageUploadPath(bucket: string, path: string, uploadId: string
   return `${STORAGE_ROUTE_PREFIX}${encodeURIComponent(bucket)}/o?${query}`;
 }
 
+/**
+ * The byte route URL for a production download URL, on the host at `hostOrigin`.
+ *
+ * A download URL an app persisted from production
+ * (`https://firebasestorage.googleapis.com/v0/b/<bucket>/o/<path>?alt=media&token=…`,
+ * or the `https://storage.googleapis.com/<bucket>/<path>` form) names the bucket
+ * and object the host stores, so only its origin and prefix change. Path
+ * encoding and query parameters carry over, so a token set through
+ * `firebaseStorageDownloadTokens` grants the local URL as it did the production one.
+ *
+ * Returns undefined for a URL that is not a production Storage object URL.
+ */
+export function localStorageUrl(productionUrl: string, hostOrigin: string): string | undefined {
+  let url: URL;
+  try {
+    url = new URL(productionUrl);
+  } catch {
+    return undefined;
+  }
+  const origin = hostOrigin.replace(/\/+$/, '');
+  const isFirebase = url.hostname === 'firebasestorage.googleapis.com';
+  if (isFirebase) {
+    const isObject = /^\/v0\/b\/[^/]+\/o\/.+/.test(url.pathname);
+    if (!isObject) return undefined;
+    return `${origin}/__pyric/storage${url.pathname}${url.search}`;
+  }
+  const isCloud = url.hostname === 'storage.googleapis.com';
+  if (!isCloud) return undefined;
+  const match = /^\/([^/]+)\/(.+)$/.exec(url.pathname);
+  if (match === null) return undefined;
+  const [, bucket, objectPath] = match;
+  const query = new URLSearchParams(url.search);
+  query.set('alt', 'media');
+  return `${origin}${STORAGE_ROUTE_PREFIX}${bucket}/o/${encodeURIComponent(decodeURIComponent(objectPath))}?${query}`;
+}
+
 /** A capability token: 32 random bytes, base64url without padding. */
 export function mintCapabilityToken(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
