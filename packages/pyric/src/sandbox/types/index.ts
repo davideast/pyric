@@ -36,6 +36,7 @@ export type {
   DenialEvent,
   ListenerLifecycleEvent,
   ListenerOwner,
+  OwnerStackFrame,
   MutationEventService,
   RequestEvent,
   SandboxCommitEvent,

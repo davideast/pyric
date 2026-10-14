@@ -1,6 +1,7 @@
 /** The owners a listener can be given at the moment it attaches. */
 import { afterEach, describe, expect, it } from 'bun:test';
 import { configureListenerAttribution } from '../../../src/sandbox/attribution/attribution-mode.js';
+import { configureListenerOwnerFrames } from '../../../src/sandbox/attribution/owner-frames.js';
 import {
   callerFrameFromStack,
   captureCreationFrame,
@@ -54,12 +55,122 @@ describe('callerFrameFromStack', () => {
       line: 42,
       column: 11,
       function: 'renderOrders',
+      stack: [
+        { file: '/app/orders.ts', line: 42, column: 11, function: 'renderOrders' },
+        { file: '/app/index.ts', line: 3, column: 1, function: 'main' },
+      ],
     });
   });
 
   it('reports nothing when every frame belongs to a dependency', () => {
     const stack = 'Error\n    at attach (/repo/node_modules/pyric/dist/a.js:1:1)';
     expect(callerFrameFromStack(stack)).toBeUndefined();
+  });
+});
+
+describe('callerFrameFromStack through a data-layer wrapper', () => {
+  const throughWrapper = [
+    'Error',
+    '    at attach (/repo/node_modules/pyric/dist/sandbox/x.js:1:1)',
+    '    at watch (/app/src/db.js:5:10)',
+    '    at listRooms (/app/src/room-list.js:5:22)',
+    '    at main (/app/src/main.js:14:3)',
+    '    at boot (/app/src/boot.js:2:1)',
+  ].join('\n');
+
+  afterEach(() => {
+    configureListenerOwnerFrames({});
+  });
+
+  it('keeps the first three application frames, innermost first', () => {
+    expect(callerFrameFromStack(throughWrapper)).toEqual({
+      kind: 'frame',
+      file: '/app/src/db.js',
+      line: 5,
+      column: 10,
+      function: 'watch',
+      stack: [
+        { file: '/app/src/db.js', line: 5, column: 10, function: 'watch' },
+        { file: '/app/src/room-list.js', line: 5, column: 22, function: 'listRooms' },
+        { file: '/app/src/main.js', line: 14, column: 3, function: 'main' },
+      ],
+    });
+  });
+
+  it('shows the first frame outside a skipped module and keeps the wrapper in the stack', () => {
+    configureListenerOwnerFrames({ skip: ['src/db.js'] });
+    expect(callerFrameFromStack(throughWrapper)).toEqual({
+      kind: 'frame',
+      file: '/app/src/room-list.js',
+      line: 5,
+      column: 22,
+      function: 'listRooms',
+      stack: [
+        { file: '/app/src/db.js', line: 5, column: 10, function: 'watch' },
+        { file: '/app/src/room-list.js', line: 5, column: 22, function: 'listRooms' },
+        { file: '/app/src/main.js', line: 14, column: 3, function: 'main' },
+        { file: '/app/src/boot.js', line: 2, column: 1, function: 'boot' },
+      ],
+    });
+  });
+
+  it('records one frame and no stack when one frame is asked for', () => {
+    configureListenerOwnerFrames({ frames: 1 });
+    expect(callerFrameFromStack(throughWrapper)).toEqual({
+      kind: 'frame',
+      file: '/app/src/db.js',
+      line: 5,
+      column: 10,
+      function: 'watch',
+    });
+  });
+
+  it('falls back to the first application frame when every frame is skipped', () => {
+    configureListenerOwnerFrames({ skip: ['**'], frames: 1 });
+    const frame = callerFrameFromStack(throughWrapper);
+    expect(frame?.kind === 'frame' ? frame.file : undefined).toBe('/app/src/db.js');
+  });
+
+  it('matches skip globs against a served URL by its path, keeping the skipped frame', () => {
+    configureListenerOwnerFrames({ skip: ['src/db/**'], frames: 1 });
+    const served = [
+      'Error',
+      '    at watch (http://localhost:5173/src/db/index.js?t=1712:5:10)',
+      '    at listRooms (http://localhost:5173/src/room-list.js:5:22)',
+    ].join('\n');
+    expect(callerFrameFromStack(served)).toEqual({
+      kind: 'frame',
+      file: 'http://localhost:5173/src/room-list.js',
+      line: 5,
+      column: 22,
+      function: 'listRooms',
+      stack: [
+        { file: 'http://localhost:5173/src/db/index.js?t=1712', line: 5, column: 10, function: 'watch' },
+        { file: 'http://localhost:5173/src/room-list.js', line: 5, column: 22, function: 'listRooms' },
+      ],
+    });
+  });
+
+  it('reads the frames of a runtime that writes function@file:line:column', () => {
+    const firefox = [
+      'attach@http://localhost:5173/node_modules/.vite/deps/pyric.js:1:1',
+      'watch@http://localhost:5173/src/db.js:5:10',
+      'listRooms@http://localhost:5173/src/room-list.js:5:22',
+      '@http://localhost:5173/src/main.js:14:3',
+    ].join('\n');
+    configureListenerOwnerFrames({ skip: ['src/db.js'] });
+    expect(callerFrameFromStack(firefox)).toEqual({
+      kind: 'frame',
+      file: 'http://localhost:5173/src/room-list.js',
+      line: 5,
+      column: 22,
+      function: 'listRooms',
+      stack: [
+        { file: 'http://localhost:5173/src/db.js', line: 5, column: 10, function: 'watch' },
+        { file: 'http://localhost:5173/src/room-list.js', line: 5, column: 22, function: 'listRooms' },
+        { file: 'http://localhost:5173/src/main.js', line: 14, column: 3 },
+      ],
+    });
   });
 });
 
@@ -71,6 +182,44 @@ describe('captureCreationFrame', () => {
     expect(frame.file).toContain('listener-owners.test.ts');
     expect(frame.file).not.toContain('/src/sandbox/attribution/');
     expect(frame.line).toBeGreaterThan(0);
+  });
+
+  it('keeps the calling chain from a real stack', () => {
+    // Each call keeps its caller's frame: JavaScriptCore drops a tail caller.
+    function watch(): ReturnType<typeof captureCreationFrame> {
+      const frames = [captureCreationFrame()];
+      return frames[0];
+    }
+    function listRooms(): ReturnType<typeof captureCreationFrame> {
+      const frames = [watch()];
+      return frames[0];
+    }
+    function main(): ReturnType<typeof captureCreationFrame> {
+      const frames = [listRooms()];
+      return frames[0];
+    }
+    configureListenerOwnerFrames({ frames: 3 });
+    try {
+      const frame = main();
+      if (frame?.kind !== 'frame') throw new Error('expected a frame owner');
+      expect(frame.function).toBe('watch');
+      expect(frame.stack?.map((entry) => entry.function)).toEqual(['watch', 'listRooms', 'main']);
+    } finally {
+      configureListenerOwnerFrames({});
+    }
+  });
+
+  it('captures where the runtime has no stack trace limit to raise', () => {
+    const errorConstructor = Error as { stackTraceLimit?: number };
+    const limit = errorConstructor.stackTraceLimit;
+    delete errorConstructor.stackTraceLimit;
+    try {
+      const frame = captureCreationFrame();
+      expect('stackTraceLimit' in Error).toBe(false);
+      if (frame !== undefined && frame.kind !== 'frame') throw new Error('expected a frame owner');
+    } finally {
+      errorConstructor.stackTraceLimit = limit;
+    }
   });
 
   it('captures nothing when attribution is off', () => {

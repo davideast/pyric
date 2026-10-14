@@ -15,8 +15,9 @@
  * an attach, and lives in `effect-regions.ts`.
  */
 
-import type { ListenerOwner } from '../types/events.js';
+import type { ListenerOwner, OwnerStackFrame } from '../types/events.js';
 import { listenerAttributionEnabled } from './attribution-mode.js';
+import { captureAttachStack, ownerFramesPolicy } from './owner-frames.js';
 import {
   isSelectableElement,
   ownerSelectorFor,
@@ -147,51 +148,63 @@ function isInternalFrame(file: string): boolean {
 
 const FRAME_WITH_FUNCTION = /^\s*at\s+(.+?)\s+\((.+):(\d+):(\d+)\)\s*$/;
 const FRAME_WITHOUT_FUNCTION = /^\s*at\s+(.+):(\d+):(\d+)\s*$/;
+/** SpiderMonkey and JavaScriptCore: `fn@url:12:5`, or `@url:12:5` unnamed. */
+const FRAME_AT_SIGN = /^\s*(.*?)@(.+):(\d+):(\d+)\s*$/;
 
 /**
- * Parse one V8 stack line into a `frame` owner. Both formats the runtime
- * emits are handled: `at fn (/path/file.ts:12:5)` and `at /path/file.ts:12:5`.
- * Anything else (a header line, a `native` frame, a runtime with a different
- * stack format) returns `undefined` and is skipped.
+ * Parse one stack line into a `frame` owner. The V8 formats
+ * `at fn (/path/file.ts:12:5)` and `at /path/file.ts:12:5` are handled, and
+ * so is the `fn@url:12:5` form Firefox and Safari write. Anything else (a
+ * header line, a `native` frame) returns `undefined` and is skipped.
  */
 export function parseStackFrame(line: string): ListenerOwner | undefined {
   const named = FRAME_WITH_FUNCTION.exec(line);
-  if (named) {
-    const owner: ListenerOwner = {
-      kind: 'frame',
-      file: stripFileScheme(named[2]!),
-      line: Number(named[3]),
-      column: Number(named[4]),
-      function: named[1]!,
-    };
-    return owner;
-  }
+  if (named) return frameOwner(named[2]!, named[3]!, named[4]!, named[1]!);
   const bare = FRAME_WITHOUT_FUNCTION.exec(line);
-  if (bare) {
-    const owner: ListenerOwner = {
-      kind: 'frame',
-      file: stripFileScheme(bare[1]!),
-      line: Number(bare[2]),
-      column: Number(bare[3]),
-    };
-    return owner;
-  }
+  if (bare) return frameOwner(bare[1]!, bare[2]!, bare[3]!, '');
+  const atSign = FRAME_AT_SIGN.exec(line);
+  if (atSign) return frameOwner(atSign[2]!, atSign[3]!, atSign[4]!, atSign[1]!);
   return undefined;
 }
 
+function frameOwner(file: string, line: string, column: string, name: string): ListenerOwner {
+  const owner: Extract<ListenerOwner, { kind: 'frame' }> = {
+    kind: 'frame',
+    file: stripFileScheme(file),
+    line: Number(line),
+    column: Number(column),
+  };
+  if (name.length > 0) owner.function = name;
+  return owner;
+}
+
 /**
- * The first frame outside pyric's own files, read from `stack`. Exported for
- * the test, which supplies a synthetic stack rather than a real one.
+ * The application frame that opened a listener, read from `stack`, with the
+ * application frames around it as its `stack` when the policy keeps more than
+ * one (see `owner-frames.ts`). Frames inside pyric or an installed dependency
+ * are never application frames. The owner shows the first frame outside the
+ * policy's skipped modules, or the first application frame when every one is
+ * skipped. Exported for the test, which supplies a synthetic stack.
  */
 export function callerFrameFromStack(stack: string): ListenerOwner | undefined {
+  const { frames, skips } = ownerFramesPolicy();
+  const kept: OwnerStackFrame[] = [];
+  let shown: number | undefined;
   for (const line of stack.split('\n')) {
     const frame = parseStackFrame(line);
-    if (frame === undefined) continue;
-    if (frame.kind !== 'frame') continue;
+    if (frame?.kind !== 'frame') continue;
     if (isInternalFrame(frame.file)) continue;
-    return frame;
+    const { kind: _kind, ...position } = frame;
+    if (shown === undefined && !skips(frame.file)) shown = kept.length;
+    kept.push(position);
+    const isFull = shown !== undefined && kept.length - shown >= frames;
+    if (isFull) break;
   }
-  return undefined;
+  if (kept.length === 0) return undefined;
+  const chain = shown === undefined ? kept.slice(0, frames) : kept;
+  const owner: ListenerOwner = { kind: 'frame', ...chain[shown ?? 0]! };
+  if (chain.length > 1) owner.stack = chain;
+  return owner;
 }
 
 /**
@@ -201,8 +214,8 @@ export function callerFrameFromStack(stack: string): ListenerOwner | undefined {
  */
 export function captureCreationFrame(): ListenerOwner | undefined {
   if (!listenerAttributionEnabled()) return undefined;
-  const stack = new Error().stack;
-  if (typeof stack !== 'string') return undefined;
+  const stack = captureAttachStack();
+  if (stack === undefined) return undefined;
   return callerFrameFromStack(stack);
 }
 
