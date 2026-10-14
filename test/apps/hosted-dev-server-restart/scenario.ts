@@ -60,22 +60,11 @@ export default scenario(async (app) => {
   });
 
   await app.step('the note written before the restart reads back after it', async () => {
-    const t0 = Date.now();
-    const log = (m: string) => console.log(`[diag +${Date.now() - t0}ms] ${m}`);
-    const within = <T>(label: string, p: Promise<T>, ms = 20_000) => Promise.race([
-      p.then((v) => { log(`${label} done`); return v; }),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${label} hung ${ms}ms`)), ms)),
-    ]);
-    log(`page1 url ${page.url()}`);
-    await within('page1 close', page.close()).catch((e) => log(String(e)));
-    const context = await app.browser();
-    const fresh = await within('newPage', context.newPage());
-    fresh.on('console', (m) => log(`fresh console ${m.text()}`));
-    fresh.on('requestfailed', (r) => log(`fresh requestfailed ${r.url()} ${r.failure()?.errorText}`));
-    fresh.on('websocket', (ws) => { log(`fresh ws ${ws.url()}`); ws.on('close', () => log(`fresh ws closed ${ws.url()}`)); ws.on('framereceived', (f) => log(`fresh ws recv ${String(f.payload).slice(0, 160)}`)); ws.on('framesent', (f) => log(`fresh ws sent ${String(f.payload).slice(0, 160)}`)); });
-    await within('goto', fresh.goto(host.url));
-    await within('waitForFunction', fresh.waitForFunction(() => 'notes' in window));
-    const value = await within('read', fresh.evaluate(() => notes.read()), 120_000);
-    assert.equal(value, 'before restart');
+    // Vite's client reloads the open tab on its own after a restart; read
+    // from a new tab so that reload cannot interrupt the read.
+    await page.close();
+    const fresh = await app.page(host.url);
+    await fresh.waitForFunction(() => 'notes' in window);
+    assert.equal(await fresh.evaluate(() => notes.read()), 'before restart');
   });
 });
