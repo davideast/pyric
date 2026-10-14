@@ -25,10 +25,20 @@ import {
 import type { QuerySpec } from './internal/query-projection.js';
 import { buildConstraint } from './query-shape.js';
 import { isJsonObject, jsonValuesEqual } from './sandbox/data-tree.js';
+import { resolveDatabaseInstance } from '../sandbox/internal/instances.js';
 
 export interface RtdbReplayOptions {
   rules: { rules: Record<string, unknown> };
   capturedState?: unknown;
+  /**
+   * The instance to check, by name or database URL. Absent, an empty string,
+   * or `default` is the default instance. Only the events that instance's
+   * backend emitted replay, and they replay into the instance of the same
+   * name in the replay sandbox; `capturedState` is that instance's state. An
+   * event with no `instance` field is the default instance's, so a capture
+   * recorded before events named their instance replays as it did before.
+   */
+  instance?: string;
 }
 
 export interface RtdbReplayResult {
@@ -65,11 +75,13 @@ export async function replay(
 ): Promise<RtdbReplayResult> {
   assertCompleteHistory(events);
   const sandbox = initializeSandbox();
-  const db = getDatabase(sandbox);
-  const adminDb = getAdminDatabase(sandbox);
+  const target: ReplayTarget = { sandbox, instance: resolveDatabaseInstance(opts.instance)?.name };
+  const db = getDatabase(sandbox, target.instance);
+  const adminDb = getAdminDatabase(sandbox, target.instance);
   rtdbSandbox.setRules(db, opts.rules);
 
-  const commits = events.filter(isRtdbCommit);
+  const instanceEvents = events.filter((event) => instanceOf(event) === target.instance);
+  const commits = instanceEvents.filter(isRtdbCommit);
   const divergences: RtdbReplayDivergence[] = [];
   let checkedEvents = 0;
   const hasCapturedState = opts.capturedState !== undefined;
@@ -79,10 +91,10 @@ export async function replay(
     await rewindRtdbCommits(adminDb, commits);
   }
 
-  for (const event of events) {
+  for (const event of instanceEvents) {
     if (isAllowedQueryRead(event)) {
       checkedEvents += 1;
-      await replayRtdbQueryRead(sandbox, event, divergences);
+      await replayRtdbQueryRead(target, event, divergences);
       continue;
     }
     if (!isRtdbCommit(event)) continue;
@@ -90,13 +102,13 @@ export async function replay(
     const path = commit.path ?? '/';
     const isAdmin = commit.detail?.admin === true;
     if (isAdmin) {
-      await replayRtdbAdminCommit(sandbox, commit, divergences);
+      await replayRtdbAdminCommit(target, commit, divergences);
       continue;
     }
 
     checkedEvents += 1;
     try {
-      await replayRtdbAppCommit(sandbox, commit, divergences);
+      await replayRtdbAppCommit(target, commit, divergences);
     } catch (e) {
       const isError = e instanceof Error;
       divergences.push({
@@ -122,15 +134,30 @@ export async function replay(
   };
 }
 
+/** The replay sandbox and the instance the replay runs in; `undefined` is the default instance. */
+interface ReplayTarget {
+  sandbox: Sandbox;
+  instance: string | undefined;
+}
+
+/**
+ * The instance an event names, or `undefined` for the default instance. An
+ * event captured before events named their instance carries no field, so it
+ * belongs to the default instance.
+ */
+function instanceOf(event: SandboxEvent): string | undefined {
+  return 'instance' in event ? event.instance : undefined;
+}
+
 async function replayRtdbAppCommit(
-  sandbox: ReturnType<typeof initializeSandbox>,
+  { sandbox, instance }: ReplayTarget,
   commit: SandboxCommitEvent,
   divergences: RtdbReplayDivergence[],
 ): Promise<void> {
   const prev = sandbox.currentUser;
   sandbox.currentUser = commit.auth;
   try {
-    const db = getDatabase(sandbox);
+    const db = getDatabase(sandbox, instance);
     await replayRtdbCommitWithDatabase(db, commit, divergences);
   } finally {
     sandbox.currentUser = prev;
@@ -176,7 +203,7 @@ function constraintsOfSpec(spec: QuerySpec): QueryConstraint[] {
 }
 
 async function replayRtdbQueryRead(
-  sandbox: ReturnType<typeof initializeSandbox>,
+  { sandbox, instance }: ReplayTarget,
   event: SandboxOperationEvent,
   divergences: RtdbReplayDivergence[],
 ): Promise<void> {
@@ -184,7 +211,7 @@ async function replayRtdbQueryRead(
   const prev = sandbox.currentUser;
   sandbox.currentUser = event.auth;
   try {
-    const db = getDatabase(sandbox);
+    const db = getDatabase(sandbox, instance);
     await get(query(ref(db, path), ...constraintsOfSpec(event.request?.query as QuerySpec)));
   } catch (e) {
     divergences.push({
@@ -199,11 +226,11 @@ async function replayRtdbQueryRead(
 }
 
 async function replayRtdbAdminCommit(
-  sandbox: ReturnType<typeof initializeSandbox>,
+  { sandbox, instance }: ReplayTarget,
   commit: SandboxCommitEvent,
   divergences: RtdbReplayDivergence[],
 ): Promise<void> {
-  const db = getAdminDatabase(sandbox);
+  const db = getAdminDatabase(sandbox, instance);
   await replayRtdbCommitWithDatabase(db, commit, divergences);
 }
 
