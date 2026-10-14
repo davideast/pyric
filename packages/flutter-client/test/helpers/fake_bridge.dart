@@ -85,6 +85,9 @@ class FakeBridge {
   bool autoAck = true;
   int connectCalls = 0;
 
+  /// Runs synchronously as each frame reaches the bridge, inside the client's send.
+  void Function(Map<String, dynamic> frame)? onFrame;
+
   FakeSocket get current => sockets.last;
 
   Future<WebSocketChannel> connect(Uri uri, Map<String, dynamic> headers) async {
@@ -93,6 +96,7 @@ class FakeBridge {
     late final FakeSocket socket;
     socket = FakeSocket((frame) {
       frames.add(frame);
+      onFrame?.call(frame);
       if (frame['type'] == 'attach' && autoAck) {
         scheduleMicrotask(() => socket.deliver({
               'type': 'attach-ack',
