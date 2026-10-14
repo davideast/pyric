@@ -137,6 +137,11 @@ export interface RtdbCaseQuery {
   limitToLast?: number;
 }
 
+/** A case's data as one tree per database instance, keyed by instance name. */
+export type RtdbInstancesData = {
+  instances: Record<string, Record<string, unknown>>;
+};
+
 /**
  * One Realtime Database rules case. `expectation` is required so a `simulate`
  * run can partition cases into passed/failed the same way Firestore does —
@@ -158,8 +163,20 @@ export interface RtdbCase {
   path: string;
   /** Auth context; a bare uid string, a full identity, or `null`. */
   auth?: string | { uid: string; token?: Record<string, unknown> } | null;
-  /** Existing tree data the rule reads (`data`). */
-  data?: Record<string, unknown>;
+  /**
+   * The database instance the request goes to, by name, such as
+   * `"demo-app-shard-1"`. Omit it for the default instance. A rule's `root`
+   * and `data` read only this instance's tree.
+   */
+  instance?: string;
+  /**
+   * Existing data the rules read: the instance's tree, or one tree per
+   * instance as `{ instances: { "<name>": tree } }`. The per-instance form
+   * applies when the case names an `instance` or the ruleset holds rules per
+   * instance (`rtdbRules.fromFirebaseJson`); otherwise an object whose one
+   * key is `instances` is a tree with an `/instances` child, as before.
+   */
+  data?: Record<string, unknown> | RtdbInstancesData;
   /**
    * Proposed write value (`newData`), for write/validate cases. Any JSON
    * value: a scalar such as `5` or `true` is a scalar write. For an `update`
@@ -185,6 +202,10 @@ export interface RtdbCase {
 export interface RtdbCaseResult {
   case: RtdbCase;
   description?: string;
+  /** The database instance the case ran on: the one it named, or the
+   *  default instance of a ruleset that holds rules per instance. Absent
+   *  when neither applies. */
+  instance?: string;
   expectation: 'ALLOW' | 'DENY';
   decision: 'ALLOW' | 'DENY' | 'UNSUPPORTED';
   passed: boolean;
@@ -204,6 +225,8 @@ export interface RtdbCaseResult {
 }
 
 export interface RtdbExplanation {
+  /** See {@link RtdbCaseResult.instance}. */
+  instance?: string;
   decision: 'ALLOW' | 'DENY' | 'UNSUPPORTED';
   expectation: 'ALLOW' | 'DENY';
   passed: boolean;

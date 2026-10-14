@@ -80,7 +80,7 @@ function renderRtdb(r: RtdbCaseResult): string {
   const name = r.description ?? `${r.case.operation} ${r.case.path}`;
   const lines: string[] = [
     `${status}: ${name}`,
-    `  ${r.case.operation} ${r.case.path} (expected ${r.expectation}, got ${r.decision})`,
+    `  ${r.case.operation} ${r.case.path}${r.instance === undefined ? '' : ` on ${r.instance}`} (expected ${r.expectation}, got ${r.decision})`,
     `  matched ${r.matchedRule} @ ${r.matchedPath}`,
     `  reason: ${r.reason}`,
   ];

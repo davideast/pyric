@@ -43,6 +43,9 @@ export interface RuleIssue {
   rule?: '.read' | '.write' | '.validate';
   /** 1-indexed source line, when known. */
   line?: number;
+  /** The Realtime Database rules file the issue is in, as `firebase.json`
+   *  names it, for a ruleset read with `rtdbRules.fromFirebaseJson`. */
+  file?: string;
   /** Suggested remediation, verbatim, when the producing stage offers one. */
   fix?: string;
   origin: RuleIssueOrigin;

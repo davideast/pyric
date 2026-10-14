@@ -41,7 +41,7 @@ export interface DatabaseRulesConfig {
 }
 
 /** One entry of the array `database` form. */
-export interface DatabaseRulesEntry {
+interface DatabaseRulesEntry {
   /** The instance name the entry's rules deploy to. */
   instance?: string;
   /** A deploy target that `.firebaserc` maps to instance names. Wins over `instance`. */

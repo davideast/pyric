@@ -111,6 +111,10 @@ export const RtdbRuleEvaluationSchema = z.object({
   message: z.string().optional(),
   /** The `$` wildcards bound at this node, keyed with the `$`. */
   pathVariableBindings: z.record(z.string()),
+  /** The database instance whose tree the rule read as `root` and `data`.
+   *  Set when the case named an instance or the ruleset holds rules per
+   *  instance. */
+  instance: z.string().optional(),
 });
 export type RtdbRuleEvaluation = z.infer<typeof RtdbRuleEvaluationSchema>;
 
