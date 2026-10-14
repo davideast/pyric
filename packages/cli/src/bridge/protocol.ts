@@ -184,6 +184,16 @@ export const WORKER_PORT_CAPABILITY = 'worker-port';
 
 /** After this interruption window a client must request a fresh logical session. */
 export const WORKER_SESSION_RETENTION_MS = 60_000;
+/** How often the web hosted client (`serve/worker/client/websocket-connection.ts`) sends `ping`. */
+export const HOSTED_HEARTBEAT_INTERVAL_MS = 15_000;
+/**
+ * How long the host waits without any frame from a heartbeating client before
+ * it closes that client's socket. A page frozen in the back-forward cache, a
+ * killed tab, or a sleeping laptop never sends a close frame, so this bound is
+ * what runs its RTDB onDisconnect operations. Six heartbeat intervals tolerate
+ * a hidden tab whose timers the browser throttles to about one per minute.
+ */
+export const HOST_PEER_LIVENESS_TIMEOUT_MS = 6 * HOSTED_HEARTBEAT_INTERVAL_MS;
 /** A recognized released grant requires fresh admission and Auth restoration. */
 export const WORKER_SESSION_EXPIRED_CLOSE_CODE = 4004;
 

@@ -30,6 +30,7 @@ import { cliVersion } from '../../pkg-version.js';
 import type { WorkerSessionLease } from './worker-sessions.js';
 import { parseBridgeMessage, requestEnvelopeError, requestProtocolError } from './request-envelope.js';
 import { sendBridgeMessage } from './socket-message.js';
+import { watchPeerLiveness } from './peer-liveness.js';
 
 export function attachPeer(
   bridge: ReturnType<typeof createBridge>,
@@ -43,10 +44,14 @@ export function attachPeer(
   let peerGen = 0;
   let helloed = false;
   let consumer: ConsumerSession | null = null;
+  // A client that heartbeats and then goes silent, such as a page frozen in
+  // the back-forward cache, is closed so the 'close' handler below runs.
+  const liveness = watchPeerLiveness(() => ws.terminate());
 
   ws.on('message', (raw) => {
     const isClosingConnection = ws.readyState !== ws.OPEN;
     if (isClosingConnection) return;
+    liveness.heard();
     const parsed = parseBridgeMessage(raw.toString());
     const isInvalidMessage = parsed.kind === 'invalid';
     if (isInvalidMessage) {
@@ -66,6 +71,8 @@ export function attachPeer(
       ws.close(1002, envelopeError);
       return;
     }
+    const isHeartbeat = msg.type === 'ping';
+    if (isHeartbeat) liveness.heartbeat();
     const isAttach = msg.type === 'attach';
     if (isAttach) {
       // Worker-relay consumer (Node client). NOT a peer: attaching never
@@ -151,6 +158,7 @@ export function attachPeer(
   });
 
   ws.on('close', () => {
+    liveness.stop();
     disconnect?.();
     disconnect = null;
     consumer?.detach();
