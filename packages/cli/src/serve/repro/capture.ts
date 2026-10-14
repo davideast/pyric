@@ -60,6 +60,7 @@ export async function captureReproBase(
     defaultInstance,
     permissive: ctx.rtdbDefaultPolicy === 'allow',
     appOptions: ctx.appOptions ? structuredClone(ctx.appOptions) as Record<string, unknown> : null,
+    messaging: ctx.messagingEnabled === true,
     sessions,
   };
 }
