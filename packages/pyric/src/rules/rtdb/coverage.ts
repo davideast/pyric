@@ -33,6 +33,8 @@ export type RtdbCoverageStatus =
   | 'never-evaluated';
 
 export interface RtdbRuleCoverage {
+  /** The rules file holding the node, when the summary covers several files. */
+  file?: string;
   /** The rule node's path, such as `/rooms/$roomId`. */
   path: string;
   kind: RtdbCoverageKind;
@@ -64,10 +66,12 @@ export interface RtdbFileCoverage {
 
 export interface RtdbCoverageSummary {
   rules: RtdbRuleCoverage[];
-  /** `"<path> .<kind>"` for each node never evaluated, in tree order. */
+  /** `"<path> .<kind>"` for each node never evaluated, in tree order;
+   *  `"<file> <path> .<kind>"` when the summary covers several files. */
   uncovered: string[];
-  /** Queries that needed an index no loaded node declares. */
-  missingIndexes: Array<{ path: string; index: string }>;
+  /** Queries that needed an index no loaded node declares, with the rules
+   *  file when the summary covers several files. */
+  missingIndexes: Array<{ path: string; index: string; file?: string }>;
   files: RtdbFileCoverage[];
 }
 
@@ -226,6 +230,23 @@ export class RtdbCoverageRecorder {
   }
 }
 
+/**
+ * One summary of several rules files' coverage, such as the files a
+ * `firebase.json` deploys to different database instances. Each row, never
+ * evaluated node and missing index names its file.
+ */
+export function mergeRtdbCoverage(summaries: readonly RtdbCoverageSummary[]): RtdbCoverageSummary {
+  const merged: RtdbCoverageSummary = { rules: [], uncovered: [], missingIndexes: [], files: [] };
+  for (const summary of summaries) {
+    const file = summary.files[0]?.file ?? 'rules';
+    merged.rules.push(...summary.rules.map((rule) => ({ file, ...rule })));
+    merged.uncovered.push(...summary.uncovered.map((node) => `${file} ${node}`));
+    merged.missingIndexes.push(...summary.missingIndexes.map((miss) => ({ ...miss, file })));
+    merged.files.push(...summary.files);
+  }
+  return merged;
+}
+
 /** One line per rule node, then the per-file totals and the nodes never evaluated. */
 export function renderRtdbCoverage(summary: RtdbCoverageSummary): string {
   const lines: string[] = [];
@@ -245,11 +266,13 @@ export function renderRtdbCoverage(summary: RtdbCoverageSummary): string {
     const counts = rule.status === 'never-evaluated'
       ? 'never evaluated'
       : `${rule.status} (allow ${rule.allow}, deny ${rule.deny}, error ${rule.error}${rule.unsupported > 0 ? `, unsupported ${rule.unsupported}` : ''})`;
-    lines.push(`${rule.path} .${rule.kind}${where}: ${counts}`);
+    lines.push(`${rule.file === undefined ? '' : `${rule.file} `}${rule.path} .${rule.kind}${where}: ${counts}`);
   }
   if (summary.missingIndexes.length > 0) {
     lines.push('', 'Queries without a declared index:');
-    for (const miss of summary.missingIndexes) lines.push(`  ${miss.path} needs .indexOn "${miss.index}"`);
+    for (const miss of summary.missingIndexes) {
+      lines.push(`  ${miss.file === undefined ? '' : `${miss.file} `}${miss.path} needs .indexOn "${miss.index}"`);
+    }
   }
   return lines.join('\n');
 }

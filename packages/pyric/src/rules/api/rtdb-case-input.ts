@@ -17,7 +17,8 @@ import {
 } from '../rtdb/simulation/spec.js';
 import type { RtdbCase } from './case-types.js';
 
-function invalid(message: string): SimulateResult {
+/** A case the engine cannot evaluate as given, and why. */
+export function invalidCase(message: string): SimulateResult {
   return { success: false, error: { code: 'INVALID_INPUT', message, recoverable: true } };
 }
 
@@ -66,14 +67,14 @@ function baseInput(c: RtdbCase): RtdbRulesSimulationInput {
 
 function simulateUpdate(doc: RtdbRulesDocumentInternal, c: RtdbCase): SimulateResult {
   if (!isPatch(c.newData)) {
-    return invalid("an 'update' case needs newData to be an object keyed by the paths it writes.");
+    return invalidCase("an 'update' case needs newData to be an object keyed by the paths it writes.");
   }
   const base = segmentsOf(c.path);
   const updates = Object.entries(c.newData).map(([key, value]) => ({
     path: absolutePath([...base, ...segmentsOf(key)]),
     value,
   }));
-  if (updates.length === 0) return invalid("an 'update' case needs newData to name at least one path.");
+  if (updates.length === 0) return invalidCase("an 'update' case needs newData to name at least one path.");
 
   let allowed: SimulateResult | undefined;
   for (const update of updates) {
@@ -93,10 +94,10 @@ function simulateUpdate(doc: RtdbRulesDocumentInternal, c: RtdbCase): SimulateRe
 export function simulateRtdbCase(doc: RtdbRulesDocumentInternal, c: RtdbCase): SimulateResult {
   if (c.query !== undefined) {
     if (c.operation !== 'read') {
-      return invalid(`a query applies to a 'read' case, and this case is '${c.operation}'.`);
+      return invalidCase(`a query applies to a 'read' case, and this case is '${c.operation}'.`);
     }
     const problem = simulationQueryProblem(c.query);
-    if (problem !== null) return invalid(problem);
+    if (problem !== null) return invalidCase(problem);
   }
   if (c.operation === 'update') return simulateUpdate(doc, c);
   const input = baseInput(c);

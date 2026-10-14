@@ -156,6 +156,37 @@ pyric rules simulate --service database --rules-file database.rules.json --opera
 ```
 It prints the `decision`, `matchedPath`, `matchedRule`, `reason`, and `trace`, and each trace step carries the `line` of its rule key in the file. Pass the written value as JSON with `--data`. Without `--rules-file`, it evaluates against the rules the sandbox is running.
 
+### Simulate rules across database instances
+
+A project that splits its data across Realtime Database instances lists them in `firebase.json`. `rtdbRules.fromFirebaseJson` reads that list as `firebase deploy` does and applies each instance the rules file deployed to it. A case names the `instance` its request goes to, and its `data` holds one tree per instance:
+```ts
+import { rtdbRules } from 'pyric/rules';
+
+// firebase.json:
+// { "database": [
+//   { "instance": "demo-app-default-rtdb", "rules": "database.rules.json" },
+//   { "instance": "demo-app-shard-1", "rules": "database.rules.json" }
+// ] }
+const rules = rtdbRules.fromFirebaseJson('firebase.json', { projectId: 'demo-app' });
+
+const { cases } = rules.simulate([
+  {
+    description: 'chat read on the instance without the members list is denied',
+    expectation: 'DENY',
+    operation: 'read',
+    instance: 'demo-app-default-rtdb',
+    path: '/rooms/r1/chat',
+    auth: 'alice',
+    data: { instances: { 'demo-app-shard-1': { rooms: { r1: { members: { alice: true } } } } } },
+  },
+]);
+```
+A rule's `root` and `data` read only the tree of the case's instance, as in production, so a membership check against `members` on another instance denies. Each result and each `trace` step carries the `instance` it ran on.
+
+A case without `instance` runs on the default instance, `<projectId>-default-rtdb`. The project id is `projectId`, or `projects.default` in the `.firebaserc` beside `firebase.json`, which also maps a `target` entry to its instances. A case on an instance `firebase.json` deploys no rules to, or data on one it does not declare, is `UNSUPPORTED` with a reason naming the instances it declares. An `instance` is written as `getDatabase` takes it: a name, a database URL, or `default`. `lint()` and `coverage` report each rules file once, under its name, and `toJSON()` returns the default instance's rules.
+
+`rtdbRules(...)` applies its one ruleset on whichever instance a case names, so the same cases run against a single rules file.
+
 ### Lint a ruleset
 ```bash
 pyric rules lint --service database --rules-file database.rules.json
