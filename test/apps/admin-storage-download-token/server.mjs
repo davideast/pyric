@@ -2,6 +2,7 @@
 // the app would store, plus what the host answers for it.
 import { initializeApp } from "firebase-admin/app";
 import { getStorage } from "firebase-admin/storage";
+import { localStorageUrl } from "@pyric/cli/remote";
 
 const host = process.argv[2];
 if (!host) throw new Error("usage: node server.mjs <host url>");
@@ -17,9 +18,15 @@ const downloadUrl = (token) =>
   `${host}/__pyric/storage/v0/b/${bucket.name}/o/${encodeURIComponent(file.name)}?alt=media` +
   (token ? `&token=${token}` : "");
 
+// The URL production would have given for the same object and token, as an app stores it.
+const productionUrl =
+  `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(file.name)}?alt=media&token=tok-1`;
+
 const out = {
   bucket: bucket.name,
   downloadUrl: downloadUrl("tok-1"),
+  productionUrl,
+  localUrl: localStorageUrl(productionUrl, host),
   wrongTokenUrl: downloadUrl("wrong"),
   typeofCreateResumableUpload: typeof bucket.file("staging/u1/upload-1").createResumableUpload,
   statuses: {},
@@ -30,6 +37,7 @@ try {
 } catch (error) {
   out.createResumableUploadError = String(error?.message ?? error);
 }
+if (out.localUrl) out.statuses.production = (await fetch(out.localUrl)).status;
 for (const [label, token] of [["token", "tok-1"], ["wrong", "wrong"], ["none", null]]) {
   out.statuses[label] = (await fetch(downloadUrl(token))).status;
 }
