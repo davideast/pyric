@@ -6,7 +6,8 @@
  * starting state is a checkpoint (the same value `checkpoint` and `exportState`
  * write) with Storage bytes inline, plus each named RTDB instance's tree, the
  * rules every service and instance enforced, the identity each port was signed
- * in as, the listeners each port held, and the app configuration. The log is
+ * in as, the listeners each port held, the app configuration, and whether the
+ * host served Messaging. The log is
  * the protocol frames each port sent and received, in the order the host saw
  * them, with rules deploys and out-of-band calls between them.
  *
@@ -50,6 +51,11 @@ export interface ReproBase {
   permissive: boolean;
   /** The Firebase options the first app port sent, when one had. */
   appOptions: Record<string, unknown> | null;
+  /**
+   * Whether the host served Messaging operations. Files written before this
+   * was recorded leave it out, and replay keeps Messaging off for them.
+   */
+  messaging?: boolean;
   /** Ports signed in when the log starts, keyed by client session id. */
   sessions: Record<string, ReproPortSession>;
   /** Listener registrations still open when the log starts, by client session id. */
@@ -105,6 +111,7 @@ const reproSchema = z.object({
     defaultInstance: z.string(),
     permissive: z.boolean(),
     appOptions: z.record(z.unknown()).nullable(),
+    messaging: z.boolean().optional(),
     sessions: z.record(z.object({ uid: z.string(), tenantId: z.string().nullable() })),
     subscriptions: z.record(z.array(z.object({ t: z.literal('sub') }).passthrough())),
   }),
