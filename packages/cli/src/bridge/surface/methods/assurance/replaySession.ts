@@ -111,10 +111,18 @@ export default {
     const decided = service === 'firestore' ? runDerivedCases(read.fixture, rules) : { cases: [] };
     const verdicts = 'cases' in decided ? verdictDivergences(decided.cases) : [];
     const divergences = [...verdicts, ...state];
-    const summary =
+    const skippedInstances = replayed.services[service]?.skippedInstances ?? [];
+    const found =
       divergences.length === 0
         ? `Replaying '${named}' under the candidate rules changed no recorded verdict.`
         : `Replaying '${named}' under the candidate rules changed ${verdicts.length} verdict(s) and left ${state.length} state divergence(s).`;
+    // The candidate rules are the default instance's; a named instance the
+    // session used is named rather than checked against them.
+    const skipped =
+      skippedInstances.length === 0
+        ? ''
+        : ` Not checked: the session also used database instance(s) ${skippedInstances.join(', ')}; run \`pyric verify --rules rtdb:<instance>=<path>\` to check them.`;
+    const summary = found + skipped;
     // The read succeeded whatever it found, so a replay that reports what
     // breaks is not an error. What broke is in the data, and a caller that
     // asks what breaks is asking for exactly that.
@@ -126,6 +134,7 @@ export default {
         service,
         checkedEvents: replayed.services[service]?.checkedEvents ?? 0,
         divergences,
+        ...(skippedInstances.length > 0 ? { skippedInstances } : {}),
       },
     };
   },

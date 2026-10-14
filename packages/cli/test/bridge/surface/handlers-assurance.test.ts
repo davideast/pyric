@@ -10,6 +10,8 @@
 import { afterAll, expect, it } from 'bun:test';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { getDatabase, ref, set, sandbox as rtdbSandbox } from 'pyric/database';
+import { initializeSandbox } from 'pyric/sandbox';
 
 import { runCanIUse } from '../../../src/cli/can-i-use.js';
 import {
@@ -26,6 +28,8 @@ import {
 } from './assurance-fixture.js';
 import { OPEN_ORDER_RULES, OWNER_ORDER_RULES } from '../../fixtures/order-rules.js';
 import { finishHandlerSuite, projectDir, run } from './handler-harness.js';
+import { buildVerifyFixture } from '../../../src/verify/index.js';
+import { captureRtdbInstances } from '../../../src/verify/rtdb-instance-capture.js';
 
 afterAll(() => finishHandlerSuite('assurance'));
 
@@ -192,4 +196,28 @@ it('refuses the hosted rules test on a server that did not opt in to production'
   });
   expect(refused.ok).toBe(false);
   expect(refused.summary).toContain('--allow-production');
+});
+
+it('names a database instance the session used that the candidate rules do not cover', async () => {
+  const OPEN = { rules: { '.read': true, '.write': true } };
+  const sandbox = initializeSandbox();
+  const shard = getDatabase(sandbox, 'https://shard-00.firebaseio.com');
+  rtdbSandbox.setRules(getDatabase(sandbox), OPEN);
+  rtdbSandbox.setRules(shard, OPEN);
+  await set(ref(getDatabase(sandbox), 'rooms/lobby'), { name: 'default' });
+  await set(ref(shard, 'rooms/lobby'), { name: 'shard' });
+  writeCapture(projectDir, '.pyric/shards-session.json', buildVerifyFixture({
+    sandbox,
+    rtdbRules: OPEN,
+    rtdbState: rtdbSandbox.snapshotState(getDatabase(sandbox)),
+    rtdbInstances: captureRtdbInstances(sandbox),
+  }));
+
+  const replayed = await run('assurance.replaySession', {
+    sessionPath: '.pyric/shards-session.json',
+    service: 'database',
+    candidateRules: JSON.stringify(OPEN),
+  });
+  expect((replayed.data as { skippedInstances?: string[] }).skippedInstances).toEqual(['shard-00']);
+  expect(replayed.summary).toContain('Not checked: the session also used database instance(s) shard-00');
 });

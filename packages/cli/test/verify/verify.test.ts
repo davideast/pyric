@@ -164,7 +164,7 @@ describe('verifyFixture', () => {
     expect(result.services.rtdb?.divergences.some((d) => d.kind === 'now-denied')).toBe(true);
   });
 
-  it('checks the default RTDB instance\'s writes only, not a named instance\'s writes against the default tree', async () => {
+  it('checks the default RTDB instance\'s writes against its rules, and names a named instance it has no rules for', async () => {
     const sandbox = initializeSandbox();
     const adminDb = getDatabase(sandbox);
     const shardUrl = 'https://shard-00.firebaseio.com';
@@ -183,6 +183,7 @@ describe('verifyFixture', () => {
 
     expect(result.services.rtdb?.divergences).toEqual([]);
     expect(result.services.rtdb?.checkedEvents).toBe(1);
+    expect(result.services.rtdb?.skippedInstances).toEqual(['shard-00']);
   });
 
   it('reports state drift when replayed RTDB state differs from the fixture', async () => {

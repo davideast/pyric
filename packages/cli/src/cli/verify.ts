@@ -15,12 +15,16 @@ import {
   type VerifyRulesInput,
   type VerifyServiceResult,
 } from '../verify/index.js';
-import { readFirebaseJson, singleDatabaseRulesFile, type FirebaseJson } from './firebase-json.js';
+import { readFirebaseJson, type FirebaseJson } from './firebase-json.js';
 import type { FlagValue, ParsedArgs } from './parse-args.js';
 import { resolveScope } from '../credentials/node/scope.js';
 import { CAPTURE_RELATIVE_PATH } from '../serve/capture-store.js';
-import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
-import { parseRtdbRulesText } from '../rtdb/rules-json.js';
+import {
+  isRtdbInstanceRulesKey,
+  resolveRtdbCandidateRules,
+  rtdbInstanceOfRulesKey,
+  type RtdbRulesOverrides,
+} from './verify-rtdb-rules.js';
 
 export type Fixture = PyricVerifyFixture;
 
@@ -85,7 +89,8 @@ export function formatResults(results: FixtureResult[]): string {
     for (const service of Object.values(result.result.services)) {
       if (!service) continue;
       for (const divergence of failingDivergences(service.divergences)) {
-        lines.push(`    [${service.service}] ${formatDivergence(divergence)}`);
+        const where = divergence.instance === undefined ? service.service : `${service.service} ${divergence.instance}`;
+        lines.push(`    [${where}] ${formatDivergence(divergence)}`);
       }
     }
   }
@@ -144,9 +149,15 @@ export async function runVerify(parsed: ParsedArgs, deps: VerifyCliDeps = {}): P
     return 2;
   }
 
-  let rulesResolution: { rules: VerifyRulesInput; paths: Partial<Record<VerifiableService, string>> };
+  let rulesResolution: { rules: VerifyRulesInput; paths: Record<string, string> };
   try {
-    rulesResolution = await resolveCandidateRules(cwd, services, parsed.flags.get('rules'));
+    rulesResolution = await resolveCandidateRules({
+      cwd,
+      services,
+      fixtures: loaded.map((item) => item.fixture),
+      rulesFlag: parsed.flags.get('rules'),
+      project: stringFlag(parsed.flags.get('project')),
+    });
   } catch (e) {
     process.stderr.write(`pyric verify: ${messageOf(e)}\n`);
     return 2;
@@ -201,7 +212,7 @@ export async function runVerify(parsed: ParsedArgs, deps: VerifyCliDeps = {}): P
     if (!allOk) {
       const failed = results.filter((result) => !result.ok).length;
       const rules = Object.entries(rulesResolution.paths)
-        .map(([service, path]) => `${service}=${basename(path)}`)
+        .map(([key, path]) => `${key}=${basename(path)}`)
         .join(', ');
       process.stderr.write(
         `\n✗ ${failed} session(s) regressed under ${rules}.\n`,
@@ -296,55 +307,68 @@ function pushUnique<T>(items: T[], item: T): void {
   if (!items.includes(item)) items.push(item);
 }
 
+interface CandidateRulesInput {
+  cwd: string;
+  services: VerifiableService[];
+  fixtures: Fixture[];
+  rulesFlag: FlagValue | undefined;
+  project: string | undefined;
+}
+
 async function resolveCandidateRules(
-  cwd: string,
-  services: VerifiableService[],
-  rulesFlag: FlagValue | undefined,
-): Promise<{ rules: VerifyRulesInput; paths: Partial<Record<VerifiableService, string>> }> {
-  const overrides = parseRulesOverrides(rulesFlag);
-  const needsDefaults = services.some((service) => !overrides.has(service));
-  const firebaseJson = needsDefaults ? await readFirebaseJsonOrNull(cwd) : null;
+  input: CandidateRulesInput,
+): Promise<{ rules: VerifyRulesInput; paths: Record<string, string> }> {
+  const { cwd, services } = input;
+  const overrides = parseRulesOverrides(input.rulesFlag);
+  let firebaseJson: Promise<FirebaseJson | null> | undefined;
+  const readConfig = (): Promise<FirebaseJson | null> => (firebaseJson ??= readFirebaseJsonOrNull(cwd));
 
   const rules: VerifyRulesInput = {};
-  const paths: Partial<Record<VerifiableService, string>> = {};
-  for (const service of services) {
-    const rel = overrides.get(service) ?? defaultRulesPath(firebaseJson, service);
+  const paths: Record<string, string> = {};
+  if (services.includes('firestore')) {
+    const rel = overrides.firestore ?? (await readConfig())?.firestore?.rules;
     if (!rel) {
-      throw new Error(
-        `missing candidate ${service} rules. Pass --rules ${service}=<path> or configure firebase.json.`,
-      );
+      throw new Error('missing candidate firestore rules. Pass --rules firestore=<path> or configure firebase.json.');
     }
     const path = resolve(cwd, rel);
     if (!existsSync(path)) {
-      throw new Error(`rules file not found for ${service}: ${path}`);
+      throw new Error(`rules file not found for firestore: ${path}`);
     }
-    paths[service] = path;
-    if (service === 'firestore') {
-      rules.firestore = readFileSync(path, 'utf8');
-    } else if (service === 'rtdb') {
-      rules.rtdb = parseRtdbRulesFile(path);
-    }
+    paths.firestore = path;
+    rules.firestore = readFileSync(path, 'utf8');
+  }
+  if (services.includes('rtdb')) {
+    const rtdb = await resolveRtdbCandidateRules({
+      cwd,
+      fixtures: input.fixtures,
+      overrides: overrides.rtdb,
+      readFirebaseJson: readConfig,
+      ...(input.project ? { project: input.project } : {}),
+    });
+    Object.assign(rules, rtdb.rules);
+    Object.assign(paths, rtdb.paths);
   }
   return { rules, paths };
 }
 
-function parseRulesOverrides(flag: FlagValue | undefined): Map<VerifiableService, string> {
-  const out = new Map<VerifiableService, string>();
+function parseRulesOverrides(flag: FlagValue | undefined): { firestore?: string; rtdb: RtdbRulesOverrides } {
+  const out: { firestore?: string; rtdb: RtdbRulesOverrides } = { rtdb: { instances: [] } };
   for (const raw of flagStrings(flag)) {
     const eq = raw.indexOf('=');
     if (eq <= 0 || eq === raw.length - 1) {
-      throw new Error(`--rules must use service-qualified values like --rules rtdb=database.rules.json.`);
+      throw new Error(`--rules must use service-qualified values like --rules rtdb=database.rules.json or --rules rtdb:<instance>=<path>.`);
     }
-    const service = toVerifiableService(raw.slice(0, eq));
-    out.set(service, raw.slice(eq + 1));
+    const key = raw.slice(0, eq);
+    const path = raw.slice(eq + 1);
+    if (isRtdbInstanceRulesKey(key)) {
+      out.rtdb.instances.push({ instance: rtdbInstanceOfRulesKey(key), path });
+      continue;
+    }
+    const service = toVerifiableService(key);
+    if (service === 'rtdb') out.rtdb.default = path;
+    else out.firestore = path;
   }
   return out;
-}
-
-function defaultRulesPath(config: FirebaseJson | null, service: VerifiableService): string | undefined {
-  if (service === 'firestore') return config?.firestore?.rules;
-  if (service === 'rtdb') return singleDatabaseRulesFile(config);
-  return undefined;
 }
 
 async function readFirebaseJsonOrNull(cwd: string): Promise<FirebaseJson | null> {
@@ -353,16 +377,6 @@ async function readFirebaseJsonOrNull(cwd: string): Promise<FirebaseJson | null>
   } catch {
     return null;
   }
-}
-
-function parseRtdbRulesFile(path: string): { rules: Record<string, unknown> } {
-  const rules = parseRtdbRulesText(
-    readFileSync(path, 'utf8'),
-    (reason) => new Error(`RTDB rules file ${path} did not parse: ${reason.message}`),
-  );
-  const rejection = rtdbRulesSourceRejection(rules);
-  if (rejection !== null) throw new Error(`RTDB rules file ${path} would not deploy. ${rejection.message}`);
-  return rules;
 }
 
 function toVerifiableService(raw: string): VerifiableService {
