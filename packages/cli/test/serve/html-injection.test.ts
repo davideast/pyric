@@ -77,6 +77,14 @@ it('inlines transport selection before init and application scripts', () => {
   expect(html.indexOf('data-pyric-worker-init')).toBeLessThan(html.indexOf('src="app.js"'));
 });
 
+it('inlines the project owner-frame policy with the transport selection', () => {
+  const owners = { skip: ['src/db/**'], frames: 2 };
+  const html = injectServeTags('<head></head>', { owners });
+  expect(inlinedSelection(html)).toEqual({ hosted: false, projectKey: null, bridgeUrl: null, owners });
+  const restamped = stampHostedTarget(html, 'orbit', owners);
+  expect(inlinedSelection(restamped)).toEqual({ hosted: true, projectKey: 'orbit', bridgeUrl: '/__pyric/sandbox', owners });
+});
+
 it('escapes hosted identity in the inline script', () => {
   const projectKey = '</script><script>unexpected()</script>';
   const html = injectServeTags('<head></head>', { hosted: { projectKey } });

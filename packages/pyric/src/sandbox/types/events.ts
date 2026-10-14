@@ -305,6 +305,18 @@ export interface WriteSandboxEvent {
  * event with no attribution omits the array entirely rather than carrying an
  * empty one.
  */
+/** One application stack frame kept on a `frame` owner's `stack`. */
+export interface OwnerStackFrame {
+  /** Path or URL of the application file. */
+  file: string;
+  /** 1-based line number within {@link file}. */
+  line: number;
+  /** 1-based column, when the runtime's stack format carried one. */
+  column?: number;
+  /** Enclosing function name, when the runtime's stack format named one. */
+  function?: string;
+}
+
 export type ListenerOwner =
   | {
       kind: 'frame';
@@ -316,6 +328,11 @@ export type ListenerOwner =
       column?: number;
       /** Enclosing function name, when the runtime's stack format named one. */
       function?: string;
+      /** The application frames around this one, innermost first, when more
+       *  than one was kept. This frame is one of them: the first outside the
+       *  project's skipped wrapper modules. Any skipped frames before it come
+       *  first, then up to the configured number of frames from it outward. */
+      stack?: OwnerStackFrame[];
     }
   | {
       kind: 'tag';

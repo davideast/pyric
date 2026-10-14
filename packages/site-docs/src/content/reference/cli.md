@@ -108,6 +108,8 @@ Create `pyric.json` in the project root to define defaults:
 
 `rules` can also be a string when only one rules file is needed.
 
+`owners` sets which application frames Pyric records for each listener and SDK call: `skip` lists globs for the app's data-layer wrapper modules, whose frames are never shown first, and `frames` is how many application frames to keep (default `3`). See [Name the code behind a data-layer wrapper](../build/inspect-activity.md#name-the-code-behind-a-data-layer-wrapper).
+
 Command-line values override `pyric.json`. `--project` overrides `PYRIC_PROJECT`, and `PYRIC_PROJECT` overrides the configured project. Without any of them, the project is the one `firebase use` made active for this directory or a parent directory, then the only `.firebaserc` alias, else `.firebaserc` `projects.default`, as the Firebase CLI resolves it.
 
 ## Environment variables

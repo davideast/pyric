@@ -1,4 +1,5 @@
 import { stampHostedTarget } from './runtime/hosted-target.js';
+import type { OwnersConfig } from './owners-config.js';
 import { REACT_BOOTSTRAP } from './react-bootstrap.js';
 import { SANDBOX_BUILD_MARKER } from './sandbox-marker.js';
 import { swappedFirebaseEntries, type AiMode } from './firebase-module-swap.js';
@@ -23,10 +24,12 @@ export interface ServeTagOptions {
   workerVersion?: string;
   forceInPage?: boolean;
   hosted?: { projectKey: string };
+  /** The project's listener-owner settings, applied on the page before any listener opens. */
+  owners?: OwnersConfig;
 }
 
 export function injectServeTags(html: string, options: ServeTagOptions = {}): string {
-  return stampHostedTarget(injectRuntimeTags(html, options), options.hosted?.projectKey);
+  return stampHostedTarget(injectRuntimeTags(html, options), options.hosted?.projectKey, options.owners);
 }
 
 function injectRuntimeTags(html: string, options: ServeTagOptions): string {

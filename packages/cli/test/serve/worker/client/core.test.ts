@@ -8,6 +8,7 @@ import {
   setLens,
   subscribeLens,
   wirePort,
+  _snapSubs,
 } from '../../../../src/serve/worker/client/core.js';
 import type { ClientPort } from '../../../../src/serve/worker/client/handles.js';
 import type { AuthLens } from 'pyric/sandbox';
@@ -334,5 +335,40 @@ describe('worker client auth lens hydration and persistence', () => {
       expect(typeof indexModule.subscribeLens).toBe('function');
       expect(typeof indexModule.hydrateLensFromStorage).toBe('function');
     });
+  });
+});
+
+describe('denial relay', () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  it('sends the denied listener its owners, so the terminal names the code that opened it', async () => {
+    const posted: unknown[] = [];
+    globalThis.fetch = (async (_url: unknown, init?: { body?: unknown }) => {
+      posted.push(JSON.parse(String(init?.body)));
+      return new Response(null, { status: 204 });
+    }) as typeof fetch;
+    const port: ClientPort = { onmessage: null, postMessage() {}, start() {}, close() {} };
+    wirePort(port);
+    const owners = [{
+      kind: 'frame' as const,
+      file: '/src/room-list.js',
+      line: 5,
+      stack: [{ file: '/src/db.js', line: 5 }, { file: '/src/room-list.js', line: 5 }],
+    }];
+    const errors: unknown[] = [];
+    _snapSubs.set('denied-room', {
+      port,
+      next() {},
+      error: (err) => errors.push(err),
+      message: { t: 'sub', subId: 'denied-room', target: 'rtdb', path: 'rooms/r1', owners } as never,
+    });
+    port.onmessage?.(new MessageEvent('message', {
+      data: { t: 'snap', subId: 'denied-room', value: { __error: { code: 'permission-denied', message: 'denied', denialContext: { engine: 'rtdb' } } } },
+    }));
+    expect(errors).toHaveLength(1);
+    expect(posted).toEqual([expect.objectContaining({ kind: 'listener', owners })]);
   });
 });

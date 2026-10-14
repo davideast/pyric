@@ -31,6 +31,7 @@ import type { InitPayload } from '../serve/namespace.js';
 import { formatAiStatusLine } from '../serve/ai-status.js';
 import { aiUpstreamGuardAllowance } from '../serve/ai-proxy.js';
 import { injectServeTags } from '../serve/html-injection.js';
+import { resolveOwnersConfig } from '../serve/owners-config.js';
 import { resolveAiMode } from '../serve/firebase-module-swap.js';
 import { formatActivityWarning } from '../serve/activity-warning.js';
 import { consoleServeLogger, startStaticServer, stderrServeLogger, type ServeHandle } from '../serve/server.js';
@@ -236,6 +237,7 @@ async function startServeRuntime(opts: {
   }
 
   const pyricConfig = await readPyricConfig(opts.cwd);
+  const owners = resolveOwnersConfig(pyricConfig.owners);
   const ruleOverrides = pyricConfig.rules;
   const hasRuleOverrides = ruleOverrides !== undefined && ruleOverrides !== '';
   if (hasRuleOverrides) {
@@ -471,7 +473,7 @@ async function startServeRuntime(opts: {
       // Never force in-page: serve always serves the worker, and the bridge peer
       // routes agent tool-calls THROUGH the worker (see connectBridgePeer), so app
       // + Studio + agent share the one sandbox even under --bridge.
-      transformHtml: (html) => injectServeTags(html, { workerVersion, hosted, aiMode }),
+      transformHtml: (html) => injectServeTags(html, { workerVersion, hosted, aiMode, owners }),
       allowedHosts: opts.allowedHosts,
       logger,
     });

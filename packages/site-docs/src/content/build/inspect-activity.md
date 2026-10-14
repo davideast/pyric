@@ -42,3 +42,26 @@ Select a historical event to inspect it and highlight surviving observed regions
 History excludes payloads, authentication tokens, and message bodies. Display targets strip URL credentials, query strings, and fragments; application-defined path segments can still contain information from your data model.
 
 Denied requests can show an eight-second marker while Overview or Flow is enabled. The marker uses a captured owner when available, otherwise a previously observed region for an unambiguous matching service and path. The latter is labeled **related region**: it does not prove which component initiated the request. Click the marker to inspect that exact Traffic request. Requests without a reliable region remain in Traffic without a page marker.
+
+## Name the code behind a data-layer wrapper
+
+Pyric records where each listener and SDK call was opened: the first application frame on the call stack, plus the next application frames up, three in all by default. When every listener in an app goes through one helper, such as a `watch()` in `src/db.js`, that first frame is the helper for every listener. List the helper's modules under `owners.skip` in `pyric.json`, and the owner shows the first frame outside them:
+
+```json
+{
+  "owners": { "skip": ["src/db/**", "src/db.js"] }
+}
+```
+
+A denied listener then names its caller in the terminal, with the skipped frame kept in the stack:
+
+```text
+  ⚠ [pyric] denied: permission_denied at /rooms/r1: Client doesn't have permission to access the desired data.
+      listen /rooms/r1
+      auth: alice
+      rule: /rooms/$roomId auth.uid == $roomId
+      owner: listRooms /src/room-list.js:5
+      stack: /src/db.js:5 ← /src/room-list.js:5 ← /src/main.js:14
+```
+
+A glob matches a module path from the project root, or any tail of a longer path or served URL, so `src/db/**` matches `/src/db/index.js` on the page and the same file on disk. `owners.frames` sets how many application frames to keep from the shown frame onward. The Vite plugin's `owners` option overrides either field.

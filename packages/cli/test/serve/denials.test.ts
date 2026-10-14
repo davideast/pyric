@@ -249,6 +249,41 @@ describe('formatDenialBlock', () => {
     expect(lines[3]).toContain('grant read access in firestore.rules');
   });
 
+  it('names the code that opened a denied listener and the frames around it', () => {
+    const block = formatDenialBlock({
+      message: 'PERMISSION_DENIED: Permission denied',
+      denialContext: { auth: { uid: 'alice' }, request: { method: 'onValue', path: '/rooms/r1' } },
+      owners: [{
+        kind: 'frame',
+        file: 'http://localhost:5173/src/room-list.js?t=1712',
+        line: 5,
+        column: 22,
+        function: 'listRooms',
+        stack: [
+          { file: 'http://localhost:5173/src/db.js', line: 5, column: 10, function: 'watch' },
+          { file: 'http://localhost:5173/src/room-list.js?t=1712', line: 5, column: 22, function: 'listRooms' },
+          { file: 'http://localhost:5173/src/main.js', line: 14, column: 3 },
+        ],
+      }, { kind: 'tag', name: 'room-list' }],
+    });
+    expect(block.split('\n')).toEqual([
+      '  ⚠ [pyric] denied: PERMISSION_DENIED: Permission denied',
+      '      onValue /rooms/r1',
+      '      auth: alice',
+      '      owner: listRooms /src/room-list.js:5',
+      '      stack: /src/db.js:5 ← /src/room-list.js:5 ← /src/main.js:14',
+    ]);
+  });
+
+  it('names a single-frame owner without a stack line', () => {
+    const block = formatDenialBlock({
+      message: 'denied',
+      denialContext: { auth: null },
+      owners: [{ kind: 'frame', file: '/home/me/app/src/room-list.ts', line: 5 }],
+    });
+    expect(block.split('\n').slice(2)).toEqual(['      owner: /home/me/app/src/room-list.ts:5']);
+  });
+
   it('falls back to "anonymous" auth and omits missing fields', () => {
     const block = formatDenialBlock({ message: 'denied', denialContext: { auth: null } });
     expect(block).toContain('anonymous');

@@ -8,6 +8,7 @@ import {
   type ClientDb,
 } from '../worker/client.js';
 import type { FirebaseError } from 'pyric/app';
+import { configureListenerOwnerFrames } from 'pyric/sandbox/internal';
 import type { HostedConnectionState } from '../worker/client/websocket-connection.js';
 import { getServiceWorkerFirestore } from '../worker/client/service-worker-connection.js';
 import { getDeferredFirestore } from '../worker/client/deferred-connection.js';
@@ -120,6 +121,10 @@ function reportPersistenceHealth(configuration: WorkerInitPayload | null): void 
 
 function initialize(configuration: WorkerInitPayload | null): void {
   payload = configuration;
+  // Every listener attach on this page reads this, on the worker path and
+  // in-page alike. A service worker realm never runs this and keeps the
+  // default policy: init.json does not carry owner settings.
+  configureListenerOwnerFrames(payload?.owners ?? {});
   useHosted = payload?.hosted === true;
   reportPersistenceHealth(payload);
 

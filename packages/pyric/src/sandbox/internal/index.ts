@@ -70,6 +70,12 @@ export {
   type ListenerOwnerHint,
   type RecordedListenerOwners,
 } from '../attribution/listener-owners.js';
+export {
+  captureAttachStack,
+  configureListenerOwnerFrames,
+  DEFAULT_OWNER_FRAMES,
+  type ListenerOwnerFramesPolicy,
+} from '../attribution/owner-frames.js';
 export { recordEffectRegions } from '../attribution/effect-regions.js';
 export {
   isSelectableElement,
