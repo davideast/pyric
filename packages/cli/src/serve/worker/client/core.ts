@@ -265,6 +265,8 @@ interface DenialRelayPayload {
   /** Sibling of denialContext on the sandbox error (query-proof denials
    *  attach the suggested where() fix there); forwarded when present. */
   remediation?: string;
+  /** A denied listener's owners, as the page recorded them when it opened. */
+  owners?: unknown[];
 }
 
 /** POST a denial to the dev server for terminal visibility. No-op when the
@@ -273,6 +275,7 @@ interface DenialRelayPayload {
 function relayDenial(
   kind: 'listener' | 'read',
   err: { message: string; code?: string; denialContext?: unknown; remediation?: unknown },
+  owners?: unknown[],
 ): void {
   if (err.denialContext === undefined) return;
   if (typeof fetch !== 'function') return;
@@ -282,6 +285,7 @@ function relayDenial(
     message: err.message,
     denialContext: err.denialContext,
     ...(typeof err.remediation === 'string' ? { remediation: err.remediation } : {}),
+    ...(owners !== undefined ? { owners } : {}),
   };
   try {
     void fetch('/__pyric/denials', {
@@ -377,7 +381,9 @@ export function wirePort(port: ClientPort): void {
         if (hasAiEvidence) setAiEvidence(err, aiEvidence);
         const hasAiEnvelope = errPayload.aiEnvelope !== undefined;
         if (hasAiEnvelope) err.aiEnvelope = errPayload.aiEnvelope;
-        relayDenial('listener', err);
+        const opened = sub.message;
+        const owners = opened !== undefined && 'owners' in opened ? opened.owners : undefined;
+        relayDenial('listener', err, owners);
         // Surface an unobserved listener error instead of swallowing it — the
         // worker-path twin of the in-page default (a denied listener after a
         // rules change / sign-out must not fail silently on the page console).

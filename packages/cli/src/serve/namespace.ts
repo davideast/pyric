@@ -373,6 +373,8 @@ interface DenialRelayPayload {
     /** Fallback position, in case a denial path nests it in the context. */
     remediation?: string;
   } | null;
+  /** A denied listener's owners, as the page recorded them when it opened. */
+  owners?: unknown;
 }
 
 /** Per-dev-server-instance throttle: at most one printed line per (path,
@@ -413,7 +415,44 @@ export function formatDenialBlock(payload: DenialRelayPayload): string {
   }
   const remediation = typeof payload.remediation === 'string' ? payload.remediation : ctx?.remediation;
   if (remediation) lines.push(`      ${remediation}`);
+  lines.push(...ownerLines(payload.owners));
   return lines.join('\n');
+}
+
+interface RelayedFrame {
+  file: string;
+  line: number;
+  function?: string;
+}
+
+function isRelayedFrame(value: unknown): value is RelayedFrame {
+  const frame = value as Partial<RelayedFrame> | null;
+  return typeof frame === 'object' && frame !== null
+    && typeof frame.file === 'string' && typeof frame.line === 'number';
+}
+
+/** A frame's file as a reader looks for it: a served URL loses its origin and query. */
+function frameLocation(frame: RelayedFrame): string {
+  const path = frame.file.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]*/i, '').replace(/[?#].*$/, '');
+  return `${path}:${frame.line}`;
+}
+
+/**
+ * The `owner:` and `stack:` lines for a denied listener: the frame its owner
+ * shows (the first outside the project's `owners.skip` modules), then the
+ * application frames around it, innermost first. Nothing when no frame owner
+ * was relayed.
+ */
+function ownerLines(owners: unknown): string[] {
+  if (!Array.isArray(owners)) return [];
+  const frame = owners.find((owner) => (owner as { kind?: unknown })?.kind === 'frame');
+  if (!isRelayedFrame(frame)) return [];
+  const name = typeof frame.function === 'string' && frame.function.length > 0 ? `${frame.function} ` : '';
+  const lines = [`      owner: ${name}${frameLocation(frame)}`];
+  const stack = (frame as { stack?: unknown }).stack;
+  const chain = Array.isArray(stack) ? stack.filter(isRelayedFrame) : [];
+  if (chain.length > 1) lines.push(`      stack: ${chain.map(frameLocation).join(' ← ')}`);
+  return lines;
 }
 
 /**
