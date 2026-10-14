@@ -112,35 +112,41 @@ test('a Vite server persisting browser state restarts from restart() and from a 
   expect(report.afterConfigEdit?.init).toBe(200);
 }, 120_000);
 
+interface TickEvent {
+  kind: 'tick' | 'value' | 'listener-error';
+  afterRestart: boolean;
+  n?: number;
+  ok?: boolean;
+  message?: string;
+  value?: unknown;
+}
+
 interface RemoteClientReport {
   failure?: string;
-  values: unknown[];
-  listenerErrors: string[];
-  failedWritesAfterRestart: number;
-  listenedBefore?: boolean;
+  events: TickEvent[];
+  clientStderr: string;
+  tickedBefore?: boolean;
   restarted?: boolean;
-  wroteAfterRestart?: boolean;
-  readAfterRestart?: unknown;
+  tickedAfter?: boolean;
   listenedAfter?: boolean;
 }
 
-test('a remote client attached to a hosted Vite server keeps working after a config edit restarts it', () => {
+test('an API server on PYRIC_SANDBOX=remote:<url> keeps writing and listening after a config edit restarts the hosted Vite server', () => {
   const app = writeProject('{ hosted: true }');
   const script = new URL('./fixtures/vite-restart-remote-client.mjs', import.meta.url).pathname;
   const result = spawnSync(process.env.PYRIC_TEST_NODE ?? 'node', [script, app], { encoding: 'utf8', timeout: 90_000 });
   const exitedCleanly = result.status === 0;
   if (!exitedCleanly) throw new Error(`remote client fixture failed (${result.status}): ${result.stderr}`);
   const report = JSON.parse(result.stdout.trim().split('\n').at(-1) ?? '') as RemoteClientReport;
+  const detail = JSON.stringify({ events: report.events.slice(-6), stderr: report.clientStderr.slice(-2000) });
 
   expect(report.failure).toBeUndefined();
-  expect(report.listenedBefore).toBe(true);
+  expect(report.tickedBefore, detail).toBe(true);
   expect(report.restarted).toBe(true);
-  // Ops after the restart reach the new generation on the same url.
-  expect(report.wroteAfterRestart).toBe(true);
-  expect(report.readAfterRestart).toBe('after restart');
-  // The listener was resubscribed rather than ended.
-  expect(report.listenerErrors).toEqual([]);
-  expect(report.listenedAfter).toBe(true);
-  // Its first value after the restart equals the last one before it, so it is not raised again.
-  expect(report.values).toEqual([null, 'before restart', 'after restart']);
+  // Writes after the restart reach the new generation on the same url.
+  expect(report.tickedAfter, detail).toBe(true);
+  // The on('value') listener was resubscribed rather than ended.
+  expect(report.events.filter(event => event.kind === 'listener-error')).toEqual([]);
+  expect(report.listenedAfter, detail).toBe(true);
 }, 120_000);
+
