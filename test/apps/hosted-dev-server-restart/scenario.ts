@@ -67,7 +67,6 @@ export default scenario(async (app) => {
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${label} hung ${ms}ms`)), ms)),
     ]);
     log(`page1 url ${page.url()}`);
-    log(`page1 state ${await within('page1 readyState', page.evaluate(() => `${document.readyState} ${(globalThis as any).__pyricServe ? 'serve' : ''}`), 5_000).catch((e) => String(e))}`);
     await within('page1 close', page.close()).catch((e) => log(String(e)));
     const context = await app.browser();
     const fresh = await within('newPage', context.newPage());
