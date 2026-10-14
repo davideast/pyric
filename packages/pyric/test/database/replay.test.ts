@@ -265,6 +265,14 @@ describe('database replay()', () => {
       ]);
     });
 
+    it('matches a project default name literally, so the caller maps it to the default instance', async () => {
+      const captured = await captureTwoInstances();
+      const byName = await replay(captured.events, { rules: INDEXED, instance: 'demo-default-rtdb' });
+      expect(byName.checkedEvents).toBe(0);
+      const byDefault = await replay(captured.events, { rules: INDEXED, instance: 'default' });
+      expect(byDefault.checkedEvents).toBe(1);
+    });
+
     it('replays a capture whose events carry no instance as the default instance, as before', async () => {
       const captured = await captureJourney();
       expect(captured.events.some((event) => Object.hasOwn(event, 'instance'))).toBe(false);

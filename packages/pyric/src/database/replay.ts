@@ -37,6 +37,12 @@ export interface RtdbReplayOptions {
    * name in the replay sandbox; `capturedState` is that instance's state. An
    * event with no `instance` field is the default instance's, so a capture
    * recorded before events named their instance replays as it did before.
+   *
+   * Replay matches the name literally and does not know the project id, so
+   * the project's default instance name (`<projectId>-default-rtdb`) selects
+   * events stamped with that name, not the default instance's. A caller that
+   * knows the project maps its default name to `undefined` first, as the host
+   * resolves an operation's `instance`.
    */
   instance?: string;
 }
