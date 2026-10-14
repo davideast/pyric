@@ -6,8 +6,9 @@ import { FirebaseError } from 'pyric/app';
 import { BROWSER_FRAME_LIMIT_CLOSE_CODE, BRIDGE_FRAME_LIMIT_MESSAGE, encodeBridgeMessage } from '../../../bridge/frame-output.js';
 import type { InboundMessage, OutboundMessage } from '../protocol.js';
 import { hasValidOutboundEnvelope, hasValidReplyOutcome } from '../outbound-validation.js';
-import { _pending, nextId, rawRpc, rejectPendingRequests, restoreAuthSubscriptions, restoreObservationSubscriptions, restoreMessagingSubscriptions, wirePort } from './core.js';
+import { nextId, rawRpc, rejectPendingRequests, restoreAuthSubscriptions, restoreObservationSubscriptions, restoreMessagingSubscriptions, wirePort } from './core.js';
 import type { ClientDb, ClientPort } from './handles.js';
+import { createHeldMessages } from './held-messages.js';
 
 /** The HTTP origin that serves a WebSocket endpoint. */
 function httpOriginOf(socketUrl: string): string {
@@ -17,6 +18,7 @@ function httpOriginOf(socketUrl: string): string {
 }
 
 const CONNECTION_LOST = 'The hosted sandbox connection was lost. Requests already sent may have completed; check state before retrying.';
+const CONNECTION_CLOSED = 'The hosted sandbox connection is closed.';
 const LIVENESS_TIMEOUT_MS = 45_000;
 const utf8 = new TextEncoder();
 
@@ -36,7 +38,6 @@ export function getHostedFirestore(target: {
   const report = (phase: DiagnosticEvent['phase'], code?: number) => {
     recordDiagnostic({ phase, connectionId, endpoint: target.url, code });
   };
-  const queued: InboundMessage[] = [];
   const connectionListeners = new Set<(connected: boolean) => void>();
   let state: HostedConnectionState = 'connecting';
   let socket: WebSocket | undefined;
@@ -56,27 +57,26 @@ export function getHostedFirestore(target: {
     onmessage: existingPort?.onmessage ?? null,
     postMessage(message) {
       const isClosed = state === 'closed';
-      if (isClosed) throw new FirebaseError('unavailable', 'The hosted sandbox connection is closed.');
+      if (isClosed) throw new FirebaseError('unavailable', CONNECTION_CLOSED);
       const configuresApp = message.t === 'appConfig';
       if (configuresApp) appConfig = message;
       const isAttached = state === 'attached';
-      const cancelsStartup = !isAttached && message.t === 'disconnect';
-      if (cancelsStartup) {
-        queued.length = 0;
+      const cancelsWhileDetached = !isAttached && message.t === 'disconnect';
+      if (cancelsWhileDetached) {
+        // The app is being deleted; its teardown fails the held operations.
+        held.drop();
         deliver({ t: 'res', id: message.id, ok: true, value: undefined });
         return;
       }
-      const isInitialStartup = !hasEverAttached;
-      const cancelsSubscription = !isAttached && message.t === 'unsub';
-      const canQueue = isInitialStartup || cancelsSubscription;
-      if (canQueue) {
+      const isDetached = !isAttached;
+      if (isDetached) {
         encodeRequest({ type: 'worker-message', message });
-        queued.push(message);
+        held.hold(message);
         return;
       }
       const activeSocket = socket;
-      const isUnavailable = !isAttached || activeSocket === undefined;
-      if (isUnavailable) throw new FirebaseError('unavailable', 'The hosted sandbox connection is closed.');
+      const hasNoSocket = activeSocket === undefined;
+      if (hasNoSocket) throw new FirebaseError('unavailable', CONNECTION_CLOSED);
       send(activeSocket, { type: 'worker-message', message });
     },
     start() {},
@@ -95,7 +95,7 @@ export function getHostedFirestore(target: {
       state = 'closed';
       notifyConnectionChange();
       connectionListeners.clear();
-      queued.length = 0;
+      held.fail(new FirebaseError('unavailable', CONNECTION_CLOSED));
       resumeToken = undefined;
       interruptedAt = undefined;
       hostInstanceId = undefined;
@@ -117,6 +117,7 @@ export function getHostedFirestore(target: {
       port.onmessage = null;
     },
   } satisfies ClientPort);
+  const held = createHeldMessages(port);
 
   function notifyConnectionChange(): void {
     report(state);
@@ -143,8 +144,10 @@ export function getHostedFirestore(target: {
   function failConnection(message: string): void {
     const isClosed = state === 'closed';
     if (isClosed) return;
-    port.close();
     const error = new FirebaseError('unavailable', message);
+    // Held operations fail with this error too, not with the close() error.
+    held.fail(error);
+    port.close();
     target.onError?.(error);
     rejectPendingRequests(port, error);
   }
@@ -162,14 +165,8 @@ export function getHostedFirestore(target: {
     state = 'interrupted';
     socket = undefined;
     notifyConnectionChange();
-    // A request settled here must not be sent by a later attach. Subscriptions stay
-    // queued, so an app that started offline observes the host once it is reachable.
-    const dropsSettledRequests = !hasEverAttached;
-    if (dropsSettledRequests) {
-      const awaitingReply = queued.filter(message => !('id' in message && _pending.has(message.id)));
-      queued.splice(0, queued.length, ...awaitingReply);
-    }
-    rejectPendingRequests(port, new FirebaseError('unavailable', CONNECTION_LOST));
+    // Only requests already handed to the socket fail; held ones wait for the next attach.
+    rejectPendingRequests(port, new FirebaseError('unavailable', CONNECTION_LOST), id => !held.holdsRequest(id));
     connection.close();
     const delay = Math.min(5_000, 250 * 2 ** reconnectAttempt);
     reconnectAttempt += 1;
@@ -205,6 +202,12 @@ export function getHostedFirestore(target: {
       if (isStaleConnection) throw new FirebaseError('unavailable', CONNECTION_LOST);
       send(connection, { type: 'worker-message', message });
     };
+    // A subscription opened while detached is sent once, from the held messages.
+    const replay = (message: InboundMessage): void => {
+      const isHeldSubscription = held.holdsSubscription(message);
+      if (isHeldSubscription) return;
+      postMessage(message);
+    };
     if (needsSessionRestore) {
       state = 'restoring';
       report(state);
@@ -215,7 +218,7 @@ export function getHostedFirestore(target: {
       await port.restoreAuth?.(message => rawRpc(port, message, postMessage));
       const isStaleConnection = !isCurrent(connection);
       if (isStaleConnection) return;
-      restoreAuthSubscriptions(port, postMessage);
+      restoreAuthSubscriptions(port, replay);
       needsSessionRestore = false;
     }
     clearTimeout(attachDeadline);
@@ -226,12 +229,13 @@ export function getHostedFirestore(target: {
     lastReceivedAt = performance.now();
     clearTimeout(heartbeatTimer);
     scheduleHeartbeat(connection);
-    for (const request of queued.splice(0)) port.postMessage(request);
     if (isResume) {
       postMessage({ t: 'clock-subscribe' });
-      restoreObservationSubscriptions(port, postMessage);
+      restoreObservationSubscriptions(port, replay);
     }
-    if (needsMessagingRestore) restoreMessagingSubscriptions(port, postMessage);
+    if (needsMessagingRestore) restoreMessagingSubscriptions(port, replay);
+    // Held messages follow the whole restore, in the order the app issued them.
+    held.flush(postMessage);
     notifyConnectionChange();
   }
 
