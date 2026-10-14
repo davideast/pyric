@@ -47,7 +47,7 @@ const String _connectionLost =
 const String _holdExpired =
     'The bridge connection was not restored within 10 seconds. The request was not sent.';
 const String _authRestoreFailed =
-    'The bridge host was replaced and the Auth session could not be restored. The request was not sent.';
+    'The bridge connection was restored, but the signed-in user could not be restored on the new host. The request was not sent.';
 const Duration _holdDeadline = Duration(seconds: 10);
 const int _policyCloseCode = 1008;
 const int _maxReconnectDelayMs = 5000;
@@ -147,6 +147,7 @@ class PyricBridgeClient {
   final Map<String, _PendingOp> _pendingOps = {};
   // Issued while not attached, in issue order. Never contains restore traffic.
   final List<_HeldOp> _heldOps = [];
+  bool _sendingHeldOps = false;
   final Map<String, _ActiveSub> _activeSubs = {};
 
   final StreamController<AuthLens> _remoteLensController =
@@ -227,7 +228,9 @@ class PyricBridgeClient {
     Duration? timeout,
   }) async {
     _ensureUsable();
-    if (isConnected) {
+    // An operation issued while held ones are being sent queues behind them.
+    final sendsNow = isConnected && !_sendingHeldOps;
+    if (sendsNow) {
       return _dispatchOp(method, params, actAs: actAs, timeout: timeout);
     }
     return _hold(_HeldOp(method, params, actAs, timeout));
@@ -260,14 +263,21 @@ class PyricBridgeClient {
   }
 
   void _sendHeldOps() {
-    for (final held in _takeHeldOps()) {
-      final result = _dispatchOp(
-        held.method,
-        held.params,
-        actAs: held.actAs,
-        timeout: held.timeout,
-      );
-      held.completer.complete(result);
+    _sendingHeldOps = true;
+    try {
+      while (_heldOps.isNotEmpty && isConnected) {
+        final held = _heldOps.removeAt(0);
+        held.deadline.cancel();
+        final result = _dispatchOp(
+          held.method,
+          held.params,
+          actAs: held.actAs,
+          timeout: held.timeout,
+        );
+        held.completer.complete(result);
+      }
+    } finally {
+      _sendingHeldOps = false;
     }
   }
 
