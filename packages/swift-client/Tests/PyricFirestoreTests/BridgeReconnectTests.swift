@@ -11,8 +11,13 @@ final class FakeReconnectSocket: WebSocketTransport, @unchecked Sendable {
     private var open = true
     private var closeCode: Int?
     private let onFrame: @Sendable ([String: AnySendable], FakeReconnectSocket) -> Void
+    private let beforeSend: @Sendable ([String: AnySendable]) async -> Void
 
-    init(onFrame: @escaping @Sendable ([String: AnySendable], FakeReconnectSocket) -> Void) {
+    init(
+        beforeSend: @escaping @Sendable ([String: AnySendable]) async -> Void = { _ in },
+        onFrame: @escaping @Sendable ([String: AnySendable], FakeReconnectSocket) -> Void
+    ) {
+        self.beforeSend = beforeSend
         self.onFrame = onFrame
     }
 
@@ -26,6 +31,7 @@ final class FakeReconnectSocket: WebSocketTransport, @unchecked Sendable {
         guard let data = string.data(using: .utf8),
               let frame = try? JSONDecoder().decode(AnySendable.self, from: data),
               let dict = frame.dictionaryValue else { return }
+        await beforeSend(dict)
         onFrame(dict, self)
     }
 
@@ -132,11 +138,48 @@ final class FakeReconnectBridge: @unchecked Sendable {
     func connect(_ request: URLRequest) async throws -> any WebSocketTransport {
         countConnect()
         if refuseConnections { throw PyricBridgeError.unavailable("connection refused") }
-        let socket = FakeReconnectSocket { [weak self] frame, socket in
-            self?.record(frame, from: socket)
-        }
+        let socket = FakeReconnectSocket(
+            beforeSend: { [weak self] frame in await self?.gate(frame) },
+            onFrame: { [weak self] frame, socket in self?.record(frame, from: socket) }
+        )
         append(socket)
         return socket
+    }
+
+    private var _suspendedMethod: String?
+    private var _suspendedWrites: [CheckedContinuation<Void, Never>] = []
+
+    /// Suspends the socket write of every `worker-op` for `method` until `releaseWrites()`.
+    func suspendWrites(ofMethod method: String) {
+        lock.lock(); _suspendedMethod = method; lock.unlock()
+    }
+
+    func releaseWrites() {
+        lock.lock()
+        let suspended = _suspendedWrites
+        _suspendedWrites.removeAll()
+        _suspendedMethod = nil
+        lock.unlock()
+        for write in suspended { write.resume() }
+    }
+
+    var suspendedWriteCount: Int {
+        lock.lock(); defer { lock.unlock() }; return _suspendedWrites.count
+    }
+
+    private func gate(_ frame: [String: AnySendable]) async {
+        let method = frame["op"]?["method"]?.stringValue
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            lock.lock()
+            let suspends = method != nil && method == _suspendedMethod
+            guard suspends else {
+                lock.unlock()
+                continuation.resume()
+                return
+            }
+            _suspendedWrites.append(continuation)
+            lock.unlock()
+        }
     }
 
     private func append(_ socket: FakeReconnectSocket) {
@@ -397,6 +440,34 @@ struct BridgeReconnectTests {
         }
         #expect(bridge.ops(named: "setDoc").count == 1)
         listener.cancel()
+        await client.disconnect()
+    }
+
+    @Test("An operation issued while held operations are still being sent follows them, in issue order")
+    func operationIssuedDuringFlushFollowsHeldOperations() async throws {
+        let bridge = FakeReconnectBridge()
+        let client = makeReconnectingClient(bridge, retryDelay: 0.02)
+        try await client.connect()
+        try await interrupt(bridge, client)
+
+        let first = Task { try await client.op(method: "setDoc", params: ["path": .string("rooms/a")]) }
+        try await Task.sleep(nanoseconds: 20_000_000)
+        let second = Task { try await client.op(method: "setDoc", params: ["path": .string("rooms/b")]) }
+        try await Task.sleep(nanoseconds: 20_000_000)
+
+        // The first held write suspends in the socket, so the flush is in progress.
+        bridge.suspendWrites(ofMethod: "setDoc")
+        bridge.refuseConnections = false
+        try await until { bridge.suspendedWriteCount == 1 }
+        let third = Task { try await client.op(method: "getDoc", params: ["path": .string("rooms/c")]) }
+        try await Task.sleep(nanoseconds: 50_000_000)
+        bridge.releaseWrites()
+
+        try await until { bridge.ops(named: "setDoc").count == 2 && bridge.ops(named: "getDoc").count == 1 }
+        let order = bridge.ofType("worker-op").compactMap { $0["op"]?["path"]?.stringValue }
+        #expect(order == ["rooms/a", "rooms/b", "rooms/c"])
+        for frame in bridge.ofType("worker-op") { bridge.answer(frame) }
+        for task in [first, second, third] { _ = try await task.value }
         await client.disconnect()
     }
 
