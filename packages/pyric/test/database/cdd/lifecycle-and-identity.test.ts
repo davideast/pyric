@@ -24,8 +24,9 @@ import {
   type DisconnectRulesObservation,
 } from './support.js';
 import { loadObservation } from '../modular/cdd-replay-helpers.js';
-import { getAdminDatabase } from '../../../src/database/index.js';
+import { getAdminDatabase, getDatabase, sandbox as rtdbSandbox } from '../../../src/database/index.js';
 import { heldDatabaseInstances } from '../../../src/database/internal.js';
+import { replay } from '../../../src/database/replay.js';
 import {
   UNNAMED_DEFAULT_DATABASE_INSTANCE,
   databaseInstanceKey,
@@ -343,5 +344,29 @@ describe('rtdb-modular CDD: multiple database instances', () => {
     await api.set(api.ref(getAdminDatabase(sandbox, 'first'), 'probe'), 'first');
     expect(heldDatabaseInstances(sandbox)).toEqual(['first']);
     expect((await api.get(api.ref(getAdminDatabase(sandbox, FIRST), 'probe'))).val()).toBe('first');
+  });
+  row('MI6', async () => {
+    // `pyric verify` replays each instance on its own: only the events it
+    // emitted, into its own captured tree, under its own candidate rules.
+    const open = { rules: { '.read': true, '.write': true } };
+    const sandbox = initializeSandbox();
+    rtdbSandbox.setRules(getDatabase(sandbox), open);
+    rtdbSandbox.setRules(getDatabase(sandbox, FIRST), open);
+    const alice = sandbox.withAuth({ uid: 'alice' });
+    await api.set(api.ref(getDatabase(alice), 'probe'), 'default');
+    await api.set(api.ref(getDatabase(alice, FIRST), 'probe'), 'first');
+    const history = sandbox.history();
+    const firstState = rtdbSandbox.snapshotState(getAdminDatabase(sandbox, FIRST));
+    const defaultState = rtdbSandbox.snapshotState(getAdminDatabase(sandbox));
+
+    const clean = await replay(history, { rules: open, instance: 'first', capturedState: firstState });
+    expect(clean).toMatchObject({ ok: true, checkedEvents: 1, divergences: [] });
+    const locked = { rules: { '.read': true, '.write': false } };
+    const denied = await replay(history, { rules: locked, instance: FIRST, capturedState: firstState });
+    expect(denied.divergences.filter((divergence) => divergence.kind === 'now-denied')).toEqual([
+      expect.objectContaining({ path: '/probe', method: 'set' }),
+    ]);
+    const unaffected = await replay(history, { rules: open, capturedState: defaultState });
+    expect(unaffected).toMatchObject({ ok: true, checkedEvents: 1 });
   });
 });

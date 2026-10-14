@@ -48,10 +48,11 @@ import { setupFirebaseActivityGuard } from './activity-bootstrap.js';
 import { setupAiDiagnosticsRelay } from '../ai-diagnostics-relay.js';
 import { createWorkerDurableBackend, setupServerAuthFlush } from './durable-persistence.js';
 import { ensureAuth, getOrCreateInstanceId, type HostCtx } from './host.js';
-import { rtdbInstance } from './host/rtdb-instances.js';
+import { defaultInstanceNameOf, rtdbInstance } from './host/rtdb-instances.js';
 import { databaseInstanceRulesHost, resolvePendingDatabaseTargets, setDatabaseRules, setDatabaseTargetRules } from './host/rules.js';
 import { connectDatabaseInstanceRules, createPendingDatabaseTargets } from '../database-instance-rules-host.js';
 import { buildVerifyFixture, type PyricVerifyFixture } from '../../verify/fixture.js';
+import { captureRtdbInstances, defaultInstanceUrl } from '../../verify/rtdb-instance-capture.js';
 
 const CAPTURE_MAX_DELAY_MS = 2_000;
 
@@ -393,18 +394,22 @@ export function applyServeInit(
     let disposed = false;
 
     const postCapture = async (): Promise<void> => {
-      // The verify fixture replays one database: the default instance.
+      // The default instance at the top of the RTDB block, each named
+      // instance under `instances`: verify replays each one into its own tree.
       const rtdb = rtdbInstance(ctx).live;
       const rtdbState =
         payload.databaseRules || ctx.sandbox.history().some((event) => event.service === 'rtdb')
           ? rtdbSandbox.snapshotState(rtdb)
           : undefined;
+      const defaultInstance = defaultInstanceNameOf(ctx);
       const auth = ensureAuth(ctx);
       const body = JSON.stringify(buildVerifyFixture({
         sandbox: ctx.sandbox,
         firestoreRules: payload.rules,
         rtdbRules: payload.databaseRules ?? null,
         rtdbState,
+        rtdbDatabaseUrl: defaultInstanceUrl(defaultInstance),
+        rtdbInstances: captureRtdbInstances(ctx.sandbox, defaultInstance),
         authState: {
           users: authOps.exportUsers(auth),
           currentUser: ctx.sandbox.currentUser,

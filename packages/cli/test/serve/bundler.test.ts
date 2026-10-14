@@ -340,6 +340,9 @@ describe('the real wrapper entries (plan step 1.2)', () => {
     expect(storageSrc).toMatch(/from\s*["']\.\/pyric-sandbox-/);
     expect(authSrc).not.toMatch(/initializeSandbox/); // sandbox lives in the chunk
     expect(fsSrc).not.toMatch(/initializeSandbox/);
+    // The in-page runtime's verify capture records every RTDB instance.
+    const sources = result.files.map((f) => readFileSync(f, 'utf8'));
+    expect(sources.some((src) => src.includes('captureRtdbInstances'))).toBe(true);
     for (const f of result.files) {
       const src = readFileSync(f, 'utf8');
       // provenance banner on every served bundle

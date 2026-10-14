@@ -45,6 +45,16 @@ The output names each operation whose verdict changed:
 ```yaml
 - run: pyric verify journeys/ --rules firestore=firestore.rules
 ```
+If your app uses more than one Realtime Database instance, `pyric verify` checks each instance the session used against that instance's own rules, read from `firebase.json` the way `firebase deploy` reads them. To try different rules on one instance, name it with `rtdb:<instance>`; `rtdb=` stays the default instance:
+```bash
+pyric verify --rules rtdb:shard-00=shard.rules.json
+```
+```
+✗ last-session - rtdb: 1 failure(s)
+    [rtdb shard-00] now-denied: set /rooms/lobby (PERMISSION_DENIED)
+```
+If the session used an instance that has no rules in `firebase.json` and no `--rules rtdb:<instance>=<path>`, verify stops and names the instance instead of skipping it.
+
 By default verification runs on the local sandbox engine. For Firestore you can also send the derived cases to Firebase's hosted Rules Test API, or run both:
 ```bash
 pyric verify --service firestore --engine both --project my-app --rules firestore=firestore.rules

@@ -3,10 +3,7 @@ import {
   type Divergence,
   type EventService,
 } from 'pyric/sandbox';
-import {
-  replay as replayRtdb,
-  type RtdbReplayDivergence,
-} from 'pyric/rules/internal/rtdb';
+import type { RtdbReplayDivergence } from 'pyric/rules/internal/rtdb';
 import {
   SimulateFirestoreRulesHandler,
   type ExpressionReportLevel,
@@ -28,6 +25,11 @@ import {
   type PyricVerifyFixture,
 } from './fixture.js';
 import {
+  recordedRtdbInstances,
+  recordsDefaultRtdbInstance,
+  replayRtdbInstance,
+} from './rtdb-instances.js';
+import {
   deriveRulesTestCases,
   type DeriveRulesTestCasesOptions,
   type DeriveRulesTestCasesResult,
@@ -43,9 +45,15 @@ export {
   type BuildVerifyFixtureInput,
   type PyricVerifyFixture,
   type VerifyFirestoreRulesBlock,
+  type VerifyRtdbInstanceCapture,
   type VerifyRtdbRulesBlock,
   type VerifyStorageRulesBlock,
 } from './fixture.js';
+export {
+  capturedDefaultRtdbInstance,
+  recordedRtdbInstances,
+  recordsDefaultRtdbInstance,
+} from './rtdb-instances.js';
 export {
   deriveRulesTestCases,
   type DerivedRulesTestCase,
@@ -73,9 +81,18 @@ export {
 export type VerifiableService = 'firestore' | 'rtdb';
 export type VerifyEngine = 'sandbox' | 'rulesTestApi';
 
+type RtdbCandidateRules = { rules: Record<string, unknown> } | RtdbRulesDocument;
+
 export type VerifyRulesInput = {
   firestore?: string | { source: string };
-  rtdb?: { rules: Record<string, unknown> } | RtdbRulesDocument;
+  /** The default RTDB instance's candidate rules. */
+  rtdb?: RtdbCandidateRules;
+  /**
+   * Each named RTDB instance's candidate rules, by the instance name its
+   * events carry. A recorded instance without an entry is not checked, and
+   * the result names it in `skippedInstances`.
+   */
+  rtdbInstances?: Record<string, RtdbCandidateRules>;
   storage?: string | { source: string };
 };
 
@@ -101,6 +118,8 @@ export interface VerifyServiceResult {
   checkedEvents: number;
   divergences: VerifyDivergence[];
   engines?: Partial<Record<VerifyEngine, VerifyEngineResult>>;
+  /** RTDB: the named instances the session used that no candidate rules were passed for, so they were not checked. */
+  skippedInstances?: string[];
 }
 
 export interface VerifyEngineResult {
@@ -116,7 +135,10 @@ export interface VerifyEngineResult {
   results?: TestResult[];
 }
 
-export type VerifyDivergence =
+/** A divergence; an RTDB divergence on a named instance names it in `instance`. */
+export type VerifyDivergence = VerifyDivergenceKind & { instance?: string };
+
+type VerifyDivergenceKind =
   | {
       service: EventService | string;
       kind: 'now-denied';
@@ -190,7 +212,7 @@ export async function verifyFixture(
     if (service === 'firestore') {
       services.firestore = await verifyFirestore(fixture, requireFirestoreRules(opts.rules), engines, opts);
     } else if (service === 'rtdb') {
-      services.rtdb = await verifyRtdb(fixture, requireRtdbRules(opts.rules), engines);
+      services.rtdb = await verifyRtdb(fixture, opts.rules, engines);
     } else {
       const exhaustive: never = service;
       throw new VerifyInputError(`unsupported verify service: ${exhaustive}`);
@@ -335,7 +357,7 @@ async function verifyFirestoreRulesTestApi(
 
 async function verifyRtdb(
   fixture: PyricVerifyFixture,
-  rulesJson: { rules: Record<string, unknown> },
+  rules: VerifyRulesInput,
   engines: VerifyEngine[],
 ): Promise<VerifyServiceResult> {
   const rtdb = fixture.services.rtdb;
@@ -346,25 +368,38 @@ async function verifyRtdb(
     throw new VerifyInputError('rulesTestApi verification is Firestore-only; select --service firestore or use the sandbox engine for RTDB.');
   }
 
-  const replayed = await replayRtdb(fixture.events, {
-    rules: rulesJson,
-    capturedState: rtdb.state.tree,
-    ...(rtdb.databaseUrl ? { databaseUrl: rtdb.databaseUrl } : {}),
-  });
-  const divergences = replayed.divergences.map(mapRtdbReplayDivergence);
+  const replays = [];
+  const checksDefault = rules.rtdb !== undefined || recordsDefaultRtdbInstance(fixture);
+  if (checksDefault) {
+    replays.push(await replayRtdbInstance(fixture, requireRtdbRules(rules.rtdb, 'missing candidate RTDB rules. Pass rules.rtdb.')));
+  }
+  const skippedInstances: string[] = [];
+  for (const instance of recordedRtdbInstances(fixture)) {
+    const candidate = rules.rtdbInstances?.[instance];
+    if (candidate === undefined) {
+      skippedInstances.push(instance);
+      continue;
+    }
+    const parsed = requireRtdbRules(candidate, `missing candidate RTDB rules for instance "${instance}".`, instance);
+    replays.push(await replayRtdbInstance(fixture, parsed, instance));
+  }
+
+  const divergences = replays.flatMap((replayed) => replayed.divergences.map(mapRtdbReplayDivergence));
+  const checkedEvents = replays.reduce((total, replayed) => total + replayed.checkedEvents, 0);
   const sandbox: VerifyEngineResult = {
     engine: 'sandbox',
     ok: divergences.every(isInformational),
-    checkedEvents: replayed.checkedEvents,
+    checkedEvents,
     divergences,
   };
 
   return {
     service: 'rtdb',
     ok: divergences.every(isInformational),
-    checkedEvents: replayed.checkedEvents,
+    checkedEvents,
     divergences,
     engines: { sandbox },
+    ...(skippedInstances.length > 0 ? { skippedInstances } : {}),
   };
 }
 
@@ -460,21 +495,25 @@ function requireFirestoreRules(input: VerifyRulesInput): string {
   throw new VerifyInputError('missing candidate Firestore rules. Pass rules.firestore.');
 }
 
-function requireRtdbRules(input: VerifyRulesInput): RtdbRulesJson {
-  const rules = input.rtdb;
+function requireRtdbRules(
+  rules: RtdbCandidateRules | undefined,
+  missing: string,
+  instance?: string,
+): RtdbRulesJson {
+  const label = instance === undefined ? 'candidate RTDB rules' : `candidate RTDB rules for instance "${instance}"`;
   if (isRtdbRulesDocument(rules)) {
     return parseRtdbRulesJson(
       rules.toJSON(),
-      () => new VerifyInputError('candidate RTDB rules document must compile to { rules: object }.'),
+      () => new VerifyInputError(`${label} document must compile to { rules: object }.`),
     );
   }
   if (rules !== undefined) {
     return parseRtdbRulesJson(
       rules,
-      () => new VerifyInputError('candidate RTDB rules must be { rules: object }.'),
+      () => new VerifyInputError(`${label} must be { rules: object }.`),
     );
   }
-  throw new VerifyInputError('missing candidate RTDB rules. Pass rules.rtdb.');
+  throw new VerifyInputError(missing);
 }
 
 function mapFirestoreDivergence(divergence: Divergence): VerifyDivergence {
@@ -520,7 +559,7 @@ function mapFirestoreDivergence(divergence: Divergence): VerifyDivergence {
   }
 }
 
-function mapRtdbReplayDivergence(divergence: RtdbReplayDivergence): VerifyDivergence {
+function mapRtdbReplayDivergence(divergence: RtdbReplayDivergence & { instance?: string }): VerifyDivergence {
   return {
     service: 'rtdb',
     ...divergence,

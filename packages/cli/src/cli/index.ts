@@ -114,7 +114,9 @@ COMMANDS
                              Hosted Rules Test API verification is Firestore-only
                              and uses --project plus the configured Google credentials.
                              --rules service=path overrides firebase.json resolution
-                             (repeat for mixed captures). --json. Exit 1 on divergence.
+                             (repeat for mixed captures). Each RTDB instance the session
+                             used is checked against its own rules; --rules
+                             rtdb:<instance>=path names one. --json. Exit 1 on divergence.
   can-i-use <feature>        Report Pyric availability, behavior fidelity, and assurance
                              eligibility from the canonical conformance model. A surface
                              prefix such as firestore-rules/getAfter disambiguates names.
