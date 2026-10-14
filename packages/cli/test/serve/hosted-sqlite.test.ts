@@ -237,6 +237,10 @@ test('a repro recorded on a multi-instance host replays on the Node and worker h
   expect(await runNodeFixture('repro', 60_000)).toBe('Repro passed');
 }, 90_000);
 
+test('a repro replays with Messaging on when the captured session had it, and off for a file without the setting', async () => {
+  expect(await runNodeFixture('repro-messaging', 60_000)).toBe('Repro messaging passed');
+}, 90_000);
+
 test('the denials a multi-instance host recorded list by instance, with their counts and page loads', async () => {
   expect(await runNodeFixture('denials')).toBe('Denials passed');
 });

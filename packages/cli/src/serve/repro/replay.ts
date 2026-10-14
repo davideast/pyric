@@ -115,6 +115,7 @@ function payloadFor(base: ReproBase, projectKey: string, hosted: boolean): InitP
     databaseInstances: { defaultInstance: base.defaultInstance, rules: declared },
     permissive: base.permissive,
     bridgeUrl: null, seed: null, capture: false, hosted, projectKey,
+    messaging: base.messaging === true,
   };
 }
 
