@@ -160,6 +160,22 @@ describe('createLazyRemoteSandbox when the connection is lost', () => {
     return { handle: createRemoteSandboxHandle({ channel, serveUrl, close: () => {} }), subscriptions: () => subscriptions };
   }
 
+  it('ends a listener whose subscribe a live connection refuses', async () => {
+    const channel: RemoteSandboxChannel = {
+      op: () => Promise.resolve(null),
+      subscribe: () => {
+        throw Object.assign(new Error('refused'), { code: 'invalid-argument' });
+      },
+    };
+    const handle = createRemoteSandboxHandle({ channel, serveUrl: 'http://127.0.0.1:5000', close: () => {} });
+    const lazy = createLazyRemoteSandbox(async () => handle);
+    const error = await new Promise<Error & { code: string }>(resolve => {
+      lazy.channel.subscribe({ target: { service: 'rtdb', path: 'a' }, actAs: { mode: 'admin' } }, () => {}, resolve);
+    });
+    expect(error.code).toBe('invalid-argument');
+    lazy.close();
+  });
+
   it('connects again on the next op', async () => {
     const lost: Array<(reason: string) => void> = [];
     let connects = 0;

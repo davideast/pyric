@@ -1261,8 +1261,12 @@ export function createLazyRemoteSandbox(
         (value) => deliverSnapshot(subscription, value),
         (err) => endSubscription(subscription, err),
       );
-    } catch {
-      // The connection closed under this attach; its loss reconnects and resubscribes.
+    } catch (err) {
+      // A connection that closed under this attach has already reported its
+      // loss (inner is reset), and the reconnect resubscribes; any other
+      // refusal ends the listener.
+      const wasConnectionLost = inner === null || closed;
+      if (!wasConnectionLost) endSubscription(subscription, asRemoteError(err));
     }
   }
 
