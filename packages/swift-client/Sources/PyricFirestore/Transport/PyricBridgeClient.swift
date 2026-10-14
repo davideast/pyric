@@ -44,6 +44,7 @@ public func bridgeReconnectDelay(attempt: Int, random: Double = Double.random(in
 private let connectionLostMessage =
     "The bridge connection was lost. Requests already sent may have completed; check state before retrying."
 private let policyCloseCode = 1008
+private let defaultHoldDeadline: TimeInterval = 10
 
 /// Pure-Swift WebSocket transport connecting to the Pyric local sandbox bridge.
 ///
@@ -65,6 +66,9 @@ public actor PyricBridgeClient {
     private let reconnectDelay: @Sendable (Int) -> TimeInterval
     /// Seconds an attempt may take to attach before it counts as failed.
     private let attachTimeout: TimeInterval
+    /// Seconds an operation is held while the client is not attached (ADR-0019
+    /// decision 7). Fixed at 10; only tests change it.
+    private var holdDeadline: TimeInterval = defaultHoldDeadline
 
     public private(set) var isConnected: Bool = false
     public private(set) var isDisposed: Bool = false
@@ -157,6 +161,12 @@ public actor PyricBridgeClient {
             request.setValue(hostStr, forHTTPHeaderField: "Host")
         }
         return request
+    }
+
+    /// Test-only: shortens the hold deadline, and `nil` restores it. The
+    /// deadline is fixed at 10 seconds; this is not a user setting and is not public.
+    func setHoldDeadlineForTesting(_ seconds: TimeInterval?) {
+        holdDeadline = seconds ?? defaultHoldDeadline
     }
 
     /// Runs on a re-attach to a replaced host, before subscriptions are re-sent.
