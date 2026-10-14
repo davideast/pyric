@@ -34,8 +34,9 @@ export class RtdbBackend {
   private readonly transactions: Transactions;
   private readonly persistence: PersistenceState;
 
-  constructor(sandbox?: Sandbox) {
-    this.state = new BackendState(sandbox);
+  /** `instance` is the instance's name, or `undefined` for the default instance. */
+  constructor(sandbox?: Sandbox, instance?: string) {
+    this.state = new BackendState(sandbox, instance);
     this.values = new ValueListeners(this.state);
     this.children = new ChildListeners(this.state);
     this.writes = new WritePlane(this.state, this.values, this.children);

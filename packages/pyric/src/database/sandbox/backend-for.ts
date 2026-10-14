@@ -37,9 +37,12 @@ function backendsFor(sandbox: Sandbox): DatabaseInstanceRegistry<RtdbBackend> {
       }
     }
   };
-  const registry = createDatabaseInstanceRegistry({
-    create: () => {
-      const backend = new RtdbBackend(sandbox);
+  const registry: DatabaseInstanceRegistry<RtdbBackend> = createDatabaseInstanceRegistry({
+    // A named instance's backend stamps its name on the events it emits; the
+    // default instance's events carry none.
+    create: (key) => {
+      const instance = key === registry.defaultKey ? undefined : key;
+      const backend = new RtdbBackend(sandbox, instance);
       backend.subscribeWrites(notifyChange);
       return backend;
     },
