@@ -186,6 +186,23 @@ describe('remoteSandbox after its host restarts on the same url', () => {
     expect(values).toEqual(['same']);
   });
 
+  it('ends its listeners and does not reconnect when the host closes the connection for a policy violation', async () => {
+    const host = await startFakeHost(0, 'first');
+    cleanups.push(host.stop);
+    const lazy = remoteSandbox({ url: `http://127.0.0.1:${host.port}`, warn: () => {} });
+    cleanups.push(() => lazy.close());
+    const errors: Array<{ code?: string }> = [];
+    const values: unknown[] = [];
+    lazy.rtdb.onValue('ticks', snapshot => values.push(snapshot.value), error => errors.push(error));
+    await waitFor(() => values.length === 1);
+
+    host.closeClients(1008, 'policy');
+    await waitFor(() => errors.length === 1);
+    expect(errors[0]!.code).toBe('unavailable');
+    // Long enough for the first two retries a recoverable drop would make.
+    await Bun.sleep(900);
+    expect(host.attaches()).toBe(1);
+  });
 });
 
 describe('createLazyRemoteSandbox when the connection is lost', () => {

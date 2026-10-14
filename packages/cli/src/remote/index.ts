@@ -1060,7 +1060,16 @@ export async function connectRemoteSandbox(
     lossReported = true;
     onConnectionLost(reason);
   };
-  ws.on('close', () => loseConnection('remote sandbox connection closed (serve stopped or connection lost)'));
+  ws.on('close', (code) => {
+    // A policy close (1008) is the host refusing this client, not a restart:
+    // it is final, as ADR 0019 rules, so retrying would only be refused again.
+    const isPolicyClose = code === 1008;
+    if (isPolicyClose) {
+      core.fail('remote sandbox connection closed by the host for a policy violation');
+      return;
+    }
+    loseConnection('remote sandbox connection closed (serve stopped or connection lost)');
+  });
   ws.on('error', (err) => loseConnection(`remote sandbox connection failed: ${err.message}`));
 
   await new Promise<void>((resolve, reject) => {
