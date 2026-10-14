@@ -1,7 +1,7 @@
 import type { DiagnosticEvent } from '../../runtime/diagnostics-report.js';
 import { recordDiagnostic } from '../../runtime/diagnostics-client.js';
 import { hasValidAttachFields } from '../../../bridge/attach-validation.js';
-import { isBridgeMessage, MAX_BRIDGE_FRAME_BYTES, STORAGE_BYTE_ROUTE_CAPABILITY, WORKER_PORT_CAPABILITY, WORKER_SESSION_EXPIRED_CLOSE_CODE, WORKER_SESSION_RETENTION_MS, type BridgeMessage } from '../../../bridge/protocol.js';
+import { HOSTED_HEARTBEAT_INTERVAL_MS, isBridgeMessage, MAX_BRIDGE_FRAME_BYTES, STORAGE_BYTE_ROUTE_CAPABILITY, WORKER_PORT_CAPABILITY, WORKER_SESSION_EXPIRED_CLOSE_CODE, WORKER_SESSION_RETENTION_MS, type BridgeMessage } from '../../../bridge/protocol.js';
 import { FirebaseError } from 'pyric/app';
 import { BROWSER_FRAME_LIMIT_CLOSE_CODE, BRIDGE_FRAME_LIMIT_MESSAGE, encodeBridgeMessage } from '../../../bridge/frame-output.js';
 import type { InboundMessage, OutboundMessage } from '../protocol.js';
@@ -17,7 +17,6 @@ function httpOriginOf(socketUrl: string): string {
 }
 
 const CONNECTION_LOST = 'The hosted sandbox connection was lost. Requests already sent may have completed; check state before retrying.';
-const HEARTBEAT_INTERVAL_MS = 15_000;
 const LIVENESS_TIMEOUT_MS = 45_000;
 const utf8 = new TextEncoder();
 
@@ -180,7 +179,7 @@ export function getHostedFirestore(target: {
 
   function scheduleHeartbeat(connection: WebSocket): void {
     const remainingLiveness = LIVENESS_TIMEOUT_MS - (performance.now() - lastReceivedAt);
-    const delay = Math.max(0, Math.min(HEARTBEAT_INTERVAL_MS, remainingLiveness));
+    const delay = Math.max(0, Math.min(HOSTED_HEARTBEAT_INTERVAL_MS, remainingLiveness));
     heartbeatTimer = setTimeout(() => {
       const isStaleConnection = !isCurrent(connection);
       if (isStaleConnection) return;

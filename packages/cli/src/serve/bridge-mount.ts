@@ -42,6 +42,20 @@ const MCP_PATH = '/__pyric/mcp';
 const HEALTH_PATH = '/__pyric/health';
 const BRIDGE_VERSION = pyricVersion();
 
+/**
+ * Test-only: `PYRIC_TEST_PEER_LIVENESS_MS` shortens the host's peer liveness
+ * window so app scenarios (`test/apps/host-closes-silent-page`) need not wait
+ * the real 90s. It is read once when the mount is created and is not a user
+ * setting. Anything other than a positive integer leaves the default.
+ */
+function testPeerLivenessMs(): number | undefined {
+  const raw = process.env.PYRIC_TEST_PEER_LIVENESS_MS;
+  const value = Number(raw);
+  const isPositiveInteger = Number.isInteger(value) && value > 0;
+  if (isPositiveInteger) return value;
+  return undefined;
+}
+
 export interface BridgeMountOptions {
   hosted?: boolean;
   project?: string;
@@ -109,6 +123,7 @@ export interface BridgeHostAttachment {
 }
 
 export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
+  const peerOptions = { livenessTimeoutMs: testPeerLivenessMs() };
   let hostedRuntime: Awaited<ReturnType<typeof createHostedRuntime>> | undefined;
   let hostedStartup: Promise<void> | undefined;
   let disconnectHosted: (() => void) | undefined;
@@ -509,7 +524,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
         socket.once('close', () => upgradedSockets.delete(socket));
         wss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
           const allowSandboxPeer = opts.hosted !== true;
-          attachPeer(bridge, ws, allowSandboxPeer);
+          attachPeer(bridge, ws, allowSandboxPeer, peerOptions);
         });
       };
 
