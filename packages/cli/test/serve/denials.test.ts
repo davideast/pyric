@@ -124,6 +124,26 @@ describe('/__pyric/denials', () => {
     expect(notes[1]).toContain('anonymous'); // no auth.uid → anonymous
   });
 
+  it('prints the same path denied on two RTDB instances once each within the window', async () => {
+    const { logger, notes } = recordingLogger();
+    const h = await startServe(logger);
+    const onInstance = (instance: string) => denialBody({
+      message: 'PERMISSION_DENIED',
+      instance,
+      denialContext: { engine: 'rtdb', auth: null, request: { method: 'listen', path: '/rooms/r1' } },
+    });
+    for (const instance of ['demo-app-default-rtdb', 'demo-app-shard-1', 'demo-app-shard-1']) {
+      await fetch(`${h.url}/__pyric/denials`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(onInstance(instance)),
+      });
+    }
+    expect(notes.length).toBe(2);
+    expect(notes[0]).toContain('listen /rooms/r1 (demo-app-default-rtdb)');
+    expect(notes[1]).toContain('listen /rooms/r1 (demo-app-shard-1)');
+  });
+
   it('rejects non-POST with 405', async () => {
     const { logger } = recordingLogger();
     const h = await startServe(logger);
@@ -201,6 +221,15 @@ describe('formatDenialBlock', () => {
       '      auth: alice',
       '      rule: /rooms/$roomId auth.uid == $roomId',
     ]);
+  });
+
+  it('names the RTDB instance the denied request addressed', () => {
+    const block = formatDenialBlock({
+      message: 'PERMISSION_DENIED',
+      instance: 'demo-app-shard-1',
+      denialContext: { engine: 'rtdb', auth: { uid: 'alice' }, request: { method: 'listen', path: '/rooms/r1' } },
+    });
+    expect(block.split('\n')[1]).toBe('      listen /rooms/r1 (demo-app-shard-1)');
   });
 
   it('renders a compact multi-line block: message, request, auth, remediation', () => {

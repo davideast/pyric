@@ -348,7 +348,7 @@ async function handleCapture(
 // dispatches through a table instead of a cascade.
 //
 // A denied listener re-fires on every auth/rules change, so printing is
-// throttled per (path, message) pair — at most one line per window, and
+// throttled per (RTDB instance, path, message) — at most one line per window, and
 // silent (no output at all) on suppression rather than a "suppressed N more"
 // line, to keep this a diagnostics side channel, not its own log noise.
 
@@ -363,6 +363,8 @@ interface DenialRelayPayload {
   /** Sibling of `denialContext` on the sandbox error — query-proof denials
    *  attach the suggested `where()` fix there; the client forwards it. */
   remediation?: unknown;
+  /** The named RTDB instance the denied request addressed, when it named one. */
+  instance?: unknown;
   denialContext?: {
     engine?: string;
     auth?: { uid?: string } | null;
@@ -375,8 +377,8 @@ interface DenialRelayPayload {
   } | null;
 }
 
-/** Per-dev-server-instance throttle: at most one printed line per (path,
- *  message) pair within {@link DENIAL_THROTTLE_MS}. Exported for unit tests. */
+/** Per-dev-server-instance throttle: at most one printed line per key within
+ *  {@link DENIAL_THROTTLE_MS}. Exported for unit tests. */
 export function createDenialThrottle(windowMs: number = DENIAL_THROTTLE_MS): {
   /** `window` overrides the throttle's window for this key; `Infinity` prints once. */
   shouldPrint(key: string, now: number, window?: number): boolean;
@@ -402,7 +404,8 @@ export function formatDenialBlock(payload: DenialRelayPayload): string {
   const ctx = payload.denialContext;
   const request = ctx?.request;
   if (request?.method && request?.path) {
-    lines.push(`      ${request.method} ${request.path}`);
+    const instance = typeof payload.instance === 'string' ? ` (${payload.instance})` : '';
+    lines.push(`      ${request.method} ${request.path}${instance}`);
   }
   const uid = ctx?.auth?.uid;
   lines.push(`      auth: ${uid ?? 'anonymous'}`);
@@ -447,7 +450,9 @@ export function noteAiDiagnostic(
  *  relayed off the sandbox event stream. All four share the throttle map: an
  *  agent retry loop re-sends the SAME malformed (or filter-tripping) AI
  *  request exactly the way a denied listener re-fires, so one line per
- *  (target, reason) per window is the right volume for every one of them.
+ *  (target, reason) per window is the right volume for every one of them. A
+ *  rules denial's target also names its RTDB instance, so the same path
+ *  denied on two instances prints once for each.
  *  Always 204s (best-effort diagnostics: a malformed body or a caller with no
  *  logger wired must never fail the page that reported the refusal). */
 async function handleDenials(
@@ -468,7 +473,9 @@ async function handleDenials(
     } else {
       const target = payload.denialContext?.request?.path ?? '';
       const reason = typeof payload.message === 'string' ? payload.message : 'permission denied';
-      const key = `${target}${THROTTLE_KEY_SEPARATOR}${reason}`;
+      // The same path can be denied on one RTDB instance and allowed on another, so each instance prints.
+      const instance = typeof payload.instance === 'string' ? payload.instance : '';
+      const key = `${instance}${THROTTLE_KEY_SEPARATOR}${target}${THROTTLE_KEY_SEPARATOR}${reason}`;
       if (logger && throttle.shouldPrint(key, Date.now())) {
         logger.note(formatDenialBlock(payload));
       }

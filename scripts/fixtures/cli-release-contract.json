@@ -19,6 +19,7 @@
     "auth reset",
     "serve sessions",
     "serve diagnostics",
+    "serve denials",
     "serve repro capture",
     "serve repro replay"
   ],

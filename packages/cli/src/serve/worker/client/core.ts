@@ -20,6 +20,7 @@ import { FirebaseError } from 'pyric/app';
 import { receiveClockState } from './clock.js';
 import type { ClientPort } from './handles.js';
 import { createOperationBudget } from '../../../bridge/operation-budget.js';
+import { requestInstance } from '../request-instance.js';
 import { hasValidOutboundEnvelope, hasValidReplyOutcome, snapshotError } from '../outbound-validation.js';
 
 // ─── Port + correlation machinery ─────────────────────────────────────────
@@ -38,6 +39,8 @@ export function nextSubId(): string { return `sub-${++_subCounter}`; }
 export const _pending = new Map<string, {
   port: ClientPort;
   clientSessionId?: string;
+  /** The named RTDB instance the request addressed; a denial relay names it. */
+  instance?: string;
   budget?: ReturnType<typeof createOperationBudget>;
   release?: () => void;
   resolve: (v: unknown) => void;
@@ -265,6 +268,8 @@ interface DenialRelayPayload {
   /** Sibling of denialContext on the sandbox error (query-proof denials
    *  attach the suggested where() fix there); forwarded when present. */
   remediation?: string;
+  /** The named RTDB instance the denied request addressed; absent for the default one. */
+  instance?: string;
 }
 
 /** POST a denial to the dev server for terminal visibility. No-op when the
@@ -273,6 +278,7 @@ interface DenialRelayPayload {
 function relayDenial(
   kind: 'listener' | 'read',
   err: { message: string; code?: string; denialContext?: unknown; remediation?: unknown },
+  instance?: string,
 ): void {
   if (err.denialContext === undefined) return;
   if (typeof fetch !== 'function') return;
@@ -282,6 +288,7 @@ function relayDenial(
     message: err.message,
     denialContext: err.denialContext,
     ...(typeof err.remediation === 'string' ? { remediation: err.remediation } : {}),
+    ...(instance === undefined ? {} : { instance }),
   };
   try {
     void fetch('/__pyric/denials', {
@@ -356,7 +363,7 @@ export function wirePort(port: ClientPort): void {
         if (hasAiEnvelope) {
           err.aiEnvelope = msg.error.aiEnvelope;
         }
-        relayDenial('read', err);
+        relayDenial('read', err, pending.instance);
         pending.reject(err);
       }
     } else if (isSnapshot) {
@@ -377,7 +384,7 @@ export function wirePort(port: ClientPort): void {
         if (hasAiEvidence) setAiEvidence(err, aiEvidence);
         const hasAiEnvelope = errPayload.aiEnvelope !== undefined;
         if (hasAiEnvelope) err.aiEnvelope = errPayload.aiEnvelope;
-        relayDenial('listener', err);
+        relayDenial('listener', err, requestInstance(sub.message));
         // Surface an unobserved listener error instead of swallowing it — the
         // worker-path twin of the in-page default (a denied listener after a
         // rules change / sign-out must not fail silently on the page console).
@@ -587,6 +594,7 @@ export function rawRpc(
     _pending.set(opMsg.id, {
       port,
       clientSessionId: msg.clientSessionId,
+      instance: requestInstance(msg),
       budget,
       release: reservation?.release,
       resolve,
