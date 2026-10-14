@@ -1,0 +1,6 @@
+{
+  "database": [
+    { "instance": "demo-app-default-rtdb", "rules": "database.rules.json" },
+    { "instance": "shard-00", "rules": "shard.rules.json" }
+  ]
+}

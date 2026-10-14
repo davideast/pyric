@@ -15,10 +15,14 @@ import { getStorageSandbox, type FirebaseStorage } from 'pyric/storage';
 import { getAdminStorageSandbox } from 'pyric/storage/internal';
 import type { SurfaceContext } from './types.js';
 
-/** A Realtime Database handle for the held identity. */
-export function databaseFor(ctx: SurfaceContext): Database {
-  if (ctx.identity.bypassesRules()) return getAdminDatabase(ctx.sandbox);
-  return getDatabase(ctx.sandbox.withAuth(ctx.identity.authState()));
+/**
+ * A Realtime Database handle for the held identity, on the instance `selector`
+ * names (`instanceSelector` in `database-instance.ts`); absent is the default
+ * instance. Each instance enforces its own rules.
+ */
+export function databaseFor(ctx: SurfaceContext, selector?: string): Database {
+  if (ctx.identity.bypassesRules()) return getAdminDatabase(ctx.sandbox, selector);
+  return getDatabase(ctx.sandbox.withAuth(ctx.identity.authState()), selector);
 }
 
 // ─── firestore lane ────────────────────────────────────────────────────

@@ -25,6 +25,7 @@ import {
 } from './support.js';
 import { loadObservation } from '../modular/cdd-replay-helpers.js';
 import { getAdminDatabase } from '../../../src/database/index.js';
+import { heldDatabaseInstances } from '../../../src/database/internal.js';
 import {
   UNNAMED_DEFAULT_DATABASE_INSTANCE,
   databaseInstanceKey,
@@ -325,6 +326,22 @@ describe('rtdb-modular CDD: multiple database instances', () => {
     const sandbox = initializeSandbox();
     await api.set(api.ref(getAdminDatabase(sandbox, FIRST), 'probe'), 'first');
     expect((await api.get(api.ref(getAdminDatabase(sandbox, SECOND), 'probe'))).exists()).toBe(false);
+    expect((await api.get(api.ref(getAdminDatabase(sandbox, FIRST), 'probe'))).val()).toBe('first');
+  });
+  row('MI5', async () => {
+    // The database tool resolves its `instance` argument with the SDK's rules:
+    // every form of one name reaches one instance, `default` the default one,
+    // and the sandbox names each instance it holds, so an unknown one is refused.
+    for (const form of ['first', 'FIRST', FIRST, `${FIRST}/`, 'http://localhost:9000/?ns=first']) {
+      expect(resolveDatabaseInstance(form)?.name).toBe('first');
+    }
+    expect(resolveDatabaseInstance('default')).toBeUndefined();
+    expect(() => resolveDatabaseInstance(`${FIRST}/probe`)).toThrow('Database URL must point to the root');
+    const sandbox = initializeSandbox();
+    await api.set(api.ref(getAdminDatabase(sandbox), 'probe'), 'default');
+    expect(heldDatabaseInstances(sandbox)).toEqual([]);
+    await api.set(api.ref(getAdminDatabase(sandbox, 'first'), 'probe'), 'first');
+    expect(heldDatabaseInstances(sandbox)).toEqual(['first']);
     expect((await api.get(api.ref(getAdminDatabase(sandbox, FIRST), 'probe'))).val()).toBe('first');
   });
 });

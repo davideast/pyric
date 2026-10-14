@@ -101,3 +101,13 @@ function backendsFor(sandbox: Sandbox): DatabaseInstanceRegistry<RtdbBackend> {
 
   return registry;
 }
+
+/**
+ * The names of the named instances `sandbox` holds a backend for, in creation
+ * order, without the default instance. Saved state is restored first, so an
+ * instance only a saved session wrote to is named too.
+ */
+export function heldDatabaseInstances(sandbox: Sandbox): string[] {
+  const registry = backendsFor(sandbox);
+  return [...registry.entries()].map(([key]) => key).filter((key) => key !== registry.defaultKey);
+}
