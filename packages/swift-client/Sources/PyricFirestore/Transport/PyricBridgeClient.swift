@@ -6,6 +6,16 @@ private struct PendingOp: Sendable {
     let timeoutTask: Task<Void, Never>
 }
 
+/// An operation issued while the client is not attached. It has not been sent.
+private struct HeldOp: Sendable {
+    let id: String
+    let method: String
+    let payload: [String: AnySendable]
+    let timeout: TimeInterval
+    let continuation: CheckedContinuation<AnySendable, Error>
+    let deadlineTask: Task<Void, Never>
+}
+
 /// A live subscription and what it needs to be restored after a drop.
 private struct ActiveSub {
     let continuation: AsyncThrowingStream<BridgeSubscriptionEvent, Error>.Continuation
@@ -43,6 +53,10 @@ public func bridgeReconnectDelay(attempt: Int, random: Double = Double.random(in
 
 private let connectionLostMessage =
     "The bridge connection was lost. Requests already sent may have completed; check state before retrying."
+private let holdExpiredMessage =
+    "The bridge connection was not restored within 10 seconds. The request was not sent."
+private let authRestoreFailedMessage =
+    "The bridge connection was restored, but the signed-in user could not be restored on the new host. The request was not sent."
 private let policyCloseCode = 1008
 private let defaultHoldDeadline: TimeInterval = 10
 
@@ -51,8 +65,11 @@ private let defaultHoldDeadline: TimeInterval = 10
 /// After the first attach, a dropped socket is reopened with bounded backoff.
 /// The client re-attaches with its `clientSessionId` and re-sends every live
 /// subscription. Operations in flight at the drop fail once with
-/// `unavailable` and are never re-sent. A client built on one supplied channel
-/// cannot reopen it, so a drop fails its operations and subscriptions instead.
+/// `unavailable` and are never re-sent. An operation issued while the client
+/// is not attached is held for up to 10 seconds and sent once after the next
+/// attach's restore, or fails saying it was not sent. A client built on one
+/// supplied channel cannot reopen it, so a drop fails its operations and
+/// subscriptions instead.
 public actor PyricBridgeClient {
     public let endpoint: URL
     public let headers: [String: String]
@@ -114,6 +131,8 @@ public actor PyricBridgeClient {
     private var stateContinuations: [UUID: AsyncStream<BridgeConnectionState>.Continuation] = [:]
 
     private var pendingOps: [String: PendingOp] = [:]
+    /// Operations issued while not attached, in issue order.
+    private var heldOps: [HeldOp] = []
     private var activeSubs: [String: ActiveSub] = [:]
 
     public init(
@@ -282,6 +301,7 @@ public actor PyricBridgeClient {
         do {
             let changedHost = try await openAndAttach(generation: generation)
             if changedHost, let restorer = authRestorer {
+                var restoreFailed = false
                 do {
                     try await restorer { [weak self] method, params in
                         guard let self else { throw PyricBridgeError.unavailable("Client was deallocated.") }
@@ -289,12 +309,17 @@ public actor PyricBridgeClient {
                     }
                 } catch {
                     // The Auth observers report the host's state when the restore fails.
+                    restoreFailed = true
                 }
                 guard isCurrent(generation) else {
                     throw PyricBridgeError.unavailable(connectionLostMessage)
                 }
+                // A held operation must run as the user the app had when it issued it.
+                if restoreFailed {
+                    failHeldOperations(code: .unavailable, message: authRestoreFailedMessage)
+                }
             }
-            await finishAttach()
+            await finishAttach(generation: generation)
         } catch {
             let failure = (error as? PyricBridgeError)
                 ?? PyricBridgeError.unavailable("Failed to connect to Pyric bridge: \(error)")
@@ -343,7 +368,7 @@ public actor PyricBridgeClient {
         }
     }
 
-    private func finishAttach() async {
+    private func finishAttach(generation: Int) async {
         attachDeadlineTask?.cancel()
         attachDeadlineTask = nil
         connectTask = nil
@@ -361,6 +386,7 @@ public actor PyricBridgeClient {
             guard activeSubs[subId] != nil else { continue }
             try? await sendRaw(WorkerSubFrame(subId: subId, sub: sub.payload))
         }
+        await sendHeldOperations(generation: generation)
     }
 
     private func resumeHandshake(returning result: Result<Bool, Error>) {
@@ -393,6 +419,7 @@ public actor PyricBridgeClient {
         guard permitsRetry else {
             setState(.closed)
             failPendingOperations(code: error.code, message: error.message)
+            failHeldOperations(code: error.code, message: error.message)
             failSubscriptions(code: error.code, message: error.message)
             failNextAttemptWaiters(error)
             return
@@ -434,6 +461,10 @@ public actor PyricBridgeClient {
     // ─── One-Shot RPC Operations ─────────────────────────────────────────────
 
     /// Dispatches a one-shot worker operation and awaits the correlated result.
+    ///
+    /// While the client is not attached, the operation is held, not sent: it is
+    /// sent once after the next attach's restore, or fails after 10 seconds
+    /// saying it was not sent.
     public func op(
         method: String,
         params: [String: AnySendable] = [:],
@@ -443,14 +474,34 @@ public actor PyricBridgeClient {
         if isDisposed {
             throw PyricBridgeError.unavailable("PyricBridgeClient has been disposed.")
         }
-        if !isConnected {
-            if hasEverAttached && canReopen {
-                throw PyricBridgeError.unavailable(connectionLostMessage)
-            }
-            try await connect()
+        if isConnected {
+            return try await dispatchOp(method: method, params: params, actAs: actAs, timeout: timeout)
         }
-        try ensureConnected()
-        return try await dispatchOp(method: method, params: params, actAs: actAs, timeout: timeout)
+        guard canReopen else {
+            // One supplied channel cannot be reopened, so there is nothing to hold for.
+            try await connect()
+            try ensureConnected()
+            return try await dispatchOp(method: method, params: params, actAs: actAs, timeout: timeout)
+        }
+        let closedAfterAttach = hasEverAttached && connectionState == .closed
+        if closedAfterAttach {
+            throw PyricBridgeError.unavailable(connectionLostMessage)
+        }
+        return try await hold(method: method, params: params, actAs: actAs, timeout: timeout)
+    }
+
+    private func nextOpId() -> String {
+        opCounter += 1
+        return "rop-\(opCounter)"
+    }
+
+    private func opPayload(method: String, params: [String: AnySendable], actAs: AuthLens?) -> [String: AnySendable] {
+        var payload = params
+        payload["method"] = .string(method)
+        if let actAs {
+            payload["actAs"] = actAs.toAnySendable()
+        }
+        return payload
     }
 
     private func dispatchOp(
@@ -459,34 +510,104 @@ public actor PyricBridgeClient {
         actAs: AuthLens?,
         timeout: TimeInterval?
     ) async throws -> AnySendable {
-        opCounter += 1
-        let id = "rop-\(opCounter)"
+        let id = nextOpId()
         let opTimeout = timeout ?? defaultOpTimeout
-
-        var opPayload = params
-        opPayload["method"] = .string(method)
-        if let actAs {
-            opPayload["actAs"] = actAs.toAnySendable()
-        }
+        let payload = opPayload(method: method, params: params, actAs: actAs)
 
         return try await withCheckedThrowingContinuation { continuation in
-            let timeoutTask = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: UInt64(opTimeout * 1_000_000_000))
-                if !Task.isCancelled {
-                    await self?.handleOpTimeout(id: id, timeout: opTimeout, method: method)
-                }
-            }
-
-            self.pendingOps[id] = PendingOp(continuation: continuation, timeoutTask: timeoutTask)
-
+            self.registerPendingOp(id: id, method: method, timeout: opTimeout, continuation: continuation)
             Task {
-                do {
-                    let frame = WorkerOpFrame(id: id, op: opPayload)
-                    try await self.sendRaw(frame)
-                } catch {
-                    self.failDispatch(id: id, error: error)
-                }
+                await self.sendOpFrame(id: id, payload: payload)
             }
+        }
+    }
+
+    /// Records an operation as in flight and starts its own timeout.
+    private func registerPendingOp(
+        id: String,
+        method: String,
+        timeout: TimeInterval,
+        continuation: CheckedContinuation<AnySendable, Error>
+    ) {
+        let timeoutTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+            if !Task.isCancelled {
+                await self?.handleOpTimeout(id: id, timeout: timeout, method: method)
+            }
+        }
+        pendingOps[id] = PendingOp(continuation: continuation, timeoutTask: timeoutTask)
+    }
+
+    private func sendOpFrame(id: String, payload: [String: AnySendable]) async {
+        do {
+            try await sendRaw(WorkerOpFrame(id: id, op: payload))
+        } catch {
+            failDispatch(id: id, error: error)
+        }
+    }
+
+    /// Holds an operation until the client attaches, for at most the hold deadline.
+    private func hold(
+        method: String,
+        params: [String: AnySendable],
+        actAs: AuthLens?,
+        timeout: TimeInterval?
+    ) async throws -> AnySendable {
+        let id = nextOpId()
+        let opTimeout = timeout ?? defaultOpTimeout
+        let payload = opPayload(method: method, params: params, actAs: actAs)
+        let deadline = holdDeadline
+
+        return try await withCheckedThrowingContinuation { continuation in
+            let deadlineTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(deadline * 1_000_000_000))
+                guard !Task.isCancelled else { return }
+                await self?.holdDeadlinePassed(id: id)
+            }
+            self.heldOps.append(HeldOp(
+                id: id,
+                method: method,
+                payload: payload,
+                timeout: opTimeout,
+                continuation: continuation,
+                deadlineTask: deadlineTask
+            ))
+            self.startAttemptIfIdle()
+        }
+    }
+
+    /// Starts an attempt only when none is in progress or scheduled, so holding
+    /// never starts one ahead of the schedule.
+    private func startAttemptIfIdle() {
+        let attemptPending = connectTask != nil || reconnectTask != nil
+        guard !attemptPending else { return }
+        let attempt = startAttempt()
+        Task { _ = try? await attempt.value }
+    }
+
+    private func holdDeadlinePassed(id: String) {
+        guard let index = heldOps.firstIndex(where: { $0.id == id }) else { return }
+        let held = heldOps.remove(at: index)
+        held.continuation.resume(throwing: PyricBridgeError.unavailable(holdExpiredMessage))
+    }
+
+    /// Sends held operations once, in issue order. An operation still held
+    /// when the connection drops again stays held under its deadline.
+    private func sendHeldOperations(generation: Int) async {
+        while isCurrent(generation), isConnected, !heldOps.isEmpty {
+            let held = heldOps.removeFirst()
+            held.deadlineTask.cancel()
+            registerPendingOp(id: held.id, method: held.method, timeout: held.timeout, continuation: held.continuation)
+            await sendOpFrame(id: held.id, payload: held.payload)
+        }
+    }
+
+    private func failHeldOperations(code: FirestoreErrorCode, message: String) {
+        let held = heldOps
+        heldOps.removeAll()
+        for op in held {
+            op.deadlineTask.cancel()
+            op.continuation.resume(throwing: PyricBridgeError(code: code, message: message))
         }
     }
 
@@ -899,6 +1020,7 @@ public actor PyricBridgeClient {
         failNextAttemptWaiters(PyricBridgeError.unavailable("PyricBridgeClient disconnected."))
 
         failPendingOperations(code: .unavailable, message: "PyricBridgeClient disconnected.")
+        failHeldOperations(code: .unavailable, message: "PyricBridgeClient disconnected.")
         failSubscriptions(code: .unavailable, message: "PyricBridgeClient disconnected.")
         resumeHandshake(returning: .failure(PyricBridgeError.unavailable("PyricBridgeClient disconnected.")))
 
