@@ -29,7 +29,8 @@
 export { firestoreRules } from './api/firestore.js';
 export type { FirestoreRuleset } from './api/firestore.js';
 export { rtdbRules } from './api/rtdb.js';
-export type { RtdbRuleset } from './api/rtdb.js';
+export type { RtdbRuleset, RtdbRulesConstructor } from './api/rtdb.js';
+export type { RtdbFirebaseJsonOptions } from './api/rtdb-firebase-json.js';
 
 // ─── Tolerant lint (the AI-authoring front door) ─────────────────────
 export { lint } from './api/lint.js';
@@ -60,6 +61,7 @@ export type {
   RtdbCase,
   RtdbCaseQuery,
   RtdbCaseResult,
+  RtdbInstancesData,
   RtdbExplanation,
   RtdbRuleEvaluation,
   RtdbSimulationSummary,

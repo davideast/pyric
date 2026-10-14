@@ -13,13 +13,14 @@
  *     proxy endpoint, with credential-bearing URL params redacted the same way
  *     the ai-proxy warning redacts them.
  */
-import { afterAll, afterEach, describe, expect, it } from 'bun:test';
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startServe, type ServeRuntime } from '../../src/cli/serve.js';
 import { AI_PROXY_DEFAULT_UPSTREAM } from '../../src/serve/ai-proxy.js';
 import { formatAiStatusLine, formatAiStatusNote } from '../../src/serve/ai-status.js';
+import { loadViteAiEnv } from '../../src/serve/vite-ai-config.js';
 import type { ServeLogger } from '../../src/serve/server.js';
 
 function project(): string {
@@ -100,7 +101,55 @@ describe('pyric dev AI startup status', () => {
     expect(formatAiStatusLine({ engine: { kind: 'gemini', apiKey: 'AIzaSyTOPSECRET' } })).toBe(
       '✔ ai       gemini (API key set) → https://generativelanguage.googleapis.com',
     );
-    expect(formatAiStatusLine({ engine: { kind: 'gemini' } })).toContain('no API key');
+  });
+
+  describe('gemini key from the environment', () => {
+    const names = ['GEMINI_API_KEY', 'GOOGLE_GENAI_API_KEY', 'VITE_GEMINI_API_KEY'] as const;
+    const saved = new Map<string, string | undefined>();
+    beforeEach(() => {
+      for (const name of names) {
+        saved.set(name, process.env[name]);
+        delete process.env[name];
+      }
+    });
+    afterEach(() => {
+      for (const name of names) {
+        const value = saved.get(name);
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    });
+
+    it('says no key when the option and every variable are absent', () => {
+      expect(formatAiStatusLine({ engine: { kind: 'gemini' } })).toContain('no API key');
+    });
+
+    it.each(names)('says the key is set when only %s has it', (name) => {
+      process.env[name] = 'AIzaSyFromEnv';
+      const line = formatAiStatusLine({ engine: { kind: 'gemini' } });
+      expect(line).toContain('gemini (API key set)');
+      expect(line).not.toContain('AIzaSyFromEnv');
+    });
+
+    it('says no key for a whitespace-only value', () => {
+      process.env.GEMINI_API_KEY = '   ';
+      expect(formatAiStatusLine({ engine: { kind: 'gemini' } })).toContain('no API key');
+    });
+
+    it('follows the engine: a blank earlier variable shadows a later real one', () => {
+      process.env.GEMINI_API_KEY = '';
+      process.env.VITE_GEMINI_API_KEY = 'AIzaSyFromEnv';
+      expect(formatAiStatusLine({ engine: { kind: 'gemini' } })).toContain('no API key');
+    });
+
+    it('sees a key that only a project .env holds once loadViteAiEnv has run (#950)', () => {
+      const root = mkdtempSync(join(tmpdir(), 'pyric-ai-env-'));
+      writeFileSync(join(root, '.env'), 'GEMINI_API_KEY=AIzaSyFromDotEnv\n');
+      loadViteAiEnv('development', root, undefined);
+      expect(formatAiStatusNote({ hosted: true, engine: { kind: 'gemini' } })).toContain(
+        'gemini (API key set)',
+      );
+    });
   });
 
   it('reports production mode as the Firebase SDK, with no engine and no key demand', () => {

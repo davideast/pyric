@@ -478,8 +478,12 @@ describe('bundleWorker — the SharedWorker script (Phase 3c.A)', () => {
     expect(src).not.toMatch(/from\s*["']node:/);
     // Browser tool dispatch uses the in-memory modules resolver. Pulling the
     // disk-backed resolver into this graph makes Vite request an `fs` shim and
-    // can fail at module evaluation before the worker connects.
-    expect(src).not.toContain('readFileSync');
+    // can fail at module evaluation before the worker connects. No module in
+    // the graph imports `fs` statically, so the node-shim plugin never
+    // inlines its `fs` shim. (`rtdbRules.fromFirebaseJson` reaches `node:fs`
+    // only through `process.getBuiltinModule` at call time.)
+    expect(src).not.toContain('diskReader');
+    expect(src).not.toContain('fs is not available in the browser');
     // Provenance banner + the connect wiring that makes it a SharedWorker host.
     expect(src).toContain('not the real Firebase SDK');
     expect(src).toContain('onconnect');

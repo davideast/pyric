@@ -29,6 +29,26 @@ import type {
  *  endpoint instead of keeping its own copy. */
 export const GEMINI_DEFAULT_BASE_URL = 'https://generativelanguage.googleapis.com';
 
+/**
+ * Whether a static API key is configured: the explicit option, else the first
+ * of `GEMINI_API_KEY`, `GOOGLE_GENAI_API_KEY`, `VITE_GEMINI_API_KEY` that is
+ * defined, which must then be non-blank. This is the engine's own precedence
+ * (a blank earlier variable shadows a later real one), published through
+ * `pyric/ai/internal` so the CLI's startup banner cannot disagree with it.
+ * Application Default Credentials are not consulted: a status read must never
+ * shell out.
+ */
+export function hasGeminiStaticKey(explicitKey: string | undefined): boolean {
+  const candidates = [
+    explicitKey,
+    process.env.GEMINI_API_KEY,
+    process.env.GOOGLE_GENAI_API_KEY,
+    process.env.VITE_GEMINI_API_KEY,
+  ];
+  const chosen = candidates.find((key) => key !== undefined);
+  return chosen !== undefined && chosen.trim() !== '';
+}
+
 const ADC_COMMAND = 'gcloud auth application-default print-access-token';
 
 /**
@@ -144,13 +164,7 @@ export class GeminiEngine implements AnswerEngine {
    * out, and ADC's own presence answers only at call time.
    */
   hasKeyConfigured(): boolean {
-    const candidates = [
-      this.explicitKey,
-      process.env.GEMINI_API_KEY,
-      process.env.GOOGLE_GENAI_API_KEY,
-      process.env.VITE_GEMINI_API_KEY,
-    ];
-    return candidates.some((key) => key !== undefined && key.trim() !== '');
+    return hasGeminiStaticKey(this.explicitKey);
   }
 
   /**

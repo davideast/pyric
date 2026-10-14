@@ -99,7 +99,7 @@ rulesHash}`.
 | `@pyric/cli/vite` | `pyric(opts)`, the dev-only firebase→sandbox swap plugin. Opts: `hosted` (opt-in Node host; SharedWorker remains the default), `rules`, `persist`/`fresh`, `seed`, `capture`, `bridge` (MCP), `ui` (Pyric Studio at `/__pyric/ui/studio`, parity with `dev --ui`). |
 | `@pyric/cli/discover` | Credential-free crawl helpers for sandbox discovery (`crawl`, `findCollectionGroup`, `createFirestoreDiscoverTools`). Not registered on the default MCP bridge. |
 | `@pyric/cli/serve/worker` | SharedWorker serve runtime |
-| `@pyric/cli/remote` | Node-side client for a browser-held sandbox |
+| `@pyric/cli/remote` | Node-side client for a browser-held sandbox; `localStorageUrl` maps a stored production download URL onto the host's byte route |
 | `@pyric/cli/register` | Registration helpers |
 
 ## MCP tool surface (`pyric bridge`)

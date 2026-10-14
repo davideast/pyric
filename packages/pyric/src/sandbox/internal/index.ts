@@ -201,3 +201,13 @@ export {
   type DatabaseInstanceRegistry,
   type DatabaseLocationUrl,
 } from './instances.js';
+// The Realtime Database rules a firebase.json deploys to each instance, shared
+// by the dev server and `rtdbRules.fromFirebaseJson`.
+export {
+  DEFAULT_DATABASE_RULES_FILE,
+  databaseRulesConfig,
+  type DatabaseRulesConfig,
+  type DatabaseRulesConfigOptions,
+  type DatabaseRulesFileTarget,
+  type UnresolvedDatabaseRulesTarget,
+} from './database-rules-config.js';

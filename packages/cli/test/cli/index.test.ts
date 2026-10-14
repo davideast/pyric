@@ -262,8 +262,9 @@ describe('pyric sandbox command surface', () => {
     expect(stdout).toContain('pyric serve diagnostics');
     expect(stdout).toContain('pyric serve sessions');
     expect(stdout).toContain('pyric serve repro capture');
+    expect(stdout).toContain('pyric serve denials');
     expect(stdout).toContain('pyric serve repro replay');
-    expect(stdout).not.toMatch(/pyric serve(?!(?: sessions| diagnostics| repro capture| repro replay)\b)/);
+    expect(stdout).not.toMatch(/pyric serve(?!(?: sessions| diagnostics| denials| repro capture| repro replay)\b)/);
   });
 
   it('rejects the removed serve spelling for the sandbox', async () => {

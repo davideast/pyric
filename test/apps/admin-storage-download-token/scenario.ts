@@ -1,7 +1,8 @@
 // A server process saves an object with metadata.firebaseStorageDownloadTokens
 // through firebase-admin. The download URL carrying that token serves the
 // bytes to the browser; any other token is refused. A resumable upload session
-// gives a URL on the host's byte route.
+// gives a URL on the host's byte route. The production download URL for the
+// same object and token, mapped with localStorageUrl, is that token URL.
 import assert from 'node:assert/strict';
 import { scenario } from '../driver.ts';
 
@@ -9,10 +10,12 @@ interface ServerReport {
   bucket: string;
   downloadUrl: string;
   wrongTokenUrl: string;
+  productionUrl: string;
+  localUrl: string;
   typeofCreateResumableUpload: string;
   createResumableUpload?: string;
   createResumableUploadError?: string;
-  statuses: Record<'token' | 'wrong' | 'none', number>;
+  statuses: Record<'token' | 'wrong' | 'none' | 'production', number>;
 }
 
 declare function download(url: string): Promise<{ status: number; text: string }>;
@@ -37,7 +40,11 @@ export default scenario(async (app) => {
   });
 
   await app.step('the host serves the token URL to the server and refuses other tokens', () => {
-    assert.deepEqual(report.statuses, { token: 200, wrong: 403, none: 403 });
+    assert.deepEqual(report.statuses, { production: 200, token: 200, wrong: 403, none: 403 });
+  });
+
+  await app.step('localStorageUrl maps the production download URL onto the token URL', () => {
+    assert.equal(report.localUrl, report.downloadUrl);
   });
 
   await app.step('createResumableUpload gives a session URL on the byte route', () => {

@@ -12,7 +12,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, watch, type FSWatcher } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { dirname, extname, isAbsolute, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import {
   describeCompileLimitViolations,
   lintFirestoreRules,
@@ -21,9 +21,9 @@ import {
   sourceCompileLimitViolations,
   type ResolveResult,
 } from 'pyric/rules/internal';
-import { asSentence, databaseInstanceKey, databaseInstanceNamed, defaultDatabaseInstanceName } from 'pyric/sandbox/internal';
+import { asSentence, databaseRulesConfig, type DatabaseRulesConfig } from 'pyric/sandbox/internal';
 import { parseStorageRules } from 'pyric/storage';
-import { readFirebaseRcSync, type DatabaseRulesEntry, type FirebaseJson, type FirebaseRc } from '../cli/firebase-json.js';
+import { readFirebaseRcSync, type FirebaseJson, type FirebaseRc } from '../cli/firebase-json.js';
 import {
   describeFirebaseProject,
   FIREBASE_PROJECT_FIXES,
@@ -362,43 +362,17 @@ export interface LoadedDatabaseRules extends Omit<DatabaseRulesTargets, 'pending
   instances: Map<string, LoadedDatabaseInstanceRules>;
 }
 
-const DEFAULT_DATABASE_RULES_FILE = 'database.rules.json';
-
 function databaseRulesFilePath(cwd: string, file: string): string {
   return isAbsolute(file) ? file : join(cwd, file);
 }
 
-// The rules formats `firebase deploy` accepts (lib/deploy/database/prepare.js).
-function checkDatabaseRulesFormat(file: string, entry: string): void {
-  const extension = extname(file);
-  if (extension === '.json') return;
-  const reason = extension === '.bolt'
-    ? 'As of firebase-tools@15.0.0, .bolt rules are no longer supported.'
-    : `Unexpected rules format ${extension}`;
-  throw new Error(`pyric sandbox: ${entry}: ${reason}`);
-}
-
 /**
  * The rules files `firebase.json` deploys and the database instance each
- * deploys to, resolved as `firebase deploy` resolves them
- * (`lib/database/rulesConfig.js` `getRulesConfig` in firebase-tools 15.23.0):
- *
- * - A single object's `rules` deploys to `<projectId>-default-rtdb`. Without
- *   `rules` it deploys nothing.
- * - An array entry's `rules` deploys to every instance `.firebaserc` maps its
- *   `target` to, else to its `instance`. An entry with neither throws the
- *   CLI's error. An entry without `rules` deploys nothing.
- * - Where the CLI throws because no project is set or the project does not
- *   map a target, the target is returned in `pending` with every project's
- *   mapping, so a dev server starts and applies it once the page's app
- *   config names the project.
- * - Without a `database` key, `database.rules.json` in `cwd` deploys to the
- *   default instance when it exists.
- *
- * Instance names are normalized with {@link databaseInstanceNamed}. Two
- * entries that deploy different files to one instance are refused: the CLI
- * deploys both concurrently, so the configuration does not determine which
- * ruleset production keeps.
+ * deploys to, resolved as `firebase deploy` resolves them by
+ * {@link databaseRulesConfig}. Where the CLI throws because no project is
+ * set or the project does not map a target, the target is returned in
+ * `pending` with every project's mapping, so a dev server starts and applies
+ * it once the page's app config names the project.
  */
 export function databaseRulesTargets(
   cwd: string,
@@ -411,77 +385,29 @@ export function databaseRulesTargets(
     return rc;
   };
   const projectId = project.projectId;
-  const defaultInstance = projectId === undefined
-    ? databaseInstanceKey(undefined)
-    : defaultDatabaseInstanceName(projectId);
-
-  const database = config?.database;
-  if (database === undefined || database === null) {
-    return {
-      defaultInstance,
-      targets: [{ instance: defaultInstance, path: join(cwd, DEFAULT_DATABASE_RULES_FILE), configured: false }],
-      pending: [],
-    };
+  let resolved: DatabaseRulesConfig;
+  try {
+    resolved = databaseRulesConfig(config?.database, {
+      ...(projectId === undefined ? {} : { projectId }),
+      targetInstances: (target) => projectId === undefined ? [] : readRc()?.targets?.[projectId]?.database?.[target] ?? [],
+      resolveFile: (file) => databaseRulesFilePath(cwd, file),
+    });
+  } catch (error) {
+    throw new Error(`pyric sandbox: ${error instanceof Error ? error.message : String(error)}`);
   }
-  if (!Array.isArray(database)) {
-    const rules = typeof database === 'object' ? database.rules : undefined;
-    if (typeof rules !== 'string' || rules === '') return { defaultInstance, targets: [], pending: [] };
-    checkDatabaseRulesFormat(rules, 'firebase.json database.rules');
-    return {
-      defaultInstance,
-      targets: [{ instance: defaultInstance, path: databaseRulesFilePath(cwd, rules), configured: true }],
-      pending: [],
-    };
-  }
-
-  const targets: DatabaseRulesTarget[] = [];
-  const pending: PendingDatabaseRulesTarget[] = [];
-  const entryOf = new Map<string, string>();
-  database.forEach((raw, index) => {
-    const label = `firebase.json database[${index}]`;
-    const entry: DatabaseRulesEntry = raw !== null && typeof raw === 'object' ? raw : {};
-    let names: readonly string[];
-    let unresolved: string | null = null;
-    if (entry.target) {
-      names = projectId === undefined ? [] : readRc()?.targets?.[projectId]?.database?.[entry.target] ?? [];
-      if (names.length === 0) {
-        unresolved = projectId === undefined
-          ? 'no Firebase project is set'
-          : `project ${describeFirebaseProject(project)} has no .firebaserc mapping for it (firebase target:apply database ${entry.target} <instance>)`;
-      }
-    } else if (entry.instance) {
-      names = [entry.instance];
-    } else {
-      throw new Error(`pyric sandbox: ${label}: Must supply either "target" or "instance" in database config`);
-    }
-    if (typeof entry.rules !== 'string' || entry.rules === '') return;
-    checkDatabaseRulesFormat(entry.rules, label);
-    const path = databaseRulesFilePath(cwd, entry.rules);
-    if (unresolved !== null && entry.target) {
-      pending.push({ target: entry.target, label, path, instancesByProject: targetMappings(readRc(), entry.target), reason: unresolved });
-      return;
-    }
-    for (const name of names) {
-      let instance: string;
-      try {
-        instance = databaseInstanceNamed(name).name;
-      } catch (error) {
-        const reason = error instanceof Error ? error.message.trim() : String(error);
-        throw new Error(`pyric sandbox: ${label}: instance "${name}" is not a database instance name: ${reason}`);
-      }
-      const existing = targets.find((target) => target.instance === instance);
-      if (existing === undefined) {
-        targets.push({ instance, path, configured: true });
-        entryOf.set(instance, label);
-        continue;
-      }
-      if (existing.path === path) continue;
-      throw new Error(
-        `pyric sandbox: firebase.json deploys two rules files to database instance "${instance}": ${existing.path} from ${entryOf.get(instance)} and ${path} from ${label}. The Firebase CLI deploys both at once, so the configuration does not determine which one production keeps. Deploy one rules file to each instance.`,
-      );
-    }
-  });
-  return { defaultInstance, targets, pending };
+  return {
+    defaultInstance: resolved.defaultInstance,
+    targets: resolved.targets.map((target) => ({ instance: target.instance, path: target.file, configured: target.configured })),
+    pending: resolved.unresolved.map((target) => ({
+      target: target.target,
+      label: target.label,
+      path: target.file,
+      instancesByProject: targetMappings(readRc(), target.target),
+      reason: projectId === undefined
+        ? 'no Firebase project is set'
+        : `project ${describeFirebaseProject(project)} has no .firebaserc mapping for it (firebase target:apply database ${target.target} <instance>)`,
+    })),
+  };
 }
 
 /** The instance names `.firebaserc` maps `target` to, for each project that maps it. */
