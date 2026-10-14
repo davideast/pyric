@@ -215,11 +215,20 @@ export function closeSubscription(
   }
 }
 
-/** Settle outstanding calls without claiming that the owning app was deleted. */
-export function rejectPendingRequests(port: ClientPort, error: Error & { code: string }): void {
+/**
+ * Settle outstanding calls without claiming that the owning app was deleted.
+ * `selects` narrows them by correlation id, so a transport can fail the calls
+ * it sent and keep the ones it still holds.
+ */
+export function rejectPendingRequests(
+  port: ClientPort,
+  error: Error & { code: string },
+  selects: (id: string) => boolean = () => true,
+): void {
   for (const [id, pending] of [..._pending]) {
     const isOwnedRequest = pending.port === port;
-    if (isOwnedRequest) {
+    const isSelected = isOwnedRequest && selects(id);
+    if (isSelected) {
       takePendingRequest(id);
       pending.reject(error);
     }
