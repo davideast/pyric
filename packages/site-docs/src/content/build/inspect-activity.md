@@ -56,9 +56,10 @@ Pyric records where each listener and SDK call was opened: the first application
 A denied listener then names its caller in the terminal, with the skipped frame kept in the stack:
 
 ```text
-  ⚠ [pyric] denied: PERMISSION_DENIED: Permission denied
-      onValue /rooms/r1
+  ⚠ [pyric] denied: permission_denied at /rooms/r1: Client doesn't have permission to access the desired data.
+      listen /rooms/r1
       auth: alice
+      rule: /rooms/$roomId auth.uid == $roomId
       owner: listRooms /src/room-list.js:5
       stack: /src/db.js:5 ← /src/room-list.js:5 ← /src/main.js:14
 ```
