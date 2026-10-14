@@ -290,15 +290,7 @@ function rulesTextError(message: string): RulesCompileError {
   return new RulesCompileError(message, [{ code: 'PARSE_ERROR', severity: 'error', message, origin: 'parse' }]);
 }
 
-/**
- * Build a deep handle on a Realtime Database ruleset from the text of a
- * `database.rules.json` file, a definition, a compiled document, or compiled
- * `{ rules }` JSON.
- *
- * @throws {RulesCompileError} when rules text is not JSON (after comments
- *   and trailing commas) or has no top-level `rules` object.
- */
-export function rtdbRules(input: RtdbRulesInput | string): RtdbRuleset {
+function buildRtdbRules(input: RtdbRulesInput | string): RtdbRuleset {
   if (typeof input === 'string') input = parseRulesText(input);
   if (isDocument(input)) return everyInstance(input);
   if (isCompiledJson(input)) {
@@ -307,27 +299,7 @@ export function rtdbRules(input: RtdbRulesInput | string): RtdbRuleset {
   return everyInstance(defineRtdbRules(input as RtdbRulesDefinition) as RtdbRulesDocumentInternal);
 }
 
-/**
- * Build a handle on the Realtime Database rules a project's `firebase.json`
- * deploys, one ruleset per database instance, as `firebase deploy` resolves
- * them: a single `database` object deploys to the default instance, and each
- * entry of a `database` array deploys to its `instance`, or to the instances
- * `.firebaserc` maps its `target` to. Each rules file is read as
- * {@link rtdbRules} reads rules text, comments and trailing commas included.
- *
- * A case runs on the instance it names, or on the default instance
- * `<projectId>-default-rtdb`; the project id is `options.projectId`, else
- * `projects.default` in the `.firebaserc` beside `firebase.json`. A case that
- * names an instance `firebase.json` deploys no rules to is UNSUPPORTED, with
- * a reason naming the instances it does.
- *
- * Node-only: it reads files.
- *
- * @throws {RulesCompileError} when a rules file is not rules text.
- * @throws {Error} when a file cannot be read, `firebase.json` deploys no
- *   Realtime Database rules, or a deploy target maps to no instance.
- */
-rtdbRules.fromFirebaseJson = function fromFirebaseJson(
+function fromFirebaseJson(
   firebaseJsonPath: string,
   options: RtdbFirebaseJsonOptions = {},
 ): RtdbRuleset {
@@ -346,4 +318,52 @@ rtdbRules.fromFirebaseJson = function fromFirebaseJson(
     for (const instance of file.instances) instances.set(instance, rules);
   }
   return new DocumentRtdbRuleset({ kind: 'per-instance', defaultInstance: loaded.defaultInstance, instances });
-};
+}
+
+/**
+ * `rtdbRules`: call it with one ruleset, or call `rtdbRules.fromFirebaseJson`
+ * for the rules a project's `firebase.json` deploys to each database
+ * instance.
+ */
+export interface RtdbRulesConstructor {
+  /**
+   * Build a deep handle on a Realtime Database ruleset from the text of a
+   * `database.rules.json` file, a definition, a compiled document, or compiled
+   * `{ rules }` JSON.
+   *
+   * @throws {RulesCompileError} when rules text is not JSON (after comments
+   *   and trailing commas) or has no top-level `rules` object.
+   */
+  (input: RtdbRulesInput | string): RtdbRuleset;
+  /**
+   * Build a handle on the Realtime Database rules a project's `firebase.json`
+   * deploys, one ruleset per database instance, as `firebase deploy` resolves
+   * them: a single `database` object deploys to the default instance, and each
+   * entry of a `database` array deploys to its `instance`, or to the instances
+   * `.firebaserc` maps its `target` to. Each rules file is read as
+   * {@link rtdbRules} reads rules text, comments and trailing commas included.
+   *
+   * A case runs on the instance it names, or on the default instance
+   * `<projectId>-default-rtdb`; the project id is `options.projectId`, else
+   * `projects.default` in the `.firebaserc` beside `firebase.json`. A case that
+   * names an instance `firebase.json` deploys no rules to is UNSUPPORTED, with
+   * a reason naming the instances it does.
+   *
+   * Node-only: it reads files.
+   *
+   * @throws {RulesCompileError} when a rules file is not rules text.
+   * @throws {Error} when a file cannot be read, `firebase.json` deploys no
+   *   Realtime Database rules, or a deploy target maps to no instance.
+   */
+  fromFirebaseJson(firebaseJsonPath: string, options?: RtdbFirebaseJsonOptions): RtdbRuleset;
+}
+
+/**
+ * Build a deep handle on a Realtime Database ruleset from the text of a
+ * `database.rules.json` file, a definition, a compiled document, or compiled
+ * `{ rules }` JSON.
+ *
+ * @throws {RulesCompileError} when rules text is not JSON (after comments
+ *   and trailing commas) or has no top-level `rules` object.
+ */
+export const rtdbRules: RtdbRulesConstructor = Object.assign(buildRtdbRules, { fromFirebaseJson });
