@@ -14,7 +14,12 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { IN_PROCESS_STATE_RELATIVE } from '../../src/bridge/server/in-process.js';
+import {
+  IN_PROCESS_STATE_RELATIVE,
+  loadSandboxSnapshot,
+  openPersistedServices,
+} from '../../src/bridge/server/in-process.js';
+import { initializeSandbox } from 'pyric/sandbox';
 import { runDatabaseRulesValidate } from '../../src/cli/database-rules.js';
 import { parseArgs } from '../../src/cli/parse-args.js';
 import { runSurfaceMethod } from '../../src/cli/surface-method-runner.js';
@@ -371,6 +376,52 @@ describe('pyric <tool> <method>', () => {
     expect(whoami.code).toBe(0);
     const appSession = JSON.parse(whoami.stdout).data.appSession as { uid: string } | null;
     expect(appSession?.uid).toBe('session-carrier');
+  });
+});
+
+describe('pyric database <method> --instance', () => {
+  const projectDir = mkdtempSync(join(tmpdir(), 'pyric-surface-cli-instance-'));
+  afterAll(() => rmSync(projectDir, { recursive: true, force: true }));
+  writeFileSync(join(projectDir, 'firebase.json'), JSON.stringify({
+    database: [{ instance: 'demo-app-default-rtdb', rules: 'database.rules.json' }, { instance: 'shard-00', rules: 'database.rules.json' }],
+  }));
+  writeFileSync(join(projectDir, '.firebaserc'), JSON.stringify({ projects: { default: 'demo-app' } }));
+
+  async function inProject(key: string, argv: string[]): Promise<Run> {
+    let stdout = '';
+    let stderr = '';
+    const code = await runSurfaceMethod(key, parseArgs(argv), {
+      cwd: projectDir,
+      stdout: { write: (text) => void (stdout += text) },
+      stderr: { write: (text) => void (stderr += text) },
+      discover: async () => null,
+    });
+    return { code, stdout, stderr };
+  }
+
+  it('persists a write to the named instance under rtdb.instances, and reads it back', async () => {
+    const written = await inProject('database.set', ['database', 'set', '--instance', 'shard-00', '--path', 'rooms/lobby', '--value', '{"name":"shard"}']);
+    expect(written.code).toBe(0);
+    expect(written.stdout).toContain('Wrote rooms/lobby on shard-00');
+
+    const restored = initializeSandbox();
+    openPersistedServices(restored, projectDir);
+    loadSandboxSnapshot(restored, projectDir);
+    const rtdb = restored.snapshot().services?.rtdb as { instances?: Record<string, { data?: unknown }> };
+    expect(rtdb.instances?.['shard-00']?.data).toEqual({ rooms: { lobby: { name: 'shard' } } });
+
+    const shard = await inProject('database.get', ['database', 'get', '--instance', 'shard-00', '--path', 'rooms/lobby']);
+    expect(shard.code).toBe(0);
+    expect(shard.stdout).toContain('"name": "shard"');
+    const fallback = await inProject('database.get', ['database', 'get', '--path', 'rooms/lobby']);
+    expect(fallback.stdout).toContain('No value at rooms/lobby');
+  });
+
+  it('exits 2 for an instance the project does not have, naming the ones it does', async () => {
+    const refused = await inProject('database.get', ['database', 'get', '--instance', 'shard-09', '--path', 'rooms/lobby']);
+    expect(refused.code).toBe(2);
+    expect(refused.stderr).toContain('database instance "shard-09" is not declared in firebase.json');
+    expect(refused.stderr).toContain('Known instances: demo-app-default-rtdb (default), shard-00.');
   });
 });
 

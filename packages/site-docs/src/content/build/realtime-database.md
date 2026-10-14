@@ -94,6 +94,15 @@ sandbox swap.
 
 Ask an MCP-connected agent to inventory the reads your application performs, then inspect the local tree with `rtdb_crawl_structure`. [Work with an agent](../agent/work-with-an-agent.md) gives a complete RTDB task prompt, and [Set up your agent](../agent/set-up-your-agent.md) explains the browser bridge.
 
+When `firebase.json` declares more than one database instance, pass `--instance` to `pyric database`, or `instance` to the MCP `database` tool, with the instance name or its URL. Without it, a call reads and writes the default instance.
+
+```sh
+pyric database get --instance shard-00 --path rooms/lobby
+pyric database set --instance https://shard-00.firebaseio.com --path rooms/lobby --value '{"name":"Lobby"}'
+```
+
+An instance that `firebase.json` does not declare, and that holds no data yet, is refused with the list of instances the project has.
+
 ## Where to go next
 
 When the paths are settled, write the rules that hold them in TypeScript: [RTDB rules in TypeScript](../secure/rtdb-rules-in-typescript.md).

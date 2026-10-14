@@ -26,6 +26,7 @@ import type { DatabaseRulesDestination, InitPayload } from '../init-payload.js';
 import { applyServeInit } from '../worker/serve-init.js';
 import { cleanupPortWithDisconnect, handleMessage, type HostCtx, type PortLike } from '../worker/host.js';
 import { drainPortRtdbDisconnects } from '../worker/host/rtdb.js';
+import { hostDatabaseInstances } from '../worker/host/rtdb-instance-catalog.js';
 import { serializeError, type InboundMessage, type OutboundMessage } from '../worker/protocol.js';
 import { createHostedPersistence, formatStorageRepairs, HOSTED_NAMESPACE, type HostedPersistence } from './persistence.js';
 import { requiresHealthyPersistence } from './persistence-admission.js';
@@ -184,6 +185,8 @@ export async function createHostedRuntime(
     }));
   });
   const surfaceContext = createSurfaceContext(sandbox, ownedProjectDir, undefined, persistence.checkpoints);
+  // A `database` method's `instance` resolves as a client's does on this host.
+  surfaceContext.databaseInstances = hostDatabaseInstances(ctx);
   const ports = new Map<string, HostedPort>();
   const recorder: ReproRecorder | undefined = ai.record === false ? undefined : createReproRecorder({
     limit: ai.reproWindow,

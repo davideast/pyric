@@ -164,6 +164,27 @@ describe('verifyFixture', () => {
     expect(result.services.rtdb?.divergences.some((d) => d.kind === 'now-denied')).toBe(true);
   });
 
+  it('checks the default RTDB instance\'s writes only, not a named instance\'s writes against the default tree', async () => {
+    const sandbox = initializeSandbox();
+    const adminDb = getDatabase(sandbox);
+    const shardUrl = 'https://shard-00.firebaseio.com';
+    rtdbSandbox.setRules(adminDb, ALLOW_ALL_RTDB);
+    rtdbSandbox.setRules(getDatabase(sandbox, shardUrl), ALLOW_ALL_RTDB);
+    const alice = sandbox.withAuth({ uid: 'alice' });
+    await set(ref(getDatabase(alice), '/profiles/alice'), { name: 'Alice' });
+    await set(ref(getDatabase(alice, shardUrl), '/messages/m1'), { text: 'on the shard' });
+    const fixture = buildVerifyFixture({
+      sandbox,
+      rtdbRules: ALLOW_ALL_RTDB,
+      rtdbState: rtdbSandbox.snapshotState(adminDb),
+    });
+
+    const result = await verifyFixture(fixture, { rules: { rtdb: ALLOW_ALL_RTDB } });
+
+    expect(result.services.rtdb?.divergences).toEqual([]);
+    expect(result.services.rtdb?.checkedEvents).toBe(1);
+  });
+
   it('reports state drift when replayed RTDB state differs from the fixture', async () => {
     const fixture = await captureRtdbJourney();
     const tampered = JSON.parse(JSON.stringify(fixture)) as PyricVerifyFixture;

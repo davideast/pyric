@@ -37,7 +37,7 @@ import { portSession } from '../host-auth.js';
 import { authStateForLens, lensCacheKey, sessionCacheKey } from './core.js';
 
 /** The default instance's name, when known: the project config's, else the app's project default. */
-function defaultInstanceNameOf(ctx: HostCtx): string | undefined {
+export function defaultInstanceNameOf(ctx: HostCtx): string | undefined {
   if (ctx.defaultRtdbInstance) return ctx.defaultRtdbInstance;
   const fromApp = ctx.appOptions?.projectId;
   return typeof fromApp === 'string' && fromApp.length > 0 ? defaultDatabaseInstanceName(fromApp) : undefined;

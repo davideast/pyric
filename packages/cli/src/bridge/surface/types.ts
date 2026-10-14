@@ -45,6 +45,11 @@ export interface SurfaceContext {
   /** Where the host keeps checkpoints, when not the project's directory. */
   checkpoints?: import('pyric/sandbox/checkpoints').CheckpointBackend;
   targetRouter?: SurfaceTargetRouter;
+  /**
+   * The RTDB instances a `database` method may name, when the host serving the
+   * sandbox knows them. Absent, they are read from the project's files.
+   */
+  databaseInstances?: import('./database-instance-catalog.js').DatabaseInstanceCatalog;
 }
 
 /** One tool as an MCP client sees it. */

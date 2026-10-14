@@ -18,10 +18,12 @@ import {
 import { connectDatabaseInstanceRules, createPendingDatabaseTargets } from '../../../../src/serve/database-instance-rules-host.js';
 import { drainPortRtdbDisconnects } from '../../../../src/serve/worker/host/rtdb.js';
 import {
+  type EventStreamMessage,
   type InboundMessage,
   type OutboundMessage,
   type ResMessage,
 } from '../../../../src/serve/worker/protocol.js';
+import { hasValidOutboundEnvelope } from '../../../../src/serve/worker/outbound-validation.js';
 
 const OPEN = { rules: { '.read': true, '.write': true } };
 
@@ -222,6 +224,29 @@ describe('host RTDB instances', () => {
     expect((await send(ctx, { method: 'rtdb.onDisconnectCancel', instance: 'first', path: 'stamp/c' }, port)).ok).toBe(true);
     expect((await send(ctx, { method: 'rtdb.goOffline', instance: 'first' }, port)).ok).toBe(true);
     expect(typeof await value(ctx, 'first', 'stamp')).toBe('number');
+  });
+
+  it('streams each RTDB event with the instance it hit, and no instance for the default', async () => {
+    const ctx = makeCtx('stream-project');
+    setDatabaseRules(ctx, 'stream-project-default-rtdb', OPEN);
+    setDatabaseRules(ctx, 'first', OPEN);
+    const frames: unknown[] = [];
+    // The frames cross the port as JSON, as the Node host's WebSocket sends them.
+    const port: PortLike = { postMessage: (frame: OutboundMessage) => { frames.push(JSON.parse(JSON.stringify(frame))); } };
+    await handleMessage(ctx, port, { t: 'sub', subId: 'events', target: 'events' });
+    expect((await send(ctx, { method: 'rtdb.set', instance: 'first', path: 'a', value: 1 })).ok).toBe(true);
+    expect((await send(ctx, { method: 'rtdb.set', path: 'a', value: 2 })).ok).toBe(true);
+
+    // Both page clients accept the frames whole: the envelope check reads no event field.
+    expect(frames.every(hasValidOutboundEnvelope)).toBe(true);
+    const events = frames.flatMap((frame) => (frame as EventStreamMessage).events)
+      .filter((event) => event.kind === 'commit' && event.service === 'rtdb');
+    expect(events.map((event) => ({ path: event.path, data: (event as { data?: unknown }).data, instance: (event as { instance?: string }).instance })))
+      .toEqual([
+        { path: '/a', data: 1, instance: 'first' },
+        { path: '/a', data: 2, instance: undefined },
+      ]);
+    expect(Object.hasOwn(events[1]!, 'instance')).toBe(false);
   });
 
   it('restores each instance\'s rules after resetAll', async () => {

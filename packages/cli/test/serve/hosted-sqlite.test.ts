@@ -128,6 +128,10 @@ test('a pyric-admin write through getDatabaseWithUrl reaches a client on that in
   expect(await runNodeFixture('admin-rtdb-instances', 30_000)).toBe('Admin RTDB instances passed');
 });
 
+test('the database tool selects an RTDB instance on the Node host by name, URL or default, under that instance\'s rules, and refuses one the project lacks (#967)', async () => {
+  expect(await runNodeFixture('database-tool-instances')).toBe('Hosted database tool instances passed');
+});
+
 test('the Node host loads each instance of a firebase.json database array with its own rules', async () => {
   expect(await runNodeFixture('rtdb-firebase-json')).toBe('Hosted RTDB firebase.json instances passed');
 });
