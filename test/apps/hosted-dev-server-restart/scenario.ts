@@ -13,6 +13,15 @@ async function hostInstance(url: string): Promise<string> {
   return health.instanceId;
 }
 
+/** Settles `pending` within `ms`, or fails naming the browser call that never settled. */
+function within<T>(call: string, ms: number, pending: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const stuck = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${call} did not settle within ${ms / 1000}s`)), ms);
+  });
+  return Promise.race([pending, stuck]).finally(() => clearTimeout(timer));
+}
+
 export default scenario(async (app) => {
   // The restart interrupts the page's connection, and the page posts that to
   // /__pyric/diagnostics. A post made before the new server generation mounts
@@ -40,8 +49,16 @@ export default scenario(async (app) => {
 
   const before = await app.step('read the host instance', () => hostInstance(host.url));
 
+  // Vite's client reloads the open page once the restarted server answers.
+  // Playwright's page.close() can hang for good when it lands while a page
+  // reloads, so the scenario waits for that reload and reads from the
+  // reloaded page instead of closing it.
+  let reloaded: Promise<unknown> = Promise.resolve();
   await app.step('edit vite.config.js; Vite restarts the server', async () => {
     const mark = host.process.mark();
+    reloaded = page.waitForEvent('load', { timeout: 90_000 });
+    // The last step awaits the reload; this keeps a failure before then from going unhandled.
+    reloaded.catch(() => {});
     const config = app.readFile('vite.config.js');
     const edited = config.replace(
       'server: { port: 5181, strictPort: true },',
@@ -60,11 +77,9 @@ export default scenario(async (app) => {
   });
 
   await app.step('the note written before the restart reads back after it', async () => {
-    // Vite's client reloads the open tab on its own after a restart; read
-    // from a new tab so that reload cannot interrupt the read.
-    await page.close();
-    const fresh = await app.page(host.url);
-    await fresh.waitForFunction(() => 'notes' in window);
-    assert.equal(await fresh.evaluate(() => notes.read()), 'before restart');
+    await reloaded;
+    await page.waitForFunction(() => 'notes' in window, undefined, { timeout: 30_000 });
+    const note = await within('page.evaluate(() => notes.read())', 30_000, page.evaluate(() => notes.read()));
+    assert.equal(note, 'before restart');
   });
 });

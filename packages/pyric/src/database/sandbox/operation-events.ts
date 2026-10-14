@@ -66,7 +66,12 @@ export function canonicalPath(path: string): string {
 export class OperationEvents {
   private nextId = 0;
 
-  constructor(private readonly sandbox?: Sandbox) {}
+  /** The `instance` field this backend's events carry: its name for a named instance, nothing for the default. */
+  private readonly instanceField: { instance?: string };
+
+  constructor(private readonly sandbox?: Sandbox, instance?: string) {
+    this.instanceField = instance === undefined ? {} : { instance };
+  }
 
   nextListenerId(): string {
     this.nextId += 1;
@@ -88,7 +93,7 @@ export class OperationEvents {
     try {
       emitSandboxEvent(this.sandbox, makeServiceMutationEvent({
         at: getClock(this.sandbox).now(),
-        service: 'rtdb', op, path, auth,
+        service: 'rtdb', ...this.instanceField, op, path, auth,
         before: fields.before, after: fields.after, detail: fields.detail,
       }), { service: 'rtdb' });
     } catch { /* telemetry is observational */ }
@@ -131,7 +136,7 @@ export class OperationEvents {
         at = getClock(this.sandbox).now();
       }
       emitSandboxEvent(this.sandbox, makeSandboxOperationEvent({
-        service: 'rtdb', method, path: canonicalPath(path), auth, result,
+        service: 'rtdb', ...this.instanceField, method, path: canonicalPath(path), auth, result,
         origin: originVal, durationMs: fields.durationMs,
         reasons: evaluation?.reasons,
         rules: rulesObj,
@@ -161,7 +166,7 @@ export class OperationEvents {
     try {
       emitSandboxEvent(this.sandbox, makeSandboxCommitEvent({
         at: getClock(this.sandbox).now(),
-        service: 'rtdb', method, path: canonicalPath(path), auth,
+        service: 'rtdb', ...this.instanceField, method, path: canonicalPath(path), auth,
         data: fields.data, priorState: fields.priorState, nextState: fields.nextState,
         groupId: fields.groupId, groupKind: fields.groupKind,
         replay: fields.replay, detail: fields.detail,
@@ -198,7 +203,7 @@ export class OperationEvents {
       }
       emitSandboxEvent(this.sandbox, makeSandboxListenerEvent({
         at: getClock(this.sandbox).now(),
-        service: 'rtdb', phase, listenerId: listener.id,
+        service: 'rtdb', ...this.instanceField, phase, listenerId: listener.id,
         target: {
           kind: kindVal,
           path: canonicalPath(listener.path),
