@@ -145,8 +145,9 @@ class BridgeReconnectTest {
         bridge.current.deliver(mapOf("type" to "worker-res", "id" to frame["id"], "ok" to true, "value" to value))
     }
 
+    // By identity: a re-sent subscription frame equals the original one.
     private fun indexOfFrame(frame: Map<String, Any?>): Int =
-        bridge.frames.indexOfFirst { it["type"] == frame["type"] && it["id"] == frame["id"] && it["subId"] == frame["subId"] }
+        bridge.frames.indexOfFirst { it === frame }
 
     private suspend fun interrupt(client: PyricBridgeClient) {
         client.connect()
