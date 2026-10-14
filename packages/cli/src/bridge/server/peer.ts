@@ -30,11 +30,18 @@ import { cliVersion } from '../../pkg-version.js';
 import type { WorkerSessionLease } from './worker-sessions.js';
 import { parseBridgeMessage, requestEnvelopeError, requestProtocolError } from './request-envelope.js';
 import { sendBridgeMessage } from './socket-message.js';
+import { watchPeerLiveness } from './peer-liveness.js';
+
+export interface AttachPeerOptions {
+  /** The liveness window; defaults to `HOST_PEER_LIVENESS_TIMEOUT_MS`. Shortened only by tests. */
+  livenessTimeoutMs?: number;
+}
 
 export function attachPeer(
   bridge: ReturnType<typeof createBridge>,
   ws: WebSocket,
   allowSandboxPeer = true,
+  options: AttachPeerOptions = {},
 ): void {
   let disconnect: (() => void) | null = null;
   /** Peer generation captured at registration — tags every inbound frame so
@@ -43,10 +50,14 @@ export function attachPeer(
   let peerGen = 0;
   let helloed = false;
   let consumer: ConsumerSession | null = null;
+  // A client that heartbeats and then goes silent, such as a page frozen in
+  // the back-forward cache, is closed so the 'close' handler below runs.
+  const liveness = watchPeerLiveness(() => ws.terminate(), options.livenessTimeoutMs);
 
   ws.on('message', (raw) => {
     const isClosingConnection = ws.readyState !== ws.OPEN;
     if (isClosingConnection) return;
+    liveness.heard();
     const parsed = parseBridgeMessage(raw.toString());
     const isInvalidMessage = parsed.kind === 'invalid';
     if (isInvalidMessage) {
@@ -66,6 +77,8 @@ export function attachPeer(
       ws.close(1002, envelopeError);
       return;
     }
+    const isHeartbeat = msg.type === 'ping';
+    if (isHeartbeat) liveness.start();
     const isAttach = msg.type === 'attach';
     if (isAttach) {
       // Worker-relay consumer (Node client). NOT a peer: attaching never
@@ -73,6 +86,8 @@ export function attachPeer(
       const isAlreadyAttached = helloed || consumer !== null;
       if (isAlreadyAttached) return;
       const ownsWorkerPort = msg.transport === 'worker-port';
+      // The worker-port client is the web hosted client, which heartbeats.
+      if (ownsWorkerPort) liveness.start();
       const requestedSessionId = ownsWorkerPort ? undefined : msg.clientSessionId ?? msg.sessionId;
       consumer = createConsumerSession(
         bridge,
@@ -151,6 +166,7 @@ export function attachPeer(
   });
 
   ws.on('close', () => {
+    liveness.stop();
     disconnect?.();
     disconnect = null;
     consumer?.detach();

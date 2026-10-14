@@ -36,6 +36,14 @@ test('Node persists isolated record namespaces across a database restart', async
   expect(await runNodeFixture('records')).toBe('Record restart passed');
 });
 
+test('a heartbeating page that goes silent is closed after the liveness window, its onDisconnect runs, and its listener is released with the session (#965)', async () => {
+  expect(await runNodeFixture('peer-liveness', 30_000)).toBe('Peer liveness passed');
+}, 45_000);
+
+test('over a real ws socket, the host terminates a page that pinged then went silent, and the asynchronous close still runs its onDisconnect (#965)', async () => {
+  expect(await runNodeFixture('peer-liveness-socket', 30_000)).toBe('Peer liveness socket passed');
+}, 45_000);
+
 test('a failed batch rolls back updates and deletions together', async () => {
   expect(await runNodeFixture('rollback')).toBe('Rollback passed');
 });
@@ -235,6 +243,10 @@ test('the Node host prints its own broker model substitution to the terminal onc
 
 test('a repro recorded on a multi-instance host replays on the Node and worker hosts and reports a corrupted result', async () => {
   expect(await runNodeFixture('repro', 60_000)).toBe('Repro passed');
+}, 90_000);
+
+test('a repro replays with Messaging on when the captured session had it, and off for a file without the setting', async () => {
+  expect(await runNodeFixture('repro-messaging', 60_000)).toBe('Repro messaging passed');
 }, 90_000);
 
 test('the denials a multi-instance host recorded list by instance, with their counts and page loads', async () => {
