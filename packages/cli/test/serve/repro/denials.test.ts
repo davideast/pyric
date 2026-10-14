@@ -69,6 +69,20 @@ describe('listDenials', () => {
     expect(text).toContain('rtdb /rooms/$roomId: 2 denials on 1 page load');
   });
 
+  it('keeps a denial whose request left the bounded log apart from the default instance', () => {
+    const groups = listDenials(repro([
+      sub(1000, 'b', undefined, '/rooms/r2'),
+      denied(1001, 'b', '/rooms/r2', 'u1'),
+      // The request that opened 'gone' was dropped with an older window.
+      denied(1002, 'gone', '/rooms/r9', 'u1'),
+    ]), {});
+    expect(groups.map((g) => [g.instance, g.instanceUnknown === true, g.count])).toEqual([
+      [undefined, false, 1],
+      [undefined, true, 1],
+    ]);
+    expect(formatDenials(groups)).toContain('rtdb (instance unknown) /rooms/$roomId: 1 denial');
+  });
+
   it('honours --since and --service', () => {
     expect(listDenials(file, { sinceAt: 2500 }).map((g) => g.count)).toEqual([1]);
     expect(listDenials(file, { service: 'firestore' })).toEqual([]);

@@ -14,6 +14,8 @@ export interface DenialGroup {
   service: DenialService;
   /** The named RTDB instance; absent for the default instance and other services. */
   instance?: string;
+  /** True for an RTDB denial whose request left the bounded log, so its instance cannot be named. */
+  instanceUnknown?: boolean;
   /** The rule node that decided (`/rooms/$roomId`), else the denied path. */
   path: string;
   rule?: string;
@@ -89,10 +91,12 @@ export function listDenials(repro: ReproFile, filter: DenialFilter): DenialGroup
     if (filter.sinceAt !== undefined && entry.at < filter.sinceAt) continue;
     const request = requests.get(`${entry.session}${KEY_SEPARATOR}${denial.key}`);
     const instance = service === 'rtdb' && request !== undefined ? frameInstance(request) : undefined;
+    const instanceUnknown = service === 'rtdb' && request === undefined;
     const requestPath = asRecord(context.request)?.path;
     const path = typeof context.matchedPath === 'string' ? context.matchedPath : String(requestPath ?? '');
     const rule = typeof context.matchedRule === 'string' ? context.matchedRule : undefined;
-    const groupKey = [service, instance ?? '', path, rule ?? ''].join(KEY_SEPARATOR);
+    const instanceKey = instanceUnknown ? KEY_SEPARATOR : instance ?? '';
+    const groupKey = [service, instanceKey, path, rule ?? ''].join(KEY_SEPARATOR);
     const uid = asRecord(context.auth)?.uid;
     const identity = typeof uid === 'string' ? uid : 'anonymous';
     let group = groups.get(groupKey);
@@ -100,6 +104,7 @@ export function listDenials(repro: ReproFile, filter: DenialFilter): DenialGroup
       const reasons = Array.isArray(context.reasons) ? context.reasons.map(String) : [];
       group = { service, path, count: 0, loads: 0, firstAt: entry.at, lastAt: entry.at, identities: [], trace: reasons };
       if (instance !== undefined) group.instance = instance;
+      if (instanceUnknown) group.instanceUnknown = true;
       if (rule !== undefined) group.rule = rule;
       groups.set(groupKey, group);
     }
@@ -117,7 +122,8 @@ export function listDenials(repro: ReproFile, filter: DenialFilter): DenialGroup
 export function formatDenials(groups: DenialGroup[]): string {
   if (groups.length === 0) return 'No denials recorded.\n';
   const blocks = groups.map((group) => {
-    const head = [group.service, group.instance, group.path].filter((part) => part !== undefined).join(' ');
+    const instance = group.instanceUnknown ? '(instance unknown)' : group.instance;
+    const head = [group.service, instance, group.path].filter((part) => part !== undefined).join(' ');
     const lines = [
       `${head}: ${group.count} denial${group.count === 1 ? '' : 's'} on ${group.loads} page load${group.loads === 1 ? '' : 's'}`,
       `  first ${new Date(group.firstAt).toISOString()}, last ${new Date(group.lastAt).toISOString()}`,
