@@ -408,6 +408,67 @@ class BridgeReconnectTest {
         assertTrue(bridge.opsNamed("setDoc").isEmpty())
     }
 
+    /** Attaches to host-a, then re-attaches to a replaced host-b whose Auth restore is in flight. */
+    private suspend fun replaceHostAndAwaitRestore(client: PyricBridgeClient) {
+        client.restoreAuth = { op -> op("auth.restorePortSession", mapOf("uid" to "u1", "tenantId" to null)) }
+        client.connect()
+        bridge.hostInstanceId = "host-b"
+        bridge.current.drop()
+        until { bridge.opsNamed("auth.restorePortSession").size == 1 }
+    }
+
+    @Test
+    fun `a drop during the Auth restore on a replaced host restores Auth on the next attach to that host`() = runBlocking {
+        val client = client()
+        replaceHostAndAwaitRestore(client)
+        bridge.current.drop()
+
+        until { bridge.opsNamed("auth.restorePortSession").size == 2 }
+        val retried = bridge.opsNamed("auth.restorePortSession").last()
+        @Suppress("UNCHECKED_CAST")
+        assertEquals("u1", (retried["op"] as Map<String, Any?>)["uid"])
+        respond(retried, mapOf("uid" to "u1"))
+        until { client.isConnected }
+    }
+
+    @Test
+    fun `an operation held across a drop during the Auth restore is sent once, after the restore completes`() = runBlocking {
+        val client = client()
+        replaceHostAndAwaitRestore(client)
+        val held = scope.async { client.op("setDoc", mapOf("path" to "rooms/b")) }
+        delay(30)
+        bridge.current.drop()
+
+        until { bridge.opsNamed("auth.restorePortSession").size == 2 }
+        delay(30)
+        assertTrue(bridge.opsNamed("setDoc").isEmpty(), "the held operation waits for the restore")
+        assertFalse(held.isCompleted)
+
+        val restore = bridge.opsNamed("auth.restorePortSession").last()
+        respond(restore, mapOf("uid" to "u1"))
+        until { bridge.opsNamed("setDoc").size == 1 }
+        val sent = bridge.opsNamed("setDoc").single()
+        assertTrue(indexOfFrame(restore) < indexOfFrame(sent), "the held operation follows the completed restore")
+        respond(sent, null)
+        held.await()
+        delay(30)
+        assertEquals(1, bridge.opsNamed("setDoc").size)
+    }
+
+    @Test
+    fun `a resume to the same host after a completed restore does not restore Auth again`() = runBlocking {
+        val client = client()
+        replaceHostAndAwaitRestore(client)
+        respond(bridge.opsNamed("auth.restorePortSession").single(), mapOf("uid" to "u1"))
+        until { client.isConnected }
+
+        bridge.current.drop()
+        until { bridge.ofType("attach").size == 3 }
+        until { client.isConnected }
+        delay(50)
+        assertEquals(1, bridge.opsNamed("auth.restorePortSession").size)
+    }
+
     @Test
     fun `disconnect while holding fails held operations once and sends none`() = runBlocking {
         val client = client()

@@ -87,6 +87,12 @@ class PyricBridgeClient(
     @Volatile
     private var hasEverAttached = false
     private var hostInstanceId: String? = null
+    /**
+     * Set when an attach acknowledgement shows a replaced host. Cleared only when
+     * an attach that ran the Auth restore completes, so a drop during the restore
+     * leaves it set and the next attach to that host restores again.
+     */
+    private var needsAuthRestore = false
     private var reconnectAttempt = 0
     private var reconnectJob: Job? = null
     private var attachDeadlineJob: Job? = null
@@ -261,10 +267,10 @@ class PyricBridgeClient(
                 // onOpen may already have fired on the transport's thread.
                 listener.markTransportReady()
             }
-            val changedHost = currentHandshake.await()
+            val restoresAuth = currentHandshake.await()
             val restorer = restoreAuth
             var authRestored = true
-            if (changedHost) {
+            if (restoresAuth) {
                 try {
                     restorer { method, params ->
                         operationDispatcher.executeOp(
@@ -311,6 +317,8 @@ class PyricBridgeClient(
             attempt = null
             handshake = null
             hasEverAttached = true
+            // The restore ran to its result on this connection, so it is not retried.
+            needsAuthRestore = false
             attachDeadlineJob?.cancel()
             attachDeadlineJob = null
             reconnectAttempt = 0
@@ -624,17 +632,19 @@ class PyricBridgeClient(
                 return
             }
             val pendingHandshake: CompletableDeferred<Boolean>
-            val changedHost: Boolean
+            val restoresAuth: Boolean
             synchronized(lock) {
                 if (attemptGeneration != generation || isDisposed) return
                 pendingHandshake = handshake ?: return
                 val ackSessionId = (msg["clientSessionId"] as? String) ?: (msg["sessionId"] as? String)
                 if (ackSessionId != null) clientSessionId = ackSessionId
                 val ackHostId = msg["hostInstanceId"] as? String
-                changedHost = hasEverAttached && hostInstanceId != null && ackHostId != null && ackHostId != hostInstanceId
+                val changedHost = hasEverAttached && hostInstanceId != null && ackHostId != null && ackHostId != hostInstanceId
                 if (ackHostId != null) hostInstanceId = ackHostId
+                if (changedHost) needsAuthRestore = true
+                restoresAuth = needsAuthRestore
             }
-            pendingHandshake.complete(changedHost)
+            pendingHandshake.complete(restoresAuth)
         }
 
         private fun handleWorkerEvent(msg: Map<String, Any?>) {

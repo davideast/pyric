@@ -689,6 +689,77 @@ struct BridgeReconnectTests {
         await client.disconnect()
     }
 
+    /// Attaches to host-a, then re-attaches to a replaced host-b whose Auth restore is in flight.
+    private func replaceHostAndAwaitRestore(_ bridge: FakeReconnectBridge, _ client: PyricBridgeClient) async throws {
+        await client.setAuthRestorer { op in
+            _ = try await op("auth.restorePortSession", ["uid": .string("u1"), "tenantId": .null])
+        }
+        try await client.connect()
+        bridge.hostInstanceId = "host-b"
+        bridge.current.drop()
+        try await until { bridge.ops(named: "auth.restorePortSession").count == 1 }
+    }
+
+    @Test("A drop during the Auth restore on a replaced host restores Auth on the next attach to that host")
+    func dropDuringRestoreRetriesTheRestore() async throws {
+        let bridge = FakeReconnectBridge()
+        let client = makeReconnectingClient(bridge)
+        try await replaceHostAndAwaitRestore(bridge, client)
+        bridge.current.drop()
+
+        try await until { bridge.ops(named: "auth.restorePortSession").count == 2 }
+        let retried = bridge.ops(named: "auth.restorePortSession")[1]
+        #expect(retried["op"]?["uid"]?.stringValue == "u1")
+        bridge.answer(retried, value: ["uid": "u1"])
+        try await until { await client.isConnected }
+        await client.disconnect()
+    }
+
+    @Test("An operation held across a drop during the Auth restore is sent once, after the restore completes")
+    func heldOperationWaitsForTheRetriedRestore() async throws {
+        let bridge = FakeReconnectBridge()
+        let client = makeReconnectingClient(bridge)
+        try await replaceHostAndAwaitRestore(bridge, client)
+        let write = Task { try await client.op(method: "setDoc", params: ["path": .string("rooms/b")]) }
+        try await Task.sleep(nanoseconds: 30_000_000)
+        bridge.current.drop()
+
+        try await until { bridge.ops(named: "auth.restorePortSession").count == 2 }
+        try await Task.sleep(nanoseconds: 30_000_000)
+        #expect(bridge.ops(named: "setDoc").isEmpty)
+
+        bridge.answer(bridge.ops(named: "auth.restorePortSession")[1], value: ["uid": "u1"])
+        try await until { bridge.ops(named: "setDoc").count == 1 }
+        let frames = bridge.frames
+        let restoredAuth = frames.lastIndex { $0["op"]?["method"]?.stringValue == "auth.restorePortSession" }
+        let held = frames.firstIndex { $0["op"]?["method"]?.stringValue == "setDoc" }
+        #expect(restoredAuth != nil && held != nil)
+        if let restoredAuth, let held {
+            #expect(held > restoredAuth)
+        }
+        bridge.answer(bridge.ops(named: "setDoc")[0])
+        _ = try await write.value
+        try await Task.sleep(nanoseconds: 30_000_000)
+        #expect(bridge.ops(named: "setDoc").count == 1)
+        await client.disconnect()
+    }
+
+    @Test("A resume to the same host after a completed restore does not restore Auth again")
+    func resumeAfterCompletedRestoreDoesNotRestoreAgain() async throws {
+        let bridge = FakeReconnectBridge()
+        let client = makeReconnectingClient(bridge)
+        try await replaceHostAndAwaitRestore(bridge, client)
+        bridge.answer(bridge.ops(named: "auth.restorePortSession")[0], value: ["uid": "u1"])
+        try await until { await client.isConnected }
+
+        bridge.current.drop()
+        try await until { bridge.ofType("attach").count == 3 }
+        try await until { await client.isConnected }
+        try await Task.sleep(nanoseconds: 50_000_000)
+        #expect(bridge.ops(named: "auth.restorePortSession").count == 1)
+        await client.disconnect()
+    }
+
     @Test("Reconnect delays follow the bounded jittered schedule")
     func reconnectSchedule() {
         let bases: [Double] = [250, 500, 1000, 2000, 4000, 5000, 5000, 5000]

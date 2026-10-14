@@ -133,6 +133,10 @@ class PyricBridgeClient {
   bool _hasEverAttached = false;
   String? _clientSessionId;
   String? _hostInstanceId;
+  // Set when an attach acknowledgement shows a replaced host. Cleared only when
+  // the Auth restore runs to its result on a current connection, so a drop
+  // during the restore leaves it set and the next attach to that host restores again.
+  bool _needsAuthRestore = false;
   int _connectionGeneration = 0;
   int _reconnectAttempt = 0;
   Timer? _reconnectTimer;
@@ -553,17 +557,18 @@ class PyricBridgeClient {
         ackHostId != null &&
         ackHostId != _hostInstanceId;
     if (ackHostId != null) _hostInstanceId = ackHostId;
-    _finishAttach(generation, attempt, changedHost);
+    if (changedHost) _needsAuthRestore = true;
+    _finishAttach(generation, attempt, _needsAuthRestore);
   }
 
   Future<void> _finishAttach(
     int generation,
     Completer<void> attempt,
-    bool changedHost,
+    bool restoresAuth,
   ) async {
     final restorer = restoreAuth;
     var authRestoreFailed = false;
-    if (changedHost && restorer != null) {
+    if (restoresAuth && restorer != null) {
       try {
         // Restore traffic goes straight to the socket; it is never held.
         await restorer((method, params) => _dispatchOp(method, params));
@@ -573,6 +578,7 @@ class PyricBridgeClient {
       }
       final isStale = generation != _connectionGeneration || _isDisposed;
       if (isStale) return;
+      _needsAuthRestore = false;
     }
     // The host would evaluate a held operation as signed out, an identity the
     // app did not have when it issued it.

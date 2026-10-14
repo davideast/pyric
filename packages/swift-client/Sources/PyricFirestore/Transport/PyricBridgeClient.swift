@@ -94,6 +94,10 @@ public actor PyricBridgeClient {
     public private(set) var clientSessionId: String?
 
     private var hostInstanceId: String?
+    /// Set when an attach acknowledgement shows a replaced host. Cleared only when
+    /// the Auth restore runs to its result on a current connection, so a drop
+    /// during the restore leaves it set and the next attach to that host restores again.
+    private var needsAuthRestore = false
     private var hasEverAttached = false
     private var connectionGeneration = 0
     private var reconnectAttempt = 0
@@ -303,8 +307,8 @@ public actor PyricBridgeClient {
 
     private func runAttempt(generation: Int) async throws {
         do {
-            let changedHost = try await openAndAttach(generation: generation)
-            if changedHost, let restorer = authRestorer {
+            let restoresAuth = try await openAndAttach(generation: generation)
+            if restoresAuth, let restorer = authRestorer {
                 var restoreFailed = false
                 do {
                     try await restorer { [weak self] method, params in
@@ -318,6 +322,7 @@ public actor PyricBridgeClient {
                 guard isCurrent(generation) else {
                     throw PyricBridgeError.unavailable(connectionLostMessage)
                 }
+                needsAuthRestore = false
                 // A held operation must run as the user the app had when it issued it.
                 if restoreFailed {
                     failHeldOperations(code: .unavailable, message: authRestoreFailedMessage)
@@ -334,7 +339,7 @@ public actor PyricBridgeClient {
         }
     }
 
-    /// Opens a transport, sends `attach`, and returns whether the host changed.
+    /// Opens a transport, sends `attach`, and returns whether Auth must be restored.
     private func openAndAttach(generation: Int) async throws -> Bool {
         let request = Self.makeWebSocketRequest(url: endpoint, headers: headers)
         let opened: any WebSocketTransport
@@ -399,8 +404,8 @@ public actor PyricBridgeClient {
         guard let continuation = handshakeContinuation else { return }
         handshakeContinuation = nil
         switch result {
-        case .success(let changedHost):
-            continuation.resume(returning: changedHost)
+        case .success(let restoresAuth):
+            continuation.resume(returning: restoresAuth)
         case .failure(let error):
             continuation.resume(throwing: error)
         }
@@ -883,7 +888,8 @@ public actor PyricBridgeClient {
         let ackHostId = msg["hostInstanceId"]?.stringValue
         let changedHost = hasEverAttached && hostInstanceId != nil && ackHostId != nil && ackHostId != hostInstanceId
         if let ackHostId { hostInstanceId = ackHostId }
-        resumeHandshake(returning: .success(changedHost))
+        if changedHost { needsAuthRestore = true }
+        resumeHandshake(returning: .success(needsAuthRestore))
     }
 
     private func handleWorkerRes(_ msg: AnySendable) {
