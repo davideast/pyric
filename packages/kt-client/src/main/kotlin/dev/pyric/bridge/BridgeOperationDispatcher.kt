@@ -30,7 +30,20 @@ class BridgeOperationDispatcher(
         timeoutMs: Long? = null,
         sendJson: (String) -> Unit,
         jsonSerializer: (Any?) -> String
-    ): Any? {
+    ): Any? = startOp(method, params, actAs, timeoutMs, sendJson, jsonSerializer).await()
+
+    /**
+     * Registers the operation and hands its frame to [sendJson] before returning.
+     * The result settles on its `worker-res`, its timeout, or a [failAll].
+     */
+    fun startOp(
+        method: String,
+        params: Map<String, Any?>,
+        actAs: Map<String, Any?>? = null,
+        timeoutMs: Long? = null,
+        sendJson: (String) -> Unit,
+        jsonSerializer: (Any?) -> String
+    ): CompletableDeferred<Any?> {
         val id = "rop-${opCounter.incrementAndGet()}"
         val deferred = CompletableDeferred<Any?>()
         val effectiveTimeout = timeoutMs ?: defaultTimeoutMs
@@ -70,7 +83,7 @@ class BridgeOperationDispatcher(
             )
         }
 
-        return deferred.await()
+        return deferred
     }
 
     fun handleWorkerRes(msg: Map<String, Any?>) {

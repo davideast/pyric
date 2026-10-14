@@ -103,10 +103,12 @@ export interface App {
   step<T>(name: string, run: () => Promise<T> | T): Promise<T>;
   /**
    * Starts the app's Vite dev server (`vite` from the app's node_modules) on a
-   * free port and waits until it serves the page and `/__pyric/init.json`.
-   * The port is passed on the command line, which overrides the config file.
+   * free port, or on `port` when given, and waits until it serves the page and
+   * `/__pyric/init.json`. The port is passed on the command line, which
+   * overrides the config file. Passing the port of a server the scenario
+   * stopped brings a host back on the URL its pages already use.
    */
-  devServer(options?: { env?: Record<string, string>; name?: string }): Promise<DevServer>;
+  devServer(options?: { env?: Record<string, string>; name?: string; port?: number }): Promise<DevServer>;
   /** Runs `node --import @pyric/cli/register <script> ...args` to exit. Throws on a non-zero exit. */
   serverScript(script: string, args?: string[], options?: { env?: Record<string, string>; timeoutMs?: number }): Promise<ScriptResult>;
   /** The browser context for this app. Requests to hosts other than 127.0.0.1 and localhost are aborted unless a route answers them. */
@@ -117,6 +119,8 @@ export interface App {
   writeFile(path: string, text: string): void;
   /** A free TCP port on 127.0.0.1. */
   freePort(): Promise<number>;
+  /** Every page's console lines, page errors, and error responses so far, in order. */
+  readonly browserLog: readonly string[];
   /**
    * Declares that a page request to a `/__pyric/` route may answer with an
    * error status, such as a download URL with the wrong token. Any other error
@@ -216,8 +220,8 @@ export class AppRun implements App {
     return freePort();
   }
 
-  async devServer(options: { env?: Record<string, string>; name?: string } = {}): Promise<DevServer> {
-    const port = await freePort();
+  async devServer(options: { env?: Record<string, string>; name?: string; port?: number } = {}): Promise<DevServer> {
+    const port = options.port ?? await freePort();
     this.serverCount += 1;
     const name = options.name ?? (this.serverCount === 1 ? 'dev server' : `dev server ${this.serverCount}`);
     const child = new AppProcess(

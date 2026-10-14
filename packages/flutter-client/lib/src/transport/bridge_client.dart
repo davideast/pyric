@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:collection/collection.dart';
+import 'package:meta/meta.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../auth/auth_lens.dart';
@@ -43,6 +44,11 @@ class BridgeSubscriptionGap {
 
 const String _connectionLost =
     'The bridge connection was lost. Requests already sent may have completed; check state before retrying.';
+const String _holdExpired =
+    'The bridge connection was not restored within 10 seconds. The request was not sent.';
+const String _authRestoreFailed =
+    'The bridge connection was restored, but the signed-in user could not be restored on the new host. The request was not sent.';
+const Duration _holdDeadline = Duration(seconds: 10);
 const int _policyCloseCode = 1008;
 const int _maxReconnectDelayMs = 5000;
 final math.Random _jitterSource = math.Random();
@@ -63,6 +69,18 @@ class _PendingOp {
   _PendingOp(this.completer, this.timer);
 }
 
+/// An operation issued while the client is not attached, not yet sent.
+class _HeldOp {
+  final String method;
+  final Map<String, dynamic> params;
+  final Map<String, dynamic>? actAs;
+  final Duration? timeout;
+  final Completer<dynamic> completer = Completer<dynamic>();
+  late final Timer deadline;
+
+  _HeldOp(this.method, this.params, this.actAs, this.timeout);
+}
+
 class _ActiveSub {
   final StreamController<dynamic> controller;
   final Map<String, dynamic> payload;
@@ -80,7 +98,9 @@ class _ActiveSub {
 /// After the first attach, a dropped socket is reopened with bounded backoff.
 /// The client re-attaches with its `clientSessionId` and re-sends every live
 /// subscription. Operations in flight at the drop fail once with
-/// `unavailable` and are never re-sent.
+/// `unavailable` and are never re-sent. An operation issued while the client
+/// is not attached is held, then sent once after the restore, or fails once
+/// after 10 seconds without being sent.
 class PyricBridgeClient {
   final Uri uri;
   final Map<String, dynamic> headers;
@@ -95,6 +115,12 @@ class PyricBridgeClient {
 
   /// An attempt that has not attached within this time counts as failed.
   final Duration attachTimeout;
+
+  /// Test-only: how long an operation issued while not attached is held. The
+  /// deadline is fixed at 10 seconds (ADR-0019 decision 7); this is not a user
+  /// setting.
+  @visibleForTesting
+  Duration holdDeadline = _holdDeadline;
 
   /// Runs on a re-attach to a replaced host, before listens are re-sent.
   BridgeAuthRestorer? restoreAuth;
@@ -119,6 +145,9 @@ class PyricBridgeClient {
   int _subCounter = 0;
 
   final Map<String, _PendingOp> _pendingOps = {};
+  // Issued while not attached, in issue order. Never contains restore traffic.
+  final List<_HeldOp> _heldOps = [];
+  bool _sendingHeldOps = false;
   final Map<String, _ActiveSub> _activeSubs = {};
 
   final StreamController<AuthLens> _remoteLensController =
@@ -188,6 +217,10 @@ class PyricBridgeClient {
   }
 
   /// Dispatches a one-shot worker operation and awaits the correlated result.
+  ///
+  /// While the client is not attached, the operation is held and sent once
+  /// after the next attach. It fails with `unavailable`, unsent, if the client
+  /// has not attached within 10 seconds of the call.
   Future<dynamic> op(
     String method,
     Map<String, dynamic> params, {
@@ -195,14 +228,63 @@ class PyricBridgeClient {
     Duration? timeout,
   }) async {
     _ensureUsable();
-    if (!isConnected) {
-      if (_hasEverAttached) {
-        throw const PyricBridgeException(code: 'unavailable', message: _connectionLost);
-      }
-      await connect();
+    // An operation issued while held ones are being sent queues behind them.
+    final sendsNow = isConnected && !_sendingHeldOps;
+    if (sendsNow) {
+      return _dispatchOp(method, params, actAs: actAs, timeout: timeout);
     }
-    _ensureUsable();
-    return _dispatchOp(method, params, actAs: actAs, timeout: timeout);
+    return _hold(_HeldOp(method, params, actAs, timeout));
+  }
+
+  Future<dynamic> _hold(_HeldOp held) {
+    held.deadline = Timer(holdDeadline, () {
+      final wasSent = !_heldOps.remove(held);
+      if (wasSent) return;
+      held.completer.completeError(const PyricBridgeException(
+        code: 'unavailable',
+        message: _holdExpired,
+      ));
+    });
+    _heldOps.add(held);
+    // Joins the attempt in progress or the next scheduled one; starts one only
+    // when none is in progress or scheduled. After the first attach the
+    // reconnect schedule is already running.
+    if (!_hasEverAttached) connect().ignore();
+    return held.completer.future;
+  }
+
+  List<_HeldOp> _takeHeldOps() {
+    final taken = List<_HeldOp>.of(_heldOps);
+    _heldOps.clear();
+    for (final held in taken) {
+      held.deadline.cancel();
+    }
+    return taken;
+  }
+
+  void _sendHeldOps() {
+    _sendingHeldOps = true;
+    try {
+      while (_heldOps.isNotEmpty && isConnected) {
+        final held = _heldOps.removeAt(0);
+        held.deadline.cancel();
+        final result = _dispatchOp(
+          held.method,
+          held.params,
+          actAs: held.actAs,
+          timeout: held.timeout,
+        );
+        held.completer.complete(result);
+      }
+    } finally {
+      _sendingHeldOps = false;
+    }
+  }
+
+  void _failHeldOps(PyricBridgeException error) {
+    for (final held in _takeHeldOps()) {
+      held.completer.completeError(error);
+    }
   }
 
   Future<dynamic> _dispatchOp(
@@ -480,14 +562,25 @@ class PyricBridgeClient {
     bool changedHost,
   ) async {
     final restorer = restoreAuth;
+    var authRestoreFailed = false;
     if (changedHost && restorer != null) {
       try {
+        // Restore traffic goes straight to the socket; it is never held.
         await restorer((method, params) => _dispatchOp(method, params));
       } catch (_) {
         // The Auth observers report the host's state when the restore fails.
+        authRestoreFailed = true;
       }
       final isStale = generation != _connectionGeneration || _isDisposed;
       if (isStale) return;
+    }
+    // The host would evaluate a held operation as signed out, an identity the
+    // app did not have when it issued it.
+    if (authRestoreFailed) {
+      _failHeldOps(const PyricBridgeException(
+        code: 'unavailable',
+        message: _authRestoreFailed,
+      ));
     }
 
     _attachDeadline?.cancel();
@@ -501,6 +594,8 @@ class PyricBridgeClient {
       sub.awaitsRestoredValue = sub.hasValue;
       _sendSub(entry.key, sub);
     }
+    // Held operations follow the whole restore, in the order they were issued.
+    _sendHeldOps();
     if (!attempt.isCompleted) attempt.complete();
   }
 
@@ -751,6 +846,7 @@ class PyricBridgeClient {
     _setState(BridgeConnectionState.closed);
 
     _failPendingOps(error);
+    _failHeldOps(error);
 
     final subs = _activeSubs.values.toList();
     _activeSubs.clear();

@@ -11,8 +11,13 @@ final class FakeReconnectSocket: WebSocketTransport, @unchecked Sendable {
     private var open = true
     private var closeCode: Int?
     private let onFrame: @Sendable ([String: AnySendable], FakeReconnectSocket) -> Void
+    private let beforeSend: @Sendable ([String: AnySendable]) async -> Void
 
-    init(onFrame: @escaping @Sendable ([String: AnySendable], FakeReconnectSocket) -> Void) {
+    init(
+        beforeSend: @escaping @Sendable ([String: AnySendable]) async -> Void = { _ in },
+        onFrame: @escaping @Sendable ([String: AnySendable], FakeReconnectSocket) -> Void
+    ) {
+        self.beforeSend = beforeSend
         self.onFrame = onFrame
     }
 
@@ -26,6 +31,7 @@ final class FakeReconnectSocket: WebSocketTransport, @unchecked Sendable {
         guard let data = string.data(using: .utf8),
               let frame = try? JSONDecoder().decode(AnySendable.self, from: data),
               let dict = frame.dictionaryValue else { return }
+        await beforeSend(dict)
         onFrame(dict, self)
     }
 
@@ -132,11 +138,48 @@ final class FakeReconnectBridge: @unchecked Sendable {
     func connect(_ request: URLRequest) async throws -> any WebSocketTransport {
         countConnect()
         if refuseConnections { throw PyricBridgeError.unavailable("connection refused") }
-        let socket = FakeReconnectSocket { [weak self] frame, socket in
-            self?.record(frame, from: socket)
-        }
+        let socket = FakeReconnectSocket(
+            beforeSend: { [weak self] frame in await self?.gate(frame) },
+            onFrame: { [weak self] frame, socket in self?.record(frame, from: socket) }
+        )
         append(socket)
         return socket
+    }
+
+    private var _suspendedMethod: String?
+    private var _suspendedWrites: [CheckedContinuation<Void, Never>] = []
+
+    /// Suspends the socket write of every `worker-op` for `method` until `releaseWrites()`.
+    func suspendWrites(ofMethod method: String) {
+        lock.lock(); _suspendedMethod = method; lock.unlock()
+    }
+
+    func releaseWrites() {
+        lock.lock()
+        let suspended = _suspendedWrites
+        _suspendedWrites.removeAll()
+        _suspendedMethod = nil
+        lock.unlock()
+        for write in suspended { write.resume() }
+    }
+
+    var suspendedWriteCount: Int {
+        lock.lock(); defer { lock.unlock() }; return _suspendedWrites.count
+    }
+
+    private func gate(_ frame: [String: AnySendable]) async {
+        let method = frame["op"]?["method"]?.stringValue
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            lock.lock()
+            let suspends = method != nil && method == _suspendedMethod
+            guard suspends else {
+                lock.unlock()
+                continuation.resume()
+                return
+            }
+            _suspendedWrites.append(continuation)
+            lock.unlock()
+        }
     }
 
     private func append(_ socket: FakeReconnectSocket) {
@@ -177,6 +220,20 @@ final class FakeReconnectBridge: @unchecked Sendable {
     func ops(named method: String) -> [[String: AnySendable]] {
         ofType("worker-op").filter { $0["op"]?["method"]?.stringValue == method }
     }
+
+    /// Answers a sent `worker-op` frame successfully on the current socket.
+    func answer(_ frame: [String: AnySendable], value: Any = "done") {
+        current.deliver(["type": "worker-res", "id": frame["id"]!.stringValue!, "ok": true, "value": value])
+    }
+}
+
+let notRestoredMessage = "The bridge connection was not restored within 10 seconds. The request was not sent."
+
+/// Drops the socket and keeps the bridge refusing connections, so the client stays interrupted.
+func interrupt(_ bridge: FakeReconnectBridge, _ client: PyricBridgeClient) async throws {
+    bridge.refuseConnections = true
+    bridge.current.drop()
+    try await until { await client.connectionState == .interrupted }
 }
 
 final class Collected<T: Sendable>: @unchecked Sendable {
@@ -325,43 +382,253 @@ struct BridgeReconnectTests {
         await client.disconnect()
     }
 
-    @Test("An operation issued while the connection is interrupted fails at once with unavailable")
-    func operationWhileInterruptedFails() async throws {
+    @Test("An operation issued while interrupted reaches the host exactly once after re-attach")
+    func heldOperationIsSentOnceAfterReattach() async throws {
         let bridge = FakeReconnectBridge()
-        let client = makeReconnectingClient(bridge)
+        let client = makeReconnectingClient(bridge, retryDelay: 0.02)
         try await client.connect()
-        bridge.refuseConnections = true
-        bridge.current.drop()
-        try await until { await client.connectionState == .interrupted }
+        try await interrupt(bridge, client)
 
-        await #expect(throws: PyricBridgeError.self) {
-            _ = try await client.op(method: "getDoc", params: ["path": .string("rooms/a")])
-        }
-        #expect(bridge.ofType("worker-op").isEmpty)
+        let write = Task { try await client.op(method: "setDoc", params: ["path": .string("rooms/a")]) }
+        try await Task.sleep(nanoseconds: 50_000_000)
+        #expect(bridge.ops(named: "setDoc").isEmpty)
+
+        bridge.refuseConnections = false
+        try await until { bridge.ops(named: "setDoc").count == 1 }
+        bridge.answer(bridge.ops(named: "setDoc")[0])
+        let value = try await write.value
+        #expect(value.stringValue == "done")
+        try await Task.sleep(nanoseconds: 30_000_000)
+        #expect(bridge.ops(named: "setDoc").count == 1)
         await client.disconnect()
     }
 
-    @Test("The first connection retries when asked to; an operation issued during a failed attempt fails once")
-    func firstConnectionRetries() async throws {
+    @Test("An operation issued while restoring on a replaced host is sent after the Auth restore and the listener replay")
+    func heldOperationFollowsTheRestore() async throws {
         let bridge = FakeReconnectBridge()
-        bridge.refuseConnections = true
-        let client = makeReconnectingClient(bridge, retryInitialConnection: true)
-        let values = Collected<AnySendable>()
-        let task = collect(client.subscribe(target: ["__ref": "doc", "path": "rooms/a"]), into: values)
-
-        await #expect(throws: PyricBridgeError.self) {
-            _ = try await client.op(method: "setDoc", params: ["path": .string("rooms/a")])
+        let client = makeReconnectingClient(bridge)
+        await client.setAuthRestorer { op in
+            _ = try await op("auth.restorePortSession", ["uid": .string("u1"), "tenantId": .null])
         }
-        #expect(await client.isDisposed == false)
+        let values = Collected<AnySendable>()
+        let listener = collect(client.subscribe(target: ["__ref": "doc", "path": "rooms/a"]), into: values)
+        try await until { bridge.subs(forPath: "rooms/a").count == 1 }
+
+        bridge.hostInstanceId = "host-b"
+        bridge.current.drop()
+        try await until { bridge.ops(named: "auth.restorePortSession").count == 1 }
+        // The client is restoring until the restore is answered.
+        let write = Task { try await client.op(method: "setDoc", params: ["path": .string("rooms/a")]) }
+        try await Task.sleep(nanoseconds: 50_000_000)
+        #expect(bridge.ops(named: "setDoc").isEmpty)
+
+        bridge.answer(bridge.ops(named: "auth.restorePortSession")[0], value: ["uid": "u1"])
+        try await until { bridge.ops(named: "setDoc").count == 1 }
+        bridge.answer(bridge.ops(named: "setDoc")[0])
+        _ = try await write.value
+
+        let frames = bridge.frames
+        let restoredAuth = frames.lastIndex { $0["op"]?["method"]?.stringValue == "auth.restorePortSession" }
+        let resubscribed = frames.lastIndex {
+            $0["type"]?.stringValue == "worker-sub" && $0["sub"]?["target"]?["path"]?.stringValue == "rooms/a"
+        }
+        let held = frames.firstIndex { $0["op"]?["method"]?.stringValue == "setDoc" }
+        #expect(restoredAuth != nil && resubscribed != nil && held != nil)
+        if let restoredAuth, let resubscribed, let held {
+            #expect(resubscribed > restoredAuth)
+            #expect(held > resubscribed)
+        }
+        #expect(bridge.ops(named: "setDoc").count == 1)
+        listener.cancel()
+        await client.disconnect()
+    }
+
+    @Test("An operation issued while held operations are still being sent follows them, in issue order")
+    func operationIssuedDuringFlushFollowsHeldOperations() async throws {
+        let bridge = FakeReconnectBridge()
+        let client = makeReconnectingClient(bridge, retryDelay: 0.02)
+        try await client.connect()
+        try await interrupt(bridge, client)
+
+        let first = Task { try await client.op(method: "setDoc", params: ["path": .string("rooms/a")]) }
+        try await Task.sleep(nanoseconds: 20_000_000)
+        let second = Task { try await client.op(method: "setDoc", params: ["path": .string("rooms/b")]) }
+        try await Task.sleep(nanoseconds: 20_000_000)
+
+        // The first held write suspends in the socket, so the flush is in progress.
+        bridge.suspendWrites(ofMethod: "setDoc")
+        bridge.refuseConnections = false
+        try await until { bridge.suspendedWriteCount == 1 }
+        let third = Task { try await client.op(method: "getDoc", params: ["path": .string("rooms/c")]) }
+        try await Task.sleep(nanoseconds: 50_000_000)
+        bridge.releaseWrites()
+
+        try await until { bridge.ops(named: "setDoc").count == 2 && bridge.ops(named: "getDoc").count == 1 }
+        let order = bridge.ofType("worker-op").compactMap { $0["op"]?["path"]?.stringValue }
+        #expect(order == ["rooms/a", "rooms/b", "rooms/c"])
+        for frame in bridge.ofType("worker-op") { bridge.answer(frame) }
+        for task in [first, second, third] { _ = try await task.value }
+        await client.disconnect()
+    }
+
+    @Test("An operation held past the deadline fails once, saying it was not sent, and a later attach never sends it")
+    func heldOperationPastDeadlineIsNeverSent() async throws {
+        let bridge = FakeReconnectBridge()
+        let client = makeReconnectingClient(bridge, retryDelay: 0.02)
+        await client.setHoldDeadlineForTesting(0.1)
+        try await client.connect()
+        try await interrupt(bridge, client)
+
+        do {
+            _ = try await client.op(method: "setDoc", params: ["path": .string("rooms/a")])
+            Issue.record("expected the hold to expire")
+        } catch let error as PyricBridgeError {
+            #expect(error.code == .unavailable)
+            #expect(error.message == notRestoredMessage)
+        }
 
         bridge.refuseConnections = false
         try await until { await client.isConnected }
+        let ping = Task { try await client.op(method: "ping") }
+        try await until { bridge.ops(named: "ping").count == 1 }
+        bridge.answer(bridge.ops(named: "ping")[0])
+        _ = try await ping.value
+        #expect(bridge.ops(named: "setDoc").isEmpty)
+        await client.disconnect()
+    }
+
+    @Test("A failed Auth restore on a replaced host fails held operations without sending them")
+    func failedAuthRestoreFailsHeldOperations() async throws {
+        let bridge = FakeReconnectBridge()
+        let client = makeReconnectingClient(bridge, retryDelay: 0.02)
+        await client.setAuthRestorer { op in
+            _ = try await op("auth.restorePortSession", ["uid": .string("u1"), "tenantId": .null])
+        }
+        try await client.connect()
+        bridge.hostInstanceId = "host-b"
+        try await interrupt(bridge, client)
+
+        let write = Task { try await client.op(method: "setDoc", params: ["path": .string("rooms/a")]) }
+        try await Task.sleep(nanoseconds: 50_000_000)
+        bridge.refuseConnections = false
+        try await until { bridge.ops(named: "auth.restorePortSession").count == 1 }
+        let restore = bridge.ops(named: "auth.restorePortSession")[0]
+        bridge.current.deliver([
+            "type": "worker-res", "id": restore["id"]!.stringValue!, "ok": false,
+            "error": ["code": "internal", "message": "restore failed"],
+        ])
+
+        do {
+            _ = try await write.value
+            Issue.record("expected the held operation to fail")
+        } catch let error as PyricBridgeError {
+            #expect(error.code == .unavailable)
+            #expect(error.message.contains("could not be restored"))
+            #expect(error.message.hasSuffix("The request was not sent."))
+        }
+        try await until { await client.isConnected }
+        try await Task.sleep(nanoseconds: 30_000_000)
+        #expect(bridge.ops(named: "setDoc").isEmpty)
+        await client.disconnect()
+    }
+
+    @Test("disconnect() while holding fails held operations once and sends none")
+    func disconnectFailsHeldOperations() async throws {
+        let bridge = FakeReconnectBridge()
+        let client = makeReconnectingClient(bridge, retryDelay: 0.02)
+        try await client.connect()
+        try await interrupt(bridge, client)
+
+        let settled = Collected<String>()
+        let first = Task {
+            defer { settled.append("first") }
+            return try await client.op(method: "setDoc", params: ["path": .string("rooms/a")])
+        }
+        let second = Task {
+            defer { settled.append("second") }
+            return try await client.op(method: "setDoc", params: ["path": .string("rooms/b")])
+        }
+        try await Task.sleep(nanoseconds: 100_000_000)
+        #expect(settled.all.isEmpty)
+
+        await client.disconnect()
+        for task in [first, second] {
+            do {
+                _ = try await task.value
+                Issue.record("expected the held operation to fail")
+            } catch let error as PyricBridgeError {
+                #expect(error.code == .unavailable)
+                #expect(error.message == "PyricBridgeClient disconnected.")
+            }
+        }
+        bridge.refuseConnections = false
+        try await Task.sleep(nanoseconds: 50_000_000)
+        #expect(bridge.ops(named: "setDoc").isEmpty)
+    }
+
+    @Test("The first connection retries when asked to; an operation issued before it attaches is held and sent once")
+    func firstConnectionRetries() async throws {
+        let bridge = FakeReconnectBridge()
+        bridge.refuseConnections = true
+        let client = makeReconnectingClient(bridge, retryInitialConnection: true, retryDelay: 0.02)
+        let values = Collected<AnySendable>()
+        let task = collect(client.subscribe(target: ["__ref": "doc", "path": "rooms/a"]), into: values)
+
+        let write = Task { try await client.op(method: "setDoc", params: ["path": .string("rooms/a")]) }
+        try await until { bridge.connectCalls >= 2 }
+        #expect(await client.isDisposed == false)
         #expect(bridge.ofType("worker-op").isEmpty)
+
+        bridge.refuseConnections = false
+        try await until { bridge.ops(named: "setDoc").count == 1 }
+        bridge.answer(bridge.ops(named: "setDoc")[0])
+        _ = try await write.value
         try await until { bridge.subs(forPath: "rooms/a").count == 1 }
         let subId = bridge.subs(forPath: "rooms/a")[0]["subId"]!.stringValue!
         bridge.current.deliver(["type": "worker-snap", "subId": subId, "value": ["path": "rooms/a", "exists": false]])
         try await until { values.count == 1 }
+        #expect(bridge.ops(named: "setDoc").count == 1)
         task.cancel()
+        await client.disconnect()
+    }
+
+    @Test("Before the first attach, an operation held past the deadline fails once and is never sent")
+    func preAttachOperationPastDeadlineIsNeverSent() async throws {
+        let bridge = FakeReconnectBridge()
+        bridge.refuseConnections = true
+        let client = makeReconnectingClient(bridge, retryInitialConnection: true, retryDelay: 0.02)
+        await client.setHoldDeadlineForTesting(0.1)
+
+        do {
+            _ = try await client.op(method: "setDoc", params: ["path": .string("rooms/a")])
+            Issue.record("expected the hold to expire")
+        } catch let error as PyricBridgeError {
+            #expect(error.code == .unavailable)
+            #expect(error.message == notRestoredMessage)
+        }
+        #expect(bridge.connectCalls >= 2)
+
+        bridge.refuseConnections = false
+        try await until { await client.isConnected }
+        try await Task.sleep(nanoseconds: 30_000_000)
+        #expect(bridge.ops(named: "setDoc").isEmpty)
+        await client.disconnect()
+    }
+
+    @Test("Without retryInitialConnection an operation fails with the first failed attempt and is never sent")
+    func preAttachOperationWithoutRetryFailsOnce() async throws {
+        let bridge = FakeReconnectBridge()
+        bridge.refuseConnections = true
+        let client = makeReconnectingClient(bridge)
+        await #expect(throws: PyricBridgeError.self) {
+            _ = try await client.op(method: "setDoc", params: ["path": .string("rooms/a")])
+        }
+        #expect(await client.connectionState == .closed)
+
+        bridge.refuseConnections = false
+        try await client.connect()
+        try await Task.sleep(nanoseconds: 30_000_000)
+        #expect(bridge.ops(named: "setDoc").isEmpty)
         await client.disconnect()
     }
 

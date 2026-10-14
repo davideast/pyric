@@ -5,6 +5,12 @@ import 'package:pyric_firestore/src/transport/bridge_client.dart';
 
 import 'helpers/fake_bridge.dart';
 
+// ADR-0019 decision 7, as amended 2026-10-14: an operation issued while the
+// client is not attached is held, then sent once after the whole restore, or
+// fails once when the hold deadline passes.
+const _notRestored =
+    'The bridge connection was not restored within 10 seconds. The request was not sent.';
+
 void main() {
   late FakeBridge bridge;
   final clients = <PyricBridgeClient>[];
@@ -23,6 +29,23 @@ void main() {
     clients.add(client);
     return client;
   }
+
+  /// Attached, then dropped with the bridge refusing new connections: the
+  /// client is `interrupted` until the test sets `refuseConnections` back.
+  Future<PyricBridgeClient> attachedThenDropped() async {
+    final client = createClient();
+    await client.connect();
+    bridge.refuseConnections = true;
+    bridge.current.drop();
+    await until(() => client.connectionState == BridgeConnectionState.interrupted);
+    return client;
+  }
+
+  Iterable<Map<String, dynamic>> opsNamed(String method) =>
+      bridge.ofType('worker-op').where((f) => (f['op'] as Map)['method'] == method);
+
+  void reply(Map<String, dynamic> frame, dynamic value) => bridge.current
+      .deliver({'type': 'worker-res', 'id': frame['id'], 'ok': true, 'value': value});
 
   setUp(() {
     bridge = FakeBridge();
@@ -137,35 +160,23 @@ void main() {
     expect(values[2], snapshot);
   });
 
-  test('an operation issued while the connection is interrupted fails at once with unavailable', () async {
-    final client = createClient();
-    await client.connect();
-    bridge.refuseConnections = true;
-    bridge.current.drop();
-    await until(() => client.connectionState == BridgeConnectionState.interrupted);
-
-    await expectLater(
-      client.op('getDoc', {'path': 'rooms/a'}),
-      throwsA(isA<PyricBridgeException>().having((e) => e.code, 'code', 'unavailable')),
-    );
-    expect(bridge.ofType('worker-op'), isEmpty);
-  });
-
-  test('the first connection retries when asked to; an operation issued during a failed attempt fails once', () async {
+  test('the first connection retries when asked to; an operation issued during a failed attempt is held and sent once', () async {
     bridge.refuseConnections = true;
     final client = createClient(retryInitialConnection: true);
     final values = <dynamic>[];
     client.subscribe({'__ref': 'doc', 'path': 'rooms/a'}).listen(values.add, onError: (_) {});
 
-    await expectLater(
-      client.op('setDoc', {'path': 'rooms/a'}),
-      throwsA(isA<PyricBridgeException>().having((e) => e.code, 'code', 'unavailable')),
-    );
+    final write = client.op('setDoc', {'path': 'rooms/a'});
+    await until(() => bridge.connectCalls >= 2);
     expect(client.isDisposed, isFalse);
+    expect(bridge.ofType('worker-op'), isEmpty);
 
     bridge.refuseConnections = false;
-    await until(() => client.isConnected);
-    expect(bridge.ofType('worker-op'), isEmpty);
+    await until(() => opsNamed('setDoc').isNotEmpty);
+    reply(bridge.opNamed('setDoc'), 'done');
+    expect(await write, 'done');
+    expect(opsNamed('setDoc'), hasLength(1));
+
     final sub = bridge.lastSubFor('rooms/a');
     bridge.current.deliver({
       'type': 'worker-snap',
@@ -290,5 +301,155 @@ void main() {
           .having((e) => e.code, 'code', 'unavailable')
           .having((e) => e.message, 'message', contains('Timed out'))),
     );
+  });
+  group('operations issued while not attached', () {
+    test('an operation issued while interrupted reaches the host exactly once after re-attach', () async {
+      final client = await attachedThenDropped();
+      final read = client.op('getDoc', {'path': 'rooms/a'});
+      await settle();
+      expect(opsNamed('getDoc'), isEmpty);
+
+      bridge.refuseConnections = false;
+      await until(() => opsNamed('getDoc').isNotEmpty);
+      reply(bridge.opNamed('getDoc'), {'path': 'rooms/a', 'exists': false});
+      expect(await read, {'path': 'rooms/a', 'exists': false});
+      expect(opsNamed('getDoc'), hasLength(1));
+    });
+
+    test('on a replaced host, an operation issued during the Auth restore is sent after it and after the listener replay', () async {
+      final client = createClient();
+      client.restoreAuth = (op) async {
+        await op('auth.restorePortSession', {'uid': 'u1', 'tenantId': null});
+      };
+      client.subscribe({'__ref': 'doc', 'path': 'rooms/a'}).listen((_) {}, onError: (_) {});
+      await until(() => bridge.subsFor('rooms/a').isNotEmpty);
+
+      bridge.hostInstanceId = 'host-b';
+      bridge.current.drop();
+      await until(() => opsNamed('auth.restorePortSession').isNotEmpty);
+      final write = client.op('setDoc', {'path': 'rooms/a'});
+      await settle();
+      expect(opsNamed('setDoc'), isEmpty, reason: 'held until the restore finishes');
+
+      reply(bridge.opNamed('auth.restorePortSession'), {'uid': 'u1'});
+      await until(() => opsNamed('setDoc').isNotEmpty);
+      final frames = bridge.frames;
+      final restoredAuth = frames.indexOf(bridge.opNamed('auth.restorePortSession'));
+      final resubscribed = frames.indexOf(bridge.lastSubFor('rooms/a'));
+      final held = frames.indexOf(bridge.opNamed('setDoc'));
+      expect(resubscribed, greaterThan(restoredAuth));
+      expect(held, greaterThan(resubscribed));
+
+      reply(bridge.opNamed('setDoc'), 'done');
+      expect(await write, 'done');
+      expect(opsNamed('setDoc'), hasLength(1));
+    });
+
+    test('an operation held past the deadline fails once, saying it was not sent, and a later attach never sends it', () async {
+      final client = await attachedThenDropped();
+      client.holdDeadline = const Duration(milliseconds: 100);
+      var rejections = 0;
+      final write = client.op('setDoc', {'path': 'rooms/a'}).catchError((Object error) {
+        rejections++;
+        throw error;
+      });
+      await expectLater(
+        write,
+        throwsA(isA<PyricBridgeException>()
+            .having((e) => e.code, 'code', 'unavailable')
+            .having((e) => e.message, 'message', _notRestored)),
+      );
+
+      bridge.refuseConnections = false;
+      await until(() => client.isConnected);
+      final later = client.op('getDoc', {'path': 'rooms/b'});
+      await until(() => opsNamed('getDoc').isNotEmpty);
+      reply(bridge.opNamed('getDoc'), null);
+      await later;
+      expect(opsNamed('setDoc'), isEmpty);
+      expect(rejections, 1);
+    });
+
+    test('a failed Auth restore on a replaced host fails held operations without sending them', () async {
+      final client = await attachedThenDropped();
+      client.restoreAuth = (op) async {
+        await op('auth.restorePortSession', {'uid': 'u1', 'tenantId': null});
+      };
+      final write = client.op('setDoc', {'path': 'rooms/a'});
+      final failure = expectLater(
+        write,
+        throwsA(isA<PyricBridgeException>()
+            .having((e) => e.code, 'code', 'unavailable')
+            .having((e) => e.message, 'message',
+                'The bridge connection was restored, but the signed-in user could not be restored on the new host. The request was not sent.')),
+      );
+
+      bridge.hostInstanceId = 'host-b';
+      bridge.refuseConnections = false;
+      await until(() => opsNamed('auth.restorePortSession').isNotEmpty);
+      bridge.current.deliver({
+        'type': 'worker-res',
+        'id': bridge.opNamed('auth.restorePortSession')['id'],
+        'ok': false,
+        'error': {'code': 'internal', 'message': 'restore failed'},
+      });
+      await failure;
+      await until(() => client.isConnected);
+      await settle();
+      expect(opsNamed('setDoc'), isEmpty);
+    });
+
+    test('an operation issued while held operations are being sent goes after them', () async {
+      final client = await attachedThenDropped();
+      final a = client.op('setDoc', {'path': 'rooms/a'});
+      final b = client.op('setDoc', {'path': 'rooms/b'});
+      Future<dynamic>? c;
+      bridge.onFrame = (frame) {
+        final isHeldA = frame['type'] == 'worker-op' && (frame['op'] as Map)['path'] == 'rooms/a';
+        if (isHeldA) c = client.op('setDoc', {'path': 'rooms/c'});
+      };
+
+      bridge.refuseConnections = false;
+      await until(() => opsNamed('setDoc').length == 3);
+      expect(opsNamed('setDoc').map((f) => (f['op'] as Map)['path']),
+          ['rooms/a', 'rooms/b', 'rooms/c']);
+      for (final frame in opsNamed('setDoc')) {
+        reply(frame, 'done');
+      }
+      expect(await Future.wait([a, b, c!]), ['done', 'done', 'done']);
+    });
+
+    test('disconnect while holding fails held operations once and sends none', () async {
+      final client = await attachedThenDropped();
+      final settled = <String>[];
+      final first = client.op('setDoc', {'path': 'rooms/a'});
+      final second = client.op('getDoc', {'path': 'rooms/b'});
+      first.then((_) {}, onError: (_) => settled.add('first')).ignore();
+      second.then((_) {}, onError: (_) => settled.add('second')).ignore();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(settled, isEmpty, reason: 'held, neither sent nor failed');
+
+      await client.disconnect();
+      final closed = throwsA(isA<PyricBridgeException>()
+          .having((e) => e.code, 'code', 'unavailable')
+          .having((e) => e.message, 'message', 'PyricBridgeClient disconnected.'));
+      await expectLater(first, closed);
+      await expectLater(second, closed);
+      bridge.refuseConnections = false;
+      await settle();
+      expect(settled, ['first', 'second']);
+      expect(bridge.ofType('worker-op'), isEmpty);
+    });
+
+    test('without retryInitialConnection, an operation issued before the first attach fails once when the attempt fails', () async {
+      bridge.refuseConnections = true;
+      final client = createClient();
+      await expectLater(
+        client.op('getDoc', {'path': 'rooms/a'}),
+        throwsA(isA<PyricBridgeException>().having((e) => e.code, 'code', 'unavailable')),
+      );
+      expect(client.isDisposed, isTrue);
+      expect(bridge.ofType('worker-op'), isEmpty);
+    });
   });
 }

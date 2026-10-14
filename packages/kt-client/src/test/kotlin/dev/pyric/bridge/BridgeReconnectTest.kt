@@ -79,8 +79,12 @@ class FakeReconnectBridge : BridgeTransportFactory {
         return socket
     }
 
+    /** Runs on the sending thread after each frame is recorded. */
+    @Volatile var onFrame: ((Map<String, Any?>) -> Unit)? = null
+
     fun record(frame: Map<String, Any?>, socket: FakeReconnectSocket) {
         frames.add(frame)
+        onFrame?.invoke(frame)
         if (frame["type"] == "attach" && autoAck) {
             val sessionId = frame["clientSessionId"] as? String ?: "session-1"
             val host = hostInstanceId
@@ -127,7 +131,8 @@ class BridgeReconnectTest {
     private fun client(
         retryInitialConnection: Boolean = false,
         retryDelayMs: Long = 5L,
-        attachTimeoutMs: Long = 5_000L
+        attachTimeoutMs: Long = 5_000L,
+        holdTimeoutMs: Long? = null
     ): PyricBridgeClient =
         PyricBridgeClient(
             url = "ws://127.0.0.1:5174/__pyric/sandbox",
@@ -135,7 +140,25 @@ class BridgeReconnectTest {
             retryInitialConnection = retryInitialConnection,
             reconnectDelayMs = { retryDelayMs },
             attachTimeoutMs = attachTimeoutMs
-        ).also { clients.add(it) }
+        ).also { created ->
+            if (holdTimeoutMs != null) created.holdTimeoutMs = holdTimeoutMs
+            clients.add(created)
+        }
+
+    private fun respond(frame: Map<String, Any?>, value: Any?) {
+        bridge.current.deliver(mapOf("type" to "worker-res", "id" to frame["id"], "ok" to true, "value" to value))
+    }
+
+    // By identity: a re-sent subscription frame equals the original one.
+    private fun indexOfFrame(frame: Map<String, Any?>): Int =
+        bridge.frames.indexOfFirst { it === frame }
+
+    private suspend fun interrupt(client: PyricBridgeClient) {
+        client.connect()
+        bridge.refuseConnections = true
+        bridge.current.drop()
+        until { client.connectionState == BridgeConnectionState.INTERRUPTED }
+    }
 
     private suspend fun until(condition: () -> Boolean) {
         withTimeout(10_000) {
@@ -241,40 +264,239 @@ class BridgeReconnectTest {
     }
 
     @Test
-    fun `an operation issued while the connection is interrupted fails at once with unavailable`() = runBlocking {
+    fun `operations issued while interrupted reach the host exactly once after re-attach, in issue order`() = runBlocking {
         val client = client()
-        client.connect()
-        bridge.refuseConnections = true
-        bridge.current.drop()
-        until { client.connectionState == BridgeConnectionState.INTERRUPTED }
+        interrupt(client)
 
-        val error = assertThrows<FirebaseFirestoreException> {
-            runBlocking { client.op("getDoc", mapOf("path" to "rooms/a")) }
+        val first = scope.async { client.op("getDoc", mapOf("path" to "rooms/a")) }
+        delay(20)
+        val second = scope.async { client.op("setDoc", mapOf("path" to "rooms/b")) }
+        delay(30)
+        assertTrue(bridge.ofType("worker-op").isEmpty())
+        assertFalse(first.isCompleted, "a held operation neither fails nor is sent")
+        assertFalse(second.isCompleted, "a held operation neither fails nor is sent")
+
+        bridge.refuseConnections = false
+        until { bridge.ofType("worker-op").size == 2 }
+        val sent = bridge.ofType("worker-op")
+        @Suppress("UNCHECKED_CAST")
+        assertEquals(listOf("getDoc", "setDoc"), sent.map { (it["op"] as Map<String, Any?>)["method"] })
+        respond(sent[0], "a")
+        respond(sent[1], "b")
+        assertEquals("a", first.await())
+        assertEquals("b", second.await())
+        delay(30)
+        assertEquals(2, bridge.ofType("worker-op").size)
+    }
+
+    @Test
+    fun `an operation issued after re-attach while held operations are being sent reaches the socket after them`() = runBlocking {
+        val client = client()
+        interrupt(client)
+        val a = scope.async { client.op("getDoc", mapOf("path" to "rooms/a")) }
+        delay(20)
+        val b = scope.async { client.op("getDoc", mapOf("path" to "rooms/b")) }
+        delay(30)
+
+        // Issues C from inside the send of A, while B is still held, and gives a
+        // C that skipped the queue time to reach the socket first.
+        val c = java.util.concurrent.atomic.AtomicReference<kotlinx.coroutines.Deferred<Any?>>()
+        val attachedAtIssue = java.util.concurrent.atomic.AtomicBoolean(false)
+        bridge.onFrame = { frame ->
+            @Suppress("UNCHECKED_CAST")
+            val path = (frame["op"] as? Map<String, Any?>)?.get("path")
+            if (frame["type"] == "worker-op" && path == "rooms/a" && c.get() == null) {
+                attachedAtIssue.set(client.isConnected)
+                c.set(scope.async { client.op("getDoc", mapOf("path" to "rooms/c")) })
+                Thread.sleep(100)
+            }
         }
+        bridge.refuseConnections = false
+        until { bridge.ofType("worker-op").size == 3 }
+        assertTrue(attachedAtIssue.get(), "C is issued after re-attach")
+
+        val sent = bridge.ofType("worker-op")
+        @Suppress("UNCHECKED_CAST")
+        assertEquals(listOf("rooms/a", "rooms/b", "rooms/c"), sent.map { (it["op"] as Map<String, Any?>)["path"] })
+        sent.forEach { respond(it, it["id"]) }
+        assertEquals(sent[0]["id"], a.await())
+        assertEquals(sent[1]["id"], b.await())
+        assertEquals(sent[2]["id"], c.get().await())
+    }
+
+    @Test
+    fun `an operation issued while restoring on a replaced host is sent after the Auth restore and the listener replay`() = runBlocking {
+        val client = client()
+        client.restoreAuth = { op -> op("auth.restorePortSession", mapOf("uid" to "u1", "tenantId" to null)) }
+        scope.launch { try { client.subscribe(mapOf("__ref" to "doc", "path" to "rooms/a")).collect {} } catch (_: Throwable) {} }
+        until { bridge.subsFor("rooms/a").size == 1 }
+
+        bridge.hostInstanceId = "host-b"
+        bridge.current.drop()
+        until { bridge.opsNamed("auth.restorePortSession").size == 1 }
+        val held = scope.async { client.op("setDoc", mapOf("path" to "rooms/b")) }
+        delay(30)
+        assertTrue(bridge.opsNamed("setDoc").isEmpty())
+        assertFalse(held.isCompleted)
+
+        respond(bridge.opsNamed("auth.restorePortSession").single(), mapOf("uid" to "u1"))
+        until { bridge.opsNamed("setDoc").size == 1 }
+        val restoreAt = indexOfFrame(bridge.opsNamed("auth.restorePortSession").single())
+        val replayAt = indexOfFrame(bridge.subsFor("rooms/a").last())
+        val heldAt = indexOfFrame(bridge.opsNamed("setDoc").single())
+        assertEquals(2, bridge.subsFor("rooms/a").size)
+        assertTrue(restoreAt < replayAt, "the listener replay follows the Auth restore")
+        assertTrue(replayAt < heldAt, "the held operation follows the listener replay")
+
+        respond(bridge.opsNamed("setDoc").single(), null)
+        held.await()
+        Unit
+    }
+
+    @Test
+    fun `an operation held past the deadline fails once, saying it was not sent, and a later attach never sends it`() = runBlocking {
+        val client = client(holdTimeoutMs = 100L)
+        interrupt(client)
+
+        val issuedAt = System.nanoTime()
+        val error = assertThrows<FirebaseFirestoreException> {
+            runBlocking { client.op("setDoc", mapOf("path" to "rooms/a")) }
+        }
+        val heldMs = (System.nanoTime() - issuedAt) / 1_000_000
         assertEquals(FirebaseFirestoreException.Code.UNAVAILABLE, error.code)
+        assertEquals("The bridge connection was not restored within 10 seconds. The request was not sent.", error.message)
+        assertTrue(heldMs >= 90, "the operation was held for ${heldMs}ms, not until the deadline")
+
+        bridge.refuseConnections = false
+        until { client.isConnected }
+        delay(50)
+        assertTrue(bridge.opsNamed("setDoc").isEmpty())
+    }
+
+    @Test
+    fun `a failed Auth restore fails held operations without sending them`() = runBlocking {
+        val client = client()
+        client.restoreAuth = { op -> op("auth.restorePortSession", mapOf("uid" to "u1", "tenantId" to null)) }
+        scope.launch { try { client.subscribe(mapOf("__ref" to "doc", "path" to "rooms/a")).collect {} } catch (_: Throwable) {} }
+        until { bridge.subsFor("rooms/a").size == 1 }
+
+        bridge.hostInstanceId = "host-b"
+        bridge.current.drop()
+        until { bridge.opsNamed("auth.restorePortSession").size == 1 }
+        val held = scope.async { client.op("setDoc", mapOf("path" to "rooms/b")) }
+        delay(30)
+
+        val restore = bridge.opsNamed("auth.restorePortSession").single()
+        bridge.current.deliver(
+            mapOf(
+                "type" to "worker-res",
+                "id" to restore["id"],
+                "ok" to false,
+                "error" to mapOf("code" to "internal", "message" to "restore failed")
+            )
+        )
+        val error = assertThrows<FirebaseFirestoreException> { runBlocking { held.await() } }
+        assertEquals(FirebaseFirestoreException.Code.UNAVAILABLE, error.code)
+        assertEquals(
+            "The bridge connection was restored, but the signed-in user could not be restored on the new host. The request was not sent.",
+            error.message
+        )
+
+        until { client.isConnected }
+        until { bridge.subsFor("rooms/a").size == 2 }
+        delay(50)
+        assertTrue(bridge.opsNamed("setDoc").isEmpty())
+    }
+
+    @Test
+    fun `disconnect while holding fails held operations once and sends none`() = runBlocking {
+        val client = client()
+        interrupt(client)
+        val held = scope.async { client.op("setDoc", mapOf("path" to "rooms/a")) }
+        delay(30)
+        assertFalse(held.isCompleted)
+
+        client.disconnect()
+        val error = assertThrows<FirebaseFirestoreException> { runBlocking { held.await() } }
+        assertEquals(FirebaseFirestoreException.Code.UNAVAILABLE, error.code)
+        assertEquals("PyricBridgeClient disconnected.", error.message)
+
+        bridge.refuseConnections = false
+        delay(50)
         assertTrue(bridge.ofType("worker-op").isEmpty())
     }
 
     @Test
-    fun `the first connection retries when asked to and an operation issued during a failed attempt fails once`() = runBlocking {
+    fun `a policy close while reconnecting fails held operations once and sends none`() = runBlocking {
+        val client = client()
+        client.connect()
+        bridge.autoAck = false
+        bridge.current.drop()
+        until { bridge.ofType("attach").size == 2 }
+        val held = scope.async { client.op("setDoc", mapOf("path" to "rooms/a")) }
+        delay(30)
+        assertFalse(held.isCompleted)
+
+        bridge.current.drop(code = 1008)
+        val error = assertThrows<FirebaseFirestoreException> { runBlocking { held.await() } }
+        assertEquals(FirebaseFirestoreException.Code.UNAVAILABLE, error.code)
+        assertTrue(error.message!!.contains("(1008)"), error.message)
+        assertEquals(BridgeConnectionState.CLOSED, client.connectionState)
+        assertTrue(bridge.ofType("worker-op").isEmpty())
+    }
+
+    @Test
+    fun `an operation issued before the first attach is held across failed attempts and sent once by the next`() = runBlocking {
         bridge.refuseConnections = true
-        val client = client(retryInitialConnection = true)
+        val client = client(retryInitialConnection = true, retryDelayMs = 20L)
         val values = CopyOnWriteArrayList<Any?>()
         scope.launch { try { client.subscribe(mapOf("__ref" to "doc", "path" to "rooms/a")).collect { values.add(it) } } catch (_: Throwable) {} }
 
-        val error = assertThrows<FirebaseFirestoreException> {
-            runBlocking { client.op("setDoc", mapOf("path" to "rooms/a")) }
-        }
-        assertEquals(FirebaseFirestoreException.Code.UNAVAILABLE, error.code)
+        val callsAtIssue = bridge.connectCalls.get()
+        val queued = scope.async { client.op("setDoc", mapOf("path" to "rooms/a")) }
+        until { bridge.connectCalls.get() >= callsAtIssue + 2 }
+        assertFalse(queued.isCompleted, "a failed attempt that permits a retry does not fail a held operation")
         assertFalse(client.isDisposed)
 
         bridge.refuseConnections = false
-        until { client.isConnected }
-        assertTrue(bridge.ofType("worker-op").isEmpty())
+        until { bridge.opsNamed("setDoc").size == 1 }
+        respond(bridge.opsNamed("setDoc").single(), null)
+        queued.await()
         until { bridge.subsFor("rooms/a").size == 1 }
         val subId = bridge.subsFor("rooms/a").single()["subId"]
         bridge.current.deliver(mapOf("type" to "worker-snap", "subId" to subId, "value" to mapOf("path" to "rooms/a", "exists" to false)))
         until { values.size == 1 }
+        assertEquals(1, bridge.opsNamed("setDoc").size)
+    }
+
+    @Test
+    fun `an operation issued before the first attach and held past the deadline is never sent`() = runBlocking {
+        bridge.refuseConnections = true
+        val client = client(retryInitialConnection = true, retryDelayMs = 20L, holdTimeoutMs = 100L)
+        val error = assertThrows<FirebaseFirestoreException> {
+            runBlocking { client.op("setDoc", mapOf("path" to "rooms/a")) }
+        }
+        assertEquals(FirebaseFirestoreException.Code.UNAVAILABLE, error.code)
+        assertEquals("The bridge connection was not restored within 10 seconds. The request was not sent.", error.message)
+
+        bridge.refuseConnections = false
+        until { client.isConnected }
+        delay(50)
+        assertTrue(bridge.ofType("worker-op").isEmpty())
+    }
+
+    @Test
+    fun `without retryInitialConnection an operation issued before the first attach fails when the attempt fails`() = runBlocking {
+        bridge.refuseConnections = true
+        val client = client()
+        val error = assertThrows<FirebaseFirestoreException> {
+            runBlocking { client.op("setDoc", mapOf("path" to "rooms/a")) }
+        }
+        assertEquals(FirebaseFirestoreException.Code.UNAVAILABLE, error.code)
+        assertEquals(BridgeConnectionState.CLOSED, client.connectionState)
+        bridge.refuseConnections = false
+        delay(50)
+        assertTrue(bridge.ofType("worker-op").isEmpty())
     }
 
     @Test
