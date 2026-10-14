@@ -16,11 +16,12 @@ The product boundary is deliberate:
 
 `PRIORITIES.md` is law for proposed work, and `AGENTS.md` says so plainly:
 judge every proposal against the priority tests before starting it. As of
-2026-07-14 the priorities are Multi-tenancy and Impersonation, Top of Funnel,
-Simplification, Trust, Build Velocity, and Refactoring and Tech Debt. The
-season is explicitly not about building more; the npm alpha shipped and the
-feature set is the problem, so work that adds concepts without serving one of
-those tests waits.
+2026-10-14 the priorities, in order, are Ship the Node host (promote
+`pyric sandbox --hosted` to the npm `latest` tag), Ship multi-resource support
+across services (Firestore named databases and per-bucket Storage rules
+reaching the shape RTDB instances already have), Trust, Top of Funnel, and
+Build Velocity and Tech Debt. Multi-tenancy and Impersonation and
+Simplification are done.
 
 ## Workspace map
 
