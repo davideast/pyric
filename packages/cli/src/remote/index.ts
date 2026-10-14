@@ -1202,7 +1202,7 @@ function asRemoteError(err: unknown): Error & { code: string } {
  */
 export function createLazyRemoteSandbox(
   connect: (onConnectionLost: (reason: string) => void) => Promise<RemoteSandbox>,
-  options: { url?: string; configuredUrl?: string } = {},
+  options: { url?: string; configuredUrl?: string; warn?: (message: string) => void } = {},
 ): LazyRemoteSandbox {
   let inner: Promise<RemoteSandbox> | null = null;
   let connection = 0;
@@ -1220,7 +1220,7 @@ export function createLazyRemoteSandbox(
     if (!inner) {
       connection += 1;
       const id = connection;
-      inner = connect(() => connectionLost(id)).then(
+      inner = connect((reason) => connectionLost(id, reason)).then(
         (h) => {
           if (closed) {
             h.close();
@@ -1270,10 +1270,17 @@ export function createLazyRemoteSandbox(
     }
   }
 
-  function connectionLost(id: number): void {
+  function connectionLost(id: number, reason: string): void {
     const isCurrentConnection = id === connection && !closed;
     if (!isCurrentConnection) return;
     inner = null;
+    // Once per drop, not per retry: a listener whose host never returns does
+    // not wait silently, and a long outage does not flood the log.
+    const message =
+      `pyric: ${reason} at ${handle.serveUrl}; the next op connects again, ` +
+      'and live listeners reconnect when the host answers.';
+    if (options.warn) options.warn(message);
+    else process.stderr.write(`${message}\n`);
     for (const subscription of subscriptions) {
       subscription.detach = null;
       subscription.resumed = true;
