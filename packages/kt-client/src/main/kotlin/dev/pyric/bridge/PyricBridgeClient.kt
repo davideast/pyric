@@ -51,7 +51,7 @@ private const val CONNECTION_LOST =
 private const val POLICY_CLOSE_CODE = 1008
 private const val DISCONNECTED = "PyricBridgeClient disconnected."
 private const val AUTH_NOT_RESTORED =
-    "The bridge host was replaced and the Auth session could not be restored. The request was not sent."
+    "The bridge connection was restored, but the signed-in user could not be restored on the new host. The request was not sent."
 
 /**
  * WebSocket transport to the Pyric bridge.

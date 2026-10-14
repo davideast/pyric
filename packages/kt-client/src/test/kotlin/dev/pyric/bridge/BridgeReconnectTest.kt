@@ -79,8 +79,12 @@ class FakeReconnectBridge : BridgeTransportFactory {
         return socket
     }
 
+    /** Runs on the sending thread after each frame is recorded. */
+    @Volatile var onFrame: ((Map<String, Any?>) -> Unit)? = null
+
     fun record(frame: Map<String, Any?>, socket: FakeReconnectSocket) {
         frames.add(frame)
+        onFrame?.invoke(frame)
         if (frame["type"] == "attach" && autoAck) {
             val sessionId = frame["clientSessionId"] as? String ?: "session-1"
             val host = hostInstanceId
@@ -286,6 +290,41 @@ class BridgeReconnectTest {
     }
 
     @Test
+    fun `an operation issued after re-attach while held operations are being sent reaches the socket after them`() = runBlocking {
+        val client = client()
+        interrupt(client)
+        val a = scope.async { client.op("getDoc", mapOf("path" to "rooms/a")) }
+        delay(20)
+        val b = scope.async { client.op("getDoc", mapOf("path" to "rooms/b")) }
+        delay(30)
+
+        // Issues C from inside the send of A, while B is still held, and gives a
+        // C that skipped the queue time to reach the socket first.
+        val c = java.util.concurrent.atomic.AtomicReference<kotlinx.coroutines.Deferred<Any?>>()
+        val attachedAtIssue = java.util.concurrent.atomic.AtomicBoolean(false)
+        bridge.onFrame = { frame ->
+            @Suppress("UNCHECKED_CAST")
+            val path = (frame["op"] as? Map<String, Any?>)?.get("path")
+            if (frame["type"] == "worker-op" && path == "rooms/a" && c.get() == null) {
+                attachedAtIssue.set(client.isConnected)
+                c.set(scope.async { client.op("getDoc", mapOf("path" to "rooms/c")) })
+                Thread.sleep(100)
+            }
+        }
+        bridge.refuseConnections = false
+        until { bridge.ofType("worker-op").size == 3 }
+        assertTrue(attachedAtIssue.get(), "C is issued after re-attach")
+
+        val sent = bridge.ofType("worker-op")
+        @Suppress("UNCHECKED_CAST")
+        assertEquals(listOf("rooms/a", "rooms/b", "rooms/c"), sent.map { (it["op"] as Map<String, Any?>)["path"] })
+        sent.forEach { respond(it, it["id"]) }
+        assertEquals(sent[0]["id"], a.await())
+        assertEquals(sent[1]["id"], b.await())
+        assertEquals(sent[2]["id"], c.get().await())
+    }
+
+    @Test
     fun `an operation issued while restoring on a replaced host is sent after the Auth restore and the listener replay`() = runBlocking {
         val client = client()
         client.restoreAuth = { op -> op("auth.restorePortSession", mapOf("uid" to "u1", "tenantId" to null)) }
@@ -358,7 +397,10 @@ class BridgeReconnectTest {
         )
         val error = assertThrows<FirebaseFirestoreException> { runBlocking { held.await() } }
         assertEquals(FirebaseFirestoreException.Code.UNAVAILABLE, error.code)
-        assertTrue(error.message!!.contains("The request was not sent."), error.message)
+        assertEquals(
+            "The bridge connection was restored, but the signed-in user could not be restored on the new host. The request was not sent.",
+            error.message
+        )
 
         until { client.isConnected }
         until { bridge.subsFor("rooms/a").size == 2 }
