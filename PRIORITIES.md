@@ -14,6 +14,7 @@ The Node host is the one authoritative sandbox that browsers, Studio, `firebase-
 **Now:**
 - Reconcile the ledger: record which 3b and 3c items later work already closed, and list what is actually left
 - Run the phase 4 acceptance (multi-client, zero refusals under stable load) and commit the artifact (ledger I6, F1 to F4)
+- Host robustness found by real apps: close peers that go quiet so their `onDisconnect` runs (#965); hold operations issued during a reconnect (#968, amends ADR-0019)
 - Decide ledger H2: suppress or explain the `node:sqlite` experimental warning on first run
 - Revisit D2: the Node host page is back in Get started, so acceptance passes or the page comes out until it does
 - The Firestore named-database protocol change below lands before promotion, so the versioned worker protocol (ADR-0011) changes once
@@ -23,12 +24,13 @@ The Node host is the one authoritative sandbox that browsers, Studio, `firebase-
 
 **Test:** Does this let a project with more than one database, instance, or bucket run on pyric with each resource isolated as production isolates it, in data, rules, and SDK selection, on every plane?
 
-RTDB instances show the full shape: `firebase.json` declares them, each gets its own data and rules, client and admin handles select by URL, denials name the instance, and the in-page sandbox, the SharedWorker host, and the Node host agree. Each remaining resource reaches that shape, or names its gap in the conformance registry.
+RTDB instances are closest to the full shape: `firebase.json` declares them, each gets its own data and rules, client and admin handles select by URL, denials name the instance, and the in-page sandbox, the SharedWorker host, and the Node host agree. The service tools and `pyric verify` still assume the default instance. Each remaining resource reaches that shape, or names its gap in the conformance registry.
 
 **Counts:** Firestore named databases end to end (`getFirestore(app, databaseId)` on the client and in `pyric-admin`, the rules `database` variable, the worker protocol, the host store); Storage rules per bucket from `firebase.json` targets; naming the resource in denials, Studio, and the runtime chip; differential tests across planes for each resource; flipping the `Named databases` rows in `packages/conformance/registry/firestore.ts`.
 **Doesn't count:** more than one Firebase project or configuration in one runtime (rejected by design); provisioning resources; resource kinds no reported app uses.
 
 **Now:**
+- RTDB instances in `pyric database <method>`, the MCP `database` tool, and `pyric verify` (#967)
 - Firestore named databases: carry a database id in the worker protocol, as a versioned change, before the Node host reaches `latest`
 - Firestore named databases: per-database data and rules from the `firestore` array in `firebase.json`, on all three planes and in `pyric-admin`
 - Storage: per-bucket rules from `storage` targets, replacing the one implicit bucket in `packages/cli/src/serve/rules.ts`
