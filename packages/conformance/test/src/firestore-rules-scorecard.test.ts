@@ -12,6 +12,9 @@ import {
   firestoreUniverseHash,
 } from '../../src/firestore-rules-scorecard.ts';
 
+// Loading the whole conformance graph takes about 3 s on a CI runner and up to 7 s on a slow one.
+const FULL_GRAPH_TIMEOUT_MS = 20_000;
+
 function construct(id: string, status: LanguageConstruct['status'] = 'accepted'): LanguageConstruct {
   return {
     id, kind: 'function', engine: 'firestore', reference: 'test', status,
@@ -196,7 +199,7 @@ describe('Firestore Rules scorecard', () => {
       localCapability: { implemented: 128, unsupported: 0, error: 9, unprobeable: 3 },
       productionEvidence: { verified: 137, diverged: 0, unverified: 3 },
     });
-  });
+  }, FULL_GRAPH_TIMEOUT_MS);
 });
 
 describe('Firestore Rules scorecard CDD completeness', () => {
@@ -238,7 +241,7 @@ describe('Firestore Rules scorecard CDD completeness', () => {
       expect(construct.localCapability).toBeTruthy();
       expect(construct.productionEvidence).toBeTruthy();
     }
-  });
+  }, FULL_GRAPH_TIMEOUT_MS);
 
   it('classifies every non-conforming row with a reviewed disposition', () => {
     for (const row of rows.filter(({ status }) => status !== 'conforms')) {
