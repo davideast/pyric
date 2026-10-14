@@ -133,6 +133,10 @@ public actor PyricBridgeClient {
     private var pendingOps: [String: PendingOp] = [:]
     /// Operations issued while not attached, in issue order.
     private var heldOps: [HeldOp] = []
+    /// True from an attach until its held operations are all sent. A new
+    /// operation issued meanwhile joins the end of the held queue, so every
+    /// operation reaches the socket in issue order.
+    private var drainingHeldOps = false
     private var activeSubs: [String: ActiveSub] = [:]
 
     public init(
@@ -379,6 +383,8 @@ public actor PyricBridgeClient {
             sub.awaitsRestoredValue = sub.lastValue != nil
             activeSubs[subId] = sub
         }
+        // New operations queue behind held ones until the held queue is drained.
+        drainingHeldOps = true
         isConnected = true
         setState(.attached)
         for (subId, sub) in restored.sorted(by: { $0.key < $1.key }) {
@@ -408,6 +414,7 @@ public actor PyricBridgeClient {
         connectionGeneration += 1
         connectTask = nil
         isConnected = false
+        drainingHeldOps = false
         attachDeadlineTask?.cancel()
         attachDeadlineTask = nil
         receiveTask?.cancel()
@@ -474,7 +481,8 @@ public actor PyricBridgeClient {
         if isDisposed {
             throw PyricBridgeError.unavailable("PyricBridgeClient has been disposed.")
         }
-        if isConnected {
+        let acceptsNewOps = isConnected && !drainingHeldOps
+        if acceptsNewOps {
             return try await dispatchOp(method: method, params: params, actAs: actAs, timeout: timeout)
         }
         guard canReopen else {
@@ -580,7 +588,7 @@ public actor PyricBridgeClient {
     /// never starts one ahead of the schedule.
     private func startAttemptIfIdle() {
         let attemptPending = connectTask != nil || reconnectTask != nil
-        guard !attemptPending else { return }
+        guard !attemptPending, !isConnected else { return }
         let attempt = startAttempt()
         Task { _ = try? await attempt.value }
     }
@@ -591,14 +599,18 @@ public actor PyricBridgeClient {
         held.continuation.resume(throwing: PyricBridgeError.unavailable(holdExpiredMessage))
     }
 
-    /// Sends held operations once, in issue order. An operation still held
-    /// when the connection drops again stays held under its deadline.
+    /// Sends held operations once, in issue order, including any issued while
+    /// this runs. An operation still held when the connection drops again
+    /// stays held under its deadline.
     private func sendHeldOperations(generation: Int) async {
         while isCurrent(generation), isConnected, !heldOps.isEmpty {
             let held = heldOps.removeFirst()
             held.deadlineTask.cancel()
             registerPendingOp(id: held.id, method: held.method, timeout: held.timeout, continuation: held.continuation)
             await sendOpFrame(id: held.id, payload: held.payload)
+        }
+        if isCurrent(generation) {
+            drainingHeldOps = false
         }
     }
 
@@ -1009,6 +1021,7 @@ public actor PyricBridgeClient {
     public func disconnect() async {
         isDisposed = true
         isConnected = false
+        drainingHeldOps = false
         connectionGeneration += 1
         connectTask = nil
         reconnectTask?.cancel()
