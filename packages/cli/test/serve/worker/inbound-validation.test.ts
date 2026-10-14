@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { assertOperationArguments } from '../../../src/serve/worker/inbound-validation/operation-arguments.js';
+import { assertListenerOwners } from '../../../src/serve/worker/inbound-validation/listener-owners.js';
 
 const operationArgumentsPath = fileURLToPath(
   new URL('../../../src/serve/worker/inbound-validation/operation-arguments.ts', import.meta.url),
@@ -81,3 +82,16 @@ for (const { method, valid, malformed } of storageArgumentShapes) {
     }
   });
 }
+
+test('a listener frame owner may carry the application frames around it', () => {
+  const frame = { file: '/src/db.js', line: 5, column: 10, function: 'watch' };
+  const owner = { kind: 'frame', ...frame, stack: [frame, { file: '/src/room-list.js', line: 5 }] };
+  expect(() => assertListenerOwners([owner])).not.toThrow();
+});
+
+test('a listener frame owner refuses a malformed frame stack', () => {
+  const frame = { kind: 'frame', file: '/src/db.js', line: 5 };
+  for (const stack of ['/src/db.js:5', [{ file: '/src/db.js' }], [{ file: 5, line: 5 }], [{ file: '/src/db.js', line: 5, function: 1 }]]) {
+    expect(() => assertListenerOwners([{ ...frame, stack }])).toThrow('owner.stack');
+  }
+});

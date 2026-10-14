@@ -16,6 +16,7 @@
  */
 import {
   callerFrameFromStack,
+  captureAttachStack,
   listenerAttributionEnabled,
   tagOwnerFor,
 } from 'pyric/sandbox/internal';
@@ -81,10 +82,13 @@ export function pageListenerOwners(
   return owners;
 }
 
-/** The application frame that opened the listener, read from this call's stack. */
+/**
+ * The application frame that opened the listener, read from this call's
+ * stack, with the frames around it the project's owner-frame policy keeps.
+ */
 function pageCreationFrame(): ListenerOwner | undefined {
   if (!listenerAttributionEnabled()) return undefined;
-  const stack = new Error().stack;
-  if (typeof stack !== 'string') return undefined;
+  const stack = captureAttachStack();
+  if (stack === undefined) return undefined;
   return callerFrameFromStack(callerStack(stack));
 }

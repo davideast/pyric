@@ -215,6 +215,34 @@ describe('client↔host round-trip (gate repro)', () => {
     }
   });
 
+  it('carries the page-side frame stack across the port, worker client frames left out', async () => {
+    const ctx = await makeHostCtx();
+    const { db } = connectClientToHost(ctx, 'worker://owner-stack');
+    const auth = client.getAuth(db);
+    await client.createUserWithEmailAndPassword(auth, 'stack@example.com', 'pw123456');
+    // Not tail calls: JavaScriptCore drops a tail caller's frame.
+    function watchRoom(): () => void {
+      const stops = [rtdbOnValue(rtdbRef(rtdbGetDatabase(db), 'rooms/stack'), () => {}, () => {}, { owner: 'stack-panel' })];
+      return stops[0]!;
+    }
+    function listRooms(): () => void {
+      const stops = [watchRoom()];
+      return stops[0]!;
+    }
+    const unsubscribe = listRooms();
+    await sleep();
+    unsubscribe();
+
+    const attach = ctx.sandbox.history().find((event) => {
+      const owners = (event as { owners?: Array<Record<string, unknown>> }).owners ?? [];
+      return owners.some((owner) => owner.kind === 'tag' && owner.name === 'stack-panel');
+    }) as { owners: Array<{ kind: string; function?: string; stack?: Array<{ file: string; function?: string }> }> } | undefined;
+    const frame = attach?.owners.find((owner) => owner.kind === 'frame');
+    expect(frame?.function).toBe('watchRoom');
+    expect(frame?.stack?.slice(0, 2).map((entry) => entry.function)).toEqual(['watchRoom', 'listRooms']);
+    expect(frame?.stack?.every((entry) => !entry.file.includes('/serve/worker/client/'))).toBe(true);
+  });
+
   it('excludes split transaction reads from activity warnings', async () => {
     const ctx = await makeHostCtx();
     const { a: clientPort, b: hostPort } = portPair();
