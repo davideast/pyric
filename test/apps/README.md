@@ -59,13 +59,14 @@ The dev server port comes from the command line, which overrides any `server.por
 
 | Helper | What it does |
 |---|---|
-| `app.devServer({ env })` | Starts `vite` from the app's `node_modules` and waits until `/` and `/__pyric/init.json` answer. Returns `{ url, port, process }`. |
+| `app.devServer({ env, port })` | Starts `vite` from the app's `node_modules` on a free port, or on `port`, and waits until `/` and `/__pyric/init.json` answer. Returns `{ url, port, process }`. Pass the port of a stopped server to bring a host back on the same URL. |
 | `app.serverScript(script, args, { env })` | Runs the script under `node --import @pyric/cli/register` until it exits. Throws on a non-zero exit. |
 | `app.page(url)` | Opens a page in the app's browser context. |
 | `app.browser()` | The app's browser context, for routes that answer external requests. |
 | `process.waitForLog(pattern, { since })` | Waits for a log line. `process.mark()` gives the `since` offset. |
 | `app.readFile` / `app.writeFile` | Read or edit a file in the installed app, for example `vite.config.js`. |
 | `app.freePort()` | A port nothing listens on. |
+| `app.browserLog` | Every page's console lines, page errors, and error responses so far, for asserting what a user would see in the console. |
 | `app.expectHostError(pattern)` | Allows a page request to a `/__pyric/` route to answer with an error, matched against `"<status> <method> <path>?<query>"`. |
 
 A page request that a `/__pyric/` route answers with a 4xx or 5xx status fails the app after its scenario finishes, even when every step passed. A user sees those errors in the browser console on every page load, so a scenario that triggers one on purpose, such as a download URL with the wrong token, declares it with `app.expectHostError` just before the request.
