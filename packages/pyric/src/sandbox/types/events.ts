@@ -486,6 +486,9 @@ export interface SandboxOperationEvent {
   id: string;
   at: number;
   service: EventService;
+  /** RTDB only: the name of the database instance the operation hit. Absent
+   *  for the default instance, as the worker protocol's `instance` field is. */
+  instance?: string;
   method: string;
   path?: string;
   auth: AuthState;
@@ -539,6 +542,9 @@ export interface SandboxCommitEvent {
   id: string;
   at: number;
   service: EventService;
+  /** RTDB only: the name of the database instance the commit changed. Absent
+   *  for the default instance, as the worker protocol's `instance` field is. */
+  instance?: string;
   method: string;
   path?: string;
   auth: AuthState;
@@ -565,6 +571,9 @@ export interface SandboxListenerEvent {
   id: string;
   at: number;
   service: EventService;
+  /** RTDB only: the name of the database instance the listener reads. Absent
+   *  for the default instance, as the worker protocol's `instance` field is. */
+  instance?: string;
   phase: 'attach' | 'detach' | 'delivery' | 'suppressed' | 'errored';
   listenerId: string;
   target: {

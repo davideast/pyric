@@ -30,8 +30,8 @@ export class BackendState {
    */
   readonly clock: SandboxClock;
 
-  constructor(sandbox?: Sandbox) {
-    this.events = new OperationEvents(sandbox);
+  constructor(sandbox?: Sandbox, instance?: string) {
+    this.events = new OperationEvents(sandbox, instance);
     this.clock = sandbox ? getClock(sandbox) : new SandboxClock();
     this.rules = new RulesEvaluator(this.clock);
   }
