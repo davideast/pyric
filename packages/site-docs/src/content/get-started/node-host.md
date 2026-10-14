@@ -171,6 +171,15 @@ The script's `firebase-admin` imports are intercepted and connect to the local s
 - **Buckets**: `storage.bucket()` is the bucket your app's `storageBucket` option names, and the page's `getStorage(app)` names it the same way. That bucket is the host's default bucket, so its byte route URLs work under either name. `storage.bucket('<name>')` is a bucket of its own: its objects stay apart from the default bucket's, and `file.copy()` copies between buckets with the object's metadata.
 - **Resumable upload sessions**: `file.createResumableUpload({ metadata, origin })` returns a session URL on the byte route. A browser sends the bytes with one `PUT`, or with `Content-Range` slices whose first slice names the total size. The object is created with `metadata` when the last byte arrives. The URL accepts cross-origin requests from `origin`. A slice whose total is `*` is refused with `400`, because the session needs its size up front.
 - **References from URLs**: `ref(storage, url)` takes the host's download URL, a `gs://` URL, or a production download URL and gives the reference at the URL's path, so `deleteObject(ref(storage, url))` deletes the object an app kept the URL for. In the page, the reference is on the default bucket whichever bucket the URL names.
+- **Production download URLs**: A server that stored download URLs from production can turn each one into the host's URL for the same object with `localStorageUrl` from `@pyric/cli/remote`. It accepts `https://firebasestorage.googleapis.com/v0/b/<bucket>/o/<path>?alt=media&token=<token>` and `https://storage.googleapis.com/<bucket>/<path>`, keeps the bucket, the path and the token, and returns `undefined` for any other URL. The host serves the local URL when the object exists in that bucket with that token in its `firebaseStorageDownloadTokens` metadata. The URL's bucket is the host's default bucket only when your app's `storageBucket` names it. A `storage.googleapis.com` URL carries no token, so the host refuses its local URL with `403` unless you add `token=<token>` to it.
+
+  ```js
+  import { localStorageUrl } from "@pyric/cli/remote";
+
+  const stored = "https://firebasestorage.googleapis.com/v0/b/demo-app.appspot.com/o/public%2Fhello.txt?alt=media&token=tok-1";
+  localStorageUrl(stored, "http://localhost:5173");
+  // "http://localhost:5173/__pyric/storage/v0/b/demo-app.appspot.com/o/public%2Fhello.txt?alt=media&token=tok-1"
+  ```
 - **Resumable uploads**: An upload is a `PUT` that continues from an offset with `Content-Range`, so `uploadBytesResumable` reports real progress and can pause and resume.
 
 ### Storage metadata repair warning

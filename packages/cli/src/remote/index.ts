@@ -97,6 +97,10 @@ function noTabError(serveUrl: string): Error & { code: string } {
   );
 }
 
+/** An app server that persisted a production download URL asks for the URL the
+ *  host it reaches serves for the same object. */
+export { localStorageUrl } from './local-storage-url.js';
+
 // ─── Public types ──────────────────────────────────────────────────────────
 
 export interface ConnectRemoteSandboxOptions {
