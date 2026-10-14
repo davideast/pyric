@@ -452,4 +452,64 @@ void main() {
       expect(bridge.ofType('worker-op'), isEmpty);
     });
   });
+
+  group('a drop during the Auth restore on a replaced host', () {
+    /// Attaches to host-a, then re-attaches to a replaced host-b whose Auth
+    /// restore is in flight.
+    Future<PyricBridgeClient> replacedHostRestoring() async {
+      final client = createClient();
+      client.restoreAuth = (op) async {
+        await op('auth.restorePortSession', {'uid': 'u1', 'tenantId': null});
+      };
+      await client.connect();
+      bridge.hostInstanceId = 'host-b';
+      bridge.current.drop();
+      await until(() => opsNamed('auth.restorePortSession').isNotEmpty);
+      return client;
+    }
+
+    test('restores Auth on the next attach to that host', () async {
+      final client = await replacedHostRestoring();
+      bridge.current.drop();
+
+      await until(() => opsNamed('auth.restorePortSession').length == 2);
+      final retried = bridge.opNamed('auth.restorePortSession');
+      expect((retried['op'] as Map)['uid'], 'u1');
+      reply(retried, {'uid': 'u1'});
+      await until(() => client.isConnected);
+    });
+
+    test('an operation held across it is sent once, after the restore completes', () async {
+      final client = await replacedHostRestoring();
+      final write = client.op('setDoc', {'path': 'rooms/b'});
+      await settle();
+      bridge.current.drop();
+
+      await until(() => opsNamed('auth.restorePortSession').length == 2);
+      await settle();
+      expect(opsNamed('setDoc'), isEmpty, reason: 'held until the restore finishes');
+
+      final restore = bridge.opNamed('auth.restorePortSession');
+      reply(restore, {'uid': 'u1'});
+      await until(() => opsNamed('setDoc').isNotEmpty);
+      final frames = bridge.frames;
+      expect(frames.indexOf(bridge.opNamed('setDoc')), greaterThan(frames.indexOf(restore)));
+      reply(bridge.opNamed('setDoc'), 'done');
+      expect(await write, 'done');
+      await settle();
+      expect(opsNamed('setDoc'), hasLength(1));
+    });
+
+    test('a resume to the same host after a completed restore does not restore Auth again', () async {
+      final client = await replacedHostRestoring();
+      reply(bridge.opNamed('auth.restorePortSession'), {'uid': 'u1'});
+      await until(() => client.isConnected);
+
+      bridge.current.drop();
+      await until(() => bridge.ofType('attach').length == 3);
+      await until(() => client.isConnected);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(opsNamed('auth.restorePortSession'), hasLength(1));
+    });
+  });
 }
