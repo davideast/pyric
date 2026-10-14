@@ -111,3 +111,36 @@ test('a Vite server persisting browser state restarts from restart() and from a 
   expect(report.afterConfigEdit?.replacedInstance).toBe(true);
   expect(report.afterConfigEdit?.init).toBe(200);
 }, 120_000);
+
+interface RemoteClientReport {
+  failure?: string;
+  values: unknown[];
+  listenerErrors: string[];
+  failedWritesAfterRestart: number;
+  listenedBefore?: boolean;
+  restarted?: boolean;
+  wroteAfterRestart?: boolean;
+  readAfterRestart?: unknown;
+  listenedAfter?: boolean;
+}
+
+test('a remote client attached to a hosted Vite server keeps working after a config edit restarts it', () => {
+  const app = writeProject('{ hosted: true }');
+  const script = new URL('./fixtures/vite-restart-remote-client.mjs', import.meta.url).pathname;
+  const result = spawnSync(process.env.PYRIC_TEST_NODE ?? 'node', [script, app], { encoding: 'utf8', timeout: 90_000 });
+  const exitedCleanly = result.status === 0;
+  if (!exitedCleanly) throw new Error(`remote client fixture failed (${result.status}): ${result.stderr}`);
+  const report = JSON.parse(result.stdout.trim().split('\n').at(-1) ?? '') as RemoteClientReport;
+
+  expect(report.failure).toBeUndefined();
+  expect(report.listenedBefore).toBe(true);
+  expect(report.restarted).toBe(true);
+  // Ops after the restart reach the new generation on the same url.
+  expect(report.wroteAfterRestart).toBe(true);
+  expect(report.readAfterRestart).toBe('after restart');
+  // The listener was resubscribed rather than ended.
+  expect(report.listenerErrors).toEqual([]);
+  expect(report.listenedAfter).toBe(true);
+  // Its first value after the restart equals the last one before it, so it is not raised again.
+  expect(report.values).toEqual([null, 'before restart', 'after restart']);
+}, 120_000);
