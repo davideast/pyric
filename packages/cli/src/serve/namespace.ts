@@ -348,7 +348,7 @@ async function handleCapture(
 // dispatches through a table instead of a cascade.
 //
 // A denied listener re-fires on every auth/rules change, so printing is
-// throttled per (path, message) pair — at most one line per window, and
+// throttled per (RTDB instance, path, message) — at most one line per window, and
 // silent (no output at all) on suppression rather than a "suppressed N more"
 // line, to keep this a diagnostics side channel, not its own log noise.
 
@@ -377,8 +377,8 @@ interface DenialRelayPayload {
   } | null;
 }
 
-/** Per-dev-server-instance throttle: at most one printed line per (path,
- *  message) pair within {@link DENIAL_THROTTLE_MS}. Exported for unit tests. */
+/** Per-dev-server-instance throttle: at most one printed line per key within
+ *  {@link DENIAL_THROTTLE_MS}. Exported for unit tests. */
 export function createDenialThrottle(windowMs: number = DENIAL_THROTTLE_MS): {
   /** `window` overrides the throttle's window for this key; `Infinity` prints once. */
   shouldPrint(key: string, now: number, window?: number): boolean;
@@ -471,7 +471,9 @@ async function handleDenials(
     } else {
       const target = payload.denialContext?.request?.path ?? '';
       const reason = typeof payload.message === 'string' ? payload.message : 'permission denied';
-      const key = `${target}${THROTTLE_KEY_SEPARATOR}${reason}`;
+      // The same path can be denied on one RTDB instance and allowed on another, so each instance prints.
+      const instance = typeof payload.instance === 'string' ? payload.instance : '';
+      const key = `${instance}${THROTTLE_KEY_SEPARATOR}${target}${THROTTLE_KEY_SEPARATOR}${reason}`;
       if (logger && throttle.shouldPrint(key, Date.now())) {
         logger.note(formatDenialBlock(payload));
       }
