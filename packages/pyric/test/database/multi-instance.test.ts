@@ -10,6 +10,7 @@ import {
   TARGET_SYMBOL,
 } from '../../src/database/index.js';
 import { setRules, setDefaultPolicy } from '../../src/database/sandbox-controls.js';
+import { heldDatabaseInstances } from '../../src/database/internal.js';
 
 describe('RTDB Multi-Instance Isolation & Routing', () => {
   it('maintains independent DataTree storage across instances', async () => {
@@ -261,5 +262,30 @@ describe('RTDB Multi-Instance Isolation & Routing', () => {
     // Cross-check that neither instance contains the other's data
     expect((await get(ref(defaultDb2, 'secondary/item'))).val()).toBeNull();
     expect((await get(ref(secDb2, 'default/item'))).val()).toBeNull();
+  });
+});
+
+describe('heldDatabaseInstances', () => {
+  it('names each named instance a sandbox holds, without the default', () => {
+    const sandbox = initializeSandbox();
+    expect(heldDatabaseInstances(sandbox)).toEqual([]);
+    getDatabase(sandbox);
+    getAdminDatabase(sandbox, 'https://shard-00.firebaseio.com');
+    getDatabase(sandbox, 'shard-01');
+    expect(heldDatabaseInstances(sandbox)).toEqual(['shard-00', 'shard-01']);
+  });
+
+  it('names the instances restored from saved state before any handle opens them', async () => {
+    const backend = createMemoryBackend();
+    const first = initializeSandbox();
+    await first.enablePersistence({ key: 'held-instances', injectedBackend: backend });
+    const shard = getAdminDatabase(first, 'shard-00');
+    await set(ref(getAdminDatabase(first), 'a'), 1);
+    await set(ref(shard, 'a'), 2);
+    await first.flush();
+
+    const second = initializeSandbox();
+    await second.enablePersistence({ key: 'held-instances', injectedBackend: backend });
+    expect(heldDatabaseInstances(second)).toEqual(['shard-00']);
   });
 });
