@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:collection/collection.dart';
+import 'package:meta/meta.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../auth/auth_lens.dart';
@@ -43,6 +44,7 @@ class BridgeSubscriptionGap {
 
 const String _connectionLost =
     'The bridge connection was lost. Requests already sent may have completed; check state before retrying.';
+const Duration _holdDeadline = Duration(seconds: 10);
 const int _policyCloseCode = 1008;
 const int _maxReconnectDelayMs = 5000;
 final math.Random _jitterSource = math.Random();
@@ -95,6 +97,12 @@ class PyricBridgeClient {
 
   /// An attempt that has not attached within this time counts as failed.
   final Duration attachTimeout;
+
+  /// Test-only: how long an operation issued while not attached is held. The
+  /// deadline is fixed at 10 seconds (ADR-0019 decision 7); this is not a user
+  /// setting.
+  @visibleForTesting
+  Duration holdDeadline = _holdDeadline;
 
   /// Runs on a re-attach to a replaced host, before listens are re-sent.
   BridgeAuthRestorer? restoreAuth;
