@@ -34,7 +34,9 @@ describe('rtdb event record', () => {
 describe('rtdb events name the instance they hit', () => {
   const OPEN = { rules: { '.read': true, '.write': true } };
 
-  /** The operation, commit and listener events of one listener, one app write and one admin write. */
+  const KINDS = new Set(['operation', 'commit', 'listener', 'service_mutation']);
+
+  /** The operation, commit, listener and mutation events of one listener, one app write and one admin write. */
   async function eventsOf(url?: string): Promise<SandboxEvent[]> {
     const sandbox = initializeSandbox();
     const db = getDatabase(sandbox, url);
@@ -44,19 +46,18 @@ describe('rtdb events name the instance they hit', () => {
     await set(ref(getAdminDatabase(sandbox, url), 'rooms/r2'), { name: 'two' });
     unsubscribe();
     return sandbox.history().filter((event) =>
-      (event.kind === 'operation' || event.kind === 'commit' || event.kind === 'listener')
-      && event.service === 'rtdb');
+      KINDS.has(event.kind) && 'service' in event && event.service === 'rtdb');
   }
 
-  it('stamps the instance name on the operation, commit and listener events of a named instance', async () => {
+  it('stamps the instance name on the operation, commit, listener and mutation events of a named instance', async () => {
     const events = await eventsOf('https://shard-00.firebaseio.com');
-    expect(new Set(events.map((event) => event.kind))).toEqual(new Set(['operation', 'commit', 'listener']));
+    expect(new Set(events.map((event) => event.kind))).toEqual(KINDS);
     for (const event of events) expect(event).toMatchObject({ instance: 'shard-00' });
   });
 
   it('leaves the field off every event of the default instance', async () => {
     const events = await eventsOf();
-    expect(new Set(events.map((event) => event.kind))).toEqual(new Set(['operation', 'commit', 'listener']));
+    expect(new Set(events.map((event) => event.kind))).toEqual(KINDS);
     for (const event of events) expect(Object.hasOwn(event, 'instance')).toBe(false);
   });
 

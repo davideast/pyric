@@ -93,7 +93,7 @@ export class OperationEvents {
     try {
       emitSandboxEvent(this.sandbox, makeServiceMutationEvent({
         at: getClock(this.sandbox).now(),
-        service: 'rtdb', op, path, auth,
+        service: 'rtdb', ...this.instanceField, op, path, auth,
         before: fields.before, after: fields.after, detail: fields.detail,
       }), { service: 'rtdb' });
     } catch { /* telemetry is observational */ }
