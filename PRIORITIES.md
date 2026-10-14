@@ -1,92 +1,74 @@
 # Priorities
 
-As of 2026-07-14. pyric shipped its npm alpha and the feature set works — that is the problem. The first real user, a Firebase expert, loved the prototype tab, opened the docs, and backed off: overwhelmed by how much was there. They wanted a Vite plugin and didn't know one already existed; they later asked for a verify-before-production capability that also already existed. The system is objectively strong and subjectively too much. This season is not about building more. It is about making what exists easy to enter, simple to hold in your head, and safe to trust — and nothing else. When a proposal doesn't serve one of the three, it waits.
+As of 2026-10-14. Multi-tenancy and Impersonation is done: tenant claims reach every rules engine, and the runtime chip switches between the app session, Admin bypass, and impersonated users with tenants and claims. Simplification is done. What remains is shipping what is built. The Node host is the backend every client shares, and it is still behind the `next` tag. Real Firebase projects have more than one database, instance, or bucket, and only RTDB instances are modeled end to end. Those two come first, in that order. Trust runs alongside both. When a proposal serves none of the tests below, it waits.
 
-## Multi-tenancy and Impersonation
+## Ship the Node host
 
-**Test:** Does this enable developers to test multi-tenant boundaries or switch and impersonate authenticated tenant identities during local development and testing without manual token manipulation?
+**Test:** Does this move `pyric sandbox --hosted` closer to shipping under the npm `latest` tag, or keep it shippable once it is there?
 
-The multi-tenant and impersonation capability: Firebase projects serving enterprise or SaaS customers rely on Google Cloud Identity Platform multi-tenancy (`request.auth.token.firebase.tenant`) and rapid user switching. Developers need the local runtime and security rules engine to natively isolate tenant scopes, evaluate tenant claims without verbose manual token mocking, and seamlessly switch active impersonation identities in the UI.
+The Node host is the one authoritative sandbox that browsers, Studio, `firebase-admin` child processes, the service CLI, `pyric mcp`, and native clients share. It ships when the bar in `docs/hosted-release-plan.md` is met: acceptance evidence that runs in CI, no open blocker in `docs/hosted-review-ledger.md`, a quiet period on `next`, then `latest`.
 
-**Counts:** normalizing tenant identity claims (`request.auth.token.firebase.tenant`) across the rules engine and sandbox; runtime UI controls and accessible modals to switch, impersonate, or inspect tenant identities; persisting active impersonation lenses across reloads; characterization tests for multi-tenant rules evaluation.
-**Doesn't count:** server-side multi-tenant provisioning outside the local dev sandbox; custom identity providers or OAuth redirection flows; aesthetic UI redesigns that do not advance identity switching.
+**Counts:** issues in the Node host milestone; open ledger items; the phase 4 acceptance run and its committed artifact; hosted suites as required CI jobs; first-run polish on the hosted path; bugs that app scenarios (`test/apps/`) find on the host.
+**Doesn't count:** new hosted features before promotion (undo history and live mode stay parked, as ruled in D1 and D3); SharedWorker-only work; performance work without a failing acceptance ceiling behind it.
 
 **Now:**
-- Token normalization: support explicit `tenant` on `AuthState` and `AuthLens` and normalize `request.auth.token.firebase.tenant` in sandbox context assembly (assessment e3fc2b8d)
-- Accessible Modal primitive: promote and harden focus-trapping `Modal` in `@pyric/ui/primitives` with focus restoration
-- Client transport lens persistence: hydrate and persist auth lens in `sessionStorage` (`pyric:auth-lens`) and provide reactive subscription API
-- Runtime chip impersonation: embed accessible dialog in runtime chip Shadow DOM to switch between App Session, Admin Bypass, and Impersonated User with tenant and claims
+- Reconcile the ledger: record which 3b and 3c items later work already closed, and list what is actually left
+- Run the phase 4 acceptance (multi-client, zero refusals under stable load) and commit the artifact (ledger I6, F1 to F4)
+- Decide ledger H2: suppress or explain the `node:sqlite` experimental warning on first run
+- Revisit D2: the Node host page is back in Get started, so acceptance passes or the page comes out until it does
+- The Firestore named-database protocol change below lands before promotion, so the versioned worker protocol (ADR-0011) changes once
+- Quiet period on `next`, then promote to `latest`
 
+## Ship multi-resource support across services
+
+**Test:** Does this let a project with more than one database, instance, or bucket run on pyric with each resource isolated as production isolates it, in data, rules, and SDK selection, on every plane?
+
+RTDB instances show the full shape: `firebase.json` declares them, each gets its own data and rules, client and admin handles select by URL, denials name the instance, and the in-page sandbox, the SharedWorker host, and the Node host agree. Each remaining resource reaches that shape, or names its gap in the conformance registry.
+
+**Counts:** Firestore named databases end to end (`getFirestore(app, databaseId)` on the client and in `pyric-admin`, the rules `database` variable, the worker protocol, the host store); Storage rules per bucket from `firebase.json` targets; naming the resource in denials, Studio, and the runtime chip; differential tests across planes for each resource; flipping the `Named databases` rows in `packages/conformance/registry/firestore.ts`.
+**Doesn't count:** more than one Firebase project or configuration in one runtime (rejected by design); provisioning resources; resource kinds no reported app uses.
+
+**Now:**
+- Firestore named databases: carry a database id in the worker protocol, as a versioned change, before the Node host reaches `latest`
+- Firestore named databases: per-database data and rules from the `firestore` array in `firebase.json`, on all three planes and in `pyric-admin`
+- Storage: per-bucket rules from `storage` targets, replacing the one implicit bucket in `packages/cli/src/serve/rules.ts`
+- Extend the RTDB differential runner to named databases and buckets
+
+## Trust
+
+**Test:** Does this help a user judge whether they can rely on pyric: its contract, its gaps, or its path to production?
+
+Two halves. Conformance states the contract and the gaps openly, proven and open-sourced for scrutiny. Assurance is how a user goes from pyric to production with confidence (`pyric verify` and the assurance system). Trust is ongoing: each host behavior and each new resource lands with the evidence that states it.
+
+**Counts:** conformance chain, gap documentation, open evidence; assurance and verify features and their discoverability; anything that lets a user see what pyric guarantees and where it stops.
+**Doesn't count:** new mirror features (they expand the contract, they do not help a user judge it); chasing exotic-feature fidelity no reported app has hit (documenting the gap beats closing it silently).
+
+**Now:**
+- Make `pyric verify` discoverable (#133)
+- Registry rows for every Node host and multi-resource behavior that ships under the two priorities above
 
 ## Top of Funnel
 
 **Test:** Does this reduce what a new user must learn or do before their first success with pyric?
 
-The on-ramp: the CLI working reliably across platforms, the agent plugins, the Vite-plugin path, and the README/docs messaging that carries someone from "curious" to "it works" without a stumble. Measured in time-to-first-win, not feature count.
+The on-ramp: the CLI working reliably across platforms, the agent plugins, the Vite-plugin path, and the README and docs that carry someone from "curious" to "it works" without a stumble. Measured in time to first win, not feature count.
 
-**Counts:** CLI reliability and cross-platform fixes; the getting-started path; agent/plugin onboarding; README and getting-started messaging; removing install friction (npx weight, doc bugs).
-**Doesn't count:** conceptual restructuring of the whole system (that is Simplification); anything that adds a step or a decision to the first run.
+**Counts:** CLI reliability and cross-platform fixes; the getting-started path; agent and plugin onboarding; README and getting-started messaging; removing install friction.
+**Doesn't count:** anything that adds a step or a decision to the first run.
 
 **Now:**
 - Vite-plugin hero path, documented as a first-class entry (#124)
 - `pyric sandbox` opens Studio by default; context-aware landing (#125)
-- CLI cross-platform reliability, Windows cold-start first (#126)
-- npx cold-start diet (lazy-load the agent ML stack; ~924MB today) (#127)
-- Agent-first path (plugin → bridge) covered end to end (#128)
-- No-SharedWorker / older-Safari fallback and signpost (#129)
+- CLI cross-platform reliability, Windows cold start first (#126)
+- npx cold-start diet (#127)
+- Agent-first path (plugin to bridge) covered end to end (#128)
+- No-SharedWorker and older-Safari fallback and signpost (#129)
 
-## Simplification
+## Build Velocity and Tech Debt
 
-**Test:** Does this reduce the number of concepts pyric exposes at once, or defer a concept until the user needs it?
+**Test:** Does this measurably shorten the time from a change to trustworthy feedback, or remove demonstrated maintenance friction, without weakening validation or growing the user-facing surface?
 
-The foundational one. Take the feature inventory and find the smallest taxonomy that explains it: teach the top level first, reveal sub-concepts only when the user's own question demands them. Progressive disclosure over a feature list. The goal is that a newcomer feels pyric is small, and discovers its depth only as they reach for it.
+Sustaining work. Optimize measured bottlenecks in the loops developers run most, and pay down debt that repeatedly slows or destabilizes the priorities above. Record the symptom and the verification plan before starting.
 
-**Counts:** taxonomy and concept-hierarchy work; progressive-disclosure docs restructuring; collapsing, hiding, or unifying concepts; naming that reduces surface.
-**Doesn't count:** adding a new "simple" wrapper or convenience layer over the complex parts — that ADDS a concept and fails the test however friendly it looks; polishing the first-run path (that is Top of Funnel).
-
-**Now:**
-- The taxonomy pass: minimal concept hierarchy, taught-first vs disclosed-on-demand (#130)
-- Docs restructured around that hierarchy (#131, depends on #130)
-
-## Trust
-
-**Test:** Does this help a user judge whether they can rely on pyric — its contract, its gaps, or its path to production?
-
-Two halves. Conformance states the contract and the gaps openly, proven and open-sourced for scrutiny. Assurance is how a user goes from pyric to production with confidence (`pyric verify`, and eventually the assurance system). A user who cannot find or understand these cannot trust the system.
-
-**Counts:** conformance chain, gap documentation, open evidence; assurance / verify features and their discoverability; anything that lets a user see what pyric guarantees and where it stops.
-**Doesn't count:** new mirror features (they expand the contract, they do not help a user judge it); chasing exotic-feature fidelity nobody has hit (honest documentation of the gap beats silently closing it).
-
-**Now:**
-- Close conformance Phase 2: commit observations, pin the 7 divergences as public documented gaps (#132)
-- Make `pyric verify` discoverable (#133)
-- Document the conformance contract and gaps where a user will actually find them (#134)
-- Make conformance support queryable from one canonical evidence graph while collapsing committed generated projections (#218)
-
-## Build Velocity
-
-**Test:** Does this materially shorten the time from a developer making a change to receiving trustworthy feedback that it is ready?
-
-The feedback loop: local builds, tests, and CI should surface useful results quickly enough that waiting does not interrupt development. Optimize measured bottlenecks in the paths developers run most often, while preserving the checks that make releases safe.
-
-**Counts:** reducing build and test latency; eliminating redundant CI work; improving cache effectiveness; running independent checks concurrently; making fast, targeted checks available locally; measuring and preventing regressions in feedback time.
-**Doesn't count:** weakening or skipping required validation; speculative optimization without timing evidence; speeding up rarely used paths while common workflows remain slow; adding infrastructure whose maintenance cost outweighs the measured gain.
-
-**Now:**
-- Measure recent GitHub Actions runs and identify the critical path
-- Activate enforced CI check-set selection to bypass heavy matrix jobs on pure documentation changes
-- Shorten pull-request feedback time by removing redundant work and improving parallelism and caching
-- Keep release confidence intact while making the common local and CI loops faster
-
-## Refactoring and Tech Debt
-
-**Test:** Does this remove demonstrated maintenance friction or reduce the risk and scope of future changes without expanding the user-facing concept surface?
-
-The internal sustainability work: simplify brittle implementations, consolidate duplicated sources of truth, replace risky seams with clear interfaces, and retire obsolete code that makes current priorities harder to deliver safely. Prefer evidence from recurring bugs, repeated edits, confusing ownership, or disproportionate verification cost; cleanup should leave the system easier to change and at least as trustworthy as before.
-
-**Counts:** refactors tied to observed maintenance friction; consolidating duplicated logic or configuration; removing dead or superseded code; reducing coupling and change blast radius; paying down debt that repeatedly slows or destabilizes priority work; adding characterization tests needed to make a risky cleanup safe.
-**Doesn't count:** aesthetic rewrites; speculative abstractions for hypothetical growth; broad redesigns without a bounded migration and verification plan; dependency churn without a concrete maintenance or reliability benefit; cleanup that weakens behavior coverage or changes the public contract unintentionally.
-
-**Now:**
-- Refactor the service-command dispatcher into a typed route registry while preserving command behavior and command-local handler arguments. Symptom: every route repeats a conditional and positional slice, making copy/paste routing mistakes easy. Verification: characterize all 11 routes, unknown and non-service dispatch, retired spellings, and duplicate rejection; then pass the CLI suite, typecheck, build, and packed-CLI runtime smoke.
-- Record the concrete maintenance symptom and verification plan for each tech-debt item before implementation
+**Counts:** reducing build, test, and CI latency with timing evidence; cache effectiveness; refactors tied to observed friction; consolidating duplicated sources of truth; removing dead code; characterization tests that make a risky cleanup safe.
+**Doesn't count:** weakening or skipping required validation; speculative optimization or abstraction; aesthetic rewrites; dependency churn without a concrete benefit; broad redesigns without a bounded migration plan.
