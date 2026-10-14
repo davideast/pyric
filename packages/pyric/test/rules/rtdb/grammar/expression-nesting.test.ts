@@ -11,6 +11,9 @@ import { evaluateRtdbExpression } from '../../../../src/rules/rtdb/grammar/simul
 import { buildRuleExpression } from '../../../../src/rules/rtdb/compiled-rules.js';
 import { MAX_BRACKET_DEPTH } from '../../../../src/rules/grammar/bracket-scan.js';
 
+// Compiling 20,000 terms takes about 2.5 s on a CI runner and up to 7 s on a slow one.
+const LONG_CHAIN_TIMEOUT_MS = 20_000;
+
 const groups = (n: number, inner = 'auth != null') => `${'('.repeat(n)}${inner}${')'.repeat(n)}`;
 
 describe('RTDB expressions: nesting', () => {
@@ -57,5 +60,5 @@ describe('RTDB expressions: long chains', () => {
     const rule = buildRuleExpression(chain, 'read');
     expect(rule.parsed.valid).toBe(false);
     expect(rule.parsed.errors[0]!.code).toBe('PARSE_ERROR');
-  });
+  }, LONG_CHAIN_TIMEOUT_MS);
 });
