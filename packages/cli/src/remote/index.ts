@@ -287,10 +287,10 @@ export interface RemoteSandboxCore {
   /** Resolves on `attach-ack`; rejects when no browser tab is connected. */
   ready: Promise<void>;
   channel: RemoteSandboxChannel;
-  /** Report a transport failure to pending calls and active listeners. */
-  fail(reason: string): void;
-  /** Close explicitly; reject pending calls and quietly detach listeners. Idempotent. */
-  dispose(reason?: string): void;
+  /** Report a transport failure to pending calls and active listeners, as `code` (default `unavailable`). */
+  fail(reason: string, code?: string): void;
+  /** Close explicitly; reject pending calls (as `code`, default `unavailable`) and quietly detach listeners. Idempotent. */
+  dispose(reason?: string, code?: string): void;
 }
 
 /**
@@ -542,11 +542,11 @@ export function createRemoteSandboxCore(
     }
   }
 
-  function dispose(reason?: string): void {
+  function dispose(reason?: string, code = 'unavailable'): void {
     const isDisposed = Boolean(disposed);
     if (isDisposed) return;
     disposed = reason ?? 'remote sandbox connection closed';
-    const err = remoteError('unavailable', disposed);
+    const err = remoteError(code, disposed);
     for (const call of pending.values()) {
       clearTimeout(call.timer);
       call.reject(err);
@@ -558,10 +558,10 @@ export function createRemoteSandboxCore(
   }
 
   /** Transport failure ends active listeners; explicit client close remains silent. */
-  function fail(reason: string): void {
+  function fail(reason: string, code = 'unavailable'): void {
     const listeners = [...subs.values()];
-    dispose(reason);
-    const error = remoteError('unavailable', reason);
+    dispose(reason, code);
+    const error = remoteError(code, reason);
     for (const listener of listeners) {
       try { listener.onError?.(error); } catch { /* One callback cannot retain other listeners. */ }
     }
@@ -1063,9 +1063,10 @@ export async function connectRemoteSandbox(
   ws.on('close', (code) => {
     // A policy close (1008) is the host refusing this client, not a restart:
     // it is final, as ADR 0019 rules, so retrying would only be refused again.
+    // Its `permission-denied` code tells the lazy handle not to retry.
     const isPolicyClose = code === 1008;
     if (isPolicyClose) {
-      core.fail('remote sandbox connection closed by the host for a policy violation');
+      core.fail('remote sandbox connection closed by the host for a policy violation', REFUSED_CODE);
       return;
     }
     loseConnection('remote sandbox connection closed (serve stopped or connection lost)');
@@ -1155,6 +1156,9 @@ export function remoteSandbox(options: ConnectRemoteSandboxOptions = {}): LazyRe
     options,
   );
 }
+
+/** The code of a connection the host refused (a policy close, 1008): final, never retried. */
+const REFUSED_CODE = 'permission-denied';
 
 /** Longest wait between reconnects for live listeners. */
 const RECONNECT_MAX_DELAY_MS = 5_000;
@@ -1307,7 +1311,16 @@ export function createLazyRemoteSandbox(
       reconnectTimer = null;
       ensure().then(
         () => {},
-        () => {
+        (err) => {
+          const error = asRemoteError(err);
+          const isRefused = error.code === REFUSED_CODE;
+          if (isRefused) {
+            // A host that refuses this client refuses every retry: end the waiting listeners.
+            for (const subscription of subscriptions) {
+              if (subscription.detach === null) endSubscription(subscription, error);
+            }
+            return;
+          }
           reconnectAttempt += 1;
           scheduleReconnect();
         },

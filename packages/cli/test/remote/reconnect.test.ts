@@ -22,11 +22,14 @@ import {
 /**
  * A bridge host that acknowledges attach, answers every op with `generation`
  * (or none, with `answersOps: false`), and sends one snap per subscription.
+ * With `refusesAttach`, it refuses every attach with a policy close (1008),
+ * as the bridge does when it declines a hosted session.
  */
 async function startFakeHost(
   port: number,
   generation: string,
   answersOps = true,
+  refusesAttach = false,
 ): Promise<{
   port: number;
   stop: () => Promise<void>;
@@ -48,6 +51,10 @@ async function startFakeHost(
       const reply = (frame: BridgeMessage): void => socket.send(JSON.stringify(frame));
       if (msg.type === 'attach') {
         attaches += 1;
+        if (refusesAttach) {
+          socket.close(1008, 'Hosted session admission failed.');
+          return;
+        }
         reply({ type: 'attach-ack', protocol: 1, bridgeVersion: 'test', peerConnected: true, clientSessionId: generation });
       } else if (msg.type === 'worker-op') {
         ops.push(msg.id);
@@ -198,10 +205,31 @@ describe('remoteSandbox after its host restarts on the same url', () => {
 
     host.closeClients(1008, 'policy');
     await waitFor(() => errors.length === 1);
-    expect(errors[0]!.code).toBe('unavailable');
+    expect(errors[0]!.code).toBe('permission-denied');
     // Long enough for the first two retries a recoverable drop would make.
     await Bun.sleep(900);
     expect(host.attaches()).toBe(1);
+  });
+
+  it('ends its listeners and stops retrying when the returning host refuses the attach for a policy violation', async () => {
+    const first = await startFakeHost(0, 'first');
+    const lazy = remoteSandbox({ url: `http://127.0.0.1:${first.port}`, warn: () => {} });
+    cleanups.push(() => lazy.close());
+    const errors: Array<{ code?: string }> = [];
+    const values: unknown[] = [];
+    lazy.rtdb.onValue('ticks', snapshot => values.push(snapshot.value), error => errors.push(error));
+    await waitFor(() => values.length === 1);
+
+    await first.stop();
+    const second = await startFakeHost(first.port, 'second', true, true);
+    cleanups.push(second.stop);
+    await waitFor(() => errors.length === 1);
+    expect(errors[0]!.code).toBe('permission-denied');
+    const refusals = second.attaches();
+    // Long enough for the next two retries a recoverable failure would make.
+    await Bun.sleep(1_500);
+    expect(second.attaches()).toBe(refusals);
+    expect(values).toEqual(['first']);
   });
 });
 
