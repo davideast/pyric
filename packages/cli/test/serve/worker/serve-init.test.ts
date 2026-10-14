@@ -506,6 +506,43 @@ describe('applyServeInit — capture (the verify loop)', () => {
     expect(fetchSpy.calls.length).toBe(before);
   });
 
+  it('captures each named RTDB instance with its rules and tree, and the default instance URL', async () => {
+    const ctx = await makeCtx();
+    ctx.appOptions = { projectId: 'demo-app' };
+    const fetchSpy = recordingFetch();
+    const result = applyServeInit(
+      ctx,
+      { ...basePayload, databaseRules: RTDB_RULES, capture: true },
+      { fetch: fetchSpy, captureDebounceMs: 5 },
+    );
+    try {
+      const port = fakePort();
+      const shardRules = { rules: { '.read': true, '.write': true } };
+      await handleMessage(ctx, port, { t: 'op', id: 'd1', method: 'setDatabaseRules', instance: 'shard-00', source: shardRules });
+      await handleMessage(ctx, port, { t: 'op', id: 'r1', method: 'rtdb.set', path: '/rooms/r1', value: { name: 'General' } });
+      await handleMessage(ctx, port, { t: 'op', id: 'r2', method: 'rtdb.set', instance: 'shard-00', path: '/rooms/r2', value: { name: 'Shard' } });
+      await tick(20);
+
+      const captures = fetchSpy.calls.filter((c) => c.url === '/__pyric/capture');
+      const body = JSON.parse(captures.at(-1)!.body) as {
+        events: Array<{ kind: string; service?: string; instance?: string }>;
+        services: { rtdb: { databaseUrl?: string; state: { tree: unknown }; instances?: Record<string, unknown> } };
+      };
+      expect(body.services.rtdb.databaseUrl).toBe('https://demo-app-default-rtdb.firebaseio.com');
+      expect(body.services.rtdb.state.tree).toEqual({ rooms: { r1: { name: 'General' } } });
+      expect(body.services.rtdb.instances).toEqual({
+        'shard-00': {
+          rules: { format: 'rtdb.rules.json', json: shardRules },
+          state: { tree: { rooms: { r2: { name: 'Shard' } } } },
+        },
+      });
+      const commits = body.events.filter((event) => event.kind === 'commit' && event.service === 'rtdb');
+      expect(commits.map((event) => event.instance)).toEqual([undefined, 'shard-00']);
+    } finally {
+      result.dispose();
+    }
+  });
+
   it('no capture wiring when capture is off', async () => {
     const ctx = await makeCtx();
     const fetchSpy = recordingFetch();

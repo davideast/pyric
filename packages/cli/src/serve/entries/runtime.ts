@@ -37,6 +37,7 @@ export { initPayload } from './init-payload.js';
 import { keepaliveSafe } from './keepalive.js';
 import { toPageOriginWsUrl } from './bridge-url.js';
 import { buildVerifyFixture } from '../../verify/fixture.js';
+import { captureRtdbInstances, defaultInstanceUrl } from '../../verify/rtdb-instance-capture.js';
 import { avatarMintForPayload } from '../assets/avatar-url.js';
 import { setupFirebaseActivityGuard } from '../activity-guard.js';
 import { setupAiDiagnosticsRelay } from '../ai-diagnostics-relay.js';
@@ -346,11 +347,14 @@ if (!useWorker) try {
           ? rtdbSandbox.snapshotState(getDatabase(sandbox))
           : undefined;
       const auth = getAuth(sandbox);
+      const defaultInstance = databaseRules.defaultName();
       const body = JSON.stringify(buildVerifyFixture({
         sandbox,
         firestoreRules: payload.rules,
         rtdbRules: payload.databaseRules ?? null,
         rtdbState,
+        rtdbDatabaseUrl: defaultInstanceUrl(defaultInstance),
+        rtdbInstances: captureRtdbInstances(sandbox, defaultInstance),
         authState: {
           users: authOps.exportUsers(auth),
           currentUser: auth.currentUser,

@@ -116,6 +116,8 @@ export function createDatabaseRulesDeployment(sandbox: Sandbox) {
     register,
     /** The instance a database opened without a URL is, once a config is deployed. */
     defaultInstance: (): string | undefined => defaultInstance,
+    /** The default instance's name: the config's, else the app's project default once the app names its project. */
+    defaultName,
     /**
      * Replace every instance's rules. Each ruleset passes the load-time check
      * on its own: a refused one is not installed, the others are, and the
