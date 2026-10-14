@@ -380,7 +380,8 @@ void main() {
         write,
         throwsA(isA<PyricBridgeException>()
             .having((e) => e.code, 'code', 'unavailable')
-            .having((e) => e.message, 'message', contains('The request was not sent.'))),
+            .having((e) => e.message, 'message',
+                'The bridge connection was restored, but the signed-in user could not be restored on the new host. The request was not sent.')),
       );
 
       bridge.hostInstanceId = 'host-b';
@@ -396,6 +397,26 @@ void main() {
       await until(() => client.isConnected);
       await settle();
       expect(opsNamed('setDoc'), isEmpty);
+    });
+
+    test('an operation issued while held operations are being sent goes after them', () async {
+      final client = await attachedThenDropped();
+      final a = client.op('setDoc', {'path': 'rooms/a'});
+      final b = client.op('setDoc', {'path': 'rooms/b'});
+      Future<dynamic>? c;
+      bridge.onFrame = (frame) {
+        final isHeldA = frame['type'] == 'worker-op' && (frame['op'] as Map)['path'] == 'rooms/a';
+        if (isHeldA) c = client.op('setDoc', {'path': 'rooms/c'});
+      };
+
+      bridge.refuseConnections = false;
+      await until(() => opsNamed('setDoc').length == 3);
+      expect(opsNamed('setDoc').map((f) => (f['op'] as Map)['path']),
+          ['rooms/a', 'rooms/b', 'rooms/c']);
+      for (final frame in opsNamed('setDoc')) {
+        reply(frame, 'done');
+      }
+      expect(await Future.wait([a, b, c!]), ['done', 'done', 'done']);
     });
 
     test('disconnect while holding fails held operations once and sends none', () async {
