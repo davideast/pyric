@@ -450,7 +450,9 @@ export function noteAiDiagnostic(
  *  relayed off the sandbox event stream. All four share the throttle map: an
  *  agent retry loop re-sends the SAME malformed (or filter-tripping) AI
  *  request exactly the way a denied listener re-fires, so one line per
- *  (target, reason) per window is the right volume for every one of them.
+ *  (target, reason) per window is the right volume for every one of them. A
+ *  rules denial's target also names its RTDB instance, so the same path
+ *  denied on two instances prints once for each.
  *  Always 204s (best-effort diagnostics: a malformed body or a caller with no
  *  logger wired must never fail the page that reported the refusal). */
 async function handleDenials(
