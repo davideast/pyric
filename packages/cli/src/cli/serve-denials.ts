@@ -2,18 +2,19 @@
  * `pyric serve denials`: the rules denials the running Node host recorded,
  * grouped by service, instance, rule node and rule.
  *
- *   pyric serve denials [--json] [--since <ms|duration>] [--service rtdb|firestore|storage]
+ *   pyric serve denials [--json] [--since <ms|duration>] [--service rtdb|firestore]
  *
  * Read-only: it reads the host's repro log and joins each denial to the
  * request that opened it, so a path denied on one RTDB instance and allowed on
- * another lists as two groups.
+ * another lists as two groups. The host's log is bounded; when it has dropped
+ * older entries, the listing says where its counts start.
  */
 import type { ParsedArgs } from './parse-args.js';
 import { fetchReproBody, type ServeReproDeps } from './serve-repro.js';
 import { parseRepro } from '../serve/repro/format.js';
 import { formatDenials, listDenials, type DenialFilter, type DenialService } from '../serve/repro/denials.js';
 
-const SERVICES: readonly DenialService[] = ['rtdb', 'firestore', 'storage'];
+const SERVICES: readonly DenialService[] = ['rtdb', 'firestore'];
 const UNIT_MS: Record<string, number> = { ms: 1, s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 };
 
 /** A duration (`90s`, `5m`, `2h`) or a bare millisecond count, as milliseconds; null when neither. */
@@ -44,21 +45,24 @@ export async function runServeDenials(
   if (service !== undefined) {
     const known = SERVICES.find((candidate) => candidate === service);
     if (known === undefined) {
-      err.write("pyric serve denials: --service is 'rtdb', 'firestore' or 'storage'.\n");
+      err.write("pyric serve denials: --service is 'rtdb' or 'firestore'.\n");
       return 2;
     }
     filter.service = known;
   }
   const fetched = await fetchReproBody('serve denials', cwd, err, deps.discover);
   if (typeof fetched !== 'string') return fetched.exit;
-  let groups: ReturnType<typeof listDenials>;
+  let repro: ReturnType<typeof parseRepro>;
   try {
-    groups = listDenials(parseRepro(JSON.parse(fetched)), filter);
+    repro = parseRepro(JSON.parse(fetched));
   } catch (error) {
     err.write(`pyric serve denials: ${error instanceof Error ? error.message : String(error)}\n`);
     return 1;
   }
+  const groups = listDenials(repro, filter);
+  const loggedFrom = repro.truncated ? repro.base.at : undefined;
   const json = Boolean(parsed.flags.get('json'));
-  out.write(json ? `${JSON.stringify({ denials: groups }, null, 2)}\n` : formatDenials(groups));
+  const listing = { denials: groups, truncated: repro.truncated, ...(loggedFrom === undefined ? {} : { from: loggedFrom }) };
+  out.write(json ? `${JSON.stringify(listing, null, 2)}\n` : formatDenials(groups, loggedFrom));
   return 0;
 }

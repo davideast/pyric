@@ -17,7 +17,7 @@
  *   pyric database rules generate [--config <path>] [--out <path>]
  *   pyric serve diagnostics [--url URL] [--json]
  *   pyric serve sessions [--json]
- *   pyric serve denials [--json] [--since <ms|duration>] [--service rtdb|firestore|storage]
+ *   pyric serve denials [--json] [--since <ms|duration>] [--service rtdb|firestore]
  *   pyric serve repro capture [--out FILE]
  *   pyric serve repro replay <file> [--plane node|worker] [--json]
  *   pyric --help
@@ -74,7 +74,7 @@ USAGE
   pyric database rules generate [--config <path>] [--out <path>]
   pyric serve diagnostics [--url URL] [--json]
   pyric serve sessions [--json]
-  pyric serve denials [--json] [--since <ms|duration>] [--service rtdb|firestore|storage]
+  pyric serve denials [--json] [--since <ms|duration>] [--service rtdb|firestore]
   pyric serve repro capture [--out FILE]
   pyric serve repro replay <file> [--plane node|worker] [--json]
   pyric <tool> <method> [--<arg> <value>...]
@@ -132,9 +132,10 @@ COMMANDS
   serve sessions             List the clients connected to the running bridge with
                              their target ids, platforms, and the identity each
                              acts as. Requires a running bridge. --json.
-  serve denials              List the rules denials the running Node host recorded,
-                             grouped by service, instance, rule node and rule, with
-                             counts, page loads, times, identities and the rule trace.
+  serve denials              List the RTDB and Firestore rules denials the running
+                             Node host recorded, grouped by service, instance and the
+                             rule that decided, with counts, page loads, times,
+                             identities, denied paths and the rule trace.
                              --since <ms|duration>, --service, --json.
   serve repro capture        Write the running Node host's repro file: its starting
                              state, rules, signed-in ports, and the operations and

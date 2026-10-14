@@ -57,7 +57,7 @@ afterEach(() => {
   while (servers.length) servers.pop()?.close();
 });
 
-async function startHost(): Promise<Discovered> {
+async function startHost(body: object = reproFile): Promise<Discovered> {
   const server = createServer((req, res) => {
     const isRepro = req.method === 'POST' && req.url === HOSTED_REPRO_PATH;
     if (!isRepro) {
@@ -65,7 +65,7 @@ async function startHost(): Promise<Discovered> {
       return;
     }
     req.resume();
-    req.on('end', () => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(reproFile)));
+    req.on('end', () => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(body)));
   });
   servers.push(server);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -73,8 +73,8 @@ async function startHost(): Promise<Discovered> {
   return { base: `http://127.0.0.1:${port}`, instanceId: 'host-1' } as Discovered;
 }
 
-async function run(argv: string[], now = 10_000) {
-  const host = await startHost();
+async function run(argv: string[], now = 10_000, body: object = reproFile) {
+  const host = await startHost(body);
   let stdout = '';
   let stderr = '';
   const code = await runServeDenials(parseArgs(['serve', 'denials', ...argv]), {
@@ -109,6 +109,21 @@ describe('pyric serve denials', () => {
   it('refuses an unknown --service before reading the host', async () => {
     const { code, stderr } = await run(['--service', 'functions']);
     expect(code).toBe(2);
-    expect(stderr).toContain("--service is 'rtdb', 'firestore' or 'storage'");
+    expect(stderr).toContain("--service is 'rtdb' or 'firestore'");
+  });
+
+  it('refuses --service storage, whose denials carry no rule context to list', async () => {
+    const { code, stderr } = await run(['--service', 'storage']);
+    expect(code).toBe(2);
+    expect(stderr).toContain("--service is 'rtdb' or 'firestore'");
+  });
+
+  it('says when the host dropped older entries, so the counts start at the oldest one kept', async () => {
+    const truncated = { ...reproFile, truncated: true, base: { ...reproFile.base, at: 500 } };
+    const text = await run([], 10_000, truncated);
+    expect(text.stdout.split('\n')[0]).toBe(`The host keeps a bounded log: these counts start at ${new Date(500).toISOString()}.`);
+    const json = await run(['--json'], 10_000, truncated);
+    expect(JSON.parse(json.stdout)).toMatchObject({ truncated: true, from: 500 });
+    expect(JSON.parse((await run(['--json'])).stdout).truncated).toBe(false);
   });
 });

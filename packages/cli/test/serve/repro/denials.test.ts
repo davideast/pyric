@@ -83,6 +83,51 @@ describe('listDenials', () => {
     expect(formatDenials(groups)).toContain('rtdb (instance unknown) /rooms/$roomId: 1 denial');
   });
 
+  it('groups Firestore denials by the rule that decided, listing each denied document', () => {
+    const firestoreDenied = (at: number, id: string, path: string) => ({
+      kind: 'out', at, session: 's1',
+      frame: { t: 'res', id, ok: false, error: { code: 'permission-denied', message: 'denied', denialContext: {
+        auth: null,
+        reasons: ['allow read: false'],
+        request: { method: 'get', path },
+        rule: { line: 5, col: 7, citation: 'firestore.rules:5:7', expression: 'request.auth.uid == userId' },
+      } } },
+    });
+    const groups = listDenials(repro([
+      firestoreDenied(1000, 'op-1', 'users/a'),
+      firestoreDenied(1001, 'op-2', 'users/b'),
+    ]), {});
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({
+      service: 'firestore', path: 'firestore.rules:5:7', rule: 'request.auth.uid == userId', count: 2, paths: ['users/a', 'users/b'],
+    });
+    expect(formatDenials(groups)).toContain('  denied: users/a, users/b');
+  });
+
+  it('collects the trace of every denial in a group, each line once', () => {
+    const groups = listDenials(repro([
+      sub(1000, 'a', undefined, '/rooms/r1'),
+      denied(1001, 'a', '/rooms/r1', 'u1'),
+      sub(2000, 'b', undefined, '/rooms/r2'),
+      { ...denied(2001, 'b', '/rooms/r2', 'u2'), frame: { t: 'snap', subId: 'b', value: { __error: { code: 'permission-denied', message: 'denied', denialContext: { ...context('/rooms/r2', 'u2'), reasons: ['no .read granted', 'auth is null'] } } } } },
+    ]), {});
+    expect(groups[0]?.trace).toEqual(['no .read granted', 'auth is null']);
+    expect(groups[0]?.paths).toEqual(['/rooms/r1', '/rooms/r2']);
+  });
+
+  it('does not count an agent tool call as a page load', () => {
+    const groups = listDenials(repro([
+      { kind: 'in', at: 1000, session: 'mcp:agent-1', frame: { t: 'tool', id: 't1', name: 'rtdb_simulate_access', args: {} } },
+      {
+        kind: 'out', at: 1001, session: 'mcp:agent-1',
+        frame: { t: 'res', id: 't1', ok: false, error: { code: 'permission-denied', message: 'denied', denialContext: context('/rooms/r1', 'u1') } },
+      },
+      sub(2000, 'a', undefined, '/rooms/r1'),
+      denied(2001, 'a', '/rooms/r1', 'u1'),
+    ]), {});
+    expect(groups[0]).toMatchObject({ count: 2, loads: 1 });
+  });
+
   it('honours --since and --service', () => {
     expect(listDenials(file, { sinceAt: 2500 }).map((g) => g.count)).toEqual([1]);
     expect(listDenials(file, { service: 'firestore' })).toEqual([]);
