@@ -1,17 +1,20 @@
 /**
- * Host-side peer liveness (#965).
+ * Host-side peer liveness (#965). Unit evidence: a fake socket and faked
+ * timers. The integration test is the app scenario
+ * `test/apps/host-closes-silent-page`.
  *
  * A web page frozen in the back-forward cache, a killed tab, or a sleeping
- * laptop leaves its socket open without ever closing it. Once a client has
- * heartbeated, the host closes its socket after the liveness window passes
- * with no frame from it, so the session takes the path a real close takes:
- * the host is told the client was interrupted and runs its RTDB onDisconnect
- * operations. Clients that never send `ping` (native, remote, and in-page
- * sandbox peers) are never closed for being quiet.
+ * laptop leaves its socket open without ever closing it. The host watches a
+ * worker-port page (the web hosted client) from its attach, and any other
+ * client from its first `ping`, and closes the socket after the liveness
+ * window passes with no frame from it, so the session takes the path a real
+ * close takes: the host is told the client was interrupted and runs its RTDB
+ * onDisconnect operations. Clients that never send `ping` (native, remote,
+ * and in-page sandbox peers) are never closed for being quiet.
  *
  * `test/serve/fixtures/hosted-sqlite-peer-liveness.ts` drives the same path
- * against the real Node host, where the onDisconnect write and the listener
- * release are observed.
+ * against the real Node host with mocked timers, and
+ * `hosted-sqlite-peer-liveness-socket.ts` with a real `ws` server and client.
  */
 import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 import { createBridge } from '../../src/bridge/server/bridge.js';
@@ -93,6 +96,7 @@ describe('host peer liveness', () => {
   it('closes a heartbeating page that sends nothing for the window, and tells the host it was interrupted', () => {
     const { bridge, toHost } = hostBridge();
     const page = attachPage(bridge);
+    jest.advanceTimersByTime(HOSTED_HEARTBEAT_INTERVAL_MS);
     page.socket.receive({ type: 'ping', id: 'hb-1' });
 
     jest.advanceTimersByTime(HOST_PEER_LIVENESS_TIMEOUT_MS - 1);
@@ -128,12 +132,34 @@ describe('host peer liveness', () => {
     expect(interruptionsOf(toHost, page.clientSessionId)).toBe(0);
   });
 
-  it('never closes a consumer that has not heartbeated, however long it is quiet', () => {
-    // Native and remote consumers send no application ping (ADR-0019).
-    const { bridge } = hostBridge();
+  it('watches a worker-port page from its attach, so one frozen before its first ping is still closed', () => {
+    const { bridge, toHost } = hostBridge();
     const page = attachPage(bridge);
+    jest.advanceTimersByTime(HOST_PEER_LIVENESS_TIMEOUT_MS);
+    expect(page.socket.terminated).toBe(true);
+    expect(interruptionsOf(toHost, page.clientSessionId)).toBe(1);
+  });
+
+  it('never closes a native or remote consumer that does not heartbeat, however long it is quiet', () => {
+    // Kotlin, Swift, Flutter and the Node remote client attach without the
+    // worker-port transport and send no application ping (ADR-0019).
+    const { bridge } = hostBridge();
+    const socket = fakeSocket();
+    attachPeer(bridge, socket.asWebSocket());
+    socket.receive({ type: 'attach', protocol: 1, clientSessionId: 'phone', clientInfo: { platform: 'kotlin' } });
+    expect(socket.sent.some(frame => frame.type === 'attach-ack')).toBe(true);
     jest.advanceTimersByTime(10 * HOST_PEER_LIVENESS_TIMEOUT_MS);
-    expect(page.socket.terminated).toBe(false);
+    expect(socket.terminated).toBe(false);
+  });
+
+  it('watches any client from its first ping', () => {
+    const { bridge } = hostBridge();
+    const socket = fakeSocket();
+    attachPeer(bridge, socket.asWebSocket());
+    socket.receive({ type: 'attach', protocol: 1, clientSessionId: 'node', clientInfo: { platform: 'node' } });
+    socket.receive({ type: 'ping', id: 'hb-1' });
+    jest.advanceTimersByTime(HOST_PEER_LIVENESS_TIMEOUT_MS);
+    expect(socket.terminated).toBe(true);
   });
 
   it('never closes an in-page sandbox peer that has not heartbeated', () => {

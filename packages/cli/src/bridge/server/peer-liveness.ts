@@ -8,19 +8,21 @@
  * has sent nothing for {@link HOST_PEER_LIVENESS_TIMEOUT_MS}.
  *
  * Only a client that heartbeats is watched. The web hosted client sends
- * `ping` every `HOSTED_HEARTBEAT_INTERVAL_MS`; the native clients, the
- * Node remote client, and the in-page sandbox peer send no application ping
- * (ADR-0019), so a quiet one is idle, not gone, and is left open. The watch
- * starts at a client's first `ping`, and from then on any frame counts as
- * traffic.
+ * `ping` every `HOSTED_HEARTBEAT_INTERVAL_MS` and is the only client that
+ * attaches with `transport: 'worker-port'`, so the watch starts at that
+ * attach: a page frozen before its first ping is still closed. Any other
+ * client is watched from its first `ping`. The native clients, the Node
+ * remote client, and the in-page sandbox peer send no application ping
+ * (ADR-0019), so a quiet one is idle, not gone, and is left open. Once the
+ * watch starts, any frame counts as traffic.
  */
 import { HOST_PEER_LIVENESS_TIMEOUT_MS } from '../protocol.js';
 
 export interface PeerLiveness {
   /** Record a frame from the client. */
   heard(): void;
-  /** Record a `ping`; the first one starts the watch. */
-  heartbeat(): void;
+  /** Record a frame from a client that heartbeats, and start the watch if it has not started. */
+  start(): void;
   /** Stop watching; called when the socket closes. */
   stop(): void;
 }
@@ -54,7 +56,7 @@ export function watchPeerLiveness(
     lastHeardAt = Date.now();
   }
 
-  function heartbeat(): void {
+  function start(): void {
     heard();
     const isWatching = timer !== undefined;
     const cannotStart = stopped || isWatching;
@@ -68,5 +70,5 @@ export function watchPeerLiveness(
     timer = undefined;
   }
 
-  return { heard, heartbeat, stop };
+  return { heard, start, stop };
 }

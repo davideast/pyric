@@ -40,6 +40,10 @@ test('a heartbeating page that goes silent is closed after the liveness window, 
   expect(await runNodeFixture('peer-liveness', 30_000)).toBe('Peer liveness passed');
 }, 45_000);
 
+test('over a real ws socket, the host terminates a page that pinged then went silent, and the asynchronous close still runs its onDisconnect (#965)', async () => {
+  expect(await runNodeFixture('peer-liveness-socket', 30_000)).toBe('Peer liveness socket passed');
+}, 45_000);
+
 test('a failed batch rolls back updates and deletions together', async () => {
   expect(await runNodeFixture('rollback')).toBe('Rollback passed');
 });
