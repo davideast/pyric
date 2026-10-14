@@ -49,6 +49,7 @@ fun bridgeReconnectDelayMs(attempt: Int, random: Double = Math.random()): Long {
 private const val CONNECTION_LOST =
     "The bridge connection was lost. Requests already sent may have completed; check state before retrying."
 private const val POLICY_CLOSE_CODE = 1008
+private const val HOLD_TIMEOUT_MS = 10_000L
 
 /**
  * WebSocket transport to the Pyric bridge.
@@ -87,6 +88,13 @@ class PyricBridgeClient(
     private var attachDeadlineJob: Job? = null
     /** Callers waiting for the next scheduled attempt. */
     private var nextAttempt: CompletableDeferred<Unit>? = null
+
+    /**
+     * Test seam: how long an operation issued while the client is not attached is
+     * held before it fails. The deadline is fixed at 10 seconds (ADR-0019 decision
+     * 7); this is not a user setting.
+     */
+    internal var holdTimeoutMs: Long = HOLD_TIMEOUT_MS
 
     /** Runs on a re-attach to a replaced host, before subscriptions are re-sent. */
     @Volatile
