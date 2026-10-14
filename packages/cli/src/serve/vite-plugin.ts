@@ -194,6 +194,11 @@ function resolveFunctionsOptions(
   return {};
 }
 
+/** The project's owner settings: pyric.json `owners`, overridden by the plugin option. */
+async function readOwners(projectDir: string, overrides: OwnersConfig | undefined): Promise<OwnersConfig | undefined> {
+  return resolveOwnersConfig((await readPyricConfig(projectDir)).owners, overrides);
+}
+
 /**
  * Resolves the Firebase project root directory from Vite's server root. In
  * split-directory or full-stack monorepo layouts where Vite operates inside a
@@ -282,8 +287,12 @@ export function pyric(options: PyricOptions = {}): Plugin {
       return finalizedConfig;
     },
 
-    configResolved(resolved) {
+    async configResolved(resolved) {
       moduleSwap.configResolved(resolved);
+      // A sandbox build stamps pages without a dev server, so configureServer
+      // never reads pyric.json for it.
+      const isBuild = resolved.command === 'build';
+      if (isBuild) owners = await readOwners(resolveFirebaseProjectDir(resolved.root, options.root), options.owners);
     },
 
     resolveId(source, importer) {
@@ -300,7 +309,7 @@ export function pyric(options: PyricOptions = {}): Plugin {
       const ownsProjectState = stateScope !== null;
       const slot = ownsProjectState ? projectGenerationSlot(projectDir, stateScope) : instanceSlot;
       await slot.take()?.close();
-      owners = resolveOwnersConfig((await readPyricConfig(projectDir)).owners, options.owners);
+      owners = await readOwners(projectDir, options.owners);
 
       const uiEnabled = options.ui ?? true;
       const functionsOptions = resolveFunctionsOptions(options.functions);

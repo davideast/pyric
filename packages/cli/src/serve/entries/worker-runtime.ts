@@ -121,7 +121,9 @@ function reportPersistenceHealth(configuration: WorkerInitPayload | null): void 
 
 function initialize(configuration: WorkerInitPayload | null): void {
   payload = configuration;
-  // Every listener attach reads this, on the worker path and in-page alike.
+  // Every listener attach on this page reads this, on the worker path and
+  // in-page alike. A service worker realm never runs this and keeps the
+  // default policy: init.json does not carry owner settings.
   configureListenerOwnerFrames(payload?.owners ?? {});
   useHosted = payload?.hosted === true;
   reportPersistenceHealth(payload);

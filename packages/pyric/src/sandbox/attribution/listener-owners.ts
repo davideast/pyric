@@ -134,9 +134,11 @@ function stripFileScheme(url: string): string {
   return url;
 }
 
-/** A frame inside pyric itself, or inside an installed dependency. */
+/** A frame inside pyric itself, an installed dependency, or the runtime. */
 function isInternalFrame(file: string): boolean {
   if (file.includes('/node_modules/')) return true;
+  // JavaScriptCore names a built-in's frame `native`; Node's own modules are `node:`.
+  if (file === 'native' || file.startsWith('node:')) return true;
   if (PYRIC_ROOT.length > 0 && file.startsWith(`${PYRIC_ROOT}/`)) return true;
   // Source and built SDK copies share the page journal. Its registration frame
   // can therefore come from the sibling tree during workspace development.

@@ -62,6 +62,18 @@ describe('callerFrameFromStack', () => {
     });
   });
 
+  it('passes over runtime frames that belong to no application file', () => {
+    const stack = [
+      'Error',
+      '    at watch (/app/src/db.js:5:10)',
+      '    at map (native:1:11)',
+      '    at processTicksAndRejections (node:internal/process/task_queues:95:5)',
+      '    at main (/app/src/main.js:14:3)',
+    ].join('\n');
+    const frame = callerFrameFromStack(stack);
+    expect(frame?.kind === 'frame' ? frame.stack?.map((entry) => entry.file) : []).toEqual(['/app/src/db.js', '/app/src/main.js']);
+  });
+
   it('reports nothing when every frame belongs to a dependency', () => {
     const stack = 'Error\n    at attach (/repo/node_modules/pyric/dist/a.js:1:1)';
     expect(callerFrameFromStack(stack)).toBeUndefined();
