@@ -134,7 +134,7 @@ COMMANDS
                              acts as. Requires a running bridge. --json.
   serve denials              List the rules denials the running Node host recorded,
                              grouped by service, instance, rule node and rule, with
-                             counts, times, identities and the rule trace.
+                             counts, page loads, times, identities and the rule trace.
                              --since <ms|duration>, --service, --json.
   serve repro capture        Write the running Node host's repro file: its starting
                              state, rules, signed-in ports, and the operations and

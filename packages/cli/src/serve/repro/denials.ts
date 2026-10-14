@@ -18,6 +18,8 @@ export interface DenialGroup {
   path: string;
   rule?: string;
   count: number;
+  /** Distinct page loads (client sessions) the denial happened on. */
+  loads: number;
   firstAt: number;
   lastAt: number;
   identities: string[];
@@ -67,6 +69,7 @@ export function listDenials(repro: ReproFile, filter: DenialFilter): DenialGroup
     for (const frame of frames) requests.set(`${session}${KEY_SEPARATOR}${String((frame as unknown as Frame).subId)}`, frame as unknown as Frame);
   }
   const groups = new Map<string, DenialGroup>();
+  const sessionsByGroup = new Map<string, Set<string>>();
   for (const entry of repro.entries) {
     if (entry.kind === 'in') {
       const frame = entry.frame as unknown as Frame;
@@ -95,12 +98,16 @@ export function listDenials(repro: ReproFile, filter: DenialFilter): DenialGroup
     let group = groups.get(groupKey);
     if (group === undefined) {
       const reasons = Array.isArray(context.reasons) ? context.reasons.map(String) : [];
-      group = { service, path, count: 0, firstAt: entry.at, lastAt: entry.at, identities: [], trace: reasons };
+      group = { service, path, count: 0, loads: 0, firstAt: entry.at, lastAt: entry.at, identities: [], trace: reasons };
       if (instance !== undefined) group.instance = instance;
       if (rule !== undefined) group.rule = rule;
       groups.set(groupKey, group);
     }
     group.count += 1;
+    const sessions = sessionsByGroup.get(groupKey) ?? new Set<string>();
+    sessions.add(entry.session);
+    sessionsByGroup.set(groupKey, sessions);
+    group.loads = sessions.size;
     group.lastAt = Math.max(group.lastAt, entry.at);
     if (!group.identities.includes(identity)) group.identities.push(identity);
   }
@@ -112,7 +119,7 @@ export function formatDenials(groups: DenialGroup[]): string {
   const blocks = groups.map((group) => {
     const head = [group.service, group.instance, group.path].filter((part) => part !== undefined).join(' ');
     const lines = [
-      `${head}: ${group.count} denial${group.count === 1 ? '' : 's'}`,
+      `${head}: ${group.count} denial${group.count === 1 ? '' : 's'} on ${group.loads} page load${group.loads === 1 ? '' : 's'}`,
       `  first ${new Date(group.firstAt).toISOString()}, last ${new Date(group.lastAt).toISOString()}`,
       `  identities: ${group.identities.join(', ')}`,
     ];

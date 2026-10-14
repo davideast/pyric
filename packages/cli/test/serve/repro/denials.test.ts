@@ -46,6 +46,29 @@ describe('listDenials', () => {
     expect(groups.find((g) => g.instance === undefined)?.count).toBe(1);
   });
 
+  it('counts the page loads a denial recurs on, separating a one-off from a recurring one', () => {
+    const inSession = <T extends { session: string }>(entry: T, session: string): T => ({ ...entry, session });
+    const loads = repro([
+      // A stale reference the app re-subscribes to on every load: three loads.
+      inSession(sub(1000, 'a', 'demo-app-shard-1', '/rooms/r1'), 'load-1'),
+      inSession(denied(1001, 'a', '/rooms/r1', 'u1'), 'load-1'),
+      inSession(sub(2000, 'a', 'demo-app-shard-1', '/rooms/r1'), 'load-2'),
+      inSession(denied(2001, 'a', '/rooms/r1', 'u1'), 'load-2'),
+      inSession(sub(3000, 'a', 'demo-app-shard-1', '/rooms/r1'), 'load-3'),
+      inSession(denied(3001, 'a', '/rooms/r1', 'u1'), 'load-3'),
+      // A race on one load, denied twice there and never again.
+      inSession(sub(1500, 'b', undefined, '/rooms/r2'), 'load-1'),
+      inSession(denied(1501, 'b', '/rooms/r2', 'u1'), 'load-1'),
+      inSession(denied(1502, 'b', '/rooms/r2', 'u1'), 'load-1'),
+    ]);
+    const groups = listDenials(loads, {});
+    expect(groups.find((g) => g.instance === 'demo-app-shard-1')).toMatchObject({ count: 3, loads: 3 });
+    expect(groups.find((g) => g.instance === undefined)).toMatchObject({ count: 2, loads: 1 });
+    const text = formatDenials(groups);
+    expect(text).toContain('rtdb demo-app-shard-1 /rooms/$roomId: 3 denials on 3 page loads');
+    expect(text).toContain('rtdb /rooms/$roomId: 2 denials on 1 page load');
+  });
+
   it('honours --since and --service', () => {
     expect(listDenials(file, { sinceAt: 2500 }).map((g) => g.count)).toEqual([1]);
     expect(listDenials(file, { service: 'firestore' })).toEqual([]);
