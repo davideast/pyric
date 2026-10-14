@@ -7,7 +7,10 @@
  * behind two entry points.
  */
 import { z } from 'zod';
+import { getAdminDatabase } from 'pyric/database';
 import { snapshotState } from 'pyric/sandbox/database';
+import { checkInstance, instanceArgument, INSTANCE_RENAMES } from '../../arguments/database.js';
+import { instanceSelector, onInstance } from '../../database-instance.js';
 import { countDescendantObjects, crawlSnapshot } from '../../../../rtdb/crawl-snapshot.js';
 import type { MethodRecord } from '../../method-types.js';
 
@@ -20,7 +23,7 @@ export default {
   method: 'crawl',
   sdkOrigin: 'pyric',
   effect: 'read',
-  signature: `crawl(path?, depth? = ${DEFAULT_DEPTH}, maximum ${MAX_DEPTH})`,
+  signature: `crawl(path?, depth? = ${DEFAULT_DEPTH}, maximum ${MAX_DEPTH}, instance?)`,
   description:
     'Bounded structural view of the tree at path: child names and object counts, with no leaf values. depth defaults to 10 and cannot exceed 10; a subtree deeper than depth is reported truncated rather than expanded.',
   args: z.object({
@@ -32,17 +35,21 @@ export default {
       .max(MAX_DEPTH)
       .optional()
       .describe(`Maximum object depth to return, 0 to ${MAX_DEPTH}. Defaults to ${DEFAULT_DEPTH}.`),
+    instance: instanceArgument,
   }),
   operation: 'crawl_database_structure',
+  renames: INSTANCE_RENAMES,
   example: { path: 'rooms', depth: 2 },
+  validate: (args, { fail }) => checkInstance(args, fail),
   async handler(args, ctx) {
     const options: { path?: string; maxDepth?: number } = {};
     if (args.path !== undefined) options.path = String(args.path);
     options.maxDepth = args.depth === undefined ? DEFAULT_DEPTH : Number(args.depth);
-    const root = crawlSnapshot(snapshotState(ctx.sandbox), options);
+    const selector = await instanceSelector(ctx, args.instance);
+    const root = crawlSnapshot(snapshotState(getAdminDatabase(ctx.sandbox, selector)), options);
     return {
       ok: true,
-      summary: `Crawled ${countDescendantObjects(root)} object paths from ${root.path}`,
+      summary: onInstance(`Crawled ${countDescendantObjects(root)} object paths from ${root.path}`, selector),
       data: root,
     };
   },

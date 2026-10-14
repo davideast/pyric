@@ -7,7 +7,8 @@
  */
 import { z } from 'zod';
 import { push, ref } from 'pyric/database';
-import { checkPath, pathArgument, RENAMES } from '../../arguments/database.js';
+import { checkReference, instanceArgument, pathArgument, RENAMES } from '../../arguments/database.js';
+import { instanceSelector, onInstance } from '../../database-instance.js';
 import { databaseFor } from '../../service-handles.js';
 import type { MethodRecord } from '../../method-types.js';
 
@@ -21,7 +22,7 @@ export default {
   method: 'push',
   sdkOrigin: 'firebase-js',
   effect: 'write',
-  signature: 'push(path, value?)',
+  signature: 'push(path, value?, instance?)',
   description:
     'Mint an auto-id child key under path. With value given, write it at the new child. With no value, only the key is minted; nothing is written at the new child, matching a push the SDK never resolves with data.',
   args: z.object({
@@ -30,14 +31,16 @@ export default {
       .unknown()
       .optional()
       .describe('Written at the newly minted child. Omitted, only the key is minted.'),
+    instance: instanceArgument,
   }),
   operation: 'push_database_value',
   renames: RENAMES,
   example: { path: 'rooms', value: { name: 'Overflow' } },
-  validate: (args, { fail }) => checkPath('push', args, fail),
+  validate: (args, { fail }) => checkReference('push', args, fail),
   async handler(args, ctx) {
     const path = String(args.path);
-    const pushed = push(ref(databaseFor(ctx), path), args.value);
+    const selector = await instanceSelector(ctx, args.instance);
+    const pushed = push(ref(databaseFor(ctx, selector), path), args.value);
     const written = await pushed;
     const key = String(written.key);
     const childPath = childPathOf(path, key);
@@ -45,6 +48,6 @@ export default {
       args.value === undefined
         ? `Minted key ${key} under ${path}; nothing written`
         : `Pushed ${childPath}`;
-    return { ok: true, summary, data: { key, path: childPath } };
+    return { ok: true, summary: onInstance(summary, selector), data: { key, path: childPath } };
   },
 } satisfies MethodRecord;
