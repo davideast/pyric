@@ -47,7 +47,7 @@ const String _connectionLost =
 const String _holdExpired =
     'The bridge connection was not restored within 10 seconds. The request was not sent.';
 const String _authRestoreFailed =
-    'Could not restore the bridge app session. The request was not sent.';
+    'The bridge host was replaced and the Auth session could not be restored. The request was not sent.';
 const Duration _holdDeadline = Duration(seconds: 10);
 const int _policyCloseCode = 1008;
 const int _maxReconnectDelayMs = 5000;
