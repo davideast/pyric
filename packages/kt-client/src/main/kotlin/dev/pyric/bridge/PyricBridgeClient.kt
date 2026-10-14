@@ -49,6 +49,9 @@ fun bridgeReconnectDelayMs(attempt: Int, random: Double = Math.random()): Long {
 private const val CONNECTION_LOST =
     "The bridge connection was lost. Requests already sent may have completed; check state before retrying."
 private const val POLICY_CLOSE_CODE = 1008
+private const val DISCONNECTED = "PyricBridgeClient disconnected."
+private const val AUTH_NOT_RESTORED =
+    "The bridge connection was restored, but the signed-in user could not be restored on the new host. The request was not sent."
 
 /**
  * WebSocket transport to the Pyric bridge.
@@ -56,8 +59,10 @@ private const val POLICY_CLOSE_CODE = 1008
  * After the first attach, a dropped socket is reopened with bounded backoff. The
  * client re-attaches with its `clientSessionId` and re-sends every live
  * subscription. Operations in flight at the drop fail once with `UNAVAILABLE` and
- * are never re-sent. A client built on one supplied transport cannot reopen it,
- * so a drop fails its operations and subscriptions instead.
+ * are never re-sent. An operation issued while the client is not attached is
+ * held for up to 10 seconds and sent once after the next attach's restore, or
+ * fails once and is never sent. A client built on one supplied transport cannot
+ * reopen it, so a drop fails its operations and subscriptions instead.
  */
 class PyricBridgeClient(
     val url: String = BridgeProtocol.DEFAULT_BRIDGE_URL,
@@ -88,7 +93,18 @@ class PyricBridgeClient(
     /** Callers waiting for the next scheduled attempt. */
     private var nextAttempt: CompletableDeferred<Unit>? = null
 
-    /** Runs on a re-attach to a replaced host, before subscriptions are re-sent. */
+    /**
+     * Test seam: how long an operation issued while the client is not attached is
+     * held before it fails. The deadline is fixed at 10 seconds (ADR-0019 decision
+     * 7); this is not a user setting.
+     */
+    internal var holdTimeoutMs: Long = BRIDGE_HOLD_TIMEOUT_MS
+
+    /**
+     * Runs on a re-attach to a replaced host, before subscriptions are re-sent. If
+     * it fails, the client continues signed out and the operations held across the
+     * re-attach fail without being sent.
+     */
     @Volatile
     var restoreAuth: BridgeAuthRestorer = {}
 
@@ -130,6 +146,7 @@ class PyricBridgeClient(
 
     private val operationDispatcher = BridgeOperationDispatcher(clientScope, defaultOpTimeoutMs, onDenial = ::dispatchDenial)
     private val subscriptionManager = BridgeSubscriptionManager(onDenial = ::dispatchDenial)
+    private val heldOperations = BridgeHeldOperations(clientScope)
 
     private val canReopen: Boolean get() = directTransport == null
 
@@ -246,6 +263,7 @@ class PyricBridgeClient(
             }
             val changedHost = currentHandshake.await()
             val restorer = restoreAuth
+            var authRestored = true
             if (changedHost) {
                 try {
                     restorer { method, params ->
@@ -258,9 +276,10 @@ class PyricBridgeClient(
                     }
                 } catch (_: Throwable) {
                     // The Auth observers report the host's state when the restore fails.
+                    authRestored = false
                 }
             }
-            if (!finishAttach(attemptGeneration)) {
+            if (!finishAttach(attemptGeneration, authRestored)) {
                 throw FirebaseFirestoreException(CONNECTION_LOST, FirebaseFirestoreException.Code.UNAVAILABLE)
             }
             current.complete(Unit)
@@ -280,13 +299,15 @@ class PyricBridgeClient(
         sendRawJson(JsonCodec.encodeToString(frame))
     }
 
-    private fun finishAttach(attemptGeneration: Int): Boolean {
+    private fun finishAttach(attemptGeneration: Int, authRestored: Boolean): Boolean {
         val epoch: Long
+        val holdEpoch: Long
         synchronized(lock) {
             if (attemptGeneration != generation || isDisposed) return false
             // Taken before isConnected is set: a subscription that sees the attach
             // claims its send on this epoch, and the re-send below skips it.
             epoch = subscriptionManager.beginAttach()
+            holdEpoch = heldOperations.epoch()
             attempt = null
             handshake = null
             hasEverAttached = true
@@ -297,6 +318,13 @@ class PyricBridgeClient(
             setState(BridgeConnectionState.ATTACHED)
         }
         subscriptionManager.restoreAll(epoch, ::sendRawJson, JsonCodec::encodeToString)
+        // Held operations follow the whole restore. Without the Auth restore they
+        // would run as a user the app never was, so they fail instead.
+        val identityLost = if (authRestored) null else FirebaseFirestoreException(
+            AUTH_NOT_RESTORED,
+            FirebaseFirestoreException.Code.UNAVAILABLE
+        )
+        heldOperations.release(holdEpoch, identityLost)
         return true
     }
 
@@ -324,6 +352,7 @@ class PyricBridgeClient(
             attachDeadlineJob = null
             wasAttached = connectionState == BridgeConnectionState.ATTACHED
             isConnected = false
+            heldOperations.interrupt()
             pendingHandshake = handshake
             pendingAttempt = attempt
             handshake = null
@@ -331,6 +360,9 @@ class PyricBridgeClient(
             closing = transport
             if (canReopen) transport = null
             setState(if (permitsRetry) BridgeConnectionState.INTERRUPTED else BridgeConnectionState.CLOSED)
+            // Scheduled with the attempt cleared, so a caller never sees neither an
+            // attempt nor a scheduled one and starts its own ahead of the schedule.
+            if (permitsRetry) scheduleReconnectLocked()
         }
         pendingHandshake?.completeExceptionally(error)
         pendingAttempt?.completeExceptionally(error)
@@ -341,6 +373,7 @@ class PyricBridgeClient(
         if (!permitsRetry) {
             val waiting = synchronized(lock) { nextAttempt.also { nextAttempt = null } }
             waiting?.completeExceptionally(error)
+            heldOperations.fail(error)
             operationDispatcher.failAll(error.code, error.message ?: CONNECTION_LOST, error.cause)
             subscriptionManager.failAll(error.code, error.message ?: CONNECTION_LOST, error.cause)
             return
@@ -348,20 +381,19 @@ class PyricBridgeClient(
 
         operationDispatcher.failAll(FirebaseFirestoreException.Code.UNAVAILABLE, CONNECTION_LOST)
         if (wasAttached) subscriptionManager.reportGap()
+    }
 
-        synchronized(lock) {
-            if (isDisposed) return
-            val delayMs = reconnectDelayMs(reconnectAttempt)
-            reconnectAttempt += 1
-            reconnectJob?.cancel()
-            reconnectJob = clientScope.launch {
-                if (delayMs > 0) delay(delayMs)
-                val next = synchronized(lock) {
-                    reconnectJob = null
-                    if (isDisposed || attempt != null || isConnected) null else startAttemptLocked()
-                }
-                try { next?.await() } catch (_: Throwable) {}
+    private fun scheduleReconnectLocked() {
+        val delayMs = reconnectDelayMs(reconnectAttempt)
+        reconnectAttempt += 1
+        reconnectJob?.cancel()
+        reconnectJob = clientScope.launch {
+            if (delayMs > 0) delay(delayMs)
+            val next = synchronized(lock) {
+                reconnectJob = null
+                if (isDisposed || attempt != null || isConnected) null else startAttemptLocked()
             }
+            try { next?.await() } catch (_: Throwable) {}
         }
     }
 
@@ -372,23 +404,27 @@ class PyricBridgeClient(
         timeoutMs: Long? = null
     ): Any? {
         if (isDisposed) throw disposedError()
-        if (!isConnected) {
-            val interrupted = synchronized(lock) { hasEverAttached && canReopen }
-            if (interrupted) {
-                throw FirebaseFirestoreException(CONNECTION_LOST, FirebaseFirestoreException.Code.UNAVAILABLE)
-            }
-            connect()
+        val start = {
+            operationDispatcher.startOp(
+                method = method,
+                params = params,
+                actAs = actAs,
+                timeoutMs = timeoutMs,
+                sendJson = ::sendRawJson,
+                jsonSerializer = JsonCodec::encodeToString
+            )
         }
-        if (isDisposed) throw disposedError()
+        val held = heldOperations.hold(holdTimeoutMs, start) ?: return start().await()
+        startAttemptIfIdle()
+        return heldOperations.await(held)
+    }
 
-        return operationDispatcher.executeOp(
-            method = method,
-            params = params,
-            actAs = actAs,
-            timeoutMs = timeoutMs,
-            sendJson = ::sendRawJson,
-            jsonSerializer = JsonCodec::encodeToString
-        )
+    /** A held operation never starts an attempt ahead of the reconnect schedule. */
+    private fun startAttemptIfIdle() {
+        synchronized(lock) {
+            val idle = !isDisposed && !isConnected && attempt == null && reconnectJob == null
+            if (idle) startAttemptLocked()
+        }
     }
 
     /**
@@ -462,14 +498,9 @@ class PyricBridgeClient(
         }
         restoreAuth = {}
 
-        operationDispatcher.failAll(
-            FirebaseFirestoreException.Code.UNAVAILABLE,
-            "PyricBridgeClient disconnected."
-        )
-        subscriptionManager.failAll(
-            FirebaseFirestoreException.Code.UNAVAILABLE,
-            "PyricBridgeClient disconnected."
-        )
+        heldOperations.dispose(FirebaseFirestoreException(DISCONNECTED, FirebaseFirestoreException.Code.UNAVAILABLE))
+        operationDispatcher.failAll(FirebaseFirestoreException.Code.UNAVAILABLE, DISCONNECTED)
+        subscriptionManager.failAll(FirebaseFirestoreException.Code.UNAVAILABLE, DISCONNECTED)
 
         val closedBeforeHandshake = FirebaseFirestoreException(
             "Connection closed before handshake completion.",
