@@ -43,6 +43,8 @@ import type { Plugin, UserConfig } from 'vite';
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { createViteWorkerRuntime } from './vite-worker-runtime.js';
+import { readPyricConfig } from '../cli/pyric-config.js';
+import { resolveOwnersConfig, type OwnersConfig } from './owners-config.js';
 import type { PyricAiOptions } from './vite-ai-config.js';
 import type { PyricAvatarsOptions } from './avatars-config.js';
 import type { PyricRuntimeChipOption } from './runtime/chip-config.js';
@@ -114,6 +116,12 @@ export interface PyricOptions {
   runtimeChip?: PyricRuntimeChipOption;
   /** Overrides the shared pyric.json Flow configuration. */
   flow?: FlowConfig;
+  /** Overrides the shared pyric.json `owners` configuration, field by field.
+   *  `skip` lists globs for the app's data-layer wrapper modules, so a
+   *  listener's owner shows the code that called the wrapper; the wrapper's
+   *  frame stays on the owner's `stack`. `frames` is how many application
+   *  frames each owner keeps, counted from the frame it shows (default 3). */
+  owners?: OwnersConfig;
   /** RTDB-triggered Cloud Functions under this dev server (the `pyric sandbox`
    *  parity fold). By default a `functions` block in `firebase.json` is
    *  discovered automatically: its `onValueCreated` triggers run in an isolated
@@ -240,6 +248,7 @@ export function pyric(options: PyricOptions = {}): Plugin {
   // instance a Vite restart builds closes it before claiming the same files.
   const instanceSlot = localGenerationSlot();
   let hostedProjectKey: string | undefined;
+  let owners: OwnersConfig | undefined = resolveOwnersConfig(undefined, options.owners);
 
   return {
     name: 'pyric:sandbox',
@@ -291,6 +300,7 @@ export function pyric(options: PyricOptions = {}): Plugin {
       const ownsProjectState = stateScope !== null;
       const slot = ownsProjectState ? projectGenerationSlot(projectDir, stateScope) : instanceSlot;
       await slot.take()?.close();
+      owners = resolveOwnersConfig((await readPyricConfig(projectDir)).owners, options.owners);
 
       const uiEnabled = options.ui ?? true;
       const functionsOptions = resolveFunctionsOptions(options.functions);
@@ -347,7 +357,7 @@ export function pyric(options: PyricOptions = {}): Plugin {
     },
 
     transformIndexHtml(html) {
-      return stampHostedTarget(pageRuntime.transformIndexHtml(html), hostedProjectKey);
+      return stampHostedTarget(pageRuntime.transformIndexHtml(html), hostedProjectKey, owners);
     },
   };
 }

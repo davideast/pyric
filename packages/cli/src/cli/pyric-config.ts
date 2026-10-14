@@ -7,6 +7,7 @@
  */
 
 import type { FlowConfig } from '../serve/flow-config.js';
+import type { OwnersConfig } from '../serve/owners-config.js';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
@@ -20,6 +21,8 @@ export interface PyricConfig {
   runtime?: { thresholds?: import('../serve/runtime/rate-threshold-config.js').ThresholdConfig };
   /** Listener Flow default and browser treatment modules. */
   flow?: FlowConfig;
+  /** Which application frames a listener or operation owner keeps and shows first. */
+  owners?: OwnersConfig;
   /** Default command to execute under the sandbox if none is passed on CLI. */
   command?: string;
   /** Local port to bind the Pyric sandbox host. */

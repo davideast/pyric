@@ -7,7 +7,7 @@ const entry = new URL('../../../src/serve/entries/worker-runtime.ts', import.met
 
 // Browser transports are the I/O boundary. The bundled entry and its clients
 // run unchanged in a fresh realm for each case.
-export async function runtimeRealm(options: { sharedWorker?: boolean; blockedWorker?: boolean; serviceWorker?: boolean; forceInPage?: boolean; pageSdk?: boolean; hosted?: boolean; failedSockets?: number } = {}) {
+export async function runtimeRealm(options: { sharedWorker?: boolean; blockedWorker?: boolean; serviceWorker?: boolean; forceInPage?: boolean; pageSdk?: boolean; hosted?: boolean; failedSockets?: number; owners?: { skip?: string[]; frames?: number } } = {}) {
   const { runInNewContext, createContext, SourceTextModule } = await import('node:vm');
   const { JSDOM } = await import('jsdom');
   const page = options.pageSdk && !options.serviceWorker ? new JSDOM('<html><head><meta name="pyric-runtime-chip" content="off"></head><body></body></html>', { url: 'https://app.example/' }) : undefined;
@@ -17,7 +17,8 @@ export async function runtimeRealm(options: { sharedWorker?: boolean; blockedWor
       export * as database from './database.js';
       export * as app from './app.js';` : '') + `export * from './worker-runtime.js';
       export { registerActiveAuth } from './active-auth.js';
-      export { getAuth } from '../worker/client.js';`, resolveDir: dirname(entry) },
+      export { getAuth } from '../worker/client.js';
+      export { callerFrameFromStack } from 'pyric/sandbox/internal';`, resolveDir: dirname(entry) },
     bundle: true, platform: 'browser', format: options.pageSdk ? 'esm' : 'iife',
     globalName: 'entry', target: options.pageSdk ? 'es2022' : 'es2020', write: false, logLevel: 'silent',
   });
@@ -53,7 +54,7 @@ export async function runtimeRealm(options: { sharedWorker?: boolean; blockedWor
       const timer = setInterval(callback, ms); timers.add(timer); return timer;
     },
     clearTimeout, clearInterval,
-    __PYRIC_WORKER_INIT__: options.serviceWorker ? undefined : { hosted: options.hosted ?? false, projectKey: options.hosted ? 'orbit' : null, bridgeUrl: options.hosted ? '/__pyric/sandbox' : null },
+    __PYRIC_WORKER_INIT__: options.serviceWorker ? undefined : { hosted: options.hosted ?? false, projectKey: options.hosted ? 'orbit' : null, bridgeUrl: options.hosted ? '/__pyric/sandbox' : null, ...(options.owners ? { owners: options.owners } : {}) },
     __PYRIC_FORCE_INPAGE__: options.forceInPage,
     ...(options.serviceWorker ? { ServiceWorkerGlobalScope: class {}, registration: { scope: '/' }, clients: {} } : { window: page?.window ?? {} }),
     ...(page ? { document: page.window.document, HTMLElement: page.window.HTMLElement, CustomEvent: page.window.CustomEvent, MutationObserver: page.window.MutationObserver, localStorage: page.window.localStorage } : {}),
@@ -119,7 +120,7 @@ export async function runtimeRealm(options: { sharedWorker?: boolean; blockedWor
     runInNewContext(result.outputFiles[0]!.text, context);
     exports = runInNewContext('entry', context);
   }
-  const runtime = exports as typeof import('../../../src/serve/entries/worker-runtime.js');
+  const runtime = exports as typeof import('../../../src/serve/entries/worker-runtime.js') & Pick<typeof import('pyric/sandbox/internal'), 'callerFrameFromStack'>;
   return {
     runtime, connections, messages, evaluation,
     sdk: exports as { firestore: typeof import('../../../src/serve/entries/firestore.js'); auth: typeof import('../../../src/serve/entries/auth.js'); database: typeof import('../../../src/serve/entries/database.js'); app: typeof import('../../../src/serve/entries/app.js') },

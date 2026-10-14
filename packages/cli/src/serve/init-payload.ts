@@ -1,4 +1,5 @@
 import type { AiEngineConfigWire } from './worker/protocol.js';
+import type { OwnersConfig } from './owners-config.js';
 
 /** A Realtime Database ruleset as `database.rules.json` holds it. */
 export type RtdbRulesJson = { rules: Record<string, unknown> };
@@ -100,8 +101,15 @@ export interface InitPayload {
   ai?: { engine?: AiEngineConfigWire } | null;
 }
 
-/** Synchronous page transport selection, injected before application modules. */
-export type WorkerInitPayload = Pick<InitPayload, 'hosted' | 'projectKey' | 'bridgeUrl' | 'persistenceUnhealthy'>;
+/**
+ * Synchronous page transport selection, injected before application modules.
+ * It also carries the project's listener-owner settings, which must be in
+ * force before the application opens its first listener.
+ */
+export type WorkerInitPayload = Pick<InitPayload, 'hosted' | 'projectKey' | 'bridgeUrl' | 'persistenceUnhealthy'> & {
+  /** `owners` from `pyric.json` or the Vite plugin; absent when neither sets it. */
+  owners?: OwnersConfig;
+};
 
 declare global {
   var __PYRIC_WORKER_INIT__: WorkerInitPayload | undefined;

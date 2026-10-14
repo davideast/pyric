@@ -103,3 +103,16 @@ test('a hosted page whose first socket fails keeps retrying instead of closing i
     realm.dispose();
   }
 });
+
+test('a page applies the owner-frame policy its server inlined before any listener opens', async () => {
+  const realm = await runtimeRealm({ sharedWorker: true, owners: { skip: ['src/db.js'], frames: 1 } });
+  try {
+    const stack = [
+      'Error',
+      '    at watch (https://app.example/src/db.js:5:10)',
+      '    at listRooms (https://app.example/src/room-list.js:5:22)',
+    ].join('\n');
+    const frame = realm.runtime.callerFrameFromStack(stack);
+    expect(frame?.kind === 'frame' ? [frame.file, frame.function] : []).toEqual(['https://app.example/src/room-list.js', 'listRooms']);
+  } finally { realm.dispose(); }
+});
