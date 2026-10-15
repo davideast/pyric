@@ -102,21 +102,23 @@ describe('lintExpression', () => {
   });
 
   test('crash guards: catches SyntaxError from string literals and RangeError from deeply chained terms', () => {
-    for (const expr of [
-      '"\\\'" == "\\\'"',
-      '"\\x41" == "\\x41"',
-      'auth.uid == "a\nb"',
-    ]) {
-      expect(() => lintExpression(expr, 'read')).not.toThrow();
-      expect(lintExpression(expr, 'read').length).toBeGreaterThan(0);
+    for (const expr of ['"\\\'" == "\\\'"', '"\\x41" == "\\x41"']) {
+      expect(lintExpression(expr, 'read').map(w => w.code)).toEqual(['HARDCODED_TRUE']);
     }
+    expect(lintExpression('auth.uid == "a\nb"', 'read')).toEqual([
+      {
+        code: 'PARSE_ERROR',
+        message: 'unterminated string literal',
+      },
+    ]);
     for (const expr of ['auth.uid == "\\\'"', 'auth.uid == "\\x41"', 'auth.uid == "a\tb"']) {
-      expect(() => lintExpression(expr, 'read')).not.toThrow();
+      expect(lintExpression(expr, 'read')).toEqual([]);
       const checkResult = checkRtdbRules(() =>
         compileRtdbRules({ rules: { p: { '.read': expr } } }),
       );
       expect(checkResult.ok).toBe(true);
       expect(checkResult.errors).toEqual([]);
+      expect(checkResult.warnings).toEqual([]);
     }
 
     const deeplyChained = Array.from({ length: 6000 }, () => 'auth != null').join(' && ');

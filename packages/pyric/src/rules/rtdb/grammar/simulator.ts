@@ -5,6 +5,11 @@ import {
 } from '../expression-engine.js';
 import type { RtdbRuleExpression } from '../types.js';
 import {
+  UNTERMINATED_STRING_LITERAL,
+  isUnterminatedRtdbStringLiteral,
+  unescapeRtdbStringLiteral,
+} from './string-literal.js';
+import {
   HAS_CHILDREN_ARGUMENT_COUNT,
   MATCHES_REGEX_LITERAL,
   REGEX_FLAGS,
@@ -44,32 +49,6 @@ function safeMemberRead(recv: unknown, key: string): unknown {
   // Own-property access only — never walk the prototype chain.
   if (!Object.hasOwn(recv as object, key)) return null;
   return (recv as Record<string, unknown>)[key] ?? null;
-}
-
-/** Process standard escape sequences in single-quoted string literals. */
-function processStringEscapes(raw: string): string {
-  let out = '';
-  for (let i = 0; i < raw.length; i++) {
-    const c = raw[i];
-    if (c !== '\\' || i === raw.length - 1) {
-      out += c;
-      continue;
-    }
-    const next = raw[++i];
-    switch (next) {
-      case '\\': out += '\\'; break;
-      case '\'': out += '\''; break;
-      case '"':  out += '"';  break;
-      case 'n':  out += '\n'; break;
-      case 'r':  out += '\r'; break;
-      case 't':  out += '\t'; break;
-      case 'b':  out += '\b'; break;
-      case 'f':  out += '\f'; break;
-      case '/':  out += '/';  break;
-      default:   out += '\\' + next; break;
-    }
-  }
-  return out;
 }
 
 export interface SimulatedQuery {
@@ -515,10 +494,16 @@ function getEvalSemantics(): Semantics {
     number(node) { return (node as any).eval(this.args.ctx); },
 
     string_double(_open, _chars, _close) {
-      return JSON.parse(this.sourceString);
+      if (isUnterminatedRtdbStringLiteral(this.sourceString)) {
+        throw new SyntaxError(UNTERMINATED_STRING_LITERAL);
+      }
+      return unescapeRtdbStringLiteral(this.sourceString);
     },
-    string_single(_open, chars, _close) {
-      return processStringEscapes(chars.sourceString);
+    string_single(_open, _chars, _close) {
+      if (isUnterminatedRtdbStringLiteral(this.sourceString)) {
+        throw new SyntaxError(UNTERMINATED_STRING_LITERAL);
+      }
+      return unescapeRtdbStringLiteral(this.sourceString);
     },
     string(node) { return (node as any).eval(this.args.ctx); },
 

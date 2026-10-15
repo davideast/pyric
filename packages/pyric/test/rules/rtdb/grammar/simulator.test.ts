@@ -264,9 +264,33 @@ describe('evaluateRtdbExpression', () => {
       expect(evalExpr("'a\\nb\\tc'", baseCtx)).toBe(evalExpr('"a\\nb\\tc"', baseCtx));
     });
 
-    test('preserves unrecognized escape sequences safely without throwing', () => {
-      const unrecognized = { ...baseCtx, data: new DataSnapshot('\\z') };
+    test('unescapes unrecognized escape sequences to the escaped character in both quote styles', () => {
+      const unrecognized = { ...baseCtx, data: new DataSnapshot('z') };
       expect(evalExpr("data.val() == '\\z'", unrecognized)).toBe(true);
+      expect(evalExpr('data.val() == "\\z"', unrecognized)).toBe(true);
+    });
+
+    test('FUZ-1: evaluates single-quote escapes, hex escapes, unicode escapes, and raw tabs consistently with validator', () => {
+      expect(evalExpr('"\\\'" == "\\\'"', baseCtx)).toBe(true);
+      expect(evalExpr('"\\\'" == "\'"', baseCtx)).toBe(true);
+      expect(evalExpr('"\\x41" == "A"', baseCtx)).toBe(true);
+      expect(evalExpr("'\\x41' == 'A'", baseCtx)).toBe(true);
+      expect(evalExpr("'\\u0041' == \"\\u0041\"", baseCtx)).toBe(true);
+      expect(evalExpr("'\\u0041' == 'A'", baseCtx)).toBe(true);
+      expect(evalExpr('"col1\tcol2" == "col1\\tcol2"', baseCtx)).toBe(true);
+      expect(
+        evalExpr('query["orderBy\\u004b\\u0065\\u0079"] == true', {
+          ...baseCtx,
+          query: { orderByKey: true },
+        }),
+      ).toBe(true);
+      expect(
+        evalExpr("query['\\orderByKey'] == true", {
+          ...baseCtx,
+          query: { orderByKey: true },
+        }),
+      ).toBe(true);
+      expect(() => evalExpr('"line1\nline2"', baseCtx)).toThrow(SyntaxError);
     });
   });
 });
