@@ -38,10 +38,12 @@ final class FakeReconnectSocket: WebSocketTransport, @unchecked Sendable {
         return pingAttempts
     }
 
+    private func countPingAttempt() {
+        lock.lock(); pingAttempts += 1; lock.unlock()
+    }
+
     func send(_ string: String) async throws {
-        if string.contains("\"type\":\"ping\"") {
-            lock.lock(); pingAttempts += 1; lock.unlock()
-        }
+        if string.contains("\"type\":\"ping\"") { countPingAttempt() }
         guard isOpen else { throw PyricBridgeError.unavailable("socket closed") }
         guard let data = string.data(using: .utf8),
               let frame = try? JSONDecoder().decode(AnySendable.self, from: data),
