@@ -1,3 +1,4 @@
+import { FORBIDDEN_KEY_CHARACTER } from '../structure.js';
 import type { Expr } from './types.js';
 
 /** Create an Expr from a raw expression string. */
@@ -28,13 +29,14 @@ export function lit(value: Literal): string {
     if (!Number.isFinite(value)) throw new Error(`RTDB rules have no literal for ${value}.`);
     return String(value);
   }
-  return value ? 'true' : 'false';
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  throw new Error(`RTDB rules have no literal for ${value === undefined ? 'undefined' : Array.isArray(value) ? 'array' : typeof value}.`);
 }
 
 /** A child key a builder reads: non-empty, with no characters RTDB keys reject. */
 export function fieldName(builder: string, field: string): string {
-  if (typeof field !== 'string' || field.length === 0 || /[.#$[\]]/.test(field)) {
-    throw new Error(`${builder}: '${String(field)}' is not a field name; RTDB keys cannot be empty or contain . # $ [ ].`);
+  if (typeof field !== 'string' || field.length === 0 || FORBIDDEN_KEY_CHARACTER.test(field)) {
+    throw new Error(`${builder}: '${String(field)}' is not a field name; RTDB keys cannot be empty or contain . # $ / [ ].`);
   }
   return field;
 }
@@ -44,6 +46,7 @@ function topLevel(text: string, operators: string[]): boolean {
   let depth = 0;
   let quote: string | null = null;
   let regex = false;
+  let regexClass = false;
   for (let i = 0; i < text.length; i++) {
     const ch = text[i]!;
     if (quote) {
@@ -53,7 +56,13 @@ function topLevel(text: string, operators: string[]): boolean {
     }
     if (regex) {
       if (ch === '\\') i++;
-      else if (ch === '/') regex = false;
+      else if (regexClass) {
+        if (ch === ']') regexClass = false;
+      } else if (ch === '[') {
+        regexClass = true;
+      } else if (ch === '/') {
+        regex = false;
+      }
       continue;
     }
     if (ch === "'" || ch === '"') quote = ch;
@@ -65,7 +74,7 @@ function topLevel(text: string, operators: string[]): boolean {
   return false;
 }
 
-const group = (text: string, operators: string[]): string =>
+export const group = (text: string, operators: string[]): string =>
   (topLevel(text, operators) ? `(${text})` : text);
 
 /**
@@ -96,6 +105,9 @@ export function any(...exprs: Expr[]): Expr {
 
 /** Negate a condition. A member chain such as `data.child('a').exists()` needs no parentheses. */
 export function not(e: Expr): Expr {
+  if (typeof e !== 'string' || e.trim().length === 0) {
+    throw new Error('not: pass a non-empty condition.');
+  }
   const chain = /^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*(\((?:'[^'\\]*'|[\w$.]*)\))?)*$/;
   return expr(chain.test(e) ? `!${e}` : `!(${e})`);
 }

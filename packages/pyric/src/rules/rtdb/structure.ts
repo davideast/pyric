@@ -6,7 +6,7 @@ export const SYSTEM_KEYS: ReadonlySet<string> = new Set(['.read', '.write', '.va
 const RULE_KEYS: ReadonlySet<string> = new Set(['.read', '.write', '.validate']);
 
 /** A character a key may not hold: `.`, `#`, `$`, `/`, `[` or `]`. */
-const FORBIDDEN_KEY_CHARACTER = /[.#$/[\]]/;
+export const FORBIDDEN_KEY_CHARACTER = /[.#$/[\]]/;
 
 /**
  * The texts production's deploy reports for each shape problem, captured from
