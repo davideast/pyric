@@ -350,6 +350,7 @@ export const rtdbFlutterRows: CompatibilityRow[] = [
     api: 'OnDisconnect.set(value) / remove()',
     behavior: 'Registers server-side write or removal operations to execute upon client disconnect.',
     featureKeys: ['onDisconnectSetRemove'],
+    evidence: 'Verified by packages/flutter-client/test/rtdb_conformance_test.dart. The Node host runs the operations when the client socket closes, by a close frame or after the host closes a socket that pinged and went silent, and keeps the session signed in for re-attach (ADR-0019): `packages/cli/test/serve/fixtures/hosted-sqlite-relay-ondisconnect.ts`.',
   }),
   row({
     ref: 'ondisconnect-cancel',

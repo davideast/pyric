@@ -210,6 +210,15 @@ export interface Bridge {
    */
   detachConsumer(clientSessionId: string, socket?: object): void;
 
+  /**
+   * A consumer's socket was lost while its session lives on for re-attach:
+   * fail the socket's operations in flight, drop it from presence, and tell a
+   * host that owns worker ports the session was interrupted, so the host runs
+   * its RTDB onDisconnect operations (ADR-0019). With `socket`, only the
+   * operations that socket dispatched fail.
+   */
+  interruptConsumer(clientSessionId: string, socket?: object): void;
+
   /** Tear down consumer subscriptions, cancel pending ops, and notify peer. */
   disconnectConsumer(clientSessionId: string): void;
 
@@ -293,12 +302,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
   const workerSubs = new Map<string, WorkerSubEntry>();
   const consumers = createConsumerRegistry();
   const workerSessions = createWorkerSessions({
-    detach(clientSessionId) {
-      detachConsumer(clientSessionId);
-      consumers.unregister(clientSessionId);
-      broadcastConsumerPresence();
-      peer?.send({ type: 'worker-client-interrupted', clientSessionId });
-    },
+    detach: interruptConsumer,
     close: disconnectConsumer,
   });
   const callerIdentity = createCallerIdentity();
@@ -589,6 +593,16 @@ export function createBridge(opts: BridgeOptions): Bridge {
     }
   }
 
+  function interruptConsumer(clientSessionId: string, socket?: object): void {
+    detachConsumer(clientSessionId, socket);
+    consumers.unregister(clientSessionId);
+    broadcastConsumerPresence();
+    // Only the Node host accepts the interruption; the in-page peer does not.
+    const hostOwnsWorkerPorts = peer?.capabilities.has(WORKER_PORT_CAPABILITY) === true;
+    if (!hostOwnsWorkerPorts) return;
+    try { peer?.send({ type: 'worker-client-interrupted', clientSessionId }); } catch {}
+  }
+
   function disconnectConsumer(clientSessionId: string): void {
     for (const [subId, entry] of workerSubs) {
       const belongsToConsumer = entry.clientSessionId === clientSessionId;
@@ -787,6 +801,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
     dispatchWorkerOp,
     subscribeWorker,
     detachConsumer,
+    interruptConsumer,
     disconnectConsumer,
     handleSandboxMessage,
     health,

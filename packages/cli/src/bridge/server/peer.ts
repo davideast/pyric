@@ -227,12 +227,14 @@ export function createConsumerSession(
     for (const unsubscribe of subs.values()) unsubscribe();
     subs.clear();
     // A client may already have re-attached this session on a new socket; this
-    // socket's close settles only its own operations and presence entry.
+    // socket's close then settles only its own operations, and runs no
+    // onDisconnect operations the re-attached client registered (ADR-0019).
+    const ownsSession = bridge.consumers.get(clientSessionId)?.send === send;
+    if (ownsSession) {
+      bridge.interruptConsumer(clientSessionId, socketIdentity);
+      return;
+    }
     bridge.detachConsumer(clientSessionId, socketIdentity);
-    const ownsPresence = bridge.consumers.get(clientSessionId)?.send === send;
-    if (!ownsPresence) return;
-    bridge.consumers.unregister(clientSessionId);
-    bridge.broadcastConsumerPresence();
   }
 
   function dispose(): void {

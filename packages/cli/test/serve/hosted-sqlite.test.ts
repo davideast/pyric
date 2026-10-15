@@ -44,6 +44,10 @@ test('over a real ws socket, the host terminates a page that pinged then went si
   expect(await runNodeFixture('peer-liveness-socket', 30_000)).toBe('Peer liveness socket passed');
 }, 45_000);
 
+test('over a real ws socket, a native or remote client\'s onDisconnect runs on a clean close and after the host closes it for silence, and its session keeps its user for re-attach (#973)', async () => {
+  expect(await runNodeFixture('relay-ondisconnect', 30_000)).toBe('Relay onDisconnect passed');
+}, 45_000);
+
 test('a failed batch rolls back updates and deletions together', async () => {
   expect(await runNodeFixture('rollback')).toBe('Rollback passed');
 });
