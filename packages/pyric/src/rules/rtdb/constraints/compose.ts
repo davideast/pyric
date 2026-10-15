@@ -30,7 +30,13 @@ export function lit(value: Literal): string {
     return String(value);
   }
   if (typeof value === 'boolean') return value ? 'true' : 'false';
-  throw new Error(`RTDB rules have no literal for ${value === undefined ? 'undefined' : Array.isArray(value) ? 'array' : typeof value}.`);
+  let invalidKind: string = typeof value;
+  if (value === undefined) {
+    invalidKind = 'undefined';
+  } else if (Array.isArray(value)) {
+    invalidKind = 'array';
+  }
+  throw new Error(`RTDB rules have no literal for ${invalidKind}.`);
 }
 
 /** A child key a builder reads: non-empty, with no characters RTDB keys reject. */

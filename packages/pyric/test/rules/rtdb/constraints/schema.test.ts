@@ -267,6 +267,9 @@ describe('schemaRules', () => {
     expect(() => schemaRules(z.object({ bad: z.literal(undefined) }))).toThrow(/no literal for undefined/);
     expect(() => schemaRules(z.object({ bad: z.literal(Number.NaN) }))).toThrow(/no literal for NaN/);
     expect(() =>
+      schemaRules(z.object({ unionWithObject: z.union([z.string(), z.object({ a: z.string() })]) })),
+    ).toThrow(/Unsupported Zod type.*ZodObject/);
+    expect(() =>
       schemaRules(z.object({ name: z.string() }), { missingKey: [expr("newData.val() == 'ok'")] }),
     ).toThrow(/missingKey/);
   });

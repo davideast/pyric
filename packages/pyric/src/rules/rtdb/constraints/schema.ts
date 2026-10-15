@@ -59,10 +59,10 @@ export function schemaRules(
 
     if (innerType instanceof z.ZodObject) {
       const nested = schemaRules(innerType);
-      const validateExpr =
-        constraints && constraints.length > 0
-          ? all(nested.validate, ...constraints)
-          : nested.validate;
+      let validateExpr = nested.validate;
+      if (constraints && constraints.length > 0) {
+        validateExpr = all(nested.validate, ...constraints);
+      }
       children[key] = {
         validate: validateExpr,
         children: nested.children,
@@ -171,10 +171,6 @@ function zodTypeToExpr(zodType: z.ZodTypeAny, fieldName: string): Expr {
   if (zodType instanceof z.ZodUnion) {
     const options = (zodType as z.ZodUnion<any>)._def.options as z.ZodTypeAny[];
     return any(...options.map(opt => zodTypeToExpr(opt, fieldName)));
-  }
-  if (zodType instanceof z.ZodObject) {
-    // Handled separately in the caller — return hasChildren as placeholder
-    return expr('newData.hasChildren()');
   }
 
   throw new Error(`Unsupported Zod type for RTDB rules: ${zodType.constructor.name} on field "${fieldName}"`);
