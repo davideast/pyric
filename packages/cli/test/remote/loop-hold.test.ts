@@ -11,10 +11,19 @@
  *
  * 2. Version skew: a live tab whose SharedWorker predates a new op returns
  *    a raw "Unknown method: …" — the client appends restart/reload guidance.
+ *
+ * 3. Heartbeat (#973): a real Node process attached over `ws` keeps pinging
+ *    while idle and still exits when its script ends. It runs the built CLI,
+ *    so build first. PYRIC_TEST_NODE optionally selects the Node executable.
  */
 
 import 'fake-indexeddb/auto';
 import { describe, it, expect } from 'bun:test';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { WebSocketServer } from 'ws';
 import { initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
 import { createBridge, type Bridge } from '../../src/bridge/server/bridge.js';
@@ -342,4 +351,74 @@ describe('remote core — version-skew guidance on Unknown method', () => {
       expect((err as Error).message).not.toContain('predate');
     }
   });
+});
+
+// ─── Heartbeat timers never hold the loop (#973) ───────────────────────────
+
+/** A bridge host that acknowledges attach, answers ops, and counts pings. */
+async function startPingCountingHost(): Promise<{ url: string; pings: () => number; stop: () => Promise<void> }> {
+  const http = createServer();
+  const server = new WebSocketServer({ server: http, path: '/__pyric/sandbox' });
+  http.listen(0, '127.0.0.1');
+  await once(http, 'listening');
+  let pings = 0;
+  server.on('connection', (socket) => {
+    socket.on('message', (raw) => {
+      const msg = JSON.parse(raw.toString()) as BridgeMessage;
+      const reply = (frame: BridgeMessage): void => socket.send(JSON.stringify(frame));
+      if (msg.type === 'attach') {
+        reply({ type: 'attach-ack', protocol: 1, bridgeVersion: 'test', peerConnected: true, clientSessionId: 's' });
+      } else if (msg.type === 'ping') {
+        pings += 1;
+        reply({ type: 'pong', id: msg.id });
+      } else if (msg.type === 'worker-op') {
+        reply({ type: 'worker-res', id: msg.id, ok: true, value: { key: null, exists: true, value: 1, size: 1 } });
+      }
+    });
+  });
+  const stop = async (): Promise<void> => {
+    for (const client of server.clients) client.terminate();
+    server.close();
+    http.closeAllConnections();
+    await new Promise<void>((resolve) => http.close(() => resolve()));
+  };
+  return { url: `http://127.0.0.1:${(http.address() as AddressInfo).port}`, pings: () => pings, stop };
+}
+
+/** Attach, run one op, stay idle long enough for several heartbeats, and end without closing. */
+const IDLE_SCRIPT = `
+const { setHeartbeatForTesting } = await import(new URL('host-liveness.js', process.argv[1]).href);
+setHeartbeatForTesting({ intervalMs: 50, timeoutMs: 45_000 });
+const { connectRemoteSandbox } = await import(process.argv[1]);
+const remote = await connectRemoteSandbox({ url: process.argv[2] });
+await remote.rtdb.get('a');
+await new Promise((resolve) => setTimeout(resolve, 400));
+process.stdout.write('idle');
+`;
+
+describe('remote client — heartbeat and the event loop (#973)', () => {
+  it('an idle attached process keeps pinging and still exits when its script ends', async () => {
+    const host = await startPingCountingHost();
+    try {
+      const entry = new URL('../../dist/remote/index.js', import.meta.url).href;
+      const child = spawn(
+        process.env.PYRIC_TEST_NODE ?? 'node',
+        ['--input-type=module', '-e', IDLE_SCRIPT, entry, host.url],
+        { stdio: ['ignore', 'pipe', 'pipe'] },
+      );
+      let stdout = '';
+      let stderr = '';
+      child.stdout.on('data', (chunk) => (stdout += chunk));
+      child.stderr.on('data', (chunk) => (stderr += chunk));
+      const exited = once(child, 'exit').then(([code]) => code as number | null);
+      const deadline = new Promise<'hung'>((resolve) => setTimeout(() => resolve('hung'), 10_000));
+      const outcome = await Promise.race([exited, deadline]);
+      if (outcome === 'hung') child.kill('SIGKILL');
+      expect(outcome, stderr).toBe(0);
+      expect(stdout).toBe('idle');
+      expect(host.pings()).toBeGreaterThanOrEqual(3);
+    } finally {
+      await host.stop();
+    }
+  }, 20_000);
 });
