@@ -346,10 +346,15 @@ describe('LNT-2 & COV-2: literal comparisons and arithmetic fold as constants', 
       'true == 1 < 2',
       '1 + 2 * 3 == 7',
       '-1 + 2 == 1',
+      '"\\0" == "\\u0000"',
+      '"\\v" == "\\x0b"',
+      '"\\\'" == "\'"',
     ]) {
       expect(found({ a: { '.write': expr } }, 'RTDB-SEC-1')).toEqual([{ path: '/a', rule: '.write' }]);
       expect(found({ a: { '.read': expr } }, 'RTDB-SEC-2')).toEqual([{ path: '/a', rule: '.read' }]);
     }
+    expect(found({ a: { '.write': '"\\0" == "0"' } }, 'RTDB-SEC-1')).toEqual([]);
+    expect(found({ a: { '.write': '"\\v" == "v"' } }, 'RTDB-SEC-1')).toEqual([]);
 
     expect(
       found({ '.write': '1 == 1', sub: { '.write': "auth.uid == 'admin'" } }, 'RTDB-SEC-4'),

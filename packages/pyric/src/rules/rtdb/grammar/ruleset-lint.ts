@@ -28,6 +28,7 @@ import type { Semantics } from 'ohm-js';
 import type { ValidationFinding } from '../../grammar/FirestoreValidator.js';
 import { createRtdbExpressionSemantics, matchRtdbExpression } from '../expression-engine.js';
 import type { RtdbNode, RtdbRuleExpression } from '../types.js';
+import { isUnterminatedRtdbStringLiteral, unescapeRtdbStringLiteral } from './string-literal.js';
 
 export type RtdbSecurityCode = 'RTDB-SEC-1' | 'RTDB-SEC-2' | 'RTDB-SEC-3' | 'RTDB-SEC-4' | 'RTDB-SEC-5' | 'RTDB-SEC-6' | 'RTDB-SEC-7';
 
@@ -68,36 +69,10 @@ interface FactsAccumulator {
 type ConstVal = boolean | number | string | null | undefined;
 type DeleteVal = ConstVal | 'exists-false' | 'delete-guard';
 
-const ESCAPES: Record<string, string> = { b: '\b', f: '\f', n: '\n', r: '\r', t: '\t' };
 const NULL_FALSE_METHODS = new Set(['exists', 'isString', 'isNumber', 'isBoolean', 'hasChild', 'hasChildren']);
 
 function isDeniedOrGuarded(v: DeleteVal): boolean {
   return v === false || v === 'exists-false' || v === 'delete-guard';
-}
-
-function unescapeStringLiteral(raw: string): string | undefined {
-  const inner = raw.slice(1, -1);
-  if (inner.includes('\n') || inner.includes('\r')) return undefined;
-  let out = '';
-  for (let i = 0; i < inner.length; i++) {
-    const ch = inner[i]!;
-    if (ch !== '\\') {
-      out += ch;
-      continue;
-    }
-    const next = inner[++i];
-    if (next === undefined) return undefined;
-    if (next === 'x' || next === 'u') {
-      const len = next === 'x' ? 2 : 4;
-      const hex = inner.slice(i + 1, i + 1 + len);
-      if (hex.length !== len || !/^[0-9a-fA-F]+$/.test(hex)) return undefined;
-      out += String.fromCharCode(Number.parseInt(hex, 16));
-      i += len;
-      continue;
-    }
-    out += ESCAPES[next] ?? next;
-  }
-  return out;
 }
 
 function isNullWhenDeleted(snapPath: string[], relSegments: string[]): boolean {
@@ -244,8 +219,12 @@ function getFactsSemantics(): Semantics {
       const n = Number(this.sourceString);
       return Number.isFinite(n) ? n : undefined;
     },
-    string_single(_open, _chars, _close) { return unescapeStringLiteral(this.sourceString); },
-    string_double(_open, _chars, _close) { return unescapeStringLiteral(this.sourceString); },
+    string_single(_open, _chars, _close) {
+      return isUnterminatedRtdbStringLiteral(this.sourceString) ? undefined : unescapeRtdbStringLiteral(this.sourceString);
+    },
+    string_double(_open, _chars, _close) {
+      return isUnterminatedRtdbStringLiteral(this.sourceString) ? undefined : unescapeRtdbStringLiteral(this.sourceString);
+    },
     UnaryExpr_not(_bang, operand) {
       const value = (operand as any).constVal() as ConstVal;
       return typeof value === 'boolean' ? !value : undefined;
