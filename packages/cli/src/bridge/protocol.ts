@@ -184,8 +184,14 @@ export const WORKER_PORT_CAPABILITY = 'worker-port';
 
 /** After this interruption window a client must request a fresh logical session. */
 export const WORKER_SESSION_RETENTION_MS = 60_000;
-/** How often the web hosted client (`serve/worker/client/websocket-connection.ts`) sends `ping`. */
+/** How often every bridge client sends `ping` while attached (ADR-0019). */
 export const HOSTED_HEARTBEAT_INTERVAL_MS = 15_000;
+/**
+ * How long a client waits without any frame from the host before it treats
+ * its socket as dropped and reconnects (ADR-0019). Checked before each
+ * heartbeat, so three heartbeats go unanswered first.
+ */
+export const HOSTED_CLIENT_LIVENESS_TIMEOUT_MS = 3 * HOSTED_HEARTBEAT_INTERVAL_MS;
 /**
  * How long the host waits without any frame from a heartbeating client before
  * it closes that client's socket. A page frozen in the back-forward cache, a
