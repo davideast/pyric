@@ -114,8 +114,7 @@ export class Transactions {
   }
 
   private canRead(auth: AuthState, path: string): boolean {
-    const targetPath = path === '/' ? '/' : path;
-    const evaluation = this.state.rules.evaluate('read', targetPath, {
+    const evaluation = this.state.rules.evaluate('read', path, {
       auth,
       mockData: this.state.rulesSnapshot(),
       now: this.state.clock.now(),
