@@ -14,8 +14,11 @@
  * `changedBy` with a range that includes 0.
  *
  * `.validate` does not run on a delete, so a counter is reset by deleting it
- * unless a `.write` on its path refuses deletes, for example with
- * `lifecycle.noDelete()`.
+ * unless deletes are refused where the counter lives (with
+ * `lifecycle.noDelete()` on the counter node's `.write`), or a granting
+ * parent `.write` requires the child to remain (`newData.child('<field>').exists()`
+ * or `newData.hasChildren([...])`): `lifecycle.noDelete()` on a parent alone
+ * still lets a client delete one child counter while sibling fields exist.
  */
 import type { Expr } from '../constraints/types.js';
 import { all, any, expr, fieldName, lit } from '../constraints/compose.js';
