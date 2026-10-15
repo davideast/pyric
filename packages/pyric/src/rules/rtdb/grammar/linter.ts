@@ -17,6 +17,29 @@ interface LintContext {
 
 let linterSemantics: Semantics | undefined;
 
+const PATH_VARIABLE_RE = /^\$[A-Za-z_]\w*$/;
+const RULE_EXPRESSION_ROOT_RE = /^(?:auth|data|newData|root|query)(?:\.|\[)/;
+
+export function looksLikeRuleReference(value: string): boolean {
+  return (
+    value === 'now' ||
+    PATH_VARIABLE_RE.test(value) ||
+    RULE_EXPRESSION_ROOT_RE.test(value)
+  );
+}
+
+function unquotedStringLiteral(node: any): string | undefined {
+  if (!node.isLiteral()) return undefined;
+  try {
+    const evaluated = evaluateRtdbExpression(node.sourceString, {} as EvalContext);
+    if (typeof evaluated === 'string') return evaluated;
+    return undefined;
+  } catch (error) {
+    if (error instanceof RtdbRuleRuntimeError) return undefined;
+    throw error;
+  }
+}
+
 /**
  * The value of a comparison whose operands are both literals, evaluated as
  * the rules engine evaluates it (`==` does not convert types); undefined for
@@ -39,7 +62,24 @@ function lintComparison(action: any, left: any, right: any): void {
   left.lint(ctx);
   right.lint(ctx);
   const value = constantValue(action);
-  if (value !== undefined) ctx.constantComparisons.push({ source: action.sourceString, value });
+  if (value !== undefined) {
+    ctx.constantComparisons.push({ source: action.sourceString, value });
+    return;
+  }
+  const leftIsLiteral = left.isLiteral() as boolean;
+  const rightIsLiteral = right.isLiteral() as boolean;
+  if (leftIsLiteral === rightIsLiteral) return;
+  let literalNode = right;
+  if (leftIsLiteral) {
+    literalNode = left;
+  }
+  const unquoted = unquotedStringLiteral(literalNode);
+  if (unquoted !== undefined && looksLikeRuleReference(unquoted)) {
+    ctx.warnings.push({
+      code: 'QUOTED_REFERENCE',
+      message: `Comparison ${action.sourceString} quotes '${unquoted}' as a string literal; it compares against the literal text '${unquoted}' rather than evaluating ${unquoted}.`,
+    });
+  }
 }
 
 function getLinterSemantics(): Semantics {

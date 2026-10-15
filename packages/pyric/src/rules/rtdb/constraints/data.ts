@@ -1,10 +1,23 @@
 import type { Expr, Segment } from './types.js';
 import { expr as e, lit } from './compose.js';
+import { looksLikeRuleReference } from '../grammar/linter.js';
 
 type CompareValue = string | number | boolean | null | Segment;
 
+function formatReferenceSuggestion(value: string): string {
+  if (value === 'auth.uid') {
+    return `AUTH_UID (or ref(${JSON.stringify(value)}))`;
+  }
+  return `ref(${JSON.stringify(value)})`;
+}
+
 function formatRight(value: CompareValue): string {
   if (value !== null && typeof value === 'object' && '$' in value) return value.$;
+  if (typeof value === 'string' && looksLikeRuleReference(value)) {
+    throw new Error(
+      `Comparison value ${JSON.stringify(value)} looks like a rule reference and would be quoted as a string literal; pass ${formatReferenceSuggestion(value)} to compare against the reference.`,
+    );
+  }
   return lit(value as string | number | boolean | null);
 }
 
@@ -70,7 +83,10 @@ export const gt = (left: Expr, right: number): Expr =>
 export const lte = (left: Expr, right: number): Expr =>
   e(`${left} <= ${lit(right)}`);
 
-// ---- Constants ----
+// ---- Constants & reference helpers ----
+
+/** Wrap a runtime rule expression so comparisons emit it unquoted */
+export const ref = (expression: string): Segment => ({ $: expression });
 
 /** auth.uid as a comparison value (unquoted in expressions) */
 export const AUTH_UID: Segment = { $: 'auth.uid' };
