@@ -49,7 +49,7 @@ export const scenario: RtdbScenarioRecord = {
     "lastPost": {
       "$uid": {
         ".write": "auth.uid == $uid && newData.exists()",
-        ".validate": "newData.val() == now && (!data.exists() || now > data.val() + 60000)"
+        ".validate": "newData.val() == now && (!data.exists() || (data.isNumber() && now > data.val() + 60000))"
       }
     },
     "online": {
@@ -127,5 +127,6 @@ export const scenario: RtdbScenarioRecord = {
     {"description":"a listed flag","expectation":"ALLOW","operation":"write","opPath":"/tables/t1/flags/red","authPresent":true,"newData":true},
     {"description":"a flag that is not listed","expectation":"DENY","operation":"write","opPath":"/tables/t1/flags/green","authPresent":true,"newData":true},
     {"description":"two posts in one write with one stamp","expectation":"ALLOW","operation":"update","opPath":"/","authPresent":true,"newData":{"posts/p7":"one","posts/p8":"two","lastPost/<UID>":{".sv":"timestamp"}}},
+    {"description":"a post when the stored stamp is a numeric string","expectation":"DENY","operation":"update","opPath":"/","authPresent":true,"newData":{"posts/p9":"hello","lastPost/<UID>":{".sv":"timestamp"}},"seed":{"/lastPost/<UID>":"1000000000000"}},
   ],
 };

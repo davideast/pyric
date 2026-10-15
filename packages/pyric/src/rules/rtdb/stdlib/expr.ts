@@ -26,7 +26,15 @@ export const sameAsBefore = (field: string): Expr => eq(newDataVal(field), { $: 
 export function childPath(builder: string, segments: ReadonlyArray<string | { $: string }>): string {
   if (segments.length === 0) throw new Error(`${builder}: pass at least one segment.`);
   return segments
-    .map((s) => (typeof s === 'string' ? `.child(${lit(fieldName(builder, s))})` : `.child(${s.$})`))
+    .map((s) => {
+      if (typeof s === 'string') {
+        return `.child(${lit(fieldName(builder, s))})`;
+      }
+      if (typeof s?.$ !== 'string' || s.$.trim().length === 0) {
+        throw new Error(`${builder}: segment expression '$' must be a non-empty string.`);
+      }
+      return `.child(${s.$})`;
+    })
     .join('');
 }
 

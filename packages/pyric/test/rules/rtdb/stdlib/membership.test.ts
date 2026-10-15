@@ -49,6 +49,8 @@ describe('rtdbStdlib.membership', () => {
 
   test('builders refuse input they cannot compile', () => {
     expect(() => membership.memberOf([])).toThrow();
+    expect(() => membership.memberOf([{ $: '' }])).toThrow();
+    expect(() => membership.memberOf(['members/a'])).toThrow(/field name/);
     expect(() => membership.selfMembership('uid')).toThrow();
   });
 
