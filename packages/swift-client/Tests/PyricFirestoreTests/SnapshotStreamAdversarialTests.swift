@@ -17,7 +17,9 @@ final class SnapshotStressHarness: WebSocketTransport, @unchecked Sendable {
         guard !isClosed else { throw PyricBridgeError.unavailable("Closed") }
         if let data = string.data(using: .utf8),
            let obj = try? JSONDecoder().decode(AnySendable.self, from: data),
-           let dict = obj.dictionaryValue {
+           let dict = obj.dictionaryValue,
+           dict["type"]?.stringValue != "ping" {
+            // Heartbeat pings are not frames these tests drive.
             sentMessages.append(dict)
         }
     }
