@@ -13,6 +13,12 @@
  *   --build           build the workspace before packing it
  *   --jobs <n>        apps run at once (default 3)
  *   --keep            keep each app's installed directory
+ *   --skip-slow       leave out the apps whose scenario.ts exports `slow = true`
+ *   --only-slow       run only those apps
+ *
+ * A slow app waits on real timeouts. Pull requests skip it; the "Slow app
+ * scenarios" workflow runs it. An app named on the command line runs either
+ * way.
  *
  * Without --packages, the runner packs the current workspace build into
  * dist/packages. Logs land in test-results/apps/<name>/.
@@ -23,6 +29,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { AppRun, StepFailure, type Scenario } from './driver.ts';
 import { installApp, packWorkspace, tarballsIn, type Tarballs } from './install.ts';
+import { parseArguments, selectApps, skippedSlowClause } from './selection.ts';
 
 const appsDir = import.meta.dir;
 const root = resolve(appsDir, '../..');
@@ -30,33 +37,27 @@ const resultsDir = join(root, 'test-results/apps');
 const APP_TIMEOUT_MS = Number(process.env.PYRIC_APP_TIMEOUT_MS ?? 300_000);
 const LOG_TAIL_LINES = 200;
 
-interface Options {
-  names: string[];
-  packages?: string;
-  build: boolean;
-  jobs: number;
-  keep: boolean;
-}
-
-function parseArguments(argv: string[]): Options {
-  const options: Options = { names: [], build: false, jobs: 3, keep: false, packages: process.env.PYRIC_PACKAGE_ARTIFACT_DIR };
-  for (let index = 0; index < argv.length; index++) {
-    const argument = argv[index]!;
-    if (argument === '--build') options.build = true;
-    else if (argument === '--keep') options.keep = true;
-    else if (argument === '--packages') options.packages = argv[++index];
-    else if (argument === '--jobs') options.jobs = Math.max(1, Number(argv[++index]));
-    else if (argument.startsWith('--')) throw new Error(`unknown option ${argument}`);
-    else options.names.push(argument);
-  }
-  return options;
-}
-
 function discoverApps(): string[] {
   return readdirSync(appsDir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && existsSync(join(appsDir, entry.name, 'scenario.ts')))
     .map((entry) => entry.name)
     .sort();
+}
+
+interface ScenarioModule {
+  default?: Scenario;
+  /** True for a scenario that waits on real timeouts. */
+  slow?: boolean;
+}
+
+function loadScenario(name: string): Promise<ScenarioModule> {
+  return import(join(appsDir, name, 'scenario.ts')) as Promise<ScenarioModule>;
+}
+
+/** The apps whose scenario.ts exports `slow = true`. Each scenario imports only the driver, Playwright, and node built-ins. */
+async function slowApps(names: readonly string[]): Promise<Set<string>> {
+  const modules = await Promise.all(names.map(async (name) => ({ name, module: await loadScenario(name) })));
+  return new Set(modules.filter(({ module }) => module.slow === true).map(({ name }) => name));
 }
 
 interface AppResult {
@@ -108,7 +109,7 @@ async function runApp(name: string, context: {
     logs.push({ name: 'npm install', text: install.output });
     if (install.code !== 0) throw new StepFailure('npm install', new Error(`npm install exited with code ${install.code}`));
     run.currentStep = 'load scenario';
-    const module = await import(join(appsDir, name, 'scenario.ts')) as { default?: Scenario };
+    const module = await loadScenario(name);
     if (typeof module.default !== 'function') throw new StepFailure('load scenario', new Error('scenario.ts has no default export from scenario()'));
     await withTimeout(module.default(run), APP_TIMEOUT_MS, run);
     const hostErrors = run.unexpectedHostErrors();
@@ -173,14 +174,22 @@ async function pool<T, R>(items: T[], size: number, work: (item: T) => Promise<R
 }
 
 async function main(): Promise<void> {
-  const options = parseArguments(process.argv.slice(2));
+  const options = parseArguments(process.argv.slice(2), process.env);
   const available = discoverApps();
   const unknown = options.names.filter((name) => !available.includes(name));
   if (unknown.length) {
     console.error(`unknown app: ${unknown.join(', ')}\napps: ${available.join(', ')}`);
     process.exit(2);
   }
-  const names = options.names.length ? options.names : available;
+  const filtersSlow = options.slow !== 'include' && options.names.length === 0;
+  const slow = filtersSlow ? await slowApps(available) : new Set<string>();
+  const { run: names, skippedSlow } = selectApps({ available, names: options.names, slow, filter: options.slow });
+  if (names.length === 0) {
+    // A run that drives no app passes without proving anything, so a marker
+    // removed by mistake fails the slow workflow instead of turning it green.
+    console.error(`no app is selected (${options.slow === 'only' ? 'no scenario.ts exports slow = true' : 'every app is slow'})`);
+    process.exit(2);
+  }
   const started = performance.now();
 
   let tarballs: Tarballs;
@@ -209,9 +218,10 @@ async function main(): Promise<void> {
   const failed = results.filter((result) => !result.ok);
   const total = ((performance.now() - started) / 1000).toFixed(1);
   console.log('');
+  const skipped = skippedSlowClause(skippedSlow);
   console.log(failed.length
-    ? `✗ ${failed.length} of ${results.length} apps failed (${total}s): ${failed.map((result) => `${result.name} at "${result.step}"`).join(', ')}`
-    : `✓ ${results.length} apps passed (${total}s)`);
+    ? `✗ ${failed.length} of ${results.length} apps failed (${total}s): ${failed.map((result) => `${result.name} at "${result.step}"`).join(', ')}${skipped}`
+    : `✓ ${results.length} apps passed (${total}s)${skipped}`);
   process.exit(failed.length ? 1 : 0);
 }
 
