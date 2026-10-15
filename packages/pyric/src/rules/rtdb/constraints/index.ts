@@ -13,7 +13,7 @@ export {
 export {
   dataVal, newDataVal, dataExists, newDataExists,
   newDataIs, dataParentVal, newDataParentVal, newDataParentExists,
-  eq, neq, gt, lte, AUTH_UID,
+  eq, neq, gt, lte, AUTH_UID, ref,
 } from './data.js';
 export { turnGuard, flip, winCheckHelper } from './game.js';
 export { schemaRules } from './schema.js';
