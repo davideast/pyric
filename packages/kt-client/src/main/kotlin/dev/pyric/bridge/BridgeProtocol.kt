@@ -27,6 +27,11 @@ object BridgeProtocol {
         return frame
     }
 
+    fun createPingFrame(id: String): Map<String, Any> = mapOf(
+        "type" to TYPE_PING,
+        "id" to id
+    )
+
     fun createPongFrame(id: String): Map<String, Any> = mapOf(
         "type" to TYPE_PONG,
         "id" to id

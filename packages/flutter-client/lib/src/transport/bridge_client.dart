@@ -49,6 +49,10 @@ const String _holdExpired =
 const String _authRestoreFailed =
     'The bridge connection was restored, but the signed-in user could not be restored on the new host. The request was not sent.';
 const Duration _holdDeadline = Duration(seconds: 10);
+// ADR-0019, heartbeat amendment: a ping at attach and every 15 seconds, and a
+// socket that delivers no frame for 45 seconds (three heartbeats) is a drop.
+const Duration _heartbeatInterval = Duration(seconds: 15);
+const Duration _livenessTimeout = Duration(seconds: 45);
 const int _policyCloseCode = 1008;
 const int _maxReconnectDelayMs = 5000;
 final math.Random _jitterSource = math.Random();
@@ -101,6 +105,10 @@ class _ActiveSub {
 /// `unavailable` and are never re-sent. An operation issued while the client
 /// is not attached is held, then sent once after the restore, or fails once
 /// after 10 seconds without being sent.
+///
+/// While attached, the client sends a `ping` at attach and every 15 seconds.
+/// Before each one, a socket that has delivered no frame for 45 seconds is
+/// treated as dropped and takes the reconnect path above.
 class PyricBridgeClient {
   final Uri uri;
   final Map<String, dynamic> headers;
@@ -121,6 +129,17 @@ class PyricBridgeClient {
   /// setting.
   @visibleForTesting
   Duration holdDeadline = _holdDeadline;
+
+  /// Test-only: the wait between heartbeat pings. Fixed at 15 seconds
+  /// (ADR-0019, heartbeat amendment); this is not a user setting.
+  @visibleForTesting
+  Duration heartbeatInterval = _heartbeatInterval;
+
+  /// Test-only: how long the socket may deliver no frame before the next
+  /// heartbeat treats it as dropped. Fixed at 45 seconds (ADR-0019, heartbeat
+  /// amendment); this is not a user setting.
+  @visibleForTesting
+  Duration livenessTimeout = _livenessTimeout;
 
   /// Runs on a re-attach to a replaced host, before listens are re-sent.
   BridgeAuthRestorer? restoreAuth;
@@ -144,8 +163,14 @@ class PyricBridgeClient {
   Completer<void>? _attempt;
   // Callers waiting for the next scheduled attempt.
   Completer<void>? _nextAttempt;
+  // Belongs to one attached socket: started on each attach, cancelled when that
+  // socket is released, so an old socket is never pinged.
+  Timer? _heartbeat;
+  // Time since the current socket last delivered a frame of any kind.
+  final Stopwatch _sinceLastFrame = Stopwatch();
 
   int _opCounter = 0;
+  int _pingCounter = 0;
   int _subCounter = 0;
 
   final Map<String, _PendingOp> _pendingOps = {};
@@ -595,6 +620,7 @@ class PyricBridgeClient {
     _hasEverAttached = true;
     _reconnectAttempt = 0;
     _setState(BridgeConnectionState.attached);
+    _startHeartbeat(generation);
     for (final entry in _activeSubs.entries.toList()) {
       final sub = entry.value;
       sub.awaitsRestoredValue = sub.hasValue;
@@ -603,6 +629,58 @@ class PyricBridgeClient {
     // Held operations follow the whole restore, in the order they were issued.
     _sendHeldOps();
     if (!attempt.isCompleted) attempt.complete();
+  }
+
+  void _startHeartbeat(int generation) {
+    _stopHeartbeat();
+    _sinceLastFrame
+      ..reset()
+      ..start();
+    // The ping at attach starts the host's watch of this socket.
+    _sendPing();
+    _scheduleHeartbeat(generation);
+  }
+
+  // Waits one interval, or less when the liveness timeout falls sooner, so a
+  // silent socket is noticed 45 seconds after its last frame, as on the web
+  // client. Dart offers no clock that keeps running while the device sleeps,
+  // so [_sinceLastFrame] is monotonic and pauses then.
+  void _scheduleHeartbeat(int generation) {
+    final remainingLiveness = livenessTimeout - _sinceLastFrame.elapsed;
+    final waitsForLiveness = remainingLiveness < heartbeatInterval;
+    final delay = waitsForLiveness ? remainingLiveness : heartbeatInterval;
+    // A negative delay fires at once.
+    _heartbeat = Timer(delay, () {
+      _heartbeat = null;
+      final isStale = generation != _connectionGeneration || _isDisposed;
+      if (isStale) return;
+      // Checked before the send, so a client resumed after a suspension
+      // reconnects instead of pinging a socket the host has already closed.
+      final isSilent = _sinceLastFrame.elapsed >= livenessTimeout;
+      if (isSilent) {
+        _handleConnectionLoss(
+          generation,
+          'The Pyric bridge sent nothing for ${livenessTimeout.inMilliseconds}ms.',
+        );
+        return;
+      }
+      _sendPing();
+      _scheduleHeartbeat(generation);
+    });
+  }
+
+  void _sendPing() {
+    try {
+      _sendRaw({'type': 'ping', 'id': 'hb-${++_pingCounter}'});
+    } catch (_) {
+      // A failed send means the socket is closing; its close is the drop.
+    }
+  }
+
+  void _stopHeartbeat() {
+    _heartbeat?.cancel();
+    _heartbeat = null;
+    _sinceLastFrame.stop();
   }
 
   void _sendSub(String subId, _ActiveSub sub) {
@@ -625,6 +703,7 @@ class PyricBridgeClient {
   }
 
   void _releaseChannel() {
+    _stopHeartbeat();
     final subscription = _channelSubscription;
     final channel = _channel;
     _channelSubscription = null;
@@ -659,6 +738,8 @@ class PyricBridgeClient {
   void _handleMessage(int generation, dynamic raw) {
     final isStale = generation != _connectionGeneration || _isDisposed;
     if (isStale) return;
+    // Any frame shows the socket is alive, not only a pong.
+    _sinceLastFrame.reset();
     Map<String, dynamic> msg;
     try {
       if (raw is String) {
@@ -849,6 +930,7 @@ class PyricBridgeClient {
     _connectionGeneration++;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
+    _stopHeartbeat();
     _setState(BridgeConnectionState.closed);
 
     _failPendingOps(error);

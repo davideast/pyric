@@ -173,6 +173,27 @@ void main() {
       await client.disconnect();
     });
 
+    test('sends one heartbeat ping at attach, shaped as the bridge protocol ping', () async {
+      final client = createClient();
+      final connectFuture = client.connect();
+
+      await Future<void>.delayed(Duration.zero);
+      expect(sentMessages.where((m) => m['type'] == 'ping'), isEmpty,
+          reason: 'no ping before the attach is acknowledged');
+      mockChannel.toClientController.add(
+        jsonEncode({'type': 'attach-ack', 'protocol': 1, 'peerConnected': true}),
+      );
+      await connectFuture;
+      await Future<void>.delayed(Duration.zero);
+
+      final pings = sentMessages.where((m) => m['type'] == 'ping').toList();
+      expect(pings, hasLength(1));
+      expect(pings.single.keys, unorderedEquals(['type', 'id']));
+      expect(pings.single['id'], isA<String>().having((id) => id.isEmpty, 'isEmpty', isFalse));
+
+      await client.disconnect();
+    });
+
     test('concurrent connect() calls join the in-flight handshake', () async {
       var channelFactoryCalls = 0;
       final client = PyricBridgeClient(

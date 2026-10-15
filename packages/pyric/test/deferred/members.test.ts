@@ -25,12 +25,12 @@ describe('deferredMember', () => {
   });
 
   test('an async member returns a rejected promise instead of throwing', async () => {
-    const method = deferredMember('pyric-admin/storage', 'Bucket.getFiles', 'async');
+    const method = deferredMember('pyric-admin/storage', 'Bucket.getLabels', 'async');
     const result = method();
     expect(result).toBeInstanceOf(Promise);
     const error = await (result as Promise<never>).catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(PyricDeferredApiError);
-    expect((error as PyricDeferredApiError).symbol).toBe('Bucket.getFiles');
+    expect((error as PyricDeferredApiError).symbol).toBe('Bucket.getLabels');
     expect((error as PyricDeferredApiError).subpath).toBe('pyric-admin/storage');
   });
 });

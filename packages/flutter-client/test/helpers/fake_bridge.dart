@@ -5,21 +5,35 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:stream_channel/stream_channel.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
-/// One fake socket. [drop] ends it the way a lost connection does.
+/// One fake socket. [drop] ends it the way a lost connection does; [silence]
+/// leaves it open but delivers nothing more, as a half-open connection does.
 class FakeSocket extends StreamChannelMixin<dynamic>
     implements WebSocketChannel {
   final StreamController<dynamic> _toClient = StreamController<dynamic>();
   final void Function(Map<String, dynamic> frame) _onFrame;
   int? _closeCode;
   bool _isOpen = true;
+  bool _isSilent = false;
+
+  /// Frames the client sent on this socket while it was open.
+  final List<Map<String, dynamic>> sent = [];
+
+  /// Frames the client tried to send on this socket after it closed.
+  final List<Map<String, dynamic>> sentAfterClose = [];
 
   FakeSocket(this._onFrame);
 
   bool get isOpen => _isOpen;
 
   void deliver(Map<String, dynamic> frame) {
-    if (_isOpen) _toClient.add(jsonEncode(frame));
+    if (_isOpen && !_isSilent) _toClient.add(jsonEncode(frame));
   }
+
+  /// Stops delivering frames without closing the socket.
+  void silence() => _isSilent = true;
+
+  List<Map<String, dynamic>> sentOfType(String type) =>
+      sent.where((frame) => frame['type'] == type).toList();
 
   void drop({int? code}) {
     if (!_isOpen) return;
@@ -54,8 +68,13 @@ class _FakeSink implements WebSocketSink {
 
   @override
   void add(dynamic data) {
-    if (!_socket.isOpen) throw StateError('socket closed');
-    _socket._onFrame(jsonDecode(data as String) as Map<String, dynamic>);
+    final frame = jsonDecode(data as String) as Map<String, dynamic>;
+    if (!_socket.isOpen) {
+      _socket.sentAfterClose.add(frame);
+      throw StateError('socket closed');
+    }
+    _socket.sent.add(frame);
+    _socket._onFrame(frame);
   }
 
   @override
@@ -105,6 +124,10 @@ class FakeBridge {
               'clientSessionId': frame['clientSessionId'] ?? sessionId,
               'hostInstanceId': hostInstanceId,
             }));
+      }
+      // Answers each ping as the bridge does; a silenced socket delivers nothing.
+      if (frame['type'] == 'ping') {
+        scheduleMicrotask(() => socket.deliver({'type': 'pong', 'id': frame['id']}));
       }
     });
     sockets.add(socket);

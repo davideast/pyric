@@ -7,14 +7,19 @@
  * listeners stay registered. The watch closes such a socket once the client
  * has sent nothing for {@link HOST_PEER_LIVENESS_TIMEOUT_MS}.
  *
- * Only a client that heartbeats is watched. The web hosted client sends
- * `ping` every `HOSTED_HEARTBEAT_INTERVAL_MS` and is the only client that
- * attaches with `transport: 'worker-port'`, so the watch starts at that
- * attach: a page frozen before its first ping is still closed. Any other
- * client is watched from its first `ping`. The native clients, the Node
- * remote client, and the in-page sandbox peer send no application ping
- * (ADR-0019), so a quiet one is idle, not gone, and is left open. Once the
- * watch starts, any frame counts as traffic.
+ * Only a client that heartbeats is watched. Every bridge client sends `ping`
+ * every `HOSTED_HEARTBEAT_INTERVAL_MS` (ADR-0019). The web hosted client is
+ * the only one that attaches with `transport: 'worker-port'`, so its watch
+ * starts at that attach: a page frozen before its first ping is still closed.
+ * The native clients and the Node remote client send their first `ping` at
+ * attach, and any client is watched from its first `ping`. A client that
+ * never pings, such as an app built before ADR-0019's heartbeat or the
+ * in-page sandbox peer, is idle when quiet, not gone, and is left open. Once
+ * the watch starts, any frame counts as traffic.
+ *
+ * Closing the socket runs the same path as any other close: the bridge tells
+ * the host the consumer was interrupted, and the host runs its onDisconnect
+ * operations (`Bridge.interruptConsumer`).
  */
 import { HOST_PEER_LIVENESS_TIMEOUT_MS } from '../protocol.js';
 

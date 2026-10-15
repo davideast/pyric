@@ -25,6 +25,8 @@ public final class MockAuthChannel: WebSocketTransport, @unchecked Sendable {
             if let data = text.data(using: .utf8),
                let obj = try? JSONDecoder().decode(AnySendable.self, from: data),
                let dict = obj.dictionaryValue {
+                // Heartbeat pings are not frames these tests drive.
+                if dict["type"]?.stringValue == "ping" { return (nil, nil) }
                 if !sentContinuations.isEmpty {
                     let cont = sentContinuations.removeFirst().continuation
                     return (cont, dict)

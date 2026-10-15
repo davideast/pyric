@@ -9,12 +9,19 @@
  * client from its first `ping`, and closes the socket after the liveness
  * window passes with no frame from it, so the session takes the path a real
  * close takes: the host is told the client was interrupted and runs its RTDB
- * onDisconnect operations. Clients that never send `ping` (native, remote,
- * and in-page sandbox peers) are never closed for being quiet.
+ * onDisconnect operations. Clients that never send `ping` (native and remote
+ * builds from before ADR-0019's heartbeat, and in-page sandbox peers) are
+ * never closed for being quiet.
+ *
+ * A native or remote consumer's close, whatever its cause, also tells the host
+ * the session was interrupted, unless the client already re-attached the
+ * session on a newer socket (ADR-0019).
  *
  * `test/serve/fixtures/hosted-sqlite-peer-liveness.ts` drives the same path
  * against the real Node host with mocked timers, and
- * `hosted-sqlite-peer-liveness-socket.ts` with a real `ws` server and client.
+ * `hosted-sqlite-peer-liveness-socket.ts` with a real `ws` server and client;
+ * `hosted-sqlite-relay-ondisconnect.ts` drives the native and remote consumer
+ * path over a real `ws` socket.
  */
 import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 import { createBridge } from '../../src/bridge/server/bridge.js';
@@ -23,6 +30,7 @@ import {
   HOST_PEER_LIVENESS_TIMEOUT_MS,
   HOSTED_HEARTBEAT_INTERVAL_MS,
   WORKER_PORT_CAPABILITY,
+  WORKER_RELAY_CAPABILITY,
   type BridgeMessage,
 } from '../../src/bridge/protocol.js';
 
@@ -67,7 +75,7 @@ function fakeSocket() {
 function hostBridge() {
   const bridge = createBridge({ version: 'test' });
   const toHost: BridgeMessage[] = [];
-  bridge.registerSandboxPeer(message => toHost.push(message), [], 'host', [WORKER_PORT_CAPABILITY]);
+  bridge.registerSandboxPeer(message => toHost.push(message), [], 'host', [WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY]);
   return { bridge, toHost };
 }
 
@@ -78,6 +86,14 @@ function attachPage(bridge: ReturnType<typeof createBridge>) {
   const ack = socket.sent.find(frame => frame.type === 'attach-ack');
   const clientSessionId = ack?.type === 'attach-ack' ? ack.clientSessionId : '';
   return { socket, clientSessionId };
+}
+
+/** Attach as Kotlin, Swift, Flutter and the Node remote client do: no transport, own session id. */
+function attachRelayConsumer(bridge: ReturnType<typeof createBridge>, clientSessionId: string) {
+  const socket = fakeSocket();
+  attachPeer(bridge, socket.asWebSocket());
+  socket.receive({ type: 'attach', protocol: 1, clientSessionId, clientInfo: { platform: 'kotlin' } });
+  return socket;
 }
 
 function interruptionsOf(toHost: BridgeMessage[], clientSessionId: string): number {
@@ -140,16 +156,50 @@ describe('host peer liveness', () => {
     expect(interruptionsOf(toHost, page.clientSessionId)).toBe(1);
   });
 
-  it('never closes a native or remote consumer that does not heartbeat, however long it is quiet', () => {
-    // Kotlin, Swift, Flutter and the Node remote client attach without the
-    // worker-port transport and send no application ping (ADR-0019).
+  it('never closes a client that never pings, such as an app built before the heartbeat, however long it is quiet', () => {
     const { bridge } = hostBridge();
-    const socket = fakeSocket();
-    attachPeer(bridge, socket.asWebSocket());
-    socket.receive({ type: 'attach', protocol: 1, clientSessionId: 'phone', clientInfo: { platform: 'kotlin' } });
+    const socket = attachRelayConsumer(bridge, 'phone');
     expect(socket.sent.some(frame => frame.type === 'attach-ack')).toBe(true);
     jest.advanceTimersByTime(10 * HOST_PEER_LIVENESS_TIMEOUT_MS);
     expect(socket.terminated).toBe(false);
+  });
+
+  it('tells the host a native or remote consumer was interrupted when its socket closes', () => {
+    const { bridge, toHost } = hostBridge();
+    const socket = attachRelayConsumer(bridge, 'phone');
+    socket.close();
+    expect(interruptionsOf(toHost, 'phone')).toBe(1);
+    expect(bridge.consumers.get('phone')).toBeUndefined();
+  });
+
+  it('closes a native or remote consumer that pings and goes silent, and tells the host it was interrupted', () => {
+    const { bridge, toHost } = hostBridge();
+    const socket = attachRelayConsumer(bridge, 'phone');
+    socket.receive({ type: 'ping', id: 'hb-1' });
+    jest.advanceTimersByTime(HOST_PEER_LIVENESS_TIMEOUT_MS);
+    expect(socket.terminated).toBe(true);
+    expect(interruptionsOf(toHost, 'phone')).toBe(1);
+  });
+
+  it('runs nothing when a replaced socket closes after the client re-attached on a newer one', () => {
+    const { bridge, toHost } = hostBridge();
+    const replaced = attachRelayConsumer(bridge, 'phone');
+    const current = attachRelayConsumer(bridge, 'phone');
+    replaced.close();
+    expect(interruptionsOf(toHost, 'phone')).toBe(0);
+    expect(bridge.consumers.get('phone')).toBeDefined();
+    current.close();
+    expect(interruptionsOf(toHost, 'phone')).toBe(1);
+  });
+
+  it('sends no interruption to an in-page sandbox peer, which does not accept it', () => {
+    const bridge = createBridge({ version: 'test' });
+    const toPeer: BridgeMessage[] = [];
+    bridge.registerSandboxPeer(message => toPeer.push(message), [], 'page', [WORKER_RELAY_CAPABILITY]);
+    const socket = attachRelayConsumer(bridge, 'phone');
+    socket.close();
+    expect(interruptionsOf(toPeer, 'phone')).toBe(0);
+    expect(bridge.consumers.get('phone')).toBeUndefined();
   });
 
   it('watches any client from its first ping', () => {
