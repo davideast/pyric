@@ -1,8 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import { z } from 'zod';
+import { rtdbRules } from '../../../../src/rules/index.js';
 import {
   all,
   allow,
+  authenticated,
   dataVal,
   defineRtdbRules,
   deny,
@@ -55,6 +57,42 @@ describe('defineRtdbRules', () => {
     });
   });
 
+  test('compiles plain-path indexOn without emitting an empty wildcard node', () => {
+    const def = defineRtdbRules({
+      paths: {
+        '/jobs': {
+          read: authenticated(),
+          indexOn: ['runAt'],
+        },
+      },
+    });
+    const handle = rtdbRules(def);
+
+    expect(handle.lint()).toEqual([]);
+    expect(handle.toJSON()).toEqual({
+      rules: {
+        jobs: {
+          '.read': 'auth != null',
+          '.indexOn': ['runAt'],
+        },
+      },
+    });
+
+    const summary = handle.simulate([
+      {
+        description: 'ordered query on /jobs uses the plain-path .indexOn',
+        expectation: 'ALLOW',
+        operation: 'read',
+        path: '/jobs',
+        auth: 'alice',
+        query: { orderByChild: 'runAt' },
+      },
+    ]);
+    expect(summary.passed).toBe(1);
+    expect(summary.coverage.missingIndexes).toEqual([]);
+    expect(summary.coverage.rules.find(r => r.path === '/jobs' && r.kind === 'indexOn')?.status).toBe('allow');
+  });
+
   test('compiles without database or service metadata', () => {
     const rules = defineRtdbRules({
       paths: {
@@ -98,6 +136,46 @@ describe('defineRtdbRules', () => {
         path: '/',
         rule: 'ruleset',
         code: 'COMPILE_ERROR',
+      }),
+    ]);
+  });
+
+  test('check reports COMPILE_ERROR when parent and wildcard child have conflicting indexOn', () => {
+    const rules = defineRtdbRules({
+      paths: {
+        '/jobs': { read: allow(), indexOn: ['runAt'] },
+        '/jobs/$jobId': { write: allow(), indexOn: ['priority'] },
+      },
+    });
+
+    const check = rules.check();
+    expect(check.ok).toBe(false);
+    expect(check.errors).toEqual([
+      expect.objectContaining({
+        path: '/',
+        rule: 'ruleset',
+        code: 'COMPILE_ERROR',
+        message: expect.stringContaining('Conflicting indexOn declarations for "/jobs"'),
+      }),
+    ]);
+  });
+
+  test('check reports COMPILE_ERROR when duplicate path declarations resolve to the same normalized path', () => {
+    const rules = defineRtdbRules({
+      paths: {
+        '/a': { read: deny(), write: deny(), children: { '/b': { read: deny(), write: deny() } } },
+        '/a/b': { read: allow() },
+      },
+    });
+
+    const check = rules.check();
+    expect(check.ok).toBe(false);
+    expect(check.errors).toEqual([
+      expect.objectContaining({
+        path: '/',
+        rule: 'ruleset',
+        code: 'COMPILE_ERROR',
+        message: expect.stringContaining('Duplicate ruleset path declaration for "/a/b"'),
       }),
     ]);
   });
