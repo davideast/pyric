@@ -19,6 +19,8 @@ void main() {
     bool retryInitialConnection = false,
     Duration retryDelay = Duration.zero,
     Duration attachTimeout = const Duration(seconds: 5),
+    Duration? heartbeatInterval,
+    Duration? livenessTimeout,
   }) {
     final client = PyricBridgeClient(
       channelFactory: bridge.connect,
@@ -26,6 +28,8 @@ void main() {
       reconnectDelay: (_) => retryDelay,
       attachTimeout: attachTimeout,
     );
+    if (heartbeatInterval != null) client.heartbeatInterval = heartbeatInterval;
+    if (livenessTimeout != null) client.livenessTimeout = livenessTimeout;
     clients.add(client);
     return client;
   }
@@ -510,6 +514,125 @@ void main() {
       await until(() => client.isConnected);
       await Future<void>.delayed(const Duration(milliseconds: 50));
       expect(opsNamed('auth.restorePortSession'), hasLength(1));
+    });
+  });
+
+  // ADR-0019, heartbeat amendment: a ping at attach and every interval, and a
+  // socket that delivers no frame for the liveness timeout is a drop.
+  group('heartbeat', () {
+    const interval = Duration(milliseconds: 20);
+    const timeout = Duration(milliseconds: 100);
+
+    test('a ping is sent at attach and at each interval', () async {
+      final client = createClient(
+        heartbeatInterval: interval,
+        livenessTimeout: const Duration(seconds: 10),
+      );
+      await client.connect();
+      expect(bridge.current.sentOfType('ping'), hasLength(1),
+          reason: 'the ping at attach starts the host watch');
+
+      await until(() => bridge.current.sentOfType('ping').length >= 3);
+      final ids = bridge.ofType('ping').map((frame) => frame['id']).toList();
+      expect(ids.toSet(), hasLength(ids.length));
+      expect(client.connectionState, BridgeConnectionState.attached);
+    });
+
+    test('a silent socket is a drop: the operation in flight fails once and the client re-attaches', () async {
+      final client = createClient(heartbeatInterval: interval, livenessTimeout: timeout);
+      await client.connect();
+      final states = <BridgeConnectionState>[];
+      client.connectionStates.listen(states.add);
+
+      final pending = client.op('setDoc', {'path': 'rooms/a'});
+      final failure = expectLater(
+        pending,
+        throwsA(isA<PyricBridgeException>()
+            .having((e) => e.code, 'code', 'unavailable')
+            .having((e) => e.message, 'message', contains('connection was lost'))),
+      );
+      await settle();
+      final sentId = bridge.opNamed('setDoc')['id'];
+      final silent = bridge.current;
+      silent.silence();
+
+      await failure;
+      await until(() => client.isConnected && bridge.sockets.length == 2);
+      expect(states, containsAllInOrder([
+        BridgeConnectionState.interrupted,
+        BridgeConnectionState.attached,
+      ]));
+      expect(silent.isOpen, isFalse, reason: 'the client closes the silent socket');
+      expect(bridge.ofType('attach').last['clientSessionId'], 'session-1');
+      expect(bridge.ofType('worker-op').where((f) => f['id'] == sentId), hasLength(1));
+      expect(bridge.current.sentOfType('ping'), isNotEmpty,
+          reason: 'the heartbeat starts again on the new attach');
+    });
+
+    test('an operation issued after a silent drop is held and sent once after re-attach', () async {
+      final client = createClient(heartbeatInterval: interval, livenessTimeout: timeout);
+      await client.connect();
+      bridge.refuseConnections = true;
+      bridge.current.silence();
+      await until(() => client.connectionState == BridgeConnectionState.interrupted);
+
+      final read = client.op('getDoc', {'path': 'rooms/a'});
+      await settle();
+      expect(opsNamed('getDoc'), isEmpty);
+
+      bridge.refuseConnections = false;
+      await until(() => opsNamed('getDoc').isNotEmpty);
+      reply(bridge.opNamed('getDoc'), {'path': 'rooms/a', 'exists': false});
+      expect(await read, {'path': 'rooms/a', 'exists': false});
+      expect(opsNamed('getDoc'), hasLength(1));
+    });
+
+    test('pongs keep the client attached past the liveness timeout', () async {
+      final client = createClient(
+        heartbeatInterval: const Duration(milliseconds: 25),
+        livenessTimeout: const Duration(milliseconds: 250),
+      );
+      final states = <BridgeConnectionState>[];
+      client.connectionStates.listen(states.add);
+      await client.connect();
+
+      await Future<void>.delayed(const Duration(milliseconds: 800));
+      expect(states, isNot(contains(BridgeConnectionState.interrupted)));
+      expect(client.connectionState, BridgeConnectionState.attached);
+      expect(bridge.connectCalls, 1);
+      expect(bridge.current.sentOfType('ping').length, greaterThanOrEqualTo(4));
+    });
+
+    test('no ping is sent after a drop or after disconnect', () async {
+      final client = createClient(
+        heartbeatInterval: interval,
+        livenessTimeout: const Duration(seconds: 10),
+      );
+      await client.connect();
+      final first = bridge.current;
+      await until(() => first.sentOfType('ping').length >= 2);
+
+      bridge.refuseConnections = true;
+      first.drop();
+      await until(() => client.connectionState == BridgeConnectionState.interrupted);
+      final pingsAtDrop = bridge.ofType('ping').length;
+      await Future<void>.delayed(interval * 5);
+      expect(bridge.ofType('ping'), hasLength(pingsAtDrop),
+          reason: 'nothing is pinged while interrupted');
+
+      bridge.refuseConnections = false;
+      await until(() => client.isConnected);
+      final second = bridge.current;
+      await until(() => second.sentOfType('ping').length >= 2);
+
+      await client.disconnect();
+      final pingsAtDisconnect = bridge.ofType('ping').length;
+      await Future<void>.delayed(interval * 5);
+      expect(bridge.ofType('ping'), hasLength(pingsAtDisconnect));
+      for (final socket in bridge.sockets) {
+        final latePings = socket.sentAfterClose.where((f) => f['type'] == 'ping');
+        expect(latePings, isEmpty, reason: 'an old socket is never pinged');
+      }
     });
   });
 }
