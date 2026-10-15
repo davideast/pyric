@@ -850,6 +850,9 @@ class BridgeReconnectTest {
         val first = bridge.current
         until { first.pings() >= 2 }
         first.drop()
+        // A ping that passed the current-socket check just before the drop may
+        // still be on its way to the socket; it lands within this pause.
+        delay(20)
         val pingsAtDrop = first.pings()
 
         until { bridge.sockets.size == 2 && client.isConnected }
@@ -859,6 +862,7 @@ class BridgeReconnectTest {
         assertEquals(pingsAtDrop, first.pings(), "the dropped socket was pinged")
 
         client.disconnect()
+        delay(20)
         val pingsAtDisconnect = second.pings()
         delay(100)
         assertEquals(pingsAtDisconnect, second.pings(), "a disconnected client pinged")

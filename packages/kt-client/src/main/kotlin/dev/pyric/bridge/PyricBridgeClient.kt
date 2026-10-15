@@ -373,14 +373,25 @@ class PyricBridgeClient(
         )
     }
 
-    /** Sends one `ping` on the socket of [attachGeneration], never on an earlier one. */
-    private fun sendPing(attachGeneration: Int): Boolean = synchronized(lock) {
-        val isCurrentSocket = attachGeneration == generation && isConnected && !isDisposed
-        if (isCurrentSocket) {
-            val frame = BridgeProtocol.createPingFrame("ping-${pingCounter.incrementAndGet()}")
-            sendRawJson(JsonCodec.encodeToString(frame))
+    /**
+     * Sends one `ping` on the socket of [attachGeneration], never on an earlier one.
+     * The send runs outside the lock: a transport may deliver a frame back into
+     * [BridgeClientListener.onMessage], which takes the lock, from another thread.
+     */
+    private fun sendPing(attachGeneration: Int): Boolean {
+        val socket = synchronized(lock) {
+            val isCurrentSocket = attachGeneration == generation && isConnected && !isDisposed
+            if (isCurrentSocket) transport else null
+        } ?: return false
+        val frame = BridgeProtocol.createPingFrame("ping-${pingCounter.incrementAndGet()}")
+        val enqueued = socket.send(JsonCodec.encodeToString(frame))
+        if (!enqueued) {
+            throw FirebaseFirestoreException(
+                "Failed to enqueue ping to bridge transport.",
+                FirebaseFirestoreException.Code.UNAVAILABLE
+            )
         }
-        isCurrentSocket
+        return true
     }
 
     private fun setState(next: BridgeConnectionState) {
