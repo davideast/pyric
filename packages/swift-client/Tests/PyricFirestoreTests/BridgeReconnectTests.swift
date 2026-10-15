@@ -12,21 +12,38 @@ final class FakeReconnectSocket: WebSocketTransport, @unchecked Sendable {
     private var closeCode: Int?
     private let onFrame: @Sendable ([String: AnySendable], FakeReconnectSocket) -> Void
     private let beforeSend: @Sendable ([String: AnySendable]) async -> Void
+    /// Whether the host behind this socket answers `ping` with `pong`.
+    let answersPings: Bool
 
     init(
+        answersPings: Bool = false,
         beforeSend: @escaping @Sendable ([String: AnySendable]) async -> Void = { _ in },
         onFrame: @escaping @Sendable ([String: AnySendable], FakeReconnectSocket) -> Void
     ) {
+        self.answersPings = answersPings
         self.beforeSend = beforeSend
         self.onFrame = onFrame
     }
+
+    private var pingAttempts = 0
 
     var isOpen: Bool {
         lock.lock(); defer { lock.unlock() }
         return open
     }
 
+    /// Pings the client tried to send on this socket, including after it closed.
+    var pingsAttempted: Int {
+        lock.lock(); defer { lock.unlock() }
+        return pingAttempts
+    }
+
+    private func countPingAttempt() {
+        lock.lock(); pingAttempts += 1; lock.unlock()
+    }
+
     func send(_ string: String) async throws {
+        if string.contains("\"type\":\"ping\"") { countPingAttempt() }
         guard isOpen else { throw PyricBridgeError.unavailable("socket closed") }
         guard let data = string.data(using: .utf8),
               let frame = try? JSONDecoder().decode(AnySendable.self, from: data),
@@ -109,6 +126,15 @@ final class FakeReconnectBridge: @unchecked Sendable {
 
     private var _autoAck = true
     private var _connectCalls = 0
+    private var _answersPings = false
+
+    /// Whether sockets opened from now on answer `ping` with `pong`. Off by
+    /// default, so a client with a short liveness timeout sees a silent host.
+    /// A socket keeps the setting it was opened with.
+    var answersPings: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return _answersPings }
+        set { lock.lock(); _answersPings = newValue; lock.unlock() }
+    }
 
     var autoAck: Bool {
         get { lock.lock(); defer { lock.unlock() }; return _autoAck }
@@ -139,6 +165,7 @@ final class FakeReconnectBridge: @unchecked Sendable {
         countConnect()
         if refuseConnections { throw PyricBridgeError.unavailable("connection refused") }
         let socket = FakeReconnectSocket(
+            answersPings: answersPings,
             beforeSend: { [weak self] frame in await self?.gate(frame) },
             onFrame: { [weak self] frame, socket in self?.record(frame, from: socket) }
         )
@@ -192,6 +219,10 @@ final class FakeReconnectBridge: @unchecked Sendable {
         let host = _hostInstanceId
         let acks = _autoAck
         lock.unlock()
+        if frame["type"]?.stringValue == "ping", socket.answersPings, let id = frame["id"]?.stringValue {
+            Task { socket.deliver(["type": "pong", "id": id]) }
+            return
+        }
         guard frame["type"]?.stringValue == "attach", acks else { return }
         let sessionId = frame["clientSessionId"]?.stringValue ?? "session-1"
         Task {
@@ -846,5 +877,171 @@ struct BridgeReconnectTests {
             #expect(error.message.contains("Timed out"))
         }
         await client.disconnect()
+    }
+
+    // ── Heartbeat (ADR-0019, heartbeat amendment) ──
+
+    /// A reconnecting client whose heartbeat runs every `interval` and treats
+    /// `timeout` of silence as a drop.
+    private func makeHeartbeatClient(
+        _ bridge: FakeReconnectBridge,
+        interval: TimeInterval = 0.05,
+        timeout: TimeInterval = 0.25
+    ) async -> PyricBridgeClient {
+        let client = makeReconnectingClient(bridge, retryDelay: 0.02)
+        await client.setHeartbeatForTesting(interval: interval, livenessTimeout: timeout)
+        return client
+    }
+
+    @Test("A ping is sent at attach, before the first interval passes")
+    func pingAtAttach() async throws {
+        let bridge = FakeReconnectBridge()
+        let client = await makeHeartbeatClient(bridge, interval: 30, timeout: 90)
+        try await client.connect()
+        try await until { bridge.ofType("ping").count == 1 }
+        let ping = bridge.ofType("ping")[0]
+        #expect(ping["id"]?.stringValue?.isEmpty == false)
+        #expect(ping.keys.sorted() == ["id", "type"])
+        await client.disconnect()
+    }
+
+    @Test("Pings follow at each interval, each with its own id, and answered pings keep the client attached past the timeout")
+    func pingsEveryIntervalAndPongsKeepAttached() async throws {
+        let bridge = FakeReconnectBridge()
+        bridge.answersPings = true
+        let client = await makeHeartbeatClient(bridge, interval: 0.05, timeout: 0.5)
+        try await client.connect()
+        try await until { bridge.ofType("ping").count >= 4 }
+        try await Task.sleep(nanoseconds: 1_000_000_000)
+
+        #expect(await client.connectionState == .attached)
+        #expect(bridge.connectCalls == 1)
+        let ids = bridge.ofType("ping").compactMap { $0["id"]?.stringValue }
+        #expect(ids.count >= 6)
+        #expect(Set(ids).count == ids.count)
+        await client.disconnect()
+    }
+
+    @Test("Any frame from the host counts as traffic, not only pong")
+    func anyFrameKeepsAttached() async throws {
+        let bridge = FakeReconnectBridge()
+        let client = await makeHeartbeatClient(bridge, interval: 0.05, timeout: 0.5)
+        try await client.connect()
+        for _ in 0..<20 {
+            bridge.current.deliver(["type": "worker-event", "event": "noop"])
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        #expect(await client.connectionState == .attached)
+        #expect(bridge.connectCalls == 1)
+        await client.disconnect()
+    }
+
+    @Test("A silent host is a drop: the in-flight operation fails once, the old socket closes, and the client reconnects")
+    func silentHostIsADrop() async throws {
+        let bridge = FakeReconnectBridge()
+        let client = await makeHeartbeatClient(bridge, interval: 0.05, timeout: 0.25)
+        let states = Collected<BridgeConnectionState>()
+        let watcher = Task { for await state in client.connectionStates { states.append(state) } }
+        try await client.connect()
+        let silent = bridge.current
+
+        // The first socket stays silent; the socket the client reconnects on answers.
+        bridge.answersPings = true
+        let inFlight = Task { try await client.op(method: "setDoc", params: ["path": .string("rooms/a")]) }
+        try await until { bridge.ops(named: "setDoc").count == 1 }
+        do {
+            _ = try await inFlight.value
+            Issue.record("expected the in-flight operation to fail")
+        } catch let error as PyricBridgeError {
+            #expect(error.code == .unavailable)
+            #expect(error.message.contains("connection was lost"))
+        }
+
+        try await until { states.all.contains(.interrupted) }
+        try await until { !silent.isOpen }
+        try await until { bridge.connectCalls == 2 && bridge.socketCount == 2 }
+        try await until { await client.connectionState == .attached }
+        try await Task.sleep(nanoseconds: 30_000_000)
+        #expect(bridge.ops(named: "setDoc").count == 1)
+        watcher.cancel()
+        await client.disconnect()
+    }
+
+    @Test("Silence is detected at the liveness timeout, not at the next interval after it")
+    func silenceDetectedAtTheTimeout() async throws {
+        let bridge = FakeReconnectBridge()
+        // Ticks at 0 and 1.0 s. A fixed wait would next check at 2.0 s; the
+        // wait is cut to the 1.5 s timeout instead.
+        let client = await makeHeartbeatClient(bridge, interval: 1.0, timeout: 1.5)
+        let clock = ContinuousClock()
+        let interruptedAt = Collected<ContinuousClock.Instant>()
+        let watcher = Task {
+            for await state in client.connectionStates where state == .interrupted {
+                interruptedAt.append(clock.now)
+            }
+        }
+        let start = clock.now
+        try await client.connect()
+        bridge.refuseConnections = true
+        try await until { interruptedAt.count == 1 }
+
+        let elapsed = start.duration(to: interruptedAt.all[0])
+        #expect(elapsed >= .milliseconds(1400))
+        #expect(elapsed < .milliseconds(1850))
+        watcher.cancel()
+        await client.disconnect()
+    }
+
+    @Test("An operation issued after a silence drop is held and sent once after the re-attach")
+    func operationAfterSilenceIsHeld() async throws {
+        let bridge = FakeReconnectBridge()
+        let client = await makeHeartbeatClient(bridge, interval: 0.05, timeout: 0.25)
+        try await client.connect()
+        bridge.refuseConnections = true
+        try await until { await client.connectionState == .interrupted }
+
+        let write = Task { try await client.op(method: "setDoc", params: ["path": .string("rooms/a")]) }
+        try await Task.sleep(nanoseconds: 100_000_000)
+        #expect(bridge.ops(named: "setDoc").isEmpty)
+
+        bridge.answersPings = true
+        bridge.refuseConnections = false
+        try await until { bridge.ops(named: "setDoc").count == 1 }
+        bridge.answer(bridge.ops(named: "setDoc")[0])
+        let value = try await write.value
+        #expect(value.stringValue == "done")
+        try await Task.sleep(nanoseconds: 50_000_000)
+        #expect(bridge.ops(named: "setDoc").count == 1)
+        await client.disconnect()
+    }
+
+    @Test("No ping reaches a socket after it drops, and none is sent after disconnect()")
+    func noPingOnAnOldSocket() async throws {
+        let bridge = FakeReconnectBridge()
+        bridge.answersPings = true
+        let client = await makeHeartbeatClient(bridge, interval: 0.05, timeout: 5)
+        try await client.connect()
+        let first = bridge.current
+        try await until { first.pingsAttempted >= 2 }
+
+        bridge.refuseConnections = true
+        first.drop()
+        try await until { await client.connectionState == .interrupted }
+        let pingsAtDrop = first.pingsAttempted
+        try await Task.sleep(nanoseconds: 300_000_000)
+        #expect(first.pingsAttempted == pingsAtDrop)
+
+        bridge.refuseConnections = false
+        try await until { await client.connectionState == .attached }
+        let second = bridge.current
+        #expect(second !== first)
+        try await until { second.pingsAttempted >= 2 }
+        #expect(first.pingsAttempted == pingsAtDrop)
+
+        await client.disconnect()
+        let pingsAtDisconnect = second.pingsAttempted
+        try await Task.sleep(nanoseconds: 300_000_000)
+        #expect(second.pingsAttempted == pingsAtDisconnect)
+        #expect(first.pingsAttempted == pingsAtDrop)
     }
 }

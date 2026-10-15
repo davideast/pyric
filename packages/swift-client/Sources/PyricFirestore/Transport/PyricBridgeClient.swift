@@ -57,8 +57,14 @@ private let holdExpiredMessage =
     "The bridge connection was not restored within 10 seconds. The request was not sent."
 private let authRestoreFailedMessage =
     "The bridge connection was restored, but the signed-in user could not be restored on the new host. The request was not sent."
+private let silentHostMessage =
+    "The bridge sent nothing for 45 seconds, so the connection was treated as lost."
 private let policyCloseCode = 1008
 private let defaultHoldDeadline: TimeInterval = 10
+/// ADR-0019, heartbeat amendment: a ping at attach, then one every 15 seconds.
+private let defaultHeartbeatInterval: TimeInterval = 15
+/// ADR-0019, heartbeat amendment: 45 seconds with no frame of any kind is a drop.
+private let defaultLivenessTimeout: TimeInterval = 45
 
 /// Pure-Swift WebSocket transport connecting to the Pyric local sandbox bridge.
 ///
@@ -70,6 +76,10 @@ private let defaultHoldDeadline: TimeInterval = 10
 /// attach's restore, or fails saying it was not sent. A client built on one
 /// supplied channel cannot reopen it, so a drop fails its operations and
 /// subscriptions instead.
+///
+/// While attached, the client sends a `ping` at once and then every 15
+/// seconds. Before each one it checks how long the socket has been silent: 45
+/// seconds with no frame of any kind is a drop (ADR-0019).
 public actor PyricBridgeClient {
     public let endpoint: URL
     public let headers: [String: String]
@@ -86,6 +96,17 @@ public actor PyricBridgeClient {
     /// Seconds an operation is held while the client is not attached (ADR-0019
     /// decision 7). Fixed at 10; only tests change it.
     private var holdDeadline: TimeInterval = defaultHoldDeadline
+    /// Seconds between heartbeats. Fixed at 15; only tests change it.
+    private var heartbeatInterval: TimeInterval = defaultHeartbeatInterval
+    /// Seconds of silence that count as a drop. Fixed at 45; only tests change it.
+    private var livenessTimeout: TimeInterval = defaultLivenessTimeout
+    /// Measures silence. It keeps running while the device sleeps, so an app
+    /// resumed after a suspension sees the whole gap on its first heartbeat.
+    private let clock = ContinuousClock()
+    /// When the current socket last delivered a frame.
+    private var lastFrameAt: ContinuousClock.Instant = ContinuousClock().now
+    private var heartbeatTask: Task<Void, Never>?
+    private var pingCounter = 0
 
     public private(set) var isConnected: Bool = false
     public private(set) var isDisposed: Bool = false
@@ -194,6 +215,14 @@ public actor PyricBridgeClient {
     /// deadline is fixed at 10 seconds; this is not a user setting and is not public.
     func setHoldDeadlineForTesting(_ seconds: TimeInterval?) {
         holdDeadline = seconds ?? defaultHoldDeadline
+    }
+
+    /// Test-only: shortens the heartbeat interval and the liveness timeout, and
+    /// `nil` restores them. They are fixed at 15 and 45 seconds; this is not a
+    /// user setting and is not public. Set it before connecting.
+    func setHeartbeatForTesting(interval: TimeInterval?, livenessTimeout timeout: TimeInterval?) {
+        heartbeatInterval = interval ?? defaultHeartbeatInterval
+        livenessTimeout = timeout ?? defaultLivenessTimeout
     }
 
     /// Runs on a re-attach to a replaced host, before subscriptions are re-sent.
@@ -392,6 +421,7 @@ public actor PyricBridgeClient {
         drainingHeldOps = true
         isConnected = true
         setState(.attached)
+        startHeartbeat(generation: generation)
         for (subId, sub) in restored.sorted(by: { $0.key < $1.key }) {
             // A listener cancelled while an earlier frame was being sent is not re-sent.
             guard activeSubs[subId] != nil else { continue }
@@ -422,6 +452,7 @@ public actor PyricBridgeClient {
         drainingHeldOps = false
         attachDeadlineTask?.cancel()
         attachDeadlineTask = nil
+        stopHeartbeat()
         receiveTask?.cancel()
         receiveTask = nil
         let closing = transport
@@ -462,6 +493,63 @@ public actor PyricBridgeClient {
         guard !isDisposed, connectTask == nil, !isConnected else { return }
         let attempt = startAttempt()
         Task { _ = try? await attempt.value }
+    }
+
+    // ─── Heartbeat ───────────────────────────────────────────────────────────
+
+    /// Pings the socket of this attach at once, then every interval, until
+    /// the attach ends. Each tick checks for silence before it sends, and the
+    /// wait before the next tick never passes the moment the socket would
+    /// reach the liveness timeout, so silence is detected at 45 seconds.
+    private func startHeartbeat(generation: Int) {
+        heartbeatTask?.cancel()
+        heartbeatTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let delay = await self?.heartbeatTick(generation: generation) else { return }
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            }
+        }
+    }
+
+    private func stopHeartbeat() {
+        heartbeatTask?.cancel()
+        heartbeatTask = nil
+    }
+
+    /// Sends one heartbeat, or treats a silent socket as dropped. Returns the
+    /// seconds to wait before the next tick, or nil when the heartbeat stops.
+    private func heartbeatTick(generation: Int) async -> TimeInterval? {
+        guard isCurrent(generation), isConnected else { return nil }
+        if secondsOfSilence() >= livenessTimeout {
+            dropSilentConnection(generation: generation)
+            return nil
+        }
+        pingCounter += 1
+        // sendRaw reads the current socket before it suspends, so a ping never
+        // reaches a socket replaced since the check above.
+        try? await sendRaw(PingFrame(id: "hb-\(pingCounter)"))
+        let untilTimeout = livenessTimeout - secondsOfSilence()
+        return max(0, min(heartbeatInterval, untilTimeout))
+    }
+
+    private func secondsOfSilence() -> TimeInterval {
+        let silence = lastFrameAt.duration(to: clock.now)
+        let parts = silence.components
+        return Double(parts.seconds) + Double(parts.attoseconds) / 1e18
+    }
+
+    private func dropSilentConnection(generation: Int) {
+        let silentTransport = transport
+        handleConnectionLoss(
+            generation: generation,
+            error: PyricBridgeError.unavailable(silentHostMessage),
+            closeCode: nil
+        )
+        // A reconnecting client closes the old socket in handleConnectionLoss.
+        // A client on one supplied channel is now closed; release the socket.
+        if !canReopen, let silentTransport {
+            Task { await silentTransport.close(closeCode: 1000, reason: "No frame received") }
+        }
     }
 
     private func reportGap() {
@@ -805,6 +893,7 @@ public actor PyricBridgeClient {
             do {
                 let rawText = try await transport.receive()
                 guard isCurrent(generation) else { break }
+                lastFrameAt = clock.now
                 handleMessage(rawText, generation: generation)
             } catch {
                 handleConnectionLoss(
@@ -1034,6 +1123,7 @@ public actor PyricBridgeClient {
         reconnectTask = nil
         attachDeadlineTask?.cancel()
         attachDeadlineTask = nil
+        stopHeartbeat()
         authRestorer = nil
         setState(.closed)
         failNextAttemptWaiters(PyricBridgeError.unavailable("PyricBridgeClient disconnected."))

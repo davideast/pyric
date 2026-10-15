@@ -55,7 +55,10 @@ public final class ConformanceMockHarness: WebSocketTransport, @unchecked Sendab
             return (nil, nil)
         }
 
-        sentMessages.append(dict)
+        // Heartbeat pings are answered but not recorded with the frames tests drive.
+        if dict["type"]?.stringValue != "ping" {
+            sentMessages.append(dict)
+        }
 
         guard autoRespond else {
             return (nil, nil)
