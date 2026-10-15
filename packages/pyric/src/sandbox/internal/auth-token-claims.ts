@@ -147,6 +147,13 @@ export function accountTokenClaims(
   };
 }
 
+function asPlainRecord(value: unknown): Record<string, unknown> | undefined {
+  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return undefined;
+}
+
 /**
  * Complete a token claim set with the standard Firebase ID-token claims
  * (`sub`, `aud`, `iss`, `auth_time`, `iat`, `exp`, `user_id`, and
@@ -160,19 +167,9 @@ export function withIdTokenClaims(
 ): Record<string, unknown> {
   const issuedAtSec = Math.floor(nowMs / 1000);
   const base = accountTokenClaims(uid, null, tokenClaims, null);
-  const existingFirebase =
-    typeof tokenClaims.firebase === 'object' &&
-    tokenClaims.firebase !== null &&
-    !Array.isArray(tokenClaims.firebase)
-      ? (tokenClaims.firebase as Record<string, unknown>)
-      : {};
+  const existingFirebase = asPlainRecord(tokenClaims.firebase) ?? {};
   const baseFirebase = base.firebase as { identities: Record<string, string[]>; sign_in_provider: string | null };
-  const identities =
-    typeof existingFirebase.identities === 'object' &&
-    existingFirebase.identities !== null &&
-    !Array.isArray(existingFirebase.identities)
-      ? existingFirebase.identities
-      : baseFirebase.identities;
+  const identities = asPlainRecord(existingFirebase.identities) ?? baseFirebase.identities;
   const firebase: Record<string, unknown> = {
     ...existingFirebase,
     identities,
