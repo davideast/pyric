@@ -43,6 +43,9 @@
  *       - `file.exists()` → `[boolean]`
  *       - `file.getSignedUrl(options)` → `['pyric-sandbox-storage://…']`
  *       - `file.copy(destination, options?)`, within a bucket or across buckets
+ *       - `bucket.getFiles(query?)` → `[files, nextQuery, apiResponse]`, with
+ *         `prefix`, `delimiter`, `maxResults`, `pageToken`, `autoPaginate`
+ *       - `bucket.deleteFiles(query?)`, honoring `force`
  *
  *     **Deferred in the sandbox backend** (throws `"not implemented in
  *     pyric-admin/storage sandbox backend"`): `file.createResumableUpload`
@@ -75,6 +78,13 @@ import {
 import { assertAdminAppActive } from '../app/lifecycle.js';
 import { defineDeferredMembers } from 'pyric/app/internal';
 import { BUCKET_DEFERRED_MEMBERS, FILE_DEFERRED_MEMBERS } from './deferred-members.js';
+import { deleteListedFiles } from './delete-files.js';
+import { assertQuery, type DeleteFilesOptions, type GetFilesOptions } from './file-query.js';
+import { getFilesResponse, type GetFilesResponse } from './get-files.js';
+import { namesUnderPrefix, type FolderListing } from './remote-names.js';
+
+export type { DeleteFilesOptions, GetFilesApiResponse, GetFilesOptions } from './file-query.js';
+export type { GetFilesResponse } from './get-files.js';
 
 // ─── Public surface ─────────────────────────────────────────────────────
 
@@ -102,6 +112,18 @@ export interface Bucket {
   readonly name: string;
   /** Get a {@link File} handle for `path`. The file may or may not exist. */
   file(path: string): File;
+  /**
+   * List the bucket's files, as `@google-cloud/storage` does: names starting
+   * with `prefix`, rolled up at `delimiter`, paged by `maxResults` and
+   * `pageToken`. Resolves `[files, nextQuery, apiResponse]`; see `get-files.ts`.
+   */
+  getFiles(query?: GetFilesOptions): Promise<GetFilesResponse<File>>;
+  /**
+   * Delete every file `getFiles(query)` would list across its pages. With
+   * `force`, a failed delete does not stop the others, and the call rejects
+   * with the array of errors.
+   */
+  deleteFiles(query?: DeleteFilesOptions): Promise<void>;
 }
 
 /**
@@ -468,6 +490,16 @@ class SandboxBucket implements Bucket {
   file(path: string): File {
     return new SandboxFile(path, this, this.files);
   }
+
+  async getFiles(query: GetFilesOptions = {}): Promise<GetFilesResponse<File>> {
+    assertQuery(query, 'getFiles');
+    return getFilesResponse([...this.files.keys()], query, name => this.file(name));
+  }
+
+  async deleteFiles(query: DeleteFilesOptions = {}): Promise<void> {
+    assertQuery(query, 'deleteFiles');
+    await deleteListedFiles([...this.files.keys()], query, name => this.file(name).delete());
+  }
 }
 
 class SandboxFile implements File {
@@ -732,6 +764,26 @@ class RemoteBucket implements Bucket {
 
   file(path: string): File {
     return new RemoteFile(path, this, this.channel);
+  }
+
+  async getFiles(query: GetFilesOptions = {}): Promise<GetFilesResponse<File>> {
+    assertQuery(query, 'getFiles');
+    return getFilesResponse(await this.namesUnder(query.prefix ?? ''), query, name => this.file(name));
+  }
+
+  async deleteFiles(query: DeleteFilesOptions = {}): Promise<void> {
+    assertQuery(query, 'deleteFiles');
+    await deleteListedFiles(await this.namesUnder(query.prefix ?? ''), query, name => this.file(name).delete());
+  }
+
+  /** The host's object names under `prefix`, walked folder by folder with `storage.listAll`. */
+  private namesUnder(prefix: string): Promise<string[]> {
+    return namesUnderPrefix(prefix, async path => (await this.channel.op({
+      method: 'storage.listAll',
+      ...this.wire,
+      path,
+      actAs: STORAGE_REMOTE_ADMIN_LENS,
+    })) as FolderListing);
   }
 }
 

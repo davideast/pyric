@@ -97,6 +97,21 @@ const adminRow = defineRows({
   },
 });
 
+// The admin plane's bucket listing: unit-backed, unverified until a production capture lands.
+const adminBucketRow = defineRows({
+  surface: "storage-admin",
+  defaults: {
+    section: "`pyric-admin/storage`: `Bucket` listing and prefix delete",
+    status: "unverified",
+    automation: "unit-backed",
+    conformanceTests: [
+      "packages/pyric-admin/test/storage/bucket-files.test.ts",
+      "packages/pyric-admin/test/storage/bucket-listing.test.ts",
+      "test/apps/admin-storage-delete-prefix/scenario.ts",
+    ],
+  },
+});
+
 const row10 = defineRows({
   surface: "storage",
   defaults: {
@@ -1381,6 +1396,32 @@ export const storageRegistry = {
           risk: ["specific-value"],
           riskScore: 2,
           riskReasons: ["asserts 2 specific value(s)"],
+        }),
+      ],
+    },
+    {
+      kind: 'table',
+      prefix: "## `pyric-admin/storage`: `Bucket` listing and prefix delete\n\nThe admin plane (surface `storage-admin`). firebase-admin's `Bucket.getFiles` and `Bucket.deleteFiles`, as a backend calls them to clean up an entity's objects under a prefix. The rows follow `@google-cloud/storage` 7.x and `@google-cloud/paginator` from their source and run on the in-process arm, a SharedWorker host, and the Node host. No production capture backs them yet, so they stay unverified.\n",
+      rows: [
+        adminBucketRow({
+          rowRef: "7",
+          featureKeys: ["Bucket.getFiles"],
+          api: "bucket.getFiles({ prefix, delimiter, maxResults, pageToken, autoPaginate })",
+          behavior: "Lists the files whose names start with `prefix`, in name order, as `[files, nextQuery, apiResponse]`. `delimiter` rolls names up into `apiResponse.prefixes`. `maxResults` or `autoPaginate: false` gives one page and the next page's query, or `null` on the last page; reading every page gives the call's own query in that position. `apiResponse` has no `items`, and the files carry no `metadata` until `getMetadata`",
+          evidence: "`bucket-listing.test.ts` pins prefix, delimiter, page, and result-tuple semantics as `@google-cloud/storage` 7.21 `Bucket.getFiles` and `@google-cloud/paginator` 5 `run_` define them. `bucket-files.test.ts` runs the same queries on the in-process arm and on a SharedWorker host. The app scenario `admin-storage-delete-prefix` calls `getFiles({ prefix })` from a firebase-admin backend under `pyric sandbox --hosted`. The remote arms read names with the host's `storage.listAll`, one folder at a time.",
+          risk: ["specific-value", "unobserved"],
+          riskScore: 3,
+          riskReasons: ["asserts specific listing values", "not observed in production"],
+        }),
+        adminBucketRow({
+          rowRef: "8",
+          featureKeys: ["Bucket.deleteFiles"],
+          api: "bucket.deleteFiles({ prefix, force })",
+          behavior: "Deletes every file `getFiles` would list across its pages, up to `maxResults`, ten at a time, and leaves the others. Without `force` the first failed delete rejects the call; with `force` every file is tried and the call rejects with the array of errors",
+          evidence: "`bucket-listing.test.ts` pins `force` as `@google-cloud/storage` 7.21 `Bucket.deleteFiles` defines it: the first error without it, the array of errors with it. `bucket-files.test.ts` deletes a prefix on the in-process arm and on a SharedWorker host, and leaves other prefixes and buckets. The app scenario `admin-storage-delete-prefix` deletes a prefix from a firebase-admin backend under `pyric sandbox --hosted` and finds the other objects still there.",
+          risk: ["specific-value", "unobserved"],
+          riskScore: 3,
+          riskReasons: ["asserts which objects remain", "not observed in production"],
         }),
       ],
     },
