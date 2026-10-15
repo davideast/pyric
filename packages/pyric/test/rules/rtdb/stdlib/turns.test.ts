@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { all, any, authenticated, rtdbStdlib } from 'pyric/rules';
+import { all, any, authenticated, newDataExists, rtdbStdlib } from 'pyric/rules';
 import { runScenario, type StdlibScenario } from './harness.js';
 
 const { turns, lifecycle, counters, lobby } = rtdbStdlib;
@@ -12,6 +12,7 @@ const scenario: StdlibScenario = {
         turns.isMyTurn(),
         turns.turnFlipped(),
         lifecycle.onlyFieldsChanged(['currentTurn', 'moveCount'], lobby.MATCH_FIELDS),
+        newDataExists('moveCount'),
       ),
       children: { '/moveCount': { validate: counters.incrementedBy(1) } },
     },
@@ -34,6 +35,7 @@ const table = (turn: number) => ({ tables: { t1: { players: { 0: 'ann', 1: 'ben'
 
 scenario.cases.push(
   { description: 'the host moves on the host turn', expectation: 'ALLOW', operation: 'update', path: '/matches/m1', auth: 'alice', data: match('host'), newData: { currentTurn: 'guest', moveCount: 5 } },
+  { description: 'a move that deletes the move count', expectation: 'DENY', operation: 'update', path: '/matches/m1', auth: 'alice', data: match('host'), newData: { currentTurn: 'guest', moveCount: null } },
   { description: 'the guest moves on the guest turn', expectation: 'ALLOW', operation: 'update', path: '/matches/m1', auth: 'bob', data: match('guest'), newData: { currentTurn: 'host', moveCount: 5 } },
   { description: 'the guest moves on the host turn', expectation: 'DENY', operation: 'update', path: '/matches/m1', auth: 'bob', data: match('host'), newData: { currentTurn: 'guest', moveCount: 5 } },
   { description: 'a user who is not seated moves', expectation: 'DENY', operation: 'update', path: '/matches/m1', auth: 'carol', data: match('host'), newData: { currentTurn: 'guest', moveCount: 5 } },

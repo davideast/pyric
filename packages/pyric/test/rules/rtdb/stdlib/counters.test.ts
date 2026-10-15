@@ -7,13 +7,12 @@ const { counters, lifecycle } = rtdbStdlib;
 const scenario: StdlibScenario = {
   paths: {
     '/stats/$id': {
-      // .validate does not run on a delete, so the .write refuses one.
-      write: all(authenticated(), lifecycle.noDelete()),
+      // .validate does not run on a delete, so each counter's .write refuses one.
       children: {
-        '/likes': { validate: counters.changedBy(-1, 1) },
-        '/moves': { validate: counters.incrementedBy(1, { start: 0 }) },
-        '/best': { validate: counters.improved('up') },
-        '/fastest': { validate: counters.improved('down') },
+        '/likes': { write: all(authenticated(), lifecycle.noDelete()), validate: counters.changedBy(-1, 1) },
+        '/moves': { write: all(authenticated(), lifecycle.noDelete()), validate: counters.incrementedBy(1, { start: 0 }) },
+        '/best': { write: all(authenticated(), lifecycle.noDelete()), validate: counters.improved('up') },
+        '/fastest': { write: all(authenticated(), lifecycle.noDelete()), validate: counters.improved('down') },
       },
     },
     '/scores/$id': {
@@ -44,6 +43,7 @@ const score = (before: unknown, after: Record<string, unknown>, expectation: 'AL
 });
 
 scenario.cases.push(
+  { description: 'a delete of one counter when a sibling exists', expectation: 'DENY', operation: 'write', path: '/stats/s1/likes', auth: 'alice', data: { stats: { s1: { likes: 5, moves: 3 } } }, newData: null },
   set('likes', 5, 6, 'ALLOW', 'a like adds one'),
   set('likes', 5, 4, 'ALLOW', 'an unlike removes one'),
   set('likes', 5, 5, 'ALLOW', 'a like count written unchanged'),
