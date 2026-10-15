@@ -25,7 +25,11 @@ import org.junit.jupiter.api.assertThrows
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
 
-/** One fake socket. [drop] ends it the way a lost connection does. */
+/**
+ * One fake socket. [drop] ends it the way a lost connection does. It delivers
+ * nothing it is not told to, so a socket left alone stays open and silent, the
+ * way a half-open connection does.
+ */
 class FakeReconnectSocket(
     private val bridge: FakeReconnectBridge,
     private val listener: BridgeListener
@@ -33,7 +37,13 @@ class FakeReconnectSocket(
     @Volatile var open = true
         private set
 
+    /** Every frame the client tried to send here, including after the socket closed. */
+    val attempted = CopyOnWriteArrayList<Map<String, Any?>>()
+
+    fun pings(): Int = attempted.count { it["type"] == "ping" }
+
     override fun send(text: String): Boolean {
+        attempted.add(JsonCodec.decodeMap(text))
         if (!open) return false
         bridge.record(JsonCodec.decodeMap(text), this)
         return true
@@ -64,6 +74,8 @@ class FakeReconnectBridge : BridgeTransportFactory {
     @Volatile var hostInstanceId = "host-a"
     @Volatile var refuseConnections = false
     @Volatile var autoAck = true
+    /** Off by default: the bridge leaves pings unanswered, so a socket goes silent. */
+    @Volatile var answerPings = false
     val connectCalls = java.util.concurrent.atomic.AtomicInteger(0)
     private val io = Executors.newSingleThreadExecutor()
 
@@ -85,6 +97,10 @@ class FakeReconnectBridge : BridgeTransportFactory {
     fun record(frame: Map<String, Any?>, socket: FakeReconnectSocket) {
         frames.add(frame)
         onFrame?.invoke(frame)
+        if (frame["type"] == "ping" && answerPings) {
+            val id = frame["id"]
+            io.execute { socket.deliver(mapOf("type" to "pong", "id" to id)) }
+        }
         if (frame["type"] == "attach" && autoAck) {
             val sessionId = frame["clientSessionId"] as? String ?: "session-1"
             val host = hostInstanceId
@@ -132,7 +148,9 @@ class BridgeReconnectTest {
         retryInitialConnection: Boolean = false,
         retryDelayMs: Long = 5L,
         attachTimeoutMs: Long = 5_000L,
-        holdTimeoutMs: Long? = null
+        holdTimeoutMs: Long? = null,
+        heartbeatIntervalMs: Long? = null,
+        livenessTimeoutMs: Long? = null
     ): PyricBridgeClient =
         PyricBridgeClient(
             url = "ws://127.0.0.1:5174/__pyric/sandbox",
@@ -142,6 +160,8 @@ class BridgeReconnectTest {
             attachTimeoutMs = attachTimeoutMs
         ).also { created ->
             if (holdTimeoutMs != null) created.holdTimeoutMs = holdTimeoutMs
+            if (heartbeatIntervalMs != null) created.heartbeatIntervalMs = heartbeatIntervalMs
+            if (livenessTimeoutMs != null) created.livenessTimeoutMs = livenessTimeoutMs
             clients.add(created)
         }
 
@@ -725,6 +745,143 @@ class BridgeReconnectTest {
             client.disconnect()
         }
     }
+
+    // The heartbeat (ADR-0019, amendment "clients send a heartbeat"). The fake
+    // socket stays open and delivers nothing it is not told to, as a half-open
+    // connection does.
+
+    @Test
+    fun `a ping is sent at attach, before the first interval, and then at each interval`() = runBlocking {
+        val atAttach = client(heartbeatIntervalMs = 60_000L)
+        atAttach.connect()
+        until { bridge.current.pings() == 1 }
+        val ping = bridge.ofType("ping").single()
+        assertEquals(setOf("type", "id"), ping.keys)
+        assertTrue(ping["id"] is String, "the ping carries an id")
+        atAttach.disconnect()
+
+        val ticking = client(heartbeatIntervalMs = 40L)
+        ticking.connect()
+        until { bridge.current.pings() >= 4 }
+        val ids = bridge.current.attempted.filter { it["type"] == "ping" }.map { it["id"] }
+        assertEquals(ids.size, ids.toSet().size, "each ping has its own id")
+    }
+
+    @Test
+    fun `a socket silent for the liveness timeout is a drop that fails in-flight operations once and reconnects`() = runBlocking {
+        val client = client(retryDelayMs = 100L, heartbeatIntervalMs = 40L, livenessTimeoutMs = 300L)
+        client.connect()
+        val attachedAt = System.nanoTime()
+        val silent = bridge.current
+        val pending = scope.async { client.op("setDoc", mapOf("path" to "rooms/a")) }
+        until { bridge.opsNamed("setDoc").size == 1 }
+        val sentId = bridge.opsNamed("setDoc").single()["id"]
+
+        until { client.connectionState == BridgeConnectionState.INTERRUPTED }
+        val silentMs = (System.nanoTime() - attachedAt) / 1_000_000
+        assertTrue(silentMs >= 250, "dropped after ${silentMs}ms, before the liveness timeout")
+        assertFalse(silent.open, "the client closes the silent socket")
+        val error = assertThrows<FirebaseFirestoreException> { runBlocking { pending.await() } }
+        assertEquals(FirebaseFirestoreException.Code.UNAVAILABLE, error.code)
+        assertTrue(error.message!!.contains("connection was lost"), error.message)
+
+        bridge.answerPings = true
+        until { bridge.connectCalls.get() >= 2 && client.isConnected }
+        assertEquals("session-1", bridge.ofType("attach").last()["clientSessionId"])
+        delay(50)
+        assertEquals(1, bridge.ofType("worker-op").count { it["id"] == sentId })
+    }
+
+    @Test
+    fun `an operation issued after a silent drop is held and sent once after re-attach`() = runBlocking {
+        val client = client(heartbeatIntervalMs = 40L, livenessTimeoutMs = 200L)
+        client.connect()
+        bridge.refuseConnections = true
+        until { client.connectionState == BridgeConnectionState.INTERRUPTED }
+
+        val held = scope.async { client.op("setDoc", mapOf("path" to "rooms/b")) }
+        delay(50)
+        assertTrue(bridge.opsNamed("setDoc").isEmpty())
+        assertFalse(held.isCompleted, "a held operation neither fails nor is sent")
+
+        bridge.answerPings = true
+        bridge.refuseConnections = false
+        until { bridge.opsNamed("setDoc").size == 1 }
+        val sent = bridge.opsNamed("setDoc").single()
+        assertTrue(
+            bridge.current.attempted.any { it["type"] == "worker-op" && it["id"] == sent["id"] },
+            "the held operation is sent on the new socket"
+        )
+        respond(sent, "done")
+        assertEquals("done", held.await())
+        delay(50)
+        assertEquals(1, bridge.opsNamed("setDoc").size)
+    }
+
+    @Test
+    fun `pongs keep the client attached past the liveness timeout`() = runBlocking {
+        bridge.answerPings = true
+        val client = client(heartbeatIntervalMs = 40L, livenessTimeoutMs = 300L)
+        client.connect()
+        delay(900)
+        assertEquals(BridgeConnectionState.ATTACHED, client.connectionState)
+        assertEquals(1, bridge.connectCalls.get())
+        assertTrue(bridge.current.pings() >= 5, "sent ${bridge.current.pings()} pings")
+    }
+
+    @Test
+    fun `any frame from the bridge counts as traffic, not only a pong`() = runBlocking {
+        val client = client(heartbeatIntervalMs = 40L, livenessTimeoutMs = 300L)
+        client.connect()
+        val socket = bridge.current
+        repeat(18) {
+            socket.deliver(mapOf("type" to "worker-event", "event" to "unrelated"))
+            delay(50)
+        }
+        assertEquals(BridgeConnectionState.ATTACHED, client.connectionState)
+        assertEquals(1, bridge.connectCalls.get())
+    }
+
+    @Test
+    fun `no ping reaches a socket after it drops or after disconnect`() = runBlocking {
+        bridge.answerPings = true
+        val client = client(heartbeatIntervalMs = 20L)
+        client.connect()
+        val first = bridge.current
+        until { first.pings() >= 2 }
+        first.drop()
+        val pingsAtDrop = first.pings()
+
+        until { bridge.sockets.size == 2 && client.isConnected }
+        val second = bridge.current
+        until { second.pings() >= 2 }
+        delay(100)
+        assertEquals(pingsAtDrop, first.pings(), "the dropped socket was pinged")
+
+        client.disconnect()
+        val pingsAtDisconnect = second.pings()
+        delay(100)
+        assertEquals(pingsAtDisconnect, second.pings(), "a disconnected client pinged")
+    }
+
+    @Test
+    fun `a client on a supplied transport closes on silence and fails its in-flight operations`() = runBlocking {
+        val transport = RecordingTransport()
+        val client = PyricBridgeClient(transport).also { clients.add(it) }
+        client.heartbeatIntervalMs = 40L
+        client.livenessTimeoutMs = 200L
+        until { transport.attachCount() == 1 }
+        transport.ack()
+        client.connect()
+        val pending = scope.async { client.op("setDoc", mapOf("path" to "rooms/a")) }
+        until { transport.count("worker-op") == 1 }
+
+        until { client.connectionState == BridgeConnectionState.CLOSED }
+        assertTrue(transport.count("ping") >= 1, "the client pinged before it closed")
+        val error = assertThrows<FirebaseFirestoreException> { runBlocking { pending.await() } }
+        assertEquals(FirebaseFirestoreException.Code.UNAVAILABLE, error.code)
+        assertEquals("The Pyric bridge sent nothing for 45 seconds, so the connection is treated as lost.", error.message)
+    }
 }
 
 /** A supplied transport that records every listener the client installs. */
@@ -732,7 +889,9 @@ private class RecordingTransport : BridgeTransport {
     val listeners = CopyOnWriteArrayList<BridgeListener>()
     private val sent = CopyOnWriteArrayList<Map<String, Any?>>()
 
-    fun attachCount(): Int = sent.count { it["type"] == "attach" }
+    fun attachCount(): Int = count("attach")
+
+    fun count(type: String): Int = sent.count { it["type"] == type }
 
     fun ack() {
         listeners.last().onMessage("""{"type":"attach-ack","protocol":1,"peerConnected":true,"clientSessionId":"session-1"}""")

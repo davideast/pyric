@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.min
 
 /**
@@ -50,6 +51,8 @@ private const val CONNECTION_LOST =
     "The bridge connection was lost. Requests already sent may have completed; check state before retrying."
 private const val POLICY_CLOSE_CODE = 1008
 private const val DISCONNECTED = "PyricBridgeClient disconnected."
+private const val HOST_SILENT =
+    "The Pyric bridge sent nothing for 45 seconds, so the connection is treated as lost."
 private const val AUTH_NOT_RESTORED =
     "The bridge connection was restored, but the signed-in user could not be restored on the new host. The request was not sent."
 
@@ -63,6 +66,10 @@ private const val AUTH_NOT_RESTORED =
  * held for up to 10 seconds and sent once after the next attach's restore, or
  * fails once and is never sent. A client built on one supplied transport cannot
  * reopen it, so a drop fails its operations and subscriptions instead.
+ *
+ * While attached, the client sends `ping` at once and then every 15 seconds. A
+ * socket that delivers no frame for 45 seconds is a drop (ADR-0019, amendment
+ * "clients send a heartbeat").
  */
 class PyricBridgeClient(
     val url: String = BridgeProtocol.DEFAULT_BRIDGE_URL,
@@ -105,6 +112,17 @@ class PyricBridgeClient(
      * 7); this is not a user setting.
      */
     internal var holdTimeoutMs: Long = BRIDGE_HOLD_TIMEOUT_MS
+
+    /**
+     * Test seams: how often an attached client pings, and how long a socket may
+     * stay silent before it counts as dropped. Both are fixed at 15 and 45 seconds
+     * (ADR-0019, amendment "clients send a heartbeat"); they are not user settings.
+     * A change applies from the next attach.
+     */
+    @Volatile
+    internal var heartbeatIntervalMs: Long = BRIDGE_HEARTBEAT_INTERVAL_MS
+    @Volatile
+    internal var livenessTimeoutMs: Long = BRIDGE_LIVENESS_TIMEOUT_MS
 
     /**
      * Runs on a re-attach to a replaced host, before subscriptions are re-sent. If
@@ -153,6 +171,8 @@ class PyricBridgeClient(
     private val operationDispatcher = BridgeOperationDispatcher(clientScope, defaultOpTimeoutMs, onDenial = ::dispatchDenial)
     private val subscriptionManager = BridgeSubscriptionManager(onDenial = ::dispatchDenial)
     private val heldOperations = BridgeHeldOperations(clientScope)
+    private val heartbeat = BridgeHeartbeat(clientScope)
+    private val pingCounter = AtomicLong(0)
 
     private val canReopen: Boolean get() = directTransport == null
 
@@ -324,6 +344,7 @@ class PyricBridgeClient(
             reconnectAttempt = 0
             isConnected = true
             setState(BridgeConnectionState.ATTACHED)
+            startHeartbeatLocked(attemptGeneration)
         }
         subscriptionManager.restoreAll(epoch, ::sendRawJson, JsonCodec::encodeToString)
         // Held operations follow the whole restore. Without the Auth restore they
@@ -334,6 +355,32 @@ class PyricBridgeClient(
         )
         heldOperations.release(holdEpoch, identityLost)
         return true
+    }
+
+    /** The ping at attach is what starts the host's watch of this socket. */
+    private fun startHeartbeatLocked(attachGeneration: Int) {
+        heartbeat.start(
+            intervalMs = heartbeatIntervalMs,
+            timeoutMs = livenessTimeoutMs,
+            ping = { sendPing(attachGeneration) },
+            onSilent = {
+                handleConnectionLoss(
+                    attachGeneration,
+                    FirebaseFirestoreException(HOST_SILENT, FirebaseFirestoreException.Code.UNAVAILABLE),
+                    null
+                )
+            }
+        )
+    }
+
+    /** Sends one `ping` on the socket of [attachGeneration], never on an earlier one. */
+    private fun sendPing(attachGeneration: Int): Boolean = synchronized(lock) {
+        val isCurrentSocket = attachGeneration == generation && isConnected && !isDisposed
+        if (isCurrentSocket) {
+            val frame = BridgeProtocol.createPingFrame("ping-${pingCounter.incrementAndGet()}")
+            sendRawJson(JsonCodec.encodeToString(frame))
+        }
+        isCurrentSocket
     }
 
     private fun setState(next: BridgeConnectionState) {
@@ -356,6 +403,7 @@ class PyricBridgeClient(
                 (hasEverAttached || retryInitialConnection) &&
                 closeCode != POLICY_CLOSE_CODE
             generation += 1
+            heartbeat.stop()
             attachDeadlineJob?.cancel()
             attachDeadlineJob = null
             wasAttached = connectionState == BridgeConnectionState.ATTACHED
@@ -490,6 +538,7 @@ class PyricBridgeClient(
             isDisposed = true
             isConnected = false
             generation += 1
+            heartbeat.stop()
             reconnectJob?.cancel()
             reconnectJob = null
             attachDeadlineJob?.cancel()
@@ -585,6 +634,7 @@ class PyricBridgeClient(
 
         override fun onMessage(text: String) {
             if (!isCurrent(messageGeneration())) return
+            heartbeat.heard()
             val msg = try {
                 JsonCodec.decodeMap(text)
             } catch (_: Exception) {
