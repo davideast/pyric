@@ -516,6 +516,124 @@ describe('rtdbRules constructor', () => {
     expect(before.decision).toBe('DENY');
     expect(after.decision).toBe('ALLOW');
   });
+
+  test('simulate() honors updates on a write or validate case for multi-path writes', () => {
+    const rules = {
+      rules: {
+        a: {
+          '.write': "newData.parent().child('b').val() === 1",
+          '.validate': "newData.parent().child('b').val() === 1",
+        },
+        b: { '.write': true },
+      },
+    };
+    const ruleset = rtdbRules(rules);
+
+    const withUpdates = ruleset.simulate([
+      {
+        expectation: 'ALLOW',
+        operation: 'write',
+        path: '/a',
+        newData: 2,
+        updates: [
+          { path: '/a', value: 2 },
+          { path: '/b', value: 1 },
+        ],
+      },
+    ]).cases[0]!;
+    const validateWithUpdates = ruleset.simulate([
+      {
+        expectation: 'ALLOW',
+        operation: 'validate',
+        path: '/a',
+        newData: 2,
+        updates: [
+          { path: '/a', value: 2 },
+          { path: '/b', value: 1 },
+        ],
+      },
+    ]).cases[0]!;
+    const asUpdateOp = ruleset.simulate([
+      {
+        expectation: 'ALLOW',
+        operation: 'update',
+        path: '/',
+        newData: { a: 2, b: 1 },
+      },
+    ]).cases[0]!;
+    const withoutUpdates = ruleset.simulate([
+      {
+        expectation: 'DENY',
+        operation: 'write',
+        path: '/a',
+        newData: 2,
+      },
+    ]).cases[0]!;
+    const withMismatchedUpdates = ruleset.simulate([
+      {
+        expectation: 'DENY',
+        operation: 'write',
+        path: '/a',
+        newData: 2,
+        updates: [
+          { path: '/a', value: 2 },
+          { path: '/b', value: 0 },
+        ],
+      },
+    ]).cases[0]!;
+
+    expect(withUpdates.decision).toBe('ALLOW');
+    expect(withUpdates.passed).toBe(true);
+    expect(validateWithUpdates.decision).toBe('ALLOW');
+    expect(validateWithUpdates.passed).toBe(true);
+    expect(asUpdateOp.decision).toBe('ALLOW');
+    expect(withoutUpdates.decision).toBe('DENY');
+    expect(withMismatchedUpdates.decision).toBe('DENY');
+  });
+
+  test('simulate() rejects updates on read or update cases and malformed updates entries as UNSUPPORTED', () => {
+    const ruleset = rtdbRules({
+      rules: {
+        a: { '.read': true, '.write': true },
+      },
+    });
+
+    const onRead = ruleset.simulate([
+      {
+        expectation: 'ALLOW',
+        operation: 'read',
+        path: '/a',
+        updates: [{ path: '/a', value: 1 }],
+      },
+    ]).cases[0]!;
+    const onUpdate = ruleset.simulate([
+      {
+        expectation: 'ALLOW',
+        operation: 'update',
+        path: '/',
+        newData: { a: 1 },
+        updates: [{ path: '/a', value: 1 }],
+      },
+    ]).cases[0]!;
+    const badPath = ruleset.simulate([
+      {
+        expectation: 'ALLOW',
+        operation: 'write',
+        path: '/a',
+        newData: 1,
+        updates: [{ path: 'a', value: 1 }],
+      },
+    ]).cases[0]!;
+
+    expect(onRead.decision).toBe('UNSUPPORTED');
+    expect(onRead.unsupported).toBe(true);
+    expect(onRead.reason).toBe("'updates' applies to a 'write' or 'validate' case, and this case is 'read'.");
+    expect(onUpdate.decision).toBe('UNSUPPORTED');
+    expect(onUpdate.unsupported).toBe(true);
+    expect(onUpdate.reason).toBe("'updates' applies to a 'write' or 'validate' case, and this case is 'update'.");
+    expect(badPath.decision).toBe('UNSUPPORTED');
+    expect(badPath.unsupported).toBe(true);
+  });
 });
 
 describe('value helpers', () => {
