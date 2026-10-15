@@ -31,6 +31,7 @@ export class Transactions {
     const segments = pathSegments(path);
     const key = segments.length === 0 ? null : segments[segments.length - 1]!;
     let current: JsonValue = null;
+    let visible: JsonValue = null;
     let proposed: JsonValue | undefined;
     let attempts = 0;
     let settled = false;
@@ -38,7 +39,8 @@ export class Transactions {
       attempts += 1;
       const version = this.state.mutations.begin();
       current = this.state.tree.read(path);
-      const input = current === null ? null : coerceArrays(cloneJson(current)) as JsonValue;
+      visible = this.canRead(auth, path) ? current : null;
+      const input = visible === null ? null : coerceArrays(cloneJson(visible)) as JsonValue;
       let conflicted = false;
       try {
         proposed = updateFn(input);
@@ -57,10 +59,10 @@ export class Transactions {
     if (proposed === undefined) {
       this.state.events.operation(auth, 'transaction', path, 'not-applicable', undefined, {
         origin: 'transaction', groupId, groupKind: 'transaction',
-        resourceBefore: { data: current, exists: current !== null },
+        resourceBefore: { data: visible, exists: visible !== null },
         detail: { committed: false, aborted: true },
       });
-      return { committed: false, val: current, key };
+      return { committed: false, val: visible, key };
     }
 
     const now = this.state.clock.now();
@@ -109,6 +111,16 @@ export class Transactions {
     this.finishEvents(auth, path, proposed, current, resolved, groupId, now, false);
     this.state.notifyWrite();
     return { committed: true, val: resolved, key };
+  }
+
+  private canRead(auth: AuthState, path: string): boolean {
+    const targetPath = path === '/' ? '/' : path;
+    const evaluation = this.state.rules.evaluate('read', targetPath, {
+      auth,
+      mockData: this.state.rulesSnapshot(),
+      now: this.state.clock.now(),
+    });
+    return evaluation.check === 'allow';
   }
 
   private recordCommit(
