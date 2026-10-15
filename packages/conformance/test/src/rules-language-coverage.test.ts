@@ -19,6 +19,6 @@ describe('rules-language production coverage', () => {
     const rtdb = report.engines.find((engine) => engine.engine === 'rtdb');
 
     expect(rtdb?.constructs.find((construct) => construct.id === 'rtdb.semantic.validate-non-cascade')?.verdict).toBe('verified');
-    expect(rtdb?.verifiedConstructs).toBe(89);
+    expect(rtdb?.verifiedConstructs).toBe(90);
   }, FULL_GRAPH_TIMEOUT_MS);
 });

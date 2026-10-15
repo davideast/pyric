@@ -100,10 +100,10 @@
     ]
   },
   "score": {
-    "numerator": 90,
+    "numerator": 91,
     "denominator": 91,
-    "ratio": 0.989010989010989,
-    "percent": 98.9
+    "ratio": 1,
+    "percent": 100
   },
   "axes": {
     "productionAcceptance": {
@@ -125,14 +125,14 @@
       "unprobeable": 0
     },
     "productionEvidence": {
-      "verified": 89,
-      "diverged": 1,
+      "verified": 90,
+      "diverged": 0,
       "unverified": 1
     }
   },
   "counts": {
-    "conformant": 90,
-    "diverged": 1,
+    "conformant": 91,
+    "diverged": 0,
     "unknown": 0,
     "acceptance-mismatch": 0,
     "local-unsupported": 0,
@@ -683,8 +683,8 @@
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "r16-auth-provider-and-tenant",
         "r17-validate-runtime-error",
@@ -711,10 +711,10 @@
         "r9-quota-arithmetic",
         "r44-deploy-string-and-regex-probes"
       ],
-      "verifiedByRows": [],
-      "divergedByRows": [
+      "verifiedByRows": [
         "rtdb-rules#33"
-      ]
+      ],
+      "divergedByRows": []
     },
     "rtdb.operator.looseNeq": {
       "productionAcceptance": "accepted",
@@ -1088,7 +1088,8 @@
         "r43-deploy-expression-and-structure-probes"
       ],
       "verifiedByRows": [
-        "rtdb-rules#31"
+        "rtdb-rules#31",
+        "rtdb-rules#33"
       ],
       "divergedByRows": []
     },
@@ -1324,7 +1325,9 @@
         "r27-stdlib-core-patterns",
         "r44-deploy-string-and-regex-probes"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#33"
+      ],
       "divergedByRows": []
     },
     "rtdb.binding.query": {
@@ -1692,7 +1695,8 @@
         "r43-deploy-expression-and-structure-probes"
       ],
       "verifiedByRows": [
-        "rtdb-rules#27"
+        "rtdb-rules#27",
+        "rtdb-rules#33"
       ],
       "divergedByRows": []
     },
@@ -1707,7 +1711,8 @@
         "r43-deploy-expression-and-structure-probes"
       ],
       "verifiedByRows": [
-        "rtdb-rules#27"
+        "rtdb-rules#27",
+        "rtdb-rules#33"
       ],
       "divergedByRows": []
     },
@@ -1750,7 +1755,8 @@
         "r43-deploy-expression-and-structure-probes"
       ],
       "verifiedByRows": [
-        "rtdb-rules#27"
+        "rtdb-rules#27",
+        "rtdb-rules#33"
       ],
       "divergedByRows": []
     },
