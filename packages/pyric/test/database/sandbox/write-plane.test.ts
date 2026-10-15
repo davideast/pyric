@@ -32,3 +32,69 @@ it('a multi-path update that a rule denies records no allow for the paths it che
   writes.update({ uid: 'u1' }, '/', { allowed: 'ok' });
   expect(recorded).toEqual([{ path: '/allowed', result: 'allow' }]);
 });
+
+it('re-evaluates only listeners whose .read rules can depend on the written paths', () => {
+  const state = new BackendState();
+  const values = new ValueListeners(state);
+  const children = new ChildListeners(state);
+  const writes = new WritePlane(state, values, children);
+
+  writes.adminSet('/rooms/r1', { members: { alice: true }, msg: 'hi-1' });
+  writes.adminSet('/rooms/r2', { members: { bob: true }, msg: 'hi-2' });
+  writes.adminSet('/authOnly', 'public-to-signed-in');
+  writes.setRules({
+    rules: {
+      rooms: {
+        $room: {
+          '.read': "data.child('members').child(auth.uid).val() == true",
+        },
+      },
+      authOnly: {
+        '.read': 'auth != null',
+      },
+    },
+  });
+
+  const aliceCanceled: string[] = [];
+  const bobCanceled: string[] = [];
+  const authOnlyCanceled: string[] = [];
+  values.onValue(
+    { uid: 'alice' },
+    '/rooms/r1/msg',
+    () => {},
+    undefined,
+    (err) => aliceCanceled.push((err as Error & { code: string }).code),
+  );
+  values.onValue(
+    { uid: 'bob' },
+    '/rooms/r2/msg',
+    () => {},
+    undefined,
+    (err) => bobCanceled.push((err as Error & { code: string }).code),
+  );
+  values.onValue(
+    { uid: 'alice' },
+    '/authOnly',
+    () => {},
+    undefined,
+    (err) => authOnlyCanceled.push((err as Error & { code: string }).code),
+  );
+
+  const readEvalPaths: string[] = [];
+  const evaluate = state.rules.evaluate.bind(state.rules);
+  state.rules.evaluate = (operation, path, ctx) => {
+    if (operation === 'read') readEvalPaths.push(path);
+    return evaluate(operation, path, ctx);
+  };
+
+  // Writing to an unrelated path or auth-only subtree does not re-evaluate any listener.
+  writes.adminSet('/authOnly', 'updated');
+  expect(readEvalPaths).toEqual([]);
+
+  // Writing under /rooms/r1 only re-evaluates the listener under /rooms/r1, not /rooms/r2 or /authOnly.
+  writes.adminRemove('/rooms/r1/members/alice');
+  expect(readEvalPaths).toEqual(['/rooms/r1/msg']);
+  expect(aliceCanceled).toEqual(['PERMISSION_DENIED']);
+  expect(bobCanceled).toEqual([]);
+  expect(authOnlyCanceled).toEqual([]);
+});
