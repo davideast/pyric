@@ -219,7 +219,7 @@ public actor PyricBridgeClient {
 
     /// Test-only: shortens the heartbeat interval and the liveness timeout, and
     /// `nil` restores them. They are fixed at 15 and 45 seconds; this is not a
-    /// user setting and is not public. Takes effect at the next attach.
+    /// user setting and is not public. Set it before connecting.
     func setHeartbeatForTesting(interval: TimeInterval?, livenessTimeout timeout: TimeInterval?) {
         heartbeatInterval = interval ?? defaultHeartbeatInterval
         livenessTimeout = timeout ?? defaultLivenessTimeout
@@ -498,15 +498,15 @@ public actor PyricBridgeClient {
     // ─── Heartbeat ───────────────────────────────────────────────────────────
 
     /// Pings the socket of this attach at once, then every interval, until
-    /// the attach ends. Each tick checks for silence before it sends.
+    /// the attach ends. Each tick checks for silence before it sends, and the
+    /// wait before the next tick never passes the moment the socket would
+    /// reach the liveness timeout, so silence is detected at 45 seconds.
     private func startHeartbeat(generation: Int) {
         heartbeatTask?.cancel()
-        let interval = heartbeatInterval
         heartbeatTask = Task { [weak self] in
             while !Task.isCancelled {
-                let attached = await self?.heartbeatTick(generation: generation) ?? false
-                guard attached else { return }
-                try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+                guard let delay = await self?.heartbeatTick(generation: generation) else { return }
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             }
         }
     }
@@ -516,20 +516,26 @@ public actor PyricBridgeClient {
         heartbeatTask = nil
     }
 
-    /// Sends one heartbeat, or treats a silent socket as dropped. Returns
-    /// whether the heartbeat continues.
-    private func heartbeatTick(generation: Int) async -> Bool {
-        guard isCurrent(generation), isConnected else { return false }
-        let silence = lastFrameAt.duration(to: clock.now)
-        if silence >= .seconds(livenessTimeout) {
+    /// Sends one heartbeat, or treats a silent socket as dropped. Returns the
+    /// seconds to wait before the next tick, or nil when the heartbeat stops.
+    private func heartbeatTick(generation: Int) async -> TimeInterval? {
+        guard isCurrent(generation), isConnected else { return nil }
+        if secondsOfSilence() >= livenessTimeout {
             dropSilentConnection(generation: generation)
-            return false
+            return nil
         }
         pingCounter += 1
         // sendRaw reads the current socket before it suspends, so a ping never
         // reaches a socket replaced since the check above.
         try? await sendRaw(PingFrame(id: "hb-\(pingCounter)"))
-        return true
+        let untilTimeout = livenessTimeout - secondsOfSilence()
+        return max(0, min(heartbeatInterval, untilTimeout))
+    }
+
+    private func secondsOfSilence() -> TimeInterval {
+        let silence = lastFrameAt.duration(to: clock.now)
+        let parts = silence.components
+        return Double(parts.seconds) + Double(parts.attoseconds) / 1e18
     }
 
     private func dropSilentConnection(generation: Int) {

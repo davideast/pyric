@@ -967,6 +967,31 @@ struct BridgeReconnectTests {
         await client.disconnect()
     }
 
+    @Test("Silence is detected at the liveness timeout, not at the next interval after it")
+    func silenceDetectedAtTheTimeout() async throws {
+        let bridge = FakeReconnectBridge()
+        // Ticks at 0 and 1.0 s. A fixed wait would next check at 2.0 s; the
+        // wait is cut to the 1.5 s timeout instead.
+        let client = await makeHeartbeatClient(bridge, interval: 1.0, timeout: 1.5)
+        let clock = ContinuousClock()
+        let interruptedAt = Collected<ContinuousClock.Instant>()
+        let watcher = Task {
+            for await state in client.connectionStates where state == .interrupted {
+                interruptedAt.append(clock.now)
+            }
+        }
+        let start = clock.now
+        try await client.connect()
+        bridge.refuseConnections = true
+        try await until { interruptedAt.count == 1 }
+
+        let elapsed = start.duration(to: interruptedAt.all[0])
+        #expect(elapsed >= .milliseconds(1400))
+        #expect(elapsed < .milliseconds(1850))
+        watcher.cancel()
+        await client.disconnect()
+    }
+
     @Test("An operation issued after a silence drop is held and sent once after the re-attach")
     func operationAfterSilenceIsHeld() async throws {
         let bridge = FakeReconnectBridge()
