@@ -13,8 +13,8 @@
  *   pyric firestore rules resolve <path> [--out <path>]
  *   pyric firestore indexes generate <path...> [--out <path>]
  *   pyric storage rules resolve <path> [--out <path>]
- *   pyric database rules validate <path>
- *   pyric database rules generate [--config <path>] [--out <path>]
+ *   pyric database rules validate <path> [--fail-on <critical|high|medium>]
+ *   pyric database rules generate [--config <path>] [--out <path>] [--fail-on <critical|high|medium>]
  *   pyric serve diagnostics [--url URL] [--json]
  *   pyric serve sessions [--json]
  *   pyric serve denials [--json] [--since <ms|duration>] [--service rtdb|firestore]
@@ -70,8 +70,8 @@ USAGE
   pyric firestore rules resolve <path> [--out <path>]
   pyric firestore indexes generate <path...> [--out <path>]
   pyric storage rules resolve <path> [--out <path>]
-  pyric database rules validate <path>
-  pyric database rules generate [--config <path>] [--out <path>]
+  pyric database rules validate <path> [--fail-on <critical|high|medium>]
+  pyric database rules generate [--config <path>] [--out <path>] [--fail-on <critical|high|medium>]
   pyric serve diagnostics [--url URL] [--json]
   pyric serve sessions [--json]
   pyric serve denials [--json] [--since <ms|duration>] [--service rtdb|firestore]
