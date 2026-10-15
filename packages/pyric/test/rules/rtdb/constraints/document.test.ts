@@ -160,6 +160,26 @@ describe('defineRtdbRules', () => {
     ]);
   });
 
+  test('check reports COMPILE_ERROR when duplicate path declarations resolve to the same normalized path', () => {
+    const rules = defineRtdbRules({
+      paths: {
+        '/a': { read: deny(), write: deny(), children: { '/b': { read: deny(), write: deny() } } },
+        '/a/b': { read: allow() },
+      },
+    });
+
+    const check = rules.check();
+    expect(check.ok).toBe(false);
+    expect(check.errors).toEqual([
+      expect.objectContaining({
+        path: '/',
+        rule: 'ruleset',
+        code: 'COMPILE_ERROR',
+        message: expect.stringContaining('Duplicate ruleset path declaration for "/a/b"'),
+      }),
+    ]);
+  });
+
   test('simulate normalises auth strings and data aliases', () => {
     const rules = defineRtdbRules({
       paths: {
