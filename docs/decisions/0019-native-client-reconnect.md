@@ -442,9 +442,16 @@ them.
   `unavailable`.
 - The heartbeat's timers do not keep an idle Node process alive; a finished
   script still exits.
-- This amendment does not extend decision 7's hold to the Node remote client.
-- `pyric-admin` does not implement onDisconnect, so for an admin process the
-  close rule releases its listeners and its presence entry.
+- Its operations keep their existing behavior. An operation issued on the lazy
+  handle while it is reconnecting waits for the connection attempt in progress,
+  or starts one, and fails if that attempt fails. This amendment does not
+  extend decision 7's hold, across attempts with a 10-second deadline, to the
+  Node remote client.
+- `pyric-admin` does not implement onDisconnect, so an admin process registers
+  none through it, and the close rule releases its listeners and its presence
+  entry. An onDisconnect operation sent over the handle's raw relay channel
+  (`channel.op`) is the same `worker-op` a native client sends, and the close
+  rule runs it the same way.
 
 ### Consequences of the amendment
 
@@ -462,5 +469,6 @@ them.
   operations, so presence goes offline. The native clients do not serve
   `.info/connected` today, so an app cannot register its onDisconnect
   operations again on reconnect as a production app does; it must write its
-  presence again itself. That gap remains open.
+  presence again itself. That gap is open as
+  [#990](https://github.com/davideast/pyric/issues/990).
 - Each attached client sends one small frame every 15 seconds.
