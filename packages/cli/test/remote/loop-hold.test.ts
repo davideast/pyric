@@ -387,8 +387,10 @@ async function startPingCountingHost(): Promise<{ url: string; pings: () => numb
 
 /** Attach, run one op, stay idle long enough for several heartbeats, and end without closing. */
 const IDLE_SCRIPT = `
+const { setHeartbeatForTesting } = await import(new URL('host-liveness.js', process.argv[1]).href);
+setHeartbeatForTesting({ intervalMs: 50, timeoutMs: 45_000 });
 const { connectRemoteSandbox } = await import(process.argv[1]);
-const remote = await connectRemoteSandbox({ url: process.argv[2], heartbeatIntervalMs: 50 });
+const remote = await connectRemoteSandbox({ url: process.argv[2] });
 await remote.rtdb.get('a');
 await new Promise((resolve) => setTimeout(resolve, 400));
 process.stdout.write('idle');

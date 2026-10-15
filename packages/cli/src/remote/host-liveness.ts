@@ -20,13 +20,28 @@ import { HOSTED_HEARTBEAT_INTERVAL_MS, type BridgeMessage } from '../bridge/prot
  */
 export const HOST_SILENCE_TIMEOUT_MS = 45_000;
 
+interface HeartbeatTiming {
+  intervalMs: number;
+  timeoutMs: number;
+}
+
+const DEFAULT_TIMING: HeartbeatTiming = { intervalMs: HOSTED_HEARTBEAT_INTERVAL_MS, timeoutMs: HOST_SILENCE_TIMEOUT_MS };
+let timing = DEFAULT_TIMING;
+
+/**
+ * Shorten the heartbeat for a test; `undefined` restores it. The 15 and 45
+ * seconds are fixed by ADR-0019; this is not a user setting and no public
+ * entry point exports it.
+ */
+export function setHeartbeatForTesting(next: HeartbeatTiming | undefined): void {
+  timing = next ?? DEFAULT_TIMING;
+}
+
 export interface HostLivenessOptions {
   /** Send one frame on the watched socket; a throw counts as a drop. */
   send(message: BridgeMessage): void;
-  /** Called once when the host has gone silent or the ping cannot be sent. */
-  onSilent(): void;
-  intervalMs?: number;
-  timeoutMs?: number;
+  /** Called once, with the silence window, when the host has gone silent or the ping cannot be sent. */
+  onSilent(timeoutMs: number): void;
 }
 
 export interface HostLiveness {
@@ -38,8 +53,7 @@ export interface HostLiveness {
 
 /** Ping now and on every interval; call `onSilent` once the host stops answering. */
 export function watchHostLiveness(options: HostLivenessOptions): HostLiveness {
-  const intervalMs = options.intervalMs ?? HOSTED_HEARTBEAT_INTERVAL_MS;
-  const timeoutMs = options.timeoutMs ?? HOST_SILENCE_TIMEOUT_MS;
+  const { intervalMs, timeoutMs } = timing;
   let lastHeardAt = Date.now();
   let pings = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -53,7 +67,7 @@ export function watchHostLiveness(options: HostLivenessOptions): HostLiveness {
 
   function drop(): void {
     stop();
-    options.onSilent();
+    options.onSilent(timeoutMs);
   }
 
   function ping(): void {

@@ -55,7 +55,7 @@ import type {
 import { isBridgeMessage, MAX_BRIDGE_FRAME_BYTES, NO_SANDBOX_ERROR_MESSAGE, STORAGE_BYTE_ROUTE_CAPABILITY } from '../bridge/protocol.js';
 import { encodeBridgeMessage } from '../bridge/frame-output.js';
 import { createOperationBudget } from '../bridge/operation-budget.js';
-import { HOST_SILENCE_TIMEOUT_MS, watchHostLiveness, type HostLiveness } from './host-liveness.js';
+import { watchHostLiveness, type HostLiveness } from './host-liveness.js';
 import { cliVersion } from '../pkg-version.js';
 import { MAX_STORAGE_OP_BYTES, storagePayloadTooLarge } from '../serve/worker/protocol.js';
 import { hasValidAttachFields } from '../bridge/attach-validation.js';
@@ -134,10 +134,6 @@ export interface ConnectRemoteSandboxOptions {
    * them; when absent, the close ends every listener with `unavailable`.
    */
   onConnectionLost?: (reason: string) => void;
-  /** Heartbeat interval in ms (ADR-0019). Default: 15 s. Tests pass shorter values. */
-  heartbeatIntervalMs?: number;
-  /** Silence from the host, in ms, that counts as a drop (ADR-0019). Default: 45 s. */
-  hostSilenceTimeoutMs?: number;
 }
 
 /**
@@ -1117,16 +1113,13 @@ export async function connectRemoteSandbox(
   attached = true;
   // Pings go straight to the socket: they bypass the operation budget and
   // never ref it, so an idle script still exits. A silent host is a drop.
-  const silenceTimeoutMs = options.hostSilenceTimeoutMs ?? HOST_SILENCE_TIMEOUT_MS;
   const startHeartbeat = (): HostLiveness =>
     watchHostLiveness({
       send: (message) => ws.send(JSON.stringify(message)),
-      onSilent: () => {
-        silenceReason = `the remote sandbox sent nothing for ${silenceTimeoutMs / 1000}s`;
+      onSilent: (timeoutMs) => {
+        silenceReason = `the remote sandbox sent nothing for ${timeoutMs / 1000}s`;
         ws.terminate();
       },
-      intervalMs: options.heartbeatIntervalMs,
-      timeoutMs: silenceTimeoutMs,
     });
   const isOpen = ws.readyState === WebSocket.OPEN;
   if (isOpen) liveness = startHeartbeat();

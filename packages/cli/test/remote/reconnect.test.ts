@@ -4,7 +4,7 @@
  * stopped sandbox: later ops reconnect, and live listeners are resubscribed
  * once the host answers again (#949).
  */
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -19,6 +19,7 @@ import {
   type RemoteSandbox,
   type RemoteSandboxChannel,
 } from '../../src/remote/index.js';
+import { setHeartbeatForTesting } from '../../src/remote/host-liveness.js';
 
 /**
  * A bridge host that acknowledges attach, answers every op with `generation`
@@ -259,20 +260,23 @@ describe('remoteSandbox after its host restarts on the same url', () => {
 });
 
 /** A heartbeat short enough for a test: ping every 50 ms, 300 ms of silence is a drop. */
-const fastHeartbeat = { heartbeatIntervalMs: 50, hostSilenceTimeoutMs: 300 };
+const fastHeartbeat = { intervalMs: 50, timeoutMs: 300 };
 
 describe('remoteSandbox when its host stops answering without closing the socket (#973)', () => {
+  beforeEach(() => setHeartbeatForTesting(fastHeartbeat));
+  afterEach(() => setHeartbeatForTesting(undefined));
+
   it('stays attached past the silence timeout while the host answers its pings', async () => {
     const host = await startFakeHost(0, 'first');
     cleanups.push(host.stop);
     const warnings: string[] = [];
-    const lazy = remoteSandbox({ url: `http://127.0.0.1:${host.port}`, warn: message => warnings.push(message), ...fastHeartbeat });
+    const lazy = remoteSandbox({ url: `http://127.0.0.1:${host.port}`, warn: message => warnings.push(message) });
     cleanups.push(() => lazy.close());
     const values: unknown[] = [];
     lazy.rtdb.onValue('ticks', snapshot => values.push(snapshot.value));
     await waitFor(() => values.length === 1);
 
-    await Bun.sleep(3 * fastHeartbeat.hostSilenceTimeoutMs);
+    await Bun.sleep(3 * fastHeartbeat.timeoutMs);
     expect(warnings).toEqual([]);
     expect(host.attaches()).toBe(1);
   });
@@ -281,7 +285,7 @@ describe('remoteSandbox when its host stops answering without closing the socket
     const host = await startFakeHost(0, 'first');
     cleanups.push(host.stop);
     const warnings: string[] = [];
-    const lazy = remoteSandbox({ url: `http://127.0.0.1:${host.port}`, warn: message => warnings.push(message), ...fastHeartbeat });
+    const lazy = remoteSandbox({ url: `http://127.0.0.1:${host.port}`, warn: message => warnings.push(message) });
     cleanups.push(() => lazy.close());
     const values: unknown[] = [];
     const errors: unknown[] = [];
@@ -303,7 +307,7 @@ describe('remoteSandbox when its host stops answering without closing the socket
     const host = await startFakeHost(0, 'first');
     cleanups.push(host.stop);
     const warnings: string[] = [];
-    const lazy = remoteSandbox({ url: `http://127.0.0.1:${host.port}`, warn: message => warnings.push(message), ...fastHeartbeat });
+    const lazy = remoteSandbox({ url: `http://127.0.0.1:${host.port}`, warn: message => warnings.push(message) });
     cleanups.push(() => lazy.close());
     expect(await lazy.rtdb.get('a')).toBe('first');
 
@@ -322,7 +326,7 @@ describe('remoteSandbox when its host stops answering without closing the socket
   it('ends the eager handle\'s listeners with unavailable', async () => {
     const host = await startFakeHost(0, 'first');
     cleanups.push(host.stop);
-    const remote = await connectRemoteSandbox({ url: `http://127.0.0.1:${host.port}`, ...fastHeartbeat });
+    const remote = await connectRemoteSandbox({ url: `http://127.0.0.1:${host.port}` });
     cleanups.push(() => remote.close());
     const values: unknown[] = [];
     const errors: Array<{ code?: string }> = [];
