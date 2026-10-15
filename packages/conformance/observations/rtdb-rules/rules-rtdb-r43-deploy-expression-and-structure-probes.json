@@ -1,0 +1,65 @@
+{
+  "name": "rules-rtdb-r43-deploy-expression-and-structure-probes",
+  "matrixRow": "rtdb-rules#33",
+  "rowIds": [
+    "rtdb-rules#33"
+  ],
+  "description": "RTDB rules deploy verdicts for corpus scenario \"r43-deploy-expression-and-structure-probes\" (rtdb#71). Captured by dry-run deploys to the rules endpoint, which validate without deploying. every expression or tree shape production refuses on dry-run deploy must be rejected by rtdbRulesSourceRejection, and every form production accepts must compile without false rejection.",
+  "observedAt": "2026-10-15T17:58:01.285Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "COV-2: overflowing exponent literal 1e309 in a rule expression": {
+      "verdict": "ACCEPTED"
+    },
+    "COV-1: root.parent() in mixed-branch ternary compared with null": {
+      "verdict": "ACCEPTED"
+    },
+    "COV-1: root.parent() != null || true": {
+      "verdict": "REJECTED",
+      "error": "Invalid != expression: left operand is not a number, boolean, string, or null."
+    },
+    "COV-1: ((true ? root.parent() : 1) == 1) || true": {
+      "verdict": "ACCEPTED"
+    },
+    "FUZ-4: auth indexed by snapshot (auth[data])": {
+      "verdict": "REJECTED",
+      "error": "Invalid property access on 'auth' object."
+    },
+    "FUZ-4: auth indexed by boolean literal (auth[true])": {
+      "verdict": "REJECTED",
+      "error": "Invalid property access on 'auth' object."
+    },
+    "FUZ-4: auth indexed by null literal (auth[null])": {
+      "verdict": "REJECTED",
+      "error": "Invalid property access on 'auth' object."
+    },
+    "FUZ-4: auth.token indexed by dynamic child value (auth.token[data.child('k').val()])": {
+      "verdict": "ACCEPTED"
+    },
+    "CON-6: unknown dotted rule key with boolean value (\".valdiate\": false)": {
+      "verdict": "REJECTED",
+      "error": "Expected '{'."
+    },
+    "CON-6: child node whose value is boolean true": {
+      "verdict": "REJECTED",
+      "error": "Expected '{'."
+    },
+    "CON-6: child node whose value is null": {
+      "verdict": "REJECTED",
+      "error": "Expected '{'."
+    },
+    "CON-6: child node whose value is number 42": {
+      "verdict": "REJECTED",
+      "error": "Expected '{'."
+    },
+    "CON-6: child node whose value is an array ([{\".read\": true}])": {
+      "verdict": "REJECTED",
+      "error": "Expected '{'."
+    },
+    "CON-6: .read rule whose value is an array ([true])": {
+      "verdict": "REJECTED",
+      "error": "Invalid rule expression.  Expected 'true', 'false', or an expression string."
+    }
+  }
+}

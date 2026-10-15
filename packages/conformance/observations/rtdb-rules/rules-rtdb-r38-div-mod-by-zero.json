@@ -1,0 +1,21 @@
+{
+  "name": "rules-rtdb-r38-div-mod-by-zero",
+  "matrixRow": "rtdb-rules#29",
+  "rowIds": [
+    "rtdb-rules#29"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r38-div-mod-by-zero\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). division or modulo by a runtime zero divisor must match production rather than evaluating to JavaScript Infinity or NaN and granting upper-bound or != 0 checks.",
+  "observedAt": "2026-10-15T17:59:03.219Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "COV-2: positive number divided by seeded 0 compared with > 100 (10 / 0 > 100)": "DENY",
+    "COV-2: positive number divided by seeded 0 under == 0 || true (10 / 0 == 0 || true)": "ALLOW",
+    "COV-2: positive number divided by seeded 0 under !(X == 0) (!(10 / 0 == 0))": "ALLOW",
+    "COV-2: 0 divided by seeded 0 under == 0 || true (0 / 0 == 0 || true)": "ALLOW",
+    "COV-2: positive number modulo seeded 0 under == 0 || true (10 % 0 == 0 || true)": "ALLOW",
+    "COV-2: positive number modulo seeded 0 under !(X == 0) (!(10 % 0 == 0))": "ALLOW",
+    "COV-2: control division by non-zero divisor (500 / 2 > 100)": "ALLOW",
+    "COV-2: control modulo by non-zero divisor (10 % 3 != 0 via !(X == 0))": "ALLOW"
+  }
+}

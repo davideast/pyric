@@ -1,0 +1,17 @@
+{
+  "name": "rules-rtdb-r40-auth-token-dynamic-index",
+  "matrixRow": "rtdb-rules#31",
+  "rowIds": [
+    "rtdb-rules#31"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r40-auth-token-dynamic-index\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). indexing auth.token with a missing child value (null) or a number must match production rather than coercing null to the claim key \"null\" via String(idx).",
+  "observedAt": "2026-10-15T17:59:46.031Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "FUZ-4: auth.token[data.child(\"k\").val()] == true with claim \"null\": true and missing k": "DENY",
+    "FUZ-4: auth.token[data.child(\"k\").val()] == true || true with missing k": "DENY",
+    "FUZ-4: auth.token[data.child(\"k\").val()] == true with claim \"5\": true and numeric k = 5": "ALLOW",
+    "FUZ-4: control auth.token[data.child(\"k\").val()] == true with claim \"ok\": true and string k = \"ok\"": "ALLOW"
+  }
+}
