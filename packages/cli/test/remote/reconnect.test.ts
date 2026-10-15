@@ -11,6 +11,7 @@ import type { AddressInfo } from 'node:net';
 import { WebSocketServer } from 'ws';
 import type { BridgeMessage } from '../../src/bridge/protocol.js';
 import {
+  connectRemoteSandbox,
   createLazyRemoteSandbox,
   createRemoteSandboxHandle,
   remoteSandbox,
@@ -21,9 +22,12 @@ import {
 
 /**
  * A bridge host that acknowledges attach, answers every op with `generation`
- * (or none, with `answersOps: false`), and sends one snap per subscription.
- * With `refusesAttach`, it refuses every attach with a policy close (1008),
- * as the bridge does when it declines a hosted session.
+ * (or none, with `answersOps: false`), sends one snap per subscription, and
+ * answers `ping` with `pong`, as the bridge does. With `refusesAttach`, it
+ * refuses every attach with a policy close (1008), as the bridge does when it
+ * declines a hosted session. `muteClients` makes the sockets open now go
+ * silent without closing, as a paused host does; later sockets answer
+ * `generation`, which `setGeneration` changes.
  */
 async function startFakeHost(
   port: number,
@@ -34,6 +38,8 @@ async function startFakeHost(
   port: number;
   stop: () => Promise<void>;
   closeClients: (code: number, reason: string) => void;
+  muteClients: () => void;
+  setGeneration: (next: string) => void;
   subs: string[];
   ops: string[];
   attaches: () => number;
@@ -45,8 +51,10 @@ async function startFakeHost(
   const subs: string[] = [];
   const ops: string[] = [];
   let attaches = 0;
+  const muted = new WeakSet<object>();
   server.on('connection', socket => {
     socket.on('message', raw => {
+      if (muted.has(socket)) return;
       const msg = JSON.parse(raw.toString()) as BridgeMessage;
       const reply = (frame: BridgeMessage): void => socket.send(JSON.stringify(frame));
       if (msg.type === 'attach') {
@@ -59,6 +67,8 @@ async function startFakeHost(
       } else if (msg.type === 'worker-op') {
         ops.push(msg.id);
         if (answersOps) reply({ type: 'worker-res', id: msg.id, ok: true, value: { key: null, exists: true, value: generation, size: 1 } });
+      } else if (msg.type === 'ping') {
+        reply({ type: 'pong', id: msg.id });
       } else if (msg.type === 'worker-sub') {
         subs.push(msg.subId);
         reply({ type: 'worker-snap', subId: msg.subId, value: { key: null, exists: true, value: generation, size: 1 } });
@@ -74,7 +84,22 @@ async function startFakeHost(
   const closeClients = (code: number, reason: string): void => {
     for (const client of server.clients) client.close(code, reason);
   };
-  return { port: (http.address() as AddressInfo).port, stop, closeClients, subs, ops, attaches: () => attaches };
+  const muteClients = (): void => {
+    for (const client of server.clients) muted.add(client);
+  };
+  const setGeneration = (next: string): void => {
+    generation = next;
+  };
+  return {
+    port: (http.address() as AddressInfo).port,
+    stop,
+    closeClients,
+    muteClients,
+    setGeneration,
+    subs,
+    ops,
+    attaches: () => attaches,
+  };
 }
 
 const cleanups: Array<() => unknown> = [];
@@ -230,6 +255,84 @@ describe('remoteSandbox after its host restarts on the same url', () => {
     await Bun.sleep(1_500);
     expect(second.attaches()).toBe(refusals);
     expect(values).toEqual(['first']);
+  });
+});
+
+/** A heartbeat short enough for a test: ping every 50 ms, 300 ms of silence is a drop. */
+const fastHeartbeat = { heartbeatIntervalMs: 50, hostSilenceTimeoutMs: 300 };
+
+describe('remoteSandbox when its host stops answering without closing the socket (#973)', () => {
+  it('stays attached past the silence timeout while the host answers its pings', async () => {
+    const host = await startFakeHost(0, 'first');
+    cleanups.push(host.stop);
+    const warnings: string[] = [];
+    const lazy = remoteSandbox({ url: `http://127.0.0.1:${host.port}`, warn: message => warnings.push(message), ...fastHeartbeat });
+    cleanups.push(() => lazy.close());
+    const values: unknown[] = [];
+    lazy.rtdb.onValue('ticks', snapshot => values.push(snapshot.value));
+    await waitFor(() => values.length === 1);
+
+    await Bun.sleep(3 * fastHeartbeat.hostSilenceTimeoutMs);
+    expect(warnings).toEqual([]);
+    expect(host.attaches()).toBe(1);
+  });
+
+  it('reports one loss, reconnects, and resubscribes a live listener', async () => {
+    const host = await startFakeHost(0, 'first');
+    cleanups.push(host.stop);
+    const warnings: string[] = [];
+    const lazy = remoteSandbox({ url: `http://127.0.0.1:${host.port}`, warn: message => warnings.push(message), ...fastHeartbeat });
+    cleanups.push(() => lazy.close());
+    const values: unknown[] = [];
+    const errors: unknown[] = [];
+    lazy.rtdb.onValue('ticks', snapshot => values.push(snapshot.value), error => errors.push(error));
+    await waitFor(() => values.length === 1);
+
+    host.setGeneration('second');
+    host.muteClients();
+    await waitFor(() => values.length === 2);
+    expect(values).toEqual(['first', 'second']);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('the remote sandbox sent nothing for 0.3s');
+    expect(host.attaches()).toBe(2);
+    expect(host.subs).toHaveLength(2);
+    expect(errors).toEqual([]);
+  });
+
+  it('fails an op sent on the silent socket once and runs an op issued while reconnecting once', async () => {
+    const host = await startFakeHost(0, 'first');
+    cleanups.push(host.stop);
+    const warnings: string[] = [];
+    const lazy = remoteSandbox({ url: `http://127.0.0.1:${host.port}`, warn: message => warnings.push(message), ...fastHeartbeat });
+    cleanups.push(() => lazy.close());
+    expect(await lazy.rtdb.get('a')).toBe('first');
+
+    host.muteClients();
+    const unanswered = await lazy.rtdb.set('a', 1).catch((error: Error & { code?: string }) => error);
+    expect((unanswered as Error & { code?: string }).code).toBe('unavailable');
+    expect(warnings).toHaveLength(1);
+
+    host.setGeneration('second');
+    const opsBefore = host.ops.length;
+    expect(await lazy.rtdb.get('a')).toBe('second');
+    expect(host.ops.length - opsBefore).toBe(1);
+    expect(host.attaches()).toBe(2);
+  });
+
+  it('ends the eager handle\'s listeners with unavailable', async () => {
+    const host = await startFakeHost(0, 'first');
+    cleanups.push(host.stop);
+    const remote = await connectRemoteSandbox({ url: `http://127.0.0.1:${host.port}`, ...fastHeartbeat });
+    cleanups.push(() => remote.close());
+    const values: unknown[] = [];
+    const errors: Array<{ code?: string }> = [];
+    remote.rtdb.onValue('ticks', snapshot => values.push(snapshot.value), error => errors.push(error));
+    await waitFor(() => values.length === 1);
+
+    host.muteClients();
+    await waitFor(() => errors.length === 1);
+    expect(errors[0]!.code).toBe('unavailable');
+    expect(host.attaches()).toBe(1);
   });
 });
 
