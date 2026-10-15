@@ -6,7 +6,7 @@ export const SYSTEM_KEYS: ReadonlySet<string> = new Set(['.read', '.write', '.va
 const RULE_KEYS: ReadonlySet<string> = new Set(['.read', '.write', '.validate']);
 
 /** A character a key may not hold: `.`, `#`, `$`, `/`, `[` or `]`. */
-const FORBIDDEN_KEY_CHARACTER = /[.#$/[\]]/;
+export const FORBIDDEN_KEY_CHARACTER = /[.#$/[\]]/;
 
 /**
  * The texts production's deploy reports for each shape problem, captured from
@@ -43,7 +43,7 @@ export function structuralFindings(
   for (const [key, value] of Object.entries(rulesObj)) {
     if (RULE_KEYS.has(key)) {
       if (typeof value !== 'string' && typeof value !== 'boolean') {
-        const captured = typeof value === 'number' || (typeof value === 'object' && value !== null && !Array.isArray(value));
+        const captured = typeof value === 'number' || (typeof value === 'object' && value !== null);
         add('RULE_NOT_EXPRESSION', INVALID_RULE_EXPRESSION, captured ? 'error' : 'warning');
       }
       continue;
@@ -54,11 +54,11 @@ export function structuralFindings(
       if (!valid) add('INDEX_ON_SHAPE', INVALID_INDEX_ON, typeof value === 'number' ? 'error' : 'warning');
       continue;
     }
-    const isObject = typeof value === 'object' && value !== null;
+    const isPlainObject = typeof value === 'object' && value !== null && !Array.isArray(value);
     if (key.startsWith('.')) {
       // An unknown dotted key names no rule and no location.
-      if (isObject) add('INVALID_KEY', INVALID_KEY_TEXT);
-      else if (typeof value === 'string') add('EXPECTED_OBJECT', EXPECTED_OBJECT);
+      if (isPlainObject) add('INVALID_KEY', INVALID_KEY_TEXT);
+      else add('EXPECTED_OBJECT', EXPECTED_OBJECT);
       continue;
     }
     if (key.startsWith('$')) wildcards.push(key);
@@ -66,7 +66,7 @@ export function structuralFindings(
     if (FORBIDDEN_KEY_CHARACTER.test(name)) {
       add('INVALID_KEY', INVALID_KEY_TEXT, name.includes('#') ? 'error' : 'warning');
     }
-    else if (typeof value === 'string') add('EXPECTED_OBJECT', EXPECTED_OBJECT);
+    else if (!isPlainObject) add('EXPECTED_OBJECT', EXPECTED_OBJECT);
   }
   if (wildcards.length > 1) {
     add(

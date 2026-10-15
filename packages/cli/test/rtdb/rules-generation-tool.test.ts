@@ -44,6 +44,30 @@ describe('createRtdbRulesGenerationTools', () => {
     });
   });
 
+  it('rejects a constraints module whose generated rules would not deploy (CON-7)', async () => {
+    mkdirSync(fixturesRoot, { recursive: true });
+    fixtureDir = mkdtempSync(join(fixturesRoot, 'reject-'));
+    writeFileSync(
+      join(fixtureDir, 'database.rules.ts'),
+      [
+        "import { allow, defineRtdbRules } from 'pyric/rules';",
+        'export const rules = defineRtdbRules({',
+        "  paths: { '/a/$x': { read: allow() }, '/a/$y': { read: allow() } },",
+        '});',
+      ].join('\n'),
+    );
+
+    const [tool] = createRtdbRulesGenerationTools();
+    const result = await tool.execute(
+      { configPath: 'database.rules.ts', cwd: fixtureDir },
+      { signal: new AbortController().signal },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.summary).toContain('database.rules.ts generates rules that would not deploy.');
+    expect(result.summary).toContain("Cannot have multiple default rules ('$x' and '$y').");
+  });
+
   it('reports a missing constraints module without throwing', async () => {
     mkdirSync(fixturesRoot, { recursive: true });
     fixtureDir = mkdtempSync(join(fixturesRoot, 'missing-'));

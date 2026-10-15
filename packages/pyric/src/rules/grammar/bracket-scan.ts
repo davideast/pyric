@@ -140,7 +140,7 @@ export function scanBrackets(source: string, options: BracketScanOptions): Brack
     }
     // Regular expression literals, where an operand may start.
     if (options.regexLiterals && c === 47 && previous !== 'word' && previous !== 'operand') {
-      i = skipQuoted(source, i, 47, true);
+      i = skipRegexLiteral(source, i);
       while (i < n && isWordChar(source.charCodeAt(i))) i++;
       previous = 'operand';
       lastSignificant = '';
@@ -239,6 +239,34 @@ function skipQuoted(source: string, start: number, quote: number, endsAtLineBrea
     }
     if (c === quote) return i + 1;
     if (endsAtLineBreak && (c === 10 || c === 13)) return i;
+    i++;
+  }
+  return n;
+}
+
+/** The offset just past a `/.../` regular expression literal opened at `start`, honoring backslash escapes and `[...]` character classes. */
+export function skipRegexLiteral(source: string, start: number): number {
+  const n = source.length;
+  let i = start + 1;
+  let inClass = false;
+  while (i < n) {
+    const c = source.charCodeAt(i);
+    if (c === 92 /* \ */) {
+      i += 2;
+      continue;
+    }
+    if (c === 10 || c === 13) return i;
+    if (inClass) {
+      if (c === 93 /* ] */) inClass = false;
+      i++;
+      continue;
+    }
+    if (c === 91 /* [ */) {
+      inClass = true;
+      i++;
+      continue;
+    }
+    if (c === 47 /* / */) return i + 1;
     i++;
   }
   return n;

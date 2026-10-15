@@ -1,3 +1,4 @@
+import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
 import type { ToolHandler } from 'pyric/sandbox/internal';
 import { loadRtdbRulesDocument } from './load-rules-document.js';
 
@@ -24,13 +25,23 @@ export function createRtdbRulesGenerationTools(): ToolHandler[] {
       },
       async execute(args) {
         const { configPath, cwd } = args as { configPath?: string; cwd?: string };
-        const loaded = await loadRtdbRulesDocument(configPath ?? 'database.rules.ts', { cwd });
+        const targetPath = configPath ?? 'database.rules.ts';
+        const loaded = await loadRtdbRulesDocument(targetPath, { cwd });
         if (!loaded.ok) return { ok: false, summary: loaded.message };
+
+        const rulesJson = loaded.document.toJSON();
+        const rejection = rtdbRulesSourceRejection(rulesJson);
+        if (rejection !== null) {
+          return {
+            ok: false,
+            summary: `${targetPath} generates rules that would not deploy. ${rejection.message}`,
+          };
+        }
 
         return {
           ok: true,
           summary: 'Compiled RTDB constraints to database.rules.json',
-          data: { rulesJson: loaded.document.toJSON() },
+          data: { rulesJson },
         };
       },
     },

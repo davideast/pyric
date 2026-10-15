@@ -1,10 +1,12 @@
 import type { Node, Semantics } from 'ohm-js';
 import {
+  CHAINED_TERMS_MESSAGE,
   createRtdbExpressionSemantics,
   matchRtdbExpression,
 } from '../expression-engine.js';
 import type { RuleError } from '../types.js';
 import {
+  AUTH_INDEX_OPERANDS,
   BOOLEAN_OPERANDS,
   NUMERIC_OPERANDS,
   ROOT_VARIABLES,
@@ -16,6 +18,11 @@ import {
   type RtdbStaticType,
   type RtdbTypedValue,
 } from './types.js';
+import {
+  UNTERMINATED_STRING_LITERAL,
+  isUnterminatedRtdbStringLiteral,
+  unescapeRtdbStringLiteral,
+} from './string-literal.js';
 import {
   REGEX_FLAGS,
   isSupportedRegexFlags,
@@ -85,9 +92,41 @@ function property(ctx: ValidateContext, receiver: RtdbTypedValue, name: string):
   return typed(member.kind === 'method' ? 'SnapshotMethod' : member.type);
 }
 
-/** Unescape the text between a string literal's quotes. */
-function stringValue(literal: string): string {
-  return literal.slice(1, -1).replace(/\\(.)/g, '$1');
+/**
+ * Check a regex literal body for unmatched parentheses outside character
+ * classes, matching production's regex validator (which accepts `/+/`,
+ * `/[z-a]/`, and `/a{2,1}/`, and rejects `/(/`).
+ */
+function regexBodyError(body: string): string | null {
+  let depth = 0;
+  let inClass = false;
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i]!;
+    if (ch === '\\') {
+      i++;
+      continue;
+    }
+    if (inClass) {
+      if (ch === ']') inClass = false;
+      continue;
+    }
+    if (ch === '[') {
+      inClass = true;
+      continue;
+    }
+    if (ch === '(') {
+      depth++;
+    } else if (ch === ')') {
+      depth--;
+      if (depth < 0) {
+        return `Illegal regular expression, unexpected ')' at position ${i + 2}`;
+      }
+    }
+  }
+  if (depth > 0) {
+    return `Illegal regular expression, expected ')' at position ${body.length + 4}`;
+  }
+  return null;
 }
 
 let validatorSemantics: Semantics | undefined;
@@ -111,7 +150,7 @@ function getValidatorSemantics(): Semantics {
       return (inner as any).literalString();
     },
     string(_literal) {
-      return stringValue(this.sourceString);
+      return unescapeRtdbStringLiteral(this.sourceString);
     },
   });
   semantics.addOperation('typeOf(ctx)', {
@@ -200,7 +239,12 @@ function getValidatorSemantics(): Semantics {
       const receiverType = use(ctx, receiverValue);
       const indexType = use(ctx, typeOf(index, ctx));
       if (receiverType === 'Error' || indexType === 'Error') return ERROR;
-      if (receiverType === 'Auth') return typed('Auth');
+      if (receiverType === 'Auth') {
+        if (!AUTH_INDEX_OPERANDS.has(indexType)) {
+          return report(ctx, typeError('INVALID_PROPERTY_ACCESS', "Invalid property access on 'auth' object."));
+        }
+        return typed('Auth');
+      }
       return report(ctx, typeError('INVALID_PROPERTY_ACCESS', 'Invalid property access.'));
     },
 
@@ -219,9 +263,16 @@ function getValidatorSemantics(): Semantics {
       return typed('Number');
     },
     string(_s) {
+      if (isUnterminatedRtdbStringLiteral(this.sourceString)) {
+        return report(this.args.ctx as ValidateContext, typeError('PARSE_ERROR', UNTERMINATED_STRING_LITERAL));
+      }
       return typed('String');
     },
-    regex(_open, _body, _close, flags) {
+    regex(_open, body, _close, flags) {
+      const bodyError = regexBodyError(body.sourceString);
+      if (bodyError !== null) {
+        return report(this.args.ctx as ValidateContext, typeError('INVALID_REGEX', bodyError));
+      }
       if (!isSupportedRegexFlags(flags.sourceString)) {
         return report(this.args.ctx as ValidateContext, typeError('INVALID_REGEX', REGEX_FLAGS));
       }
@@ -275,7 +326,15 @@ export function validateExpression(
     pathVars: new Set(pathVariables.map(v => v.startsWith('$') ? v.slice(1) : v)),
   };
 
-  const result = use(ctx, (getValidatorSemantics()(match) as any).typeOf(ctx) as RtdbTypedValue);
+  let result: RtdbStaticType;
+  try {
+    result = use(ctx, (getValidatorSemantics()(match) as any).typeOf(ctx) as RtdbTypedValue);
+  } catch (error) {
+    if (error instanceof RangeError) {
+      return [typeError('PARSE_ERROR', CHAINED_TERMS_MESSAGE)];
+    }
+    throw error;
+  }
   if (!BOOLEAN_OPERANDS.has(result)) {
     report(ctx, typeError('NOT_BOOLEAN', 'Expression must evaluate to a boolean.'));
   }
