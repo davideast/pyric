@@ -8,6 +8,11 @@ Amended: 2026-10-14. Decision 7 now holds an operation issued while a client
 reconnects instead of failing it, and binds the web hosted client too. See
 [the amendment](#amendment-2026-10-14-operations-issued-while-reconnecting-are-held).
 
+Amended: 2026-10-14. Every client sends a heartbeat and treats a silent socket
+as a drop, the host runs a consumer's Realtime Database onDisconnect operations
+when its socket closes, and the decision binds the Node remote client too. See
+[the amendment](#amendment-2026-10-14-clients-send-a-heartbeat-and-a-closed-socket-runs-ondisconnect).
+
 ## Context
 
 The Dart (`packages/flutter-client`), Swift (`packages/swift-client`) and Kotlin
@@ -188,12 +193,11 @@ All three clients implement one reconnect protocol in their bridge client
   interruption that the platform reports as a socket close or error, such as a
   bridge restart, and an app can show an offline indicator from `fromCache`, as
   it would against production.
-- There is no application-level liveness check. The bridge sends no `ping` to
-  consumers, and the native clients send none. A network loss that the
-  platform does not report leaves the socket half-open, and no gap is reported
-  until the platform closes it. The Kotlin client's OkHttp transport sends
-  WebSocket protocol pings every 30 seconds and detects that case; the Dart and
-  Swift transports do not.
+- As first accepted, there was no application-level liveness check. A network
+  loss that the platform does not report left the socket half-open, and no gap
+  was reported until the platform closed it; only the Kotlin client's OkHttp
+  protocol pings detected that case. The heartbeat amendment below adds a
+  check to every client.
 - Kotlin query snapshots carry no document changes today, before or after a
   gap; this decision does not add them.
 - A client can re-attach before the bridge has processed the old socket's
@@ -210,8 +214,8 @@ These parts of the web hosted client are not ported:
   its resume grant has expired and it attaches as a new session. The native
   clients have no resume grant; they always re-attach with the same
   `clientSessionId`, and restore Auth only on a changed `hostInstanceId`.
-- **The liveness timer.** The web client sends `ping` every 15 seconds and
-  treats 45 seconds without a frame as a drop.
+- **The liveness timer.** As first accepted, the web client's heartbeat was not
+  ported. The heartbeat amendment below ports it to every client.
 
 ## Amendment (2026-10-14): operations issued while reconnecting are held
 
@@ -337,3 +341,126 @@ reconnect.
 - Held operations occupy memory and, on the web client, the per-client
   operation budget until they are sent or fail. The 10-second deadline bounds
   how long.
+
+## Amendment (2026-10-14): clients send a heartbeat, and a closed socket runs onDisconnect
+
+The Node host closes a socket that has sent a `ping` and then sends nothing for
+90 seconds (#965), so a page frozen in the back-forward cache, a killed tab or
+a sleeping laptop has its Realtime Database onDisconnect operations run. The
+host starts that watch at a client's first `ping`, and as first accepted only
+the web hosted client sent one. A half-open socket from a native client or the
+Node remote client was never closed, so its listeners stayed registered and its
+presence entry stayed in place until the platform closed the socket.
+
+Closing the socket would not have been enough. When a consumer socket closes,
+the bridge unsubscribes its listeners and fails its operations in flight, but
+it sends the host nothing that runs the session's onDisconnect operations, and
+none of these clients ever sends `worker-client-disconnect` (see the Context
+above). A native client's onDisconnect operations therefore never ran on the
+Node host: not after a clean close, not after the app was killed, only when the
+host exited.
+
+This amendment adds a heartbeat to every client and runs a consumer's
+onDisconnect operations when its socket closes.
+
+### Every client sends a heartbeat
+
+- On each attach, a client sends `{ "type": "ping", "id": "<id>" }` at once,
+  then every 15 seconds while it stays attached. The interval is the web
+  client's (`HOSTED_HEARTBEAT_INTERVAL_MS`).
+- The ping at attach is what starts the host's watch, so a client that is
+  suspended within 15 seconds of attaching is still watched. The web client
+  keeps its schedule; the host already watches it from attach.
+- The heartbeat belongs to one socket. It starts on each attach, stops at the
+  drop or the close, and never pings an old socket.
+- The bridge already answers `ping` with `pong`. The wire protocol does not
+  change.
+
+### Forty-five seconds without a frame is a drop
+
+- Before each heartbeat, a client that has received no frame of any kind for
+  45 seconds (three heartbeats) treats the socket as dropped, as the web client
+  does. Any frame counts, not only `pong`.
+- The drop is decision 2's. The client goes to `interrupted` and reconnects on
+  decision 3's schedule. Operations in flight fail once and are never re-sent,
+  and operations issued after the drop are held under decision 7 as amended. A
+  client built on one supplied transport (decision 8) closes instead.
+- The check runs before the send. A client the platform suspended, such as an
+  iOS app in the background, reconnects on its first heartbeat after it resumes
+  instead of pinging a socket the host has already closed. Where the platform
+  offers a clock that keeps running while the device sleeps, the client
+  measures with it.
+- The 15 and 45 seconds are constants in each client, like the hold deadline. A
+  client may let tests pass shorter values.
+- The Kotlin client's OkHttp transport keeps its WebSocket protocol pings every
+  30 seconds. OkHttp fails the socket when a protocol pong does not arrive,
+  which is an ordinary drop. The host does not count protocol pings as traffic;
+  only application frames keep a watched socket open.
+
+### The host's watch is unchanged
+
+The host watches a socket from its first `ping` and closes it once
+`HOST_PEER_LIVENESS_TIMEOUT_MS` (90 seconds, six heartbeats) passes with no
+frame. A client that never pings, such as an app built before this amendment,
+is not watched and is never closed for being quiet. Watching every socket from
+attach would close such a client after every 90 idle seconds, and mobile app
+builds routinely lag the host they connect to.
+
+### A consumer socket's close runs its onDisconnect operations
+
+- When a consumer socket closes, whether by a close frame, an error, or the host
+  closing a silent socket, the bridge tells the host the session was
+  interrupted, as it already does for the web client. The host runs the
+  session's Realtime Database onDisconnect operations.
+- The session survives. Its virtual port and its signed-in user stay on the
+  host, and decision 4's re-attach is unchanged.
+- This runs on every close, including one the client recovers from a second
+  later, such as a host restarted in place. Production runs onDisconnect
+  operations on every connection loss, and apps register them again from
+  `.info/connected`.
+- **A replaced socket runs nothing.** When the client has re-attached on a newer
+  socket before the bridge processes the old socket's close (see Consequences
+  above), the old socket no longer owns the session, and its close runs no
+  onDisconnect operations. The operations belong to the session, not the
+  socket, so running them then would discard what the re-attached client
+  registered.
+- This applies on the Node host. In bridge mode, where the sandbox runs in a
+  browser tab, the tab's sandbox does not accept the interruption, so a
+  consumer attached through it still runs no onDisconnect operations on close.
+- The web hosted client is unchanged: its worker session already runs them.
+
+### The Node remote client is bound too
+
+`connectRemoteSandbox` and the lazy `remoteSandbox` handle that
+`@pyric/cli/register` installs attach on the same consumer leg as the native
+clients. The heartbeat, the 45-second check and the close rule all apply to
+them.
+
+- A drop takes the client's existing loss path. The lazy handle reconnects
+  live listeners on decision 3's schedule and subscribes them again, and its
+  next operation connects again. The eager handle ends its listeners with
+  `unavailable`.
+- The heartbeat's timers do not keep an idle Node process alive; a finished
+  script still exits.
+- This amendment does not extend decision 7's hold to the Node remote client.
+- `pyric-admin` does not implement onDisconnect, so for an admin process the
+  close rule releases its listeners and its presence entry.
+
+### Consequences of the amendment
+
+- A client that stops sending, whether frozen, suspended, or cut off by a
+  network loss the platform does not report, is closed by the host within
+  90 seconds. Its onDisconnect operations run, its listeners are released and
+  it leaves presence. The client notices within 45 seconds that the host has
+  stopped answering, and reconnects.
+- A native app that is killed or closes its socket now has its onDisconnect
+  operations run. Before this amendment they never ran on the Node host.
+- A client built before this amendment sends no heartbeat and is still not
+  watched, but its close now runs its onDisconnect operations, because that
+  rule is in the host.
+- A host restarted in place runs every connected client's onDisconnect
+  operations, so presence goes offline. The native clients do not serve
+  `.info/connected` today, so an app cannot register its onDisconnect
+  operations again on reconnect as a production app does; it must write its
+  presence again itself. That gap remains open.
+- Each attached client sends one small frame every 15 seconds.
