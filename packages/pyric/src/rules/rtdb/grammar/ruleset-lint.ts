@@ -383,7 +383,8 @@ function getFactsSemantics(): Semantics {
       const c = (condition as any).evalOnDelete(relSegments) as DeleteVal;
       if (c === true) return (whenTrue as any).evalOnDelete(relSegments);
       if (c === false || c === 'exists-false') return (whenFalse as any).evalOnDelete(relSegments);
-      return isDeniedOrGuarded((whenTrue as any).evalOnDelete(relSegments)) && isDeniedOrGuarded((whenFalse as any).evalOnDelete(relSegments)) ? false : undefined;
+      if (isDeniedOrGuarded((whenTrue as any).evalOnDelete(relSegments)) && isDeniedOrGuarded((whenFalse as any).evalOnDelete(relSegments))) return false;
+      return undefined;
     },
   });
   factsSemantics = semantics;
