@@ -300,11 +300,15 @@ describe('docs: how the simulator evaluates rules', () => {
     for (const issue of shape) expect(issue.rule).toBeUndefined();
   });
 
-  test('simulate does not run the deploy check: a .read of auth.uid grants a signed-in reader', () => {
+  test('simulate refuses to evaluate a rule the deploy check rejects: a .read of auth.uid is unsupported', () => {
+    // Production refuses to deploy `.read: "auth.uid"` (`rules-rtdb-r29-deploy-rejections`
+    // `d13`, `NOT_BOOLEAN`), so `buildRuleExpression` marks it invalid and
+    // `simulate` reports `UNSUPPORTED` instead of coercing truthiness to ALLOW (TXT-1).
     const [result] = rtdbRules({ rules: { x: { '.read': 'auth.uid' } } }).simulate([
       { expectation: 'DENY', operation: 'read', path: '/x', auth: 'a' },
     ]).cases;
-    expect(result.decision).toBe('ALLOW');
+    expect(result.decision).toBe('UNSUPPORTED');
+    expect(result.unsupported).toBe(true);
   });
 
   test('a null operand of an ordering operator fails the rule', () => {

@@ -215,10 +215,14 @@ describe('RTDB method argument errors in simulate', () => {
       { expectation: 'ALLOW', operation: 'write', path: '/contains', auth: { uid: 'u' }, newData: { s: 'xnullx', p: 'null' } },
       { expectation: 'DENY', operation: 'write', path: '/pair', auth: { uid: 'u' }, newData: { a: 1 } },
     ]);
+    // `contains` passes deploy validation (dynamic argument) and fails at
+    // runtime (`rules-rtdb-r32-method-argument-types`), whereas `pair`
+    // (`hasChildren('a', 'b')`) is rejected before deploy (`rtdb-rules-deploy-refusals`,
+    // `rules-rtdb-r29-deploy-rejections`) and is not evaluated (TXT-1).
     expect(cases.map((c) => [c.decision, c.unsupported])).toEqual([
       ['DENY', false],
       ['ALLOW', false],
-      ['DENY', false],
+      ['UNSUPPORTED', true],
     ]);
   });
 });

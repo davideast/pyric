@@ -76,6 +76,7 @@ export interface SimulatedQuery {
   orderByChild?: string | null;
   orderByKey?: boolean | null;
   orderByValue?: boolean | null;
+  orderByPriority?: boolean | null;
   equalTo?: string | number | boolean | null;
   limitToFirst?: number | null;
   limitToLast?: number | null;
@@ -189,13 +190,11 @@ export class DataSnapshot {
     return new DataSnapshot(current, currentPath, this._root);
   }
 
-  parent(): DataSnapshot | null {
-    if (this._path === '/') return null;
+  parent(): DataSnapshot {
+    if (this._path === '/') throw new RtdbRuleRuntimeError('Cannot call parent() on root.');
     const parts = this._path.split('/').filter(p => p.length > 0);
     parts.pop();
-    if (parts.length === 0) {
-      return new DataSnapshot(this._root, '/');
-    }
+    if (parts.length === 0) return new DataSnapshot(this._root, '/');
     const rootSnap = new DataSnapshot(this._root, '/');
     return rootSnap.child(parts.join('/'));
   }
@@ -314,25 +313,33 @@ function replaceArguments(args: readonly unknown[]): [string, string] {
 
 /** The operators that compare for equality, which read null like any other value. */
 const EQUALITY_OPERATORS = new Set<TypedOperator>(['==', '===', '!=', '!==']);
+const ARITHMETIC_NUMBER_OPERATORS = new Set<TypedOperator>(['-', '*', '/', '%']);
+const ORDERING_OPERATORS = new Set<TypedOperator>(['<', '<=', '>', '>=']);
 
 /** Whether `value` fails an operator that takes it as an operand. */
 function isInvalidOperand(operator: TypedOperator, value: unknown): boolean {
-  if (value instanceof DataSnapshot) return true;
-  return value === null && !EQUALITY_OPERATORS.has(operator);
+  if (value instanceof DataSnapshot || typeof value === 'function') return true;
+  if (EQUALITY_OPERATORS.has(operator)) return false;
+  if (ARITHMETIC_NUMBER_OPERATORS.has(operator)) return typeof value !== 'number';
+  return typeof value !== 'number' && typeof value !== 'string';
 }
 
 /**
  * Both operands of a typed operator. A snapshot is not a value an operator
  * reads; production refuses to deploy such a rule, and the evaluator fails it.
- * Null, such as `data.val()` where nothing is stored, fails an arithmetic or
- * ordering operator, `|| true` included (captures r27-stdlib-core-patterns
- * and r33-null-operands); `==` and `!=` compare it.
+ * Null, booleans, strings, and objects fail arithmetic or ordering operators
+ * whose operand types do not include them, `|| true` included (captures
+ * r27-stdlib-core-patterns, r33-null-operands, r36-runtime-arithmetic-types,
+ * and r37-runtime-comparison-and-length-types); `==` and `!=` compare values
+ * without type conversion.
  */
 function evalBinaryPair(operator: TypedOperator, left: any, right: any, ctx: unknown): [any, any] {
   const l = left.eval(ctx);
   if (isInvalidOperand(operator, l)) throw new RtdbRuleRuntimeError(operandMessage(operator, 'left'));
   const r = right.eval(ctx);
-  if (isInvalidOperand(operator, r)) throw new RtdbRuleRuntimeError(operandMessage(operator, 'right'));
+  if (isInvalidOperand(operator, r) || (ORDERING_OPERATORS.has(operator) && typeof l !== typeof r)) {
+    throw new RtdbRuleRuntimeError(operandMessage(operator, 'right'));
+  }
   return [l, r];
 }
 
@@ -352,14 +359,30 @@ function getEvalSemantics(): Semantics {
     Expr(node) { return (node as any).eval(this.args.ctx); },
 
     Ternary_ternary(cond, _q, then, _c, els) {
-      return (cond as any).eval(this.args.ctx) ? (then as any).eval(this.args.ctx) : (els as any).eval(this.args.ctx);
+      const c = (cond as any).eval(this.args.ctx);
+      if (typeof c !== 'boolean') throw new RtdbRuleRuntimeError('condition of ? must be boolean.');
+      return c ? (then as any).eval(this.args.ctx) : (els as any).eval(this.args.ctx);
     },
     Ternary(node) { return (node as any).eval(this.args.ctx); },
 
-    LogicalOr_or(left, _op, right) { return (left as any).eval(this.args.ctx) || (right as any).eval(this.args.ctx); },
+    LogicalOr_or(left, _op, right) {
+      const l = (left as any).eval(this.args.ctx);
+      if (typeof l !== 'boolean') throw new RtdbRuleRuntimeError('Left operand of || must be boolean.');
+      if (l) return true;
+      const r = (right as any).eval(this.args.ctx);
+      if (typeof r !== 'boolean') throw new RtdbRuleRuntimeError('Right operand of || must be boolean.');
+      return r;
+    },
     LogicalOr(node) { return (node as any).eval(this.args.ctx); },
 
-    LogicalAnd_and(left, _op, right) { return (left as any).eval(this.args.ctx) && (right as any).eval(this.args.ctx); },
+    LogicalAnd_and(left, _op, right) {
+      const l = (left as any).eval(this.args.ctx);
+      if (typeof l !== 'boolean') throw new RtdbRuleRuntimeError('Left operand of && must be boolean.');
+      if (!l) return false;
+      const r = (right as any).eval(this.args.ctx);
+      if (typeof r !== 'boolean') throw new RtdbRuleRuntimeError('Right operand of && must be boolean.');
+      return r;
+    },
     LogicalAnd(node) { return (node as any).eval(this.args.ctx); },
 
     Equality_strictEq(left, _op, right) { const [l, r] = evalBinaryPair('===', left, right, this.args.ctx); return l === r; },
@@ -381,23 +404,21 @@ function getEvalSemantics(): Semantics {
     Additive(node) { return (node as any).eval(this.args.ctx); },
 
     Multiplicative_mul(left, _op, right) { const [l, r] = evalBinaryPair('*', left, right, this.args.ctx); return (l as number) * (r as number); },
-    Multiplicative_div(left, _op, right) { const [l, r] = evalBinaryPair('/', left, right, this.args.ctx); return (l as number) / (r as number); },
+    Multiplicative_div(left, _op, right) {
+      const [l, r] = evalBinaryPair('/', left, right, this.args.ctx);
+      return (r as number) === 0 ? Number.NaN : (l as number) / (r as number);
+    },
     Multiplicative_mod(left, _op, right) { const [l, r] = evalBinaryPair('%', left, right, this.args.ctx); return (l as number) % (r as number); },
     Multiplicative(node) { return (node as any).eval(this.args.ctx); },
 
     UnaryExpr_not(_op, expr) {
       const val = (expr as any).eval(this.args.ctx);
-      if (typeof val !== 'boolean') {
-        return false;
-      }
-      return !val;
+      return typeof val === 'boolean' ? !val : false;
     },
     UnaryExpr_neg(_op, expr) {
       const value = (expr as any).eval(this.args.ctx);
-      if (value === null || value instanceof DataSnapshot) {
-        throw new RtdbRuleRuntimeError('Invalid unary - expression: operand is not a number.');
-      }
-      return -(value as number);
+      if (typeof value !== 'number') throw new RtdbRuleRuntimeError('Invalid unary - expression: operand is not a number.');
+      return -value;
     },
     UnaryExpr(node) { return (node as any).eval(this.args.ctx); },
 
@@ -460,13 +481,19 @@ function getEvalSemantics(): Semantics {
 
     CallExpr_memberAccess(receiver, _dot, member) {
       const recv = (receiver as any).eval(this.args.ctx);
+      const prop = member.sourceString;
+      if (prop === 'length') {
+        if (typeof recv === 'string') return recv.length;
+        throw new RtdbRuleRuntimeError("No such method/property 'length'.");
+      }
       if (recv === null || recv === undefined) return null;
-      return safeMemberRead(recv, member.sourceString);
+      return safeMemberRead(recv, prop);
     },
 
     CallExpr_indexAccess(receiver, _open, index, _close) {
       const recv = (receiver as any).eval(this.args.ctx);
       const idx = (index as any).eval(this.args.ctx);
+      if (typeof idx !== 'string' && typeof idx !== 'number') throw new RtdbRuleRuntimeError('Invalid property access.');
       if (recv === null || recv === undefined) return null;
       return safeMemberRead(recv, String(idx));
     },

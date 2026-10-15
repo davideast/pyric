@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { DataSnapshot, evaluateRtdbExpression } from '../../../../src/rules/rtdb/grammar/simulator.js';
+import { DataSnapshot, evaluateRtdbExpression, RtdbRuleRuntimeError } from '../../../../src/rules/rtdb/grammar/simulator.js';
 import { rtdbRules } from '../../../../src/rules/api/rtdb.js';
 
 function evalExpr(raw: string, ctx: Parameters<typeof evaluateRtdbExpression>[1]) {
@@ -317,4 +317,51 @@ describe('rtdbRules().simulate with == and != across types', () => {
       expect(result.decision).toBe(expected);
     });
   }
+});
+
+describe('runtime production parity (FUZ-3, MET-2, COV-1, COV-2, FUZ-4)', () => {
+  test('FUZ-3 / MET-2: runtime arithmetic and comparison on booleans, numeric strings, or objects throw RtdbRuleRuntimeError even under || true, while string + number concatenation succeeds', () => {
+    const ctx = {
+      ...baseCtx,
+      auth: { uid: 'u1', token: {} },
+      data: new DataSnapshot({
+        numStr: '5',
+        boolTrue: true,
+        obj: { length: 10 },
+      }),
+    };
+    expect(evalExpr("data.child('numStr').val() + 1 == '51'", ctx)).toBe(true);
+    expect(() => evalExpr("(data.child('numStr').val() - 1 == 4) || true", ctx)).toThrow(RtdbRuleRuntimeError);
+    expect(() => evalExpr("(-data.child('boolTrue').val() == -1) || true", ctx)).toThrow(RtdbRuleRuntimeError);
+    expect(() => evalExpr("(data.child('numStr').val() < 2) || true", ctx)).toThrow(RtdbRuleRuntimeError);
+    expect(() => evalExpr("(data.child('obj').val().length > 2) || true", ctx)).toThrow(RtdbRuleRuntimeError);
+  });
+
+  test('COV-1: root.parent() throws RtdbRuleRuntimeError even in ternary or under || true', () => {
+    expect(() => evalExpr('(true ? root.parent() : null) == null', baseCtx)).toThrow(RtdbRuleRuntimeError);
+    expect(() => evalExpr('((true ? root.parent() : 1) == 1) || true', baseCtx)).toThrow(RtdbRuleRuntimeError);
+  });
+
+  test('COV-2: runtime division and modulo by zero return NaN without throwing', () => {
+    const ctx = {
+      ...baseCtx,
+      data: new DataSnapshot({ zero: 0, pos: 10 }),
+    };
+    expect(evalExpr("data.child('pos').val() / data.child('zero').val() > 100", ctx)).toBe(false);
+    expect(evalExpr("(data.child('pos').val() / data.child('zero').val() == 0) || true", ctx)).toBe(true);
+    expect(evalExpr("!(data.child('pos').val() % data.child('zero').val() == 0)", ctx)).toBe(true);
+  });
+
+  test('FUZ-4: indexing with null or non-string/non-number throws RtdbRuleRuntimeError instead of coercing to "null"', () => {
+    const ctx = {
+      ...baseCtx,
+      auth: { uid: 'u1', token: { null: true, '5': true, ok: true } },
+      data: new DataSnapshot({ n: 5, s: 'ok' }),
+    };
+    expect(evalExpr("auth.token[data.child('n').val()] == true", ctx)).toBe(true);
+    expect(evalExpr("auth.token[data.child('s').val()] == true", ctx)).toBe(true);
+    expect(() => evalExpr("auth.token[data.child('missing').val()] == true || true", ctx)).toThrow(
+      RtdbRuleRuntimeError,
+    );
+  });
 });

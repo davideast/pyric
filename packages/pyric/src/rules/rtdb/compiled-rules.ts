@@ -23,6 +23,7 @@ export function buildRuleExpression(
       raw,
       parsed: {
         ...parsed,
+        valid: parsed.valid && errors.length === 0,
         errors,
         warnings,
       },
@@ -63,7 +64,21 @@ function compileNode(
   ] as const) {
     const value = rulesObj[key];
     if (value !== undefined) {
-      node[context] = buildRuleExpression(String(value), context, pathVariables);
+      if (typeof value === 'boolean' || typeof value === 'string' || value === null) {
+        node[context] = buildRuleExpression(String(value), context, pathVariables);
+      } else {
+        const raw = JSON.stringify(value) ?? String(value);
+        node[context] = {
+          raw,
+          parsed: {
+            raw,
+            valid: false,
+            errors: [],
+            warnings: [],
+            referencedIdentifiers: [],
+          },
+        };
+      }
     }
   }
 
@@ -78,7 +93,7 @@ function compileNode(
   for (const [key, child] of Object.entries(rulesObj)) {
     // A dotted key that is not a rule key names no location, so it is never a child.
     if (key.startsWith('.') || SYSTEM_KEYS.has(key)) continue;
-    if (typeof child !== 'object' || child === null) continue;
+    if (typeof child !== 'object' || child === null || Array.isArray(child)) continue;
     const childPath = path === '/' ? `/${key}` : `${path}/${key}`;
     const childPathVariables = key.startsWith('$')
       ? [...pathVariables, key]

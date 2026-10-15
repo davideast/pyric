@@ -256,12 +256,13 @@ service cloud.firestore {
       // Phase 1: Unconfigured -> PERMISSION_DENIED
       await expect(set(dbRef(db, '/status'), { active: true })).rejects.toThrow('PERMISSION_DENIED');
 
-      // Phase 2: Load rules requiring !auth.token.banned
+      // Phase 2: Load rules requiring !(auth.token.banned == true)
+      // TXT-1 / rtdb-rules-type-check.json (not:auth-property): production deploy rejects `!` on an Auth property.
       rtdbSandbox.setRules(db, {
         rules: {
           status: {
             ".read": true,
-            ".write": "auth != null && !auth.token.banned",
+            ".write": "auth != null && !(auth.token.banned == true)",
           },
         },
       });
@@ -271,6 +272,12 @@ service cloud.firestore {
       await set(dbRef(allowedDb, '/status'), { active: true });
       const snap = await get(dbRef(allowedDb, '/status'));
       expect(snap.val()).toEqual({ active: true });
+
+      // User with no banned claim -> ALLOW
+      const noClaimDb = getDatabase(sandbox.withAuth({ uid: 'client', token: {} }));
+      await set(dbRef(noClaimDb, '/status'), { active: true });
+      const noClaimSnap = await get(dbRef(noClaimDb, '/status'));
+      expect(noClaimSnap.val()).toEqual({ active: true });
 
       // User with banned == true -> DENY
       const deniedDb = getDatabase(sandbox.withAuth({ uid: 'client', token: { banned: true } }));

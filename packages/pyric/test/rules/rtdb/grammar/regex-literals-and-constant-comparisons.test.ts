@@ -85,7 +85,11 @@ describe('RTDB lint of comparisons between literals', () => {
     });
     expect(rules.lint().map((issue) => issue.code)).not.toContain('COMPILE_ERROR');
     const [read] = rules.simulate([{ expectation: 'DENY', operation: 'read', path: '/a', auth: { uid: 'u' } }]).cases;
-    expect(read!.decision).toBe('DENY');
+    // Production refuses to deploy `null > 1` (`rtdb-rules-type-check`,
+    // `rtdb-rules-deploy-refusals` `INVALID_OPERAND`), so `simulate` reports
+    // `UNSUPPORTED` rather than evaluating it (TXT-1).
+    expect(read!.decision).toBe('UNSUPPORTED');
+    expect(read!.unsupported).toBe(true);
   });
 
   test('a comparison that reads data is not constant', () => {

@@ -86,7 +86,10 @@ test('reports an engine error and an abstention apart from a DENY', () => {
       { description: 'runtime error', expectation: 'DENY', operation: 'write', opPath: '/runtime', authPresent: true, newData: 5 },
     ],
   });
-  expect(results.map((result) => result.simulator)).toEqual(['ERROR', 'ERROR', 'UNSUPPORTED', 'DENY']);
+  // Production refuses to deploy `.trim()` (`rules-rtdb-r29-deploy-rejections`,
+  // `rtdb-rules-type-check` `NO_SUCH_MEMBER`), so `buildRuleExpression` marks
+  // `/outside` invalid and the simulator abstains with `UNSUPPORTED` (TXT-1).
+  expect(results.map((result) => result.simulator)).toEqual(['UNSUPPORTED', 'UNSUPPORTED', 'UNSUPPORTED', 'DENY']);
 });
 
 test('a result whose trace does not account for its verdict is not a verdict', () => {

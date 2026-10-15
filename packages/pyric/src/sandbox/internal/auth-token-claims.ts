@@ -146,3 +146,47 @@ export function accountTokenClaims(
     firebase: { identities, sign_in_provider: signInProvider },
   };
 }
+
+/**
+ * Complete a token claim set with the standard Firebase ID-token claims
+ * (`sub`, `aud`, `iss`, `auth_time`, `iat`, `exp`, `user_id`, and
+ * `firebase.identities`) that production rules read on `auth.token`,
+ * preserving any caller-supplied or account-projected claims.
+ */
+export function withIdTokenClaims(
+  uid: string,
+  tokenClaims: Record<string, unknown>,
+  nowMs: number = Date.now(),
+): Record<string, unknown> {
+  const issuedAtSec = Math.floor(nowMs / 1000);
+  const base = accountTokenClaims(uid, null, tokenClaims, null);
+  const existingFirebase =
+    typeof tokenClaims.firebase === 'object' &&
+    tokenClaims.firebase !== null &&
+    !Array.isArray(tokenClaims.firebase)
+      ? (tokenClaims.firebase as Record<string, unknown>)
+      : {};
+  const baseFirebase = base.firebase as { identities: Record<string, string[]>; sign_in_provider: string | null };
+  const identities =
+    typeof existingFirebase.identities === 'object' &&
+    existingFirebase.identities !== null &&
+    !Array.isArray(existingFirebase.identities)
+      ? existingFirebase.identities
+      : baseFirebase.identities;
+  const firebase: Record<string, unknown> = {
+    ...existingFirebase,
+    identities,
+  };
+  return {
+    sub: uid,
+    aud: 'pyric-sandbox',
+    iss: 'https://sandbox.pyric.dev',
+    auth_time: issuedAtSec,
+    iat: issuedAtSec,
+    exp: issuedAtSec + 3600,
+    ...base,
+    ...tokenClaims,
+    user_id: tokenClaims.user_id ?? base.user_id,
+    firebase,
+  };
+}

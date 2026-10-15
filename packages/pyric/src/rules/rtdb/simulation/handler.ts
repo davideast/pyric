@@ -3,6 +3,7 @@ import type { EvalContext, SimulatedAuth } from '../grammar/simulator.js';
 import type { RtdbNode, RtdbRuleExpression } from '../types.js';
 import { SimulationInputSchema, type SimulationInput } from './spec.js';
 import { normalizeAuthState } from '../../../sandbox/sandbox-context.js';
+import { withIdTokenClaims } from '../../../sandbox/internal/auth-token-claims.js';
 import { resolveSentinels } from '../../../database/sandbox/sentinels.js';
 import type { RtdbRuleEvaluation, SimulateResult } from './spec.js';
 
@@ -54,7 +55,11 @@ interface RuleOutcome {
  */
 function evaluateRule(rule: RtdbRuleExpression, ctx: EvalContext): RuleOutcome {
   try {
-    return { holds: Boolean(evaluateRtdbRule(rule, ctx)) };
+    const result = evaluateRtdbRule(rule, ctx);
+    if (typeof result !== 'boolean') {
+      return { holds: false, runtimeError: 'Expression must evaluate to a boolean.' };
+    }
+    return { holds: result };
   } catch (error) {
     if (error instanceof RtdbRuleRuntimeError) return { holds: false, runtimeError: error.message };
     throw error;
@@ -106,9 +111,9 @@ function snapshotChildKeys(snap: DataSnapshot): string[] {
  * which production reads as the token's `firebase.sign_in_provider`. There is
  * no top-level `auth.tenant`; production reads it as null.
  */
-function simulatedAuthOf(auth: NonNullable<SimulationInput['auth']>): SimulatedAuth {
+function simulatedAuthOf(auth: NonNullable<SimulationInput['auth']>, nowMs: number): SimulatedAuth {
   const normalized = normalizeAuthState(auth);
-  const token = normalized?.token ?? {};
+  const token = withIdTokenClaims(auth.uid, normalized?.token ?? {}, nowMs);
   const simulated: SimulatedAuth = { uid: auth.uid, token };
   const firebase = token.firebase;
   const claims = typeof firebase === 'object' && firebase !== null ? (firebase as Record<string, unknown>) : {};
@@ -369,19 +374,20 @@ function projectPostWriteTree(
 function buildSimulatedQueryContext(
   operation: string,
   query: SimulationInput['query'],
+  rawInput: unknown,
 ): EvalContext['query'] {
-  if (operation !== 'read' || !query) {
-    return null;
-  }
+  if (operation !== 'read') return null;
+  const rawQuery = (rawInput as { query?: { orderByPriority?: unknown } | null } | null)?.query;
   return {
-    orderByChild: query.orderByChild ?? null,
-    orderByKey: query.orderByKey ?? null,
-    orderByValue: query.orderByValue ?? null,
-    equalTo: query.equalTo ?? null,
-    limitToFirst: query.limitToFirst ?? null,
-    limitToLast: query.limitToLast ?? null,
-    startAt: query.startAt ?? null,
-    endAt: query.endAt ?? null,
+    orderByChild: query?.orderByChild ?? null,
+    orderByKey: query?.orderByKey === true,
+    orderByValue: query?.orderByValue === true,
+    orderByPriority: rawQuery?.orderByPriority === true,
+    equalTo: query?.equalTo ?? null,
+    limitToFirst: query?.limitToFirst ?? null,
+    limitToLast: query?.limitToLast ?? null,
+    startAt: query?.startAt ?? null,
+    endAt: query?.endAt ?? null,
   };
 }
 
@@ -458,9 +464,9 @@ export class SimulateHandler {
       const mergedRootData = new DataSnapshot(mergedRoot, '/');
 
       let contextAuth: SimulatedAuth | null = null;
-      if (auth) contextAuth = simulatedAuthOf(auth);
+      if (auth) contextAuth = simulatedAuthOf(auth, evaluationNow);
 
-      const contextQuery = buildSimulatedQueryContext(operation, query);
+      const contextQuery = buildSimulatedQueryContext(operation, query, rawInput);
 
       const buildContext: ContextBuilder = (data, newDataArg, bindings) => {
         const pvBindings: Record<string, string> = { ...bindings };
