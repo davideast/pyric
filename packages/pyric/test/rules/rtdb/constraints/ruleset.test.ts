@@ -104,6 +104,39 @@ describe('ruleset()', () => {
       expect(postsNode?.indexOn).toEqual(['createdAt', 'author']);
     });
 
+    test('indexOn on a non-wildcard path lands on that node directly', () => {
+      const compiled = ruleset({
+        '/': { read: deny(), write: deny(), indexOn: ['.value'] },
+        '/jobs': {
+          read: authenticated(),
+          write: authenticated(),
+          indexOn: ['runAt'],
+        },
+      });
+      expect(compiled.indexOn).toEqual(['.value']);
+      const jobsNode = compiled.children.find(c => c.path === '/jobs');
+      expect(jobsNode?.indexOn).toEqual(['runAt']);
+      expect(jobsNode?.children).toEqual([]);
+    });
+
+    test('identical indexOn on parent and wildcard child is idempotent', () => {
+      const compiled = ruleset({
+        '/jobs': { read: authenticated(), indexOn: ['runAt'] },
+        '/jobs/$jobId': { write: authenticated(), indexOn: ['runAt'] },
+      });
+      const jobsNode = compiled.children.find(c => c.path === '/jobs');
+      expect(jobsNode?.indexOn).toEqual(['runAt']);
+    });
+
+    test('conflicting indexOn declarations targeting the same container throw', () => {
+      expect(() =>
+        ruleset({
+          '/jobs': { read: authenticated(), indexOn: ['runAt'] },
+          '/jobs/$jobId': { write: authenticated(), indexOn: ['priority'] },
+        }),
+      ).toThrow(/Conflicting indexOn declarations for "\/jobs"/);
+    });
+
     test('explicit children nest correctly', () => {
       const compiled = ruleset({
         '/': { read: deny(), write: deny() },

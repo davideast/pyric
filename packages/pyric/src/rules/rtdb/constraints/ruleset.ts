@@ -67,7 +67,8 @@ function ensurePath(root: RtdbNode, pathStr: string): void {
 // ---- Pass 2: Rule application ----
 
 function applyRules(root: RtdbNode, node: RtdbNode, def: PathDef, pathStr: string): void {
-  const pathVars = pathStr.split('/').filter(s => s.startsWith('$'));
+  const segments = pathStr.split('/').filter(Boolean);
+  const pathVars = segments.filter(s => s.startsWith('$'));
 
   // Read/write/validate expressions
   if (def.read) node.read = buildExpr(def.read, 'read', pathVars);
@@ -104,19 +105,35 @@ function applyRules(root: RtdbNode, node: RtdbNode, def: PathDef, pathStr: strin
     }
   }
 
-  // indexOn goes on the container (parent of wildcard), not the wildcard itself
+  // indexOn goes on the container node directly, or lifts to the parent of a $wildcard path
   if (def.indexOn) {
-    const segments = pathStr.split('/').filter(Boolean);
-    const lastSegment = segments[segments.length - 1];
-    if (lastSegment?.startsWith('$')) {
-      const parentPath = '/' + segments.slice(0, -1).join('/');
-      const parent = findNode(root, parentPath);
-      if (parent) parent.indexOn = def.indexOn;
+    const target = resolveIndexOnTarget(root, node, segments);
+    if (target) {
+      if (!target.indexOn) {
+        target.indexOn = [...def.indexOn];
+      } else if (!hasSameIndexOnFields(target.indexOn, def.indexOn)) {
+        throw new Error(
+          `Conflicting indexOn declarations for "${target.path}": ${JSON.stringify(target.indexOn)} vs ${JSON.stringify(def.indexOn)}`,
+        );
+      }
     }
   }
 }
 
 // ---- Helpers ----
+
+function resolveIndexOnTarget(root: RtdbNode, node: RtdbNode, segments: string[]): RtdbNode | null {
+  const lastSegment = segments[segments.length - 1];
+  if (lastSegment?.startsWith('$')) {
+    const parentPath = '/' + segments.slice(0, -1).join('/');
+    return findNode(root, parentPath);
+  }
+  return node;
+}
+
+function hasSameIndexOnFields(existing: string[], declared: string[]): boolean {
+  return existing.length === declared.length && existing.every((field, i) => field === declared[i]);
+}
 
 /** Flatten nested children into absolute path entries. */
 function flattenChildren(defs: Array<[string, PathDef]>): Array<[string, PathDef]> {
