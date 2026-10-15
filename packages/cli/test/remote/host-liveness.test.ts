@@ -4,8 +4,8 @@
  * server that stops answering without closing.
  */
 import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
-import { HOSTED_HEARTBEAT_INTERVAL_MS, type BridgeMessage } from '../../src/bridge/protocol.js';
-import { HOST_SILENCE_TIMEOUT_MS, watchHostLiveness } from '../../src/remote/host-liveness.js';
+import { HOSTED_CLIENT_LIVENESS_TIMEOUT_MS, HOSTED_HEARTBEAT_INTERVAL_MS, type BridgeMessage } from '../../src/bridge/protocol.js';
+import { watchHostLiveness } from '../../src/remote/host-liveness.js';
 
 function startWatch(send: (message: BridgeMessage) => void = () => {}) {
   const sent: BridgeMessage[] = [];
@@ -47,21 +47,21 @@ describe('watchHostLiveness', () => {
 
   it('reports silence once, at the first check after the timeout, instead of pinging', () => {
     const { sent, silences } = startWatch();
-    jest.advanceTimersByTime(HOST_SILENCE_TIMEOUT_MS - 1);
+    jest.advanceTimersByTime(HOSTED_CLIENT_LIVENESS_TIMEOUT_MS - 1);
     expect(silences()).toBe(0);
     const pingsBeforeTimeout = sent.length;
     jest.advanceTimersByTime(1);
     expect(silences()).toBe(1);
     expect(sent).toHaveLength(pingsBeforeTimeout);
-    jest.advanceTimersByTime(10 * HOST_SILENCE_TIMEOUT_MS);
+    jest.advanceTimersByTime(10 * HOSTED_CLIENT_LIVENESS_TIMEOUT_MS);
     expect(silences()).toBe(1);
     expect(sent).toHaveLength(pingsBeforeTimeout);
   });
 
   it('counts any frame from the host, so a host that keeps sending is never silent', () => {
     const { liveness, silences } = startWatch();
-    for (let elapsed = 0; elapsed < 4 * HOST_SILENCE_TIMEOUT_MS; elapsed += HOST_SILENCE_TIMEOUT_MS / 3) {
-      jest.advanceTimersByTime(HOST_SILENCE_TIMEOUT_MS / 3);
+    for (let elapsed = 0; elapsed < 4 * HOSTED_CLIENT_LIVENESS_TIMEOUT_MS; elapsed += HOSTED_CLIENT_LIVENESS_TIMEOUT_MS / 3) {
+      jest.advanceTimersByTime(HOSTED_CLIENT_LIVENESS_TIMEOUT_MS / 3);
       liveness.heard();
     }
     expect(silences()).toBe(0);
@@ -70,9 +70,9 @@ describe('watchHostLiveness', () => {
 
   it('measures silence from the last frame, not from the last ping', () => {
     const { liveness, silences } = startWatch();
-    jest.advanceTimersByTime(HOST_SILENCE_TIMEOUT_MS - 5_000);
+    jest.advanceTimersByTime(HOSTED_CLIENT_LIVENESS_TIMEOUT_MS - 5_000);
     liveness.heard();
-    jest.advanceTimersByTime(HOST_SILENCE_TIMEOUT_MS - 1);
+    jest.advanceTimersByTime(HOSTED_CLIENT_LIVENESS_TIMEOUT_MS - 1);
     expect(silences()).toBe(0);
     jest.advanceTimersByTime(1);
     expect(silences()).toBe(1);
@@ -81,7 +81,7 @@ describe('watchHostLiveness', () => {
   it('sends nothing and reports nothing once stopped', () => {
     const { liveness, sent, silences } = startWatch();
     liveness.stop();
-    jest.advanceTimersByTime(10 * HOST_SILENCE_TIMEOUT_MS);
+    jest.advanceTimersByTime(10 * HOSTED_CLIENT_LIVENESS_TIMEOUT_MS);
     expect(sent).toHaveLength(1);
     expect(silences()).toBe(0);
   });
@@ -94,7 +94,7 @@ describe('watchHostLiveness', () => {
     refuses = true;
     jest.advanceTimersByTime(HOSTED_HEARTBEAT_INTERVAL_MS);
     expect(silences()).toBe(1);
-    jest.advanceTimersByTime(10 * HOST_SILENCE_TIMEOUT_MS);
+    jest.advanceTimersByTime(10 * HOSTED_CLIENT_LIVENESS_TIMEOUT_MS);
     expect(sent).toHaveLength(2);
     expect(silences()).toBe(1);
   });

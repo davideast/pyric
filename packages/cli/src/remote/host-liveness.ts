@@ -4,28 +4,21 @@
  * The client pings once at attach, which starts the host's own watch, then
  * every {@link HOSTED_HEARTBEAT_INTERVAL_MS} while attached. Before each ping
  * it checks how long the host has been silent: once no frame of any kind has
- * arrived for {@link HOST_SILENCE_TIMEOUT_MS}, the socket is treated as
+ * arrived for {@link HOSTED_CLIENT_LIVENESS_TIMEOUT_MS}, the socket is treated as
  * dropped and `onSilent` runs once instead of pinging a socket the host has
  * already closed. The watch belongs to one socket and never outlives it.
  *
  * Every timer is unref'd, so an idle attached client never keeps a finished
  * script alive.
  */
-import { HOSTED_HEARTBEAT_INTERVAL_MS, type BridgeMessage } from '../bridge/protocol.js';
-
-/**
- * Silence that counts as a drop: three heartbeats, as the web client uses.
- * ADR-0019's heartbeat amendment names this value; the shared constant in
- * `bridge/protocol.ts` replaces this one once both land.
- */
-export const HOST_SILENCE_TIMEOUT_MS = 45_000;
+import { HOSTED_CLIENT_LIVENESS_TIMEOUT_MS, HOSTED_HEARTBEAT_INTERVAL_MS, type BridgeMessage } from '../bridge/protocol.js';
 
 interface HeartbeatTiming {
   intervalMs: number;
   timeoutMs: number;
 }
 
-const DEFAULT_TIMING: HeartbeatTiming = { intervalMs: HOSTED_HEARTBEAT_INTERVAL_MS, timeoutMs: HOST_SILENCE_TIMEOUT_MS };
+const DEFAULT_TIMING: HeartbeatTiming = { intervalMs: HOSTED_HEARTBEAT_INTERVAL_MS, timeoutMs: HOSTED_CLIENT_LIVENESS_TIMEOUT_MS };
 let timing = DEFAULT_TIMING;
 
 /**
