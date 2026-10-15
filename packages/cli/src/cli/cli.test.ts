@@ -211,6 +211,94 @@ describe('runDatabaseRulesValidate', () => {
     expect(code).toBe(0);
     expect(JSON.parse(io.getOut())).toEqual({ errors: [] });
   });
+
+  it('exits 0 by default without --fail-on even when RTDB-SEC-1 is present', async () => {
+    const io = bufferIo();
+    const code = await runDatabaseRulesValidate(serviceArgs(['database', 'rules', 'validate', 'database.rules.json']), {
+      ...io,
+      cwd: '/tmp',
+      readFile: (async () => '{"rules":{".read":true,".write":true}}') as never,
+    });
+    expect(code).toBe(0);
+    expect(JSON.parse(io.getOut())).toEqual({ errors: [] });
+  });
+
+  it('exits 2 and includes RTDB-SEC-1 in errors when --fail-on high or --fail-on critical is passed', async () => {
+    for (const level of ['high', 'critical'] as const) {
+      const io = bufferIo();
+      const code = await runDatabaseRulesValidate(
+        serviceArgs(['database', 'rules', 'validate', 'database.rules.json', '--fail-on', level]),
+        {
+          ...io,
+          cwd: '/tmp',
+          readFile: (async () => '{\n  "rules": {\n    ".read": true,\n    ".write": true\n  }\n}') as never,
+        },
+      );
+      expect(code).toBe(2);
+      const out = JSON.parse(io.getOut()) as { errors: Array<Record<string, unknown>> };
+      expect(out.errors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: 'RTDB-SEC-1',
+            severity: 'critical',
+            path: '/',
+            rule: '.write',
+            line: 4,
+            column: 5,
+          }),
+        ]),
+      );
+    }
+  });
+
+  it('filters medium findings by --fail-on threshold on validate', async () => {
+    const mediumRules = '{"rules":{"posts":{".read":true}}}';
+    const highIo = bufferIo();
+    const highCode = await runDatabaseRulesValidate(
+      serviceArgs(['database', 'rules', 'validate', 'database.rules.json', '--fail-on', 'high']),
+      {
+        ...highIo,
+        cwd: '/tmp',
+        readFile: (async () => mediumRules) as never,
+      },
+    );
+    expect(highCode).toBe(0);
+    expect(JSON.parse(highIo.getOut())).toEqual({ errors: [] });
+
+    const mediumIo = bufferIo();
+    const mediumCode = await runDatabaseRulesValidate(
+      serviceArgs(['database', 'rules', 'validate', 'database.rules.json', '--fail-on', 'medium']),
+      {
+        ...mediumIo,
+        cwd: '/tmp',
+        readFile: (async () => mediumRules) as never,
+      },
+    );
+    expect(mediumCode).toBe(2);
+    const out = JSON.parse(mediumIo.getOut()) as { errors: Array<Record<string, unknown>> };
+    expect(out.errors).toEqual([
+      expect.objectContaining({
+        code: 'RTDB-SEC-2',
+        severity: 'medium',
+        path: '/posts',
+        rule: '.read',
+      }),
+    ]);
+  });
+
+  it('exits 1 when --fail-on is given an invalid value on validate', async () => {
+    const io = bufferIo();
+    const code = await runDatabaseRulesValidate(
+      serviceArgs(['database', 'rules', 'validate', 'database.rules.json', '--fail-on', 'low']),
+      {
+        ...io,
+        cwd: '/tmp',
+        readFile: (async () => '{"rules":{}}') as never,
+      },
+    );
+    expect(code).toBe(1);
+    expect(io.getErr()).toContain('Invalid --fail-on level "low". Expected critical, high, or medium.');
+  });
 });
 
 describe('runDatabaseRulesGenerate', () => {
