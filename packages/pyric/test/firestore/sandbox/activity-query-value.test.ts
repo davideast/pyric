@@ -5,6 +5,9 @@ import { Timestamp as AdminTimestamp } from '../../../src/firestore/sandbox/admi
 import { LocalEnvironment } from '../../../src/sandbox/internal/index.js';
 import { Bytes, GeoPoint, Timestamp } from '../../../src/firestore/field-values.js';
 
+// Building and comparing the 1 MiB operands takes about 2.4 s on a CI runner and up to 7 s on a slow one.
+const LARGE_OPERAND_TIMEOUT_MS = 20_000;
+
 describe('activity query operand identity', () => {
   it('never invokes user toJSON methods or getters', () => {
     let calls = 0;
@@ -115,7 +118,7 @@ describe('activity query operand identity', () => {
     expect(activityValue(largeBytes)).toEqual(
       activityValue(Bytes.fromUint8Array(new Uint8Array(1_048_576).fill(255))),
     );
-  });
+  }, LARGE_OPERAND_TIMEOUT_MS);
 
   it('never exposes scalar query operands in diagnostic descriptors', () => {
     const secret = '123-45-6789';
