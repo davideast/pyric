@@ -100,10 +100,10 @@
     ]
   },
   "score": {
-    "numerator": 69,
+    "numerator": 73,
     "denominator": 91,
-    "ratio": 0.7582417582417582,
-    "percent": 75.8
+    "ratio": 0.8021978021978022,
+    "percent": 80.2
   },
   "axes": {
     "productionAcceptance": {
@@ -113,26 +113,26 @@
       "unprobeable": 0
     },
     "localAcceptance": {
-      "accepted": 73,
-      "rejected": 18,
+      "accepted": 70,
+      "rejected": 21,
       "unsupported": 0,
       "unprobeable": 0
     },
     "localCapability": {
-      "implemented": 73,
+      "implemented": 70,
       "unsupported": 0,
-      "error": 18,
+      "error": 21,
       "unprobeable": 0
     },
     "productionEvidence": {
-      "verified": 68,
-      "diverged": 22,
+      "verified": 72,
+      "diverged": 18,
       "unverified": 1
     }
   },
   "counts": {
-    "conformant": 69,
-    "diverged": 22,
+    "conformant": 73,
+    "diverged": 18,
     "unknown": 0,
     "acceptance-mismatch": 0,
     "local-unsupported": 0,
@@ -1096,8 +1096,7 @@
       ],
       "verifiedByRows": [],
       "divergedByRows": [
-        "rtdb-rules#31",
-        "rtdb-rules#33"
+        "rtdb-rules#31"
       ]
     },
     "rtdb.rule-kind.read": {
@@ -1324,17 +1323,15 @@
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "r11-string-validation",
         "r27-stdlib-core-patterns",
         "r44-deploy-string-and-regex-probes"
       ],
       "verifiedByRows": [],
-      "divergedByRows": [
-        "rtdb-rules#33"
-      ]
+      "divergedByRows": []
     },
     "rtdb.binding.query": {
       "productionAcceptance": "accepted",
@@ -1691,10 +1688,10 @@
     },
     "rtdb.rule-kind.unknown-key": {
       "productionAcceptance": "rejected",
-      "localAcceptance": "accepted",
-      "localCapability": "implemented",
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "r29-deploy-rejections",
         "r43-deploy-expression-and-structure-probes"
@@ -1702,16 +1699,14 @@
       "verifiedByRows": [
         "rtdb-rules#27"
       ],
-      "divergedByRows": [
-        "rtdb-rules#33"
-      ]
+      "divergedByRows": []
     },
     "rtdb.rule-kind.non-expression-value": {
       "productionAcceptance": "rejected",
-      "localAcceptance": "accepted",
-      "localCapability": "implemented",
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "r29-deploy-rejections",
         "r43-deploy-expression-and-structure-probes"
@@ -1719,9 +1714,7 @@
       "verifiedByRows": [
         "rtdb-rules#27"
       ],
-      "divergedByRows": [
-        "rtdb-rules#33"
-      ]
+      "divergedByRows": []
     },
     "rtdb.rule-kind.indexOn-non-string": {
       "productionAcceptance": "rejected",
@@ -1753,10 +1746,10 @@
     },
     "rtdb.rule-kind.non-object-child": {
       "productionAcceptance": "rejected",
-      "localAcceptance": "accepted",
-      "localCapability": "implemented",
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "r29-deploy-rejections",
         "r43-deploy-expression-and-structure-probes"
@@ -1764,9 +1757,7 @@
       "verifiedByRows": [
         "rtdb-rules#27"
       ],
-      "divergedByRows": [
-        "rtdb-rules#33"
-      ]
+      "divergedByRows": []
     },
     "rtdb.rule-kind.non-boolean-result": {
       "productionAcceptance": "rejected",

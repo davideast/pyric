@@ -136,6 +136,15 @@ describe('validation error codes', () => {
   test('one error per failing operand: an error does not cascade to its parents', () => {
     expect(codes('data.foo > 1 && data.bar == 2')).toEqual(['NO_SUCH_MEMBER', 'NO_SUCH_MEMBER']);
   });
+
+  test('auth[...] rejects non-string/non-number index types with production message and accepts dynamic val() (FUZ-4)', () => {
+    for (const expr of ['auth[data] == 1', 'auth[true] == 1', 'auth[null] == 1']) {
+      expect(validateExpression(expr, 'read')).toEqual([
+        { code: 'INVALID_PROPERTY_ACCESS', message: "Invalid property access on 'auth' object." },
+      ]);
+    }
+    expect(validateExpression("auth.token[data.child('k').val()] == true", 'read')).toEqual([]);
+  });
 });
 
 describe('accepted idioms stay clean', () => {
@@ -163,21 +172,11 @@ function ruleErrors(node: RtdbNode): string[] {
   return [...own, ...node.children.flatMap(ruleErrors)];
 }
 
-const KNOWN_CORPUS_VALIDATOR_GAPS: Record<string, { expectedErrors: string[]; reason: string }> = {
-  'r39-root-parent-runtime': {
-    expectedErrors: [
-      '/r39-root-parent-runtime/nested/child (true ? data.parent() : null).exists(): Invalid property access: target is not an object.',
-    ],
-    reason: "VAL-1: production deploys member access on a Snapshot|Null ternary (r39); Pyric's ternaryResult returns Mixed → NOT_AN_OBJECT",
-  },
-};
-
 describe('every ruleset production deployed in the RTDB corpus compiles without errors', () => {
   for (const scenario of ALL_RULES_RTDB_SCENARIOS) {
     test(scenario.id, () => {
       const compiled = compileRtdbRules({ rules: { [scenario.id]: JSON.parse(scenario.rules) } });
-      const gap = KNOWN_CORPUS_VALIDATOR_GAPS[scenario.id];
-      expect(ruleErrors(compiled)).toEqual(gap ? gap.expectedErrors : []);
+      expect(ruleErrors(compiled)).toEqual([]);
     });
   }
 });

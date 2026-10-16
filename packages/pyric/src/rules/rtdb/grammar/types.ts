@@ -47,6 +47,7 @@ export type RtdbStaticType =
   | 'Regex'
   | 'Array'
   | 'Snapshot'
+  | 'NullableSnapshot'
   | 'SnapshotMethod'
   | 'Value'
   | 'Auth'
@@ -66,9 +67,21 @@ const set = (...types: RtdbStaticType[]): ReadonlySet<RtdbStaticType> => new Set
 /** Operands of `!`, `&&`, `||`, the `?` condition, and the rule itself. */
 export const BOOLEAN_OPERANDS = set('Boolean');
 /** Operands of `==`, `!=`, `===` and `!==`. */
-export const EQUALITY_OPERANDS = set('Boolean', 'Number', 'String', 'Null', 'Value', 'Auth', 'QueryValue', 'Mixed');
+export const EQUALITY_OPERANDS = set(
+  'Boolean',
+  'Number',
+  'String',
+  'Null',
+  'NullableSnapshot',
+  'Value',
+  'Auth',
+  'QueryValue',
+  'Mixed',
+);
 /** Operands of `<`, `<=`, `>`, `>=` and `+`. */
 export const ORDERING_OPERANDS = set('Number', 'String', 'Value', 'Auth', 'QueryValue', 'Mixed');
+/** Dynamic index operands accepted by `auth[index]` when `index` is not a string literal. */
+export const AUTH_INDEX_OPERANDS = set('Number', 'String', 'Value', 'Auth', 'QueryValue', 'Mixed');
 /** Operands of binary `-`, `*`, `/`, `%` and unary `-`. */
 export const NUMERIC_OPERANDS = set('Number', 'Value', 'Auth', 'QueryValue', 'Mixed');
 /** Arguments a string parameter accepts, and `hasChildren()` array elements. */
@@ -76,10 +89,14 @@ export const STRING_ARGUMENTS = set('String', 'Value', 'Auth', 'Mixed');
 
 
 const STRING_LIKE = new Set<RtdbStaticType>(['String', 'Value', 'Auth']);
+const SNAPSHOT_OR_NULL = new Set<RtdbStaticType>(['Snapshot', 'NullableSnapshot', 'Null']);
 
 /** The type of `c ? a : b` whose branches passed their checks. */
 export function ternaryResult(consequent: RtdbStaticType, alternate: RtdbStaticType): RtdbStaticType {
   if (consequent === alternate) return consequent;
+  if (SNAPSHOT_OR_NULL.has(consequent) && SNAPSHOT_OR_NULL.has(alternate)) {
+    return 'NullableSnapshot';
+  }
   return STRING_LIKE.has(consequent) || STRING_LIKE.has(alternate) ? 'Value' : 'Mixed';
 }
 
@@ -230,7 +247,8 @@ export function memberOf(receiver: RtdbStaticType, name: string): RtdbMember {
   switch (receiver) {
     case 'Error':
       return { kind: 'error', error: null };
-    case 'Snapshot': {
+    case 'Snapshot':
+    case 'NullableSnapshot': {
       const method = SNAPSHOT_METHODS.get(name);
       return method ? { kind: 'method', method } : noSuchMember();
     }

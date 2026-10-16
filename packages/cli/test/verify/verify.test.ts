@@ -344,6 +344,20 @@ describe('verifyFixture', () => {
     expect(result.services.firestore?.engines?.rulesTestApi?.checkedEvents).toBe(1);
   });
 
+  it('rejects RTDB verification when candidate rules would not deploy (CON-8)', async () => {
+    const fixture = await captureRtdbJourney();
+
+    await expect(
+      verifyFixture(fixture, {
+        rules: { rtdb: { rules: { '.read': true, '.valdiate': false } } },
+      }),
+    ).rejects.toThrow(
+      new VerifyInputError(
+        "candidate RTDB rules would not deploy. Realtime Database rules did not compile. /: Expected '{'.",
+      ),
+    );
+  });
+
   it('rejects RTDB verification through the Rules Test API engine', async () => {
     const fixture = await captureRtdbJourney();
 

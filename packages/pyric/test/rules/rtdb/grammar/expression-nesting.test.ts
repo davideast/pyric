@@ -43,6 +43,14 @@ describe('RTDB expressions: nesting', () => {
     expect(parseExpression(`auth.uid == "${open}"`).valid).toBe(true);
     expect(parseExpression(`auth.uid.matches(/^\\${open}$/)`).valid).toBe(true);
     expect(parseExpression(`newData.val().matches(/[(]/) && ${groups(100)}`).valid).toBe(true);
+    expect(parseExpression(`data.val().matches(/[/${'('.repeat(MAX_BRACKET_DEPTH + 10)}1]/)`).valid).toBe(true);
+    expect(parseExpression('data.val().matches(/^[^/]+$/) && (true)').valid).toBe(true);
+  });
+
+  test('an incomplete expression with = inside a regex literal does not report an assignment error', () => {
+    const parsed = parseExpression('data.val().matches(/a=b/) &&');
+    expect(parsed.valid).toBe(false);
+    expect(parsed.errors[0]!.message).not.toBe('Rule expressions may not contain assignments.');
   });
 
   test('a division is not read as a regular expression literal', () => {
@@ -60,5 +68,20 @@ describe('RTDB expressions: long chains', () => {
     const rule = buildRuleExpression(chain, 'read');
     expect(rule.parsed.valid).toBe(false);
     expect(rule.parsed.errors[0]!.code).toBe('PARSE_ERROR');
+  }, LONG_CHAIN_TIMEOUT_MS);
+
+  test('parseExpression and validateExpression report PARSE_ERROR on 4000–6000 chained terms without throwing RangeError', () => {
+    const chain4k = Array.from({ length: 4000 }, () => 'true').join(' && ');
+    const parsed4k = parseExpression(chain4k);
+    expect(parsed4k.valid).toBe(false);
+    expect(parsed4k.errors[0]!.code).toBe('PARSE_ERROR');
+    expect(() => validateExpression(chain4k, 'read')).not.toThrow();
+
+    const chain6k = Array.from({ length: 6000 }, () => 'true').join(' && ');
+    const parsed6k = parseExpression(chain6k);
+    expect(parsed6k.valid).toBe(false);
+    expect(parsed6k.errors[0]!.code).toBe('PARSE_ERROR');
+    const validationErrors6k = validateExpression(chain6k, 'read');
+    expect(validationErrors6k[0]!.code).toBe('PARSE_ERROR');
   }, LONG_CHAIN_TIMEOUT_MS);
 });

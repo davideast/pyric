@@ -3,7 +3,11 @@ import {
   type Divergence,
   type EventService,
 } from 'pyric/sandbox';
-import type { RtdbReplayDivergence } from 'pyric/rules/internal/rtdb';
+import {
+  rtdbRulesSourceRejection,
+  type RtdbReplayDivergence,
+  type RtdbRulesDocument,
+} from 'pyric/rules/internal/rtdb';
 import {
   SimulateFirestoreRulesHandler,
   type ExpressionReportLevel,
@@ -11,7 +15,6 @@ import {
   type TestResult,
 } from 'pyric/rules/internal';
 import { executeHostedRulesTest } from './hosted-rules-test.js';
-import type { RtdbRulesDocument } from 'pyric/rules/internal/rtdb';
 import type { ProjectScope } from '../credentials/core/types.js';
 import {
   isRtdbRulesDocument,
@@ -501,19 +504,25 @@ function requireRtdbRules(
   instance?: string,
 ): RtdbRulesJson {
   const label = instance === undefined ? 'candidate RTDB rules' : `candidate RTDB rules for instance "${instance}"`;
+  let parsed: RtdbRulesJson;
   if (isRtdbRulesDocument(rules)) {
-    return parseRtdbRulesJson(
+    parsed = parseRtdbRulesJson(
       rules.toJSON(),
       () => new VerifyInputError(`${label} document must compile to { rules: object }.`),
     );
-  }
-  if (rules !== undefined) {
-    return parseRtdbRulesJson(
+  } else if (rules !== undefined) {
+    parsed = parseRtdbRulesJson(
       rules,
       () => new VerifyInputError(`${label} must be { rules: object }.`),
     );
+  } else {
+    throw new VerifyInputError(missing);
   }
-  throw new VerifyInputError(missing);
+  const rejection = rtdbRulesSourceRejection(parsed);
+  if (rejection !== null) {
+    throw new VerifyInputError(`${label} would not deploy. ${rejection.message}`);
+  }
+  return parsed;
 }
 
 function mapFirestoreDivergence(divergence: Divergence): VerifyDivergence {
