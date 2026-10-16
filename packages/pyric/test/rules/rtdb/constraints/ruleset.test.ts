@@ -104,6 +104,39 @@ describe('ruleset()', () => {
       expect(postsNode?.indexOn).toEqual(['createdAt', 'author']);
     });
 
+    test('indexOn on a non-wildcard path lands on that node directly', () => {
+      const compiled = ruleset({
+        '/': { read: deny(), write: deny(), indexOn: ['.value'] },
+        '/jobs': {
+          read: authenticated(),
+          write: authenticated(),
+          indexOn: ['runAt'],
+        },
+      });
+      expect(compiled.indexOn).toEqual(['.value']);
+      const jobsNode = compiled.children.find(c => c.path === '/jobs');
+      expect(jobsNode?.indexOn).toEqual(['runAt']);
+      expect(jobsNode?.children).toEqual([]);
+    });
+
+    test('identical indexOn on parent and wildcard child is idempotent', () => {
+      const compiled = ruleset({
+        '/jobs': { read: authenticated(), indexOn: ['runAt'] },
+        '/jobs/$jobId': { write: authenticated(), indexOn: ['runAt'] },
+      });
+      const jobsNode = compiled.children.find(c => c.path === '/jobs');
+      expect(jobsNode?.indexOn).toEqual(['runAt']);
+    });
+
+    test('conflicting indexOn declarations targeting the same container throw', () => {
+      expect(() =>
+        ruleset({
+          '/jobs': { read: authenticated(), indexOn: ['runAt'] },
+          '/jobs/$jobId': { write: authenticated(), indexOn: ['priority'] },
+        }),
+      ).toThrow(/Conflicting indexOn declarations for "\/jobs"/);
+    });
+
     test('explicit children nest correctly', () => {
       const compiled = ruleset({
         '/': { read: deny(), write: deny() },
@@ -127,6 +160,54 @@ describe('ruleset()', () => {
       expect(commentNode.write?.raw).toBeDefined();
       expect(commentNode.validate?.raw).toContain('newData.hasChildren()');
     });
+
+    test('normalizes trailing and duplicate slashes so rules are applied to the normalized node', () => {
+      const trailing = ruleset({
+        '/a/': { read: authenticated(), write: deny() },
+      });
+      const trailingNode = trailing.children.find(c => c.path === '/a');
+      expect(trailingNode).toBeDefined();
+      expect(trailingNode?.read?.raw).toBe('auth != null');
+      expect(trailingNode?.write?.raw).toBe('false');
+
+      const doubleSlash = ruleset({
+        '//a': { read: authenticated(), write: deny() },
+      });
+      const doubleSlashNode = doubleSlash.children.find(c => c.path === '/a');
+      expect(doubleSlashNode).toBeDefined();
+      expect(doubleSlashNode?.read?.raw).toBe('auth != null');
+      expect(doubleSlashNode?.write?.raw).toBe('false');
+    });
+
+    test('throws on duplicate normalized keys in record form', () => {
+      expect(() =>
+        ruleset({
+          '/a': { read: deny() },
+          '/a/': { write: always() },
+        }),
+      ).toThrow('Duplicate ruleset path declaration for "/a"');
+
+      expect(() =>
+        ruleset({
+          '/a': { read: deny() },
+          '//a': { write: always() },
+        }),
+      ).toThrow('Duplicate ruleset path declaration for "/a"');
+    });
+
+    test('throws when nested children collide with a top-level path', () => {
+      expect(() =>
+        ruleset({
+          '/a': {
+            read: deny(),
+            children: {
+              '/b': { read: deny(), write: deny() },
+            },
+          },
+          '/a/b': { read: always() },
+        }),
+      ).toThrow('Duplicate ruleset path declaration for "/a/b"');
+    });
   });
 
   describe('callback overload', () => {
@@ -143,6 +224,15 @@ describe('ruleset()', () => {
       const rootCb = compiledCallback;
       expect(rootObj.read?.raw).toBe(rootCb.read?.raw);
       expect(rootObj.children.length).toBe(rootCb.children.length);
+    });
+
+    test('throws on duplicate path declarations in callback form', () => {
+      expect(() =>
+        ruleset(({ path }) => {
+          path('/a', { read: deny(), write: deny() });
+          path('/a', { read: always() });
+        }),
+      ).toThrow('Duplicate ruleset path declaration for "/a"');
     });
   });
 

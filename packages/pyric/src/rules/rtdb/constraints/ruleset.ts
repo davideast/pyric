@@ -20,11 +20,12 @@ export function ruleset(
 
   // Flatten nested children into top-level path defs
   const flattened = flattenChildren(pathDefs);
+  assertUniquePaths(flattened);
 
   // Sort by depth (root first)
   flattened.sort((a, b) => {
-    const depthA = a[0] === '/' ? 0 : a[0].split('/').filter(Boolean).length;
-    const depthB = b[0] === '/' ? 0 : b[0].split('/').filter(Boolean).length;
+    const depthA = pathDepth(a[0]);
+    const depthB = pathDepth(b[0]);
     return depthA - depthB || a[0].localeCompare(b[0]);
   });
 
@@ -37,7 +38,7 @@ export function ruleset(
 
   // Pass 2: Apply rules, schemas, and indexOn to each node
   for (const [pathStr, def] of flattened) {
-    const node = pathStr === '/' ? root : findNode(root, pathStr);
+    const node = findNode(root, pathStr);
     if (!node) continue;
     applyRules(root, node, def, pathStr);
   }
@@ -67,7 +68,8 @@ function ensurePath(root: RtdbNode, pathStr: string): void {
 // ---- Pass 2: Rule application ----
 
 function applyRules(root: RtdbNode, node: RtdbNode, def: PathDef, pathStr: string): void {
-  const pathVars = pathStr.split('/').filter(s => s.startsWith('$'));
+  const segments = pathStr.split('/').filter(Boolean);
+  const pathVars = segments.filter(s => s.startsWith('$'));
 
   // Read/write/validate expressions
   if (def.read) node.read = buildExpr(def.read, 'read', pathVars);
@@ -104,32 +106,67 @@ function applyRules(root: RtdbNode, node: RtdbNode, def: PathDef, pathStr: strin
     }
   }
 
-  // indexOn goes on the container (parent of wildcard), not the wildcard itself
+  // indexOn goes on the container node directly, or lifts to the parent of a $wildcard path
   if (def.indexOn) {
-    const segments = pathStr.split('/').filter(Boolean);
-    const lastSegment = segments[segments.length - 1];
-    if (lastSegment?.startsWith('$')) {
-      const parentPath = '/' + segments.slice(0, -1).join('/');
-      const parent = findNode(root, parentPath);
-      if (parent) parent.indexOn = def.indexOn;
+    const target = resolveIndexOnTarget(root, node, segments);
+    if (target) {
+      if (!target.indexOn) {
+        target.indexOn = [...def.indexOn];
+      } else if (!hasSameIndexOnFields(target.indexOn, def.indexOn)) {
+        throw new Error(
+          `Conflicting indexOn declarations for "${target.path}": ${JSON.stringify(target.indexOn)} vs ${JSON.stringify(def.indexOn)}`,
+        );
+      }
     }
   }
 }
 
 // ---- Helpers ----
 
+function resolveIndexOnTarget(root: RtdbNode, node: RtdbNode, segments: string[]): RtdbNode | null {
+  const lastSegment = segments[segments.length - 1];
+  if (lastSegment?.startsWith('$')) {
+    const parentPath = '/' + segments.slice(0, -1).join('/');
+    return findNode(root, parentPath);
+  }
+  return node;
+}
+
+function hasSameIndexOnFields(existing: string[], declared: string[]): boolean {
+  return existing.length === declared.length && existing.every((field, i) => field === declared[i]);
+}
+
+function normalizeRulePath(pathStr: string): string {
+  return '/' + pathStr.split('/').filter(Boolean).join('/');
+}
+
+function pathDepth(pathStr: string): number {
+  return pathStr.split('/').filter(Boolean).length;
+}
+
+function assertUniquePaths(defs: Array<[string, PathDef]>): void {
+  const seen = new Set<string>();
+  for (const [normalizedPath] of defs) {
+    if (seen.has(normalizedPath)) {
+      throw new Error(`Duplicate ruleset path declaration for "${normalizedPath}"`);
+    }
+    seen.add(normalizedPath);
+  }
+}
+
 /** Flatten nested children into absolute path entries. */
 function flattenChildren(defs: Array<[string, PathDef]>): Array<[string, PathDef]> {
   const result: Array<[string, PathDef]> = [];
   for (const [pathStr, def] of defs) {
+    const normalizedPath = normalizeRulePath(pathStr);
     // Add this path without the children property
     const { children, ...rest } = def;
-    result.push([pathStr, rest as PathDef]);
+    result.push([normalizedPath, rest as PathDef]);
 
     // Recursively flatten children
     if (children) {
       const childEntries = Object.entries(children).map(
-        ([childPath, childDef]) => [pathStr + childPath, childDef] as [string, PathDef],
+        ([childPath, childDef]) => [`${normalizedPath}/${childPath}`, childDef] as [string, PathDef],
       );
       result.push(...flattenChildren(childEntries));
     }

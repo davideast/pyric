@@ -48,6 +48,24 @@ function isPatch(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function hasAbsoluteUpdatePath(entry: unknown): boolean {
+  if (typeof entry !== 'object' || entry === null) return false;
+  const path = (entry as { path?: unknown }).path;
+  return typeof path === 'string' && path.length > 0 && path.startsWith('/');
+}
+
+function updatesProblem(updates: unknown): string | null {
+  if (!Array.isArray(updates)) {
+    return "'updates' must be an array of { path, value } entries.";
+  }
+  for (const entry of updates) {
+    if (!hasAbsoluteUpdatePath(entry)) {
+      return "each 'updates' entry needs an absolute 'path' starting with '/'.";
+    }
+  }
+  return null;
+}
+
 /** What the engine evaluates for every case kind except `update`. */
 function baseInput(c: RtdbCase): RtdbRulesSimulationInput {
   // Assembled with explicit branches rather than conditional spreads: `data`,
@@ -99,8 +117,16 @@ export function simulateRtdbCase(doc: RtdbRulesDocumentInternal, c: RtdbCase): S
     const problem = simulationQueryProblem(c.query);
     if (problem !== null) return invalidCase(problem);
   }
+  if (c.updates !== undefined) {
+    if (c.operation !== 'write' && c.operation !== 'validate') {
+      return invalidCase(`'updates' applies to a 'write' or 'validate' case, and this case is '${c.operation}'.`);
+    }
+    const problem = updatesProblem(c.updates);
+    if (problem !== null) return invalidCase(problem);
+  }
   if (c.operation === 'update') return simulateUpdate(doc, c);
   const input = baseInput(c);
   if (c.query !== undefined) input.query = ruleQuery(c.query);
+  if (c.updates !== undefined) input.updates = c.updates;
   return doc.simulate(input);
 }

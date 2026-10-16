@@ -2,8 +2,11 @@ import { describe, test, expect } from 'bun:test';
 import {
   dataVal, newDataVal, dataExists, newDataExists,
   newDataIs, dataParentVal, newDataParentVal, newDataParentExists,
-  eq, neq, gt, lte, AUTH_UID,
+  eq, neq, gt, lte, AUTH_UID, ref,
 } from '../../../../src/rules/rtdb/constraints/data.js';
+import { ref as constraintsRef } from '../../../../src/rules/rtdb/constraints/index.js';
+import { ref as rulesRef } from '../../../../src/rules/index.js';
+import { ref as internalRtdbRef } from '../../../../src/rules/internal/rtdb.js';
 
 describe('Data template helpers', () => {
   // --- Value access ---
@@ -132,6 +135,57 @@ describe('Data template helpers', () => {
   describe('AUTH_UID', () => {
     test('is a segment marker', () => {
       expect(AUTH_UID).toEqual({ $: 'auth.uid' });
+    });
+  });
+
+  // --- ref ---
+  describe('ref', () => {
+    test('wraps an expression as a segment marker and is re-exported across rule entrypoints', () => {
+      expect(ref("data.child('author').val()")).toEqual({ $: "data.child('author').val()" });
+      expect(constraintsRef).toBe(ref);
+      expect(rulesRef).toBe(ref);
+      expect(internalRtdbRef).toBe(ref);
+    });
+
+    test('emits unquoted runtime references in eq and neq', () => {
+      expect(eq(newDataVal('author'), ref("data.child('author').val()"))).toBe(
+        "newData.child('author').val() == data.child('author').val()",
+      );
+      expect(eq(dataVal('owner'), ref('$uid'))).toBe("data.child('owner').val() == $uid");
+      expect(neq(newDataVal('owner'), ref('$uid'))).toBe("newData.child('owner').val() != $uid");
+    });
+  });
+
+  // --- Quoted reference rejection ---
+  describe('eq / neq reject strings that look like rule references', () => {
+    test('rejects auth.uid passed as a string and suggests AUTH_UID / ref("auth.uid")', () => {
+      expect(() => eq(dataVal('owner'), 'auth.uid')).toThrow(/auth\.uid/);
+      expect(() => eq(dataVal('owner'), 'auth.uid')).toThrow(/AUTH_UID/);
+      expect(() => eq(dataVal('owner'), 'auth.uid')).toThrow(/ref\("auth\.uid"\)/);
+    });
+
+    test('rejects RTDB expression roots, path variables, and now passed as strings', () => {
+      expect(() => eq(newDataVal('author'), "data.child('author').val()")).toThrow(
+        /ref\("data\.child\('author'\)\.val\(\)"\)/,
+      );
+      expect(() => neq(newDataVal('status'), 'newData.val()')).toThrow(/ref\("newData\.val\(\)"\)/);
+      expect(() => eq(dataVal('role'), "root.child('admins').val()")).toThrow(
+        /ref\("root\.child\('admins'\)\.val\(\)"\)/,
+      );
+      expect(() => eq(dataVal('limit'), 'query.limitToFirst')).toThrow(
+        /ref\("query\.limitToFirst"\)/,
+      );
+      expect(() => eq(dataVal('owner'), "auth['uid']")).toThrow(/ref\("auth\['uid'\]"\)/);
+      expect(() => eq(dataVal('owner'), '$uid')).toThrow(/ref\("\$uid"\)/);
+      expect(() => neq(newDataVal('createdAt'), 'now')).toThrow(/ref\("now"\)/);
+    });
+
+    test('near misses: ordinary string literals are still quoted', () => {
+      expect(eq(dataVal('status'), 'auth')).toBe("data.child('status').val() == 'auth'");
+      expect(eq(dataVal('status'), 'data')).toBe("data.child('status').val() == 'data'");
+      expect(eq(dataVal('status'), 'nowhere')).toBe("data.child('status').val() == 'nowhere'");
+      expect(eq(dataVal('price'), '$100')).toBe("data.child('price').val() == '$100'");
+      expect(eq(dataVal('symbol'), '$')).toBe("data.child('symbol').val() == '$'");
     });
   });
 });
