@@ -28,6 +28,9 @@ import { scenario, sleep, type AppProcess } from '../driver.ts';
 
 declare const observer: { read(path: string): Promise<unknown>; write(path: string, value: unknown): Promise<void> };
 
+/** Waits out a 40s host liveness window and the client's 45s liveness timeout, so pull requests skip it (test/apps/selection.ts). */
+export const slow = true;
+
 const WINDOW_MS = 40_000;
 const HEARTBEAT_MS = 15_000;
 const CLIENT_LIVENESS_MS = 45_000;
