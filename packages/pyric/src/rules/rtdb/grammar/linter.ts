@@ -1,5 +1,6 @@
 import type { Semantics } from 'ohm-js';
 import {
+  CHAINED_TERMS_MESSAGE,
   createRtdbExpressionSemantics,
   matchRtdbExpression,
 } from '../expression-engine.js';
@@ -49,6 +50,11 @@ function constantValue(node: any): boolean | undefined {
   const [left, , right] = node.children;
   if (!left.isLiteral() || !right.isLiteral()) return undefined;
   try {
+    const l = evaluateRtdbExpression(left.sourceString, {} as EvalContext);
+    const r = evaluateRtdbExpression(right.sourceString, {} as EvalContext);
+    if ((typeof l === 'number' && !Number.isFinite(l)) || (typeof r === 'number' && !Number.isFinite(r))) {
+      return undefined;
+    }
     return evaluateRtdbExpression(node.sourceString, {} as EvalContext) === true;
   } catch (error) {
     // A comparison that fails the rule when it runs, such as `null > 1`, has no constant value.
@@ -98,10 +104,15 @@ function getLinterSemantics(): Semantics {
       const ctx = this.args.ctx as LintContext;
       (receiver as any).lint(ctx);
       args.asIteration().children.forEach((a: any) => (a as any).lint(ctx));
-      // Detect data.child() pattern — indicates intentional data comparison
-      if (methodName.sourceString === 'child' && receiver.sourceString === 'data') {
+      // Detect data.child() / data.parent()...child() / (data).child() pattern
+      if (methodName.sourceString === 'child' && (receiver as any).isDataSnapshot()) {
         ctx.hasDataChildAccess = true;
       }
+    },
+
+    CallExpr_memberAccess(receiver, _dot, _memberName) {
+      // Skip _memberName — it is a property name, not a root identifier.
+      (receiver as any).lint(this.args.ctx);
     },
 
     ident(_dollar, _start, _rest) {
@@ -120,6 +131,44 @@ function getLinterSemantics(): Semantics {
     Equality_looseEq(left, _op, right) { lintComparison(this, left, right); },
     Equality_looseNeq(left, _op, right) { lintComparison(this, left, right); },
   });
+  // Whether a receiver expression resolves a snapshot rooted at `data` (through
+  // parentheses, `.parent()`, and `.child()`).
+  semantics.addOperation('isDataSnapshot', {
+    _nonterminal(...children) {
+      return children.length === 1 ? (children[0] as any).isDataSnapshot() : false;
+    },
+    _iter() { return false; },
+    _terminal() { return false; },
+    Primary_paren(_open, inner, _close) {
+      return (inner as any).isDataSnapshot();
+    },
+    ident(_dollar, _start, _rest) {
+      return this.sourceString === 'data';
+    },
+    CallExpr_methodCall(receiver, _dot, methodName, _open, _args, _close) {
+      const method = methodName.sourceString;
+      if (method === 'parent' || method === 'child') {
+        return (receiver as any).isDataSnapshot();
+      }
+      return false;
+    },
+  });
+  // Whether an expression is a finite numeric literal (through parentheses, unary `-`, and arithmetic).
+  semantics.addOperation('isNumberLiteral', {
+    _nonterminal(...children) {
+      return children.length === 1 ? (children[0] as any).isNumberLiteral() : false;
+    },
+    _iter() { return false; },
+    _terminal() { return false; },
+    Primary_paren(_open, inner, _close) { return (inner as any).isNumberLiteral(); },
+    UnaryExpr_neg(_minus, operand) { return (operand as any).isNumberLiteral(); },
+    Additive_add(left, _op, right) { return (left as any).isNumberLiteral() && (right as any).isNumberLiteral(); },
+    Additive_sub(left, _op, right) { return (left as any).isNumberLiteral() && (right as any).isNumberLiteral(); },
+    Multiplicative_mul(left, _op, right) { return (left as any).isNumberLiteral() && (right as any).isNumberLiteral(); },
+    Multiplicative_div(left, _op, right) { return (left as any).isNumberLiteral() && (right as any).isNumberLiteral(); },
+    Multiplicative_mod(left, _op, right) { return (left as any).isNumberLiteral() && (right as any).isNumberLiteral(); },
+    number(_n) { return Number.isFinite(Number(this.sourceString)); },
+  });
   // Whether an expression is a literal, through parentheses.
   semantics.addOperation('isLiteral', {
     _nonterminal(...children) {
@@ -128,8 +177,18 @@ function getLinterSemantics(): Semantics {
     _iter() { return false; },
     _terminal() { return false; },
     Primary_paren(_open, inner, _close) { return (inner as any).isLiteral(); },
+    UnaryExpr_neg(_minus, operand) { return (operand as any).isNumberLiteral(); },
+    Additive_add(left, _op, right) { return (left as any).isNumberLiteral() && (right as any).isNumberLiteral(); },
+    Additive_sub(left, _op, right) { return (left as any).isNumberLiteral() && (right as any).isNumberLiteral(); },
+    Multiplicative_mul(left, _op, right) { return (left as any).isNumberLiteral() && (right as any).isNumberLiteral(); },
+    Multiplicative_div(left, _op, right) { return (left as any).isNumberLiteral() && (right as any).isNumberLiteral(); },
+    Multiplicative_mod(left, _op, right) { return (left as any).isNumberLiteral() && (right as any).isNumberLiteral(); },
     // No capture pins how a regular expression literal compares, so one is never folded.
-    literal(node) { return node.ctorName !== 'regex'; },
+    literal(node) {
+      if (node.ctorName === 'regex') return false;
+      if (node.ctorName === 'number') return Number.isFinite(Number(node.sourceString));
+      return true;
+    },
   });
   // The boolean an expression is, when the whole expression is a `true` or
   // `false` literal (parentheses allowed); undefined otherwise. A literal that
@@ -183,22 +242,32 @@ export function lintExpression(
     constantComparisons: [],
   };
 
-  const node = getLinterSemantics()(match) as any;
-  node.lint(ctx);
+  try {
+    const node = getLinterSemantics()(match) as any;
+    node.lint(ctx);
 
-  // A `.read` or `.write` that is a literal grants or denies every request at
-  // its path. A `.validate` literal is not reported: `true` checks nothing and
-  // `false` is how a ruleset rejects children it does not name (`$other`).
-  const literal = context === 'validate' ? undefined : node.literalBoolean() as boolean | undefined;
-  if (literal === true) {
-    ctx.warnings.push({ code: 'HARDCODED_TRUE', message: 'Rule expression is hardcoded to true' });
-  } else if (literal === false) {
-    ctx.warnings.push({ code: 'HARDCODED_FALSE', message: 'Rule expression is hardcoded to false' });
-  } else {
-    // A comparison between two literals has one value whatever the request.
-    for (const { source, value } of ctx.constantComparisons) {
-      ctx.warnings.push({ code: 'CONSTANT_COMPARISON', message: `Comparison ${source} is always ${value}.` });
+    // A `.read` or `.write` that is a literal grants or denies every request at
+    // its path. A `.validate` literal is not reported: `true` checks nothing and
+    // `false` is how a ruleset rejects children it does not name (`$other`).
+    const literal = context === 'validate' ? undefined : node.literalBoolean() as boolean | undefined;
+    if (literal === true) {
+      ctx.warnings.push({ code: 'HARDCODED_TRUE', message: 'Rule expression is hardcoded to true' });
+    } else if (literal === false) {
+      ctx.warnings.push({ code: 'HARDCODED_FALSE', message: 'Rule expression is hardcoded to false' });
+    } else {
+      // A comparison between two literals has one value whatever the request.
+      for (const { source, value } of ctx.constantComparisons) {
+        ctx.warnings.push({ code: 'CONSTANT_COMPARISON', message: `Comparison ${source} is always ${value}.` });
+      }
     }
+  } catch (error) {
+    if (error instanceof RangeError) {
+      return [{ code: 'PARSE_ERROR', message: CHAINED_TERMS_MESSAGE }];
+    }
+    if (error instanceof SyntaxError) {
+      return [{ code: 'PARSE_ERROR', message: error.message }];
+    }
+    throw error;
   }
 
   if (context === 'write' && ctx.hasData && !ctx.hasNewData && !ctx.hasDataChildAccess) {
