@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { pathOwnerOnly, required, rtdbStdlib } from 'pyric/rules';
-import { runScenario, type StdlibScenario } from './harness.js';
+import { runScenario, simulateCase, type StdlibScenario } from './harness.js';
 
 const { validation } = rtdbStdlib;
 
@@ -71,8 +71,58 @@ describe('rtdbStdlib.validation', () => {
 
   test('shape and matches refuse input they cannot compile', () => {
     expect(() => validation.shape({ a: 'string' }, { required: ['b'] })).toThrow();
-    expect(() => validation.matches('a/b')).toThrow();
+    expect(() => validation.shape({ 'a/b': 'string' })).toThrow(/field name/);
+    expect(() => validation.shape({ '': 'string' })).toThrow(/field name/);
+    expect(() => validation.shape({ '$other': 'string' })).toThrow(/field name/);
+    expect(() => validation.shape({ a: 'string' }, { required: ['a/b'] })).toThrow(/field name/);
+    expect(() => validation.matches('')).toThrow();
+    expect(() => validation.matches('a/b')).toThrow("escape '/'");
+    expect(() => validation.matches('\\\\/')).toThrow("escape '/'");
+    expect(() => validation.matches('\\')).toThrow(/trailing/);
+    expect(() => validation.matches('abc\\\\\\')).toThrow(/trailing/);
+    expect(() => validation.matches('a\nb')).toThrow(/newline/);
+    expect(() => validation.matches('a\rb')).toThrow(/newline/);
+    expect(() => validation.matches('(')).toThrow(/unclosed '\('/);
+    expect(() => validation.matches(')')).toThrow(/unmatched '\)'/);
+    expect(() => validation.matches('[abc')).toThrow(/unclosed '\['/);
     expect(() => validation.stringLength(3, 1)).toThrow();
+  });
+
+  test('matches accepts escaped slashes and patterns production allows', () => {
+    expect(validation.matches('a\\/b')).toBe('newData.isString() && newData.val().matches(/a\\/b/)');
+    expect(validation.matches('a\\\\\\/b')).toBe('newData.isString() && newData.val().matches(/a\\\\\\/b/)');
+    expect(validation.matches('[^/]+')).toBe('newData.isString() && newData.val().matches(/[^/]+/)');
+    expect(validation.matches('^[^/]+$')).toBe('newData.isString() && newData.val().matches(/^[^/]+$/)');
+    expect(validation.matches('+')).toBe('newData.isString() && newData.val().matches(/+/)');
+    expect(validation.matches('[z-a]')).toBe('newData.isString() && newData.val().matches(/[z-a]/)');
+    expect(validation.matches('a{2,1}')).toBe('newData.isString() && newData.val().matches(/a{2,1}/)');
+
+    const slugScenario: StdlibScenario = {
+      paths: {
+        '/slug': { write: true, validate: validation.matches('^[^/]+$') },
+      },
+      cases: [],
+    };
+    expect(
+      simulateCase(slugScenario, {
+        description: 'slug without slash',
+        expectation: 'ALLOW',
+        operation: 'write',
+        path: '/slug',
+        auth: 'alice',
+        newData: 'ok',
+      }),
+    ).toBe('ALLOW');
+    expect(
+      simulateCase(slugScenario, {
+        description: 'slug with slash',
+        expectation: 'DENY',
+        operation: 'write',
+        path: '/slug',
+        auth: 'alice',
+        newData: 'a/b',
+      }),
+    ).toBe('DENY');
   });
 
   runScenario(scenario);

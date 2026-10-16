@@ -67,7 +67,7 @@ export const scenario: RtdbScenarioRecord = {
           ".validate": "newData.isString()"
         },
         "moveCount": {
-          ".validate": "(!data.exists() && newData.val() == 0) || (data.exists() && newData.val() == data.val() + 1)"
+          ".validate": "(!data.exists() && newData.val() == 0) || (data.isNumber() && newData.val() == data.val() + 1)"
         },
         "rematchOf": {
           ".validate": "newData.isString()"
@@ -109,20 +109,20 @@ export const scenario: RtdbScenarioRecord = {
     "scores": {
       "$id": {
         ".write": "auth != null",
-        ".validate": "(!data.exists() && newData.child('host').val() == 0 && newData.child('guest').val() == 0) || (data.child('host').exists() && newData.child('host').val() == data.child('host').val() + 1 && newData.child('guest').val() == data.child('guest').val()) || (data.child('guest').exists() && newData.child('guest').val() == data.child('guest').val() + 1 && newData.child('host').val() == data.child('host').val())"
+        ".validate": "(!data.exists() && newData.child('host').val() == 0 && newData.child('guest').val() == 0) || (data.child('host').isNumber() && newData.child('host').val() == data.child('host').val() + 1 && newData.child('guest').val() == data.child('guest').val()) || (data.child('guest').isNumber() && newData.child('guest').val() == data.child('guest').val() + 1 && newData.child('host').val() == data.child('host').val())"
       }
     },
     "stats": {
       "$id": {
         ".write": "auth != null",
         "best": {
-          ".validate": "newData.isNumber() && (!data.exists() || newData.val() > data.val())"
+          ".validate": "newData.isNumber() && (!data.exists() || (data.isNumber() && newData.val() > data.val()))"
         },
         "likes": {
-          ".validate": "newData.isNumber() && data.exists() && newData.val() - data.val() >= -1 && newData.val() - data.val() <= 1"
+          ".validate": "newData.isNumber() && data.isNumber() && newData.val() - data.val() >= -1 && newData.val() - data.val() <= 1"
         },
         "moves": {
-          ".validate": "data.exists() && newData.val() == data.val() + 1"
+          ".validate": "data.isNumber() && newData.val() == data.val() + 1"
         }
       }
     },
@@ -236,5 +236,9 @@ export const scenario: RtdbScenarioRecord = {
     {"description":"a join that also rewrites rematchOf","expectation":"DENY","operation":"update","opPath":"/matches/j4","authPresent":true,"newData":{"guest":"<UID>","status":"playing","rematchOf":"other"},"seed":{"/matches/j4":{"host":"player-two","guest":"","status":"waiting","currentTurn":"host","winner":"","moveCount":0,"rematchOf":"f0"}}},
     {"description":"a server timestamp where the rule requires now","expectation":"ALLOW","operation":"write","opPath":"/probes/stamp","authPresent":true,"newData":{".sv":"timestamp"}},
     {"description":"a client time where the rule requires now","expectation":"DENY","operation":"write","opPath":"/probes/stamp","authPresent":true,"newData":1000000000000},
+    {"description":"a step-checked count where the stored value is a numeric string","expectation":"DENY","operation":"write","opPath":"/stats/s6/moves","authPresent":true,"newData":"51","seed":{"/stats/s6/moves":"5"}},
+    {"description":"a like count where the stored value is a numeric string","expectation":"DENY","operation":"write","opPath":"/stats/s7/likes","authPresent":true,"newData":6,"seed":{"/stats/s7/likes":"5"}},
+    {"description":"a best score where the stored value is a numeric string","expectation":"DENY","operation":"write","opPath":"/stats/s8/best","authPresent":true,"newData":6,"seed":{"/stats/s8/best":"5"}},
+    {"description":"a score where the stored host count is a numeric string","expectation":"DENY","operation":"write","opPath":"/scores/g4","authPresent":true,"newData":{"host":"51","guest":0},"seed":{"/scores/g4":{"host":"5","guest":0}}},
   ],
 };

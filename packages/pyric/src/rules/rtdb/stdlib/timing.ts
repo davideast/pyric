@@ -46,12 +46,17 @@ export function notInFuture(field?: string): Expr {
 }
 
 /**
- * Nothing is stored yet, or the stored timestamp is more than `ms`
+ * Nothing is stored yet, or the stored timestamp is a number more than `ms`
  * milliseconds before the server's clock.
  */
 export function cooldownElapsed(ms: number, field?: string): Expr {
   finite('cooldownElapsed', 'ms', ms);
-  return any(not(present(field)), expr(`now > ${at('data', field)} + ${lit(ms)}`));
+  if (ms <= 0) throw new Error(`cooldownElapsed: ms must be positive, got ${ms}.`);
+  const node = field === undefined ? 'data' : `data.child(${lit(fieldName('timing', field))})`;
+  return any(
+    not(present(field)),
+    all(expr(`${node}.isNumber()`), expr(`now > ${at('data', field)} + ${lit(ms)}`)),
+  );
 }
 
 /**

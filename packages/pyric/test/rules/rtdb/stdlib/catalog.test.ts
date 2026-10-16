@@ -10,6 +10,12 @@ const tool = (name: string) => {
   return (args: Record<string, unknown>) => found.execute(args, {} as never) as Promise<{ ok: boolean; summary: string; data: any }>;
 };
 
+const evaluateExample = (moduleKey: string, example: string): unknown => {
+  const expr = example.replace(/^'[^']+':\s*/, '');
+  const fn = new Function('rtdbStdlib', `const { ${moduleKey} } = rtdbStdlib; return (${expr});`);
+  return fn(rtdbStdlib);
+};
+
 describe('RTDB stdlib catalog', () => {
   test('lists every module on rtdbStdlib and nothing else', () => {
     expect(RTDB_STDLIB_MODULES.map((m) => m.key).sort()).toEqual(Object.keys(rtdbStdlib).sort());
@@ -19,6 +25,15 @@ describe('RTDB stdlib catalog', () => {
     test(`${module.key}: one entry per export`, () => {
       const exported = Object.keys(rtdbStdlib[module.key]).sort();
       expect(module.entries.map((e) => e.name).sort()).toEqual(exported);
+    });
+
+    test(`${module.key}: every entry output equals its evaluated example`, () => {
+      for (const entry of module.entries) {
+        expect({ name: entry.name, output: entry.output }).toEqual({
+          name: entry.name,
+          output: evaluateExample(module.key, entry.example),
+        });
+      }
     });
 
     test(`${module.key}: every expression output parses as a rule`, () => {

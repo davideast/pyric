@@ -68,6 +68,9 @@ describe('rtdbStdlib.auth', () => {
     expect(auth.hasClaim('beta')).toBe('auth != null && auth.token.beta == true');
     expect(auth.tenantIs('acme')).toBe("auth != null && auth.token.firebase.tenant == 'acme'");
     expect(auth.inTenant('$tenantId')).toBe('auth != null && auth.token.firebase.tenant == $tenantId');
+    expect(auth.roleAt(['roles', { $: 'auth.uid' }], 'admin', { levelsUp: 0 })).toBe(
+      "auth != null && data.child('roles').child(auth.uid).val() == 'admin'",
+    );
   });
 
   test('builders refuse names they cannot compile', () => {
@@ -76,6 +79,10 @@ describe('rtdbStdlib.auth', () => {
     expect(() => auth.emailDomain('')).toThrow();
     expect(() => auth.inTenant('tenant')).toThrow();
     expect(() => auth.roleAt([], 'x')).toThrow();
+    expect(() => auth.roleAt([{ $: '' }], 'admin')).toThrow();
+    expect(() => auth.roleAt([{ $: '   ' }], 'admin')).toThrow();
+    expect(() => auth.roleAt(['roles/admin'], 'admin')).toThrow(/field name/);
+    expect(() => auth.roleAt(['roles'], 'admin', { levelsUp: -1 })).toThrow(/levelsUp/);
   });
 
   test('hasClaim refuses null, which every token without the claim would satisfy', () => {
