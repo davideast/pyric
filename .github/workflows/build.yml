@@ -426,8 +426,8 @@ jobs:
         run: bunx playwright install chromium
       - name: Pack the published packages
         run: bash scripts/pack-packages.sh --skip-build
-      - name: Test the app selection
-        run: bun test test/apps/selection.test.ts
+      - name: Test the app selection and the driver
+        run: bun test test/apps/selection.test.ts test/apps/driver.test.ts
       - name: App scenarios
         # Each app in test/apps installs from the tarballs above plus registry
         # firebase, firebase-admin and vite, runs its own Vite dev server and

@@ -6,7 +6,7 @@
  * the scenario starts is recorded, so a failure report can name the step and
  * show each log.
  */
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
@@ -18,34 +18,95 @@ export interface LogWaitOptions {
   timeoutMs?: number;
 }
 
+/** Starts a child process. `AppProcess` takes one so its tests can start a stand-in. */
+export type SpawnChild = (command: string, args: string[], options: SpawnOptions) => ChildProcess;
+
+/** How long `stop()` waits after SIGTERM, and then after SIGKILL, for the child to close. */
+export interface StopGrace {
+  termMs: number;
+  killMs: number;
+}
+
+const DEFAULT_STOP_GRACE: StopGrace = { termMs: 5_000, killMs: 5_000 };
+
 /** One child process of the app, with its interleaved stdout and stderr. */
 export class AppProcess {
   readonly exited: Promise<number | null>;
-  private readonly child: ChildProcess;
+  private child: ChildProcess;
+  private settle!: (code: number | null) => void;
   /** The command line, shown at the top of the saved log. */
   readonly header: string;
   private text = '';
   private exitCode: number | null | undefined;
   private isPaused = false;
+  private spawnAttempts = 0;
+  private childWrote = false;
 
-  constructor(readonly name: string, command: string, args: string[], cwd: string, env: NodeJS.ProcessEnv) {
+  constructor(
+    readonly name: string,
+    private readonly command: string,
+    private readonly args: string[],
+    private readonly cwd: string,
+    private readonly env: NodeJS.ProcessEnv,
+    private readonly spawnChild: SpawnChild = spawn,
+  ) {
     const pyricEnv = Object.entries(env).filter(([key]) => key.startsWith('PYRIC_')).map(([key, value]) => `${key}=${value} `);
     this.header = `$ ${pyricEnv.join('')}${[command, ...args].join(' ')}\n`;
-    this.child = spawn(command, args, { cwd, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
-    this.child.stdout?.on('data', (chunk) => { this.text += chunk; });
-    this.child.stderr?.on('data', (chunk) => { this.text += chunk; });
-    this.exited = new Promise((resolve) => {
-      this.child.on('error', (error) => {
-        this.text += `\n[driver] could not start ${command}: ${error.message}\n`;
-        this.exitCode = null;
-        resolve(null);
-      });
-      this.child.on('close', (code, signal) => {
-        this.exitCode = code;
-        if (signal) this.text += `\n[driver] exited on ${signal}\n`;
-        resolve(code);
-      });
+    this.exited = new Promise((resolve) => { this.settle = resolve; });
+    this.child = this.start();
+  }
+
+  private start(): ChildProcess {
+    this.spawnAttempts += 1;
+    const child = this.spawnChild(this.command, this.args, { cwd: this.cwd, env: this.env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const isCurrent = () => child === this.child;
+    const record = (chunk: unknown) => {
+      if (!isCurrent()) return;
+      this.childWrote = true;
+      this.text += String(chunk);
+    };
+    child.stdout?.on('data', record);
+    child.stderr?.on('data', record);
+    child.on('error', (error: NodeJS.ErrnoException) => {
+      if (!isCurrent()) return;
+      if (this.retriesSpawn(error)) {
+        this.text += `\n[driver] could not start ${this.command}: ${error.message}; the child wrote no output, so the driver starts it once more\n`;
+        this.abandon(child);
+        this.child = this.start();
+        return;
+      }
+      this.text += `\n[driver] could not start ${this.command}: ${error.message}\n`;
+      this.finish(null);
     });
+    child.on('close', (code, signal) => {
+      if (!isCurrent()) return;
+      if (signal) this.text += `\n[driver] exited on ${signal}\n`;
+      this.finish(code);
+    });
+    return child;
+  }
+
+  /**
+   * Under concurrency, Bun's spawn sometimes fails with `EBADF ... epoll_ctl`
+   * before the child runs (#997). That failure, before any output, gets one
+   * more spawn. Any other error, or a second failure, fails as before.
+   */
+  private retriesSpawn(error: NodeJS.ErrnoException): boolean {
+    const isBadDescriptor = error.code === 'EBADF';
+    const isFirstAttempt = this.spawnAttempts === 1;
+    return isBadDescriptor && isFirstAttempt && !this.childWrote;
+  }
+
+  /** Ends a child whose spawn failed, in case it got a process before the error. */
+  private abandon(child: ChildProcess): void {
+    if (child.pid === undefined) return;
+    try { process.kill(-child.pid, 'SIGKILL'); } catch { /* never started or already gone */ }
+  }
+
+  private finish(code: number | null): void {
+    if (!this.running) return;
+    this.exitCode = code;
+    this.settle(code);
   }
 
   get output(): string {
@@ -102,7 +163,13 @@ export class AppProcess {
     process.kill(-pid, signal);
   }
 
-  async stop(): Promise<void> {
+  /**
+   * Ends the process group: SIGTERM, then SIGKILL after `grace.termMs`. A
+   * child that has still not closed `grace.killMs` later, such as one whose
+   * pipes a process outside the group holds open, is recorded as gone, so
+   * `exited` settles and nothing waits on it past that.
+   */
+  async stop(grace: StopGrace = DEFAULT_STOP_GRACE): Promise<void> {
     if (!this.running || this.child.pid === undefined) return;
     const group = -this.child.pid;
     // A stopped process holds SIGTERM until it is continued.
@@ -110,12 +177,18 @@ export class AppProcess {
       try { process.kill(group, 'SIGCONT'); } catch { /* already gone */ }
       this.isPaused = false;
     }
-    try { process.kill(group, 'SIGTERM'); } catch { return; }
-    const stopped = await Promise.race([this.exited.then(() => true), sleep(5_000).then(() => false)]);
-    if (!stopped) {
-      try { process.kill(group, 'SIGKILL'); } catch { /* already gone */ }
-      await this.exited;
-    }
+    try { process.kill(group, 'SIGTERM'); } catch { /* the group is gone; wait for close below */ }
+    if (await this.closesWithin(grace.termMs)) return;
+    try { process.kill(group, 'SIGKILL'); } catch { /* already gone */ }
+    if (await this.closesWithin(grace.killMs)) return;
+    this.text += `\n[driver] ${this.name} did not close within ${grace.killMs / 1000}s of SIGKILL; the driver records it as gone\n`;
+    this.finish(null);
+  }
+
+  private closesWithin(ms: number): Promise<boolean> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), ms); });
+    return Promise.race([this.exited.then(() => true), timeout]).finally(() => clearTimeout(timer));
   }
 }
 
