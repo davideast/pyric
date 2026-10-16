@@ -1,0 +1,33 @@
+{
+  "name": "rules-rtdb-r37-runtime-comparison-and-length-types",
+  "matrixRow": "rtdb-rules#28",
+  "rowIds": [
+    "rtdb-rules#28"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r37-runtime-comparison-and-length-types\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). addition, relational comparisons (<, >, >=), and .length on runtime values of the wrong type must match production rather than coercing booleans/strings/objects or reading a child key named \"length\".",
+  "observedAt": "2026-10-15T17:58:48.367Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "FUZ-3: boolean plus number (true + 1 == 2)": "DENY",
+    "FUZ-3: boolean plus number under || true (false + 1 == 0 || true)": "DENY",
+    "FUZ-3: string plus number concatenation (\"5\" + 1 == \"51\")": "ALLOW",
+    "FUZ-3: string plus number under || true (\"5\" + 1 == \"none\" || true)": "ALLOW",
+    "FUZ-3: object plus string ({a:1} + \"!\" == \"[object Object]!\")": "DENY",
+    "FUZ-3: object plus number under || true ({a:1} + 1 == 0 || true)": "DENY",
+    "FUZ-3: boolean less than number (false < 1)": "DENY",
+    "FUZ-3: string less than number (\"1\" < 2)": "DENY",
+    "FUZ-3: string less than number under || true (\"1\" < 0 || true)": "DENY",
+    "FUZ-3: object less than number under || true ({a:1} < 0 || true)": "DENY",
+    "FUZ-3: boolean greater than number (true > 0)": "DENY",
+    "FUZ-3: string greater than number (\"2\" > 1)": "DENY",
+    "FUZ-3: object greater than number under || true ({a:1} > 0 || true)": "DENY",
+    "FUZ-3: boolean greater than or equal to number (true >= 1)": "DENY",
+    "FUZ-3: string greater than or equal to number (\"2\" >= 2)": "DENY",
+    "FUZ-3: object greater than or equal to number under || true ({a:1} >= 0 || true)": "DENY",
+    "MET-2: .length on a number under == 0 || true": "DENY",
+    "MET-2: .length on a number under !(X == 0)": "DENY",
+    "MET-2: .length on an object with a length child ({length: 10}.length > 2)": "DENY",
+    "MET-2: .length on an object without a length child under == 0 || true": "DENY"
+  }
+}

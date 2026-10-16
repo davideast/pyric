@@ -1,0 +1,25 @@
+{
+  "name": "rules-rtdb-r42-custom-token-standard-claims",
+  "matrixRow": "rtdb-rules#32",
+  "rowIds": [
+    "rtdb-rules#32"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r42-custom-token-standard-claims\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). rules reading standard ID-token fields on auth.token (sub, iat, exp, iss, aud, auth_time, user_id, firebase.identities, firebase.sign_in_provider) must see the same non-null values in the simulator and sandbox that production exposes.",
+  "observedAt": "2026-10-15T18:00:25.736Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "COV-3: custom-token auth.token.sub != null": "ALLOW",
+    "COV-3: custom-token auth.token.sub == auth.uid": "ALLOW",
+    "COV-3: custom-token auth.token.iat != null": "ALLOW",
+    "COV-3: custom-token auth.token.exp != null": "ALLOW",
+    "COV-3: custom-token auth.token.iss != null": "ALLOW",
+    "COV-3: custom-token auth.token.aud != null": "ALLOW",
+    "COV-3: custom-token auth.token.auth_time != null": "ALLOW",
+    "COV-3: custom-token auth.token.user_id != null": "ALLOW",
+    "COV-3: custom-token auth.token.user_id == auth.uid": "ALLOW",
+    "COV-3: custom-token auth.token.firebase.identities != null": "ALLOW",
+    "COV-3: custom-token auth.token.firebase.sign_in_provider != null": "ALLOW",
+    "COV-3: custom-token auth.token.firebase.sign_in_provider == \"custom\"": "ALLOW"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "rules-rtdb-r39-root-parent-runtime",
+  "matrixRow": "rtdb-rules#30",
+  "rowIds": [
+    "rtdb-rules#30"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r39-root-parent-runtime\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). calling parent() on the root snapshot must match production: if root.parent() fails the rule expression, neither == null nor || true can evaluate to ALLOW.",
+  "observedAt": "2026-10-15T17:59:28.535Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "COV-1: (true ? root.parent() : null) == null": "DENY",
+    "COV-1: (true ? root.parent() : null) != null || true": "DENY",
+    "COV-1: ((true ? root.parent() : 1) == 1) || true": "DENY",
+    "COV-1: (true ? root.parent() : 1) != 1": "DENY",
+    "COV-1: (true ? root.parent() : '').length == null || true": "DENY",
+    "COV-1: root.parent().exists() || true": "DENY",
+    "COV-1: control non-root data.parent().exists() in ternary": "ALLOW"
+  }
+}
