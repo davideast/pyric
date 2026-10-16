@@ -1,9 +1,11 @@
 import { describe, test, expect } from 'bun:test';
 import { z } from 'zod';
 import { ruleset } from '../../../../src/rules/rtdb/constraints/ruleset.js';
-import { all, any, deny, always, expr } from '../../../../src/rules/rtdb/constraints/compose.js';
+import { all, any, deny, always, allow, expr } from '../../../../src/rules/rtdb/constraints/compose.js';
 import { authenticated, ownPath, ownField, isNew } from '../../../../src/rules/rtdb/constraints/atoms.js';
 import { ownerOrNew, pathOwnerOnly, hasRole, required } from '../../../../src/rules/rtdb/constraints/policies.js';
+import { defineRtdbRules } from '../../../../src/rules/rtdb/constraints/document.js';
+import { rtdbRules } from '../../../../src/rules/index.js';
 
 describe('ruleset()', () => {
   describe('declarative overload', () => {
@@ -88,6 +90,154 @@ describe('ruleset()', () => {
       // Should be all(isString, authorEnforced)
       expect(authorChild!.validate?.raw).toContain('newData.isString()');
       expect(authorChild!.validate?.raw).toContain('newData.val() == auth.uid');
+    });
+
+    test('compiles nested z.object at depth >= 3 and enforces leaf validation in simulate (FUZ-7)', () => {
+      const doc = defineRtdbRules({
+        paths: {
+          '/items/$id': {
+            write: allow(),
+            schema: z.object({
+              level1: z.object({
+                level2: z.object({
+                  level3: z.string(),
+                }),
+              }),
+            }),
+          },
+        },
+      });
+      const json = rtdbRules(doc).toJSON() as any;
+      expect(json.rules.items.$id.level1.level2.level3['.validate']).toBe('newData.isString()');
+
+      const report = rtdbRules(doc).simulate([
+        {
+          operation: 'write',
+          path: '/items/1',
+          auth: { uid: 'u1', token: {} },
+          newData: { level1: { level2: { level3: 12345 } } },
+          expectation: 'DENY',
+        },
+        {
+          operation: 'write',
+          path: '/items/1',
+          auth: { uid: 'u1', token: {} },
+          newData: { level1: { level2: { level3: 'ok' } } },
+          expectation: 'ALLOW',
+        },
+      ]);
+      expect(report.cases.map((c) => c.decision)).toEqual(['DENY', 'ALLOW']);
+    });
+
+    test('throws when fieldConstraints is provided without schema or names unknown fields (CON-1)', () => {
+      expect(() =>
+        ruleset({
+          '/alone/$id': {
+            write: allow(),
+            fieldConstraints: { title: [expr('newData.isString()')] },
+          },
+        }),
+      ).toThrow(/fieldConstraints/);
+
+      expect(() =>
+        ruleset({
+          '/users/$uid': {
+            write: allow(),
+            schema: z.object({ name: z.string() }),
+            fieldConstraints: { unknownField: [expr('newData.isString()')] },
+          },
+        }),
+      ).toThrow(/unknownField/);
+    });
+
+    test('AND-composes schema with PathDef.validate on both parent and child paths (CON-1 / FUZ-7)', () => {
+      const doc = defineRtdbRules({
+        paths: {
+          '/items/$id': {
+            write: allow(),
+            validate: expr("newData.child('name').val() != 'forbidden'"),
+            schema: z.object({ name: z.string(), count: z.number() }),
+          },
+          '/items/$id/name': {
+            validate: expr('newData.val().length >= 2'),
+          },
+        },
+      });
+      const json = rtdbRules(doc).toJSON() as any;
+      expect(json.rules.items.$id['.validate']).toBe(
+        "newData.child('name').val() != 'forbidden' && newData.hasChildren() && newData.hasChild('name') && newData.hasChild('count')",
+      );
+      expect(json.rules.items.$id.name['.validate']).toBe(
+        'newData.isString() && newData.val().length >= 2',
+      );
+
+      const report = rtdbRules(doc).simulate([
+        {
+          operation: 'write',
+          path: '/items/1',
+          auth: { uid: 'u1', token: {} },
+          newData: { name: 'ok', count: 1 },
+          expectation: 'ALLOW',
+        },
+        {
+          operation: 'write',
+          path: '/items/1',
+          auth: { uid: 'u1', token: {} },
+          newData: { name: 'ok' },
+          expectation: 'DENY',
+        },
+        {
+          operation: 'write',
+          path: '/items/1',
+          auth: { uid: 'u1', token: {} },
+          newData: { name: 'x', count: 1 },
+          expectation: 'DENY',
+        },
+        {
+          operation: 'write',
+          path: '/items/1',
+          auth: { uid: 'u1', token: {} },
+          newData: { name: 'forbidden', count: 1 },
+          expectation: 'DENY',
+        },
+      ]);
+      expect(report.cases.map((c) => c.decision)).toEqual(['ALLOW', 'DENY', 'DENY', 'DENY']);
+    });
+
+    test('normalizes schema child paths at root / so rtdbRules(doc) and rtdbRules(doc.toJSON()) agree (MET-6)', () => {
+      const rootSchemaDoc = defineRtdbRules({
+        paths: {
+          '/': {
+            write: allow(),
+            schema: z.object({ a: z.string() }),
+          },
+          '/a': {
+            read: authenticated(),
+          },
+        },
+      });
+
+      const direct = rtdbRules(rootSchemaDoc);
+      const roundTrip = rtdbRules(rootSchemaDoc.toJSON());
+
+      expect(rootSchemaDoc.toJSON()).toEqual({
+        rules: {
+          '.write': true,
+          '.validate': "newData.hasChildren() && newData.hasChild('a')",
+          a: {
+            '.read': 'auth != null',
+            '.validate': 'newData.isString()',
+          },
+        },
+      });
+
+      const cases = [
+        { operation: 'read' as const, path: '/a', auth: { uid: 'u1', token: {} }, expectation: 'ALLOW' as const },
+        { operation: 'write' as const, path: '/a', auth: { uid: 'u1', token: {} }, newData: 123, expectation: 'DENY' as const },
+        { operation: 'write' as const, path: '/a', auth: { uid: 'u1', token: {} }, newData: 'hello', expectation: 'ALLOW' as const },
+      ];
+      expect(direct.simulate(cases).cases.map((c) => c.decision)).toEqual(['ALLOW', 'DENY', 'ALLOW']);
+      expect(roundTrip.simulate(cases).cases.map((c) => c.decision)).toEqual(['ALLOW', 'DENY', 'ALLOW']);
     });
 
     test('indexOn propagates to the collection node', () => {

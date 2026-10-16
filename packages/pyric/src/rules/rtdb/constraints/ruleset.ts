@@ -1,6 +1,7 @@
 import { buildRuleExpression } from '../compiled-rules.js';
 import type { CompiledRtdbRules } from '../compiled-rules.js';
-import { schemaRules } from './schema.js';
+import { all, expr } from './compose.js';
+import { schemaRules, type SchemaFieldRule } from './schema.js';
 import type { Expr, PathDef, RulesetContext } from './types.js';
 import type { RtdbNode, RtdbRuleExpression } from '../types.js';
 
@@ -67,43 +68,49 @@ function ensurePath(root: RtdbNode, pathStr: string): void {
 
 // ---- Pass 2: Rule application ----
 
+function mergeValidate(node: RtdbNode, nextExpr: Expr, pathVars: string[]): void {
+  const combined = node.validate ? all(expr(node.validate.raw), nextExpr) : nextExpr;
+  node.validate = buildExpr(combined, 'validate', pathVars);
+}
+
+function applySchemaChildren(
+  parentNode: RtdbNode,
+  children: Record<string, SchemaFieldRule>,
+  basePathVars: string[],
+): void {
+  for (const [fieldName, fieldDef] of Object.entries(children)) {
+    const fieldPath = normalizeRulePath(`${parentNode.path}/${fieldName}`);
+    const childVars = fieldName.startsWith('$') ? [...basePathVars, fieldName] : basePathVars;
+    let fieldNode = parentNode.children.find(c => c.path === fieldPath);
+    if (!fieldNode) {
+      fieldNode = { path: fieldPath, pathVariables: childVars, children: [] };
+      parentNode.children.push(fieldNode);
+    }
+    mergeValidate(fieldNode, fieldDef.validate, childVars);
+    if (fieldDef.children) {
+      applySchemaChildren(fieldNode, fieldDef.children, childVars);
+    }
+  }
+}
+
 function applyRules(root: RtdbNode, node: RtdbNode, def: PathDef, pathStr: string): void {
   const segments = pathStr.split('/').filter(Boolean);
   const pathVars = segments.filter(s => s.startsWith('$'));
 
+  if (def.fieldConstraints && !def.schema) {
+    throw new Error(`fieldConstraints on "${pathStr}" requires a schema.`);
+  }
+
   // Read/write/validate expressions
   if (def.read) node.read = buildExpr(def.read, 'read', pathVars);
   if (def.write) node.write = buildExpr(def.write, 'write', pathVars);
-  if (def.validate) node.validate = buildExpr(def.validate, 'validate', pathVars);
+  if (def.validate) mergeValidate(node, def.validate, pathVars);
 
   // Schema generates parent validate + child validate rules
   if (def.schema) {
     const sr = schemaRules(def.schema, def.fieldConstraints);
-    if (!node.validate) {
-      node.validate = buildExpr(sr.validate, 'validate', pathVars);
-    }
-    for (const [fieldName, fieldDef] of Object.entries(sr.children)) {
-      const fieldPath = `${pathStr}/${fieldName}`;
-      let fieldNode = node.children.find(c => c.path === fieldPath);
-      if (!fieldNode) {
-        fieldNode = { path: fieldPath, pathVariables: pathVars, children: [] };
-        node.children.push(fieldNode);
-      }
-      fieldNode.validate = buildExpr(fieldDef.validate, 'validate', pathVars);
-
-      // Nested object schema children
-      if ('children' in fieldDef && fieldDef.children) {
-        for (const [nestedName, nestedDef] of Object.entries(fieldDef.children as Record<string, { validate: Expr }>)) {
-          const nestedPath = `${fieldPath}/${nestedName}`;
-          let nestedNode = fieldNode.children.find(c => c.path === nestedPath);
-          if (!nestedNode) {
-            nestedNode = { path: nestedPath, pathVariables: pathVars, children: [] };
-            fieldNode.children.push(nestedNode);
-          }
-          nestedNode.validate = buildExpr(nestedDef.validate, 'validate', pathVars);
-        }
-      }
-    }
+    mergeValidate(node, sr.validate, pathVars);
+    applySchemaChildren(node, sr.children, pathVars);
   }
 
   // indexOn goes on the container node directly, or lifts to the parent of a $wildcard path

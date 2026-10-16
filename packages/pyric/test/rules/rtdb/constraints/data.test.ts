@@ -4,6 +4,9 @@ import {
   newDataIs, dataParentVal, newDataParentVal, newDataParentExists,
   eq, neq, gt, lte, AUTH_UID, ref,
 } from '../../../../src/rules/rtdb/constraints/data.js';
+import { all, any, expr } from '../../../../src/rules/rtdb/constraints/compose.js';
+import { authenticated } from '../../../../src/rules/rtdb/constraints/atoms.js';
+import { compileRtdbRules, simulateRtdbRules } from '../../../../src/rules/rtdb/compiled-rules.js';
 import { ref as constraintsRef } from '../../../../src/rules/rtdb/constraints/index.js';
 import { ref as rulesRef } from '../../../../src/rules/index.js';
 import { ref as internalRtdbRef } from '../../../../src/rules/internal/rtdb.js';
@@ -62,6 +65,29 @@ describe('Data template helpers', () => {
     test('depth 2', () => {
       expect(dataParentVal(2, 'currentTurn')).toBe("data.parent().parent().child('currentTurn').val()");
     });
+    test('rejects non-positive or non-integer depth and empty field (BLD-4)', () => {
+      expect(() => dataParentVal(0, 'field')).toThrow(/depth/);
+      expect(() => dataParentVal(-1, 'field')).toThrow(/depth/);
+      expect(() => dataParentVal(1.5, 'field')).toThrow(/depth/);
+      expect(() => dataParentVal(1, '')).toThrow();
+      expect(() => newDataParentVal(0, 'field')).toThrow(/depth/);
+      expect(() => newDataParentExists(0, 'field')).toThrow(/depth/);
+    });
+  });
+
+  describe('empty path and empty ref rejection (BLD-4)', () => {
+    test('rejects explicit empty path string on dataVal/newDataVal/dataExists/newDataExists', () => {
+      expect(() => dataVal('')).toThrow();
+      expect(() => newDataVal('')).toThrow();
+      expect(() => dataExists('')).toThrow();
+      expect(() => newDataExists('')).toThrow();
+    });
+
+    test('rejects empty ref expression in ref() and eq()/neq()', () => {
+      expect(() => ref('')).toThrow();
+      expect(() => eq(dataVal(), { $: '' })).toThrow();
+      expect(() => neq(dataVal(), { $: '' })).toThrow();
+    });
   });
 
   describe('newDataParentVal', () => {
@@ -102,6 +128,31 @@ describe('Data template helpers', () => {
     test('newData parent val with boolean', () => {
       expect(eq(newDataParentVal(1, 'xWins'), true)).toBe("newData.parent().child('xWins').val() == true");
     });
+    test('parenthesizes composite operands and denies matching branch in simulate (FUZ-9b)', () => {
+      const rule = eq(any(eq(newDataVal(), 1), eq(newDataVal(), 2)), false);
+      expect(rule).toBe('(newData.val() == 1 || newData.val() == 2) == false');
+
+      const compiled = compileRtdbRules({
+        rules: { x: { '.write': all(rule, authenticated()) } },
+      });
+      const writeOne = simulateRtdbRules(compiled, {
+        operation: 'write',
+        path: '/x',
+        auth: { uid: 'u', token: {} },
+        mockData: {},
+        newData: 1,
+      });
+      expect(writeOne.success && writeOne.data.allowed).toBe(false);
+
+      const writeThree = simulateRtdbRules(compiled, {
+        operation: 'write',
+        path: '/x',
+        auth: { uid: 'u', token: {} },
+        mockData: {},
+        newData: 3,
+      });
+      expect(writeThree.success && writeThree.data.allowed).toBe(true);
+    });
   });
 
   describe('neq', () => {
@@ -117,17 +168,33 @@ describe('Data template helpers', () => {
     test('segment right (AUTH_UID)', () => {
       expect(neq(dataVal('host'), AUTH_UID)).toBe("data.child('host').val() != auth.uid");
     });
+    test('parenthesizes composite left and right operands (FUZ-9b)', () => {
+      expect(neq(any(eq(newDataVal(), 1), eq(newDataVal(), 2)), true)).toBe(
+        '(newData.val() == 1 || newData.val() == 2) != true',
+      );
+      expect(eq(newDataVal(), ref('a || b'))).toBe('newData.val() == (a || b)');
+    });
   });
 
   describe('gt', () => {
     test('numeric', () => {
       expect(gt(newDataVal(), 0)).toBe('newData.val() > 0');
     });
+    test('parenthesizes composite operand (FUZ-9b)', () => {
+      expect(gt(expr("newData.hasChild('a') ? newData.child('a').val() : 0"), 5)).toBe(
+        "(newData.hasChild('a') ? newData.child('a').val() : 0) > 5",
+      );
+    });
   });
 
   describe('lte', () => {
     test('numeric', () => {
       expect(lte(newDataVal(), 200)).toBe('newData.val() <= 200');
+    });
+    test('parenthesizes composite operand (FUZ-9b)', () => {
+      expect(lte(expr("newData.hasChild('a') ? newData.child('a').val() : 0"), 200)).toBe(
+        "(newData.hasChild('a') ? newData.child('a').val() : 0) <= 200",
+      );
     });
   });
 

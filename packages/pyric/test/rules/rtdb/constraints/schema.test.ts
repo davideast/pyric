@@ -1,7 +1,9 @@
 import { describe, test, expect } from 'bun:test';
 import { z } from 'zod';
 import { schemaRules } from '../../../../src/rules/rtdb/constraints/schema.js';
-import { expr } from '../../../../src/rules/rtdb/constraints/compose.js';
+import { allow, expr } from '../../../../src/rules/rtdb/constraints/compose.js';
+import { defineRtdbRules } from '../../../../src/rules/rtdb/constraints/document.js';
+import { rtdbRules } from '../../../../src/rules/index.js';
 
 describe('schemaRules', () => {
   test('z.string() → isString', () => {
@@ -107,5 +109,183 @@ describe('schemaRules', () => {
     const result = schemaRules(z.object({}));
     expect(result.validate).toBe('newData.hasChildren()');
     expect(Object.keys(result.children)).toHaveLength(0);
+  });
+
+  test('compiles z.string() .min/.max/.length/.regex/.email refinements and enforces them in simulate (CON-1 / FUZ-7)', () => {
+    const schema = z.object({
+      name: z.string().min(3).max(5),
+      code: z.string().length(4),
+      handle: z.string().regex(/^[a-z0-9_]+$/i),
+      email: z.string().email(),
+    });
+    const result = schemaRules(schema);
+    expect(result.children.name.validate).toBe(
+      'newData.isString() && newData.val().length >= 3 && newData.val().length <= 5',
+    );
+    expect(result.children.code.validate).toBe(
+      'newData.isString() && newData.val().length == 4',
+    );
+    expect(result.children.handle.validate).toBe(
+      'newData.isString() && newData.val().matches(/^[a-z0-9_]+$/i)',
+    );
+    expect(result.children.email.validate).toContain('newData.isString() && newData.val().matches(');
+
+    const engine = rtdbRules(
+      defineRtdbRules({
+        paths: {
+          '/users/$uid': { write: allow(), schema },
+        },
+      }),
+    );
+    const report = engine.simulate([
+      {
+        operation: 'write',
+        path: '/users/u1',
+        auth: { uid: 'u1', token: {} },
+        newData: { name: 'alice', code: 'ABCD', handle: 'Alice_1', email: 'alice@example.com' },
+        expectation: 'ALLOW',
+      },
+      {
+        operation: 'write',
+        path: '/users/u1',
+        auth: { uid: 'u1', token: {} },
+        newData: { name: 'al', code: 'ABCD', handle: 'Alice_1', email: 'alice@example.com' },
+        expectation: 'DENY',
+      },
+      {
+        operation: 'write',
+        path: '/users/u1',
+        auth: { uid: 'u1', token: {} },
+        newData: { name: 'alice', code: 'ABC', handle: 'Alice_1', email: 'alice@example.com' },
+        expectation: 'DENY',
+      },
+      {
+        operation: 'write',
+        path: '/users/u1',
+        auth: { uid: 'u1', token: {} },
+        newData: { name: 'alice', code: 'ABCD', handle: 'bad-handle!', email: 'alice@example.com' },
+        expectation: 'DENY',
+      },
+      {
+        operation: 'write',
+        path: '/users/u1',
+        auth: { uid: 'u1', token: {} },
+        newData: { name: 'alice', code: 'ABCD', handle: 'Alice_1', email: 'not-an-email' },
+        expectation: 'DENY',
+      },
+    ]);
+    expect(report.cases.map((c) => c.decision)).toEqual(['ALLOW', 'DENY', 'DENY', 'DENY', 'DENY']);
+  });
+
+  test('compiles z.number() .int/.min/.max/.gt/.lt refinements and enforces them in simulate (CON-1 / FUZ-7)', () => {
+    const schema = z.object({
+      age: z.number().int().min(18).max(120),
+      score: z.number().gt(0).lt(10),
+    });
+    const result = schemaRules(schema);
+    expect(result.children.age.validate).toBe(
+      'newData.isNumber() && newData.val() % 1 == 0 && newData.val() >= 18 && newData.val() <= 120',
+    );
+    expect(result.children.score.validate).toBe(
+      'newData.isNumber() && newData.val() > 0 && newData.val() < 10',
+    );
+
+    const engine = rtdbRules(
+      defineRtdbRules({
+        paths: {
+          '/players/$uid': { write: allow(), schema },
+        },
+      }),
+    );
+    const report = engine.simulate([
+      {
+        operation: 'write',
+        path: '/players/u1',
+        auth: { uid: 'u1', token: {} },
+        newData: { age: 18, score: 5 },
+        expectation: 'ALLOW',
+      },
+      {
+        operation: 'write',
+        path: '/players/u1',
+        auth: { uid: 'u1', token: {} },
+        newData: { age: 18.5, score: 5 },
+        expectation: 'DENY',
+      },
+      {
+        operation: 'write',
+        path: '/players/u1',
+        auth: { uid: 'u1', token: {} },
+        newData: { age: 17, score: 5 },
+        expectation: 'DENY',
+      },
+      {
+        operation: 'write',
+        path: '/players/u1',
+        auth: { uid: 'u1', token: {} },
+        newData: { age: 18, score: 0 },
+        expectation: 'DENY',
+      },
+    ]);
+    expect(report.cases.map((c) => c.decision)).toEqual(['ALLOW', 'DENY', 'DENY', 'DENY']);
+  });
+
+  test('compiles z.object().strict() with $other: false and denies unknown keys in simulate (CON-1)', () => {
+    const schema = z.object({ name: z.string() }).strict();
+    const result = schemaRules(schema);
+    expect(result.children.$other?.validate).toBe('false');
+
+    const engine = rtdbRules(
+      defineRtdbRules({
+        paths: {
+          '/users/$uid': { write: allow(), schema },
+        },
+      }),
+    );
+    const report = engine.simulate([
+      {
+        operation: 'write',
+        path: '/users/u1',
+        auth: { uid: 'u1', token: {} },
+        newData: { name: 'alice' },
+        expectation: 'ALLOW',
+      },
+      {
+        operation: 'write',
+        path: '/users/u1',
+        auth: { uid: 'u1', token: {} },
+        newData: { name: 'alice', extra: true },
+        expectation: 'DENY',
+      },
+    ]);
+    expect(report.cases.map((c) => c.decision)).toEqual(['ALLOW', 'DENY']);
+  });
+
+  test('rejects unsupported Zod refinements, invalid z.literal values, and unknown fieldConstraints keys (CON-1 / FUZ-7)', () => {
+    expect(() => schemaRules(z.object({ id: z.string().uuid() }))).toThrow(/Unsupported/);
+    expect(() => schemaRules(z.object({ tag: z.string().regex(/a/g) }))).toThrow(/Unsupported/);
+    expect(() => schemaRules(z.object({ bad: z.literal(undefined) }))).toThrow(/no literal for undefined/);
+    expect(() => schemaRules(z.object({ bad: z.literal(Number.NaN) }))).toThrow(/no literal for NaN/);
+    expect(() =>
+      schemaRules(z.object({ unionWithObject: z.union([z.string(), z.object({ a: z.string() })]) })),
+    ).toThrow(/Unsupported Zod type.*ZodObject/);
+    expect(() =>
+      schemaRules(z.object({ name: z.string() }), { missingKey: [expr("newData.val() == 'ok'")] }),
+    ).toThrow(/missingKey/);
+  });
+
+  test('preserves fieldConstraints on a nested z.object field (FUZ-7)', () => {
+    const result = schemaRules(
+      z.object({
+        meta: z.object({ title: z.string() }),
+      }),
+      {
+        meta: [expr("newData.child('title').val() == 'ok'")],
+      },
+    );
+    expect(result.children.meta.validate).toBe(
+      "newData.hasChildren() && newData.hasChild('title') && newData.child('title').val() == 'ok'",
+    );
+    expect(result.children.meta.children?.title.validate).toBe('newData.isString()');
   });
 });
