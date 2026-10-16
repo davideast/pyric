@@ -48,6 +48,10 @@ test('over a real ws socket, a native or remote client\'s onDisconnect runs on a
   expect(await runNodeFixture('relay-ondisconnect', 30_000)).toBe('Relay onDisconnect passed');
 }, 45_000);
 
+test('an onDisconnect re-armed on the session an interruption just drained survives the drain, and a later interruption runs it (#990)', async () => {
+  expect(await runNodeFixture('rearm-after-interrupt', 30_000)).toBe('Re-arm after interrupt passed');
+}, 45_000);
+
 test('a failed batch rolls back updates and deletions together', async () => {
   expect(await runNodeFixture('rollback')).toBe('Rollback passed');
 });
