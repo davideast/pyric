@@ -267,10 +267,14 @@ export async function handleRtdbOp(
   switch (msg.method) {
     case 'rtdb.get': {
       try {
-        // A transaction reads its input as the sandbox's transaction engine
-        // does, without the read rules; its commit evaluates the write rules.
-        const lens = msg.transaction === true ? { mode: 'admin' as const } : msg.actAs;
-        const db = lensRtdb(ctx, lens, port, msg.instance);
+        const db = lensRtdb(ctx, msg.actAs, port, msg.instance);
+        if (msg.transaction === true) {
+          const aborted = await sdkActivity.silence(() =>
+            rtdbRunTransaction(rtdbRef(db, msg.path), () => undefined),
+          );
+          ok(port, msg.id, rtdbSnapToWire(aborted.snapshot));
+          break;
+        }
         ok(port, msg.id, rtdbSnapToWire(await sdkActivity.silence(() => rtdbGet(rtdbTarget(db, msg.path, msg.query)))));
       } catch (e) { fail(port, msg.id, e); }
       break;

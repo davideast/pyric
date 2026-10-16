@@ -288,6 +288,65 @@ describe('runTransaction — rules-denied error shape (oracle: rtdb-modular-runt
     const snap = await get(ref(db, 'v'));
     expect(snap.val()).toBe(1);
   });
+
+  it('never leaks unreadable server data or priority to transactionUpdate or aborted snapshot when .read is false', async () => {
+    const { db } = setup();
+    await set(ref(db, 'vault/secret'), {
+      '.value': 'top-secret',
+      '.priority': 42,
+    });
+    rtdbSandbox.setRules(db, denyAll());
+
+    const seenOnAbort: unknown[] = [];
+    const aborted = await runTransaction(ref(db, 'vault/secret'), (current) => {
+      seenOnAbort.push(current);
+      return undefined;
+    });
+    expect(seenOnAbort).toEqual([null]);
+    expect(aborted.committed).toBe(false);
+    expect(aborted.snapshot.val()).toBeNull();
+    expect(aborted.snapshot.exists()).toBe(false);
+    expect(aborted.snapshot.priority).toBeNull();
+    expect(aborted.snapshot.exportVal()).toBeNull();
+
+    const seenOnDeny: unknown[] = [];
+    let caught: unknown;
+    try {
+      await runTransaction(ref(db, 'vault/secret'), (current) => {
+        seenOnDeny.push(current);
+        return 'overwritten';
+      });
+    } catch (e) {
+      caught = e;
+    }
+    expect(seenOnDeny).toEqual([null]);
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toBe('permission_denied');
+  });
+
+  it('commits on a write-only path (.read: false, .write: true) while passing null to transactionUpdate', async () => {
+    const { db } = setup();
+    await set(ref(db, 'drop/counter'), 10);
+    rtdbSandbox.setRules(db, {
+      rules: {
+        drop: {
+          counter: {
+            '.read': false,
+            '.write': true,
+          },
+        },
+      },
+    });
+
+    const seen: unknown[] = [];
+    const result = await runTransaction<number>(ref(db, 'drop/counter'), (current) => {
+      seen.push(current);
+      return 25;
+    });
+    expect(seen).toEqual([null]);
+    expect(result.committed).toBe(true);
+    expect(result.snapshot.val()).toBe(25);
+  });
 });
 
 describe('runTransaction — listener fires on commit', () => {
