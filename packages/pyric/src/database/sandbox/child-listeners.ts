@@ -70,10 +70,10 @@ export class ChildListeners {
         rules: rulesObj,
       });
       if (cancelCallback) {
+        if (onCanceled) {
+          onCanceled();
+        }
         queueMicrotask(() => {
-          if (onCanceled) {
-            onCanceled();
-          }
           cancelCallback(listenerPermissionDenied(path, denial));
         });
         return () => {};
