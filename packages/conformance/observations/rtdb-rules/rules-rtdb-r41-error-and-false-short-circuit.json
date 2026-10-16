@@ -1,0 +1,21 @@
+{
+  "name": "rules-rtdb-r41-error-and-false-short-circuit",
+  "matrixRow": "rtdb-rules#17",
+  "rowIds": [
+    "rtdb-rules#17"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r41-error-and-false-short-circuit\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). an expression of the form !(X && false) or (X && false) || true where X errors at runtime must match production so the security linter and simulator agree on whether the rule can grant.",
+  "observedAt": "2026-10-15T18:00:02.720Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "LNT-1: read !(X && false) when X calls toUpperCase() on a number": "DENY",
+    "LNT-1: control read !(X && false) when X calls toUpperCase() on a string": "ALLOW",
+    "LNT-1: read (X && false) || true when X calls toUpperCase() on a number": "DENY",
+    "LNT-1: control read (X && false) || true when X calls toUpperCase() on a string": "ALLOW",
+    "LNT-1: read (X && false) ? false : true when X calls toUpperCase() on a number": "DENY",
+    "LNT-1: write !(X && false) when X calls toUpperCase() on a number": "DENY",
+    "LNT-1: write (X && false) || true when X calls toUpperCase() on a number": "DENY",
+    "LNT-1: control write !(X && false) when X calls toUpperCase() on a string": "ALLOW"
+  }
+}

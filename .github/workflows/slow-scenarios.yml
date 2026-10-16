@@ -1,0 +1,99 @@
+# The app scenarios that wait on real timeouts: each `test/apps/<name>` whose
+# scenario.ts exports `slow = true`. Build & Test skips them on every run
+# (`--skip-slow`); this workflow runs only them, on the same packed packages.
+#
+# Runs on pushes to main, nightly, on demand, and on a pull request when the
+# `ci-slow-scenarios` label is added (by someone with triage access). A push
+# after the label does not run it again: remove and re-add the label, or
+# re-run the workflow. It is not part of `CI / required`.
+
+name: Slow app scenarios
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '47 9 * * *'
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: 'One app under test/apps to run, slow or not. Empty runs every slow app.'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  # One run per ref; a newer one cancels it. Adding any other label to a pull
+  # request starts a run that does nothing, so it gets a group of its own
+  # instead of cancelling a slow run in progress.
+  group: slow-scenarios-${{ github.ref }}${{ github.event_name == 'pull_request' && github.event.label.name != 'ci-slow-scenarios' && format('-{0}', github.run_id) || '' }}
+  cancel-in-progress: true
+
+jobs:
+  slow-scenarios:
+    name: Slow app scenarios (real apps on the packed packages)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.event_name != 'pull_request' || github.event.label.name == 'ci-slow-scenarios'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.15'
+      - name: Cache app npm downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pyric-app-scenarios-npm
+          key: app-scenarios-npm-${{ runner.os }}-${{ hashFiles('test/apps/*/package.json', 'packages/*/package.json') }}
+          restore-keys: app-scenarios-npm-${{ runner.os }}-
+      - name: Install
+        run: bun install --frozen-lockfile --filter '!@pyric/playground'
+      # Restores the build Build & Test saved for these inputs, or builds the
+      # packages (scripts/build.sh --packages-only) and saves them.
+      - uses: ./.github/actions/restore-dist
+        with:
+          flavor: packages
+      - name: Cache Playwright Chromium
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ env.ImageOS }}-${{ hashFiles('packages/cli/package.json', 'package.json') }}
+          restore-keys: |
+            playwright-chromium-${{ runner.os }}-${{ env.ImageOS }}-
+            playwright-chromium-${{ runner.os }}-
+      - name: Install Chromium browser
+        run: bunx playwright install chromium
+      - name: Pack the published packages
+        run: bash scripts/pack-packages.sh --skip-build
+      - name: Slow app scenarios
+        env:
+          SCENARIO: ${{ github.event.inputs.scenario }}
+        run: |
+          if [ -n "$SCENARIO" ]; then
+            bun test/apps/run.ts --packages dist/packages "$SCENARIO"
+          else
+            bun test/apps/run.ts --packages dist/packages --only-slow
+          fi
+      - name: Upload app scenario logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: slow-app-scenarios-logs-${{ github.run_attempt }}
+          path: test-results/apps/
+          if-no-files-found: warn
+          retention-days: 7

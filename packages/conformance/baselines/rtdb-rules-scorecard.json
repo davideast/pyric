@@ -100,10 +100,10 @@
     ]
   },
   "score": {
-    "numerator": 89,
+    "numerator": 69,
     "denominator": 91,
-    "ratio": 0.978021978021978,
-    "percent": 97.8
+    "ratio": 0.7582417582417582,
+    "percent": 75.8
   },
   "axes": {
     "productionAcceptance": {
@@ -113,26 +113,26 @@
       "unprobeable": 0
     },
     "localAcceptance": {
-      "accepted": 70,
-      "rejected": 21,
+      "accepted": 73,
+      "rejected": 18,
       "unsupported": 0,
       "unprobeable": 0
     },
     "localCapability": {
-      "implemented": 70,
+      "implemented": 73,
       "unsupported": 0,
-      "error": 21,
+      "error": 18,
       "unprobeable": 0
     },
     "productionEvidence": {
-      "verified": 88,
-      "diverged": 2,
+      "verified": 68,
+      "diverged": 22,
       "unverified": 1
     }
   },
   "counts": {
-    "conformant": 89,
-    "diverged": 2,
+    "conformant": 69,
+    "diverged": 22,
     "unknown": 0,
     "acceptance-mismatch": 0,
     "local-unsupported": 0,
@@ -173,6 +173,8 @@
         "r33-null-operands",
         "r34-stdlib-auth-membership-quota",
         "r4-validate-structure",
+        "r40-auth-token-dynamic-index",
+        "r42-custom-token-standard-claims",
         "r5-cascade-root-grant",
         "r7-pathvar-binding",
         "r8-combined-check",
@@ -197,6 +199,7 @@
         "r30-query-rules",
         "r32-method-argument-types",
         "r34-stdlib-auth-membership-quota",
+        "r42-custom-token-standard-claims",
         "r7-pathvar-binding",
         "r8-combined-check"
       ],
@@ -207,18 +210,23 @@
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "r12-server-time-and-token",
         "r16-auth-provider-and-tenant",
         "r31-token-claims",
-        "r34-stdlib-auth-membership-quota"
+        "r34-stdlib-auth-membership-quota",
+        "r40-auth-token-dynamic-index",
+        "r42-custom-token-standard-claims"
       ],
       "verifiedByRows": [
         "rtdb-rules#25"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "rtdb-rules#31",
+        "rtdb-rules#32"
+      ]
     },
     "rtdb.binding.data": {
       "productionAcceptance": "accepted",
@@ -237,6 +245,10 @@
         "r32-method-argument-types",
         "r33-null-operands",
         "r34-stdlib-auth-membership-quota",
+        "r38-div-mod-by-zero",
+        "r39-root-parent-runtime",
+        "r40-auth-token-dynamic-index",
+        "r41-error-and-false-short-circuit",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -267,7 +279,11 @@
         "r28-stdlib-presence-timing",
         "r32-method-argument-types",
         "r34-stdlib-auth-membership-quota",
+        "r36-runtime-arithmetic-types",
+        "r37-runtime-comparison-and-length-types",
+        "r38-div-mod-by-zero",
         "r4-validate-structure",
+        "r41-error-and-false-short-circuit",
         "r8-combined-check",
         "r9-quota-arithmetic"
       ],
@@ -278,13 +294,16 @@
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
-        "r14-root-lookup"
+        "r14-root-lookup",
+        "r39-root-parent-runtime"
       ],
       "verifiedByRows": [],
-      "divergedByRows": []
+      "divergedByRows": [
+        "rtdb-rules#30"
+      ]
     },
     "rtdb.binding.now": {
       "productionAcceptance": "accepted",
@@ -339,6 +358,11 @@
         "r32-method-argument-types",
         "r33-null-operands",
         "r34-stdlib-auth-membership-quota",
+        "r36-runtime-arithmetic-types",
+        "r37-runtime-comparison-and-length-types",
+        "r38-div-mod-by-zero",
+        "r40-auth-token-dynamic-index",
+        "r41-error-and-false-short-circuit",
         "r8-combined-check",
         "r9-quota-arithmetic"
       ],
@@ -364,6 +388,9 @@
         "r28-stdlib-presence-timing",
         "r32-method-argument-types",
         "r34-stdlib-auth-membership-quota",
+        "r38-div-mod-by-zero",
+        "r40-auth-token-dynamic-index",
+        "r41-error-and-false-short-circuit",
         "r8-combined-check"
       ],
       "verifiedByRows": [
@@ -375,17 +402,21 @@
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "r10-snapshot-type-guards",
         "r23-validate-sibling-scope",
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
-        "r34-stdlib-auth-membership-quota"
+        "r34-stdlib-auth-membership-quota",
+        "r39-root-parent-runtime",
+        "r43-deploy-expression-and-structure-probes"
       ],
       "verifiedByRows": [],
-      "divergedByRows": []
+      "divergedByRows": [
+        "rtdb-rules#30"
+      ]
     },
     "rtdb.method.snapshot.hasChild": {
       "productionAcceptance": "accepted",
@@ -432,7 +463,8 @@
         "r28-stdlib-presence-timing",
         "r3-data-exists",
         "r32-method-argument-types",
-        "r34-stdlib-auth-membership-quota"
+        "r34-stdlib-auth-membership-quota",
+        "r39-root-parent-runtime"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -590,7 +622,8 @@
       "verifiedBy": [
         "r11-string-validation",
         "r17-validate-runtime-error",
-        "r26-rule-runtime-error"
+        "r26-rule-runtime-error",
+        "r41-error-and-false-short-circuit"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -599,15 +632,19 @@
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "r11-string-validation",
         "r17-validate-runtime-error",
-        "r27-stdlib-core-patterns"
+        "r27-stdlib-core-patterns",
+        "r37-runtime-comparison-and-length-types",
+        "r39-root-parent-runtime"
       ],
       "verifiedByRows": [],
-      "divergedByRows": []
+      "divergedByRows": [
+        "rtdb-rules#28"
+      ]
     },
     "rtdb.operator.strictEq": {
       "productionAcceptance": "accepted",
@@ -647,8 +684,8 @@
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "r16-auth-provider-and-tenant",
         "r17-validate-runtime-error",
@@ -664,10 +701,20 @@
         "r33-null-operands",
         "r34-stdlib-auth-membership-quota",
         "r35-operator-precedence",
-        "r9-quota-arithmetic"
+        "r36-runtime-arithmetic-types",
+        "r37-runtime-comparison-and-length-types",
+        "r38-div-mod-by-zero",
+        "r39-root-parent-runtime",
+        "r40-auth-token-dynamic-index",
+        "r41-error-and-false-short-circuit",
+        "r42-custom-token-standard-claims",
+        "r9-quota-arithmetic",
+        "r44-deploy-string-and-regex-probes"
       ],
       "verifiedByRows": [],
-      "divergedByRows": []
+      "divergedByRows": [
+        "rtdb-rules#33"
+      ]
     },
     "rtdb.operator.looseNeq": {
       "productionAcceptance": "accepted",
@@ -699,7 +746,9 @@
         "r32-method-argument-types",
         "r33-null-operands",
         "r34-stdlib-auth-membership-quota",
+        "r39-root-parent-runtime",
         "r4-validate-structure",
+        "r42-custom-token-standard-claims",
         "r5-cascade-root-grant",
         "r7-pathvar-binding",
         "r8-combined-check",
@@ -712,37 +761,45 @@
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "r24-deny-without-rule",
         "r27-stdlib-core-patterns",
         "r34-stdlib-auth-membership-quota",
         "r35-operator-precedence",
+        "r37-runtime-comparison-and-length-types",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [
         "rtdb-rules#22"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "rtdb-rules#28"
+      ]
     },
     "rtdb.operator.gt": {
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "r17-validate-runtime-error",
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
         "r33-null-operands",
-        "r9-quota-arithmetic"
+        "r37-runtime-comparison-and-length-types",
+        "r38-div-mod-by-zero",
+        "r9-quota-arithmetic",
+        "r43-deploy-expression-and-structure-probes"
       ],
       "verifiedByRows": [
         "rtdb-rules#22"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "rtdb-rules#28"
+      ]
     },
     "rtdb.operator.lte": {
       "productionAcceptance": "accepted",
@@ -769,104 +826,126 @@
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "r11-string-validation",
         "r27-stdlib-core-patterns",
         "r31-token-claims",
         "r33-null-operands",
         "r34-stdlib-auth-membership-quota",
+        "r37-runtime-comparison-and-length-types",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [
         "rtdb-rules#22"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "rtdb-rules#28"
+      ]
     },
     "rtdb.operator.add": {
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "r23-validate-sibling-scope",
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
         "r34-stdlib-auth-membership-quota",
         "r35-operator-precedence",
+        "r37-runtime-comparison-and-length-types",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [
         "rtdb-rules#22"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "rtdb-rules#28"
+      ]
     },
     "rtdb.operator.sub": {
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "r27-stdlib-core-patterns",
         "r35-operator-precedence",
+        "r36-runtime-arithmetic-types",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [
         "rtdb-rules#22"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "rtdb-rules#28"
+      ]
     },
     "rtdb.operator.mul": {
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "r27-stdlib-core-patterns",
         "r35-operator-precedence",
+        "r36-runtime-arithmetic-types",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [
         "rtdb-rules#22"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "rtdb-rules#28"
+      ]
     },
     "rtdb.operator.div": {
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "r33-null-operands",
         "r35-operator-precedence",
+        "r36-runtime-arithmetic-types",
+        "r38-div-mod-by-zero",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [
         "rtdb-rules#22"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "rtdb-rules#28",
+        "rtdb-rules#29"
+      ]
     },
     "rtdb.operator.mod": {
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "r27-stdlib-core-patterns",
         "r33-null-operands",
         "r35-operator-precedence",
+        "r36-runtime-arithmetic-types",
+        "r38-div-mod-by-zero",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [
         "rtdb-rules#22"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "rtdb-rules#28",
+        "rtdb-rules#29"
+      ]
     },
     "rtdb.operator.and": {
       "productionAcceptance": "accepted",
@@ -888,6 +967,7 @@
         "r30-query-rules",
         "r34-stdlib-auth-membership-quota",
         "r35-operator-precedence",
+        "r41-error-and-false-short-circuit",
         "r7-pathvar-binding",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -908,6 +988,12 @@
         "r33-null-operands",
         "r34-stdlib-auth-membership-quota",
         "r35-operator-precedence",
+        "r36-runtime-arithmetic-types",
+        "r37-runtime-comparison-and-length-types",
+        "r38-div-mod-by-zero",
+        "r39-root-parent-runtime",
+        "r40-auth-token-dynamic-index",
+        "r41-error-and-false-short-circuit",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -925,7 +1011,11 @@
         "r28-stdlib-presence-timing",
         "r3-data-exists",
         "r34-stdlib-auth-membership-quota",
-        "r35-operator-precedence"
+        "r35-operator-precedence",
+        "r36-runtime-arithmetic-types",
+        "r37-runtime-comparison-and-length-types",
+        "r38-div-mod-by-zero",
+        "r41-error-and-false-short-circuit"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -934,17 +1024,20 @@
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "r27-stdlib-core-patterns",
         "r35-operator-precedence",
+        "r36-runtime-arithmetic-types",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [
         "rtdb-rules#22"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "rtdb-rules#28"
+      ]
     },
     "rtdb.operator.ternary": {
       "productionAcceptance": "accepted",
@@ -954,6 +1047,8 @@
       "classification": "conformant",
       "verifiedBy": [
         "r35-operator-precedence",
+        "r39-root-parent-runtime",
+        "r41-error-and-false-short-circuit",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -978,6 +1073,10 @@
         "r31-token-claims",
         "r32-method-argument-types",
         "r34-stdlib-auth-membership-quota",
+        "r37-runtime-comparison-and-length-types",
+        "r39-root-parent-runtime",
+        "r40-auth-token-dynamic-index",
+        "r42-custom-token-standard-claims",
         "r7-pathvar-binding",
         "r8-combined-check"
       ],
@@ -988,13 +1087,18 @@
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
-        "r12-server-time-and-token"
+        "r12-server-time-and-token",
+        "r40-auth-token-dynamic-index",
+        "r43-deploy-expression-and-structure-probes"
       ],
       "verifiedByRows": [],
-      "divergedByRows": []
+      "divergedByRows": [
+        "rtdb-rules#31",
+        "rtdb-rules#33"
+      ]
     },
     "rtdb.rule-kind.read": {
       "productionAcceptance": "accepted",
@@ -1025,7 +1129,11 @@
         "r32-method-argument-types",
         "r34-stdlib-auth-membership-quota",
         "r35-operator-precedence",
+        "r39-root-parent-runtime",
         "r4-validate-structure",
+        "r40-auth-token-dynamic-index",
+        "r41-error-and-false-short-circuit",
+        "r42-custom-token-standard-claims",
         "r5-cascade-root-grant",
         "r6-deny-everything",
         "r7-pathvar-binding",
@@ -1069,7 +1177,11 @@
         "r32-method-argument-types",
         "r33-null-operands",
         "r34-stdlib-auth-membership-quota",
+        "r36-runtime-arithmetic-types",
+        "r37-runtime-comparison-and-length-types",
+        "r38-div-mod-by-zero",
         "r4-validate-structure",
+        "r41-error-and-false-short-circuit",
         "r5-cascade-root-grant",
         "r6-deny-everything",
         "r7-pathvar-binding",
@@ -1212,14 +1324,17 @@
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "r11-string-validation",
-        "r27-stdlib-core-patterns"
+        "r27-stdlib-core-patterns",
+        "r44-deploy-string-and-regex-probes"
       ],
       "verifiedByRows": [],
-      "divergedByRows": []
+      "divergedByRows": [
+        "rtdb-rules#33"
+      ]
     },
     "rtdb.binding.query": {
       "productionAcceptance": "accepted",
@@ -1379,8 +1494,8 @@
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "r31-token-claims",
         "r34-stdlib-auth-membership-quota"
@@ -1388,7 +1503,9 @@
       "verifiedByRows": [
         "rtdb-rules#25"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "rtdb-rules#32"
+      ]
     },
     "rtdb.binding.unknown-variable": {
       "productionAcceptance": "rejected",
@@ -1574,31 +1691,37 @@
     },
     "rtdb.rule-kind.unknown-key": {
       "productionAcceptance": "rejected",
-      "localAcceptance": "rejected",
-      "localCapability": "error",
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
-        "r29-deploy-rejections"
+        "r29-deploy-rejections",
+        "r43-deploy-expression-and-structure-probes"
       ],
       "verifiedByRows": [
         "rtdb-rules#27"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "rtdb-rules#33"
+      ]
     },
     "rtdb.rule-kind.non-expression-value": {
       "productionAcceptance": "rejected",
-      "localAcceptance": "rejected",
-      "localCapability": "error",
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
-        "r29-deploy-rejections"
+        "r29-deploy-rejections",
+        "r43-deploy-expression-and-structure-probes"
       ],
       "verifiedByRows": [
         "rtdb-rules#27"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "rtdb-rules#33"
+      ]
     },
     "rtdb.rule-kind.indexOn-non-string": {
       "productionAcceptance": "rejected",
@@ -1630,17 +1753,20 @@
     },
     "rtdb.rule-kind.non-object-child": {
       "productionAcceptance": "rejected",
-      "localAcceptance": "rejected",
-      "localCapability": "error",
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
-        "r29-deploy-rejections"
+        "r29-deploy-rejections",
+        "r43-deploy-expression-and-structure-probes"
       ],
       "verifiedByRows": [
         "rtdb-rules#27"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "rtdb-rules#33"
+      ]
     },
     "rtdb.rule-kind.non-boolean-result": {
       "productionAcceptance": "rejected",
