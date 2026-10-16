@@ -40,7 +40,8 @@ export function rtdbRunTransaction<T>(
         t: 'op', id: nextId(), method: 'rtdb.get', path: ref.path, transaction: true,
       }));
       const expected = before.val() as T | null;
-      const value = transactionUpdate(expected);
+      const current = expected === null ? null : structuredClone(expected);
+      const value = transactionUpdate(current);
       if (value === undefined) return transactionResult(false, before);
       const wire = await rtdbRpc(ref, {
         t: 'op',

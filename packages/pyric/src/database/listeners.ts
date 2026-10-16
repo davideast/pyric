@@ -47,6 +47,7 @@ function subscribeWithLiveAuth(
   };
 
   backendUnsubscribe = subscribe(authFor(target), stop, replaying);
+  if (stopped) return stop;
   sessionUnsubscribe = target.kind === 'sandbox-live'
     ? target.onCurrentUserChanged?.(() => {
       if (stopped) return;
@@ -86,6 +87,32 @@ function ownerOnlyOptions(options: ListenOptions | undefined): ListenOptions | u
 
 function queryScope(r: DatabaseReference | Query): string {
   return queryIdentifier(r._spec);
+}
+
+function registerTracked(
+  target: Target,
+  path: string,
+  event: 'value' | ChildEvent,
+  registryCallback: object,
+  activity: SdkActivityHandle,
+  scope: string | undefined,
+  attach: (unregister: () => void) => Unsubscribe,
+): Unsubscribe {
+  let registration: ListenerRegistration | undefined;
+  let unregistered = false;
+  const unregister = (): void => {
+    unregistered = true;
+    activity.close();
+    if (registration !== undefined) {
+      listenerRegistry.removeExact(target, path, event, registryCallback, registration, scope);
+    }
+  };
+  const unsubscribe = attach(unregister);
+  if (!unregistered) {
+    registration = { unsubscribe };
+    listenerRegistry.add(target, path, event, registryCallback, registration, scope);
+  }
+  return unsubscribe;
 }
 
 /**
@@ -240,20 +267,12 @@ function onValueInternal(
     // listen-plane sibling of `adminGet`/`adminSet` (#401). `admin` is set
     // only on server-minted `getAdminDatabase` handles, never anything a page
     // controls, so a page's `onValue` stays on the rule-gated path below.
-    let registration: ListenerRegistration | undefined;
-    const unregister = (): void => {
-      activity.close();
-      const currentRegistration = registration;
-      const hasRegistration = currentRegistration !== undefined;
-      if (hasRegistration) {
-        listenerRegistry.removeExact(target, q.ref._path, 'value', registryCallback, currentRegistration, scope);
+    return registerTracked(target, q.ref._path, 'value', registryCallback, activity, scope, (unregister) => {
+      if (isAdmin) {
+        const subscribed = target.backend.adminOnValue(q.ref._path, deliver, q._spec);
+        return () => { unregister(); subscribed(); };
       }
-    };
-    let subscribed: Unsubscribe;
-    if (isAdmin) {
-      subscribed = target.backend.adminOnValue(q.ref._path, deliver, q._spec);
-    } else {
-      subscribed = subscribeWithLiveAuth(
+      return subscribeWithLiveAuth(
         target,
         (auth, onCanceled, replaying) => target.backend.onValue(
           auth,
@@ -266,12 +285,7 @@ function onValueInternal(
         ),
         unregister,
       );
-    }
-    let unsub = subscribed;
-    if (isAdmin) unsub = () => { unregister(); subscribed(); };
-    registration = { unsubscribe: unsub };
-    listenerRegistry.add(target, q.ref._path, 'value', registryCallback, registration, scope);
-    return unsub;
+    });
   }
   const ref0 = reference;
   const target = targetOf(ref0);
@@ -285,18 +299,12 @@ function onValueInternal(
       // behavior where one observer's exception doesn't block others.
     }
   };
-  let registration: ListenerRegistration | undefined;
-  const unregister = (): void => {
-    activity.close();
-    const currentRegistration = registration;
-    const hasRegistration = currentRegistration !== undefined;
-    if (hasRegistration) listenerRegistry.removeExact(target, ref0._path, 'value', registryCallback, currentRegistration);
-  };
-  let subscribed: Unsubscribe;
-  if (isAdmin) {
-    subscribed = target.backend.adminOnValue(ref0._path, wrapper);
-  } else {
-    subscribed = subscribeWithLiveAuth(
+  return registerTracked(target, ref0._path, 'value', registryCallback, activity, undefined, (unregister) => {
+    if (isAdmin) {
+      const subscribed = target.backend.adminOnValue(ref0._path, wrapper);
+      return () => { unregister(); subscribed(); };
+    }
+    return subscribeWithLiveAuth(
       target,
       (auth, onCanceled, replaying) => target.backend.onValue(
         auth,
@@ -309,12 +317,7 @@ function onValueInternal(
       ),
       unregister,
     );
-  }
-  let unsub = subscribed;
-  if (isAdmin) unsub = () => { unregister(); subscribed(); };
-  registration = { unsubscribe: unsub };
-  listenerRegistry.add(target, ref0._path, 'value', registryCallback, registration);
-  return unsub;
+  });
 }
 
 /**
@@ -541,29 +544,21 @@ function onChildEvent(
       // behavior where one observer's exception doesn't block others.
     }
   };
-  let registration: ListenerRegistration | undefined;
-  const unregister = (): void => {
-    activity.close();
-    if (registration) {
-      listenerRegistry.removeExact(target, baseRef._path, event, registryCallback, registration, scope);
-    }
-  };
-  const unsub = subscribeWithLiveAuth(
-    target,
-    (auth, onCanceled, replaying) => target.backend.onChild(
-      auth,
-      event,
-      baseRef._path,
-      (raw) => { if (!replaying()) wrapper(raw); },
-      spec,
-      cancelCallback,
-      () => { activity.fail(); onCanceled(); },
+  return registerTracked(target, baseRef._path, event, registryCallback, activity, scope, (unregister) =>
+    subscribeWithLiveAuth(
+      target,
+      (auth, onCanceled, replaying) => target.backend.onChild(
+        auth,
+        event,
+        baseRef._path,
+        (raw) => { if (!replaying()) wrapper(raw); },
+        spec,
+        cancelCallback,
+        () => { activity.fail(); onCanceled(); },
+      ),
+      unregister,
     ),
-    unregister,
   );
-  registration = { unsubscribe: unsub };
-  listenerRegistry.add(target, baseRef._path, event, registryCallback, registration, scope);
-  return unsub;
 }
 
 /**
