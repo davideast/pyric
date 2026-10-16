@@ -26,6 +26,9 @@ import { scenario, sleep } from '../driver.ts';
 declare const presence: { goOnline(user: string): Promise<void>; read(user: string): Promise<unknown> };
 declare const restoredFromCache: boolean | undefined;
 
+/** Waits out a 40s liveness window and a heartbeat past it, so pull requests skip it (test/apps/selection.ts). */
+export const slow = true;
+
 const WINDOW_MS = 40_000;
 const HEARTBEAT_MS = 15_000;
 

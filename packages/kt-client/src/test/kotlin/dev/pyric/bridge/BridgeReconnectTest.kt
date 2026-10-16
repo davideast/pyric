@@ -65,6 +65,18 @@ class FakeReconnectSocket(
         open = false
         listener.onClosed(code, "dropped")
     }
+
+    /**
+     * The peer's close is under way but not yet reported: [send] returns false,
+     * as OkHttp's does on a closing socket, until [finishClosing] reports it.
+     */
+    fun beginClosing() {
+        open = false
+    }
+
+    fun finishClosing(code: Int) {
+        listener.onClosed(code, "closed by peer")
+    }
 }
 
 /** Hands out a new socket per connection and records every frame across all of them. */
@@ -600,6 +612,27 @@ class BridgeReconnectTest {
         until { client.connectionState == BridgeConnectionState.CLOSED }
         delay(50)
         assertEquals(1, bridge.ofType("attach").size)
+    }
+
+    @Test
+    fun `a ping refused by a closing socket leaves the drop to its close, so a policy close is not retried`() = runBlocking {
+        val client = client(heartbeatIntervalMs = 20L)
+        client.connect()
+        val socket = bridge.current
+        until { socket.pings() >= 1 }
+
+        socket.beginClosing()
+        val pingsAtClosing = socket.pings()
+        until { socket.pings() > pingsAtClosing }
+        delay(100)
+        assertEquals(BridgeConnectionState.ATTACHED, client.connectionState, "a refused ping is not a drop")
+        assertEquals(1, bridge.connectCalls.get(), "a refused ping must not start a reconnect")
+
+        socket.finishClosing(1008)
+        until { client.connectionState == BridgeConnectionState.CLOSED }
+        delay(50)
+        assertEquals(1, bridge.ofType("attach").size)
+        assertEquals(1, bridge.connectCalls.get())
     }
 
     @Test

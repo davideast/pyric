@@ -18,6 +18,52 @@ function rowsToVal(rows: QueryRow[]): JsonValue {
   return Object.fromEntries(rows.map(({ key, value }) => [key, value])) as JsonValue;
 }
 
+const ROOT_IDENTIFIER_PATTERN = /\broot\b/;
+const DATA_IDENTIFIER_PATTERN = /\bdata\b/;
+const PARENT_IDENTIFIER_PATTERN = /\bparent\b/;
+
+function pathsTouch(left: string, right: string): boolean {
+  if (left === right || left === '/' || right === '/') return true;
+  return right.startsWith(`${left}/`) || left.startsWith(`${right}/`);
+}
+
+function isRuleObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function nextRuleNode(node: Record<string, unknown>, segment: string): Record<string, unknown> | undefined {
+  if (!segment.startsWith('.') && Object.hasOwn(node, segment) && isRuleObject(node[segment])) {
+    return node[segment];
+  }
+  for (const [key, child] of Object.entries(node)) {
+    if (key.startsWith('$') && isRuleObject(child)) return child;
+  }
+  return undefined;
+}
+
+function readRuleDependsOnWrite(rawRule: unknown, ancestorPath: string, changedPaths: readonly string[]): boolean {
+  if (typeof rawRule !== 'string') return false;
+  if (ROOT_IDENTIFIER_PATTERN.test(rawRule)) return true;
+  if (!DATA_IDENTIFIER_PATTERN.test(rawRule)) return false;
+  if (PARENT_IDENTIFIER_PATTERN.test(rawRule) || rawRule.includes('[')) return true;
+  return changedPaths.some((changedPath) => pathsTouch(ancestorPath, changedPath));
+}
+
+function listenerReadDependsOnPaths(
+  rulesRoot: Record<string, unknown>,
+  listenerPath: string,
+  changedPaths: readonly string[],
+): boolean {
+  const segments = pathSegments(listenerPath);
+  let current: Record<string, unknown> | undefined = rulesRoot;
+  for (let depth = 0; depth <= segments.length && current !== undefined; depth++) {
+    const ancestorPath = joinPath(segments.slice(0, depth));
+    if (readRuleDependsOnWrite(current['.read'], ancestorPath, changedPaths)) return true;
+    if (depth < segments.length) current = nextRuleNode(current, segments[depth]!);
+  }
+  return false;
+}
+
 export class WritePlane {
   private readonly priorityWrites: PriorityWrites;
 
@@ -41,6 +87,7 @@ export class WritePlane {
       this.storeNestedPriorities(path, nested);
     }
     this.state.mutations.mark('/');
+    this.cancelDeniedListeners(['/']);
     this.state.notifyWrite();
   }
 
@@ -182,6 +229,7 @@ export class WritePlane {
 
   adminSetPriority(path: string, priority: Priority): void {
     this.priorityWrites.adminSet(path, priority);
+    this.cancelDeniedListeners([path]);
   }
 
   get(auth: AuthState, path: string): JsonValue {
@@ -241,6 +289,7 @@ export class WritePlane {
 
   setPriority(auth: AuthState, path: string, priority: Priority): void {
     this.priorityWrites.set(auth, path, priority);
+    this.cancelDeniedListeners([path]);
   }
 
   validateSet(auth: AuthState, path: string, value: unknown, priority: Priority = null): void {
@@ -406,16 +455,35 @@ export class WritePlane {
 
   private changed(paths: string[], priors: ReturnType<ChildListeners['snapshotParents']>): void {
     this.state.mutations.mark(paths);
+    this.cancelDeniedListeners(paths);
     this.values.fanOut(paths);
     this.children.fanOut(priors);
   }
 
-  private cancelDeniedListeners(): void {
+  cancelDeniedListeners(changedPaths?: readonly string[]): void {
+    if (this.state.valueListeners.size === 0 && this.state.childListeners.size === 0) return;
+    let candidateValues: ValueListener[];
+    let candidateChildren: ChildListener[];
+    if (changedPaths !== undefined) {
+      if (this.state.activeRules === null) return;
+      const canonicalChanged = changedPaths.map((path) => joinPath(pathSegments(path)));
+      if (canonicalChanged.length === 0) return;
+      const rulesRoot = this.state.activeRules.rules;
+      candidateValues = [...this.state.valueListeners].filter(
+        (listener) => !listener.admin && listenerReadDependsOnPaths(rulesRoot, listener.path, canonicalChanged),
+      );
+      candidateChildren = [...this.state.childListeners].filter(
+        (listener) => listenerReadDependsOnPaths(rulesRoot, listener.path, canonicalChanged),
+      );
+    } else {
+      candidateValues = [...this.state.valueListeners].filter((listener) => !listener.admin);
+      candidateChildren = [...this.state.childListeners];
+    }
+    if (candidateValues.length === 0 && candidateChildren.length === 0) return;
     const mockData = this.state.rulesSnapshot();
     const deniedValues: ValueListener[] = [];
     const contexts = new Map<ValueListener | ChildListener, RtdbDenialContext>();
-    for (const listener of [...this.state.valueListeners]) {
-      if (listener.admin) continue;
+    for (const listener of candidateValues) {
       const evaluation = this.state.rules.evaluate('read', listener.path, {
         auth: listener.auth, mockData, querySpec: listener.query,
       });
@@ -435,7 +503,7 @@ export class WritePlane {
       deniedValues.push(listener);
     }
     const deniedChildren: ChildListener[] = [];
-    for (const listener of [...this.state.childListeners]) {
+    for (const listener of candidateChildren) {
       const evaluation = this.state.rules.evaluate('read', listener.path, {
         auth: listener.auth, mockData, querySpec: listener.spec,
       });

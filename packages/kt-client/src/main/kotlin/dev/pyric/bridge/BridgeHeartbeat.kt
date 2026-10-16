@@ -36,8 +36,10 @@ internal class BridgeHeartbeat(
 
     /**
      * Replaces any running heartbeat. [ping] sends one frame on the socket and
-     * returns false when that socket is no longer the current one, which ends the
-     * heartbeat quietly. [onSilent] reports the drop; it also runs when [ping] throws.
+     * returns false when that socket is no longer the current one or cannot take
+     * the frame, which ends the heartbeat quietly. A socket that cannot take a
+     * frame is closing, and its own close reports the drop with the real close
+     * code. [onSilent] runs only for silence past the timeout.
      */
     fun start(intervalMs: Long, timeoutMs: Long, ping: () -> Boolean, onSilent: () -> Unit) {
         synchronized(lock) {
@@ -61,11 +63,13 @@ internal class BridgeHeartbeat(
                 onSilent()
                 return
             }
+            // A ping that cannot be sent is not a drop: reporting one here would
+            // replace the close code the socket is about to report, and turn a
+            // policy close into a reconnect.
             val sent = try {
                 ping()
             } catch (_: Throwable) {
-                onSilent()
-                return
+                false
             }
             if (!sent) return
             // The next check falls at the timeout when no frame arrives before it.

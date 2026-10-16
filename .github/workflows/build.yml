@@ -426,12 +426,16 @@ jobs:
         run: bunx playwright install chromium
       - name: Pack the published packages
         run: bash scripts/pack-packages.sh --skip-build
+      - name: Test the app selection
+        run: bun test test/apps/selection.test.ts
       - name: App scenarios
         # Each app in test/apps installs from the tarballs above plus registry
         # firebase, firebase-admin and vite, runs its own Vite dev server and
         # server scripts, and drives its page in Chromium. npm downloads go to
-        # ~/.cache/pyric-app-scenarios-npm, the cache restored above.
-        run: bun test/apps/run.ts --packages dist/packages
+        # ~/.cache/pyric-app-scenarios-npm, the cache restored above. Apps that
+        # wait on real timeouts (`export const slow = true`) are skipped here,
+        # on pull requests and main alike; slow-scenarios.yml runs them.
+        run: bun test/apps/run.ts --packages dist/packages --skip-slow
       - name: Upload app scenario logs
         if: failure()
         uses: actions/upload-artifact@v4

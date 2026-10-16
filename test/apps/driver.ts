@@ -26,6 +26,7 @@ export class AppProcess {
   readonly header: string;
   private text = '';
   private exitCode: number | null | undefined;
+  private isPaused = false;
 
   constructor(readonly name: string, command: string, args: string[], cwd: string, env: NodeJS.ProcessEnv) {
     const pyricEnv = Object.entries(env).filter(([key]) => key.startsWith('PYRIC_')).map(([key, value]) => `${key}=${value} `);
@@ -71,9 +72,44 @@ export class AppProcess {
     }
   }
 
+  /** Whether `pause()` stopped the process and `resume()` has not continued it. */
+  get paused(): boolean {
+    return this.isPaused;
+  }
+
+  /**
+   * Stops the process group with SIGSTOP. The kernel keeps its sockets open,
+   * so a peer sees no close and no frames: a half-open connection, as from a
+   * process held at a debugger breakpoint or an app the OS suspended.
+   * `stop()` and the run's teardown resume a paused process before ending it.
+   */
+  pause(): void {
+    this.signalGroup('SIGSTOP');
+    this.isPaused = true;
+  }
+
+  /** Continues a paused process group with SIGCONT. */
+  resume(): void {
+    if (!this.isPaused) return;
+    this.signalGroup('SIGCONT');
+    this.isPaused = false;
+  }
+
+  private signalGroup(signal: NodeJS.Signals): void {
+    const pid = this.child.pid;
+    const canSignal = this.running && pid !== undefined;
+    if (!canSignal) throw new Error(`${this.name} is not running`);
+    process.kill(-pid, signal);
+  }
+
   async stop(): Promise<void> {
     if (!this.running || this.child.pid === undefined) return;
     const group = -this.child.pid;
+    // A stopped process holds SIGTERM until it is continued.
+    if (this.isPaused) {
+      try { process.kill(group, 'SIGCONT'); } catch { /* already gone */ }
+      this.isPaused = false;
+    }
     try { process.kill(group, 'SIGTERM'); } catch { return; }
     const stopped = await Promise.race([this.exited.then(() => true), sleep(5_000).then(() => false)]);
     if (!stopped) {
@@ -111,6 +147,12 @@ export interface App {
   devServer(options?: { env?: Record<string, string>; name?: string; port?: number }): Promise<DevServer>;
   /** Runs `node --import @pyric/cli/register <script> ...args` to exit. Throws on a non-zero exit. */
   serverScript(script: string, args?: string[], options?: { env?: Record<string, string>; timeoutMs?: number }): Promise<ScriptResult>;
+  /**
+   * Starts `node --import @pyric/cli/register <script> ...args` and returns at
+   * once, without waiting for it to exit. The process runs until the scenario
+   * stops it or the run ends; the run's teardown resumes it if it is paused.
+   */
+  serverProcess(script: string, args?: string[], options?: { env?: Record<string, string> }): AppProcess;
   /** The browser context for this app. Requests to hosts other than 127.0.0.1 and localhost are aborted unless a route answers them. */
   browser(): Promise<BrowserContext>;
   /** Opens `url` in a new page of the app's browser context. */
@@ -241,6 +283,19 @@ export class AppRun implements App {
       await sleep(250);
     }
     return { url, port, process: child };
+  }
+
+  serverProcess(script: string, args: string[] = [], options: { env?: Record<string, string> } = {}): AppProcess {
+    this.scriptCount += 1;
+    const child = new AppProcess(
+      `server process ${this.scriptCount} (${script})`,
+      'node',
+      ['--import', '@pyric/cli/register', script, ...args],
+      this.dir,
+      appEnvironment(this.home, options.env),
+    );
+    this.processes.push(child);
+    return child;
   }
 
   async serverScript(

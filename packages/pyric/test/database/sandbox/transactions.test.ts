@@ -96,3 +96,55 @@ it('clears node priority when a transaction deletes a node by returning null', (
   expect(transactions.run(null, '/item2', () => null, { applyLocally: false })).toMatchObject({ committed: true });
   expect(state.priorities.get('/item2')).toBeNull();
 });
+
+it('redacts the current value to null when .read is denied on both abort and write attempts', () => {
+  const state = new BackendState();
+  state.rules.setRules({
+    rules: {
+      vault: {
+        '.read': false,
+        '.write': false,
+      },
+      inbox: {
+        count: {
+          '.read': false,
+          '.write': true,
+        },
+      },
+    },
+  });
+  const values = new ValueListeners(state);
+  const children = new ChildListeners(state);
+  const transactions = new Transactions(state, values, children);
+
+  state.tree.write('/vault', { secret: 'classified', balance: 5000 });
+  state.tree.write('/inbox/count', 10);
+
+  const seenOnAbort: unknown[] = [];
+  const aborted = transactions.run({ uid: 'alice' }, '/vault', (current) => {
+    seenOnAbort.push(current);
+    return undefined;
+  });
+  expect(seenOnAbort).toEqual([null]);
+  expect(aborted).toEqual({ committed: false, val: null, key: 'vault' });
+  expect(state.tree.read('/vault')).toEqual({ secret: 'classified', balance: 5000 });
+
+  const seenOnDeny: unknown[] = [];
+  expect(() => {
+    transactions.run({ uid: 'alice' }, '/vault', (current) => {
+      seenOnDeny.push(current);
+      return { secret: 'overwritten', balance: 0 };
+    });
+  }).toThrow('permission_denied');
+  expect(seenOnDeny).toEqual([null]);
+  expect(state.tree.read('/vault')).toEqual({ secret: 'classified', balance: 5000 });
+
+  const seenOnWriteOnly: unknown[] = [];
+  const committed = transactions.run({ uid: 'alice' }, '/inbox/count', (current) => {
+    seenOnWriteOnly.push(current);
+    return { '.sv': { increment: 5 } };
+  });
+  expect(seenOnWriteOnly).toEqual([null]);
+  expect(committed).toEqual({ committed: true, val: 15, key: 'count' });
+  expect(state.tree.read('/inbox/count')).toBe(15);
+});
