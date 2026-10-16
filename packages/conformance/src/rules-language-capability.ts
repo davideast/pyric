@@ -170,7 +170,12 @@ const RT_EXPR: Record<string, RtProbe> = {
   // Snapshot methods
   'rtdb.method.snapshot.val': { read: 'data.val() == data.val()' },
   'rtdb.method.snapshot.child': { read: "data.child('x').val() == data.child('x').val()" },
-  'rtdb.method.snapshot.parent': { read: 'data.exists() || data.parent() == data.parent()' },
+  'rtdb.method.snapshot.parent': {
+    subtree: { p: { probe: { '.read': 'data.parent().exists()' } } },
+    op: 'read',
+    opPath: '/p/probe',
+    mockData: { p: { probe: 1 } },
+  },
   'rtdb.method.snapshot.hasChild': { op: 'write', read: "newData.hasChild('x') == newData.hasChild('x')", newData: { x: 1 } },
   'rtdb.method.snapshot.hasChildren': { op: 'write', read: 'newData.hasChildren() == newData.hasChildren()', newData: { x: 1 } },
   'rtdb.method.snapshot.exists': { read: 'data.exists() == data.exists()' },
@@ -207,7 +212,7 @@ const RT_EXPR: Record<string, RtProbe> = {
   'rtdb.operator.neg': { read: '-1 < 0' },
   'rtdb.operator.ternary': { read: '(true ? true : false)' },
   'rtdb.operator.member': { read: 'auth.uid == auth.uid' },
-  'rtdb.operator.index': { read: "['a', 'b'][0] == 'a'" },
+  'rtdb.operator.index': { read: "auth.token['admin'] == true" },
   // Bindings
   'rtdb.binding.auth': { read: 'auth != null' },
   'rtdb.binding.auth.uid': { read: 'auth.uid == auth.uid' },

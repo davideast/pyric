@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { ALL_RULES_RTDB_SCENARIOS } from '../rules-corpus/rtdb/index.ts';
+import { ALL_RULES_RTDB_DEPLOY_SCENARIOS, ALL_RULES_RTDB_SCENARIOS } from '../rules-corpus/rtdb/index.ts';
 import { replayRtdbDeployScenario, replayRtdbScenario, traceAgreesWithVerdict } from './rules-rtdb-replay.ts';
 test('replays one RTDB corpus scenario through the local simulator', () => {
   const scenario = ALL_RULES_RTDB_SCENARIOS.find((candidate) => candidate.id === 'r1-auth-only');
@@ -86,7 +86,10 @@ test('reports an engine error and an abstention apart from a DENY', () => {
       { description: 'runtime error', expectation: 'DENY', operation: 'write', opPath: '/runtime', authPresent: true, newData: 5 },
     ],
   });
-  expect(results.map((result) => result.simulator)).toEqual(['ERROR', 'ERROR', 'UNSUPPORTED', 'DENY']);
+  // Production refuses to deploy `.trim()` (`rules-rtdb-r29-deploy-rejections`,
+  // `rtdb-rules-type-check` `NO_SUCH_MEMBER`), so `buildRuleExpression` marks
+  // `/outside` invalid and the simulator abstains with `UNSUPPORTED` (TXT-1).
+  expect(results.map((result) => result.simulator)).toEqual(['UNSUPPORTED', 'UNSUPPORTED', 'UNSUPPORTED', 'DENY']);
 });
 
 test('a result whose trace does not account for its verdict is not a verdict', () => {
@@ -159,4 +162,13 @@ test('replays deploy cases through the local ruleset check', () => {
       localErrors: [expect.stringContaining('foo')],
     },
   ]);
+});
+
+test('every corpus deploy scenario agrees with production (including r44 9/9)', () => {
+  for (const scenario of ALL_RULES_RTDB_DEPLOY_SCENARIOS) {
+    const results = replayRtdbDeployScenario(scenario);
+    for (const result of results) {
+      expect(result.local, `${scenario.id} :: ${result.caseKey}`).toBe(result.production);
+    }
+  }
 });

@@ -222,6 +222,35 @@ describe('defineRtdbRules', () => {
     if (result.success) expect(result.data.allowed).toBe(false);
   });
 
+  test('check and rtdbRules(doc).lint() include structural findings on defineRtdbRules documents (FUZ-5)', () => {
+    const doc = defineRtdbRules({
+      paths: {
+        '/a/$x': { read: allow() },
+        '/a/$y': { read: allow() },
+      },
+    });
+
+    const check = doc.check();
+    expect(check.ok).toBe(false);
+    expect(check.errors).toEqual([
+      {
+        path: '/a',
+        rule: 'ruleset',
+        code: 'MULTIPLE_WILDCARDS',
+        message: "Cannot have multiple default rules ('$x' and '$y').",
+      },
+    ]);
+
+    const issues = rtdbRules(doc).lint();
+    expect(issues).toContainEqual(
+      expect.objectContaining({
+        code: 'MULTIPLE_WILDCARDS',
+        severity: 'error',
+        message: "Cannot have multiple default rules ('$x' and '$y').",
+      }),
+    );
+  });
+
   test('low-level ruleset stays available', () => {
     const compiled = ruleset({ '/': { read: deny() } });
     expect(compiled.read?.raw).toBe('false');

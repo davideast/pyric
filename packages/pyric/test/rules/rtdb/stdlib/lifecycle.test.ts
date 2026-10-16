@@ -62,9 +62,20 @@ describe('rtdbStdlib.lifecycle', () => {
     );
   });
 
-  test('onlyFieldsChanged and exactlyChanged refuse a changed field outside the field list', () => {
+  test('onlyFieldsChanged and exactlyChanged refuse a changed field outside the field list or invalid field names', () => {
     expect(() => lifecycle.onlyFieldsChanged(['x'], ['a', 'b'])).toThrow();
+    expect(() => lifecycle.onlyFieldsChanged([], [])).toThrow();
+    expect(() => lifecycle.onlyFieldsChanged(['a.b'], ['a.b', 'x'])).toThrow(/field name/);
+    expect(() => lifecycle.onlyFieldsChanged(['a/b'], ['a/b', 'x'])).toThrow(/field name/);
+    expect(() => lifecycle.onlyFieldsChanged(['a'], ['a', 'b/c'])).toThrow(/field name/);
+    expect(lifecycle.onlyFieldsChanged(['a'], ['a'])).toBe('true');
     expect(() => lifecycle.exactlyChanged(['x'], ['a'])).toThrow();
+    expect(() => lifecycle.exactlyChanged([], ['a'])).toThrow();
+    expect(() => lifecycle.exactlyChanged(['a/b'], ['a/b', 'x'])).toThrow(/field name/);
+    expect(() => lifecycle.ownedBy('/')).toThrow(/field name/);
+    expect(() => lifecycle.ownedBy('a/b')).toThrow(/field name/);
+    expect(() => lifecycle.unchanged('/')).toThrow(/field name/);
+    expect(() => lifecycle.immutableFields('/')).toThrow(/field name/);
   });
 
   test('createOnly and noDelete', () => {

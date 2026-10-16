@@ -17,11 +17,21 @@ export function turnGuard(
   statusField?: string,
   playingValue?: string,
 ): Expr {
-  const playerCheck = any(...Object.entries(players).map(([mark, playerField]) =>
+  const entries = Object.entries(players);
+  if (entries.length === 0) {
+    throw new Error('turnGuard: pass at least one player.');
+  }
+  const playerCheck = any(...entries.map(([mark, playerField]) =>
     all(eq(dataVal(turnField), mark), eq(dataVal(playerField), AUTH_UID)),
   ));
 
-  if (statusField && playingValue) {
+  if (statusField !== undefined || playingValue !== undefined) {
+    if (typeof statusField !== 'string' || statusField.length === 0) {
+      throw new Error('turnGuard: statusField must be a non-empty field name when playingValue is provided.');
+    }
+    if (typeof playingValue !== 'string' || playingValue.length === 0) {
+      throw new Error('turnGuard: playingValue must be a non-empty string when statusField is provided.');
+    }
     return all(eq(dataVal(statusField), playingValue), playerCheck);
   }
   return playerCheck;
@@ -35,9 +45,12 @@ export function turnGuard(
  * @param marks - ordered list of marks (e.g., ["X", "O"])
  */
 export function flip(marks: string[]): Expr {
-  const creation = all(not(expr('data.exists()')), eq(newDataVal(), marks[0]));
+  if (!Array.isArray(marks) || marks.length < 2) {
+    throw new Error('flip: pass at least 2 marks.');
+  }
+  const creation = all(not(expr('data.exists()')), eq(newDataVal(), marks[0]!));
   const transitions = marks.map((mark, i) => {
-    const next = marks[(i + 1) % marks.length];
+    const next = marks[(i + 1) % marks.length]!;
     return all(eq(dataVal(), mark), eq(newDataVal(), next));
   });
   return any(creation, ...transitions);

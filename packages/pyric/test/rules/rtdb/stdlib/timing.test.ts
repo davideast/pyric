@@ -51,6 +51,9 @@ scenario.cases.push(
   { description: 'a creation time from the client', expectation: 'DENY', operation: 'write', path: '/events/e1/createdAt', auth: 'alice', newData: PAST },
   { description: 'a room move once its cooldown has passed', expectation: 'ALLOW', operation: 'update', path: '/rooms/r1', auth: 'alice', data: { rooms: { r1: { lastMoveAt: PAST } } }, newData: { lastMoveAt: 0 }, serverTime: ['lastMoveAt'] },
   { description: 'a room move inside its cooldown', expectation: 'DENY', operation: 'update', path: '/rooms/r1', auth: 'alice', data: { rooms: { r1: { lastMoveAt: FUTURE } } }, newData: { lastMoveAt: 0 }, serverTime: ['lastMoveAt'] },
+  { description: 'a room move when the stored cooldown stamp is a boolean', expectation: 'DENY', operation: 'update', path: '/rooms/r1', auth: 'alice', data: { rooms: { r1: { lastMoveAt: true } } }, newData: { lastMoveAt: 0 }, serverTime: ['lastMoveAt'] },
+  { description: 'a room move when the stored cooldown stamp is a string', expectation: 'DENY', operation: 'update', path: '/rooms/r1', auth: 'alice', data: { rooms: { r1: { lastMoveAt: '1000' } } }, newData: { lastMoveAt: 0 }, serverTime: ['lastMoveAt'] },
+  { description: 'a post when the stored lastPost stamp is a string', expectation: 'DENY', operation: 'update', path: '/', auth: 'alice', data: { lastPost: { alice: '1000' } }, newData: { 'posts/p9': 'hello', 'lastPost/alice': 0 }, serverTime: ['lastPost/alice'] },
   { description: 'a first room move', expectation: 'ALLOW', operation: 'write', path: '/rooms/r1', auth: 'alice', newData: { lastMoveAt: 0 }, serverTime: ['lastMoveAt'] },
 );
 
@@ -59,8 +62,12 @@ describe('rtdbStdlib.timing', () => {
     expect(timing.isServerTimestamp()).toBe('newData.val() == now');
     expect(timing.isServerTimestamp('at')).toBe("newData.child('at').val() == now");
     expect(timing.notInFuture()).toBe('newData.isNumber() && newData.val() <= now');
-    expect(timing.cooldownElapsed(500, 'at')).toBe("!data.child('at').exists() || now > data.child('at').val() + 500");
-    expect(timing.throttled(500)).toBe('newData.val() == now && (!data.exists() || now > data.val() + 500)');
+    expect(timing.cooldownElapsed(500, 'at')).toBe(
+      "!data.child('at').exists() || (data.child('at').isNumber() && now > data.child('at').val() + 500)",
+    );
+    expect(timing.throttled(500)).toBe(
+      'newData.val() == now && (!data.exists() || (data.isNumber() && now > data.val() + 500))',
+    );
     expect(timing.stampedInSameWrite(2, ['lastPost', { $: 'auth.uid' }])).toBe(
       "newData.parent().parent().child('lastPost').child(auth.uid).val() == now",
     );
@@ -68,8 +75,14 @@ describe('rtdbStdlib.timing', () => {
 
   test('builders refuse arguments they cannot compile', () => {
     expect(() => timing.cooldownElapsed(Number.NaN)).toThrow();
+    expect(() => timing.cooldownElapsed(500, 'a/b')).toThrow(/field name/);
+    expect(() => timing.isServerTimestamp('/')).toThrow(/field name/);
+    expect(() => timing.isServerTimestamp('a/b')).toThrow(/field name/);
     expect(() => timing.stampedInSameWrite(-1, ['a'])).toThrow();
     expect(() => timing.stampedInSameWrite(1, [])).toThrow();
+    expect(() => timing.stampedInSameWrite(1, [{ $: '' }])).toThrow();
+    expect(() => timing.stampedInSameWrite(1, [{ $: '   ' }])).toThrow();
+    expect(() => timing.countedInSameWrite(1, [{ $: '' }])).toThrow();
   });
 
   runScenario(scenario);

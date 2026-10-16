@@ -52,6 +52,31 @@ describe('RTDB regular expression literals', () => {
     expect(evaluateRtdbExpression('newData.val().matches(/^a\\/b$/)', ctx('a/b'))).toBe(true);
   });
 
+  test('an unclosed group in a regex literal is rejected with production position text, while bare quantifiers and reversed ranges are accepted (FUZ-2)', () => {
+    expect(validateExpression('auth.uid.matches(/(/)', 'read')).toEqual([
+      { code: 'INVALID_REGEX', message: "Illegal regular expression, expected ')' at position 5" },
+    ]);
+    expect(validateExpression('auth.uid.matches(/+/)', 'read')).toEqual([]);
+    expect(validateExpression('auth.uid.matches(/[z-a]/)', 'read')).toEqual([]);
+    expect(validateExpression('auth.uid.matches(/a{2,1}/)', 'read')).toEqual([]);
+    expect(validateExpression('auth.uid.matches(/^[^/]+$/)', 'read')).toEqual([]);
+  });
+
+  test('double-quoted string escapes and raw newlines match production deploy verdicts (FUZ-1)', () => {
+    expect(validateExpression('auth.uid == "\\\'"', 'read')).toEqual([]);
+    expect(validateExpression('auth.uid == "\\x41"', 'read')).toEqual([]);
+    expect(validateExpression('auth.uid == "a\tb"', 'read')).toEqual([]);
+    expect(validateExpression('data.child("\\\'").exists()', 'read')).toEqual([]);
+    expect(validateExpression('data.child("\\x41").exists()', 'read')).toEqual([]);
+    expect(validateExpression('data.child("a\tb").exists()', 'read')).toEqual([]);
+    expect(parseExpression('auth.uid == "a\nb"').errors).toEqual([
+      { code: 'PARSE_ERROR', message: 'unterminated string literal' },
+    ]);
+    expect(validateExpression('auth.uid == "a\nb"', 'read')).toEqual([
+      { code: 'PARSE_ERROR', message: 'unterminated string literal' },
+    ]);
+  });
+
   test('replace reads a slash-delimited string as text', () => {
     expect(evaluateRtdbExpression("newData.val().replace('/a/g', 'z') == 'z'", ctx('/a/g'))).toBe(true);
     expect(evaluateRtdbExpression("newData.val().replace('/a/g', 'z') == 'z'", ctx('a'))).toBe(false);
@@ -85,7 +110,11 @@ describe('RTDB lint of comparisons between literals', () => {
     });
     expect(rules.lint().map((issue) => issue.code)).not.toContain('COMPILE_ERROR');
     const [read] = rules.simulate([{ expectation: 'DENY', operation: 'read', path: '/a', auth: { uid: 'u' } }]).cases;
-    expect(read!.decision).toBe('DENY');
+    // Production refuses to deploy `null > 1` (`rtdb-rules-type-check`,
+    // `rtdb-rules-deploy-refusals` `INVALID_OPERAND`), so `simulate` reports
+    // `UNSUPPORTED` rather than evaluating it (TXT-1).
+    expect(read!.decision).toBe('UNSUPPORTED');
+    expect(read!.unsupported).toBe(true);
   });
 
   test('a comparison that reads data is not constant', () => {

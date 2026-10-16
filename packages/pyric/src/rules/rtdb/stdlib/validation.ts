@@ -60,7 +60,46 @@ export function oneOf(...values: Literal[]): Expr {
  */
 export function matches(pattern: string): Expr {
   if (typeof pattern !== 'string' || pattern.length === 0) throw new Error('matches: pass a non-empty pattern.');
-  if (/(^|[^\\])\//.test(pattern)) throw new Error(`matches: escape '/' in the pattern as '\\/': ${pattern}`);
+  if (pattern.includes('\n') || pattern.includes('\r')) {
+    throw new Error('matches: pattern cannot contain a raw newline.');
+  }
+  let inClass = false;
+  let parenDepth = 0;
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i]!;
+    if (ch === '\\') {
+      if (i + 1 >= pattern.length) {
+        throw new Error("matches: pattern cannot end with a trailing '\\'.");
+      }
+      i++;
+      continue;
+    }
+    if (inClass) {
+      if (ch === ']') {
+        inClass = false;
+      }
+      continue;
+    }
+    if (ch === '/') {
+      throw new Error(`matches: escape '/' in the pattern as '\\/': ${pattern}`);
+    }
+    if (ch === '[') {
+      inClass = true;
+    } else if (ch === '(') {
+      parenDepth++;
+    } else if (ch === ')') {
+      if (parenDepth === 0) {
+        throw new Error(`matches: unmatched ')' in pattern: ${pattern}`);
+      }
+      parenDepth--;
+    }
+  }
+  if (inClass) {
+    throw new Error(`matches: unclosed '[' in pattern: ${pattern}`);
+  }
+  if (parenDepth !== 0) {
+    throw new Error(`matches: unclosed '(' in pattern: ${pattern}`);
+  }
   return all(isString(), expr(`newData.val().matches(/${pattern}/)`));
 }
 
@@ -100,6 +139,7 @@ export function shape(spec: Record<string, FieldRule>, options: ShapeOptions = {
   for (const name of names) fieldName('shape', name);
   const requiredNames = options.required ?? names;
   for (const name of requiredNames) {
+    fieldName('shape', name);
     if (!names.includes(name)) throw new Error(`shape: required field '${name}' is not in the spec.`);
   }
   const children: Record<string, PathDef> = {};

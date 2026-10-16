@@ -320,3 +320,271 @@ describe('QUOTED_REFERENCE: comparisons against a string literal that looks like
     ]);
   });
 });
+
+describe('LNT-1: X && false must never fold to false when X is non-constant (corpus r41)', () => {
+  test('negating or combining (X && false) does not fold to constant true', () => {
+    expect(found({ a: { '.write': '!(data.val() + 1 == 2 && false)' } }, 'RTDB-SEC-1')).toEqual([]);
+    expect(found({ a: { '.write': '(data.val() + 1 == 2 && false) || true' } }, 'RTDB-SEC-1')).toEqual([]);
+    expect(found({ a: { '.write': '(data.val() + 1 == 2 && false) ? false : true' } }, 'RTDB-SEC-1')).toEqual([]);
+    expect(found({ a: { '.read': "!(auth.uid == 'admin' && false)" } }, 'RTDB-SEC-2')).toEqual([]);
+  });
+
+  test('left-hand short-circuiting constants still fold', () => {
+    expect(found({ a: { '.write': '!(false && data.val() + 1 == 2)' } }, 'RTDB-SEC-1'))
+      .toEqual([{ path: '/a', rule: '.write' }]);
+    expect(found({ a: { '.write': 'true || (data.val() + 1 == 2)' } }, 'RTDB-SEC-1'))
+      .toEqual([{ path: '/a', rule: '.write' }]);
+  });
+});
+
+describe('LNT-2 & COV-2: literal comparisons and arithmetic fold as constants', () => {
+  test('literal tautologies fold to true for RTDB-SEC-1, RTDB-SEC-2, and RTDB-SEC-4', () => {
+    for (const expr of [
+      '1 == 1',
+      "'a' == 'a'",
+      '2 > 1',
+      'true == 1 < 2',
+      '1 + 2 * 3 == 7',
+      '-1 + 2 == 1',
+      '"\\0" == "\\u0000"',
+      '"\\v" == "\\x0b"',
+      '"\\\'" == "\'"',
+    ]) {
+      expect(found({ a: { '.write': expr } }, 'RTDB-SEC-1')).toEqual([{ path: '/a', rule: '.write' }]);
+      expect(found({ a: { '.read': expr } }, 'RTDB-SEC-2')).toEqual([{ path: '/a', rule: '.read' }]);
+    }
+    expect(found({ a: { '.write': '"\\0" == "0"' } }, 'RTDB-SEC-1')).toEqual([]);
+    expect(found({ a: { '.write': '"\\v" == "v"' } }, 'RTDB-SEC-1')).toEqual([]);
+
+    expect(
+      found({ '.write': '1 == 1', sub: { '.write': "auth.uid == 'admin'" } }, 'RTDB-SEC-4'),
+    ).toEqual([{ path: '/sub', rule: '.write' }]);
+  });
+
+  test('literal contradictions fold to false for RTDB-SEC-4 and do not grant', () => {
+    expect(
+      found({ '.write': 'auth != null', sub: { '.write': '1 != 1' } }, 'RTDB-SEC-4'),
+    ).toEqual([{ path: '/sub', rule: '.write' }]);
+    expect(found({ a: { '.write': '1 != 1' } }, 'RTDB-SEC-3')).toEqual([]);
+    expect(found({ a: { '.write': '1 != 1' } }, 'RTDB-SEC-6')).toEqual([]);
+  });
+
+  test('COV-2: non-finite 1e309 == 2e309 does not fold to constant true', () => {
+    expect(found({ a: { '.write': '1e309 == 2e309' } }, 'RTDB-SEC-1')).toEqual([]);
+  });
+});
+
+describe('LNT-5: RTDB-SEC-5 delete bypass detection and fix', () => {
+  test('ancestor .write with newData.exists() does not suppress RTDB-SEC-5 on child, and its fix closes the bypass', () => {
+    const findings = lint({
+      posts: {
+        $id: {
+          '.write': 'auth != null && newData.exists()',
+          count: { '.validate': 'newData.val() >= data.val()' },
+        },
+      },
+    }).filter((f) => f.code === 'RTDB-SEC-5');
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.path).toBe('/posts/$id/count');
+    expect(findings[0]!.fix).toContain("newData.child('count').exists()");
+
+    // Applying the suggested fix closes the child delete bypass.
+    expect(
+      found(
+        {
+          posts: {
+            $id: {
+              '.write': "auth != null && newData.child('count').exists()",
+              count: { '.validate': 'newData.val() >= data.val()' },
+            },
+          },
+        },
+        'RTDB-SEC-5',
+      ),
+    ).toEqual([]);
+  });
+
+  test('.write that mentions newData while unintentionally admitting deletes reports RTDB-SEC-5, while an explicit delete condition does not', () => {
+    for (const writeExpr of [
+      'auth != null && (data.exists() || newData.exists())',
+      'auth != null && !newData.isNumber()',
+    ]) {
+      expect(
+        found(
+          { posts: { $id: { '.write': writeExpr, '.validate': 'newData.val() >= data.val()' } } },
+          'RTDB-SEC-5',
+        ),
+      ).toEqual([{ path: '/posts/$id', rule: '.validate' }]);
+    }
+
+    // A deliberate delete condition (such as !newData.exists() || ...) is intentional.
+    expect(
+      found(
+        {
+          notes: {
+            $noteId: {
+              '.write':
+                "auth != null && ((!data.exists() && newData.child('owner').val() == auth.uid) || (data.exists() && data.child('owner').val() == auth.uid && (!newData.exists() || newData.child('owner').val() == auth.uid)))",
+              '.validate': "!data.exists() || newData.child('createdAt').val() == data.child('createdAt').val()",
+            },
+          },
+        },
+        'RTDB-SEC-5',
+      ),
+    ).toEqual([]);
+  });
+
+  test('(newData).exists(), newData.val() != null, and root reads in .validate report RTDB-SEC-5', () => {
+    for (const validateExpr of [
+      '(newData).exists()',
+      'newData.val() != null',
+      "root.child('locks').child($id).exists() == false && newData.isString()",
+    ]) {
+      expect(
+        found(
+          { items: { $id: { '.write': 'auth != null', '.validate': validateExpr } } },
+          'RTDB-SEC-5',
+        ),
+      ).toEqual([{ path: '/items/$id', rule: '.validate' }]);
+    }
+  });
+
+  test('safe: .write requiring newData.val() != null on the same node refuses deletes', () => {
+    expect(
+      found(
+        {
+          items: {
+            $id: {
+              '.write': 'auth != null && newData.val() != null',
+              '.validate': 'newData.val() >= data.val()',
+            },
+          },
+        },
+        'RTDB-SEC-5',
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe('LNT-6: RTDB-SEC-6 and RTDB-SEC-7 soundness against vacuous validation and incomplete child coverage', () => {
+  test('confirmed repro: .validate: true does not silence RTDB-SEC-6', () => {
+    expect(
+      found(
+        { '.read': false, '.write': false, posts: { '.write': 'auth != null', '.validate': true } },
+        'RTDB-SEC-6',
+      ),
+    ).toEqual([{ path: '/posts', rule: '.write' }]);
+  });
+
+  test('existence-only checks and parenthesized (newData).exists() do not silence RTDB-SEC-6', () => {
+    expect(
+      found({ posts: { '.write': 'auth != null', '.validate': 'newData.exists()' } }, 'RTDB-SEC-6'),
+    ).toEqual([{ path: '/posts', rule: '.write' }]);
+    expect(
+      found({ posts: { '.write': 'auth != null', '.validate': 'newData.val() != null' } }, 'RTDB-SEC-6'),
+    ).toEqual([{ path: '/posts', rule: '.write' }]);
+    expect(
+      found({ posts: { '.write': 'auth != null && (newData).exists()' } }, 'RTDB-SEC-6'),
+    ).toEqual([{ path: '/posts', rule: '.write' }]);
+    expect(
+      found({ posts: { '.write': 'auth != null && newData.val() != null' } }, 'RTDB-SEC-6'),
+    ).toEqual([{ path: '/posts', rule: '.write' }]);
+  });
+
+  test('unvalidated literal sibling next to $other: { .validate: false } reports RTDB-SEC-6', () => {
+    expect(
+      found(
+        {
+          posts: {
+            $postId: {
+              '.write': 'auth != null',
+              title: { '.validate': 'newData.isString()' },
+              unvalidatedBlob: { '.read': true },
+              $other: { '.validate': false },
+            },
+          },
+        },
+        'RTDB-SEC-6',
+      ),
+    ).toEqual([{ path: '/posts/$postId', rule: '.write' }]);
+  });
+
+  test('grandchild validation, non-rejecting $other, and newData.child() in .validate report RTDB-SEC-7', () => {
+    expect(
+      found(
+        {
+          users: {
+            $uid: {
+              '.write': 'auth.uid == $uid',
+              profile: {
+                name: { '.validate': 'newData.isString()' },
+              },
+            },
+          },
+        },
+        'RTDB-SEC-7',
+      ),
+    ).toEqual([
+      { path: '/users/$uid', rule: '.validate' },
+      { path: '/users/$uid/profile', rule: '.validate' },
+    ]);
+
+    expect(
+      found(
+        {
+          posts: {
+            $postId: {
+              '.write': 'auth != null',
+              title: { '.validate': 'newData.isString()' },
+              $other: { '.read': false },
+            },
+          },
+        },
+        'RTDB-SEC-7',
+      ),
+    ).toEqual([{ path: '/posts/$postId', rule: '.validate' }]);
+
+    expect(
+      found(
+        {
+          posts: {
+            $postId: {
+              '.write': 'auth != null',
+              title: { '.validate': 'newData.isString()' },
+              $other: { '.validate': true },
+            },
+          },
+        },
+        'RTDB-SEC-7',
+      ),
+    ).toEqual([{ path: '/posts/$postId', rule: '.validate' }]);
+
+    expect(
+      found(
+        {
+          posts: {
+            $postId: {
+              '.write': 'auth != null',
+              '.validate': "newData.child('title').isString()",
+            },
+          },
+        },
+        'RTDB-SEC-7',
+      ),
+    ).toEqual([{ path: '/posts/$postId', rule: '.validate' }]);
+  });
+
+  test('safe: fully validated children with $other: { .validate: false } report neither RTDB-SEC-6 nor RTDB-SEC-7', () => {
+    const clean = {
+      posts: {
+        $postId: {
+          '.write': 'auth != null',
+          title: { '.validate': 'newData.isString()' },
+          $other: { '.validate': false },
+        },
+      },
+    };
+    expect(found(clean, 'RTDB-SEC-6')).toEqual([]);
+    expect(found(clean, 'RTDB-SEC-7')).toEqual([]);
+  });
+});

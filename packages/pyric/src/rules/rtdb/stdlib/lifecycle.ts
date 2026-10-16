@@ -36,7 +36,10 @@ export function immutableFields(...fields: string[]): Expr {
 }
 
 function checkSubset(builder: string, changed: string[], fields: string[]): string[] {
+  if (fields.length === 0) throw new Error(`${builder}: pass at least one field in the field list.`);
+  for (const f of fields) fieldName(builder, f);
   for (const f of changed) {
+    fieldName(builder, f);
     if (!fields.includes(f)) throw new Error(`${builder}: changed field '${f}' is not in the field list.`);
   }
   return fields.filter((f) => !changed.includes(f));
@@ -44,8 +47,10 @@ function checkSubset(builder: string, changed: string[], fields: string[]): stri
 
 /**
  * Of the record's `fields`, only the ones in `changed` may differ after the
- * write; a listed field may also stay the same. On a create every field
- * changes from null, so combine it with a create rule (`isNew()`).
+ * write; a listed field may also stay the same. When `changed` covers all of
+ * `fields`, every listed field may change and `'true'` is returned (pair with
+ * `validation.shape` to close the record against unlisted fields). On a create
+ * every field changes from null, so combine it with a create rule (`isNew()`).
  */
 export function onlyFieldsChanged(changed: string[], fields: string[]): Expr {
   const rest = checkSubset('onlyFieldsChanged', changed, fields);

@@ -2,6 +2,10 @@ import { describe, test, expect } from 'bun:test';
 import { SimulateHandler } from '../../../../src/rules/rtdb/simulation/handler.js';
 import type { RtdbNode } from '../../../../src/rules/rtdb/types.js';
 import { compileRtdbRules } from '../../../../src/rules/rtdb/compiled-rules.js';
+import { initializeSandbox } from '../../../../src/sandbox/index.js';
+import { getAuth, signInWithCustomToken } from '../../../../src/auth/index.js';
+import { getDatabase, ref, set, get, query, orderByPriority } from '../../../../src/database/index.js';
+import { setRules } from '../../../../src/database/sandbox-controls.js';
 
 function makeRules(readRule: string): RtdbNode {
   const rootNode: RtdbNode = {
@@ -1446,12 +1450,103 @@ describe('SimulateHandler evaluation errors in rules', () => {
     expect(data.matchedPath).toBe('/b');
   });
 
-  test('a method outside the RTDB rules language stays an evaluation error', () => {
+  test('a method outside the RTDB rules language is rejected by validation and reported as unsupported, while a pre-built invalid rule stays an evaluation error', () => {
+    // Production refuses to deploy `.trim()` (`rules-rtdb-r29-deploy-rejections`,
+    // `rtdb-rules-type-check` `NO_SUCH_MEMBER`), so `compileRtdbRules` marks
+    // the rule invalid (`valid: false`, TXT-1) and `SimulateHandler` abstains.
     const compiled = compileRtdbRules({ rules: { a: { '.write': 'auth != null', '.validate': 'newData.val().trim() == newData.val()' } } });
     const result = handler.execute(compiled, { operation: 'write', path: '/a', auth: alice, mockData: {}, newData: 'x' });
-    expect(result.success).toBe(false);
-    if (result.success) return;
-    expect(result.error.code).toBe('EVALUATION_ERROR');
-    expect(result.error.message).toContain('trim');
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.allowed).toBe(false);
+    expect(result.data.unsupported).toBe(true);
+
+    // If a pre-built rule bypasses `buildRuleExpression` with `valid: true`,
+    // the evaluator still refuses the non-RTDB method with `EVALUATION_ERROR`.
+    const forcedValid = structuredClone(compiled);
+    forcedValid.children[0].validate!.parsed.valid = true;
+    const forcedResult = handler.execute(forcedValid, { operation: 'write', path: '/a', auth: alice, mockData: {}, newData: 'x' });
+    expect(forcedResult.success).toBe(false);
+    if (forcedResult.success) return;
+    expect(forcedResult.error.code).toBe('EVALUATION_ERROR');
+    expect(forcedResult.error.message).toContain('trim');
+  });
+
+  test('COV-3: populates standard ID-token claims (sub, iat, exp, iss, aud, auth_time, user_id, firebase.identities) on auth.token', () => {
+    const compiled = compileRtdbRules({
+      rules: {
+        claims: {
+          '.read':
+            'auth.token.sub == auth.uid && auth.token.user_id == auth.uid && auth.token.iat != null && auth.token.exp != null && auth.token.iss != null && auth.token.aud != null && auth.token.auth_time != null && auth.token.firebase.identities != null',
+        },
+      },
+    });
+    const res = handler.execute(compiled, {
+      operation: 'read',
+      path: '/claims',
+      auth: { uid: 'user-cov3', token: { role: 'member', firebase: { sign_in_provider: 'custom' } } },
+      mockData: {},
+    });
+    expect(res.success).toBe(true);
+    if (!res.success) return;
+    expect(res.data.allowed).toBe(true);
+  });
+
+  test('MET-1: plain reads expose query.orderByKey, query.orderByValue, and query.orderByPriority as false', () => {
+    const compiled = compileRtdbRules({
+      rules: {
+        plain: {
+          '.read': '!query.orderByKey && !query.orderByValue && query.orderByPriority == false',
+        },
+        byPriority: {
+          '.read': 'query.orderByPriority == true',
+        },
+      },
+    });
+    const plainRes = handler.execute(compiled, {
+      operation: 'read',
+      path: '/plain',
+      auth: alice,
+      mockData: {},
+    });
+    expect(plainRes.success && plainRes.data.allowed).toBe(true);
+
+    const prioRes = handler.execute(compiled, {
+      operation: 'read',
+      path: '/byPriority',
+      auth: alice,
+      mockData: {},
+      query: { orderByPriority: true },
+    });
+    expect(prioRes.success && prioRes.data.allowed).toBe(true);
+  });
+
+  test('COV-3 & MET-1 full lifecycle: sandbox signInWithCustomToken -> RTDB rules context -> plain read and orderByPriority() query', async () => {
+    const sandbox = initializeSandbox({ projectId: 'cov3-met1-lifecycle' });
+    const auth = getAuth(sandbox);
+    await signInWithCustomToken(auth, JSON.stringify({ uid: 'custom-user-1', claims: { role: 'member' } }));
+
+    const db = getDatabase(sandbox);
+    await setRules(db, {
+      rules: {
+        claims: {
+          '.write': true,
+          '.read':
+            "auth.token.sub == auth.uid && auth.token.user_id == auth.uid && auth.token.iat != null && auth.token.exp != null && auth.token.iss != null && auth.token.aud != null && auth.token.auth_time != null && auth.token.firebase.identities != null && auth.token.firebase.sign_in_provider == 'custom' && auth.token.role == 'member' && !query.orderByKey && !query.orderByValue && query.orderByPriority == false",
+        },
+        items: {
+          '.write': true,
+          '.read': 'query.orderByPriority == true',
+        },
+      },
+    });
+    await set(ref(db, 'claims'), 'secret');
+    await set(ref(db, 'items/a'), { '.value': 'alpha', '.priority': 1 });
+
+    const claimsSnap = await get(ref(db, 'claims'));
+    expect(claimsSnap.val()).toBe('secret');
+
+    const itemsSnap = await get(query(ref(db, 'items'), orderByPriority()));
+    expect(itemsSnap.exists()).toBe(true);
   });
 });

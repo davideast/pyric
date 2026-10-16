@@ -7,13 +7,12 @@ const { counters, lifecycle } = rtdbStdlib;
 const scenario: StdlibScenario = {
   paths: {
     '/stats/$id': {
-      // .validate does not run on a delete, so the .write refuses one.
-      write: all(authenticated(), lifecycle.noDelete()),
+      // .validate does not run on a delete, so each counter's .write refuses one.
       children: {
-        '/likes': { validate: counters.changedBy(-1, 1) },
-        '/moves': { validate: counters.incrementedBy(1, { start: 0 }) },
-        '/best': { validate: counters.improved('up') },
-        '/fastest': { validate: counters.improved('down') },
+        '/likes': { write: all(authenticated(), lifecycle.noDelete()), validate: counters.changedBy(-1, 1) },
+        '/moves': { write: all(authenticated(), lifecycle.noDelete()), validate: counters.incrementedBy(1, { start: 0 }) },
+        '/best': { write: all(authenticated(), lifecycle.noDelete()), validate: counters.improved('up') },
+        '/fastest': { write: all(authenticated(), lifecycle.noDelete()), validate: counters.improved('down') },
       },
     },
     '/scores/$id': {
@@ -44,22 +43,28 @@ const score = (before: unknown, after: Record<string, unknown>, expectation: 'AL
 });
 
 scenario.cases.push(
+  { description: 'a delete of one counter when a sibling exists', expectation: 'DENY', operation: 'write', path: '/stats/s1/likes', auth: 'alice', data: { stats: { s1: { likes: 5, moves: 3 } } }, newData: null },
   set('likes', 5, 6, 'ALLOW', 'a like adds one'),
   set('likes', 5, 4, 'ALLOW', 'an unlike removes one'),
   set('likes', 5, 5, 'ALLOW', 'a like count written unchanged'),
   set('likes', 5, 7, 'DENY', 'a like count that jumps by two'),
   set('likes', 5, '6', 'DENY', 'a like count written as a string'),
+  set('likes', '5', 5, 'DENY', 'a like count when the stored value is a string'),
+  set('likes', true, 1, 'DENY', 'a like count when the stored value is a boolean'),
   set('moves', undefined, 0, 'ALLOW', 'a move count created at its start'),
   set('moves', undefined, 1, 'DENY', 'a move count created past its start'),
   set('moves', 3, 4, 'ALLOW', 'a move count that grows by one'),
   set('moves', 3, 3, 'DENY', 'a move count written unchanged'),
   set('moves', 3, 5, 'DENY', 'a move count that grows by two'),
+  set('moves', '5', '51', 'DENY', 'a move count when the stored value is a numeric string concatenated with 1'),
   set('best', undefined, 3, 'ALLOW', 'a first best score'),
   set('best', 10, 12, 'ALLOW', 'a better best score'),
   set('best', 10, 10, 'DENY', 'an equal best score'),
   set('best', 10, 9, 'DENY', 'a worse best score'),
+  set('best', '5', 6, 'DENY', 'a best score when the stored value is a string'),
   set('fastest', 10, 9, 'ALLOW', 'a faster time'),
   set('fastest', 10, 11, 'DENY', 'a slower time'),
+  set('fastest', '10', 9, 'DENY', 'a fastest time when the stored value is a string'),
   score(undefined, { host: 0, guest: 0 }, 'ALLOW', 'a score created at 0 to 0'),
   score(undefined, { host: 1, guest: 0 }, 'DENY', 'a score created at 1 to 0'),
   score({ host: 2, guest: 1 }, { host: 3, guest: 1 }, 'ALLOW', 'a goal for the host'),
@@ -67,24 +72,40 @@ scenario.cases.push(
   score({ host: 2, guest: 1 }, { host: 3, guest: 2 }, 'DENY', 'a goal for both sides at once'),
   score({ host: 2, guest: 1 }, { host: 4, guest: 1 }, 'DENY', 'two goals for one side at once'),
   score({ host: 2, guest: 1 }, { host: 2, guest: 1 }, 'DENY', 'a score written unchanged'),
+  score({ host: '5', guest: 0 }, { host: '51', guest: 0 }, 'DENY', 'a score when the stored host count is a numeric string concatenated with 1'),
 );
 
 describe('rtdbStdlib.counters', () => {
   test('incrementedBy compiles with and without a start value', () => {
-    expect(counters.incrementedBy(1)).toBe('data.exists() && newData.val() == data.val() + 1');
+    expect(counters.incrementedBy(1)).toBe('data.isNumber() && newData.val() == data.val() + 1');
     expect(counters.incrementedBy(-2, { start: 10 })).toBe(
-      '(!data.exists() && newData.val() == 10) || (data.exists() && newData.val() == data.val() + -2)',
+      '(!data.exists() && newData.val() == 10) || (data.isNumber() && newData.val() == data.val() + -2)',
+    );
+  });
+
+  test('changedBy and oneIncremented guard stored values with isNumber()', () => {
+    expect(counters.changedBy(-1, 1)).toBe(
+      'newData.isNumber() && data.isNumber() && newData.val() - data.val() >= -1 && newData.val() - data.val() <= 1',
+    );
+    expect(counters.oneIncremented(['host', 'guest'], 1, { start: 0 })).toBe(
+      "(!data.exists() && newData.child('host').val() == 0 && newData.child('guest').val() == 0) || (data.child('host').isNumber() && newData.child('host').val() == data.child('host').val() + 1 && newData.child('guest').val() == data.child('guest').val()) || (data.child('guest').isNumber() && newData.child('guest').val() == data.child('guest').val() + 1 && newData.child('host').val() == data.child('host').val())",
     );
   });
 
   test('improved compares with the stored value', () => {
-    expect(counters.improved('up')).toBe('newData.isNumber() && (!data.exists() || newData.val() > data.val())');
-    expect(counters.improved('down')).toBe('newData.isNumber() && (!data.exists() || newData.val() < data.val())');
+    expect(counters.improved('up')).toBe(
+      'newData.isNumber() && (!data.exists() || (data.isNumber() && newData.val() > data.val()))',
+    );
+    expect(counters.improved('down')).toBe(
+      'newData.isNumber() && (!data.exists() || (data.isNumber() && newData.val() < data.val()))',
+    );
   });
 
   test('builders refuse arguments they cannot compile', () => {
     expect(() => counters.changedBy(2, 1)).toThrow();
     expect(() => counters.oneIncremented([], 1)).toThrow();
+    expect(() => counters.oneIncremented(['h', 'h'], 1)).toThrow(/duplicate/i);
+    expect(() => counters.oneIncremented(['a/b', 'c'], 1)).toThrow(/field name/);
     expect(() => counters.incrementedBy(Number.NaN)).toThrow();
   });
 

@@ -38,6 +38,8 @@ describe('rtdbStdlib.collections', () => {
     expect(() => collections.slotKey('$slot', 0)).toThrow();
     expect(() => collections.slotKey('slot', 2)).toThrow();
     expect(() => collections.keyIn('$k', [])).toThrow();
+    expect(() => collections.keyIn('$k', [''])).toThrow(/field name/);
+    expect(() => collections.keyIn('$k', ['a/b'])).toThrow(/field name/);
   });
 
   runScenario(scenario);

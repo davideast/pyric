@@ -1,5 +1,7 @@
 import { describe, test, expect } from 'bun:test';
-import { all, any, not, expr, deny, always, lit } from '../../../../src/rules/rtdb/constraints/compose.js';
+import { all, any, not, expr, deny, always, lit, fieldName } from '../../../../src/rules/rtdb/constraints/compose.js';
+import { authenticated } from '../../../../src/rules/rtdb/constraints/atoms.js';
+import { eq, newDataVal } from '../../../../src/rules/rtdb/constraints/data.js';
 import { buildRuleExpression, compileRtdbRules, simulateRtdbRules } from '../../../../src/rules/rtdb/compiled-rules.js';
 
 describe('compose', () => {
@@ -21,6 +23,24 @@ describe('compose', () => {
 
     test('does not group an || inside parentheses, quotes or a regex', () => {
       expect(all(expr('(a || b)'), expr("x == '||'"), expr('s.matches(/a||b/)'))).toBe("(a || b) && x == '||' && s.matches(/a||b/)");
+    });
+
+    test('groups an || operand when an earlier regex contains / inside a [...] character class (FUZ-9a)', () => {
+      const rule = all(
+        any(expr('newData.val().matches(/^[^/]+$/)'), eq(newDataVal(), '')),
+        authenticated(),
+      );
+      expect(rule).toBe("(newData.val().matches(/^[^/]+$/) || newData.val() == '') && auth != null");
+
+      const compiled = compileRtdbRules({ rules: { x: { '.write': rule } } });
+      const unauthed = simulateRtdbRules(compiled, {
+        operation: 'write',
+        path: '/x',
+        auth: null,
+        mockData: {},
+        newData: 'hello',
+      });
+      expect(unauthed.success && unauthed.data.allowed).toBe(false);
     });
 
     test('a single operand is returned as is', () => {
@@ -57,6 +77,11 @@ describe('compose', () => {
     test('groups anything else', () => {
       expect(not(expr('a == b'))).toBe('!(a == b)');
     });
+
+    test('rejects an empty expression (BLD-4)', () => {
+      expect(() => not(expr(''))).toThrow(/not:/);
+      expect(() => not(expr('   '))).toThrow(/not:/);
+    });
   });
 
   describe('lit()', () => {
@@ -66,8 +91,18 @@ describe('compose', () => {
       expect(lit('a\\b')).toBe("'a\\\\b'");
       expect(lit(1)).toBe('1');
       expect(lit(true)).toBe('true');
+      expect(lit(false)).toBe('false');
       expect(lit(null)).toBe('null');
-      expect(() => lit(Number.NaN)).toThrow();
+    });
+
+    test('rejects undefined, objects, arrays, NaN, and Infinity (CON-5 / BLD-4)', () => {
+      expect(() => lit(undefined as any)).toThrow(/no literal for undefined/);
+      expect(() => lit({} as any)).toThrow(/no literal for object/);
+      expect(() => lit([] as any)).toThrow(/no literal for array/);
+      expect(() => lit(Number.NaN)).toThrow(/no literal for NaN/);
+      expect(() => lit(Number.POSITIVE_INFINITY)).toThrow(/no literal for Infinity/);
+      expect(() => lit(Number.NEGATIVE_INFINITY)).toThrow(/no literal for -Infinity/);
+      expect(() => eq(newDataVal(), undefined as any)).toThrow(/no literal for undefined/);
     });
 
     test("quote and backslash escapes read back as the original string in Pyric's simulator", () => {
@@ -88,6 +123,20 @@ describe('compose', () => {
     });
   });
 
+  describe('fieldName()', () => {
+    test('accepts valid RTDB child keys and rejects empty or forbidden key characters including / (BLD-1)', () => {
+      expect(fieldName('test', 'score')).toBe('score');
+      expect(() => fieldName('test', '')).toThrow(/test: '' is not a field name/);
+      expect(() => fieldName('test', '/')).toThrow(/test: '\/' is not a field name/);
+      expect(() => fieldName('test', 'a/b')).toThrow(/test: 'a\/b' is not a field name/);
+      expect(() => fieldName('test', '/a')).toThrow(/test: '\/a' is not a field name/);
+      expect(() => fieldName('test', 'a.b')).toThrow(/test: 'a\.b' is not a field name/);
+      expect(() => fieldName('test', 'a#b')).toThrow(/test: 'a#b' is not a field name/);
+      expect(() => fieldName('test', '$id')).toThrow(/test: '\$id' is not a field name/);
+      expect(() => fieldName('test', 'a[0]')).toThrow(/test: 'a\[0\]' is not a field name/);
+    });
+  });
+
   test('deny() and always()', () => {
     expect(deny()).toBe('false');
     expect(always()).toBe('true');
@@ -96,6 +145,11 @@ describe('compose', () => {
   test('a composition parses and keeps its meaning', () => {
     const result = all(expr('auth !== null'), any(not(expr('data.exists()')), expr('x == 1 && y == 2')));
     expect(result).toBe('auth !== null && (!data.exists() || (x == 1 && y == 2))');
-    expect(buildRuleExpression(result, 'write', []).parsed.valid).toBe(true);
+    // Undeclared identifiers `x` and `y` are rejected by deploy validation
+    // (`rules-rtdb-r29-deploy-rejections` `d01`, `UNKNOWN_IDENTIFIER`, TXT-1);
+    // declared `$x` and `$y` path variables validate cleanly.
+    expect(buildRuleExpression(result, 'write', []).parsed.valid).toBe(false);
+    const validResult = all(expr('auth !== null'), any(not(expr('data.exists()')), expr("$x == '1' && $y == '2'")));
+    expect(buildRuleExpression(validResult, 'write', ['$x', '$y']).parsed.valid).toBe(true);
   });
 });

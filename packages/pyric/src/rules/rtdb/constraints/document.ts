@@ -4,6 +4,7 @@ import {
   type CompiledRtdbRules,
 } from '../compiled-rules.js';
 import type { SimulationInput, SimulateResult } from '../simulation/spec.js';
+import { structuralFindings } from '../structure.js';
 import type { RtdbNode, RtdbRuleExpression } from '../types.js';
 import { ruleset } from './ruleset.js';
 import type { PathDef, RulesetContext } from './types.js';
@@ -152,6 +153,22 @@ export function checkRtdbRules(compile: () => CompiledRtdbRules): RtdbRulesCheck
   return { ok: errors.length === 0, errors, warnings };
 }
 
+function attachStructuralFindings(node: RtdbNode): CompiledRtdbRules {
+  const rulesObj: Record<string, unknown> = {};
+  if (node.read) rulesObj['.read'] = node.read.raw;
+  if (node.write) rulesObj['.write'] = node.write.raw;
+  if (node.validate) rulesObj['.validate'] = node.validate.raw;
+  if (node.indexOn) rulesObj['.indexOn'] = node.indexOn;
+  for (const child of node.children) {
+    const segment = child.path.slice(child.path.lastIndexOf('/') + 1);
+    rulesObj[segment] = {};
+    attachStructuralFindings(child);
+  }
+  const structure = structuralFindings(node.path, rulesObj);
+  if (structure.length > 0) node.structure = structure;
+  return node;
+}
+
 class DefinedRtdbRulesDocument implements RtdbRulesDocumentInternal {
   private compiled: CompiledRtdbRules | undefined;
 
@@ -159,7 +176,7 @@ class DefinedRtdbRulesDocument implements RtdbRulesDocumentInternal {
 
   /** Compiles the definition on first use; lint, simulate, and toJSON share the tree. */
   compile(): CompiledRtdbRules {
-    this.compiled ??= ruleset(this.definition.paths);
+    this.compiled ??= attachStructuralFindings(ruleset(this.definition.paths));
     return this.compiled;
   }
 

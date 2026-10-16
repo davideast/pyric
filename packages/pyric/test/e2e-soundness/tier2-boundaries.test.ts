@@ -6,7 +6,7 @@ import { normalizeDocumentPath, resolveGet } from '../../src/rules/simulator/doc
 import { EvalError } from '../../src/rules/simulator/eval-error.js';
 import { evaluateStorageRules } from '../../src/storage/sandbox/rules-evaluator.js';
 import { parseStorageRules } from '../../src/storage/sandbox/rules.js';
-import { DataSnapshot } from '../../src/rules/rtdb/grammar/simulator.js';
+import { DataSnapshot, RtdbRuleRuntimeError } from '../../src/rules/rtdb/grammar/simulator.js';
 import { SimulateHandler } from '../../src/rules/rtdb/simulation/handler.js';
 import { compileRtdbRules } from '../../src/rules/rtdb/compiled-rules.js';
 import {
@@ -216,7 +216,8 @@ service firebase.storage {
       }
       expect(current).not.toBeNull();
       expect((current as unknown as { _path: string })._path).toBe('/');
-      expect(current!.parent()).toBeNull();
+      // COV-1 / rules-rtdb-r39-root-parent-runtime: production fails the rule on root.parent().
+      expect(() => current!.parent()).toThrow(RtdbRuleRuntimeError);
     });
 
     test('F2.B3: consecutive slashes in child path normalize cleanly', () => {
@@ -255,7 +256,8 @@ service firebase.storage {
       expect(parentOfGhost).not.toBeNull();
       expect((parentOfGhost as unknown as { _path: string })._path).toBe('/');
       expect(parentOfGhost!.exists()).toBe(false);
-      expect(parentOfGhost!.parent()).toBeNull();
+      // COV-1 / rules-rtdb-r39-root-parent-runtime: production fails the rule on root.parent().
+      expect(() => parentOfGhost!.parent()).toThrow(RtdbRuleRuntimeError);
     });
   });
 
