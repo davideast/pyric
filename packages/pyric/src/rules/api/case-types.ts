@@ -185,6 +185,12 @@ export interface RtdbCase {
    */
   newData?: unknown;
   /**
+   * For a `'write'` or `'validate'` case, the full set of paths written
+   * together in one atomic multi-path `update()`, so `path`'s rules evaluate
+   * against the shared post-write tree projection.
+   */
+  updates?: Array<{ path: string; value: unknown }>;
+  /**
    * The query a `read` case carries, so `query.*` rule expressions evaluate.
    * Omit it to simulate a plain read of `path`.
    */

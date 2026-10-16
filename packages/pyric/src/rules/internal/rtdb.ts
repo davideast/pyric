@@ -29,6 +29,8 @@ export type {
 export { parseExpression } from '../rtdb/grammar/RtdbExprParser.js';
 export { validateExpression } from '../rtdb/grammar/validator.js';
 export { lintExpression } from '../rtdb/grammar/linter.js';
+export { lintRtdbRuleset } from '../rtdb/grammar/ruleset-lint.js';
+export type { RtdbSecurityCode, RtdbSecurityFinding } from '../rtdb/grammar/ruleset-lint.js';
 
 export {
   SimulationInputSchema,
@@ -92,6 +94,7 @@ export {
   neq,
   gt,
   lte,
+  ref,
   AUTH_UID,
   turnGuard,
   flip,

@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'bun:test';
 import { compileRtdbRules } from '../../../src/rules/rtdb/compiled-rules.js';
+import { lintExpression } from '../../../src/rules/rtdb/grammar/linter.js';
 import {
   lintRtdbRuleset,
   type RtdbSecurityCode,
@@ -263,5 +264,59 @@ describe('rtdbRules().lint() carries the security findings as rule issues', () =
   test('a ruleset that does not compile reports only the compile error', () => {
     const issues = rtdbRules({ rules: 5 as unknown as Record<string, unknown> }).lint();
     expect(issues.map((issue) => issue.code)).toEqual(['COMPILE_ERROR']);
+  });
+});
+
+describe('QUOTED_REFERENCE: comparisons against a string literal that looks like a rule reference', () => {
+  test('reports QUOTED_REFERENCE across comparison operators and reference forms', () => {
+    const cases = [
+      { expr: "data.child('owner').val() == 'auth.uid'", literal: 'auth.uid' },
+      { expr: "'auth.uid' == data.child('owner').val()", literal: 'auth.uid' },
+      { expr: `newData.child('author').val() != "data.child('author').val()"`, literal: "data.child('author').val()" },
+      { expr: "newData.val() === 'newData.parent().val()'", literal: 'newData.parent().val()' },
+      { expr: `data.val() !== "root.child('admins').val()"`, literal: "root.child('admins').val()" },
+      { expr: "data.child('uid').val() == '$uid'", literal: '$uid' },
+      { expr: "newData.child('createdAt').val() <= 'now'", literal: 'now' },
+      { expr: "data.child('count').val() < 'query.limitToFirst'", literal: 'query.limitToFirst' },
+      { expr: `data.child('owner').val() == ("auth['uid']")`, literal: "auth['uid']" },
+    ];
+
+    for (const { expr, literal } of cases) {
+      const warnings = lintExpression(expr, 'validate').filter((w) => w.code === 'QUOTED_REFERENCE');
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]!.message).toContain(literal);
+      expect(warnings[0]!.message).toMatch(/literal/i);
+    }
+  });
+
+  test('near misses: constant comparisons, ordinary string literals, and unquoted references are not reported as QUOTED_REFERENCE', () => {
+    const bothLiterals = lintExpression("auth != null && 'auth.uid' == 'auth.uid'", 'read');
+    expect(bothLiterals.map((w) => w.code)).toEqual(['CONSTANT_COMPARISON']);
+
+    expect(lintExpression("data.child('status').val() == 'open'", 'read')).toEqual([]);
+    expect(lintExpression("data.child('role').val() == 'auth'", 'read')).toEqual([]);
+    expect(lintExpression("data.child('tag').val() == 'nowhere'", 'read')).toEqual([]);
+    expect(lintExpression("data.child('price').val() == '$100'", 'read')).toEqual([]);
+    expect(lintExpression("data.child('owner').val() == auth.uid", 'read')).toEqual([]);
+  });
+
+  test('rtdbRules().lint() surfaces QUOTED_REFERENCE on ruleset expressions', () => {
+    const issues = rtdbRules({
+      rules: {
+        posts: {
+          $postId: {
+            '.read': "data.child('owner').val() == '$postId'",
+            '.write': "auth != null && data.child('author').val() != 'auth.uid'",
+            '.validate': `newData.child('author').val() == "data.child('author').val()"`,
+          },
+        },
+      },
+    }).lint().filter((issue) => issue.code === 'QUOTED_REFERENCE');
+
+    expect(issues.map(({ path, rule, code }) => ({ path, rule, code }))).toEqual([
+      { path: '/posts/$postId', rule: '.read', code: 'QUOTED_REFERENCE' },
+      { path: '/posts/$postId', rule: '.write', code: 'QUOTED_REFERENCE' },
+      { path: '/posts/$postId', rule: '.validate', code: 'QUOTED_REFERENCE' },
+    ]);
   });
 });
