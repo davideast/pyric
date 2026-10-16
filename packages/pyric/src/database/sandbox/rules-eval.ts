@@ -51,14 +51,16 @@ function resolveRequiredIndexKey(
  * Convert a sandbox `QuerySpec` to the `SimulationInput['query']` shape
  * consumed by the RTDB rules simulator.
  */
-export function querySpecToSimulationQuery(spec: QuerySpec): SimulationInput['query'] {
-  const q: NonNullable<SimulationInput['query']> = {};
+export function querySpecToSimulationQuery(
+  spec: QuerySpec,
+): NonNullable<SimulationInput['query']> & { orderByPriority?: boolean } {
+  const q: NonNullable<SimulationInput['query']> & { orderByPriority?: boolean } = {
+    orderByKey: spec.orderBy?.kind === 'key',
+    orderByValue: spec.orderBy?.kind === 'value',
+    orderByPriority: spec.orderBy?.kind === 'priority',
+  };
   if (spec.orderBy?.kind === 'child') {
     q.orderByChild = spec.orderBy.path;
-  } else if (spec.orderBy?.kind === 'key') {
-    q.orderByKey = true;
-  } else if (spec.orderBy?.kind === 'value') {
-    q.orderByValue = true;
   }
   for (const bound of spec.bounds) {
     const val = toPrimitiveBoundValue(bound.value);

@@ -4,7 +4,7 @@ import { SimulateFirestoreRulesHandler } from '../../src/rules/simulator/handler
 import { evaluateStorageRules } from '../../src/storage/sandbox/rules-evaluator.js';
 import { parseStorageRules } from '../../src/storage/sandbox/rules.js';
 import { RuleEvalError } from '../../src/storage/sandbox/rules-evaluation-error.js';
-import { DataSnapshot, evaluateRtdbExpression } from '../../src/rules/rtdb/grammar/simulator.js';
+import { DataSnapshot, evaluateRtdbExpression, RtdbRuleRuntimeError } from '../../src/rules/rtdb/grammar/simulator.js';
 
 describe('Tier 1: Feature Coverage (Evaluation Rules)', () => {
   // ─── F1: Strict Unary NOT Type Checking ───────────────────────
@@ -234,15 +234,16 @@ service firebase.storage {
       expect((missingParent as unknown as { _path: string })._path).toBe('/ghost/branch');
     });
 
-    test('F2.4: parent() traversal terminates cleanly at root and returns null on root parent()', () => {
+    test('F2.4: parent() traversal terminates cleanly at root and throws RtdbRuleRuntimeError on root parent()', () => {
+      // COV-1 / rules-rtdb-r39-root-parent-runtime: production fails the rule on root.parent().
       const rootSnap = new DataSnapshot({ data: true }, '/', { data: true });
-      expect(rootSnap.parent()).toBeNull();
+      expect(() => rootSnap.parent()).toThrow(RtdbRuleRuntimeError);
 
       const leaf = rootSnap.child('single');
       const backToRoot = leaf.parent();
       expect(backToRoot).not.toBeNull();
       expect((backToRoot as unknown as { _path: string })._path).toBe('/');
-      expect(backToRoot!.parent()).toBeNull();
+      expect(() => backToRoot!.parent()).toThrow(RtdbRuleRuntimeError);
     });
 
     test('F2.5: navigation through existing nested nodes preserves valid values and paths', () => {

@@ -145,6 +145,11 @@ describe('compose', () => {
   test('a composition parses and keeps its meaning', () => {
     const result = all(expr('auth !== null'), any(not(expr('data.exists()')), expr('x == 1 && y == 2')));
     expect(result).toBe('auth !== null && (!data.exists() || (x == 1 && y == 2))');
-    expect(buildRuleExpression(result, 'write', []).parsed.valid).toBe(true);
+    // Undeclared identifiers `x` and `y` are rejected by deploy validation
+    // (`rules-rtdb-r29-deploy-rejections` `d01`, `UNKNOWN_IDENTIFIER`, TXT-1);
+    // declared `$x` and `$y` path variables validate cleanly.
+    expect(buildRuleExpression(result, 'write', []).parsed.valid).toBe(false);
+    const validResult = all(expr('auth !== null'), any(not(expr('data.exists()')), expr("$x == '1' && $y == '2'")));
+    expect(buildRuleExpression(validResult, 'write', ['$x', '$y']).parsed.valid).toBe(true);
   });
 });

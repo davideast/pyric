@@ -179,7 +179,7 @@ export { requestStatusLabel } from '../types/request-observation.js';
 export { createActiveListenerState } from '../active-listeners.js';
 export { asSentence } from './sentence.js';
 export {
-  accountTokenClaims, assertNoReservedCustomClaims, RESERVED_CUSTOM_CLAIMS, tokenClaimAccount, withoutJwtClaims,
+  accountTokenClaims, assertNoReservedCustomClaims, RESERVED_CUSTOM_CLAIMS, tokenClaimAccount, withIdTokenClaims, withoutJwtClaims,
   type TokenClaimAccount, type TokenClaimRecord,
 } from './auth-token-claims.js';
 // Realtime Database instance identity: the instance name production and

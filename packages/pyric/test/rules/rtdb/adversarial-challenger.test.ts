@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   DataSnapshot,
   evaluateRtdbExpression,
+  RtdbRuleRuntimeError,
   type EvalContext,
 } from '../../../src/rules/rtdb/grammar/simulator.js';
 import { parseExpression } from '../../../src/rules/rtdb/grammar/RtdbExprParser.js';
@@ -369,7 +370,7 @@ describe('Adversarial Verification — Challenger 1', () => {
         { label: '!data.child("numZero") (DataSnapshot)', expr: "!data.child('numZero')" },
         { label: '!data.child("nonexistent").val() (missing node val)', expr: "!data.child('nonexistent').val()" },
         { label: '!data.child("a/b/c").val() (deep missing node val)', expr: "!data.child('a/b/c').val()" },
-        { label: '!data.parent() (root parent is null)', expr: '!data.parent()' },
+        { label: '!data.child("numZero").parent() (parent DataSnapshot)', expr: "!data.child('numZero').parent()" },
         { label: '!data.getPriority() (null priority)', expr: '!data.getPriority()' },
       ];
 
@@ -379,6 +380,10 @@ describe('Adversarial Verification — Challenger 1', () => {
           expect(result).toBe(false);
         });
       }
+
+      test('!data.parent() on root throws RtdbRuleRuntimeError (COV-1)', () => {
+        expect(() => evaluateRtdbExpression('!data.parent()', mockCtx)).toThrow(RtdbRuleRuntimeError);
+      });
     });
 
     describe('Auth context non-boolean evaluation evaluates to false', () => {

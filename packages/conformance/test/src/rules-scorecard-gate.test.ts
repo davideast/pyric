@@ -27,8 +27,9 @@ describe('Unified rules scorecard gate CLI reporter', () => {
     expect(out).toContain('[unprobeable] firestore.semantic.get-budget');
     expect(out).toContain('[diverged] storage.function.firestore.get');
     expect(out).toContain('--- RTDB Rules Breakdown ---');
-    expect(out).toContain('[diverged] rtdb.operator.add (diverged by: rtdb-rules#28)');
-    expect(out).toContain('[diverged] rtdb.binding.query.orderByKey (diverged by: rtdb-rules#26)');
-    expect(out).toContain('[diverged] rtdb.binding.query.orderByPriority (diverged by: rtdb-rules#26)');
+    expect(out).not.toContain('[diverged] rtdb.operator.add');
+    expect(out).not.toContain('[diverged] rtdb.binding.query.orderByKey');
+    expect(out).not.toContain('[diverged] rtdb.binding.query.orderByPriority');
+    expect(out).toContain('[diverged] rtdb.operator.looseEq (diverged by: rtdb-rules#33)');
   }, GATE_TIMEOUT_MS);
 });
