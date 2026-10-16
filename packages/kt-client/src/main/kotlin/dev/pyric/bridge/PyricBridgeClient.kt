@@ -384,14 +384,8 @@ class PyricBridgeClient(
             if (isCurrentSocket) transport else null
         } ?: return false
         val frame = BridgeProtocol.createPingFrame("ping-${pingCounter.incrementAndGet()}")
-        val enqueued = socket.send(JsonCodec.encodeToString(frame))
-        if (!enqueued) {
-            throw FirebaseFirestoreException(
-                "Failed to enqueue ping to bridge transport.",
-                FirebaseFirestoreException.Code.UNAVAILABLE
-            )
-        }
-        return true
+        // False when the socket is closing; its close callback reports the drop.
+        return socket.send(JsonCodec.encodeToString(frame))
     }
 
     private fun setState(next: BridgeConnectionState) {
