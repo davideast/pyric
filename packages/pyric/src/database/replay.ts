@@ -1,5 +1,6 @@
 import { assertCompleteHistory } from '../sandbox/internal/history-integrity.js';
 import {
+  getClock,
   initializeSandbox,
   type Sandbox,
   type SandboxCommitEvent,
@@ -155,11 +156,18 @@ function instanceOf(event: SandboxEvent): string | undefined {
   return 'instance' in event ? event.instance : undefined;
 }
 
+function syncReplayClock(sandbox: Sandbox, at: number | undefined): void {
+  if (typeof at === 'number' && Number.isFinite(at)) {
+    getClock(sandbox).set(at);
+  }
+}
+
 async function replayRtdbAppCommit(
   { sandbox, instance }: ReplayTarget,
   commit: SandboxCommitEvent,
   divergences: RtdbReplayDivergence[],
 ): Promise<void> {
+  syncReplayClock(sandbox, commit.replay?.requestTime ?? commit.at);
   const prev = sandbox.currentUser;
   sandbox.currentUser = commit.auth;
   try {
@@ -213,6 +221,7 @@ async function replayRtdbQueryRead(
   event: SandboxOperationEvent,
   divergences: RtdbReplayDivergence[],
 ): Promise<void> {
+  syncReplayClock(sandbox, event.at);
   const path = event.path ?? '/';
   const prev = sandbox.currentUser;
   sandbox.currentUser = event.auth;
@@ -236,6 +245,7 @@ async function replayRtdbAdminCommit(
   commit: SandboxCommitEvent,
   divergences: RtdbReplayDivergence[],
 ): Promise<void> {
+  syncReplayClock(sandbox, commit.replay?.requestTime ?? commit.at);
   const db = getAdminDatabase(sandbox, instance);
   await replayRtdbCommitWithDatabase(db, commit, divergences);
 }
@@ -266,13 +276,15 @@ async function replayRtdbCommitWithDatabase(
   const path = commit.path ?? '/';
   const dbRef = ref(db, path);
   switch (commit.method) {
-    case 'set':
-      if (hasPriorityDetail(commit)) {
-        await setWithPriority(dbRef, commit.data as never, priorityDetail(commit, 'priority'));
+    case 'set': {
+      const priority = hasPriorityDetail(commit) ? priorityDetail(commit, 'priority') : null;
+      if (priority !== null) {
+        await setWithPriority(dbRef, commit.data as never, priority);
       } else {
         await set(dbRef, commit.data);
       }
       break;
+    }
     case 'setPriority':
       await setPriority(dbRef, priorityDetail(commit, 'priority'));
       break;

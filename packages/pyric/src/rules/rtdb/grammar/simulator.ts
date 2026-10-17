@@ -85,6 +85,15 @@ function isObjectNode(raw: unknown): raw is Record<string, unknown> {
  * object left with no children reads as null.
  */
 function exportedValue(raw: unknown): unknown {
+  if (Array.isArray(raw)) {
+    const out: Record<string, unknown> = {};
+    for (let i = 0; i < raw.length; i++) {
+      if (!(i in raw)) continue;
+      const value = exportedValue(raw[i]);
+      if (value !== null) out[String(i)] = value;
+    }
+    return Object.keys(out).length === 0 ? null : out;
+  }
   if (!isObjectNode(raw)) return raw ?? null;
   if (Object.hasOwn(raw, '.value')) return exportedValue(raw['.value']);
   const out: Record<string, unknown> = {};
@@ -96,9 +105,9 @@ function exportedValue(raw: unknown): unknown {
   return Object.keys(out).length === 0 ? null : out;
 }
 
-/** A node's priority: its `.priority` number or string, else null. */
+/** A node's priority: its `.priority` number or string when the node exists, else null. */
 function priorityOf(raw: unknown): number | string | null {
-  if (!isObjectNode(raw)) return null;
+  if (!isObjectNode(raw) || exportedValue(raw) === null) return null;
   const priority = raw['.priority'];
   const isPriority = typeof priority === 'number' || typeof priority === 'string';
   return isPriority ? priority : null;

@@ -48,6 +48,8 @@ export interface ChildListener {
   lastWindow?: QueryRow[];
   /** The priorities at and below `path` when `lastWindow` was taken. */
   lastPriorities?: PriorityRecord;
+  /** Attached through the admin SDK, which bypasses rules. */
+  admin?: boolean;
 }
 
 /** Each listened parent before a write: its children's values and own

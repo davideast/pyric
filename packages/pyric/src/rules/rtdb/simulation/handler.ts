@@ -4,7 +4,7 @@ import type { RtdbNode, RtdbRuleExpression } from '../types.js';
 import { SimulationInputSchema, simulationQueryProblem, type SimulationInput } from './spec.js';
 import { normalizeAuthState } from '../../../sandbox/sandbox-context.js';
 import { withIdTokenClaims } from '../../../sandbox/internal/auth-token-claims.js';
-import { resolveSentinels } from '../../../database/sandbox/sentinels.js';
+import { projectPostWriteTree } from './post-write-tree.js';
 import type { RtdbRuleEvaluation, SimulateResult } from './spec.js';
 
 interface AncestorMatch {
@@ -301,70 +301,6 @@ function toValidateFailureResult(failure: ValidateFailure, trace: RtdbRuleEvalua
   };
 }
 
-/**
- * Return a new tree equal to `root` but with the value at `segments`
- * replaced by `value` (a `null`/`undefined` value deletes the node, same
- * as an RTDB write of `null`). Used to build the post-write tree so that
- * `newData` at an ANCESTOR of the write location reflects the merged
- * result at that ancestor's own path, not just the raw payload at the
- * deepest write path.
- */
-function withValueAt(root: unknown, segments: string[], value: unknown): unknown {
-  if (segments.length === 0) return value ?? null;
-
-  const [head, ...rest] = segments;
-  const currentObj: Record<string, unknown> =
-    root !== null && typeof root === 'object' && !Array.isArray(root)
-      ? { ...(root as Record<string, unknown>) }
-      : {};
-
-  const existingChild = Object.hasOwn(currentObj, head) ? currentObj[head] : null;
-  const childValue = withValueAt(existingChild, rest, value);
-
-  if (childValue === null || childValue === undefined) {
-    delete currentObj[head];
-  } else {
-    currentObj[head] = childValue;
-  }
-
-  return currentObj;
-}
-
-/**
- * Build the single post-write tree that a write/validate evaluation sees as
- * `newData`.
- *
- * For a single-path write this is just `withValueAt(base, targetSegments,
- * targetNewData)`. For an atomic multi-path `update()` — where `updates`
- * lists every path written together — this folds `withValueAt` over EVERY
- * listed path so the projection reflects the ENTIRE update applied at once.
- * Each written path's rules are then evaluated against this shared tree,
- * matching production RTDB: a multi-path update is atomic, so a rule on one
- * written path sees `newData` for its sibling paths in the same update.
- *
- * Evaluating each path leaf-by-leaf against only its own new value (the old
- * behavior) is a wrong-verdict bug: a rule that depends on a sibling path
- * written in the same update sees that sibling as absent, flipping legal
- * writes to a false DENY (and the reverse for `!exists()`-style escape
- * hatches, a false ALLOW).
- */
-function projectPostWriteTree(
-  base: unknown,
-  targetSegments: string[],
-  targetNewData: unknown,
-  updates: readonly { path: string; value?: unknown }[] | undefined,
-): unknown {
-  if (!updates || updates.length === 0) {
-    return withValueAt(base, targetSegments, targetNewData ?? null);
-  }
-  let root = base;
-  for (const update of updates) {
-    const segments = update.path.split('/').filter(Boolean);
-    root = withValueAt(root, segments, update.value ?? null);
-  }
-  return root;
-}
-
 function buildSimulatedQueryContext(operation: string, query: SimulationInput['query']): EvalContext['query'] {
   if (operation !== 'read') return null;
   const equalTo = query?.equalTo ?? null;
@@ -379,16 +315,6 @@ function buildSimulatedQueryContext(operation: string, query: SimulationInput['q
     startAt: query?.startAt ?? equalTo,
     endAt: query?.endAt ?? equalTo,
   };
-}
-
-/** The value stored at `path` in a root tree, or undefined. */
-function valueAtPath(root: unknown, path: string): unknown {
-  let cursor: unknown = root;
-  for (const segment of path.split('/').filter(Boolean)) {
-    if (cursor === null || typeof cursor !== 'object') return undefined;
-    cursor = (cursor as Record<string, unknown>)[segment];
-  }
-  return cursor;
 }
 
 export class SimulateHandler {
@@ -408,22 +334,11 @@ export class SimulateHandler {
       };
     }
 
-    const { operation, path, auth, mockData, query } = parsed.data;
+    const { operation, path, auth, mockData, newData, updates, query } = parsed.data;
     // `now` in an RTDB rule is the instant the request is evaluated. A caller
     // hosting a sandbox names it so a `now`-gated rule moves with the sandbox
     // clock; a standalone caller leaves it out and gets the wall clock.
     const evaluationNow = parsed.data.now ?? Date.now();
-    // The server replaces each written `{ ".sv": "timestamp" }` with the
-    // instant it evaluates the rules at, and each `{ ".sv": { increment } }`
-    // with the stored value plus the delta, before any rule runs. The sandbox
-    // resolves its writes the same way at its write boundary.
-    const newData = parsed.data.newData === undefined
-      ? undefined
-      : resolveSentinels(parsed.data.newData, evaluationNow, valueAtPath(mockData, path));
-    const updates = parsed.data.updates?.map((update) => ({
-      ...update,
-      value: resolveSentinels(update.value, evaluationNow, valueAtPath(mockData, update.path)),
-    }));
 
     // Every rule evaluated for this request, in evaluation order.
     const trace: RtdbRuleEvaluation[] = [];
@@ -450,10 +365,10 @@ export class SimulateHandler {
       // multi-path `update()` (`updates` present) the projection reflects
       // EVERY path written together, so this path's rules see `newData` for
       // its sibling paths in the same update.
-      const mergedRoot =
-        operation === 'read'
-          ? mockData
-          : projectPostWriteTree(mockData, pathSegments, newData, updates);
+      let mergedRoot: unknown = mockData;
+      if (operation !== 'read') {
+        mergedRoot = projectPostWriteTree(mockData, path, pathSegments, newData, updates, evaluationNow);
+      }
       const mergedRootData = new DataSnapshot(mergedRoot, '/');
 
       let contextAuth: SimulatedAuth | null = null;

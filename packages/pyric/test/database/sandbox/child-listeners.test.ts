@@ -16,3 +16,17 @@ it('replays direct children in order and detaches cleanly', () => {
   unsubscribe();
   expect(listeners.count()).toBe(0);
 });
+
+it('adminOnChild attaches without evaluating read rules (#1014)', () => {
+  const state = new BackendState();
+  state.rules.setRules({ rules: { items: { '.read': false } } });
+  const listeners = new ChildListeners(state);
+  state.tree.write('/items', { a: 1 });
+  const seen: string[] = [];
+  const unsubscribe = listeners.adminOnChild('child_added', '/items', (snap) => {
+    seen.push(snap.key);
+  });
+  expect(seen).toEqual(['a']);
+  unsubscribe();
+  expect(listeners.count()).toBe(0);
+});
