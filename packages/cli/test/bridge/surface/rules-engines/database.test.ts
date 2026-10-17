@@ -6,6 +6,7 @@
  */
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
+import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 import { getClock, initializeSandbox } from 'pyric/sandbox';
 import { getActiveRules } from 'pyric/sandbox/database';
 
@@ -316,5 +317,42 @@ describe('simulate', () => {
     getClock(ctx.sandbox).set(GATE_INSTANT + 1000);
     const after = await DATABASE_RULES.simulate(ctx, { operation: 'read', path: 'rooms/lobby' });
     expect((after.data as { decision: string }).decision).toBe('ALLOW');
+  });
+
+  it('projects a seeded user stored tenantId and customClaims when simulating by uid (CON-2b)', async () => {
+    const ctx = freshContext();
+    authSandbox.seedUsers(getAuth(ctx.sandbox), [
+      {
+        uid: 'alice',
+        email: 'alice@example.test',
+        tenantId: 'acme',
+        customClaims: { role: 'billingAdmin' },
+      },
+    ]);
+    const tenantedRules = JSON.stringify({
+      rules: {
+        invoices: {
+          '.read': "auth != null && auth.token.firebase.tenant == 'acme' && auth.token.role == 'billingAdmin'",
+        },
+      },
+    });
+
+    const supplied = await DATABASE_RULES.simulate(ctx, {
+      operation: 'read',
+      path: 'invoices',
+      uid: 'alice',
+      rules: tenantedRules,
+    });
+    expect((supplied.data as { decision: string }).decision).toBe('ALLOW');
+    expect((supplied.data as { allowed: boolean }).allowed).toBe(true);
+
+    await DATABASE_RULES.install(ctx, tenantedRules);
+    const running = await DATABASE_RULES.simulate(ctx, {
+      operation: 'read',
+      path: 'invoices',
+      uid: 'alice',
+    });
+    expect((running.data as { decision: string }).decision).toBe('ALLOW');
+    expect((running.data as { allowed: boolean }).allowed).toBe(true);
   });
 });

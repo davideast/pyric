@@ -222,6 +222,30 @@ describe('defineRtdbRules', () => {
     if (result.success) expect(result.data.allowed).toBe(false);
   });
 
+  test('simulate preserves auth.tenant and folds it into auth.token.firebase.tenant (CON-2a)', () => {
+    const doc = defineRtdbRules({
+      paths: {
+        '/t': { read: expr("auth != null && auth.token.firebase.tenant == 'acme'") },
+      },
+    });
+
+    const allowed = doc.simulate({
+      operation: 'read',
+      path: '/t',
+      auth: { uid: 'u1', tenant: 'acme' },
+    });
+    expect(allowed.success).toBe(true);
+    if (allowed.success) expect(allowed.data.allowed).toBe(true);
+
+    const denied = doc.simulate({
+      operation: 'read',
+      path: '/t',
+      auth: { uid: 'u1', tenant: 'other' },
+    });
+    expect(denied.success).toBe(true);
+    if (denied.success) expect(denied.data.allowed).toBe(false);
+  });
+
   test('check and rtdbRules(doc).lint() include structural findings on defineRtdbRules documents (FUZ-5)', () => {
     const doc = defineRtdbRules({
       paths: {

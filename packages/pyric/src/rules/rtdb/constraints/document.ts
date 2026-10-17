@@ -32,7 +32,7 @@ export interface RtdbRulesCheckResult {
 
 export type RtdbRulesSimulationAuth =
   | string
-  | { uid: string; token?: Record<string, unknown> }
+  | { uid: string; tenant?: string; token?: Record<string, unknown> }
   | null;
 
 export type RtdbRulesSimulationInput =
@@ -72,7 +72,12 @@ export interface RtdbRulesDocumentInternal extends RtdbRulesDocument {
 export function normalizeAuth(auth: RtdbRulesSimulationAuth | undefined): SimulationInput['auth'] {
   if (auth === undefined || auth === null) return null;
   if (typeof auth === 'string') return { uid: auth, token: {} };
-  return { uid: auth.uid, token: auth.token ?? {} };
+  const normalized: NonNullable<SimulationInput['auth']> = {
+    uid: auth.uid,
+    token: auth.token ?? {},
+  };
+  if (auth.tenant !== undefined) normalized.tenant = auth.tenant;
+  return normalized;
 }
 
 export function normalizeSimulationInput(input: RtdbRulesSimulationInput): SimulationInput {

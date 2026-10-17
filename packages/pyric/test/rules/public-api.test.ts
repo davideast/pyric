@@ -517,6 +517,40 @@ describe('rtdbRules constructor', () => {
     expect(after.decision).toBe('ALLOW');
   });
 
+  test('simulate() preserves auth.tenant across rtdbRules inputs (CON-2a)', () => {
+    const tenantRule = "auth != null && auth.token.firebase.tenant == 'acme'";
+    const fromJson = rtdbRules({ rules: { t: { '.read': tenantRule } } });
+    const fromDoc = rtdbRules(defineRtdbRules({ paths: { '/t': { read: expr(tenantRule) } } }));
+
+    for (const ruleset of [fromJson, fromDoc]) {
+      const summary = ruleset.simulate([
+        {
+          description: 'matching tenant allows',
+          expectation: 'ALLOW',
+          operation: 'read',
+          path: '/t',
+          auth: { uid: 'u1', tenant: 'acme' },
+        },
+        {
+          description: 'different tenant denies',
+          expectation: 'DENY',
+          operation: 'read',
+          path: '/t',
+          auth: { uid: 'u1', tenant: 'other' },
+        },
+        {
+          description: 'missing tenant denies',
+          expectation: 'DENY',
+          operation: 'read',
+          path: '/t',
+          auth: { uid: 'u1' },
+        },
+      ]);
+      expect(summary.cases.map((c) => c.decision)).toEqual(['ALLOW', 'DENY', 'DENY']);
+      expect(summary.passed).toBe(3);
+    }
+  });
+
   test('simulate() honors updates on a write or validate case for multi-path writes', () => {
     const rules = {
       rules: {
@@ -662,5 +696,46 @@ service cloud.firestore {
       },
     ]);
     expect(summary.passed).toBe(1);
+  });
+
+  test('serverTimestamp() from pyric/rules resolves to now in RTDB simulate() (CON-3)', () => {
+    const tsRules = rtdbRules({
+      rules: {
+        posts: {
+          $id: {
+            '.write': true,
+            createdAt: { '.validate': 'newData.isNumber() && newData.val() === now' },
+          },
+        },
+      },
+    });
+    const summary = tsRules.simulate([
+      {
+        description: 'write case resolves serverTimestamp() to now',
+        expectation: 'ALLOW',
+        operation: 'write',
+        path: '/posts/p1',
+        auth: 'u1',
+        newData: { createdAt: serverTimestamp() },
+      },
+      {
+        description: 'validate case resolves serverTimestamp() to now',
+        expectation: 'ALLOW',
+        operation: 'validate',
+        path: '/posts/p1',
+        auth: 'u1',
+        newData: { createdAt: serverTimestamp() },
+      },
+      {
+        description: 'update case resolves serverTimestamp() to now',
+        expectation: 'ALLOW',
+        operation: 'update',
+        path: '/',
+        auth: 'u1',
+        newData: { 'posts/p1/createdAt': serverTimestamp() },
+      },
+    ]);
+    expect(summary.cases.map((c) => c.decision)).toEqual(['ALLOW', 'ALLOW', 'ALLOW']);
+    expect(summary.passed).toBe(3);
   });
 });

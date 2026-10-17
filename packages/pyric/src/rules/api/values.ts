@@ -19,8 +19,10 @@ import { SERVER_TIMESTAMP } from '../simulator/handler.js';
 
 /**
  * The server-timestamp sentinel — the case-data equivalent of
- * `FieldValue.serverTimestamp()`. The simulator resolves it to the request
- * time, so a rule comparing `data.createdAt == request.time` sees a match.
+ * `FieldValue.serverTimestamp()` and `serverTimestamp()`. The simulator
+ * resolves it to the request time (`request.time` in Firestore, `now` in
+ * Realtime Database), so a rule comparing a timestamp field to the server
+ * clock sees a match.
  */
 export function serverTimestamp(): typeof SERVER_TIMESTAMP {
   return SERVER_TIMESTAMP;
