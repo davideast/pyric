@@ -1,14 +1,21 @@
 /**
  * Firestore rules simulation shared by the simulate and diagnose operations.
  *
- * Both run one case through the existing `firestore_simulate_rules` tool with
- * an ALLOW expectation and read the verdict off the result, so the two
- * operations differ in what they report rather than in how they evaluate.
- * The identity is the same projection the data plane uses, so a tenant
- * resolves as `request.auth.token.firebase.tenant` here too.
+ * Both run one case through the simulator with an ALLOW expectation and read
+ * the verdict off the result, so the two operations differ in what they
+ * report rather than in how they evaluate. The identity is the same
+ * projection the data plane uses, so a tenant resolves as
+ * `request.auth.token.firebase.tenant` here too.
+ *
+ * The case reads the sandbox the way the data plane does (FS-CON-3 /
+ * FS-MET-1): `resource` is the stored target document, `get()`/`exists()`
+ * read the sandbox documents, and an `update` evaluates the stored document
+ * with the patch applied. A draft `rules` source changes only the rules, not
+ * the documents.
  */
+import { getInternalEnv } from 'pyric/sandbox/internal';
+import { SimulateFirestoreRulesHandler, documentRelativePath } from 'pyric/rules/internal';
 import { firestoreRulesSource } from './firestore-rules-load.js';
-import { callSandboxTool } from './context.js';
 import { requestInstant } from './request-instant.js';
 import { storedIdentity } from './stored-identity.js';
 import type { OperationResult, SurfaceContext } from './types.js';
@@ -21,6 +28,8 @@ export interface SimulationRequest {
   rules?: string;
   /** ISO 8601 instant `request.time` evaluates at. Defaults to the sandbox clock. */
   requestTime?: string;
+  /** The `request.query` a `list` carries. */
+  query?: { limit?: number; offset?: number; orderBy?: string };
 }
 
 export interface SimulationOutcome {
@@ -65,7 +74,9 @@ export async function simulateFirestoreCase(
   // advanced clock rather than falling back to the engine's own wall clock.
   // The engine wants it as ISO, so this is where that conversion happens.
   const requestTime = new Date(requestInstant(ctx, request.requestTime)).toISOString();
-  const testCase: Record<string, unknown> = {
+  const env = getInternalEnv(ctx.sandbox);
+  const stored = env.getDocument(documentRelativePath(request.path));
+  const testCase: TestCase = {
     description: `${request.operation} ${request.path}`,
     expectation: 'ALLOW',
     method: request.operation,
@@ -74,14 +85,31 @@ export async function simulateFirestoreCase(
     requestTime,
   };
   if (request.data !== undefined) testCase.data = request.data;
+  // A create has no stored target as far as its rules are concerned.
+  if (stored !== null && request.operation !== 'create') testCase.resource = stored;
+  // An update's request.resource.data is the stored document with the patch
+  // applied, as the data plane evaluates `updateDoc`.
+  if (request.operation === 'update') testCase.writeMode = { kind: 'update' };
+  if (request.query !== undefined) testCase.query = request.query;
 
-  const result = await callSandboxTool(ctx, 'firestore_simulate_rules', {
-    source,
-    testCases: [testCase],
+  const simulated = new SimulateFirestoreRulesHandler().simulate(source, [testCase], {
+    getDoc: (path) => env.getDocument(path),
   });
-  const payload = result.data as { data?: { results?: Array<{ state?: string }> } } | undefined;
-  const first = payload?.data?.results?.[0];
+  const result = toolResult(simulated);
+  const first = simulated.success ? simulated.data.results[0] : undefined;
   return { allowed: first?.state === 'PASSED', result, auth };
+}
+
+type TestCase = Parameters<SimulateFirestoreRulesHandler['simulate']>[1][number];
+
+/** The simulator's result in the shape the `firestore_simulate_rules` tool returns. */
+function toolResult(simulated: ReturnType<SimulateFirestoreRulesHandler['simulate']>): OperationResult {
+  if (!simulated.success) {
+    return { ok: false, summary: `Simulation failed: ${simulated.error.message}`, data: simulated };
+  }
+  const { results } = simulated.data;
+  const passed = results.filter((one) => one.state === 'PASSED').length;
+  return { ok: true, summary: `${passed}/${results.length} test cases passed`, data: simulated };
 }
 
 /** The one case's full record, including the evaluation trace when the simulator produced one. */

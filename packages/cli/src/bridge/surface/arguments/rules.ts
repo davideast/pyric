@@ -79,7 +79,7 @@ export const data = z
 const queryBound = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 
 /** The query a database read carries, as rules read it through `query.*`. */
-export const query = z
+const databaseQuery = z
   .object({
     orderByChild: z.string().optional(),
     orderByKey: z.literal(true).optional(),
@@ -90,16 +90,48 @@ export const query = z
     limitToFirst: z.number().int().positive().optional(),
     limitToLast: z.number().int().positive().optional(),
   })
-  .strict()
+  .strict();
+
+/**
+ * The query a Firestore `list` carries, as rules read it through
+ * `request.query.*`. Mirrors the simulator's `ListQuerySchema`.
+ */
+const firestoreQuery = z
+  .object({
+    limit: z.number().int().nonnegative().optional(),
+    offset: z.number().int().nonnegative().optional(),
+    orderBy: z.string().optional(),
+  })
+  .strict();
+
+/** The member names only a Firestore list query carries. */
+const FIRESTORE_QUERY_KEYS = new Set(Object.keys(firestoreQuery.shape));
+
+/** Whether a query names only Firestore list members. */
+function isFirestoreQuery(value: unknown): boolean {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  return Object.keys(value).every((key) => FIRESTORE_QUERY_KEYS.has(key));
+}
+
+/** Whether a query names only database read members. */
+function isDatabaseQuery(value: unknown): boolean {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  return Object.keys(value).every((key) => key in databaseQuery.shape);
+}
+
+/** The query a request carries: a database read's, or a Firestore list's. */
+export const query = z
+  .union([databaseQuery, firestoreQuery])
   .describe(
-    'Database read only. The query the read carries, so query.* rule expressions evaluate: one of orderByChild, orderByKey or orderByValue, with equalTo, startAt, endAt, limitToFirst or limitToLast.',
+    "The query a read carries, so query rule expressions evaluate. For a database read (query.*): one of orderByChild, orderByKey or orderByValue, with equalTo, startAt, endAt, limitToFirst or limitToLast. For a Firestore list (request.query.*): limit, offset and orderBy.",
   );
 
 /**
  * Refuse a value or a query the named service has no request for.
  *
- * Firestore evaluates documents, so its `data` is an object. Only a database
- * read carries a query.
+ * Firestore evaluates documents, so its `data` is an object. A database read
+ * carries a database query, and a Firestore list carries a list query
+ * (`limit`, `offset`, `orderBy`); nothing else carries one.
  */
 export function checkRequestShape(args: Args, fail: Fail): InvalidArguments | null {
   const service = String(args.service);
@@ -123,10 +155,28 @@ export function checkRequestShape(args: Args, fail: Fail): InvalidArguments | nu
       }
     }
     if (source.query !== undefined) {
+      if (service === 'firestore') {
+        // Firestore rules read `request.query` on a list only (FS-CON-3).
+        if (operation !== 'list') {
+          return fail(
+            `query applies to a Firestore list, and this request is ${quoted(operation)}.`,
+            `Pass operation 'list', or drop query.`,
+            at('query'),
+          );
+        }
+        if (!isFirestoreQuery(source.query)) {
+          return fail(
+            'query on a Firestore list takes limit, offset and orderBy (request.query.*). This one is a Realtime Database query.',
+            `Pass query as { limit, offset, orderBy }, or use service 'database'.`,
+            at('query'),
+          );
+        }
+        continue;
+      }
       if (service !== 'database') {
         return fail(
-          `query applies to Realtime Database reads, and ${service} rules read no query.`,
-          `Drop query, or use service 'database'.`,
+          `query applies to Realtime Database reads and Firestore lists, and ${service} rules read no query.`,
+          `Drop query, or use service 'database' or 'firestore'.`,
           at('query'),
         );
       }
@@ -134,6 +184,13 @@ export function checkRequestShape(args: Args, fail: Fail): InvalidArguments | nu
         return fail(
           `query applies to a read, and this request is ${quoted(operation)}.`,
           `Pass operation 'read', or drop query.`,
+          at('query'),
+        );
+      }
+      if (!isDatabaseQuery(source.query)) {
+        return fail(
+          'query on a database read takes orderByChild, orderByKey or orderByValue with equalTo, startAt, endAt, limitToFirst or limitToLast. This one is a Firestore list query.',
+          `Pass a database query, or use service 'firestore' with operation 'list'.`,
           at('query'),
         );
       }
