@@ -7,6 +7,7 @@ import 'package:firebase_core/firebase_core.dart';
 import '../auth/auth_lens.dart';
 import '../auth/pyric_auth_credentials_provider.dart';
 import '../transport/bridge_client.dart';
+import 'connection_info.dart';
 import 'pyric_database_reference.dart';
 
 /// Entry point for the Pyric Realtime Database client SDK.
@@ -15,6 +16,7 @@ class PyricDatabase {
   static final Map<String, PyricDatabase> _urlInstances = {};
 
   final PyricBridgeClient _bridgeClient;
+  late final ConnectionInfo _connectionInfo = ConnectionInfo(_bridgeClient);
   PyricAuthCredentialsProvider? _credentialsProvider;
   final FirebaseApp? app;
   final String? databaseURL;
@@ -72,6 +74,9 @@ class PyricDatabase {
   /// Access the underlying Pyric bridge client.
   PyricBridgeClient get bridgeClient => _bridgeClient;
 
+  /// Serves the paths under `/.info` for this database.
+  ConnectionInfo get connectionInfo => _connectionInfo;
+
   /// Access the credentials provider supplying auth lenses for operations.
   PyricAuthCredentialsProvider? get credentialsProvider {
     if (_credentialsProvider != null) return _credentialsProvider;
@@ -121,11 +126,13 @@ class PyricDatabase {
 
   /// Suspends the Realtime Database connection to the Pyric worker and triggers queued disconnect ops.
   Future<void> goOffline() async {
+    _connectionInfo.setOnline(false);
     await op('rtdb.goOffline', const {});
   }
 
   /// Resumes the Realtime Database connection to the Pyric worker.
   Future<void> goOnline() async {
+    _connectionInfo.setOnline(true);
     await op('rtdb.goOnline', const {});
   }
 
@@ -139,10 +146,13 @@ class PyricDatabase {
   }
 
   /// Establishes an RTDB real-time subscription that automatically resubscribes upon [AuthLens] change.
+  ///
+  /// A path under `/.info` is served by [connectionInfo] and never reaches the host.
   Stream<dynamic> subscribeRtdb(
     String path, {
     Map<String, dynamic>? querySpec,
   }) {
+    if (isInfoPath(path)) return _connectionInfo.watch(path);
     late StreamController<dynamic> controller;
     StreamSubscription<dynamic>? bridgeSub;
     StreamSubscription<AuthLens>? authLensSub;
