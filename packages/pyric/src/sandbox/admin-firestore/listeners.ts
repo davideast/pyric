@@ -434,7 +434,7 @@ function isSimError(error: unknown): error is FirestoreSimError {
 }
 
 function translateListenerError(error: unknown, ctx: SandboxContext): unknown {
-  if (!isSimError(error) || error.queryProof === undefined) return error;
+  if (!isSimError(error)) return error;
   const translated = toSandboxError(new FirestoreCompatError(error), {
     ...ctx, auth: error.request ? error.request.auth : ctx.auth,
   });

@@ -43,6 +43,22 @@ import { isDocumentPath, normalizeDocumentPath } from './document-lookups.js';
 /** Production's per-evaluation document access budget (single request). */
 export const DOCUMENT_LOOKUP_LIMIT = 10;
 
+/** Production's aggregate document access budget across a multi-document batch or transaction. */
+export const MULTI_DOCUMENT_LOOKUP_LIMIT = 20;
+
+const LOOKUP_COLLECTOR_KEY = Symbol.for('pyric.firestore.lookupCollector');
+const batchBudgets = new WeakMap<object, LookupBudget>();
+
+function getBatchLookupBudget(batchProjection: object): LookupBudget {
+  const existingBudget = batchBudgets.get(batchProjection);
+  if (existingBudget !== undefined) {
+    return existingBudget;
+  }
+  const budget = new LookupBudget(MULTI_DOCUMENT_LOOKUP_LIMIT);
+  batchBudgets.set(batchProjection, budget);
+  return budget;
+}
+
 /**
  * Budget exhaustion. A {@link ResourceLimitError}, not a plain EvalError,
  * because it fails the WHOLE request closed: CEL error absorption
@@ -66,21 +82,27 @@ export class LookupBudgetError extends ResourceLimitError {
 export class LookupBudget {
   private readonly accessed = new Set<string>();
 
+  constructor(private readonly limit: number = DOCUMENT_LOOKUP_LIMIT) {}
+
   /**
    * Charge one document access. `kind` is 'doc' for pre-write reads
    * (get/exists) and 'after' for post-write projections (getAfter/
    * existsAfter). A repeat access to the same (kind, path) is cached and
-   * free; the 11th DISTINCT access throws {@link LookupBudgetError}, which
-   * fails the request closed.
+   * free; the 11th DISTINCT access (or 21st across a batch/transaction)
+   * throws {@link LookupBudgetError}, which fails the request closed.
    */
   charge(kind: 'doc' | 'after', normalizedPath: string): void {
     const key = `${kind}:${normalizedPath}`;
     if (this.accessed.has(key)) return; // cached, does not count against the budget
-    if (this.accessed.size >= DOCUMENT_LOOKUP_LIMIT) {
+    const isSingleRequestLimit = this.limit === DOCUMENT_LOOKUP_LIMIT;
+    if (this.accessed.size >= this.limit) {
+      let scopeDescription = `multi-document batch/transaction (${this.limit} allowed across the atomic operation)`;
+      if (isSingleRequestLimit) {
+        scopeDescription = 'request (production allows 10 per request; the 11th distinct access fails the evaluation)';
+      }
       throw new LookupBudgetError(
-        `document access limit exceeded: this request already read ${DOCUMENT_LOOKUP_LIMIT} distinct documents `
-        + `via get()/exists()/getAfter()/existsAfter() (production allows 10 per request; `
-        + `the 11th distinct access fails the evaluation)`,
+        `document access limit exceeded: already read ${this.limit} distinct documents `
+        + `via get()/exists()/getAfter()/existsAfter() in this ${scopeDescription}`,
       );
     }
     this.accessed.add(key);
@@ -97,5 +119,18 @@ export function chargeLookup(ctx: SimulationContext, kind: 'doc' | 'after', rawP
   if (!ctx.lookupBudget) return;
   const normalized = normalizeDocumentPath(rawPath);
   if (!isDocumentPath(normalized)) return;
+  const isPreWriteLookup = kind === 'doc';
+  if (isPreWriteLookup) {
+    const collector = (globalThis as { [LOOKUP_COLLECTOR_KEY]?: Set<string> })[LOOKUP_COLLECTOR_KEY];
+    const hasCollector = collector !== undefined;
+    if (hasCollector) {
+      collector.add(normalized);
+    }
+  }
   ctx.lookupBudget.charge(kind, normalized);
+  const batchProjection = ctx.batchProjection;
+  const hasBatchProjection = batchProjection !== undefined;
+  if (hasBatchProjection) {
+    getBatchLookupBudget(batchProjection).charge(kind, normalized);
+  }
 }
