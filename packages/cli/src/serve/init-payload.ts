@@ -8,8 +8,16 @@ export type RtdbRulesJson = { rules: Record<string, unknown> };
 export interface DatabaseInstancesRules {
   /** The instance `getDatabase()` selects without a URL. */
   defaultInstance: string;
+  /**
+   * The project the server resolved, when one is set. `<projectId>` names the
+   * default instance as `<projectId>-default-rtdb` does, so the sandbox
+   * recognizes it before an app names its project.
+   */
+  projectId?: string;
   /** Each declared instance's rules, keyed by instance name; null while its rules file does not exist. */
   rules: Record<string, RtdbRulesJson | null>;
+  /** Each declared instance's rules file, relative to the project directory, for messages that name it. */
+  rulesFiles?: Record<string, string>;
   /** `firebase.json` target entries no project resolved when the server started. */
   pendingTargets?: PendingDatabaseTargetRules[];
 }

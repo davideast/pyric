@@ -54,14 +54,14 @@ describe('pyric() project resolution', () => {
     const root = targetsProject();
     process.env.PYRIC_PROJECT = 'q';
     const init = await initJson(await bootPlugin({ functions: false, ui: false }, root));
-    expect(init.databaseInstances).toEqual({ defaultInstance: 'q-default-rtdb', rules: { 'q-main': MAIN_RULES } });
+    expect(init.databaseInstances).toEqual({ defaultInstance: 'q-default-rtdb', projectId: 'q', rules: { 'q-main': MAIN_RULES }, rulesFiles: { 'q-main': 'main.rules.json' } });
   });
 
   it('maps deploy targets through the project option, resolving a .firebaserc alias', async () => {
     const root = targetsProject();
     process.env.PYRIC_PROJECT = 'q';
     const init = await initJson(await bootPlugin({ functions: false, ui: false, project: 'staging' }, root));
-    expect(init.databaseInstances).toEqual({ defaultInstance: 'p-default-rtdb', rules: { 'main-a': MAIN_RULES } });
+    expect(init.databaseInstances).toEqual({ defaultInstance: 'p-default-rtdb', projectId: 'p', rules: { 'main-a': MAIN_RULES }, rulesFiles: { 'main-a': 'main.rules.json' } });
   });
 
   it('starts without a resolvable project and carries the target for the app config to resolve', async () => {

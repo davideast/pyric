@@ -10,7 +10,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { heldDatabaseInstances } from 'pyric/database/internal';
-import { UNNAMED_DEFAULT_DATABASE_INSTANCE } from 'pyric/sandbox/internal';
+import { UNNAMED_DEFAULT_DATABASE_INSTANCE, isDefaultDatabaseInstance } from 'pyric/sandbox/internal';
 import type { LocalSandbox } from 'pyric/sandbox';
 import { readFirebaseJson } from '../../cli/firebase-json.js';
 import { resolveFirebaseProject } from '../../cli/firebase-project.js';
@@ -36,11 +36,15 @@ export interface DatabaseInstanceCatalog {
   known(): KnownDatabaseInstances;
 }
 
-/** Build a catalog from the default instance's name and the named instances. */
-export function databaseInstanceCatalog(known: KnownDatabaseInstances): DatabaseInstanceCatalog {
+/**
+ * Build a catalog from the default instance's name and the named instances.
+ * `projectId`, when known, also names the default instance, as
+ * `https://<projectId>.firebaseio.com` does for a project created before about 2020.
+ */
+export function databaseInstanceCatalog(known: KnownDatabaseInstances, projectId?: string): DatabaseInstanceCatalog {
   return {
     select(name) {
-      if (name === known.defaultInstance) return undefined;
+      if (name === known.defaultInstance || isDefaultDatabaseInstance(name, projectId)) return undefined;
       return known.named.includes(name) ? name : null;
     },
     known: () => known,
@@ -64,9 +68,12 @@ export async function projectDatabaseInstances(
   const isNamed = targets.defaultInstance !== UNNAMED_DEFAULT_DATABASE_INSTANCE;
   const defaultInstance = isNamed ? targets.defaultInstance : undefined;
   const declared = targets.targets.map((target) => target.instance);
+  const projectId = project.projectId;
+  const named = distinctNames([...declared, ...heldDatabaseInstances(sandbox)], targets.defaultInstance)
+    .filter((name) => !isDefaultDatabaseInstance(name, projectId));
   return databaseInstanceCatalog({
     ...(defaultInstance === undefined ? {} : { defaultInstance }),
-    named: distinctNames([...declared, ...heldDatabaseInstances(sandbox)], targets.defaultInstance),
+    named,
     pending: targets.pending.map((target) => `${target.label} target "${target.target}" selects no instance yet: ${target.reason}.`),
-  });
+  }, projectId);
 }

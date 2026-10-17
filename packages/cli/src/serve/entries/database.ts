@@ -12,6 +12,7 @@ import { queryIdentifier } from 'pyric/database/internal';
 import {
   defaultDatabaseInstanceName,
   isCustomDatabaseHost,
+  isDefaultDatabaseInstance,
   parseDatabaseLocationUrl,
   parseDatabaseUrl,
   type DatabaseInstance,
@@ -123,7 +124,9 @@ export const getDatabase = ((app?: FirebaseApp, url?: string) => {
     throw new Error('FIREBASE FATAL ERROR: Database initialized multiple times. Please make sure the format of the database URL matches with each database() call. ');
   }
   const projectId = resolved.options.projectId;
-  const isDefault = projectId !== undefined && instance.name === defaultDatabaseInstanceName(projectId);
+  // The legacy `https://<projectId>.firebaseio.com` names the default instance
+  // too; the handle keeps that URL, as production reports it.
+  const isDefault = isDefaultDatabaseInstance(instance.name, projectId);
   const client = workerClientForApp(resolved);
   const handle = Object.assign(
     new ip.Database(undefined, resolved),
