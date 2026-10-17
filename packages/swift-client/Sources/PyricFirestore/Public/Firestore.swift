@@ -312,12 +312,16 @@ public class Firestore: @unchecked Sendable {
         Task {
             do {
                 let result = try await self.runTransaction(options: opts) { txn in
-                    var err: NSError?
-                    let res = updateBlock(txn, &err)
-                    if let err {
-                        throw err
+                    // The block may block its thread on a transaction read, so it
+                    // runs off the cooperative pool the read's reply needs.
+                    try await UpdateBlockThread.run {
+                        var err: NSError?
+                        let res = updateBlock(txn, &err)
+                        if let err {
+                            throw err
+                        }
+                        return res
                     }
-                    return res
                 }
                 self.settings.dispatchQueue.async {
                     completion(result, nil)
