@@ -487,7 +487,7 @@ class ConformanceTest {
         val task = harness.firestore.runTransaction { txn ->
             attempts++
             if (attempts < 2) {
-                throw RuntimeException("Temporary conflict")
+                throw com.google.firebase.firestore.FirebaseFirestoreException("Temporary conflict", com.google.firebase.firestore.FirebaseFirestoreException.Code.ABORTED)
             }
             "recovered"
         }
