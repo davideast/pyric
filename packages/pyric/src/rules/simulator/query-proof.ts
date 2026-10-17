@@ -1,4 +1,11 @@
-import { queryResidual } from './query-proof-residual.js';
+import {
+  computeWhereDomains,
+  dataFieldPath,
+  inlineFunctionsInExpr,
+  isRequestAuthUid,
+  isResourceData,
+  queryResidual,
+} from './query-proof-residual.js';
 /**
  * RULES-B11 (rules-side) — query-proof evaluation for `list` operations.
  *
@@ -169,16 +176,20 @@ function evaluateEqualityQueryProof(
   const required = extraction.required;
 
   const wheres = constraints.where ?? [];
+  const domains = computeWhereDomains(constraints);
   const missing: QueryProofMissing[] = [];
   const mismatched: QueryProofMismatch[] = [];
+  let hasEmptyDomain = false;
   for (const req of required) {
-    const discharged = wheres.some(
-      w => w.field === req.field && w.op === '==' && valuesEqual(w.value, req.value),
-    );
-    if (discharged) continue;
+    const domain = domains.get(req.field);
+    const discharged = domain !== undefined && domain.every((v) => valuesEqual(v, req.value));
+    if (discharged) {
+      if (domain.length === 0) hasEmptyDomain = true;
+      continue;
+    }
     // A `where(field, '==', other)` on the same field with a different value is
     // a mismatch (actionable: the wrong value); anything else is simply missing.
-    const conflict = wheres.find(w => w.field === req.field && w.op === '==');
+    const conflict = wheres.find((w) => w.field === req.field && w.op === '==' && !valuesEqual(w.value, req.value));
     if (conflict) {
       mismatched.push({ field: req.field, expectedValue: req.value, actualValue: conflict.value });
     } else {
@@ -187,10 +198,14 @@ function evaluateEqualityQueryProof(
   }
 
   if (missing.length === 0 && mismatched.length === 0) {
-    return {
+    const provableResult: QueryProofResult = {
       provable: true,
       reason: 'every per-document predicate the rule requires is guaranteed by a query where(...) constraint',
     };
+    if (hasEmptyDomain) {
+      provableResult.residualCondition = extraction.residual;
+    }
+    return provableResult;
   }
 
   return {
@@ -237,12 +252,9 @@ export function referencesResourceData(
   visited = new Set<string>(),
 ): boolean {
   const check = (e: Expression): boolean => {
+    if (isResourceData(e)) return true;
     switch (e.type) {
       case 'memberAccess':
-        // `resource.data` (the bare `resource` identifier, not `request.resource`).
-        if (e.property === 'data' && e.object.type === 'identifier' && e.object.name === 'resource') {
-          return true;
-        }
         return check(e.object);
       case 'bracketAccess':
         return check(e.object) || check(e.index);
@@ -340,9 +352,20 @@ export function isProvablyDocIndependent(
         // Recursive helper → fail closed.
         if (visited.has(e.name)) return false;
         const nextVisited = new Set(visited).add(e.name);
-        return (
-          isProvablyDocIndependent(fn.body, fnMap, nextVisited) &&
-          fn.lets.every((b) => isProvablyDocIndependent(b.value, fnMap, nextVisited))
+        const bindings = new Map<string, Expression>();
+        fn.parameters.forEach((p, i) => {
+          const arg = e.args[i];
+          if (arg) bindings.set(p, arg);
+        });
+        for (const b of fn.lets) {
+          const bound = substituteIdentifiers(b.value, bindings);
+          if (!isProvablyDocIndependent(bound, fnMap, nextVisited)) return false;
+          bindings.set(b.name, bound);
+        }
+        return isProvablyDocIndependent(
+          substituteIdentifiers(fn.body, bindings),
+          fnMap,
+          nextVisited,
         );
       }
       default:
@@ -372,7 +395,7 @@ interface RequiredEquality {
  * allow production would never grant.
  */
 type ExtractionResult =
-  | { ok: true; required: RequiredEquality[] }
+  | { ok: true; required: RequiredEquality[]; residual: Expression }
   | { ok: false; predicate: Expression; predicateLoc?: SourceLoc };
 
 /**
@@ -401,9 +424,13 @@ function extractRequiredDataEqualities(
   const required: RequiredEquality[] = [];
   let predicate = expr;
   let predicateLoc = expr.loc;
-  const walkAnd = (e: Expression, visited: Set<string>, enclosingLoc = expr.loc): boolean => {
+  const walkAnd = (e: Expression, visited: Set<string>, enclosingLoc = expr.loc): Expression | null => {
     if (e.type === 'binaryOp' && e.op === '&&') {
-      return walkAnd(e.left, visited, enclosingLoc) && walkAnd(e.right, visited, enclosingLoc);
+      const left = walkAnd(e.left, visited, enclosingLoc);
+      if (!left) return null;
+      const right = walkAnd(e.right, visited, enclosingLoc);
+      if (!right) return null;
+      return { type: 'binaryOp', op: '&&', left, right };
     }
     if (e.type === 'functionCall' && fnMap.has(e.name) && !visited.has(e.name)) {
       const fn = fnMap.get(e.name)!;
@@ -419,10 +446,10 @@ function extractRequiredDataEqualities(
       const nextVisited = new Set(visited).add(e.name);
       return walkAnd(inlined, nextVisited, fn.loc ?? enclosingLoc);
     }
-    const eq = asDataEquality(e, authUid);
+    const eq = asDataEquality(e, fnMap, authUid, visited);
     if (eq) {
       required.push(eq);
-      return true;
+      return { type: 'literal', value: true, raw: 'true' };
     }
     // Not an equality: acceptable only when the conjunct is provably
     // doc-independent — the residual simulate() run evaluates those
@@ -435,20 +462,32 @@ function extractRequiredDataEqualities(
       // Older parsed expressions lack token locations; the enclosing helper
       // definition still gives a useful authored citation.
       predicateLoc = e.loc ?? enclosingLoc;
+      return null;
     }
-    return independent;
+    return e;
   };
-  return walkAnd(expr, new Set()) ? { ok: true, required } : { ok: false, predicate, predicateLoc };
+  const residual = walkAnd(expr, new Set());
+  if (residual) {
+    return { ok: true, required, residual };
+  }
+  return { ok: false, predicate, predicateLoc };
 }
 
 /**
  * Match `resource.data.<field> == <literal>` or `resource.data.<field> ==
- * request.auth.uid` (either operand order) → the required equality. The auth
- * form is only recognized when `authUid` is known; its value is that uid and
- * `fromAuthUid` is set so remediation can suggest `request.auth.uid`.
+ * request.auth.uid` (either operand order, including bracket access and helper
+ * sub-expressions) → the required equality. The auth form is only recognized
+ * when `authUid` is known; its value is that uid and `fromAuthUid` is set so
+ * remediation can suggest `request.auth.uid`.
  */
-function asDataEquality(e: Expression, authUid: string | undefined): RequiredEquality | null {
-  if (e.type !== 'binaryOp' || e.op !== '==') return null;
+function asDataEquality(
+  rawExpr: Expression,
+  fnMap: Map<string, FunctionDef>,
+  authUid: string | undefined,
+  visited: ReadonlySet<string>,
+): RequiredEquality | null {
+  const e = inlineFunctionsInExpr(rawExpr, fnMap, visited);
+  if (!e || e.type !== 'binaryOp' || e.op !== '==') return null;
   const fromSide = (data: Expression, other: Expression): RequiredEquality | null => {
     const field = dataFieldPath(data);
     if (field === null) return null;
@@ -457,18 +496,6 @@ function asDataEquality(e: Expression, authUid: string | undefined): RequiredEqu
     return null;
   };
   return fromSide(e.left, e.right) ?? fromSide(e.right, e.left);
-}
-
-/** True for the exact member chain `request.auth.uid`. */
-function isRequestAuthUid(e: Expression): boolean {
-  return (
-    e.type === 'memberAccess' &&
-    e.property === 'uid' &&
-    e.object.type === 'memberAccess' &&
-    e.object.property === 'auth' &&
-    e.object.object.type === 'identifier' &&
-    e.object.object.name === 'request'
-  );
 }
 
 /**
@@ -514,24 +541,6 @@ export function substituteIdentifiers(expr: Expression, bindings: Map<string, Ex
     }
   };
   return sub(expr);
-}
-
-/**
- * If `e` is a single-segment `resource.data.<field>` access, return `<field>`;
- * otherwise null. Nested paths (`resource.data.a.b`) aren't dischargeable by a
- * flat `where('a.b', ...)` equality here, so they return null → reject.
- */
-function dataFieldPath(e: Expression): string | null {
-  if (
-    e.type === 'memberAccess' &&
-    e.object.type === 'memberAccess' &&
-    e.object.property === 'data' &&
-    e.object.object.type === 'identifier' &&
-    e.object.object.name === 'resource'
-  ) {
-    return e.property;
-  }
-  return null;
 }
 
 function valuesEqual(a: unknown, b: unknown): boolean {

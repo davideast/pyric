@@ -481,4 +481,102 @@ service cloud.firestore {
       expect(evaluateQueryProof(condition, {}, fnMap).provable).toBe(true);
     });
   });
+
+  // FS-ENF-4a/4b/4c and FS-MET-5 (2, 3, 4, 5): domain intersection and
+  // meaning-preserving rule rewrites.
+  // Evidence: firebase.google.com/docs/firestore/security/rules-query; deployed
+  // Firestore probe (FS-ENF-4c: contradictory `where('a','==',1)` + `where('a','==',2)`
+  // is ALLOWED with 0 docs while single `where('a','==',1)` is denied under
+  // `resource.data.a == 1 && resource.data.a == 2`); observations #182, #170, #163, #173.
+  describe('domain intersection and meaning-preserving rewrites (FS-ENF-4, FS-MET-5)', () => {
+    const proveRule = (
+      body: string,
+      where: NonNullable<QueryConstraints['where']>,
+      authUid?: string,
+    ) => {
+      const { condition, fnMap } = listConditionOf(rules(body));
+      return evaluateQueryProof(condition, { where }, fnMap, authUid);
+    };
+
+    test('FS-ENF-4a: singleton where(field, in, [v]) discharges resource.data.field == v', () => {
+      const r = proveRule("allow list: if resource.data.status == 'open';", [
+        { field: 'status', op: 'in', value: ['open'] },
+      ]);
+      expect(r.provable).toBe(true);
+    });
+
+    test('FS-ENF-4b: same-field where filters intersect regardless of filter order', () => {
+      const filtersA: NonNullable<QueryConstraints['where']> = [
+        { field: 'status', op: 'in', value: ['open', 'closed'] },
+        { field: 'status', op: '==', value: 'open' },
+      ];
+      const filtersB: NonNullable<QueryConstraints['where']> = [
+        { field: 'status', op: '==', value: 'open' },
+        { field: 'status', op: 'in', value: ['open', 'closed'] },
+      ];
+      expect(proveRule("allow list: if resource.data.status == 'open';", filtersA).provable).toBe(true);
+      const inThenEq = proveRule("allow list: if resource.data.status in ['open'];", filtersA);
+      const eqThenIn = proveRule("allow list: if resource.data.status in ['open'];", filtersB);
+      expect(inThenEq.provable).toBe(true);
+      expect(eqThenIn.provable).toBe(true);
+      if (!inThenEq.provable || !eqThenIn.provable) throw new Error('expected provable');
+      expect(inThenEq.residualCondition).toEqual(eqThenIn.residualCondition);
+    });
+
+    test('FS-ENF-4c: contradictory same-field equalities produce a doc-independent residual while single equality rejects', () => {
+      const body = 'allow list: if resource.data.a == 1 && resource.data.a == 2;';
+      expect(proveRule(body, [{ field: 'a', op: '==', value: 1 }]).provable).toBe(false);
+      const contradictory = proveRule(body, [
+        { field: 'a', op: '==', value: 1 },
+        { field: 'a', op: '==', value: 2 },
+      ]);
+      expect(contradictory.provable).toBe(true);
+      if (!contradictory.provable) throw new Error('expected provable');
+      expect(contradictory.residualCondition).toBeDefined();
+      expect(isProvablyDocIndependent(contradictory.residualCondition!, new Map())).toBe(true);
+    });
+
+    test('FS-MET-5 (2 & 5): helper returning resource.data and bracket field access', () => {
+      const { condition: helperCond, fnMap: helperFns } = listConditionOf(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /c/{id} {
+      function getData() { return resource.data; }
+      allow list: if getData().owner == 'alice';
+    }
+  }
+}`);
+      expect(
+        evaluateQueryProof(helperCond, { where: [{ field: 'owner', op: '==', value: 'alice' }] }, helperFns).provable,
+      ).toBe(true);
+      expect(
+        proveRule("allow list: if resource.data['owner'] == 'alice';", [
+          { field: 'owner', op: '==', value: 'alice' },
+        ]).provable,
+      ).toBe(true);
+    });
+
+    test('FS-MET-5 (3): array-contains discharges resource.data.tags.hasAny([v])', () => {
+      expect(
+        proveRule("allow list: if resource.data.tags.hasAny(['a']);", [
+          { field: 'tags', op: 'array-contains', value: 'a' },
+        ]).provable,
+      ).toBe(true);
+      expect(
+        proveRule(
+          'allow list: if resource.data.tags.hasAny([request.auth.uid]);',
+          [{ field: 'tags', op: 'array-contains', value: 'alice' }],
+          'alice',
+        ).provable,
+      ).toBe(true);
+    });
+
+    test('FS-MET-5 (4): De Morgan equivalents produce identical proof verdicts', () => {
+      expect(
+        proveRule("allow list: if !(resource.data.owner != 'alice' && resource.data.status != 'pub');", [
+          { field: 'owner', op: '==', value: 'alice' },
+        ]).provable,
+      ).toBe(true);
+    });
+  });
 });

@@ -117,4 +117,35 @@ describe('analyzeListRulePathInvariance', () => {
     expect(result.pathInvariant).toBe(true);
     expect([...result.requiredFunctions]).toEqual(['safe']);
   });
+
+  // FS-MET-5 (1a, 1b, 1c): meaning-preserving `let` and function parameter
+  // rewrites involving `request` must not flip path-invariance to false when
+  // only path-invariant fields (`auth`, `method`, `query`, `time`) are read.
+  // Evidence: observations/firestore-rules/rules-firestore-functions-verbs-and-recursive.json (#182).
+  test('accepts let-bound and parameter-passed request when only path-invariant fields are read (FS-MET-5)', () => {
+    expect(analyze('check()', `
+      function check() {
+        let req = request;
+        return req.auth != null;
+      }
+    `).pathInvariant).toBe(true);
+
+    expect(analyze('isSignedIn(request)', `
+      function isSignedIn(req) {
+        return req.auth != null && req['query'].limit == 10;
+      }
+    `).pathInvariant).toBe(true);
+
+    expect(analyze('isAlice(request.auth)', `
+      function isAlice(request) {
+        return request.uid == 'alice';
+      }
+    `).pathInvariant).toBe(true);
+
+    expect(analyze('readsPath(request)', `
+      function readsPath(req) {
+        return req.path != null;
+      }
+    `).pathInvariant).toBe(false);
+  });
 });
