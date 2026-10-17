@@ -68,26 +68,35 @@ export function isIncrementSentinel(v: unknown): v is IncrementSentinel {
  * is handled by the caller calling this per-path with that path's prior
  * value.
  */
+function unwrapNodeValue(node: unknown): unknown {
+  if (node !== null && typeof node === 'object' && !Array.isArray(node) && Object.hasOwn(node, '.value')) {
+    return (node as Record<string, unknown>)['.value'];
+  }
+  return node;
+}
+
 export function resolveSentinels(value: unknown, now: number, current?: unknown): unknown {
+  const rawCurrent = unwrapNodeValue(current);
   if (isServerTimestampSentinel(value)) return now;
   if (isIncrementSentinel(value)) {
     const delta = (value as IncrementSentinel)['.sv'].increment;
-    const base = typeof current === 'number' ? current : 0;
+    const base = typeof rawCurrent === 'number' ? rawCurrent : 0;
     return base + delta;
   }
   if (value === null || typeof value !== 'object') return value;
   if (Array.isArray(value)) {
     return value.map((v, i) =>
-      resolveSentinels(v, now, Array.isArray(current) ? current[i] : undefined),
+      resolveSentinels(v, now, Array.isArray(rawCurrent) ? rawCurrent[i] : undefined),
     );
   }
-  const curObj =
-    current !== null && typeof current === 'object' && !Array.isArray(current)
-      ? (current as Record<string, unknown>)
-      : undefined;
+  let curObj: Record<string, unknown> | undefined;
+  if (rawCurrent !== null && typeof rawCurrent === 'object' && !Array.isArray(rawCurrent)) {
+    curObj = rawCurrent as Record<string, unknown>;
+  }
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    out[k] = resolveSentinels(v, now, curObj ? curObj[k] : undefined);
+    const childCurrent = k === '.value' ? rawCurrent : curObj?.[k];
+    out[k] = resolveSentinels(v, now, childCurrent);
   }
   return out;
 }
