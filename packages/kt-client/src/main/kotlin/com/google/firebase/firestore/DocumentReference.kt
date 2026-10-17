@@ -37,7 +37,7 @@ class DocumentReference internal constructor(
     fun get(source: Source = Source.DEFAULT): Task<DocumentSnapshot> {
         val tcs = TaskCompletionSource<DocumentSnapshot>()
         val scope = CoroutineScope(Dispatchers.IO)
-        scope.launch {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 val res = firestore.bridgeClient.op(
                     method = "getDoc",

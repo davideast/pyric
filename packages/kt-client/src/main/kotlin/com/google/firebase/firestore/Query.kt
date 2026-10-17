@@ -8,6 +8,7 @@ import dev.pyric.codecs.DocumentDataEnvelope
 import dev.pyric.codecs.OrderBy
 import dev.pyric.codecs.QueryCompiler
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -183,7 +184,7 @@ open class Query internal constructor(
     fun get(source: Source = Source.DEFAULT): Task<QuerySnapshot> {
         val tcs = TaskCompletionSource<QuerySnapshot>()
         val scope = CoroutineScope(Dispatchers.IO)
-        scope.launch {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 val targetDesc = toTargetDescriptor()
                 val res = firestore.bridgeClient.op(
