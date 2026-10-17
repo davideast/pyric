@@ -51,7 +51,6 @@ export class ChildListeners {
   ): () => void {
     const at = this.state.clock.now();
     const id = this.state.events.nextListenerId();
-    const attachOwners = listenerAttachOwners();
     const evaluation = this.state.rules.evaluate('read', path === '/' ? '/' : path, {
       auth,
       mockData: this.state.rulesSnapshot(),
@@ -81,10 +80,71 @@ export class ChildListeners {
       throw permissionDenied(denial);
     }
     this.state.warnOnUnspecifiedIndex(path, spec);
-    this.state.events.operation(auth, 'listen', path, 'allow', evaluation, {
-      at, durationMs: this.state.clock.now() - at, origin: 'listener', detail: { event },
+    return this.attach(
+      id,
+      auth,
+      event,
+      path,
+      cb,
+      spec,
+      { origin: 'listener', result: 'allow', evaluation, at },
+      cancelCallback,
+      onCanceled,
+    );
+  }
+
+  adminOnChild(
+    event: ChildEvent,
+    path: string,
+    cb: ChildListener['cb'],
+    spec?: QuerySpec,
+  ): () => void {
+    this.state.warnOnUnspecifiedIndex(path, spec);
+    return this.attach(
+      this.state.events.nextListenerId(),
+      null,
+      event,
+      path,
+      cb,
+      spec,
+      { origin: 'admin', result: 'not-applicable', evaluation: undefined, at: this.state.clock.now() },
+    );
+  }
+
+  private attach(
+    id: string,
+    auth: AuthState,
+    event: ChildEvent,
+    path: string,
+    cb: ChildListener['cb'],
+    spec: QuerySpec | undefined,
+    provenance: {
+      origin: 'listener' | 'admin';
+      result: 'allow' | 'not-applicable';
+      evaluation: ReturnType<BackendState['rules']['evaluate']> | undefined;
+      at: number;
+    },
+    cancelCallback?: (error: Error) => void,
+    onCanceled?: () => void,
+  ): () => void {
+    const attachOwners = listenerAttachOwners();
+    this.state.events.operation(auth, 'listen', path, provenance.result, provenance.evaluation, {
+      at: provenance.at,
+      durationMs: this.state.clock.now() - provenance.at,
+      origin: provenance.origin,
+      detail: { event },
     });
-    const listener: ChildListener = { id, auth, event, path, cb, spec, cancelCallback, onCanceled };
+    const listener: ChildListener = {
+      id,
+      auth,
+      event,
+      path,
+      cb,
+      spec,
+      cancelCallback,
+      onCanceled,
+      admin: provenance.origin === 'admin',
+    };
     this.state.childListeners.add(listener);
     this.state.events.listener('attach', listener, auth, {
       event, result: 'allow', detail: spec ? { query: spec } : undefined,

@@ -5,6 +5,7 @@ import { initializeSandbox } from 'pyric/sandbox';
 import { deleteApp, initializeApp } from '../../src/app/index.js';
 import { resetAppRegistryForTests } from '../../src/app/registry.js';
 import {
+  getAdminDatabase,
   getDatabase,
   get,
   goOffline,
@@ -259,6 +260,58 @@ describe('onDisconnect registration and clean lifecycle', () => {
     expect(snapshot.val()).toEqual({ after: production.after });
     expect(snapshot.priority).toBe(production['.priority']);
     expect(snapshot.exportVal()).toEqual(production);
+  });
+
+  it('cancelling a child that was never queued keeps a parent set whole so a tightened parent .write denies it (#1021)', async () => {
+    const app = initializeSandbox();
+    const db = getDatabase(app);
+    const admin = getAdminDatabase(app);
+    const tight = "root.child('flags').child('tight').val() != true";
+    rtdbSandbox.setRules(db, {
+      rules: {
+        '.read': true,
+        doc: { '.write': tight, $k: { '.write': true } },
+      },
+    });
+    await set(ref(admin, 'doc'), { a: 1, keep: 'x' });
+    await set(ref(admin, 'flags/tight'), false);
+    await onDisconnect(ref(db, 'doc')).set({ a: 2 });
+    await onDisconnect(ref(db, 'doc/neverQueued')).cancel();
+    await set(ref(admin, 'flags/tight'), true);
+    goOffline(db);
+    expect((await get(ref(admin, 'doc'))).exportVal()).toEqual({ a: 1, keep: 'x' });
+  });
+
+  it('cancelling a child that was never queued keeps a parent setWithPriority whole, removing siblings and keeping priority (#1021)', async () => {
+    const app = initializeSandbox();
+    const db = getDatabase(app);
+    const admin = getAdminDatabase(app);
+    rtdbSandbox.setRules(db, { rules: { '.read': true, '.write': true } });
+    await set(ref(admin, 'doc'), { a: 1, keep: 'x' });
+    await onDisconnect(ref(db, 'doc')).setWithPriority({ a: 2 }, 9);
+    await onDisconnect(ref(db, 'doc/neverQueued')).cancel();
+    goOffline(db);
+    expect((await get(ref(admin, 'doc'))).exportVal()).toEqual({ a: 2, '.priority': 9 });
+  });
+
+  it('re-registering a parent remove or set replaces a queued descendant operation (#1021)', async () => {
+    for (const last of ['remove', 'set'] as const) {
+      const app = initializeSandbox();
+      const db = getDatabase(app);
+      const admin = getAdminDatabase(app);
+      rtdbSandbox.setRules(db, { rules: { '.read': true, '.write': true } });
+      await onDisconnect(ref(db, 'pres')).set({ status: 'first' });
+      await onDisconnect(ref(db, 'pres/sub')).set('stale-child');
+      let expected: unknown = { status: 'second' };
+      if (last === 'remove') {
+        await onDisconnect(ref(db, 'pres')).remove();
+        expected = null;
+      } else {
+        await onDisconnect(ref(db, 'pres')).set({ status: 'second' });
+      }
+      goOffline(db);
+      expect((await get(ref(admin, 'pres'))).exportVal()).toEqual(expected);
+    }
   });
 });
 

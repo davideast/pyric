@@ -314,3 +314,63 @@ describe('RTDB simulate resolves server values as the sandbox does', () => {
     });
   }
 });
+
+// Write-boundary normalization (`src/database/sandbox/normalize.ts`): arrays
+// coerce to integer-keyed objects, empty arrays/objects prune to null, and a
+// pruned node drops its `.priority`. `simulate()` normalizes write payloads
+// the same way the sandbox does.
+const normalizationRules = {
+  rules: {
+    arr: { '.write': "auth != null && newData.hasChildren() && newData.child('0').val() === 'a' && newData.child('1').val() === 'b'" },
+    emptyArr: { '.write': 'auth != null && !newData.exists()' },
+    emptyObjPrio: { '.write': 'auth != null && !newData.exists() && newData.getPriority() === null' },
+    prioArr: { '.write': "auth != null && newData.hasChildren() && newData.child('0').val() === 'a' && newData.getPriority() === 5" },
+  },
+};
+
+const normalizationCases: Array<[label: string, path: string, value: unknown, expected: Verdict]> = [
+  ['array write coerced to integer-keyed object', '/arr', ['a', 'b'], 'ALLOW'],
+  ['empty array write pruned to null', '/emptyArr', [], 'ALLOW'],
+  ['prioritized empty object pruned to null with null priority', '/emptyObjPrio', { '.value': {}, '.priority': 5 }, 'ALLOW'],
+  ['prioritized array write preserves priority and coerces elements', '/prioArr', { '.value': ['a', 'b'], '.priority': 5 }, 'ALLOW'],
+];
+
+describe('RTDB simulate normalizes arrays, empty objects, and pruned priorities as the sandbox does (MET-3)', () => {
+  for (const [label, path, value, expected] of normalizationCases) {
+    test(label, async () => {
+      const box = initializeSandbox();
+      const admin = getDatabase(box.withAuth({ uid: 'admin' }));
+      sandbox.setRules(admin, normalizationRules);
+      let verdict: Verdict = 'ALLOW';
+      try {
+        await set(ref(getDatabase(box.withAuth({ uid: 'u1' })), path.slice(1)), value as never);
+      } catch {
+        verdict = 'DENY';
+      }
+      const [result] = rtdbRules(normalizationRules).simulate([
+        { expectation: expected, operation: 'write', path, auth: 'u1', newData: value },
+      ]).cases;
+      expect(verdict).toBe(expected);
+      expect(result.decision).toBe(verdict);
+    });
+  }
+
+  test('multi-path update normalizes array and empty-object values across sibling paths', async () => {
+    const box = initializeSandbox();
+    const admin = getDatabase(box.withAuth({ uid: 'admin' }));
+    sandbox.setRules(admin, normalizationRules);
+    const patch = { arr: ['a', 'b'], emptyArr: [], emptyObjPrio: { '.value': {}, '.priority': 5 } };
+    let verdict: Verdict = 'ALLOW';
+    try {
+      await update(ref(getDatabase(box.withAuth({ uid: 'u1' }))), patch as never);
+    } catch {
+      verdict = 'DENY';
+    }
+    const [result] = rtdbRules(normalizationRules).simulate([
+      { expectation: 'ALLOW', operation: 'update', path: '/', auth: 'u1', newData: patch },
+    ]).cases;
+    expect(verdict).toBe('ALLOW');
+    expect(result.decision).toBe(verdict);
+  });
+});
+

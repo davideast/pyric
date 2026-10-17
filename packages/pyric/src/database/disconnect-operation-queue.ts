@@ -8,8 +8,17 @@ function pathSegments(path: string): string[] {
 }
 
 function isAncestorPath(ancestor: string, descendant: string): boolean {
-  const prefix = ancestor === '/' ? '/' : `${ancestor.replace(/\/+$/, '')}/`;
+  if (ancestor === '/') return descendant !== '/';
+  const prefix = `${ancestor.replace(/\/+$/, '')}/`;
   return descendant !== ancestor && descendant.startsWith(prefix);
+}
+
+function isSameOrDescendantPath(ancestor: string, candidate: string): boolean {
+  return ancestor === '/' || candidate === ancestor || isAncestorPath(ancestor, candidate);
+}
+
+function replacesDescendants<TMetadata extends object>(operation: DisconnectOperation<TMetadata>): boolean {
+  return operation.kind === 'set' || operation.kind === 'remove';
 }
 
 /**
@@ -19,6 +28,13 @@ function isAncestorPath(ancestor: string, descendant: string): boolean {
  */
 function hasChildren(value: unknown): value is object {
   return value !== null && typeof value === 'object' && !Object.hasOwn(value, '.sv');
+}
+
+function splitsIntoChildMerge<TMetadata extends object>(
+  queued: DisconnectOperation<TMetadata>,
+  cancelledQueuedOperation: boolean,
+): queued is Extract<DisconnectOperation<TMetadata>, { kind: 'set' }> & { value: object } {
+  return queued.kind === 'set' && cancelledQueuedOperation && hasChildren(queued.value);
 }
 
 function withoutNestedPath(value: unknown, segments: string[]): unknown {
@@ -45,20 +61,29 @@ export class DisconnectOperationQueue<TMetadata extends object = Record<never, n
     // The SDK registers nothing for an empty update, so a write queued at the
     // same path stays queued.
     if (operation.kind === 'update' && Object.keys(operation.values).length === 0) return;
+    if (replacesDescendants(operation)) {
+      for (const queuedPath of [...this.operations.keys()]) {
+        if (isAncestorPath(operation.path, queuedPath)) {
+          this.operations.delete(queuedPath);
+        }
+      }
+    }
     this.operations.set(operation.path, structuredClone(operation));
   }
 
   cancel(path: string): void {
-    const prefix = path === '/' ? '/' : `${path.replace(/\/+$/, '')}/`;
+    let cancelledQueuedOperation = false;
     for (const queuedPath of [...this.operations.keys()]) {
-      if (path === '/' || queuedPath === path || queuedPath.startsWith(prefix)) {
+      if (isSameOrDescendantPath(path, queuedPath)) {
         this.operations.delete(queuedPath);
-        continue;
+        cancelledQueuedOperation = true;
       }
+    }
+    for (const queuedPath of [...this.operations.keys()]) {
       if (!isAncestorPath(queuedPath, path)) continue;
       const queued = this.operations.get(queuedPath)!;
       const relative = pathSegments(path).slice(pathSegments(queuedPath).length);
-      if (queued.kind === 'set' && hasChildren(queued.value)) {
+      if (splitsIntoChildMerge(queued, cancelledQueuedOperation)) {
         this.operations.set(queuedPath, {
           ...queued,
           value: withoutNestedPath(queued.value, relative),
