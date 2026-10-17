@@ -22,6 +22,7 @@ import type { ClientPort } from './handles.js';
 import { createOperationBudget } from '../../../bridge/operation-budget.js';
 import { requestInstance } from '../request-instance.js';
 import { hasValidOutboundEnvelope, hasValidReplyOutcome, snapshotError } from '../outbound-validation.js';
+import { closeSendOrder, issueTime, postInOrder, type SendReservation } from './send-order.js';
 
 // ─── Port + correlation machinery ─────────────────────────────────────────
 
@@ -43,6 +44,8 @@ export const _pending = new Map<string, {
   instance?: string;
   budget?: ReturnType<typeof createOperationBudget>;
   release?: () => void;
+  /** When the app issued the request; a hold deadline counts from here. */
+  issuedAt: number;
   resolve: (v: unknown) => void;
   reject: (e: Error & { code?: string }) => void;
 }>();
@@ -98,14 +101,18 @@ export function openSnapshotSubscription(
   subId: string,
   subscription: (typeof _snapSubs extends Map<string, infer T> ? T : never),
   message: InboundMessage,
+  reservation?: SendReservation,
 ): boolean {
   const isDeleted = disconnectedPorts.has(port);
   if (isDeleted) return false;
   _snapSubs.set(subId, { ...subscription, message });
+  const unregister = (): boolean => _snapSubs.get(subId)?.message === message && _snapSubs.delete(subId);
   try {
-    port.postMessage(message);
+    const failed = (error: unknown): void => { if (unregister()) subscription.error?.(error); };
+    if (reservation !== undefined) reservation.send(message, failed);
+    else postInOrder(port, message, failed);
   } catch (error) {
-    _snapSubs.delete(subId);
+    unregister();
     throw error;
   }
   return true;
@@ -123,21 +130,28 @@ export function openEventSubscription(
   const isDeleted = disconnectedPorts.has(port);
   if (isDeleted) { error?.(appDeletedError()); return false; }
   _eventSubs.set(subId, { port, next, error, message, restored });
-  port.postMessage(message);
+  postInOrder(port, message, cause => {
+    const isRegistered = _eventSubs.get(subId)?.message === message && _eventSubs.delete(subId);
+    if (isRegistered) error?.(cause instanceof FirebaseError ? cause : appDeletedError());
+  });
   return true;
 }
 
 /** Move existing observers when getToken selects a different Service Worker scope. */
-export function retargetMessagingSubscriptions(port: ClientPort, recipientId: string): void {
+export function retargetMessagingSubscriptions(
+  port: ClientPort,
+  recipientId: string,
+  postMessage: ClientPort['postMessage'] = message => postInOrder(port, message),
+): void {
   for (const [subId, subscription] of _snapSubs) {
     const message = subscription.message;
     const ownsSubscription = subscription.port === port && message?.t === 'sub';
     if (!ownsSubscription) continue;
     const isMessaging = message.target === 'messaging.foreground' || message.target === 'messaging.background';
     if (!isMessaging) continue;
-    port.postMessage({ t: 'unsub', subId });
+    postMessage({ t: 'unsub', subId });
     message.recipientId = recipientId;
-    port.postMessage(message);
+    postMessage(message);
   }
 }
 
@@ -208,10 +222,13 @@ export function closeSubscription(
   const message: InboundMessage = { t: 'unsub', subId };
   const hasSessionId = clientSessionId !== undefined && clientSessionId !== '';
   if (hasSessionId) message.clientSessionId = clientSessionId;
-  try {
-    port.postMessage(message);
-  } catch {
+  const ignore = (): void => {
     // Local cancellation is complete even when the host cannot be notified.
+  };
+  try {
+    postInOrder(port, message, ignore);
+  } catch {
+    ignore();
   }
 }
 
@@ -591,35 +608,49 @@ export function stampIssuer<T extends { t?: string }>(msg: T): T {
  * Send an already-final message and return a promise for its result — no
  * implicit stamping. The RELAY path ({@link relayWorkerOp}) explicitly owns
  * the final remote provenance fields before sending through this function.
+ *
+ * The message goes out in call order ({@link postInOrder}), or in the place
+ * `reservation` claimed when the app issued the call. A custom `postMessage`
+ * is the transport's own restore traffic and bypasses the order.
  */
 export function rawRpc(
   port: ClientPort,
   msg: InboundMessage,
-  postMessage: ClientPort['postMessage'] = message => port.postMessage(message),
+  postMessage?: ClientPort['postMessage'],
+  reservation?: SendReservation,
 ): Promise<unknown> {
   const isDeleted = disconnectedPorts.has(port);
   if (isDeleted) return Promise.reject(appDeletedError());
   const isOperation = msg.t === 'op' || msg.t === 'tool';
   const budget = isOperation ? operationBudget(port, msg.clientSessionId) : undefined;
-  const reservation = budget?.reserve(msg);
-  const isRefused = reservation?.accepted === false;
-  if (isRefused) return Promise.reject(new FirebaseError(reservation.error.code, reservation.error.message));
+  const budgetReservation = budget?.reserve(msg);
+  const isRefused = budgetReservation?.accepted === false;
+  if (isRefused) return Promise.reject(new FirebaseError(budgetReservation.error.code, budgetReservation.error.message));
+  const isTeardown = msg.t === 'disconnect';
+  // An app's teardown sends none of the frames still waiting for their turn.
+  if (isTeardown) closeSendOrder(port);
   return new Promise<unknown>((resolve, reject) => {
     const opMsg = msg as { id: string };
     _pending.set(opMsg.id, {
       port,
       clientSessionId: msg.clientSessionId,
       instance: requestInstance(msg),
-      budget,
-      release: reservation?.release,
+      budget: budget,
+      release: budgetReservation?.release,
+      issuedAt: reservation?.issuedAt ?? issueTime(),
       resolve,
       reject,
     });
+    const failed = (error: unknown): void => {
+      const isPending = takePendingRequest(opMsg.id) !== undefined;
+      if (isPending) reject(error);
+    };
     try {
-      postMessage(msg);
+      if (postMessage !== undefined) postMessage(msg);
+      else if (reservation !== undefined) reservation.send(msg, failed);
+      else postInOrder(port, msg, failed);
     } catch (error) {
-      takePendingRequest(opMsg.id);
-      reject(error);
+      failed(error);
     }
   });
 }
@@ -643,8 +674,8 @@ function takePendingRequest(id: string) {
 }
 
 /** Send a CLIENT-CONSTRUCTED message: stamps the declared op source, then sends. */
-export function rpc(port: ClientPort, msg: InboundMessage): Promise<unknown> {
-  return rawRpc(port, stampIssuer(msg));
+export function rpc(port: ClientPort, msg: InboundMessage, reservation?: SendReservation): Promise<unknown> {
+  return rawRpc(port, stampIssuer(msg), undefined, reservation);
 }
 
 /**
@@ -681,12 +712,16 @@ export function rpcWithTimeout(
  * `actAs` is only attached when a lens is active — when none is set the wire
  * message is byte-identical to before, preserving the additive contract.
  */
-export function dataRpc(port: ClientPort, msg: InboundMessage & { t: 'op' }): Promise<unknown> {
+export function dataRpc(
+  port: ClientPort,
+  msg: InboundMessage & { t: 'op' },
+  reservation?: SendReservation,
+): Promise<unknown> {
   if (disconnectedPorts.has(port) && !msg.method.startsWith('rtdb.')) {
     return Promise.reject(
       new FirebaseError('failed-precondition', 'The client has already been terminated.'),
     );
   }
   const withLens = _defaultLens ? { ...msg, actAs: _defaultLens } : msg;
-  return rpc(port, withLens);
+  return rpc(port, withLens, reservation);
 }

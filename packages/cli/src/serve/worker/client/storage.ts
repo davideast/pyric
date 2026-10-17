@@ -18,6 +18,7 @@ import { FirebaseError } from 'pyric/app';
 import type { FullMetadata, StringFormat } from 'pyric/storage';
 import { arrayBufferToBase64, decodeString, defaultRawContentType, refPathOf } from 'pyric/storage/internal';
 import { dataRpc, nextId, wirePort } from './core.js';
+import { reserveSend, type SendReservation } from './send-order.js';
 import { lastSegment } from './handles.js';
 import type { ByteRouteAccess, ClientDb, ClientPort } from './handles.js';
 
@@ -417,21 +418,48 @@ export async function uploadBytes(
   const route = byteRouteOf(reference);
   const routed = route !== undefined;
   if (routed) return uploadOverRoute(reference, route, uploadBlobOf(data), metadata);
-  const bytes =
-    data instanceof Blob
-      ? new Uint8Array(await data.arrayBuffer())
-      : data instanceof ArrayBuffer
-        ? new Uint8Array(data)
-        : data;
+  const isBlob = data instanceof Blob;
+  if (isBlob) return uploadBlobInOrder(reference, data, metadata);
+  const bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : data;
+  return uploadByteArray(reference, bytes, metadata?.contentType, metadata);
+}
+
+/**
+ * A Blob's bytes arrive only after an await, so the upload claims its place in
+ * the call order first: operations the app issues after it wait until its
+ * first frame is sent, or until reading the Blob fails.
+ */
+async function uploadBlobInOrder(
+  reference: ClientStorageReference,
+  data: Blob,
+  metadata: ClientSettableMetadata | undefined,
+): Promise<{ ref: ClientStorageReference; metadata: FullMetadata }> {
+  const tooLarge = data.size > MAX_STORAGE_OBJECT_BYTES;
+  if (tooLarge) throw storageQuotaExceeded(data.size, `uploadBytes payload for '${reference.fullPath}'`);
+  // contentType precedence mirrors pyric/storage: caller metadata → Blob.type.
+  const contentType = metadata?.contentType ?? (data.type !== '' ? data.type : undefined);
+  const reservation = reserveSend(reference.port);
+  try {
+    const bytes = new Uint8Array(await data.arrayBuffer());
+    return await uploadByteArray(reference, bytes, contentType, metadata, reservation);
+  } finally {
+    reservation.release();
+  }
+}
+
+/** Upload bytes in one frame, or in parts above 4 MiB. The first frame goes in `reservation`'s place. */
+async function uploadByteArray(
+  reference: ClientStorageReference,
+  bytes: Uint8Array,
+  contentType: string | undefined,
+  metadata: ClientSettableMetadata | undefined,
+  reservation?: SendReservation,
+): Promise<{ ref: ClientStorageReference; metadata: FullMetadata }> {
   if (bytes.byteLength > MAX_STORAGE_OBJECT_BYTES) {
     throw storageQuotaExceeded(bytes.byteLength, `uploadBytes payload for '${reference.fullPath}'`);
   }
-  // contentType precedence mirrors pyric/storage: caller metadata → Blob.type.
-  const contentType =
-    metadata?.contentType ?? (data instanceof Blob && data.type ? data.type : undefined);
-
   if (bytes.byteLength <= MAX_STORAGE_PART_BYTES) {
-    const stored = (await dataRpc(reference.port, {
+    const storing = dataRpc(reference.port, {
       t: 'op',
       id: nextId(),
       method: 'storage.putBytes',
@@ -439,12 +467,14 @@ export async function uploadBytes(
       dataB64: bytesToBase64(bytes),
       ...(contentType !== undefined ? { contentType } : {}),
       ...(metadata !== undefined ? { metadata: metadata as Record<string, unknown> } : {}),
-    })) as FullMetadata;
-    return { ref: reference, metadata: stored };
+    }, reservation);
+    // Sent: later operations need not wait for the reply.
+    reservation?.release();
+    return { ref: reference, metadata: (await storing) as FullMetadata };
   }
 
   // Chunked upload for objects > 4 MiB (ADR 0015)
-  const beginRes = (await dataRpc(reference.port, {
+  const beginning = dataRpc(reference.port, {
     t: 'op',
     id: nextId(),
     method: 'storage.beginUpload',
@@ -452,7 +482,10 @@ export async function uploadBytes(
     size: bytes.byteLength,
     ...(contentType !== undefined ? { contentType } : {}),
     ...(metadata !== undefined ? { metadata: metadata as Record<string, unknown> } : {}),
-  })) as { uploadId: string };
+  }, reservation);
+  // Later operations need not wait on the parts, which follow the reply.
+  reservation?.release();
+  const beginRes = (await beginning) as { uploadId: string };
 
   const uploadId = beginRes.uploadId;
   try {
