@@ -1,0 +1,10 @@
+// INVALID: production rejects an unsupported `rules_version` at compile time
+// with "Unsupported rules version 99." (FS-CON-5c, language-result.json).
+rules_version = '99';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid} {
+      allow read: if true;
+    }
+  }
+}

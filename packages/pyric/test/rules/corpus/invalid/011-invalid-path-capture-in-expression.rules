@@ -1,0 +1,11 @@
+// INVALID: match-style `{uid}` capture syntax is not valid inside expression
+// path literals — production requires `$(uid)` and rejects `{` with
+// "Unexpected '{'." (FS-FUZ-6).
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid} {
+      allow read: if exists(/databases/$(database)/documents/users/{uid});
+    }
+  }
+}
