@@ -9,6 +9,7 @@ import dev.pyric.database.internal.isConnected
 import dev.pyric.database.internal.isInfoPath
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.awaitClose
@@ -172,7 +173,7 @@ open class Query(
             tcs.setResult(DataSnapshot(ref, infoValue(path, currentlyConnected())))
             return tcs.task
         }
-        queryScope.launch {
+        queryScope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 val params = mutableMapOf<String, Any?>("path" to path)
                 if (!querySpec.isEmpty()) {
