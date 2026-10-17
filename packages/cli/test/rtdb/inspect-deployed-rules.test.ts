@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   createRtdbInspectRulesTool,
+  diffRtdbRules,
   inspectDeployedRtdbRules,
 } from '../../src/rtdb/inspect-deployed-rules.js';
 
@@ -102,6 +103,19 @@ describe('inspectDeployedRtdbRules', () => {
       { path: '/posts/$id', kind: '.validate', change: 'removed', deployed: 'newData.isString()' },
       { path: '/posts/$id', kind: '.write', change: 'removed', deployed: 'auth.uid === $id' },
     ]);
+  });
+
+  test('treats single-string and single-element-array .indexOn as equivalent (BLD-3a)', async () => {
+    expect(diffRtdbRules({ posts: { '.indexOn': 'score' } }, { posts: { '.indexOn': ['score'] } })).toEqual([]);
+    expect(diffRtdbRules({ posts: { '.indexOn': ['score'] } }, { posts: { '.indexOn': 'score' } })).toEqual([]);
+    const deployedWithStringIndex = {
+      rules: {
+        ...DEPLOYED.rules,
+        items: { '.indexOn': 'ts' },
+      },
+    };
+    const { result } = await inspect(JSON.stringify(DEPLOYED), () => json(deployedWithStringIndex));
+    expect(result.ok && result.diff).toEqual([]);
   });
 
   for (const status of [401, 403]) {

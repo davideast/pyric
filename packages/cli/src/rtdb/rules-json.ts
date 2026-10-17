@@ -18,11 +18,14 @@ export function parseRtdbRulesJson(
 }
 
 export function isRtdbRulesDocument(value: unknown): value is RtdbRulesDocument {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    typeof (value as { toJSON?: unknown }).toJSON === 'function'
-  );
+  if (!isRtdbRulesObject(value) || typeof value.toJSON !== 'function') {
+    return false;
+  }
+  try {
+    return isRtdbRulesJson((value as { toJSON(): unknown }).toJSON());
+  } catch {
+    return false;
+  }
 }
 
 function isRtdbRulesObject(value: unknown): value is Record<string, unknown> {

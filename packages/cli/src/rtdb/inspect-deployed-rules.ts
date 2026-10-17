@@ -129,6 +129,15 @@ interface CollectedRule {
   value: string;
 }
 
+function formatRuleValue(kind: RtdbRuleKind, value: unknown): string {
+  if (kind === '.indexOn') {
+    const normalized = typeof value === 'string' ? [value] : value;
+    return JSON.stringify(normalized);
+  }
+  // A boolean and its string form are one expression: `true` and "true".
+  return typeof value === 'string' ? value : JSON.stringify(value);
+}
+
 function collectRules(root: Record<string, unknown>): Map<string, CollectedRule> {
   const out = new Map<string, CollectedRule>();
   const walk = (node: Record<string, unknown>, path: string): void => {
@@ -136,8 +145,7 @@ function collectRules(root: Record<string, unknown>): Map<string, CollectedRule>
       if (key.startsWith('.')) {
         if ((DIFFED_RULE_KINDS as readonly string[]).includes(key)) {
           const kind = key as RtdbRuleKind;
-          // A boolean and its string form are one expression: `true` and "true".
-          const value = typeof child === 'string' ? child : JSON.stringify(child);
+          const value = formatRuleValue(kind, child);
           out.set(`${path}\u0000${kind}`, { path, kind, value });
         }
       } else if (typeof child === 'object' && child !== null && !Array.isArray(child)) {
