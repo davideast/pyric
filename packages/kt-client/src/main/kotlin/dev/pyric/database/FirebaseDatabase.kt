@@ -28,6 +28,10 @@ class FirebaseDatabase(
     )
     val authLensFlow: StateFlow<AuthLens> = _effectiveAuthLensFlow.asStateFlow()
 
+    /** Off between goOffline() and goOnline(); `.info/connected` is false while it is off. */
+    private val _networkEnabled = MutableStateFlow(true)
+    internal val networkEnabled: StateFlow<Boolean> = _networkEnabled.asStateFlow()
+
     init {
         databaseScope.launch {
             credentialsProvider?.authLensFlow?.collect { lens ->
@@ -74,6 +78,7 @@ class FirebaseDatabase(
     }
 
     fun goOffline() {
+        _networkEnabled.value = false
         databaseScope.launch {
             try {
                 bridgeClient.op(
@@ -86,6 +91,7 @@ class FirebaseDatabase(
     }
 
     fun goOnline() {
+        _networkEnabled.value = true
         databaseScope.launch {
             try {
                 bridgeClient.op(
