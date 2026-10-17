@@ -133,7 +133,7 @@ export const rulesRegistry = {
           riskScore: 3,
           riskReasons: ["asserts 1 specific value(s)","asserts rules-denial behavior"],
           oracleObservations: ["rules-firestore-get-missing-doc"],
-          constructs: ["firestore.function.get","firestore.function.exists","firestore.binding.resource.id","firestore.binding.resource.__name__"],
+          constructs: ["firestore.function.get","firestore.function.exists"],
         }),
         row1({
           rowRef: "166",
@@ -157,7 +157,7 @@ export const rulesRegistry = {
           riskScore: 3,
           riskReasons: ["asserts 1 specific value(s)","asserts rules-denial behavior"],
           oracleObservations: ["rules-firestore-int-float-and-division"],
-          constructs: ["firestore.operator.div","firestore.operator.is","firestore.function.cast.int","firestore.function.cast.float"],
+          constructs: ["firestore.operator.div","firestore.operator.is"],
         }),
         row1({
           rowRef: "168",
@@ -287,6 +287,7 @@ export const rulesRegistry = {
           status: "conforms",
           evidence: "NEW ROW, 2026-07-12: production capture proves the simulator matches the production Firestore Rules Test API verdict-for-verdict on all 3 cases (request.time pinned via requestTime for determinism). `oracle:rules-firestore-time-math-and-casts` — replayed by `unit:rules/oracle-conformance.test.ts`. RECAPTURED, 2026-09-27: the scenario adds 34 production cases for `int()`, `float()`, and `string()` (37 in all). `int(string)` parses a whole signed int64 decimal string; surrounding spaces, a fraction, an exponent, hex, and out-of-range text are \"Type conversion error\". `int(float)` truncates toward zero, saturates at the int64 bounds, and maps NaN to 0. `float(string)` accepts Java double syntax: exponent and hex forms, surrounding whitespace, an f or d suffix, `NaN`, and `Infinity`, and rejects `inf` and `nan`. `string()` accepts int, float, null, string, bool, and path, and prints a float as Java `Double.toString` does, with `4.9E-324` for the smallest subnormal. A bool or null argument to `int()` or `float()`, a list, map, bytes, or duration argument to `string()`, and a second argument are error values that `|| true` absorbs. The simulator previously converted `int(true)` to 1, accepted an out-of-range int string, rejected exponent, hex, suffix, `NaN`, and `Infinity` float text, stringified any value, and printed `1.0E7` as `10000000.0`, diverging on 13 of the 34 cases; it now shares the Storage conversion functions and matches production on all 37. RECAPTURED, 2026-09-27: the scenario adds 22 production cases for the `math` namespace (59 in all), the same cases the Storage scenario `math-namespace` sends. `math.abs()` keeps an int an int and a float a float; `math.ceil()` and `math.floor()` return a float, for an int argument too; `math.round()` rounds half up (`math.round(-2.5) == -2`) and returns an int, with NaN as 0; `math.sqrt()` and `math.pow()` return a float and accept ints. A string, bool, or null argument is \"Unsupported operation error\" naming the overloads, a wrong argument count is \"Incorrect number of arguments\", and `math.isInfinite()` is \"Function not found error\"; each is an error value that denies through `!` and that `|| true` absorbs. The simulator returned a JavaScript number for every math result, so `math.ceil(1.5) is int` allowed and `math.sqrt(4) is float` denied, and computed `math.abs('a')` as NaN, so `!(math.abs('a') == 1)` allowed; it diverged on 12 of the 22 cases. It now calls the math module it shares with the Storage evaluator and matches production on all 59. A 2026-09-27 recapture adds one case (60 in all): `math.abs()` of the int64 minimum returns it unchanged, so it stays negative, as the shared math module now does.",
           oracleObservations: ["rules-firestore-time-math-and-casts"],
+          constructs: ["firestore.function.cast.int","firestore.function.cast.float"],
         }),
         row1({
           rowRef: "181",
@@ -312,6 +313,7 @@ export const rulesRegistry = {
             "packages/pyric/test/rules/grammar/validator.test.ts",
             "packages/pyric/test/rules/simulator/compile-limits.test.ts",
           ],
+          constructs: ["firestore.semantic.type-dispatch"],
         }),
         row1({
           rowRef: "183",
@@ -408,8 +410,8 @@ export const rulesRegistry = {
         }),
         row1({
           rowRef: "190",
-          featureKeys: ["getAfter", "existsAfter", "batch", "transaction"],
-          behavior: "In multi-document batched writes and transactions, getAfter() deep-merges incoming updates with pre-existing sibling document state, preserving unmodified fields; updates targeting non-existent siblings project to null so existsAfter() returns false.",
+          featureKeys: ["getAfter", "batch", "transaction"],
+          behavior: "In multi-document batched writes and transactions, getAfter() deep-merges incoming updates with pre-existing sibling document state, preserving unmodified fields.",
           status: "conforms",
           evidence: "Captured production behavior via rules-firestore-atomic-batch-sibling-merge proves getAfter() evaluates against deep-merged sibling state during multi-document atomic updates.",
           automation: "oracle-backed",
@@ -418,14 +420,14 @@ export const rulesRegistry = {
             "packages/pyric/test/rules/oracle-conformance.test.ts",
             "packages/pyric/test/sandbox/firestore/simulator/get-after-batch.test.ts",
           ],
-          constructs: ["firestore.function.getAfter", "firestore.function.existsAfter"],
+          constructs: ["firestore.function.getAfter"],
         }),
         row1({
           rowRef: "191",
-          featureKeys: ["bool", "debug", "math.isInfinite", "hasAll", "hasAny", "hasOnly"],
-          behavior: "Compile-time AST verification rejects non-conforming casts (bool()), unsupported helper methods (debug(), math.isInfinite()), and bare Map membership assertions (map.hasAll/hasAny/hasOnly).",
+          featureKeys: ["bool", "math.isInfinite", "hasAll"],
+          behavior: "Compile-time AST verification rejects non-conforming casts (bool()), unsupported helper methods (math.isInfinite()), and bare Map membership assertions (map.hasAll).",
           status: "conforms",
-          evidence: "Captured production behavior via rules-firestore-ast-strictness-and-unsupported-casts proves compile-time AST verification and execution rejection of bool(), math.isInfinite(), debug(), and bare Map membership assertions.",
+          evidence: "Captured production behavior via rules-firestore-ast-strictness-and-unsupported-casts proves compile-time AST verification and execution rejection of bool(), math.isInfinite(), and bare Map membership assertions (map.hasAll).",
           automation: "oracle-backed",
           oracleObservations: ["rules-firestore-ast-strictness-and-unsupported-casts"],
           conformanceTests: [
@@ -434,11 +436,8 @@ export const rulesRegistry = {
           ],
           constructs: [
             "firestore.function.cast.bool",
-            "firestore.function.debug",
             "firestore.function.math.isInfinite",
             "firestore.method.map.hasAll",
-            "firestore.method.map.hasAny",
-            "firestore.method.map.hasOnly",
           ],
         }),
         row1({

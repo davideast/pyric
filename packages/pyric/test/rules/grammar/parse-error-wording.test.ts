@@ -69,4 +69,29 @@ service cloud.firestore {
       '"[", ".", "%", "/", "*", "<", ">", "<=", ">=", "-", "+", "is", "in", "!=", "==", "&&", "?", or "||"';
     expect(parseErrorWording({ line: 5, column: 26, expected: state }, SOURCE)).toBe('syntax error');
   });
+
+  test('leading blank lines shift parse error line numbers and preserve wording (FS-FUZ-3)', () => {
+    const noLeading = readFileSync(join(__dirname, 'fixtures/parse-errors/allow-on-one-line.rules'), 'utf-8');
+    const withLeading = `\n\n\n${noLeading}`;
+    const base = parseToASTOrError(noLeading);
+    const shifted = parseToASTOrError(withLeading);
+    expect(base.ok).toBe(false);
+    expect(shifted.ok).toBe(false);
+    if (!base.ok && !shifted.ok) {
+      expect(shifted.error.line).toBe(base.error.line + 3);
+      expect(shifted.error.column).toBe(base.error.column);
+      expect(parseErrorWording(shifted.error, withLeading)).toBe(parseErrorWording(base.error, noLeading));
+    }
+  });
+
+  test('a block comment ending in */ before { does not misclassify { as a path capture (FS-FUZ-3)', () => {
+    const source = `rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /a /*comment*/{\n      allow read: if true;`;
+    const parsed = parseToASTOrError(source);
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) {
+      expect(parseErrorWording(parsed.error, source)).toBe(
+        "expected '}' to close the match block opened at line 4",
+      );
+    }
+  });
 });

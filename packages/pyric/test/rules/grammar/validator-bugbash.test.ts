@@ -370,3 +370,142 @@ service cloud.firestore {
     expect(findings.filter(f => f.code === 'QUA-3').length).toBe(0);
   });
 });
+
+describe('FS-LNT-5, FS-LNT-6b, FS-LNT-7, FS-LNT-9, FS-LNT-12a/b/c regressions', () => {
+  test('FS-LNT-5: SEM-1 and SEM-2 detect helper functions, combined ops, and bracket access', () => {
+    const helperFindings = validateRules(wrap(`
+      function readsIncoming() { return request.resource.data.published == true; }
+      function readsExisting() { return resource.data.ownerId == request.auth.uid; }
+      match /posts/{postId} {
+        allow get: if readsIncoming();
+        allow create: if request.auth != null && readsExisting() && request.resource.data.title is string;
+      }
+    `));
+    expect(hasFinding(helperFindings, 'SEM-1')).toBe(true);
+    expect(hasFinding(helperFindings, 'SEM-2')).toBe(true);
+
+    const combinedFindings = validateRules(wrap(`
+      match /posts/{postId} {
+        allow read, write: if request.auth != null && request.resource.data.ownerId == request.auth.uid;
+      }
+      match /comments/{commentId} {
+        allow write: if request.auth != null && resource.data.ownerId == request.auth.uid && request.resource.data.title is string;
+      }
+    `));
+    expect(hasFinding(combinedFindings, 'SEM-1')).toBe(true);
+    expect(hasFinding(combinedFindings, 'SEM-2')).toBe(true);
+
+    const bracketFindings = validateRules(wrap(`
+      match /posts/{postId} {
+        allow get: if request['resource']['data']['published'] == true;
+        allow create: if request.auth != null && resource['data']['ownerId'] == request.auth.uid && request['resource']['data']['title'] is string;
+      }
+    `));
+    expect(hasFinding(bracketFindings, 'SEM-1')).toBe(true);
+    expect(hasFinding(bracketFindings, 'SEM-2')).toBe(true);
+  });
+
+  test('FS-LNT-6b: foldConstants does not erase SEM-3 on 11 exists() calls before || true', () => {
+    const elevenExists = Array.from(
+      { length: 11 },
+      (_, i) => `exists(/databases/$(database)/documents/c${i}/$(id))`,
+    ).join(' && ');
+    const findings = validateRules(wrap(`
+      match /items/{id} {
+        allow read: if (${elevenExists}) || true;
+      }
+    `));
+    expect(hasFinding(findings, 'SEM-3')).toBe(true);
+  });
+
+  test('FS-LNT-7: lexical function scope in validator does not leak across sibling or child shadows', () => {
+    const findings = validateRules(wrap(`
+      function check() { return true; }
+      function outerCheck() { return check(); }
+      match /items/{id} {
+        function check() { return request.auth != null && request.resource.data.ok == true; }
+        allow create: if outerCheck();
+      }
+    `));
+    // outerCheck() calls the outer check() (which returns true), NOT the child's shadowed check()
+    expect(hasFinding(findings, 'SEC-3')).toBe(true);
+    expect(hasFinding(findings, 'SEC-6')).toBe(true);
+  });
+
+  test('FS-LNT-9: pathLiteral $(...) interpolation and bracket access satisfy SEC-3 and SEC-6', () => {
+    const findings = validateRules(wrap(`
+      match /articles/{articleId} {
+        allow create: if get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'editor'
+                      && exists(/databases/$(database)/documents/categories/$(request.resource.data.categoryId));
+      }
+      match /notes/{noteId} {
+        allow create: if request['auth']['uid'] != null && request['resource']['data']['title'] is string;
+      }
+    `));
+    expect(hasFinding(findings, 'SEC-3')).toBe(false);
+    expect(hasFinding(findings, 'SEC-6')).toBe(false);
+  });
+
+  test('FS-LNT-12a: allow write without request.resource.data validation triggers SEC-6', () => {
+    const findings = validateRules(wrap(`
+      match /users/{uid} {
+        allow write: if request.auth != null && request.auth.uid == uid;
+      }
+    `));
+    expect(hasFinding(findings, 'SEC-6')).toBe(true);
+  });
+
+  test('FS-LNT-12b: SEC-3 and SEC-6 catch || disjunction bypasses and request.auth == null', () => {
+    const disjAuth = validateRules(wrap(`
+      match /posts/{postId} {
+        allow create: if (request.auth != null || request.resource.data.public == true)
+                      && request.resource.data.title is string;
+      }
+    `));
+    expect(hasFinding(disjAuth, 'SEC-3')).toBe(true);
+
+    const nullAuth = validateRules(wrap(`
+      match /anon/{docId} {
+        allow create: if request.auth == null && request.resource.data.title is string;
+      }
+    `));
+    expect(hasFinding(nullAuth, 'SEC-3')).toBe(true);
+
+    const disjData = validateRules(wrap(`
+      match /items/{itemId} {
+        allow create: if request.auth != null
+                      && (request.resource.data.title is string || resource.data == null);
+      }
+    `));
+    expect(hasFinding(disjData, 'SEC-6')).toBe(true);
+  });
+
+  test('FS-LNT-12c: SEC-4 accepts split read/write default deny and flags collection-group-only deny', () => {
+    const splitDeny = validateRules(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read: if false;
+      allow write: if false;
+    }
+    match /users/{uid} {
+      allow read: if request.auth != null;
+    }
+  }
+}`);
+    expect(hasFinding(splitDeny, 'SEC-4')).toBe(false);
+
+    const cgOnly = validateRules(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{path=**}/items/{id} {
+      allow read, write: if false;
+    }
+    match /users/{uid} {
+      allow read: if request.auth != null;
+    }
+  }
+}`);
+    expect(hasFinding(cgOnly, 'SEC-4')).toBe(true);
+  });
+});

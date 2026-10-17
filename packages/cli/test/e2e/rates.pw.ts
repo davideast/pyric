@@ -21,6 +21,25 @@ async function calls(page: Page, service: string, method: string): Promise<numbe
   return row.buckets.reduce((total, bucket) => total + bucket.calls, 0);
 }
 
+// Opening a service after 2s idle pauses on its latest activity (#643). Counting needs the live
+// window, so pause if needed and then resume, whatever state the open chose.
+async function resumeLive(page: Page): Promise<void> {
+  const toggle = page.locator('[data-history-toggle]');
+  if (await toggle.textContent() === 'Pause') await toggle.click();
+  await expect(toggle).toHaveText('Resume live');
+  await toggle.click();
+  await expect(toggle).toHaveText('Pause');
+}
+
+// Since #643 a service opens on its activity chart; the method table lives under More actions.
+async function openMeasurements(page: Page, service: string): Promise<void> {
+  await page.locator(`[data-inspect-rates=${service}]`).click();
+  await resumeLive(page);
+  await page.getByRole('button', { name: 'More actions', exact: true }).click();
+  await page.locator('[data-rate-measurements]').click();
+  await expect(page.locator(`[data-rate-detail=${service}]`)).toBeVisible();
+}
+
 for (const runtime of ['inpage', 'worker']) {
   test(`${runtime}: rates survive history clearing and Flow changes, and listener activity stops`, async ({ page }) => {
     test.setTimeout(60_000);
@@ -41,10 +60,9 @@ for (const runtime of ['inpage', 'worker']) {
     await page.getByRole('tab', { name: 'Traffic', exact: true }).click();
     await page.getByRole('button', { name: 'Rates', exact: true }).click();
     await page.screenshot({ path: `/tmp/service-rates-${runtime}-overview.png` });
-    await page.locator('[data-inspect-rates=rtdb]').click();
+    await openMeasurements(page, 'rtdb');
     const method = page.locator('[data-rate-method=onValue]');
     await expect(page.locator('[data-rate-listeners]')).toHaveText('1');
-    await page.getByRole('button', { name: 'Live', exact: true }).click();
     await page.locator('[data-write]').click();
     await expect.poll(async () => Number(await method.locator('[data-period-results]').textContent())).toBeGreaterThan(0);
     await page.locator('[data-listen]').click();
@@ -75,8 +93,9 @@ for (const runtime of ['inpage', 'worker']) {
     await expect.poll(() => calls(page, 'firestore', 'getDoc')).toBe(151);
     await page.getByRole('tab', { name: 'Traffic', exact: true }).click();
     await page.getByRole('button', { name: 'Rates', exact: true }).click();
-    await expect(page.locator('[data-rate-service=storage]')).toContainText('Not measured');
-    await page.locator('[data-inspect-rates=firestore]').click();
+    // Storage is measured since #644, so its row summarizes activity instead of saying Not measured.
+    await expect(page.locator('[data-service-summary=storage]')).toContainText('0 reads / 0 writes / 0 deletes');
+    await openMeasurements(page, 'firestore');
     await page.setViewportSize({ width: 390, height: 844 });
     const longMethod = page.locator('[data-rate-method=getAggregateFromServer] code');
     await longMethod.scrollIntoViewIfNeeded();

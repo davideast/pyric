@@ -54,14 +54,19 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   return Promise.race([p.finally(() => clearTimeout(timer)), guard]);
 }
 
-async function waitFor<T>(read: () => T | null | Promise<T | null>, timeoutMs = 10_000): Promise<T> {
+async function waitFor<T>(
+  read: () => T | null | Promise<T | null>,
+  timeoutMs = 10_000,
+  logs: readonly string[] = [],
+): Promise<T> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const value = await read();
     if (value !== null) return value;
     await new Promise((r) => setTimeout(r, 25));
   }
-  throw new Error('timed out waiting for the plugin Functions outcome');
+  const recorded = logs.length > 0 ? `; dev server logs:\n${logs.slice(-40).join('\n')}` : '';
+  throw new Error(`timed out waiting for the plugin Functions outcome${recorded}`);
 }
 
 async function connectWorkerPeer(url: string): Promise<{ close(): Promise<void> }> {
@@ -362,13 +367,14 @@ exports.echoMeta = onValueCreated(
     const base = `http://127.0.0.1:${port}`;
     peer = await withTimeout(connectWorkerPeer(`${base.replace(/^http/, 'ws')}/__pyric/sandbox`), 10_000, 'peer');
     observer = await withTimeout(connectRemoteSandbox({ url: base }), 10_000, 'observer');
-    await waitFor(() => logs.some((l) => l.includes('onValueCreated')) ? true : null, 20_000);
+    await waitFor(() => logs.some((l) => l.includes('onValueCreated')) ? true : null, 20_000, logs);
 
     // Option flow: the trigger observes the plugin-configured instance/region.
     await observer.rtdb.set('messages/m1/original', 'x');
     await waitFor(
       async () => (await observer!.rtdb.get('messages/m1/meta')) === 'custom-instance|europe-west1' ? true : null,
       15_000,
+      logs,
     );
 
     // Hot reload: two rapid saves coalesce (300ms debounce) into ONE restart.
@@ -383,7 +389,7 @@ exports.echoMeta = onValueCreated(
 `,
     );
     writeFileSync(entry, readFileSync(entry)); // second save inside the debounce window
-    await waitFor(() => (reloadCount() >= 1 ? true : null), 20_000);
+    await waitFor(() => (reloadCount() >= 1 ? true : null), 20_000, logs);
     await new Promise((r) => setTimeout(r, 700)); // past any second debounce
     expect(reloadCount()).toBe(1);
     expect(logs.some((l) => l.includes('functions reloaded (1 trigger)'))).toBe(true);
@@ -394,6 +400,7 @@ exports.echoMeta = onValueCreated(
     await waitFor(
       async () => (await observer!.rtdb.get('messages/m2/meta')) === 'v2:y' ? true : null,
       15_000,
+      logs,
     );
 
     // Broken save: the old child is gone, so functions go DOWN (no last-good).
@@ -401,6 +408,7 @@ exports.echoMeta = onValueCreated(
     await waitFor(
       () => logs.some((l) => l.includes('functions are down until the next good save')) ? true : null,
       20_000,
+      logs,
     );
 
     // Next good save recovers.
@@ -413,11 +421,12 @@ exports.echoMeta = onValueCreated(
 );
 `,
     );
-    await waitFor(() => (reloadCount() >= 2 ? true : null), 20_000);
+    await waitFor(() => (reloadCount() >= 2 ? true : null), 20_000, logs);
     await observer.rtdb.set('messages/m3/original', 'z');
     await waitFor(
       async () => (await observer!.rtdb.get('messages/m3/meta')) === 'v3:z' ? true : null,
       15_000,
+      logs,
     );
   }, 120_000);
 

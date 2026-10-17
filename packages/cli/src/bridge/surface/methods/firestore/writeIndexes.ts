@@ -43,7 +43,7 @@ interface IndexesFile {
 
 /** The stable key one index entry sorts and compares by. */
 function keyOf(entry: z.infer<typeof indexEntry>): string {
-  const fields = entry.fields.map((field) => `${field.fieldPath}:${field.order ?? 'ASCENDING'}`);
+  const fields = entry.fields.map((field) => `${field.fieldPath}:${field.arrayConfig ?? field.order ?? 'ASCENDING'}`);
   return `${entry.queryScope}|${entry.collectionGroup}|${fields.join(',')}`;
 }
 

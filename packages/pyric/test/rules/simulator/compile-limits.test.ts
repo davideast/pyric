@@ -124,3 +124,37 @@ service cloud.firestore {
     expect(summary.cases.map((c) => c.decision)).toEqual(['ALLOW', 'DENY']);
   });
 });
+
+describe('Firestore simulator: version, module, and regex compile checks (FS-CON-5, FS-SIM-5)', () => {
+  const rejected: ReadonlyArray<readonly [string, string, string]> = [
+    [
+      'unsupported rules_version (FS-CON-5c)',
+      `rules_version = '99';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /p/{id} { allow read: if true; }\n  }\n}`,
+      'Unsupported rules version 99.',
+    ],
+    [
+      'unresolved 2+modules import (FS-CON-5a)',
+      `rules_version = '2+modules';\nimport { isSignedIn } from './auth.rules';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /p/{id} { allow read: if isSignedIn(); }\n  }\n}`,
+      "Rules source uses '2+modules' or import statements that must be resolved before compilation.",
+    ],
+    [
+      'RE2-invalid regex lookahead literal (FS-SIM-5)',
+      `rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /p/{id} { allow read: if 'ab'.matches('a(?=b)b'); }\n  }\n}`,
+      'Invalid regular expression pattern. Pattern: a(?=b)b.',
+    ],
+  ];
+
+  for (const [label, source, message] of rejected) {
+    test(`${label}: firestoreRules, simulate, and RulesState refuse with "${message}"`, () => {
+      expect(compileError(source).issues.map((i) => i.message)).toContain(message);
+
+      const handler = new SimulateFirestoreRulesHandler();
+      const direct = handler.simulate(source, cases('p'));
+      expect(direct.success).toBe(false);
+      if (!direct.success) expect(direct.error.message).toContain(message);
+
+      const rules = new RulesState(source);
+      expect(rules.ast()).toBeNull();
+    });
+  }
+});

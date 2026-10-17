@@ -101,6 +101,7 @@ export function scanBrackets(source: string, options: BracketScanOptions): Brack
   let word = '';
   let wordAfterDot = false;
   let lastSignificant = '';
+  let matchHeaderDepth: number | null = null;
   const n = source.length;
   let i = 0;
   /** Marks the innermost open bracket as holding a token after its last comma. */
@@ -151,7 +152,11 @@ export function scanBrackets(source: string, options: BracketScanOptions): Brack
       while (i < n && isWordChar(source.charCodeAt(i))) i++;
       word = source.slice(start, i);
       wordAfterDot = lastSignificant === '.';
+      const prevBeforeWord = previous;
       previous = c >= 48 && c <= 57 ? 'operand' : 'word';
+      if (word === 'match' && !wordAfterDot && prevBeforeWord !== 'slash') {
+        matchHeaderDepth = stack.length;
+      }
       lastSignificant = '';
       continue;
     }
@@ -174,7 +179,13 @@ export function scanBrackets(source: string, options: BracketScanOptions): Brack
     }
     if (c === 40 || c === 91 || c === 123) {
       const char = c === 40 ? '(' : c === 91 ? '[' : '{';
-      const kind = classify(char, previous, word, wordAfterDot);
+      let kind: BracketKind;
+      if (char === '{' && matchHeaderDepth !== null && stack.length === matchHeaderDepth) {
+        kind = 'block';
+        if (previous !== 'slash') matchHeaderDepth = null;
+      } else {
+        kind = classify(char, previous, word, wordAfterDot);
+      }
       const adds = LEVEL_KINDS.has(kind);
       if (adds) levels++;
       const span: BracketSpan = { char, kind, open: i, close: -1, depth: stack.length + 1, levels, items: 0 };
@@ -192,10 +203,16 @@ export function scanBrackets(source: string, options: BracketScanOptions): Brack
         open.span.items = open.commas + (open.tail ? 1 : 0);
         if (LEVEL_KINDS.has(open.span.kind)) levels--;
       }
+      if (c === 125 && matchHeaderDepth !== null && stack.length < matchHeaderDepth) {
+        matchHeaderDepth = null;
+      }
       previous = 'operand';
       lastSignificant = '';
       i++;
       continue;
+    }
+    if (c === 59 /* ; */ && matchHeaderDepth !== null && stack.length <= matchHeaderDepth) {
+      matchHeaderDepth = null;
     }
     if (c === 44 /* , */) {
       const top = stack[stack.length - 1];
@@ -215,7 +232,7 @@ export function scanBrackets(source: string, options: BracketScanOptions): Brack
 
 /** What one opening bracket opens, from the token before it. */
 function classify(char: '(' | '[' | '{', previous: Previous, word: string, wordAfterDot: boolean): BracketKind {
-  const afterName = previous === 'word' && !KEYWORDS.has(word);
+  const afterName = previous === 'word' && (wordAfterDot || !KEYWORDS.has(word));
   if (char === '(') {
     if (previous === 'dollar') return 'interpolation';
     if (afterName) return wordAfterDot ? 'method' : 'call';

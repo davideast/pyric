@@ -209,28 +209,38 @@ export function countFunctionCallSites(expr: Expression, fnNames: Set<string>): 
 /**
  * Check if a function transitively contains get() or exists() calls.
  */
-export function functionContainsGet(fnName: string, fnMap: Map<string, FunctionDef>, visited = new Set<string>()): boolean {
-  if (visited.has(fnName)) return false;
-  visited.add(fnName);
+export function functionContainsGet(
+  fnName: string,
+  fnMap: ReadonlyMap<string, FunctionDef>,
+  visited = new Set<string>(),
+  fnScopes?: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
+  visitedFns = new Set<FunctionDef>(),
+): boolean {
   const fn = fnMap.get(fnName);
   if (!fn) return false;
+  if (visitedFns.has(fn) || visited.has(fnName)) return false;
+  visited.add(fnName);
+  visitedFns.add(fn);
+  const scope = fnScopes?.get(fn) ?? fnMap;
 
   const check = (e: Expression): boolean => {
     switch (e.type) {
       case 'functionCall':
-        if (e.name === 'get' || e.name === 'exists') return true;
-        if (fnMap.has(e.name)) return functionContainsGet(e.name, fnMap, visited);
+        if (e.name === 'get' || e.name === 'exists' || e.name === 'getAfter' || e.name === 'existsAfter') return true;
+        if (scope.has(e.name) && functionContainsGet(e.name, scope, new Set(), fnScopes, visitedFns)) return true;
         return e.args.some(check);
       case 'binaryOp': return check(e.left) || check(e.right);
       case 'unaryOp': return check(e.operand);
       case 'methodCall': return check(e.object) || e.args.some(check);
       case 'memberAccess': return check(e.object);
       case 'bracketAccess': return check(e.object) || check(e.index);
+      case 'sliceAccess': return check(e.object) || check(e.start) || check(e.end);
       case 'ternary': return check(e.condition) || check(e.consequent) || check(e.alternate);
       case 'inExpr': return check(e.element) || check(e.collection);
       case 'isExpr': return check(e.value);
       case 'listLiteral': return e.elements.some(check);
       case 'mapLiteral': return e.entries.some(en => check(en.key) || check(en.value));
+      case 'pathLiteral': return e.segments.some(s => typeof s !== 'string' && check(s));
       default: return false;
     }
   };
@@ -251,8 +261,10 @@ export function functionContainsGet(fnName: string, fnMap: Map<string, FunctionD
  */
 export function referencesRequestTime(
   expr: Expression,
-  fnMap: Map<string, FunctionDef>,
+  fnMap: ReadonlyMap<string, FunctionDef>,
   visited = new Set<string>(),
+  fnScopes?: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
+  visitedFns = new Set<FunctionDef>(),
 ): boolean {
   const check = (e: Expression): boolean => {
     switch (e.type) {
@@ -271,14 +283,19 @@ export function referencesRequestTime(
           e.index.value === 'time'
         ) return true;
         return check(e.object) || check(e.index);
-      case 'functionCall':
-        if (fnMap.has(e.name) && !visited.has(e.name)) {
+      case 'sliceAccess':
+        return check(e.object) || check(e.start) || check(e.end);
+      case 'functionCall': {
+        const fn = fnMap.get(e.name);
+        if (fn && !visitedFns.has(fn) && !visited.has(e.name)) {
           visited.add(e.name);
-          const fn = fnMap.get(e.name)!;
-          if (referencesRequestTime(fn.body, fnMap, visited)) return true;
-          if (fn.lets.some(b => referencesRequestTime(b.value, fnMap, visited))) return true;
+          visitedFns.add(fn);
+          const calleeScope = fnScopes?.get(fn) ?? fnMap;
+          if (referencesRequestTime(fn.body, calleeScope, new Set(), fnScopes, visitedFns)) return true;
+          if (fn.lets.some(b => referencesRequestTime(b.value, calleeScope, new Set(), fnScopes, visitedFns))) return true;
         }
         return e.args.some(check);
+      }
       case 'binaryOp': return check(e.left) || check(e.right);
       case 'unaryOp': return check(e.operand);
       case 'methodCall': return check(e.object) || e.args.some(check);
@@ -287,6 +304,7 @@ export function referencesRequestTime(
       case 'isExpr': return check(e.value);
       case 'listLiteral': return e.elements.some(check);
       case 'mapLiteral': return e.entries.some(en => check(en.key) || check(en.value));
+      case 'pathLiteral': return e.segments.some(s => typeof s !== 'string' && check(s));
       default: return false;
     }
   };
@@ -318,21 +336,151 @@ export function collectAllFunctions(match: MatchBlock): FunctionDef[] {
   return fns;
 }
 
+function joinMatchPath(parentPath: string, childRaw: string): string {
+  if (!parentPath) return childRaw;
+  const left = parentPath.endsWith('/') ? parentPath.slice(0, -1) : parentPath;
+  const right = childRaw.startsWith('/') ? childRaw : `/${childRaw}`;
+  return `${left}${right}`;
+}
+
 /**
- * Collect all allow rules from a match block and its children (recursive).
+ * Collect all allow rules from a match block and its children (recursive),
+ * joining nested match paths relative to the documents root.
  */
-export function collectAllRules(match: MatchBlock): { rule: AllowRule; path: string; matchFunctions: FunctionDef[] }[] {
+export function collectAllRules(
+  match: MatchBlock,
+  parentPath = '',
+): { rule: AllowRule; path: string; matchFunctions: FunctionDef[] }[] {
+  const isDocumentsRoot = match.path.raw.includes('databases') && match.path.raw.includes('documents');
+  const currentPath = joinMatchPath(parentPath, match.path.raw);
+  const childPrefix = isDocumentsRoot && !parentPath ? '' : currentPath;
   const results: { rule: AllowRule; path: string; matchFunctions: FunctionDef[] }[] = [];
   for (const rule of match.allows) {
-    results.push({ rule, path: match.path.raw, matchFunctions: match.functions });
+    results.push({ rule, path: currentPath, matchFunctions: match.functions });
   }
   for (const child of match.children) {
-    const childResults = collectAllRules(child);
-    // Child rules can access parent functions too
+    const childResults = collectAllRules(child, childPrefix);
+    // Child rules can access parent functions too (outermost first so inner shadows outer)
     for (const cr of childResults) {
       cr.matchFunctions = [...match.functions, ...cr.matchFunctions];
     }
     results.push(...childResults);
   }
   return results;
+}
+
+/**
+ * Strip line/block comments and replace string literal interiors with spaces
+ * so regex-based syntax checks do not match inside strings or comments.
+ */
+export function stripCommentsAndStrings(source: string): string {
+  let out = '';
+  let i = 0;
+  while (i < source.length) {
+    const ch = source[i]!;
+    const next = source[i + 1];
+    if (ch === '/' && next === '/') {
+      i += 2;
+      while (i < source.length && source[i] !== '\n') i++;
+    } else if (ch === '/' && next === '*') {
+      i += 2;
+      while (i < source.length && !(source[i] === '*' && source[i + 1] === '/')) {
+        if (source[i] === '\n') out += '\n';
+        i++;
+      }
+      if (i < source.length) i += 2;
+    } else if (ch === "'" || ch === '"') {
+      const quote = ch;
+      out += quote;
+      i++;
+      while (i < source.length && source[i] !== quote && source[i] !== '\n') {
+        if (source[i] === '\\' && i + 1 < source.length) {
+          out += '  ';
+          i += 2;
+        } else {
+          out += ' ';
+          i++;
+        }
+      }
+      if (i < source.length && source[i] === quote) {
+        out += quote;
+        i++;
+      }
+    } else {
+      out += ch;
+      i++;
+    }
+  }
+  return out;
+}
+
+export function evalConstBool(expr: Expression): boolean | null {
+  if (expr.type === 'literal' && typeof expr.value === 'boolean') return expr.value;
+  if (expr.type === 'binaryOp') {
+    const left = evalConstBool(expr.left);
+    const right = evalConstBool(expr.right);
+    if (expr.op === '&&') {
+      if (left === false || right === false) return false;
+      if (left === true && right === true) return true;
+      return null;
+    }
+    if (expr.op === '||') {
+      if (left === true || right === true) return true;
+      if (left === false && right === false) return false;
+      return null;
+    }
+  }
+  if (expr.type === 'unaryOp' && expr.op === '!') {
+    const inner = evalConstBool(expr.operand);
+    return inner === null ? null : !inner;
+  }
+  if (expr.type === 'ternary') {
+    const cond = evalConstBool(expr.condition);
+    if (cond === true) return evalConstBool(expr.consequent);
+    if (cond === false) return evalConstBool(expr.alternate);
+    return null;
+  }
+  return null;
+}
+
+export function serializeExpression(expr: Expression): string {
+  switch (expr.type) {
+    case 'literal':
+      return expr.raw;
+    case 'identifier':
+      return expr.name;
+    case 'memberAccess':
+      return `${serializeExpression(expr.object)}.${expr.property}`;
+    case 'methodCall':
+      return `${serializeExpression(expr.object)}.${expr.method}(${expr.args.map(serializeExpression).join(',')})`;
+    case 'bracketAccess':
+      return `${serializeExpression(expr.object)}[${serializeExpression(expr.index)}]`;
+    case 'sliceAccess':
+      return `${serializeExpression(expr.object)}[${serializeExpression(expr.start)}:${serializeExpression(expr.end)}]`;
+    case 'binaryOp':
+      return `(${serializeExpression(expr.left)}${expr.op}${serializeExpression(expr.right)})`;
+    case 'unaryOp':
+      return `(${expr.op}${serializeExpression(expr.operand)})`;
+    case 'ternary':
+      return `(${serializeExpression(expr.condition)}?${serializeExpression(expr.consequent)}:${serializeExpression(expr.alternate)})`;
+    case 'inExpr':
+      return `(${serializeExpression(expr.element)} in ${serializeExpression(expr.collection)})`;
+    case 'isExpr':
+      return `(${serializeExpression(expr.value)} is ${expr.typeName})`;
+    case 'listLiteral':
+      return `[${expr.elements.map(serializeExpression).join(',')}]`;
+    case 'mapLiteral':
+      return `{${expr.entries.map((e) => `${serializeExpression(e.key)}:${serializeExpression(e.value)}`).join(',')}}`;
+    case 'pathLiteral':
+      return expr.raw;
+    case 'functionCall':
+      return `${expr.name}(${expr.args.map(serializeExpression).join(',')})`;
+  }
+}
+
+export function extractConjuncts(expr: Expression): Expression[] {
+  if (expr.type === 'binaryOp' && expr.op === '&&') {
+    return [...extractConjuncts(expr.left), ...extractConjuncts(expr.right)];
+  }
+  return [expr];
 }

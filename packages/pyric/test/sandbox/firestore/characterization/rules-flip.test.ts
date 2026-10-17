@@ -240,7 +240,7 @@ describe('characterization: rules-flip listener re-evaluation', () => {
     unsub();
   });
 
-  test('reevaluateLiveListeners: a live listener follows the session auth — sign-out errors it, sign-in resumes it; frozen listeners are untouched', () => {
+  test('reevaluateLiveListeners: a live listener follows the session auth — sign-out errors it permanently (does not resurrect on sign-in); frozen listeners are untouched', () => {
     const env = new LocalEnvironment();
     env.seed({ rules: AUTH_READ_RULES, documents: { 'rooms/r1': { v: 0 } } });
     const liveEvents: string[] = [];
@@ -272,10 +272,10 @@ describe('characterization: rules-flip listener re-evaluation', () => {
     expect(liveEvents).toEqual(['data', 'error:permission-denied']);
     expect(frozenEvents).toEqual(['data']); // untouched
 
-    // Sign back in as bob: live listener resumes with a fresh snapshot,
-    // synchronously.
+    // Sign back in as bob: errored listener stays terminated across auth transitions
+    // (Firebase docs: "After an error, the listener will not receive any more events").
     env.reevaluateLiveListeners({ uid: 'bob' });
-    expect(liveEvents).toEqual(['data', 'error:permission-denied', 'data']);
+    expect(liveEvents).toEqual(['data', 'error:permission-denied']);
     expect(frozenEvents).toEqual(['data']);
     uLive();
     uFrozen();

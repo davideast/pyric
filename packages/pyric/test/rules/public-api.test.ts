@@ -210,6 +210,36 @@ describe('tolerant lint(source)', () => {
     const issues = lint(NOTES_RULES);
     expect(issues.every((i) => i.origin !== 'parse')).toBe(true);
   });
+
+  test('preserves pre-parse INVALID_OPERATOR warnings alongside PARSE_ERROR (FS-LNT-2)', () => {
+    const issues = lint(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /users/{uid} {
+      allow read: if request.auth.uid === uid && ;
+    }
+  }
+}`);
+    expect(issues.some((i) => i.code === 'PARSE_ERROR' && i.origin === 'parse')).toBe(true);
+    expect(issues.some((i) => i.code === 'INVALID_OPERATOR' && i.origin === 'lint')).toBe(true);
+  });
+
+  test('reports compile-limit rejections with origin: parse and GLOB_MATCH_COUNT (FS-CON-2, FS-LNT-4)', () => {
+    const doubleGlob = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /{a=**}/sub/{b=**} {
+      allow read: if request.auth != null;
+    }
+  }
+}`;
+    const issues = lint(doubleGlob);
+    expect(
+      issues.some(
+        (i) => i.code === 'GLOB_MATCH_COUNT' && i.severity === 'error' && i.origin === 'parse',
+      ),
+    ).toBe(true);
+  });
 });
 
 describe('assertion adapter (assertCase / explainCase)', () => {

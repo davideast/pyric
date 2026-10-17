@@ -14,6 +14,10 @@
  * Browser-bundled by `../bundler.ts`; never imported by node-side code.
  */
 import './init.js';
+// The page runtime deploys the project's rules (and seed, persistence, bridge)
+// with top-level await, so app code that imports this entry runs after them.
+// `firebase/auth` cannot import it: Service Workers reject top-level await (#697).
+import './runtime.js';
 import * as ip from 'pyric/firestore';
 import { readDocumentAs, readQueryAs } from 'pyric/firestore/internal';
 import { readDocumentAs as workerDocumentRead, readQueryAs as workerQueryRead } from '../worker/client/firestore-reads.js';

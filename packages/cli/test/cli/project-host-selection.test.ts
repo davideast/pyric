@@ -3,6 +3,7 @@
  * A server found by the port scan may belong to another project, so the
  * commands that attach to a host refuse it and say so.
  */
+import { createServer } from 'node:net';
 import { describe, expect, it } from 'bun:test';
 import { runBridgeCommand } from '../../src/cli/bridge-tool-call.js';
 import { parseArgs } from '../../src/cli/parse-args.js';
@@ -18,6 +19,19 @@ function sandbox(port: number, source: string, pointerProjectDir?: string): Disc
     instanceId: `instance-${port}`,
     source,
   };
+}
+
+/** A loopback port that refuses connections at once: bound, then closed.
+ *  Port 1 is not safe for this; some networks drop it instead of refusing. */
+function closedPort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = createServer().listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+      server.close(() => resolve(port));
+    });
+    server.on('error', reject);
+  });
 }
 
 const mine = sandbox(5192, 'pointer /workspace/app/.pyric/serve.json', '/workspace/app');
@@ -197,9 +211,10 @@ describe('selectExplicitHost: PYRIC_SANDBOX=remote:<url>', () => {
 describe('connectRemoteSandbox with a configured url', () => {
   it('takes a programmatic url as given, without discovery or a probe', async () => {
     let consulted = false;
+    const port = await closedPort();
     await expect(
       connectRemoteSandbox({
-        url: 'http://127.0.0.1:1',
+        url: `http://127.0.0.1:${port}`,
         cwd: '/workspace',
         discover: async () => { consulted = true; return null; },
         probe: async () => { consulted = true; return null; },
@@ -237,7 +252,8 @@ describe('connectRemoteSandbox with a configured url', () => {
     const warnings: string[] = [];
     // The fallback host is a closed port, so the attach itself fails; the
     // warning is what this test observes.
-    const closedHost = { ...mine, base: 'http://127.0.0.1:1', url: 'http://localhost:1' };
+    const port = await closedPort();
+    const closedHost = { ...mine, base: `http://127.0.0.1:${port}`, url: `http://localhost:${port}` };
     const attempt = () =>
       connectRemoteSandbox({
         configuredUrl: 'http://localhost:59173',

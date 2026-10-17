@@ -508,3 +508,78 @@ describe('RULES-B11 — document keys cannot discharge document-data rules', () 
     ))).toBe('permission-denied');
   });
 });
+
+describe('FS-ENF-4 & FS-MET-5 — list query proof equivalence and contradictory filter parity', () => {
+  // Evidence: firebase.google.com/docs/firestore/security/rules-query; deployed
+  // Firestore probe (FS-ENF-4c: rule `a == 1 && a == 2` with `where(a==1).where(a==2)`
+  // is ALLOWED with 0 docs, while single `where(a==1)` is denied); observations #182, #170, #163, #173.
+  const postRule = (body: string) => `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /posts/{id} { ${body} }
+  }
+}`;
+
+  it('FS-ENF-4a: where(status, in, [open]) succeeds under resource.data.status == open', async () => {
+    const { db } = setup(postRule("allow list: if resource.data.visibility == 'public';"));
+    const snap = await getDocs(query(collection(db, 'posts'), where('visibility', 'in', ['public'])));
+    expect(snap.docs.map((d) => d.id).sort()).toEqual(['p1', 'p3']);
+  });
+
+  it('FS-ENF-4b: duplicate-field where clauses are order-independent', async () => {
+    const { db } = setup(postRule("allow list: if resource.data.visibility in ['public'];"));
+    const inThenEq = await getDocs(query(
+      collection(db, 'posts'),
+      where('visibility', 'in', ['public', 'private']),
+      where('visibility', '==', 'public'),
+    ));
+    const eqThenIn = await getDocs(query(
+      collection(db, 'posts'),
+      where('visibility', '==', 'public'),
+      where('visibility', 'in', ['public', 'private']),
+    ));
+    expect(inThenEq.docs.map((d) => d.id).sort()).toEqual(['p1', 'p3']);
+    expect(eqThenIn.docs.map((d) => d.id).sort()).toEqual(['p1', 'p3']);
+  });
+
+  // Evidence: scratch/firestore-hunt/production/probe-fs-enf-4c-vacuity-result.json (2026-10-17)
+  it('FS-ENF-4c: filter conjunction implies rule equalities without empty-domain vacuity', async () => {
+    const sandbox = initializeSandbox();
+    const db = getFirestore(sandbox);
+    setRules(sandbox, `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /q/{d} { allow list: if resource.data.a == 1 && resource.data.a == 2; }
+    match /qok/{d} { allow list: if resource.data.a == 1; }
+    match /q3/{d} { allow list: if resource.data.a == 3; }
+    match /qown/{d} { allow list: if resource.data.owner == 'alice'; }
+  }
+}`);
+    seedDocuments(sandbox, { 'q/x': { a: 1 }, 'qok/x': { a: 1 }, 'q3/x': { a: 3 }, 'qown/x': { owner: 'alice' } });
+    expect((await getDocs(query(collection(db, 'q'), where('a', '==', 1), where('a', '==', 2)))).size).toBe(0);
+    expect((await getDocs(query(collection(db, 'qok'), where('a', '==', 1), where('a', '==', 2)))).size).toBe(0);
+    expect(await denied(getDocs(query(collection(db, 'q3'), where('a', '==', 1), where('a', '==', 2))))).toBe('permission-denied');
+    expect(await denied(getDocs(query(collection(db, 'qown'), where('owner', '==', 'bob'), where('owner', '==', 'carol'))))).toBe('permission-denied');
+    expect((await getDocs(query(collection(db, 'qok'), where('a', 'in', [1])))).size).toBe(1);
+    expect(await denied(getDocs(query(collection(db, 'qok'), where('a', 'in', [1, 2]))))).toBe('permission-denied');
+    expect(await denied(getDocs(query(collection(db, 'q'), where('a', '==', 1))))).toBe('permission-denied');
+    expect((await getDocs(query(collection(db, 'qok'), where('a', '==', 1)))).size).toBe(1);
+  });
+
+  it('FS-MET-5: meaning-preserving rewrites (let/param request, getData(), hasAny, De Morgan, bracket access) preserve ALLOW verdicts', async () => {
+    const evalList = async (ruleBody: string, constraints: ReturnType<typeof where>[] = []) => {
+      const sb = initializeSandbox();
+      setRules(sb, postRule(ruleBody));
+      seedDocuments(sb, { 'posts/p1': { owner: 'alice', status: 'pub', tags: ['a', 'b'] } });
+      const db = getFirestore(sb.withAuth({ uid: 'alice' }));
+      return (await getDocs(query(collection(db, 'posts'), ...constraints))).size;
+    };
+    expect(await evalList('function check() { let req = request; return req.auth != null; } allow list: if check();')).toBe(1);
+    expect(await evalList('function isSignedIn(req) { return req.auth != null; } allow list: if isSignedIn(request);')).toBe(1);
+    expect(await evalList("function isAlice(request) { return request.uid == 'alice'; } allow list: if isAlice(request.auth);")).toBe(1);
+    expect(await evalList("function getData() { return resource.data; } allow list: if getData().owner == 'alice';", [where('owner', '==', 'alice')])).toBe(1);
+    expect(await evalList("allow list: if resource.data.tags.hasAny(['a']);", [where('tags', 'array-contains', 'a')])).toBe(1);
+    expect(await evalList("allow list: if !(resource.data.owner != 'alice' && resource.data.status != 'pub');", [where('owner', '==', 'alice')])).toBe(1);
+    expect(await evalList("allow list: if resource.data['owner'] == 'alice';", [where('owner', '==', 'alice')])).toBe(1);
+  });
+});

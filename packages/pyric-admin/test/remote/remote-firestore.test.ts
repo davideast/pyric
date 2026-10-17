@@ -1002,24 +1002,42 @@ describe('pyric-admin remote Firestore — onSnapshot', () => {
   });
 
   it('a denied listener routes to onError with the local arm error shape', async () => {
-    const { remote } = makeStack({ rules: MATRIX_RULES });
+    const { ctx, remote } = makeStack({ rules: MATRIX_RULES });
     const db = getFirestore(remote.withAuth({ uid: 'bob' }));
+    const localDb = getFirestore(ctx.sandbox.withAuth({ uid: 'bob' }));
 
     const errors: WireError[] = [];
+    const localErrors: WireError[] = [];
     const fires: unknown[] = [];
     onSnapshot(
       db.doc('locked/x'),
       (snap) => fires.push(snap),
       (err) => errors.push(err as WireError),
     );
+    onSnapshot(
+      localDb.doc('locked/x'),
+      () => {},
+      (err) => localErrors.push(err as WireError),
+    );
     await tick();
     expect(fires).toHaveLength(0);
     expect(errors).toHaveLength(1);
+    expect(localErrors).toHaveLength(1);
     expect(errors[0]).toBeInstanceOf(SandboxError);
     expect(errors[0]!.code).toBe('permission-denied');
-    // Parity with the LOCAL arm: the sandbox does not populate
-    // denialContext on snapshot-listener denials (only on op denials).
-    expect(errors[0]!.denialContext).toBeUndefined();
+    // Parity with the LOCAL arm (FS-ENF-3a): both arms translate denied
+    // document listener errors through toSandboxError and carry structured
+    // denialContext with the denied operation and path.
+    const denialContext = errors[0]!.denialContext as {
+      engine?: string;
+      auth?: { uid?: string } | null;
+      request?: { method?: string; path?: string };
+    } | undefined;
+    expect(denialContext?.engine).toBe('firestore');
+    expect(denialContext?.auth?.uid).toBe('bob');
+    expect(denialContext?.request?.method).toBe('get');
+    expect(denialContext?.request?.path).toBe('locked/x');
+    expect(errors[0]!.denialContext).toEqual(localErrors[0]!.denialContext);
   });
 });
 

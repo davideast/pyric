@@ -8,6 +8,7 @@
  * picks — this is the load-bearing claim for the dual-target design.
  */
 import { describe, it, expect } from 'bun:test';
+import { FirebaseError } from '../../src/app/index.js';
 import { initializeSandbox } from 'pyric/sandbox';
 import { seedDocuments, setRules, snapshotDocuments } from 'pyric/sandbox/firestore';
 import { getInternalEnv } from 'pyric/sandbox/internal';
@@ -179,8 +180,9 @@ describe('reads', () => {
     try {
       await getDoc(doc(dbCarol, 'tickets/T-1'));
     } catch (e) { err = e; }
-    expect(err).toBeInstanceOf(SandboxError);
-    expect((err as SandboxError).code).toBe('permission-denied');
+    // Evidence: observations/firestore/firestore-read-denied-error-code.json
+    expect(err).toBeInstanceOf(FirebaseError);
+    expect((err as FirebaseError).code).toBe('permission-denied');
   });
 
   it('getDocs returns a QuerySnapshot for a collection', async () => {

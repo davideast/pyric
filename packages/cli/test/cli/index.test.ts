@@ -141,6 +141,33 @@ describe('service command hierarchy', () => {
     expect(findings.map((finding) => [finding.code, finding.severity])).toContainEqual(['SEC-5', 'high']);
   });
 
+  it('rejects Firestore rules that exceed compile limits in firestore rules validate (FS-CON-2)', async () => {
+    const { runRulesValidate } = await import('../../src/cli/rules.js');
+    const nestedGlob = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /{a=**}/sub/{b=**} {
+      allow read: if request.auth != null;
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}`;
+    let out = '';
+    const code = await runRulesValidate(
+      parseArgs(['firestore', 'rules', 'validate', 'firestore.rules']),
+      {
+        readFile: async () => nestedGlob as never,
+        stdout: { write: (s: string) => { out += s; } },
+        stderr: { write: () => {} },
+      },
+    );
+    expect(code).toBe(2);
+    const findings = JSON.parse(out) as Array<{ code: string; severity: string }>;
+    expect(findings.some((f) => f.code === 'GLOB_MATCH_COUNT' && f.severity === 'critical')).toBe(true);
+  });
+
   it('resolves Firestore rules modules through the namespaced command', async () => {
     const sourcePath = join(PACKAGE_ROOT, 'test', 'cli', 'fixtures', 'firestore.modules.rules');
     const result = await runDispatch(['firestore', 'rules', 'resolve', sourcePath]);

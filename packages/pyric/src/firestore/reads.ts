@@ -53,7 +53,7 @@ export async function readDocument<T = DocumentData>(ref: DocumentReference<T>, 
   client.markStarted();
   try {
     const conv = converterOf(ref);
-    const snap = await chainDocFor(target, ref).get();
+    const snap = await withFirestoreFirebaseError(() => chainDocFor(target, ref).get());
     client.cachePath(ref.path);
     if (conv) {
       return finishSdkRead(activity, applyConverterToDocSnap(
