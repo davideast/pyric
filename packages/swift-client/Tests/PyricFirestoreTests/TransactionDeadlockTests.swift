@@ -8,7 +8,9 @@ import Testing
 // once blocked every pool thread and nothing could process the replies, so no
 // transaction settled. The waits below block a thread on purpose: an async wait
 // would itself need a free pool thread, and a deadlock would hang the run instead
-// of failing it.
+// of failing it. Each wait holds one pool thread while it lasts, so the suite is
+// serialized: run in parallel, its four waits alone would hold every thread of a
+// three-core runner's pool.
 
 /// How long a test waits for its transactions to settle before it reports a deadlock.
 /// The fixed code settles in milliseconds; this only bounds the failure.
@@ -141,7 +143,7 @@ private func connectedFirestore(_ host: AnsweringHost) async throws -> Firestore
     return db
 }
 
-@Suite("Completion-form transactions off the cooperative pool")
+@Suite("Completion-form transactions off the cooperative pool", .serialized)
 struct TransactionDeadlockTests {
 
     @Test("More concurrent completion-form transactions than cooperative threads all read and settle")
