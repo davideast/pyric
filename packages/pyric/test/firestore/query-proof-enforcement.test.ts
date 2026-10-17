@@ -542,7 +542,8 @@ service cloud.firestore {
     expect(eqThenIn.docs.map((d) => d.id).sort()).toEqual(['p1', 'p3']);
   });
 
-  it('FS-ENF-4c: contradictory where(a == 1).where(a == 2) is ALLOWED with 0 docs while single where(a == 1) is denied', async () => {
+  // Evidence: scratch/firestore-hunt/production/probe-fs-enf-4c-vacuity-result.json (2026-10-17)
+  it('FS-ENF-4c: filter conjunction implies rule equalities without empty-domain vacuity', async () => {
     const sandbox = initializeSandbox();
     const db = getFirestore(sandbox);
     setRules(sandbox, `rules_version = '2';
@@ -550,11 +551,17 @@ service cloud.firestore {
   match /databases/{database}/documents {
     match /q/{d} { allow list: if resource.data.a == 1 && resource.data.a == 2; }
     match /qok/{d} { allow list: if resource.data.a == 1; }
+    match /q3/{d} { allow list: if resource.data.a == 3; }
+    match /qown/{d} { allow list: if resource.data.owner == 'alice'; }
   }
 }`);
-    seedDocuments(sandbox, { 'q/x': { a: 1 }, 'qok/x': { a: 1 } });
+    seedDocuments(sandbox, { 'q/x': { a: 1 }, 'qok/x': { a: 1 }, 'q3/x': { a: 3 }, 'qown/x': { owner: 'alice' } });
     expect((await getDocs(query(collection(db, 'q'), where('a', '==', 1), where('a', '==', 2)))).size).toBe(0);
     expect((await getDocs(query(collection(db, 'qok'), where('a', '==', 1), where('a', '==', 2)))).size).toBe(0);
+    expect(await denied(getDocs(query(collection(db, 'q3'), where('a', '==', 1), where('a', '==', 2))))).toBe('permission-denied');
+    expect(await denied(getDocs(query(collection(db, 'qown'), where('owner', '==', 'bob'), where('owner', '==', 'carol'))))).toBe('permission-denied');
+    expect((await getDocs(query(collection(db, 'qok'), where('a', 'in', [1])))).size).toBe(1);
+    expect(await denied(getDocs(query(collection(db, 'qok'), where('a', 'in', [1, 2]))))).toBe('permission-denied');
     expect(await denied(getDocs(query(collection(db, 'q'), where('a', '==', 1))))).toBe('permission-denied');
     expect((await getDocs(query(collection(db, 'qok'), where('a', '==', 1)))).size).toBe(1);
   });

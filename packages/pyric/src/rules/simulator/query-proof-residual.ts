@@ -68,14 +68,13 @@ export function isRequestAuthUid(expr: Expression): boolean {
 }
 
 /**
- * Compute the effective scalar domain for each constrained field by intersecting
- * all `==` and finite `in` filters on the same field (order-independent).
- * An empty array `[]` indicates contradictory equality/`in` filters on that field.
+ * Collect the list of per-filter scalar sets (`==` or finite `in`) for each
+ * constrained field in the query conjunction.
  */
-export function computeWhereDomains(
+export function computeFieldFilterSets(
   constraints: QueryConstraints,
-): Map<string, Scalar[]> {
-  const domains = new Map<string, Scalar[]>();
+): Map<string, Scalar[][]> {
+  const filterSets = new Map<string, Scalar[][]>();
   for (const filter of constraints.where ?? []) {
     let filterValues: Scalar[] | undefined;
     if (filter.op === "==" && isScalar(filter.value)) {
@@ -90,15 +89,32 @@ export function computeWhereDomains(
       filterValues = Array.from(new Set(filter.value));
     }
     if (filterValues === undefined) continue;
-    const existing = domains.get(filter.field);
+    const existing = filterSets.get(filter.field);
     if (existing === undefined) {
-      domains.set(filter.field, filterValues);
+      filterSets.set(filter.field, [filterValues]);
     } else {
-      domains.set(
-        filter.field,
-        existing.filter((v) => filterValues.includes(v)),
-      );
+      existing.push(filterValues);
     }
+  }
+  return filterSets;
+}
+
+/**
+ * Compute the effective scalar domain for each constrained field by intersecting
+ * all `==` and finite `in` filters on the same field (order-independent).
+ * An empty array `[]` indicates contradictory equality/`in` filters on that field.
+ */
+export function computeWhereDomains(
+  constraints: QueryConstraints,
+): Map<string, Scalar[]> {
+  const domains = new Map<string, Scalar[]>();
+  for (const [field, sets] of computeFieldFilterSets(constraints)) {
+    let intersected = sets[0]!;
+    for (let i = 1; i < sets.length; i++) {
+      const next = sets[i]!;
+      intersected = intersected.filter((v) => next.includes(v));
+    }
+    domains.set(field, intersected);
   }
   return domains;
 }
@@ -194,50 +210,41 @@ function isGuaranteedByArrayContains(
   );
 }
 
-function replaceEmptyDomainFields(
-  expr: Expression,
-  emptyFields: ReadonlySet<string>,
-): Expression {
-  const key = dataFieldPath(expr);
-  if (key !== null && emptyFields.has(key)) return literal(null);
-  const sub = (v: Expression) => replaceEmptyDomainFields(v, emptyFields);
-  switch (expr.type) {
-    case "literal":
-    case "identifier":
-      return expr;
-    case "memberAccess":
-      return { ...expr, object: sub(expr.object) };
-    case "bracketAccess":
-      return { ...expr, object: sub(expr.object), index: sub(expr.index) };
-    case "sliceAccess":
-      return { ...expr, object: sub(expr.object), start: sub(expr.start), end: sub(expr.end) };
-    case "binaryOp":
-      return { ...expr, left: sub(expr.left), right: sub(expr.right) };
-    case "unaryOp":
-      return { ...expr, operand: sub(expr.operand) };
-    case "ternary":
-      return { ...expr, condition: sub(expr.condition), consequent: sub(expr.consequent), alternate: sub(expr.alternate) };
-    case "inExpr":
-      return { ...expr, element: sub(expr.element), collection: sub(expr.collection) };
-    case "isExpr":
-      return { ...expr, value: sub(expr.value) };
-    case "methodCall":
-      return { ...expr, object: sub(expr.object), args: expr.args.map(sub) };
-    case "functionCall":
-      return { ...expr, args: expr.args.map(sub) };
-    case "listLiteral":
-      return { ...expr, elements: expr.elements.map(sub) };
-    case "mapLiteral":
-      return { ...expr, entries: expr.entries.map((entry) => ({ key: sub(entry.key), value: sub(entry.value) })) };
-    case "pathLiteral":
-      return {
-        ...expr,
-        segments: expr.segments.map((segment) => {
-          if (typeof segment === "string") return segment;
-          return sub(segment);
-        }),
-      };
+function isEqualityImpliedByFilterSet(
+  left: Expression,
+  right: Expression,
+  filterSetsByField: ReadonlyMap<string, Scalar[][]>,
+  authUid?: string,
+): boolean {
+  const checkSide = (dataExpr: Expression, valueExpr: Expression): boolean => {
+    const field = dataFieldPath(dataExpr);
+    if (field === null) return false;
+    const sets = filterSetsByField.get(field);
+    if (!sets) return false;
+    const target = resolveArrayContainsValue(valueExpr, authUid);
+    if (target === undefined) return false;
+    return sets.some((set) => set.length === 1 && set[0] === target);
+  };
+  return checkSide(left, right) || checkSide(right, left);
+}
+
+function isInImpliedByFilterSet(
+  element: Expression,
+  collection: Expression,
+  filterSetsByField: ReadonlyMap<string, Scalar[][]>,
+  authUid?: string,
+): boolean {
+  const field = dataFieldPath(element);
+  if (field === null || collection.type !== "listLiteral") return false;
+  const sets = filterSetsByField.get(field);
+  if (!sets) return false;
+  const allowedValues: Scalar[] = [];
+  for (const el of collection.elements) {
+    const resolved = resolveArrayContainsValue(el, authUid);
+    if (resolved === undefined) return false;
+    allowedValues.push(resolved);
   }
+  return sets.some((set) => set.every((v) => allowedValues.includes(v)));
 }
 
 export function queryResidual(
@@ -247,13 +254,11 @@ export function queryResidual(
   authUid?: string,
 ): { condition: Expression; partial: boolean } | undefined {
   let partial = false;
+  const filterSetsByField = computeFieldFilterSets(constraints);
   const domains = computeWhereDomains(constraints);
-  const emptyFields = new Set<string>();
   const nonEmptyDomains = new Map<string, Scalar[]>();
   for (const [name, values] of domains) {
-    if (values.length === 0) {
-      emptyFields.add(name);
-    } else {
+    if (values.length > 0) {
       nonEmptyDomains.set(name, values);
     }
   }
@@ -306,6 +311,9 @@ export function queryResidual(
         ) {
           return literal(true);
         }
+        if (isInImpliedByFilterSet(element, collection, filterSetsByField, authUid)) {
+          return literal(true);
+        }
         return {
           ...expr,
           element,
@@ -340,8 +348,17 @@ export function queryResidual(
             start: sub(expr.start),
             end: sub(expr.end),
           };
-        case "binaryOp":
-          return { ...expr, left: sub(expr.left), right: sub(expr.right) };
+        case "binaryOp": {
+          const left = sub(expr.left);
+          const right = sub(expr.right);
+          if (
+            expr.op === "==" &&
+            isEqualityImpliedByFilterSet(left, right, filterSetsByField, authUid)
+          ) {
+            return literal(true);
+          }
+          return { ...expr, left, right };
+        }
         case "unaryOp":
           return { ...expr, operand: sub(expr.operand) };
         case "ternary":
@@ -414,15 +431,6 @@ export function queryResidual(
     // never under an unpushed NOT or ternary.
     function sufficient(expr: Expression): Expression | undefined {
       if (isProvablyDocIndependent(expr, functions)) return expr;
-      if (
-        emptyFields.size > 0 &&
-        isProvablyDocIndependent(
-          replaceEmptyDomainFields(expr, emptyFields),
-          functions,
-        )
-      ) {
-        return literal(true);
-      }
       if (expr.type === "unaryOp" && expr.op === "!") {
         const inner = expr.operand;
         if (inner.type === "binaryOp" && inner.op === "&&") {

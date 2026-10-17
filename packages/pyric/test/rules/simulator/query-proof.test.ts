@@ -523,17 +523,33 @@ service cloud.firestore {
       expect(inThenEq.residualCondition).toEqual(eqThenIn.residualCondition);
     });
 
-    test('FS-ENF-4c: contradictory same-field equalities produce a doc-independent residual while single equality rejects', () => {
-      const body = 'allow list: if resource.data.a == 1 && resource.data.a == 2;';
-      expect(proveRule(body, [{ field: 'a', op: '==', value: 1 }]).provable).toBe(false);
-      const contradictory = proveRule(body, [
+    // Evidence: scratch/firestore-hunt/production/probe-fs-enf-4c-vacuity-result.json (2026-10-17)
+    test('FS-ENF-4c: filter conjunction implies rule equalities without empty-domain vacuity', () => {
+      const a1AndA2 = 'allow list: if resource.data.a == 1 && resource.data.a == 2;';
+      const a1 = 'allow list: if resource.data.a == 1;';
+      const a3 = 'allow list: if resource.data.a == 3;';
+      const ownerAlice = "allow list: if resource.data.owner == 'alice';";
+      const eq1Eq2: NonNullable<QueryConstraints['where']> = [
         { field: 'a', op: '==', value: 1 },
         { field: 'a', op: '==', value: 2 },
-      ]);
-      expect(contradictory.provable).toBe(true);
-      if (!contradictory.provable) throw new Error('expected provable');
-      expect(contradictory.residualCondition).toBeDefined();
-      expect(isProvablyDocIndependent(contradictory.residualCondition!, new Map())).toBe(true);
+      ];
+
+      expect(proveRule(a1AndA2, [{ field: 'a', op: '==', value: 1 }]).provable).toBe(false);
+      const contradictoryBoth = proveRule(a1AndA2, eq1Eq2);
+      expect(contradictoryBoth.provable).toBe(true);
+      if (!contradictoryBoth.provable) throw new Error('expected provable');
+      expect(isProvablyDocIndependent(contradictoryBoth.residualCondition!, new Map())).toBe(true);
+
+      expect(proveRule(a1, eq1Eq2).provable).toBe(true);
+      expect(proveRule(a3, eq1Eq2).provable).toBe(false);
+      expect(
+        proveRule(ownerAlice, [
+          { field: 'owner', op: '==', value: 'bob' },
+          { field: 'owner', op: '==', value: 'carol' },
+        ]).provable,
+      ).toBe(false);
+      expect(proveRule(a1, [{ field: 'a', op: 'in', value: [1] }]).provable).toBe(true);
+      expect(proveRule(a1, [{ field: 'a', op: 'in', value: [1, 2] }]).provable).toBe(false);
     });
 
     test('FS-MET-5 (2 & 5): helper returning resource.data and bracket field access', () => {

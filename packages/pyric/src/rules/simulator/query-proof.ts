@@ -1,4 +1,5 @@
 import {
+  computeFieldFilterSets,
   computeWhereDomains,
   dataFieldPath,
   inlineFunctionsInExpr,
@@ -176,15 +177,22 @@ function evaluateEqualityQueryProof(
   const required = extraction.required;
 
   const wheres = constraints.where ?? [];
+  const filterSetsByField = computeFieldFilterSets(constraints);
   const domains = computeWhereDomains(constraints);
   const missing: QueryProofMissing[] = [];
   const mismatched: QueryProofMismatch[] = [];
   let hasEmptyDomain = false;
   for (const req of required) {
     const domain = domains.get(req.field);
-    const discharged = domain !== undefined && domain.every((v) => valuesEqual(v, req.value));
+    const filterSets = filterSetsByField.get(req.field);
+    const impliedByIntersection =
+      domain !== undefined && domain.length === 1 && valuesEqual(domain[0], req.value);
+    const impliedByFilter =
+      filterSets !== undefined &&
+      filterSets.some((set) => set.length === 1 && valuesEqual(set[0], req.value));
+    const discharged = impliedByIntersection || impliedByFilter;
     if (discharged) {
-      if (domain.length === 0) hasEmptyDomain = true;
+      if ((domain?.length ?? 0) === 0) hasEmptyDomain = true;
       continue;
     }
     // A `where(field, '==', other)` on the same field with a different value is
