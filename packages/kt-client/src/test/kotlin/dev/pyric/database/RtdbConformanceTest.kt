@@ -565,4 +565,68 @@ class RtdbConformanceTest {
         assertEquals("anon", reevaluatedSub.actAs?.get("mode"))
         ref.removeEventListener(listener)
     }
+
+    // ── Section 1, continued: `.info` served by the client (2 rows) ─────────
+
+    @Test
+    @DisplayName("rtdb-kotlin#info-connected: .info/connected is served from the bridge connection")
+    fun `rtdb-kotlin#info-connected info connected is served from the bridge connection`() = runBlocking {
+        val connectedRef = database.getReference(".info/connected")
+        val seen = java.util.concurrent.CopyOnWriteArrayList<Any?>()
+        val listener = connectedRef.addValueEventListener(object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) { seen.add(snapshot.value) }
+            override fun onCancelled(error: DatabaseError) {}
+        })
+        waitFor { seen.lastOrNull() == true }
+        assertEquals(true, Tasks.await(connectedRef.get()).value)
+
+        database.goOffline()
+        waitFor { seen.lastOrNull() == false }
+        assertEquals(false, Tasks.await(connectedRef.get()).value)
+
+        database.goOnline()
+        waitFor { seen.lastOrNull() == true }
+        assertTrue(seen.zipWithNext().none { (a, b) -> a == b }, "no repeated value: $seen")
+        connectedRef.removeEventListener(listener)
+        assertNoInfoTraffic()
+    }
+
+    @Test
+    @DisplayName("rtdb-kotlin#info-root-offset: .info and .info/serverTimeOffset are served locally with offset 0")
+    fun `rtdb-kotlin#info-root-offset info and serverTimeOffset are served locally with offset 0`() = runBlocking {
+        waitFor { Tasks.await(database.getReference(".info/connected").get()).value == true }
+        assertEquals(0L, Tasks.await(database.getReference(".info/serverTimeOffset").get()).value)
+        assertEquals(
+            mapOf("connected" to true, "serverTimeOffset" to 0L),
+            Tasks.await(database.getReference(".info").get()).value
+        )
+        assertNull(Tasks.await(database.getReference(".info/authenticated").get()).value)
+
+        val offset = database.getReference(".info/serverTimeOffset").snapshots().first()
+        assertEquals(0L, offset.value)
+        val children = java.util.concurrent.CopyOnWriteArrayList<String?>()
+        val listener = database.getReference(".info").addChildEventListener(object : ChildEventListener {
+            override fun onChildAdded(snapshot: DataSnapshot, previousChildName: String?) { children.add(snapshot.key) }
+            override fun onChildChanged(snapshot: DataSnapshot, previousChildName: String?) {}
+            override fun onChildRemoved(snapshot: DataSnapshot) {}
+            override fun onChildMoved(snapshot: DataSnapshot, previousChildName: String?) {}
+            override fun onCancelled(error: DatabaseError) {}
+        })
+        waitFor { children.size == 2 }
+        assertEquals(listOf("connected", "serverTimeOffset"), children)
+        database.getReference(".info").removeEventListener(listener)
+        assertNoInfoTraffic()
+    }
+
+    private fun assertNoInfoTraffic() {
+        val infoOps = worker.recordedOps.filter { it.path.startsWith(".info") }
+        val infoSubs = worker.recordedSubs.filter { it.path.startsWith(".info") }
+        assertTrue(infoOps.isEmpty() && infoSubs.isEmpty(), "no .info traffic reaches the worker: $infoOps $infoSubs")
+    }
+
+    private suspend fun waitFor(condition: () -> Boolean) {
+        withTimeout(5_000) {
+            while (!condition()) kotlinx.coroutines.delay(5)
+        }
+    }
 }
