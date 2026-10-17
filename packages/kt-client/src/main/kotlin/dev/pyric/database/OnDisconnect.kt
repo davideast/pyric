@@ -3,6 +3,7 @@ package dev.pyric.database
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.TaskCompletionSource
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -36,7 +37,9 @@ class OnDisconnect(private val ref: DatabaseReference) {
 
     private fun executeOp(method: String, params: Map<String, Any?>): Task<Void?> {
         val tcs = TaskCompletionSource<Void?>()
-        scope.launch {
+        // Undispatched, so the frame is sent or held on the caller's thread and
+        // back-to-back writes reach the host in call order (#1026).
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 ref.database.bridgeClient.op(
                     method = method,

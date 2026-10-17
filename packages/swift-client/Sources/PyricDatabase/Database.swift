@@ -212,9 +212,7 @@ public final class Database: NSObject, @unchecked Sendable {
 
     public func goOffline() {
         setNetworkOnline(false)
-        Task {
-            try? await goOffline()
-        }
+        sendInCallOrder(method: "rtdb.goOffline", params: [:]) { _ in }
     }
 
     public func goOnline() async throws {
@@ -228,8 +226,6 @@ public final class Database: NSObject, @unchecked Sendable {
 
     public func goOnline() {
         setNetworkOnline(true)
-        Task {
-            try? await goOnline()
-        }
+        sendInCallOrder(method: "rtdb.goOnline", params: [:]) { _ in }
     }
 }

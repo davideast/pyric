@@ -162,6 +162,14 @@ public actor PyricBridgeClient {
     /// operation issued meanwhile joins the end of the held queue, so every
     /// operation reaches the socket in issue order.
     private var drainingHeldOps = false
+    /// The socket write of the last operation frame dispatched. Each write
+    /// waits for the one before it, never for a reply, so frames leave in
+    /// dispatch order and operations still pipeline.
+    private var lastOpWrite: Task<Void, Never>?
+    private let turnCounter = OperationTurnCounter()
+    /// The turn admitted next. Operations started with a turn wait for it.
+    private var nextTurn = 0
+    private var turnWaiters: [Int: CheckedContinuation<Void, Never>] = [:]
     private var activeSubs: [String: ActiveSub] = [:]
 
     public init(
@@ -342,7 +350,7 @@ public actor PyricBridgeClient {
                 do {
                     try await restorer { [weak self] method, params in
                         guard let self else { throw PyricBridgeError.unavailable("Client was deallocated.") }
-                        return try await self.dispatchOp(method: method, params: params, actAs: nil, timeout: nil)
+                        return try await self.dispatchOp(method: method, params: params, actAs: nil, timeout: nil, turn: nil)
                     }
                 } catch {
                     // The Auth observers report the host's state when the restore fails.
@@ -571,24 +579,80 @@ public actor PyricBridgeClient {
         actAs: AuthLens? = nil,
         timeout: TimeInterval? = nil
     ) async throws -> AnySendable {
+        try await admit(method: method, params: params, actAs: actAs, timeout: timeout, turn: nil)
+    }
+
+    // ─── Call Order ──────────────────────────────────────────────────────────
+
+    /// Takes the next place in the order operations are admitted. Call it
+    /// synchronously where the app makes the call, then present the turn to
+    /// `op(turn:…)` from the task that runs it.
+    package nonisolated func takeTurn() -> OperationTurn {
+        turnCounter.take()
+    }
+
+    /// Dispatches an operation once every turn taken before this one has been
+    /// sent, held, or has failed, so tasks started in call order reach the
+    /// socket in call order. The turn is released as soon as the operation is
+    /// sent or held, or when it throws first, never after waiting for a reply.
+    package func op(
+        turn: OperationTurn,
+        method: String,
+        params: [String: AnySendable] = [:],
+        actAs: AuthLens? = nil,
+        timeout: TimeInterval? = nil
+    ) async throws -> AnySendable {
+        await waitForTurn(turn)
+        // Releases the turn on a throw before it was sent or held; a no-op otherwise.
+        defer { releaseTurn(turn) }
+        return try await admit(method: method, params: params, actAs: actAs, timeout: timeout, turn: turn)
+    }
+
+    /// Waits for a turn and releases it at once, for a call that turns out to send nothing.
+    package func pass(turn: OperationTurn) async {
+        await waitForTurn(turn)
+        releaseTurn(turn)
+    }
+
+    private func waitForTurn(_ turn: OperationTurn) async {
+        guard turn.number > nextTurn else { return }
+        await withCheckedContinuation { continuation in
+            turnWaiters[turn.number] = continuation
+        }
+    }
+
+    /// Lets the next turn in. Releasing a turn that is not the current one does nothing.
+    private func releaseTurn(_ turn: OperationTurn?) {
+        guard let turn, turn.number == nextTurn else { return }
+        nextTurn += 1
+        turnWaiters.removeValue(forKey: nextTurn)?.resume()
+    }
+
+    private func admit(
+        method: String,
+        params: [String: AnySendable],
+        actAs: AuthLens?,
+        timeout: TimeInterval?,
+        turn: OperationTurn?
+    ) async throws -> AnySendable {
         if isDisposed {
             throw PyricBridgeError.unavailable("PyricBridgeClient has been disposed.")
         }
         let acceptsNewOps = isConnected && !drainingHeldOps
         if acceptsNewOps {
-            return try await dispatchOp(method: method, params: params, actAs: actAs, timeout: timeout)
+            return try await dispatchOp(method: method, params: params, actAs: actAs, timeout: timeout, turn: turn)
         }
         guard canReopen else {
             // One supplied channel cannot be reopened, so there is nothing to hold for.
             try await connect()
             try ensureConnected()
-            return try await dispatchOp(method: method, params: params, actAs: actAs, timeout: timeout)
+            return try await dispatchOp(method: method, params: params, actAs: actAs, timeout: timeout, turn: turn)
         }
         let closedAfterAttach = hasEverAttached && connectionState == .closed
         if closedAfterAttach {
             throw PyricBridgeError.unavailable(connectionLostMessage)
         }
-        return try await hold(method: method, params: params, actAs: actAs, timeout: timeout)
+        return try await hold(method: method, params: params, actAs: actAs, timeout: timeout, turn: turn)
     }
 
     private func nextOpId() -> String {
@@ -609,7 +673,8 @@ public actor PyricBridgeClient {
         method: String,
         params: [String: AnySendable],
         actAs: AuthLens?,
-        timeout: TimeInterval?
+        timeout: TimeInterval?,
+        turn: OperationTurn?
     ) async throws -> AnySendable {
         let id = nextOpId()
         let opTimeout = timeout ?? defaultOpTimeout
@@ -617,10 +682,24 @@ public actor PyricBridgeClient {
 
         return try await withCheckedThrowingContinuation { continuation in
             self.registerPendingOp(id: id, method: method, timeout: opTimeout, continuation: continuation)
-            Task {
-                await self.sendOpFrame(id: id, payload: payload)
-            }
+            self.writeAfterLastOp(id: id, payload: payload)
+            self.releaseTurn(turn)
         }
+    }
+
+    /// Writes an operation frame once the previous one's socket write is done.
+    /// An operation that failed or timed out before its turn to write is not sent.
+    private func writeAfterLastOp(id: String, payload: [String: AnySendable]) {
+        let previous = lastOpWrite
+        lastOpWrite = Task {
+            await previous?.value
+            guard await self.isPending(id) else { return }
+            await self.sendOpFrame(id: id, payload: payload)
+        }
+    }
+
+    private func isPending(_ id: String) -> Bool {
+        pendingOps[id] != nil
     }
 
     /// Records an operation as in flight and starts its own timeout.
@@ -652,7 +731,8 @@ public actor PyricBridgeClient {
         method: String,
         params: [String: AnySendable],
         actAs: AuthLens?,
-        timeout: TimeInterval?
+        timeout: TimeInterval?,
+        turn: OperationTurn?
     ) async throws -> AnySendable {
         let id = nextOpId()
         let opTimeout = timeout ?? defaultOpTimeout
@@ -673,6 +753,7 @@ public actor PyricBridgeClient {
                 continuation: continuation,
                 deadlineTask: deadlineTask
             ))
+            self.releaseTurn(turn)
             self.startAttemptIfIdle()
         }
     }
