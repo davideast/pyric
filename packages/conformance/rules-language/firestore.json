@@ -1750,6 +1750,7 @@
       "engine": "firestore",
       "reference": "https://firebase.google.com/docs/reference/rules/rules",
       "status": "unprobeable",
+      "note": "Runtime type-based method dispatch on untyped parameters, get() results, let bindings, and multi-type ternaries is behaviorally verified in production by firestore-rules#182 (rules-firestore-functions-verbs-and-recursive.json); single-expression acceptance micro-probing remains unprobeable.",
       "probeNote": "type-based method dispatch is a meta-semantic exercised by every method call; it has no standalone micro-scenario of its own."
     }
   ]

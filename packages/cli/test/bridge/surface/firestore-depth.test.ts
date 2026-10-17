@@ -192,5 +192,21 @@ describe('extractIndexes and writeIndexes', () => {
     const data = rewritten.data as { added: number; removed: number };
     expect(data.added).toBe(1);
     expect(data.removed).toBe(1);
+
+    const third = [
+      {
+        collectionGroup: 'depth-orders',
+        queryScope: 'COLLECTION',
+        fields: [{ fieldPath: 'status', arrayConfig: 'CONTAINS' }],
+      },
+    ];
+    const rewrittenArray = await run('firestore.writeIndexes', {
+      indexes: third,
+      path: indexesPath,
+      confirm: true,
+    });
+    const arrayDiff = rewrittenArray.data as { added: number; removed: number };
+    expect(arrayDiff.added).toBe(1);
+    expect(arrayDiff.removed).toBe(1);
   });
 });
