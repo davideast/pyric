@@ -11,6 +11,7 @@
 import type { RtdbRulesDocumentInternal } from '../rtdb/constraints/document.js';
 import type { RtdbCase, RtdbInstancesData } from './case-types.js';
 import {
+  isDefaultDatabaseInstance,
   resolveDatabaseInstance,
   UNNAMED_DEFAULT_DATABASE_INSTANCE,
 } from '../../sandbox/internal/instances.js';
@@ -34,6 +35,8 @@ export type RulesPlacement =
       readonly kind: 'per-instance';
       /** The instance `getDatabase()` selects without a URL. */
       readonly defaultInstance: string;
+      /** The project id, which also names the default instance (`https://<projectId>.firebaseio.com`). */
+      readonly projectId?: string;
       /** Each declared instance's rules, keyed by instance name. */
       readonly instances: ReadonlyMap<string, InstanceRules>;
     };
@@ -61,12 +64,15 @@ function hasInstancesShape(data: unknown): data is RtdbInstancesData {
 /**
  * The instance a name selects, as `getDatabase(app, url)` selects it: a bare
  * name, lowercased; a database URL; or `default` and the empty string for
- * `defaultKey`. Returns the SDK's error for a name it refuses.
+ * `defaultKey`, as is a name of the project's default instance. Returns the
+ * SDK's error for a name it refuses.
  */
-function selectInstance(name: unknown, defaultKey: string): { name: string } | { problem: string } {
+function selectInstance(name: unknown, defaultKey: string, projectId: string | undefined): { name: string } | { problem: string } {
   if (typeof name !== 'string') return { problem: 'instance must be a string naming a database instance, such as "my-app-default-rtdb".' };
   try {
-    return { name: resolveDatabaseInstance(name)?.name ?? defaultKey };
+    const selected = resolveDatabaseInstance(name)?.name;
+    const isDefault = selected === undefined || isDefaultDatabaseInstance(selected, projectId);
+    return { name: isDefault ? defaultKey : selected };
   } catch (error) {
     const reason = error instanceof Error ? error.message.trim() : String(error);
     return { problem: `"${name}" is not a database instance name: ${reason}` };
@@ -106,9 +112,10 @@ export function resolveInstanceCase(
 ): ResolvedInstanceCase | { instance?: string; problem: string } {
   const perInstance = placement.kind === 'per-instance';
   const defaultKey = perInstance ? placement.defaultInstance : UNNAMED_DEFAULT_DATABASE_INSTANCE;
+  const projectId = perInstance ? placement.projectId : undefined;
   let instance: string | undefined;
   if (c.instance !== undefined) {
-    const selected = selectInstance(c.instance, defaultKey);
+    const selected = selectInstance(c.instance, defaultKey, projectId);
     if ('problem' in selected) return selected;
     instance = selected.name;
   } else if (perInstance) {
@@ -125,7 +132,7 @@ export function resolveInstanceCase(
   if (readsPerInstance) {
     const trees = new Map<string, Record<string, unknown>>();
     for (const [key, tree] of Object.entries((c.data as RtdbInstancesData).instances)) {
-      const selected = selectInstance(key, defaultKey);
+      const selected = selectInstance(key, defaultKey, projectId);
       if ('problem' in selected) return located({ problem: `data.instances: ${selected.problem}` });
       if (!isPlainObject(tree)) {
         return located({ problem: `data.instances["${key}"] must be an object: the tree of database instance "${selected.name}".` });

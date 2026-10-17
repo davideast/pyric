@@ -83,8 +83,8 @@ import {
 
 import {
   createDatabaseInstanceRegistry,
-  defaultDatabaseInstanceName,
   isCustomDatabaseHost,
+  isDefaultDatabaseInstance,
   parseDatabaseLocationUrl,
   parseDatabaseUrl,
   type DatabaseInstance,
@@ -231,8 +231,9 @@ function invalidDatabaseUrl(): Error {
 /**
  * The instance an admin database targets: `url`, else the app's `databaseURL`
  * option, parsed as the production SDK parses it. `undefined` is the default
- * instance, which the instance named `<projectId>-default-rtdb` also is when
- * the app's options name the project.
+ * instance, which the instance named `<projectId>-default-rtdb` or, for a
+ * project created before about 2020, `<projectId>` also is when the app's
+ * options name the project.
  */
 function adminDatabaseInstance(
   app: PyricAdminApp,
@@ -243,7 +244,7 @@ function adminDatabaseInstance(
   if (source === undefined) return undefined;
   const instance = parseDatabaseUrl(source);
   const projectId = app.options.projectId;
-  const isProjectDefault = projectId !== undefined && instance.name === defaultDatabaseInstanceName(projectId);
+  const isProjectDefault = isDefaultDatabaseInstance(instance.name, projectId);
   return isProjectDefault ? undefined : instance;
 }
 

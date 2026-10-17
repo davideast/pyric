@@ -317,7 +317,12 @@ function fromFirebaseJson(
     const rules: InstanceRules = { doc: new CompiledRtdbRulesDocument(json), file: file.file, source: file.text };
     for (const instance of file.instances) instances.set(instance, rules);
   }
-  return new DocumentRtdbRuleset({ kind: 'per-instance', defaultInstance: loaded.defaultInstance, instances });
+  return new DocumentRtdbRuleset({
+    kind: 'per-instance',
+    defaultInstance: loaded.defaultInstance,
+    ...(loaded.projectId === undefined ? {} : { projectId: loaded.projectId }),
+    instances,
+  });
 }
 
 /**
@@ -344,8 +349,9 @@ export interface RtdbRulesConstructor {
    * {@link rtdbRules} reads rules text, comments and trailing commas included.
    *
    * A case runs on the instance it names, or on the default instance
-   * `<projectId>-default-rtdb`; the project id is `options.projectId`, else
-   * `projects.default` in the `.firebaserc` beside `firebase.json`. A case that
+   * `<projectId>-default-rtdb`, which `<projectId>` also names; the project
+   * id is `options.projectId`, else `projects.default` in the `.firebaserc`
+   * beside `firebase.json`. A case that
    * names an instance `firebase.json` deploys no rules to is UNSUPPORTED, with
    * a reason naming the instances it does.
    *
