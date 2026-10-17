@@ -6,13 +6,14 @@ This document is the working plan for landing the `hosted-live-mode` branch on `
 
 ## 1. Where things stand
 
-- `main` is at `f7e90081` and has not moved since the branch's last merge from it.
-- `origin/hosted-live-mode` is at `26a6ae0d`: 141 commits past main, 700 files, roughly 40,000 lines of code change plus about 35,000 lines of results JSON and progress docs.
-- Typecheck passes for `packages/pyric` and `packages/cli` at the tip.
-- One unit test fails deterministically at the tip (ledger I2). The branch's own code-form CI gate fails on the branch (ledger B4).
-- The SQLite persistence core holds nine of twelve contract checks (review of 2026-09-17). Salvage exists.
-- The committed multi-client acceptance run failed: 62,599 of 90,000 operations completed, 27,401 refused, p95 mutation latency 4,250 ms, maximum capture delay 1,025 s against a 2 s contract bound.
-- Fourteen ledger items from the first review remain open at the tip, including the rule-method blocker (A1). Thirteen new items were added from the delta review (section I).
+As of 2026-10-17:
+
+- `main` is at `81b9d9a4`. Phases 1, 2, 3a, 3, 3b, and 3c merged between 2026-09-19 and 2026-09-20; section 6 has the commits. `origin/hosted-live-mode` is a reference only, and live mode is parked on `live/parked`.
+- The Node host is published under the npm `next` tag as `0.1.0-alpha.24` (2026-09-25). `latest` is `0.1.0-alpha.22`, published before the host merged.
+- Typecheck passes for `packages/pyric` and `packages/cli` at the tip, and CI on the tip is green, including the Node host smoke set and the app scenarios.
+- Every bun-run acceptance in `scripts/ledger-acceptance.json` that maps a ledger item passes at the tip: 34 entries. The browser acceptances for C1, D3, I16, and I17 stayed on the shared branch for the phase 4 slice and are not on `main`.
+- Phase 4 has not started. The multi-client harness, its baseline, and the failing acceptance run recorded on 2026-09-18 never reached `main`.
+- The ledger is closed and holds 15 open items, none with blocker severity. What is left before promotion is tracked as `node-host` issues in the [Node host: npm latest](https://github.com/davideast/pyric/milestone/3) milestone.
 
 ## 2. Why the branch does not merge as one pull request
 
@@ -176,10 +177,10 @@ Update this table as pull requests open and merge. Ledger item status is tracked
 | 2 Transport | `slice/transport` at `d8d33e10` (four commits on `main` `9ec53e1f`: full `packages/cli` diff byte-equal to the remote at `984e75e6`, reverse diff for the 26 excluded paths, one follower line in `cli/serve.ts`, handoff docs) | https://github.com/davideast/pyric/pull/654 opened 2026-09-19 | verified 2026-09-19 by the reviewer: phase 2 acceptance A5, C13, A15 pass; bridge and remote 1340 pass; serve 1427 pass; cli, Studio, UI typecheck exit 0; no path outside `packages/cli` and the handoff files | squash-merged as `main` `bbf30034` on 2026-09-19 at `65536ea7`, after four CI followers: parity manifest and annotation for `messaging_deliveries`, the branch's messaging app-boundary spec, the browser-boundary check held for the evidence slice, and the composite served-entry test double gaining `addEventListener` (C14) |
 | 3a Undo revert (engine) | `slice/undo-revert` at `1b1dfc54` (nine-file tree difference for `packages/pyric`, rules row keeps its null auth argument, `Conformance-Exempt:` trailer on the commit) | https://github.com/davideast/pyric/pull/655 opened 2026-09-19 | verified 2026-09-19 by the reviewer: pyric 7647 pass; pyric-admin 660; cli serve 1427 against the reverted engine; pyric, cli, Studio typechecks exit 0; compat regeneration no diff | squash-merged as `main` `2a942b93` on 2026-09-19 |
 | 3 Host | `slice/host` at `7b3fea39` (two commits on `main` `2a942b93`: product commit `dc55162d` byte-equal to the two-argument tree difference for `packages/cli/src`, `packages/cli/test/serve`, `packages/cli/test/cli`, the persistence contract, and the release-contract fixture at `6fe34321`, 92 files; plus the handoff documents). Spec: `docs/hosted-extraction-spec-host.md`. Two earlier cuts were discarded: the first path list missed two files edited by later fixes, the second failed the snapshot fixture under CI's invocation (I15) | https://github.com/davideast/pyric/pull/656 opened 2026-09-20 at `1a0b7454`; every required check green on the first run, no follower commits | verified 2026-09-20 by the reviewer on the slice: all 17 mapped items pass; whole cli package under `bun test --cwd packages/cli` 3880 pass, 0 fail; cli, Studio, UI typechecks exit 0; parity check, coupling gate, conformance gates exit 0; served-app Playwright conformance 8 passed; hosted SQLite suite green on Node 22.15.0 and 22.18.0 (implementing agent) | squash-merged as `main` `40d1cd35` on 2026-09-20 |
-| 3b Follow-ups (C1, C2, C4, C7, C8, C12, backlog contract) | spec written 2026-09-21: `docs/hosted-extraction-spec-followups.md` | | | |
-| 3c Engine event log bound (I16) | `slice/event-log-bound`, seven files in `packages/pyric`, cut and proven by the reviewer; awaiting owner approval to push and open | | | |
-| 4 Acceptance | | | | |
-| 5 Studio and peel | | | | |
+| 3b Follow-ups (C1, C2, C4, C7, C8, C12, backlog contract) | `slice/followups`, cut from `main` `40d1cd35`. Spec written 2026-09-21: `docs/hosted-extraction-spec-followups.md` | https://github.com/davideast/pyric/pull/658 opened 2026-09-20 | verified 2026-09-20 by the reviewer on the shared branch (ledger entries). Re-run on `main` `81b9d9a4` on 2026-10-17: C2, C4, C7, C8, and C12 pass; C1's unit coverage passes. The browser acceptances for C1 and ledger D3 were held for the phase 4 slice and are not on `main` | squash-merged as `main` `a3940fb9` on 2026-09-20 |
+| 3c Engine event log bound (I16) | `slice/event-log-bound`, seven files in `packages/pyric`, cut and proven by the reviewer | https://github.com/davideast/pyric/pull/657 opened 2026-09-20 | engine fix verified 2026-09-21 by the reviewer (ledger I16). Re-run on `main` `81b9d9a4` on 2026-10-17: the seven-case core test passes. The host collected-heap acceptance was held for the phase 4 slice and is not on `main` | squash-merged as `main` `9e0bd166` on 2026-09-20 |
+| 4 Acceptance | not started at `81b9d9a4` | | | |
+| 5 Studio and peel | no phase 5 pull request | | checked 2026-10-17 at `81b9d9a4`: no live entry or live server under `packages/cli/src/serve`, no emulator-backed tests, and no code-form gate in CI; live mode is on `live/parked`; the Studio event cap is still 500. Orbit messaging reached `main` with the transport slice rather than a peeled branch. The other peels were not checked | |
 
 ## 7. What "users can rely on it" means here
 
