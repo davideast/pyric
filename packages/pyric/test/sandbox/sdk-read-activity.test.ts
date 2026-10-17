@@ -103,7 +103,14 @@ it('retains index query shape through listener registration, delivery and stop',
   setRules(sandbox, "rules_version = '2'; service cloud.firestore { match /databases/{db}/documents { match /projects/{id} { allow read: if true; } } }");
   seedDocuments(sandbox, { 'projects/one': { status: 'private-draft-value', budget: 12 } });
   const events: SdkActivityEvent[] = [];
-  const stopRecording = sdkActivity.subscribe(event => events.push(event));
+  const started = new Set<string>();
+  // The journal is process-global (shared by every test file), and prune()
+  // emits `remove` for an earlier test's ended record once the journal holds
+  // more than maxCompleted, so only inspect calls begun here.
+  const stopRecording = sdkActivity.subscribe(event => {
+    if (event.phase === 'start') started.add(event.record.id);
+    if (started.has(event.record.id)) events.push(event);
+  });
   let stopListener = () => {};
   try {
     await new Promise<void>((resolve, reject) => {
