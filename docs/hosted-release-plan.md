@@ -13,7 +13,7 @@ As of 2026-10-17:
 - Typecheck passes for `packages/pyric` and `packages/cli` at the tip, and CI on the tip is green, including the Node host smoke set and the app scenarios.
 - Every bun-run acceptance in `scripts/ledger-acceptance.json` that maps a ledger item passes at the tip: 34 entries. The browser acceptances for C1, D3, I16, and I17 stayed on the shared branch for the phase 4 slice and are not on `main`.
 - Phase 4 has not started. The multi-client harness, its baseline, and the failing acceptance run recorded on 2026-09-18 never reached `main`.
-- The ledger holds 16 open items, I22 among them, added on 2026-10-17. None has blocker severity. Its summary lists what is left before phase 4 and before promotion.
+- The ledger is closed and holds 15 open items, none with blocker severity. What is left before promotion is tracked as `node-host` issues in the [Node host: npm latest](https://github.com/davideast/pyric/milestone/3) milestone.
 
 ## 2. Why the branch does not merge as one pull request
 
