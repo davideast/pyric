@@ -4,6 +4,7 @@ import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.TaskCompletionSource
 import dev.pyric.auth.BridgeAuthOperations
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.net.URI
@@ -58,7 +59,7 @@ class FirebaseUser internal constructor(
     fun getIdToken(forceRefresh: Boolean = false): Task<GetTokenResult> {
         val tcs = TaskCompletionSource<GetTokenResult>()
         val scope = CoroutineScope(Dispatchers.IO)
-        scope.launch {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 val res = BridgeAuthOperations.getIdTokenResult(auth.bridgeClient, forceRefresh)
                 val token = res["token"] as? String ?: ""
@@ -84,7 +85,7 @@ class FirebaseUser internal constructor(
     fun updateProfile(request: UserProfileChangeRequest): Task<Void?> {
         val tcs = TaskCompletionSource<Void?>()
         val scope = CoroutineScope(Dispatchers.IO)
-        scope.launch {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 val updated = BridgeAuthOperations.updateProfile(
                     auth.bridgeClient,
@@ -108,7 +109,7 @@ class FirebaseUser internal constructor(
     fun reload(): Task<Void?> {
         val tcs = TaskCompletionSource<Void?>()
         val scope = CoroutineScope(Dispatchers.IO)
-        scope.launch {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 val user = BridgeAuthOperations.getCurrentUser(auth.bridgeClient)
                 if (user != null) {

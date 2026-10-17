@@ -9,6 +9,7 @@ import dev.pyric.auth.CredentialsProvider
 import dev.pyric.bridge.PyricBridgeClient
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.awaitClose
@@ -118,7 +119,7 @@ class FirebaseAuth internal constructor(
 
     fun signInWithEmailAndPassword(email: String, password: String): Task<AuthResult> {
         val tcs = TaskCompletionSource<AuthResult>()
-        scope.launch {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 val res = BridgeAuthOperations.signInEmail(bridgeClient, email, password, tenantId)
                 val authResult = handleAuthSuccess(res)
@@ -132,7 +133,7 @@ class FirebaseAuth internal constructor(
 
     fun createUserWithEmailAndPassword(email: String, password: String): Task<AuthResult> {
         val tcs = TaskCompletionSource<AuthResult>()
-        scope.launch {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 val res = BridgeAuthOperations.createUser(bridgeClient, email, password, tenantId)
                 val authResult = handleAuthSuccess(res)
@@ -146,7 +147,7 @@ class FirebaseAuth internal constructor(
 
     fun signInAnonymously(): Task<AuthResult> {
         val tcs = TaskCompletionSource<AuthResult>()
-        scope.launch {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 val res = BridgeAuthOperations.signInAnonymously(bridgeClient, tenantId)
                 val authResult = handleAuthSuccess(res)
@@ -160,7 +161,7 @@ class FirebaseAuth internal constructor(
 
     fun signInWithCredential(credential: Map<String, Any?>): Task<AuthResult> {
         val tcs = TaskCompletionSource<AuthResult>()
-        scope.launch {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 val res = BridgeAuthOperations.signInWithCredential(bridgeClient, credential, tenantId)
                 val authResult = handleAuthSuccess(res)
@@ -174,7 +175,7 @@ class FirebaseAuth internal constructor(
 
     fun signInWithCredential(credential: AuthCredential): Task<AuthResult> {
         val tcs = TaskCompletionSource<AuthResult>()
-        scope.launch {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 val res = BridgeAuthOperations.signInWithCredential(bridgeClient, credential.toWireMap(), tenantId)
                 val authResult = handleAuthSuccess(res)
@@ -187,7 +188,7 @@ class FirebaseAuth internal constructor(
     }
 
     fun signOut() {
-        scope.launch {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 BridgeAuthOperations.signOut(bridgeClient)
             } catch (_: Exception) {}
