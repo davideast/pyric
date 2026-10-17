@@ -147,12 +147,11 @@ describe('denialContext over the relay (spike gap 6)', () => {
   });
 
   it('a denied subscription matches LOCAL listener-error fidelity through onError', async () => {
-    // NOTE: the sandbox does not populate denialContext on snapshot-LISTENER
-    // errors (a local onSnapshot onError lacks it too — only thrown
-    // SandboxErrors from ops carry it today). The __error relay path
-    // transports the serialized error verbatim, so fidelity here means the
-    // remote error equals the local one: same code, same (absent) context.
-    // If the sandbox ever stamps listener denials, the wire already carries it.
+    // NOTE: the sandbox populates denialContext on snapshot-LISTENER errors
+    // (a local onSnapshot onError carries it too via translateListenerError).
+    // The __error relay path transports the serialized error verbatim, so
+    // fidelity here means the remote error equals the local one: same code,
+    // same structured denialContext.
     const bridge = createBridge({ version: 'test' });
     const ctx = await makeWorkerCtx();
     connectTab(bridge, ctx);
@@ -169,7 +168,12 @@ describe('denialContext over the relay (spike gap 6)', () => {
 
     expect(subErr).not.toBeNull();
     expect(subErr!.code).toBe('permission-denied');
-    expect(subErr!.denialContext).toBeUndefined(); // parity with local onError
+    const dc = subErr!.denialContext;
+    expect(dc).toBeDefined();
+    expect(Array.isArray(dc!.reasons)).toBe(true);
+    expect(dc!.reasons!.length).toBeGreaterThan(0);
+    expect(dc!.request?.method).toBe('get');
+    expect(dc!.request?.path).toBe('notes/n1');
   });
 
   it('non-denial errors stay lean — no denialContext field', async () => {
