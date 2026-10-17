@@ -1,5 +1,8 @@
 import Foundation
+import Testing
 import PyricFirestore
+import FirebaseAuth
+import PyricDebugUI
 
 public final class MockDebugChannel: WebSocketTransport, @unchecked Sendable {
     private let lock = NSLock()
@@ -118,4 +121,40 @@ public final class MockDebugChannel: WebSocketTransport, @unchecked Sendable {
             return res
         }
     }
+}
+
+/// Waits for `condition` to hold, checking every 5 ms. Records an issue at the
+/// caller and throws after 6 s, so a wrong result still fails the test.
+func until(
+    _ condition: @Sendable () async -> Bool,
+    sourceLocation: SourceLocation = #_sourceLocation
+) async throws {
+    for _ in 0..<1200 {
+        if await condition() { return }
+        try await Task.sleep(nanoseconds: 5_000_000)
+    }
+    Issue.record("condition not reached", sourceLocation: sourceLocation)
+    throw PyricBridgeError.deadlineExceeded("condition not reached")
+}
+
+/// `Auth` subscribes to the bridge's remote-lens stream from a task, and the
+/// bridge drops a remote-lens frame that arrives before that subscription
+/// registers. Pushes an app-session lens until `auth` applies one, then pushes
+/// anonymous and waits for `manager` to show it. Frames sent after this
+/// returns reach `auth`, and `manager` starts from anonymous.
+func awaitRemoteLensSubscription(
+    _ channel: MockDebugChannel,
+    _ auth: Auth,
+    _ manager: PyricDebugManager
+) async throws {
+    let probe: [String: Any] = ["type": "worker-event", "event": "remote-lens", "lens": ["mode": "app-session"]]
+    try channel.simulateServerMessage(probe)
+    for attempt in 1...1200 {
+        if auth.currentAuthLens() == .appSession { break }
+        if attempt % 20 == 0 { try channel.simulateServerMessage(probe) }
+        try await Task.sleep(nanoseconds: 5_000_000)
+    }
+    try await until { await manager.activeLens == .appSession }
+    try channel.simulateServerMessage(["type": "worker-event", "event": "remote-lens", "lens": ["mode": "anon"]])
+    try await until { await manager.activeLens == .anon }
 }
