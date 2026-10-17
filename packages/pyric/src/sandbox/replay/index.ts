@@ -137,8 +137,11 @@ export function replay(
   // Each write's payload comes from the `request` event paired with it (the
   // pre-resolution `request.resourceData`), or else from the write's own
   // `data` (post-resolution).
-  const dataFor = (wEv: WriteSandboxEvent) =>
-    preResolutionDataFor(wEv, events) ?? enginePayloadOf({ resourceData: wEv.data, updateMask: wEv.updateMask });
+  const dataFor = (wEv: WriteSandboxEvent): DocData | undefined => {
+    const requested = preResolutionDataFor(wEv, events);
+    if (requested !== undefined) return requested;
+    return enginePayloadOf({ resourceData: wEv.data, updateMask: wEv.updateMask }) as DocData | undefined;
+  };
   const remap = aliasRemapper(pathAliases);
 
   for (let index = 0; index < writes.length;) {
@@ -258,8 +261,10 @@ function replayGroup(
 ): void {
   const operations = group.map((event) => {
     const operation: BatchOperationInput = { method: batchMethodOf(event), path: remap(event.path) };
-    const data = event.method === 'delete' ? undefined : dataFor(event);
-    if (data !== undefined) operation.data = data;
+    if (event.method !== 'delete') {
+      const data = dataFor(event);
+      if (data !== undefined) operation.data = data;
+    }
     if (event.merge !== undefined) operation.merge = event.merge;
     return operation;
   });

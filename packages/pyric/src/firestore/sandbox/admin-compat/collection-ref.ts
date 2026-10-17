@@ -58,7 +58,8 @@ export class CollectionRefImpl extends QueryImpl implements CollectionReference 
     if (!result.allowed) {
       // The denial `DocumentReference.set` raised when `add` routed through it.
       if (result.error) throw new FirestoreCompatError(result.error);
-      const msg = result.debugMessages.length > 0 ? result.debugMessages.join('; ') : '(no debug message)';
+      let msg = '(no debug message)';
+      if (result.debugMessages.length > 0) msg = result.debugMessages.join('; ');
       throw new FirestoreCompatError(makeError('permission-denied', `set denied: ${msg}`));
     }
     return createDocumentRef(this.env, this.auth, path, this.bypassRules);
