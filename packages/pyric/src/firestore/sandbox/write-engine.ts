@@ -383,6 +383,7 @@ export class WriteEngine {
         path,
         auth,
         ...(method !== 'delete' && payload ? { data: payload.resourceData, ...(payload.updateMask ? { updateMask: payload.updateMask } : {}) } : {}),
+        merge,
         priorState: priorDoc,
         nextState: method === 'delete' ? null : finalDoc,
         ...(sentinels && sentinels.length > 0 ? { sentinels } : {}),

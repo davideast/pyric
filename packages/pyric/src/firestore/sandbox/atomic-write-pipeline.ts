@@ -352,6 +352,7 @@ export class AtomicWritePipeline {
           groupId: context.groupId,
           groupKind: context.origin,
           requestTime: serverTime,
+          merge: input.merge,
         };
         const includesData = !isDelete && payload !== undefined;
         if (includesData) {
