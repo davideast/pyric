@@ -79,7 +79,7 @@ export function duplicateFunctionMessage(name: string): string {
 
 export type CompileLimitCode =
   | 'CALL_DEPTH' | 'LET_LIMIT' | 'NESTING_DEPTH' | 'FUNCTION_REDEFINED' | 'SLASH_STARTS_PATH' | 'GLOB_MATCH_COUNT'
-  | 'UNSUPPORTED_RULES_VERSION' | 'UNRESOLVED_MODULES' | 'INVALID_SERVICE' | 'INVALID_PATH_INTERPOLATION' | 'INVALID_REGEX_PATTERN';
+  | 'UNSUPPORTED_RULES_VERSION' | 'UNRESOLVED_MODULES' | 'INVALID_REGEX_PATTERN';
 
 /** One compile rejection, carrying production's message verbatim. */
 export interface CompileLimitViolation {
@@ -248,17 +248,6 @@ function pushExpressionViolations(
       ...(line === undefined ? {} : { line }),
       ...(functionName === undefined ? {} : { functionName }),
     });
-  }
-  if (expr.type === 'pathLiteral') {
-    const hasCapture = expr.segments.some((s) => typeof s === 'string' && s.startsWith('{') && s.endsWith('}'));
-    if (hasCapture) {
-      out.push({
-        code: 'INVALID_PATH_INTERPOLATION',
-        message: "Unexpected '{'.",
-        ...(line === undefined ? {} : { line }),
-        ...(functionName === undefined ? {} : { functionName }),
-      });
-    }
   }
   if (isFirestore && expr.type === 'methodCall' && expr.method === 'matches' && expr.args.length === 1) {
     const arg = expr.args[0];

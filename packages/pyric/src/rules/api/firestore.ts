@@ -189,13 +189,6 @@ export function firestoreRules(source: string): FirestoreRuleset {
   // Production rejects a ruleset past its compile limits (call depth, `let`
   // count, nesting) before evaluating any request.
   const violations = compileLimitViolations(parsed.ast);
-  if (parsed.ast.service.name !== 'cloud.firestore') {
-    violations.unshift({
-      code: 'INVALID_SERVICE',
-      message: `Expected 'service cloud.firestore', got 'service ${parsed.ast.service.name}'.`,
-      line: parsed.ast.loc?.line ?? 1,
-    });
-  }
   if (violations.length > 0) {
     throw new RulesCompileError(
       `Firestore rules source failed to compile: ${describeCompileLimitViolations(violations)}`,

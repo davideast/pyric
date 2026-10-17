@@ -229,10 +229,7 @@ semantics.addOperation<any>('toAST', {
     return placedAt({ type: 'pathLiteral', raw: this.sourceString, segments }, this);
   },
   PathLitContSegment_interpolation(_dp, expr, _rps) { return expr.toAST(); },
-  PathLitContSegment_captureRef(_lb, name, _rbs) {
-    firstCaptureRefOffset ??= this.source.startIdx;
-    return `{${name.sourceString}}`;
-  },
+  PathLitContSegment_captureRef(_lb, name, _rbs) { return `{${name.sourceString}}`; },
   PathLitContSegment_parenLiteral(p) { return p.sourceString.slice(0, -1); },
   PathLitContSegment_literal(p) { return p.sourceString.slice(0, -1); },
   PathLitSegment_interpolation(_dp, expr, _rp) { return expr.toAST(); },
@@ -243,10 +240,7 @@ semantics.addOperation<any>('toAST', {
   // diagnostic. The braces are preserved in the segment string so the linter
   // can detect it via prefix check (legitimate pathIdent segments cannot
   // start with '{').
-  PathLitSegment_captureRef(_lb, name, _rb) {
-    firstCaptureRefOffset ??= this.source.startIdx;
-    return `{${name.sourceString}}`;
-  },
+  PathLitSegment_captureRef(_lb, name, _rb) { return `{${name.sourceString}}`; },
   // Parenthesized database id in a cross-service Firestore lookup path,
   // e.g. `firestore.get(/databases/(default)/documents/...)`. The parens
   // are part of the production path shape, so keep them in the segment.
@@ -372,8 +366,6 @@ function parsePath(raw: string): PathPattern {
  * exists — without this conversion that data is lost when the match goes out
  * of scope.
  */
-let firstCaptureRefOffset: number | null = null;
-
 function buildParseError(match: ohm.MatchResult, source: string, baseOffset: number = 0): ParseError {
   const offset = baseOffset + ((match as any).getRightmostFailurePosition?.() ?? 0);
   const expected = (match as any).getExpectedText?.() ?? '';
@@ -465,24 +457,8 @@ function checkStrictParse(input: string, startRule: string | undefined, emptyMsg
   const trimmed = input.trim();
   if (!trimmed) return { valid: false, errors: [{ message: emptyMsg }] };
   const leadingTrimmed = input.length - input.trimStart().length;
-  const errorSource = input.trimEnd();
-  const matched = matchBounded(
-    trimmed,
-    startRule,
-    (match) => {
-      if (!trimmed.includes('{')) return null;
-      firstCaptureRefOffset = null;
-      semantics(match).toAST();
-      return firstCaptureRefOffset;
-    },
-    errorSource,
-    leadingTrimmed,
-  );
+  const matched = matchBounded(trimmed, startRule, () => undefined, input.trimEnd(), leadingTrimmed);
   if (!matched.ok) return { valid: false, errors: [{ message: matched.error.message }], parseError: matched.error };
-  if (matched.value !== null) {
-    const error = failureAt(errorSource, leadingTrimmed + matched.value, "'$('", "Unexpected '{'.");
-    return { valid: false, errors: [{ message: error.message }], parseError: error };
-  }
   return { valid: true, errors: [] };
 }
 

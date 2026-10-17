@@ -116,14 +116,12 @@ describe('install', () => {
     expect(result.summary).toBe('Firestore rules installed.');
   });
 
-  it('rejects firebase.storage service, unsupported rules_version, unresolved modules, and invalid regex literals (FS-CON-5, FS-SIM-5)', async () => {
-    const storageRules = `rules_version = '2';\nservice firebase.storage {\n  match /b/{bucket}/o {\n    match /{allPaths=**} { allow read: if true; }\n  }\n}`;
+  it('rejects unsupported rules_version, unresolved modules, and invalid regex literals (FS-CON-5, FS-SIM-5)', async () => {
     const badVersion = OPEN_RULES.replace("rules_version = '2';", "rules_version = '99';");
     const unresolvedModules = `rules_version = '2+modules';\nimport { f } from './a.rules';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /{document=**} { allow read: if f(); }\n  }\n}`;
     const badRegex = OPEN_RULES.replace('if true;', "if 'ab'.matches('a(?=b)b');");
 
     for (const [source, expected] of [
-      [storageRules, "Expected 'service cloud.firestore', got 'service firebase.storage'."],
       [badVersion, 'Unsupported rules version 99.'],
       [unresolvedModules, "Rules source uses '2+modules' or import statements that must be resolved before compilation."],
       [badRegex, 'Invalid regular expression pattern. Pattern: a(?=b)b.'],

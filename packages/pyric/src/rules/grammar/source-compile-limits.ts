@@ -57,13 +57,6 @@ export function checkRulesSource(
     };
   }
   const violations = compileLimitViolations(parsed.ast);
-  if (parsed.ast.service.name !== 'cloud.firestore') {
-    violations.unshift({
-      code: 'INVALID_SERVICE',
-      message: `Expected 'service cloud.firestore', got 'service ${parsed.ast.service.name}'.`,
-      line: parsed.ast.loc?.line ?? 1,
-    });
-  }
   if (violations.length === 0) return { ok: true, ast: parsed.ast };
   return {
     ok: false,

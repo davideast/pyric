@@ -223,27 +223,36 @@ describe('parser: keyword-named fields, path segments, and syntax inside elided 
     expect(parseToASTOrError(bad).ok).toBe(false);
     expect(checkRulesSource(bad).ok).toBe(false);
   });
+
+  test('96 parens around a ternary inside match /users/in + .in[.is[...]] == 1 compiles and evaluates to DENY', () => {
+    const inner96 = `${'('.repeat(95)}(request.auth.uid == "admin" ? 0 : 0)${')'.repeat(95)}`;
+    const source = `rules_version = '2';\nservice cloud.firestore {\n  match /databases/{db}/documents {\n    match /users/in {\n      allow read: if resource.data.in[resource.data.is[${inner96}]] == 1;\n    }\n  }\n}\n`;
+    const sim = firestoreRules(source).simulate([
+      {
+        description: 'attacker read denied',
+        expectation: 'DENY',
+        method: 'get',
+        path: '/users/in',
+        auth: { uid: 'attacker' },
+        resource: { in: [0, 1], is: [0, 1] },
+      },
+    ]);
+    expect(sim.cases[0]?.decision).toBe('DENY');
+  });
 });
 
-describe('parser: invalid {ident} capture in expression path literals (FS-FUZ-6)', () => {
-  const INVALID_PATH_RULE = firestore('exists(/databases/$(database)/documents/users/{uid})');
-  const INVALID_STORAGE_RULE = storage('firestore.exists(/databases/(default)/documents/users/{uid})');
+describe('parser: {ident} capture in expression path literals compiles and is flagged by linter (FS-FUZ-6)', () => {
+  const PATH_CAPTURE_RULE = firestore('exists(/databases/$(database)/documents/users/{uid})');
 
-  test('parseExpression and parseRulesFile reject {uid} inside an expression path literal', () => {
-    expect(parseExpression('/databases/$(database)/documents/users/{uid}').valid).toBe(false);
-    expect(parseExpression('/databases/{database}/documents/users/$(uid)').valid).toBe(false);
-    expect(parseRulesFile(INVALID_PATH_RULE).valid).toBe(false);
+  test('parseExpression, parseRulesFile, and checkRulesSource accept {uid} inside an expression path literal', () => {
+    expect(parseExpression('/databases/$(database)/documents/users/{uid}').valid).toBe(true);
+    expect(parseExpression('/databases/{database}/documents/users/$(uid)').valid).toBe(true);
+    expect(parseRulesFile(PATH_CAPTURE_RULE).valid).toBe(true);
+    expect(checkRulesSource(PATH_CAPTURE_RULE).ok).toBe(true);
   });
 
-  test('checkRulesSource, firestoreRules, and parseStorageRules reject {uid} in expression path literals', () => {
-    const checked = checkRulesSource(INVALID_PATH_RULE);
-    expect(checked.ok).toBe(false);
-    expect(() => firestoreRules(INVALID_PATH_RULE)).toThrow(RulesCompileError);
-    expect(() => parseStorageRules(INVALID_STORAGE_RULE)).toThrow(/Storage rules do not compile/);
-  });
-
-  test('lintFirestoreRules still reports INVALID_PATH_INTERPOLATION', () => {
-    const lint = lintFirestoreRules(INVALID_PATH_RULE);
+  test('lintFirestoreRules reports INVALID_PATH_INTERPOLATION', () => {
+    const lint = lintFirestoreRules(PATH_CAPTURE_RULE);
     expect(lint.warnings.some((w) => w.rule === 'INVALID_PATH_INTERPOLATION')).toBe(true);
   });
 });

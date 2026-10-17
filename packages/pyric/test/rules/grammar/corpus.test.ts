@@ -45,18 +45,19 @@ describe('Firestore Grammar — Full Corpus', () => {
     const files = loadCorpusFiles('invalid');
     for (const { name, content } of files) {
       // 006-function-no-return: our grammar requires return, so it's a syntax error
-      // 008-wrong-service, 012-unsupported-rules-version, 013-invalid-regex-lookahead:
-      // grammar accepts the tokens, compile check rejects them.
+      // 008-wrong-service: serviceName accepts any letter sequence (production compiles it; validator flags STR-2)
+      // 012-unsupported-rules-version, 013-invalid-regex-lookahead: grammar accepts tokens, compile check rejects them.
       const shouldParse =
         name.includes('008-wrong-service') ||
         name.includes('012-unsupported-rules-version') ||
         name.includes('013-invalid-regex-lookahead');
+      const shouldCompile = name.includes('008-wrong-service');
 
-      test(name + (shouldParse ? ' (semantic error — parser accepts, compile check rejects)' : ''), () => {
+      test(name + (shouldParse ? ' (semantic/compile error — parser accepts)' : ''), () => {
         const result = parseRulesFile(content);
         expect(result.valid).toBe(shouldParse);
         const compiled = checkRulesSource(content);
-        expect(compiled.ok).toBe(false);
+        expect(compiled.ok).toBe(shouldCompile);
       });
     }
   });

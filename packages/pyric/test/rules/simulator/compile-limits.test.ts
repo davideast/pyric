@@ -125,17 +125,12 @@ service cloud.firestore {
   });
 });
 
-describe('Firestore simulator: version, service, module, and regex compile checks (FS-CON-5, FS-SIM-5)', () => {
+describe('Firestore simulator: version, module, and regex compile checks (FS-CON-5, FS-SIM-5)', () => {
   const rejected: ReadonlyArray<readonly [string, string, string]> = [
     [
       'unsupported rules_version (FS-CON-5c)',
       `rules_version = '99';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /p/{id} { allow read: if true; }\n  }\n}`,
       'Unsupported rules version 99.',
-    ],
-    [
-      'wrong service name (FS-CON-5b)',
-      `rules_version = '2';\nservice firebase.storage {\n  match /b/{bucket}/o {\n    match /p/{id} { allow read: if true; }\n  }\n}`,
-      "Expected 'service cloud.firestore', got 'service firebase.storage'.",
     ],
     [
       'unresolved 2+modules import (FS-CON-5a)',
@@ -150,13 +145,16 @@ describe('Firestore simulator: version, service, module, and regex compile check
   ];
 
   for (const [label, source, message] of rejected) {
-    test(`${label}: firestoreRules and simulate refuse with "${message}"`, () => {
+    test(`${label}: firestoreRules, simulate, and RulesState refuse with "${message}"`, () => {
       expect(compileError(source).issues.map((i) => i.message)).toContain(message);
 
       const handler = new SimulateFirestoreRulesHandler();
       const direct = handler.simulate(source, cases('p'));
       expect(direct.success).toBe(false);
       if (!direct.success) expect(direct.error.message).toContain(message);
+
+      const rules = new RulesState(source);
+      expect(rules.ast()).toBeNull();
     });
   }
 });
