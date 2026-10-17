@@ -148,3 +148,31 @@ it('redacts the current value to null when .read is denied on both abort and wri
   expect(committed).toEqual({ committed: true, val: 15, key: 'count' });
   expect(state.tree.read('/inbox/count')).toBe(15);
 });
+
+it('bypasses read and write rules when admin option is true and preserves priority on newData (#1014)', () => {
+  const state = new BackendState();
+  state.rules.setRules({
+    rules: {
+      vault: { '.read': false, '.write': false },
+      prioritized: { '.read': true, '.write': 'newData.getPriority() === 7' },
+    },
+  });
+  const values = new ValueListeners(state);
+  const children = new ChildListeners(state);
+  const transactions = new Transactions(state, values, children);
+
+  state.tree.write('/vault', 40);
+  const seenAdmin: unknown[] = [];
+  const adminOut = transactions.run(null, '/vault', (current) => {
+    seenAdmin.push(current);
+    return ((current as number | null) ?? 0) + 2;
+  }, { admin: true });
+  expect(seenAdmin).toEqual([40]);
+  expect(adminOut).toEqual({ committed: true, val: 42, key: 'vault' });
+
+  state.tree.write('/prioritized', 1);
+  state.priorities.replace('/prioritized', 7);
+  const prioOut = transactions.run({ uid: 'u1' }, '/prioritized', (current) => ((current as number | null) ?? 0) + 1);
+  expect(prioOut).toEqual({ committed: true, val: 2, key: 'prioritized' });
+  expect(state.priorities.get('/prioritized')).toBe(7);
+});

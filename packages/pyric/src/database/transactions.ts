@@ -91,11 +91,12 @@ export function runTransaction<T>(
   validateWritablePath('Reference.transaction', r._path);
   const target = targetOf(r as unknown as object);
   return runSdkWrite(beginDatabaseActivity(r, 'runTransaction', 'operation'), () => {
+    const txOptions = target.admin === true ? { ...options, admin: true } : options;
     const result = target.backend.runTransaction(
       authFor(target),
       r._path,
       transactionUpdate as (current: JsonValue) => JsonValue | undefined,
-      options,
+      txOptions,
     );
     const priorities = result.val === null ? {} : undefined;
     const snap = buildSandboxSnapFromRaw(target, r, result.val, priorities);

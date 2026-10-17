@@ -544,8 +544,12 @@ function onChildEvent(
       // behavior where one observer's exception doesn't block others.
     }
   };
-  return registerTracked(target, baseRef._path, event, registryCallback, activity, scope, (unregister) =>
-    subscribeWithLiveAuth(
+  return registerTracked(target, baseRef._path, event, registryCallback, activity, scope, (unregister) => {
+    if (target.admin === true) {
+      const subscribed = target.backend.adminOnChild(event, baseRef._path, wrapper, spec);
+      return () => { unregister(); subscribed(); };
+    }
+    return subscribeWithLiveAuth(
       target,
       (auth, onCanceled, replaying) => target.backend.onChild(
         auth,
@@ -557,8 +561,8 @@ function onChildEvent(
         () => { activity.fail(); onCanceled(); },
       ),
       unregister,
-    ),
-  );
+    );
+  });
 }
 
 /**
