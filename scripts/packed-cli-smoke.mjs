@@ -223,7 +223,23 @@ writeFileSync(resolve(workDir, 'firestore.rules'), `${allowAnonymous}\n`);
 // storage/database counterparts) were retired in favor of `rules lint` and
 // `rules simulate`, one command per service tool method, so this slice drives
 // those instead.
-const firestoreLint = run(['rules', 'lint', '--service', 'firestore', '--rules', allowAnonymous, '--json']);
+// Lint gets a ruleset with nothing to report: the anonymous fixture above allows
+// an unauthenticated, unvalidated create, which lint reports as errors (SEC-3,
+// SEC-6). This slice proves the packed command runs and reports a clean ruleset.
+const secureNotes = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /notes/{noteId} {
+      allow create: if request.auth != null
+        && request.resource.data.keys().hasOnly(['text'])
+        && request.resource.data.text is string;
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}`;
+const firestoreLint = run(['rules', 'lint', '--service', 'firestore', '--rules', secureNotes, '--json']);
 expect(firestoreLint.code === 0, 'pyric rules lint --service firestore must exit 0', firestoreLint);
 expect(
   parseJson(firestoreLint, 'pyric rules lint --service firestore').ok === true,
