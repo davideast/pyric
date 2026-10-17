@@ -679,12 +679,20 @@ it.
   one client reach the host in that order. This holds across services and
   whether the operations are sent at once, held, or released after a
   re-attach. A client never moves a send onto a task, coroutine, queue or
-  microtask whose start order can differ from the issue order.
+  microtask whose start order can differ from the issue order. A
+  transaction's frames, and the later frames of a multi-step operation, are
+  issued when the client sends them: only an operation's first frame is
+  ordered at the call, and no frame overtakes an operation issued before it.
+  An operation issued after `runTransaction` may reach the host before the
+  transaction's first read.
 - **D2. Fate decided at the call.** By the time the call returns, the
   operation has been sent, admitted to the hold queue, or failed. On Dart and
   the web client that means before its first `await`, on Kotlin before its
-  first suspension, and on Swift within the caller's turn. Which thread the
-  scheduler runs first never changes the outcome.
+  first suspension, and on Swift within the caller's task, before the call's
+  first suspension: a completion-block form takes its place on the caller's
+  thread before it returns. Two separate tasks have no order between them for
+  the client to keep. Which thread the scheduler runs first never changes the
+  outcome.
 - **D3. Settled exactly once.** Every operation completes once, with a result
   or an error. That includes a reply that races a timeout, a drop, a close or
   a cancellation, an app callback that throws, and a reply for an id already
