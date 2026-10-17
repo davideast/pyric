@@ -103,3 +103,68 @@ describe('lintFirestoreRules — pathClear regression fixture', () => {
     expect(r.warnings.some(w => w.rule === 'PARSE_ERROR')).toBe(false);
   });
 });
+
+describe('FS-LNT-3 and FS-LNT-10 regressions', () => {
+  test('FS-LNT-3: checkSyntaxHints ignores operators inside string literals and detects === after https:// URLs', () => {
+    const validStrings = lintFirestoreRules(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{id} {
+      allow read: if resource.data.op == '==='
+                  && resource.data.neq == '!=='
+                  && resource.data.arrow == 'a => b'
+                  && resource.data.opt == '?.foo'
+                  && resource.data.coal == 'a ?? b'
+                  && resource.data.bt.matches('.*\`.*');
+    }
+  }
+}`);
+    expect(validStrings.parseError).toBeUndefined();
+    expect(validStrings.warnings.filter(w => w.rule === 'INVALID_OPERATOR')).toHaveLength(0);
+
+    const urlThenStrictEq = lintFirestoreRules(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{id} {
+      allow read: if resource.data.url == "https://example.com" && request.auth.uid === 'u1';
+    }
+  }
+}`);
+    expect(urlThenStrictEq.warnings.some(w => w.rule === 'INVALID_OPERATOR')).toBe(true);
+  });
+
+  test('FS-LNT-10: checkHallucinations walks global/service functions, pathLiteral, and sliceAccess', () => {
+    const r = lintFirestoreRules(`rules_version = '2';
+function globalHelper(s) {
+  return s.toLowerCase() == 'admin';
+}
+service cloud.firestore {
+  function serviceHelper(arr) {
+    return arr.includes('x');
+  }
+  match /databases/{database}/documents {
+    match /items/{id} {
+      allow read: if globalHelper(request.auth.uid)
+                  && serviceHelper(resource.data.tags)
+                  && exists(/databases/$(database)/documents/users/$(request.auth.uid.toLowerCase()))
+                  && resource.data.items[0:resource.data.name.toUpperCase().size()].size() > 0;
+    }
+  }
+}`);
+    const methods = r.warnings.filter(w => w.rule === 'HALLUCINATED_METHOD');
+    expect(methods.length).toBeGreaterThanOrEqual(4);
+  });
+
+  test('FS-LNT-10: Object.prototype keys and user-defined functions/captures do not false-positive HALLUCINATED_GLOBAL', () => {
+    const r = lintFirestoreRules(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function bool(v) { return v == true; }
+    match /items/{constructor} {
+      allow read: if constructor != '' && bool(resource.data.active);
+    }
+  }
+}`);
+    expect(r.warnings.filter(w => w.rule === 'HALLUCINATED_GLOBAL')).toHaveLength(0);
+  });
+});

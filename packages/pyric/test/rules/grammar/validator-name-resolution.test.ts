@@ -13,6 +13,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { validateFirestoreRules, type ValidationFinding } from '../../../src/rules/grammar/FirestoreValidator.js';
 import { parseToAST } from '../../../src/rules/grammar/FirestoreParser.js';
+import { callChainDepths, collectRulesetScopes } from '../../../src/rules/grammar/function-scopes.js';
+import { countDocumentAccessCalls } from '../../../src/rules/grammar/document-access-count.js';
 
 interface Probe {
   name: string;
@@ -257,5 +259,65 @@ service cloud.firestore {
   }
 }`);
     expect(findings.filter(f => ['SEM-4', 'SEM-5', 'QUA-4'].includes(f.code))).toEqual([]);
+  });
+});
+
+describe('FS-COV-5b/5c and FS-FUZ-4 regressions', () => {
+  test('FS-COV-5b: debug() is reported as undefined function (SEM-4)', () => {
+    const findings = validate(wrap(`    match /items/{id} {
+      allow read: if debug(request.auth != null);
+    }`));
+    expect(findings.filter(f => f.code === 'SEM-4').map(f => f.message)).toEqual([
+      "Rule at /items/{id} calls undefined function 'debug'",
+    ]);
+  });
+
+  test('FS-COV-5c: forward reference between let bindings is reported as unbound variable (SEM-5)', () => {
+    const findings = validate(wrap(`    function forwardRef() {
+      let a = b;
+      let b = true;
+      return a && b;
+    }
+    match /items/{id} {
+      allow read: if forwardRef();
+    }`));
+    expect(findings.filter(f => f.code === 'SEM-5').map(f => f.message)).toEqual([
+      "Function 'forwardRef' in /databases/{database}/documents reads unbound variable 'b'. No let binding, function parameter, path capture, or rules global has that name, so evaluating it is an error and the request is denied",
+    ]);
+  });
+
+  test('FS-FUZ-4: callChainDepths does not poison depths across cyclic subgraphs', () => {
+    const chain = Array.from(
+      { length: 20 },
+      (_, i) => `function c${i + 1}() { return ${i + 1 < 20 ? `c${i + 2}()` : 'true'}; }`,
+    ).join('\n    ');
+    const ast = parseToAST(wrap(`    function a() { return b() && c1(); }
+    function b() { return a(); }
+    ${chain}
+    function start() { return b(); }
+    match /items/{id} { allow read: if start(); }`))!;
+    const scopes = collectRulesetScopes(ast);
+    const depths = callChainDepths(scopes);
+    const byName = new Map([...depths.entries()].map(([fn, d]) => [fn.name, d]));
+    expect(byName.get('b')!).toBeGreaterThanOrEqual(22);
+    expect(byName.get('start')!).toBeGreaterThanOrEqual(23);
+  });
+
+  test('FS-FUZ-4: countDocumentAccessCalls memoizes DAG nodes in linear time', () => {
+    const depth = 21;
+    const fns: string[] = [];
+    for (let i = 1; i < depth; i++) {
+      fns.push(`function f${i}() { return f${i + 1}() && f${i + 1}() && f${i + 1}(); }`);
+    }
+    fns.push(`function f${depth}() { return get(/databases/$(database)/documents/cfg/one).data.ok == true; }`);
+    const ast = parseToAST(wrap(`    ${fns.join('\n    ')}
+    match /items/{id} { allow read: if f1(); }`))!;
+    const scopes = collectRulesetScopes(ast);
+    const rule = scopes.rules[1]!;
+    const t0 = performance.now();
+    const count = countDocumentAccessCalls(rule.rule.condition, rule.functions);
+    const elapsed = performance.now() - t0;
+    expect(count).toBe(3 ** (depth - 1));
+    expect(elapsed).toBeLessThan(250);
   });
 });

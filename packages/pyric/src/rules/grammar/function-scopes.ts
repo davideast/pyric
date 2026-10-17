@@ -19,13 +19,15 @@
  * case.
  */
 import type { AllowRule, Expression, FirestoreRules, FunctionDef, MatchBlock } from './FirestoreAST.js';
-import { RULES_BUILTIN_FUNCTIONS } from './builtin-functions.js';
 
 /** Bare-call functions every Firestore rule can call: the document lookups,
- *  `debug`, the `int`, `float`, and `string` conversions, and `path`. A
+ *  the `int`, `float`, and `string` conversions, and `path`. `debug` is not
+ *  supported in Firestore rules and is reported as undefined (SEM-4). A
  *  ruleset function with the same name shadows one. */
 export const FIRESTORE_GLOBAL_FUNCTIONS: ReadonlySet<string> = new Set([
-  ...RULES_BUILTIN_FUNCTIONS,
+  'get',
+  'exists',
+  'getAfter',
   'existsAfter',
   'int',
   'float',
@@ -114,8 +116,11 @@ export function ruleReferences(scoped: ScopedRule): NameReferences {
 /** Resolve the names a function's `let` values and return expression reference. */
 export function functionReferences(scoped: ScopedFunction): NameReferences {
   const refs = emptyRefs();
-  const locals = new Set([...scoped.fn.parameters, ...scoped.fn.lets.map(l => l.name)]);
-  for (const binding of scoped.fn.lets) collectReferences(binding.value, scoped, locals, refs);
+  const locals = new Set(scoped.fn.parameters);
+  for (const binding of scoped.fn.lets) {
+    collectReferences(binding.value, scoped, locals, refs);
+    locals.add(binding.name);
+  }
   collectReferences(scoped.fn.body, scoped, locals, refs);
   return refs;
 }
@@ -165,23 +170,187 @@ function collectReferences(expr: Expression, scope: NameScope, locals: ReadonlyS
 /**
  * The longest call chain starting at each function, counted in functions
  * (a function that calls nothing has depth 1). Calls resolve by scope. A
- * cycle contributes no further depth.
+ * cycle contributes no further depth and does not poison cached depths for
+ * callers entering the cycle at another node.
  */
 export function callChainDepths(scopes: RulesetScopes): Map<FunctionDef, number> {
+  return analyzeCallChains(scopes).depths;
+}
+
+/**
+ * Functions that participate in or reach a recursive call cycle, resolved by
+ * declaration scope.
+ */
+export function cyclicFunctions(scopes: RulesetScopes): ReadonlySet<FunctionDef> {
+  return analyzeCallChains(scopes).cyclic;
+}
+
+export function analyzeCallChains(scopes: RulesetScopes): {
+  depths: Map<FunctionDef, number>;
+  cyclic: ReadonlySet<FunctionDef>;
+} {
   const callees = new Map<FunctionDef, FunctionDef[]>();
   for (const scoped of scopes.functions) callees.set(scoped.fn, functionReferences(scoped).callees);
+  const cleanDepths = new Map<FunctionDef, number>();
   const depths = new Map<FunctionDef, number>();
-  const depth = (fn: FunctionDef, onStack: Set<FunctionDef>): number => {
-    const known = depths.get(fn);
-    if (known !== undefined) return known;
-    if (onStack.has(fn)) return 0;
+  const cyclic = new Set<FunctionDef>();
+  const visit = (fn: FunctionDef, onStack: Set<FunctionDef>): { depth: number; hitStack: boolean } => {
+    const known = cleanDepths.get(fn);
+    if (known !== undefined) return { depth: known, hitStack: false };
+    if (onStack.has(fn)) return { depth: 0, hitStack: true };
     onStack.add(fn);
     let deepest = 0;
-    for (const callee of callees.get(fn) ?? []) deepest = Math.max(deepest, depth(callee, onStack));
+    let hitStack = false;
+    for (const callee of callees.get(fn) ?? []) {
+      const sub = visit(callee, onStack);
+      deepest = Math.max(deepest, sub.depth);
+      if (sub.hitStack) hitStack = true;
+    }
     onStack.delete(fn);
-    depths.set(fn, 1 + deepest);
-    return 1 + deepest;
+    const result = 1 + deepest;
+    if (!hitStack) cleanDepths.set(fn, result);
+    return { depth: result, hitStack };
   };
-  for (const scoped of scopes.functions) depth(scoped.fn, new Set());
-  return depths;
+  for (const scoped of scopes.functions) {
+    const res = visit(scoped.fn, new Set());
+    depths.set(scoped.fn, res.depth);
+    if (res.hitStack) cyclic.add(scoped.fn);
+  }
+  return { depths, cyclic };
+}
+
+function substituteLets(expr: Expression, bindings: ReadonlyMap<string, Expression>): Expression {
+  if (bindings.size === 0) return expr;
+  switch (expr.type) {
+    case 'identifier':
+      return bindings.get(expr.name) ?? expr;
+    case 'binaryOp':
+      return { ...expr, left: substituteLets(expr.left, bindings), right: substituteLets(expr.right, bindings) };
+    case 'unaryOp':
+      return { ...expr, operand: substituteLets(expr.operand, bindings) };
+    case 'ternary':
+      return {
+        ...expr,
+        condition: substituteLets(expr.condition, bindings),
+        consequent: substituteLets(expr.consequent, bindings),
+        alternate: substituteLets(expr.alternate, bindings),
+      };
+    case 'methodCall':
+      return {
+        ...expr,
+        object: substituteLets(expr.object, bindings),
+        args: expr.args.map(a => substituteLets(a, bindings)),
+      };
+    case 'functionCall':
+      return { ...expr, args: expr.args.map(a => substituteLets(a, bindings)) };
+    case 'bracketAccess':
+      return { ...expr, object: substituteLets(expr.object, bindings), index: substituteLets(expr.index, bindings) };
+    case 'sliceAccess':
+      return {
+        ...expr,
+        object: substituteLets(expr.object, bindings),
+        start: substituteLets(expr.start, bindings),
+        end: substituteLets(expr.end, bindings),
+      };
+    case 'memberAccess':
+      return { ...expr, object: substituteLets(expr.object, bindings) };
+    case 'inExpr':
+      return { ...expr, element: substituteLets(expr.element, bindings), collection: substituteLets(expr.collection, bindings) };
+    case 'isExpr':
+      return { ...expr, value: substituteLets(expr.value, bindings) };
+    case 'listLiteral':
+      return { ...expr, elements: expr.elements.map(e => substituteLets(e, bindings)) };
+    case 'mapLiteral':
+      return {
+        ...expr,
+        entries: expr.entries.map(e => ({
+          key: substituteLets(e.key, bindings),
+          value: substituteLets(e.value, bindings),
+        })),
+      };
+    case 'pathLiteral':
+      return {
+        ...expr,
+        segments: expr.segments.map(s => {
+          if (typeof s === 'string') return s;
+          return substituteLets(s, bindings);
+        }),
+      };
+    default:
+      return expr;
+  }
+}
+
+/**
+ * Expand a function's `let` bindings sequentially into its return body.
+ */
+export function expandFunctionBody(fn: FunctionDef): Expression {
+  if (fn.lets.length === 0) return fn.body;
+  const bindings = new Map<string, Expression>();
+  const params = new Set(fn.parameters);
+  for (const b of fn.lets) {
+    if (params.has(b.name)) continue;
+    bindings.set(b.name, substituteLets(b.value, bindings));
+  }
+  return substituteLets(fn.body, bindings);
+}
+
+export function exprDepth(expr: Expression): number {
+  switch (expr.type) {
+    case 'binaryOp': return 1 + Math.max(exprDepth(expr.left), exprDepth(expr.right));
+    case 'unaryOp': return 1 + exprDepth(expr.operand);
+    case 'ternary': return 1 + Math.max(exprDepth(expr.condition), exprDepth(expr.consequent), exprDepth(expr.alternate));
+    case 'methodCall': return 1 + Math.max(exprDepth(expr.object), ...expr.args.map(exprDepth));
+    case 'functionCall': return 1 + Math.max(0, ...expr.args.map(exprDepth));
+    case 'bracketAccess': return 1 + Math.max(exprDepth(expr.object), exprDepth(expr.index));
+    case 'sliceAccess': return 1 + Math.max(exprDepth(expr.object), exprDepth(expr.start), exprDepth(expr.end));
+    case 'memberAccess': return 1 + exprDepth(expr.object);
+    case 'inExpr': return 1 + Math.max(exprDepth(expr.element), exprDepth(expr.collection));
+    case 'isExpr': return 1 + exprDepth(expr.value);
+    case 'pathLiteral': {
+      const exprSegs = expr.segments.filter((s): s is Expression => typeof s !== 'string');
+      if (exprSegs.length === 0) return 0;
+      return 1 + Math.max(...exprSegs.map(exprDepth));
+    }
+    default: return 0;
+  }
+}
+
+export function exprContains(expr: Expression, predicate: (e: Expression) => boolean): boolean {
+  if (predicate(expr)) return true;
+  switch (expr.type) {
+    case 'binaryOp': return exprContains(expr.left, predicate) || exprContains(expr.right, predicate);
+    case 'unaryOp': return exprContains(expr.operand, predicate);
+    case 'ternary': return exprContains(expr.condition, predicate) || exprContains(expr.consequent, predicate) || exprContains(expr.alternate, predicate);
+    case 'methodCall': return exprContains(expr.object, predicate) || expr.args.some(a => exprContains(a, predicate));
+    case 'functionCall': return expr.args.some(a => exprContains(a, predicate));
+    case 'bracketAccess': return exprContains(expr.object, predicate) || exprContains(expr.index, predicate);
+    case 'sliceAccess': return exprContains(expr.object, predicate) || exprContains(expr.start, predicate) || exprContains(expr.end, predicate);
+    case 'memberAccess': return exprContains(expr.object, predicate);
+    case 'inExpr': return exprContains(expr.element, predicate) || exprContains(expr.collection, predicate);
+    case 'isExpr': return exprContains(expr.value, predicate);
+    case 'listLiteral': return expr.elements.some(e => exprContains(e, predicate));
+    case 'mapLiteral': return expr.entries.some(e => exprContains(e.key, predicate) || exprContains(e.value, predicate));
+    case 'pathLiteral': return expr.segments.some(s => typeof s !== 'string' && exprContains(s, predicate));
+    default: return false;
+  }
+}
+
+export function walkExpr(expr: Expression, visitor: (e: Expression) => void): void {
+  visitor(expr);
+  switch (expr.type) {
+    case 'binaryOp': walkExpr(expr.left, visitor); walkExpr(expr.right, visitor); break;
+    case 'unaryOp': walkExpr(expr.operand, visitor); break;
+    case 'ternary': walkExpr(expr.condition, visitor); walkExpr(expr.consequent, visitor); walkExpr(expr.alternate, visitor); break;
+    case 'methodCall': walkExpr(expr.object, visitor); expr.args.forEach(a => walkExpr(a, visitor)); break;
+    case 'functionCall': expr.args.forEach(a => walkExpr(a, visitor)); break;
+    case 'bracketAccess': walkExpr(expr.object, visitor); walkExpr(expr.index, visitor); break;
+    case 'sliceAccess': walkExpr(expr.object, visitor); walkExpr(expr.start, visitor); walkExpr(expr.end, visitor); break;
+    case 'memberAccess': walkExpr(expr.object, visitor); break;
+    case 'inExpr': walkExpr(expr.element, visitor); walkExpr(expr.collection, visitor); break;
+    case 'isExpr': walkExpr(expr.value, visitor); break;
+    case 'listLiteral': expr.elements.forEach(e => walkExpr(e, visitor)); break;
+    case 'mapLiteral': expr.entries.forEach(e => { walkExpr(e.key, visitor); walkExpr(e.value, visitor); }); break;
+    case 'pathLiteral': expr.segments.forEach(s => { if (typeof s !== 'string') walkExpr(s, visitor); }); break;
+  }
 }

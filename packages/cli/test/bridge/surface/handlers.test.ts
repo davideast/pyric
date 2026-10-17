@@ -216,7 +216,12 @@ it('stores and reads back a Cloud Storage object', async () => {
 });
 
 it('lints and simulates the rules of all three services', async () => {
-  expect((await run('rules.lint', { service: 'firestore' })).ok).toBe(true);
+  // Per FS-LNT-1 and .agents/skills/firestore-rules-audit/SKILL.md,
+  // Firestore rules.lint merges validateFirestoreRules(ast) findings;
+  // the harness TENANT_RULES allow write without validating request.resource.data (SEC-6).
+  const firestoreLint = await run('rules.lint', { service: 'firestore' });
+  expect(firestoreLint.ok).toBe(false);
+  expect(JSON.stringify(firestoreLint.data)).toContain('SEC-6');
   // The harness database rules grant public read and write at the root, which
   // the security lint reports as errors.
   const databaseLint = await run('rules.lint', { service: 'database', rules: DATABASE_RULES });
