@@ -16,18 +16,25 @@ function isServerTimestampSentinel(value: unknown): boolean {
     && (value as Record<string, unknown>).__type === 'serverTimestamp';
 }
 
-/** Recursively replace serverTimestamp sentinels with one server-time value. */
+/** Recursively replace serverTimestamp sentinels with one server-time value.
+ *  Arrays are walked too: the sandbox resolves a sentinel at any depth,
+ *  including list elements (FS-MET-4b). */
 export function resolveServerTimestamps(
   data: Record<string, unknown>,
   serverTime: Timestamp,
 ): Record<string, unknown> {
   const resolved: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(data)) {
-    if (isServerTimestampSentinel(value)) resolved[key] = serverTime;
-    else if (isPlainObject(value)) resolved[key] = resolveServerTimestamps(value, serverTime);
-    else resolved[key] = value;
+    resolved[key] = resolveServerTimestampValue(value, serverTime);
   }
   return resolved;
+}
+
+function resolveServerTimestampValue(value: unknown, serverTime: Timestamp): unknown {
+  if (isServerTimestampSentinel(value)) return serverTime;
+  if (Array.isArray(value)) return value.map((item) => resolveServerTimestampValue(item, serverTime));
+  if (isPlainObject(value)) return resolveServerTimestamps(value, serverTime);
+  return value;
 }
 
 /** Restore the Firestore numeric tag erased by JSON's single Number type. */
