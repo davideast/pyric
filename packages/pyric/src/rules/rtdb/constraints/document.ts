@@ -80,6 +80,28 @@ export function normalizeAuth(auth: RtdbRulesSimulationAuth | undefined): Simula
   return normalized;
 }
 
+function isRulesServerTimestamp(value: unknown): boolean {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    (value as Record<string, unknown>).__type === 'serverTimestamp'
+  );
+}
+
+function normalizeSimulationValue(value: unknown): unknown {
+  if (isRulesServerTimestamp(value)) return { '.sv': 'timestamp' };
+  if (Array.isArray(value)) return value.map(normalizeSimulationValue);
+  if (typeof value === 'object' && value !== null) {
+    const normalized: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      normalized[key] = normalizeSimulationValue(child);
+    }
+    return normalized;
+  }
+  return value;
+}
+
 export function normalizeSimulationInput(input: RtdbRulesSimulationInput): SimulationInput {
   const simulation: SimulationInput = {
     operation: input.operation,
@@ -87,9 +109,14 @@ export function normalizeSimulationInput(input: RtdbRulesSimulationInput): Simul
     auth: normalizeAuth(input.auth),
     mockData: input.mockData ?? input.data ?? {},
   };
-  if (input.newData !== undefined) simulation.newData = input.newData;
+  if (input.newData !== undefined) simulation.newData = normalizeSimulationValue(input.newData);
   if (input.now !== undefined) simulation.now = input.now;
-  if (input.updates !== undefined) simulation.updates = input.updates;
+  if (input.updates !== undefined) {
+    simulation.updates = input.updates.map((u) => ({
+      path: u.path,
+      value: normalizeSimulationValue(u.value),
+    }));
+  }
   if (input.query !== undefined) simulation.query = input.query;
   return simulation;
 }

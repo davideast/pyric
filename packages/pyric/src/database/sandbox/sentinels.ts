@@ -34,18 +34,11 @@ export interface IncrementSentinel {
   '.sv': { increment: number };
 }
 
-/**
- * True when `v` is a server-timestamp marker: `{ ".sv": "timestamp" }` from
- * `pyric/database`, or the `serverTimestamp()` sentinel from `pyric/rules`.
- */
+/** True when `v` is the `{ ".sv": "timestamp" }` server-timestamp marker. */
 export function isServerTimestampSentinel(v: unknown): v is ServerTimestampSentinel {
   if (v === null || typeof v !== 'object') return false;
   const obj = v as Record<string, unknown>;
-  return (
-    obj['.sv'] === 'timestamp' ||
-    obj.__type === 'serverTimestamp' ||
-    obj.$sentinel === 'rules.serverTimestamp'
-  );
+  return obj['.sv'] === 'timestamp';
 }
 
 /** True when `v` is the `{ ".sv": { increment: n } }` increment marker. */

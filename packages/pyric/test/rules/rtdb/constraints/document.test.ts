@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { z } from 'zod';
-import { rtdbRules } from '../../../../src/rules/index.js';
+import { rtdbRules, serverTimestamp } from '../../../../src/rules/index.js';
 import {
   all,
   allow,
@@ -244,6 +244,38 @@ describe('defineRtdbRules', () => {
     });
     expect(denied.success).toBe(true);
     if (denied.success) expect(denied.data.allowed).toBe(false);
+  });
+
+  test('simulate normalizes serverTimestamp() from pyric/rules to RTDB {".sv": "timestamp"} (CON-3)', () => {
+    const doc = defineRtdbRules({
+      paths: {
+        '/posts/$id': {
+          write: allow(),
+          children: {
+            createdAt: { validate: expr('newData.isNumber() && newData.val() === now') },
+          },
+        },
+      },
+    });
+
+    const singleWrite = doc.simulate({
+      operation: 'write',
+      path: '/posts/p1',
+      auth: 'u1',
+      newData: { createdAt: serverTimestamp() },
+    });
+    expect(singleWrite.success).toBe(true);
+    if (singleWrite.success) expect(singleWrite.data.allowed).toBe(true);
+
+    const multiUpdate = doc.simulate({
+      operation: 'write',
+      path: '/posts/p1/createdAt',
+      auth: 'u1',
+      newData: serverTimestamp(),
+      updates: [{ path: '/posts/p1/createdAt', value: serverTimestamp() }],
+    });
+    expect(multiUpdate.success).toBe(true);
+    if (multiUpdate.success) expect(multiUpdate.data.allowed).toBe(true);
   });
 
   test('check and rtdbRules(doc).lint() include structural findings on defineRtdbRules documents (FUZ-5)', () => {
