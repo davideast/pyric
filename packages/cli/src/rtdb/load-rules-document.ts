@@ -42,15 +42,20 @@ export async function loadRtdbRulesDocument(
     };
   }
 
-  const candidate = mod[exportName] ?? mod.default;
-  if (!isRtdbRulesDocument(candidate)) {
-    return {
-      ok: false,
-      message:
-        `${resolved} does not export an RtdbRulesDocument (looked for a named ` +
-        `'${exportName}' export or a default export produced by defineRtdbRules(...)).`,
-    };
+  const namedCandidate = mod[exportName];
+  if (isRtdbRulesDocument(namedCandidate)) {
+    return { ok: true, document: namedCandidate };
   }
 
-  return { ok: true, document: candidate };
+  const defaultCandidate = mod.default;
+  if (isRtdbRulesDocument(defaultCandidate)) {
+    return { ok: true, document: defaultCandidate };
+  }
+
+  return {
+    ok: false,
+    message:
+      `${resolved} does not export an RtdbRulesDocument (looked for a named ` +
+      `'${exportName}' export or a default export produced by defineRtdbRules(...)).`,
+  };
 }

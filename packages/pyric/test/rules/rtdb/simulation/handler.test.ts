@@ -1191,6 +1191,28 @@ describe('SimulateHandler — atomic multi-path update projection', () => {
       expect(allowed.success).toBe(true);
       if (allowed.success) {
         expect(allowed.data.allowed).toBe(true);
+        expect(allowed.data.matchedPath).toBe('/room/name');
+        expect(allowed.data.matchedRule).toBe('newData.isString()');
+      }
+    });
+
+    test('returns NO_MATCHING_RULE when .validate exists only on an unrelated branch (QRY-5)', () => {
+      const unrelatedValidateRules = compileRtdbRules({
+        rules: {
+          users: { $uid: { '.validate': 'newData.hasChildren(["name"])' } },
+          publicFeed: { $postId: { '.read': 'true', '.write': 'true' } },
+        },
+      });
+      const result = handler.execute(unrelatedValidateRules, {
+        operation: 'validate',
+        path: '/publicFeed/post1',
+        auth: authed,
+        mockData: {},
+        newData: { text: 'hello' },
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.code).toBe('NO_MATCHING_RULE');
       }
     });
 

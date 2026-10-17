@@ -9,6 +9,7 @@ import { parseRtdbRulesText } from '../../../rtdb/rules-json.js';
 import { callSandboxTool, operationFailure } from '../context.js';
 import { requestInstant } from '../request-instant.js';
 import { markLintFindings } from '../rules-verdict.js';
+import { storedIdentity } from '../stored-identity.js';
 import type { SurfaceContext } from '../types.js';
 import type { RulesEngine, RulesRequest, RulesSourceProblem } from './types.js';
 
@@ -43,7 +44,8 @@ export function identityFor(
   uid: string | undefined,
 ): { uid: string; claims: Record<string, unknown> } | null {
   if (uid !== undefined) {
-    const projected = ctx.identity.projectionFor(uid);
+    const stored = storedIdentity(ctx, uid);
+    const projected = ctx.identity.projectionFor(uid, stored.tenant, stored.claims);
     return { uid: projected.uid, claims: projected.token };
   }
   const held = ctx.identity.authState();

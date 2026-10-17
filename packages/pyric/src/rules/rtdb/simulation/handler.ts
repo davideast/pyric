@@ -1,7 +1,7 @@
 import { DataSnapshot, RtdbRuleRuntimeError, evaluateRtdbRule } from '../grammar/simulator.js';
 import type { EvalContext, SimulatedAuth } from '../grammar/simulator.js';
 import type { RtdbNode, RtdbRuleExpression } from '../types.js';
-import { SimulationInputSchema, type SimulationInput } from './spec.js';
+import { SimulationInputSchema, simulationQueryProblem, type SimulationInput } from './spec.js';
 import { normalizeAuthState } from '../../../sandbox/sandbox-context.js';
 import { withIdTokenClaims } from '../../../sandbox/internal/auth-token-claims.js';
 import { projectPostWriteTree } from './post-write-tree.js';
@@ -120,12 +120,6 @@ function simulatedAuthOf(auth: NonNullable<SimulationInput['auth']>, nowMs: numb
   const signInProvider = claims.sign_in_provider;
   if (typeof signInProvider === 'string') simulated.provider = signInProvider;
   return simulated;
-}
-
-/** True when `n` or any node below it carries a `.validate` rule. */
-function hasValidateRule(n: RtdbNode): boolean {
-  if (n.validate) return true;
-  return n.children.some(hasValidateRule);
 }
 
 /**
@@ -307,23 +301,19 @@ function toValidateFailureResult(failure: ValidateFailure, trace: RtdbRuleEvalua
   };
 }
 
-function buildSimulatedQueryContext(
-  operation: string,
-  query: SimulationInput['query'],
-  rawInput: unknown,
-): EvalContext['query'] {
+function buildSimulatedQueryContext(operation: string, query: SimulationInput['query']): EvalContext['query'] {
   if (operation !== 'read') return null;
-  const rawQuery = (rawInput as { query?: { orderByPriority?: unknown } | null } | null)?.query;
+  const equalTo = query?.equalTo ?? null;
   return {
     orderByChild: query?.orderByChild ?? null,
     orderByKey: query?.orderByKey === true,
     orderByValue: query?.orderByValue === true,
-    orderByPriority: rawQuery?.orderByPriority === true,
-    equalTo: query?.equalTo ?? null,
+    orderByPriority: query?.orderByPriority === true,
+    equalTo,
     limitToFirst: query?.limitToFirst ?? null,
     limitToLast: query?.limitToLast ?? null,
-    startAt: query?.startAt ?? null,
-    endAt: query?.endAt ?? null,
+    startAt: query?.startAt ?? equalTo,
+    endAt: query?.endAt ?? equalTo,
   };
 }
 
@@ -333,11 +323,14 @@ export class SimulateHandler {
     if (!parsed.success) {
       return {
         success: false,
-        error: {
-          code: 'INVALID_INPUT',
-          message: parsed.error.message,
-          recoverable: true,
-        },
+        error: { code: 'INVALID_INPUT', message: parsed.error.message, recoverable: true },
+      };
+    }
+    const queryProblem = parsed.data.query === undefined ? null : simulationQueryProblem(parsed.data.query);
+    if (queryProblem !== null) {
+      return {
+        success: false,
+        error: { code: 'INVALID_INPUT', message: queryProblem, recoverable: true },
       };
     }
 
@@ -381,7 +374,7 @@ export class SimulateHandler {
       let contextAuth: SimulatedAuth | null = null;
       if (auth) contextAuth = simulatedAuthOf(auth, evaluationNow);
 
-      const contextQuery = buildSimulatedQueryContext(operation, query, rawInput);
+      const contextQuery = buildSimulatedQueryContext(operation, query);
 
       const buildContext: ContextBuilder = (data, newDataArg, bindings) => {
         const pvBindings: Record<string, string> = { ...bindings };
@@ -400,24 +393,24 @@ export class SimulateHandler {
       // `.validate` rule from the root through the write location and its
       // written descendants must pass, whatever `.write` grants.
       if (operation === 'validate') {
-        const deepestValidate = [...ancestors].reverse().find((a) => a.node.validate !== undefined)
-          ?? ancestors.find((a) => hasValidateRule(a.node));
-        if (deepestValidate === undefined) {
+        const failure = findFailingValidate(rootNode, rootData, mergedRootData, {}, buildContext, trace, pathSegments, updates);
+        if (failure) return toValidateFailureResult(failure, trace);
+        const lastValidated = trace[trace.length - 1];
+        const deepestValidate = [...ancestors].reverse().find((a) => a.node.validate !== undefined);
+        if (!lastValidated && !deepestValidate) {
           return {
             success: false,
             error: { code: 'NO_MATCHING_RULE', message: `No 'validate' rule found for path '${path}'`, recoverable: true },
           };
         }
-        const failure = findFailingValidate(rootNode, rootData, mergedRootData, {}, buildContext, trace, pathSegments, updates);
-        if (failure) return toValidateFailureResult(failure, trace);
         return {
           success: true,
           data: {
             allowed: true,
-            matchedPath: deepestValidate.node.path,
-            matchedRule: deepestValidate.node.validate?.raw ?? 'true',
+            matchedPath: lastValidated?.path ?? deepestValidate!.node.path,
+            matchedRule: lastValidated?.conditionText ?? deepestValidate!.node.validate!.raw,
             reason: 'Validation rules evaluated to true',
-            pathVariableBindings: deepestValidate.pathVariableBindings,
+            pathVariableBindings: lastValidated?.pathVariableBindings ?? deepestValidate!.pathVariableBindings,
             trace,
           },
         };

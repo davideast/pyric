@@ -337,13 +337,27 @@ describe('rtdbRules.fromFirebaseJson reads firebase.json as firebase deploy does
       'firebase.json': JSON.stringify({ database: { rules: 'database.rules.json' } }),
       'database.rules.json': '{ "rules": { ".read": true } }',
     });
-    const [named, unnamed] = [
+    const [named, mixedCase, unnamed] = [
       rtdbRules.fromFirebaseJson(firebaseJson, { projectId: 'demo-app' }),
+      rtdbRules.fromFirebaseJson(firebaseJson, { projectId: 'My-App' }),
       rtdbRules.fromFirebaseJson(firebaseJson),
     ].map((ruleset) => ruleset.simulate([{ expectation: 'ALLOW', operation: 'read', path: '/' }]).cases[0]!);
     expect([named!.instance, named!.decision]).toEqual(['demo-app-default-rtdb', 'ALLOW']);
+    // Production SDK lowercases host-derived instance names (rtdb-modular-database-url-instance.json).
+    expect([mixedCase!.instance, mixedCase!.decision]).toEqual(['my-app-default-rtdb', 'ALLOW']);
     // Without a project id the default instance has no name to give.
     expect([unnamed!.instance, unnamed!.decision]).toEqual(['(default)', 'ALLOW']);
+  });
+
+  test('an unconfigured database key deploys database.rules.json to the lowercased default instance for a mixed-case projectId', () => {
+    const firebaseJson = project({
+      'firebase.json': JSON.stringify({}),
+      'database.rules.json': '{ "rules": { ".read": true } }',
+    });
+    const ruleset = rtdbRules.fromFirebaseJson(firebaseJson, { projectId: 'My-App' });
+    const [result] = ruleset.simulate([{ expectation: 'ALLOW', operation: 'read', path: '/' }]).cases;
+    expect([result!.instance, result!.decision]).toEqual(['my-app-default-rtdb', 'ALLOW']);
+    expect(ruleset.toJSON()).toEqual({ rules: { '.read': true } });
   });
 
   test('a rules file that is not rules text throws RulesCompileError naming the file', () => {

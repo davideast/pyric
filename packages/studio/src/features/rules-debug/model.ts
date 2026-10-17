@@ -337,10 +337,14 @@ function engineOf(denial: Denial): RuleEngine {
   return e === 'rtdb' || e === 'storage' ? e : 'firestore';
 }
 
+function isRtdbValidateReason(reason: string | undefined): boolean {
+  return reason === 'Validation rule evaluated to false' || Boolean(reason?.startsWith("Validation rule at '"));
+}
+
 /** RTDB rule phase for a denial: a `.validate` failure (from the mechanical
  *  `reason`) beats the method-derived read/write gate. */
 function rtdbPhase(denial: Denial): RulePhase {
-  if (denial.rules?.reason === 'Validation rule evaluated to false') return 'validate';
+  if (isRtdbValidateReason(denial.rules?.reason)) return 'validate';
   const m = denial.method;
   return m === 'get' || m === 'list' || m === 'listen' ? 'read' : 'write';
 }

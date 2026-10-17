@@ -28,6 +28,10 @@ describe('RTDB rules JSON parser', () => {
     expect(isRtdbRulesDocument({ toJSON: () => ({ rules: {} }) })).toBe(true);
     expect(isRtdbRulesDocument({ toJSON: 'not a function' })).toBe(false);
     expect(isRtdbRulesDocument(null)).toBe(false);
+    expect(isRtdbRulesDocument(new Date(0))).toBe(false);
+    expect(isRtdbRulesDocument({ toJSON: () => ({ helper: true }) })).toBe(false);
+    expect(isRtdbRulesDocument({ toJSON: () => ({ rules: [] }) })).toBe(false);
+    expect(isRtdbRulesDocument({ toJSON: () => { throw new Error('boom'); } })).toBe(false);
   });
 
   test('strips single-line and block comments without modifying string literal contents', () => {

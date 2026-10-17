@@ -96,15 +96,24 @@ function checkRulesFormat(file: string, label: string): void {
   throw new Error(`${label}: ${reason}`);
 }
 
+/** The default instance's name as the SDK spells it, as declared instances are spelled. */
+function resolveDefaultDatabaseInstance(projectId: string | undefined): string {
+  if (projectId === undefined) return databaseInstanceKey(undefined);
+  const candidate = defaultDatabaseInstanceName(projectId);
+  try {
+    return databaseInstanceNamed(candidate).name;
+  } catch {
+    return candidate;
+  }
+}
+
 /** Resolve the `database` value of a `firebase.json` to the rules each instance gets. */
 export function databaseRulesConfig(
   database: unknown,
   options: DatabaseRulesConfigOptions = {},
 ): DatabaseRulesConfig {
   const resolveFile = options.resolveFile ?? ((file: string) => file);
-  const defaultInstance = options.projectId === undefined
-    ? databaseInstanceKey(undefined)
-    : defaultDatabaseInstanceName(options.projectId);
+  const defaultInstance = resolveDefaultDatabaseInstance(options.projectId);
 
   if (database === undefined || database === null) {
     const configuredFile = DEFAULT_DATABASE_RULES_FILE;

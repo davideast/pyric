@@ -152,4 +152,28 @@ describe('RTDB rule coverage from simulate', () => {
     expect(summary.coverage.uncovered).toEqual([]);
     expect(summary.coverage.files[0]).toMatchObject({ total: 2, covered: 2, neverEvaluated: 0, unsupported: 0 });
   });
+
+  test('an orderByChild consisting only of slashes is unsupported and never records an empty missingIndex (#1019)', () => {
+    const summary = rtdbRules({
+      rules: {
+        itemsA: { '.read': true },
+      },
+    }).simulate([
+      {
+        expectation: 'ALLOW',
+        operation: 'read',
+        path: '/itemsA',
+        query: { orderByChild: '///' },
+      },
+      {
+        expectation: 'ALLOW',
+        operation: 'read',
+        path: '/itemsA',
+        query: { orderByChild: '/' },
+      },
+    ]);
+    expect(summary.cases[0]?.unsupported).toBe(true);
+    expect(summary.cases[1]?.unsupported).toBe(true);
+    expect(summary.coverage.missingIndexes).toEqual([]);
+  });
 });

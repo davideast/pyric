@@ -66,8 +66,6 @@ export function querySpecToSimulationQuery(
     const val = toPrimitiveBoundValue(bound.value);
     if (bound.kind === 'equalTo') {
       q.equalTo = val;
-      q.startAt = val;
-      q.endAt = val;
     } else if (bound.kind === 'startAt' || bound.kind === 'startAfter') {
       q.startAt = val;
     } else if (bound.kind === 'endAt' || bound.kind === 'endBefore') {

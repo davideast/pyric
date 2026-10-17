@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { z } from 'zod';
-import { rtdbRules } from '../../../../src/rules/index.js';
+import { rtdbRules, serverTimestamp } from '../../../../src/rules/index.js';
 import {
   all,
   allow,
@@ -222,6 +222,62 @@ describe('defineRtdbRules', () => {
     if (result.success) expect(result.data.allowed).toBe(false);
   });
 
+  test('simulate preserves auth.tenant and folds it into auth.token.firebase.tenant (CON-2a)', () => {
+    const doc = defineRtdbRules({
+      paths: {
+        '/t': { read: expr("auth != null && auth.token.firebase.tenant == 'acme'") },
+      },
+    });
+
+    const allowed = doc.simulate({
+      operation: 'read',
+      path: '/t',
+      auth: { uid: 'u1', tenant: 'acme' },
+    });
+    expect(allowed.success).toBe(true);
+    if (allowed.success) expect(allowed.data.allowed).toBe(true);
+
+    const denied = doc.simulate({
+      operation: 'read',
+      path: '/t',
+      auth: { uid: 'u1', tenant: 'other' },
+    });
+    expect(denied.success).toBe(true);
+    if (denied.success) expect(denied.data.allowed).toBe(false);
+  });
+
+  test('simulate normalizes serverTimestamp() from pyric/rules to RTDB {".sv": "timestamp"} (CON-3)', () => {
+    const doc = defineRtdbRules({
+      paths: {
+        '/posts/$id': {
+          write: allow(),
+          children: {
+            createdAt: { validate: expr('newData.isNumber() && newData.val() === now') },
+          },
+        },
+      },
+    });
+
+    const singleWrite = doc.simulate({
+      operation: 'write',
+      path: '/posts/p1',
+      auth: 'u1',
+      newData: { createdAt: serverTimestamp() },
+    });
+    expect(singleWrite.success).toBe(true);
+    if (singleWrite.success) expect(singleWrite.data.allowed).toBe(true);
+
+    const multiUpdate = doc.simulate({
+      operation: 'write',
+      path: '/posts/p1/createdAt',
+      auth: 'u1',
+      newData: serverTimestamp(),
+      updates: [{ path: '/posts/p1/createdAt', value: serverTimestamp() }],
+    });
+    expect(multiUpdate.success).toBe(true);
+    if (multiUpdate.success) expect(multiUpdate.data.allowed).toBe(true);
+  });
+
   test('check and rtdbRules(doc).lint() include structural findings on defineRtdbRules documents (FUZ-5)', () => {
     const doc = defineRtdbRules({
       paths: {
@@ -254,5 +310,62 @@ describe('defineRtdbRules', () => {
   test('low-level ruleset stays available', () => {
     const compiled = ruleset({ '/': { read: deny() } });
     expect(compiled.read?.raw).toBe('false');
+  });
+
+  test('simulate projects equalTo into query.startAt and query.endAt (QRY-1)', () => {
+    const doc = defineRtdbRules({
+      paths: {
+        '/items': {
+          read: expr("query.orderByChild == 'status' && query.startAt == 'open' && query.endAt == 'open'"),
+        },
+      },
+    });
+    const res = doc.simulate({
+      operation: 'read',
+      path: '/items',
+      auth: { uid: 'u1' },
+      query: { orderByChild: 'status', equalTo: 'open' },
+    });
+    expect(res.success).toBe(true);
+    if (res.success) {
+      expect(res.data.allowed).toBe(true);
+    }
+  });
+
+  test('simulate rejects impossible queries with INVALID_INPUT (QRY-3a / QRY-3b)', () => {
+    const doc = defineRtdbRules({
+      paths: {
+        '/items': {
+          read: expr('query.limitToFirst <= 10 && query.limitToLast <= 10'),
+        },
+      },
+    });
+
+    for (const badQuery of [
+      { limitToFirst: 5, limitToLast: 5 },
+      { limitToFirst: -5 },
+      { limitToLast: 0 },
+      { limitToFirst: 1.5 },
+      { orderByKey: true, orderByValue: true },
+      { orderByChild: 'status', startAt: 'a', equalTo: 'b' },
+      { orderByChild: 'status', endAt: 'z', equalTo: 'b' },
+      { orderByChild: '' },
+      { orderByChild: '///' },
+    ]) {
+      const res = doc.simulate({
+        operation: 'read',
+        path: '/items',
+        auth: { uid: 'u1' },
+        query: badQuery,
+      });
+      expect(res).toEqual({
+        success: false,
+        error: {
+          code: 'INVALID_INPUT',
+          message: expect.any(String),
+          recoverable: true,
+        },
+      });
+    }
   });
 });
