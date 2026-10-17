@@ -54,6 +54,8 @@ public final class Database: NSObject, @unchecked Sendable {
     private var _credentialProvider: (any AuthCredentialProvider)?
     private var lensContinuations: [UUID: AsyncStream<AuthLens>.Continuation] = [:]
     private var authSyncTask: Task<Void, Never>?
+    private var _networkOnline = true
+    private var networkContinuations: [UUID: AsyncStream<Bool>.Continuation] = [:]
 
     public var credentialProvider: (any AuthCredentialProvider)? {
         get {
@@ -165,7 +167,42 @@ public final class Database: NSObject, @unchecked Sendable {
 
     // ── Connection Control ────────────────────────────────────────────────────
 
+    /// Whether `goOnline()` was the last connection call. `.info/connected`
+    /// is false while this is off, whatever the bridge connection's state.
+    internal var isNetworkOnline: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return _networkOnline
+    }
+
+    /// The network flag, starting with its current value.
+    internal var networkOnlineStream: AsyncStream<Bool> {
+        AsyncStream { continuation in
+            let id = UUID()
+            stateLock.lock()
+            networkContinuations[id] = continuation
+            continuation.yield(_networkOnline)
+            stateLock.unlock()
+
+            continuation.onTermination = { [weak self] _ in
+                guard let self else { return }
+                self.stateLock.lock()
+                self.networkContinuations.removeValue(forKey: id)
+                self.stateLock.unlock()
+            }
+        }
+    }
+
+    private func setNetworkOnline(_ online: Bool) {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        guard _networkOnline != online else { return }
+        _networkOnline = online
+        for continuation in networkContinuations.values { continuation.yield(online) }
+    }
+
     public func goOffline() async throws {
+        setNetworkOnline(false)
         _ = try await bridgeClient.op(
             method: "rtdb.goOffline",
             params: [:],
@@ -174,12 +211,14 @@ public final class Database: NSObject, @unchecked Sendable {
     }
 
     public func goOffline() {
+        setNetworkOnline(false)
         Task {
             try? await goOffline()
         }
     }
 
     public func goOnline() async throws {
+        setNetworkOnline(true)
         _ = try await bridgeClient.op(
             method: "rtdb.goOnline",
             params: [:],
@@ -188,6 +227,7 @@ public final class Database: NSObject, @unchecked Sendable {
     }
 
     public func goOnline() {
+        setNetworkOnline(true)
         Task {
             try? await goOnline()
         }
