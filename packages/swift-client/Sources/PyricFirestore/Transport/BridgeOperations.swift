@@ -27,14 +27,7 @@ extension PyricBridgeClient {
         options: SetOptionsWire? = nil,
         actAs: AuthLens? = nil
     ) async throws {
-        var params: [String: AnySendable] = [
-            "path": .string(path),
-            "data": data
-        ]
-        if let options {
-            params["options"] = options.toAnySendable()
-        }
-        _ = try await op(method: "setDoc", params: params, actAs: actAs)
+        _ = try await op(method: "setDoc", params: Self.setDocParams(path: path, data: data, options: options), actAs: actAs)
     }
 
     /// Writes document data via setDoc with a Swift dictionary payload.
@@ -54,14 +47,7 @@ extension PyricBridgeClient {
         data: AnySendable,
         actAs: AuthLens? = nil
     ) async throws {
-        _ = try await op(
-            method: "updateDoc",
-            params: [
-                "path": .string(path),
-                "data": data
-            ],
-            actAs: actAs
-        )
+        _ = try await op(method: "updateDoc", params: Self.updateDocParams(path: path, data: data), actAs: actAs)
     }
 
     /// Updates document fields via updateDoc with a Swift dictionary payload.
@@ -76,11 +62,7 @@ extension PyricBridgeClient {
 
     /// Deletes a document via deleteDoc.
     public func deleteDoc(path: String, actAs: AuthLens? = nil) async throws {
-        _ = try await op(
-            method: "deleteDoc",
-            params: ["path": .string(path)],
-            actAs: actAs
-        )
+        _ = try await op(method: "deleteDoc", params: Self.deleteDocParams(path: path), actAs: actAs)
     }
 
     /// Creates a document with an auto-minted ID under collectionPath via addDoc.
@@ -155,11 +137,7 @@ extension PyricBridgeClient {
 
     /// Atomically commits a batch of write mutations via batchCommit.
     public func batchCommit(writes: [WriteDescriptor], actAs: AuthLens? = nil) async throws {
-        _ = try await op(
-            method: "batchCommit",
-            params: ["writes": .array(writes.map { $0.toAnySendable() })],
-            actAs: actAs
-        )
+        _ = try await op(method: "batchCommit", params: Self.batchCommitParams(writes: writes), actAs: actAs)
     }
 
     /// Commits an interactive transaction via txnCommit.
@@ -176,5 +154,33 @@ extension PyricBridgeClient {
             ],
             actAs: actAs
         )
+    }
+}
+
+// The params of each write operation, shared by the async forms above and the
+// completion-block forms that send in call order.
+extension PyricBridgeClient {
+
+    static func setDocParams(path: String, data: AnySendable, options: SetOptionsWire?) -> [String: AnySendable] {
+        var params: [String: AnySendable] = [
+            "path": .string(path),
+            "data": data
+        ]
+        if let options {
+            params["options"] = options.toAnySendable()
+        }
+        return params
+    }
+
+    static func updateDocParams(path: String, data: AnySendable) -> [String: AnySendable] {
+        ["path": .string(path), "data": data]
+    }
+
+    static func deleteDocParams(path: String) -> [String: AnySendable] {
+        ["path": .string(path)]
+    }
+
+    static func batchCommitParams(writes: [WriteDescriptor]) -> [String: AnySendable] {
+        ["writes": .array(writes.map { $0.toAnySendable() })]
     }
 }
