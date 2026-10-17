@@ -23,6 +23,12 @@ the client had not yet handed to the transport when the socket dropped, is
 held under decision 7 instead of failing. See
 [the amendment](#amendment-2026-10-17-a-frame-that-never-left-the-device-is-held).
 
+Amended: 2026-10-17. Every client follows one delivery contract for
+operations and subscriptions: call order, settling once, close, registration
+before return, delivery order, getters that match their streams, and
+cancellation. See
+[the amendment](#amendment-2026-10-17-one-delivery-contract-for-every-client).
+
 ## Context
 
 The Dart (`packages/flutter-client`), Swift (`packages/swift-client`) and Kotlin
@@ -646,3 +652,102 @@ does not change.
   unacknowledged batch again after the next handshake. Pyric keeps decision
   7's rule that an operation in flight is never re-sent, and applies the
   sent/unsent split to every operation.
+
+## Amendment (2026-10-17): one delivery contract for every client
+
+Each earlier amendment fixed one property of the path from an app's call to
+the host's reply, and each fix found the next unstated one: write order
+([#1026](https://github.com/davideast/pyric/issues/1026),
+[#1032](https://github.com/davideast/pyric/issues/1032)), a frame that never
+left the device ([#1033](https://github.com/davideast/pyric/issues/1033)), and
+a stream registered from inside a task. An audit of the four clients against
+the rules those fixes assumed found violations of every rule on at least one
+client. This amendment states the rules once. They bind the four clients that
+decision 7 binds: Kotlin, Swift, Dart and the web hosted client.
+
+An operation is any request that awaits a `worker-res`: a Realtime Database,
+Firestore, Storage, Messaging or Auth call, an onDisconnect operation, a batch
+commit or a transaction step. A subscription is any `worker-sub`, and any
+stream the client produces locally that app code or the client's own layers
+listen to, such as Auth observers, `.info`, the connection state, and the
+debug and lens streams. Each rule has a label so that a pull request can cite
+it.
+
+### Operations
+
+- **D1. Call order.** Two operations that the app issues in program order on
+  one client reach the host in that order. This holds across services and
+  whether the operations are sent at once, held, or released after a
+  re-attach. A client never moves a send onto a task, coroutine, queue or
+  microtask whose start order can differ from the issue order.
+- **D2. Fate decided at the call.** By the time the call returns, the
+  operation has been sent, admitted to the hold queue, or failed. On Dart and
+  the web client that means before its first `await`, on Kotlin before its
+  first suspension, and on Swift within the caller's turn. Which thread the
+  scheduler runs first never changes the outcome.
+- **D3. Settled exactly once.** Every operation completes once, with a result
+  or an error. That includes a reply that races a timeout, a drop, a close or
+  a cancellation, an app callback that throws, and a reply for an id already
+  settled. No operation waits on a thread that its own reply needs.
+- **D4. Drop classification.** This is decision 7 as amended earlier today. An
+  operation whose frame the transport took fails once with the
+  connection-lost message and is never sent again, including by a
+  transaction's retry loop. One whose frame was refused or never handed over
+  is held.
+- **D5. Release order.** After a re-attach the client sends, in this order:
+  the restore (Auth on a replaced host, then the restored listeners in the
+  order they were opened), then subscriptions opened while not attached, then
+  held operations in the order they were admitted. Release starts only after
+  every send started before the drop has returned.
+- **D6. Close.** An explicit close, or a failure that permits no retry,
+  fails every pending and held operation once with that client's close error,
+  sends none of them, and ends every subscription once. A client that closed
+  after a failure with no retry does not reopen until the app calls
+  `connect()`. After close returns, nothing is delivered to app code.
+
+### Subscriptions and streams
+
+- **D7. Registered before the call returns.** A subscription, observer or
+  stream is in the client's routing table before the call that creates it
+  returns. A stream the client creates lazily is registered before the first
+  frame or local event it could receive. An event that arrives after that
+  point is delivered, never dropped because registration was still running on
+  another task.
+- **D8. Delivery order, without loss.** Events for one subscription reach app
+  code in the order their frames arrived or their local events happened, and
+  none is dropped because the app is slow to consume them. Two subscriptions
+  fed from one socket keep their relative order. A connection state stream,
+  and `.info/connected`, report every transition, including a drop and
+  re-attach that complete while the app is still handling an earlier event.
+- **D9. Getters match their streams.** A synchronous getter that mirrors a
+  stream, such as `currentUser`, the current lens or the connection state,
+  never reports a value older than the last one the stream delivered. The
+  stream never delivers a value older than one the getter has already
+  reported. An operation that reads such a value, such as the lens it acts
+  as, reads the value the last setter call stored.
+- **D10. Cancellation.** Cancelling a subscription sends `worker-unsub` once,
+  and only if its `worker-sub` was sent. Nothing reaches app code after the
+  cancel returns. The subscription leaves the restore set, including when it
+  is cancelled while the client is not attached. Cancelling a stream and
+  listening to it again gives a working subscription.
+
+### Tests
+
+- **T1. No timing oracles.** A test observes order and state through events,
+  continuations or explicit gates. It never relies on a sleep, a fixed delay,
+  or a poll of state that another thread can change between the poll and the
+  assertion. A test that a fix touches moves to gates in the same change.
+
+### Consequences of the amendment
+
+- The audit's findings land as fixes grouped by rule, in one pull request per
+  affected client. Each one cites the rules it brings its client into line
+  with, and its tests are written from the audit's probes, with gates instead
+  of sleeps.
+- D3 and D4 are fixed first, because they can apply a write twice or hang a
+  client: a Firestore transaction retry that re-sends a commit that was in
+  flight, an RTDB transaction completion that runs twice, and a
+  completion-form Firestore transaction that blocks the threads its own reply
+  needs.
+- A pull request that adds an entry point or a stream on any client states
+  which of D1 to D10 it was checked against.
