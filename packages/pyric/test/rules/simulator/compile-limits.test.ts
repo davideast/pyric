@@ -157,4 +157,23 @@ describe('Firestore simulator: version, module, and regex compile checks (FS-CON
       expect(rules.ast()).toBeNull();
     });
   }
+
+  test('RE2-valid syntax ((?i), []a], (?P<n>…), \\A, \\z, \\x{…}) compiles and evaluates while lookahead is rejected', () => {
+    const validRe2Rules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /p/{id} {
+      allow read: if request.auth.uid == 'a'
+        && 'ABC'.matches('(?i)abc')
+        && 'ABC'.matches('(?i:abc)')
+        && ']a]'.matches('[]a]+')
+        && 'abc'.matches('(?P<n>abc)')
+        && 'abc'.matches('\\\\Aabc\\\\z')
+        && 'a'.matches('\\\\x{61}');
+    }
+  }
+}`;
+    const summary = firestoreRules(validRe2Rules).simulate(cases('p'));
+    expect(summary.cases.map((c) => c.decision)).toEqual(['ALLOW', 'DENY']);
+  });
 });

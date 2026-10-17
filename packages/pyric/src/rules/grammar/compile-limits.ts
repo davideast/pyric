@@ -49,6 +49,7 @@
 import type { Expression, FirestoreRules, FunctionDef, MatchBlock } from './FirestoreAST.js';
 import { parenthesizedGroups } from './paren-groups.js';
 import { MAX_BRACKET_DEPTH, scanBrackets } from './bracket-scan.js';
+import { normalizeRe2ForJsRegExp } from './re2-pattern.js';
 
 /** Most functions one call stack may hold; 22 is rejected. */
 export const CALL_DEPTH_LIMIT = 21;
@@ -227,7 +228,7 @@ function pushNesting(out: CompileLimitViolation[], expr: Expression, line: numbe
 function isValidRe2Pattern(pattern: string): boolean {
   if (/\\[1-9]/.test(pattern) || /\(\?<?[=!]/.test(pattern)) return false;
   try {
-    new RegExp(`^(?:${pattern})$`);
+    new RegExp(`^(?:${normalizeRe2ForJsRegExp(pattern)})$`);
     return true;
   } catch {
     return false;
