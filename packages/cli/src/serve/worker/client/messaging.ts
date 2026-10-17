@@ -10,8 +10,8 @@ import type {
   Observer,
   Unsubscribe,
 } from 'pyric/messaging';
-import { closeSubscription, nextId, nextSubId, openSnapshotSubscription, retargetMessagingSubscriptions, rpc } from './core.js';
-import type { OpMessage } from '../protocol.js';
+import { _snapSubs, closeSubscription, nextId, nextSubId, registerSnapshotSubscription, retargetMessagingSubscriptions, rpc } from './core.js';
+import type { InboundMessage, OpMessage } from '../protocol.js';
 import type { ClientDb, ClientPort } from './handles.js';
 import { reserveSend, type SendReservation } from './send-order.js';
 
@@ -225,47 +225,49 @@ export function messagingSubscribe(
         value instanceof Error ? value : new Error(String(value)),
       );
   const subId = nextSubId();
-  let stopped = false;
-  // The subscription frame waits for the registration id; it keeps its place
-  // in the call order meanwhile, so an op the app issues next cannot pass it.
-  const reservation = reserveSend(messaging.port);
-  void messaging.registrationId.then(recipientId => {
-    if (stopped) return;
-    openSnapshotSubscription(
-      messaging.port,
-      subId,
-      { port: messaging.port, next: (value) => {
-        const payload = value as MessagePayload;
-        const report = (stage: DeliveryStage): void => {
-          void rpc(messaging.port, {
-            t: 'op', id: nextId(), method: 'messaging.acknowledge',
-            subId, messageId: payload.messageId, stage,
-          }).catch(() => { /* Evidence is best effort, never replay delivery after reconnect. */ });
-        };
-        report('received');
-        const stopObserving = observeMessageDisplay(payload.messageId, report);
-        try {
-          const completed = next(payload);
-          void Promise.resolve(completed).then(
-            () => report('handler-completed'),
-            () => report('handler-rejected'),
-          ).finally(stopObserving);
-        } catch (cause) {
-          report('handler-rejected');
-          stopObserving();
-          throw cause;
-        }
-      }, error },
-      { t: 'sub', subId, target, recipientId },
-      reservation,
-    );
-  }).catch(cause => {
-    if (stopped) return;
+  const port = messaging.port;
+  // In the routing table before this returns (D7); the frame waits for the
+  // registration id in its place in the call order, so an op the app issues
+  // next cannot pass it.
+  const registered = registerSnapshotSubscription(port, subId, { port, next: (value) => {
+    const payload = value as MessagePayload;
+    const report = (stage: DeliveryStage): void => {
+      void rpc(port, {
+        t: 'op', id: nextId(), method: 'messaging.acknowledge',
+        subId, messageId: payload.messageId, stage,
+      }).catch(() => { /* Evidence is best effort, never replay delivery after reconnect. */ });
+    };
+    report('received');
+    const stopObserving = observeMessageDisplay(payload.messageId, report);
+    try {
+      const completed = next(payload);
+      void Promise.resolve(completed).then(
+        () => report('handler-completed'),
+        () => report('handler-rejected'),
+      ).finally(stopObserving);
+    } catch (cause) {
+      report('handler-rejected');
+      stopObserving();
+      throw cause;
+    }
+  }, error });
+  const isDeleted = registered === undefined;
+  if (isDeleted) return () => {};
+  const subscription = (recipientId: string): InboundMessage => ({ t: 'sub', subId, target, recipientId });
+  const known = messaging.settledRegistrationId;
+  const isKnown = known !== undefined;
+  if (isKnown) {
+    registered.send(subscription(known));
+    return () => closeSubscription(port, subId);
+  }
+  const reservation = reserveSend(port);
+  void messaging.registrationId.then(recipientId => registered.send(subscription(recipientId), reservation)).catch(cause => {
+    const isOpen = _snapSubs.has(subId);
+    if (!isOpen) return;
+    // Never sent, so closing it sends nothing.
+    closeSubscription(port, subId);
     if (error) error(cause);
     else console.error('Messaging subscription failed:', cause);
   }).finally(() => reservation.release());
-  return () => {
-    stopped = true;
-    closeSubscription(messaging.port, subId);
-  };
+  return () => closeSubscription(port, subId);
 }

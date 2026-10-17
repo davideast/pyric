@@ -23,6 +23,11 @@ export interface ClientPort {
   observeConnection?(listener: (connected: boolean) => void): () => void;
   /** Last reported Messaging visibility, replayed with observers after reconnect. */
   messagingVisibility?: Extract<OpMessage, { method: 'messaging.setVisibility' }>;
+  /**
+   * Forgets a subscription's `sub` frame that the transport holds unsent. True
+   * when one was held, so a cancel sends nothing (ADR-0019, 2026-10-17, D10).
+   */
+  withdrawSubscription?(subId: string): boolean;
   /** Restore this app's Auth state before a replacement host receives data operations. */
   restoreAuth?(request: (message: OpMessage) => Promise<unknown>): Promise<void>;
   /**
