@@ -7,4 +7,4 @@ export { executeQuery } from './internal/query-projection.js';
 export { listenIndexWarning } from './listen-index-warning.js';
 export { logDatabaseWarning } from './sandbox/query-index.js';
 export { heldDatabaseInstances } from './sandbox/backend-for.js';
-export { validateUpdatePaths, validateWritablePath } from './writable-path.js';
+export { isInfoPath, validateUpdatePaths, validateWritablePath } from './writable-path.js';
