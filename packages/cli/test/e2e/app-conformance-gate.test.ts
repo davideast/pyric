@@ -48,6 +48,10 @@ describe('served app conformance merge gate', () => {
     expect([...split].sort()).toEqual([...complete].sort());
   });
 
+  test('CI runs the whole root e2e config, which holds every SharedWorker topology proof', () => {
+    expect(cliPackage.scripts?.['test:e2e']).toBe('playwright test --config test/e2e/playwright.config.ts');
+  });
+
   test('the CLI script runs every SharedWorker topology proof', () => {
     const command = cliPackage.scripts?.['test:app-conformance'];
     expect(command).toBeDefined();
@@ -67,7 +71,7 @@ describe('served app conformance merge gate', () => {
     // carries Chrome's shared-library set, and reinstalling it cost 23s per
     // run. Pin the absence so it cannot silently return.
     expect(browserJob).not.toContain('bunx playwright install-deps chromium');
-    expect(browserJob).toContain('bun run --cwd packages/cli test:app-conformance');
+    expect(browserJob).toContain('bun run --cwd packages/cli test:e2e');
     expect(browserJob).toContain('bun run --cwd packages/cli test:site-cli');
     expect(browserJob).toContain('bun run --cwd packages/cli test:site-static');
     // The full build + composed public site now arrive through the
@@ -78,7 +82,7 @@ describe('served app conformance merge gate', () => {
     const build = browserJob.indexOf('uses: ./.github/actions/restore-dist');
     const cache = browserJob.indexOf('Cache Playwright Chromium');
     const browser = browserJob.indexOf('bunx playwright install chromium');
-    const proof = browserJob.indexOf('bun run --cwd packages/cli test:app-conformance');
+    const proof = browserJob.indexOf('bun run --cwd packages/cli test:e2e');
     expect(build).toBeLessThan(cache);
     expect(cache).toBeLessThan(browser);
     expect(browser).toBeLessThan(proof);

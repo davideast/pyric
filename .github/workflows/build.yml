@@ -532,25 +532,14 @@ jobs:
       # image update ever drops a library, the browser-launch failure here is
       # loud and the step comes back with an apt cache.
 
-      - name: Served app + SharedWorker conformance
-        # Runs the canonical firebase/* swap through pyric dev, including named
-        # apps, cross-tab Auth isolation, config locking, deletion teardown,
-        # and the worker-owned AI boundary. These are blocking oracle claims.
-        run: bun run --cwd packages/cli test:app-conformance --output=test-results/app-conformance --trace=retain-on-failure
-
-      - name: Runtime identity conformance
-        # Pins authentic client Auth synchronization, direct user-to-user
-        # transitions, user creation, and explicit sign-out through the chip.
-        run: bun run --cwd packages/cli test:identity-conformance --output=test-results/identity-conformance --trace=retain-on-failure
-
-      - name: Runtime Flow treatments
-        run: bun run --cwd packages/cli test:flow-treatments --output=test-results/flow-treatments --trace=retain-on-failure
-
-      - name: Runtime listener contract
-        # The Data tab, Overview, and Flow on React, plain DOM, and canvas
-        # pages over SharedWorker and hosted, plus the in-page and worker
-        # source history, treatment picker, and denial marks.
-        run: bun run --cwd packages/cli test:listener-contract --output=test-results/listener-contract --trace=retain-on-failure
+      - name: Browser e2e
+        # Every file under the root e2e config: the SharedWorker topology
+        # proofs (named apps, cross-tab Auth isolation, config locking,
+        # deletion teardown, the worker-owned AI boundary), runtime identity,
+        # Flow treatments, the listener contract, and every other served-page
+        # proof. Running the whole config means a new file cannot be left out
+        # of CI. The folders with their own config run in the steps below.
+        run: bun run --cwd packages/cli test:e2e --output=test-results/e2e --trace=retain-on-failure
 
       - name: CLI-hosted Studio
         run: bun run --cwd packages/cli test:site-cli --output=test-results/site-cli --trace=retain-on-failure
