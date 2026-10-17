@@ -139,6 +139,7 @@ class FirebaseFirestore(
                     return@launch
                 } catch (e: Exception) {
                     lastException = e
+                    if (!isRetryableTransactionError(e)) break
                 }
             }
             tcs.setException(
@@ -169,7 +170,24 @@ class FirebaseFirestore(
         return ListenerRegistration {}
     }
 
+    /**
+     * The contention codes Android's TransactionRunner retries. Its rule also retries
+     * every non-permanent code, but in pyric those come from the bridge itself (a lost
+     * connection, a timeout, a close): a commit already sent may have been applied, so
+     * it is never sent again (delivery contract D4). An app exception is never retried.
+     */
+    private fun isRetryableTransactionError(e: Exception): Boolean {
+        val code = (e as? FirebaseFirestoreException)?.code ?: return false
+        return code in RETRYABLE_TRANSACTION_CODES
+    }
+
     companion object {
+        private val RETRYABLE_TRANSACTION_CODES = setOf(
+            FirebaseFirestoreException.Code.ABORTED,
+            FirebaseFirestoreException.Code.ALREADY_EXISTS,
+            FirebaseFirestoreException.Code.FAILED_PRECONDITION
+        )
+
         private val instances = ConcurrentHashMap<Pair<String, String>, FirebaseFirestore>()
 
         fun getInstance(): FirebaseFirestore =
