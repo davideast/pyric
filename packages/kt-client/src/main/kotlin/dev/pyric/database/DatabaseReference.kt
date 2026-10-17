@@ -4,6 +4,7 @@ import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.TaskCompletionSource
 import dev.pyric.database.internal.PushIdGenerator
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -72,7 +73,7 @@ class DatabaseReference(
     fun onDisconnect(): OnDisconnect = OnDisconnect(this)
 
     fun runTransaction(handler: Transaction.Handler, fireLocalEvents: Boolean = true) {
-        refScope.launch {
+        refScope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 var maxRetries = 25
                 while (maxRetries-- > 0) {
@@ -129,7 +130,9 @@ class DatabaseReference(
 
     private fun executeOp(method: String, params: Map<String, Any?>): Task<Void?> {
         val tcs = TaskCompletionSource<Void?>()
-        refScope.launch {
+        // Undispatched, so the frame is sent or held on the caller's thread and
+        // back-to-back writes reach the host in call order (#1026).
+        refScope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 database.bridgeClient.op(
                     method = method,
