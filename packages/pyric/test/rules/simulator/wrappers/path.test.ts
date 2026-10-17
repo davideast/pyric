@@ -261,6 +261,31 @@ describe('path() builtin — through evaluator', () => {
     );
     expect(r.success && r.data.unsupported).toBe(1);
   });
+
+  test('Path.bind() ignores Object.prototype keys like toString (FS-SIM-7a, FS-COV-3a)', () => {
+    const r = sim.simulate(
+      rules("path('users/{toString}').bind({}) == path('users/{toString}')"),
+      [tc('prototype key stays unbound', 'ALLOW')],
+    );
+    expect(r.success && r.data.passed).toBe(1);
+  });
+
+  test('Path.bind() error in unused let binding is absorbed as EvalError (FS-SIM-7b, FS-COV-3b)', () => {
+    const r = sim.simulate(
+      `rules_version = '2';
+      service cloud.firestore {
+        match /databases/{database}/documents {
+          function f() {
+            let unused = path('a/{x}').bind(null);
+            return true;
+          }
+          match /docs/{id} { allow create: if f(); }
+        }
+      }`,
+      [tc('unused let binding absorbs Path.bind error', 'ALLOW')],
+    );
+    expect(r.success && r.data.passed).toBe(1);
+  });
 });
 
 describe('Path literal — get/exists still work after wrapper flip', () => {

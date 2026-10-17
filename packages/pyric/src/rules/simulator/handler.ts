@@ -38,6 +38,7 @@ import {
 export { SERVER_TIMESTAMP, resolveServerTimestamps, reviveFirestoreNumbers } from './firestore-values.js';
 import {
   collectMatches,
+  indexRulesetScopes,
   renderMatchBlockPath,
   type MatchResult,
 } from './match-resolution.js';
@@ -384,21 +385,34 @@ function buildContext(
     ? reviveFirestoreNumbers(resolveServerTimestamps(afterState, serverTime)) as Record<string, unknown>
     : null;
 
-  // request.resource.data: for non-write methods (get/list) Firestore exposes
-  // null. For writes, it's the projected after-state. We keep the legacy
-  // shape (`{}` when tc.data is absent) for backwards-compat — the parity
-  // scenarios that exercise this surface explicitly set tc.data.
-  const reqResourceData = projectedAfter ?? {};
+  // request.resource is populated on create/update (from projectedAfter ?? {})
+  // and on get/list/delete only when the caller explicitly supplied `tc.data`
+  // (matching the Rules Test API wire format `if (tc.data) request.resource = { data }`).
+  // On normal get, list, and delete requests (no `tc.data`), `resource` is absent
+  // from `request` ("Property resource is undefined on object.").
+  let reqResource: { data: Record<string, unknown> } | undefined;
+  if (tc.method === 'create' || tc.method === 'update') {
+    reqResource = { data: projectedAfter ?? {} };
+  } else if (tc.data !== undefined) {
+    const revivedTcData = reviveFirestoreNumbers(
+      resolveServerTimestamps(tc.data, serverTime),
+    ) as Record<string, unknown>;
+    reqResource = { data: revivedTcData };
+  }
+
+  const request: SimulationContext['request'] = {
+    auth: tc.auth ? { uid: tc.auth.uid, token: tc.auth.token ?? {} } : null,
+    method: tc.method,
+    path: fullPath,        // Item 6: Path wrapper, full /databases/.../documents/... form
+    ...(requestQuery(tc) ? { query: requestQuery(tc) } : {}),
+    time: serverTime,
+  } as SimulationContext['request'];
+  if (reqResource !== undefined) {
+    request.resource = reqResource;
+  }
 
   return {
-    request: {
-      auth: tc.auth ? { uid: tc.auth.uid, token: tc.auth.token ?? {} } : null,
-      resource: { data: reqResourceData },
-      method: tc.method,
-      path: fullPath,        // Item 6: Path wrapper, full /databases/.../documents/... form
-      ...(requestQuery(tc) ? { query: requestQuery(tc) } : {}),
-      time: serverTime,
-    },
+    request,
     // `resource` is the PRE-WRITE stored document. When the request target does
     // not exist, production makes `resource` a null error value — reading or
     // comparing it then errors → DENY. Synthesizing a resource here (the
@@ -524,6 +538,7 @@ export class SimulateFirestoreRulesHandler {
       sourceMap?: AuthoredSourceMap;
     },
   ): TestFirestoreRulesResult {
+    indexRulesetScopes(ast);
     const sourceMap = opts?.sourceMap ?? readAuthoredSourceMap(source);
     const results: TestResult[] = [];
     let passed = 0;

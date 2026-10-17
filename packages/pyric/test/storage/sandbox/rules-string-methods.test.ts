@@ -52,6 +52,15 @@ describe('evaluateStorageRules — matches()', () => {
     const r = evalMatch("resource.metadata.missing.matches('.*')", { kind: 'abc' });
     expect(r.allowed).toBe(false);
   });
+
+  it('evaluates nested-quantifier patterns in linear time without catastrophic backtracking (FS-FUZ-5)', () => {
+    const start = performance.now();
+    const miss = evalMatch("resource.metadata.kind.matches('((a+)+)b')", { kind: 'a'.repeat(28) });
+    const elapsedMs = performance.now() - start;
+    expect(miss.allowed).toBe(false);
+    expect(elapsedMs).toBeLessThan(100);
+    expect(evalMatch("resource.metadata.kind.matches('((a+)+)b')", { kind: 'aaaab' }).allowed).toBe(true);
+  });
 });
 
 // ─── lower() / upper() / trim() / replace() / toUtf8() ───────────

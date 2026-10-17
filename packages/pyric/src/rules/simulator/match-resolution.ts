@@ -1,5 +1,27 @@
-import type { MatchBlock, FunctionDef } from '../grammar/FirestoreAST.js';
+import type { FirestoreRules, MatchBlock, FunctionDef } from '../grammar/FirestoreAST.js';
+import { collectRulesetScopes, type NameScope } from '../grammar/function-scopes.js';
 import type { PathResolutionEntry } from '../test/spec.js';
+
+const indexedRulesets = new WeakSet<FirestoreRules>();
+const functionScopes = new WeakMap<FunctionDef, NameScope>();
+
+/**
+ * Index lexical declaration scopes (functions and path captures) for every
+ * function in `ast`, using `grammar/function-scopes.ts` as the single source
+ * of truth.
+ */
+export function indexRulesetScopes(ast: FirestoreRules): void {
+  if (indexedRulesets.has(ast)) return;
+  indexedRulesets.add(ast);
+  const scopes = collectRulesetScopes(ast);
+  for (const sf of scopes.functions) {
+    functionScopes.set(sf.fn, sf);
+  }
+}
+
+export function getFunctionScope(fn: FunctionDef): NameScope | undefined {
+  return functionScopes.get(fn);
+}
 
 export interface MatchResult {
   block: MatchBlock;

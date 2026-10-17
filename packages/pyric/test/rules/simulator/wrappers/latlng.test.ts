@@ -197,4 +197,58 @@ describe('LatLng — through evaluator', () => {
     );
     expect(r.success && r.data.unsupported).toBe(1);
   });
+
+  test('latlng.value enforces latitude [-90, 90] and longitude [-180, 180] bounds (FS-SIM-3 / FS-COV-2)', () => {
+    const r = sim.simulate(rules('latlng.value(90.001, 0).latitude() > 0'), [
+      tc('lat > 90 denies', 'DENY'),
+    ]);
+    expect(r.success && r.data.passed).toBe(1);
+
+    const r2 = sim.simulate(rules('latlng.value(-90.001, 0).latitude() < 0'), [
+      tc('lat < -90 denies', 'DENY'),
+    ]);
+    expect(r2.success && r2.data.passed).toBe(1);
+
+    const r3 = sim.simulate(rules('latlng.value(0, 180.001).longitude() > 0'), [
+      tc('lng > 180 denies', 'DENY'),
+    ]);
+    expect(r3.success && r3.data.passed).toBe(1);
+
+    const r4 = sim.simulate(rules('latlng.value(0, -180.001).longitude() < 0'), [
+      tc('lng < -180 denies', 'DENY'),
+    ]);
+    expect(r4.success && r4.data.passed).toBe(1);
+
+    const r5 = sim.simulate(rules('latlng.value(91, 0).latitude() > 0 || true'), [
+      tc('out-of-bounds latlng absorbed by || true', 'ALLOW'),
+    ]);
+    expect(r5.success && r5.data.passed).toBe(1);
+  });
+
+  test('latlng.value requires exactly 2 numeric arguments and methods return float (FS-SIM-3)', () => {
+    const r = sim.simulate(
+      rules(
+        'latlng.value(0.0, 0.0).latitude() is float && ' +
+          'latlng.value(0.0, 0.0).longitude() is float && ' +
+          'latlng.value(0.0, 0.0).distance(latlng.value(0.0, 0.0)) is float',
+      ),
+      [tc('latitude, longitude, and distance return float even for 0.0', 'ALLOW')],
+    );
+    expect(r.success && r.data.passed).toBe(1);
+
+    const badType = sim.simulate(rules("latlng.value('0', 0).latitude() == 0"), [
+      tc('string lat denies', 'DENY'),
+    ]);
+    expect(badType.success && badType.data.passed).toBe(1);
+
+    const badArity = sim.simulate(rules('latlng.value(0, 0, 0).latitude() == 0'), [
+      tc('3-arg latlng.value denies', 'DENY'),
+    ]);
+    expect(badArity.success && badArity.data.passed).toBe(1);
+
+    const badMethodArity = sim.simulate(rules('latlng.value(0, 0).latitude(1) == 0'), [
+      tc('1-arg latitude(1) denies', 'DENY'),
+    ]);
+    expect(badMethodArity.success && badMethodArity.data.passed).toBe(1);
+  });
 });

@@ -11,19 +11,15 @@
  *   4. Method calls + MapDiff
  *   5. get()/exists() with mock resolution
  */
-import type { Expression, FunctionDef } from '../grammar/FirestoreAST.js';
+import type { Expression } from '../grammar/FirestoreAST.js';
 import { MapDiff } from './mapdiff.js';
 import { FirestoreSet } from './firestore-set.js';
 import { mapLiteral } from './map-keys.js';
 import { rulesValuesEqual } from './value-equality.js';
 import { describeRulesType, isRulesMap } from './rules-type.js';
-import { sliceBoundsError } from './slice-bounds.js';
-import { IndexAccessFailure, indexValue, readMember } from './index-access.js';
+import { IndexAccessFailure, indexValue, readMember, sliceValue } from './index-access.js';
 import { MembershipFailure, membership } from './membership.js';
 import { RulesValue, NO_OP } from './wrappers/base.js';
-import { LatLng } from './wrappers/latlng.js';
-import { Duration } from './wrappers/duration.js';
-import { Timestamp } from './wrappers/timestamp.js';
 import { Bytes } from './wrappers/bytes.js';
 import { Path } from './wrappers/path.js';
 import { RulesFloat } from './wrappers/float.js';
@@ -108,7 +104,11 @@ function evaluateNode(expr: Expression, ctx: SimulationContext, scope: Record<st
         // RULES-B5: negating a float stays a float (`-1.5 is float`); negating
         // an int stays an int. Preserve the operand's type tag.
         if (v instanceof RulesFloat) return new RulesFloat(-v.value);
-        return -(v as number);
+        if (typeof v === 'number') return -v;
+        throw new EvalError(
+          `Unsupported operation error. Received: -${describeRulesType(v)}. Expected: -int, -float, -duration.`,
+          expr,
+        );
       }
       throw new EvalError(`Unknown unary op: ${expr.op}`, expr);
     }
@@ -143,21 +143,6 @@ function evaluateNode(expr: Expression, ctx: SimulationContext, scope: Record<st
       // A path reads its bound names through `readMember` below, which
       // errors on an unbound name as production does.
       if (obj instanceof RulesValue && obj.typeName !== 'path') return obj.field(expr.property);
-      if (obj instanceof MapDiff) {
-        // MapDiff methods that return FirestoreSet
-        switch (expr.property) {
-          case 'addedKeys': return () => (obj as MapDiff).addedKeys();
-          case 'removedKeys': return () => (obj as MapDiff).removedKeys();
-          case 'changedKeys': return () => (obj as MapDiff).changedKeys();
-          case 'affectedKeys': return () => (obj as MapDiff).affectedKeys();
-          case 'unchangedKeys': return () => (obj as MapDiff).unchangedKeys();
-        }
-      }
-      if (obj instanceof FirestoreSet) {
-        switch (expr.property) {
-          case 'size': return () => (obj as FirestoreSet).size();
-        }
-      }
       // RULES-B2: reading a key that does not exist on a map is a runtime
       // ERROR in Firestore rules (`resource.data.typo` denies the request),
       // not the silent null this path used to return — that inversion made
@@ -200,24 +185,10 @@ function evaluateNode(expr: Expression, ctx: SimulationContext, scope: Record<st
     }
 
     case 'sliceAccess': {
-      // Range slice `obj[start:end]` on a List or String: a sub-list or
-      // substring, `end` exclusive. Indices must be integers, and the bounds
-      // follow production's checks in `slice-bounds.ts`, shared with the
-      // Storage evaluator.
       const [obj, start, end] = evaluateOperands([expr.object, expr.start, expr.end], ctx, scope);
-      if (obj === null || obj === undefined) return null;
-      if (typeof start !== 'number' || !Number.isInteger(start)) {
-        throw new EvalError(`Slice start must be an integer, got ${typeof start}`);
-      }
-      if (typeof end !== 'number' || !Number.isInteger(end)) {
-        throw new EvalError(`Slice end must be an integer, got ${typeof end}`);
-      }
-      if (typeof obj === 'string' || Array.isArray(obj)) {
-        const boundsError = sliceBoundsError(start, end, obj.length);
-        if (boundsError) throw new EvalError(boundsError);
-        return obj.slice(start, end);
-      }
-      throw new EvalError(`Slice not supported on ${typeof obj}`);
+      const sliced = sliceValue(obj, start, end);
+      if (sliced instanceof IndexAccessFailure) throw new EvalError(sliced.message, expr);
+      return sliced;
     }
 
     case 'inExpr': {
@@ -277,8 +248,13 @@ function evaluateNode(expr: Expression, ctx: SimulationContext, scope: Record<st
     case 'mapLiteral': {
       const values = evaluateOperands(expr.entries.flatMap((entry) => [entry.key, entry.value]), ctx, scope);
       const entries: [string, unknown][] = [];
-      for (let i = 0; i < values.length; i += 2) entries.push([String(values[i]), values[i + 1]]);
-      // The literal keeps its written order for values() (`map-keys.ts`).
+      for (let i = 0; i < values.length; i += 2) {
+        const key = values[i];
+        if (typeof key !== 'string') {
+          throw new EvalError(`Type error. Received: [${describeRulesType(key)}] Expected: [string].`, expr);
+        }
+        entries.push([key, values[i + 1]]);
+      }
       return mapLiteral(entries);
     }
 
@@ -309,7 +285,11 @@ function evaluateNode(expr: Expression, ctx: SimulationContext, scope: Record<st
           parts.push(seg);
         } else {
           try {
-            parts.push(String(evaluate(seg, ctx, scope)));
+            const val = evaluate(seg, ctx, scope);
+            if (typeof val !== 'string' && (typeof val !== 'number' || !Number.isInteger(val))) {
+              throw new EvalError(`Type error. Received: [${describeRulesType(val)}] Expected: [string].`, seg);
+            }
+            parts.push(String(val));
           } catch (e) {
             error = firstError(error, e);
           }
@@ -329,14 +309,14 @@ function evaluateNode(expr: Expression, ctx: SimulationContext, scope: Record<st
 export function resolveIdentifier(name: string, ctx: SimulationContext, scope: Record<string, unknown>): unknown {
   // Local scope first (let bindings, function parameters). A binding whose
   // value errored holds that error, which decides only where it is read.
-  if (name in scope) {
+  if (Object.hasOwn(scope, name)) {
     const value = scope[name];
     if (value instanceof EvalError) throw value;
     return value;
   }
 
   // Path variables
-  if (name in ctx.pathVariables) return ctx.pathVariables[name];
+  if (Object.hasOwn(ctx.pathVariables, name)) return ctx.pathVariables[name];
 
   // Built-in globals
   switch (name) {
@@ -583,25 +563,20 @@ function evaluateBinaryOp(
         `Operator '+' is not defined between ${describeRulesType(lv)} and ${describeRulesType(rv)}`,
       );
     }
-    case '-': return (lv as number) - (rv as number);
-    case '*': return (lv as number) * (rv as number);
+    case '-':
+    case '*':
     case '/':
-      // RULES-B5: both operands are bare numbers here (= int ÷ int; any float
-      // operand was already handled by RulesFloat.binaryOp above). CEL INT64
-      // division TRUNCATES toward zero (`10 / 4 == 2`) and ERRORS on a zero
-      // divisor (it does NOT yield ±Infinity the way JS / float division does).
-      // The EvalError propagates via the tri-state so the rule DENYs.
-      if ((rv as number) === 0) {
-        throw new EvalError(DIVIDE_BY_ZERO_MESSAGE);
+    case '%': {
+      if (typeof lv !== 'number' || typeof rv !== 'number') {
+        throw new EvalError(
+          `Unsupported operation error. Received: ${describeRulesType(lv)} ${op} ${describeRulesType(rv)}.`,
+        );
       }
-      return Math.trunc((lv as number) / (rv as number));
-    case '%':
-      // CEL INT64 modulo likewise errors on a zero divisor (JS would give
-      // NaN), with the same message as division.
-      if ((rv as number) === 0) {
-        throw new EvalError(DIVIDE_BY_ZERO_MESSAGE);
-      }
-      return (lv as number) % (rv as number);
+      if (op === '-') return lv - rv;
+      if (op === '*') return lv * rv;
+      if (rv === 0) throw new EvalError(DIVIDE_BY_ZERO_MESSAGE);
+      return op === '/' ? Math.trunc(lv / rv) : lv % rv;
+    }
     default: throw new EvalError(`Unknown binary op: ${op}`);
   }
 }

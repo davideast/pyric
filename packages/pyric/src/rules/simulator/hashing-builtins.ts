@@ -1,6 +1,5 @@
 import { Bytes } from './wrappers/bytes.js';
-import { EvalError } from './eval-error.js';
-import { UnsupportedError } from './unsupported-error.js';
+import { EvalError, functionNotFoundMessage } from './eval-error.js';
 
 function coerceToBytes(arg: unknown): Bytes {
   if (arg instanceof Bytes) return arg;
@@ -9,6 +8,14 @@ function coerceToBytes(arg: unknown): Bytes {
 }
 
 export function evaluateHashingMethod(method: string, args: unknown[]): unknown {
+  if (method !== 'md5' && method !== 'sha256' && method !== 'crc32' && method !== 'crc32c') {
+    throw new EvalError(functionNotFoundMessage(`hashing.${method}`));
+  }
+  if (args.length !== 1) {
+    throw new EvalError(
+      `Incorrect number of arguments. Received: ${args.length}. Expected: hashing.${method}(bytes), hashing.${method}(string).`,
+    );
+  }
   const input = coerceToBytes(args[0]);
   switch (method) {
     // Every digest is computed here, synchronously and without node:crypto,
@@ -28,7 +35,6 @@ export function evaluateHashingMethod(method: string, args: unknown[]): unknown 
       return new Bytes(u32ToLeBytes(u32));
     }
   }
-  throw new UnsupportedError(`Unknown hashing method '${method}'`);
 }
 
 function u32ToLeBytes(n: number): Uint8Array {

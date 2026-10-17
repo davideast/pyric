@@ -1,0 +1,249 @@
+{
+  "name": "rules-firestore-simulator-language-semantics",
+  "matrixRow": "firestore-rules#196",
+  "rowIds": [
+    "firestore-rules#196"
+  ],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"simulator-language-semantics\" (FS-SIM-SEMANTICS). Proves production Firestore Rules enforces numeric operands on arithmetic, user function shadowing and arity, Java Matcher replace escapes, builtin/method arity and argument types, absence of request.resource on get/delete, calendar bounds on timestamp.date, string keys in map literals, and document-path arguments to exists/get.",
+  "observedAt": "2026-10-17T19:43:49.709Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "5efdce543af64e89a4ac67d39acf0bedfccb3b93642d0e01c81b89f2c02ef242"
+  },
+  "behavior": {
+    "FS-SIM-2a: string minus string DENIED with no such overload": "DENY",
+    "FS-SIM-2b: unary minus on string DENIED with no such overload": "DENY",
+    "FS-SIM-4a: user-defined int(x) shadows global int cast ALLOWED": "ALLOW",
+    "FS-SIM-4b: user function called with wrong arity DENIED": "DENY",
+    "FS-SIM-5a: string.replace escaped dollar literal ALLOWED": "ALLOW",
+    "FS-SIM-5b: string.lower(1) extra argument DENIED": "DENY",
+    "FS-SIM-6a: list.toSet(arg) extra argument DENIED": "DENY",
+    "FS-SIM-6b: map.get with 3 arguments DENIED": "DENY",
+    "FS-SIM-6c: map.diff with 2 arguments DENIED": "DENY",
+    "FS-SIM-6d: map.diff with non-map argument DENIED": "DENY",
+    "FS-SIM-9a: request has no resource key on get ALLOWED": "ALLOW",
+    "FS-SIM-9b: request.resource.data on delete with test payload ALLOWED": "ALLOW",
+    "FS-SIM-9c: request.resource.data on delete without test payload DENIED": "DENY",
+    "FS-SIM-10a: timestamp.date month 13 out of bounds DENIED": "DENY",
+    "FS-SIM-10b: timestamp.date Feb 30 out of bounds DENIED": "DENY",
+    "FS-SIM-11: map literal with integer key expression DENIED": "DENY",
+    "FS-SIM-12a: exists() with string argument instead of Path DENIED": "DENY",
+    "FS-SIM-12b: exists() with odd-segment collection path DENIED": "DENY"
+  },
+  "diagnostics": {
+    "FS-SIM-2a: string minus string DENIED with no such overload": {
+      "notes": [
+        "Error: firestore.rules line [9], column [28]. Unsupported operation error. Received: string - string. Expected: int - int, float - float, duration - duration, timestamp - duration, timestamp - timestamp."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 9,
+          "column": 28,
+          "currentOffset": 267,
+          "endOffset": 267
+        }
+      }
+    },
+    "FS-SIM-2b: unary minus on string DENIED with no such overload": {
+      "notes": [
+        "Error: firestore.rules line [12], column [22]. Unsupported operation error. Received: -string. Expected: -int, -float, -duration."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 12,
+          "column": 22,
+          "currentOffset": 330,
+          "endOffset": 330
+        }
+      }
+    },
+    "FS-SIM-4b: user function called with wrong arity DENIED": {
+      "notes": [
+        "Error: firestore.rules line [18], column [22]. Incorrect number of arguments. Received: 1. Expected: pairFirst(a, b)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 18,
+          "column": 22,
+          "currentOffset": 461,
+          "endOffset": 469
+        }
+      }
+    },
+    "FS-SIM-5b: string.lower(1) extra argument DENIED": {
+      "notes": [
+        "Error: firestore.rules line [24], column [28]. Incorrect number of arguments. Received: 1. Expected: string.lower()."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 24,
+          "column": 28,
+          "currentOffset": 624,
+          "endOffset": 628
+        }
+      }
+    },
+    "FS-SIM-6a: list.toSet(arg) extra argument DENIED": {
+      "notes": [
+        "Error: firestore.rules line [27], column [29]. Incorrect number of arguments. Received: 1. Expected: list.toSet()."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 27,
+          "column": 29,
+          "currentOffset": 701,
+          "endOffset": 705
+        }
+      }
+    },
+    "FS-SIM-6b: map.get with 3 arguments DENIED": {
+      "notes": [
+        "Error: firestore.rules line [30], column [31]. Incorrect number of arguments. Received: 3. Expected: map.get(string, any), map.get(list, any)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 30,
+          "column": 31,
+          "currentOffset": 785,
+          "endOffset": 787
+        }
+      }
+    },
+    "FS-SIM-6c: map.diff with 2 arguments DENIED": {
+      "notes": [
+        "Error: firestore.rules line [33], column [31]. Incorrect number of arguments. Received: 2. Expected: map.diff(map)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 33,
+          "column": 31,
+          "currentOffset": 867,
+          "endOffset": 870
+        }
+      }
+    },
+    "FS-SIM-6d: map.diff with non-map argument DENIED": {
+      "notes": [
+        "Error: firestore.rules line [36], column [31]. Unsupported operation error. Received: map.diff(string). Expected: map.diff(map)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 36,
+          "column": 31,
+          "currentOffset": 975,
+          "endOffset": 978
+        }
+      }
+    },
+    "FS-SIM-9c: request.resource.data on delete without test payload DENIED": {
+      "notes": [
+        "Error: firestore.rules line [45], column [24]. Property resource is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 45,
+          "column": 24,
+          "currentOffset": 1239,
+          "endOffset": 1245
+        }
+      }
+    },
+    "FS-SIM-10a: timestamp.date month 13 out of bounds DENIED": {
+      "notes": [
+        "Error: firestore.rules line [48], column [32]. Date is not valid. year: 2024, month: 13 day: 1."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 48,
+          "column": 32,
+          "currentOffset": 1336,
+          "endOffset": 1339
+        }
+      }
+    },
+    "FS-SIM-10b: timestamp.date Feb 30 out of bounds DENIED": {
+      "notes": [
+        "Error: firestore.rules line [51], column [32]. Date is not valid. year: 2024, month: 2 day: 30."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 51,
+          "column": 32,
+          "currentOffset": 1429,
+          "endOffset": 1432
+        }
+      }
+    },
+    "FS-SIM-11: map literal with integer key expression DENIED": {
+      "notes": [
+        "Error: firestore.rules line [6], column [38]. Type error. Received: [int] Expected: [string]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 6,
+          "column": 38,
+          "currentOffset": 204,
+          "endOffset": 204
+        }
+      }
+    },
+    "FS-SIM-12a: exists() with string argument instead of Path DENIED": {
+      "notes": [
+        "Error: firestore.rules line [57], column [23]. Function not found error: Name: [exists]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 57,
+          "column": 23,
+          "currentOffset": 1589,
+          "endOffset": 1594
+        },
+        "functionCalls": [
+          {
+            "function": "exists",
+            "args": [
+              "/databases/(default)/documents/u/1"
+            ]
+          }
+        ]
+      }
+    },
+    "FS-SIM-12b: exists() with odd-segment collection path DENIED": {
+      "notes": [
+        "Error: firestore.rules line [60], column [23]. Function not found error: Name: [exists]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 60,
+          "column": 23,
+          "currentOffset": 1688,
+          "endOffset": 1693
+        },
+        "functionCalls": [
+          {
+            "function": "exists",
+            "args": [
+              "/databases/%28default%29/documents/u"
+            ]
+          }
+        ]
+      }
+    }
+  }
+}
