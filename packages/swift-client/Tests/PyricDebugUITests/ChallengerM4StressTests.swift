@@ -187,4 +187,19 @@ struct ChallengerM4StressTests {
         #expect(await manager.isAdminBypass == false)
         #expect(auth.currentAuthLens() == finalLens)
     }
+
+    @Test("Lens changes from several threads at once leave the manager on the current lens")
+    func testConcurrentLensChangesSettleOnCurrentLens() async throws {
+        let (manager, auth, _, _) = try await setupHarness()
+
+        for round in 0..<300 {
+            await withTaskGroup(of: Void.self) { group in
+                for thread in 0..<4 {
+                    group.addTask { auth.switchLens(.asUser(uid: "thread-\(thread)-\(round)", tenant: nil, token: nil)) }
+                }
+            }
+            let current = auth.currentAuthLens()
+            try await until { await manager.activeLens == current }
+        }
+    }
 }
