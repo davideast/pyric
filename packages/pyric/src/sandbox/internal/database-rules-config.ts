@@ -14,7 +14,10 @@
  * - Without a `database` key, `database.rules.json` deploys to the default
  *   instance when it exists (`configured: false`).
  *
- * Instance names are normalized with {@link databaseInstanceNamed}. Two
+ * Instance names are normalized with {@link databaseInstanceNamed}, and a
+ * name {@link isDefaultDatabaseInstance} holds for, such as the project id a
+ * project created before about 2020 names its default instance by, deploys
+ * to `defaultInstance`. Two
  * entries that deploy different files to one instance are refused: the CLI
  * deploys both concurrently, so the configuration does not determine which
  * ruleset production keeps.
@@ -27,6 +30,7 @@ import {
   databaseInstanceKey,
   databaseInstanceNamed,
   defaultDatabaseInstanceName,
+  isDefaultDatabaseInstance,
 } from './instances.js';
 
 /** The rules file read when `firebase.json` has no `database` key. */
@@ -164,6 +168,7 @@ export function databaseRulesConfig(
         const reason = error instanceof Error ? error.message.trim() : String(error);
         throw new Error(`${label}: instance "${name}" is not a database instance name: ${reason}`);
       }
+      if (isDefaultDatabaseInstance(instance, options.projectId)) instance = defaultInstance;
       const existing = targets.find((target) => target.instance === instance);
       if (existing === undefined) {
         targets.push({ instance, file, configuredFile: entry.rules, label, configured: true });

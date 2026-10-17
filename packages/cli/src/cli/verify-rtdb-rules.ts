@@ -20,6 +20,7 @@ import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
 import {
   UNNAMED_DEFAULT_DATABASE_INSTANCE,
   defaultDatabaseInstanceName,
+  isDefaultDatabaseInstance,
   resolveDatabaseInstance,
 } from 'pyric/sandbox/internal';
 
@@ -89,7 +90,7 @@ function parseRulesFile(path: string, instance: InstanceKey): { rules: Record<st
   return rules;
 }
 
-/** The names that mean the default instance: the project's, the capture's, and the config's unnamed default. */
+/** The names that mean the default instance: the project's, the capture's, and the config's unnamed default. `<projectId>` is matched by `isDefaultDatabaseInstance`. */
 function defaultNames(input: RtdbCandidateRulesInput, projectId: string | undefined): Set<string> {
   const names = new Set<string>([UNNAMED_DEFAULT_DATABASE_INSTANCE]);
   if (projectId !== undefined) names.add(defaultDatabaseInstanceName(projectId));
@@ -122,7 +123,7 @@ export async function resolveRtdbCandidateRules(input: RtdbCandidateRulesInput):
     // The config's unnamed default is matched before it is parsed as a name.
     if (defaults.has(name)) return undefined;
     const instance = resolveDatabaseInstance(name)?.name;
-    const isDefault = instance === undefined || defaults.has(instance);
+    const isDefault = instance === undefined || defaults.has(instance) || isDefaultDatabaseInstance(instance, project.projectId);
     return isDefault ? undefined : instance;
   };
   let config: FirebaseJson | null | undefined;

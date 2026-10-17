@@ -292,6 +292,8 @@ export function applyServeInit(
   ctx.rtdbDefaultPolicy = payload.permissive ? 'allow' : 'deny';
   const instances = payload.databaseInstances;
   if (instances) ctx.defaultRtdbInstance = instances.defaultInstance;
+  if (instances?.projectId) ctx.rtdbProjectId = instances.projectId;
+  if (instances?.rulesFiles) ctx.rtdbRulesFiles = instances.rulesFiles;
   const rtdb = rtdbInstance(ctx);
   rtdbSandbox.setDefaultPolicy(rtdb.live, ctx.rtdbDefaultPolicy);
   if (instances) {

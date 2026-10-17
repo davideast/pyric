@@ -4,12 +4,18 @@ import {
   LOCKED_DATABASE_RULES,
   UNNAMED_DEFAULT_DATABASE_INSTANCE,
   defaultDatabaseInstanceName,
+  isDefaultDatabaseInstance,
   undeployedInstanceNotice,
   resolveDatabaseInstance,
 } from 'pyric/sandbox/internal';
 import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
 import type { DatabaseInstancesRules, RtdbRulesJson } from '../init-payload.js';
-import { createPendingDatabaseTargets, type DatabaseTargetDeploy } from '../database-instance-rules-host.js';
+import {
+  createPendingDatabaseTargets,
+  defaultInstanceDeploy,
+  twoDefaultRulesFilesMessage,
+  type DatabaseTargetDeploy,
+} from '../database-instance-rules-host.js';
 
 type Policy = 'allow' | 'deny';
 
@@ -19,7 +25,8 @@ type Policy = 'allow' | 'deny';
  * without a URL is the default instance the deployed config names. An
  * instance `firebase.json` deploys no rules to is locked, as production
  * creates a new instance, or open in permissive mode, and its first use logs
- * how to deploy its rules.
+ * how to deploy its rules. `<projectId>`, the name a project created before
+ * about 2020 gives its default instance, is the default instance too.
  */
 export function createDatabaseRulesDeployment(sandbox: Sandbox) {
   /** Each opened store by instance name; the default instance under `undefined`. */
@@ -27,6 +34,7 @@ export function createDatabaseRulesDeployment(sandbox: Sandbox) {
   let defaultInstance: string | undefined;
   let projectId: string | undefined;
   let rulesByInstance = new Map<string, RtdbRulesJson | null>();
+  let rulesFiles: Record<string, string> = {};
   let defaultPolicy: Policy = 'deny';
   let pendingTargets = createPendingDatabaseTargets();
   const noticed = new Set<string>();
@@ -38,11 +46,40 @@ export function createDatabaseRulesDeployment(sandbox: Sandbox) {
     return projectId === undefined ? defaultInstance : defaultDatabaseInstanceName(projectId);
   }
 
-  /** The rules deployed to the default instance, under its name or the config's unnamed default. */
+  /** Whether `name` is the default instance: its name, or another name of the project's default instance. */
+  function isDefaultName(name: string): boolean {
+    return name === defaultName() || isDefaultDatabaseInstance(name, projectId);
+  }
+
+  /**
+   * The rules deployed to the default instance, under any of its names or the
+   * config's unnamed default. Different rules under two of its names are
+   * refused, as `firebase.json` is refused at startup: the instance is locked.
+   */
   function defaultRules(): RtdbRulesJson | null {
-    const name = defaultName();
-    const byName = name === undefined ? undefined : rulesByInstance.get(name);
-    return byName ?? (defaultInstance === undefined ? undefined : rulesByInstance.get(defaultInstance)) ?? null;
+    const names = [defaultName(), projectId, defaultInstance].filter((name): name is string => name !== undefined);
+    const deployed = [...new Set(names)].filter((name) => rulesByInstance.has(name));
+    const [first, ...others] = deployed;
+    if (first === undefined) return null;
+    const rules = rulesByInstance.get(first) ?? null;
+    const conflicting = others.find((other) => JSON.stringify(rulesByInstance.get(other) ?? null) !== JSON.stringify(rules));
+    if (conflicting === undefined) return rules;
+    reportConflict(first, conflicting);
+    return LOCKED_DATABASE_RULES;
+  }
+
+  const reportedConflicts = new Set<string>();
+  function reportConflict(first: string, second: string): void {
+    const key = `${first}|${second}`;
+    if (reportedConflicts.has(key) || projectId === undefined) return;
+    reportedConflicts.add(key);
+    const message = twoDefaultRulesFilesMessage(
+      defaultDatabaseInstanceName(projectId),
+      projectId,
+      defaultInstanceDeploy(first, rulesFiles),
+      defaultInstanceDeploy(second, rulesFiles),
+    );
+    console.error(`[pyric sandbox] ${message}`);
   }
 
   function apply(name: string | undefined, database: Database): void {
@@ -104,7 +141,7 @@ export function createDatabaseRulesDeployment(sandbox: Sandbox) {
       applyAll();
     }
     const parsed = resolveDatabaseInstance(url)?.name;
-    const name = parsed === defaultName() ? undefined : parsed;
+    const name = parsed === undefined || isDefaultName(parsed) ? undefined : parsed;
     if (databases.has(name)) return;
     const database = getDatabase(sandbox, name);
     databases.set(name, database);
@@ -118,6 +155,8 @@ export function createDatabaseRulesDeployment(sandbox: Sandbox) {
     defaultInstance: (): string | undefined => defaultInstance,
     /** The default instance's name: the config's, else the app's project default once the app names its project. */
     defaultName,
+    /** Whether `name` names the default instance. */
+    isDefaultName,
     /**
      * Replace every instance's rules. Each ruleset passes the load-time check
      * on its own: a refused one is not installed, the others are, and the
@@ -132,6 +171,8 @@ export function createDatabaseRulesDeployment(sandbox: Sandbox) {
         else next.set(instance, rules);
       }
       defaultInstance = instances?.defaultInstance;
+      projectId = instances?.projectId ?? projectId;
+      rulesFiles = instances?.rulesFiles ?? {};
       rulesByInstance = next;
       defaultPolicy = policy;
       pendingTargets = createPendingDatabaseTargets(instances?.pendingTargets);

@@ -1,0 +1,6 @@
+{
+  "rules": {
+    "open": { ".read": true, ".write": true },
+    "closed": { ".read": false, ".write": false }
+  }
+}

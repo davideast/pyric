@@ -183,7 +183,7 @@ const { cases } = rules.simulate([
 ```
 A rule's `root` and `data` read only the tree of the case's instance, as in production, so a membership check against `members` on another instance denies. Each result and each `trace` step carries the `instance` it ran on.
 
-A case without `instance` runs on the default instance, `<projectId>-default-rtdb`. The project id is `projectId`, or `projects.default` in the `.firebaserc` beside `firebase.json`, which also maps a `target` entry to its instances. A case on an instance `firebase.json` deploys no rules to, or data on one it does not declare, is `UNSUPPORTED` with a reason naming the instances it declares. An `instance` is written as `getDatabase` takes it: a name, a database URL, or `default`. `lint()` and `coverage` report each rules file once, under its name, and `toJSON()` returns the default instance's rules.
+A case without `instance` runs on the default instance, `<projectId>-default-rtdb`. A project created before about 2020 names its default instance `<projectId>`, so a case on `<projectId>` or `https://<projectId>.firebaseio.com` runs on the default instance too. The project id is `projectId`, or `projects.default` in the `.firebaserc` beside `firebase.json`, which also maps a `target` entry to its instances. A case on an instance `firebase.json` deploys no rules to, or data on one it does not declare, is `UNSUPPORTED` with a reason naming the instances it declares. An `instance` is written as `getDatabase` takes it: a name, a database URL, or `default`. `lint()` and `coverage` report each rules file once, under its name, and `toJSON()` returns the default instance's rules.
 
 `rtdbRules(...)` applies its one ruleset on whichever instance a case names, so the same cases run against a single rules file.
 
@@ -272,7 +272,7 @@ A `.read` or `.write` rule that errors does not grant access, and evaluation con
 
 `pyric sandbox` and the Vite plugin read `firebase.json` `database` the way `firebase deploy` reads it, so each database instance gets its own rules:
 
-- **One object.** `{ "rules": "database.rules.json" }` deploys to the default instance, `<projectId>-default-rtdb`.
+- **One object.** `{ "rules": "database.rules.json" }` deploys to the default instance, `<projectId>-default-rtdb`. An app whose `databaseURL` is `https://<projectId>.firebaseio.com`, the default instance of a project created before about 2020, uses these rules too. An array entry for `<projectId>` deploys to the default instance, so entries for `<projectId>` and `<projectId>-default-rtdb` with different rules files are refused.
 - **An array of instances.** Each entry pairs an `instance` name with its `rules` file, for example `[{ "instance": "my-app-default-rtdb", "rules": "main.rules.json" }, { "instance": "my-app-logs", "rules": "logs.rules.json" }]`.
 - **Deploy targets.** An entry can name a `target` instead, which `.firebaserc` maps to one or more instances for each project (`firebase target:apply database <target> <instance>`). When an entry names both, `target` wins.
 

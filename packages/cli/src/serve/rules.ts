@@ -339,6 +339,8 @@ export interface DatabaseRulesTarget {
 export interface DatabaseRulesTargets {
   /** The instance `getDatabase()` selects without a URL. */
   defaultInstance: string;
+  /** The project the rules were resolved for, when one is set; it also names the default instance. */
+  projectId?: string;
   /** One entry per instance, in `firebase.json` order. */
   targets: DatabaseRulesTarget[];
   /** Target entries no `.firebaserc` mapping resolved, in `firebase.json` order. */
@@ -397,6 +399,7 @@ export function databaseRulesTargets(
   }
   return {
     defaultInstance: resolved.defaultInstance,
+    ...(projectId === undefined ? {} : { projectId }),
     targets: resolved.targets.map((target) => ({ instance: target.instance, path: target.file, configured: target.configured })),
     pending: resolved.unresolved.map((target) => ({
       target: target.target,
@@ -497,7 +500,7 @@ export async function loadProjectDatabaseRules(
   config: FirebaseJson | null,
   project: DatabaseRulesProject = {},
 ): Promise<LoadedDatabaseRules> {
-  const { defaultInstance, targets, pending } = databaseRulesTargets(cwd, config, project);
+  const { defaultInstance, projectId, targets, pending } = databaseRulesTargets(cwd, config, project);
   const instances = new Map<string, LoadedDatabaseInstanceRules>();
   for (const target of targets) {
     const loaded = await loadDatabaseInstanceRules(target);
@@ -507,6 +510,7 @@ export async function loadProjectDatabaseRules(
   for (const target of pending) loadedPending.push({ ...target, ...await loadPendingDatabaseTargetRules(target) });
   return {
     defaultInstance,
+    ...(projectId === undefined ? {} : { projectId }),
     targets,
     pending: loadedPending,
     declared: new Set(targets.map((target) => target.instance)),

@@ -631,7 +631,7 @@ if (!useWorker && typeof EventSource !== 'undefined') {
       }
       databaseRules.deployInstance(instance, rules, policy);
       const isRemoved = rules === null;
-      const isDefaultInstance = instance === databaseRules.defaultInstance();
+      const isDefaultInstance = instance === databaseRules.defaultInstance() || databaseRules.isDefaultName(instance);
       if (isDefaultInstance) {
         diagnostics.databaseRulesDeployed = !isRemoved;
         diagnostics.databaseRulesHash = rulesHash ?? null;
