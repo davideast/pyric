@@ -581,14 +581,27 @@ class BridgeReconnectTest {
     @Test
     fun `without retryInitialConnection an operation issued before the first attach fails when the attempt fails`() = runBlocking {
         bridge.refuseConnections = true
-        val client = client()
-        val error = assertThrows<FirebaseFirestoreException> {
-            runBlocking { client.op("setDoc", mapOf("path" to "rooms/a")) }
+        // The first attempt waits at this gate, so the operation is issued while it is in progress.
+        val attemptOpening = java.util.concurrent.CountDownLatch(1)
+        val failAttempt = java.util.concurrent.CountDownLatch(1)
+        val gatedBridge = BridgeTransportFactory { url, headers, listener ->
+            attemptOpening.countDown()
+            failAttempt.await()
+            bridge.create(url, headers, listener)
         }
+        val client = PyricBridgeClient(url = "ws://127.0.0.1:5174/__pyric/sandbox", transportFactory = gatedBridge)
+            .also { clients.add(it) }
+        val operation = scope.async(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            runCatching { client.op("setDoc", mapOf("path" to "rooms/a")) }
+        }
+        attemptOpening.await()
+        failAttempt.countDown()
+        val error = operation.await().exceptionOrNull() as FirebaseFirestoreException
         assertEquals(FirebaseFirestoreException.Code.UNAVAILABLE, error.code)
         assertEquals(BridgeConnectionState.CLOSED, client.connectionState)
+        // The operation joined the constructor's attempt, and nothing opens another one.
+        assertEquals(1, bridge.connectCalls.get())
         bridge.refuseConnections = false
-        delay(50)
         assertTrue(bridge.ofType("worker-op").isEmpty())
     }
 
