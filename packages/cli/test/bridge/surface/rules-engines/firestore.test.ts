@@ -66,7 +66,12 @@ describe('lint', () => {
     const ctx = freshContext();
     await FIRESTORE_RULES.install(ctx, SIGNED_IN_ONLY_RULES);
     const result = await FIRESTORE_RULES.lint(ctx, undefined);
-    expect(result.ok).toBe(true);
+    // Per FS-LNT-1 and .agents/skills/firestore-rules-audit/SKILL.md,
+    // FIRESTORE_RULES.lint runs validateFirestoreRules(ast) alongside lintFirestoreRules,
+    // surfacing high-severity SEC-5 (recursive wildcard) and SEC-6 (unvalidated write) as errors.
+    expect(result.ok).toBe(false);
+    expect(JSON.stringify(result.data)).toContain('SEC-5');
+    expect(JSON.stringify(result.data)).toContain('SEC-6');
   });
 
   it('lints a supplied source rather than the active one', async () => {

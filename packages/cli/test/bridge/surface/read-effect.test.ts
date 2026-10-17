@@ -155,6 +155,26 @@ const PRECONDITIONS: Record<string, (call: Call) => Promise<Teardown>> = {
   'sandbox.diff': forkTheExampleBranch,
   'sandbox.openCapture': async call => { await must(call, 'sandbox.saveCapture', exampleOf('sandbox.saveCapture')); return NOTHING_TO_UNDO; },
   'assurance.inspect': runTheExampleCampaign,
+  // Per FS-LNT-1 and .agents/skills/firestore-rules-audit/SKILL.md, rules.lint
+  // runs validateFirestoreRules(ast), so install a lint-clean Firestore ruleset
+  // before taking the before-hash (OPEN_ORDER_RULES has SEC-1/SEC-6/QUA-1).
+  'rules.lint': async call => {
+    await must(call, 'rules.set', {
+      service: 'firestore',
+      rules: `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /orders/{id} {
+      allow read: if request.auth != null;
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}`,
+    });
+    return NOTHING_TO_UNDO;
+  },
 };
 
 describe('a read changes nothing', () => {

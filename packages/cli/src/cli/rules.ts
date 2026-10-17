@@ -19,6 +19,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve as resolvePath } from 'node:path';
 import {
+  compileLimitViolations,
   validateFirestoreRules,
   parseToAST,
   type ValidationFinding,
@@ -69,7 +70,16 @@ export async function runRulesValidate(parsed: ParsedArgs, deps: RulesDeps = {})
     err.write('pyric firestore rules validate: failed to parse rules source.\n');
     return 2;
   }
-  const findings: ValidationFinding[] = validateFn(ast);
+  const findings: ValidationFinding[] = [...validateFn(ast)];
+  for (const v of compileLimitViolations(ast)) {
+    if (v.code === 'FUNCTION_REDEFINED') continue;
+    findings.push({
+      code: v.code,
+      severity: 'critical',
+      path: v.scope ?? '/',
+      message: v.message,
+    });
+  }
   out.write(`${JSON.stringify(findings, null, 2)}\n`);
   return findings.some((finding) => FAILING_SEVERITIES.has(finding.severity)) ? 2 : 0;
 }

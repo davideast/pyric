@@ -74,12 +74,22 @@ export function compileLimitViolationToIssue(violation: CompileLimitViolation): 
   return issue;
 }
 
+const COMPILE_LIMIT_LINT_CODES: ReadonlySet<string> = new Set([
+  'LET_LIMIT',
+  'NESTING_DEPTH',
+  'SLASH_STARTS_PATH',
+  'GLOB_MATCH_COUNT',
+  'CALL_DEPTH',
+]);
+
 export function lintWarningToIssue(warning: LintWarning): RuleIssue {
+  const isCompileLimit =
+    warning.severity === 'error' && COMPILE_LIMIT_LINT_CODES.has(warning.rule);
   const issue: RuleIssue = {
     code: warning.rule,
     severity: warning.severity,
     message: warning.message,
-    origin: 'lint',
+    origin: isCompileLimit ? 'parse' : 'lint',
   };
   if (warning.location?.matchPath) issue.path = warning.location.matchPath;
   if (warning.fix) issue.fix = warning.fix;

@@ -23,6 +23,7 @@ import type {
   MatchBlock,
 } from '../grammar/FirestoreAST.js';
 import type { LintWarning } from './linter.js';
+import { stripCommentsAndStrings } from './ast-utils.js';
 
 // ─── Known-bad sets ───────────────────────────────────────────────────
 
@@ -180,14 +181,13 @@ const SYNTAX_HINTS: Array<{ pattern: RegExp; message: string }> = [
 ];
 
 /**
- * Pre-parse syntactic check. Strips comments, scans the source for the
- * SYNTAX_HINTS patterns, emits one `INVALID_OPERATOR` per distinct hit.
+ * Pre-parse syntactic check. Strips comments and string literal contents,
+ * scans the source for the SYNTAX_HINTS patterns, emits one `INVALID_OPERATOR`
+ * per distinct hit.
  */
 export function checkSyntaxHints(source: string): LintWarning[] {
   const warnings: LintWarning[] = [];
-  const stripped = source
-    .replace(/\/\/[^\n]*/g, '')
-    .replace(/\/\*[\s\S]*?\*\//g, '');
+  const stripped = stripCommentsAndStrings(source);
   for (const hint of SYNTAX_HINTS) {
     if (hint.pattern.test(stripped)) {
       warnings.push({
@@ -208,51 +208,68 @@ interface Loc {
   ruleIndex?: number;
 }
 
+type ExprVisitor = (
+  expr: Expression,
+  loc: Loc,
+  scope: ReadonlySet<string>,
+  localVars: ReadonlySet<string>,
+) => void;
+
 /**
  * Visit every expression in the match tree, carrying the set of
- * user-defined function names visible where the expression sits. Scope
- * accumulates outward-in: a block sees its own declarations plus every
- * enclosing scope's, which is the resolution order the simulator
- * implements in `simulator/match-resolution.ts`.
+ * user-defined function names and local variables/captures visible where the
+ * expression sits.
  */
 function walkAllExpressions(
   match: MatchBlock,
   inheritedScope: ReadonlySet<string>,
-  visit: (expr: Expression, loc: Loc, scope: ReadonlySet<string>) => void,
+  inheritedVars: ReadonlySet<string>,
+  visit: ExprVisitor,
 ) {
   const path = match.path.raw;
   const scope = new Set(inheritedScope);
   for (const fn of match.functions) scope.add(fn.name);
+  const matchVars = new Set(inheritedVars);
+  for (const seg of match.path.segments) {
+    if (seg.type !== 'literal') matchVars.add(seg.name);
+  }
   for (const fn of match.functions) {
     const loc: Loc = { matchPath: path, functionName: fn.name };
-    walkExpr(fn.body, loc, scope, visit);
-    for (const b of fn.lets) walkExpr(b.value, loc, scope, visit);
+    const fnVars = new Set([...matchVars, ...fn.parameters]);
+    for (const b of fn.lets) {
+      walkExpr(b.value, loc, scope, fnVars, visit);
+      fnVars.add(b.name);
+    }
+    walkExpr(fn.body, loc, scope, fnVars, visit);
   }
   for (let i = 0; i < match.allows.length; i++) {
-    walkExpr(match.allows[i].condition, { matchPath: path, ruleIndex: i }, scope, visit);
+    walkExpr(match.allows[i].condition, { matchPath: path, ruleIndex: i }, scope, matchVars, visit);
   }
-  for (const child of match.children) walkAllExpressions(child, scope, visit);
+  for (const child of match.children) walkAllExpressions(child, scope, matchVars, visit);
 }
 
 function walkExpr(
   expr: Expression,
   loc: Loc,
   scope: ReadonlySet<string>,
-  visit: (expr: Expression, loc: Loc, scope: ReadonlySet<string>) => void,
+  localVars: ReadonlySet<string>,
+  visit: ExprVisitor,
 ) {
-  visit(expr, loc, scope);
+  visit(expr, loc, scope, localVars);
   switch (expr.type) {
-    case 'binaryOp': walkExpr(expr.left, loc, scope, visit); walkExpr(expr.right, loc, scope, visit); break;
-    case 'unaryOp': walkExpr(expr.operand, loc, scope, visit); break;
-    case 'methodCall': walkExpr(expr.object, loc, scope, visit); expr.args.forEach(a => walkExpr(a, loc, scope, visit)); break;
-    case 'memberAccess': walkExpr(expr.object, loc, scope, visit); break;
-    case 'bracketAccess': walkExpr(expr.object, loc, scope, visit); walkExpr(expr.index, loc, scope, visit); break;
-    case 'ternary': walkExpr(expr.condition, loc, scope, visit); walkExpr(expr.consequent, loc, scope, visit); walkExpr(expr.alternate, loc, scope, visit); break;
-    case 'inExpr': walkExpr(expr.element, loc, scope, visit); walkExpr(expr.collection, loc, scope, visit); break;
-    case 'isExpr': walkExpr(expr.value, loc, scope, visit); break;
-    case 'listLiteral': expr.elements.forEach(e => walkExpr(e, loc, scope, visit)); break;
-    case 'mapLiteral': expr.entries.forEach(en => { walkExpr(en.key, loc, scope, visit); walkExpr(en.value, loc, scope, visit); }); break;
-    case 'functionCall': expr.args.forEach(a => walkExpr(a, loc, scope, visit)); break;
+    case 'binaryOp': walkExpr(expr.left, loc, scope, localVars, visit); walkExpr(expr.right, loc, scope, localVars, visit); break;
+    case 'unaryOp': walkExpr(expr.operand, loc, scope, localVars, visit); break;
+    case 'methodCall': walkExpr(expr.object, loc, scope, localVars, visit); expr.args.forEach(a => walkExpr(a, loc, scope, localVars, visit)); break;
+    case 'memberAccess': walkExpr(expr.object, loc, scope, localVars, visit); break;
+    case 'bracketAccess': walkExpr(expr.object, loc, scope, localVars, visit); walkExpr(expr.index, loc, scope, localVars, visit); break;
+    case 'sliceAccess': walkExpr(expr.object, loc, scope, localVars, visit); walkExpr(expr.start, loc, scope, localVars, visit); walkExpr(expr.end, loc, scope, localVars, visit); break;
+    case 'ternary': walkExpr(expr.condition, loc, scope, localVars, visit); walkExpr(expr.consequent, loc, scope, localVars, visit); walkExpr(expr.alternate, loc, scope, localVars, visit); break;
+    case 'inExpr': walkExpr(expr.element, loc, scope, localVars, visit); walkExpr(expr.collection, loc, scope, localVars, visit); break;
+    case 'isExpr': walkExpr(expr.value, loc, scope, localVars, visit); break;
+    case 'listLiteral': expr.elements.forEach(e => walkExpr(e, loc, scope, localVars, visit)); break;
+    case 'mapLiteral': expr.entries.forEach(en => { walkExpr(en.key, loc, scope, localVars, visit); walkExpr(en.value, loc, scope, localVars, visit); }); break;
+    case 'functionCall': expr.args.forEach(a => walkExpr(a, loc, scope, localVars, visit)); break;
+    case 'pathLiteral': expr.segments.forEach(s => { if (typeof s !== 'string') walkExpr(s, loc, scope, localVars, visit); }); break;
   }
 }
 
@@ -280,7 +297,7 @@ function isUnresolvedDebugCall(
 }
 
 function isHallucinatedMethodCall(expr: Expression): boolean {
-  return expr.type === 'methodCall' && Boolean(HALLUCINATED_METHODS[expr.method]);
+  return expr.type === 'methodCall' && Object.hasOwn(HALLUCINATED_METHODS, expr.method);
 }
 
 function isUnsupportedMathMethodCall(expr: Expression): boolean {
@@ -297,18 +314,23 @@ function isBareMapMembershipCall(expr: Expression): boolean {
   return isKnownMap;
 }
 
-function isHallucinatedGlobalMethodCall(expr: Expression): boolean {
+function isHallucinatedGlobalMethodCall(expr: Expression, localVars: ReadonlySet<string>): boolean {
   if (expr.type !== 'methodCall') return false;
   if (expr.object.type !== 'identifier') return false;
-  return Boolean(HALLUCINATED_GLOBALS[expr.object.name]);
+  if (localVars.has(expr.object.name)) return false;
+  return Object.hasOwn(HALLUCINATED_GLOBALS, expr.object.name);
 }
 
-function isHallucinatedGlobalFunctionCall(expr: Expression): boolean {
-  return expr.type === 'functionCall' && Boolean(HALLUCINATED_GLOBALS[expr.name]);
+function isHallucinatedGlobalFunctionCall(expr: Expression, scope: ReadonlySet<string>): boolean {
+  if (expr.type !== 'functionCall') return false;
+  if (scope.has(expr.name)) return false;
+  return Object.hasOwn(HALLUCINATED_GLOBALS, expr.name);
 }
 
-function isHallucinatedGlobalIdentifier(expr: Expression): boolean {
-  return expr.type === 'identifier' && Boolean(HALLUCINATED_GLOBALS[expr.name]);
+function isHallucinatedGlobalIdentifier(expr: Expression, localVars: ReadonlySet<string>): boolean {
+  if (expr.type !== 'identifier') return false;
+  if (localVars.has(expr.name)) return false;
+  return Object.hasOwn(HALLUCINATED_GLOBALS, expr.name);
 }
 
 function isWrongContextPath(expr: Expression): { suggestion: string } | undefined {
@@ -377,11 +399,12 @@ export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?:
 
   // Functions declared above `service` and directly inside it are visible
   // everywhere below, so they seed the scope the walk carries down.
-  const outerScope = new Set<string>();
-  for (const fn of ast.functions ?? []) outerScope.add(fn.name);
+  const globalScope = new Set<string>();
+  for (const fn of ast.functions ?? []) globalScope.add(fn.name);
+  const outerScope = new Set<string>(globalScope);
   for (const fn of ast.service.functions ?? []) outerScope.add(fn.name);
 
-  walkAllExpressions(ast.service.match, outerScope, (expr, loc, scope) => {
+  const visitNode: ExprVisitor = (expr, loc, scope, localVars) => {
     if (isUnresolvedDebugCall(expr, scope, options.allowDebug)) {
       emit('HALLUCINATED_GLOBAL', 'debug', loc, {
         rule: 'HALLUCINATED_GLOBAL',
@@ -431,7 +454,7 @@ export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?:
       }
     }
 
-    if (isHallucinatedGlobalMethodCall(expr)) {
+    if (isHallucinatedGlobalMethodCall(expr, localVars)) {
       if (expr.type === 'methodCall' && expr.object.type === 'identifier') {
         const name = expr.object.name;
         emit('HALLUCINATED_GLOBAL', `${name}.${expr.method}`, loc, {
@@ -444,7 +467,7 @@ export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?:
       }
     }
 
-    if (isHallucinatedGlobalFunctionCall(expr)) {
+    if (isHallucinatedGlobalFunctionCall(expr, scope)) {
       if (expr.type === 'functionCall') {
         emit('HALLUCINATED_GLOBAL', expr.name, loc, {
           rule: 'HALLUCINATED_GLOBAL',
@@ -456,7 +479,7 @@ export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?:
       }
     }
 
-    if (isHallucinatedGlobalIdentifier(expr)) {
+    if (isHallucinatedGlobalIdentifier(expr, localVars)) {
       if (expr.type === 'identifier') {
         emit('HALLUCINATED_GLOBAL', `ref:${expr.name}`, loc, {
           rule: 'HALLUCINATED_GLOBAL',
@@ -539,7 +562,29 @@ export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?:
         });
       }
     }
-  });
+  };
+
+  for (const fn of ast.functions ?? []) {
+    const loc: Loc = { functionName: fn.name };
+    const fnVars = new Set(fn.parameters);
+    for (const b of fn.lets) {
+      walkExpr(b.value, loc, globalScope, fnVars, visitNode);
+      fnVars.add(b.name);
+    }
+    walkExpr(fn.body, loc, globalScope, fnVars, visitNode);
+  }
+
+  for (const fn of ast.service.functions ?? []) {
+    const loc: Loc = { functionName: fn.name };
+    const fnVars = new Set(fn.parameters);
+    for (const b of fn.lets) {
+      walkExpr(b.value, loc, outerScope, fnVars, visitNode);
+      fnVars.add(b.name);
+    }
+    walkExpr(fn.body, loc, outerScope, fnVars, visitNode);
+  }
+
+  walkAllExpressions(ast.service.match, outerScope, new Set(), visitNode);
 
   return warnings;
 }
