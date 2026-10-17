@@ -134,4 +134,58 @@ describe('RTDB worker connection lifecycle', () => {
     expect((await client.rtdbGet(client.rtdbRef(observerDb, 'rulesTarget'))).val()).toBe('seed');
     expect((await client.rtdbGet(client.rtdbRef(observerDb, 'drainControl'))).val()).toBe('drained');
   });
+
+  it('cancelling an unqueued child keeps a parent set whole so a tightened parent .write denies it and setWithPriority keeps its priority (#1021)', async () => {
+    const ctx = await makeHostCtx();
+    const { db: writerClient } = connectClientToHost(ctx, 'worker://disconnect-1021-cancel-writer');
+    const { db: observerClient } = connectClientToHost(ctx, 'worker://disconnect-1021-cancel-observer');
+    const writerDb = client.rtdbGetDatabase(writerClient);
+    const observerDb = client.rtdbGetDatabase(observerClient);
+    const tight = "root.child('flags').child('tight').val() != true";
+    await client.setDatabaseRules(writerClient, {
+      rules: {
+        '.read': true,
+        flags: { '.write': true },
+        doc: { '.write': tight, $k: { '.write': true } },
+        prio: { '.write': true },
+      },
+    });
+    await client.rtdbSet(client.rtdbRef(writerDb, 'doc'), { a: 1, keep: 'x' });
+    await client.rtdbSet(client.rtdbRef(writerDb, 'flags/tight'), false);
+    await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'doc')).set({ a: 2 });
+    await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'doc/neverQueued')).cancel();
+    await client.rtdbSet(client.rtdbRef(writerDb, 'flags/tight'), true);
+
+    await client.rtdbSet(client.rtdbRef(writerDb, 'prio'), { a: 1, keep: 'x' });
+    await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'prio')).setWithPriority({ a: 2 }, 9);
+    await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'prio/neverQueued')).cancel();
+
+    client.rtdbGoOffline(writerDb);
+    await sleep();
+    expect((await client.rtdbGet(client.rtdbRef(observerDb, 'doc'))).exportVal()).toEqual({ a: 1, keep: 'x' });
+    expect((await client.rtdbGet(client.rtdbRef(observerDb, 'prio'))).exportVal()).toEqual({ a: 2, '.priority': 9 });
+  });
+
+  it('re-registering a parent remove or set replaces a queued descendant operation (#1021)', async () => {
+    for (const last of ['remove', 'set'] as const) {
+      const ctx = await makeHostCtx();
+      const { db: writerClient } = connectClientToHost(ctx, `worker://disconnect-1021-${last}-writer`);
+      const { db: observerClient } = connectClientToHost(ctx, `worker://disconnect-1021-${last}-observer`);
+      const writerDb = client.rtdbGetDatabase(writerClient);
+      const observerDb = client.rtdbGetDatabase(observerClient);
+      await client.setDatabaseRules(writerClient, { rules: { '.read': true, '.write': true } });
+      await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'pres')).set({ status: 'first' });
+      await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'pres/sub')).set('stale-child');
+      let expected: unknown = { status: 'second' };
+      if (last === 'remove') {
+        await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'pres')).remove();
+        expected = null;
+      } else {
+        await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'pres')).set({ status: 'second' });
+      }
+      client.rtdbGoOffline(writerDb);
+      await sleep();
+      expect((await client.rtdbGet(client.rtdbRef(observerDb, 'pres'))).exportVal()).toEqual(expected);
+    }
+  });
 });
