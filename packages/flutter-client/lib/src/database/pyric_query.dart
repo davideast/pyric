@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:collection/collection.dart';
 
+import 'connection_info.dart';
 import 'pyric_data_snapshot.dart';
 import 'pyric_database.dart';
 import 'pyric_database_reference.dart';
@@ -197,7 +198,12 @@ class PyricQuery {
   }
 
   /// Fetches a one-shot [PyricDataSnapshot] of the current data at this query's location.
+  ///
+  /// A path under `/.info` is answered by the client and never reaches the host.
   Future<PyricDataSnapshot> get() async {
+    if (isInfoPath(path)) {
+      return PyricDataSnapshot.fromWire(ref, database.connectionInfo.read(path));
+    }
     final spec = toQuerySpec();
     final res = await database.op('rtdb.get', {
       'path': path,

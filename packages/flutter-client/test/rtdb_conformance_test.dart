@@ -469,4 +469,49 @@ void main() {
       await sub.cancel();
     });
   });
+
+  // ── 10. Connection info served by the client (2 rows) ───────────────────
+  group('10. Connection info', () {
+    bool reachedHost(Map<String, dynamic> frame) =>
+        frame.toString().contains('.info');
+
+    test('rtdb-flutter#info-connected: ref(".info/connected").onValue follows the bridge connection and goOffline()/goOnline()', () async {
+      final values = <Object?>[];
+      final sub = db.ref('.info/connected').onValue.listen((event) {
+        values.add(event.snapshot.value);
+      });
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(values, [true]);
+
+      await db.goOffline();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(values, [true, false]);
+      expect((await db.ref('.info/connected').get()).value, isFalse);
+
+      await db.goOnline();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(values, [true, false, true]);
+      expect((await db.ref('.info/connected').get()).value, isTrue);
+
+      await sub.cancel();
+      expect(harness.receivedSubs.where(reachedHost), isEmpty);
+      expect(harness.receivedOps.where(reachedHost), isEmpty);
+    });
+
+    test('rtdb-flutter#info-root-offset: ref(".info") and ref(".info/serverTimeOffset") are served by the client with an offset of 0', () async {
+      final root = await db.ref('.info').onValue.first;
+      expect(root.snapshot.value, {'connected': true, 'serverTimeOffset': 0});
+      expect(root.snapshot.child('serverTimeOffset').value, 0);
+
+      final offset = await db.ref('.info/serverTimeOffset').get();
+      expect(offset.exists, isTrue);
+      expect(offset.value, 0);
+
+      final unserved = await db.ref('.info/authenticated').get();
+      expect(unserved.exists, isFalse);
+
+      expect(harness.receivedSubs.where(reachedHost), isEmpty);
+      expect(harness.receivedOps.where(reachedHost), isEmpty);
+    });
+  });
 }
