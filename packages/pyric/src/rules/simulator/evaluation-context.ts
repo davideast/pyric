@@ -67,6 +67,10 @@ export interface SimulationContext {
    *  exposes only the supplied data for these synthetic get() results; unlike a
    *  real DocStore read, no `id`/`__name__` identity is attached. */
   identitylessFunctionMocks?: ReadonlySet<string>;
+  /** `exists` function mocks, keyed by normalized relative path. The Rules
+   *  Test API mocks `exists` and `get` as separate functions, so an exists
+   *  mock answers exists() only and never supplies a get() document. */
+  existsMocks?: ReadonlyMap<string, boolean>;
   /** Lazy fault-in resolver. When a get()/exists() path misses
    *  {@link mockDocuments}, the evaluator resolves it through this (the DocStore
    *  point-read) and memoizes the result into mockDocuments. Lets the sandbox

@@ -30,6 +30,7 @@ import { EXPRESSION_LIMIT, ExpressionBudget, describeExpressionLimit } from './e
 import { ExpressionLimitError, ResourceLimitError } from './eval-error.js';
 import { projectAfterState } from './project-after-state.js';
 import { DOCUMENT_PATH_FORM, documentRelativePath } from './request-path.js';
+import { normalizeDocumentPath } from './document-lookups.js';
 import {
   requestQuery,
   resolveServerTimestamps,
@@ -295,19 +296,21 @@ function buildContext(
   const fnMap = new Map<string, FunctionDef>();
   for (const fn of functions) fnMap.set(fn.name, fn);
 
+  // `get` and `exists` are separate Rules Test API functions with separate
+  // mocks (FS-CON-6): a get mock seeds get()'s document, an exists mock only
+  // answers exists(). Both key on the normalized document path, the form
+  // lookups resolve and `buildFunctionMock` sends to production, so mock
+  // order and path spelling do not change the verdict.
   const mockDocs = new Map<string, Record<string, unknown>>();
   const identitylessFunctionMocks = new Set<string>();
-  if (tc.functionMocks) {
-    for (const mock of tc.functionMocks) {
-      if (mock.function === 'get' && typeof mock.result === 'object' && mock.result !== null) {
-        mockDocs.set(mock.path, reviveFirestoreNumbers(mock.result) as Record<string, unknown>);
-        identitylessFunctionMocks.add(mock.path);
-      } else if (mock.function === 'exists') {
-        if (mock.result === true) {
-          mockDocs.set(mock.path, {});
-          identitylessFunctionMocks.add(mock.path);
-        }
-      }
+  const existsMocks = new Map<string, boolean>();
+  for (const mock of tc.functionMocks ?? []) {
+    const mockPath = normalizeDocumentPath(mock.path);
+    if (mock.function === 'get' && typeof mock.result === 'object' && mock.result !== null) {
+      mockDocs.set(mockPath, reviveFirestoreNumbers(mock.result) as Record<string, unknown>);
+      identitylessFunctionMocks.add(mockPath);
+    } else if (mock.function === 'exists') {
+      existsMocks.set(mockPath, mock.result === true);
     }
   }
 
@@ -436,6 +439,7 @@ function buildContext(
       : { data: reviveFirestoreNumbers(existing) as Record<string, unknown> },  // NOT resolved — resource is pre-write, no sentinels
     mockDocuments: mockDocs,
     identitylessFunctionMocks,
+    existsMocks,
     getDoc,
     pathVariables,
     functions: fnMap,
@@ -603,19 +607,29 @@ export class SimulateFirestoreRulesHandler {
       // `match /menuItems/{id}` exactly like the emulator does. Doc-style
       // list paths (`menuItems/any`) keep resolving on the first attempt,
       // so existing call sites are unaffected. (RULES-LIST parity scenario.)
+      //
+      // A collection path (odd segment count) always widens, not only when
+      // nothing matched: a `{document=**}` block also matches the bare
+      // collection path, and evaluating only that block let a sibling
+      // recursive deny shadow `match /menuItems/{id}`'s list grant
+      // (FS-COV-6b). The widened path's blocks are the ones the document-path
+      // form `list menuItems/<id>` resolves, which production ORs (corpus
+      // `simcase-mock-and-path-fidelity`). When the widened path matches
+      // nothing, the direct matches stand.
       let syntheticListDoc = false;
-      const isMatchesZero = matches.length === 0;
       const isListMethod = tc.method === 'list';
-      if (isMatchesZero) {
-        if (isListMethod) {
-          const widened = [...pathSegments, '__hypothetical_doc__'];
-          for (const child of ast.service.match.children) {
-            matches.push(...collectMatches(child, widened, rootFunctions, pathRecorder));
-          }
-          const isMatchesNonZero = matches.length > 0;
-          if (isMatchesNonZero) {
-            syntheticListDoc = true;
-          }
+      const isCollectionPath = pathSegments.length % 2 === 1;
+      const shouldWiden = isListMethod && (isCollectionPath || matches.length === 0);
+      if (shouldWiden) {
+        const widened = [...pathSegments, '__hypothetical_doc__'];
+        const widenedMatches: MatchResult[] = [];
+        for (const child of ast.service.match.children) {
+          widenedMatches.push(...collectMatches(child, widened, rootFunctions, pathRecorder));
+        }
+        const isWidenedNonZero = widenedMatches.length > 0;
+        if (isWidenedNonZero) {
+          matches = widenedMatches;
+          syntheticListDoc = true;
         }
       }
       const pathResolution: PathResolutionTrace = {

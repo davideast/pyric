@@ -88,6 +88,10 @@ export function resolveExists(rawPath: string, context: SimulationContext): bool
       `exists() requires a path pointing to a document (even segment count), got '${path}'`,
     );
   }
+  // An exists mock answers exists() first, whatever else is known about
+  // the path (FS-CON-6).
+  const mocked = context.existsMocks?.get(path);
+  if (mocked !== undefined) return mocked;
   if (context.mockDocuments.has(path)) return true;
   if (context.getDoc) {
     const loaded = context.getDoc(path);

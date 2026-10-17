@@ -637,6 +637,7 @@
         "resource-document-identity",
         "resource-missing-document",
         "set-algebra-difference-union-intersection",
+        "simcase-mock-and-path-fidelity",
         "simulator-language-semantics",
         "strict-boolean-control-flow",
         "string-literals-and-regex",
@@ -661,10 +662,12 @@
       "classification": "conformant",
       "verifiedBy": [
         "functions-verbs-and-recursive",
-        "get-missing-doc"
+        "get-missing-doc",
+        "simcase-mock-and-path-fidelity"
       ],
       "verifiedByRows": [
-        "firestore-rules#165"
+        "firestore-rules#165",
+        "firestore-rules#197"
       ],
       "divergedByRows": []
     },
@@ -681,11 +684,13 @@
       "classification": "conformant",
       "verifiedBy": [
         "get-missing-doc",
+        "simcase-mock-and-path-fidelity",
         "simulator-language-semantics"
       ],
       "verifiedByRows": [
         "firestore-rules#165",
-        "firestore-rules#196"
+        "firestore-rules#196",
+        "firestore-rules#197"
       ],
       "divergedByRows": []
     },
@@ -1545,6 +1550,7 @@
       "verifiedBy": [
         "functions-verbs-and-recursive",
         "globals-request-path-and-resource-id",
+        "simcase-mock-and-path-fidelity",
         "simulator-language-semantics"
       ],
       "verifiedByRows": [],
@@ -2287,6 +2293,7 @@
         "resource-document-identity",
         "resource-missing-document",
         "set-algebra-difference-union-intersection",
+        "simcase-mock-and-path-fidelity",
         "simulator-language-semantics",
         "strict-boolean-control-flow",
         "string-literals-and-regex",
@@ -2553,6 +2560,7 @@
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "set-algebra-difference-union-intersection",
+        "simcase-mock-and-path-fidelity",
         "strict-boolean-control-flow",
         "string-literals-and-regex",
         "time-math-and-casts",
@@ -2617,6 +2625,7 @@
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "set-algebra-difference-union-intersection",
+        "simcase-mock-and-path-fidelity",
         "simulator-language-semantics",
         "strict-boolean-control-flow",
         "string-literals-and-regex",
@@ -2766,6 +2775,7 @@
         "resource-document-identity",
         "resource-missing-document",
         "set-algebra-difference-union-intersection",
+        "simcase-mock-and-path-fidelity",
         "simulator-language-semantics",
         "strict-boolean-control-flow",
         "string-literals-and-regex",
@@ -2839,6 +2849,7 @@
         "global-and-service-scope-functions",
         "hierarchical-match-cascade",
         "optional-rules-version",
+        "simcase-mock-and-path-fidelity",
         "simulator-language-semantics",
         "string-literals-and-regex",
         "unsupported-feature-witness"
@@ -2901,7 +2912,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "functions-verbs-and-recursive"
+        "functions-verbs-and-recursive",
+        "simcase-mock-and-path-fidelity"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -2941,6 +2953,7 @@
         "range-slice-list-and-string",
         "required-fields-and-mapdiff",
         "set-algebra-difference-union-intersection",
+        "simcase-mock-and-path-fidelity",
         "strict-boolean-control-flow",
         "time-math-and-casts",
         "undefined-field-access"
@@ -3031,6 +3044,7 @@
         "resource-document-identity",
         "resource-missing-document",
         "set-algebra-difference-union-intersection",
+        "simcase-mock-and-path-fidelity",
         "simulator-language-semantics",
         "strict-boolean-control-flow",
         "string-literals-and-regex",
@@ -3126,6 +3140,7 @@
         "resource-document-identity",
         "resource-missing-document",
         "set-algebra-difference-union-intersection",
+        "simcase-mock-and-path-fidelity",
         "simulator-language-semantics",
         "strict-boolean-control-flow",
         "string-literals-and-regex",
@@ -3189,6 +3204,7 @@
         "resource-document-identity",
         "resource-missing-document",
         "set-algebra-difference-union-intersection",
+        "simcase-mock-and-path-fidelity",
         "simulator-language-semantics",
         "strict-boolean-control-flow",
         "string-literals-and-regex",
@@ -3215,9 +3231,12 @@
       "classification": "conformant",
       "verifiedBy": [
         "functions-verbs-and-recursive",
-        "hierarchical-match-cascade"
+        "hierarchical-match-cascade",
+        "simcase-mock-and-path-fidelity"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "firestore-rules#197"
+      ],
       "divergedByRows": []
     },
     "firestore.semantic.error-absorption-and": {

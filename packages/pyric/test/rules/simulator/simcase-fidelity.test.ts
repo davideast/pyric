@@ -143,3 +143,156 @@ describe('serverTimestamp() resolves inside arrays', () => {
     })).toBe('ALLOW');
   });
 });
+
+// FS-CON-6 / FS-COV-6a / FS-MET-6b. In the Rules Test API `get` and `exists`
+// are separate service functions, each with its own FunctionMock
+// (`spec.ts:buildFunctionMock` sends `{value: bool}` for exists and
+// `{value: {data}}` for get), and mock args are normalized document names
+// (`normalizeDocPath`). Production verdicts are pinned by the corpus scenario
+// `simcase-mock-and-path-fidelity`.
+describe('functionMocks: get and exists are separate, order-free, normalized', () => {
+  const docRule = (condition: string) => itemsRules(condition, 'get');
+
+  test('an exists mock does not fabricate a get() document', () => {
+    expect(decide(docRule('get(/databases/$(database)/documents/other/x).data.size() == 0'), {
+      method: 'get',
+      path: 'items/1',
+      functionMocks: [{ function: 'exists', path: 'other/x', result: true }],
+    })).toBe('DENY');
+  });
+
+  test('exists: false is honored next to a get mock', () => {
+    expect(decide(docRule('!exists(/databases/$(database)/documents/users/alice)'), {
+      method: 'get',
+      path: 'items/1',
+      functionMocks: [
+        { function: 'get', path: 'users/alice', result: { role: 'admin' } },
+        { function: 'exists', path: 'users/alice', result: false },
+      ],
+    })).toBe('ALLOW');
+  });
+
+  test('mock order does not change the verdict', () => {
+    const rules = docRule(
+      'exists(/databases/$(database)/documents/users/alice)'
+        + " && get(/databases/$(database)/documents/users/alice).data.role == 'admin'",
+    );
+    const getMock = { function: 'get' as const, path: 'users/alice', result: { role: 'admin' } };
+    const existsMock = { function: 'exists' as const, path: 'users/alice', result: true };
+    expect(decide(rules, { method: 'get', path: 'items/1', functionMocks: [existsMock, getMock] })).toBe('ALLOW');
+    expect(decide(rules, { method: 'get', path: 'items/1', functionMocks: [getMock, existsMock] })).toBe('ALLOW');
+  });
+
+  test('a leading-slash or full-name mock path names the same document', () => {
+    const rules = docRule(
+      'exists(/databases/$(database)/documents/users/alice)'
+        + " && get(/databases/$(database)/documents/users/bob).data.role == 'admin'",
+    );
+    expect(decide(rules, {
+      method: 'get',
+      path: 'items/1',
+      functionMocks: [
+        { function: 'exists', path: '/users/alice', result: true },
+        { function: 'get', path: '/databases/(default)/documents/users/bob', result: { role: 'admin' } },
+      ],
+    })).toBe('ALLOW');
+  });
+
+  test('a get mock still answers exists() when exists is not mocked (unchanged)', () => {
+    expect(decide(docRule('exists(/databases/$(database)/documents/users/alice)'), {
+      method: 'get',
+      path: 'items/1',
+      functionMocks: [{ function: 'get', path: 'users/alice', result: { role: 'admin' } }],
+    })).toBe('ALLOW');
+  });
+});
+
+// FS-COV-6b. Production ORs every matching block: a sibling `{document=**}`
+// read deny does not revoke a `match /menuItems/{id}` list grant. The
+// corpus scenario `simcase-mock-and-path-fidelity` pins ALLOW for the
+// document-path form the Rules Test API evaluates; the simulator's
+// collection-path convenience form (`list menuItems`) must agree with it.
+describe('collection-path list evaluates the document-level blocks', () => {
+  const rules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read: if false;
+    }
+    match /menuItems/{id} {
+      allow list: if true;
+    }
+  }
+}`;
+
+  test('a sibling recursive deny does not shadow the list grant', () => {
+    expect(decide(rules, { method: 'list', path: 'menuItems/m1' })).toBe('ALLOW');
+    expect(decide(rules, { method: 'list', path: 'menuItems' })).toBe('ALLOW');
+  });
+
+  test('a recursive-wildcard grant alone still answers a collection list', () => {
+    const open = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow list: if true;
+    }
+  }
+}`;
+    expect(decide(open, { method: 'list', path: 'menuItems' })).toBe('ALLOW');
+  });
+
+  test('a recursive-wildcard deny alone still denies a collection list', () => {
+    const closed = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow list: if false;
+    }
+  }
+}`;
+    expect(decide(closed, { method: 'list', path: 'menuItems' })).toBe('DENY');
+  });
+});
+
+// FS-MET-6a. Before this fix the batch arm keyed getAfter/existsAfter on the
+// normalized path, while the single-write arm compared the raw path string,
+// so a 1-op batch and a single write gave different verdicts for one rule.
+// The evidence is that surface disagreement (fs-verify-b/FS-MET-6.mjs). The
+// Rules Test API cannot capture write projection, because getAfter needs a
+// function mock there. Both arms now share one normalization: a leading
+// slash and the `/databases/(default)/documents` prefix name the target.
+// Firestore rejects `.` and `..` as document ids, so a path holding either
+// segment errors in both arms rather than resolving to some document.
+describe('getAfter/existsAfter: single-write and batch arms agree', () => {
+  const run = (condition: string, batch: boolean) => {
+    const rules = itemsRules(condition, 'create');
+    const r = handler.simulate(
+      rules,
+      [{ description: 'case', expectation: 'ALLOW', method: 'create', path: 'items/i1', data: { name: 'A' } }],
+      batch ? { batchProjection: new Map([['items/i1', { name: 'A' }]]) } : undefined,
+    );
+    if (!r.success) throw new Error(r.error.message);
+    return r.data.results[0]!.decision;
+  };
+
+  for (const condition of [
+    "getAfter(path('/items/' + id)).data.name == 'A'",
+    "existsAfter(path('/items/' + id))",
+    "getAfter(/databases/$(database)/documents/items/$(id)).data.name == 'A'",
+  ]) {
+    test(`ALLOW in both arms: ${condition}`, () => {
+      expect([run(condition, false), run(condition, true)]).toEqual(['ALLOW', 'ALLOW']);
+    });
+  }
+
+  for (const condition of [
+    "getAfter(/databases/$(database)/documents/items/./$(id)).data.name == 'A'",
+    'existsAfter(/databases/$(database)/documents/items/./$(id))',
+    "getAfter(/databases/$(database)/documents/other/../items/$(id)).data.name == 'A'",
+  ]) {
+    test(`DENY in both arms: ${condition}`, () => {
+      expect([run(condition, false), run(condition, true)]).toEqual(['DENY', 'DENY']);
+    });
+  }
+});
