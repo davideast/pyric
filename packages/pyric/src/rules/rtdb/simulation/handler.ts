@@ -307,34 +307,7 @@ function toValidateFailureResult(failure: ValidateFailure, trace: RtdbRuleEvalua
   };
 }
 
-/**
- * Return a new tree equal to `root` but with the value at `segments`
- * replaced by `value` (a `null`/`undefined` value deletes the node, same
- * as an RTDB write of `null`). Used to build the post-write tree so that
- * `newData` at an ANCESTOR of the write location reflects the merged
- * result at that ancestor's own path, not just the raw payload at the
- * deepest write path.
- */
-function withValueAt(root: unknown, segments: string[], value: unknown): unknown {
-  if (segments.length === 0) return value ?? null;
-
-  const [head, ...rest] = segments;
-  const currentObj: Record<string, unknown> =
-    root !== null && typeof root === 'object' && !Array.isArray(root)
-      ? { ...(root as Record<string, unknown>) }
-      : {};
-
-  const existingChild = Object.hasOwn(currentObj, head) ? currentObj[head] : null;
-  const childValue = withValueAt(existingChild, rest, value);
-
-  if (childValue === null || childValue === undefined) {
-    delete currentObj[head];
-  } else {
-    currentObj[head] = childValue;
-  }
-
-  return currentObj;
-}
+import { withValueAt } from './post-write-tree.js';
 
 /**
  * Build the single post-write tree that a write/validate evaluation sees as

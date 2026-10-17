@@ -179,7 +179,7 @@ export class WritePlane {
     const priors = this.children.snapshotParents();
     const priorNodePriority = this.state.priorities.get(path);
     this.state.tree.write(path, resolved);
-    this.state.priorities.replace(path, resolved === null ? null : priority);
+    this.state.priorities.replace(path, resolved === null ? null : priority, (p) => this.state.tree.read(p) !== null);
     this.storeNestedPriorities(path, written.nested);
     this.changed([path], priors);
     const after = this.state.tree.read(path);
@@ -212,7 +212,11 @@ export class WritePlane {
     else this.state.tree.shallowUpdate(path, Object.fromEntries(
       Object.entries(expanded).map(([absolute, value]) => [pathSegments(absolute).at(-1)!, value]),
     ));
-    this.state.priorities.applyUpdate(Object.entries(expanded).map(([writePath, value]) => ({ path: writePath, value })));
+    const hasNode = (p: string): boolean => this.state.tree.read(p) !== null;
+    this.state.priorities.applyUpdate(
+      Object.entries(expanded).map(([writePath, value]) => ({ path: writePath, value })),
+      hasNode,
+    );
     this.storePatchPriorities(inline);
     this.changed(Object.keys(expanded), priors);
     const detail = multiPath
@@ -377,7 +381,7 @@ export class WritePlane {
     const priors = this.children.snapshotParents();
     if (multiPath) this.state.tree.multiUpdate(expanded);
     else this.state.tree.shallowUpdate(path, shallowPatch);
-    this.state.priorities.applyUpdate(updates);
+    this.state.priorities.applyUpdate(updates, (p) => this.state.tree.read(p) !== null);
     this.storePatchPriorities(inline);
     this.changed(Object.keys(expanded), priors);
     const after = this.state.tree.read(path);
@@ -428,7 +432,7 @@ export class WritePlane {
     this.state.events.operation(auth, op, path, 'allow', evaluation, common);
     const priors = this.children.snapshotParents();
     this.state.tree.write(path, resolved);
-    this.state.priorities.replace(path, resolved === null ? null : priority);
+    this.state.priorities.replace(path, resolved === null ? null : priority, (p) => this.state.tree.read(p) !== null);
     this.storeNestedPriorities(path, written.nested);
     this.changed([path], priors);
     const after = this.state.tree.read(path);
@@ -473,11 +477,11 @@ export class WritePlane {
         (listener) => !listener.admin && listenerReadDependsOnPaths(rulesRoot, listener.path, canonicalChanged),
       );
       candidateChildren = [...this.state.childListeners].filter(
-        (listener) => listenerReadDependsOnPaths(rulesRoot, listener.path, canonicalChanged),
+        (listener) => !listener.admin && listenerReadDependsOnPaths(rulesRoot, listener.path, canonicalChanged),
       );
     } else {
       candidateValues = [...this.state.valueListeners].filter((listener) => !listener.admin);
-      candidateChildren = [...this.state.childListeners];
+      candidateChildren = [...this.state.childListeners].filter((listener) => !listener.admin);
     }
     if (candidateValues.length === 0 && candidateChildren.length === 0) return;
     const mockData = this.state.rulesSnapshot();

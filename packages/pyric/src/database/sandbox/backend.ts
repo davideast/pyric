@@ -145,7 +145,7 @@ export class RtdbBackend {
     auth: AuthState,
     path: string,
     updateFn: (current: JsonValue) => JsonValue | undefined,
-    options?: { applyLocally?: boolean },
+    options?: { applyLocally?: boolean; admin?: boolean },
   ): { committed: boolean; val: JsonValue; key: string | null } {
     assertWritable(path);
     return this.transactions.run(auth, path, updateFn, options);
@@ -161,6 +161,15 @@ export class RtdbBackend {
     onCanceled?: () => void,
   ): () => void {
     return this.children.onChild(auth, event, path, cb, spec, cancelCallback, onCanceled);
+  }
+
+  adminOnChild(
+    event: ChildListener['event'],
+    path: string,
+    cb: ChildListener['cb'],
+    spec?: QuerySpec,
+  ): () => void {
+    return this.children.adminOnChild(event, path, cb, spec);
   }
 
   off(

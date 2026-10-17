@@ -1,9 +1,10 @@
 import type { AuthState, RtdbDenialContext } from 'pyric/sandbox';
 import type { BackendState } from './backend-state.js';
 import type { ChildListeners } from './child-listeners.js';
-import { cloneJson, pathSegments, type JsonValue } from './data-tree.js';
-import { coerceArrays, normalizeWrite } from './normalize.js';
+import { cloneJson, joinPath, pathSegments, type JsonValue } from './data-tree.js';
+import { coerceArrays, normalizeWrite, withPriorities, writePriority, type InlinePriority } from './normalize.js';
 import { canonicalPath, denyResultFor, rtdbDenialContext } from './operation-events.js';
+import { validatePriority } from './priority-state.js';
 import { withDenialContext } from './rules-eval.js';
 import { resolveSentinels } from './sentinels.js';
 import type { ValueListeners } from './value-listeners.js';
@@ -25,9 +26,10 @@ export class Transactions {
     auth: AuthState,
     path: string,
     updateFn: (current: JsonValue) => JsonValue | undefined,
-    options?: { applyLocally?: boolean },
+    options?: { applyLocally?: boolean; admin?: boolean },
   ): { committed: boolean; val: JsonValue; key: string | null } {
     const applyLocally = options?.applyLocally !== false;
+    const isAdmin = options?.admin === true;
     const segments = pathSegments(path);
     const key = segments.length === 0 ? null : segments[segments.length - 1]!;
     let current: JsonValue = null;
@@ -39,7 +41,7 @@ export class Transactions {
       attempts += 1;
       const version = this.state.mutations.begin();
       current = this.state.tree.read(path);
-      visible = this.canRead(auth, path) ? current : null;
+      visible = isAdmin || this.canRead(auth, path) ? current : null;
       const input = visible === null ? null : coerceArrays(cloneJson(visible)) as JsonValue;
       let conflicted = false;
       try {
@@ -58,7 +60,7 @@ export class Transactions {
     const groupId = this.state.events.nextGroupId('transaction');
     if (proposed === undefined) {
       this.state.events.operation(auth, 'transaction', path, 'not-applicable', undefined, {
-        origin: 'transaction', groupId, groupKind: 'transaction',
+        origin: isAdmin ? 'admin' : 'transaction', groupId, groupKind: 'transaction',
         resourceBefore: { data: visible, exists: visible !== null },
         detail: { committed: false, aborted: true },
       });
@@ -70,47 +72,72 @@ export class Transactions {
       resolveSentinels(proposed, now, current) as JsonValue,
       path === '/' ? '' : path,
     );
+    const currentPriority = this.state.priorities.get(path);
+    const written = writePriority(proposed, currentPriority);
+    validatePriority(written.priority);
+    const effectivePriority = resolved === null ? null : written.priority;
     const at = this.state.clock.now();
-    const evaluation = this.state.rules.evaluate('write', path, {
-      auth, mockData: this.state.rulesSnapshot(), newData: resolved, now,
-    });
-    if (evaluation.check !== 'allow') {
-      this.state.events.operation(auth, 'transaction', path, denyResultFor(evaluation.check), evaluation, {
-        at, durationMs: this.state.clock.now() - at, origin: 'transaction',
-        request: { data: proposed, resourceData: proposed },
-        resourceBefore: { data: current, exists: current !== null },
-        resourceAfter: { data: resolved, exists: resolved !== null },
-        groupId, groupKind: 'transaction',
+    let evaluation: ReturnType<BackendState['rules']['evaluate']> | undefined;
+    if (!isAdmin) {
+      const newData = withPriorities(resolved, [
+        { segments: [], priority: effectivePriority },
+        ...written.nested,
+      ]);
+      evaluation = this.state.rules.evaluate('write', path, {
+        auth, mockData: this.state.rulesSnapshot(), newData, now,
       });
-      throw transactionPermissionDenied(rtdbDenialContext(evaluation, auth, 'transaction', path, { data: proposed }));
+      if (evaluation.check !== 'allow') {
+        this.state.events.operation(auth, 'transaction', path, denyResultFor(evaluation.check), evaluation, {
+          at, durationMs: this.state.clock.now() - at, origin: 'transaction',
+          request: { data: proposed, resourceData: proposed },
+          resourceBefore: { data: current, exists: current !== null },
+          resourceAfter: { data: resolved, exists: resolved !== null },
+          groupId, groupKind: 'transaction',
+        });
+        throw transactionPermissionDenied(rtdbDenialContext(evaluation, auth, 'transaction', path, { data: proposed }));
+      }
     }
+    const hasNode = (p: string): boolean => this.state.tree.read(p) !== null;
     if (applyLocally) {
-      const currentPriority = this.state.priorities.get(path);
       const childPriors = this.children.snapshotParents();
       this.state.tree.write(path, resolved);
-      this.state.priorities.replace(path, resolved === null ? null : currentPriority);
+      this.state.priorities.replace(path, effectivePriority, hasNode);
+      this.storeNestedPriorities(segments, written.nested, hasNode);
       this.values.fanOut([path]);
       this.children.fanOut(childPriors);
-      this.recordCommit(auth, path, proposed, current, resolved, groupId, now, at, true, evaluation);
+      this.recordCommit(auth, path, proposed, current, resolved, groupId, now, at, true, evaluation, isAdmin);
       return { committed: true, val: resolved, key };
     }
-    this.state.events.operation(auth, 'transaction', path, 'allow', evaluation, {
-      at, durationMs: this.state.clock.now() - at, origin: 'transaction',
+    const opResult = isAdmin ? 'not-applicable' : 'allow';
+    const opOrigin = isAdmin ? 'admin' : 'transaction';
+    this.state.events.operation(auth, 'transaction', path, opResult, evaluation, {
+      at, durationMs: this.state.clock.now() - at, origin: opOrigin,
       request: { data: proposed, resourceData: proposed },
       resourceBefore: { data: current, exists: current !== null },
       resourceAfter: { data: resolved, exists: resolved !== null },
       groupId, groupKind: 'transaction',
     });
-    const priority = this.state.priorities.get(path);
     const childPriors = this.children.snapshotParents();
     this.state.tree.write(path, resolved);
-    this.state.priorities.replace(path, resolved === null ? null : priority);
+    this.state.priorities.replace(path, effectivePriority, hasNode);
+    this.storeNestedPriorities(segments, written.nested, hasNode);
     this.state.mutations.mark(path);
     this.values.fanOut([path]);
     this.children.fanOut(childPriors);
     this.finishEvents(auth, path, proposed, current, resolved, groupId, now, false);
     this.state.notifyWrite();
     return { committed: true, val: resolved, key };
+  }
+
+  private storeNestedPriorities(
+    baseSegments: string[],
+    nested: readonly InlinePriority[],
+    hasNode: (path: string) => boolean,
+  ): void {
+    for (const { segments, priority } of nested) {
+      const target = joinPath([...baseSegments, ...segments]);
+      this.state.priorities.set(target, hasNode(target) ? priority : null);
+    }
   }
 
   private canRead(auth: AuthState, path: string): boolean {
@@ -125,10 +152,13 @@ export class Transactions {
   private recordCommit(
     auth: AuthState, path: string, proposed: JsonValue, current: JsonValue,
     resolved: JsonValue, groupId: string, now: number, at: number, applyLocally: boolean,
-    evaluation: ReturnType<BackendState['rules']['evaluate']>,
+    evaluation: ReturnType<BackendState['rules']['evaluate']> | undefined,
+    isAdmin: boolean,
   ): void {
-    this.state.events.operation(auth, 'transaction', path, 'allow', evaluation, {
-      at, durationMs: this.state.clock.now() - at, origin: 'transaction',
+    const opResult = isAdmin ? 'not-applicable' : 'allow';
+    const opOrigin = isAdmin ? 'admin' : 'transaction';
+    this.state.events.operation(auth, 'transaction', path, opResult, evaluation, {
+      at, durationMs: this.state.clock.now() - at, origin: opOrigin,
       request: { data: proposed, resourceData: proposed },
       resourceBefore: { data: current, exists: current !== null },
       resourceAfter: { data: resolved, exists: resolved !== null },
