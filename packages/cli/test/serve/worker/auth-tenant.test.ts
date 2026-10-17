@@ -11,7 +11,7 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
 import * as client from '../../../src/serve/worker/client.js';
-import { connectClientToHost, makeHostCtx, sleep } from './integration-support.js';
+import { connectClientToHost, makeHostCtx } from './integration-support.js';
 
 const TENANT_SCOPED = `rules_version = '2';
 service cloud.firestore {
@@ -67,7 +67,7 @@ describe('worker-mode Auth.tenantId', () => {
     const auth = client.getAuth(db);
     auth.tenantId = 'acme';
     await client.signInAnonymously(auth);
-    await sleep();
+    // The host set the port session before it answered sign-in (host-auth.ts).
 
     await client.setDoc(client.doc(db, 'tenants/acme/notes/n1'), { body: 'in tenant' });
 
@@ -81,7 +81,7 @@ describe('worker-mode Auth.tenantId', () => {
     const { db } = await connectTenantHost('worker://tenant-untenanted');
     const auth = client.getAuth(db);
     await client.signInAnonymously(auth);
-    await sleep();
+    // The host set the port session before it answered sign-in (host-auth.ts).
 
     await expect(client.setDoc(client.doc(db, 'tenants/acme/notes/n1'), { body: 'nope' }))
       .rejects.toThrow(/permission|denied/i);

@@ -19,7 +19,7 @@ import type { Page } from '@playwright/test';
 import { scenario, sleep, type App } from '../driver.ts';
 
 interface Outcome { name: string; state: 'pending' | 'fulfilled' | 'rejected'; code?: string; message?: string }
-declare const counters: { connected(): boolean | null; arm(): void; outcomes(): Outcome[] };
+declare const counters: { connected(): boolean | null; arm(): void; outcomes(): Outcome[]; barrier(): Promise<boolean> };
 declare let restartToken: string | undefined;
 
 const NOT_RESTORED = 'The hosted sandbox connection was not restored within 10 seconds. The request was not sent.';
@@ -151,8 +151,9 @@ export default scenario(async (app) => {
 
   await app.step('the restarted host never received the failed writes', async () => {
     // A held write would be sent as the client re-attached, before it reported
-    // the connection; allow the host a moment to apply one if it was sent.
-    await sleep(1_000);
+    // the connection. Writes the page issues now follow it on the same session,
+    // which the host applies in order, so their answers mean it would have landed.
+    await within('page.evaluate(() => counters.barrier())', 10_000, page.evaluate(() => counters.barrier()));
     const read = await readCounters(app, restarted.url);
     // The counters read 1, not null: the host's state survived the process restart,
     // so an unchanged readback shows the writes were not applied.

@@ -15,7 +15,7 @@ import * as inPageAuth from 'pyric/auth';
 import * as client from '../../../src/serve/worker/client.js';
 import { makeSnapshot } from '../../../src/serve/worker/client/snapshots.js';
 import { refuseInvalidInboundMessage } from '../../../src/serve/worker/inbound-validation.js';
-import { makeHostCtx, connectClientToHost, sleep } from './integration-support.js';
+import { makeHostCtx, connectClientToHost, sleep, until } from './integration-support.js';
 
 const OPEN_RULES = `rules_version = '2';
 service cloud.firestore {
@@ -52,12 +52,15 @@ async function withServed(
 ): Promise<void> {
   const previousWorker = globalThis.SharedWorker;
   const ctx = await makeHostCtx();
+  // Answered once the host has handled every frame the test sent, its last unsub included.
+  let drained: () => Promise<unknown> = async () => undefined;
   try {
     setRules(ctx.sandbox, OPEN_RULES);
     const { db } = connectClientToHost(ctx, `worker://${name}`);
+    drained = () => client.getWorkerInstanceId(db).catch(() => undefined);
     await run(db);
   } finally {
-    await sleep();
+    await drained();
     getInternalEnv(ctx.sandbox).dispose();
     globalThis.SharedWorker = previousWorker;
   }
@@ -75,7 +78,7 @@ test('a served query listener reports added, modified and removed with oldIndex 
       (e) => errors.push(e),
     );
     try {
-      await sleep();
+      await until(() => snaps.length + errors.length >= 1, 'initial query snapshot');
       expect(errors).toEqual([]);
       expect(snaps).toHaveLength(1);
       expect(summarize(snaps[0]!.docChanges())).toEqual([
@@ -84,26 +87,26 @@ test('a served query listener reports added, modified and removed with oldIndex 
       ]);
 
       await client.setDoc(client.doc(db, 'widgets/c'), { n: 3 });
-      await sleep();
+      await until(() => snaps.length >= 2, 'widgets/c snapshot');
       expect(summarize(snaps.at(-1)!.docChanges())).toEqual([
         { type: 'added', path: 'widgets/c', data: { n: 3 }, oldIndex: -1, newIndex: 2 },
       ]);
 
       await client.updateDoc(client.doc(db, 'widgets/a'), { n: 9 });
-      await sleep();
+      await until(() => snaps.length >= 3, 'widgets/a update snapshot');
       expect(summarize(snaps.at(-1)!.docChanges())).toEqual([
         { type: 'modified', path: 'widgets/a', data: { n: 9 }, oldIndex: 0, newIndex: 2 },
       ]);
 
       await client.deleteDoc(client.doc(db, 'widgets/b'));
-      await sleep();
+      await until(() => snaps.length >= 4, 'widgets/b delete snapshot');
       const removed = snaps.at(-1)!.docChanges();
       expect(summarize(removed)).toEqual([
         { type: 'removed', path: 'widgets/b', data: { n: 2 }, oldIndex: 0, newIndex: -1 },
       ]);
       // The removed document is a full snapshot: its ref is a write handle.
       await client.setDoc(removed[0]!.doc.ref as never, { n: 0 });
-      await sleep();
+      await until(() => snaps.length >= 5, 're-added widgets/b snapshot');
       expect(summarize(snaps.at(-1)!.docChanges())).toEqual([
         { type: 'added', path: 'widgets/b', data: { n: 0 }, oldIndex: -1, newIndex: 0 },
       ]);
@@ -120,7 +123,7 @@ test('docChanges() returns the same array on repeat calls and shares document sn
     const snaps: Snap[] = [];
     const stop = client.onSnapshot(client.collection(db, 'widgets'), (s) => snaps.push(s as unknown as Snap));
     try {
-      await sleep();
+      await until(() => snaps.length >= 1, 'initial snapshot');
       const snap = snaps[0]!;
       expect(snap.docChanges()).toBe(snap.docChanges());
       expect(snap.docChanges()[0]!.doc).toBe(snap.docs[0] as never);
@@ -138,9 +141,10 @@ test('includeMetadataChanges: the pending echo, then a settled metadata-only sna
     const stopMeta = client.onSnapshot(coll, { includeMetadataChanges: true }, (s) => meta.push(s as unknown as Snap));
     const stopPlain = client.onSnapshot(coll, (s) => plain.push(s as unknown as Snap));
     try {
-      await sleep();
+      await until(() => meta.length >= 1 && plain.length >= 1, 'initial snapshots');
       await client.setDoc(client.doc(db, 'widgets/a'), { n: 1 });
-      await sleep();
+      // The host drains a write's echo and settled ack before it answers the write.
+      await until(() => meta.length >= 3 && plain.length >= 2, 'pending echo and settled ack');
 
       expect(meta.map((s) => s.metadata.hasPendingWrites)).toEqual([false, true, false]);
       expect(plain.map((s) => s.metadata.hasPendingWrites)).toEqual([false, true]);
@@ -165,20 +169,20 @@ test('a served collection-group listener reports changes across collections with
     const errors: unknown[] = [];
     const stop = client.onSnapshot(client.collectionGroup(db, 'items'), (s) => snaps.push(s as unknown as Snap), (e) => errors.push(e));
     try {
-      await sleep();
+      await until(() => snaps.length + errors.length >= 1, 'initial group snapshot');
       expect(snaps[0]!.docChanges()).toEqual([]);
       await client.setDoc(client.doc(db, 'users/u1/items/a'), { n: 1 });
-      await sleep();
+      await until(() => snaps.length >= 2, 'users/u1/items/a snapshot');
       expect(summarize(snaps.at(-1)!.docChanges())).toEqual([
         { type: 'added', path: 'users/u1/items/a', data: { n: 1 }, oldIndex: -1, newIndex: 0 },
       ]);
       await client.setDoc(client.doc(db, 'items/b'), { n: 2 });
-      await sleep();
+      await until(() => snaps.length >= 3, 'items/b snapshot');
       const afterRoot = summarize(snaps.at(-1)!.docChanges());
       expect(afterRoot).toHaveLength(1);
       expect(afterRoot[0]).toMatchObject({ type: 'added', path: 'items/b', oldIndex: -1 });
       await client.deleteDoc(client.doc(db, 'users/u1/items/a'));
-      await sleep();
+      await until(() => snaps.length >= 4, 'users/u1/items/a delete snapshot');
       const afterDelete = summarize(snaps.at(-1)!.docChanges());
       expect(afterDelete).toHaveLength(1);
       expect(afterDelete[0]).toMatchObject({ type: 'removed', path: 'users/u1/items/a', newIndex: -1 });
@@ -225,7 +229,7 @@ test('served and in-page listeners report identical change lists and metadata fo
   const ipPlain: Snap[] = [];
   const ipStopMeta = inPage.onSnapshot(ipQuery, { includeMetadataChanges: true }, (s) => ipMeta.push(s as unknown as Snap));
   const ipStopPlain = inPage.onSnapshot(ipQuery, (s) => ipPlain.push(s as unknown as Snap));
-  await sleep();
+  await until(() => ipMeta.length >= 1 && ipPlain.length >= 1, 'in-page initial snapshots');
   await script({
     set: (p, d) => inPage.setDoc(inPage.doc(ipDb, p), d),
     update: (p, d) => inPage.updateDoc(inPage.doc(ipDb, p), d),
@@ -253,7 +257,7 @@ test('served and in-page listeners report identical change lists and metadata fo
     const plain: Snap[] = [];
     const stopMeta = client.onSnapshot(servedQuery, { includeMetadataChanges: true }, (s) => meta.push(s as unknown as Snap));
     const stopPlain = client.onSnapshot(servedQuery, (s) => plain.push(s as unknown as Snap));
-    await sleep();
+    await until(() => meta.length >= 1 && plain.length >= 1, 'served initial snapshots');
     await script({
       set: (p, d) => client.setDoc(client.doc(db, p), d),
       update: (p, d) => client.updateDoc(client.doc(db, p), d),

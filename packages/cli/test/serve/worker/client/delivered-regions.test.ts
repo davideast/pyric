@@ -8,7 +8,7 @@ import { rtdbGetDatabase, rtdbRef } from '../../../../src/serve/worker/client/rt
 import { rtdbOnValue } from '../../../../src/serve/worker/client/rtdb-listeners.js';
 import { rtdbSet } from '../../../../src/serve/worker/client/rtdb-writes.js';
 import { createDeliveredRegionStore, deliveredRegions, onDeliveredRegions } from '../../../../src/serve/worker/client/listener-delivery.js';
-import { makeHostCtx, connectClientToHost, sleep } from '../integration-support.js';
+import { makeHostCtx, connectClientToHost, until } from '../integration-support.js';
 
 const host = globalThis as { document?: unknown; MutationObserver?: unknown; SharedWorker?: unknown };
 let restore: () => void = () => {};
@@ -44,7 +44,7 @@ it('records the element a Firestore snapshot callback wrote, keyed by the activi
     page.querySelector('#live')!.textContent = String((snapshot as { exists(): boolean }).exists());
   });
   try {
-    await sleep();
+    await until(() => changes > 0, 'Firestore delivery regions');
     const id = subscriptionIds().find(candidate => !before.has(candidate))!;
     expect(id).toBeDefined();
     expect(deliveredRegions(id)).toEqual(['#live']);
@@ -66,11 +66,11 @@ it('records the element an RTDB value callback wrote, and keeps the last regions
     if (writes === 1) page.querySelector('#value')!.textContent = JSON.stringify(snapshot.val());
   });
   try {
-    await sleep();
+    await until(() => writes >= 1, 'initial RTDB value');
     const id = subscriptionIds().find(candidate => !before.has(candidate))!;
     expect(deliveredRegions(id)).toEqual(['#value']);
     await rtdbSet(node, { ada: 1 });
-    await sleep();
+    await until(() => writes >= 2, 'RTDB value after set');
     expect(writes).toBe(2);
     expect(deliveredRegions(id)).toEqual(['#value']);
   } finally {

@@ -124,7 +124,7 @@ beforeAll(async () => {
   for (const [docId, data] of items) {
     await fs.setDoc(fs.doc(db, `items/${docId}`), data);
   }
-  await sleep();
+  // Each seeding write was awaited, and nothing listens, so nothing is in flight.
 });
 
 afterAll(async () => {
