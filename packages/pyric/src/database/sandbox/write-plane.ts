@@ -183,12 +183,10 @@ export class WritePlane {
     this.storeNestedPriorities(path, written.nested);
     this.changed([path], priors);
     const after = this.state.tree.read(path);
+    const hasPriority = prioritySupplied || priorNodePriority !== null;
     this.state.events.commit(null, after === null ? 'remove' : 'set', path, {
-      data: value, priorState: before, nextState: after,
-      replay: { requestTime: now },
-      detail: prioritySupplied
-        ? { admin: true, priority, priorPriority: priorNodePriority }
-        : { admin: true },
+      data: value, priorState: before, nextState: after, replay: { requestTime: now },
+      detail: hasPriority ? { admin: true, priority, priorPriority: priorNodePriority } : { admin: true },
     });
     this.state.notifyWrite();
   }
@@ -437,12 +435,10 @@ export class WritePlane {
     this.changed([path], priors);
     const after = this.state.tree.read(path);
     const effectiveOp = after === null ? 'remove' : op;
+    const hasPriority = prioritySupplied || priorNodePriority !== null;
     this.state.events.commit(auth, effectiveOp, path, {
-      data: value,
-      priorState: before,
-      nextState: after,
-      replay: { requestTime: now },
-      ...(prioritySupplied ? { detail: { priority, priorPriority: priorNodePriority } } : {}),
+      data: value, priorState: before, nextState: after, replay: { requestTime: now },
+      detail: hasPriority ? { priority, priorPriority: priorNodePriority } : undefined,
     });
     this.state.events.mutation(auth, effectiveOp, canonicalPath(path), { before, after });
     this.state.notifyWrite();

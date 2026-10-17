@@ -197,7 +197,10 @@ export function inlinePriorities(value: unknown): InlinePriority[] {
       }
       if (!isServerValue) found.push({ segments, priority: priority as string | number | null });
     }
-    if (isObject && Object.hasOwn(node, '.value')) return;
+    if (isObject && Object.hasOwn(node, '.value')) {
+      walk((node as Record<string, unknown>)['.value'], segments);
+      return;
+    }
     for (const [key, child] of Object.entries(node)) {
       if (key.startsWith('.')) continue;
       walk(child, [...segments, key]);
@@ -258,6 +261,17 @@ export function withPriorities(value: JsonValue, entries: readonly InlinePriorit
     container[last] = withOwnPriority(container[last], priority!);
   }
   return root as JsonValue;
+}
+
+/**
+ * Normalize a resolved write value into the shape RTDB security rules read
+ * (`newData`), converting arrays to integer-keyed objects, pruning null and
+ * empty nodes, and re-attaching inline `.priority` metadata on surviving nodes.
+ */
+export function normalizeRuleWrite(value: unknown, priority: string | number | null = null): JsonValue {
+  const written = writePriority(value, priority);
+  const normalized = normalizeNode(value);
+  return withPriorities(normalized, [{ segments: [], priority: written.priority }, ...written.nested]);
 }
 
 /**

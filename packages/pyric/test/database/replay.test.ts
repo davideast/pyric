@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { initializeSandbox } from 'pyric/sandbox';
+import { getClock, initializeSandbox } from 'pyric/sandbox';
 import {
   equalTo,
   getAdminDatabase,
@@ -11,6 +11,7 @@ import {
   get,
   remove,
   runTransaction,
+  serverTimestamp,
   set,
   setPriority,
   setWithPriority,
@@ -148,6 +149,51 @@ describe('database replay()', () => {
     const result = await replay(sandbox.history(), { rules: ALLOW_ALL });
     expect(result.ok).toBe(true);
     expect((await get(ref(getDatabase(result.sandbox), '/ranked/item'))).priority).toBe(3);
+  });
+
+  it('replays commits at their recorded requestTime for serverTimestamp() and now rules (MET-5a)', async () => {
+    const rulesTs = {
+      rules: { ts: { '.write': 'newData.val() === 1700000000000 && now === 1700000000000' } },
+    };
+    const sbTs = initializeSandbox();
+    getClock(sbTs).set(1700000000000);
+    const dbTs = getDatabase(sbTs.withAuth({ uid: 'u1' }));
+    rtdbSandbox.setRules(dbTs, rulesTs);
+    await set(ref(dbTs, 'ts'), serverTimestamp());
+
+    const result = await replay(sbTs.history(), {
+      rules: rulesTs,
+      capturedState: rtdbSandbox.snapshotState(dbTs),
+    });
+    expect(result.divergences).toEqual([]);
+    expect(result.ok).toBe(true);
+    expect(result.replayedState).toEqual({ ts: 1700000000000 });
+  });
+
+  it('restores priorPriority when rewinding a plain set() or remove() over a prioritized node (MET-5b)', async () => {
+    const rulesPrio = {
+      rules: {
+        item: { '.write': 'data.getPriority() === 5' },
+        removed: { '.write': 'data.getPriority() === 9' },
+      },
+    };
+    const sbPrio = initializeSandbox();
+    const dbPrio = getDatabase(sbPrio.withAuth({ uid: 'u1' }));
+    rtdbSandbox.setData(dbPrio, {
+      '/item': { '.value': 'v1', '.priority': 5 },
+      '/removed': { '.value': 'r1', '.priority': 9 },
+    });
+    rtdbSandbox.setRules(dbPrio, rulesPrio);
+    await set(ref(dbPrio, 'item'), 'v2');
+    await remove(ref(dbPrio, 'removed'));
+
+    const result = await replay(sbPrio.history(), {
+      rules: rulesPrio,
+      capturedState: rtdbSandbox.snapshotState(dbPrio),
+    });
+    expect(result.divergences).toEqual([]);
+    expect(result.ok).toBe(true);
+    expect(result.replayedState).toEqual({ item: 'v2' });
   });
 
   describe('captured query reads', () => {

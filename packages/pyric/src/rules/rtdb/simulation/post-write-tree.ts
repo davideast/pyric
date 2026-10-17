@@ -1,5 +1,57 @@
+import { normalizeRuleWrite } from '../../../database/sandbox/normalize.js';
+import { resolveSentinels } from '../../../database/sandbox/sentinels.js';
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** The value stored at `path` in a root tree, or undefined. */
+export function valueAtPath(root: unknown, path: string): unknown {
+  let cursor: unknown = root;
+  for (const segment of path.split('/').filter(Boolean)) {
+    if (cursor === null || typeof cursor !== 'object') return undefined;
+    cursor = (cursor as Record<string, unknown>)[segment];
+  }
+  return cursor;
+}
+
+/**
+ * Resolve server sentinels (`timestamp`, `increment`) and apply RTDB
+ * write-boundary normalization (array → integer-keyed object, null/empty
+ * pruning, and priority pruning on empty nodes) to a proposed write value.
+ */
+function resolveWriteValue(base: unknown, path: string, rawValue: unknown, now: number): unknown {
+  if (rawValue === undefined) return null;
+  const resolved = resolveSentinels(rawValue, now, valueAtPath(base, path));
+  return normalizeRuleWrite(resolved);
+}
+
+/**
+ * Build the single post-write tree that a write/validate evaluation sees as
+ * `newData`.
+ *
+ * For a single-path write this is `withValueAt(base, targetSegments,
+ * resolvedNewData)`. For an atomic multi-path `update()` — where `updates`
+ * lists every path written together — this folds `withValueAt` over EVERY
+ * listed path so the projection reflects the ENTIRE update applied at once.
+ */
+export function projectPostWriteTree(
+  base: unknown,
+  path: string,
+  targetSegments: string[],
+  rawNewData: unknown,
+  updates: readonly { path: string; value?: unknown }[] | undefined,
+  evaluationNow: number,
+): unknown {
+  if (!updates || updates.length === 0) {
+    return withValueAt(base, targetSegments, resolveWriteValue(base, path, rawNewData, evaluationNow));
+  }
+  let root = base;
+  for (const update of updates) {
+    const segments = update.path.split('/').filter(Boolean);
+    root = withValueAt(root, segments, resolveWriteValue(base, update.path, update.value, evaluationNow));
+  }
+  return root;
 }
 
 /**
