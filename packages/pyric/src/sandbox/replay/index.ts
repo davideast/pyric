@@ -139,6 +139,7 @@ export function replay(
   // `data` (post-resolution).
   const dataFor = (wEv: WriteSandboxEvent) =>
     preResolutionDataFor(wEv, events) ?? enginePayloadOf({ resourceData: wEv.data, updateMask: wEv.updateMask });
+  const remap = aliasRemapper(pathAliases);
 
   for (let index = 0; index < writes.length;) {
     const wEv = writes[index]!;
@@ -148,7 +149,7 @@ export function replay(
     const group = groupAt(writes, index);
     if (group.length > 0) {
       pinClockTo(wEv);
-      replayGroup(env, group, dataFor);
+      replayGroup(env, group, dataFor, remap);
       index += group.length;
       continue;
     }
@@ -164,7 +165,8 @@ export function replay(
       // Auto-id create: split path, mint a fresh id, record the alias. The
       // captured request time reaches the rules through the clock, since
       // createWithAutoId takes none.
-      const collection = wEv.path.slice(0, wEv.path.lastIndexOf('/'));
+      const targetPath = remap(wEv.path);
+      const collection = targetPath.slice(0, targetPath.lastIndexOf('/'));
       pinClockTo(wEv);
       const { path: mintedPath } = env.createWithAutoId(
         collection,
@@ -179,7 +181,7 @@ export function replay(
     try {
       const operation: Parameters<typeof env.execute>[0] = {
         method: wEv.method,
-        path: wEv.path,
+        path: remap(wEv.path),
         auth: wEv.auth,
       };
       const hasData = data !== undefined;
@@ -207,6 +209,21 @@ export function replay(
 
 function isAdminWrite(event: WriteSandboxEvent): boolean {
   return event.detail?.admin === true;
+}
+
+/**
+ * Rewrite a captured path through the auto-id aliases minted so far: a
+ * later write to an `add()`ed document, or under it, lands on the replayed
+ * id.
+ */
+function aliasRemapper(pathAliases: ReadonlyMap<string, string>): (path: string) => string {
+  return (path) => {
+    for (const [originalPath, replayedPath] of pathAliases) {
+      if (path === originalPath) return replayedPath;
+      if (path.startsWith(`${originalPath}/`)) return replayedPath + path.slice(originalPath.length);
+    }
+    return path;
+  };
 }
 
 /** The writes of the batch or transaction starting at `index`, or `[]`
@@ -237,9 +254,10 @@ function replayGroup(
   env: ReturnType<typeof getInternalEnv>,
   group: readonly WriteSandboxEvent[],
   dataFor: (event: WriteSandboxEvent) => DocData | undefined,
+  remap: (path: string) => string,
 ): void {
   const operations = group.map((event) => {
-    const operation: BatchOperationInput = { method: batchMethodOf(event), path: event.path };
+    const operation: BatchOperationInput = { method: batchMethodOf(event), path: remap(event.path) };
     const data = event.method === 'delete' ? undefined : dataFor(event);
     if (data !== undefined) operation.data = data;
     if (event.merge !== undefined) operation.merge = event.merge;
@@ -309,8 +327,6 @@ function computeDivergences(
 ): Divergence[] {
   const out: Divergence[] = [];
 
-  const aliasedOriginals = new Set(pathAliases.keys());
-  const aliasedReplays = new Set(pathAliases.values());
   for (const [originalPath, replayedPath] of pathAliases) {
     out.push({ kind: 'autoid-alias', originalPath, replayedPath });
   }
@@ -325,27 +341,19 @@ function computeDivergences(
     }
   }
 
-  // An alias licenses the path change only. The replayed document must
-  // exist and match the original, or the alias would hide a replay write
-  // that failed (FS-MET-2).
-  for (const [originalPath, replayedPath] of pathAliases) {
-    const origDoc = originalState[originalPath];
+  // Each original document is compared with the replayed document at its
+  // replayed path. An alias licenses the path change only: a replayed
+  // document that is missing or different is a real divergence, so an
+  // alias can't hide a replay write that failed (FS-MET-2). Divergences
+  // name the original path.
+  const remap = aliasRemapper(pathAliases);
+  const originalAt = new Map<string, string>();
+  for (const path of Object.keys(originalState)) originalAt.set(remap(path), path);
+  const allPaths = new Set([...originalAt.keys(), ...Object.keys(replayedState)]);
+  for (const replayedPath of allPaths) {
+    const path = originalAt.get(replayedPath) ?? replayedPath;
+    const origDoc = originalAt.has(replayedPath) ? originalState[path] : undefined;
     const replDoc = replayedState[replayedPath];
-    if (origDoc === undefined && replDoc === undefined) continue;
-    if (origDoc === undefined || replDoc === undefined) {
-      out.push({ kind: 'real-divergence', path: originalPath, before: origDoc, after: replDoc });
-      continue;
-    }
-    diffDoc(originalPath, origDoc, replDoc, sentinelsByPath.get(originalPath) ?? new Map(), out);
-  }
-
-  const allPaths = new Set([...Object.keys(originalState), ...Object.keys(replayedState)]);
-  for (const path of allPaths) {
-    if (aliasedOriginals.has(path) && !(path in replayedState)) continue;
-    if (aliasedReplays.has(path) && !(path in originalState)) continue;
-
-    const origDoc = originalState[path];
-    const replDoc = replayedState[path];
 
     if (origDoc === undefined && replDoc !== undefined) {
       out.push({ kind: 'real-divergence', path, before: undefined, after: replDoc });

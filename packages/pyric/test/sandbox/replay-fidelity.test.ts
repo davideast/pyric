@@ -16,7 +16,7 @@ import { describe, it, expect } from 'bun:test';
 import { getClock, initializeSandbox, replay, type WriteSandboxEvent } from 'pyric/sandbox';
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import { setRules, snapshotDocuments } from 'pyric/sandbox/firestore';
-import { addDoc, collection, doc, getFirestore, runTransaction, setDoc, writeBatch } from 'pyric/firestore';
+import { addDoc, collection, doc, getFirestore, runTransaction, setDoc, updateDoc, writeBatch } from 'pyric/firestore';
 
 function realDivergences(history: ReturnType<ReturnType<typeof initializeSandbox>['history']>, rules: string, original: Record<string, Record<string, unknown>>) {
   const result = replay(history, rules, {}, original);
@@ -151,6 +151,26 @@ service cloud.firestore {
     const { result, real } = realDivergences(sb.history(), rules, snapshotDocuments(sb));
     expect(result.pathAliases.size).toBe(1);
     expect(real).toEqual([]);
+  });
+
+  it('later writes to an added document, and under it, follow the alias', async () => {
+    const rules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents { match /{path=**} { allow read, write: if true; } }
+}`;
+    const sb = initializeSandbox();
+    setRules(sb, rules);
+    const db = getFirestore(sb.withAuth({ uid: 'alice' }));
+    const ref = await addDoc(collection(db, 'logs'), { msg: 'hello' });
+    await updateDoc(ref, { msg: 'edited' });
+    await setDoc(doc(db, `${ref.path}/notes/n1`), { body: 'x' });
+    const { result, real } = realDivergences(sb.history(), rules, snapshotDocuments(sb));
+    expect(result.pathAliases.size).toBe(1);
+    expect(real).toEqual([]);
+    const replayed = snapshotDocuments(result.sandbox);
+    const [minted] = [...result.pathAliases.values()];
+    expect(replayed[minted!]).toEqual({ msg: 'edited' });
+    expect(replayed[`${minted}/notes/n1`]).toEqual({ body: 'x' });
   });
 
   it('addDoc still denies a create the rules refuse', async () => {
