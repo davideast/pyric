@@ -49,6 +49,14 @@ describe('firebase.json database: single object', () => {
     expect(loaded.instances.get('demo-default-rtdb')?.sourcePath).toBe(join(dir, 'first.rules.json'));
   });
 
+  test('normalizes a mixed-case projectId default instance to lowercase as the SDK does', async () => {
+    const dir = project();
+    const loaded = await loadProjectDatabaseRules(dir, config({ rules: 'first.rules.json' }), { projectId: 'My-App' });
+    expect(loaded.defaultInstance).toBe('my-app-default-rtdb');
+    expect([...loaded.instances.keys()]).toEqual(['my-app-default-rtdb']);
+    expect(loaded.instances.get('my-app-default-rtdb')?.rules).toEqual(FIRST_RULES);
+  });
+
   test('takes the project id the shared project resolution gives', async () => {
     const dir = project({ projects: { default: 'from-rc' } });
     const resolution = resolveFirebaseProject({ projectDir: dir, env: { HOME: dir } });

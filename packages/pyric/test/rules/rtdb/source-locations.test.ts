@@ -120,6 +120,19 @@ describe('locateRtdbRule', () => {
     expect(locateRtdbRule('{ "rules": { ".indexOn": [,"a"] } }', '/', '.indexOn')).toBeNull();
   });
 
+  test('refuses a backslash line break inside a string and leading-zero numbers (TXT-2a)', () => {
+    // rtdb-rules-text-dialect.json probe rule-string-backslash-line-break: status 400 ("Invalid escape: '\\\n'").
+    const escapedLf = '{\n  "rules": {\n    "a": { ".read": "true\\\n" },\n    "b": { ".write": "false" }\n  }\n}';
+    expect(locateRtdbRule(escapedLf, '/a', '.read')).toBeNull();
+    expect(locateRtdbRule(escapedLf, '/b', '.write')).toBeNull();
+
+    const escapedCrlf = '{\r\n  "rules": {\r\n    "a": { ".read": "true\\\r\n" },\r\n    "b": { ".write": "false" }\r\n  }\r\n}';
+    expect(locateRtdbRule(escapedCrlf, '/b', '.write')).toBeNull();
+
+    expect(locateRtdbRule('{ "rules": { "a": 01, ".read": true } }', '/', '.read')).toBeNull();
+    expect(locateRtdbRule('{ "rules": { "a": -01, ".read": true } }', '/', '.read')).toBeNull();
+  });
+
   test('the last duplicate key wins, as JSON.parse reads it', () => {
     const src = '{\n"rules": {\n".read": false,\n".read": true\n}\n}';
     expect(locateRtdbRule(src, '/', '.read')?.line).toBe(4);

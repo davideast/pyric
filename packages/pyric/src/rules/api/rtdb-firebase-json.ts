@@ -9,7 +9,6 @@
  */
 
 import { databaseRulesConfig } from '../../sandbox/internal/database-rules-config.js';
-import { databaseInstanceNamed, UNNAMED_DEFAULT_DATABASE_INSTANCE } from '../../sandbox/internal/instances.js';
 
 export interface RtdbFirebaseJsonOptions {
   /**
@@ -55,16 +54,6 @@ function nodeModules(): { fs: NodeFs; path: NodePath } {
     throw new Error(`${NAME} reads files, which needs Node.js 20.16 or later, Bun or Deno. Without a file system, pass each instance's rules text to rtdbRules.`);
   }
   return { fs, path };
-}
-
-/** The default instance's name as the SDK spells it, as declared instances are spelled. */
-function normalizedDefault(name: string): string {
-  if (name === UNNAMED_DEFAULT_DATABASE_INSTANCE) return name;
-  try {
-    return databaseInstanceNamed(name).name;
-  } catch {
-    return name;
-  }
 }
 
 /** The file's text, or null when it does not exist. */
@@ -162,5 +151,5 @@ export function loadFirebaseJsonRules(
   if (files.size === 0) {
     throw new Error(`${NAME}: ${jsonPath} deploys no Realtime Database rules.`);
   }
-  return { defaultInstance: normalizedDefault(resolved.defaultInstance), files: [...files.values()] };
+  return { defaultInstance: resolved.defaultInstance, files: [...files.values()] };
 }

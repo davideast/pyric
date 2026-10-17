@@ -166,6 +166,9 @@ class Scanner {
       if (this.pos >= t.length) throw new Error('unterminated string');
       const c = t[this.pos];
       if (c === '\\') {
+        if (this.pos + 1 >= t.length || t.charCodeAt(this.pos + 1) < 0x20) {
+          throw new Error('invalid escape');
+        }
         this.pos += 2;
       } else if (c === '"') {
         this.pos++;
@@ -188,7 +191,7 @@ class Scanner {
   }
 
   private parseLiteral(): void {
-    const match = /^(?:true|false|null|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/.exec(
+    const match = /^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/.exec(
       this.text.slice(this.pos, this.pos + 64),
     );
     if (!match) throw new Error('unexpected token');
