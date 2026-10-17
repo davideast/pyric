@@ -9,7 +9,7 @@
  *
  * Exits non-zero on the first failure. CI runs this as the standalone gate.
  */
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -57,6 +57,8 @@ check('firestore rules validate', validate.code === 0);
 
 const rtdbRulesPath = join(work, 'database.rules.ts');
 const rtdbOutPath = join(work, 'database.rules.json');
+mkdirSync(join(work, 'node_modules', 'pyric'), { recursive: true });
+symlinkSync(resolve(PKG_ROOT, '..', 'pyric', 'dist', 'rules'), join(work, 'node_modules', 'pyric', 'rules'), 'dir');
 writeFileSync(
   rtdbRulesPath,
   "import { allow, deny, defineRtdbRules } from 'pyric/rules';\n" +

@@ -216,19 +216,7 @@ writeFileSync(
 writeFileSync(
   join(BUILD, 'load-rules-document.worker.js'),
   banner +
-    `import * as pyricRules from 'pyric/rules';\n` +
     `import { startLoadRtdbRulesDocumentWorker } from '../dist/rtdb/load-rules-document.worker.js';\n` +
-    `if (typeof Bun !== 'undefined' && typeof Bun.plugin === 'function') {\n` +
-    `  Bun.plugin({\n` +
-    `    name: 'pyric-standalone-rules',\n` +
-    `    setup(build) {\n` +
-    `      build.module('pyric/rules', () => ({\n` +
-    `        exports: pyricRules,\n` +
-    `        loader: 'object',\n` +
-    `      }));\n` +
-    `    },\n` +
-    `  });\n` +
-    `}\n` +
     `startLoadRtdbRulesDocumentWorker();\n`,
 );
 const entry = join(BUILD, 'standalone-entry.js');
@@ -243,16 +231,7 @@ for (const t of selected) {
   process.stdout.write(`▸ compiling ${t.name} (${t.target})…\n`);
   const r = spawnSync(
     bun,
-    [
-      'build',
-      entry,
-      rtdbWorkerEntry,
-      '--compile',
-      '--compile-autoload-package-json',
-      '--compile-autoload-tsconfig',
-      `--target=${t.target}`,
-      `--outfile=${outfile}`,
-    ],
+    ['build', entry, rtdbWorkerEntry, '--compile', `--target=${t.target}`, `--outfile=${outfile}`],
     { stdio: ['ignore', 'inherit', 'inherit'], cwd: PKG_ROOT },
   );
   if (r.status !== 0) die(`bun build --compile failed for ${t.target} (exit ${r.status})`);
