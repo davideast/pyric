@@ -2,7 +2,8 @@
  * Messages the web hosted client holds while it is not attached (ADR-0019
  * decision 7). An operation is held for at most 10 seconds from the moment it
  * was issued; a subscription frame has no deadline. Held messages are sent
- * once, in issue order, after the client's restore traffic.
+ * once, after the client's restore traffic: subscription frames first, then
+ * operations, each in issue order (ADR-0019, 2026-10-17 amendment, D5).
  */
 import { FirebaseError } from 'pyric/app';
 import type { InboundMessage } from '../protocol.js';
@@ -48,7 +49,15 @@ export interface HeldMessages {
   holdsRequest(id: string): boolean;
   /** True for a restore frame of a subscription that is itself still held. */
   holdsSubscription(message: InboundMessage): boolean;
-  /** Sends every held message once, in issue order. */
+  /**
+   * Forgets the held `sub` frame of a subscription cancelled before it was
+   * sent. True when one was held: the host never hears of the subscription.
+   */
+  forgetSubscription(subId: string): boolean;
+  /**
+   * Sends every held message once: subscription frames first, in issue order,
+   * then held operations in the order they were admitted (D5).
+   */
   flush(send: (message: InboundMessage) => void): void;
   /** Forgets every held message without settling it. */
   drop(): void;
@@ -98,8 +107,17 @@ export function createHeldMessages(port: ClientPort): HeldMessages {
       if (!isSubscriptionFrame) return false;
       return held.some(entry => entry.message.t === 'sub' && entry.message.subId === subId);
     },
+    forgetSubscription(subId) {
+      const index = held.findIndex(entry => entry.message.t === 'sub' && entry.message.subId === subId);
+      const isHeld = index >= 0;
+      if (isHeld) held.splice(index, 1);
+      return isHeld;
+    },
     flush(send) {
-      for (const entry of take()) send(entry.message);
+      const taken = take();
+      const isSubscriptionEntry = (entry: HeldMessage): boolean => subscriptionId(entry.message) !== undefined;
+      for (const entry of taken.filter(isSubscriptionEntry)) send(entry.message);
+      for (const entry of taken.filter(entry => !isSubscriptionEntry(entry))) send(entry.message);
     },
     drop() {
       take();

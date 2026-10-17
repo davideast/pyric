@@ -38,5 +38,12 @@ onValue(ref(database, ".info/connected"), (snapshot) => {
 window.counters = {
   connected: () => connected,
   arm: () => { outcomes.length = 0; armed = true; },
+  // One write per service, issued now and awaited. The client sends a held
+  // write before it reports `connected`, and the host applies one session's
+  // frames in order, so once these are answered an earlier write was applied.
+  barrier: () => Promise.all([
+    setDoc(doc(firestore, "counters/barrier"), { at: 1 }),
+    set(ref(database, "counters/barrier"), 1),
+  ]).then(() => true),
   outcomes: () => outcomes.map((outcome) => ({ ...outcome })),
 };

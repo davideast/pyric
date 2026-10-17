@@ -5,7 +5,7 @@ import * as client from '../../../src/serve/worker/client.js';
 import { rtdbGetDatabase, rtdbRef } from '../../../src/serve/worker/client/rtdb-references.js';
 import { rtdbGet } from '../../../src/serve/worker/client/rtdb-reads.js';
 import { rtdbOnValue } from '../../../src/serve/worker/client/rtdb-listeners.js';
-import { makeHostCtx, connectClientToHost, sleep } from './integration-support.js';
+import { makeHostCtx, connectClientToHost, until } from './integration-support.js';
 
 it('counts public worker reads and callbacks once while isolating independent app ports', async () => {
   const previous = globalThis.SharedWorker;
@@ -34,7 +34,7 @@ it('counts public worker reads and callbacks once while isolating independent ap
     unsubscribes.push(client.onSnapshot(target, () => { ++callbacks; }));
     unsubscribes.push(client.onSnapshot(target, () => { ++callbacks; }));
     unsubscribes.push(rtdbOnValue(rtdbRef(rtdbGetDatabase(first), 'notes'), () => { ++callbacks; }));
-    await sleep();
+    await until(() => callbacks >= 3, 'three initial deliveries');
     const registrations = events.filter(event => event.phase === 'start' && event.record.kind === 'subscription').map(event => event.record);
     expect(registrations).toHaveLength(3);
     expect(callbacks).toBe(3);
@@ -97,9 +97,9 @@ it('carries document usage across the worker bridge without recounting unchanged
   let unsubscribe = () => {};
   try {
     unsubscribe = client.onSnapshot(client.collection(db, 'notes'), () => {});
-    await sleep();
+    await until(() => usage.length >= 1, 'initial query delivery');
     await client.updateDoc(client.doc(db, 'notes/one'), { version: 2 });
-    await sleep();
+    await until(() => usage.length >= 2, 'query delivery after update');
     expect(usage).toEqual([2, 1]);
     await rtdbGet(rtdbRef(rtdbGetDatabase(db), 'missing'));
     expect(bytes).toEqual([4]);

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { cleanupPortWithDisconnect } from '../../../../src/serve/worker/host.js';
 import * as client from '../../../../src/serve/worker/index.js';
 import { disconnectClient } from '../../../../src/serve/worker/client/disconnect.js';
-import { connectClientToHost, makeHostCtx, sleep } from '../integration-support.js';
+import { connectClientToHost, makeHostCtx, until } from '../integration-support.js';
 
 describe('RTDB worker connection lifecycle', () => {
   let restoreSW: () => void;
@@ -46,7 +46,7 @@ describe('RTDB worker connection lifecycle', () => {
 
     const events: unknown[] = [];
     const unsubscribe = client.rtdbOnValue(observerRef, (snapshot) => events.push(snapshot.val()));
-    await sleep();
+    await until(() => events.length >= 1, 'initial observer value');
     const presence = client.rtdbChild(writerRef, 'presence');
     await client.rtdbOnDisconnect(presence).set({ state: 'offline', child: 'parent-child' });
     await client.rtdbOnDisconnect(client.rtdbChild(presence, 'child')).set('queued-child');
@@ -63,7 +63,7 @@ describe('RTDB worker connection lifecycle', () => {
       .toEqual({ state: 'online', child: 'original-child' });
 
     client.rtdbGoOffline(writerDb);
-    await sleep();
+    await until(() => events.length >= 5, 'observer snapshots of the drained queue');
     const terminal = (await client.rtdbGet(observerRef)).val();
     expect(terminal).toEqual({
       presence: { state: 'offline', child: 'original-child' },
@@ -103,7 +103,9 @@ describe('RTDB worker connection lifecycle', () => {
       terminal,
     ]);
     await cleanupPortWithDisconnect(ctx, writerHostPort);
-    await sleep();
+    // The observer port answers this read after any snapshot the awaited teardown
+    // posted to it: writes fan out before the host replies, and the port is FIFO.
+    await client.rtdbGet(observerRef);
     expect(events).toHaveLength(5);
     unsubscribe();
   });
@@ -160,10 +162,15 @@ describe('RTDB worker connection lifecycle', () => {
     await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'prio')).setWithPriority({ a: 2 }, 9);
     await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'prio/neverQueued')).cancel();
 
+    let prioPriority: unknown;
+    const stopPrio = client.rtdbOnValue(client.rtdbRef(observerDb, 'prio'), (snapshot) => { prioPriority = snapshot.priority; });
     client.rtdbGoOffline(writerDb);
-    await sleep();
+    // The host drains a port's queue in registration order (drainPortRtdbDisconnects),
+    // so once prio's write reaches the observer, doc's denied set has been attempted.
+    await until(() => prioPriority === 9, 'drained prio setWithPriority');
     expect((await client.rtdbGet(client.rtdbRef(observerDb, 'doc'))).exportVal()).toEqual({ a: 1, keep: 'x' });
     expect((await client.rtdbGet(client.rtdbRef(observerDb, 'prio'))).exportVal()).toEqual({ a: 2, '.priority': 9 });
+    stopPrio();
   });
 
   it('re-registering a parent remove or set replaces a queued descendant operation (#1021)', async () => {
@@ -183,9 +190,15 @@ describe('RTDB worker connection lifecycle', () => {
       } else {
         await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'pres')).set({ status: 'second' });
       }
+      // A control write queued last: the host drains in registration order
+      // (drainPortRtdbDisconnects), so its arrival means pres has been drained.
+      await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'drainControl')).set(true);
+      let drained = false;
+      const stopControl = client.rtdbOnValue(client.rtdbRef(observerDb, 'drainControl'), (snapshot) => { drained = snapshot.val() === true; });
       client.rtdbGoOffline(writerDb);
-      await sleep();
+      await until(() => drained, 'drained control write');
       expect((await client.rtdbGet(client.rtdbRef(observerDb, 'pres'))).exportVal()).toEqual(expected);
+      stopControl();
     }
   });
 });

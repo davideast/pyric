@@ -222,18 +222,18 @@ test('a failed Auth restore fails held operations without sending them', async (
 
 test('close() while holding fails held operations once and sends none', async () => {
   const host = new Host();
-  const { db } = await attachedThenDropped(host);
+  const { db, states } = await attachedThenDropped(host);
   const first = op(db, 'write');
   const second = op(db, 'write');
   const settled: string[] = [];
   for (const { id, outcome } of [first, second]) outcome.catch(() => {}).finally(() => settled.push(id));
-  await new Promise(resolve => setTimeout(resolve, 100));
+  await until(() => states.filter(state => state === 'interrupted').length >= 3); // a reconnect attempt failed while they were held
   expect(settled).toEqual([]);
   db.port.close();
   expect(await settle(first.outcome)).toEqual({ code: 'unavailable', message: CONNECTION_CLOSED });
   expect(await settle(second.outcome)).toEqual({ code: 'unavailable', message: CONNECTION_CLOSED });
   host.start();
-  await new Promise(resolve => setTimeout(resolve, 500));
+  await op(open(host).db, 'ping').outcome; // the restarted host answered another client; the closed one never reconnects
   expect(host.sent(first.id)).toEqual([]);
   expect(host.sent(second.id)).toEqual([]);
 });

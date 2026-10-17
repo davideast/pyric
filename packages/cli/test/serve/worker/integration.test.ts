@@ -19,7 +19,7 @@ import {
   connectClientToHost,
   makeHostCtx,
   portPair,
-  sleep,
+  until,
 } from './integration-support.js';
 
 describe('client↔host round-trip (gate repro)', () => {
@@ -49,12 +49,12 @@ describe('client↔host round-trip (gate repro)', () => {
     const unsubscribe = client.onAuthStateChanged(auth, (user) => {
       authStates.push(user?.uid ?? null);
     });
-    await sleep();
+    await until(() => authStates.length >= 1, 'initial auth state');
 
     expect(auth.currentUser?.uid).toBe(alice.user.uid);
     expect(await client.restorePortSession(auth, disabled.uid)).toBeNull();
     expect(auth.currentUser).toBeNull();
-    await sleep();
+    await until(() => authStates.at(-1) === null, 'signed-out auth state');
     expect(authStates.at(-1)).toBeNull();
     await expect(client.getDoc(aliceNote)).rejects.toMatchObject({ code: 'permission-denied' });
     unsubscribe();
@@ -94,12 +94,12 @@ describe('client↔host round-trip (gate repro)', () => {
       (snap) => fires.push((snap as { docs: unknown[] }).docs.length),
       (err) => errors.push((err as { code?: string; message?: string }).code ?? String((err as Error).message)),
     );
-    await sleep(); // let the initial fire land
+    await until(() => fires.length + errors.length >= 1, 'initial query fire');
 
     await client.addDoc(client.collection(db, 'notes'), {
       uid, text: 'hello', createdAt: client.serverTimestamp(),
     });
-    await sleep();
+    await until(() => fires.at(-1) === 1 || errors.length > 0, 'query fire with the added doc');
 
     // The crux: the listener must fire (initial empty, then with the doc).
     expect(errors).toEqual([]);
@@ -131,7 +131,7 @@ describe('client↔host round-trip (gate repro)', () => {
       (snap) => seen.push((snap as { data(): unknown }).data()),
       (err) => errors.push(err),
     );
-    await sleep();
+    await until(() => seen.length + errors.length >= 1, 'document snapshot');
     unsubscribe();
 
     expect(errors).toEqual([]);
@@ -148,7 +148,8 @@ describe('client↔host round-trip (gate repro)', () => {
     const stopReports = onListenerDelivery((id) => reported.push(id));
     const firestoreUnsub = client.onSnapshot(client.doc(db, 'notes/ids'), { owner: 'notes-panel' }, () => {}, () => {});
     const databaseUnsub = rtdbOnValue(rtdbRef(rtdbGetDatabase(db), 'rooms/ids'), () => {}, () => {}, { owner: 'rooms-panel' });
-    await sleep();
+    await until(() => reported.length > 0, 'listener delivery report');
+    await client.getWorkerInstanceId(db); // answered after the host attached both listeners
     const listeners = activeListeners(ctx.sandbox.history());
     const clientIds = listeners.map((listener) => listener.clientListenerId).filter((id): id is string => typeof id === 'string');
     expect(clientIds).toHaveLength(2);
@@ -185,7 +186,7 @@ describe('client↔host round-trip (gate repro)', () => {
       () => {},
       { owner: 'rooms-panel' },
     );
-    await sleep();
+    await client.getWorkerInstanceId(db); // answered after the host attached both listeners
     firestoreUnsub();
     databaseUnsub();
 
@@ -230,7 +231,7 @@ describe('client↔host round-trip (gate repro)', () => {
       return stops[0]!;
     }
     const unsubscribe = listRooms();
-    await sleep();
+    await client.getWorkerInstanceId(db); // answered after the host attached the listener
     unsubscribe();
 
     const attach = ctx.sandbox.history().find((event) => {
@@ -347,13 +348,13 @@ describe('client↔host round-trip (gate repro)', () => {
       { target: { __ref: 'doc', path }, actAs: { mode: 'as', uid } },
       () => {},
     ));
-    await sleep();
+    await client.getWorkerInstanceId(db); // answered after the host attached the relayed listeners
 
     expect(warnings).toEqual([]);
 
     for (let index = 0; index < 5; index += 1) await client.getDoc(ref);
     const pageUnsubscribes = Array.from({ length: 3 }, () => client.onSnapshot(ref, () => {}));
-    await sleep();
+    await client.getWorkerInstanceId(db); // answered after the host attached and fired the page listeners
     expect(warnings.map((incident) => incident.pattern)).toEqual([
       'repeated-read',
       'duplicate-listener',
@@ -391,7 +392,7 @@ describe('client↔host event stream (Studio data plane)', () => {
       if (firstBatchLen === -1) firstBatchLen = events.length;
       batches.push(events.length);
     });
-    await sleep();
+    await until(() => firstBatchLen !== -1, 'history batch');
 
     // First delivered batch is the history snapshot.
     expect(firstBatchLen).toBe(historyLen);
@@ -399,7 +400,7 @@ describe('client↔host event stream (Studio data plane)', () => {
     // A live write now streams further event batches to the subscriber.
     const before = batches.length;
     await admSet(admDoc(admDb, 'seed/b'), { n: 2 });
-    await sleep();
+    await until(() => batches.length > before, 'live batch');
     expect(batches.length).toBeGreaterThan(before);
 
     unsub();

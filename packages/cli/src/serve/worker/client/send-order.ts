@@ -133,6 +133,31 @@ export function reserveSend(port: ClientPort): SendReservation {
   };
 }
 
+function queuedSubscription(port: ClientPort, subId: string): { entry: Entry; index: number } | undefined {
+  const order = orders.get(port);
+  for (const entry of order?.entries ?? []) {
+    const index = entry.frames.findIndex(frame => frame.message.t === 'sub' && frame.message.subId === subId);
+    if (index >= 0) return { entry, index };
+  }
+  return undefined;
+}
+
+/** True while a subscription's `sub` frame waits behind a reservation, unsent. */
+export function waitsToSubscribe(port: ClientPort, subId: string): boolean {
+  return queuedSubscription(port, subId) !== undefined;
+}
+
+/**
+ * Takes a subscription's `sub` frame out of the call order when it has not
+ * been posted yet. True when it was waiting: the host never hears of it (D10).
+ */
+export function withdrawSubscription(port: ClientPort, subId: string): boolean {
+  const queued = queuedSubscription(port, subId);
+  const isQueued = queued !== undefined;
+  if (isQueued) queued.entry.frames.splice(queued.index, 1);
+  return isQueued;
+}
+
 /**
  * Forgets every frame waiting on the port and refuses later reservations.
  * The caller settles the waiting operations, as an app's teardown does.

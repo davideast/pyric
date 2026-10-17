@@ -22,7 +22,7 @@ import type { ClientPort } from './handles.js';
 import { createOperationBudget } from '../../../bridge/operation-budget.js';
 import { requestInstance } from '../request-instance.js';
 import { hasValidOutboundEnvelope, hasValidReplyOutcome, snapshotError } from '../outbound-validation.js';
-import { closeSendOrder, issueTime, postInOrder, type SendReservation } from './send-order.js';
+import { closeSendOrder, issueTime, postInOrder, waitsToSubscribe, withdrawSubscription, type SendReservation } from './send-order.js';
 
 // ─── Port + correlation machinery ─────────────────────────────────────────
 
@@ -95,26 +95,65 @@ export function isDisconnectedPort(port: ClientPort): boolean {
   return disconnectedPorts.has(port);
 }
 
+type SnapshotSubscription = typeof _snapSubs extends Map<string, infer T> ? T : never;
+
+/** A subscription in the routing table whose `sub` frame the caller sends later. */
+export interface RegisteredSubscription {
+  /**
+   * Sends the `sub` frame, in `reservation`'s place when one is given. Does
+   * nothing once the subscription was cancelled. A frame the transport
+   * refuses reports through the subscription's error callback, never a throw.
+   */
+  send(message: InboundMessage, reservation?: SendReservation): void;
+}
+
+/**
+ * Puts a subscription in the routing table before its frame exists (D7), or
+ * returns undefined when its app port is closed. Until `send` runs the entry
+ * has no message, so no restore re-sends it and a cancel sends nothing.
+ */
+export function registerSnapshotSubscription(
+  port: ClientPort,
+  subId: string,
+  subscription: SnapshotSubscription,
+): RegisteredSubscription | undefined {
+  const isDeleted = disconnectedPorts.has(port);
+  if (isDeleted) return undefined;
+  const entry: SnapshotSubscription = { ...subscription, message: undefined };
+  _snapSubs.set(subId, entry);
+  const isRegistered = (): boolean => _snapSubs.get(subId) === entry;
+  const failed = (error: unknown): void => {
+    const wasRegistered = isRegistered() && _snapSubs.delete(subId);
+    if (wasRegistered) subscription.error?.(error);
+  };
+  return {
+    send(message, reservation) {
+      const wasCancelled = !isRegistered();
+      if (wasCancelled) return;
+      entry.message = message;
+      try {
+        if (reservation !== undefined) reservation.send(message, failed);
+        else postInOrder(port, message, failed);
+      } catch (error) {
+        // A closed transport refuses the frame; the listener hears it as an error, as a deleted app's would.
+        queueMicrotask(() => failed(error));
+      }
+    },
+  };
+}
+
 /** Atomically register and post a subscription unless its app port is closed. */
 export function openSnapshotSubscription(
   port: ClientPort,
   subId: string,
-  subscription: (typeof _snapSubs extends Map<string, infer T> ? T : never),
+  subscription: SnapshotSubscription,
   message: InboundMessage,
   reservation?: SendReservation,
 ): boolean {
-  const isDeleted = disconnectedPorts.has(port);
+  const registered = registerSnapshotSubscription(port, subId, subscription);
+  const isDeleted = registered === undefined;
   if (isDeleted) return false;
-  _snapSubs.set(subId, { ...subscription, message });
-  const unregister = (): boolean => _snapSubs.get(subId)?.message === message && _snapSubs.delete(subId);
-  try {
-    const failed = (error: unknown): void => { if (unregister()) subscription.error?.(error); };
-    if (reservation !== undefined) reservation.send(message, failed);
-    else postInOrder(port, message, failed);
-  } catch (error) {
-    unregister();
-    throw error;
-  }
+  registered.send(message, reservation);
   return true;
 }
 
@@ -130,10 +169,15 @@ export function openEventSubscription(
   const isDeleted = disconnectedPorts.has(port);
   if (isDeleted) { error?.(appDeletedError()); return false; }
   _eventSubs.set(subId, { port, next, error, message, restored });
-  postInOrder(port, message, cause => {
+  const failed = (cause: unknown): void => {
     const isRegistered = _eventSubs.get(subId)?.message === message && _eventSubs.delete(subId);
     if (isRegistered) error?.(cause instanceof FirebaseError ? cause : appDeletedError());
-  });
+  };
+  try {
+    postInOrder(port, message, failed);
+  } catch (cause) {
+    queueMicrotask(() => failed(cause));
+  }
   return true;
 }
 
@@ -209,16 +253,28 @@ export function restoreAuthSubscriptions(port: ClientPort, postMessage: ClientPo
   }
 }
 
-/** Remove a local subscription and notify only a live app port. */
+/**
+ * Remove a local subscription and notify only a live app port (D10). The host
+ * hears `unsub` once, and only when its `sub` frame was sent: a second cancel
+ * sends nothing, and a cancel before the frame left the client takes the
+ * frame back instead.
+ */
 export function closeSubscription(
   port: ClientPort,
   subId: string,
   clientSessionId?: string,
 ): void {
+  const entry = _snapSubs.get(subId) ?? _eventSubs.get(subId);
+  const isOpen = entry !== undefined;
+  if (!isOpen) return;
   _snapSubs.delete(subId);
   _eventSubs.delete(subId);
   const isDeleted = disconnectedPorts.has(port);
   if (isDeleted) return;
+  const wasNeverSent = entry.message === undefined
+    || withdrawSubscription(port, subId)
+    || port.withdrawSubscription?.(subId) === true;
+  if (wasNeverSent) return;
   const message: InboundMessage = { t: 'unsub', subId };
   const hasSessionId = clientSessionId !== undefined && clientSessionId !== '';
   if (hasSessionId) message.clientSessionId = clientSessionId;
@@ -256,23 +312,63 @@ export function rejectPendingRequests(
 export function disconnectPort(port: ClientPort): void {
   disconnectedPorts.add(port);
   rejectPendingRequests(port, appDeletedError());
+  endPortSubscriptions(port, new FirebaseError('aborted', 'The operation was aborted.'), appDeletedError());
+  port.onmessage = null;
+}
+
+/**
+ * Ends every subscription on `port` once (D6). A Firestore listener and an
+ * event stream hear the error; RTDB, Auth, Messaging and presence observers
+ * stop without a call, as production's do when their app is deleted.
+ */
+export function endPortSubscriptions(
+  port: ClientPort,
+  error: Error & { code: string },
+  streamError: Error & { code: string } = error,
+): void {
   for (const [id, subscription] of [..._snapSubs]) {
     const isForeignSubscription = subscription.port !== port;
     if (isForeignSubscription) continue;
     _snapSubs.delete(id);
     const isFirestoreSubscription = subscription.service === 'firestore';
-    if (isFirestoreSubscription) {
-      subscription.error?.(new FirebaseError('aborted', 'The operation was aborted.'));
-    }
+    if (isFirestoreSubscription) subscription.error?.(error);
     subscription.close?.();
   }
   for (const [id, subscription] of [..._eventSubs]) {
     const isForeignSubscription = subscription.port !== port;
     if (isForeignSubscription) continue;
     _eventSubs.delete(id);
-    subscription.error?.(appDeletedError());
+    subscription.error?.(streamError);
   }
-  port.onmessage = null;
+}
+
+function isAiStream(message: InboundMessage | undefined): boolean {
+  const isSubscription = message?.t === 'sub';
+  if (!isSubscription) return false;
+  const target = message.target;
+  return typeof target === 'object' && target !== null && 'service' in target && target.service === 'ai';
+}
+
+/**
+ * Fails every AI stream whose `sub` frame the dropped socket took (decision
+ * 7). A stream is not restored on re-attach, so it fails once with `error`
+ * like an operation in flight. Its `unsub` is held and released after the
+ * re-attach, which stops a resumed session's pump. A stream whose frame is
+ * still held stays open and is sent after the re-attach.
+ */
+export function failInFlightStreams(
+  port: ClientPort,
+  error: Error & { code: string },
+  isHeld: (subId: string) => boolean,
+): void {
+  for (const [subId, subscription] of [..._snapSubs]) {
+    const ownsStream = subscription.port === port && isAiStream(subscription.message);
+    if (!ownsStream) continue;
+    const wasSent = !isHeld(subId) && !waitsToSubscribe(port, subId);
+    if (!wasSent) continue;
+    closeSubscription(port, subId);
+    subscription.error?.(error);
+  }
 }
 
 // ─── Denial relay (headless dev visibility) ────────────────────────────────

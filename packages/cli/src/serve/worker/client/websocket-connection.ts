@@ -6,7 +6,8 @@ import { FirebaseError } from 'pyric/app';
 import { BROWSER_FRAME_LIMIT_CLOSE_CODE, BRIDGE_FRAME_LIMIT_MESSAGE, encodeBridgeMessage } from '../../../bridge/frame-output.js';
 import type { InboundMessage, OutboundMessage } from '../protocol.js';
 import { hasValidOutboundEnvelope, hasValidReplyOutcome } from '../outbound-validation.js';
-import { nextId, rawRpc, rejectPendingRequests, restoreAuthSubscriptions, restoreObservationSubscriptions, restoreMessagingSubscriptions, wirePort } from './core.js';
+import { failInFlightStreams, nextId, rawRpc, rejectPendingRequests, restoreAuthSubscriptions, restoreObservationSubscriptions, restoreMessagingSubscriptions, wirePort } from './core.js';
+import { endFailedPort } from './disconnect.js';
 import type { ClientDb, ClientPort } from './handles.js';
 import { createHeldMessages } from './held-messages.js';
 
@@ -79,6 +80,9 @@ export function getHostedFirestore(target: {
       send(activeSocket, { type: 'worker-message', message });
     },
     start() {},
+    withdrawSubscription(subId) {
+      return held.forgetSubscription(subId);
+    },
     observeConnection(listener) {
       connectionListeners.add(listener);
       queueMicrotask(() => {
@@ -149,6 +153,8 @@ export function getHostedFirestore(target: {
     port.close();
     target.onError?.(error);
     rejectPendingRequests(port, error);
+    // Every subscription ends once with this error, as an app's deletion ends them (D6).
+    endFailedPort(port, error);
   }
 
   function isCurrent(connection: WebSocket): boolean {
@@ -165,7 +171,10 @@ export function getHostedFirestore(target: {
     socket = undefined;
     notifyConnectionChange();
     // Only requests already handed to the socket fail; held ones wait for the next attach.
-    rejectPendingRequests(port, new FirebaseError('unavailable', CONNECTION_LOST), id => !held.holdsRequest(id));
+    const lost = new FirebaseError('unavailable', CONNECTION_LOST);
+    rejectPendingRequests(port, lost, id => !held.holdsRequest(id));
+    // An AI stream is not restored, so one the socket took fails like an operation in flight.
+    failInFlightStreams(port, lost, subId => held.holdsSubscription({ t: 'unsub', subId }));
     connection.close();
     const delay = Math.min(5_000, 250 * 2 ** reconnectAttempt);
     reconnectAttempt += 1;

@@ -8,9 +8,17 @@ import type { SandboxEvent } from 'pyric/sandbox';
 import * as client from '../../../src/serve/worker/client.js';
 import { restoreObservationSubscriptions } from '../../../src/serve/worker/client/core.js';
 import type { InboundMessage } from '../../../src/serve/worker/protocol.js';
-import { connectClient, sleep } from './integration-support.js';
+import { connectClient, until } from './integration-support.js';
 
 type Db = ReturnType<typeof client.getFirestore>;
+
+/**
+ * Resolve once the host has answered a round trip on this port. The host posts
+ * an event subscription's history while it handles the `sub` frame and posts
+ * each live event as the sandbox emits it, and the port delivers in order, so
+ * every batch the host posted before answering has reached the page.
+ */
+const hostAnswered = (db: Db) => client.getWorkerInstanceId(db);
 
 /** Record every message the page posts to the host from now on. */
 function recordPosts(db: Db): InboundMessage[] {
@@ -51,7 +59,7 @@ describe('event subscriptions share one stream per port', () => {
     const unsubscribers = [0, 1, 2, 3].map((i) => client.subscribeEvents(db, (events) => {
       if (firstBatchLengths[i] === undefined) firstBatchLengths[i] = events.length;
     }));
-    await sleep();
+    await until(() => [0, 1, 2, 3].every((i) => firstBatchLengths[i] !== undefined), 'four history batches');
 
     expect(eventSubs(posted)).toHaveLength(1);
     expect(firstBatchLengths).toEqual([historyLength, historyLength, historyLength, historyLength]);
@@ -65,17 +73,17 @@ describe('event subscriptions share one stream per port', () => {
 
     const early: SandboxEvent[][] = [];
     const unsubscribeEarly = client.subscribeEvents(db, (events) => early.push([...events]));
-    await sleep();
+    await until(() => early.length >= 1, 'early history batch');
     const historyIds = early[0]!.map((e) => e.id);
 
     const late: SandboxEvent[][] = [];
     const unsubscribeLate = client.subscribeEvents(db, (events) => late.push([...events]));
-    await sleep();
+    await until(() => late.length >= 1, 'late replay of the history');
     expect(eventSubs(posted)).toHaveLength(1);
     expect(late[0]!.map((e) => e.id)).toEqual(historyIds);
 
     await seed(ctx, 'b');
-    await sleep();
+    await hostAnswered(db);
     const liveEarly = early.slice(1).flat().map((e) => e.id);
     const liveLate = late.slice(1).flat().map((e) => e.id);
     expect(liveEarly.length).toBeGreaterThan(0);
@@ -92,7 +100,7 @@ describe('event subscriptions share one stream per port', () => {
 
     const first = client.subscribeEvents(db, () => {});
     const second = client.subscribeEvents(db, () => {});
-    await sleep();
+    await hostAnswered(db);
     first();
     expect(unsubs(posted)).toHaveLength(0);
     second();
@@ -100,7 +108,7 @@ describe('event subscriptions share one stream per port', () => {
 
     let received = -1;
     const third = client.subscribeEvents(db, (events) => { if (received === -1) received = events.length; });
-    await sleep();
+    await until(() => received !== -1, 'new stream history batch');
     expect(eventSubs(posted)).toHaveLength(2);
     expect(received).toBe(ctx.sandbox.history().length);
     third();
@@ -113,13 +121,13 @@ describe('event subscriptions share one stream per port', () => {
 
     const batches: number[] = [];
     const unsubscribe = client.subscribeEvents(db, (events) => batches.push(events.length));
-    await sleep();
+    await until(() => batches.length >= 1, 'history batch');
     const history = await client.eventHistory(db);
     expect(history.length).toBe(ctx.sandbox.history().length);
     expect(unsubs(posted)).toHaveLength(0);
 
     await seed(ctx, 'b');
-    await sleep();
+    await until(() => batches.length > 1, 'live batch');
     expect(batches.length).toBeGreaterThan(1);
     unsubscribe();
   });
@@ -128,16 +136,16 @@ describe('event subscriptions share one stream per port', () => {
     const { ctx, db } = await connectClient();
     await seed(ctx, 'before');
     const unsubscribeEarly = client.subscribeEvents(db, () => {});
-    await sleep();
+    await hostAnswered(db);
 
     ctx.sandbox.reset();
     await seed(ctx, 'after');
-    await sleep();
+    await hostAnswered(db);
     const hostHistoryIds = ctx.sandbox.history().map((e) => e.id);
 
     let lateHistory: SandboxEvent[] | undefined;
     const unsubscribeLate = client.subscribeEvents(db, (events) => { lateHistory ??= [...events]; });
-    await sleep();
+    await until(() => lateHistory !== undefined, 'late replay since the reset');
     expect(lateHistory!.map((e) => e.id)).toEqual(hostHistoryIds);
     expect(lateHistory!.some((e) => e.kind === 'session_boundary')).toBe(false);
     unsubscribeEarly();
@@ -148,19 +156,19 @@ describe('event subscriptions share one stream per port', () => {
     const { ctx, db } = await connectClient();
     await seed(ctx, 'a');
     const unsubscribers = [0, 1, 2, 3].map(() => client.subscribeEvents(db, () => {}));
-    await sleep();
+    await hostAnswered(db);
     const posted = recordPosts(db);
 
     // A replacement host starts with its own history; stand one in by clearing this host's.
     (ctx.sandbox as unknown as { eventHistory: { clear(): void } }).eventHistory.clear();
     restoreObservationSubscriptions(db.port);
-    await sleep();
+    await hostAnswered(db);
     expect(eventSubs(posted)).toHaveLength(1);
     expect(unsubs(posted)).toHaveLength(1);
 
     let lateHistory: SandboxEvent[] | undefined;
     const late = client.subscribeEvents(db, (events) => { lateHistory ??= [...events]; });
-    await sleep();
+    await until(() => lateHistory !== undefined, 'late replay of the restored history');
     expect(lateHistory!.map((e) => e.id)).toEqual(ctx.sandbox.history().map((e) => e.id));
     expect(lateHistory!.some((e) => e.kind === 'operation' && JSON.stringify(e).includes('seed/a'))).toBe(false);
     for (const unsubscribe of [...unsubscribers, late]) unsubscribe();
@@ -171,13 +179,13 @@ describe('event subscriptions share one stream per port', () => {
     await seed(ctx, 'a');
     const marks: boolean[] = [];
     const unsubscribe = client.subscribeEvents(db, (_events, batch) => marks.push(batch.history));
-    await sleep();
+    await until(() => marks.length >= 1, 'history batch');
     await seed(ctx, 'b');
-    await sleep();
+    await hostAnswered(db);
     restoreObservationSubscriptions(db.port);
-    await sleep();
+    await hostAnswered(db);
     await seed(ctx, 'c');
-    await sleep();
+    await hostAnswered(db);
     expect(marks[0]).toBe(true);
     expect(marks.filter(mark => mark)).toHaveLength(2);
     const restored = marks.indexOf(true, 1);
@@ -194,7 +202,7 @@ describe('event subscriptions share one stream per port', () => {
     let unsubscribeSecond = () => {};
     const unsubscribeFirst = client.subscribeEvents(db, () => { unsubscribeSecond(); });
     unsubscribeSecond = client.subscribeEvents(db, () => { secondBatches++; });
-    await sleep();
+    await hostAnswered(db);
     expect(secondBatches).toBe(0);
     unsubscribeFirst();
   });
@@ -209,7 +217,7 @@ describe('event subscriptions share one stream per port', () => {
       const received: number[] = [];
       const throwing = client.subscribeEvents(db, () => { throw new Error('consumer failed'); });
       const healthy = client.subscribeEvents(db, (events) => received.push(events.length));
-      await sleep();
+      await until(() => received.length >= 1, 'healthy subscriber history batch');
       expect(received[0]).toBe(ctx.sandbox.history().length);
       expect(reported.some((args) => (args[1] as Error)?.message === 'consumer failed')).toBe(true);
       throwing();

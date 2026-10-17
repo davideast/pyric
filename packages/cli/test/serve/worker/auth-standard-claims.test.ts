@@ -14,7 +14,7 @@ import { cleanupPort, handleMessage, type HostCtx, type PortLike } from '../../.
 import { portSession } from '../../../src/serve/worker/host-auth.js';
 import type { OpMessage, OutboundMessage, ResMessage } from '../../../src/serve/worker/protocol.js';
 import * as client from '../../../src/serve/worker/client.js';
-import { connectClientToHost, makeHostCtx, sleep } from './integration-support.js';
+import { connectClientToHost, makeHostCtx } from './integration-support.js';
 
 const VERIFIED_ONLY = `rules_version = '2';
 service cloud.firestore {
@@ -104,7 +104,7 @@ describe('worker-mode standard token claims', () => {
     const { db } = await connectVerifiedHost('worker://claims-verified', true);
     const auth = client.getAuth(db);
     const { user } = await client.signInWithEmailAndPassword(auth, 'ada@example.com', 'secret-pw');
-    await sleep();
+    // The host set the port session before it answered sign-in (host-auth.ts).
 
     await client.setDoc(client.doc(db, 'verified/a'), { ok: true });
 
@@ -118,14 +118,14 @@ describe('worker-mode standard token claims', () => {
     const { ctx, db, uid } = await connectVerifiedHost('worker://claims-unverified', false);
     const auth = client.getAuth(db);
     const { user } = await client.signInWithEmailAndPassword(auth, 'ada@example.com', 'secret-pw');
-    await sleep();
+    // The host set the port session before it answered sign-in (host-auth.ts).
 
     await expect(client.setDoc(client.doc(db, 'verified/a'), { ok: true }))
       .rejects.toThrow(/permission|denied/i);
 
     authSandbox.updateUser(getAuth(ctx.sandbox), uid, { emailVerified: true });
     await client.getIdTokenResult(user, true);
-    await sleep();
+    // The host refreshed the port's claims before it answered the forced refresh.
     await client.setDoc(client.doc(db, 'verified/a'), { ok: true });
   });
 });

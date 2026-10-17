@@ -1,11 +1,10 @@
 /** RTDB value/child listeners and Firebase-compatible `off` registration identity. */
 import type { InboundMessage } from '../protocol.js';
-import { executeQuery, logDatabaseWarning, queryIdentifier } from 'pyric/database/internal';
+import { logDatabaseWarning, queryIdentifier } from 'pyric/database/internal';
 import { sameRtdbValue } from '../rtdb-value-equality.js';
 import {
   _defaultLens,
   closeSubscription,
-  isDisconnectedPort,
   nextSubId,
   openSnapshotSubscription,
   stampIssuer,
@@ -14,7 +13,7 @@ import {
 import type { ClientPort, ClientRtdbInstance, RtdbDataSnapshot, Unsubscribe } from './handles.js';
 import { pageListenerOwners } from './listener-owners.js';
 import { deliverWithRegions } from './listener-delivery.js';
-import { observeRtdbConnection } from './rtdb-connection-lifecycle.js';
+import { observeInfo, servesInfoLocally } from './rtdb-info.js';
 import { beginWorkerDatabaseActivity } from './sdk-activity.js';
 import type { SdkActivityHandle } from 'pyric/sandbox/internal';
 import {
@@ -209,51 +208,36 @@ export function rtdbOnValue(
     ? options
     : cancelCallbackOrOptions;
   const activity = beginWorkerDatabaseActivity(target, 'onValue', 'subscription', pageListenerOwners(listenOptions));
-  let unsubscribe: Unsubscribe = () => {};
+  const isOnce = listenOptions?.onlyOnce === true;
+  let unsubscribe: Unsubscribe | undefined;
+  let deliveredOnce = false;
   const deliver = (snapshot: RtdbDataSnapshot): void => {
+    // Set before the callback runs: a callback that changes the value, such
+    // as one calling goOffline() on .info/connected, is not called again (D10).
+    if (isOnce && deliveredOnce) return;
+    if (isOnce) deliveredOnce = true;
     try {
       activity.delivered(snapshot);
       deliverWithRegions(activity.id, () => next(snapshot));
     } catch {
       // Firebase isolates listener exceptions from sibling deliveries.
     } finally {
-      const isOnce = listenOptions?.onlyOnce === true;
-      if (isOnce) queueMicrotask(() => unsubscribe());
+      // A delivery before the listener is registered stops it as it registers, below.
+      if (isOnce) unsubscribe?.();
     }
   };
-  const { ref, query } = targetParts(target);
-  const isActivePort = !isDisconnectedPort(ref.port);
-  const isConnectionValue = ref.path === '/.info/connected';
-  const isMetadataRoot = ref.path === '/.info';
-  const observesConnection = isActivePort && (isConnectionValue || isMetadataRoot);
-  let rawUnsubscribe: Unsubscribe;
-  if (observesConnection) {
-    let previousRows: RtdbWireEntry[] | undefined;
-    rawUnsubscribe = observeRtdbConnection(ref, (connected) => {
-      const value = isMetadataRoot ? { connected, serverTimeOffset: 0 } : connected;
-      const filtersChildren = isMetadataRoot && query !== undefined;
-      if (filtersChildren) {
-        const rows = executeQuery(value, query);
-        const isUnchangedSelection = sameRtdbValue(previousRows, rows);
-        if (isUnchangedSelection) return;
-        previousRows = rows;
-        const hasRows = rows.length > 0;
-        const projection = Object.fromEntries(rows.map(({ key, value }) => [key, value]));
-        const selectedValue = hasRows ? projection : null;
-        deliver(makeRtdbSnapshot(ref, selectedValue, hasRows, null, rows));
-        return;
-      }
-      deliver(makeRtdbSnapshot(ref, value));
-    });
-  } else {
-    rawUnsubscribe = openValueSubscription(target, deliver, cancelCallbackOrOptions, options, activity);
-  }
+  const { ref } = targetParts(target);
+  const rawUnsubscribe = servesInfoLocally(ref)
+    ? observeInfo(target, deliver)
+    : openValueSubscription(target, deliver, cancelCallbackOrOptions, options, activity);
   unsubscribe = registerListener(
     target,
     'value',
     registryCallback,
     () => { activity.close(); rawUnsubscribe(); },
   );
+  const deliveredBeforeRegistration = isOnce && deliveredOnce;
+  if (deliveredBeforeRegistration) unsubscribe();
   return unsubscribe;
 }
 
@@ -294,7 +278,10 @@ function onChildEvent(
   const { ref, query } = targetParts(target);
   let initialized = false;
   let previous: RtdbWireEntry[] = [];
-  return openValueSubscription(target, (parent) => {
+  const observeParent = (deliver: (parent: RtdbDataSnapshot) => void): Unsubscribe => servesInfoLocally(ref)
+    ? observeInfo(target, deliver)
+    : openValueSubscription(target, deliver, error, undefined, activity);
+  return observeParent((parent) => {
     const current: RtdbWireEntry[] = [];
     parent.forEach((childSnap) => {
       if (childSnap.key !== null) {
@@ -369,7 +356,7 @@ function onChildEvent(
       }
     }
     previous = current;
-  }, error, undefined, activity);
+  });
 }
 
 function subscribeChild(

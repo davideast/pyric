@@ -2,7 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { getClock } from 'pyric/sandbox';
 import * as client from '../../../../src/serve/worker/index.js';
-import { connectClient, sleep } from '../integration-support.js';
+import { mirroredClockState } from '../../../../src/serve/worker/client/clock.js';
+import { connectClient, until } from '../integration-support.js';
 
 /** The alphabet a push key's timestamp prefix is written in. */
 const PUSH_CHARS = '-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz';
@@ -46,9 +47,9 @@ describe('RTDB worker writes', () => {
     const { ctx, db } = await connectClient();
     // The mirror is streamed to the port, so let the subscription land before
     // pinning, and let the pin land before minting.
-    await sleep();
+    await client.rtdbGet(client.rtdbRef(client.rtdbGetDatabase(db), 'scores')); // answered after the host registered this port's mirror
     getClock(ctx.sandbox).set(pinned);
-    await sleep();
+    await until(() => mirroredClockState().mode === 'fixed' && mirroredClockState().fixedAt === pinned, 'pinned clock mirror');
 
     const rtdb = client.rtdbGetDatabase(db);
     const pushed = client.rtdbPush(client.rtdbRef(rtdb, 'scores'), { value: 7 });

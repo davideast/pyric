@@ -10,7 +10,7 @@ import * as client from '../../../src/serve/worker/index.js';
 import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database';
 import { serializeError } from '../../../src/serve/worker/protocol.js';
 import type { HostCtx } from '../../../src/serve/worker/host.js';
-import { connectClientToHost, makeHostCtx, sleep } from './integration-support.js';
+import { connectClientToHost, makeHostCtx, until } from './integration-support.js';
 
 const RULES = {
   rules: {
@@ -121,9 +121,9 @@ test('an initially denied listener cancels with the context', async () => {
 test('a listener revoked by a rules change cancels with the context', async () => {
   const errors: Array<Error & { denialContext?: unknown }> = [];
   client.rtdbOnValue(client.rtdbRef(rtdb, 'rooms/alice'), () => {}, (error) => errors.push(error));
-  await sleep();
+  await client.rtdbGet(client.rtdbRef(rtdb, 'rooms/alice')); // answered after the host attached the listener
   rtdbSandbox.setRules(getDatabase(ctx.sandbox), { rules: { rooms: { '.read': 'false' } } });
-  await sleep();
+  await until(() => errors.length >= 1, 'listener cancellation');
   expect(errors).toHaveLength(1);
   expect(errors[0]!.denialContext).toMatchObject({
     engine: 'rtdb', request: { method: 'listen', path: '/rooms/alice' },
