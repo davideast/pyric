@@ -63,8 +63,9 @@ function die(msg: string): never {
 // ── 0. Preconditions ──────────────────────────────────────────────────
 const cliEntry = join(DIST, 'cli', 'index.js');
 const bundlerMod = join(DIST, 'serve', 'bundler.js');
+const rtdbWorkerMod = join(DIST, 'rtdb', 'load-rules-document.worker.js');
 const siteUi = join(DIST, 'serve', 'site-ui');
-if (!existsSync(cliEntry) || !existsSync(bundlerMod)) {
+if (!existsSync(cliEntry) || !existsSync(bundlerMod) || !existsSync(rtdbWorkerMod)) {
   die(`missing build at ${DIST}. Run "bun run build" first.`);
 }
 if (!existsSync(join(siteUi, 'studio-routes.json')) || !existsSync(join(siteUi, 'docs'))) {
@@ -212,7 +213,26 @@ writeFileSync(
     cliImportSpecifier: '../dist/cli/index.js',
   }),
 );
+writeFileSync(
+  join(BUILD, 'load-rules-document.worker.js'),
+  banner +
+    `import * as pyricRules from 'pyric/rules';\n` +
+    `import { startLoadRtdbRulesDocumentWorker } from '../dist/rtdb/load-rules-document.worker.js';\n` +
+    `if (typeof Bun !== 'undefined' && typeof Bun.plugin === 'function') {\n` +
+    `  Bun.plugin({\n` +
+    `    name: 'pyric-standalone-rules',\n` +
+    `    setup(build) {\n` +
+    `      build.module('pyric/rules', () => ({\n` +
+    `        exports: pyricRules,\n` +
+    `        loader: 'object',\n` +
+    `      }));\n` +
+    `    },\n` +
+    `  });\n` +
+    `}\n` +
+    `startLoadRtdbRulesDocumentWorker();\n`,
+);
 const entry = join(BUILD, 'standalone-entry.js');
+const rtdbWorkerEntry = join(BUILD, 'load-rules-document.worker.js');
 
 // ── 4. Cross-compile ──────────────────────────────────────────────────
 mkdirSync(OUT, { recursive: true });
@@ -223,7 +243,16 @@ for (const t of selected) {
   process.stdout.write(`▸ compiling ${t.name} (${t.target})…\n`);
   const r = spawnSync(
     bun,
-    ['build', entry, '--compile', `--target=${t.target}`, `--outfile=${outfile}`],
+    [
+      'build',
+      entry,
+      rtdbWorkerEntry,
+      '--compile',
+      '--compile-autoload-package-json',
+      '--compile-autoload-tsconfig',
+      `--target=${t.target}`,
+      `--outfile=${outfile}`,
+    ],
     { stdio: ['ignore', 'inherit', 'inherit'], cwd: PKG_ROOT },
   );
   if (r.status !== 0) die(`bun build --compile failed for ${t.target} (exit ${r.status})`);

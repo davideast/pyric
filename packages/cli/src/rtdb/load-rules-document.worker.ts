@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
-import { parentPort, workerData } from 'node:worker_threads';
+import { isMainThread, parentPort, workerData } from 'node:worker_threads';
 import type { RtdbRulesJson } from 'pyric/rules/internal/rtdb';
 import { isRtdbRulesDocument } from './rules-json.js';
 
@@ -58,4 +58,14 @@ async function evaluateModule(): Promise<void> {
   }
 }
 
-void evaluateModule();
+let started = false;
+
+export function startLoadRtdbRulesDocumentWorker(): void {
+  if (started || isMainThread || !workerData) {
+    return;
+  }
+  started = true;
+  void evaluateModule();
+}
+
+startLoadRtdbRulesDocumentWorker();
