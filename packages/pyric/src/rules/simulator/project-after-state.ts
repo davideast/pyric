@@ -22,6 +22,7 @@
  *   delete               → after = null (doc is gone)
  */
 import type { WriteMode } from '../test/spec.js';
+import { isRulesMap } from './rules-type.js';
 
 export type DocState = Record<string, unknown>;
 
@@ -44,16 +45,16 @@ function assertSafeSegment(seg: string): void {
   }
 }
 
-/** Recursive merge for set({merge: true}) — payload wins on leaf collisions. */
+/** Recursive merge for set({merge: true}) — payload wins on leaf collisions.
+ *  Only plain maps recurse: a value wrapper (timestamp, bytes, latlng,
+ *  reference, float, ...) is a Firestore scalar and is replaced as a leaf,
+ *  as the sandbox's field merge does (FS-CON-1 / FS-MET-4a). */
 function recursiveMerge(existing: DocState, payload: DocState): DocState {
   const out: DocState = { ...existing };
   for (const [k, v] of Object.entries(payload)) {
     assertSafeSegment(k);
     const cur = Object.hasOwn(out, k) ? out[k] : undefined;
-    if (
-      v !== null && typeof v === 'object' && !Array.isArray(v) &&
-      cur !== null && typeof cur === 'object' && !Array.isArray(cur)
-    ) {
+    if (isRulesMap(v) && isRulesMap(cur)) {
       out[k] = recursiveMerge(cur as DocState, v as DocState);
     } else {
       out[k] = v;
@@ -79,8 +80,9 @@ function setNested(obj: DocState, path: string[], value: unknown): void {
     // Own-property read only: bare `cur[seg]` would resolve an unvalidated
     // segment to the shared object prototype.
     const next = Object.hasOwn(cur, seg) ? cur[seg] : undefined;
-    const isMap = next !== null && typeof next === 'object' && !Array.isArray(next);
-    const copy: DocState = isMap ? { ...(next as DocState) } : {};
+    // A value wrapper is a non-map, so it is replaced like a string would
+    // be rather than spread into its internals (FS-CON-1).
+    const copy: DocState = isRulesMap(next) ? { ...next } : {};
     cur[seg] = copy;
     cur = copy;
   }

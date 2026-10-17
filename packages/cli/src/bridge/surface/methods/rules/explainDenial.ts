@@ -50,7 +50,7 @@ export default {
       .string()
       .optional()
       .describe(
-        'Database only: the text of a draft rules file to evaluate instead of the running ruleset. The result reports evaluated: draft and names the file line of each rule.',
+        'The text of a draft rules file to evaluate instead of the running ruleset, against the sandbox documents. For database the result reports evaluated: draft and names the file line of each rule.',
       ),
     source: z
       .string()
@@ -75,14 +75,14 @@ export default {
         'service',
       );
     }
-    for (const field of ['rules', 'source'] as const) {
-      if (named === 'firestore' && args[field] !== undefined) {
-        return fail(
-          `${field} is read for service 'database' only.`,
-          `Drop ${field}, or pass service 'database'.`,
-          field,
-        );
-      }
+    // A Firestore explanation evaluates a draft `rules` like simulate does
+    // (FS-CON-3); `source` only adds file lines to the database trace.
+    if (named === 'firestore' && args.source !== undefined) {
+      return fail(
+        `source is read for service 'database' only.`,
+        `Drop source, or pass service 'database'.`,
+        'source',
+      );
     }
     if (args.rules !== undefined && args.source !== undefined) {
       return fail(
@@ -119,6 +119,8 @@ export default {
     };
     if (args.uid !== undefined) request.uid = String(args.uid);
     if (args.data !== undefined) request.data = args.data as Record<string, unknown>;
+    if (args.rules !== undefined) request.rules = String(args.rules);
+    if (args.query !== undefined) request.query = args.query as Record<string, unknown>;
     return explainFirestoreDenial(ctx, request);
   },
 } satisfies MethodRecord;

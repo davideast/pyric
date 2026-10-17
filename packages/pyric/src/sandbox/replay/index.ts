@@ -58,8 +58,10 @@ import {
   type WriteSandboxEvent,
 } from '../index.js';
 import { getInternalEnv } from '../internal/sandbox-impl.js';
+import { getClock } from '../clock.js';
 import { Timestamp } from 'pyric/rules/internal';
 import { enginePayloadOf } from '../../firestore/sandbox/update-fields.js';
+import type { BatchOperationInput } from '../../firestore/sandbox/writes.js';
 
 type DocData = Record<string, unknown>;
 
@@ -122,23 +124,53 @@ export function replay(
 
   const pathAliases = new Map<string, string>();
   const writes = events.filter((e): e is WriteSandboxEvent => e.kind === 'write');
+  const clock = getClock(sandbox);
+  let clockPinned = false;
+  // A batch and an auto-id create read the server time from the clock rather
+  // than from an operation field, so a pinned replay freezes the clock at the
+  // captured instant around them.
+  const pinClockTo = (wEv: WriteSandboxEvent) => {
+    if (!pinRequestTime) return;
+    clock.set(wEv.requestTime.seconds * 1000 + Math.floor(wEv.requestTime.nanoseconds / 1e6));
+    clockPinned = true;
+  };
+  // Each write's payload comes from the `request` event paired with it (the
+  // pre-resolution `request.resourceData`), or else from the write's own
+  // `data` (post-resolution).
+  const dataFor = (wEv: WriteSandboxEvent): DocData | undefined => {
+    const requested = preResolutionDataFor(wEv, events);
+    if (requested !== undefined) return requested;
+    return enginePayloadOf({ resourceData: wEv.data, updateMask: wEv.updateMask }) as DocData | undefined;
+  };
+  const remap = aliasRemapper(pathAliases);
 
-  // Re-issue every write. For each, look up the matching `request`
-  // event (one before each write in onEvent order — gives us the
-  // pre-resolution `request.resourceData`). Fall back to the write's
-  // own `data` (post-resolution) when the request event isn't
-  // available.
-  for (const wEv of writes) {
+  for (let index = 0; index < writes.length;) {
+    const wEv = writes[index]!;
+    // A batch or transaction commits atomically: its ops see one pre-state
+    // and one shared post-write projection (getAfter/existsAfter), so it is
+    // replayed as one batch, not op by op (FS-MET-2).
+    const group = groupAt(writes, index);
+    if (group.length > 0) {
+      pinClockTo(wEv);
+      replayGroup(env, group, dataFor, remap);
+      index += group.length;
+      continue;
+    }
+    index += 1;
     const bypassRules = isAdminWrite(wEv);
-    const data = preResolutionDataFor(wEv, events) ?? enginePayloadOf({ resourceData: wEv.data, updateMask: wEv.updateMask });
+    const data = dataFor(wEv);
     const requestTime = pinRequestTime
       ? new Timestamp(wEv.requestTime.seconds, wEv.requestTime.nanoseconds)
       : undefined;
 
     const hasAutoId = Boolean(wEv.autoId);
     if (hasAutoId) {
-      // Auto-id create: split path, mint a fresh id, record the alias.
-      const collection = wEv.path.slice(0, wEv.path.lastIndexOf('/'));
+      // Auto-id create: split path, mint a fresh id, record the alias. The
+      // captured request time reaches the rules through the clock, since
+      // createWithAutoId takes none.
+      const targetPath = remap(wEv.path);
+      const collection = targetPath.slice(0, targetPath.lastIndexOf('/'));
+      pinClockTo(wEv);
       const { path: mintedPath } = env.createWithAutoId(
         collection,
         (data ?? {}) as DocData,
@@ -152,7 +184,7 @@ export function replay(
     try {
       const operation: Parameters<typeof env.execute>[0] = {
         method: wEv.method,
-        path: wEv.path,
+        path: remap(wEv.path),
         auth: wEv.auth,
       };
       const hasData = data !== undefined;
@@ -160,12 +192,14 @@ export function replay(
       if (hasData) operation.data = data as DocData;
       if (hasRequestTime) operation.requestTime = requestTime;
       if (bypassRules) operation.bypassRules = true;
+      if (wEv.merge !== undefined) operation.merge = wEv.merge;
       env.execute(operation);
     } catch {
       // Replay denials surface as state divergence below; keep going
       // to surface as much as possible in one pass.
     }
   }
+  if (clockPinned) clock.reset();
 
   const replayedState = getInternalEnv(sandbox).snapshot();
   const hasOriginalState = originalState !== undefined;
@@ -178,6 +212,67 @@ export function replay(
 
 function isAdminWrite(event: WriteSandboxEvent): boolean {
   return event.detail?.admin === true;
+}
+
+/**
+ * Rewrite a captured path through the auto-id aliases minted so far: a
+ * later write to an `add()`ed document, or under it, lands on the replayed
+ * id.
+ */
+function aliasRemapper(pathAliases: ReadonlyMap<string, string>): (path: string) => string {
+  return (path) => {
+    for (const [originalPath, replayedPath] of pathAliases) {
+      if (path === originalPath) return replayedPath;
+      if (path.startsWith(`${originalPath}/`)) return replayedPath + path.slice(originalPath.length);
+    }
+    return path;
+  };
+}
+
+/** The writes of the batch or transaction starting at `index`, or `[]`
+ *  when the write there is a single operation. */
+function groupAt(writes: readonly WriteSandboxEvent[], index: number): WriteSandboxEvent[] {
+  const groupId = writes[index]?.groupId;
+  if (groupId === undefined) return [];
+  const group: WriteSandboxEvent[] = [];
+  for (let at = index; at < writes.length && writes[at]!.groupId === groupId; at++) {
+    group.push(writes[at]!);
+  }
+  return group;
+}
+
+/**
+ * The batch method that re-applies a committed atomic write. A batch event
+ * records the rules method (`create`/`update`/`delete`), so an `update`
+ * with neither a field mask nor a merge was a replacing `set` over an
+ * existing document.
+ */
+function batchMethodOf(event: WriteSandboxEvent): BatchOperationInput['method'] {
+  const isReplacingSet = event.method === 'update' && event.updateMask === undefined && event.merge === undefined;
+  return isReplacingSet ? 'set' : event.method;
+}
+
+/** Re-commit one captured batch or transaction as a single batch. */
+function replayGroup(
+  env: ReturnType<typeof getInternalEnv>,
+  group: readonly WriteSandboxEvent[],
+  dataFor: (event: WriteSandboxEvent) => DocData | undefined,
+  remap: (path: string) => string,
+): void {
+  const operations = group.map((event) => {
+    const operation: BatchOperationInput = { method: batchMethodOf(event), path: remap(event.path) };
+    if (event.method !== 'delete') {
+      const data = dataFor(event);
+      if (data !== undefined) operation.data = data;
+    }
+    if (event.merge !== undefined) operation.merge = event.merge;
+    return operation;
+  });
+  try {
+    env.batch(operations, group[0]!.auth, isAdminWrite(group[0]!));
+  } catch {
+    // A rejected batch surfaces as state divergence, like a denied write.
+  }
 }
 
 /**
@@ -237,8 +332,6 @@ function computeDivergences(
 ): Divergence[] {
   const out: Divergence[] = [];
 
-  const aliasedOriginals = new Set(pathAliases.keys());
-  const aliasedReplays = new Set(pathAliases.values());
   for (const [originalPath, replayedPath] of pathAliases) {
     out.push({ kind: 'autoid-alias', originalPath, replayedPath });
   }
@@ -253,13 +346,19 @@ function computeDivergences(
     }
   }
 
-  const allPaths = new Set([...Object.keys(originalState), ...Object.keys(replayedState)]);
-  for (const path of allPaths) {
-    if (aliasedOriginals.has(path) && !(path in replayedState)) continue;
-    if (aliasedReplays.has(path) && !(path in originalState)) continue;
-
-    const origDoc = originalState[path];
-    const replDoc = replayedState[path];
+  // Each original document is compared with the replayed document at its
+  // replayed path. An alias licenses the path change only: a replayed
+  // document that is missing or different is a real divergence, so an
+  // alias can't hide a replay write that failed (FS-MET-2). Divergences
+  // name the original path.
+  const remap = aliasRemapper(pathAliases);
+  const originalAt = new Map<string, string>();
+  for (const path of Object.keys(originalState)) originalAt.set(remap(path), path);
+  const allPaths = new Set([...originalAt.keys(), ...Object.keys(replayedState)]);
+  for (const replayedPath of allPaths) {
+    const path = originalAt.get(replayedPath) ?? replayedPath;
+    const origDoc = originalAt.has(replayedPath) ? originalState[path] : undefined;
+    const replDoc = replayedState[replayedPath];
 
     if (origDoc === undefined && replDoc !== undefined) {
       out.push({ kind: 'real-divergence', path, before: undefined, after: replDoc });

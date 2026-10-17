@@ -48,6 +48,8 @@ function caseFor(request: RulesRequest): SimulationRequest {
   if (request.data !== undefined) simulation.data = request.data as SimulationRequest['data'];
   if (request.rules !== undefined) simulation.rules = request.rules;
   if (request.requestTime !== undefined) simulation.requestTime = request.requestTime;
+  // The method's validation has already refused a query on anything but a list.
+  if (request.query !== undefined) simulation.query = request.query as SimulationRequest['query'];
   return simulation;
 }
 

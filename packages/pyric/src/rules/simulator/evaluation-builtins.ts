@@ -39,6 +39,32 @@ function requireLookupPath(
   return String(argVal);
 }
 
+/**
+ * The one normalization getAfter()/existsAfter() use for both the request
+ * target (single write) and the batch projection, so a 1-op batch and a
+ * single write resolve the same path the same way (FS-MET-6a). A leading
+ * slash and the `/databases/(default)/documents` prefix name the same
+ * document. A `.` or `..` segment errors: Firestore rejects both as document
+ * ids, so such a path names no document.
+ */
+function afterLookupPath(name: 'getAfter' | 'existsAfter', pathStr: string): string {
+  if (pathStr.split('/').some((seg) => seg === '.' || seg === '..')) {
+    throw new EvalError(`${name}() path '${pathStr}' has a '.' or '..' segment, which is not a valid document id`);
+  }
+  const normalized = normalizeDocumentPath(pathStr);
+  if (!isDocumentPath(normalized.split('/').filter(Boolean))) {
+    throw new EvalError(
+      `${name}() requires a path pointing to a document (even segment count), got '${normalized}'`,
+    );
+  }
+  return normalized;
+}
+
+/** The request target in {@link afterLookupPath}'s normalized form. */
+function afterTargetPath(ctx: SimulationContext): string {
+  return normalizeDocumentPath(ctx.afterStatePath.toString());
+}
+
 // ═══ Function calls ═══
 
 export function evaluateFunctionCall(
@@ -67,20 +93,14 @@ export function evaluateFunctionCall(
     }
     case 'getAfter': {
       const pathStr = requireLookupPath('getAfter', args, ctx, scope);
-      const normalized = normalizeDocumentPath(pathStr);
-      const segments = normalized.split('/').filter(Boolean);
-      if (!isDocumentPath(segments)) {
-        throw new EvalError(
-          `getAfter() requires a path pointing to a document (even segment count), got '${normalized}'`,
-        );
-      }
+      const normalized = afterLookupPath('getAfter', pathStr);
       // getAfter() is a document access call and counts against the
       // per-request budget. 'after' keying: the post-write projection is a
       // different snapshot than get()'s pre-write read, so a path read by
       // both charges two slots. The fall-through resolveGet below does NOT
       // re-charge, because charging lives only here.
       chargeLookup(ctx, 'after', normalized);
-      if (pathStr === ctx.afterStatePath.toString()) {
+      if (normalized === afterTargetPath(ctx)) {
         // RULES-B8: getAfter() of a doc that won't exist post-write (delete,
         // or projected-null) ERRORS like get() — guard with existsAfter().
         if (ctx.afterState === null) {
@@ -99,17 +119,11 @@ export function evaluateFunctionCall(
     }
     case 'existsAfter': {
       const pathStr = requireLookupPath('existsAfter', args, ctx, scope);
-      const normalized = normalizeDocumentPath(pathStr);
-      const segments = normalized.split('/').filter(Boolean);
-      if (!isDocumentPath(segments)) {
-        throw new EvalError(
-          `existsAfter() requires a path pointing to a document (even segment count), got '${normalized}'`,
-        );
-      }
+      const normalized = afterLookupPath('existsAfter', pathStr);
       // existsAfter() counts against the per-request lookup budget and
       // shares getAfter()'s post-write slot for the same path.
       chargeLookup(ctx, 'after', normalized);
-      if (pathStr === ctx.afterStatePath.toString()) {
+      if (normalized === afterTargetPath(ctx)) {
         return ctx.existsAfter;
       }
       if (ctx.batchProjection?.has(normalized)) {

@@ -239,6 +239,12 @@ export interface WriteSandboxEvent {
   data?: Record<string, unknown>;
   /** An update's field paths as segment vectors; a segment may contain `.`. */
   updateMask?: string[][];
+  /** Present when the write was a `set(..., { merge })`: `true` for
+   *  `merge: true`, or the listed `mergeFields`. Replay re-issues the write
+   *  with the same merge so it lands the same document. Absent on events
+   *  recorded before this field existed; replay then treats the write as
+   *  it always did. */
+  merge?: true | { mergeFields: string[] };
   /** State BEFORE this write. `null` for a non-existent doc. */
   priorState: Record<string, unknown> | null;
   /** State AFTER this write. `null` on `delete`. */
