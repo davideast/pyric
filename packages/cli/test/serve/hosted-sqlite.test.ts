@@ -260,3 +260,7 @@ test('a repro replays with Messaging on when the captured session had it, and of
 test('the denials a multi-instance host recorded list by instance, with their counts and page loads', async () => {
   expect(await runNodeFixture('denials')).toBe('Denials passed');
 });
+
+test('an onDisconnect re-armed on the session an interruption just drained survives the drain, and a later interruption runs it (#990)', async () => {
+  expect(await runNodeFixture('rearm-after-interrupt', 30_000)).toBe('Re-arm after interrupt passed');
+}, 45_000);

@@ -13,6 +13,11 @@ as a drop, the host runs a consumer's Realtime Database onDisconnect operations
 when its socket closes, and the decision binds the Node remote client too. See
 [the amendment](#amendment-2026-10-14-clients-send-a-heartbeat-and-a-closed-socket-runs-ondisconnect).
 
+Amended: 2026-10-16. Every client serves `.info` locally, and an operation
+issued when `.info/connected` turns true is sent on the new connection after
+the restore, so an app can re-arm its onDisconnect operations. See
+[the amendment](#amendment-2026-10-16-every-client-serves-info-locally).
+
 ## Context
 
 The Dart (`packages/flutter-client`), Swift (`packages/swift-client`) and Kotlin
@@ -466,9 +471,117 @@ them.
   watched, but its close now runs its onDisconnect operations, because that
   rule is in the host.
 - A host restarted in place runs every connected client's onDisconnect
-  operations, so presence goes offline. The native clients do not serve
-  `.info/connected` today, so an app cannot register its onDisconnect
-  operations again on reconnect as a production app does; it must write its
-  presence again itself. That gap is open as
-  [#990](https://github.com/davideast/pyric/issues/990).
+  operations, so presence goes offline. An app registers them again from
+  `.info/connected`, which every client serves under
+  [the 2026-10-16 amendment](#amendment-2026-10-16-every-client-serves-info-locally).
 - Each attached client sends one small frame every 15 seconds.
+
+## Amendment (2026-10-16): every client serves `.info` locally
+
+A host restarted in place runs every connected client's onDisconnect
+operations (the amendment above), and the new host instance holds none of
+them. Production apps register them again when `.info/connected` turns true,
+as the Firebase presence sample does. The web hosted client serves
+`.info/connected` from its socket. The native clients send `.info` listeners to
+the host as ordinary subscriptions, and the host answers `connected: true` at
+all times, so an app on them never sees the reconnect and never re-arms
+([#990](https://github.com/davideast/pyric/issues/990)).
+
+This amendment is the contract every client follows. The web hosted client
+already meets it. The Kotlin, Swift and Dart clients follow in their own
+changes, each with its own conformance rows.
+
+### Which paths are served
+
+`.info` is a client-side tree in every production SDK: the Android, iOS and
+JavaScript Repos each keep their own and write `connected = false` when they
+are built. Every Pyric client serves these paths itself:
+
+| Path | Value |
+| --- | --- |
+| `/.info/connected` | `true` or `false` |
+| `/.info/serverTimeOffset` | `0` |
+| `/.info` | `{ connected, serverTimeOffset: 0 }` |
+| any other path under `/.info` | `null` |
+
+A path is under `/.info` when its first segment is `.info`, the test
+`isInfoPath` in `packages/pyric/src/database/writable-path.ts` applies. Value,
+single-event and child listeners and one-time reads on these paths are answered
+by the client. They never reach the host and are not replayed on re-attach.
+
+### When the value changes
+
+- A listener receives the current value when it is registered, which is `false`
+  before the first attach, as in production.
+- After that, `connected` changes only when the connection state does. It turns
+  `false` when the client is `interrupted` or `closed`, or when `goOffline()`
+  turns the database's network flag off. It turns `true` when the client is
+  `attached` and the database is online. Repeated values are not delivered.
+- `connected` is per database instance, as the web client's
+  `observeRtdbConnection` keeps it.
+
+### An operation issued on `true` follows the restore
+
+An operation issued from the callback that sees `connected` turn `true`, such
+as an onDisconnect registration, is sent on the new socket after the whole
+restore in decision 5 and after every operation held under decision 7.
+
+- The web hosted client raises `true` after that sequence: Auth restore,
+  listener replay, Messaging restore, then the held operations.
+- The native clients raise it when they reach `attached`. Each already sends an
+  operation issued from that callback behind the restore and the held queue,
+  so `true` is derived from the existing `attached` state and the state
+  machine does not change.
+- Production differs by SDK in the same way. Android and iOS raise `true`
+  before the restore when the app has an Auth token, and queue an onDisconnect
+  registered then until the restore completes. The JavaScript SDK raises it
+  after the restore. In every SDK the registration reaches the server on the
+  new connection, after the restore.
+
+`packages/cli/test/serve/worker/client/rtdb-info-connected-order.test.ts` pins
+the web client's order.
+
+### The host keeps the re-registration
+
+- The host chains the onDisconnect operations it runs for an old socket ahead
+  of every later frame for that session (`owned.pending` in
+  `packages/cli/src/serve/hosted/runtime.ts`). A registration the re-attached
+  client sends on `true` is never consumed by the old socket's drain, and the
+  next close runs it. `packages/cli/test/serve/fixtures/hosted-sqlite-rearm-after-interrupt.ts`
+  pins this for a native client's `worker-op` and a page's worker port.
+- A replaced socket's close runs nothing (the amendment above), so the
+  registration also survives a close the bridge processes after the re-attach.
+- On a Vite dev server restart, the replacement closes the old host before it
+  opens the store, and that close waits for every session's onDisconnect
+  operations and flushes them. The restarted host therefore reads the values
+  they wrote. `test/apps/presence-rearms-after-restart` drives this through the
+  dev server: an app that does not re-arm reads `offline` after a restart, one
+  that re-arms reads `online`, and closing the page then runs the
+  re-registration.
+
+### What is not ported
+
+- Production clients apply their own onDisconnect operations to their local
+  cache when the connection drops. Pyric clients have no cache, and listeners
+  report the host's value after re-attach.
+- `serverTimeOffset` is always `0`. The bridge handshake carries no server
+  timestamp. Production delivers no offset until its first handshake.
+- Android's `.info/authenticated` is not served.
+- Android's 60-second idle disconnect is not modeled.
+- Kotlin opens one connection per database URL. Swift and Dart share one
+  connection per app, so `.info/connected` on every database follows that
+  shared socket.
+- A replaced host whose Auth restore fails still reports `true`. Production
+  also keeps connected and authenticated apart; the app's re-registration then
+  runs signed out, and the rules decide it.
+- Writes under `.info` are refused by the host (`invalidInfoWrite`). The
+  native clients do not yet refuse them before sending, as production SDKs do.
+
+### Consequences of the amendment
+
+- An app that re-arms presence from `.info/connected`, as the Firebase docs
+  show, stays `online` across a host restart once its client meets this
+  contract. The web hosted client does today; the native clients do once their
+  changes land.
+- An app that writes its presence only once goes `offline` on every host
+  restart and stays there, as it would in production after a reconnect.
