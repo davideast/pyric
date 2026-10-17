@@ -87,7 +87,7 @@ class InfoConnectedReconnectTest {
         listen("rooms/a")
         listen("rooms/c")
         rearmPresenceOnConnected()
-        until { bridge.subsFor("rooms/c").size == 1 && bridge.opsNamed("rtdb.onDisconnectSet").size == 1 }
+        until { bridge.subsFor("rooms/c").size == 1 && bridge.opsNamed("rtdb.onDisconnectSet").size == 1 && presenceWrites().size == 1 }
 
         bridge.refuseConnections = true
         bridge.current.drop()
@@ -121,7 +121,7 @@ class InfoConnectedReconnectTest {
         client.restoreAuth = { op -> op("auth.restorePortSession", mapOf("uid" to "u1", "tenantId" to null)) }
         listen("rooms/a")
         rearmPresenceOnConnected()
-        until { bridge.subsFor("rooms/a").size == 1 && bridge.opsNamed("rtdb.onDisconnectSet").size == 1 }
+        until { bridge.subsFor("rooms/a").size == 1 && bridge.opsNamed("rtdb.onDisconnectSet").size == 1 && presenceWrites().size == 1 }
 
         bridge.hostInstanceId = "host-b"
         bridge.current.drop()
