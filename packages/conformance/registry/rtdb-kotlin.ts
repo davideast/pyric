@@ -2,6 +2,7 @@ import { defineRows } from './define-rows.ts';
 import type { CompatibilityRow, CompatibilitySurfaceRegistry, CompatStatus } from './types.ts';
 
 const CONFORMANCE_SUITE = 'packages/kt-client/src/test/kotlin/dev/pyric/database/RtdbConformanceTest.kt';
+const INFO_RECONNECT_TEST = 'packages/kt-client/src/test/kotlin/dev/pyric/database/InfoConnectedReconnectTest.kt';
 
 const buildRow = defineRows({
   surface: 'rtdb-kotlin',
@@ -14,13 +15,15 @@ interface KotlinRtdbRowSeed {
   behavior: string;
   featureKeys: string[];
   evidence?: string;
+  /** Tests beyond the conformance suite that also exercise this row. */
+  tests?: string[];
   /** Overrides the default `conforms` status. */
   status?: CompatStatus;
   statusNote?: string;
 }
 
 function row(seed: KotlinRtdbRowSeed): CompatibilityRow {
-  const { ref, evidence, status, ...rest } = seed;
+  const { ref, evidence, status, tests, ...rest } = seed;
   const resolvedEvidence = evidence ?? 'com.google.firebase:firebase-database specification.';
   return buildRow({
     ...rest,
@@ -28,7 +31,7 @@ function row(seed: KotlinRtdbRowSeed): CompatibilityRow {
     status: status ?? 'conforms',
     automation: 'unit-backed',
     evidence: `${resolvedEvidence} Test: \`${CONFORMANCE_SUITE}\` assertion set \`rtdb-kotlin#${ref}\`.`,
-    conformanceTests: [CONFORMANCE_SUITE],
+    conformanceTests: [CONFORMANCE_SUITE, ...(tests ?? [])],
   });
 }
 
@@ -42,7 +45,7 @@ const SEC_QUERY = 'Query Ordering, Filtering & Limits';
 const SEC_TX = 'Transactions & OnDisconnect';
 
 export const rtdbKotlinRows: CompatibilityRow[] = [
-  // ── 1. Database Instance & Connection (5 rows) ────────────────────────────
+  // ── 1. Database Instance & Connection (7 rows) ────────────────────────────
   row({
     ref: 'instance-default',
     section: SEC_INSTANCE,
@@ -78,8 +81,26 @@ export const rtdbKotlinRows: CompatibilityRow[] = [
     ref: 'connection-toggle',
     section: SEC_INSTANCE,
     api: 'FirebaseDatabase.goOffline() / goOnline()',
-    behavior: 'Suspends and resumes the Realtime Database connection to the Pyric worker.',
+    behavior: 'Suspends and resumes the Realtime Database connection to the Pyric worker. goOffline() also turns `.info/connected` false until goOnline().',
     featureKeys: ['goOffline', 'goOnline'],
+  }),
+  row({
+    ref: 'info-connected',
+    section: SEC_INSTANCE,
+    api: 'getReference(".info/connected") with a value listener',
+    behavior: 'Served by the client from its bridge connection. It reports false until the client attaches and false whenever the connection is interrupted, closed or taken offline with goOffline(), and true once the client re-attaches. An onDisconnect registered when it turns true reaches the host on the new connection, after the restore.',
+    featureKeys: ['infoConnected'],
+    evidence: 'com.google.firebase:firebase-database specification; ADR-0019 amendment "every client serves `.info` locally". No `.info` listener or read reaches the host. Reconnect tests: `InfoConnectedReconnectTest.kt` pins false, true, false, true across a drop with no repeated value, and a presence re-arm from the true callback sent on the new socket after the replayed listeners, the held operation and, on a replaced host, the Auth restore.',
+    tests: [INFO_RECONNECT_TEST],
+  }),
+  row({
+    ref: 'info-root-offset',
+    section: SEC_INSTANCE,
+    api: 'getReference(".info") / getReference(".info/serverTimeOffset")',
+    behavior: 'Served locally: `.info` is `{ connected, serverTimeOffset }`, `serverTimeOffset` is 0, and any other path under `.info` is null.',
+    featureKeys: ['infoRoot', 'serverTimeOffset'],
+    status: 'diverged-documented',
+    statusNote: 'the offset is always 0: the bridge handshake carries no server timestamp, and production delivers no offset until its first handshake; Android\'s `.info/authenticated` is not served',
   }),
 
   // ── 2. DatabaseReference Navigation & Properties (7 rows) ────────────────
