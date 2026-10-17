@@ -111,23 +111,8 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
         do {
             let options = SetOptionsWire(merge: merge)
             let encoded = try ValueCodec.encodeWriteData(data)
-            let sendableData = AnySendable.from(encoded)
-            let docPath = self.path
-            let db = self.firestore
-            let box = ErrorCallbackBox(completion)
-            Task {
-                do {
-                    try await db.bridgeClient.setDoc(
-                        path: docPath,
-                        data: sendableData,
-                        options: options,
-                        actAs: db.effectiveAuthLens
-                    )
-                    db.settings.dispatchQueue.async { box.callback?(nil) }
-                } catch {
-                    db.settings.dispatchQueue.async { box.callback?(error) }
-                }
-            }
+            let params = PyricBridgeClient.setDocParams(path: path, data: AnySendable.from(encoded), options: options)
+            firestore.sendInCallOrder(method: "setDoc", params: params, completion: completion)
         } catch {
             firestore.settings.dispatchQueue.async { completion?(error) }
         }
@@ -150,23 +135,8 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
             }
             let options = SetOptionsWire(merge: nil, mergeFields: fieldStrings)
             let encoded = try ValueCodec.encodeWriteData(data)
-            let sendableData = AnySendable.from(encoded)
-            let docPath = self.path
-            let db = self.firestore
-            let box = ErrorCallbackBox(completion)
-            Task {
-                do {
-                    try await db.bridgeClient.setDoc(
-                        path: docPath,
-                        data: sendableData,
-                        options: options,
-                        actAs: db.effectiveAuthLens
-                    )
-                    db.settings.dispatchQueue.async { box.callback?(nil) }
-                } catch {
-                    db.settings.dispatchQueue.async { box.callback?(error) }
-                }
-            }
+            let params = PyricBridgeClient.setDocParams(path: path, data: AnySendable.from(encoded), options: options)
+            firestore.sendInCallOrder(method: "setDoc", params: params, completion: completion)
         } catch {
             firestore.settings.dispatchQueue.async { completion?(error) }
         }
@@ -205,22 +175,8 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
                 }
             }
             let encoded = try ValueCodec.encodeWriteData(stringDict)
-            let sendableData = AnySendable.from(encoded)
-            let docPath = self.path
-            let db = self.firestore
-            let box = ErrorCallbackBox(completion)
-            Task {
-                do {
-                    try await db.bridgeClient.updateDoc(
-                        path: docPath,
-                        data: sendableData,
-                        actAs: db.effectiveAuthLens
-                    )
-                    db.settings.dispatchQueue.async { box.callback?(nil) }
-                } catch {
-                    db.settings.dispatchQueue.async { box.callback?(error) }
-                }
-            }
+            let params = PyricBridgeClient.updateDocParams(path: path, data: AnySendable.from(encoded))
+            firestore.sendInCallOrder(method: "updateDoc", params: params, completion: completion)
         } catch {
             firestore.settings.dispatchQueue.async { completion?(error) }
         }
@@ -231,17 +187,7 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
     }
 
     public func delete(completion: (@Sendable (Error?) -> Void)? = nil) {
-        let docPath = self.path
-        let db = self.firestore
-        let box = ErrorCallbackBox(completion)
-        Task {
-            do {
-                try await db.bridgeClient.deleteDoc(path: docPath, actAs: db.effectiveAuthLens)
-                db.settings.dispatchQueue.async { box.callback?(nil) }
-            } catch {
-                db.settings.dispatchQueue.async { box.callback?(error) }
-            }
-        }
+        firestore.sendInCallOrder(method: "deleteDoc", params: PyricBridgeClient.deleteDocParams(path: path), completion: completion)
     }
 
     // ── Real-Time Snapshot Listeners ─────────────────────────────────────────
@@ -333,13 +279,6 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
 private final class CallbackBox<T: Sendable>: @unchecked Sendable {
     let callback: @Sendable (T?, Error?) -> Void
     init(_ callback: @escaping @Sendable (T?, Error?) -> Void) {
-        self.callback = callback
-    }
-}
-
-private final class ErrorCallbackBox: @unchecked Sendable {
-    let callback: (@Sendable (Error?) -> Void)?
-    init(_ callback: (@Sendable (Error?) -> Void)?) {
         self.callback = callback
     }
 }

@@ -337,14 +337,7 @@ public class Firestore: @unchecked Sendable {
     }
 
     public func enableNetwork(completion: (@Sendable (Error?) -> Void)? = nil) {
-        Task {
-            do {
-                try await enableNetwork()
-                settings.dispatchQueue.async { completion?(nil) }
-            } catch {
-                settings.dispatchQueue.async { completion?(error) }
-            }
-        }
+        toggleNetworkInCallOrder(completion: completion) { client in try await client.connect() }
     }
 
     public func disableNetwork() async throws {
@@ -352,14 +345,7 @@ public class Firestore: @unchecked Sendable {
     }
 
     public func disableNetwork(completion: (@Sendable (Error?) -> Void)? = nil) {
-        Task {
-            do {
-                try await disableNetwork()
-                settings.dispatchQueue.async { completion?(nil) }
-            } catch {
-                settings.dispatchQueue.async { completion?(error) }
-            }
-        }
+        toggleNetworkInCallOrder(completion: completion) { client in await client.disconnect() }
     }
 
     public func clearPersistence() async throws {
