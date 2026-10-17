@@ -59,12 +59,8 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
             _tenantId = newValue
             let currentLens = computeCurrentLensLocked()
             _lastEmittedLens = currentLens
-            let lensConts = Array(authLensContinuations.values)
+            yieldLensLocked(currentLens)
             stateLock.unlock()
-
-            for cont in lensConts {
-                cont.yield(currentLens)
-            }
         }
     }
 
@@ -136,12 +132,8 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
         _impersonatedLens = lens
         let currentLens = computeCurrentLensLocked()
         _lastEmittedLens = currentLens
-        let lensConts = Array(authLensContinuations.values)
+        yieldLensLocked(currentLens)
         stateLock.unlock()
-
-        for cont in lensConts {
-            cont.yield(currentLens)
-        }
     }
 
     public func currentAuthLens() -> AuthLens {
@@ -160,15 +152,22 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
         return .anon
     }
 
+    /// Delivers a lens to every lens subscriber. Callers hold `stateLock`, so
+    /// two lens changes on different threads reach subscribers in the order
+    /// they changed the lens, and each stream's last value is the current lens.
+    private func yieldLensLocked(_ lens: AuthLens) {
+        for cont in authLensContinuations.values {
+            cont.yield(lens)
+        }
+    }
+
     public var authLensStream: AsyncStream<AuthLens> {
         AsyncStream { continuation in
             let id = UUID()
             stateLock.lock()
             authLensContinuations[id] = continuation
-            let initial = computeCurrentLensLocked()
+            continuation.yield(computeCurrentLensLocked())
             stateLock.unlock()
-
-            continuation.yield(initial)
 
             continuation.onTermination = { [weak self] _ in
                 guard let self else { return }
@@ -432,13 +431,13 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
         let lensChanged = (_lastEmittedLens != currentLens)
         if lensChanged {
             _lastEmittedLens = currentLens
+            yieldLensLocked(currentLens)
         }
 
         let stateCallbacks = Array(stateListeners.values)
         let tokenCallbacks = Array(idTokenListeners.values)
         let stateConts = Array(authStateContinuations.values)
         let tokenConts = Array(idTokenContinuations.values)
-        let lensConts = Array(authLensContinuations.values)
         stateLock.unlock()
 
         #if canImport(Combine)
@@ -454,12 +453,6 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
             }
             for cont in stateConts {
                 cont.yield(newUser)
-            }
-        }
-
-        if lensChanged {
-            for cont in lensConts {
-                cont.yield(currentLens)
             }
         }
 
