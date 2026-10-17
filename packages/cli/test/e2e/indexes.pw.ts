@@ -107,10 +107,14 @@ for (const runtime of ['inpage', 'worker']) {
     await page.getByRole('tab', { name: 'Traffic', exact: true }).click();
     const row = page.locator('[data-request-row]').filter({ hasText: 'rtdb.get' }).filter({ hasText: '/projects' }).first();
     await expect(row.getByLabel('Index missing from config')).toBeVisible();
+    // An unindexed listener is not rejected: it downloads, warns, and its query row carries the finding.
     await page.locator('[data-database-index-listen]').click();
-    const failedListener = page.locator('[data-request-row]').filter({ hasText: 'rtdb.listen' }).filter({ hasText: '/projects' }).first();
-    await expect(failedListener.getByLabel('Index missing from config')).toBeVisible();
-    if (await page.locator('[data-database-index-listen]').textContent() === 'Stop database query') await page.locator('[data-database-index-listen]').click();
+    await expect(page.locator('[data-database-index-listen]')).toHaveText('Stop database query');
+    const unindexedListener = page.locator('[data-request-row]').filter({ hasText: 'rtdb.listen' }).filter({ hasText: '/projects' })
+      .filter({ has: page.getByLabel('Index missing from config') }).first();
+    await expect(unindexedListener).toBeVisible();
+    await page.locator('[data-database-index-listen]').click();
+    await expect(page.locator('[data-database-index-listen]')).toHaveText('Listen to database projects');
     await row.click();
     const details = page.locator('[data-index-details]');
     await expect(page.locator('[data-traffic-detail]')).toContainText('Realtime Database');
@@ -137,6 +141,8 @@ for (const runtime of ['inpage', 'worker']) {
     await page.locator('[data-database-index-read]').click();
     await expect(page.locator('[data-database-index-results]')).toContainText('large');
     await page.locator('[data-request-back]').click();
+    // Inspecting a request pins the list; the new read arrives after resuming live updates.
+    await page.locator('[data-request-pause][aria-label^="Resume live"]').click();
     await expect(page.locator('[data-request-row]').filter({ hasText: 'rtdb.get' }).filter({ hasText: '/projects' }).getByLabel('Succeeded', { exact: true }).first()).toBeVisible();
     await page.locator('[data-database-index-listen]').click();
     await expect(page.locator('[data-database-index-listen]')).toHaveText('Stop database query');
