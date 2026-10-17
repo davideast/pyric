@@ -8,6 +8,7 @@ import { FirebaseError } from 'pyric/app';
 import type { InboundMessage } from '../protocol.js';
 import { _pending, rejectPendingRequests } from './core.js';
 import type { ClientPort } from './handles.js';
+import { issueTime } from './send-order.js';
 
 const HOLD_DEADLINE_MS = 10_000;
 const HOLD_EXPIRED = 'The hosted sandbox connection was not restored within 10 seconds. The request was not sent.';
@@ -76,9 +77,17 @@ export function createHeldMessages(port: ClientPort): HeldMessages {
     hold(message) {
       const entry: HeldMessage = { message };
       const id = requestId(message);
-      const awaitsReply = id !== undefined && _pending.get(id)?.port === port;
-      if (awaitsReply) entry.deadline = setTimeout(() => expire(entry, id), holdDeadlineMs);
       held.push(entry);
+      const isSubscriptionFrame = id === undefined;
+      if (isSubscriptionFrame) return;
+      const request = _pending.get(id);
+      const awaitsReply = request !== undefined && request.port === port;
+      if (!awaitsReply) return;
+      // The deadline counts from the call, not from when the frame reached the hold.
+      const remaining = request.issuedAt + holdDeadlineMs - issueTime();
+      const hasExpired = remaining <= 0;
+      if (hasExpired) { expire(entry, id); return; }
+      entry.deadline = setTimeout(() => expire(entry, id), remaining);
     },
     holdsRequest(id) {
       return held.some(entry => requestId(entry.message) === id);

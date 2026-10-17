@@ -81,6 +81,8 @@ class ClientUploadTaskImpl implements ClientUploadTask {
   private _observers: ClientTaskObserver[] = [];
   private _didIntermediateProgress = false;
   private _committing = false;
+  /** The commit's outcome when it settled while paused; resuming reports it. */
+  private _heldOutcome: { result: { metadata: FullMetadata } } | { error: unknown } | undefined;
   private _error: Error | undefined;
   private readonly _ref: ClientStorageReference;
   private readonly _data: Blob | Uint8Array | ArrayBuffer;
@@ -155,9 +157,17 @@ class ClientUploadTaskImpl implements ClientUploadTask {
       task: this,
     };
 
+    // The first frame goes out at the call (D1, D2); progress reports follow on a microtask.
+    this._start();
     queueMicrotask(() => {
       this._runStep();
     });
+  }
+
+  private _start(): void {
+    const routed = byteRouteOf(this._ref) !== undefined;
+    if (routed) void this._sendOverRoute();
+    else void this._commitUpload();
   }
 
   get snapshot(): ClientUploadTaskSnapshot {
@@ -537,57 +547,66 @@ class ClientUploadTaskImpl implements ClientUploadTask {
       }
       this._updateSnapshot('running', middleBytes);
       this._notifyObservers('next');
-      queueMicrotask(() => {
-        this._runStep();
-      });
-      return;
     }
 
-    this._commitUpload();
+    const held = this._heldOutcome;
+    const settledWhilePaused = held !== undefined;
+    if (settledWhilePaused) {
+      this._heldOutcome = undefined;
+      if ('result' in held) this._succeed(held.result.metadata);
+      else this._fail(held.error);
+      return;
+    }
+    void this._commitUpload();
   }
 
+  private _succeed(metadata: FullMetadata): void {
+    this._updateSnapshot('success', this._snapshot.totalBytes, metadata);
+    this._notifyObservers('next');
+    this._notifyObservers('complete');
+    this._resolve(this._snapshot);
+  }
+
+  private _fail(err: unknown): void {
+    this._error = err instanceof Error ? err : new Error(String(err));
+    this._updateSnapshot('error', this._snapshot.bytesTransferred);
+    this._notifyObservers('error');
+    this._reject(this._error);
+  }
+
+  /**
+   * Upload the object in one call. It is sent once: a pause cannot recall a
+   * sent frame, so an outcome that arrives while paused is held for resume,
+   * and only a cancel rolls the object back.
+   */
   private async _commitUpload(): Promise<void> {
-    if (this._committing) return;
     const isNotRunning = this._snapshot.state !== 'running';
-    if (isNotRunning) {
+    const hasStarted = this._committing || this._heldOutcome !== undefined;
+    if (isNotRunning || hasStarted) return;
+    this._committing = true;
+    let outcome: { result: { metadata: FullMetadata } } | { error: unknown };
+    try {
+      outcome = { result: await uploadBytes(this._ref, this._data, this._metadata) };
+    } catch (error: unknown) {
+      outcome = { error };
+    }
+    this._committing = false;
+    this._settleCommit(outcome);
+  }
+
+  private _settleCommit(outcome: { result: { metadata: FullMetadata } } | { error: unknown }): void {
+    const state = this._snapshot.state;
+    const isRunning = state === 'running';
+    if (isRunning) {
+      if ('result' in outcome) this._succeed(outcome.result.metadata);
+      else this._fail(outcome.error);
       return;
     }
-
-    this._committing = true;
-    try {
-      const result = await uploadBytes(this._ref, this._data, this._metadata);
-      const isStillRunning = this._snapshot.state === 'running';
-      if (isStillRunning) {
-        this._updateSnapshot('success', this._snapshot.totalBytes, result.metadata);
-        this._notifyObservers('next');
-        this._notifyObservers('complete');
-        this._resolve(this._snapshot);
-      } else {
-        try {
-          await deleteObject(this._ref);
-        } catch {
-          // Best-effort rollback
-        }
-      }
-    } catch (err: unknown) {
-      const isStillRunning = this._snapshot.state === 'running';
-      if (isStillRunning) {
-        let errObj: Error;
-        const isInstanceOfError = err instanceof Error;
-        if (isInstanceOfError) {
-          errObj = err as Error;
-        } else {
-          errObj = new Error(String(err));
-        }
-        this._error = errObj;
-        this._updateSnapshot('error', this._snapshot.bytesTransferred);
-        this._notifyObservers('error');
-        this._reject(this._error);
-      }
-    } finally {
-      this._committing = false;
-      if (this._snapshot.state === 'running') queueMicrotask(() => this._runStep());
-    }
+    const isPaused = state === 'paused';
+    if (isPaused) { this._heldOutcome = outcome; return; }
+    const isCanceled = state === 'canceled';
+    const wasStored = 'result' in outcome;
+    if (isCanceled && wasStored) void deleteObject(this._ref).catch(() => { /* Best-effort rollback */ });
   }
 }
 
