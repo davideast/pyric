@@ -189,11 +189,9 @@ class PyricBridgeClient(
 
     init {
         directTransport?.setListener(BridgeClientListener(0))
-        clientScope.launch {
-            try {
-                connect()
-            } catch (_: Throwable) {}
-        }
+        // Started here rather than from a launched connect(): a launch can run after
+        // this attempt failed and closed the client, and would reopen it (D6).
+        synchronized(lock) { startAttemptLocked() }
     }
 
     /**
