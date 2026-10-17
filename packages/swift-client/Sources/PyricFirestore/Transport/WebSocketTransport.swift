@@ -2,12 +2,23 @@ import Foundation
 
 /// Abstract transport layer enabling offline unit tests without real sockets.
 public protocol WebSocketTransport: Sendable {
+    /// Writes one text frame. A throw means the frame may have reached the
+    /// host, so the client fails the operation it carried and never re-sends it.
     func send(_ string: String) async throws
     func receive() async throws -> String
     func close(closeCode: Int, reason: String?) async
 }
 
 public typealias WebSocketChannelProtocol = WebSocketTransport
+
+/// Thrown by `URLSessionWebSocketTransport.send` when it refuses a frame
+/// without writing it, because its task is no longer running. The frame never
+/// left the device, so the client holds its operation for the reconnect
+/// (ADR-0019, amended 2026-10-17). Package access only: a custom transport
+/// cannot signal a refusal, so anything it throws leaves the operation in flight.
+package struct WebSocketSendRefusedError: Error, Sendable {
+    package init() {}
+}
 
 /// Native implementation backed by URLSessionWebSocketTask.
 public final class URLSessionWebSocketTransport: WebSocketTransport, @unchecked Sendable {
@@ -21,6 +32,10 @@ public final class URLSessionWebSocketTransport: WebSocketTransport, @unchecked 
     }
 
     public func send(_ string: String) async throws {
+        // A task that has stopped running cannot write. Apple does not document
+        // whether a send that throws wrote nothing, so only this check is a refusal.
+        let running = task.state == .running
+        guard running else { throw WebSocketSendRefusedError() }
         try await task.send(.string(string))
     }
 
