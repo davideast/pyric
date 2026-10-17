@@ -119,11 +119,19 @@ export class Bytes extends RulesValue {
     return true;
   }
 
-  callMethod(method: string, _args: unknown[]): unknown | NoOp {
+  callMethod(method: string, args: unknown[]): unknown | NoOp {
     switch (method) {
-      case 'size': return this.size();
-      case 'toBase64': return this.toBase64();
-      case 'toHexString': return this.toHexString();
+      case 'size':
+      case 'toBase64':
+      case 'toHexString':
+        if (args.length !== 0) {
+          throw new RangeError(
+            `Incorrect number of arguments. Received: ${args.length}. Expected: bytes.${method}().`,
+          );
+        }
+        if (method === 'size') return this.size();
+        if (method === 'toBase64') return this.toBase64();
+        return this.toHexString();
     }
     return NO_OP;
   }

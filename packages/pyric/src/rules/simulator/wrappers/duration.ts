@@ -147,12 +147,16 @@ export class Duration extends RulesValue {
     );
   }
 
-  callMethod(method: string, _args: unknown[]): unknown | NoOp {
+  callMethod(method: string, args: unknown[]): unknown | NoOp {
     switch (method) {
       case 'seconds':
-        return this.seconds;
       case 'nanos':
-        return this.nanos;
+        if (args.length !== 0) {
+          throw new RangeError(
+            `Incorrect number of arguments. Received: ${args.length}. Expected: duration.${method}().`,
+          );
+        }
+        return method === 'seconds' ? this.seconds : this.nanos;
       default:
         return NO_OP;
     }

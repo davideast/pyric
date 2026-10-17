@@ -2,6 +2,8 @@ import { describe, expect, test } from 'bun:test';
 import { parseToAST } from '../../../src/rules/grammar/FirestoreParser.js';
 import {
   collectMatches,
+  getFunctionScope,
+  indexRulesetScopes,
   renderMatchBlockPath,
 } from '../../../src/rules/simulator/match-resolution.js';
 import type { PathResolutionEntry } from '../../../src/rules/test/spec.js';
@@ -142,5 +144,27 @@ describe('collectMatches', () => {
       expect.objectContaining({ blockPath: '/items/{itemId}', reason: 'literal-mismatch' }),
       expect.objectContaining({ blockPath: '/users/{userId}', reason: 'no-matching-child' }),
     ]));
+  });
+
+  test('indexes lexical declaration scopes per function (FS-SIM-1, FS-COV-1)', () => {
+    const ast = parse(`match /users/{userId} {
+      function userHelper() { return userId == 'alice'; }
+      match /items/{itemId} {
+        function itemHelper() { return userHelper(); }
+        allow read: if itemHelper();
+      }
+    }`);
+    indexRulesetScopes(ast);
+    const globalFn = ast.functions![0]!;
+    const userBlock = ast.service.match.children[0]!;
+    const userFn = userBlock.functions[0]!;
+    const itemFn = userBlock.children[0]!.functions[0]!;
+
+    expect(getFunctionScope(globalFn)?.captures.has('database')).toBe(false);
+    expect(getFunctionScope(userFn)?.captures.has('userId')).toBe(true);
+    expect(getFunctionScope(userFn)?.captures.has('itemId')).toBe(false);
+    expect(getFunctionScope(userFn)?.functions.has('itemHelper')).toBe(false);
+    expect(getFunctionScope(itemFn)?.captures.has('itemId')).toBe(true);
+    expect(getFunctionScope(itemFn)?.functions.has('userHelper')).toBe(true);
   });
 });

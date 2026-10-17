@@ -1,3 +1,4 @@
+import { re2FullMatch } from '../../rules/simulator/rules-type.js';
 import { Bytes } from '../../rules/simulator/wrappers/bytes.js';
 import type { EvalCtx } from './rules-evaluator.js';
 import { RuleEvalError } from './rules-evaluation-error.js';
@@ -48,9 +49,11 @@ function evalMatches(receiver: unknown, expr: MethodCall, ctx: EvalCtx): unknown
   const subject = stringReceiver(receiver, expr);
   const pattern = patternArgument(expr, ctx);
   if (typeof pattern !== 'string') return pattern;
-  // Anchor to the whole string. `(?:...)` keeps the caller's alternations
-  // from binding past the anchors.
-  return compileRe2Pattern('matches', pattern, `^(?:${pattern})$`).test(subject);
+  try {
+    return re2FullMatch(pattern, subject);
+  } catch (err) {
+    throw new RuleEvalError((err as Error).message);
+  }
 }
 
 /**
