@@ -77,6 +77,19 @@ export class TransactionAttemptsExhaustedError extends Error {
   }
 }
 
+/** Raised when a read inside a transaction is denied by `get` security rules. */
+export class TransactionReadDeniedError extends Error {
+  readonly code: string;
+  readonly simError: FirestoreSimError;
+
+  constructor(simError: FirestoreSimError) {
+    super(simError.message);
+    this.name = 'TransactionReadDeniedError';
+    this.code = simError.code;
+    this.simError = simError;
+  }
+}
+
 /**
  * Single-use transaction context. See file header for design notes.
  */
