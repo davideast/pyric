@@ -7,6 +7,10 @@
  * delegates to `pyric/storage` against the page sandbox.
  */
 import './init.js';
+// The page runtime deploys the project's rules (and seed, persistence, bridge)
+// with top-level await, so app code that imports this entry runs after them.
+// `firebase/auth` cannot import it: Service Workers reject top-level await (#697).
+import './runtime.js';
 import { observeStorageOperation } from 'pyric/storage/internal';
 import * as ip from 'pyric/storage';
 import {
