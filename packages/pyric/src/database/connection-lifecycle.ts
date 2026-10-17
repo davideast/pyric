@@ -112,19 +112,25 @@ export class RtdbConnectionLifecycle {
             const isRemove = operation.kind === 'remove';
             const value = isRemove ? null : operation.value;
             const isSet = operation.kind === 'set';
+            const priority = isSet ? operation.priority : undefined;
+            const hasPriority = priority !== undefined;
             const mergesAfterChildRegistration = isSet && operation.mergeAfterChildRegistration === true;
             const hasObjectValue = value !== null && typeof value === 'object';
             const mergesObjectChildren = mergesAfterChildRegistration && hasObjectValue && !Array.isArray(value);
             if (mergesObjectChildren) {
               if (isAdmin) {
                 this.backend.adminUpdate(operation.path, value as Record<string, JsonValue>);
+                if (hasPriority) {
+                  this.backend.adminSetPriority(operation.path, priority);
+                }
               } else {
                 this.backend.update(this.auth(), operation.path, value as Record<string, JsonValue>);
+                if (hasPriority) {
+                  this.backend.setPriority(this.auth(), operation.path, priority);
+                }
               }
               continue;
             }
-            const priority = isSet ? operation.priority : undefined;
-            const hasPriority = priority !== undefined;
             if (isAdmin) {
               if (hasPriority) {
                 this.backend.adminSetWithPriority(operation.path, value as JsonValue, priority);
