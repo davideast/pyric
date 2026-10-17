@@ -21,6 +21,7 @@ import type {
   DocumentSnapshot,
   Query,
   QuerySnapshot,
+  SetOptions,
   Transaction,
 } from 'pyric/sandbox/admin-compat';
 import { READ_AFTER_WRITE_MESSAGE } from '../../../firestore/sandbox/transaction-types.js';
@@ -29,6 +30,7 @@ import { encodeUpdateFields, encodeWriteData } from './value-codec.js';
 import { parseAdminUpdateArguments } from '../../../firestore/sandbox/admin-compat/field-path.js';
 import { makeDocumentSnapshot, makeQuerySnapshot } from './snapshots.js';
 import { buildDescriptor, queryStateOf, validateExecutable, type QueryState } from './query.js';
+import { toWireSetOptions } from './batch.js';
 import type { WireDocSnap, WireQuerySnap, WireTxnRead, WireWrite } from './wire-types.js';
 
 /** Matches the worker client's retry cap (and the Firestore SDK default). */
@@ -67,8 +69,12 @@ export async function runRemoteTransaction<R>(
         }
         return txGetDoc(refOrQuery as DocumentReference) as Promise<never>;
       },
-      set(ref: DocumentReference, data: DocumentData): Transaction {
-        writes.push({ method: 'set', path: ref.path, data: encodeWriteData(data) });
+      set(ref: DocumentReference, data: DocumentData, options?: SetOptions): Transaction {
+        const write: WireWrite = { method: 'set', path: ref.path, data: encodeWriteData(data) };
+        const wireOptions = toWireSetOptions(options);
+        const hasWireOptions = wireOptions !== undefined;
+        if (hasWireOptions) write.options = wireOptions;
+        writes.push(write);
         return tx;
       },
       update(ref: DocumentReference, dataOrField: unknown, ...preconditionOrValues: unknown[]): Transaction {

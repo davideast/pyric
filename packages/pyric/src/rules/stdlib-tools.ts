@@ -15,6 +15,8 @@
  * stdlib pair for free.
  */
 import type { ToolHandler } from '../sandbox/internal/tool-handler.js';
+import { parseToAST } from './grammar/FirestoreParser.js';
+import { validateFirestoreRules } from './grammar/FirestoreValidator.js';
 import { lintFirestoreRules } from './linter/linter.js';
 import { resolveModulesBrowser } from './modules/resolver-browser.js';
 import {
@@ -232,6 +234,27 @@ export function createFirestoreRulesStdlibTools(): ToolHandler[] {
             data: result,
             message,
           };
+        }
+        try {
+          const ast = parseToAST(source);
+          if (ast) {
+            for (const f of validateFirestoreRules(ast)) {
+              let severity: 'info' | 'warning' | 'error' = 'info';
+              if (f.severity === 'critical' || f.severity === 'high') {
+                severity = 'error';
+              } else if (f.severity === 'medium') {
+                severity = 'warning';
+              }
+              result.warnings.push({
+                rule: f.code,
+                severity,
+                message: f.message,
+                location: { matchPath: f.path },
+              });
+            }
+          }
+        } catch {
+          // Validator is best-effort alongside linter output.
         }
         const counts = {
           errors: result.warnings.filter((w) => w.severity === 'error').length,

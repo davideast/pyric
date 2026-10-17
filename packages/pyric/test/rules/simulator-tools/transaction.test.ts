@@ -102,11 +102,15 @@ describe('firestore_simulator_transaction — counter increment', () => {
 // ─── 3. Conditional transfer (rule-gated) ─────────────────────────────────
 
 describe('firestore_simulator_transaction — conditional transfer', () => {
+  // Production omits `request.resource` on reads (see the `request-resource-absent-on-get`
+  // capture in `rules-firestore-simulator-language-semantics.json`), so `read` and
+  // `write` are separated now that `tx.get` evaluates `get` rules.
   const TRANSFER_RULES = `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /users/{uid} {
-      allow read, write: if request.resource.data.balance >= 0;
+      allow read: if true;
+      allow write: if request.resource.data.balance >= 0;
     }
     match /transfers/{id} {
       allow read, write: if true;

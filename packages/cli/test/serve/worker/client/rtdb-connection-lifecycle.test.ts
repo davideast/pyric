@@ -201,4 +201,75 @@ describe('RTDB worker connection lifecycle', () => {
       stopControl();
     }
   });
+
+  it('cancelling a path inside a queued set or update splits into a deep per-leaf merge and preserves parent priority (probe-ondisconnect-edge)', async () => {
+    const ctx = await makeHostCtx();
+    const { db: writerClient } = connectClientToHost(ctx, 'worker://disconnect-split-edge-writer');
+    const { db: observerClient } = connectClientToHost(ctx, 'worker://disconnect-split-edge-observer');
+    const writerDb = client.rtdbGetDatabase(writerClient);
+    const observerDb = client.rtdbGetDatabase(observerClient);
+    const tight = "root.child('flags').child('tight').val() != true";
+    await client.setDatabaseRules(writerClient, {
+      rules: {
+        '.read': true,
+        flags: { '.write': true },
+        e1: { '.write': true },
+        e1r: { doc: { '.write': tight, $k: { '.write': true } } },
+        e2n: { '.write': true },
+        c1: { '.write': true },
+        drainControl: { '.write': true },
+      },
+    });
+    await client.rtdbSet(client.rtdbRef(writerDb, 'e1/doc'), { a: 1, b: 1, keep: 'x' });
+    await client.rtdbSet(client.rtdbRef(writerDb, 'e1r/doc'), { a: 1, b: 1, keep: 'x' });
+    await client.rtdbSet(client.rtdbRef(writerDb, 'e2n/doc'), { a: { x: 1, y: 1, keep: 'x' }, b: 1 });
+    await client.rtdbSet(client.rtdbRef(writerDb, 'c1/doc'), { a: 1, b: 1, keep: 'x' });
+    await client.rtdbSet(client.rtdbRef(writerDb, 'flags/tight'), false);
+
+    await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'e1/doc')).setWithPriority({ a: 2, b: 3 }, 9);
+    await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'e1/doc/b')).cancel();
+
+    await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'e1r/doc')).set({ a: 2, b: 3 });
+    await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'e1r/doc/b')).cancel();
+
+    await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'e2n/doc')).update({ a: { x: 2, y: 3 }, b: 4 });
+    await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'e2n/doc/a/y')).cancel();
+
+    await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'c1/doc')).setWithPriority({ a: 2, b: 3 }, 9);
+    await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'c1/doc/b')).set(30);
+    await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'c1/doc/b')).cancel();
+
+    await client.rtdbSet(client.rtdbRef(writerDb, 'flags/tight'), true);
+    await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'drainControl')).set(true);
+
+    let drained = false;
+    const stopControl = client.rtdbOnValue(client.rtdbRef(observerDb, 'drainControl'), (snapshot) => {
+      drained = snapshot.val() === true;
+    });
+    client.rtdbGoOffline(writerDb);
+    await until(() => drained, 'drained split-edge operations');
+
+    expect((await client.rtdbGet(client.rtdbRef(observerDb, 'e1/doc'))).exportVal()).toEqual({
+      '.priority': 9,
+      a: 2,
+      b: 1,
+      keep: 'x',
+    });
+    expect((await client.rtdbGet(client.rtdbRef(observerDb, 'e1r/doc'))).exportVal()).toEqual({
+      a: 2,
+      b: 1,
+      keep: 'x',
+    });
+    expect((await client.rtdbGet(client.rtdbRef(observerDb, 'e2n/doc'))).exportVal()).toEqual({
+      a: { keep: 'x', x: 2, y: 1 },
+      b: 4,
+    });
+    expect((await client.rtdbGet(client.rtdbRef(observerDb, 'c1/doc'))).exportVal()).toEqual({
+      '.priority': 9,
+      a: 2,
+      b: 1,
+      keep: 'x',
+    });
+    stopControl();
+  });
 });

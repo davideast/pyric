@@ -43,7 +43,6 @@ export function analyzeListRulePathInvariance(
       functions,
       ambiguousFunctions,
       new Set(),
-      new Set(),
       requiredFunctions,
     ),
     requiredFunctions,
@@ -55,7 +54,6 @@ function expressionDependsOnPath(
   candidateVariables: ReadonlySet<string>,
   functions: ReadonlyMap<string, FunctionDef>,
   ambiguousFunctions: ReadonlySet<string>,
-  locals: ReadonlySet<string>,
   visiting: ReadonlySet<string>,
   requiredFunctions: Set<string>,
 ): boolean {
@@ -64,7 +62,6 @@ function expressionDependsOnPath(
     candidateVariables,
     functions,
     ambiguousFunctions,
-    locals,
     visiting,
     requiredFunctions,
   );
@@ -73,9 +70,7 @@ function expressionDependsOnPath(
     case 'literal':
       return false;
     case 'identifier':
-      return !locals.has(expression.name) && (
-        candidateVariables.has(expression.name) || expression.name === 'request'
-      );
+      return candidateVariables.has(expression.name) || expression.name === 'request';
     case 'memberAccess':
       if (expression.object.type === 'identifier' && expression.object.name === 'request') {
         return !REQUEST_PATH_INVARIANT_FIELDS.has(expression.property);
@@ -111,37 +106,95 @@ function expressionDependsOnPath(
     case 'pathLiteral':
       return expression.segments.some((segment) => typeof segment !== 'string' && depends(segment));
     case 'functionCall': {
-      if (expression.args.some(depends)) return true;
+      for (const arg of expression.args) {
+        if (!isBareRequestIdentifier(arg) && depends(arg)) return true;
+      }
       if (ambiguousFunctions.has(expression.name)) return true;
       const fn = functions.get(expression.name);
-      if (!fn) return false;
+      if (!fn) {
+        return expression.args.some(isBareRequestIdentifier);
+      }
+      if (expression.args.length !== fn.parameters.length) return true;
       requiredFunctions.add(fn.name);
       if (visiting.has(fn.name)) return true;
       const nextVisiting = new Set(visiting).add(fn.name);
-      const fnLocals = new Set(fn.parameters);
+      const fnBindings = new Map<string, Expression>();
+      for (let i = 0; i < fn.parameters.length; i++) {
+        fnBindings.set(fn.parameters[i]!, expression.args[i]!);
+      }
       for (const binding of fn.lets) {
-        if (expressionDependsOnPath(
-          binding.value,
+        const boundValue = substituteLocals(binding.value, fnBindings);
+        if (!isBareRequestIdentifier(boundValue) && expressionDependsOnPath(
+          boundValue,
           candidateVariables,
           functions,
           ambiguousFunctions,
-          fnLocals,
           nextVisiting,
           requiredFunctions,
         )) return true;
-        fnLocals.add(binding.name);
+        fnBindings.set(binding.name, boundValue);
       }
       return expressionDependsOnPath(
-        fn.body,
+        substituteLocals(fn.body, fnBindings),
         candidateVariables,
         functions,
         ambiguousFunctions,
-        fnLocals,
         nextVisiting,
         requiredFunctions,
       );
     }
   }
+}
+
+function isBareRequestIdentifier(expression: Expression): boolean {
+  return expression.type === 'identifier' && expression.name === 'request';
+}
+
+function substituteLocals(
+  expression: Expression,
+  bindings: ReadonlyMap<string, Expression>,
+): Expression {
+  const sub = (e: Expression): Expression => {
+    switch (e.type) {
+      case 'identifier':
+        return bindings.get(e.name) ?? e;
+      case 'literal':
+        return e;
+      case 'memberAccess':
+        return { ...e, object: sub(e.object) };
+      case 'methodCall':
+        return { ...e, object: sub(e.object), args: e.args.map(sub) };
+      case 'bracketAccess':
+        return { ...e, object: sub(e.object), index: sub(e.index) };
+      case 'sliceAccess':
+        return { ...e, object: sub(e.object), start: sub(e.start), end: sub(e.end) };
+      case 'binaryOp':
+        return { ...e, left: sub(e.left), right: sub(e.right) };
+      case 'unaryOp':
+        return { ...e, operand: sub(e.operand) };
+      case 'ternary':
+        return { ...e, condition: sub(e.condition), consequent: sub(e.consequent), alternate: sub(e.alternate) };
+      case 'inExpr':
+        return { ...e, element: sub(e.element), collection: sub(e.collection) };
+      case 'isExpr':
+        return { ...e, value: sub(e.value) };
+      case 'listLiteral':
+        return { ...e, elements: e.elements.map(sub) };
+      case 'mapLiteral':
+        return { ...e, entries: e.entries.map((entry) => ({ key: sub(entry.key), value: sub(entry.value) })) };
+      case 'pathLiteral':
+        return {
+          ...e,
+          segments: e.segments.map((segment) => {
+            if (typeof segment === 'string') return segment;
+            return sub(segment);
+          }),
+        };
+      case 'functionCall':
+        return { ...e, args: e.args.map(sub) };
+    }
+  };
+  return sub(expression);
 }
 
 const REQUEST_PATH_INVARIANT_FIELDS = new Set(['auth', 'method', 'query', 'time']);

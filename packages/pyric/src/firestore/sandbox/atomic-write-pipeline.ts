@@ -141,9 +141,12 @@ export class AtomicWritePipeline {
     return { context, inputs, resolvedOps, serverTime };
   }
 
-  evaluateAndApply(prepared: AtomicPreparation): AtomicDecision {
+  evaluateAndApply(
+    prepared: AtomicPreparation,
+    existingProjection?: Map<string, DocumentData | null>,
+  ): AtomicDecision {
     const { context, resolvedOps, serverTime } = prepared;
-    const projection = this.runtime.buildBatchProjection(resolvedOps);
+    const projection = this.runtime.buildBatchProjection(resolvedOps, existingProjection);
     const inputs = prepared.inputs.map((input) => {
       const hasExplicitRuleMethod = input.method !== 'set';
       if (hasExplicitRuleMethod) return input;

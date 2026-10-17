@@ -138,4 +138,27 @@ describe('compile limits: shapes the capture does not measure', () => {
     expect(condition(`[${deep}].size() > 0`)).toBe(1);
     expect(condition(`string(${deep}) == 'true'`)).toBe(1);
   });
+
+  test('RE2-only forms compile without INVALID_REGEX_PATTERN while lookahead and backreferences are rejected', () => {
+    const valid = [
+      "'ABC'.matches('(?i)abc')",
+      "'ABC'.matches('(?i:abc)')",
+      "']a]'.matches('[]a]+')",
+      "'abc'.matches('(?P<n>abc)')",
+      "'abc'.matches('\\\\Aabc\\\\z')",
+      "'a'.matches('\\\\x{61}')",
+    ];
+    for (const expr of valid) {
+      expect(violations(firestore(`    match /p/{d} { allow read: if ${expr}; }`))).toEqual([]);
+    }
+    const invalid = [
+      ["'ab'.matches('a(?=b)b')", 'Invalid regular expression pattern. Pattern: a(?=b)b.'],
+      ["'aa'.matches('(a)\\\\1')", 'Invalid regular expression pattern. Pattern: (a)\\1.'],
+    ] as const;
+    for (const [expr, msg] of invalid) {
+      expect(
+        violations(firestore(`    match /p/{d} { allow read: if ${expr}; }`)).map((v) => [v.code, v.message]),
+      ).toEqual([['INVALID_REGEX_PATTERN', msg]]);
+    }
+  });
 });

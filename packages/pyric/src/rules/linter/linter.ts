@@ -21,11 +21,19 @@ import {
   referencesRequestTime,
   collectDeclaredFunctions,
   collectAllRules,
+  evalConstBool,
+  serializeExpression,
+  extractConjuncts,
 } from './ast-utils.js';
 import { checkSyntaxHints, checkHallucinations } from './hallucinations.js';
 import { countDocumentAccessCalls } from '../grammar/document-access-count.js';
 import { recursiveScope, type RecursiveScope } from '../grammar/recursive-scope.js';
-import { callChainDepths, collectRulesetScopes, functionReferences } from '../grammar/function-scopes.js';
+import {
+  analyzeCallChains,
+  collectRulesetScopes,
+  functionReferences,
+  type RulesetScopes,
+} from '../grammar/function-scopes.js';
 import { EXPRESSION_LIMIT, estimateExpressionCosts, type RuleCostEstimate } from './expression-cost.js';
 import { ruleLibraryCalls } from './library-calls.js';
 import {
@@ -174,9 +182,13 @@ function checkNestingDepth(violations: readonly CompileLimitViolation[], warning
 function checkSlashStartsPath(violations: readonly CompileLimitViolation[], warnings: LintWarning[]) {
   for (const violation of violations) {
     if (violation.code !== 'SLASH_STARTS_PATH') continue;
-    const where = violation.functionName !== undefined
-      ? `in function '${violation.functionName}'${violation.line === undefined ? '' : ` at line ${violation.line}`}`
-      : violation.line !== undefined ? `in the rule at line ${violation.line}` : 'in an allow rule';
+    let where = 'in an allow rule';
+    if (violation.functionName !== undefined) {
+      const lineSuffix = violation.line === undefined ? '' : ` at line ${violation.line}`;
+      where = `in function '${violation.functionName}'${lineSuffix}`;
+    } else if (violation.line !== undefined) {
+      where = `in the rule at line ${violation.line}`;
+    }
     warnings.push({
       rule: 'SLASH_STARTS_PATH',
       severity: 'error',
@@ -184,6 +196,22 @@ function checkSlashStartsPath(violations: readonly CompileLimitViolation[], warn
       ...(violation.functionName !== undefined ? { location: { functionName: violation.functionName } } : {}),
       fix: "To divide, put whitespace after the '/': `a / b`.",
     });
+  }
+}
+
+function checkGlobMatchCount(violations: readonly CompileLimitViolation[], warnings: LintWarning[]) {
+  for (const violation of violations) {
+    if (violation.code !== 'GLOB_MATCH_COUNT') continue;
+    const warning: LintWarning = {
+      rule: 'GLOB_MATCH_COUNT',
+      severity: 'error',
+      message: violation.message,
+      fix: 'Restructure match blocks so a path contains at most one recursive wildcard `{name=**}`.',
+    };
+    if (violation.scope !== undefined) {
+      warning.location = { matchPath: violation.scope };
+    }
+    warnings.push(warning);
   }
 }
 
@@ -350,14 +378,27 @@ function checkLibraryCalls(ast: FirestoreRules, warnings: LintWarning[]) {
  * Each chain is reported once, at its root: a function no other function
  * calls. Calls resolve by declaration scope.
  */
-function checkCallDepth(ast: FirestoreRules, warnings: LintWarning[]) {
-  const scopes = collectRulesetScopes(ast);
-  const depths = callChainDepths(scopes);
+function checkCallDepth(scopes: RulesetScopes, warnings: LintWarning[]): Map<FunctionDef, number> {
+  const { depths, cyclic } = analyzeCallChains(scopes);
   const calledByFunction = new Set<FunctionDef>();
   for (const scoped of scopes.functions) {
     for (const callee of functionReferences(scoped).callees) if (callee !== scoped.fn) calledByFunction.add(callee);
   }
+  let reportedCycle = false;
   for (const scoped of scopes.functions) {
+    if (cyclic.has(scoped.fn)) {
+      if (!reportedCycle) {
+        reportedCycle = true;
+        warnings.push({
+          rule: 'CALL_DEPTH',
+          severity: 'error',
+          message: `Function '${scoped.fn.name}' is part of a recursive call cycle, exceeding the call depth limit of ${THRESHOLDS.CALL_DEPTH_LIMIT}.`,
+          location: { functionName: scoped.fn.name, matchPath: scoped.label },
+          fix: 'Remove recursion between helper functions; Firestore rules do not allow recursive calls.',
+        });
+      }
+      continue;
+    }
     if (calledByFunction.has(scoped.fn)) continue;
     const depth = depths.get(scoped.fn) ?? 1;
     if (depth < THRESHOLDS.CALL_DEPTH_WARN) continue;
@@ -370,18 +411,19 @@ function checkCallDepth(ast: FirestoreRules, warnings: LintWarning[]) {
       ...(over ? { fix: 'Inline intermediate functions to reduce call depth.' } : {}),
     });
   }
+  return depths;
 }
 
 function checkGetCount(
-  rules: { rule: { condition: Expression }; matchFunctions: FunctionDef[] }[],
-  allFunctions: FunctionDef[],
+  rules: { rule: AllowRule }[],
+  ruleScopes: ReadonlyMap<AllowRule, ReadonlyMap<string, FunctionDef>>,
+  fnScopes: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
   warnings: LintWarning[],
 ) {
-  const fnMap = new Map<string, FunctionDef>();
-  for (const fn of allFunctions) fnMap.set(fn.name, fn);
-
+  const emptyScope = new Map<string, FunctionDef>();
   for (let i = 0; i < rules.length; i++) {
-    const count = countDocumentAccessCalls(rules[i].rule.condition, fnMap);
+    const fnMap = ruleScopes.get(rules[i].rule) ?? emptyScope;
+    const count = countDocumentAccessCalls(rules[i].rule.condition, fnMap, new Set(), fnScopes);
     // Error only ABOVE the limit: production allows exactly 10 and fails
     // the 11th, so a rule at exactly 10 is legal (still worth the WARN).
     if (count > THRESHOLDS.GET_COUNT_ERROR) {
@@ -404,18 +446,18 @@ function checkGetCount(
 }
 
 function checkGetDuplication(
-  rules: { rule: { condition: Expression }; matchFunctions: FunctionDef[] }[],
-  allFunctions: FunctionDef[],
+  rules: { rule: AllowRule }[],
+  ruleScopes: ReadonlyMap<AllowRule, ReadonlyMap<string, FunctionDef>>,
+  fnScopes: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
   warnings: LintWarning[],
 ) {
-  const fnMap = new Map<string, FunctionDef>();
-  for (const fn of allFunctions) fnMap.set(fn.name, fn);
-  const fnNames = new Set(allFunctions.map(f => f.name));
-
+  const emptyScope = new Map<string, FunctionDef>();
   for (let i = 0; i < rules.length; i++) {
+    const fnMap = ruleScopes.get(rules[i].rule) ?? emptyScope;
+    const fnNames = new Set(fnMap.keys());
     const callCounts = countFunctionCallSites(rules[i].rule.condition, fnNames);
     for (const [fnName, count] of callCounts) {
-      if (count >= 2 && functionContainsGet(fnName, fnMap)) {
+      if (count >= 2 && functionContainsGet(fnName, fnMap, new Set(), fnScopes)) {
         warnings.push({
           rule: 'GET_DUPLICATION',
           severity: 'warning',
@@ -441,20 +483,21 @@ function checkGetDuplication(
  * source-only `lintFirestoreRules(source)` calls are unaffected.
  */
 function checkRequestTimePinned(
-  rules: { rule: { condition: Expression }; path: string }[],
-  allFunctions: FunctionDef[],
+  rules: { rule: AllowRule; path: string }[],
+  ruleScopes: ReadonlyMap<AllowRule, ReadonlyMap<string, FunctionDef>>,
+  fnScopes: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
   testCases: TestCase[],
   warnings: LintWarning[],
 ) {
-  const fnMap = new Map<string, FunctionDef>();
-  for (const fn of allFunctions) fnMap.set(fn.name, fn);
+  const emptyScope = new Map<string, FunctionDef>();
 
   // Find which rule indices reference request.time. Per-rule rather than
   // per-source so a test case targeting an unrelated match block isn't
   // wrongly flagged.
   const timeGatedRules = new Set<number>();
   for (let i = 0; i < rules.length; i++) {
-    if (referencesRequestTime(rules[i].rule.condition, fnMap)) {
+    const fnMap = ruleScopes.get(rules[i].rule) ?? emptyScope;
+    if (referencesRequestTime(rules[i].rule.condition, fnMap, new Set(), fnScopes)) {
       timeGatedRules.add(i);
     }
   }
@@ -508,29 +551,6 @@ function checkRequestTimePinned(
  * acceptable; a single false positive on a legitimate rule would break
  * deploys.
  */
-function evalConstBool(expr: Expression): boolean | null {
-  if (expr.type === 'literal' && typeof expr.value === 'boolean') return expr.value;
-  if (expr.type === 'binaryOp') {
-    const left = evalConstBool(expr.left);
-    const right = evalConstBool(expr.right);
-    if (expr.op === '&&') {
-      if (left === false || right === false) return false;
-      if (left === true && right === true) return true;
-      return null;
-    }
-    if (expr.op === '||') {
-      if (left === true || right === true) return true;
-      if (left === false && right === false) return false;
-      return null;
-    }
-  }
-  if (expr.type === 'unaryOp' && expr.op === '!') {
-    const inner = evalConstBool(expr.operand);
-    return inner === null ? null : !inner;
-  }
-  return null;
-}
-
 const WRITE_OPS: ReadonlySet<string> = new Set([
   'write', 'create', 'update', 'delete',
 ]);
@@ -670,54 +690,6 @@ function collectMatchBlocksWithPaths(
     out.push(...collectMatchBlocksWithPaths(child, fullPath));
   }
   return out;
-}
-
-/** Deterministic serializer producing the same string for structurally
- *  identical expressions. No surrounding whitespace; no parens (the
- *  structure of nested binaryOp nodes already encodes precedence). */
-function serializeExpression(expr: Expression): string {
-  switch (expr.type) {
-    case 'literal':
-      return expr.raw;
-    case 'identifier':
-      return expr.name;
-    case 'memberAccess':
-      return `${serializeExpression(expr.object)}.${expr.property}`;
-    case 'methodCall':
-      return `${serializeExpression(expr.object)}.${expr.method}(${expr.args.map(serializeExpression).join(',')})`;
-    case 'bracketAccess':
-      return `${serializeExpression(expr.object)}[${serializeExpression(expr.index)}]`;
-    case 'sliceAccess':
-      return `${serializeExpression(expr.object)}[${serializeExpression(expr.start)}:${serializeExpression(expr.end)}]`;
-    case 'binaryOp':
-      return `(${serializeExpression(expr.left)}${expr.op}${serializeExpression(expr.right)})`;
-    case 'unaryOp':
-      return `(${expr.op}${serializeExpression(expr.operand)})`;
-    case 'ternary':
-      return `(${serializeExpression(expr.condition)}?${serializeExpression(expr.consequent)}:${serializeExpression(expr.alternate)})`;
-    case 'inExpr':
-      return `(${serializeExpression(expr.element)} in ${serializeExpression(expr.collection)})`;
-    case 'isExpr':
-      return `(${serializeExpression(expr.value)} is ${expr.typeName})`;
-    case 'listLiteral':
-      return `[${expr.elements.map(serializeExpression).join(',')}]`;
-    case 'mapLiteral':
-      return `{${expr.entries.map((e) => `${serializeExpression(e.key)}:${serializeExpression(e.value)}`).join(',')}}`;
-    case 'pathLiteral':
-      return expr.raw;
-    case 'functionCall':
-      return `${expr.name}(${expr.args.map(serializeExpression).join(',')})`;
-  }
-}
-
-/** Split a predicate into its top-level conjuncts (split only on `&&`).
- *  An `||` sub-tree is preserved as a single conjunct so we don't
- *  change semantics by treating one of its branches as removable. */
-function extractConjuncts(expr: Expression): Expression[] {
-  if (expr.type === 'binaryOp' && expr.op === '&&') {
-    return [...extractConjuncts(expr.left), ...extractConjuncts(expr.right)];
-  }
-  return [expr];
 }
 
 function checkRulesWeakened(
@@ -907,16 +879,24 @@ function analyzeParsedRules(
   // Collect all functions and rules from the AST
   const allFunctions = collectDeclaredFunctions(ast);
   const allRules = collectAllRules(ast.service.match);
+  const scopes = collectRulesetScopes(ast);
+  const fnScopes = new Map<FunctionDef, ReadonlyMap<string, FunctionDef>>(
+    scopes.functions.map(s => [s.fn, s.functions]),
+  );
+  const ruleScopes = new Map<AllowRule, ReadonlyMap<string, FunctionDef>>(
+    scopes.rules.map(r => [r.rule, r.functions]),
+  );
 
   // Rule 1.5: A member chain as long as one production failed to compile.
   // First, and without recursion, so a chain too deep for the recursive
   // checks below is still reported by length.
   checkMemberChainLength(ast, allFunctions, warnings);
 
-  // Rules 2 and 2b: Nesting depth, and a slash that starts a path
+  // Rules 2 and 2b: Nesting depth, slash starts path, and recursive glob count
   const violations = compileLimitViolations(ast);
   checkNestingDepth(violations, warnings);
   checkSlashStartsPath(violations, warnings);
+  checkGlobMatchCount(violations, warnings);
 
   // Rule 3: Let bindings
   checkLetBindings(allFunctions, warnings);
@@ -932,13 +912,13 @@ function analyzeParsedRules(
   checkLibraryCalls(ast, warnings);
 
   // Rule 6: Call depth
-  checkCallDepth(ast, warnings);
+  const callDepths = checkCallDepth(scopes, warnings);
 
   // Rule 7: Get count
-  checkGetCount(allRules, allFunctions, warnings);
+  checkGetCount(allRules, ruleScopes, fnScopes, warnings);
 
   // Rule 8: Get duplication (same get()-containing function called multiple times)
-  checkGetDuplication(allRules, allFunctions, warnings);
+  checkGetDuplication(allRules, ruleScopes, fnScopes, warnings);
 
   // Rule 9: Hallucinations, JS-style code that parses but fails at runtime.
   // `allowDebug` is an EXPLICIT caller opt-in only. It used to be implied by
@@ -962,7 +942,7 @@ function analyzeParsedRules(
   // Rule 10: request.time without pinned TestCase.requestTime
   // (Item 0.F deferred follow-up). Only fires when caller passes a test suite.
   if (options.testCases && options.testCases.length > 0) {
-    checkRequestTimePinned(allRules, allFunctions, options.testCases, warnings);
+    checkRequestTimePinned(allRules, ruleScopes, fnScopes, options.testCases, warnings);
   }
 
   // Rule 11: RULES_WEAKENED — diff against the previously deployed
@@ -986,22 +966,20 @@ function analyzeParsedRules(
     if (fn.lets.length > maxLets.count) maxLets = { count: fn.lets.length, fn: fn.name };
   }
 
-  const callGraph = buildCallGraph(allFunctions);
   let maxDepth = 0;
-  for (const fn of allFunctions) {
-    const d = maxCallDepth(fn.name, callGraph);
+  for (const d of callDepths.values()) {
     if (d > maxDepth) maxDepth = d;
   }
 
-  const fnMap = new Map<string, FunctionDef>();
-  for (const fn of allFunctions) fnMap.set(fn.name, fn);
+  const emptyScope = new Map<string, FunctionDef>();
   let maxExprs = 0;
   for (const estimate of costEstimates.rules) {
     if (estimate.grantCost !== null && estimate.grantCost > maxExprs) maxExprs = estimate.grantCost;
   }
   let maxGets = 0;
   for (const r of allRules) {
-    const gets = countDocumentAccessCalls(r.rule.condition, fnMap);
+    const fnMap = ruleScopes.get(r.rule) ?? emptyScope;
+    const gets = countDocumentAccessCalls(r.rule.condition, fnMap, new Set(), fnScopes);
     if (gets > maxGets) maxGets = gets;
   }
 

@@ -164,13 +164,10 @@ export class WriteRuntime {
   private computeProjectedUpdate(
     priorState: DocumentData | null,
     incomingData: DocumentData | undefined,
-  ): DocumentData | null {
-    const documentMissing = priorState === null;
-    if (documentMissing) {
-      return null;
-    }
+  ): DocumentData {
+    const baseState = priorState ?? {};
     const effectiveIncomingData = incomingData ?? {};
-    return applyUpdate(priorState, effectiveIncomingData);
+    return applyUpdate(baseState, effectiveIncomingData);
   }
 
   private computeProjectedOverwrite(

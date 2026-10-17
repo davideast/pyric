@@ -2,7 +2,8 @@ import { describe, test, expect } from 'bun:test';
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { parseToAST } from '../../../src/rules/grammar/FirestoreParser.js';
-import { assembleRules } from '../../../src/rules/grammar/FirestoreAssembler.js';
+import { assembleRules, assembleExpression } from '../../../src/rules/grammar/FirestoreAssembler.js';
+import { resolveModulesWith } from '../../../src/rules/modules/resolver-core.js';
 import type { Expression, MatchBlock, FunctionDef } from '../../../src/rules/grammar/FirestoreAST.js';
 
 const CORPUS = join(import.meta.dir, '../corpus');
@@ -112,4 +113,45 @@ service cloud.firestore {
   expect(ast2!.functions?.map((fn) => fn.name)).toEqual(['globalHelper']);
   expect(ast2!.service.functions?.map((fn) => fn.name)).toEqual(['serviceHelper']);
   expect(structuralEqual(ast1, ast2)).toBe(true);
+});
+
+describe('pathLiteral parenthesization in postfix and division expressions (FS-FUZ-2)', () => {
+  const wrap = (expr: string) =>
+    `rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /t/{id} {\n      allow read: if ${expr};\n    }\n  }\n}`;
+
+  test('preserves parentheses around pathLiteral receiver in methodCall and memberAccess', () => {
+    for (const expr of [
+      "(/users/alice).bind(['x']) == /users/alice",
+      '(/users/$(request.auth.uid)).foo == 1',
+    ]) {
+      const ast1 = parseToAST(wrap(expr));
+      expect(ast1).not.toBeNull();
+      const assembled = assembleRules(ast1!);
+      const ast2 = parseToAST(assembled);
+      expect(ast2).not.toBeNull();
+      expect(structuralEqual(ast1, ast2)).toBe(true);
+    }
+  });
+
+  test('preserves division after pathLiteral and does not merge / 2 into path segments', () => {
+    const ast1 = parseToAST(wrap('(/users/alice) / 2 == 1'));
+    expect(ast1).not.toBeNull();
+    const cond1 = ast1!.service.match.children[0]!.allows[0]!.condition;
+    expect(assembleExpression(cond1)).toBe('(/users/alice) / 2 == 1');
+    const ast2 = parseToAST(assembleRules(ast1!));
+    expect(ast2).not.toBeNull();
+    expect(structuralEqual(ast1, ast2)).toBe(true);
+  });
+
+  test('resolveModulesWith round-trips an imported function containing (/users/$(uid)).bind(...)', () => {
+    const entry = `rules_version = '2+modules';\nimport { checkPath } from './helpers.rules';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /t/{id} {\n      allow read: if checkPath(request.auth.uid);\n    }\n  }\n}`;
+    const helper = `export function checkPath(uid) {\n  return (/users/$(uid)).bind(['x']) == /users/$(uid);\n}`;
+    const resolved = resolveModulesWith(null, entry, {
+      modules: { './helpers.rules': helper },
+    });
+    expect(resolved.success).toBe(true);
+    if (resolved.success) {
+      expect(parseToAST(resolved.data.resolved)).not.toBeNull();
+    }
+  });
 });

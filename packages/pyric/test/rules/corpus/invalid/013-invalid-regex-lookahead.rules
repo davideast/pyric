@@ -1,0 +1,12 @@
+// INVALID: production rejects an RE2-invalid regular expression literal in
+// `.matches(...)` at compile time with
+// "Invalid regular expression pattern. Pattern: a(?=b)b." (FS-SIM-5,
+// language-result.json).
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid} {
+      allow read: if 'ab'.matches('a(?=b)b');
+    }
+  }
+}

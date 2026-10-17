@@ -52,8 +52,12 @@ service cloud.firestore {
       },
       fakeCtx,
     );
+    // Per FS-LNT-1 and .agents/skills/firestore-rules-audit/SKILL.md,
+    // firestore_lint_rules merges validateFirestoreRules(ast) findings into
+    // warnings; a ruleset without a top-level /{document=**} default-deny emits SEC-4 (medium -> warning).
     expect(result.ok).toBe(true);
-    expect(result.summary).toContain('Lint clean');
+    expect(result.summary).toContain('0 errors, 1 warning');
+    expect(JSON.stringify(result.data)).toContain('SEC-4');
   });
 
   it('firestore_simulate_rules runs in-process via SimulateFirestoreRulesHandler', async () => {

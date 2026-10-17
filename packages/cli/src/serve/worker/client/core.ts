@@ -465,13 +465,17 @@ export function wirePort(port: ClientPort): void {
       if (succeeded) {
         pending.resolve(msg.value);
       } else {
-        const err = new Error(msg.error.message) as Error & {
+        const hasCode = msg.error.codeless !== true;
+        let err: Error & {
           code?: string;
           denialContext?: unknown;
           aiEnvelope?: unknown;
         };
-        const hasCode = msg.error.codeless !== true;
-        if (hasCode) err.code = msg.error.code;
+        if (hasCode) {
+          err = new FirebaseError(msg.error.code, msg.error.message);
+        } else {
+          err = new Error(msg.error.message);
+        }
         // Structured denial context (spike gap 6): re-attach so consumers —
         // and the bridge relay, which re-serializes thrown errors — see the
         // same shape a local SandboxError carries.
@@ -500,9 +504,13 @@ export function wirePort(port: ClientPort): void {
       const hasError = errPayload !== undefined;
       if (hasError) {
         closeSubscription(port, msg.subId, sub.message?.clientSessionId);
-        const err = new Error(errPayload.message) as Error & { code?: string; denialContext?: unknown; aiEnvelope?: unknown };
         const hasCode = errPayload.codeless !== true;
-        if (hasCode) err.code = errPayload.code;
+        let err: Error & { code?: string; denialContext?: unknown; aiEnvelope?: unknown };
+        if (hasCode) {
+          err = new FirebaseError(errPayload.code, errPayload.message);
+        } else {
+          err = new Error(errPayload.message);
+        }
         const hasDenialContext = errPayload.denialContext !== undefined;
         if (hasDenialContext) err.denialContext = errPayload.denialContext;
         const aiEvidence = errPayload.aiEvidence;

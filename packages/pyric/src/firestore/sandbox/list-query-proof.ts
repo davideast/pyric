@@ -49,6 +49,7 @@ import {
   analyzeListRulePathInvariance,
   buildListRuleFunctionScope,
 } from './list-rule-path-proof.js';
+import { computeWhereDomains } from '../../rules/simulator/query-proof-residual.js';
 
 export type { QueryConstraints, QueryProofResidual, QueryWhereConstraint };
 
@@ -231,14 +232,16 @@ function projectRules(ast: FirestoreRules, retained: ReadonlyMap<AllowRule, Allo
 
 /**
  * Build the representative `resource.data` for the residual evaluation:
- * exactly the fields the query pins with `where(field, ==, value)`. Fields
- * the query does not pin stay ABSENT, so a rule conjunct reading them errors
- * (→ deny) rather than passing vacuously.
+ * every field the query's intersected `==` / `in` constraints pin to a single
+ * scalar value. Fields the query does not pin stay ABSENT, so a rule conjunct
+ * reading them errors (→ deny) rather than passing vacuously.
  */
 function syntheticResourceFromWheres(constraints: QueryConstraints): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  for (const w of constraints.where ?? []) {
-    if (w.op === '==') out[w.field] = w.value;
+  for (const [field, values] of computeWhereDomains(constraints)) {
+    if (values.length === 1) {
+      out[field] = values[0];
+    }
   }
   return out;
 }

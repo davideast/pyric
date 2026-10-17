@@ -41,6 +41,19 @@ describe('needsCompositeIndex — no-composite cases', () => {
       orders: [{ field: 'a', direction: 'desc' }],
     }))).toBe(false);
   });
+
+  test('two range filters on same field (two-sided range) → false', () => {
+    expect(needsCompositeIndex(shape({
+      filters: [{ field: 'price', op: '>=' }, { field: 'price', op: '<=' }],
+    }))).toBe(false);
+  });
+
+  test('two range filters on same field + orderBy on same field → false', () => {
+    expect(needsCompositeIndex(shape({
+      filters: [{ field: 'price', op: '>=' }, { field: 'price', op: '<=' }],
+      orders: [{ field: 'price', direction: 'desc' }],
+    }))).toBe(false);
+  });
 });
 
 describe('needsCompositeIndex — composite cases', () => {
@@ -133,6 +146,44 @@ describe('shapeToIndexEntry — field ordering', () => {
     }));
     expect(e.queryScope).toBe('COLLECTION_GROUP');
   });
+
+  test('array-contains and array-contains-any emit arrayConfig CONTAINS after equality', () => {
+    const e1 = shapeToIndexEntry(shape({
+      filters: [
+        { field: 'category', op: '==' },
+        { field: 'tags', op: 'array-contains' },
+      ],
+      orders: [{ field: 'rating', direction: 'desc' }],
+    }));
+    expect(e1.fields).toEqual([
+      { fieldPath: 'category', order: 'ASCENDING' },
+      { fieldPath: 'tags', arrayConfig: 'CONTAINS' },
+      { fieldPath: 'rating', order: 'DESCENDING' },
+    ]);
+
+    const e2 = shapeToIndexEntry(shape({
+      filters: [{ field: 'tags', op: 'array-contains-any' }],
+      orders: [{ field: 'rating', direction: 'asc' }],
+    }));
+    expect(e2.fields).toEqual([
+      { fieldPath: 'tags', arrayConfig: 'CONTAINS' },
+      { fieldPath: 'rating', order: 'ASCENDING' },
+    ]);
+  });
+
+  test('two-sided range on same field emits that field once', () => {
+    const e = shapeToIndexEntry(shape({
+      filters: [
+        { field: 'category', op: '==' },
+        { field: 'price', op: '>=' },
+        { field: 'price', op: '<=' },
+      ],
+    }));
+    expect(e.fields).toEqual([
+      { fieldPath: 'category', order: 'ASCENDING' },
+      { fieldPath: 'price', order: 'ASCENDING' },
+    ]);
+  });
 });
 
 describe('indexEntryKey — dedupe identity', () => {
@@ -156,5 +207,17 @@ describe('indexEntryKey — dedupe identity', () => {
       filters: [{ field: 'b', op: '==' }, { field: 'a', op: '==' }],
     }));
     expect(indexEntryKey(a)).not.toBe(indexEntryKey(b));
+  });
+
+  test('arrayConfig CONTAINS has a distinct key from order ASCENDING on the same field', () => {
+    const asc = shapeToIndexEntry(shape({
+      filters: [{ field: 'tags', op: '==' }],
+      orders: [{ field: 'rating', direction: 'desc' }],
+    }));
+    const contains = shapeToIndexEntry(shape({
+      filters: [{ field: 'tags', op: 'array-contains' }],
+      orders: [{ field: 'rating', direction: 'desc' }],
+    }));
+    expect(indexEntryKey(asc)).not.toBe(indexEntryKey(contains));
   });
 });

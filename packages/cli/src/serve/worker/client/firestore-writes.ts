@@ -14,6 +14,7 @@ import { makeDocSnapshot } from './snapshots.js';
 import type { RawDocResult, ClientDocSnapshot } from './snapshots.js';
 import { createDocumentReference } from './firestore-reference.js';
 import type { DocumentData, FieldPath, FirestoreDataConverter } from 'pyric/firestore';
+import { FirebaseError } from 'pyric/app';
 
 interface ClientSetOptions {
   merge?: boolean;
@@ -227,11 +228,13 @@ const TXN_MAX_ATTEMPTS = 5;
 export async function runTransaction<R>(
   db: ClientDb,
   updateFn: (txn: ClientTransaction) => Promise<R> | R,
+  options?: { maxAttempts?: number },
 ): Promise<R> {
   return runSdkWrite(beginGroupActivity(db, 'runTransaction'), async () => {
     const port = db.port;
+    const maxAttempts = options?.maxAttempts ?? TXN_MAX_ATTEMPTS;
 
-    let attemptsRemaining = TXN_MAX_ATTEMPTS;
+    let attemptsRemaining = maxAttempts;
     let hasAttempts = attemptsRemaining > 0;
     while (hasAttempts) {
       attemptsRemaining -= 1;
@@ -241,6 +244,13 @@ export async function runTransaction<R>(
 
       const txn: ClientTransaction = {
         async get(ref) {
+          const hasQueuedWrites = writes.length > 0;
+          if (hasQueuedWrites) {
+            throw new FirebaseError(
+              'failed-precondition',
+              'Firestore transactions require all reads to be executed before all writes.',
+            );
+          }
           // RPC to the worker — capture the raw result before rehydration.
           const rawResult = await dataRpc(ref.port, {
             t: 'op',
@@ -302,14 +312,11 @@ export async function runTransaction<R>(
     }
 
     // Exceeded max attempts.
-    const abortErr = Object.assign(
-      new Error(
-        `Transaction failed after ${TXN_MAX_ATTEMPTS} attempts due to repeated conflicts. ` +
+    throw new FirebaseError(
+      'failed-precondition',
+      `Transaction failed after ${maxAttempts} attempts due to repeated conflicts. ` +
         'Another tab is concurrently writing to the same documents.',
-      ),
-      { code: 'aborted' },
     );
-    throw abortErr;
   });
 }
 

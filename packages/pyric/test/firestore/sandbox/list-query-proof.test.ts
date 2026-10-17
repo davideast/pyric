@@ -122,6 +122,40 @@ describe('proveListQuery', () => {
 
     expect(verdict.syntheticResource).toEqual({ visibility: 'public' });
   });
+
+  // FS-ENF-4a/4b/4c: single-element `in`, intersected duplicate-field filters,
+  // and contradictory filters.
+  // Evidence: firebase.google.com/docs/firestore/security/rules-query and
+  // deployed Firestore probe (FS-ENF-4c: rule `a == 1 && a == 2` with
+  // `where('a', '==', 1), where('a', '==', 2)` is ALLOWED with 0 docs).
+  test('populates syntheticResource from singleton in and intersected same-field filters (FS-ENF-4a, FS-ENF-4b)', () => {
+    const fromSingleIn = expectProvable(prove(`match /items/{id} {
+      allow list: if resource.data.status == 'open';
+    }`, {
+      where: [{ field: 'status', op: 'in', value: ['open'] }],
+    }));
+    expect(fromSingleIn.syntheticResource).toEqual({ status: 'open' });
+
+    const inThenEq = expectProvable(prove(`match /items/{id} {
+      allow list: if resource.data.status == 'open';
+    }`, {
+      where: [
+        { field: 'status', op: 'in', value: ['open', 'closed'] },
+        { field: 'status', op: '==', value: 'open' },
+      ],
+    }));
+    expect(inThenEq.syntheticResource).toEqual({ status: 'open' });
+
+    const eqThenIn = expectProvable(prove(`match /items/{id} {
+      allow list: if resource.data.status == 'open';
+    }`, {
+      where: [
+        { field: 'status', op: '==', value: 'open' },
+        { field: 'status', op: 'in', value: ['open', 'closed'] },
+      ],
+    }));
+    expect(eqThenIn.syntheticResource).toEqual({ status: 'open' });
+  });
 });
 
 describe('renderQueryRemediation', () => {

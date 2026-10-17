@@ -228,8 +228,12 @@ export async function drainPortRtdbDisconnects(ctx: HostCtx, port: PortLike, ins
       else if (
         operation.mergeAfterChildRegistration && operation.value !== null &&
         typeof operation.value === 'object' && !Array.isArray(operation.value)
-      ) await rtdbUpdate(target, resolveRtdbSentinels(operation.value) as Record<string, unknown>);
-      else if (operation.priority !== undefined) {
+      ) {
+        await rtdbUpdate(target, resolveRtdbSentinels(operation.value) as Record<string, unknown>);
+        if (operation.priority !== undefined) {
+          await rtdbSetPriority(target, operation.priority);
+        }
+      } else if (operation.priority !== undefined) {
         await rtdbSetWithPriority(
           target,
           resolveRtdbSentinels(operation.value) as never,

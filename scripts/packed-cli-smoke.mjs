@@ -223,7 +223,16 @@ writeFileSync(resolve(workDir, 'firestore.rules'), `${allowAnonymous}\n`);
 // storage/database counterparts) were retired in favor of `rules lint` and
 // `rules simulate`, one command per service tool method, so this slice drives
 // those instead.
-const firestoreLint = run(['rules', 'lint', '--service', 'firestore', '--rules', allowAnonymous, '--json']);
+// `rules lint` runs the validator's security checks, so it reports the
+// anonymous `verify` fixture above (no auth or data check on create). The lint
+// slice drives a default-deny ruleset instead, as the storage slice does.
+const firestoreDenyAll = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} { allow read, write: if false; }
+  }
+}`;
+const firestoreLint = run(['rules', 'lint', '--service', 'firestore', '--rules', firestoreDenyAll, '--json']);
 expect(firestoreLint.code === 0, 'pyric rules lint --service firestore must exit 0', firestoreLint);
 expect(
   parseJson(firestoreLint, 'pyric rules lint --service firestore').ok === true,

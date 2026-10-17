@@ -42,9 +42,12 @@ export function lint(source: string): RuleIssue[] {
   }
 
   if (lintResult.parseError) {
-    // Source did not parse — the parse error is the whole story; budget
-    // checks and validation were skipped.
+    // Source did not parse — budget checks and validation were skipped,
+    // but pre-parse warnings (SOURCE_SIZE, INVALID_OPERATOR) are still valid.
     issues.push(parseErrorToIssue(lintResult.parseError));
+    for (const warning of lintResult.warnings) {
+      issues.push(lintWarningToIssue(warning));
+    }
     return issues;
   }
 
