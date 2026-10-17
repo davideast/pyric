@@ -163,8 +163,9 @@ export class RtdbCoverageRecorder {
     if (query === undefined) return;
     let required: string | null = null;
     if (query.orderByValue === true) required = '.value';
-    else if (typeof query.orderByChild === 'string' && query.orderByChild !== '') {
-      required = query.orderByChild.split('/').filter(Boolean).join('/');
+    else if (typeof query.orderByChild === 'string') {
+      const normalized = query.orderByChild.split('/').filter(Boolean).join('/');
+      if (normalized !== '') required = normalized;
     }
     if (required === null) return;
     const segments = path.split('/').filter(Boolean);

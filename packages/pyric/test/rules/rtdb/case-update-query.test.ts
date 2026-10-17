@@ -70,6 +70,37 @@ describe('rtdbRules simulate: multi-path update cases', () => {
     expect(result.unsupported).toBe(true);
     expect(result.reason).toContain('update');
   });
+
+  test('multi-path update merges .write traces across all written paths and marks them covered (QRY-4)', () => {
+    const rUpdate = rtdbRules({
+      rules: {
+        a: { '.write': 'auth != null', '.validate': 'newData.isNumber()' },
+        b: { '.write': 'auth != null', '.validate': 'newData.isNumber()' },
+      },
+    });
+    const updateCase = {
+      expectation: 'ALLOW' as const,
+      operation: 'update' as const,
+      path: '/',
+      auth: 'u1',
+      newData: { a: 1, b: 2 },
+    };
+    const sim = rUpdate.simulate([updateCase]);
+    expect(sim.cases[0]?.decision).toBe('ALLOW');
+    expect(sim.cases[0]?.trace.map((t) => `${t.path} .${t.kind}`)).toEqual([
+      '/a .write',
+      '/b .write',
+      '/a .validate',
+      '/b .validate',
+    ]);
+    expect(sim.coverage.uncovered).toEqual([]);
+    expect(rUpdate.explain(updateCase).trace.map((t) => `${t.path} .${t.kind}`)).toEqual([
+      '/a .write',
+      '/b .write',
+      '/a .validate',
+      '/b .validate',
+    ]);
+  });
 });
 
 describe('rtdbRules simulate: query read cases', () => {
@@ -102,6 +133,8 @@ describe('rtdbRules simulate: query read cases', () => {
     expect(run({ operation: 'write', newData: 1, query: { orderByKey: true } }).unsupported).toBe(true);
     expect(run({ query: { orderByKey: true, orderByValue: true } }).unsupported).toBe(true);
     expect(run({ query: { limitToFirst: 0 } }).unsupported).toBe(true);
+    expect(run({ query: { orderByChild: 'owner', startAt: 'a', equalTo: 'alice' } }).unsupported).toBe(true);
+    expect(run({ query: { orderByChild: 'owner', endAt: 'z', equalTo: 'alice' } }).unsupported).toBe(true);
   });
 });
 

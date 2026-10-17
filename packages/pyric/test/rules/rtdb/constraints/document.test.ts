@@ -255,4 +255,61 @@ describe('defineRtdbRules', () => {
     const compiled = ruleset({ '/': { read: deny() } });
     expect(compiled.read?.raw).toBe('false');
   });
+
+  test('simulate projects equalTo into query.startAt and query.endAt (QRY-1)', () => {
+    const doc = defineRtdbRules({
+      paths: {
+        '/items': {
+          read: expr("query.orderByChild == 'status' && query.startAt == 'open' && query.endAt == 'open'"),
+        },
+      },
+    });
+    const res = doc.simulate({
+      operation: 'read',
+      path: '/items',
+      auth: { uid: 'u1' },
+      query: { orderByChild: 'status', equalTo: 'open' },
+    });
+    expect(res.success).toBe(true);
+    if (res.success) {
+      expect(res.data.allowed).toBe(true);
+    }
+  });
+
+  test('simulate rejects impossible queries with INVALID_INPUT (QRY-3a / QRY-3b)', () => {
+    const doc = defineRtdbRules({
+      paths: {
+        '/items': {
+          read: expr('query.limitToFirst <= 10 && query.limitToLast <= 10'),
+        },
+      },
+    });
+
+    for (const badQuery of [
+      { limitToFirst: 5, limitToLast: 5 },
+      { limitToFirst: -5 },
+      { limitToLast: 0 },
+      { limitToFirst: 1.5 },
+      { orderByKey: true, orderByValue: true },
+      { orderByChild: 'status', startAt: 'a', equalTo: 'b' },
+      { orderByChild: 'status', endAt: 'z', equalTo: 'b' },
+      { orderByChild: '' },
+      { orderByChild: '///' },
+    ]) {
+      const res = doc.simulate({
+        operation: 'read',
+        path: '/items',
+        auth: { uid: 'u1' },
+        query: badQuery,
+      });
+      expect(res).toEqual({
+        success: false,
+        error: {
+          code: 'INVALID_INPUT',
+          message: expect.any(String),
+          recoverable: true,
+        },
+      });
+    }
+  });
 });
