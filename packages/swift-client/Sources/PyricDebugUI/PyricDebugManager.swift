@@ -91,10 +91,16 @@ public final class PyricDebugManager: ObservableObject {
     }
 
     private func startObservers() {
+        // Subscribe here, not inside the tasks. A task first runs when the
+        // main actor is next free, and a denial recorded before then would
+        // never reach `recentDenials`.
+        let lensStream = auth.authLensStream
+        let denialStream = diagnostics.denialStream
+
         lensObserverTask?.cancel()
         lensObserverTask = Task { [weak self] in
             guard let self else { return }
-            for await lens in self.auth.authLensStream {
+            for await lens in lensStream {
                 guard !Task.isCancelled else { break }
                 self.activeLens = lens
             }
@@ -103,7 +109,7 @@ public final class PyricDebugManager: ObservableObject {
         denialObserverTask?.cancel()
         denialObserverTask = Task { [weak self] in
             guard let self else { return }
-            for await report in self.diagnostics.denialStream {
+            for await report in denialStream {
                 guard !Task.isCancelled else { break }
                 self.recentDenials.insert(report, at: 0)
                 if self.recentDenials.count > 20 {
