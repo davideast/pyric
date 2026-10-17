@@ -29,6 +29,7 @@ struct RemoteLensSyncTests {
         let auth = Auth(app: app, bridgeClient: client)
         let diagnostics = PyricDebugDiagnostics()
         let manager = await PyricDebugManager(auth: auth, bridgeClient: client, diagnostics: diagnostics)
+        try await awaitRemoteLensSubscription(channel, auth, manager)
 
         return (manager, auth, client, channel)
     }
@@ -47,10 +48,7 @@ struct RemoteLensSyncTests {
             ]
         ])
 
-        // Allow stream propagation
-        try await Task.sleep(nanoseconds: 30_000_000)
-
-        #expect(await manager.activeLens == .admin)
+        try await until { await manager.activeLens == .admin }
         #expect(await manager.isAdminBypass == true)
         #expect(auth.currentAuthLens() == .admin)
     }
@@ -72,16 +70,13 @@ struct RemoteLensSyncTests {
             ]
         ])
 
-        // Allow stream propagation
-        try await Task.sleep(nanoseconds: 30_000_000)
-
         let expectedLens = AuthLens.asUser(
             uid: "remote-bob",
             tenant: "tenant-saas",
             token: ["role": .string("auditor")]
         )
 
-        #expect(await manager.activeLens == expectedLens)
+        try await until { await manager.activeLens == expectedLens }
         #expect(auth.currentAuthLens() == expectedLens)
     }
 }
