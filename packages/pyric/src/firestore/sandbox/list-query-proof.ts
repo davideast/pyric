@@ -49,6 +49,7 @@ import {
   analyzeListRulePathInvariance,
   buildListRuleFunctionScope,
 } from './list-rule-path-proof.js';
+import { computeWhereDomains } from '../../rules/simulator/query-proof-residual.js';
 
 export type { QueryConstraints, QueryProofResidual, QueryWhereConstraint };
 
@@ -229,17 +230,6 @@ function projectRules(ast: FirestoreRules, retained: ReadonlyMap<AllowRule, Allo
 
 // ─── Synthetic resource construction ─────────────────────────────────────
 
-type Scalar = string | number | boolean | null;
-
-function isScalar(value: unknown): value is Scalar {
-  return (
-    value === null ||
-    typeof value === 'string' ||
-    typeof value === 'boolean' ||
-    (typeof value === 'number' && Number.isFinite(value))
-  );
-}
-
 /**
  * Build the representative `resource.data` for the residual evaluation:
  * every field the query's intersected `==` / `in` constraints pin to a single
@@ -247,33 +237,8 @@ function isScalar(value: unknown): value is Scalar {
  * reading them errors (→ deny) rather than passing vacuously.
  */
 function syntheticResourceFromWheres(constraints: QueryConstraints): Record<string, unknown> {
-  const domains = new Map<string, Scalar[]>();
-  for (const w of constraints.where ?? []) {
-    let filterValues: Scalar[] | undefined;
-    if (w.op === '==' && isScalar(w.value)) {
-      filterValues = [w.value];
-    } else if (
-      w.op === 'in' &&
-      Array.isArray(w.value) &&
-      w.value.length > 0 &&
-      w.value.length <= 30 &&
-      w.value.every(isScalar)
-    ) {
-      filterValues = Array.from(new Set(w.value));
-    }
-    if (filterValues === undefined) continue;
-    const existing = domains.get(w.field);
-    if (existing === undefined) {
-      domains.set(w.field, filterValues);
-    } else {
-      domains.set(
-        w.field,
-        existing.filter((v) => filterValues.includes(v)),
-      );
-    }
-  }
   const out: Record<string, unknown> = {};
-  for (const [field, values] of domains) {
+  for (const [field, values] of computeWhereDomains(constraints)) {
     if (values.length === 1) {
       out[field] = values[0];
     }

@@ -420,9 +420,10 @@ export function queryResidual(
         case "pathLiteral":
           return {
             ...expr,
-            segments: expr.segments.map((segment) =>
-              typeof segment === "string" ? segment : sub(segment),
-            ),
+            segments: expr.segments.map((segment) => {
+              if (typeof segment === "string") return segment;
+              return sub(segment);
+            }),
           };
       }
     }
