@@ -64,8 +64,11 @@ private const val AUTH_NOT_RESTORED =
  * subscription. Operations in flight at the drop fail once with `UNAVAILABLE` and
  * are never re-sent. An operation issued while the client is not attached is
  * held for up to 10 seconds and sent once after the next attach's restore, or
- * fails once and is never sent. A client built on one supplied transport cannot
- * reopen it, so a drop fails its operations and subscriptions instead.
+ * fails once and is never sent. An operation whose frame the transport refused
+ * never left the device, so it is held the same way, in the place it was issued
+ * (ADR-0019, amendment 2026-10-17). A client built on one supplied transport
+ * cannot reopen it, so a drop or a refusal fails its operations and
+ * subscriptions instead.
  *
  * While attached, the client sends `ping` at once and then every 15 seconds. A
  * socket that delivers no frame for 45 seconds is a drop (ADR-0019, amendment
@@ -440,7 +443,8 @@ class PyricBridgeClient(
             return
         }
 
-        operationDispatcher.failAll(FirebaseFirestoreException.Code.UNAVAILABLE, CONNECTION_LOST)
+        // An operation whose send has not returned may still be refused, and then held.
+        operationDispatcher.failAll(FirebaseFirestoreException.Code.UNAVAILABLE, CONNECTION_LOST, keepUnsent = true)
         if (wasAttached) subscriptionManager.reportGap()
     }
 
@@ -466,18 +470,24 @@ class PyricBridgeClient(
     ): Any? {
         if (isDisposed) throw disposedError()
         val start = {
-            operationDispatcher.startOp(
+            operationDispatcher.dispatch(
                 method = method,
                 params = params,
                 actAs = actAs,
                 timeoutMs = timeoutMs,
+                // A client that cannot reopen its transport has no reconnect to hold for.
+                holdsRefusal = canReopen,
                 sendJson = ::sendRawJson,
                 jsonSerializer = JsonCodec::encodeToString
             )
         }
-        val held = heldOperations.hold(holdTimeoutMs, start) ?: return start().await()
-        startAttemptIfIdle()
-        return heldOperations.await(held)
+        val admission = heldOperations.admit(holdTimeoutMs, start)
+        if (admission.direct) {
+            heldOperations.sendDirect(admission.entry)
+        } else {
+            startAttemptIfIdle()
+        }
+        return heldOperations.await(admission.entry)
     }
 
     /** A held operation never starts an attempt ahead of the reconnect schedule. */
@@ -576,20 +586,15 @@ class PyricBridgeClient(
         } catch (_: Throwable) {}
     }
 
+    /** Throws [TransportRefused] when the frame cannot have left the device. */
     private fun sendRawJson(json: String) {
         val currentTransport = transport
         if (currentTransport == null || isDisposed) {
-            throw FirebaseFirestoreException(
-                "Cannot send message: transport is not connected.",
-                FirebaseFirestoreException.Code.UNAVAILABLE
-            )
+            throw TransportRefused("Cannot send message: transport is not connected.")
         }
         val enqueued = currentTransport.send(json)
         if (!enqueued) {
-            throw FirebaseFirestoreException(
-                "Failed to enqueue message to bridge transport.",
-                FirebaseFirestoreException.Code.UNAVAILABLE
-            )
+            throw TransportRefused("Failed to enqueue message to bridge transport.")
         }
     }
 

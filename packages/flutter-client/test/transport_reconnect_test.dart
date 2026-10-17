@@ -635,4 +635,34 @@ void main() {
       }
     });
   });
+
+  // ADR-0019, amended 2026-10-17: the Dart client cannot see a refused frame.
+  // Its sink drops a frame on a closing socket without an error, so the
+  // operation fails as in flight and is never re-sent.
+  test('an operation written to a closing socket fails once on the close and is not re-sent on the re-attach', () async {
+    final client = createClient();
+    await client.connect();
+    final closing = bridge.current;
+    closing.beginClosing();
+
+    var failed = false;
+    final failure = expectLater(
+      client.op('setDoc', {'path': 'rooms/a'}),
+      throwsA(isA<PyricBridgeException>()
+          .having((e) => e.code, 'code', 'unavailable')
+          .having((e) => e.message, 'message', contains('connection was lost'))),
+    ).then((_) => failed = true);
+    await settle();
+    expect(closing.droppedWhileClosing.where((f) => f['type'] == 'worker-op'), hasLength(1));
+    expect(opsNamed('setDoc'), isEmpty, reason: 'the dropped frame never reached the bridge');
+    expect(failed, isFalse, reason: 'nothing reports the drop before the close');
+
+    closing.drop(code: 1006);
+    await failure;
+    await until(() => client.isConnected);
+    await settle();
+
+    expect(bridge.connectCalls, 2);
+    expect(opsNamed('setDoc'), isEmpty, reason: 'an operation in flight is never re-sent');
+  });
 }

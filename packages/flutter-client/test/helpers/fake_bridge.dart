@@ -6,7 +6,9 @@ import 'package:stream_channel/stream_channel.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 /// One fake socket. [drop] ends it the way a lost connection does; [silence]
-/// leaves it open but delivers nothing more, as a half-open connection does.
+/// leaves it open but delivers nothing more, as a half-open connection does;
+/// [beginClosing] drops every later frame without an error, as
+/// `web_socket_channel` does on a socket that is closing.
 class FakeSocket extends StreamChannelMixin<dynamic>
     implements WebSocketChannel {
   final StreamController<dynamic> _toClient = StreamController<dynamic>();
@@ -14,6 +16,7 @@ class FakeSocket extends StreamChannelMixin<dynamic>
   int? _closeCode;
   bool _isOpen = true;
   bool _isSilent = false;
+  bool _isClosing = false;
 
   /// Frames the client sent on this socket while it was open.
   final List<Map<String, dynamic>> sent = [];
@@ -21,9 +24,14 @@ class FakeSocket extends StreamChannelMixin<dynamic>
   /// Frames the client tried to send on this socket after it closed.
   final List<Map<String, dynamic>> sentAfterClose = [];
 
+  /// Frames the client sent after [beginClosing]; none reached the bridge.
+  final List<Map<String, dynamic>> droppedWhileClosing = [];
+
   FakeSocket(this._onFrame);
 
   bool get isOpen => _isOpen;
+
+  bool get isClosing => _isClosing;
 
   void deliver(Map<String, dynamic> frame) {
     if (_isOpen && !_isSilent) _toClient.add(jsonEncode(frame));
@@ -31,6 +39,10 @@ class FakeSocket extends StreamChannelMixin<dynamic>
 
   /// Stops delivering frames without closing the socket.
   void silence() => _isSilent = true;
+
+  /// Starts a close the client has not seen yet: the socket stays open, and
+  /// the sink accepts each frame and drops it.
+  void beginClosing() => _isClosing = true;
 
   List<Map<String, dynamic>> sentOfType(String type) =>
       sent.where((frame) => frame['type'] == type).toList();
@@ -72,6 +84,10 @@ class _FakeSink implements WebSocketSink {
     if (!_socket.isOpen) {
       _socket.sentAfterClose.add(frame);
       throw StateError('socket closed');
+    }
+    if (_socket.isClosing) {
+      _socket.droppedWhileClosing.add(frame);
+      return;
     }
     _socket.sent.add(frame);
     _socket._onFrame(frame);
