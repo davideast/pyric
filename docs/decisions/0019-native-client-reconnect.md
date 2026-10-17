@@ -18,6 +18,11 @@ issued when `.info/connected` turns true is sent on the new connection after
 the restore, so an app can re-arm its onDisconnect operations. See
 [the amendment](#amendment-2026-10-16-every-client-serves-info-locally).
 
+Amended: 2026-10-17. An operation whose frame the transport refused, or that
+the client had not yet handed to the transport when the socket dropped, is
+held under decision 7 instead of failing. See
+[the amendment](#amendment-2026-10-17-a-frame-that-never-left-the-device-is-held).
+
 ## Context
 
 The Dart (`packages/flutter-client`), Swift (`packages/swift-client`) and Kotlin
@@ -585,3 +590,59 @@ the web client's order.
   changes land.
 - An app that writes its presence only once goes `offline` on every host
   restart and stays there, as it would in production after a reconnect.
+
+## Amendment (2026-10-17): a frame that never left the device is held
+
+Decision 7 defines an operation as in flight once the client has handed its
+frame to a socket. As first written, each native client also failed two kinds
+of operation as if they were in flight: one whose frame the transport refused,
+and one whose frame was still queued in the client when the drop was processed
+([#1033](https://github.com/davideast/pyric/issues/1033)). Neither frame left
+the device, so the host cannot have applied either.
+
+This amendment is the contract the native clients follow. The Kotlin and Swift
+clients change in their own pull requests. The Dart client keeps its behavior
+and adds a test that pins it in its own pull request. The web hosted client
+does not change.
+
+- **Not handed over is not sent.** Such an operation is held under decision 7
+  as amended on 2026-10-14. It is sent once after the next attach's restore, or
+  fails once at the hold deadline, measured from when the app issued it.
+- **What counts as a refusal.** A refusal is a positive signal that the
+  transport did not take the frame. On Kotlin, `BridgeTransport.send` returns
+  false (OkHttp returns false only when it did not enqueue the frame), or there
+  is no current transport. On Swift, there is no current transport, or the
+  built-in `URLSessionWebSocketTransport` throws `WebSocketSendRefusedError`,
+  which it does when its task is no longer running before the send. That error
+  has `package` access, so a custom `WebSocketTransport` cannot signal a
+  refusal, and any error it throws leaves the operation in flight. Any other
+  send error, and any frame the transport accepted, means the operation is in
+  flight. If the socket then drops, the operation fails once with the
+  connection-lost message and is never re-sent.
+- **Order.** A held operation keeps the place it was admitted in. Operations
+  that were refused or never written are sent in admission order, ahead of
+  every operation held after the drop. After a re-attach, the client releases
+  held operations only once every send started before the drop has returned.
+- **A refusal is not a drop.** The socket's close still decides whether the
+  client reconnects (decision 2), and a refused operation waits for that close.
+  If the close permits no retry, or the app disconnects, the operation fails
+  once with that error, like any held operation.
+- **Unchanged.** On a client built on one supplied transport (decision 8), a
+  refused operation fails as before. Restore traffic is never held, so a
+  refused Auth restore operation fails the restore.
+- **Subscriptions.** A subscription whose `worker-sub` frame is refused stays
+  registered, and the next attach's restore sends it, as decision 7 already
+  does for a subscription opened while not attached.
+- **Where a refusal cannot be seen.** The Dart client and the web hosted client
+  write through sinks that drop a frame on a closing socket without reporting
+  it: `web_socket_channel`'s `GuaranteeChannel` and `AdapterWebSocketChannel`,
+  and the browser `WebSocket.send`. They cannot tell a dropped frame from a
+  lost one, so such an operation still fails as in flight. This is the safe
+  direction: no client re-sends a frame the host may have seen.
+- **Production.** The Android, iOS and JavaScript Realtime Database SDKs keep
+  every unacknowledged put and re-send it on reconnect, and cancel only a
+  transaction put already marked sent, "since we don't know if our sent
+  transactions succeeded or not". The Firestore SDKs write every
+  unacknowledged batch again after the next handshake. Pyric keeps decision
+  7's rule that an operation in flight is never re-sent, and applies the
+  sent/unsent split to every operation.
