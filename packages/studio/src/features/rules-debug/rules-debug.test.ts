@@ -247,6 +247,37 @@ describe('rules-debug model: RTDB denial → rule node → bindings', () => {
     expect(exp.headline).toContain('.validate');
   });
 
+  it('attributes a `.validate` runtime error (and unsupported `.validate`) to the validate phase and line (COV-4)', async () => {
+    const rulesSource = [
+      '{', // 1
+      '  "rules": {', // 2
+      '    "items": {', // 3
+      '      ".write": true,', // 4
+      '      ".validate": "newData.val().replace(\'a\', \'b\') == \'b\'"', // 5
+      '    }', // 6
+      '  }', // 7
+      '}', // 8
+    ].join('\n');
+    const sandbox = initializeSandbox();
+    const adminDb = getDatabase(sandbox);
+    rtdbSandbox.setRules(adminDb, JSON.parse(rulesSource));
+
+    const events: SandboxEvent[] = [];
+    sandbox.onEvent((e) => events.push(e));
+    const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+    await set(ref(db, '/items'), 123 as never).catch(() => undefined);
+
+    const d = selectDenials(events).find((x) => x.service === 'rtdb')!;
+    expect(d).toBeDefined();
+    expect(d.rules?.reason).toContain("Validation rule at '/items' failed at evaluation");
+
+    const exp = explainDenial(d);
+    expect(exp.phase).toBe('validate');
+    expect(exp.ruleNode).toBe('/items .validate');
+    expect(exp.headline).toContain('.validate');
+    expect(rtdbRuleLine(d, rulesSource)).toBe(5);
+  });
+
   it('flags RTDB implicit deny (no matching rule) distinctly', () => {
     const d: Denial = {
       result: 'deny',

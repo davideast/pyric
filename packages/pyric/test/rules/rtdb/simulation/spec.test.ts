@@ -2,6 +2,7 @@ import { describe, test, expect } from 'bun:test';
 import {
   SimulateErrorCode,
   SimulationInputSchema,
+  simulationQueryProblem,
 } from '../../../../src/rules/rtdb/simulation/spec.js';
 
 test('simulation errors do not expose a generate-before-simulate lifecycle', () => {
@@ -90,4 +91,32 @@ describe('SimulationInputSchema', () => {
     expect(result.success).toBe(true);
   });
 });
+
+describe('simulationQueryProblem', () => {
+  test('rejects conflicting startAt or endAt with equalTo (QRY-3b)', () => {
+    expect(
+      simulationQueryProblem({ orderByChild: 'status', startAt: 'a', equalTo: 'b' }),
+    ).toBe('equalTo: Starting point was already set (by another call to startAt, startAfter, or equalTo).');
+    expect(
+      simulationQueryProblem({ orderByChild: 'status', endAt: 'a', equalTo: 'b' }),
+    ).toBe('equalTo: Ending point was already set (by another call to endAt, endBefore, or equalTo).');
+  });
+
+  test('rejects slash-only orderByChild (#1019)', () => {
+    expect(simulationQueryProblem({ orderByChild: '/' })).toBe(
+      'orderByChild: cannot pass in empty path. Use orderByValue() instead.',
+    );
+    expect(simulationQueryProblem({ orderByChild: '///' })).toBe(
+      'orderByChild: cannot pass in empty path. Use orderByValue() instead.',
+    );
+  });
+
+  test('accepts orderByPriority and rejects combining it with another orderBy*', () => {
+    expect(simulationQueryProblem({ orderByPriority: true })).toBeNull();
+    expect(
+      simulationQueryProblem({ orderByPriority: true, orderByKey: true }),
+    ).toContain('orderBy');
+  });
+});
+
 

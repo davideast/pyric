@@ -154,4 +154,26 @@ describe('RTDB rule-by-rule evaluation trace', () => {
     expect(text).toContain('/items/$id .write -> ALLOW: auth != null');
     expect(text).toContain('/items/$id .validate -> DENY: newData.isNumber() ($id = x)');
   });
+
+  test('explain on operation=validate with descendant .validate reports the evaluated descendant path and rule (QRY-5)', () => {
+    const rChildValidate = rtdbRules({
+      rules: {
+        rooms: {
+          $roomId: {
+            '.write': true,
+            title: { '.validate': 'newData.isString()' },
+          },
+        },
+      },
+    });
+    const expChildValidate = rChildValidate.explain({
+      expectation: 'ALLOW',
+      operation: 'validate',
+      path: '/rooms/r1',
+      newData: { title: 'ok' },
+    });
+    expect(expChildValidate.decision).toBe('ALLOW');
+    expect(expChildValidate.matchedPath).toBe('/rooms/$roomId/title');
+    expect(expChildValidate.matchedRule).toBe('newData.isString()');
+  });
 });

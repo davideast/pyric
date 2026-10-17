@@ -4,6 +4,7 @@ export const SimulationQuerySchema = z.object({
   orderByChild: z.string().nullable().optional(),
   orderByKey: z.boolean().nullable().optional(),
   orderByValue: z.boolean().nullable().optional(),
+  orderByPriority: z.boolean().nullable().optional(),
   equalTo: z.union([z.string(), z.number(), z.boolean(), z.null()]).optional(),
   limitToFirst: z.number().nullable().optional(),
   limitToLast: z.number().nullable().optional(),
@@ -24,13 +25,23 @@ export function simulationQueryProblem(query: unknown): string | null {
     return `query is not a Realtime Database query: ${parsed.error.issues.map((i) => i.message).join('; ')}`;
   }
   const q = parsed.data;
+  if (q.orderByChild === '') return 'query.orderByChild must name a child path.';
+  if (q.orderByChild != null && q.orderByChild.split('/').filter(Boolean).length === 0) {
+    return 'orderByChild: cannot pass in empty path. Use orderByValue() instead.';
+  }
   const orderings = [
     q.orderByChild != null && q.orderByChild !== '',
     q.orderByKey === true,
     q.orderByValue === true,
+    q.orderByPriority === true,
   ].filter(Boolean).length;
-  if (q.orderByChild === '') return 'query.orderByChild must name a child path.';
   if (orderings > 1) return 'query names more than one of orderByChild, orderByKey and orderByValue.';
+  if (q.equalTo !== undefined && q.startAt !== undefined) {
+    return 'equalTo: Starting point was already set (by another call to startAt, startAfter, or equalTo).';
+  }
+  if (q.equalTo !== undefined && q.endAt !== undefined) {
+    return 'equalTo: Ending point was already set (by another call to endAt, endBefore, or equalTo).';
+  }
   if (q.limitToFirst != null && q.limitToLast != null) {
     return 'query names both limitToFirst and limitToLast.';
   }

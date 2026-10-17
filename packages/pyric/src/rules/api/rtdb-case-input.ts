@@ -12,8 +12,8 @@
 import type { RtdbRulesDocumentInternal, RtdbRulesSimulationInput } from '../rtdb/constraints/document.js';
 import {
   simulationQueryProblem,
+  type RtdbRuleEvaluation,
   type SimulateResult,
-  type SimulationQuery,
 } from '../rtdb/simulation/spec.js';
 import type { RtdbCase } from './case-types.js';
 
@@ -28,20 +28,6 @@ function segmentsOf(path: string): string[] {
 
 function absolutePath(segments: string[]): string {
   return `/${segments.join('/')}`;
-}
-
-/**
- * The query as rules read it. An `equalTo` bound is also the lower and upper
- * bound, as the sandbox reports a query it evaluates, so a rule that reads
- * `query.startAt` or `query.endAt` sees the same values in both.
- */
-function ruleQuery(query: NonNullable<RtdbCase['query']>): SimulationQuery {
-  const out: SimulationQuery = { ...query };
-  if (query.equalTo !== undefined) {
-    out.startAt = query.equalTo;
-    out.endAt = query.equalTo;
-  }
-  return out;
 }
 
 function isPatch(value: unknown): value is Record<string, unknown> {
@@ -94,7 +80,10 @@ function simulateUpdate(doc: RtdbRulesDocumentInternal, c: RtdbCase): SimulateRe
   }));
   if (updates.length === 0) return invalidCase("an 'update' case needs newData to name at least one path.");
 
-  let allowed: SimulateResult | undefined;
+  let allowed: Extract<SimulateResult, { success: true }> | undefined;
+  let validateFailure: { result: Extract<SimulateResult, { success: true }>; validates: RtdbRuleEvaluation[] } | undefined;
+  const writeTrace: RtdbRuleEvaluation[] = [];
+  let validateTrace: RtdbRuleEvaluation[] = [];
   for (const update of updates) {
     const input = baseInput(c);
     input.path = update.path;
@@ -102,10 +91,30 @@ function simulateUpdate(doc: RtdbRulesDocumentInternal, c: RtdbCase): SimulateRe
     input.updates = updates;
     const result = doc.simulate(input);
     if (!result.success) return result;
-    if (!result.data.allowed || result.data.unsupported === true) return result;
+    const writes = result.data.trace.filter((t) => t.kind === 'write');
+    const validates = result.data.trace.filter((t) => t.kind === 'validate');
+    writeTrace.push(...writes);
+    if (!result.data.allowed || result.data.unsupported === true) {
+      if (validates.length === 0) {
+        return { success: true, data: { ...result.data, trace: writeTrace } };
+      }
+      validateFailure ??= { result, validates };
+      continue;
+    }
+    validateTrace = validates;
     allowed ??= result;
   }
-  return allowed as SimulateResult;
+  if (validateFailure) {
+    return {
+      success: true,
+      data: { ...validateFailure.result.data, trace: [...writeTrace, ...validateFailure.validates] },
+    };
+  }
+  const firstAllowed = allowed as Extract<SimulateResult, { success: true }>;
+  return {
+    success: true,
+    data: { ...firstAllowed.data, trace: [...writeTrace, ...validateTrace] },
+  };
 }
 
 /** Evaluate one case against a ruleset document. */
@@ -126,7 +135,7 @@ export function simulateRtdbCase(doc: RtdbRulesDocumentInternal, c: RtdbCase): S
   }
   if (c.operation === 'update') return simulateUpdate(doc, c);
   const input = baseInput(c);
-  if (c.query !== undefined) input.query = ruleQuery(c.query);
+  if (c.query !== undefined) input.query = { ...c.query };
   if (c.updates !== undefined) input.updates = c.updates;
   return doc.simulate(input);
 }
