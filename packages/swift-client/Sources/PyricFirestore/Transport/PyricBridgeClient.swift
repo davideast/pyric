@@ -1117,7 +1117,15 @@ public actor PyricBridgeClient {
         )
 
         if isConnected {
-            try await sendRaw(WorkerSubFrame(subId: subId, sub: subPayload))
+            do {
+                try await sendRaw(WorkerSubFrame(subId: subId, sub: subPayload))
+            } catch is WebSocketSendRefusedError where canReopen {
+                // The frame never left the device. The next attach's restore sends it.
+                return subId
+            } catch {
+                activeSubs.removeValue(forKey: subId)
+                throw error
+            }
             return subId
         }
         // Not attached: the next attach sends this subscription.

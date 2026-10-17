@@ -373,4 +373,51 @@ struct RefusedSendTests {
             #expect(error is WebSocketSendRefusedError)
         }
     }
+
+    @Test("A listener whose first worker-sub is refused stays live, is sent on the re-attach, and delivers")
+    func refusedSubscriptionIsRestored() async throws {
+        let bridge = ClosingBridge()
+        let client = makeClient(bridge)
+        try await client.connect()
+        let old = bridge.current
+
+        old.beginClosing(holdingRefusals: true)
+        let values = Collected<AnySendable>()
+        let errors = Collected<String>()
+        let task = collect(client.subscribe(target: ["__ref": "doc", "path": "rooms/a"]), into: values, errors: errors)
+        try await until { old.waitingRefusals == 1 }
+        old.releaseRefusals()
+        try await Task.sleep(nanoseconds: 30_000_000)
+        #expect(errors.all.isEmpty)
+        old.finishClosing(code: 1006)
+
+        try await until { bridge.fake.subs(forPath: "rooms/a").count == 1 }
+        let subId = bridge.fake.subs(forPath: "rooms/a")[0]["subId"]!.stringValue!
+        bridge.current.inner.deliver(["type": "worker-snap", "subId": subId, "value": ["path": "rooms/a", "exists": true, "data": ["n": 1]]])
+        try await until { values.count == 1 }
+        #expect(errors.all.isEmpty)
+        task.cancel()
+        await client.disconnect()
+    }
+
+    @Test("A listener whose first worker-sub fails with another error ends, and the re-attach does not send it")
+    func failedSubscriptionIsNotRestored() async throws {
+        let bridge = ClosingBridge()
+        let client = makeClient(bridge)
+        try await client.connect()
+        let old = bridge.current
+
+        old.failSends(ofType: "worker-sub")
+        let errors = Collected<String>()
+        let task = collect(client.subscribe(target: ["__ref": "doc", "path": "rooms/a"]), into: Collected<AnySendable>(), errors: errors)
+        try await until { errors.count == 1 }
+
+        old.finishClosing(code: 1006)
+        try await until { bridge.sockets.count == 2 }
+        try await until { await client.isConnected }
+        try await Task.sleep(nanoseconds: 30_000_000)
+        #expect(bridge.fake.subs(forPath: "rooms/a").isEmpty)
+        task.cancel()
+        await client.disconnect()
+    }
 }
