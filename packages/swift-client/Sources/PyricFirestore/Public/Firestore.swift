@@ -265,6 +265,19 @@ public class Firestore: @unchecked Sendable {
         _ updateBlock: @Sendable @escaping (Transaction) async throws -> Any?
     ) async throws -> Any? {
         markUsed()
+        return try await runTransaction(turn: takeTurn(), options: options, updateBlock)
+    }
+
+    /// Runs a transaction once every operation issued before it has been sent
+    /// or held. The turn is passed before the update block runs, so a block that
+    /// awaits other calls before its first read never waits on its own turn; an
+    /// operation issued after the transaction may reach the host before its reads.
+    private func runTransaction(
+        turn: OperationTurn,
+        options: TransactionOptions,
+        _ updateBlock: @Sendable @escaping (Transaction) async throws -> Any?
+    ) async throws -> Any? {
+        await bridgeClient.pass(turn: turn)
         var attempts = 0
         let maxAttempts = max(1, options.maxAttempts)
 
@@ -308,10 +321,12 @@ public class Firestore: @unchecked Sendable {
         block updateBlock: @escaping @Sendable (Transaction, NSErrorPointer) -> Any?,
         completion: @escaping @Sendable (Any?, Error?) -> Void
     ) {
+        markUsed()
         let opts = options ?? TransactionOptions()
+        let turn = takeTurn()
         Task {
             do {
-                let result = try await self.runTransaction(options: opts) { txn in
+                let result = try await self.runTransaction(turn: turn, options: opts) { txn in
                     // The block may block its thread on a transaction read, so it
                     // runs off the cooperative pool the read's reply needs.
                     try await UpdateBlockThread.run {
@@ -337,19 +352,25 @@ public class Firestore: @unchecked Sendable {
     // ── Network & Cache Lifecycle ────────────────────────────────────
 
     public func enableNetwork() async throws {
-        try await bridgeClient.connect()
+        try await Self.enableNetwork(bridgeClient, turn: takeTurn())
     }
 
     public func enableNetwork(completion: (@Sendable (Error?) -> Void)? = nil) {
-        toggleNetworkInCallOrder(completion: completion) { client in try await client.connect() }
+        toggleNetworkInCallOrder(completion: completion, Self.enableNetwork)
     }
 
     public func disableNetwork() async throws {
-        await bridgeClient.disconnect()
+        await bridgeClient.disconnect(turn: takeTurn())
     }
 
     public func disableNetwork(completion: (@Sendable (Error?) -> Void)? = nil) {
-        toggleNetworkInCallOrder(completion: completion) { client in await client.disconnect() }
+        toggleNetworkInCallOrder(completion: completion) { client, turn in await client.disconnect(turn: turn) }
+    }
+
+    /// Connects once every operation issued before has been sent or held.
+    private static func enableNetwork(_ client: PyricBridgeClient, turn: OperationTurn) async throws {
+        await client.pass(turn: turn)
+        try await client.connect()
     }
 
     public func clearPersistence() async throws {
@@ -367,18 +388,11 @@ public class Firestore: @unchecked Sendable {
     }
 
     public func terminate() async throws {
-        await bridgeClient.disconnect()
+        await bridgeClient.disconnect(turn: takeTurn())
     }
 
     public func terminate(completion: (@Sendable (Error?) -> Void)? = nil) {
-        Task {
-            do {
-                try await terminate()
-                settings.dispatchQueue.async { completion?(nil) }
-            } catch {
-                settings.dispatchQueue.async { completion?(error) }
-            }
-        }
+        toggleNetworkInCallOrder(completion: completion) { client, turn in await client.disconnect(turn: turn) }
     }
 
     public func waitForPendingWrites() async throws {

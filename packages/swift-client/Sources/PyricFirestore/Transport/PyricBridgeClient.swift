@@ -604,13 +604,18 @@ public actor PyricBridgeClient {
     /// While the client is not attached, the operation is held, not sent: it is
     /// sent once after the next attach's restore, or fails after 10 seconds
     /// saying it was not sent.
+    ///
+    /// The operation takes its turn when it reaches the client, so it is sent
+    /// after every operation whose turn was taken before. A call that must keep
+    /// its place from where the app made it takes the turn there instead and
+    /// presents it to `op(turn:…)`.
     public func op(
         method: String,
         params: [String: AnySendable] = [:],
         actAs: AuthLens? = nil,
         timeout: TimeInterval? = nil
     ) async throws -> AnySendable {
-        try await admit(method: method, params: params, actAs: actAs, timeout: timeout, turn: nil)
+        try await op(turn: turnCounter.take(), method: method, params: params, actAs: actAs, timeout: timeout)
     }
 
     // ─── Call Order ──────────────────────────────────────────────────────────
@@ -643,6 +648,16 @@ public actor PyricBridgeClient {
     package func pass(turn: OperationTurn) async {
         await waitForTurn(turn)
         releaseTurn(turn)
+    }
+
+    /// Closes the client in the place `turn` holds. Every operation whose turn
+    /// was taken before is admitted first, then failed by the close; every
+    /// operation whose turn comes after finds the client disposed.
+    package func disconnect(turn: OperationTurn) async {
+        await waitForTurn(turn)
+        let closing = close()
+        releaseTurn(turn)
+        await closing?.close(closeCode: 1000, reason: "Client disconnect")
     }
 
     private func waitForTurn(_ turn: OperationTurn) async {
@@ -1380,6 +1395,13 @@ public actor PyricBridgeClient {
 
     /// Closes the connection and cancels all outstanding operations and subscriptions.
     public func disconnect() async {
+        let closing = close()
+        await closing?.close(closeCode: 1000, reason: "Client disconnect")
+    }
+
+    /// Marks the client disposed and fails everything outstanding, without
+    /// suspending. Returns the socket the caller closes.
+    private func close() -> (any WebSocketTransport)? {
         isDisposed = true
         isConnected = false
         drainingHeldOps = false
@@ -1413,7 +1435,7 @@ public actor PyricBridgeClient {
 
         let closing = transport
         transport = nil
-        await closing?.close(closeCode: 1000, reason: "Client disconnect")
+        return closing
     }
 }
 

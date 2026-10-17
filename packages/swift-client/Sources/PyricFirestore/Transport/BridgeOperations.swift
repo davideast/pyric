@@ -4,20 +4,22 @@ extension PyricBridgeClient {
 
     /// Reads a document snapshot via getDoc.
     public func getDoc(path: String, actAs: AuthLens? = nil) async throws -> AnySendable {
-        try await op(
-            method: "getDoc",
-            params: ["path": .string(path)],
-            actAs: actAs
-        )
+        try await getDoc(turn: takeTurn(), path: path, actAs: actAs)
+    }
+
+    /// Reads a document snapshot via getDoc, in the place `turn` holds.
+    package func getDoc(turn: OperationTurn, path: String, actAs: AuthLens?) async throws -> AnySendable {
+        try await op(turn: turn, method: "getDoc", params: ["path": .string(path)], actAs: actAs)
     }
 
     /// Reads query documents via getDocs.
     public func getDocs(source: TargetDescriptor, actAs: AuthLens? = nil) async throws -> AnySendable {
-        try await op(
-            method: "getDocs",
-            params: ["source": source.toAnySendable()],
-            actAs: actAs
-        )
+        try await getDocs(turn: takeTurn(), source: source, actAs: actAs)
+    }
+
+    /// Reads query documents via getDocs, in the place `turn` holds.
+    package func getDocs(turn: OperationTurn, source: TargetDescriptor, actAs: AuthLens?) async throws -> AnySendable {
+        try await op(turn: turn, method: "getDocs", params: ["source": source.toAnySendable()], actAs: actAs)
     }
 
     /// Writes document data via setDoc.
@@ -98,7 +100,13 @@ extension PyricBridgeClient {
 
     /// Counts matching documents via count.
     public func count(source: TargetDescriptor, actAs: AuthLens? = nil) async throws -> Int {
+        try await count(turn: takeTurn(), source: source, actAs: actAs)
+    }
+
+    /// Counts matching documents via count, in the place `turn` holds.
+    package func count(turn: OperationTurn, source: TargetDescriptor, actAs: AuthLens?) async throws -> Int {
         let res = try await op(
+            turn: turn,
             method: "count",
             params: ["source": source.toAnySendable()],
             actAs: actAs
@@ -112,8 +120,19 @@ extension PyricBridgeClient {
         spec: [String: AggregateFieldDescriptor],
         actAs: AuthLens? = nil
     ) async throws -> [String: Double?] {
+        try await aggregate(turn: takeTurn(), source: source, spec: spec, actAs: actAs)
+    }
+
+    /// Performs server-side aggregations via aggregate, in the place `turn` holds.
+    package func aggregate(
+        turn: OperationTurn,
+        source: TargetDescriptor,
+        spec: [String: AggregateFieldDescriptor],
+        actAs: AuthLens?
+    ) async throws -> [String: Double?] {
         let specMap = spec.mapValues { $0.toAnySendable() }
         let res = try await op(
+            turn: turn,
             method: "aggregate",
             params: [
                 "source": source.toAnySendable(),

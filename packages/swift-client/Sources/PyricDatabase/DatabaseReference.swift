@@ -75,11 +75,7 @@ public final class DatabaseReference: DatabaseQuery, @unchecked Sendable {
             "path": .string(path),
             "value": RtdbValueCodec.toAnySendable(value)
         ]
-        _ = try await database.bridgeClient.op(
-            method: "rtdb.set",
-            params: params,
-            actAs: database.currentAuthLens()
-        )
+        try await database.send(turn: database.takeTurn(), method: "rtdb.set", params: params)
     }
 
     public func setValue(
@@ -98,11 +94,7 @@ public final class DatabaseReference: DatabaseQuery, @unchecked Sendable {
             "path": .string(path),
             "priority": RtdbValueCodec.toAnySendable(priority)
         ]
-        _ = try await database.bridgeClient.op(
-            method: "rtdb.setPriority",
-            params: params,
-            actAs: database.currentAuthLens()
-        )
+        try await database.send(turn: database.takeTurn(), method: "rtdb.setPriority", params: params)
     }
 
     public func setPriority(
@@ -122,11 +114,7 @@ public final class DatabaseReference: DatabaseQuery, @unchecked Sendable {
             "value": RtdbValueCodec.toAnySendable(value),
             "priority": RtdbValueCodec.toAnySendable(priority)
         ]
-        _ = try await database.bridgeClient.op(
-            method: "rtdb.setWithPriority",
-            params: params,
-            actAs: database.currentAuthLens()
-        )
+        try await database.send(turn: database.takeTurn(), method: "rtdb.setWithPriority", params: params)
     }
 
     public func setValue(
@@ -147,11 +135,7 @@ public final class DatabaseReference: DatabaseQuery, @unchecked Sendable {
             "path": .string(path),
             "values": RtdbValueCodec.toAnySendable(values)
         ]
-        _ = try await database.bridgeClient.op(
-            method: "rtdb.update",
-            params: params,
-            actAs: database.currentAuthLens()
-        )
+        try await database.send(turn: database.takeTurn(), method: "rtdb.update", params: params)
     }
 
     public func updateChildValues(
@@ -169,11 +153,7 @@ public final class DatabaseReference: DatabaseQuery, @unchecked Sendable {
         let params: [String: AnySendable] = [
             "path": .string(path)
         ]
-        _ = try await database.bridgeClient.op(
-            method: "rtdb.remove",
-            params: params,
-            actAs: database.currentAuthLens()
-        )
+        try await database.send(turn: database.takeTurn(), method: "rtdb.remove", params: params)
     }
 
     public func removeValue(
@@ -190,13 +170,14 @@ public final class DatabaseReference: DatabaseQuery, @unchecked Sendable {
     public func runTransactionBlock(
         _ block: @escaping @Sendable (MutableData) -> TransactionResult
     ) async throws -> (committed: Bool, snapshot: DataSnapshot) {
-        try await runTransaction(block, firstReadTurn: nil)
+        try await runTransaction(block, firstReadTurn: database.takeTurn())
     }
 
-    /// Runs a transaction whose first read, when given a turn, is sent in call order.
+    /// Runs a transaction whose first read is sent in the place `firstReadTurn`
+    /// holds. Later reads and the commit take their turns when they are sent.
     private func runTransaction(
         _ block: @escaping @Sendable (MutableData) -> TransactionResult,
-        firstReadTurn: OperationTurn?
+        firstReadTurn: OperationTurn
     ) async throws -> (committed: Bool, snapshot: DataSnapshot) {
         var attempts = 0
         let maxRetries = 25
@@ -204,7 +185,7 @@ public final class DatabaseReference: DatabaseQuery, @unchecked Sendable {
         while attempts < maxRetries {
             attempts += 1
             let isFirstAttempt = attempts == 1
-            let currentSnap = try await getData(turn: isFirstAttempt ? firstReadTurn : nil)
+            let currentSnap = try await getData(turn: isFirstAttempt ? firstReadTurn : database.takeTurn())
             let mutable = MutableData(
                 key: currentSnap.key,
                 value: currentSnap.value,
@@ -252,7 +233,7 @@ public final class DatabaseReference: DatabaseQuery, @unchecked Sendable {
         _ block: @escaping @Sendable (MutableData) -> TransactionResult,
         andCompletionBlock completionBlock: @escaping @Sendable (Error?, Bool, DataSnapshot?) -> Void
     ) {
-        let firstReadTurn = database.bridgeClient.takeTurn()
+        let firstReadTurn = database.takeTurn()
         Task {
             do {
                 let result = try await runTransaction(block, firstReadTurn: firstReadTurn)

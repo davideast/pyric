@@ -1,10 +1,11 @@
 import Foundation
 
-/// A place in the order a bridge client admits operations, taken
-/// synchronously when the app calls a write, before any task starts.
+/// A place in the order a bridge client admits operations, taken where the app
+/// makes the call: synchronously in a completion-block form, before any task
+/// starts, and in an async form before its first suspension.
 ///
 /// Every turn handed out must be presented to `PyricBridgeClient.op(turn:…)`,
-/// or the turns after it wait forever.
+/// `pass(turn:)` or `disconnect(turn:)`, or the turns after it wait forever.
 package struct OperationTurn: Sendable {
     let number: Int
 }

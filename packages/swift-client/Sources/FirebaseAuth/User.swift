@@ -86,11 +86,22 @@ public final class User: @unchecked Sendable, UserInfo {
     // ── ID Tokens ────────────────────────────────────────────────────────────
 
     public func getIDToken(forcingRefresh: Bool = false) async throws -> String {
-        guard let auth = self.auth else {
-            throw AuthError(code: .noCurrentUser, message: "User is not attached to an active Auth instance.")
+        let auth = try attachedAuth()
+        return try await getIDToken(auth, turn: auth.takeTurn(), forcingRefresh: forcingRefresh)
+    }
+
+    public func getIDToken(
+        forcingRefresh: Bool = false,
+        completion: @escaping @Sendable (String?, Error?) -> Void
+    ) {
+        inCallOrder(completion: completion) { auth, turn in
+            try await self.getIDToken(auth, turn: turn, forcingRefresh: forcingRefresh)
         }
+    }
+
+    private func getIDToken(_ auth: Auth, turn: OperationTurn, forcingRefresh: Bool) async throws -> String {
         do {
-            let token = try await auth.bridgeClient.authGetIdToken(forcingRefresh: forcingRefresh)
+            let token = try await auth.bridgeClient.authGetIdToken(turn: turn, forcingRefresh: forcingRefresh)
             if forcingRefresh {
                 auth.notifyIdTokenChanged(user: self)
             }
@@ -100,26 +111,23 @@ public final class User: @unchecked Sendable, UserInfo {
         }
     }
 
-    public func getIDToken(
+    public func getIDTokenResult(forcingRefresh: Bool = false) async throws -> AuthTokenResult {
+        let auth = try attachedAuth()
+        return try await getIDTokenResult(auth, turn: auth.takeTurn(), forcingRefresh: forcingRefresh)
+    }
+
+    public func getIDTokenResult(
         forcingRefresh: Bool = false,
-        completion: @escaping @Sendable (String?, Error?) -> Void
+        completion: @escaping @Sendable (AuthTokenResult?, Error?) -> Void
     ) {
-        Task {
-            do {
-                let token = try await self.getIDToken(forcingRefresh: forcingRefresh)
-                completion(token, nil)
-            } catch {
-                completion(nil, error)
-            }
+        inCallOrder(completion: completion) { auth, turn in
+            try await self.getIDTokenResult(auth, turn: turn, forcingRefresh: forcingRefresh)
         }
     }
 
-    public func getIDTokenResult(forcingRefresh: Bool = false) async throws -> AuthTokenResult {
-        guard let auth = self.auth else {
-            throw AuthError(code: .noCurrentUser, message: "User is not attached to an active Auth instance.")
-        }
+    private func getIDTokenResult(_ auth: Auth, turn: OperationTurn, forcingRefresh: Bool) async throws -> AuthTokenResult {
         do {
-            let wire = try await auth.bridgeClient.authGetIdTokenResult(forcingRefresh: forcingRefresh)
+            let wire = try await auth.bridgeClient.authGetIdTokenResult(turn: turn, forcingRefresh: forcingRefresh)
             guard let dict = wire.dictionaryValue else {
                 throw AuthError(code: .internalError, message: "Malformed getIdTokenResult response")
             }
@@ -134,28 +142,14 @@ public final class User: @unchecked Sendable, UserInfo {
         }
     }
 
-    public func getIDTokenResult(
-        forcingRefresh: Bool = false,
-        completion: @escaping @Sendable (AuthTokenResult?, Error?) -> Void
-    ) {
-        Task {
-            do {
-                let result = try await self.getIDTokenResult(forcingRefresh: forcingRefresh)
-                completion(result, nil)
-            } catch {
-                completion(nil, error)
-            }
-        }
-    }
-
     // ── Profile Updates ──────────────────────────────────────────────────────
 
     public func updateProfile(displayName: String?, photoURL: URL?) async throws {
-        guard let auth = self.auth else {
-            throw AuthError(code: .noCurrentUser, message: "User is not attached to an active Auth instance.")
-        }
+        let auth = try attachedAuth()
+        let turn = auth.takeTurn()
         do {
             let reply = try await auth.bridgeClient.authUpdateProfile(
+                turn: turn,
                 displayName: displayName,
                 photoURL: photoURL?.absoluteString
             )
@@ -169,11 +163,10 @@ public final class User: @unchecked Sendable, UserInfo {
     }
 
     public func reload() async throws {
-        guard let auth = self.auth else {
-            throw AuthError(code: .noCurrentUser, message: "User is not attached to an active Auth instance.")
-        }
+        let auth = try attachedAuth()
+        let turn = auth.takeTurn()
         do {
-            let reply = try await auth.bridgeClient.authGetCurrentUser()
+            let reply = try await auth.bridgeClient.authGetCurrentUser(turn: turn)
             if let dict = reply.dictionaryValue {
                 self.update(from: dict)
                 auth.notifyUserUpdated(self)
@@ -181,6 +174,32 @@ public final class User: @unchecked Sendable, UserInfo {
         } catch {
             throw AuthError.from(error: error)
         }
+    }
+
+    // ── Call Order ───────────────────────────────────────────────────────────
+
+    /// The Auth instance this user belongs to, or the error a call reports without one.
+    private func attachedAuth() throws -> Auth {
+        guard let auth = self.auth else {
+            throw AuthError(code: .noCurrentUser, message: "User is not attached to an active Auth instance.")
+        }
+        return auth
+    }
+
+    /// Runs a call from a completion-block form in the place of a turn taken
+    /// here, before the task starts. A user with no Auth instance takes no turn.
+    private func inCallOrder<T: Sendable>(
+        completion: @escaping @Sendable (T?, Error?) -> Void,
+        _ call: @escaping @Sendable (Auth, OperationTurn) async throws -> T
+    ) {
+        let auth: Auth
+        do {
+            auth = try attachedAuth()
+        } catch {
+            Task { completion(nil, error) }
+            return
+        }
+        auth.runInCallOrder(completion: completion) { turn in try await call(auth, turn) }
     }
 
     internal func update(from wire: [String: AnySendable]) {
