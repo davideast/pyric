@@ -54,7 +54,8 @@ class BridgeSubscriptionManager(
      * Registers a subscription that lives until the flow is cancelled. It is sent
      * now when [isAttached], and by every later attach through [restoreAll]. When an
      * attach completes between registration and the attach check, only one of the
-     * two sends it.
+     * two sends it. A frame the transport refused is left to the next attach while
+     * [keepsSubscriptionOnConnectFailure] holds.
      */
     fun subscribe(
         target: Any,
@@ -91,15 +92,19 @@ class BridgeSubscriptionManager(
                     sendJson(jsonSerializer(BridgeProtocol.createWorkerSubFrame(subId, subPayload)))
                 }
             } catch (e: Throwable) {
-                activeSubs.remove(subId)
-                close(
-                    FirebaseFirestoreException(
-                        "Failed to dispatch subscription to bridge: ${e.message}",
-                        FirebaseFirestoreException.Code.UNAVAILABLE,
-                        e
+                // A refused frame never left the device; the next attach's restore sends it.
+                val keepsRefused = e is TransportRefused && keepsSubscriptionOnConnectFailure()
+                if (!keepsRefused) {
+                    activeSubs.remove(subId)
+                    close(
+                        FirebaseFirestoreException(
+                            "Failed to dispatch subscription to bridge: ${e.message}",
+                            FirebaseFirestoreException.Code.UNAVAILABLE,
+                            e
+                        )
                     )
-                )
-                return@callbackFlow
+                    return@callbackFlow
+                }
             }
         } else {
             try {

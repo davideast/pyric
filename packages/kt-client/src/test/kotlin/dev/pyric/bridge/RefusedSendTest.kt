@@ -352,6 +352,34 @@ class RefusedSendTest {
     }
 
     @Test
+    fun `a listener whose first subscription frame is refused is sent on the re-attach and delivers`() = runBlocking {
+        val client = client()
+        client.connect()
+        val closing = bridge.current
+        val values = CopyOnWriteArrayList<Any?>()
+        val errors = CopyOnWriteArrayList<Throwable>()
+
+        closing.beginClosing()
+        scope.launch {
+            try {
+                client.subscribe(mapOf("__ref" to "doc", "path" to "rooms/a")).collect { values.add(it) }
+            } catch (e: Throwable) {
+                errors.add(e)
+            }
+        }
+        until { closing.attempted.any { it["type"] == "worker-sub" } }
+        delay(30)
+        assertTrue(errors.isEmpty(), "a refused subscription stays registered: $errors")
+
+        closing.finishClosing(1006)
+        until { bridge.subsFor("rooms/a").size == 1 }
+        val subId = bridge.subsFor("rooms/a").single()["subId"]
+        bridge.current.deliver(mapOf("type" to "worker-snap", "subId" to subId, "value" to mapOf("path" to "rooms/a", "exists" to false)))
+        until { values.size == 1 }
+        assertTrue(errors.isEmpty())
+    }
+
+    @Test
     fun `a refused Auth restore operation fails the restore, so the held operations fail without being sent`() = runBlocking {
         val client = client()
         client.restoreAuth = { op -> op("auth.restorePortSession", mapOf("uid" to "u1", "tenantId" to null)) }
