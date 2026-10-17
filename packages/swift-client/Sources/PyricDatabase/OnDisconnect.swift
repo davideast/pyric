@@ -15,11 +15,7 @@ public final class OnDisconnect: NSObject, @unchecked Sendable {
             "path": .string(ref.path),
             "value": RtdbValueCodec.toAnySendable(value)
         ]
-        _ = try await ref.database.bridgeClient.op(
-            method: "rtdb.onDisconnectSet",
-            params: params,
-            actAs: ref.database.currentAuthLens()
-        )
+        try await ref.database.send(turn: ref.database.takeTurn(), method: "rtdb.onDisconnectSet", params: params)
     }
 
     public func setValue(_ value: Any?, andPriority priority: Any?) async throws {
@@ -30,11 +26,7 @@ public final class OnDisconnect: NSObject, @unchecked Sendable {
         if let priority {
             params["priority"] = RtdbValueCodec.toAnySendable(priority)
         }
-        _ = try await ref.database.bridgeClient.op(
-            method: "rtdb.onDisconnectSet",
-            params: params,
-            actAs: ref.database.currentAuthLens()
-        )
+        try await ref.database.send(turn: ref.database.takeTurn(), method: "rtdb.onDisconnectSet", params: params)
     }
 
     public func updateChildValues(_ values: [AnyHashable: Any]) async throws {
@@ -42,32 +34,20 @@ public final class OnDisconnect: NSObject, @unchecked Sendable {
             "path": .string(ref.path),
             "values": RtdbValueCodec.toAnySendable(values)
         ]
-        _ = try await ref.database.bridgeClient.op(
-            method: "rtdb.onDisconnectUpdate",
-            params: params,
-            actAs: ref.database.currentAuthLens()
-        )
+        try await ref.database.send(turn: ref.database.takeTurn(), method: "rtdb.onDisconnectUpdate", params: params)
     }
 
     public func removeValue() async throws {
         let params: [String: AnySendable] = [
             "path": .string(ref.path)
         ]
-        _ = try await ref.database.bridgeClient.op(
-            method: "rtdb.onDisconnectRemove",
-            params: params,
-            actAs: ref.database.currentAuthLens()
-        )
+        try await ref.database.send(turn: ref.database.takeTurn(), method: "rtdb.onDisconnectRemove", params: params)
     }
 
     public func cancel() async throws {
         let params: [String: AnySendable] = [
             "path": .string(ref.path)
         ]
-        _ = try await ref.database.bridgeClient.op(
-            method: "rtdb.onDisconnectCancel",
-            params: params,
-            actAs: ref.database.currentAuthLens()
-        )
+        try await ref.database.send(turn: ref.database.takeTurn(), method: "rtdb.onDisconnectCancel", params: params)
     }
 }

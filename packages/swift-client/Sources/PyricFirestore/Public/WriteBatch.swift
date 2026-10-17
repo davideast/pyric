@@ -129,7 +129,8 @@ public final class WriteBatch: @unchecked Sendable {
 
     public func commit() async throws {
         try markCommitted()
-        try await firestore.bridgeClient.batchCommit(writes: stagedWrites, actAs: firestore.effectiveAuthLens)
+        let params = PyricBridgeClient.batchCommitParams(writes: stagedWrites)
+        try await firestore.send(turn: firestore.takeTurn(), method: "batchCommit", params: params)
     }
 
     public func commit(completion: (@Sendable (Error?) -> Void)? = nil) {

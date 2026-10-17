@@ -197,15 +197,15 @@ public class DatabaseQuery: NSObject, @unchecked Sendable {
     // ── One-Shot Reads ────────────────────────────────────────────────────────
 
     public func getData() async throws -> DataSnapshot {
-        try await getData(turn: nil)
+        try await getData(turn: database.takeTurn())
     }
 
-    /// Reads the location; with a turn, the read is sent in the order the turn was taken.
-    func getData(turn: OperationTurn?) async throws -> DataSnapshot {
+    /// Reads the location, sent in the place `turn` holds.
+    func getData(turn: OperationTurn) async throws -> DataSnapshot {
         let client = database.bridgeClient
         if ConnectionInfo.isInfoPath(path) {
             // `.info` is answered here, so the turn is passed without sending anything.
-            if let turn { await client.pass(turn: turn) }
+            await client.pass(turn: turn)
             let connected = await ConnectionInfo.currentlyConnected(database)
             return DataSnapshot(wire: ConnectionInfo.wire(at: path, connected: connected), ref: ref)
         }
@@ -216,12 +216,7 @@ public class DatabaseQuery: NSObject, @unchecked Sendable {
             params["query"] = qSpec
         }
         let actAs = database.currentAuthLens()
-        let wire: AnySendable
-        if let turn {
-            wire = try await client.op(turn: turn, method: "rtdb.get", params: params, actAs: actAs)
-        } else {
-            wire = try await client.op(method: "rtdb.get", params: params, actAs: actAs)
-        }
+        let wire = try await client.op(turn: turn, method: "rtdb.get", params: params, actAs: actAs)
         return DataSnapshot(wire: wire, ref: ref)
     }
 

@@ -189,12 +189,7 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
     // ── Operations ───────────────────────────────────────────────────────────
 
     public func signIn(withEmail email: String, password: String) async throws -> AuthDataResult {
-        do {
-            let res = try await bridgeClient.authSignInEmail(email: email, password: password, tenantId: self.tenantId)
-            return try handleAuthDataResult(res)
-        } catch {
-            throw AuthError.from(error: error)
-        }
+        try await signIn(turn: takeTurn(), withEmail: email, password: password)
     }
 
     public func signIn(
@@ -202,23 +197,22 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
         password: String,
         completion: (@Sendable (AuthDataResult?, Error?) -> Void)?
     ) {
-        Task {
-            do {
-                let res = try await self.signIn(withEmail: email, password: password)
-                completion?(res, nil)
-            } catch {
-                completion?(nil, error)
-            }
+        runInCallOrder(completion: completion) { turn in
+            try await self.signIn(turn: turn, withEmail: email, password: password)
         }
     }
 
-    public func createUser(withEmail email: String, password: String) async throws -> AuthDataResult {
+    private func signIn(turn: OperationTurn, withEmail email: String, password: String) async throws -> AuthDataResult {
         do {
-            let res = try await bridgeClient.authCreateUser(email: email, password: password, tenantId: self.tenantId)
+            let res = try await bridgeClient.authSignInEmail(turn: turn, email: email, password: password, tenantId: self.tenantId)
             return try handleAuthDataResult(res)
         } catch {
             throw AuthError.from(error: error)
         }
+    }
+
+    public func createUser(withEmail email: String, password: String) async throws -> AuthDataResult {
+        try await createUser(turn: takeTurn(), withEmail: email, password: password)
     }
 
     public func createUser(
@@ -226,56 +220,62 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
         password: String,
         completion: (@Sendable (AuthDataResult?, Error?) -> Void)?
     ) {
-        Task {
-            do {
-                let res = try await self.createUser(withEmail: email, password: password)
-                completion?(res, nil)
-            } catch {
-                completion?(nil, error)
-            }
+        runInCallOrder(completion: completion) { turn in
+            try await self.createUser(turn: turn, withEmail: email, password: password)
+        }
+    }
+
+    private func createUser(turn: OperationTurn, withEmail email: String, password: String) async throws -> AuthDataResult {
+        do {
+            let res = try await bridgeClient.authCreateUser(turn: turn, email: email, password: password, tenantId: self.tenantId)
+            return try handleAuthDataResult(res)
+        } catch {
+            throw AuthError.from(error: error)
         }
     }
 
     public func signInAnonymously() async throws -> AuthDataResult {
-        do {
-            let res = try await bridgeClient.authSignInAnonymously(tenantId: self.tenantId)
-            return try handleAuthDataResult(res)
-        } catch {
-            throw AuthError.from(error: error)
-        }
+        try await signInAnonymously(turn: takeTurn())
     }
 
     public func signInAnonymously(completion: (@Sendable (AuthDataResult?, Error?) -> Void)?) {
-        Task {
-            do {
-                let res = try await self.signInAnonymously()
-                completion?(res, nil)
-            } catch {
-                completion?(nil, error)
-            }
+        runInCallOrder(completion: completion) { turn in
+            try await self.signInAnonymously(turn: turn)
+        }
+    }
+
+    private func signInAnonymously(turn: OperationTurn) async throws -> AuthDataResult {
+        do {
+            let res = try await bridgeClient.authSignInAnonymously(turn: turn, tenantId: self.tenantId)
+            return try handleAuthDataResult(res)
+        } catch {
+            throw AuthError.from(error: error)
         }
     }
 
     public func signIn(with credential: AuthCredential) async throws -> AuthDataResult {
-        do {
-            let res = try await bridgeClient.authSignInWithCredential(params: credential.toWireParams(), tenantId: self.tenantId)
-            return try handleAuthDataResult(res)
-        } catch {
-            throw AuthError.from(error: error)
-        }
+        try await signIn(turn: takeTurn(), with: credential)
     }
 
     public func signIn(
         with credential: AuthCredential,
         completion: (@Sendable (AuthDataResult?, Error?) -> Void)?
     ) {
-        Task {
-            do {
-                let res = try await self.signIn(with: credential)
-                completion?(res, nil)
-            } catch {
-                completion?(nil, error)
-            }
+        runInCallOrder(completion: completion) { turn in
+            try await self.signIn(turn: turn, with: credential)
+        }
+    }
+
+    private func signIn(turn: OperationTurn, with credential: AuthCredential) async throws -> AuthDataResult {
+        do {
+            let res = try await bridgeClient.authSignInWithCredential(
+                turn: turn,
+                params: credential.toWireParams(),
+                tenantId: self.tenantId
+            )
+            return try handleAuthDataResult(res)
+        } catch {
+            throw AuthError.from(error: error)
         }
     }
 
@@ -283,15 +283,18 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
         stateLock.lock()
         _impersonatedLens = nil
         stateLock.unlock()
+        let client = bridgeClient
+        let turn = takeTurn()
         Task {
-            try? await bridgeClient.authSignOut()
+            try? await client.authSignOut(turn: turn)
         }
         applyUserTransition(nil)
     }
 
     public func restoreSession(uid: String) async throws -> User? {
+        let turn = takeTurn()
         do {
-            let res = try await bridgeClient.authRestorePortSession(uid: uid, tenantId: self.tenantId)
+            let res = try await bridgeClient.authRestorePortSession(turn: turn, uid: uid, tenantId: self.tenantId)
             if res.isNull {
                 applyUserTransition(nil)
                 return nil
@@ -303,6 +306,32 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
             return nil
         } catch {
             throw AuthError.from(error: error)
+        }
+    }
+
+    // ── Call Order ───────────────────────────────────────────────────────────
+
+    /// Takes the next place in the order operations reach the bridge. An Auth
+    /// or User call takes it where the app makes the call: a completion-block
+    /// form before it starts its task, an async form before its first suspension.
+    func takeTurn() -> OperationTurn {
+        bridgeClient.takeTurn()
+    }
+
+    /// Runs a call from a completion-block form in the place of a turn taken
+    /// here, before the task starts, then reports its result.
+    func runInCallOrder<T: Sendable>(
+        completion: (@Sendable (T?, Error?) -> Void)?,
+        _ call: @escaping @Sendable (OperationTurn) async throws -> T
+    ) {
+        let turn = takeTurn()
+        Task {
+            do {
+                let result = try await call(turn)
+                completion?(result, nil)
+            } catch {
+                completion?(nil, error)
+            }
         }
     }
 

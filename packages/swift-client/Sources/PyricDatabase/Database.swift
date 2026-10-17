@@ -203,11 +203,7 @@ public final class Database: NSObject, @unchecked Sendable {
 
     public func goOffline() async throws {
         setNetworkOnline(false)
-        _ = try await bridgeClient.op(
-            method: "rtdb.goOffline",
-            params: [:],
-            actAs: currentAuthLens()
-        )
+        try await send(turn: takeTurn(), method: "rtdb.goOffline", params: [:])
     }
 
     public func goOffline() {
@@ -217,11 +213,7 @@ public final class Database: NSObject, @unchecked Sendable {
 
     public func goOnline() async throws {
         setNetworkOnline(true)
-        _ = try await bridgeClient.op(
-            method: "rtdb.goOnline",
-            params: [:],
-            actAs: currentAuthLens()
-        )
+        try await send(turn: takeTurn(), method: "rtdb.goOnline", params: [:])
     }
 
     public func goOnline() {

@@ -36,7 +36,11 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
     // ── Retrieving Data ──────────────────────────────────────────────────────
 
     public func getDocument(source: FirestoreSource = .default) async throws -> DocumentSnapshot {
-        let raw = try await firestore.bridgeClient.getDoc(path: path, actAs: firestore.effectiveAuthLens)
+        try await getDocument(turn: firestore.takeTurn())
+    }
+
+    private func getDocument(turn: OperationTurn) async throws -> DocumentSnapshot {
+        let raw = try await firestore.bridgeClient.getDoc(turn: turn, path: path, actAs: firestore.effectiveAuthLens)
         return DocumentSnapshot.fromWire(firestore: firestore, path: path, wire: raw)
     }
 
@@ -48,19 +52,8 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
         source: FirestoreSource,
         completion: @escaping @Sendable (DocumentSnapshot?, Error?) -> Void
     ) {
-        let box = CallbackBox(completion)
-        let db = self.firestore
-        Task {
-            do {
-                let snapshot = try await self.getDocument(source: source)
-                db.settings.dispatchQueue.async {
-                    box.callback(snapshot, nil)
-                }
-            } catch {
-                db.settings.dispatchQueue.async {
-                    box.callback(nil, error)
-                }
-            }
+        firestore.runInCallOrder(completion: completion) { turn in
+            try await self.getDocument(turn: turn)
         }
     }
 
@@ -69,13 +62,8 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
     public func setData(_ data: [String: Any], merge: Bool = false) async throws {
         let options = SetOptionsWire(merge: merge)
         let encoded = try ValueCodec.encodeWriteData(data)
-        let sendableData = AnySendable.from(encoded)
-        try await firestore.bridgeClient.setDoc(
-            path: path,
-            data: sendableData,
-            options: options,
-            actAs: firestore.effectiveAuthLens
-        )
+        let params = PyricBridgeClient.setDocParams(path: path, data: AnySendable.from(encoded), options: options)
+        try await firestore.send(turn: firestore.takeTurn(), method: "setDoc", params: params)
     }
 
     public func setData(_ data: [String: Any], mergeFields: [Any]) async throws {
@@ -94,13 +82,8 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
         }
         let options = SetOptionsWire(merge: nil, mergeFields: fieldStrings)
         let encoded = try ValueCodec.encodeWriteData(data)
-        let sendableData = AnySendable.from(encoded)
-        try await firestore.bridgeClient.setDoc(
-            path: path,
-            data: sendableData,
-            options: options,
-            actAs: firestore.effectiveAuthLens
-        )
+        let params = PyricBridgeClient.setDocParams(path: path, data: AnySendable.from(encoded), options: options)
+        try await firestore.send(turn: firestore.takeTurn(), method: "setDoc", params: params)
     }
 
     public func setData(_ data: [String: Any], completion: (@Sendable (Error?) -> Void)? = nil) {
@@ -154,12 +137,8 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
             }
         }
         let encoded = try ValueCodec.encodeWriteData(stringDict)
-        let sendableData = AnySendable.from(encoded)
-        try await firestore.bridgeClient.updateDoc(
-            path: path,
-            data: sendableData,
-            actAs: firestore.effectiveAuthLens
-        )
+        let params = PyricBridgeClient.updateDocParams(path: path, data: AnySendable.from(encoded))
+        try await firestore.send(turn: firestore.takeTurn(), method: "updateDoc", params: params)
     }
 
     public func updateData(_ fields: [AnyHashable: Any], completion: (@Sendable (Error?) -> Void)? = nil) {
@@ -183,7 +162,7 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
     }
 
     public func delete() async throws {
-        try await firestore.bridgeClient.deleteDoc(path: path, actAs: firestore.effectiveAuthLens)
+        try await firestore.send(turn: firestore.takeTurn(), method: "deleteDoc", params: PyricBridgeClient.deleteDocParams(path: path))
     }
 
     public func delete(completion: (@Sendable (Error?) -> Void)? = nil) {
