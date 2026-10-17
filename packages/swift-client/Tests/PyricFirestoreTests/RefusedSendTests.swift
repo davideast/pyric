@@ -361,7 +361,7 @@ struct RefusedSendTests {
         await client.disconnect()
     }
 
-    @Test("URLSessionWebSocketTransport refuses a frame once its task has stopped running, without sending it")
+    @Test("URLSessionWebSocketTransport refuses a frame once it is closed, without sending it")
     func urlSessionTransportRefusesAfterClose() async throws {
         let request = PyricBridgeClient.makeWebSocketRequest(url: URL(string: "ws://127.0.0.1:1")!)
         let transport = URLSessionWebSocketTransport(request: request)

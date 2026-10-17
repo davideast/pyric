@@ -12,10 +12,11 @@ public protocol WebSocketTransport: Sendable {
 public typealias WebSocketChannelProtocol = WebSocketTransport
 
 /// Thrown by `URLSessionWebSocketTransport.send` when it refuses a frame
-/// without writing it, because its task is no longer running. The frame never
-/// left the device, so the client holds its operation for the reconnect
-/// (ADR-0019, amended 2026-10-17). Package access only: a custom transport
-/// cannot signal a refusal, so anything it throws leaves the operation in flight.
+/// without writing it, because it was closed or its task is no longer
+/// running. The frame never left the device, so the client holds its
+/// operation for the reconnect (ADR-0019, amended 2026-10-17). Package access
+/// only: a custom transport cannot signal a refusal, so anything it throws
+/// leaves the operation in flight.
 package struct WebSocketSendRefusedError: Error, Sendable {
     package init() {}
 }
@@ -24,6 +25,9 @@ package struct WebSocketSendRefusedError: Error, Sendable {
 public final class URLSessionWebSocketTransport: WebSocketTransport, @unchecked Sendable {
     private let task: URLSessionWebSocketTask
     private let session: URLSession
+    private let closeLock = NSLock()
+    /// Set by `close`. A cancelled task can still report `.running` for a moment.
+    private var closed = false
 
     public init(request: URLRequest, configuration: URLSessionConfiguration = .default) {
         self.session = URLSession(configuration: configuration)
@@ -32,10 +36,11 @@ public final class URLSessionWebSocketTransport: WebSocketTransport, @unchecked 
     }
 
     public func send(_ string: String) async throws {
-        // A task that has stopped running cannot write. Apple does not document
-        // whether a send that throws wrote nothing, so only this check is a refusal.
-        let running = task.state == .running
-        guard running else { throw WebSocketSendRefusedError() }
+        // A closed transport or a task that has stopped running cannot write.
+        // Apple does not document whether a send that throws wrote nothing, so
+        // only this check is a refusal.
+        let writable = !isClosed && task.state == .running
+        guard writable else { throw WebSocketSendRefusedError() }
         try await task.send(.string(string))
     }
 
@@ -65,9 +70,22 @@ public final class URLSessionWebSocketTransport: WebSocketTransport, @unchecked 
     }
 
     public func close(closeCode: Int = 1000, reason: String? = nil) async {
+        markClosed()
         let closeReason = reason?.data(using: .utf8)
         let code = URLSessionWebSocketTask.CloseCode(rawValue: closeCode) ?? .normalClosure
         task.cancel(with: code, reason: closeReason)
         session.invalidateAndCancel()
+    }
+
+    private var isClosed: Bool {
+        closeLock.lock()
+        defer { closeLock.unlock() }
+        return closed
+    }
+
+    private func markClosed() {
+        closeLock.lock()
+        closed = true
+        closeLock.unlock()
     }
 }
