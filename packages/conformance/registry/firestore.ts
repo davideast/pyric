@@ -2283,7 +2283,7 @@ export const firestoreRegistry = {
         }),
         row22({
           rowRef: "136",
-          behavior: "Type-strict operators: `+` requires matching operand types (`'a' + 1` errors; `[1]+[2]` concatenates); ordered compares (`< > <= >=`) error across types; list membership uses value equality; `is map` excludes MapDiff/Set (RULES-B6 partial / B9 / B12 partial)",
+          behavior: "Type-strict operators: `+` requires supported operand types (`'a' + 1` and `[1] + [2]` error; `list.concat(list)` joins lists); ordered compares (`< > <= >=`) error across types; list membership uses value equality; `is map` excludes MapDiff/Set (RULES-B6 partial / B9 / B12 partial)",
           status: "conforms",
           evidence: "`unit:rules/simulator/evaluator.test.ts` (RULES-B6 / B9 / B12 blocks)",
           automation: "unit-backed",

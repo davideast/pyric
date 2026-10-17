@@ -4,6 +4,7 @@
  */
 import { describe, test, expect } from 'bun:test';
 import { extractIndexes } from '../../../../src/rules/indexes/extract/extractor.js';
+import { analyzeIndexQuery, readIndexConfig } from '../../../../src/rules/indexes/query-analysis.js';
 
 function extract(source: string) {
   const result = extractIndexes({ files: [{ name: 'test.js', source }] });
@@ -182,6 +183,54 @@ describe('extractIndexes — output flows into deploy handler shape', () => {
       expect(typeof field.fieldPath).toBe('string');
       expect(field.order).toMatch(/^(ASCENDING|DESCENDING)$/);
     }
+  });
+
+  test('array-contains + orderBy produces a valid CONTAINS index covered by analyzeIndexQuery', () => {
+    const data = extract(`
+      function getTaggedRestaurants() {
+        let q = query(collection(db, "restaurants"));
+        q = query(q, where("tags", "array-contains", "vegan"));
+        q = query(q, orderBy("rating", "desc"));
+        return q;
+      }
+    `);
+    expect(data.config.indexes).toHaveLength(1);
+    expect(data.config.indexes[0].fields).toEqual([
+      { fieldPath: 'tags', arrayConfig: 'CONTAINS' },
+      { fieldPath: 'rating', order: 'DESCENDING' },
+    ]);
+    const validated = readIndexConfig(data.config);
+    const finding = analyzeIndexQuery({
+      collectionGroup: 'restaurants',
+      queryScope: 'COLLECTION',
+      filters: [{ field: 'tags', op: 'array-contains' }],
+      orders: [{ field: 'rating', direction: 'desc' }],
+    }, validated);
+    expect(finding).toEqual({ status: 'covered', basis: 'configured' });
+  });
+
+  test('two-sided range on one field needs no composite index, and equality + two-sided range deduplicates the range field', () => {
+    const singleFieldRange = extract(`
+      function getByPriceBand() {
+        let q = query(collection(db, "restaurants"));
+        q = query(q, where("price", ">=", 10), where("price", "<=", 100));
+        return q;
+      }
+    `);
+    expect(singleFieldRange.config.indexes).toHaveLength(0);
+
+    const compositeRange = extract(`
+      function getCategoryByPriceBand() {
+        let q = query(collection(db, "restaurants"));
+        q = query(q, where("category", "==", "Mexican"), where("price", ">=", 10), where("price", "<=", 100));
+        return q;
+      }
+    `);
+    expect(compositeRange.config.indexes).toHaveLength(1);
+    expect(compositeRange.config.indexes[0].fields).toEqual([
+      { fieldPath: 'category', order: 'ASCENDING' },
+      { fieldPath: 'price', order: 'ASCENDING' },
+    ]);
   });
 });
 

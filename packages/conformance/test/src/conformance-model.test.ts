@@ -23,7 +23,7 @@ describe('multi-axis conformance model', () => {
     expect(model.rulesLanguage.capability.engines).toHaveLength(3);
     expect(model.rulesLanguage.coverage.engines).toHaveLength(3);
     expect(model.rulesLanguage.firestoreScorecard.score).toEqual({
-      numerator: 137, denominator: 140, ratio: 137 / 140, percent: 97.9,
+      numerator: 134, denominator: 140, ratio: 134 / 140, percent: 95.7,
     });
     expect(model.rulesLanguage.storageScorecard.score).toEqual({
       numerator: 84, denominator: 86, ratio: 84 / 86, percent: 97.7,
@@ -155,8 +155,8 @@ describe('multi-axis conformance model', () => {
   it('derives fidelity from rules-construct status when no registry row exists', () => {
     expect(one('firestore-rules/debug')).toMatchObject({
       availability: 'available',
-      fidelity: 'conforms',
-      assurance: 'eligible',
+      fidelity: 'unverified',
+      assurance: 'qualified',
     });
   });
 
