@@ -7,6 +7,7 @@ import dev.pyric.codecs.DocumentDataEnvelope
 import dev.pyric.codecs.SentinelValidator
 import dev.pyric.codecs.ValueCodec
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -82,7 +83,9 @@ class DocumentReference internal constructor(
 
         val tcs = TaskCompletionSource<Void?>()
         val scope = CoroutineScope(Dispatchers.IO)
-        scope.launch {
+        // Undispatched, so the frame is sent or held on the caller's thread and
+        // back-to-back writes reach the host in call order (#1032).
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 firestore.bridgeClient.op(
                     method = "setDoc",
@@ -104,7 +107,9 @@ class DocumentReference internal constructor(
     fun update(data: Map<String, Any?>): Task<Void?> {
         val tcs = TaskCompletionSource<Void?>()
         val scope = CoroutineScope(Dispatchers.IO)
-        scope.launch {
+        // Undispatched, so the frame is sent or held on the caller's thread and
+        // back-to-back writes reach the host in call order (#1032).
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 firestore.bridgeClient.op(
                     method = "updateDoc",
@@ -136,7 +141,9 @@ class DocumentReference internal constructor(
     fun delete(): Task<Void?> {
         val tcs = TaskCompletionSource<Void?>()
         val scope = CoroutineScope(Dispatchers.IO)
-        scope.launch {
+        // Undispatched, so the frame is sent or held on the caller's thread and
+        // back-to-back writes reach the host in call order (#1032).
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 firestore.bridgeClient.op(
                     method = "deleteDoc",
