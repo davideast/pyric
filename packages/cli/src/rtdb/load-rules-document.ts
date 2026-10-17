@@ -8,8 +8,9 @@
  * The module may export the `RtdbRulesDocument` as its default export
  * or as a named `rules` export.
  *
- * Evaluation runs in a short-lived `node:worker_threads` Worker so each call
- * gets a fresh ESM module map on both Bun and Node 22+:
+ * Evaluation runs in a short-lived `node:worker_threads` Worker module
+ * (`./load-rules-document.worker.js`) so each call gets a fresh ESM module map
+ * on both Bun and Node 22+:
  * - Bun caches `file://` ESM modules by canonical path (`realpath`) and
  *   ignores query-string cache busters (`?t=...`).
  * - Node busts the entry module on query strings, but any relative import
@@ -23,85 +24,41 @@
  * when terminated.
  */
 
+import { existsSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
 import {
   checkRtdbRules,
   compileRtdbRules,
+  normalizeSimulationInput,
   simulateRtdbRules,
   type CompiledRtdbRules,
   type RtdbRulesCheckResult,
   type RtdbRulesDocument,
   type RtdbRulesJson,
-  type RtdbRulesSimulationAuth,
   type RtdbRulesSimulationInput,
   type SimulateResult,
-  type SimulationInput,
 } from 'pyric/rules/internal/rtdb';
+import type {
+  LoadRulesWorkerInput,
+  WorkerEvaluationOutcome,
+} from './load-rules-document.worker.js';
 import { isRtdbRulesDocument } from './rules-json.js';
+
+const DEFAULT_EVAL_TIMEOUT_MS = 30_000;
 
 export interface LoadRtdbRulesDocumentOptions {
   cwd?: string;
   /** Named export to look for before falling back to `default`. Defaults to `rules`. */
   exportName?: string;
+  /** Maximum time in milliseconds to wait for the module to evaluate. Defaults to 30,000. */
+  timeoutMs?: number;
 }
 
 export type LoadRtdbRulesDocumentResult =
   | { ok: true; document: RtdbRulesDocument }
   | { ok: false; message: string };
-
-type WorkerEvaluationOutcome =
-  | { status: 'loaded'; json: RtdbRulesJson }
-  | { status: 'invalid-export' }
-  | { status: 'import-error'; detail: string };
-
-const WORKER_EVAL_SCRIPT = `
-import { parentPort, workerData } from 'node:worker_threads';
-import { createRequire } from 'node:module';
-import { pathToFileURL } from 'node:url';
-
-function isPlainObject(value) {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function extractRulesJson(candidate) {
-  if (!isPlainObject(candidate) || typeof candidate.toJSON !== 'function') {
-    return null;
-  }
-  try {
-    const json = candidate.toJSON();
-    if (isPlainObject(json) && isPlainObject(json.rules)) {
-      return json;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-const { resolved, exportName } = workerData;
-try {
-  const resolvedEntry = createRequire(resolved).resolve(resolved);
-  const mod = await import(pathToFileURL(resolvedEntry).href);
-  const namedJson = extractRulesJson(mod[exportName]);
-  if (namedJson !== null) {
-    parentPort.postMessage({ status: 'loaded', json: namedJson });
-  } else {
-    const defaultJson = extractRulesJson(mod.default);
-    if (defaultJson !== null) {
-      parentPort.postMessage({ status: 'loaded', json: defaultJson });
-    } else {
-      parentPort.postMessage({ status: 'invalid-export' });
-    }
-  }
-} catch (error) {
-  let detail = String(error);
-  if (error instanceof Error) {
-    detail = error.message;
-  }
-  parentPort.postMessage({ status: 'import-error', detail });
-}
-`;
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error) {
@@ -110,29 +67,12 @@ function errorMessage(error: unknown): string {
   return String(error);
 }
 
-function normalizeAuth(auth: RtdbRulesSimulationAuth | undefined): SimulationInput['auth'] {
-  if (auth === undefined || auth === null) return null;
-  if (typeof auth === 'string') return { uid: auth, token: {} };
-  const normalized: NonNullable<SimulationInput['auth']> = {
-    uid: auth.uid,
-    token: auth.token ?? {},
-  };
-  if (auth.tenant !== undefined) normalized.tenant = auth.tenant;
-  return normalized;
-}
-
-function toSimulationInput(input: RtdbRulesSimulationInput): SimulationInput {
-  const simulation: SimulationInput = {
-    operation: input.operation,
-    path: input.path,
-    auth: normalizeAuth(input.auth),
-    mockData: input.mockData ?? input.data ?? {},
-  };
-  if (input.newData !== undefined) simulation.newData = input.newData;
-  if (input.now !== undefined) simulation.now = input.now;
-  if (input.updates !== undefined) simulation.updates = input.updates;
-  if (input.query !== undefined) simulation.query = input.query;
-  return simulation;
+function resolveWorkerModuleUrl(): URL {
+  const builtUrl = new URL('./load-rules-document.worker.js', import.meta.url);
+  if (existsSync(fileURLToPath(builtUrl))) {
+    return builtUrl;
+  }
+  return new URL('./load-rules-document.worker.ts', import.meta.url);
 }
 
 class LoadedRtdbRulesDocument implements RtdbRulesDocument {
@@ -154,24 +94,32 @@ class LoadedRtdbRulesDocument implements RtdbRulesDocument {
   }
 
   simulate(input: RtdbRulesSimulationInput): SimulateResult {
-    return simulateRtdbRules(this.compile(), toSimulationInput(input));
+    return simulateRtdbRules(this.compile(), normalizeSimulationInput(input));
   }
 }
 
 function evaluateRulesModuleInWorker(
-  resolved: string,
-  exportName: string,
+  input: LoadRulesWorkerInput,
+  timeoutMs: number,
 ): Promise<WorkerEvaluationOutcome> {
   return new Promise((resolve) => {
     let settled = false;
-    const worker = new Worker(WORKER_EVAL_SCRIPT, {
-      eval: true,
-      workerData: { resolved, exportName },
+    const worker = new Worker(resolveWorkerModuleUrl(), {
+      workerData: input,
     });
+
+    const timer = setTimeout(() => {
+      finish({
+        status: 'import-error',
+        detail: `evaluation timed out after ${timeoutMs}ms`,
+      });
+    }, timeoutMs);
+    timer.unref?.();
 
     const finish = (outcome: WorkerEvaluationOutcome): void => {
       if (settled) return;
       settled = true;
+      clearTimeout(timer);
       void worker.terminate();
       resolve(outcome);
     };
@@ -197,9 +145,10 @@ export async function loadRtdbRulesDocument(
 ): Promise<LoadRtdbRulesDocumentResult> {
   const cwd = options.cwd ?? process.cwd();
   const exportName = options.exportName ?? 'rules';
+  const timeoutMs = options.timeoutMs ?? DEFAULT_EVAL_TIMEOUT_MS;
   const resolved = resolvePath(cwd, configPath);
 
-  const outcome = await evaluateRulesModuleInWorker(resolved, exportName);
+  const outcome = await evaluateRulesModuleInWorker({ resolved, exportName }, timeoutMs);
   if (outcome.status === 'import-error') {
     return {
       ok: false,

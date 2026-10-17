@@ -2,6 +2,7 @@ import { afterAll, afterEach, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { serverTimestamp } from 'pyric/rules';
 import { loadRtdbRulesDocument } from '../../src/rtdb/load-rules-document.js';
 
 const fixturesRoot = fileURLToPath(new URL('./fixtures-load-doc-tmp/', import.meta.url));
@@ -184,5 +185,58 @@ describe('loadRtdbRulesDocument', () => {
     expect(siblingSecond.document.toJSON()).toEqual({
       rules: { posts: { '.read': 'auth != null', '.write': true } },
     });
+  });
+
+  test('preserves normalizeSimulationInput semantics including serverTimestamp() on loaded document.simulate()', async () => {
+    mkdirSync(fixturesRoot, { recursive: true });
+    fixtureDir = mkdtempSync(join(fixturesRoot, 'sim-'));
+    writeFileSync(
+      join(fixtureDir, 'stamp.rules.ts'),
+      [
+        "import { defineRtdbRules, expr } from 'pyric/rules';",
+        'export const rules = defineRtdbRules({',
+        "  paths: { '/stamped': { write: expr('newData.val() === now') } },",
+        '});',
+      ].join('\n'),
+    );
+
+    const loaded = await loadRtdbRulesDocument('stamp.rules.ts', { cwd: fixtureDir });
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) return;
+
+    const sim = loaded.document.simulate({
+      operation: 'write',
+      path: '/stamped',
+      newData: serverTimestamp(),
+    });
+    expect(sim).toMatchObject({ success: true, data: { allowed: true } });
+  });
+
+  test('reports errors thrown during module evaluation and times out never-settling modules', async () => {
+    mkdirSync(fixturesRoot, { recursive: true });
+    fixtureDir = mkdtempSync(join(fixturesRoot, 'errors-'));
+    writeFileSync(
+      join(fixtureDir, 'throws.rules.ts'),
+      "throw new Error('custom evaluation failure');\n",
+    );
+
+    const thrown = await loadRtdbRulesDocument('throws.rules.ts', { cwd: fixtureDir });
+    expect(thrown.ok).toBe(false);
+    if (thrown.ok) return;
+    expect(thrown.message).toContain('failed to load RTDB constraints module');
+    expect(thrown.message).toContain('custom evaluation failure');
+
+    writeFileSync(
+      join(fixtureDir, 'hangs.rules.ts'),
+      'await new Promise((resolve) => setTimeout(resolve, 60_000));\nexport const rules = {};\n',
+    );
+
+    const hung = await loadRtdbRulesDocument('hangs.rules.ts', {
+      cwd: fixtureDir,
+      timeoutMs: 100,
+    });
+    expect(hung.ok).toBe(false);
+    if (hung.ok) return;
+    expect(hung.message).toContain('timed out after 100ms');
   });
 });
