@@ -188,6 +188,25 @@ struct ChallengerM4StressTests {
         #expect(auth.currentAuthLens() == finalLens)
     }
 
+    @Test("A denial recorded before the manager's observer task first runs reaches recentDenials")
+    func testDenialRecordedBeforeObserverRuns() async throws {
+        let (_, auth, client, _) = try await setupHarness()
+        let diagnostics = PyricDebugDiagnostics()
+
+        // One main-actor job, so the manager's observer tasks cannot run before the denial.
+        let manager = await MainActor.run {
+            let manager = PyricDebugManager(auth: auth, bridgeClient: client, diagnostics: diagnostics)
+            diagnostics.record(denial: RulesDenialReport(
+                citation: "firestore.rules:7:1",
+                expression: "allow read: if false;",
+                errorMessage: "Denied"
+            ))
+            return manager
+        }
+
+        try await until { await manager.latestDenial?.citation == "firestore.rules:7:1" }
+    }
+
     @Test("Lens changes from several threads at once leave the manager on the current lens")
     func testConcurrentLensChangesSettleOnCurrentLens() async throws {
         let (manager, auth, _, _) = try await setupHarness()
