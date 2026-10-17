@@ -595,4 +595,57 @@ struct RtdbConformanceTests {
         _ = try await ref.getData()
         #expect(harness.recordedOps.last?.actAs?["mode"]?.stringValue == "anon")
     }
+
+    // ── 1. Database Instance & Connection: `.info`, served by the client ─────
+    @Test func `rtdb-swift#info-connected: .info/connected follows the bridge connection and goOffline()`() async throws {
+        let harness = try await RtdbTestHarness.create()
+        let info = harness.database.reference(withPath: ".info/connected")
+        var values = info.valueStream.makeAsyncIterator()
+        #expect(try await values.next()?.value as? Bool == false)
+
+        try await harness.database.reference(withPath: "rooms/a").setValue("open")
+        #expect(try await values.next()?.value as? Bool == true)
+        #expect(try await info.getData().value as? Bool == true)
+        try await harness.database.goOffline()
+        #expect(try await values.next()?.value as? Bool == false)
+        #expect(try await info.getData().value as? Bool == false)
+        try await harness.database.goOnline()
+        #expect(try await values.next()?.value as? Bool == true)
+        goOfflineWithoutWaiting(harness.database)
+        #expect(try await values.next()?.value as? Bool == false)
+        goOnlineWithoutWaiting(harness.database)
+        #expect(try await values.next()?.value as? Bool == true)
+
+        #expect(harness.recordedSubs.isEmpty)
+        #expect(harness.recordedOps.prefix(3).map(\.method) == ["rtdb.set", "rtdb.goOffline", "rtdb.goOnline"])
+        #expect(!harness.recordedOps.contains { $0.method == "rtdb.get" })
+    }
+    @Test func `rtdb-swift#info-root-offset: .info and .info/serverTimeOffset are served by the client`() async throws {
+        let harness = try await RtdbTestHarness.create()
+        let root = try await harness.database.reference(withPath: ".info").getData()
+        let rootValue = root.value as? [String: Any]
+        #expect(rootValue?["connected"] as? Bool == false)
+        #expect(rootValue?["serverTimeOffset"] as? Int64 == 0)
+        #expect(root.childrenCount == 2)
+
+        let offset = harness.database.reference(withPath: ".info/serverTimeOffset")
+        #expect(try await offset.getData().value as? Int64 == 0)
+        var offsets = offset.valueStream.makeAsyncIterator()
+        #expect(try await offsets.next()?.value as? Int64 == 0)
+        let unknown = try await harness.database.reference(withPath: ".info/authenticated").getData()
+        #expect(unknown.exists() == false)
+
+        #expect(harness.recordedSubs.isEmpty)
+        #expect(harness.recordedOps.isEmpty)
+    }
+}
+
+/// Calls the fire-and-forget `goOffline()`, which an async context would not pick.
+private func goOfflineWithoutWaiting(_ database: Database) {
+    database.goOffline()
+}
+
+/// Calls the fire-and-forget `goOnline()`, which an async context would not pick.
+private func goOnlineWithoutWaiting(_ database: Database) {
+    database.goOnline()
 }

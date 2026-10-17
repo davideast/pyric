@@ -2,6 +2,7 @@ import { defineRows } from './define-rows.ts';
 import type { CompatibilityRow, CompatibilitySurfaceRegistry, CompatStatus } from './types.ts';
 
 const CONFORMANCE_SUITE = 'packages/swift-client/Tests/PyricDatabaseTests/RtdbConformanceTests.swift';
+const INFO_RECONNECT_TESTS = 'packages/swift-client/Tests/PyricFirestoreTests/RtdbInfoConnectedTests.swift';
 
 const buildRow = defineRows({
   surface: 'rtdb-swift',
@@ -17,10 +18,12 @@ interface SwiftRtdbRowSeed {
   /** Overrides the default `conforms` status. */
   status?: CompatStatus;
   statusNote?: string;
+  /** Test files cited beyond the conformance suite. */
+  tests?: string[];
 }
 
 function row(seed: SwiftRtdbRowSeed): CompatibilityRow {
-  const { ref, evidence, status, ...rest } = seed;
+  const { ref, evidence, status, tests, ...rest } = seed;
   const resolvedEvidence = evidence ?? 'FirebaseDatabase Swift specification.';
   return buildRow({
     ...rest,
@@ -28,7 +31,7 @@ function row(seed: SwiftRtdbRowSeed): CompatibilityRow {
     status: status ?? 'conforms',
     automation: 'unit-backed',
     evidence: `${resolvedEvidence} Swift test: \`${CONFORMANCE_SUITE}\` assertion set \`rtdb-swift#${ref}\`.`,
-    conformanceTests: [CONFORMANCE_SUITE],
+    conformanceTests: [CONFORMANCE_SUITE, ...(tests ?? [])],
   });
 }
 
@@ -42,7 +45,7 @@ const SEC_QUERY = 'Query Ordering, Filtering & Limits';
 const SEC_TX = 'Transactions & OnDisconnect';
 
 export const rtdbSwiftRows: CompatibilityRow[] = [
-  // ── 1. Database Instance & Connection (5 rows) ────────────────────────────
+  // ── 1. Database Instance & Connection (7 rows) ────────────────────────────
   row({
     ref: 'instance-default',
     section: SEC_INSTANCE,
@@ -78,8 +81,27 @@ export const rtdbSwiftRows: CompatibilityRow[] = [
     ref: 'connection-toggle',
     section: SEC_INSTANCE,
     api: 'Database.goOffline() / goOnline()',
-    behavior: 'Suspends and resumes the Realtime Database connection to the Pyric worker.',
+    behavior: 'Suspends and resumes the Realtime Database connection to the Pyric worker. goOffline() also turns `.info/connected` false for that database until goOnline().',
     featureKeys: ['goOffline', 'goOnline'],
+  }),
+  row({
+    ref: 'info-connected',
+    section: SEC_INSTANCE,
+    api: 'reference(withPath: ".info/connected").observe(.value)',
+    behavior: 'Served by the client from its bridge connection. It reports false until the client attaches and false whenever the connection is interrupted, closed or taken offline with goOffline(), and true once the client re-attaches. An onDisconnect registered when it turns true reaches the host on the new connection, after the restore.',
+    featureKeys: ['infoConnected'],
+    tests: [INFO_RECONNECT_TESTS],
+    evidence: 'FirebaseDatabase Swift specification and ADR-0019 (amendment of 2026-10-16). The conformance test asserts the values across attach, goOffline() and goOnline(), and that no `.info` listen or read reaches the worker. Reconnect tests: `RtdbInfoConnectedTests.swift` asserts false, true, false, true across a drop with no repeated value, a presence re-arm sent on the new socket after the replayed listener and the held operation, and after the Auth restore on a replaced host.',
+  }),
+  row({
+    ref: 'info-root-offset',
+    section: SEC_INSTANCE,
+    api: 'reference(withPath: ".info") / reference(withPath: ".info/serverTimeOffset")',
+    behavior: 'Served by the client: `.info` is { connected, serverTimeOffset }, and `serverTimeOffset` is 0.',
+    featureKeys: ['infoRoot', 'serverTimeOffset'],
+    status: 'diverged-documented',
+    statusNote: 'the offset is always 0: the bridge handshake carries no server timestamp, and production delivers no offset until its first handshake',
+    evidence: 'FirebaseDatabase Swift specification and ADR-0019 (amendment of 2026-10-16). The test asserts both values, null for another `.info` key, and that none reaches the worker.',
   }),
 
   // ── 2. DatabaseReference Navigation & Properties (7 rows) ────────────────
