@@ -20,6 +20,7 @@ function precedenceOf(expr: Expression): number {
     case 'binaryOp': return PRECEDENCE[expr.op] ?? 0;
     case 'inExpr': return 4;
     case 'isExpr': return 4;
+    case 'pathLiteral': return 7.5;
     case 'unaryOp': return 9;
     default: return 100; // atoms, postfix — never need parens
   }
