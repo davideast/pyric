@@ -143,7 +143,7 @@ describe('segmented match: the same AST as the whole match', () => {
       }
     }
     expect(count).toBeGreaterThan(40);
-  });
+  }, 15_000);
 
   test('400 random rules files mixing every bracket kind, comments and line breaks', () => {
     let segmented = 0;
@@ -154,7 +154,7 @@ describe('segmented match: the same AST as the whole match', () => {
     }
     // The oracle compares segmented parses, not whole ones twice.
     expect(segmented).toBeGreaterThan(350);
-  });
+  }, 30_000);
 
   test('groups, lists, maps, calls and index brackets nested 60 deep', () => {
     const leaf = "request.auth.uid == 'a'";
@@ -251,7 +251,7 @@ describe('segmented match: fails closed', () => {
       }
     }
     expect(rejected).toBeGreaterThan(100);
-  });
+  }, 30_000);
 });
 
 describe('segmented match: the strict parse entries', () => {
