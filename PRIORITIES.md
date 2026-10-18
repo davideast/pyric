@@ -74,3 +74,6 @@ Sustaining work. Optimize measured bottlenecks in the loops developers run most,
 
 **Counts:** reducing build, test, and CI latency with timing evidence; cache effectiveness; refactors tied to observed friction; consolidating duplicated sources of truth; removing dead code; characterization tests that make a risky cleanup safe.
 **Doesn't count:** weakening or skipping required validation; speculative optimization or abstraction; aesthetic rewrites; dependency churn without a concrete benefit; broad redesigns without a bounded migration plan.
+
+**Now:**
+- Assess `packages/pyric` test latency. Its suite (11,709 tests, 650 files) took 243 s of the library job's 289 s on CI (main c630edd0, 2026-10-18) and 492 s locally on WSL2. Sharding it across two runners (#1096) is the stopgap. Next, profile per-file time, name the files and fixtures that dominate, and propose cuts with timing evidence, without dropping coverage.
