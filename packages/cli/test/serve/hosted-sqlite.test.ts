@@ -231,9 +231,11 @@ test('a Storage size that disagrees with the stored bytes is repaired instead of
   expect(await runNodeFixture('storage-size-repair')).toBe('Storage size repair passed');
 }, 15_000);
 
+// 240 durable uploads: alone on a WSL2 ext4 disk the file took 12.6 to 17.8 s
+// (2026-10-17, CPU about 1.4 s of it), past both default limits.
 test('racing uploads to one path leave the recorded size equal to the stored bytes', async () => {
-  expect(await runNodeFixture('storage-upload-race')).toBe('Storage upload race passed');
-});
+  expect(await runNodeFixture('storage-upload-race', 60_000)).toBe('Storage upload race passed');
+}, 75_000);
 
 test('hosted startup names every Storage object repaired from its stored bytes', async () => {
   const { formatStorageRepairs } = await import('../../src/serve/hosted/persistence.js');
