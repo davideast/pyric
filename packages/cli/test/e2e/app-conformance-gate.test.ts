@@ -38,7 +38,10 @@ describe('served app conformance merge gate', () => {
     expect(libraryJob).toContain('uses: ./.github/actions/restore-dist');
     expect(libraryJob).toContain('flavor: packages');
     expect(libraryJob).toContain('bun run test:ci:libraries');
-    expect(libraryJob).not.toContain('scripts/ci/test-shard.ts');
+    // The library job shards packages/pyric only; the CLI shards stay in the main job.
+    const libraryShards = libraryJob.match(/bun scripts\/ci\/test-shard\.ts[^\n]*/g) ?? [];
+    expect(libraryShards.length).toBeGreaterThan(0);
+    expect(libraryShards.every((call) => call.includes('--package=pyric'))).toBe(true);
     const complete = rootPackage.scripts?.test?.split(' && ') ?? [];
     const split = [
       ...(rootPackage.scripts?.['test:ci:cli']?.split(' && ') ?? []),
