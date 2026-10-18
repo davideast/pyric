@@ -3,9 +3,10 @@ import { RuleUnsupportedError } from './rules-evaluation-error.js';
 import { collectionMethods } from './rules-collection-methods.js';
 import { evalFirestoreBuiltin } from './rules-firestore-lookup.js';
 import { bytesMethods, evalHashingNamespace } from './rules-hashing-methods.js';
-import { evalLatLngNamespace } from './rules-latlng.js';
+import { evalLatLngNamespace, latlngMethods } from './rules-latlng.js';
 import { evalMathNamespace } from './rules-math-methods.js';
 import { evalArguments, type MethodCall, type NamespaceMethod, type ReceiverMethod, type ReceiverMethods } from './rules-method-calls.js';
+import { pathMethods } from './rules-path.js';
 import { stringMethods } from './rules-string-methods.js';
 import { evalDurationNamespace, evalTimestampNamespace, timeMethods } from './rules-time-methods.js';
 import { isRuleError as isErr } from './rules-values.js';
@@ -24,6 +25,8 @@ const NAMESPACES: ReadonlyMap<string, NamespaceMethod> = new Map([
 const RECEIVER_METHODS: ReadonlyMap<string, ReceiverMethod> = mergeReceiverMethods([
   bytesMethods,
   collectionMethods,
+  latlngMethods,
+  pathMethods,
   stringMethods,
   timeMethods,
 ]);
@@ -66,7 +69,7 @@ export function evalMethodCall(expr: MethodCall, ctx: EvalCtx): unknown {
 function builtinNamespace(expr: MethodCall, ctx: EvalCtx): NamespaceMethod | undefined {
   if (expr.target.kind !== 'ident') return undefined;
   const name = expr.target.name;
-  if (name in ctx.locals || name in ctx.params) return undefined;
+  if (Object.hasOwn(ctx.locals, name) || Object.hasOwn(ctx.params, name)) return undefined;
   return NAMESPACES.get(name);
 }
 

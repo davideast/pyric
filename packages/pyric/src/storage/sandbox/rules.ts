@@ -330,6 +330,15 @@ export interface FunctionDef {
    *  (its declaring block's `visibleFuncs`). Resolved after parsing so
    *  a call's body uses declaration-site scope, not the caller's. */
   declScope?: FunctionMap;
+  /** Declaration scope level: `'global'` (above `service`), `'service'` (inside
+   *  `service firebase.storage` outside any `match`), or `'match'` (inside a
+   *  `match` block). Global functions cannot access `request`, `resource`, or
+   *  path wildcards; service functions can access `request` and `resource` but
+   *  not path wildcards; match functions can access `request`, `resource`, and
+   *  path wildcards captured by their declaring `match` or its ancestors. */
+  scopeKind?: 'global' | 'service' | 'match';
+  /** Path wildcard names captured by the declaring `match` block and its ancestors. */
+  declCaptures?: ReadonlySet<string>;
 }
 
 export type FunctionMap = Map<string, FunctionDef>;
@@ -544,41 +553,77 @@ export function parseStorageRules(source: string): StorageRules {
   // root visibility equals everywhere-in-service visibility, and the array
   // order (global, then service, then none of root's own) preserves
   // inner-shadows-outer resolution in `resolveFunctions`.
+  const importStubs: FunctionDef[] = (ast.imports ?? []).flatMap((imp) =>
+    imp.functions.map((name): FunctionDef => ({
+      name,
+      params: [],
+      lets: [],
+      body: { kind: 'literal', value: null },
+      unresolvedImport: imp.module,
+      scopeKind: 'global',
+      declCaptures: new Set(),
+    })),
+  );
+  const globalFuncs: FunctionDef[] = (ast.functions ?? []).map((fn) => {
+    const converted = convertFunction(fn);
+    converted.scopeKind = 'global';
+    converted.declCaptures = new Set();
+    return converted;
+  });
+  const globalScope: FunctionMap = new Map();
+  for (const fn of importStubs) globalScope.set(fn.name, fn);
+  for (const fn of globalFuncs) globalScope.set(fn.name, fn);
+  for (const fn of globalScope.values()) fn.declScope = globalScope;
+
+  const serviceFuncs: FunctionDef[] = (ast.service.functions ?? []).map((fn) => {
+    const converted = convertFunction(fn);
+    converted.scopeKind = 'service';
+    converted.declCaptures = new Set();
+    return converted;
+  });
+  const serviceScope: FunctionMap = new Map(globalScope);
+  for (const fn of serviceFuncs) serviceScope.set(fn.name, fn);
+  for (const fn of serviceFuncs) fn.declScope = serviceScope;
+
   const root: MatchBlock = {
     segments: [],
     children: [convertMatch(ast.service.match)],
     allows: [],
-    functions: [
-      // Import stubs FIRST so any real declaration of the same name
-      // shadows them in resolveFunctions (later map.set wins).
-      ...(ast.imports ?? []).flatMap((imp) =>
-        imp.functions.map((name): FunctionDef => ({
-          name,
-          params: [],
-          lets: [],
-          body: { kind: 'literal', value: null },
-          unresolvedImport: imp.module,
-        })),
-      ),
-      ...(ast.functions ?? []).map(convertFunction),
-      ...(ast.service.functions ?? []).map(convertFunction),
-    ],
+    functions: [...importStubs, ...globalFuncs, ...serviceFuncs],
+    visibleFuncs: serviceScope,
   };
-  resolveFunctions(root, new Map());
+  for (const child of root.children) {
+    resolveFunctions(child, serviceScope, new Set());
+  }
   return { _root: root, _version: ast.version };
 }
 
 /**
- * Resolve each block's visible-function map (lexical scoping): a block
- * sees its ancestors' functions plus its own, with an inner declaration
- * shadowing an outer one of the same name. Each function's body is bound
- * to its declaring block's map so a call evaluates in declaration-site
- * scope regardless of where it is called from.
+ * Resolve each block's visible-function map and captured path wildcards
+ * (lexical scoping): a block sees its ancestors' functions plus its own,
+ * with an inner declaration shadowing an outer one of the same name. Each
+ * function's body is bound to its declaring block's map and captured path
+ * parameters so a call evaluates in declaration-site scope regardless of
+ * where it is called from.
  */
-function resolveFunctions(block: MatchBlock, parent: FunctionMap): void {
+function resolveFunctions(
+  block: MatchBlock,
+  parent: FunctionMap,
+  parentCaptures: ReadonlySet<string>,
+): void {
+  const captures = new Set(parentCaptures);
+  for (const seg of block.segments) {
+    if (seg.kind === 'param' || seg.kind === 'wildcard') {
+      captures.add(seg.name);
+    }
+  }
   const map: FunctionMap = new Map(parent);
   for (const fn of block.functions) map.set(fn.name, fn);
   block.visibleFuncs = map;
-  for (const fn of block.functions) fn.declScope = map;
-  for (const child of block.children) resolveFunctions(child, map);
+  for (const fn of block.functions) {
+    fn.declScope = map;
+    fn.scopeKind = 'match';
+    fn.declCaptures = captures;
+  }
+  for (const child of block.children) resolveFunctions(child, map, captures);
 }
