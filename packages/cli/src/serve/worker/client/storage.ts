@@ -82,9 +82,9 @@ class ClientStorageReferenceImpl implements ClientStorageReference {
   }
 }
 
-/** Strip leading/trailing slashes (the worker keyspace uses bare paths). */
+/** Strip leading/trailing slashes and collapse repeated internal slashes (the worker keyspace uses bare paths). */
 function normalizeStorageRefPath(path: string): string {
-  return path.replace(/^\/+|\/+$/g, '');
+  return path.replace(/^\/+|\/+$/g, '').replace(/\/+/g, '/');
 }
 
 /**
@@ -154,11 +154,19 @@ export async function listAll(
   return { items: r.items.map(mk), prefixes: r.prefixes.map(mk) };
 }
 
-/** Read an object's metadata (Pyric Studio inspector). */
-export async function getMetadata(reference: ClientStorageReference): Promise<FullMetadata> {
+function withReferenceBucket(reference: ClientStorageReference, metadata: FullMetadata): FullMetadata {
+  return reference.bucket ? { ...metadata, bucket: reference.bucket } : metadata;
+}
+
+async function fetchMetadataFromHost(reference: ClientStorageReference): Promise<FullMetadata> {
   return (await dataRpc(reference.port, {
     t: 'op', id: nextId(), method: 'storage.getMetadata', path: reference.fullPath,
   })) as FullMetadata;
+}
+
+/** Read an object's metadata (Pyric Studio inspector). */
+export async function getMetadata(reference: ClientStorageReference): Promise<FullMetadata> {
+  return withReferenceBucket(reference, await fetchMetadataFromHost(reference));
 }
 
 // ─── The byte route ────────────────────────────────────────────────────────
@@ -192,7 +200,7 @@ async function readOverRoute(
   reference: ClientStorageReference,
 ): Promise<{ bytes: Uint8Array; contentType?: string; size: number }> {
   for (let attempt = 0; attempt < 2; attempt++) {
-    const metadata = await getMetadata(reference);
+    const metadata = await fetchMetadataFromHost(reference);
     const url = new URL(storageObjectPath(metadata.bucket, reference.fullPath), route.baseUrl);
     url.searchParams.set('generation', metadata.generation);
     const response = await fetch(url, { headers: { 'x-pyric-session-token': await sessionTokenOf(route) } });
@@ -273,9 +281,10 @@ export async function routeUploadOffset(upload: RouteUpload, signal?: AbortSigna
 
 /** Commit a fully sent upload over the RPC, through the engine's upload. */
 export async function finishRouteUpload(upload: RouteUpload): Promise<FullMetadata> {
-  return (await dataRpc(upload.reference.port, {
+  const stored = (await dataRpc(upload.reference.port, {
     t: 'op', id: nextId(), method: 'storage.finishUpload', uploadId: upload.uploadId,
   })) as FullMetadata;
+  return withReferenceBucket(upload.reference, stored);
 }
 
 /** Discard an upload on the host; best effort, as the caller is already failing. */
@@ -293,9 +302,16 @@ export function uploadBlobOf(data: Blob | Uint8Array | ArrayBuffer): Blob {
 }
 
 /** Reconstruct binary data locally so reads work over MessagePort and JSON WebSocket. */
-export async function getBlob(reference: ClientStorageReference): Promise<Blob> {
+export async function getBlob(
+  reference: ClientStorageReference,
+  maxDownloadSizeBytes?: number,
+): Promise<Blob> {
   const result = await readStorageBytesInternal(reference);
-  const buffer = result.bytes.buffer.slice(result.bytes.byteOffset, result.bytes.byteOffset + result.bytes.byteLength) as ArrayBuffer;
+  const bytes =
+    typeof maxDownloadSizeBytes === 'number' && result.bytes.byteLength > maxDownloadSizeBytes
+      ? result.bytes.subarray(0, Math.max(0, maxDownloadSizeBytes))
+      : result.bytes;
+  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
   return new Blob([buffer], { type: result.contentType ?? 'application/octet-stream' });
 }
 
@@ -470,7 +486,7 @@ async function uploadByteArray(
     }, reservation);
     // Sent: later operations need not wait for the reply.
     reservation?.release();
-    return { ref: reference, metadata: (await storing) as FullMetadata };
+    return { ref: reference, metadata: withReferenceBucket(reference, (await storing) as FullMetadata) };
   }
 
   // Chunked upload for objects > 4 MiB (ADR 0015)
@@ -511,7 +527,7 @@ async function uploadByteArray(
       method: 'storage.finishUpload',
       uploadId,
     })) as FullMetadata;
-    return { ref: reference, metadata: stored };
+    return { ref: reference, metadata: withReferenceBucket(reference, stored) };
   } catch (err) {
     try {
       await dataRpc(reference.port, {
@@ -572,15 +588,11 @@ export async function getBytes(
   maxDownloadSizeBytes?: number,
 ): Promise<ArrayBuffer> {
   const res = await readStorageBytesInternal(reference);
-  if (typeof maxDownloadSizeBytes === 'number' && res.size > maxDownloadSizeBytes) {
-    const err = new Error(
-      `storage/quota-exceeded: object at '${reference.fullPath}' is ${res.size} bytes — ` +
-        `over the requested maxDownloadSizeBytes (${maxDownloadSizeBytes}).`,
-    ) as Error & { code: string };
-    err.code = 'storage/quota-exceeded';
-    throw err;
-  }
-  return res.bytes.buffer.slice(res.bytes.byteOffset, res.bytes.byteOffset + res.bytes.byteLength) as ArrayBuffer;
+  const bytes =
+    typeof maxDownloadSizeBytes === 'number' && res.bytes.byteLength > maxDownloadSizeBytes
+      ? res.bytes.subarray(0, Math.max(0, maxDownloadSizeBytes))
+      : res.bytes;
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }
 
 /** Delete the object at the reference's path (idempotent — missing = no-op,

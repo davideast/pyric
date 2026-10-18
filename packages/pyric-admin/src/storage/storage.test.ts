@@ -262,6 +262,39 @@ describe('pyric-admin/storage — sandbox backend', () => {
     const [out] = await file.download();
     expect(out.toString('utf8')).toBe('{"k":1}');
   });
+
+  it('shares the per-sandbox pyric/storage backend with client storage and captureFullState (ST-ENF-7)', async () => {
+    const { captureFullState } = await import('pyric/sandbox');
+    const { getMetadata, getStorageSandbox, ref, uploadBytes } = await import('pyric/storage');
+
+    const app = sandboxAdminApp({ storageBucket: 'pyric-default' });
+    const clientStorage = getStorageSandbox(app.sandbox, {
+      dbName: `pyric-admin-shared-test-${Date.now()}`,
+      rules: `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if true;
+    }
+  }
+}`,
+    });
+    const adminBucket = getStorage(app).bucket();
+
+    await adminBucket.file('seeded-by-admin.txt').save('hello from admin', {
+      contentType: 'text/plain',
+    });
+
+    const clientMeta = await getMetadata(ref(clientStorage, 'seeded-by-admin.txt'));
+    expect(clientMeta.fullPath).toBe('seeded-by-admin.txt');
+    expect(clientMeta.contentType).toBe('text/plain');
+
+    const fullState = await captureFullState(app.sandbox);
+    expect(fullState.storage.some((o) => o.path === 'seeded-by-admin.txt')).toBe(true);
+
+    await uploadBytes(ref(clientStorage, 'uploaded-by-client.txt'), new Uint8Array([1, 2, 3]));
+    expect(await adminBucket.file('uploaded-by-client.txt').exists()).toEqual([true]);
+  });
 });
 
 // ── Input validation ──────────────────────────────────────────────────

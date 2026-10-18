@@ -229,4 +229,46 @@ service firebase.storage {
     expect(stored.contentDisposition).toBe("inline; filename*=utf-8''clip.txt");
     expect(stored.contentEncoding).toBe('identity');
   });
+
+  it('rolls back an in-flight canceled upload even when allow delete is false, without destroying a pre-existing object (ST-ENF-3)', async () => {
+    const { getBytes } = await import('../../src/storage/index.js');
+
+    // 1. Upload-only rules (allow delete: if false): canceling during commit must not leave the object behind
+    const sandbox1 = initializeSandbox({});
+    const storage1 = getStorageSandbox(sandbox1, {
+      dbName: uniqueDbName('resumable-cancel-no-delete-perm'),
+      rules: `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow create, get: if true;
+      allow delete: if false;
+    }
+  }
+}`,
+    });
+    const ref1 = ref(storage1, 'canceled-upload-only.bin');
+    const task1 = uploadBytesResumable(ref1, new Uint8Array([10, 20, 30, 40]));
+    await Promise.resolve();
+    await Promise.resolve();
+    task1.cancel();
+    await expect(Promise.resolve(task1)).rejects.toMatchObject({ code: 'storage/canceled' });
+    await new Promise((r) => setTimeout(r, 20));
+    await expect(getMetadata(ref1)).rejects.toMatchObject({ code: 'storage/object-not-found' });
+
+    // 2. Canceling an in-flight overwrite must preserve the pre-existing object's bytes
+    const storage2 = freshStorage('resumable-cancel-preserves-prior');
+    const ref2 = ref(storage2, 'existing.bin');
+    await uploadBytes(ref2, new Uint8Array([1, 1, 1]));
+
+    const task2 = uploadBytesResumable(ref2, new Uint8Array([9, 9, 9, 9]));
+    await Promise.resolve();
+    await Promise.resolve();
+    task2.cancel();
+    await expect(Promise.resolve(task2)).rejects.toMatchObject({ code: 'storage/canceled' });
+    await new Promise((r) => setTimeout(r, 20));
+
+    const surviving = new Uint8Array(await getBytes(ref2));
+    expect([...surviving]).toEqual([1, 1, 1]);
+  });
 });

@@ -67,7 +67,22 @@ import {
   type RemoteSandboxChannel,
   type Sandbox,
 } from 'pyric/sandbox';
-import { fetchFromByteRoute, uploadOverByteRoute } from 'pyric/storage/internal';
+import {
+  deleteObject as storageDeleteObject,
+  getMetadata as storageGetMetadata,
+  ref as storageRef,
+  type FirebaseStorage,
+  type SettableMetadata,
+} from 'pyric/storage';
+import {
+  copyObject,
+  fetchFromByteRoute,
+  getAdminStorageSandbox,
+  getStorageService,
+  patchObjectMetadata,
+  uploadObject,
+  uploadOverByteRoute,
+} from 'pyric/storage/internal';
 
 import {
   ADMIN_APP_TARGET,
@@ -392,113 +407,142 @@ export async function getDownloadURL(file: File): Promise<string> {
  */
 const DEFAULT_SANDBOX_BUCKET = 'pyric-default';
 
-/** A single file's bytes and metadata in the in-memory store. */
-interface FileEntry {
-  data: Uint8Array;
-  settable: Partial<Record<SettableField, string>>;
-  custom: Record<string, string>;
-  generation: string;
-  metageneration: number;
-  timeCreated: string;
-  updated: string;
+interface SandboxStorageState {
+  readonly dbName: string;
+  readonly defaultBucketNames: Set<string>;
+  readonly buckets: Set<string>;
+  pendingReset: Promise<void> | undefined;
 }
-
-let generationSequence = 0;
-
-/** A generation in the form `@google-cloud/storage` reports: microseconds since the epoch. */
-function nextGeneration(): string {
-  generationSequence = (generationSequence + 1) % 1000;
-  return `${Date.now()}${String(generationSequence).padStart(3, '0')}`;
-}
-
-/** Per-sandbox state: bucket name → (file path → entry). */
-type BucketMap = Map<string, Map<string, FileEntry>>;
 
 /**
  * State + reset-handler registry keyed on `Sandbox` so a single
- * Sandbox shares its storage across every `getStorage` call. The
- * `WeakMap` lets a discarded `Sandbox` (and its state) be GC'd
+ * Sandbox shares its storage across every `getStorage` call and with
+ * `pyric/storage`. The `WeakMap` lets a discarded `Sandbox` be GC'd
  * naturally.
  */
-const SANDBOX_STATE = new WeakMap<Sandbox, BucketMap>();
+const SANDBOX_STATE = new WeakMap<Sandbox, SandboxStorageState>();
 
-/**
- * Reset-subscription bookkeeping. We subscribe to `sandbox.onEvent`
- * once per Sandbox and re-create the bucket map on
- * `session_boundary` events with `phase: 'reset'`. Without this,
- * `sandbox.reset()` would wipe Firestore but leave storage untouched —
- * a leak the sandbox model deliberately avoids.
- */
-const RESET_HOOKED = new WeakSet<Sandbox>();
-
-function ensureBucketMap(sandbox: Sandbox): BucketMap {
-  let map = SANDBOX_STATE.get(sandbox);
-  if (!map) {
-    map = new Map();
-    SANDBOX_STATE.set(sandbox, map);
-  }
-  if (!RESET_HOOKED.has(sandbox)) {
-    RESET_HOOKED.add(sandbox);
+function ensureSandboxStorageState(sandbox: Sandbox, defaultBucket: string): SandboxStorageState {
+  let state = SANDBOX_STATE.get(sandbox);
+  if (!state) {
+    state = {
+      dbName: `pyric-admin-storage:${randomUUID()}`,
+      defaultBucketNames: new Set([DEFAULT_SANDBOX_BUCKET]),
+      buckets: new Set([DEFAULT_SANDBOX_BUCKET]),
+      pendingReset: undefined,
+    };
+    SANDBOX_STATE.set(sandbox, state);
     sandbox.onEvent((event) => {
       if (event.kind === 'session_boundary' && event.phase === 'reset') {
-        // Replace the map in place so existing Storage / Bucket / File
-        // handles keep working but observe an empty state.
-        const existing = SANDBOX_STATE.get(sandbox);
-        if (existing) existing.clear();
+        const current = SANDBOX_STATE.get(sandbox);
+        if (!current) return;
+        const previous = current.pendingReset ?? Promise.resolve();
+        const bucketsToReset = [...current.buckets];
+        const nextReset = previous
+          .then(async () => {
+            await Promise.all(
+              bucketsToReset.map(async (bucket) => {
+                const handle = getAdminStorageSandbox(sandbox, {
+                  dbName: current.dbName,
+                  bucket,
+                });
+                const service = await getStorageService(handle);
+                await service.backend.reset(bucket);
+              }),
+            );
+          })
+          .catch(() => {
+            // Best-effort reset across open bucket handles
+          });
+        current.pendingReset = nextReset;
       }
     });
   }
-  return map;
+  state.defaultBucketNames.add(defaultBucket);
+  return state;
 }
 
 function getSandboxStorage(app: SandboxAdminApp, defaultBucket: string): Storage {
   const sandbox = app.sandbox;
-  const buckets = ensureBucketMap(sandbox);
-  return new SandboxStorage(buckets, defaultBucket);
+  const state = ensureSandboxStorageState(sandbox, defaultBucket);
+  return new SandboxStorage(sandbox, state, defaultBucket);
 }
 
 /**
- * Sandbox `Storage` implementation. Holds a reference to the per-
- * sandbox bucket map; each `bucket()` call returns a fresh `Bucket`
- * handle bound to the same underlying map, mirroring how
- * `@google-cloud/storage` returns lightweight per-call handles.
+ * Sandbox `Storage` implementation. Delegates to the per-sandbox
+ * `pyric/storage` admin plane (`getAdminStorageSandbox`) so `pyric-admin/storage`,
+ * `pyric/storage`, and `captureFullState` share one object store.
  */
 class SandboxStorage implements Storage {
   constructor(
-    private readonly buckets: BucketMap,
-    private readonly defaultBucket: string,
+    readonly sandbox: Sandbox,
+    readonly state: SandboxStorageState,
+    readonly defaultBucket: string,
   ) {}
+
+  storeBucketOf(bucketName: string): string {
+    if (
+      bucketName === DEFAULT_SANDBOX_BUCKET ||
+      bucketName === this.defaultBucket ||
+      this.state.defaultBucketNames.has(bucketName)
+    ) {
+      return DEFAULT_SANDBOX_BUCKET;
+    }
+    return bucketName;
+  }
+
+  async waitForReset(): Promise<void> {
+    while (this.state.pendingReset !== undefined) {
+      const pending = this.state.pendingReset;
+      await pending;
+      if (this.state.pendingReset === pending) {
+        this.state.pendingReset = undefined;
+      }
+    }
+  }
 
   bucket(name?: string): Bucket {
     const bucketName = name ?? this.defaultBucket;
-    let files = this.buckets.get(bucketName);
-    if (!files) {
-      files = new Map();
-      this.buckets.set(bucketName, files);
-    }
-    return new SandboxBucket(bucketName, files, this);
+    const storeBucket = this.storeBucketOf(bucketName);
+    this.state.buckets.add(storeBucket);
+    return new SandboxBucket(bucketName, storeBucket, this);
   }
 }
 
 class SandboxBucket implements Bucket {
   constructor(
     readonly name: string,
-    private readonly files: Map<string, FileEntry>,
-    readonly storage: Storage,
+    readonly storeBucket: string,
+    readonly storage: SandboxStorage,
   ) {}
 
+  adminStorage(): FirebaseStorage {
+    this.storage.state.buckets.add(this.storeBucket);
+    return getAdminStorageSandbox(this.storage.sandbox, {
+      dbName: this.storage.state.dbName,
+      bucket: this.storeBucket,
+    });
+  }
+
   file(path: string): File {
-    return new SandboxFile(path, this, this.files);
+    return new SandboxFile(path, this);
   }
 
   async getFiles(query: GetFilesOptions = {}): Promise<GetFilesResponse<File>> {
     assertQuery(query, 'getFiles');
-    return getFilesResponse([...this.files.keys()], query, name => this.file(name));
+    return getFilesResponse(await this.namesUnder(query.prefix ?? ''), query, (name) => this.file(name));
   }
 
   async deleteFiles(query: DeleteFilesOptions = {}): Promise<void> {
     assertQuery(query, 'deleteFiles');
-    await deleteListedFiles([...this.files.keys()], query, name => this.file(name).delete());
+    await deleteListedFiles(await this.namesUnder(query.prefix ?? ''), query, (name) => this.file(name).delete());
+  }
+
+  private async namesUnder(prefix: string): Promise<string[]> {
+    await this.storage.waitForReset();
+    const service = await getStorageService(this.adminStorage());
+    const items = await service.backend.listByPrefix(prefix, this.storeBucket);
+    return items.map((item) => item.fullPath);
   }
 }
 
@@ -506,99 +550,88 @@ class SandboxFile implements File {
   constructor(
     readonly name: string,
     readonly bucket: SandboxBucket,
-    private readonly files: Map<string, FileEntry>,
   ) {}
 
   /**
-   * Store `data` in one write. `resumable` only chooses how
-   * `@google-cloud/storage` sends the bytes; the stored object is the same.
-   */
+    * Store `data` in one write. `resumable` only chooses how
+    * `@google-cloud/storage` sends the bytes; the stored object is the same.
+    */
   async save(
     data: Buffer | string | Uint8Array,
     options: SaveOptions = {},
   ): Promise<void> {
+    const rawLength = typeof data === 'string' ? Buffer.byteLength(data, 'utf8') : data.byteLength;
+    if (rawLength > MAX_STORAGE_OBJECT_BYTES) {
+      throw quotaExceeded(rawLength, `save() payload for '${this.name}'`);
+    }
+    await this.bucket.storage.waitForReset();
     const bytes = toBytes(data);
     const saved = savedMetadataOf(options.metadata ?? {});
     const contentType = options.contentType ?? saved.settable.contentType;
-    const now = new Date().toISOString();
-    const custom = { ...saved.custom };
-    const hasTokens = saved.downloadTokens !== undefined;
-    if (hasTokens) custom[DOWNLOAD_TOKENS_KEY] = saved.downloadTokens!;
-    this.files.set(this.name, {
-      data: bytes,
-      settable: { ...saved.settable, ...(contentType !== undefined ? { contentType } : {}) },
-      custom,
-      generation: nextGeneration(),
-      metageneration: 1,
-      timeCreated: now,
-      updated: now,
-    });
+    const settable: SettableMetadata = {
+      ...saved.settable,
+      ...(contentType !== undefined ? { contentType } : {}),
+      ...(Object.keys(saved.custom).length > 0 ? { customMetadata: saved.custom } : {}),
+    };
+    await uploadObject(
+      storageRef(this.bucket.adminStorage(), this.name),
+      bytes,
+      settable,
+      { ...(saved.downloadTokens !== undefined ? { downloadTokens: saved.downloadTokens } : {}) },
+    );
   }
 
   async getMetadata(): Promise<[FileMetadata]> {
-    return [this.metadataOf(this.entry())];
+    await this.bucket.storage.waitForReset();
+    const full = (await this.missingAsNoSuchObject(
+      storageGetMetadata(storageRef(this.bucket.adminStorage(), this.name)),
+    )) as HostMetadata;
+    return [fileMetadataOf({ ...full, bucket: this.bucket.name })];
   }
 
   async setMetadata(metadata: FileMetadataUpdate): Promise<[FileMetadata]> {
-    const entry = this.entry();
+    await this.bucket.storage.waitForReset();
     const patch = patchOf(metadata, { strict: true });
-    Object.assign(entry.settable, patch.settable);
-    for (const [key, value] of Object.entries(patch.customMetadata)) {
-      if (value === null) delete entry.custom[key];
-      else entry.custom[key] = value;
-    }
-    if (patch.downloadTokens === null) delete entry.custom[DOWNLOAD_TOKENS_KEY];
-    else if (patch.downloadTokens !== undefined) entry.custom[DOWNLOAD_TOKENS_KEY] = patch.downloadTokens;
-    this.touch(entry);
-    return [this.metadataOf(entry)];
+    const full = (await this.missingAsNoSuchObject(
+      patchObjectMetadata(storageRef(this.bucket.adminStorage(), this.name), patch),
+    )) as HostMetadata;
+    return [fileMetadataOf({ ...full, bucket: this.bucket.name })];
   }
 
   async [DOWNLOAD_URL](): Promise<string> {
-    const entry = this.entry();
-    const tokenless = !entry.custom[DOWNLOAD_TOKENS_KEY];
-    if (tokenless) {
-      entry.custom[DOWNLOAD_TOKENS_KEY] = randomUUID();
-      this.touch(entry);
+    await this.bucket.storage.waitForReset();
+    const r = storageRef(this.bucket.adminStorage(), this.name);
+    const full = (await this.missingAsNoSuchObject(storageGetMetadata(r))) as HostMetadata;
+    const token = (full.downloadTokens ?? '').split(',').find((existing) => existing !== '');
+    if (token === undefined) {
+      await patchObjectMetadata(r, { downloadTokens: randomUUID() });
     }
-    return dataUri(entry.data, entry.settable.contentType);
+    const [bytes] = await this.download();
+    return dataUri(bytes, full.contentType);
   }
 
-  private entry(): FileEntry {
-    const entry = this.files.get(this.name);
-    if (!entry) throw new Error(`No such object: ${this.bucket.name}/${this.name}`);
-    return entry;
-  }
-
-  private touch(entry: FileEntry): void {
-    entry.metageneration += 1;
-    entry.updated = new Date().toISOString();
-  }
-
-  private metadataOf(entry: FileEntry): FileMetadata {
-    const hasCustom = Object.keys(entry.custom).length > 0;
-    return {
-      name: this.name,
-      bucket: this.bucket.name,
-      generation: entry.generation,
-      metageneration: String(entry.metageneration),
-      size: String(entry.data.byteLength),
-      timeCreated: entry.timeCreated,
-      updated: entry.updated,
-      ...entry.settable,
-      ...(hasCustom ? { metadata: { ...entry.custom } } : {}),
-    };
+  private async missingAsNoSuchObject<T>(pending: Promise<T>): Promise<T> {
+    try {
+      return await pending;
+    } catch (err) {
+      if (isObjectNotFound(err)) throw new Error(`No such object: ${this.bucket.name}/${this.name}`);
+      throw err;
+    }
   }
 
   async download(options: DownloadOptions = {}): Promise<[Buffer]> {
-    const entry = this.files.get(this.name);
-    if (!entry) {
+    await this.bucket.storage.waitForReset();
+    const service = await getStorageService(this.bucket.adminStorage());
+    const object = await service.backend.getObject(this.name, this.bucket.storeBucket);
+    if (!object) {
       // Mirror the gcs/firebase-admin error message shape so consumer
       // catch-blocks that string-match `No such object` keep working.
       throw new Error(
         `No such object: ${this.bucket.name}/${this.name}`,
       );
     }
-    return [Buffer.from(byteRange(entry.data, options))];
+    const bytes = new Uint8Array(await object.blob.arrayBuffer());
+    return [Buffer.from(byteRange(bytes, options))];
   }
 
   createReadStream(options: CreateReadStreamOptions = {}): Readable {
@@ -622,43 +655,35 @@ class SandboxFile implements File {
 
   async copy(destination: CopyDestination, options: CopyOptions = {}): Promise<[File, FileMetadata]> {
     const target = copyTargetOf(this, destination, this.bucket.storage);
-    const local = target instanceof SandboxFile;
+    const local = target instanceof SandboxFile && target.bucket.storage.sandbox === this.bucket.storage.sandbox;
     if (!local) throw new Error('pyric-admin/storage: File.copy copies to a File from the same getStorage() sandbox.');
-    const source = this.entry();
+    await this.bucket.storage.waitForReset();
     const patch = patchOf(copyMetadataOf(options), { strict: false });
-    const custom = { ...source.custom };
-    for (const [key, value] of Object.entries(patch.customMetadata)) {
-      if (value === null) delete custom[key];
-      else custom[key] = value;
-    }
-    if (patch.downloadTokens === null) delete custom[DOWNLOAD_TOKENS_KEY];
-    else if (patch.downloadTokens !== undefined) custom[DOWNLOAD_TOKENS_KEY] = patch.downloadTokens;
-    const now = new Date().toISOString();
-    const copied: FileEntry = {
-      data: source.data,
-      settable: { ...source.settable, ...patch.settable },
-      custom,
-      generation: nextGeneration(),
-      metageneration: 1,
-      timeCreated: now,
-      updated: now,
-    };
-    target.files.set(target.name, copied);
-    return [target, target.metadataOf(copied)];
+    const full = (await this.missingAsNoSuchObject(
+      copyObject(
+        storageRef(this.bucket.adminStorage(), this.name),
+        storageRef(target.bucket.adminStorage(), target.name),
+        patch,
+      ),
+    )) as HostMetadata;
+    return [target, fileMetadataOf({ ...full, bucket: target.bucket.name })];
   }
 
   async delete(): Promise<void> {
-    this.files.delete(this.name);
+    await this.bucket.storage.waitForReset();
+    await storageDeleteObject(storageRef(this.bucket.adminStorage(), this.name));
   }
 
   async exists(): Promise<[boolean]> {
-    return [this.files.has(this.name)];
+    await this.bucket.storage.waitForReset();
+    const service = await getStorageService(this.bucket.adminStorage());
+    const stored = await service.backend.getMetadata(this.name, this.bucket.storeBucket);
+    return [stored !== undefined];
   }
 
   async getSignedUrl(options: GetSignedUrlOptions): Promise<[string]> {
     return [stubSignedUrl(this.bucket.name, this.name, options)];
   }
-
 }
 
 // ─── Remote sandbox arm (remote sandbox, slice 2) ───────────────────────

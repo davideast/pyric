@@ -132,7 +132,7 @@ class ClientUploadTaskImpl implements ClientUploadTask {
     const initialMetadata: FullMetadata = {
       fullPath: ref.fullPath,
       name: ref.name,
-      bucket: 'default',
+      bucket: ref.bucket || 'default',
       generation: '1',
       metageneration: '1',
       timeCreated: now,
@@ -234,6 +234,11 @@ class ClientUploadTaskImpl implements ClientUploadTask {
       this._inFlight?.abort();
       const upload = this._upload;
       if (upload !== undefined) void abortRouteUpload(upload);
+      const held = this._heldOutcome;
+      this._heldOutcome = undefined;
+      if (held !== undefined && 'result' in held) {
+        void deleteObject(this._ref).catch(() => { /* Best-effort rollback */ });
+      }
       this._notifyObservers('error');
       this._reject(this._error);
       return true;
