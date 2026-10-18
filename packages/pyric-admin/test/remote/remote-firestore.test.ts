@@ -749,6 +749,8 @@ describe('pyric-admin remote Firestore — batch + transactions', () => {
     }
     expect(attempts).toBe(5);
     expect(caught).toBeInstanceOf(SandboxError);
+    // Admin SDK production behaviour: exhaustion rejects with ABORTED (gRPC 10),
+    // checked 2026-10-17 against Firestore with @google-cloud/firestore 7.11.2.
     expect(caught!.code).toBe('aborted');
   });
 

@@ -129,6 +129,14 @@ export async function runRemoteTransaction<R>(
     }
   }
 
+  // Production check (2026-10-17, @google-cloud/firestore 7.11.2, the client
+  // firebase-admin 13 wraps): concurrent server transactions that run out of
+  // attempts reject with gRPC code 10 ABORTED ("Aborted due to
+  // cross-transaction contention"), at maxAttempts 1 and 2 alike. The Web SDK
+  // surfaces `failed-precondition` instead (see
+  // observations/firestore/firestore-transaction-contention-retries.json), so
+  // the Admin arm keeps `aborted`. pyric reports the string form of the code,
+  // as it does for every Admin error, not the numeric gRPC status.
   throw new SandboxError(
     'aborted',
     `Transaction failed after ${maxAttempts} attempts due to repeated conflicts. ` +
