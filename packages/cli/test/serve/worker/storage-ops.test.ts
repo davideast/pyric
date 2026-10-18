@@ -384,4 +384,52 @@ describe('storage worker ops: download tokens set by an upload', () => {
     }
     expect(await opFail(ctx, { method: 'storage.getMetadata', path: 'public/x.txt', ...ADMIN })).toMatchObject({ code: 'storage/object-not-found' });
   });
+
+  it('worker client storage honors maxDownloadSizeBytes truncation, double-slash normalization, reference.bucket, and paused-upload cancel rollback (ST-ENF-3, ST-ENF-4)', async () => {
+    const {
+      getBlob: workerGetBlob,
+      getBytes: workerGetBytes,
+      getMetadata: workerGetMetadata,
+      getStorage: workerGetStorage,
+      ref: workerRef,
+      uploadBytes: workerUploadBytes,
+      uploadBytesResumable: workerUploadBytesResumable,
+    } = await import('../../../src/serve/worker/client/storage.js');
+    const { connectClient } = await import('./integration-support.js');
+
+    const { db: clientDb } = await connectClient();
+    const storageA = workerGetStorage(clientDb, undefined, 'bucket-a');
+    const storageB = workerGetStorage(clientDb, undefined, 'bucket-b');
+
+    // ST-ENF-4a & 4b: getBytes and getBlob with maxDownloadSizeBytes truncate to prefix
+    const payloadRef = workerRef(storageA, 'ten-bytes.bin');
+    await workerUploadBytes(payloadRef, new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]));
+
+    const truncatedBuf = await workerGetBytes(payloadRef, 4);
+    expect([...new Uint8Array(truncatedBuf)]).toEqual([0, 1, 2, 3]);
+
+    const truncatedBlob = await workerGetBlob(payloadRef, 4);
+    expect(truncatedBlob.size).toBe(4);
+    expect([...new Uint8Array(await truncatedBlob.arrayBuffer())]).toEqual([0, 1, 2, 3]);
+
+    // ST-ENF-4c: ref() collapses repeated internal slashes
+    const doubleSlashRef = workerRef(storageA, '//media//clips//take.wav//');
+    expect(doubleSlashRef.fullPath).toBe('media/clips/take.wav');
+
+    // ST-ENF-4d(2): uploadBytes and getMetadata preserve reference.bucket
+    const secondaryRef = workerRef(storageB, 'only-in-b.txt');
+    const uploadedSnapshot = await workerUploadBytes(secondaryRef, new Uint8Array([42]));
+    expect(uploadedSnapshot.metadata.bucket).toBe('bucket-b');
+    const fetchedMeta = await workerGetMetadata(secondaryRef);
+    expect(fetchedMeta.bucket).toBe('bucket-b');
+
+    // ST-ENF-3d: pause() followed by cancel() rolls back the held upload
+    const pausedCancelRef = workerRef(storageA, 'paused-then-canceled.bin');
+    const workerTask = workerUploadBytesResumable(pausedCancelRef, new Uint8Array([5, 6, 7, 8]));
+    expect(workerTask.pause()).toBe(true);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(workerTask.cancel()).toBe(true);
+    await new Promise((r) => setTimeout(r, 30));
+    await expect(workerGetBytes(pausedCancelRef)).rejects.toMatchObject({ code: 'storage/object-not-found' });
+  });
 });

@@ -14,9 +14,8 @@ import type { StorageReference } from './reference.js';
 import type { SettableMetadata, FullMetadata } from './metadata.js';
 import { toFullMetadata } from './metadata.js';
 import { planeOf } from './content-defaults.js';
-import { targetOf } from './service.js';
+import { getStorageService, targetOf } from './service.js';
 import { uploadBytes, buildStoredMetadata } from './upload.js';
-import { deleteObject } from './download.js';
 import { invalidRootOperation, uploadCanceled, type StorageError } from './errors.js';
 
 export type TaskEvent = 'state_changed';
@@ -463,6 +462,12 @@ class UploadTaskImpl implements UploadTask {
 
     this._committing = true;
     try {
+      const target = targetOf(this._ref.storage);
+      const service = await getStorageService(this._ref.storage);
+      const priorObject = await service.backend.getObject(this._ref.fullPath, target.bucket);
+      if (this._snapshot.state !== 'running') {
+        return;
+      }
       const result = await uploadBytes(this._ref, this._blob, this._metadata, this._provenance);
       const isStillRunning = this._snapshot.state === 'running';
       if (isStillRunning) {
@@ -472,7 +477,11 @@ class UploadTaskImpl implements UploadTask {
         this._resolve(this._snapshot);
       } else {
         try {
-          await deleteObject(this._ref, this._provenance);
+          if (priorObject !== undefined) {
+            await service.backend.put(this._ref.fullPath, priorObject.blob, priorObject.metadata);
+          } else {
+            await service.backend.delete(this._ref.fullPath, target.bucket);
+          }
         } catch {
           // Best-effort rollback if cancelled during commit
         }

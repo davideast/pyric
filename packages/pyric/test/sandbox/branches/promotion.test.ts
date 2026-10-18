@@ -135,6 +135,51 @@ describe('promoteFullState lands the divergences the diff reports', () => {
     expect(landed.rules).toEqual(base.rules);
   });
 
+  it('preserves full Storage object metadata on promotion and leaves zero storage divergences (ST-ENF-6)', async () => {
+    const { getMetadata, updateMetadata } = await import('../../../src/storage/index.js');
+    const { getClock } = await import('../../../src/sandbox/index.js');
+
+    const source = await populatedSandbox();
+    const base = await captureFullState(source);
+    const branch = await fork(base);
+    const branchStorage = getAdminStorageSandbox(branch.sandbox);
+    const branchRef = storageRef(branchStorage, 'assets/bundle.js');
+
+    await uploadBytes(branchRef, new Uint8Array([1, 2, 3, 4]), {
+      contentType: 'application/javascript',
+      cacheControl: 'public, max-age=31536000',
+      contentDisposition: 'inline; filename="bundle.js"',
+      contentEncoding: 'gzip',
+      contentLanguage: 'en',
+      customMetadata: { version: '1.0.0' },
+    });
+    getClock(branch.sandbox).advance(1_000);
+    await updateMetadata(branchRef, {
+      customMetadata: { version: '1.0.1' },
+    });
+
+    const branchMeta = await getMetadata(branchRef);
+    const next = await captureFullState(branch.sandbox);
+
+    const target = await targetOn(base);
+    getClock(target).advance(5_000);
+    await promoteFullState(target, base, next);
+
+    const targetMeta = await getMetadata(storageRef(getAdminStorageSandbox(target), 'assets/bundle.js'));
+    expect(targetMeta.cacheControl).toBe(branchMeta.cacheControl);
+    expect(targetMeta.contentDisposition).toBe(branchMeta.contentDisposition);
+    expect(targetMeta.contentEncoding).toBe(branchMeta.contentEncoding);
+    expect(targetMeta.contentLanguage).toBe(branchMeta.contentLanguage);
+    expect(targetMeta.metageneration).toBe(branchMeta.metageneration);
+    expect(targetMeta.generation).toBe(branchMeta.generation);
+    expect(targetMeta.timeCreated).toBe(branchMeta.timeCreated);
+    expect(targetMeta.updated).toBe(branchMeta.updated);
+
+    const landed = await captureFullState(target);
+    const storageDivergences = diffFullStates(next, landed).filter((d) => d.service === 'storage');
+    expect(storageDivergences).toEqual([]);
+  });
+
   it('lands an auth account and leaves every other service alone', async () => {
     const source = await populatedSandbox();
     const base = await captureFullState(source);

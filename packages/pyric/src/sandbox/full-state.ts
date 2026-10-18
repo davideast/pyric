@@ -406,9 +406,8 @@ export function installsStorageRules(source: string | null): source is string {
   return source !== null;
 }
 
-/** Install the Storage ruleset the state carries, where it carries one. */
+/** Install the Storage ruleset the state carries, or clear it when `source` is `null`. */
 async function applyStorageRules(sandbox: LocalSandbox, source: string | null): Promise<void> {
-  if (!installsStorageRules(source)) return;
   await replaceStorageRules(sandbox, source);
 }
 

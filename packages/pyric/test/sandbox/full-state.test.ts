@@ -177,4 +177,31 @@ describe('full sandbox state', () => {
 
     expect(await readEverything(fresh)).toEqual(await readEverything(source));
   });
+
+  it('clears storage rules back to null (default-deny) when applying a state captured without storage rules (ST-ENF-1)', async () => {
+    const { getStorageSandbox } = await import('../../src/storage/index.js');
+    const { replaceStorageRules } = await import('../../src/storage/internal.js');
+
+    const sandbox = initializeSandbox();
+    const clientStorage = getStorageSandbox(sandbox, {
+      dbName: `pyric-full-state-test:${nextStorageDb++}`,
+    });
+
+    const initialSnapshot = await captureFullState(sandbox);
+    expect(initialSnapshot.rules.storage).toBeNull();
+    await expect(
+      uploadBytes(storageRef(clientStorage, 'probe.txt'), new Uint8Array([1, 2, 3])),
+    ).rejects.toMatchObject({ code: 'storage/unauthorized' });
+
+    await replaceStorageRules(sandbox, STORAGE_RULES);
+    await uploadBytes(storageRef(clientStorage, 'allowed.txt'), new Uint8Array([4, 5, 6]));
+
+    await applyFullState(sandbox, initialSnapshot);
+
+    const restoredSnapshot = await captureFullState(sandbox);
+    expect(restoredSnapshot.rules.storage).toBeNull();
+    await expect(
+      uploadBytes(storageRef(clientStorage, 'after-restore.txt'), new Uint8Array([7, 8, 9])),
+    ).rejects.toMatchObject({ code: 'storage/unauthorized' });
+  });
 });
