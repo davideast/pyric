@@ -14,7 +14,7 @@ import { CHUNK_FORMAT_VERSION, META_RECORD_ID } from './chunk-format.js';
 import type { SandboxEvent } from '../types/events.js';
 import type { PersistableService } from '../types/persistence.js';
 import type { Sandbox } from '../types/service.js';
-import { SandboxImpl } from '../internal/sandbox-impl.js';
+import { SandboxImpl, getInternalEnv } from '../internal/sandbox-impl.js';
 import { getClock } from '../clock.js';
 import { createIndexedDBBackend, createMemoryBackend } from './backends.js';
 import {
@@ -542,8 +542,12 @@ async function restore(
 
   // 1. Restore Firestore documents first. These are the structural data
   //    that services (auth) may depend on being present.
+  //    Written through the quiet environment path: a restore is not a session
+  //    action, so it must not add admin write events to `history()`.
+  const isLocalSandbox = sandbox instanceof SandboxImpl;
   for (const [path, data] of Object.entries(parsed.firestore)) {
-    sandbox.admin.setDocument(path, data);
+    if (isLocalSandbox) getInternalEnv(sandbox).adminSetDocument(path, data);
+    else sandbox.admin.setDocument(path, data);
   }
 
   // 2. Restore registered service state. Only services that are BOTH in

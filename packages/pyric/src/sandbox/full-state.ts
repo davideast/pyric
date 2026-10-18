@@ -331,10 +331,10 @@ function applyFirestoreDocuments(
   for (const path of Object.keys(env.snapshot())) {
     const isRetained = path in documents;
     if (isRetained) continue;
-    sandbox.admin.deleteDocument(path);
+    env.adminDeleteDocument(path);
   }
   for (const [path, data] of Object.entries(documents)) {
-    sandbox.admin.setDocument(path, decodeStateDocument(data, encoding));
+    env.adminSetDocument(path, decodeStateDocument(data, encoding));
   }
 }
 

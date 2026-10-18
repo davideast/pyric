@@ -60,7 +60,9 @@ export interface SandboxAdmin {
    * Listeners fire as if the write had gone through the rules path,
    * so subscriptions see the change live. Emits a `request` event with
    * `result: 'allow'` and an `auth: null` shape — admin writes leave
-   * a trace in the event log, but aren't gated.
+   * a trace in the event log, but aren't gated. The matching `write`
+   * event carries `detail: { admin: true }`, so `replay()` re-applies
+   * the seed without evaluating rules and verify treats it as context.
    */
   setDocument(path: string, data: Record<string, unknown>): void;
 
