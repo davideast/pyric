@@ -92,12 +92,28 @@ const databaseQuery = z
   })
   .strict();
 
+const firestoreWhereClause = z
+  .object({
+    field: z.string(),
+    op: z.string(),
+    value: z.union([queryBound, z.array(queryBound)]),
+  })
+  .strict();
+
 /**
  * The query a Firestore `list` carries, as rules read it through
- * `request.query.*`. Mirrors the simulator's `ListQuerySchema`.
+ * `request.query.*` and as static query-proof checks `where` constraints (#371).
+ * Mirrors the simulator's `ListQuerySchema`. `where` is typed as `z.array(z.unknown())`
+ * in the outer JSON Schema to keep `cases[].query` within the two-object-level
+ * argument depth budget, while `checkRequestShape` validates each clause with
+ * `firestoreWhereClause`.
  */
 const firestoreQuery = z
   .object({
+    where: z
+      .array(z.unknown())
+      .optional()
+      .describe('Where clauses as { field, op, value } objects.'),
     limit: z.number().int().nonnegative().optional(),
     offset: z.number().int().nonnegative().optional(),
     orderBy: z.string().optional(),
@@ -123,7 +139,7 @@ function isDatabaseQuery(value: unknown): boolean {
 export const query = z
   .union([databaseQuery, firestoreQuery])
   .describe(
-    "The query a read carries, so query rule expressions evaluate. For a database read (query.*): one of orderByChild, orderByKey or orderByValue, with equalTo, startAt, endAt, limitToFirst or limitToLast. For a Firestore list (request.query.*): limit, offset and orderBy.",
+    "The query a read carries, so query rule expressions evaluate. For a database read (query.*): one of orderByChild, orderByKey or orderByValue, with equalTo, startAt, endAt, limitToFirst or limitToLast. For a Firestore list (request.query.* and static query proof): where, limit, offset and orderBy.",
   );
 
 /**
@@ -166,10 +182,22 @@ export function checkRequestShape(args: Args, fail: Fail): InvalidArguments | nu
         }
         if (!isFirestoreQuery(source.query)) {
           return fail(
-            'query on a Firestore list takes limit, offset and orderBy (request.query.*). This one is a Realtime Database query.',
-            `Pass query as { limit, offset, orderBy }, or use service 'database'.`,
+            'query on a Firestore list takes where, limit, offset and orderBy (request.query.*). This one is a Realtime Database query.',
+            `Pass query as { where, limit, offset, orderBy }, or use service 'database'.`,
             at('query'),
           );
+        }
+        const whereList = (source.query as { where?: unknown }).where;
+        if (Array.isArray(whereList)) {
+          for (const [clauseIndex, clause] of whereList.entries()) {
+            if (!firestoreWhereClause.safeParse(clause).success) {
+              return fail(
+                'each query.where entry on a Firestore list must be an object { field, op, value }.',
+                `Pass query.where[${clauseIndex}] as { field: '<field>', op: '==', value: <scalar or array> }.`,
+                at(`query.where[${clauseIndex}]`),
+              );
+            }
+          }
         }
         continue;
       }

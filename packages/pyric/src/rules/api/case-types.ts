@@ -21,6 +21,7 @@ import type {
   WriteMode,
 } from '../test/spec.js';
 import type { EvaluatedRuleInfo } from '../test/spec.js';
+import type { ListQueryProofReport } from '../simulator/list-query-proof.js';
 import type { RtdbCoverageSummary } from '../rtdb/coverage.js';
 import type { RtdbRuleEvaluation } from '../rtdb/simulation/spec.js';
 
@@ -90,6 +91,8 @@ export interface CaseResult {
    *  request past 1000 expressions is DENY with `kind: 'expressions'`
    *  and production's message. */
   resourceLimit?: RulesResourceLimit;
+  /** Static list-query proof verdict for `list` cases, separate from per-document `decision` (#371). */
+  queryProof?: ListQueryProofReport;
 }
 
 /** The structured account of why one Firestore case resolved as it did. */
@@ -108,6 +111,8 @@ export interface Explanation {
   evaluatedExpressions: number;
   /** The per-request limit that stopped the request, when one did. */
   resourceLimit?: RulesResourceLimit;
+  /** Static list-query proof verdict for `list` cases, separate from per-document `decision` (#371). */
+  queryProof?: ListQueryProofReport;
 }
 
 /** Aggregate of a `simulate(cases)` run. Counts partition the cases:

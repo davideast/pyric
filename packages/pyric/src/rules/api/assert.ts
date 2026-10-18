@@ -47,6 +47,13 @@ function renderFirestore(r: CaseResult): string {
     `${status}: ${r.description}`,
     `  ${r.case.method} ${r.case.path} (expected ${r.expectation}, got ${r.decision})`,
   ];
+  if (r.queryProof) {
+    const detail = r.queryProof.reason ? ` (${r.queryProof.reason})` : '';
+    lines.push(`  query proof: ${r.queryProof.verdict}${detail}`);
+    if (r.queryProof.remediation) {
+      lines.push(`  remediation: ${r.queryProof.remediation}`);
+    }
+  }
   if (r.trace.length > 0) {
     lines.push('  rules evaluated:');
     for (const entry of r.trace) lines.push(renderRuleEvaluation(entry));

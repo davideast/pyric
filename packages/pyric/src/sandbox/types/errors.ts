@@ -2,7 +2,7 @@
  * Sandbox-layer error types: the error code union, the structured
  * denial-context payload, and the `SandboxError` class itself.
  */
-import type { QueryProofDiagnostic } from './query-proof.js';
+import type { QueryProofDiagnostic, QueryRepro } from './query-proof.js';
 
 import type { AuthState } from './auth-state.js';
 
@@ -105,6 +105,11 @@ export interface DenialContext {
     readonly offset?: number | null;
     readonly orderBy?: string | null;
   };
+  /**
+   * Ready-to-run repro (CLI command + fixture `TestCase`) for a rejected
+   * unprovable list query (#371).
+   */
+  repro?: QueryRepro;
 }
 
 /**

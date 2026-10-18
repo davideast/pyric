@@ -61,6 +61,7 @@ function resultToCaseResult(fc: FirestoreCase, r: TestResult): CaseResult {
     ...(r.pathResolution ? { pathResolution: r.pathResolution } : {}),
     evaluatedExpressions: r.evaluatedExpressions ?? 0,
     ...(r.resourceLimit ? { resourceLimit: r.resourceLimit } : {}),
+    ...(r.queryProof ? { queryProof: r.queryProof } : {}),
   };
 }
 
@@ -146,6 +147,7 @@ class FirestoreRulesetImpl implements FirestoreRuleset {
     if (r.resourceLimit) explanation.resourceLimit = r.resourceLimit;
     if (deciding) explanation.deciding = deciding;
     if (r.pathResolution) explanation.pathResolution = r.pathResolution;
+    if (r.queryProof) explanation.queryProof = r.queryProof;
     return explanation;
   }
 

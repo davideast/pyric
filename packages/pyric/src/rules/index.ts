@@ -85,9 +85,17 @@ export type {
   PathResolutionTrace,
   EvaluatedRuleInfo,
   FirestoreMethod,
+  ListQuery,
+  ListQueryWhereConstraint,
   RulesResourceLimit,
 } from './test/spec.js';
 export type { ExprTraceEntry } from './simulator/evaluator.js';
+export type {
+  ListQueryProofReport,
+  QueryProofFailure,
+  QueryProofResidual,
+  QueryRepro,
+} from './simulator/list-query-proof.js';
 
 // ─── Value helpers ───────────────────────────────────────────────────
 export {

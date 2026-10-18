@@ -196,6 +196,9 @@ export function toSandboxError(err: unknown, ctx: SandboxContext): unknown {
     if (hasRule) {
       denialContext.rule = sim!.rule;
     }
+    if (sim!.repro !== undefined) {
+      denialContext.repro = sim!.repro;
+    }
     const hasRemediation = sim!.remediation !== undefined;
     if (hasRemediation) {
       return new SandboxError({ code, message: err.message, denialContext, remediation: sim!.remediation });

@@ -43,6 +43,12 @@ import {
   renderMatchBlockPath,
   type MatchResult,
 } from './match-resolution.js';
+import {
+  listQueryToConstraints,
+  proveListQuery,
+  renderQueryRemediation,
+  type ListQueryProofReport,
+} from './list-query-proof.js';
 
 type Decision = 'ALLOW' | 'DENY' | 'UNSUPPORTED';
 
@@ -540,6 +546,8 @@ export class SimulateFirestoreRulesHandler {
     opts?: SimulateOptions & {
       /** The source map read from `source`, when the caller keeps it. */
       sourceMap?: AuthoredSourceMap;
+      /** Internal flag to skip re-running static query proof during residual evaluation. */
+      skipQueryProof?: boolean;
     },
   ): TestFirestoreRulesResult {
     indexRulesetScopes(ast);
@@ -578,15 +586,100 @@ export class SimulateFirestoreRulesHandler {
       // case names the reduced form.
       const requestPath = documentRelativePath(tc.path);
       const pathSegments = requestPath.split('/').filter(Boolean);
+      const isListMethod = tc.method === 'list';
+      const isCollectionPath = pathSegments.length % 2 === 1;
+
+      // Static list-query provability (#371): for `list` cases, run
+      // `proveListQuery` and report the proof verdict separately from
+      // document-evaluation (`decision` / `state`).
+      let queryProof: ListQueryProofReport | undefined;
+      let evalAst = ast;
+      let evalTc = tc;
+      if (isListMethod && !opts?.skipQueryProof) {
+        const proofPath = pathSegments.length === 0
+          ? '__listPlaceholder__'
+          : (isCollectionPath ? `${requestPath}/__listPlaceholder__` : requestPath);
+        const constraints = listQueryToConstraints(tc.query);
+        const rawProof = proveListQuery(ast, proofPath, tc.auth ?? null, constraints, source);
+        if (rawProof.kind === 'no-rule') {
+          queryProof = {
+            verdict: 'NO_RULE',
+            provable: false,
+            kind: 'no-rule',
+            failures: [],
+          };
+        } else if (rawProof.kind === 'unprovable') {
+          const primary = rawProof.failures.find((f) => f.kind !== 'constraints-not-satisfied') ?? rawProof.failures[0]!;
+          const remediation = renderQueryRemediation(primary.residual);
+          queryProof = {
+            verdict: 'UNPROVABLE',
+            provable: false,
+            kind: primary.kind,
+            failures: rawProof.failures,
+            reason: primary.reason,
+            residual: primary.residual,
+            ...(remediation ? { remediation } : {}),
+            ...(primary.rule ? { rule: { ...primary.rule, verdict: 'deny' as const } } : {}),
+          };
+        } else {
+          // `rawProof.kind === 'provable'`. When some rules were rejected by
+          // static proof (`rawProof.failures.length > 0`) and only a subset
+          // (such as a fallback `allow read: if false;` or an admin rule) was
+          // statically doc-independent, check whether those provable rules
+          // actually grant for this request. If they deny, no provable rule
+          // granted and the query failed because of `rawProof.failures`.
+          let fallbackDenied = false;
+          if (rawProof.failures.length > 0) {
+            const residualCheck = this.simulateParsed(
+              rawProof.evaluationAst,
+              source,
+              [{ ...tc, path: proofPath, resource: rawProof.syntheticResource, expectation: 'ALLOW' }],
+              { ...opts, sourceMap, skipQueryProof: true },
+            );
+            if (residualCheck.success && residualCheck.data.results[0]?.decision !== 'ALLOW') {
+              fallbackDenied = true;
+            }
+          }
+          if (fallbackDenied) {
+            const primary = rawProof.failures.find((f) => f.kind !== 'constraints-not-satisfied') ?? rawProof.failures[0]!;
+            const remediation = renderQueryRemediation(primary.residual);
+            queryProof = {
+              verdict: 'UNPROVABLE',
+              provable: false,
+              kind: primary.kind,
+              failures: rawProof.failures,
+              reason: primary.reason,
+              residual: primary.residual,
+              ...(remediation ? { remediation } : {}),
+              ...(primary.rule ? { rule: { ...primary.rule, verdict: 'deny' as const } } : {}),
+            };
+          } else {
+            queryProof = {
+              verdict: 'PROVABLE',
+              provable: true,
+              kind: 'provable',
+              failures: rawProof.failures,
+            };
+          }
+          // When the caller did not mock a single document (`tc.resource === undefined`)
+          // and supplied `query.where` constraints that proved the query, evaluate
+          // the residual rules against the query-pinned synthetic resource.
+          if (tc.resource === undefined && (tc.query?.where?.length ?? 0) > 0) {
+            evalAst = rawProof.evaluationAst;
+            evalTc = { ...tc, resource: rawProof.syntheticResource };
+          }
+        }
+      }
+
       // Functions declared at GLOBAL scope (above `service`) and SERVICE
       // scope (inside `service`, outside the documents match) seed the walk
       // alongside the documents-match's own (#346). Declaration order
       // global → service → match preserves inner-shadows-outer resolution,
       // since a later same-named entry wins in the evaluation context.
       const rootFunctions = [
-        ...(ast.functions ?? []),
-        ...(ast.service.functions ?? []),
-        ...ast.service.match.functions,
+        ...(evalAst.functions ?? []),
+        ...(evalAst.service.functions ?? []),
+        ...evalAst.service.match.functions,
       ];
       // Collect EVERY match block that resolves this path (not just the
       // first). Production OR-combines allows across all overlapping
@@ -596,7 +689,7 @@ export class SimulateFirestoreRulesHandler {
       // Fresh recorder per test case so each `TestResult.pathResolution`
       // captures only its own resolution attempts.
       const pathRecorder = new PathResolutionRecorder();
-      for (const child of ast.service.match.children) {
+      for (const child of evalAst.service.match.children) {
         matches.push(...collectMatches(child, pathSegments, rootFunctions, pathRecorder));
       }
       // `list` targets a COLLECTION, but rules match blocks are document-
@@ -617,13 +710,11 @@ export class SimulateFirestoreRulesHandler {
       // `simcase-mock-and-path-fidelity`). When the widened path matches
       // nothing, the direct matches stand.
       let syntheticListDoc = false;
-      const isListMethod = tc.method === 'list';
-      const isCollectionPath = pathSegments.length % 2 === 1;
       const shouldWiden = isListMethod && (isCollectionPath || matches.length === 0);
       if (shouldWiden) {
         const widened = [...pathSegments, '__hypothetical_doc__'];
         const widenedMatches: MatchResult[] = [];
-        for (const child of ast.service.match.children) {
+        for (const child of evalAst.service.match.children) {
           widenedMatches.push(...collectMatches(child, widened, rootFunctions, pathRecorder));
         }
         const isWidenedNonZero = widenedMatches.length > 0;
@@ -655,6 +746,7 @@ export class SimulateFirestoreRulesHandler {
             DOCUMENT_PATH_FORM,
           ],
           pathResolution,
+          ...(queryProof ? { queryProof } : {}),
         });
         continue;
       }
@@ -697,7 +789,7 @@ export class SimulateFirestoreRulesHandler {
       const expressionBudget = new ExpressionBudget((message, position) => new ExpressionLimitError(message, position));
       for (const match of matches) {
         const pathVars = { ...rootBindings, ...match.pathVariables };
-        const ctx = buildContext(tc, match.functions, pathVars, opts?.getDoc, opts?.batchProjection, lookupBudget, expressionBudget);
+        const ctx = buildContext(evalTc, match.functions, pathVars, opts?.getDoc, opts?.batchProjection, lookupBudget, expressionBudget);
 
         const blockPath = renderMatchBlockPath(match.block);
         const res = evaluateRules(match.block, tc.method, ctx, sourceMap);
@@ -784,6 +876,7 @@ export class SimulateFirestoreRulesHandler {
         decision,
         evaluatedExpressions: expressionBudget.evaluated,
         ...(resourceLimit ? { resourceLimit } : {}),
+        ...(queryProof ? { queryProof } : {}),
         trace,
         notes,
         pathResolution,

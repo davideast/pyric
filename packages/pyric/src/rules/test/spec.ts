@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { ExprTraceEntry } from '../simulator/evaluator.js';
+import type { ListQueryProofReport } from '../simulator/list-query-proof.js';
 
 // ---- Canonical shared primitives ----
 
@@ -68,18 +69,33 @@ export const WriteModeSchema = z.discriminatedUnion('kind', [
 
 export type WriteMode = z.infer<typeof WriteModeSchema>;
 
+const ListQueryScalarSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+
+export const ListQueryWhereConstraintSchema = z.object({
+  field: z.string(),
+  op: z.string(),
+  value: z.union([ListQueryScalarSchema, z.array(ListQueryScalarSchema)]),
+});
+
+export type ListQueryWhereConstraint = z.infer<typeof ListQueryWhereConstraintSchema>;
+
 /**
- * Shape of `request.query` — only populated for `list` operations
- * (REBUILD_PLAN.md Item 6 follow-up). Production exposes:
+ * Shape of `request.query` (and `where` constraints for static list-query
+ * provability, #371) — only populated for `list` operations. Production exposes:
  *   - limit:   the requested page size
  *   - offset:  the start offset within the result set
  *   - orderBy: the orderBy clause as a string (field name with optional direction)
  *
+ * `where` models query filter clauses (`where(field, op, value)`) used by
+ * `proveListQuery` / `evaluateQueryProof` to check whether the rules can
+ * statically prove every returnable document is readable ("rules are not filters").
+ *
  * Unset fields read as `null` from rules. Tests SHOULD set this whenever the
- * rule under evaluation references `request.query.<x>`; otherwise the field
- * read returns null and the rule may silently DENY.
+ * rule under evaluation references `request.query.<x>` or per-document fields
+ * on a `list` query.
  */
 export const ListQuerySchema = z.object({
+  where: z.array(ListQueryWhereConstraintSchema).optional(),
   limit: z.number().optional(),
   offset: z.number().optional(),
   orderBy: z.string().optional(),
@@ -317,6 +333,12 @@ export interface TestResult {
    * reached it.
    */
   resourceLimit?: RulesResourceLimit;
+  /**
+   * Static list-query proof verdict for `list` operations (#371). Reported as a
+   * separate verdict alongside per-document `decision` / `state` — never merged
+   * into one pass/fail.
+   */
+  queryProof?: ListQueryProofReport;
 }
 
 /**
@@ -561,7 +583,10 @@ export function buildApiTestCase(tc: TestCase, opts: BuildApiTestCaseOptions = {
   }
 
   if (tc.query) {
-    request.query = tc.query;
+    const { where: _where, ...wireQuery } = tc.query;
+    if (Object.keys(wireQuery).length > 0 || tc.query.where === undefined) {
+      request.query = wireQuery;
+    }
   }
 
   const result: ApiTestCase = {
