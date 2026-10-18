@@ -816,6 +816,11 @@ this repository:
   operation held after the drop, after every frame of the restore in
   decision 5. That matches the SDK, which sends outstanding puts after the
   listens.
+- **A new request id.** A call sent again goes under a new request id. The
+  resumed client keeps its host session, so the host's reply to the copy the
+  dropped socket took can arrive on the new socket. That reply names the old
+  id, finds no call, and is ignored; the call settles on the reply to the new
+  copy. The SDK gets the same result by clearing `requestCBHash_`.
 - **No deadline.** A call sent again waits for the next attach as the SDK
   waits for its next connection. It fails only through the close rule: an
   explicit close, or a failure that permits no retry, fails it once with the

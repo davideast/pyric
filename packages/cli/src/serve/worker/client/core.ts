@@ -323,6 +323,28 @@ export function pendingRequestsOn(
   return requests;
 }
 
+/**
+ * Moves each outstanding operation in `ids` to a new correlation id and
+ * returns the frames to send under them, in the order given. A reply to an old
+ * id then finds no call to settle; the Realtime Database SDK clears its
+ * response callbacks on a drop for the same reason. A moved call goes to the
+ * end of the issue order, after every call still outstanding.
+ */
+export function reissuePendingRequests(ids: string[]): InboundMessage[] {
+  const reissued: InboundMessage[] = [];
+  for (const id of ids) {
+    const pending = _pending.get(id);
+    const message = pending?.message;
+    const isOutstandingOperation = pending !== undefined && message?.t === 'op';
+    if (!isOutstandingOperation) continue;
+    const moved = { ...message, id: nextId() };
+    _pending.delete(id);
+    _pending.set(moved.id, { ...pending, message: moved });
+    reissued.push(moved);
+  }
+  return reissued;
+}
+
 /** Rejects one outstanding call with `error`, which may carry no code. */
 export function rejectPendingRequest(id: string, error: Error): void {
   const pending = takePendingRequest(id);

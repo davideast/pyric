@@ -22,13 +22,16 @@ afterEach(() => {
   setHoldDeadlineForTesting(undefined);
 });
 
-type WorkerFrame = { t: string; id?: string; subId?: string; method?: string };
+/** `call` is the id the test's call was issued with; a copy sent again keeps it. */
+type WorkerFrame = { t: string; id?: string; subId?: string; method?: string; call?: string };
 type Reply = (value: unknown, error?: { code: string; message: string }) => void;
+/** Answers the request with `id` on the current socket, whatever frame is being answered. */
+type ReplyTo = (id: string, value: unknown) => void;
 
 interface HostOptions {
   hostInstanceId?: string;
   /** Answers an operation; the default replies 'done'. Not calling `reply` leaves it in flight. */
-  answer?: (frame: WorkerFrame, reply: Reply) => void;
+  answer?: (frame: WorkerFrame, reply: Reply, replyTo: ReplyTo) => void;
 }
 
 /** Every worker frame each host received, in arrival order, across restarts. */
@@ -75,8 +78,11 @@ class Host {
             const outcome = error === undefined ? { ok: true, value } : { ok: false, error };
             socket.send(JSON.stringify({ type: 'worker-message-result', message: { t: 'res', id: frame.id, ...outcome } }));
           };
+          const replyTo: ReplyTo = (id, value) => {
+            socket.send(JSON.stringify({ type: 'worker-message-result', message: { t: 'res', id, ok: true, value } }));
+          };
           const answer = options.answer ?? ((_frame, send) => send('done'));
-          answer(frame, reply);
+          answer(frame, reply, replyTo);
         },
       },
     });
@@ -89,6 +95,11 @@ class Host {
 
   sent(id: string): WorkerFrame[] {
     return this.frames.filter(frame => frame.id === id);
+  }
+
+  /** Every copy of the call issued as `call`, under whatever id each was sent. */
+  copies(call: string): WorkerFrame[] {
+    return this.frames.filter(frame => frame.call === call);
   }
 }
 
@@ -114,7 +125,7 @@ function open(host: Host): { db: ClientDb; states: HostedConnectionState[] } {
 
 function op(db: ClientDb, method: string): { id: string; outcome: Promise<unknown> } {
   const id = nextId();
-  const outcome = rawRpc(db.port, { t: 'op', id, method } as unknown as InboundMessage);
+  const outcome = rawRpc(db.port, { t: 'op', id, method, call: id } as unknown as InboundMessage);
   return { id, outcome };
 }
 
@@ -310,7 +321,7 @@ function watch(outcome: Promise<unknown>): { settled: () => boolean } {
 
 const ping = (db: ClientDb) => rawRpc(db.port, { t: 'op', id: nextId(), method: 'ping' } as unknown as InboundMessage);
 
-test('RTDB writes and reads in flight at the drop are sent again after re-attach and resolve on the new reply', async () => {
+test('RTDB writes and reads in flight at the drop are sent again under a new id after re-attach and resolve on the new reply', async () => {
   const methods = ['rtdb.set', 'rtdb.update', 'rtdb.remove', 'rtdb.setPriority', 'rtdb.setWithPriority', 'rtdb.push', 'rtdb.get'];
   const host = new Host();
   const { inFlight, restart, reattached } = await droppedWithInFlight(host, ...methods);
@@ -318,8 +329,35 @@ test('RTDB writes and reads in flight at the drop are sent again after re-attach
   await until(reattached);
   for (const { id, outcome } of inFlight) {
     expect(await settle(outcome)).toEqual({ value: 'done' });
-    expect(host.sent(id)).toHaveLength(2);
+    const [first, again] = host.copies(id);
+    expect(host.copies(id)).toHaveLength(2);
+    expect(first!.id).toBe(id);
+    expect(again!.id).not.toBe(id);
   }
+});
+
+test('a late reply to the copy the dropped socket took settles nothing; the call settles once, on the reply to the copy sent again', async () => {
+  const host = new Host();
+  const { db, inFlight: [read] } = await droppedWithInFlight(host, 'rtdb.get');
+  const unhandled: unknown[] = [];
+  const onUnhandled = (reason: unknown) => { unhandled.push(reason); };
+  process.on('unhandledRejection', onUnhandled);
+  cleanups.push(() => { process.off('unhandledRejection', onUnhandled); });
+  let settlements = 0;
+  const counted = read!.outcome.finally(() => { settlements += 1; });
+  host.start({
+    answer(frame, reply, replyTo) {
+      const isCopySentAgain = frame.call === read!.id;
+      if (!isCopySentAgain) { reply('done'); return; }
+      // The host answers the copy sent before the drop only now, on the new socket.
+      replyTo(read!.id, 'before the drop');
+      setTimeout(() => reply('after the drop'), 50);
+    },
+  });
+  expect(await settle(counted)).toEqual({ value: 'after the drop' });
+  expect(await ping(db)).toBe('done');
+  expect(settlements).toBe(1);
+  expect(unhandled).toEqual([]);
 });
 
 test('a re-sent RTDB write goes ahead of an operation issued while interrupted', async () => {
@@ -329,8 +367,8 @@ test('a re-sent RTDB write goes ahead of an operation issued while interrupted',
   restart();
   await until(reattached);
   await later.outcome;
-  const ids = host.frames.map(frame => frame.id);
-  expect(ids.lastIndexOf(write!.id)).toBeLessThan(ids.indexOf(later.id));
+  const calls = host.frames.map(frame => frame.call);
+  expect(calls.lastIndexOf(write!.id)).toBeLessThan(calls.indexOf(later.id));
 });
 
 test('a re-sent RTDB write has no hold deadline', async () => {

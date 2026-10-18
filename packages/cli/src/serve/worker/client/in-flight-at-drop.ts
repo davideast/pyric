@@ -10,7 +10,7 @@
  * `Error('disconnect')`. Every other operation fails once with `unavailable`.
  */
 import type { InboundMessage } from '../protocol.js';
-import { forgetPendingRequest, pendingRequestsOn, rejectPendingRequest } from './core.js';
+import { forgetPendingRequest, pendingRequestsOn, reissuePendingRequests, rejectPendingRequest } from './core.js';
 import type { ClientPort } from './handles.js';
 import type { HeldMessages } from './held-messages.js';
 
@@ -47,13 +47,15 @@ export function settleInFlightAtDrop(
   lost: Error & { code: string },
   wasSent: (id: string) => boolean,
 ): void {
-  const resent: InboundMessage[] = [];
+  const resent: string[] = [];
   for (const { id, message } of pendingRequestsOn(port, wasSent)) {
     const fate = fateOf(message);
-    if (fate === 'resend') resent.push(message);
+    if (fate === 'resend') resent.push(id);
     else if (fate === 'forget') forgetPendingRequest(id);
     else if (fate === 'disconnect') rejectPendingRequest(id, new Error('disconnect'));
     else rejectPendingRequest(id, lost);
   }
-  held.holdAgain(resent);
+  // Each goes again under a new id, so a late reply to the copy the dropped
+  // socket took settles nothing.
+  held.holdAgain(reissuePendingRequests(resent));
 }
