@@ -80,6 +80,10 @@ const COMPILE_LIMIT_LINT_CODES: ReadonlySet<string> = new Set([
   'SLASH_STARTS_PATH',
   'GLOB_MATCH_COUNT',
   'CALL_DEPTH',
+  'UNSUPPORTED_RULES_VERSION',
+  'UNRESOLVED_MODULES',
+  'INVALID_REGEX_PATTERN',
+  'FUNCTION_REDEFINED',
 ]);
 
 export function lintWarningToIssue(warning: LintWarning): RuleIssue {

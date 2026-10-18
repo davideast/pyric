@@ -188,6 +188,20 @@ export function firestoreRules(source: string): FirestoreRuleset {
       issues,
     );
   }
+  if (parsed.ast.service && parsed.ast.service.name !== 'cloud.firestore') {
+    const msg = `Expected 'service cloud.firestore', got 'service ${parsed.ast.service.name}'.`;
+    const issue: RuleIssue = {
+      code: 'PARSE_ERROR',
+      severity: 'error',
+      message: msg,
+      ...(parsed.ast.service.loc ? { line: parsed.ast.service.loc.line } : {}),
+      origin: 'parse',
+    };
+    throw new RulesCompileError(
+      `Firestore rules source failed to compile: ${msg}`,
+      [issue],
+    );
+  }
   // Production rejects a ruleset past its compile limits (call depth, `let`
   // count, nesting) before evaluating any request.
   const violations = compileLimitViolations(parsed.ast);

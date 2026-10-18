@@ -333,4 +333,66 @@ service cloud.firestore {
     expect(findRule(r, 'SHARED_GATE')).toHaveLength(0);
     expect(findRule(r, 'REQUEST_TIME_NOT_PINNED')).toHaveLength(1);
   });
+
+  test('ST-LNT-4, ST-LNT-6c, ST-LNT-7: Storage GET_COUNT (limit 2), GET_DUPLICATION, REQUEST_TIME_NOT_PINNED, and compile limit rejections', () => {
+    const storageFourLookups = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function docRole(id) {
+      return firestore.get(/databases/(default)/documents/users/$(id)).data.role;
+    }
+    match /files/{fileId} {
+      allow read: if request.auth != null
+        && docRole(request.auth.uid) == 'admin'
+        && docRole(request.auth.uid) != 'banned'
+        && firestore.exists(/databases/(default)/documents/orgs/a)
+        && firestore.exists(/databases/(default)/documents/orgs/b);
+    }
+  }
+}`;
+    const r4 = lintFirestoreRules(storageFourLookups);
+    expect(r4.warnings.some(w => w.rule === 'GET_COUNT' && w.severity === 'error')).toBe(true);
+    expect(r4.warnings.some(w => w.rule === 'GET_DUPLICATION')).toBe(true);
+
+    const storageTimeRules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function canAccessTimed(uid) {
+      return request.auth != null && request.auth.uid == uid && request.time > resource.timeCreated;
+    }
+    match /users/{uid}/file.txt {
+      allow read: if canAccessTimed(uid);
+    }
+  }
+}`;
+    const r7 = lintFirestoreRules(storageTimeRules, {
+      testCases: [
+        {
+          description: 'unpinned time-gated storage read',
+          expectation: 'ALLOW',
+          method: 'get',
+          path: '/users/alice/file.txt',
+        },
+      ],
+    });
+    expect(findRule(r7, 'REQUEST_TIME_NOT_PINNED')).toHaveLength(1);
+
+    const compileErrorRules = `rules_version = '3';
+service cloud.firestore {
+  function dup() { return true; }
+  function dup() { return false; }
+  match /databases/{database}/documents {
+    match /users/{uid} {
+      allow read: if request.auth != null && uid.matches('(?=invalid_re2)a') && dup();
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}`;
+    const r6 = lintFirestoreRules(compileErrorRules);
+    expect(r6.warnings.some(w => w.rule === 'UNSUPPORTED_RULES_VERSION' && w.severity === 'error')).toBe(true);
+    expect(r6.warnings.some(w => w.rule === 'INVALID_REGEX_PATTERN' && w.severity === 'error')).toBe(true);
+    expect(r6.warnings.some(w => w.rule === 'FUNCTION_REDEFINED' && w.severity === 'error')).toBe(true);
+  });
 });

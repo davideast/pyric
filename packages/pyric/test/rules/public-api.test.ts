@@ -192,6 +192,19 @@ describe('firestoreRules constructor', () => {
     expect(ast.service.match).toBeDefined();
     expect(JSON.parse(JSON.stringify(ast))).toBeTruthy();
   });
+
+  test('rejects service firebase.storage rulesets with RulesCompileError (ST-CON-5)', () => {
+    const storageSource = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if true;
+    }
+  }
+}`;
+    expect(() => firestoreRules(storageSource)).toThrow(RulesCompileError);
+    expect(() => firestoreRules(storageSource)).toThrow("Expected 'service cloud.firestore', got 'service firebase.storage'.");
+  });
 });
 
 describe('tolerant lint(source)', () => {
@@ -239,6 +252,26 @@ service cloud.firestore {
         (i) => i.code === 'GLOB_MATCH_COUNT' && i.severity === 'error' && i.origin === 'parse',
       ),
     ).toBe(true);
+  });
+
+  test('reports UNSUPPORTED_RULES_VERSION, INVALID_REGEX_PATTERN, and FUNCTION_REDEFINED with origin: parse (ST-LNT-6c)', () => {
+    const compileErrorRules = `rules_version = '3';
+service cloud.firestore {
+  function dup() { return true; }
+  function dup() { return false; }
+  match /databases/{database}/documents {
+    match /users/{uid} {
+      allow read: if request.auth != null && uid.matches('(?=invalid_re2)a') && dup();
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}`;
+    const issues = lint(compileErrorRules);
+    expect(issues.some((i) => i.code === 'UNSUPPORTED_RULES_VERSION' && i.origin === 'parse')).toBe(true);
+    expect(issues.some((i) => i.code === 'INVALID_REGEX_PATTERN' && i.origin === 'parse')).toBe(true);
+    expect(issues.some((i) => i.code === 'FUNCTION_REDEFINED' && i.origin === 'parse')).toBe(true);
   });
 });
 

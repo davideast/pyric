@@ -22,9 +22,28 @@ const WRITE_OPS: Set<Operation> = new Set(['write', 'create', 'update', 'delete'
 const READ_OPS: Set<Operation> = new Set(['read', 'get', 'list']);
 const DATA_WRITE_OPS: Set<Operation> = new Set(['write', 'create', 'update']);
 
+const IMPORTED_AUTH_HELPERS: ReadonlySet<string> = new Set([
+  'isAuthenticated',
+  'isSignedIn',
+  'isOwner',
+  'isVerified',
+  'hasClaim',
+  'hasRole',
+  'hasAnyRole',
+]);
+
 export function validateFirestoreRules(ast: FirestoreRules): ValidationFinding[] {
   const findings: ValidationFinding[] = [];
   const rootMatch = ast.service.match;
+  const isStorage = ast.service?.name === 'firebase.storage';
+
+  const importedAuthFns = new Set<string>();
+  for (const imp of ast.imports ?? []) {
+    const names = imp.functions ?? (imp as { names?: string[] }).names ?? [];
+    for (const name of names) {
+      if (IMPORTED_AUTH_HELPERS.has(name)) importedAuthFns.add(name);
+    }
+  }
 
   // Global and service scope functions are visible in every match block.
   const outerScope = [...(ast.functions ?? []), ...(ast.service.functions ?? [])];
@@ -47,7 +66,7 @@ export function validateFirestoreRules(ast: FirestoreRules): ValidationFinding[]
   checkOverlappingPaths(rootMatch.children, findings);
 
   // Walk all match blocks
-  walkMatch(rootMatch, findings, outerScope, fnScopes);
+  walkMatch(rootMatch, findings, outerScope, fnScopes, null, isStorage, importedAuthFns);
 
   return findings;
 }
@@ -60,6 +79,8 @@ function walkMatch(
   /** Full path segments of the enclosing blocks below the documents root;
    *  null for the documents root itself. */
   parentSegments: readonly PathSegment[] | null = null,
+  isStorage = false,
+  importedAuthFns: ReadonlySet<string> = new Set(),
 ) {
   const segments = parentSegments === null ? [] : [...parentSegments, ...match.path.segments];
   // SEC-2 and SEC-5 concern a recursive wildcard in the last position, which
@@ -115,7 +136,7 @@ function walkMatch(
 
     // SEC-3: No auth check on write (follows function calls transitively)
     const fnMap = new Map(localScope.map(f => [f.name, f]));
-    if (isWrite && !isLiteralTrue && !isLiteralFalse && !guardsAuthTransitive(cond, fnMap, fnScopes)) {
+    if (isWrite && !isLiteralTrue && !isLiteralFalse && !guardsAuthTransitive(cond, fnMap, fnScopes, importedAuthFns)) {
       findings.push({
         code: 'SEC-3', severity: 'high', path: pathStr, operation: opStr,
         message: `Write rule (${opStr}) at ${pathStr} does not check request.auth`,
@@ -123,10 +144,12 @@ function walkMatch(
     }
 
     // SEC-6: Write without data validation (follows function calls transitively)
-    if (isDataWrite && !isLiteralFalse && !validatesRequestDataTransitive(cond, fnMap, fnScopes)) {
+    if (isDataWrite && !isLiteralFalse && !validatesRequestDataTransitive(cond, fnMap, fnScopes, isStorage)) {
       findings.push({
         code: 'SEC-6', severity: 'high', path: pathStr, operation: opStr,
-        message: `${opStr} at ${pathStr} does not validate request.resource.data — any data shape accepted`,
+        message: isStorage
+          ? `${opStr} at ${pathStr} does not validate request.resource — any upload payload accepted`
+          : `${opStr} at ${pathStr} does not validate request.resource.data — any data shape accepted`,
       });
     }
 
@@ -148,14 +171,17 @@ function walkMatch(
     }
 
     // SEM-3: document access budget exceeded. Production allows exactly 10
-    // get/exists/getAfter/existsAfter reads per request evaluation; the
-    // 11th fails, so the finding fires only ABOVE 10 (same boundary as the
-    // linter's GET_COUNT error and the simulator's runtime LookupBudget).
+    // get/exists/getAfter/existsAfter reads per request evaluation in Firestore
+    // and 2 firestore.get/firestore.exists reads in Storage; the next one
+    // fails, so the finding fires only ABOVE the limit.
+    const maxDocReads = isStorage ? 2 : 10;
     const docReads = countDocumentAccessCalls(allow.condition, fnMap, new Set(), fnScopes);
-    if (docReads > 10) {
+    if (docReads > maxDocReads) {
       findings.push({
         code: 'SEM-3', severity: 'high', path: pathStr, operation: opStr,
-        message: `Rule at ${pathStr} may perform ${docReads} document access calls (get/exists/getAfter/existsAfter), which exceeds the 10-call budget`,
+        message: isStorage
+          ? `Rule at ${pathStr} may perform ${docReads} document access calls (firestore.get/firestore.exists), which exceeds the ${maxDocReads}-call budget`
+          : `Rule at ${pathStr} may perform ${docReads} document access calls (get/exists/getAfter/existsAfter), which exceeds the ${maxDocReads}-call budget`,
       });
     }
 
@@ -193,8 +219,10 @@ function walkMatch(
     });
   }
 
-  // STR-2: Nested match without parent rules (skip the root /databases match)
-  const isRoot = match.path.raw.includes('databases') && match.path.raw.includes('documents');
+  // STR-2: Nested match without parent rules (skip the root /databases or /b/{bucket}/o match)
+  const isRoot =
+    (match.path.raw.includes('databases') && match.path.raw.includes('documents')) ||
+    (match.path.raw.includes('/b/') && match.path.raw.includes('/o'));
   if (match.children.length > 0 && match.allows.length === 0 && !isRoot) {
     findings.push({
       code: 'STR-2', severity: 'medium', path: pathStr,
@@ -204,19 +232,17 @@ function walkMatch(
 
   // Recurse into children
   for (const child of match.children) {
-    walkMatch(child, findings, localScope, fnScopes, segments);
+    walkMatch(child, findings, localScope, fnScopes, segments, isStorage, importedAuthFns);
   }
 }
 
 // ---- SEC-4: Default deny ----
 
 function checkDefaultDeny(rootMatch: MatchBlock, findings: ValidationFinding[]) {
-  const hasDefaultDeny = rootMatch.children.some(child => {
-    const isWholeDbWildcard =
-      child.path.segments.length === 1 && child.path.segments[0].type === 'recursive';
-    if (!isWholeDbWildcard || child.allows.length === 0) return false;
+  const coversDeny = (block: MatchBlock): boolean => {
+    if (block.allows.length === 0) return false;
     const deniedOps = new Set<Operation>();
-    for (const a of child.allows) {
+    for (const a of block.allows) {
       const folded = foldConstants(a.condition);
       if (folded.type !== 'literal' || folded.value !== false) return false;
       for (const op of a.operations) deniedOps.add(op);
@@ -226,7 +252,21 @@ function checkDefaultDeny(rootMatch: MatchBlock, findings: ValidationFinding[]) 
       deniedOps.has('write') ||
       (deniedOps.has('create') && deniedOps.has('update') && deniedOps.has('delete'));
     return coversRead && coversWrite;
-  });
+  };
+
+  const isRootWithTrailingRecursive =
+    ((rootMatch.path.raw.includes('databases') && rootMatch.path.raw.includes('documents')) ||
+      (rootMatch.path.raw.includes('/b/') && rootMatch.path.raw.includes('/o'))) &&
+    rootMatch.path.segments.length > 0 &&
+    rootMatch.path.segments[rootMatch.path.segments.length - 1]?.type === 'recursive';
+
+  const hasDefaultDeny =
+    (isRootWithTrailingRecursive && coversDeny(rootMatch)) ||
+    rootMatch.children.some(child => {
+      const isWholeDbWildcard =
+        child.path.segments.length === 1 && child.path.segments[0].type === 'recursive';
+      return isWholeDbWildcard && coversDeny(child);
+    });
 
   if (!hasDefaultDeny) {
     findings.push({
@@ -314,11 +354,15 @@ function isRequestAuth(e: Expression): boolean {
   return obj !== null && obj.type === 'identifier' && obj.name === 'request';
 }
 
+function isRequestResource(e: Expression): boolean {
+  const reqObj = propTarget(e, 'resource');
+  return reqObj !== null && reqObj.type === 'identifier' && reqObj.name === 'request';
+}
+
 function isRequestResourceData(e: Expression): boolean {
   const resObj = propTarget(e, 'data');
   if (!resObj) return false;
-  const reqObj = propTarget(resObj, 'resource');
-  return reqObj !== null && reqObj.type === 'identifier' && reqObj.name === 'request';
+  return isRequestResource(resObj);
 }
 
 function isResourceData(e: Expression): boolean {
@@ -383,7 +427,11 @@ function guardsConditionTransitive(
   return found;
 }
 
-function checkAuthAtom(expr: Expression): boolean | null {
+function checkAuthAtom(
+  expr: Expression,
+  fns: ReadonlyMap<string, FunctionDef>,
+  importedAuthFns: ReadonlySet<string>,
+): boolean | null {
   if (expr.type === 'unaryOp' && expr.op === '!') {
     if (isAuthComparisonWithNull(expr.operand, '==')) return true;
     if (isAuthComparisonWithNull(expr.operand, '!=')) return false;
@@ -391,11 +439,17 @@ function checkAuthAtom(expr: Expression): boolean | null {
   }
   if (isAuthComparisonWithNull(expr, '==')) return false;
   if (exprContains(expr, isRequestAuth)) return true;
+  if (
+    importedAuthFns.size > 0 &&
+    exprContains(expr, e => e.type === 'functionCall' && !fns.has(e.name) && importedAuthFns.has(e.name))
+  ) {
+    return true;
+  }
   return null;
 }
 
-function checkRequestDataAtom(expr: Expression): boolean | null {
-  if (exprContains(expr, isRequestResourceData)) return true;
+function checkRequestDataAtom(expr: Expression, isStorage = false): boolean | null {
+  if (exprContains(expr, isStorage ? isRequestResource : isRequestResourceData)) return true;
   return null;
 }
 
@@ -403,16 +457,18 @@ function guardsAuthTransitive(
   expr: Expression,
   fns: ReadonlyMap<string, FunctionDef>,
   fnScopes: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
+  importedAuthFns: ReadonlySet<string> = new Set(),
 ): boolean {
-  return guardsConditionTransitive(expr, checkAuthAtom, fns, fnScopes);
+  return guardsConditionTransitive(expr, e => checkAuthAtom(e, fns, importedAuthFns), fns, fnScopes);
 }
 
 function validatesRequestDataTransitive(
   expr: Expression,
   fns: ReadonlyMap<string, FunctionDef>,
   fnScopes: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
+  isStorage = false,
 ): boolean {
-  return guardsConditionTransitive(expr, checkRequestDataAtom, fns, fnScopes);
+  return guardsConditionTransitive(expr, e => checkRequestDataAtom(e, isStorage), fns, fnScopes);
 }
 
 function referencesExprAnyTransitive(

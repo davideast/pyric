@@ -136,6 +136,23 @@ describe('install', () => {
       expect(res.summary).toContain(expected);
     }
   });
+
+  it('rejects service firebase.storage rulesets in compileFailure and install (ST-CON-5)', async () => {
+    const storageSource = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if true;
+    }
+  }
+}`;
+    const failure = FIRESTORE_RULES.compileFailure(storageSource);
+    expect(failure).not.toBeNull();
+    expect(failure?.body).toContain("Expected 'service cloud.firestore', got 'service firebase.storage'.");
+    const res = await FIRESTORE_RULES.install(freshContext(), storageSource);
+    expect(res.ok).toBe(false);
+    expect(res.summary).toContain("Expected 'service cloud.firestore', got 'service firebase.storage'.");
+  });
 });
 
 describe('simulate', () => {

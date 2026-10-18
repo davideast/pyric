@@ -35,6 +35,16 @@ export const FIRESTORE_GLOBAL_FUNCTIONS: ReadonlySet<string> = new Set([
   'path',
 ]);
 
+/** Bare-call functions every Storage rule can call: type conversions and `path`.
+ *  Storage rules access Firestore documents via `firestore.get()` and
+ *  `firestore.exists()`, NOT bare `get()` / `exists()`. */
+export const STORAGE_GLOBAL_FUNCTIONS: ReadonlySet<string> = new Set([
+  'int',
+  'float',
+  'string',
+  'path',
+]);
+
 /** Identifiers every Firestore rule can read: the request and resource
  *  values and the method namespaces. */
 export const FIRESTORE_GLOBAL_IDENTIFIERS: ReadonlySet<string> = new Set([
@@ -47,6 +57,13 @@ export const FIRESTORE_GLOBAL_IDENTIFIERS: ReadonlySet<string> = new Set([
   'hashing',
 ]);
 
+/** Identifiers every Storage rule can read: the Firestore global identifiers
+ *  plus the `firestore` cross-service lookup namespace. */
+export const STORAGE_GLOBAL_IDENTIFIERS: ReadonlySet<string> = new Set([
+  ...FIRESTORE_GLOBAL_IDENTIFIERS,
+  'firestore',
+]);
+
 /** The names visible where one rule or function is declared. */
 export interface NameScope {
   /** Label of the declaring scope: a match path, `service <name>`, or `global scope`. */
@@ -55,6 +72,10 @@ export interface NameScope {
   functions: ReadonlyMap<string, FunctionDef>;
   /** Path captures bound by the enclosing match blocks. */
   captures: ReadonlySet<string>;
+  /** Global function names (built-ins + module imports) visible in this ruleset. */
+  globalFunctions?: ReadonlySet<string>;
+  /** Global identifier names visible in this ruleset. */
+  globalIdentifiers?: ReadonlySet<string>;
 }
 
 export interface ScopedFunction extends NameScope { fn: FunctionDef }
@@ -68,22 +89,37 @@ export interface RulesetScopes {
 /** Every function declaration and allow rule, each with the names its scope makes visible. */
 export function collectRulesetScopes(ast: FirestoreRules): RulesetScopes {
   const out: RulesetScopes = { functions: [], rules: [] };
+  const isStorage = ast.service?.name === 'firebase.storage';
+  const globalFunctions = new Set(isStorage ? STORAGE_GLOBAL_FUNCTIONS : FIRESTORE_GLOBAL_FUNCTIONS);
+  for (const imp of ast.imports ?? []) {
+    const names = imp.functions ?? (imp as { names?: string[] }).names ?? [];
+    for (const name of names) globalFunctions.add(name);
+  }
+  const globalIdentifiers = isStorage ? STORAGE_GLOBAL_IDENTIFIERS : FIRESTORE_GLOBAL_IDENTIFIERS;
   const globalFns = ast.functions ?? [];
   const serviceFns = ast.service.functions ?? [];
   const globalScope = withFunctions(new Map(), globalFns);
   const serviceScope = withFunctions(globalScope, serviceFns);
   const none: ReadonlySet<string> = new Set();
-  for (const fn of globalFns) out.functions.push({ fn, label: 'global scope', functions: globalScope, captures: none });
+  for (const fn of globalFns) {
+    out.functions.push({ fn, label: 'global scope', functions: globalScope, captures: none, globalFunctions, globalIdentifiers });
+  }
   const serviceLabel = `service ${ast.service.name}`;
-  for (const fn of serviceFns) out.functions.push({ fn, label: serviceLabel, functions: serviceScope, captures: none });
+  for (const fn of serviceFns) {
+    out.functions.push({ fn, label: serviceLabel, functions: serviceScope, captures: none, globalFunctions, globalIdentifiers });
+  }
 
   const walk = (match: MatchBlock, outerFns: ReadonlyMap<string, FunctionDef>, outerCaptures: ReadonlySet<string>) => {
     const functions = withFunctions(outerFns, match.functions);
     const captures = new Set(outerCaptures);
     for (const seg of match.path.segments) if (seg.type !== 'literal') captures.add(seg.name);
     const label = match.path.raw;
-    for (const fn of match.functions) out.functions.push({ fn, label, functions, captures });
-    for (const rule of match.allows) out.rules.push({ rule, match, label, functions, captures });
+    for (const fn of match.functions) {
+      out.functions.push({ fn, label, functions, captures, globalFunctions, globalIdentifiers });
+    }
+    for (const rule of match.allows) {
+      out.rules.push({ rule, match, label, functions, captures, globalFunctions, globalIdentifiers });
+    }
     for (const child of match.children) walk(child, functions, captures);
   };
   walk(ast.service.match, serviceScope, none);
@@ -130,18 +166,20 @@ function emptyRefs(): NameReferences {
 }
 
 function collectReferences(expr: Expression, scope: NameScope, locals: ReadonlySet<string>, refs: NameReferences): void {
+  const globalIdentifiers = scope.globalIdentifiers ?? FIRESTORE_GLOBAL_IDENTIFIERS;
+  const globalFunctions = scope.globalFunctions ?? FIRESTORE_GLOBAL_FUNCTIONS;
   const addOnce = <T>(list: T[], value: T) => { if (!list.includes(value)) list.push(value); };
   const walk = (e: Expression): void => {
     switch (e.type) {
       case 'identifier':
-        if (!locals.has(e.name) && !scope.captures.has(e.name) && !FIRESTORE_GLOBAL_IDENTIFIERS.has(e.name)) {
+        if (!locals.has(e.name) && !scope.captures.has(e.name) && !globalIdentifiers.has(e.name)) {
           addOnce(refs.unboundVariables, e.name);
         }
         return;
       case 'functionCall': {
         const target = scope.functions.get(e.name);
         if (target) addOnce(refs.callees, target);
-        else if (!FIRESTORE_GLOBAL_FUNCTIONS.has(e.name)) addOnce(refs.undefinedCalls, e.name);
+        else if (!globalFunctions.has(e.name)) addOnce(refs.undefinedCalls, e.name);
         e.args.forEach(walk);
         return;
       }

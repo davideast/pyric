@@ -600,3 +600,52 @@ describe('BOOL_TOKEN_CLAIM', () => {
     expect(findings(r, 'BOOL_TOKEN_CLAIM').length).toBe(0);
   });
 });
+
+describe('ST-LNT-5: Storage hallucinations and 3-segment wrong context paths', () => {
+  test('flags request.auth.id, resource.data, request.resource.data, and resource.timeUpdated in Storage rules, and avoids recommending request.resource.data', () => {
+    const storageRules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /files/{fileId} {
+      allow read: if request.auth != null
+        && request.auth.id == resource.data.ownerId
+        && resource.timeUpdated == request.time;
+      allow write: if request.auth != null
+        && request.resource.data.ownerId == request.auth.uid;
+    }
+    match /bad/{fileId} {
+      allow write: if request.auth != null && request.data.owner == request.auth.uid;
+    }
+    match /open/{fileId} {
+      allow write: if true;
+    }
+  }
+}`;
+    const r = lintFirestoreRules(storageRules);
+    const wrongPaths = findings(r, 'WRONG_CONTEXT_PATH');
+    expect(wrongPaths.some(w => w.message.startsWith('`resource.data`'))).toBe(true);
+    expect(wrongPaths.some(w => w.message.startsWith('`request.resource.data`'))).toBe(true);
+    expect(wrongPaths.some(w => w.message.includes('timeUpdated'))).toBe(true);
+    expect(wrongPaths.some(w => w.message.startsWith('`request.auth.id`'))).toBe(true);
+
+    const reqDataFix = wrongPaths.find(w => w.message.startsWith('`request.data`'))?.fix ?? '';
+    const permissiveFix = findings(r, 'PERMISSIVE_RULE')[0]?.fix ?? '';
+    expect(reqDataFix).not.toContain('request.resource.data');
+    expect(permissiveFix).not.toContain('request.resource.data');
+  });
+
+  test('does not flag resource.size or request.resource.size as METHOD_MISSING_PARENS in Storage rules', () => {
+    const storageRules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /files/{fileId} {
+      allow write: if request.auth != null
+        && request.resource.size < 1048576
+        && (resource == null || resource.size > 0);
+    }
+  }
+}`;
+    const r = lintFirestoreRules(storageRules);
+    expect(findings(r, 'METHOD_MISSING_PARENS')).toHaveLength(0);
+  });
+});

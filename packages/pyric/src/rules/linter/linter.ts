@@ -215,6 +215,60 @@ function checkGlobMatchCount(violations: readonly CompileLimitViolation[], warni
   }
 }
 
+function checkAdditionalCompileRejections(
+  ast: FirestoreRules,
+  violations: readonly CompileLimitViolation[],
+  warnings: LintWarning[],
+) {
+  for (const violation of violations) {
+    switch (violation.code) {
+      case 'UNSUPPORTED_RULES_VERSION':
+        warnings.push({
+          rule: 'UNSUPPORTED_RULES_VERSION',
+          severity: 'error',
+          message: violation.message,
+          fix: "Set rules_version to '1', '2', or '2+modules'.",
+        });
+        break;
+      case 'UNRESOLVED_MODULES':
+        if (ast.version !== '2+modules') {
+          warnings.push({
+            rule: 'UNRESOLVED_MODULES',
+            severity: 'error',
+            message: violation.message,
+            fix: "Set `rules_version = '2+modules';` or resolve module imports before compiling.",
+          });
+        }
+        break;
+      case 'INVALID_REGEX_PATTERN':
+        warnings.push({
+          rule: 'INVALID_REGEX_PATTERN',
+          severity: 'error',
+          message: violation.message,
+          ...(violation.functionName !== undefined ? { location: { functionName: violation.functionName } } : {}),
+          fix: 'Rewrite the regular expression using RE2-compatible syntax (no lookahead, lookbehind, or backreferences).',
+        });
+        break;
+      case 'FUNCTION_REDEFINED':
+        warnings.push({
+          rule: 'FUNCTION_REDEFINED',
+          severity: 'error',
+          message: violation.message,
+          ...(violation.functionName !== undefined || violation.scope !== undefined
+            ? {
+                location: {
+                  ...(violation.functionName !== undefined ? { functionName: violation.functionName } : {}),
+                  ...(violation.scope !== undefined ? { matchPath: violation.scope } : {}),
+                },
+              }
+            : {}),
+          fix: `Rename or remove the duplicate declaration of '${violation.functionName ?? 'function'}' in ${violation.scope ?? 'this scope'}.`,
+        });
+        break;
+    }
+  }
+}
+
 /**
  * The member chain length at which production's Rules Test API failed: a
  * ruleset holding a 4,900-term chain (`request.auth.token.m.m...`) drew an
@@ -419,26 +473,32 @@ function checkGetCount(
   ruleScopes: ReadonlyMap<AllowRule, ReadonlyMap<string, FunctionDef>>,
   fnScopes: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
   warnings: LintWarning[],
+  isStorage = false,
 ) {
   const emptyScope = new Map<string, FunctionDef>();
+  const errorLimit = isStorage ? 2 : THRESHOLDS.GET_COUNT_ERROR;
+  const warnLimit = isStorage ? 2 : THRESHOLDS.GET_COUNT_WARN;
+  const callLabel = isStorage
+    ? 'firestore.get()/firestore.exists()'
+    : 'get()/exists()/getAfter()/existsAfter()';
   for (let i = 0; i < rules.length; i++) {
     const fnMap = ruleScopes.get(rules[i].rule) ?? emptyScope;
     const count = countDocumentAccessCalls(rules[i].rule.condition, fnMap, new Set(), fnScopes);
-    // Error only ABOVE the limit: production allows exactly 10 and fails
-    // the 11th, so a rule at exactly 10 is legal (still worth the WARN).
-    if (count > THRESHOLDS.GET_COUNT_ERROR) {
+    // Error only ABOVE the limit: production allows exactly 10 (or 2 in Storage)
+    // and fails the next, so a rule at the limit is legal (still worth the WARN).
+    if (count > errorLimit) {
       warnings.push({
         rule: 'GET_COUNT',
         severity: 'error',
-        message: `Rule #${i} may invoke ${count} get()/exists()/getAfter()/existsAfter() calls. Limit is ${THRESHOLDS.GET_COUNT_ERROR}.`,
+        message: `Rule #${i} may invoke ${count} ${callLabel} calls. Limit is ${errorLimit}.`,
         location: { ruleIndex: i },
         fix: 'Cache get() results via a config() wrapper function. Same-path calls are cached by Firestore.',
       });
-    } else if (count >= THRESHOLDS.GET_COUNT_WARN) {
+    } else if (count >= warnLimit) {
       warnings.push({
         rule: 'GET_COUNT',
         severity: 'warning',
-        message: `Rule #${i} invokes ${count} get()/exists()/getAfter()/existsAfter() calls. Limit is ${THRESHOLDS.GET_COUNT_ERROR}.`,
+        message: `Rule #${i} invokes ${count} ${callLabel} calls. Limit is ${errorLimit}.`,
         location: { ruleIndex: i },
       });
     }
@@ -559,6 +619,7 @@ function checkPermissiveRules(
   rules: { rule: AllowRule; path: string }[],
   scopes: ReadonlyMap<AllowRule, RuleScope>,
   warnings: LintWarning[],
+  isStorage = false,
 ) {
   for (let i = 0; i < rules.length; i++) {
     const r = rules[i]!;
@@ -585,7 +646,9 @@ function checkPermissiveRules(
         + `the predicate to the specific request shape instead (auth identity, `
         + `affected fields via diff, status transitions).`,
       location: { ruleIndex: i, matchPath: r.path },
-      fix: 'Replace the always-true predicate with a request-shape check (e.g. request.auth != null && request.resource.data.ownerId == request.auth.uid).',
+      fix: isStorage
+        ? "Replace the always-true predicate with a request-shape check (e.g. request.auth != null && request.resource.size < 5 * 1024 * 1024 && request.resource.contentType.matches('image/.*'))."
+        : 'Replace the always-true predicate with a request-shape check (e.g. request.auth != null && request.resource.data.ownerId == request.auth.uid).',
     });
   }
 }
@@ -877,6 +940,7 @@ function analyzeParsedRules(
   warnings: LintWarning[],
 ): LintResult {
   // Collect all functions and rules from the AST
+  const isStorage = ast.service?.name === 'firebase.storage';
   const allFunctions = collectDeclaredFunctions(ast);
   const allRules = collectAllRules(ast.service.match);
   const scopes = collectRulesetScopes(ast);
@@ -892,11 +956,12 @@ function analyzeParsedRules(
   // checks below is still reported by length.
   checkMemberChainLength(ast, allFunctions, warnings);
 
-  // Rules 2 and 2b: Nesting depth, slash starts path, and recursive glob count
+  // Rules 2 and 2b: Nesting depth, slash starts path, recursive glob count, and other compile rejections
   const violations = compileLimitViolations(ast);
   checkNestingDepth(violations, warnings);
   checkSlashStartsPath(violations, warnings);
   checkGlobMatchCount(violations, warnings);
+  checkAdditionalCompileRejections(ast, violations, warnings);
 
   // Rule 3: Let bindings
   checkLetBindings(allFunctions, warnings);
@@ -915,7 +980,7 @@ function analyzeParsedRules(
   const callDepths = checkCallDepth(scopes, warnings);
 
   // Rule 7: Get count
-  checkGetCount(allRules, ruleScopes, fnScopes, warnings);
+  checkGetCount(allRules, ruleScopes, fnScopes, warnings, isStorage);
 
   // Rule 8: Get duplication (same get()-containing function called multiple times)
   checkGetDuplication(allRules, ruleScopes, fnScopes, warnings);
@@ -936,7 +1001,7 @@ function analyzeParsedRules(
   // Paths are relative to the documents root, so its children start empty.
   const recursiveScopes = new Map<AllowRule, RuleScope>();
   for (const child of ast.service.match.children) collectRecursiveScopes(child, [], recursiveScopes);
-  checkPermissiveRules(allRules, recursiveScopes, warnings);
+  checkPermissiveRules(allRules, recursiveScopes, warnings, isStorage);
   checkRecursiveWildcardOpen(recursiveScopes, warnings);
 
   // Rule 10: request.time without pinned TestCase.requestTime

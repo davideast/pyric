@@ -112,22 +112,44 @@ export const VALID_MATH_METHODS = new Set(['abs', 'ceil', 'floor', 'round', 'sqr
  * identifiers in the rules language — there's no way the user has
  * shadowed them.
  */
-interface WrongPath { receiver: string; property: string; suggestion: string }
+interface WrongPath {
+  receiver: string;
+  property: string;
+  suggestion: string;
+  storageSuggestion?: string;
+  storageOnly?: boolean;
+}
 const WRONG_CONTEXT_PATHS: WrongPath[] = [
   { receiver: 'request',  property: 'data',
-    suggestion: 'Use `request.resource.data` (the incoming write payload)' },
+    suggestion: 'Use `request.resource.data` (the incoming write payload)',
+    storageSuggestion: 'Use `request.resource` (e.g. `request.resource.size`, `request.resource.contentType`, or `request.resource.metadata`)' },
   { receiver: 'request',  property: 'uid',
     suggestion: 'Use `request.auth.uid`' },
   { receiver: 'request',  property: 'token',
     suggestion: 'Use `request.auth.token`' },
   { receiver: 'request',  property: 'user',
     suggestion: 'Use `request.auth` (or `request.auth.uid` for the user id)' },
+  { receiver: 'request.auth', property: 'id',
+    suggestion: 'Use `request.auth.uid`' },
   { receiver: 'resource', property: 'path',
     suggestion: '`resource.path` is not available — bind path captures in the match pattern' },
   { receiver: 'resource', property: 'exists',
-    suggestion: 'Use `resource != null` (or `exists()` for cross-document checks)' },
+    suggestion: 'Use `resource != null` (or `exists()` for cross-document checks)',
+    storageSuggestion: 'Use `resource != null` (or `firestore.exists()` for cross-service document checks)' },
   { receiver: 'resource', property: 'id',
     suggestion: '`resource.id` is not available — capture the document id with `/{docId}` in the match path' },
+  { receiver: 'resource', property: 'data',
+    suggestion: '`resource.data` does not exist in Storage rules — use `resource.size`, `resource.contentType`, or `resource.metadata`',
+    storageOnly: true },
+  { receiver: 'request.resource', property: 'data',
+    suggestion: '`request.resource.data` does not exist in Storage rules — use `request.resource.size`, `request.resource.contentType`, or `request.resource.metadata`',
+    storageOnly: true },
+  { receiver: 'resource', property: 'timeUpdated',
+    suggestion: 'Use `resource.updated` instead of `resource.timeUpdated`',
+    storageOnly: true },
+  { receiver: 'request.resource', property: 'timeUpdated',
+    suggestion: 'Use `request.resource.updated` instead of `request.resource.timeUpdated`',
+    storageOnly: true },
 ];
 
 /**
@@ -333,11 +355,27 @@ function isHallucinatedGlobalIdentifier(expr: Expression, localVars: ReadonlySet
   return Object.hasOwn(HALLUCINATED_GLOBALS, expr.name);
 }
 
-function isWrongContextPath(expr: Expression): { suggestion: string } | undefined {
-  if (expr.type !== 'memberAccess' || expr.object.type !== 'identifier') return undefined;
-  const recv = expr.object.name;
+function isWrongContextPath(
+  expr: Expression,
+  isStorage = false,
+): { path: string; suggestion: string } | undefined {
+  if (expr.type !== 'memberAccess') return undefined;
+  let recv: string | undefined;
+  if (expr.object.type === 'identifier') {
+    recv = expr.object.name;
+  } else if (expr.object.type === 'memberAccess' && expr.object.object.type === 'identifier') {
+    recv = `${expr.object.object.name}.${expr.object.property}`;
+  }
+  if (!recv) return undefined;
   const prop = expr.property;
-  return WRONG_CONTEXT_PATHS.find(p => p.receiver === recv && p.property === prop);
+  const match = WRONG_CONTEXT_PATHS.find(
+    p => p.receiver === recv && p.property === prop && (!p.storageOnly || isStorage),
+  );
+  if (!match) return undefined;
+  return {
+    path: `${recv}.${prop}`,
+    suggestion: isStorage && match.storageSuggestion ? match.storageSuggestion : match.suggestion,
+  };
 }
 
 /** Is `expr` a member access spelling exactly `request.auth.token.<claim>`
@@ -375,8 +413,18 @@ function isLengthPropertyAccessOnMethod(expr: Expression): boolean {
   return expr.type === 'memberAccess' && expr.property === 'length' && expr.object.type === 'methodCall';
 }
 
-function isMethodMissingParens(expr: Expression): boolean {
+function isMethodMissingParens(expr: Expression, isStorage = false): boolean {
   if (expr.type !== 'memberAccess' || !KNOWN_BUILTIN_METHODS.has(expr.property)) return false;
+  if (isStorage && expr.property === 'size') {
+    const isResourceSize =
+      expr.object.type === 'identifier' && expr.object.name === 'resource';
+    const isRequestResourceSize =
+      expr.object.type === 'memberAccess' &&
+      expr.object.property === 'resource' &&
+      expr.object.object.type === 'identifier' &&
+      expr.object.object.name === 'request';
+    if (isResourceSize || isRequestResourceSize) return false;
+  }
   const isLikelyData =
     (expr.object.type === 'identifier' &&
       (expr.object.name === 'request' || expr.object.name === 'resource')) ||
@@ -389,6 +437,7 @@ function isMethodMissingParens(expr: Expression): boolean {
 export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?: boolean } = {}): LintWarning[] {
   const warnings: LintWarning[] = [];
   const seen = new Set<string>();
+  const isStorage = ast.service?.name === 'firebase.storage';
 
   function emit(rule: string, key: string, loc: Loc, w: LintWarning) {
     const dedup = `${rule}|${key}|${loc.matchPath || ''}|${loc.functionName || ''}|${loc.ruleIndex ?? ''}`;
@@ -400,6 +449,10 @@ export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?:
   // Functions declared above `service` and directly inside it are visible
   // everywhere below, so they seed the scope the walk carries down.
   const globalScope = new Set<string>();
+  for (const imp of ast.imports ?? []) {
+    const names = imp.functions ?? (imp as { names?: string[] }).names ?? [];
+    for (const name of names) globalScope.add(name);
+  }
   for (const fn of ast.functions ?? []) globalScope.add(fn.name);
   const outerScope = new Set<string>(globalScope);
   for (const fn of ast.service.functions ?? []) outerScope.add(fn.name);
@@ -491,19 +544,15 @@ export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?:
       }
     }
 
-    const wrongContextMatch = isWrongContextPath(expr);
+    const wrongContextMatch = isWrongContextPath(expr, isStorage);
     if (wrongContextMatch) {
-      if (expr.type === 'memberAccess' && expr.object.type === 'identifier') {
-        const recv = expr.object.name;
-        const prop = expr.property;
-        emit('WRONG_CONTEXT_PATH', `${recv}.${prop}`, loc, {
-          rule: 'WRONG_CONTEXT_PATH',
-          severity: 'error',
-          message: `\`${recv}.${prop}\` is not a valid Firestore rules path. ${wrongContextMatch.suggestion}`,
-          location: loc,
-          fix: wrongContextMatch.suggestion,
-        });
-      }
+      emit('WRONG_CONTEXT_PATH', wrongContextMatch.path, loc, {
+        rule: 'WRONG_CONTEXT_PATH',
+        severity: 'error',
+        message: `\`${wrongContextMatch.path}\` is not a valid ${isStorage ? 'Storage' : 'Firestore'} rules path. ${wrongContextMatch.suggestion}`,
+        location: loc,
+        fix: wrongContextMatch.suggestion,
+      });
     }
 
     const boolClaim = boolTokenClaimStringComparison(expr);
@@ -551,7 +600,7 @@ export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?:
       }
     }
 
-    if (isMethodMissingParens(expr)) {
+    if (isMethodMissingParens(expr, isStorage)) {
       if (expr.type === 'memberAccess') {
         emit('METHOD_MISSING_PARENS', expr.property, loc, {
           rule: 'METHOD_MISSING_PARENS',
