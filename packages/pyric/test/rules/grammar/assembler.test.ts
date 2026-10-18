@@ -533,4 +533,44 @@ describe('precedence stress tests', () => {
       bin('&&', bin('&&', id('a'), unary('!', bin('||', id('b'), id('c')))), id('d'))
     )).toBe('a && !(b || c) && d');
   });
+
+  test('preserves slashStartsPath token hazard when assembling division without space after slash', () => {
+    const expr: Expression = {
+      type: 'binaryOp',
+      op: '/',
+      left: lit(4, '4'),
+      right: lit(2, '2'),
+      slashStartsPath: true,
+    };
+    expect(assembleExpression(expr)).toBe('4/2');
+  });
+
+  test('escapes single quotes and backslashes in module specifiers and version strings', () => {
+    const ast: FirestoreRules = {
+      version: '2+modules',
+      imports: [
+        { functions: ['allowRead'], module: "./user's-policy" },
+        { functions: ['check'], module: './dir\\bad_escape' },
+      ],
+      service: {
+        name: 'cloud.firestore',
+        match: {
+          path: {
+            raw: '/databases/{database}/documents',
+            segments: [
+              { type: 'literal', value: 'databases' },
+              { type: 'wildcard', name: 'database' },
+              { type: 'literal', value: 'documents' },
+            ],
+          },
+          functions: [],
+          allows: [{ operations: ['read'], condition: lit(true) }],
+          children: [],
+        },
+      },
+    };
+    const out = assembleRules(ast);
+    expect(out).toContain("import { allowRead } from './user\\'s-policy';");
+    expect(out).toContain("import { check } from './dir\\\\bad_escape';");
+  });
 });

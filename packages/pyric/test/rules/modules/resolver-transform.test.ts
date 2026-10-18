@@ -24,6 +24,8 @@ describe('sanitizeModuleName', () => {
   test('./lib/helpers → lib_helpers', () => expect(sanitizeModuleName('./lib/helpers')).toBe('lib_helpers'));
   test('auth → auth', () => expect(sanitizeModuleName('auth')).toBe('auth'));
   test('../shared/utils → _shared_utils', () => expect(sanitizeModuleName('../shared/utils')).toBe('_shared_utils'));
+  test('./2fa → _2fa (leading digit prefixed with underscore)', () => expect(sanitizeModuleName('./2fa')).toBe('_2fa'));
+  test('2fa → _2fa (leading digit prefixed with underscore)', () => expect(sanitizeModuleName('2fa')).toBe('_2fa'));
 });
 describe('rewriteCalls', () => {
   const renames = new Map([['helper', 'mod__helper']]);

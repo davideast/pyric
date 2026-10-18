@@ -257,4 +257,73 @@ ${declaration}`, { modules: {
       expect(result.error.message).toContain("binding 'resource.data");
     }
   });
+
+  test('admits unrequested export name overlap across multiple loaded modules', () => {
+    const result = resolveModulesWith(
+      null,
+      storageSource("import { fnA } from './modA';\nimport { fnB } from './modB';", 'fnA() && fnB()'),
+      {
+        modules: {
+          './modA': 'export function fnA() { return true; }\nexport function validate() { return true; }',
+          './modB': 'export function fnB() { return true; }\nexport function validate() { return false; }',
+        },
+      },
+    );
+    expect(result.success, result.success ? undefined : result.error.message).toBe(true);
+  });
+
+  test('rejects cross-module calls to functions imported only by root', () => {
+    const result = resolveModulesWith(
+      null,
+      storageSource("import { a } from './a.rules';\nimport { b } from './b.rules';", 'a() && b()'),
+      {
+        modules: {
+          './a.rules': 'export function a() { return b(); }',
+          './b.rules': 'export function b() { return true; }',
+        },
+      },
+    );
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('UNKNOWN_FUNCTION');
+  });
+
+  test('rejects root calls to unimported transitive exports and private module helpers', () => {
+    const transitive = resolveModulesWith(
+      null,
+      storageSource("import { pub } from './m';", 'pub() && transitive()'),
+      {
+        modules: {
+          './m': 'export function transitive() { return true; }\nexport function pub() { return transitive(); }',
+        },
+      },
+    );
+    expect(transitive.success).toBe(false);
+    if (!transitive.success) expect(transitive.error.code).toBe('UNKNOWN_FUNCTION');
+
+    const priv = resolveModulesWith(
+      null,
+      storageSource("import { pub } from './m';", 'pub() && m__secret()'),
+      {
+        modules: {
+          './m': 'function secret() { return true; }\nexport function pub() { return secret(); }',
+        },
+      },
+    );
+    expect(priv.success).toBe(false);
+    if (!priv.success) expect(priv.error.code).toBe('UNKNOWN_FUNCTION');
+  });
+
+  test('rejects source functions colliding with Rules builtins even when there are no imports', () => {
+    const result = resolveModulesWith(null, `rules_version = '2+modules';
+service firebase.storage {
+  function exists() { return true; }
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read: if exists();
+    }
+  }
+}`);
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('DUPLICATE_FUNCTION');
+  });
 });

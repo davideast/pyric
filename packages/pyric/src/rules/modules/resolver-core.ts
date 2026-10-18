@@ -190,8 +190,26 @@ function isRelativeImport(moduleName: string): boolean {
 }
 
 function conventionalStdlibKey(moduleName: string): string | null {
-  return /^\.\/stdlib\/([A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*)\.rules$/
+  return /^\.\/stdlib\/([A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*)(?:\.rules)?$/
     .exec(moduleName)?.[1] ?? null;
+}
+
+function canonicalModuleKey(
+  reader: ModuleFileReader | null,
+  moduleName: string,
+  options?: ResolveOptions,
+  bundledSuppliedModules: ReadonlySet<string> = new Set(),
+): string {
+  if (options?.modules && Object.prototype.hasOwnProperty.call(options.modules, moduleName)) {
+    if (!bundledSuppliedModules.has(moduleName)) return moduleName;
+    return conventionalStdlibKey(moduleName) ?? moduleName;
+  }
+  if (isRelativeImport(moduleName) && options?.basePath) {
+    if ((reader?.readRelative(options.basePath, moduleName) ?? null) !== null) {
+      return moduleName;
+    }
+  }
+  return conventionalStdlibKey(moduleName) ?? moduleName;
 }
 
 export function loadModuleWith(
@@ -221,6 +239,11 @@ export function loadModuleWith(
   // a real basePath file still wins; only an unresolved alias reaches here.
   const stdlibKey = conventionalStdlibKey(moduleName);
   if (stdlibKey) {
+    if (options?.modules && Object.prototype.hasOwnProperty.call(options.modules, stdlibKey)) {
+      return loadModuleFromContent(
+        options.modules[stdlibKey], moduleName, bundledSuppliedModules.has(stdlibKey),
+      );
+    }
     const content = reader?.readStdlib(stdlibKey) ?? null;
     if (content === null) {
       return { success: false, error: { code: 'UNKNOWN_MODULE', message: `Module '${moduleName}' not found` } };
@@ -300,6 +323,27 @@ export function resolveModulesWith(
     }
   }
 
+  const sourceFnNames = new Set([
+    ...(ast.functions ?? []).map((fn) => fn.name),
+    ...(ast.service.functions ?? []).map((fn) => fn.name),
+  ]);
+  const collectMatchFunctions = (match: typeof ast.service.match): void => {
+    match.functions.forEach((fn) => sourceFnNames.add(fn.name));
+    match.children.forEach(collectMatchFunctions);
+  };
+  collectMatchFunctions(ast.service.match);
+  const builtinSourceCollision = [...sourceFnNames]
+    .find((name) => RULES_BUILTIN_FUNCTIONS.has(name));
+  if (builtinSourceCollision) {
+    return {
+      success: false,
+      error: {
+        code: 'DUPLICATE_FUNCTION',
+        message: `Source function '${builtinSourceCollision}' conflicts with a Rules builtin`,
+      },
+    };
+  }
+
   const isNoImports = ast.imports.length === 0;
   if (isNoImports) {
     ast.version = '2';
@@ -327,9 +371,9 @@ export function resolveModulesWith(
   }
 
   // 3. Load all modules and collect exported functions + all functions (for transitive deps)
-  const exportedFunctions = new Map<string, FunctionDef>();
-  const allModuleFunctions = new Map<string, FunctionDef>();
-  const moduleOrigin = new Map<string, string>();
+  const functionsPerModule = new Map<string, Map<string, FunctionDef>>();
+  const anyModuleFunctionOrigin = new Map<string, string>();
+  const displayNamePerModule = new Map<string, string>();
   const functionOrigin = new Map<string, string>();
   const modulesUsed: string[] = [];
   const bundledModulesUsed: string[] = [];
@@ -339,24 +383,22 @@ export function resolveModulesWith(
   // queued when its file loads, and each module file loads once.
   const exportsPerModule = new Map<string, Set<string>>();
   const bundledPerModule = new Map<string, boolean>();
-  const importsPerModule = new Map<string, Set<string>>();
+  const importsPerModule = new Map<string, Map<string, string>>();
+  const rootImports = new Map<string, string>();
   const pending: Array<ModuleImport & { importer: string | null }> = ast.imports
     .map((imp) => ({ module: imp.module, functions: imp.functions, importer: null }));
 
   for (let imp = pending.shift(); imp !== undefined; imp = pending.shift()) {
-    if (imp.importer !== null) {
-      const names = importsPerModule.get(imp.importer) ?? new Set<string>();
-      for (const name of imp.functions) names.add(name);
-      importsPerModule.set(imp.importer, names);
-    }
+    const modKey = canonicalModuleKey(reader, imp.module, options, bundledSuppliedModules);
 
-    if (!exportsPerModule.has(imp.module)) {
+    if (!exportsPerModule.has(modKey)) {
       const loaded = loadModuleWith(reader, imp.module, options, bundledSuppliedModules);
       if (!loaded.success) {
         return { success: false, error: loaded.error };
       }
       modulesUsed.push(imp.module);
-      bundledPerModule.set(imp.module, loaded.bundled);
+      displayNamePerModule.set(modKey, imp.module);
+      bundledPerModule.set(modKey, loaded.bundled);
       if (loaded.bundled) bundledModulesUsed.push(imp.module);
       for (const nested of loaded.imports) {
         if (nested.functions.length === 0) {
@@ -368,7 +410,7 @@ export function resolveModulesWith(
             },
           };
         }
-        pending.push({ ...nested, module: resolveSpecifier(imp.module, nested.module), importer: imp.module });
+        pending.push({ ...nested, module: resolveSpecifier(imp.module, nested.module), importer: modKey });
       }
 
       const originalNames = new Set<string>();
@@ -404,10 +446,10 @@ export function resolveModulesWith(
       for (const fn of loaded.functions) {
         if (!fn.exported) privateNames.add(fn.name);
       }
-      privateNamesPerModule.set(imp.module, privateNames);
+      privateNamesPerModule.set(modKey, privateNames);
 
       const prefixed = prefixPrivateFunctions(loaded.functions, imp.module);
-      const namesInModule = new Set<string>();
+      const namesInModule = new Map<string, FunctionDef>();
       for (const fn of prefixed) {
         if (namesInModule.has(fn.name)) {
           return {
@@ -418,59 +460,63 @@ export function resolveModulesWith(
             },
           };
         }
-        namesInModule.add(fn.name);
+        namesInModule.set(fn.name, fn);
+        if (!anyModuleFunctionOrigin.has(fn.name)) {
+          anyModuleFunctionOrigin.set(fn.name, imp.module);
+        }
       }
       const moduleExports = new Set(
         prefixed.filter((fn) => fn.exported).map((fn) => fn.name),
       );
-      for (const fn of prefixed) {
-        const existingOrigin = functionOrigin.get(fn.name);
-        if (existingOrigin && existingOrigin !== imp.module) {
-          return {
-            success: false,
-            error: {
-              code: 'DUPLICATE_FUNCTION',
-              message: `Function '${fn.name}' from module '${imp.module}' conflicts with module '${existingOrigin}'`,
-            },
-          };
-        }
-        functionOrigin.set(fn.name, imp.module);
-        allModuleFunctions.set(fn.name, fn);
-
-        if (fn.exported) {
-          if (exportedFunctions.has(fn.name) && moduleOrigin.get(fn.name) !== imp.module) {
-            return {
-              success: false,
-              error: {
-                code: 'DUPLICATE_FUNCTION',
-                message: `Function '${fn.name}' exported by both '${moduleOrigin.get(fn.name)}' and '${imp.module}'`,
-              },
-            };
-          }
-          exportedFunctions.set(fn.name, fn);
-          moduleOrigin.set(fn.name, imp.module);
-        }
-      }
-      exportsPerModule.set(imp.module, moduleExports);
+      functionsPerModule.set(modKey, namesInModule);
+      exportsPerModule.set(modKey, moduleExports);
     }
-    const moduleExports = exportsPerModule.get(imp.module)!;
+    const moduleExports = exportsPerModule.get(modKey)!;
+    const modDisplayName = displayNamePerModule.get(modKey) ?? imp.module;
 
     // Verify all requested functions exist AND are exported
     for (const fnName of imp.functions) {
       if (!moduleExports.has(fnName)) {
-        const isPrivate = privateNamesPerModule.get(imp.module)?.has(fnName);
+        const isPrivate = privateNamesPerModule.get(modKey)?.has(fnName);
         const msg = isPrivate
           ? `Function '${fnName}' in module '${imp.module}' is not exported`
           : `Function '${fnName}' not found in module '${imp.module}'`;
         return { success: false, error: { code: 'UNKNOWN_FUNCTION', message: msg } };
       }
       if (ast.service.name === 'cloud.firestore' || ast.service.name === 'firebase.storage') {
-        const message = bundledPerModule.get(imp.module)
+        const message = bundledPerModule.get(modKey)
           ? incompatibleStdlibExport(ast.service.name, imp.module, fnName)
           : null;
         if (message) {
           return { success: false, error: { code: 'INCOMPATIBLE_FUNCTION', message } };
         }
+      }
+      if (imp.importer === null) {
+        const existingMod = rootImports.get(fnName);
+        if (existingMod !== undefined && existingMod !== modKey) {
+          return {
+            success: false,
+            error: {
+              code: 'DUPLICATE_FUNCTION',
+              message: `Function '${fnName}' exported by both '${displayNamePerModule.get(existingMod)}' and '${modDisplayName}'`,
+            },
+          };
+        }
+        rootImports.set(fnName, modKey);
+      } else {
+        const modImports = importsPerModule.get(imp.importer) ?? new Map<string, string>();
+        const existingMod = modImports.get(fnName);
+        if (existingMod !== undefined && existingMod !== modKey) {
+          return {
+            success: false,
+            error: {
+              code: 'DUPLICATE_FUNCTION',
+              message: `Function '${fnName}' exported by both '${displayNamePerModule.get(existingMod)}' and '${modDisplayName}'`,
+            },
+          };
+        }
+        modImports.set(fnName, modKey);
+        importsPerModule.set(imp.importer, modImports);
       }
     }
   }
@@ -478,39 +524,71 @@ export function resolveModulesWith(
   const requestedNames = new Set(ast.imports.flatMap((imp) => imp.functions));
   // 4. Validate the reachable call graph while building dependency-first order.
   const injected: FunctionDef[] = [];
-  const added = new Set<string>();
-  const visiting: string[] = [];
-  const traversal: { cycle: string[] | null } = { cycle: null };
+  const visiting: Array<{ modKey: string; fnName: string }> = [];
+  const traversal: {
+    cycle: string[] | null;
+    error: { code: string; message: string } | null;
+  } = { cycle: null, error: null };
 
-  function addWithDeps(fnName: string): void {
-    if (traversal.cycle) return;
-    const cycleStart = visiting.indexOf(fnName);
+  function addWithDeps(modKey: string, fnName: string): void {
+    if (traversal.cycle || traversal.error) return;
+    const cycleStart = visiting.findIndex((v) => v.modKey === modKey && v.fnName === fnName);
     if (cycleStart >= 0) {
-      traversal.cycle = [...visiting.slice(cycleStart), fnName];
+      traversal.cycle = [...visiting.slice(cycleStart).map((v) => v.fnName), fnName];
       return;
     }
-    if (added.has(fnName)) return;
-    const fn = allModuleFunctions.get(fnName);
-    if (!fn) return;
-    visiting.push(fnName);
-    const calls = collectCalls(fn.body);
-    for (const binding of fn.lets) {
-      calls.push(...collectCalls(binding.value));
+    const existingOrigin = functionOrigin.get(fnName);
+    if (existingOrigin !== undefined) {
+      if (existingOrigin === modKey) return;
+      traversal.error = {
+        code: 'DUPLICATE_FUNCTION',
+        message: `Function '${fnName}' from module '${displayNamePerModule.get(modKey)}' conflicts with module '${displayNamePerModule.get(existingOrigin)}'`,
+      };
+      return;
     }
+    const fn = functionsPerModule.get(modKey)?.get(fnName);
+    if (!fn) return;
+    visiting.push({ modKey, fnName });
+    const calls = [...fn.lets.flatMap(({ value }) => collectCalls(value)), ...collectCalls(fn.body)];
+    const ownFunctions = functionsPerModule.get(modKey);
+    const ownImports = importsPerModule.get(modKey);
     for (const call of calls) {
-      if (allModuleFunctions.has(call) && !RULES_BUILTIN_FUNCTIONS.has(call)) {
-        addWithDeps(call);
+      if (RULES_BUILTIN_FUNCTIONS.has(call)) continue;
+      if (ownFunctions?.has(call)) {
+        addWithDeps(modKey, call);
+      } else if (ownImports?.has(call)) {
+        addWithDeps(ownImports.get(call)!, call);
+      } else if (anyModuleFunctionOrigin.has(call)) {
+        traversal.error = {
+          code: 'UNKNOWN_FUNCTION',
+          message: `Function '${fn.name}' in module '${displayNamePerModule.get(modKey)}' cannot call '${call}' from another module`,
+        };
+        visiting.pop();
+        return;
+      }
+      if (traversal.cycle || traversal.error) {
+        visiting.pop();
+        return;
       }
     }
     visiting.pop();
-    if (traversal.cycle) return;
-    added.add(fnName);
+    if (traversal.cycle || traversal.error) return;
+    const afterDepsOrigin = functionOrigin.get(fnName);
+    if (afterDepsOrigin !== undefined && afterDepsOrigin !== modKey) {
+      traversal.error = {
+        code: 'DUPLICATE_FUNCTION',
+        message: `Function '${fnName}' from module '${displayNamePerModule.get(modKey)}' conflicts with module '${displayNamePerModule.get(afterDepsOrigin)}'`,
+      };
+      return;
+    }
+    functionOrigin.set(fnName, modKey);
     injected.push({ ...fn, exported: false });
   }
 
   for (const imp of ast.imports) {
+    const modKey = canonicalModuleKey(reader, imp.module, options, bundledSuppliedModules);
     for (const fnName of imp.functions) {
-      addWithDeps(fnName);
+      addWithDeps(modKey, fnName);
     }
   }
   if (traversal.cycle) {
@@ -522,23 +600,11 @@ export function resolveModulesWith(
       },
     };
   }
-  for (const fn of injected) {
-    const origin = functionOrigin.get(fn.name);
-    const calls = [...fn.lets.flatMap(({ value }) => collectCalls(value)), ...collectCalls(fn.body)];
-    const ownImports = origin === undefined ? undefined : importsPerModule.get(origin);
-    const foreignCall = calls.find((call) => {
-      const calledOrigin = functionOrigin.get(call);
-      return calledOrigin && calledOrigin !== origin && !requestedNames.has(call) && !ownImports?.has(call);
-    });
-    if (foreignCall) {
-      return {
-        success: false,
-        error: {
-          code: 'UNKNOWN_FUNCTION',
-          message: `Function '${fn.name}' in module '${origin}' cannot call '${foreignCall}' from another module`,
-        },
-      };
-    }
+  if (traversal.error) {
+    return {
+      success: false,
+      error: traversal.error,
+    };
   }
 
   // 5. Validate source/module scope boundaries and call-site compatibility.
@@ -549,7 +615,7 @@ export function resolveModulesWith(
     expressions: readonly Expression[],
     sourceFunctions: ReadonlySet<string>,
   ): string | null => expressions.flatMap(collectCalls).find((name) =>
-    exportedFunctions.has(name) && !injectedNames.has(name) && !sourceFunctions.has(name)) ?? null;
+    anyModuleFunctionOrigin.has(name) && !requestedNames.has(name) && !sourceFunctions.has(name)) ?? null;
   const functionExpressions = (functions: readonly FunctionDef[]): Expression[] =>
     functions.flatMap((fn) => [...fn.lets.map(({ value }) => value), fn.body]);
   const globalNames = new Set(globalFunctions.keys());
@@ -580,7 +646,7 @@ export function resolveModulesWith(
       success: false,
       error: {
         code: 'UNKNOWN_FUNCTION',
-        message: `Source calls function '${invalidSourceCall}' from module '${moduleOrigin.get(invalidSourceCall)}' without importing it`,
+        message: `Source calls function '${invalidSourceCall}' from module '${anyModuleFunctionOrigin.get(invalidSourceCall)}' without importing it`,
       },
     };
   }
@@ -610,7 +676,7 @@ export function resolveModulesWith(
     const reachableFunctions = new Map(injected.map((fn) => [fn.name, fn]));
     for (const fn of injected) {
       const callSites: ModuleCallSite[] = [
-        ...moduleCallSites(ast, fn.name),
+        ...moduleCallSites(ast, fn.name, reachableFunctions),
         ...functionCallSites(reachableFunctions, fn.name)
           .map((args) => ({
             arguments: args.map((expression) => ({
@@ -627,7 +693,7 @@ export function resolveModulesWith(
         const requirement = incompatibleFunction(
           fn,
           ast.service.name,
-          allModuleFunctions,
+          reachableFunctions,
           arguments_,
         );
         if (requirement) {
@@ -644,26 +710,6 @@ export function resolveModulesWith(
   }
 
   // 6. Check for conflicts with source-defined functions
-  const sourceFnNames = new Set([
-    ...(ast.functions ?? []).map((fn) => fn.name),
-    ...(ast.service.functions ?? []).map((fn) => fn.name),
-  ]);
-  const collectMatchFunctions = (match: typeof ast.service.match): void => {
-    match.functions.forEach((fn) => sourceFnNames.add(fn.name));
-    match.children.forEach(collectMatchFunctions);
-  };
-  collectMatchFunctions(ast.service.match);
-  const builtinSourceCollision = [...sourceFnNames]
-    .find((name) => RULES_BUILTIN_FUNCTIONS.has(name));
-  if (builtinSourceCollision) {
-    return {
-      success: false,
-      error: {
-        code: 'DUPLICATE_FUNCTION',
-        message: `Source function '${builtinSourceCollision}' conflicts with a Rules builtin`,
-      },
-    };
-  }
   for (const fn of injected) {
     if (sourceFnNames.has(fn.name)) {
       return {
@@ -711,7 +757,12 @@ export function resolveModulesWith(
 }
 
 export function attachAstSourceFile(ast: FirestoreRules, file: string): void {
-  const attachToFunction = (fn: { loc?: { file?: string }; lets: ReadonlyArray<{ loc?: { file?: string } }> }): void => {
+  const attachToFunction = (fn: {
+    loc?: { file?: string };
+    returnLoc?: { file?: string };
+    body?: { loc?: { file?: string } };
+    lets: ReadonlyArray<{ loc?: { file?: string } }>;
+  }): void => {
     if (fn.loc !== undefined) {
       fn.loc.file = file;
     }
@@ -719,6 +770,12 @@ export function attachAstSourceFile(ast: FirestoreRules, file: string): void {
       if (binding.loc !== undefined) {
         binding.loc.file = file;
       }
+    }
+    if (fn.returnLoc !== undefined) {
+      fn.returnLoc.file = file;
+    }
+    if (fn.body?.loc !== undefined) {
+      fn.body.loc.file = file;
     }
   };
   if (ast.service.loc !== undefined) {

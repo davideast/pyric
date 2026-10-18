@@ -2,6 +2,7 @@ import type {
   FirestoreRules, MatchBlock, AllowRule, FunctionDef,
   LetBinding, Expression, PathPattern, PathSegment,
 } from './FirestoreAST.js';
+import { parenthesizedGroups } from './paren-groups.js';
 
 // ---- Precedence table ----
 
@@ -53,6 +54,9 @@ function assembleExprInner(expr: Expression): string {
       const prec = PRECEDENCE[expr.op] ?? 0;
       const left = assembleExprWithPrec(expr.left, prec);
       const right = assembleExprWithPrec(expr.right, prec + 1);
+      if (expr.op === '/' && expr.slashStartsPath) {
+        return `${left}/${right}`;
+      }
       return `${left} ${expr.op} ${right}`;
     }
 
@@ -89,8 +93,10 @@ function assembleExprInner(expr: Expression): string {
 function assembleExprWithPrec(expr: Expression, parentPrec: number): string {
   const result = assembleExprInner(expr);
   const myPrec = precedenceOf(expr);
-  if (myPrec < parentPrec) {
-    return `(${result})`;
+  const needsPrecParens = myPrec < parentPrec;
+  const parenCount = Math.max(parenthesizedGroups(expr), needsPrecParens ? 1 : 0);
+  if (parenCount > 0) {
+    return `${'('.repeat(parenCount)}${result}${')'.repeat(parenCount)}`;
   }
   return result;
 }
@@ -204,11 +210,11 @@ function assembleFunctionWithMap(
   for (const binding of fn.lets) {
     const bindingLineIdx = lines.length + 1;
     lines.push(`${bodyPad}let ${binding.name} = ${assembleExpression(binding.value)};`);
-    recordSourceLoc(binding.loc, bindingLineIdx, sourceMap);
+    recordSourceLoc(binding.loc ?? fn.loc, bindingLineIdx, sourceMap);
   }
   const retLineIdx = lines.length + 1;
   lines.push(`${bodyPad}return ${assembleExpression(fn.body)};`);
-  recordSourceLoc(fn.body.loc, retLineIdx, sourceMap);
+  recordSourceLoc(fn.returnLoc ?? fn.body.loc ?? fn.loc, retLineIdx, sourceMap);
   lines.push(`${pad}}`);
 }
 
@@ -257,6 +263,14 @@ export interface RulesSourceMapEntry {
   expression?: string;
 }
 
+function escapeSingleQuoted(s: string): string {
+  return s
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r');
+}
+
 export function assembleRulesWithSourceMap(ast: FirestoreRules): {
   resolved: string;
   sourceMap: RulesSourceMapEntry[];
@@ -264,9 +278,9 @@ export function assembleRulesWithSourceMap(ast: FirestoreRules): {
   const lines: string[] = [];
   const sourceMap: RulesSourceMapEntry[] = [];
   for (const imp of ast.imports) {
-    lines.push(`import { ${imp.functions.join(', ')} } from '${imp.module}';`);
+    lines.push(`import { ${imp.functions.join(', ')} } from '${escapeSingleQuoted(imp.module)}';`);
   }
-  lines.push(`rules_version = '${ast.version}';`);
+  lines.push(`rules_version = '${escapeSingleQuoted(ast.version)}';`);
   const hasGlobalFns = ast.functions !== undefined;
   if (hasGlobalFns) {
     for (const fn of ast.functions!) {

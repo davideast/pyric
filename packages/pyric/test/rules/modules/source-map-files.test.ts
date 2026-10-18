@@ -47,9 +47,13 @@ describe('resolved source map names the file each generated line came from', () 
       const texts = rootLines.map((e) => lines[e.generatedLine - 1]!.trim());
       expect(texts.some((t) => t.startsWith('service '))).toBe(true);
       expect(texts.some((t) => t.startsWith('let uid'))).toBe(true);
+      expect(texts.some((t) => t.startsWith('return uid'))).toBe(true);
+      const moduleLines = [...map.values()].filter((e) => e.authoredFile === './m');
+      const moduleTexts = moduleLines.map((e) => lines[e.generatedLine - 1]!.trim());
+      expect(moduleTexts.some((t) => t.startsWith('return ok;'))).toBe(true);
       for (const entry of map.values()) {
         const text = lines[entry.generatedLine - 1]!.trim();
-        if (/^(let ok|function check)/.test(text)) continue;
+        if (/^(let ok|return ok|function check)/.test(text)) continue;
         expect({ text, file: entry.authoredFile }).toEqual({ text, file });
       }
     });
