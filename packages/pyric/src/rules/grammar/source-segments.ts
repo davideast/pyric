@@ -95,9 +95,10 @@ function segmentFor(text: string, span: BracketSpan, name: string): Segment | un
     case 'group':
     case 'list':
     case 'map': {
-      // Directly after `/` a group may be a path segment, and the character
-      // after a `/` operator decides how production reads it.
-      if (before === 47 /* / */ || span.items === 0) return undefined;
+      // After `/` (even across whitespace or comments) a bracket may sit in a
+      // path literal, and the character after a `/` operator decides how
+      // production reads it.
+      if (span.afterSlash || before === 47 /* / */ || span.items === 0) return undefined;
       const original = text.slice(span.open, span.close + 1);
       const replacement = pad(original, isIdentChar(before) ? ` ${name}` : name);
       if (replacement === undefined) return undefined;
@@ -292,13 +293,21 @@ export type PieceResult<E> = { ok: true; ast: object } | { ok: false; error: E }
  */
 export type MatchPiece<E> = (text: string, startRule: string | undefined, offset: number, prefix: number) => PieceResult<E>;
 
-/** `text` with each replaced expression bracket shortened to `(1)`, which is not an identifier. */
+/**
+ * `original` shortened to `(!...1)` of the same length and line breaks: an
+ * expression that is neither an identifier nor a `(pathIdent)` path segment.
+ */
+function shortGroup(original: string): string | undefined {
+  if (original.length < 4 || /[\n\r]/.test(original.slice(-2))) return pad(original, '(!1)');
+  return `(!${original.slice(2, -2).replace(/[^\n\r]/g, ' ')}1)`;
+}
+
 function withShortGroups(text: string, segments: readonly Segment[]): string {
   const parts: string[] = [];
   let copiedTo = 0;
   for (const segment of segments) {
     let short: string | undefined;
-    if (segment.kind === 'expr') short = pad(segment.original, '(1)');
+    if (segment.kind === 'expr') short = shortGroup(segment.original);
     parts.push(text.slice(copiedTo, segment.start), short ?? segment.replacement);
     copiedTo = segment.start + segment.original.length;
   }
@@ -331,6 +340,10 @@ export function matchSegmented<E>(
     parts.set(segment.name, { segment, ast: piece.ast as Expression });
   }
   const ast = spliceSegments(outer.ast, parts);
-  if (ast === undefined) return matchPiece(withShortGroups(text, segmented.segments), startRule, offset, prefix);
+  if (ast === undefined) {
+    const failed = matchPiece(withShortGroups(text, segmented.segments), startRule, offset, prefix);
+    if (!failed.ok) return failed;
+    return matchPiece(text, startRule, offset, prefix);
+  }
   return { ok: true, ast };
 }

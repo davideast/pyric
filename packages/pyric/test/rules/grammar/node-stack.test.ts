@@ -180,13 +180,18 @@ describe('firestoreRules() under node reads every nesting production compiles', 
     const bad50 = firestore(`    match /p/{d} {\n      allow read: if ${'('.repeat(50)}request.auth.uid == == 'a'${')'.repeat(50)};\n    }`);
     const bad97 = firestore(`    match /p/{d} {\n      allow read: if ${'('.repeat(97)}request.auth.uid == == 'a'${')'.repeat(97)};\n    }`);
     const bad120 = firestore(`    match /p/{d} {\n      allow read: if ${'('.repeat(120)}request.auth.uid == == 'a'${')'.repeat(120)};\n    }`);
-    const outcomes = runFirestore([valid, mixed, bad50, bad97, bad120]);
+    const badCall = firestore(`    match /p/{d} {\n      allow read: if ${'f('.repeat(24)}1 +${')'.repeat(24)};\n    }`);
+    const badPathParen = firestore(`    match /p/{d} {\n      allow read: if ${'('.repeat(19)}exists(/databases/(default)/documents/a/ (1 + 2))${')'.repeat(19)};\n    }`);
+    const badPathList = firestore(`    match /p/{d} {\n      allow read: if ${'('.repeat(19)}exists(/databases/(default)/documents/a/ [1, 2, 3])${')'.repeat(19)};\n    }`);
+    const outcomes = runFirestore([valid, mixed, bad50, bad97, bad120, badCall, badPathParen, badPathList]);
     expect(outcomes[0]).toEqual({ compiles: true, decisions: ['DENY', 'DENY'] });
     expect(outcomes[1]).toEqual({ compiles: true, decisions: ['ALLOW', 'DENY'] });
     for (const bad of outcomes.slice(2)) {
       expect(bad.compiles).toBe(false);
       expect(bad.message).not.toContain('chains more terms');
+      expect(bad.message).not.toContain('ǂ');
     }
+    expect(outcomes[5]?.message).toContain('Line 5, col 73:');
   });
 });
 

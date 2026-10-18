@@ -369,9 +369,15 @@ function parsePath(raw: string): PathPattern {
  * of scope.
  */
 function buildParseError(match: ohm.MatchResult, source: string, baseOffset: number = 0): ParseError {
-  const offset = baseOffset + ((match as any).getRightmostFailurePosition?.() ?? 0);
-  const expected = (match as any).getExpectedText?.() ?? '';
-  return failureAt(source, offset, expected, (match as any).message ?? 'Parse error');
+  const m = match as any;
+  const offset = baseOffset + (m.getRightmostFailurePosition?.() ?? 0);
+  const expected = m.getExpectedText?.() ?? '';
+  const interval = m.getInterval?.();
+  let message: string = m.message ?? 'Parse error';
+  if (interval !== undefined && (m.input !== source || baseOffset !== 0)) {
+    message = `${new interval.constructor(source, offset, offset).getLineAndColumnMessage()}Expected ${expected}`;
+  }
+  return failureAt(source, offset, expected, message);
 }
 
 /** A ParseError at `offset` of `source`, with 1-based line and column and the snippet there. */
@@ -494,13 +500,8 @@ export function parseToAST(input: string): FirestoreRules | null {
   return result.ok ? result.ast : null;
 }
 
-/** How {@link parseToASTOrError} matches. */
+/** How {@link parseToASTOrError} matches; `segmentDepth` overrides {@link SEGMENT_DEPTH} in tests. */
 export interface ParseOptions {
-  /**
-   * Most brackets one match descends before deeper brackets are matched on
-   * their own (`source-segments.ts`); {@link SEGMENT_DEPTH} by default. A
-   * test seam: a small depth segments ordinary source.
-   */
   segmentDepth?: number;
 }
 

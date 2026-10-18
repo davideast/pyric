@@ -74,6 +74,8 @@ export interface BracketSpan {
   items: number;
   /** Set on the parameter list of a `function name(...)` declaration. */
   declaration?: true;
+  /** Set when the token before the bracket (past whitespace and comments) is `/`. */
+  afterSlash?: true;
 }
 
 /** Words after which a bracket opens an operand, not an argument list, an index, or a block. */
@@ -200,6 +202,7 @@ export function scanBrackets(source: string, options: BracketScanOptions): Brack
       const declaration = kind === 'call' && wordDeclaresFunction && lastSignificant === '';
       const span: BracketSpan = { char, kind, open: i, close: -1, depth: stack.length + 1, levels, items: 0 };
       if (declaration) span.declaration = true;
+      if (previous === 'slash') span.afterSlash = true;
       wordDeclaresFunction = false;
       spans.push(span);
       stack.push({ span, commas: 0, tail: false });

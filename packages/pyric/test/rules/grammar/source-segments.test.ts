@@ -92,7 +92,7 @@ function generator(seed: number) {
   const ws = () => pick(['', '', ' ', ' ', '\n        ', ' /* c */ ', ' // c\n ']);
   const leaf = () => pick([
     'request.auth.uid', 'x', '1', '2.5', "'s'", '"d"', 'true', 'false', 'null', "b'ab'",
-    'resource.data.items', '/databases/$(database)/documents/u/$(x)', '/databases/(default)/documents/a',
+    'resource.data.items', '/databases/$(database)/documents/u/$(x)', '/databases/(default)/documents/a', '/databases/ (default)/documents/a',
   ]);
   const expr = (depth: number): string => {
     if (depth <= 0 || rand() < 0.12) return leaf();
@@ -167,12 +167,13 @@ describe('segmented match: the same AST as the whole match', () => {
     expectSameParse(rules(`    match /p/{d} {\n      allow read: if ((((a && (b)))));\n    }`), [3, 4, 5, 6, 7]);
   });
 
-  test('a path literal keeps its raw text when an interpolation in it is replaced', () => {
+  test('a path literal keeps its raw text when an interpolation in it is replaced or whitespace precedes a parenthesized segment', () => {
     const source = rules(`    match /p/{d} {\n      allow read: if exists(/databases/$(database)/documents/u/$(((((x))))));\n    }`);
     const cut = parseToASTOrError(source, { segmentDepth: 3 });
     expect(cut.ok).toBe(true);
     expect(JSON.stringify(cut.ok && cut.ast)).toContain('"raw":"/databases/$(database)/documents/u/$(((((x)))))"');
     expectSameParse(source, [3, 4, 5]);
+    expectSameParse(rules('    match /p/{d} {\n      allow read: if exists(/databases/ (default)/documents/a/b) && exists(/databases/ /* c */ (default)/documents/u/$(((((x))))));\n    }'), [1, 2, 3, 4, 5]);
   });
 
   test('a slice whose brackets are replaced stays a slice', () => {
@@ -190,16 +191,24 @@ describe('segmented match: fails closed', () => {
     ['a group as a member name', 'x.(aaaaaaaaaa)'],
     ['a trailing comma in call arguments', 'f(aaaaaaaaaa, bbbbbbbbbb,)'],
     ['a syntax error deep inside', "((((((((a == == 'b'))))))))"],
+    ['a non-identifier group after a path slash with whitespace', `${'('.repeat(19)}exists(/databases/(default)/documents/a/ (1 + 2))${')'.repeat(19)}`],
+    ['a list literal after a path slash with whitespace', `${'('.repeat(19)}exists(/databases/(default)/documents/a/ [1, 2, 3])${')'.repeat(19)}`],
+    ['nested parentheses after a path slash', `${'('.repeat(19)}exists(/databases/(default)/documents/a/((default)))${')'.repeat(19)}`],
+    ['a syntax error inside a segmented call argument list', `${'f('.repeat(24)}1 +${')'.repeat(24)}`],
+    ['a syntax error before a deeper segmented group', `${'('.repeat(20)}(1 + ) && ${'('.repeat(30)}true${')'.repeat(30)}${')'.repeat(20)}`],
   ] as const;
   for (const [label, condition] of invalid) {
-    test(`${label}: rejected with the whole match's error`, () => {
+    test(`${label}: rejected with the whole match's error and message`, () => {
       const source = rules(`    match /p/{d} {\n      allow read: if ${condition};\n    }`);
       const whole = parseToASTOrError(source, { segmentDepth: WHOLE });
       expect(whole.ok).toBe(false);
-      for (const depth of [3, 4, 5]) {
+      for (const depth of [2, 3, 4, 5, 24]) {
         const cut = parseToASTOrError(source, { segmentDepth: depth });
         expect(cut.ok).toBe(false);
-        if (!whole.ok && !cut.ok) expect({ line: cut.error.line, column: cut.error.column }).toEqual({ line: whole.error.line, column: whole.error.column });
+        if (!whole.ok && !cut.ok) {
+          expect(cut.error).toEqual(whole.error);
+          expect(cut.error.message).not.toContain('ǂ');
+        }
       }
     });
   }
