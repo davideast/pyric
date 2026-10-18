@@ -1,10 +1,15 @@
 /** The Cloud Storage rules engine behind the `rules` tool. */
-import { evaluateStorageRules, parseStorageRules, ref } from 'pyric/storage';
-import type { StorageRequestMethod } from 'pyric/storage';
+import { evaluateStorageRules, ref } from 'pyric/storage';
+import type { StorageReference, StorageRequestMethod } from 'pyric/storage';
 import {
+  compileStorageRules,
   getStorageCrossServiceIam,
+  getStorageService,
   replaceStorageRules,
+  requestResourceFor,
+  resourceFromStored,
   storageFirestoreLookup,
+  type StoredMetadata,
 } from 'pyric/storage/internal';
 import { asSentence } from 'pyric/sandbox/internal';
 import { describeCompileLimitViolations, sourceCompileLimitViolations } from 'pyric/rules/internal';
@@ -34,8 +39,74 @@ function identityFor(
   return { uid: held.uid, token: held.token ?? {} };
 }
 
+function requestResourceFromData(
+  object: StorageReference,
+  operation: string,
+  data: unknown,
+  existing: StoredMetadata | undefined,
+) {
+  if (data === undefined || typeof data !== 'object' || data === null || Array.isArray(data)) {
+    return undefined;
+  }
+  const raw = data as Record<string, unknown>;
+  const writeKind = operation === 'update' ? 'metadataUpdate' : 'upload';
+  const customMetadata =
+    raw.metadata !== undefined &&
+    typeof raw.metadata === 'object' &&
+    raw.metadata !== null &&
+    !Array.isArray(raw.metadata)
+      ? (raw.metadata as Record<string, string>)
+      : raw.customMetadata !== undefined &&
+          typeof raw.customMetadata === 'object' &&
+          raw.customMetadata !== null &&
+          !Array.isArray(raw.customMetadata)
+        ? (raw.customMetadata as Record<string, string>)
+        : existing?.customMetadata;
+  const base = requestResourceFor(
+    {
+      fullPath: typeof raw.name === 'string' ? raw.name : object.fullPath,
+      bucket: typeof raw.bucket === 'string' ? raw.bucket : object.bucket,
+      size: typeof raw.size === 'number' ? raw.size : (existing?.size ?? 0),
+      contentType:
+        typeof raw.contentType === 'string'
+          ? raw.contentType
+          : (existing?.contentType ?? 'application/octet-stream'),
+      customMetadata,
+      cacheControl: typeof raw.cacheControl === 'string' ? raw.cacheControl : existing?.cacheControl,
+      contentDisposition:
+        typeof raw.contentDisposition === 'string'
+          ? raw.contentDisposition
+          : existing?.contentDisposition,
+      contentEncoding:
+        typeof raw.contentEncoding === 'string' ? raw.contentEncoding : existing?.contentEncoding,
+      contentLanguage:
+        typeof raw.contentLanguage === 'string' ? raw.contentLanguage : existing?.contentLanguage,
+      generation:
+        typeof raw.generation === 'number' || typeof raw.generation === 'string'
+          ? String(raw.generation)
+          : existing?.generation,
+      metageneration:
+        typeof raw.metageneration === 'number' || typeof raw.metageneration === 'string'
+          ? String(raw.metageneration)
+          : existing?.metageneration,
+    },
+    writeKind,
+  );
+  if (raw.metadata === null || raw.customMetadata === null) base.metadata = null;
+  if (raw.contentDisposition === null) base.contentDisposition = null;
+  if (raw.contentEncoding === null) base.contentEncoding = null;
+  if (raw.contentLanguage === null) base.contentLanguage = null;
+  if (raw.cacheControl === null) base.cacheControl = null;
+  if (typeof raw.generation === 'number' || raw.generation === null) base.generation = raw.generation;
+  if (typeof raw.metageneration === 'number' || raw.metageneration === null) {
+    base.metageneration = raw.metageneration;
+  }
+  if (raw.etag === null) base.etag = null;
+  return base;
+}
+
 /**
- * Why `parseStorageRules` refused a source: production's compile rejections
+ * Why `compileStorageRules` refused a source: production's compile rejections
  * when the source parses and breaks a compile limit, otherwise the failure it
  * threw.
  */
@@ -59,7 +130,7 @@ export const STORAGE_RULES: RulesEngine = {
 
   compileFailure(source): RulesSourceProblem | null {
     try {
-      parseStorageRules(source);
+      compileStorageRules(source);
       return null;
     } catch (error) {
       return sourceProblem(source, error);
@@ -72,7 +143,7 @@ export const STORAGE_RULES: RulesEngine = {
       return operationFailure(NO_RULES_LOADED);
     }
     try {
-      parseStorageRules(source);
+      compileStorageRules(source);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return markLintFindings({
@@ -92,12 +163,22 @@ export const STORAGE_RULES: RulesEngine = {
 
     let parsed;
     try {
-      parsed = parseStorageRules(source);
+      parsed = compileStorageRules(source).rules;
     } catch (error) {
       return operationFailure(error instanceof Error ? error.message : String(error));
     }
 
     const object = ref(storageFor(ctx), request.path);
+    const service = await getStorageService(object.storage);
+    const existing = object.fullPath
+      ? await service.backend.getMetadata(object.fullPath, object.bucket)
+      : undefined;
+    const requestResource = requestResourceFromData(
+      object,
+      request.operation,
+      request.data,
+      existing,
+    );
     const evaluated = evaluateStorageRules(
       parsed,
       {
@@ -105,8 +186,9 @@ export const STORAGE_RULES: RulesEngine = {
           auth: identityFor(ctx, request.uid),
           method: request.operation as StorageRequestMethod,
           path: rulesRequestPath(object),
+          ...(requestResource !== undefined ? { resource: requestResource } : {}),
         },
-        resource: null,
+        resource: resourceFromStored(existing),
       },
       new Date(requestInstant(ctx, request.requestTime)),
       // A rule reaching into Firestore is answered here the way the

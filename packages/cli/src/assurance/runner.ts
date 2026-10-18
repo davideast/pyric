@@ -562,15 +562,21 @@ async function executeStorage(
   const target = storageRef(storage, operation.path);
   switch (operation.method) {
     case "get": {
-      const [blob, metadata] = await Promise.all([
-        getBlob(target),
-        getMetadata(target),
-      ]);
-      return {
-        text: await blob.text(),
-        contentType: metadata.contentType,
-        customMetadata: metadata.customMetadata ?? {},
-      };
+      try {
+        const [blob, metadata] = await Promise.all([
+          getBlob(target),
+          getMetadata(target),
+        ]);
+        return {
+          text: await blob.text(),
+          contentType: metadata.contentType,
+          customMetadata: metadata.customMetadata ?? {},
+        };
+      } catch (error) {
+        const code = (error as { code?: string } | null)?.code;
+        if (code === "storage/object-not-found") return null;
+        throw error;
+      }
     }
     case "list": {
       const result = await listAll(target);

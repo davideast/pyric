@@ -2,7 +2,17 @@ import {
   replay as replayFirestore,
   type Divergence,
   type EventService,
+  type SandboxOperationEvent,
+  type ServiceMutationEvent,
 } from 'pyric/sandbox';
+import { evaluateStorageRules, type StorageRequestMethod } from 'pyric/storage';
+import {
+  compileStorageRules,
+  DEFAULT_BUCKET,
+  requestResourceFor,
+  resourceFromStored,
+  type StoredMetadata,
+} from 'pyric/storage/internal';
 import {
   rtdbRulesSourceRejection,
   type RtdbReplayDivergence,
@@ -81,7 +91,7 @@ export {
   type MissingCredentials,
 } from './hosted-rules-test.js';
 
-export type VerifiableService = 'firestore' | 'rtdb';
+export type VerifiableService = 'firestore' | 'rtdb' | 'storage';
 export type VerifyEngine = 'sandbox' | 'rulesTestApi';
 
 type RtdbCandidateRules = { rules: Record<string, unknown> } | RtdbRulesDocument;
@@ -216,6 +226,8 @@ export async function verifyFixture(
       services.firestore = await verifyFirestore(fixture, requireFirestoreRules(opts.rules), engines, opts);
     } else if (service === 'rtdb') {
       services.rtdb = await verifyRtdb(fixture, opts.rules, engines);
+    } else if (service === 'storage') {
+      services.storage = await verifyStorage(fixture, opts.rules, engines);
     } else {
       const exhaustive: never = service;
       throw new VerifyInputError(`unsupported verify service: ${exhaustive}`);
@@ -466,6 +478,199 @@ async function verifyRtdb(
   };
 }
 
+async function verifyStorage(
+  fixture: PyricVerifyFixture,
+  rules: VerifyRulesInput,
+  engines: VerifyEngine[],
+): Promise<VerifyServiceResult> {
+  const storage = fixture.services.storage;
+  if (!storage) {
+    throw new VerifyInputError('fixture does not contain services.storage.');
+  }
+  if (engines.includes('rulesTestApi')) {
+    throw new VerifyInputError(
+      'rulesTestApi verification is Firestore-only; select --service firestore or use the sandbox engine for Storage.',
+    );
+  }
+
+  const rulesSource = requireStorageRules(rules, fixture);
+  let compiled;
+  try {
+    compiled = compileStorageRules(rulesSource);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new VerifyInputError(`candidate Storage rules would not deploy. ${message}`);
+  }
+
+  const objectState = new Map<string, StoredMetadata>();
+  const seededKeys = new Set<string>();
+  for (const event of fixture.events) {
+    if (event.kind !== 'service_mutation' || event.service !== 'storage') continue;
+    const mutation = event as ServiceMutationEvent;
+    const bucket = storageMutationBucket(mutation);
+    const key = `${bucket}/${(mutation.path ?? '').replace(/^\/+/, '')}`;
+    if (!seededKeys.has(key)) {
+      seededKeys.add(key);
+      if (mutation.before && typeof mutation.before === 'object') {
+        objectState.set(key, mutation.before as StoredMetadata);
+      }
+    }
+  }
+
+  const divergences: VerifyDivergence[] = [];
+  let checkedEvents = 0;
+
+  for (let i = 0; i < fixture.events.length; i++) {
+    const event = fixture.events[i]!;
+    if (event.kind === 'service_mutation' && event.service === 'storage') {
+      const mutation = event as ServiceMutationEvent;
+      const bucket = storageMutationBucket(mutation);
+      const key = `${bucket}/${(mutation.path ?? '').replace(/^\/+/, '')}`;
+      if (
+        (mutation.op === 'object_put' || mutation.op === 'metadata_update') &&
+        mutation.after &&
+        typeof mutation.after === 'object'
+      ) {
+        objectState.set(key, mutation.after as StoredMetadata);
+      } else if (mutation.op === 'object_delete') {
+        objectState.delete(key);
+      }
+      continue;
+    }
+
+    if (event.kind !== 'operation' || event.service !== 'storage') continue;
+    const opEvent = event as SandboxOperationEvent;
+    if (opEvent.origin === 'admin' || opEvent.result === 'not-applicable') continue;
+    checkedEvents += 1;
+
+    const objectPath = (opEvent.path ?? '').replace(/^\/+/, '');
+    let pairedMutation: ServiceMutationEvent | undefined;
+    if (opEvent.result === 'allow' && isStorageWriteMethod(opEvent.method)) {
+      for (let j = i + 1; j < fixture.events.length; j++) {
+        const next = fixture.events[j]!;
+        if (next.service !== 'storage') continue;
+        if (next.kind === 'operation' && next.path === opEvent.path) break;
+        if (next.kind === 'service_mutation' && next.path === opEvent.path) {
+          pairedMutation = next as ServiceMutationEvent;
+          break;
+        }
+      }
+    }
+
+    const bucket = pairedMutation ? storageMutationBucket(pairedMutation) : DEFAULT_BUCKET;
+    const key = `${bucket}/${objectPath}`;
+    const existing =
+      pairedMutation && pairedMutation.before !== undefined
+        ? (pairedMutation.before as StoredMetadata | undefined)
+        : objectState.get(key);
+
+    let requestResource;
+    if (opEvent.method === 'create' || opEvent.method === 'write') {
+      const after = pairedMutation?.after as StoredMetadata | undefined;
+      requestResource = after
+        ? requestResourceFor(after, 'upload')
+        : requestResourceFor(
+            {
+              fullPath: objectPath,
+              bucket,
+              size: 0,
+              contentType: 'application/octet-stream',
+            },
+            'upload',
+          );
+    } else if (opEvent.method === 'update') {
+      const after = pairedMutation?.after as StoredMetadata | undefined;
+      requestResource = after
+        ? requestResourceFor(
+            { ...after, metageneration: existing?.metageneration ?? after.metageneration },
+            'metadataUpdate',
+          )
+        : requestResourceFor(
+            {
+              fullPath: objectPath,
+              bucket,
+              size: existing?.size ?? 0,
+              contentType: existing?.contentType ?? 'application/octet-stream',
+              generation: existing?.generation,
+              metageneration: existing?.metageneration,
+            },
+            'metadataUpdate',
+          );
+    }
+
+    const rulesPath = objectPath === '' ? `b/${bucket}/o` : `b/${bucket}/o/${objectPath}`;
+    const evaluated = evaluateStorageRules(
+      compiled.rules,
+      {
+        request: {
+          auth: opEvent.auth ?? null,
+          method: opEvent.method as StorageRequestMethod,
+          path: rulesPath,
+          ...(requestResource !== undefined ? { resource: requestResource } : {}),
+        },
+        resource: resourceFromStored(existing),
+      },
+      typeof opEvent.at === 'number' && Number.isFinite(opEvent.at)
+        ? new Date(opEvent.at)
+        : new Date(),
+      fixture.services.firestore?.state?.documents
+        ? {
+            get: (docPath) => fixture.services.firestore?.state?.documents?.[docPath] ?? null,
+            exists: (docPath) =>
+              (fixture.services.firestore?.state?.documents?.[docPath] ?? null) !== null,
+          }
+        : undefined,
+    );
+
+    if (opEvent.result === 'allow' && !evaluated.allowed) {
+      divergences.push({
+        service: 'storage',
+        kind: 'now-denied',
+        path: opEvent.path,
+        method: opEvent.method,
+        reason: evaluated.reasons.join('; ') || 'expected ALLOW, got DENY',
+      });
+    } else if (opEvent.result === 'deny' && evaluated.allowed) {
+      divergences.push({
+        service: 'storage',
+        kind: 'now-allowed',
+        path: opEvent.path,
+        method: opEvent.method,
+        reason: evaluated.reasons.join('; ') || 'expected DENY, got ALLOW',
+      });
+    }
+  }
+
+  const sandbox: VerifyEngineResult = {
+    engine: 'sandbox',
+    ok: divergences.every(isInformational),
+    checkedEvents,
+    divergences,
+  };
+
+  return {
+    service: 'storage',
+    ok: divergences.every(isInformational),
+    checkedEvents,
+    divergences,
+    engines: { sandbox },
+  };
+}
+
+function isStorageWriteMethod(method: string | undefined): boolean {
+  return method === 'create' || method === 'update' || method === 'delete' || method === 'write';
+}
+
+function storageMutationBucket(mutation: ServiceMutationEvent): string {
+  const detailBucket = (mutation.detail as { bucket?: unknown } | undefined)?.bucket;
+  if (typeof detailBucket === 'string' && detailBucket.length > 0) return detailBucket;
+  const afterBucket = (mutation.after as { bucket?: unknown } | undefined)?.bucket;
+  if (typeof afterBucket === 'string' && afterBucket.length > 0) return afterBucket;
+  const beforeBucket = (mutation.before as { bucket?: unknown } | undefined)?.bucket;
+  if (typeof beforeBucket === 'string' && beforeBucket.length > 0) return beforeBucket;
+  return DEFAULT_BUCKET;
+}
+
 function normalizeEngines(input: VerifyEngine[] | undefined): VerifyEngine[] {
   const engines = input ?? ['sandbox'];
   const out: VerifyEngine[] = [];
@@ -556,6 +761,15 @@ function requireFirestoreRules(input: VerifyRulesInput): string {
   if (typeof rules === 'string') return rules;
   if (rules && typeof rules.source === 'string') return rules.source;
   throw new VerifyInputError('missing candidate Firestore rules. Pass rules.firestore.');
+}
+
+function requireStorageRules(input: VerifyRulesInput, fixture: PyricVerifyFixture): string {
+  const rules = input.storage;
+  if (typeof rules === 'string') return rules;
+  if (rules && typeof rules.source === 'string') return rules.source;
+  const captured = fixture.services.storage?.rules?.source;
+  if (typeof captured === 'string' && captured.length > 0) return captured;
+  throw new VerifyInputError('missing candidate Storage rules. Pass rules.storage.');
 }
 
 function requireRtdbRules(

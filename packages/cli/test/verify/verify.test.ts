@@ -26,10 +26,11 @@ import {
 } from 'pyric/firestore';
 import { setRules as setFirestoreRules, seedDocuments as seedFirestoreDocuments } from 'pyric/sandbox/firestore';
 import { runDerivedCases } from '../../src/bridge/surface/assurance-cases.js';
-import { getStorageSandbox, ref as storageRef, uploadBytes } from 'pyric/storage';
+import { getMetadata, getStorageSandbox, ref as storageRef, uploadBytes } from 'pyric/storage';
 import {
   buildVerifyFixture,
   deriveRulesTestCases,
+  fixtureVerifiableServices,
   parseVerifyFixture,
   restoreStorageRulesFromFixture,
   verifyFixture,
@@ -550,6 +551,47 @@ service firebase.storage {
     const fixture = buildVerifyFixture({ sandbox: initializeSandbox() });
     const sandbox = initializeSandbox();
     expect(() => restoreStorageRulesFromFixture(fixture, sandbox)).not.toThrow();
+  });
+
+  it('replays a Storage-only journey through verifyFixture and detects tightened candidate rules (ST-CON-7)', async () => {
+    const sandbox = initializeSandbox();
+    const storage = getStorageSandbox(sandbox.withAuth({ uid: 'alice' }), {
+      dbName: uniqueDbName('verify-storage'),
+      rules: OWNER_ONLY_RULES,
+    });
+    await uploadBytes(
+      storageRef(storage, 'users/alice/notes.txt'),
+      new Blob(['hello']),
+      { contentType: 'text/plain', customMetadata: { owner: 'alice' } },
+    );
+    await getMetadata(storageRef(storage, 'users/alice/notes.txt'));
+
+    const fixture = buildVerifyFixture({ sandbox, storageRules: OWNER_ONLY_RULES });
+    expect(fixtureVerifiableServices(fixture)).toEqual(['storage']);
+
+    const passResult = await verifyFixture(fixture, {
+      rules: { storage: OWNER_ONLY_RULES },
+    });
+    expect(passResult.ok).toBe(true);
+    expect(passResult.services.storage?.checkedEvents).toBe(2);
+    expect(passResult.services.storage?.divergences).toEqual([]);
+
+    const denyAllStorageRules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}`;
+    const failResult = await verifyFixture(fixture, {
+      rules: { storage: denyAllStorageRules },
+    });
+    expect(failResult.ok).toBe(false);
+    expect(failResult.services.storage?.divergences.map((d) => d.kind)).toEqual([
+      'now-denied',
+      'now-denied',
+    ]);
   });
 });
 

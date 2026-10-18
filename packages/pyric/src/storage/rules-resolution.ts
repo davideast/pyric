@@ -1,4 +1,5 @@
 import { parseStorageRules, type Expr, type MatchBlock, type StorageRules } from './sandbox/rules.js';
+import { normalizeRe2ForJsRegExp } from '../rules/grammar/re2-pattern.js';
 import { resolveModulesBrowser } from '../rules/modules/resolver-browser.js';
 
 export interface StorageRulesResolution {
@@ -76,6 +77,103 @@ function matchUsesFirestoreLookup(
   return match.children.some((child) => matchUsesFirestoreLookup(child, matchScope));
 }
 
+function isValidRe2Pattern(pattern: string): boolean {
+  if (/\\[1-9]/.test(pattern) || /\(\?<?[=!]/.test(pattern)) return false;
+  try {
+    new RegExp(`^(?:${normalizeRe2ForJsRegExp(pattern)})$`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function validateExpressionRegexes(expression: Expr): void {
+  if (
+    expression.kind === 'methodcall' &&
+    expression.method === 'matches' &&
+    expression.args.length === 1
+  ) {
+    const arg = expression.args[0];
+    if (arg?.kind === 'literal' && typeof arg.value === 'string' && !isValidRe2Pattern(arg.value)) {
+      throw new SyntaxError(
+        `Storage rules do not compile: Invalid regular expression pattern. Pattern: ${arg.value}.`,
+      );
+    }
+  }
+  switch (expression.kind) {
+    case 'member':
+      validateExpressionRegexes(expression.target);
+      return;
+    case 'index':
+      validateExpressionRegexes(expression.target);
+      validateExpressionRegexes(expression.index);
+      return;
+    case 'slice':
+      validateExpressionRegexes(expression.target);
+      validateExpressionRegexes(expression.start);
+      validateExpressionRegexes(expression.end);
+      return;
+    case 'unary':
+      validateExpressionRegexes(expression.arg);
+      return;
+    case 'ternary':
+      validateExpressionRegexes(expression.cond);
+      validateExpressionRegexes(expression.then);
+      validateExpressionRegexes(expression.else);
+      return;
+    case 'in':
+      validateExpressionRegexes(expression.element);
+      validateExpressionRegexes(expression.collection);
+      return;
+    case 'is':
+      validateExpressionRegexes(expression.value);
+      return;
+    case 'list':
+      for (const value of expression.elements) validateExpressionRegexes(value);
+      return;
+    case 'map':
+      for (const { key, value } of expression.entries) {
+        validateExpressionRegexes(key);
+        validateExpressionRegexes(value);
+      }
+      return;
+    case 'binary':
+      validateExpressionRegexes(expression.left);
+      validateExpressionRegexes(expression.right);
+      return;
+    case 'call':
+      for (const value of expression.args) validateExpressionRegexes(value);
+      return;
+    case 'methodcall':
+      validateExpressionRegexes(expression.target);
+      for (const value of expression.args) validateExpressionRegexes(value);
+      return;
+    case 'path':
+      for (const segment of expression.segments) {
+        if (segment.kind === 'interp') validateExpressionRegexes(segment.expr);
+      }
+      return;
+    case 'ident':
+    case 'literal':
+      return;
+  }
+}
+
+function validateMatchRegexes(match: MatchBlock): void {
+  for (const { condition } of match.allows) {
+    if (condition) validateExpressionRegexes(condition);
+  }
+  for (const fn of match.functions) {
+    for (const binding of fn.lets) {
+      validateExpressionRegexes(binding.value);
+    }
+    validateExpressionRegexes(fn.body);
+  }
+  for (const child of match.children) {
+    validateMatchRegexes(child);
+  }
+}
+
 /** A storage rules source, lowered and parsed, with the record hosts read back. */
 export interface CompiledStorageRules {
   readonly rules: StorageRules;
@@ -94,7 +192,11 @@ export function compileStorageRules(declared: string): CompiledStorageRules {
   let bundledModules: readonly string[] = [];
   let moduleEvidenceIds: readonly string[] = [];
   let rules = parseStorageRules(source);
-  if (rules._version === '2+modules') {
+  if (rules._version !== '2+modules') {
+    if (rules._root.functions.some((fn) => fn.unresolvedImport !== undefined)) {
+      throw new SyntaxError("Import statements require rules_version = '2+modules'.");
+    }
+  } else {
     const resolved = resolveModulesBrowser(source);
     if (!resolved.success) {
       throw new SyntaxError(
@@ -107,6 +209,7 @@ export function compileStorageRules(declared: string): CompiledStorageRules {
     moduleEvidenceIds = resolved.data.evidenceIds;
     rules = parseStorageRules(source);
   }
+  validateMatchRegexes(rules._root);
   const resolution = createStorageRulesResolution(
     source,
     modules,
