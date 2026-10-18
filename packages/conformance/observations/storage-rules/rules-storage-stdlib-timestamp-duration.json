@@ -8,6 +8,10 @@
   "observedAt": "2026-09-24T11:51:28.252Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "e764d2824288d71cc51f3a85748d97fa056b9e965f48712ef20e2c7fcc43e6f0"
+  },
   "behavior": {
     "timestamp accessors on request.time": "ALLOW",
     "seconds() is the seconds of the minute": "ALLOW",

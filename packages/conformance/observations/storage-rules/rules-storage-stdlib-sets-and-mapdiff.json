@@ -9,6 +9,10 @@
   "observedAt": "2026-09-30T03:43:30.998Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "198d56bd1258a2290284db66df764dbd71b785dc8adabf6b5ea01b836eacff4a"
+  },
   "behavior": {
     "toSet removes duplicates and set equality ignores order": "ALLOW",
     "set hasAll, hasAny, and hasOnly": "ALLOW",

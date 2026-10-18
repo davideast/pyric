@@ -1,11 +1,17 @@
 {
   "name": "rules-storage-stdlib-storage-modules",
   "matrixRow": "",
-  "rowIds": ["storage-rules#132"],
+  "rowIds": [
+    "storage-rules#132"
+  ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"stdlib-storage-modules\" (STORAGE-NATIVE-STDLIB). Exact four-module Storage stdlib bodies: upload bounds, MIME policy, custom metadata, operation identity, and strict object timestamp windows.",
   "observedAt": "2026-07-21T17:12:03.292Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "8e5213343e2d438891cb58eae3e9932c809e9205d4d0ff4fe2daa204273bcf1b"
+  },
   "behavior": {
     "uploads: inclusive bounds and exact MIME allow": "ALLOW",
     "uploads: zero bytes deny lower bound": "DENY",

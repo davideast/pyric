@@ -4,11 +4,11 @@
   "capturedAt": "2026-09-28T04:53:33.841Z",
   "projectId": "digame-mas",
   "engine": "storage",
-  "total": 86,
-  "accepted": 85,
-  "rejected": 1,
-  "unprobeable": 0,
-  "evaluationAgree": 85,
+  "total": 140,
+  "accepted": 127,
+  "rejected": 2,
+  "unprobeable": 11,
+  "evaluationAgree": 127,
   "evaluationDisagree": 0,
   "constructs": [
     {
@@ -311,6 +311,48 @@
       "actualDecision": "ALLOW"
     },
     {
+      "id": "storage.binding.resource.md5Hash",
+      "kind": "binding",
+      "status": "unprobeable",
+      "probeNote": "resource.md5Hash is unmodeled by the standalone evaluator (reads undefined); a micro-scenario cannot distinguish unimplemented from implemented-but-absent. Production Storage Object field; accepted by production Storage rules and callable from 2+modules."
+    },
+    {
+      "id": "storage.binding.resource.crc32c",
+      "kind": "binding",
+      "status": "unprobeable",
+      "probeNote": "resource.crc32c is unmodeled by the standalone evaluator (reads undefined); a micro-scenario cannot distinguish unimplemented from implemented-but-absent. Production Storage Object field; accepted by production Storage rules and callable from 2+modules."
+    },
+    {
+      "id": "storage.binding.resource.etag",
+      "kind": "binding",
+      "status": "unprobeable",
+      "probeNote": "resource.etag is unmodeled by the standalone evaluator (reads undefined); a micro-scenario cannot distinguish unimplemented from implemented-but-absent. Production Storage Object field; accepted by production Storage rules and callable from 2+modules."
+    },
+    {
+      "id": "storage.binding.resource.contentDisposition",
+      "kind": "binding",
+      "status": "unprobeable",
+      "probeNote": "resource.contentDisposition is unmodeled by the standalone evaluator (reads undefined); a micro-scenario cannot distinguish unimplemented from implemented-but-absent. Production Storage Object field; accepted by production Storage rules and callable from 2+modules."
+    },
+    {
+      "id": "storage.binding.resource.contentEncoding",
+      "kind": "binding",
+      "status": "unprobeable",
+      "probeNote": "resource.contentEncoding is unmodeled by the standalone evaluator (reads undefined); a micro-scenario cannot distinguish unimplemented from implemented-but-absent. Production Storage Object field; accepted by production Storage rules and callable from 2+modules."
+    },
+    {
+      "id": "storage.binding.resource.contentLanguage",
+      "kind": "binding",
+      "status": "unprobeable",
+      "probeNote": "resource.contentLanguage is unmodeled by the standalone evaluator (reads undefined); a micro-scenario cannot distinguish unimplemented from implemented-but-absent. Production Storage Object field; accepted by production Storage rules and callable from 2+modules."
+    },
+    {
+      "id": "storage.binding.resource.cacheControl",
+      "kind": "binding",
+      "status": "unprobeable",
+      "probeNote": "resource.cacheControl is unmodeled by the standalone evaluator (reads undefined); a micro-scenario cannot distinguish unimplemented from implemented-but-absent. Production Storage Object field; accepted by production Storage rules and callable from 2+modules."
+    },
+    {
       "id": "storage.function.timestamp.date",
       "kind": "function",
       "status": "accepted",
@@ -503,6 +545,133 @@
       "actualDecision": "ALLOW"
     },
     {
+      "id": "storage.function.cast.string",
+      "kind": "function",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "6632acf0e32f6622c91df0827049757c51171ac132ff0c17091886a327ea03d5"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.function.cast.int",
+      "kind": "function",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "ee11755e65c949e1f6dfb42d99838dc34184404f5bfc6453b79d8d9cc152e681"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.function.cast.float",
+      "kind": "function",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "a441947a9940582cf12d3770522a9038f0c9d27c7f697fcab02e08ad76ea4f88"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.function.cast.bool",
+      "kind": "function",
+      "status": "rejected",
+      "probeNote": "Error: storage.rules line [5], column [22]. Function not found error: Name: [bool].",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "571b1662091a91c45941f58250d9add7027427f4f7909a5fda4c1e75e24d0f4c"
+      }
+    },
+    {
+      "id": "storage.function.cast.path",
+      "kind": "function",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "452bf8f61b667c3edc9f762224bee42465f8b808914d10d6db4ff6899aab7bd5"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.function.hashing.md5",
+      "kind": "function",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "eb04c55d0f95d3d799ea03377ecc86cf66a3b0dc20e7261d6915b00adeca52ae"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.function.hashing.sha256",
+      "kind": "function",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "fa9a02ffbb112be744649c89395caa7ec9789ad8f05ba3c929dd7b8ad6aed5fb"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.function.hashing.crc32",
+      "kind": "function",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "13ae5f385c69342c19226b61e7d4af00cca2de0b0376b80a055d86d153d51961"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.function.hashing.crc32c",
+      "kind": "function",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "335ceb452168bab2ebad3a97c231c303649b6323bd008ec0bc612aed93fd89ce"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.function.latlng.value",
+      "kind": "function",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "d32072ad8f2f88c54632f9e105bce66aa679eb3b92f9234681f97302f2c5a97b"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
       "id": "storage.method.string.matches",
       "kind": "method",
       "status": "accepted",
@@ -657,6 +826,459 @@
       "evaluationDetail": "expected ALLOW, got ALLOW",
       "expectedDecision": "ALLOW",
       "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.string.lower",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "c61700176fe888af88c4464338394b74f3ba6607bde548ca6691c784040002c9"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.string.upper",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "89990d619f570de66cd42ede4346fd71551c425cd5dafe303ced3731fb414a21"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.string.trim",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "ea532eb382c0019c0d7ba8a7dc3322f4a94b622916843d78054d596684a574a3"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.string.replace",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "f822c0c5fad05c2311002ac59a07eaeb8e31d8267617faf7c4a198b0402847fd"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.string.toUtf8",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "458a3b1a4370ed2aec994be77616954288e87756fb6e35277d104ec94716a012"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.bytes.toBase64",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "676ff037ab45268a1a741028020828a72e268c08d7d3c1efb6f5c68ec836db40"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.bytes.toHexString",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "15d586b0c118578855ba9c15554d96651c34e703894c93b7fe83a3206fddad0b"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.timestamp.date",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "71d5e001320c23fe0969fbbc81921efed6265865374b622297c395675d8a34cd"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.timestamp.year",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "25b89f261cb0af2825ecbb48ca07d5ff9e8d5f6609b62fa6a7cb70d43eb28f35"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.timestamp.month",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "ac9db0a89a4fd56b83272c473d75f0155f0ee2a14b8b7937add55248f2a7a5d6"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.timestamp.day",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "0d5f3d25eedd6b606114f327fa7c9e922235e13bddd130bc7e010832b8f4d20c"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.timestamp.hours",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "28f9149f00f1db69991044ae18ab1b8d78a3bbb2025db7c7492a7c5424b0d3f7"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.timestamp.minutes",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "40b08f1e960824b6a5b229bb80bf7e1ee6e87d6f3f6c7b8a17b1e5b7de22bbf1"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.timestamp.seconds",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "4c34e03e0d65eb95e592cf4f6c1b0fe6c92ed30800368b0437cd1dbd99a89621"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.timestamp.nanos",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "17cb9a911e2e2e6345e393c6cb1f2acf7afb6663e4780cd57a273f1bccbf4225"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.timestamp.dayOfWeek",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "8ef5f22cae626dbd3c34d9014892c9539b9f8009a1053a26fd186021d7242994"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.timestamp.dayOfYear",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "136adaca1f520bc9dd9531215ae062e8d315fac5f01898ee66345c1028102147"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.timestamp.time",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "f6bca834523039a98ef75d4af5a8e1ea19be2723f804faa6cc30bf4f9ed32ebe"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.timestamp.toMillis",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "fca95b80ae4a19aab0e6861eeb6c205eb95ea52cbf4b5e1331fed85bc29a1220"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.duration.seconds",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "467c978daed9c918ee10c78b3a40cb1de87ccd29b2a14a5b02d80d881a237d54"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.duration.nanos",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "33f8d83ffd76cc0b9caaaa075df02329899fe85f75ee0b08cb5cbca407489e81"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.map.values",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "943562dd7d0f3190cf48caa570519cfe17bf16489117d93e063cc8da79592ebd"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.map.diff",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "d1faa18967dc91307d383b3d099c7c57c1ec47eacaaf67e6f5d021c26280550a"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.mapdiff.addedKeys",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "17b96c0123401e08a934dbd8d7b7cc88e26d7a8c85fe6da17b66000c501402b2"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.mapdiff.removedKeys",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "b1b4037665435df3ec8cf3afc064381b8ae95496aa2442fab0f83bdcd1e48a6c"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.mapdiff.changedKeys",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "a0fb1e8ce77dade1148cc37fb9505ee4790382cd30efa0c8eeb830a2ffd31776"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.mapdiff.unchangedKeys",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "fc291df08a08a1fdd01d65d645ac9d6e37afb9158323daecdd59b9c15c1aee52"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.mapdiff.affectedKeys",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "9906736e7b797e1ee97234b4be794684675eb6365edc3bec9e9ad7f91b59c596"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.set.hasAny",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "4ec0a156997a315aa302385e270d039bc7279f2721ba7011e5a528df73389b97"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.set.hasOnly",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "c22e43e3a7477a3574a115a617c88bd445232d1d074fd8345063a657364a844b"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.set.difference",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "375a2019e025e633e4de23f42c231046919ec212b836fca2397dcdfc3b213923"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.set.intersection",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "9613643cefb53c1e470aa3af7ba5d653aae3ce2ca4ca16cf38602cbd3744dd07"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.set.union",
+      "kind": "method",
+      "status": "accepted",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "6b9276fd55be1673fee2309d88ca6666454041615e9c8daa5b62586d1df777f9"
+      },
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
+    },
+    {
+      "id": "storage.method.latlng.latitude",
+      "kind": "method",
+      "status": "unprobeable",
+      "probeNote": "no generator for construct kind method"
+    },
+    {
+      "id": "storage.method.latlng.longitude",
+      "kind": "method",
+      "status": "unprobeable",
+      "probeNote": "no generator for construct kind method"
+    },
+    {
+      "id": "storage.method.latlng.distance",
+      "kind": "method",
+      "status": "unprobeable",
+      "probeNote": "no generator for construct kind method"
+    },
+    {
+      "id": "storage.method.path.bind",
+      "kind": "method",
+      "status": "unprobeable",
+      "probeNote": "no generator for construct kind method"
     },
     {
       "id": "storage.operator.eq",

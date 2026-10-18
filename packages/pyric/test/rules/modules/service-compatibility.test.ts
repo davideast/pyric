@@ -129,23 +129,32 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
       expect(result.error.message).toContain("service 'firebase.storage'");
     }
   });
-  test('rejects Storage bindings that production exposes but the evaluator does not implement', () => {
+  test('admits cataloged Storage resource object fields and rejects uncataloged bindings', () => {
     for (const expression of [
       'resource.md5Hash',
       'resource.crc32c',
       'resource.etag',
     ]) {
       const result = resolveModules(
-        makeStorageSource("import { readsUnimplemented } from './policy';", 'readsUnimplemented()'),
+        makeStorageSource("import { readsCataloged } from './policy';", 'readsCataloged()'),
         { modules: { './policy': `
-          export function readsUnimplemented() {
+          export function readsCataloged() {
             return ${expression} != null;
           }
         ` } },
       );
-      expect(result.success).toBe(false);
-      if (!result.success) expect(result.error.message).toContain(`binding '${expression}'`);
+      expect(result.success).toBe(true);
     }
+    const uncataloged = resolveModules(
+      makeStorageSource("import { readsUnimplemented } from './policy';", 'readsUnimplemented()'),
+      { modules: { './policy': `
+        export function readsUnimplemented() {
+          return resource.storageClass != null;
+        }
+      ` } },
+    );
+    expect(uncataloged.success).toBe(false);
+    if (!uncataloged.success) expect(uncataloged.error.message).toContain("binding 'resource.storageClass'");
   });
   test('admits the incoming object name on a Storage write', () => {
     const result = resolveModules(
@@ -195,7 +204,8 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
   test('does not let collection operations bypass closed Storage object fields', () => {
     for (const expression of [
       "request.resource.get('md5Hash', null) != null",
-      "'md5Hash' in resource",
+      "'md5Hash' in request.resource",
+      "'storageClass' in resource",
       "resource.keys().hasAll(['md5Hash'])",
     ]) {
       const result = resolveModules(

@@ -17,8 +17,11 @@ describe('rules module capability projection', () => {
     expect(source).toContain(
       'FIRESTORE_DIRECT_FUNCTIONS = ["exists", "existsAfter", "float", "get", "getAfter", "int", "path", "string"]',
     );
+    expect(source).toContain(
+      'STORAGE_DIRECT_FUNCTIONS = ["float", "int", "path", "string"]',
+    );
     expect(source).toContain('"request.resource.name"');
-    expect(source).not.toContain('"resource.md5Hash"');
+    expect(source).toContain('"resource.md5Hash"');
     expect(source).not.toContain('isInfinite');
   });
 

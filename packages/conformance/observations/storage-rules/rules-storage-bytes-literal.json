@@ -8,6 +8,10 @@
   "observedAt": "2026-09-27T16:56:49.444Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "afc7833f9570100efb47c4f584cc29b460a307a046941b01deff6aeb51a562ff"
+  },
   "behavior": {
     "b'abc' == 'abc'.toUtf8() → ALLOW": "ALLOW",
     "b\"abc\" == 'abc'.toUtf8() && b\"it's\" == 'it\\'s'.toUtf8() → ALLOW": "ALLOW",

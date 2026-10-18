@@ -8,6 +8,10 @@
   "observedAt": "2026-09-30T04:33:26.997Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "cd1f7625fbe0ab31500fc3580abb626011c71b18901c62b494a764a3bec7d2d8"
+  },
   "behavior": {
     "list mid-slice of split() → size 2 → ALLOW": "ALLOW",
     "slice end beyond split() length errors → DENY": "DENY",

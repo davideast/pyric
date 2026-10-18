@@ -10,6 +10,10 @@
   "observedAt": "2026-09-30T03:43:31.594Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "c2712ad704c5f3601796325324a08ec0e5332a4ee523f6f368632b6d031e215e"
+  },
   "behavior": {
     "size: zero bytes is within inclusive maximum": "ALLOW",
     "size: exact maximum is allowed": "ALLOW",

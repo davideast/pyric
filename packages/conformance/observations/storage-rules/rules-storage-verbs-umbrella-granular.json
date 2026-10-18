@@ -9,6 +9,10 @@
   "observedAt": "2026-07-11T03:09:45.678Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "6bf74e04f362c1e488757cf262f938d1418759a4603350b44d76827bcf8c7af4"
+  },
   "behavior": {
     "read grant covers get": "ALLOW",
     "read grant covers list": "ALLOW",

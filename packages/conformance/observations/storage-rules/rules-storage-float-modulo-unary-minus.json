@@ -8,12 +8,16 @@
   "observedAt": "2026-07-17T19:19:07.870Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "a3b5321e5a8e34977ee3b6c1f50608bb31d3a4cf31b60a217cd07b22ce5b7c01"
+  },
   "behavior": {
-    "even size passes float/modulo/unary-minus chain \u2192 ALLOW": "ALLOW",
-    "odd size fails size % 2 == 0 \u2192 DENY": "DENY",
-    "oversized float product fails bound \u2192 DENY": "DENY",
-    "int / int truncates (10 / 4 == 2) \u2192 ALLOW": "ALLOW",
-    "-7 / 2 truncates toward zero (== -3) \u2192 ALLOW": "ALLOW",
-    "-7 % 2 == -1 (dividend sign) \u2192 ALLOW": "ALLOW"
+    "even size passes float/modulo/unary-minus chain → ALLOW": "ALLOW",
+    "odd size fails size % 2 == 0 → DENY": "DENY",
+    "oversized float product fails bound → DENY": "DENY",
+    "int / int truncates (10 / 4 == 2) → ALLOW": "ALLOW",
+    "-7 / 2 truncates toward zero (== -3) → ALLOW": "ALLOW",
+    "-7 % 2 == -1 (dividend sign) → ALLOW": "ALLOW"
   }
 }

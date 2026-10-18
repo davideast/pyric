@@ -9,6 +9,10 @@
   "observedAt": "2026-09-27T17:34:54.157Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "ca9d4fc04f00bc66c0e99c2c18d250f66930bbe7fb5d37f9ff47698ba07a23ef"
+  },
   "behavior": {
     "lower, upper, and trim": "ALLOW",
     "lower over custom metadata": "ALLOW",
