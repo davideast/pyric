@@ -72,10 +72,15 @@ export interface BracketSpan {
   levels: number;
   /** Comma-separated items directly inside: list elements, map entries, call arguments. */
   items: number;
+  /** Set on the parameter list of a `function name(...)` declaration. */
+  declaration?: true;
 }
 
 /** Words after which a bracket opens an operand, not an argument list, an index, or a block. */
-const KEYWORDS = new Set(['if', 'return', 'in', 'is', 'let', 'true', 'false', 'null']);
+const KEYWORDS = new Set(['if', 'return', 'in', 'is', 'let']);
+
+/** Literal words, which are operands like number and string literals. */
+const LITERAL_WORDS = new Set(['true', 'false', 'null']);
 
 /** The bracket kinds that put their content one nesting level deeper. */
 const LEVEL_KINDS: ReadonlySet<BracketKind> = new Set(['group', 'call', 'list', 'map']);
@@ -100,6 +105,7 @@ export function scanBrackets(source: string, options: BracketScanOptions): Brack
   let previous: Previous = 'none';
   let word = '';
   let wordAfterDot = false;
+  let wordDeclaresFunction = false;
   let lastSignificant = '';
   let matchHeaderDepth: number | null = null;
   const n = source.length;
@@ -150,10 +156,13 @@ export function scanBrackets(source: string, options: BracketScanOptions): Brack
     if (isWordChar(c) && c !== 36) {
       const start = i;
       while (i < n && isWordChar(source.charCodeAt(i))) i++;
+      const afterFunction = previous === 'word' && word === 'function' && !wordAfterDot && lastSignificant === '';
       word = source.slice(start, i);
       wordAfterDot = lastSignificant === '.';
       const prevBeforeWord = previous;
-      previous = c >= 48 && c <= 57 ? 'operand' : 'word';
+      const isLiteral = (c >= 48 && c <= 57) || (!wordAfterDot && LITERAL_WORDS.has(word));
+      previous = isLiteral ? 'operand' : 'word';
+      wordDeclaresFunction = afterFunction && previous === 'word' && !KEYWORDS.has(word);
       if (word === 'match' && !wordAfterDot && prevBeforeWord !== 'slash') {
         matchHeaderDepth = stack.length;
       }
@@ -188,7 +197,10 @@ export function scanBrackets(source: string, options: BracketScanOptions): Brack
       }
       const adds = LEVEL_KINDS.has(kind);
       if (adds) levels++;
+      const declaration = kind === 'call' && wordDeclaresFunction && lastSignificant === '';
       const span: BracketSpan = { char, kind, open: i, close: -1, depth: stack.length + 1, levels, items: 0 };
+      if (declaration) span.declaration = true;
+      wordDeclaresFunction = false;
       spans.push(span);
       stack.push({ span, commas: 0, tail: false });
       previous = 'other';

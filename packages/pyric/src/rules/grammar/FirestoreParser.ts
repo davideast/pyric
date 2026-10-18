@@ -8,6 +8,7 @@ import { addParenthesizedGroup } from './paren-groups.js';
 import { boundSourceNesting, type SourceNestingFailure } from './compile-limits.js';
 import { MAX_BRACKET_DEPTH } from './bracket-scan.js';
 import { SourcePositions, setCompletionPosition, setExpressionPosition } from './expression-positions.js';
+import { SEGMENT_DEPTH, isSegmentPlaceholder, matchSegmented, type PieceResult } from './source-segments.js';
 
 // The grammar source is inlined at SDK build time (see
 // scripts/inline-grammar.ts). This keeps the parser browser-safe — no
@@ -212,8 +213,9 @@ semantics.addOperation<any>('toAST', {
   Primary_paren(_lp, expr, _rp) {
     const inner = expr.toAST() as Expression;
     addParenthesizedGroup(inner);
-    // A parenthesized conjunction completes at its opening parenthesis.
-    if (inner.type === 'binaryOp' && inner.op === '&&') completesAt(inner, this);
+    // A parenthesized conjunction completes at its opening parenthesis. A
+    // placeholder for a bracket matched on its own may stand for one.
+    if ((inner.type === 'binaryOp' && inner.op === '&&') || isSegmentPlaceholder(inner)) completesAt(inner, this);
     return inner;
   },
   Primary_path(p) { return p.toAST(); },
@@ -409,26 +411,43 @@ function stackFailure(source: string): ParseError {
   return error;
 }
 
-/**
- * Match `trimmed` from `startRule` and build a value from the match, never
- * descending into a group production rejects as too complex or past the
- * bracket depth bound (`boundSourceNesting`), and never letting a stack
- * overflow escape.
- */
-function matchBounded<T>(
-  trimmed: string,
-  startRule: string | undefined,
-  build: (match: ohm.MatchResult) => T,
-  errorSource: string = trimmed,
-  baseOffset: number = 0,
-): { ok: true; value: T } | { ok: false; error: ParseError } {
+function matchGrammar(text: string, startRule: string | undefined): ohm.MatchResult {
+  if (startRule === undefined) return grammar.match(text);
+  return grammar.match(text, startRule);
+}
+
+/** Match one piece of the segmented match (`source-segments.ts`) and build its AST. */
+function matchPiece(text: string, startRule: string | undefined, offset: number, prefix: number, errorSource: string, baseOffset: number): PieceResult<ParseError> {
+  const match = matchGrammar(text, startRule);
+  if (!match.succeeded()) return { ok: false, error: buildParseError(match, errorSource, baseOffset + offset - prefix) };
+  const sourcePositions = buildPositions;
+  if (sourcePositions !== null && (offset !== 0 || prefix !== 0)) {
+    const start = sourcePositions.at(offset);
+    buildPositions = new SourcePositions(text, start.line - 1, start.column - 1 - prefix);
+  }
+  try {
+    return { ok: true, ast: semantics(match).toAST() as object };
+  } finally {
+    buildPositions = sourcePositions;
+  }
+}
+
+/** Match `trimmed` within the nesting bound (`boundSourceNesting`) and in segments (`matchSegmented`). */
+function matchBounded(trimmed: string, startRule: string | undefined, buildAst: boolean, errorSource: string = trimmed, baseOffset: number = 0, segmentDepth: number = SEGMENT_DEPTH): { ok: true; value: unknown } | { ok: false; error: ParseError } {
   const bounded = boundSourceNesting(trimmed);
   if (!('source' in bounded)) {
     return { ok: false, error: nestingFailure(errorSource, { offset: baseOffset + bounded.offset, expected: bounded.expected }) };
   }
+  const matchSource = (source: string, rule: string | undefined, needAst: boolean, at: number): PieceResult<ParseError> =>
+    matchSegmented(source, rule, (text, r, offset, prefix) => {
+      if (needAst || text !== source) return matchPiece(text, r, offset, prefix, errorSource, at);
+      const m = matchGrammar(text, r);
+      if (!m.succeeded()) return { ok: false, error: buildParseError(m, errorSource, at) };
+      return { ok: true, ast: {} };
+    }, 0, 0, segmentDepth);
   try {
-    const match = startRule === undefined ? grammar.match(bounded.source) : grammar.match(bounded.source, startRule);
-    if (!match.succeeded()) return { ok: false, error: buildParseError(match, errorSource, baseOffset) };
+    const matched = matchSource(bounded.source, startRule, buildAst, baseOffset);
+    if (!matched.ok) return matched;
     if (bounded.elided !== undefined) {
       const queue = bounded.elided.map((e) => ({ offset: baseOffset + e.offset, text: e.text }));
       for (let i = 0; i < queue.length; i++) {
@@ -437,14 +456,14 @@ function matchBounded<T>(
         if (!('source' in sub)) {
           return { ok: false, error: nestingFailure(errorSource, { offset: item.offset + sub.offset, expected: sub.expected }) };
         }
-        const subMatch = grammar.match(sub.source, 'Expr');
-        if (!subMatch.succeeded()) return { ok: false, error: buildParseError(subMatch, errorSource, item.offset) };
+        const subMatched = matchSource(sub.source, 'Expr', false, item.offset);
+        if (!subMatched.ok) return subMatched;
         if (sub.elided !== undefined) {
           for (const child of sub.elided) queue.push({ offset: item.offset + child.offset, text: child.text });
         }
       }
     }
-    return { ok: true, value: build(match) };
+    return { ok: true, value: matched.ast };
   } catch (e) {
     if (e instanceof RangeError) return { ok: false, error: stackFailure(errorSource) };
     throw e;
@@ -457,7 +476,7 @@ function checkStrictParse(input: string, startRule: string | undefined, emptyMsg
   const trimmed = input.trim();
   if (!trimmed) return { valid: false, errors: [{ message: emptyMsg }] };
   const leadingTrimmed = input.length - input.trimStart().length;
-  const matched = matchBounded(trimmed, startRule, () => undefined, input.trimEnd(), leadingTrimmed);
+  const matched = matchBounded(trimmed, startRule, false, input.trimEnd(), leadingTrimmed);
   if (!matched.ok) return { valid: false, errors: [{ message: matched.error.message }], parseError: matched.error };
   return { valid: true, errors: [] };
 }
@@ -475,14 +494,22 @@ export function parseToAST(input: string): FirestoreRules | null {
   return result.ok ? result.ast : null;
 }
 
+/** How {@link parseToASTOrError} matches. */
+export interface ParseOptions {
+  /**
+   * Most brackets one match descends before deeper brackets are matched on
+   * their own (`source-segments.ts`); {@link SEGMENT_DEPTH} by default. A
+   * test seam: a small depth segments ordinary source.
+   */
+  segmentDepth?: number;
+}
+
 /**
  * Parse and either return the AST or a structured failure. Use this when
  * the caller wants to surface a diagnostic; use `parseToAST` when null is
  * a sufficient signal.
  */
-export function parseToASTOrError(
-  input: string,
-): { ok: true; ast: FirestoreRules } | { ok: false; error: ParseError } {
+export function parseToASTOrError(input: string, options: ParseOptions = {}): { ok: true; ast: FirestoreRules } | { ok: false; error: ParseError } {
   const trimmed = input.trim();
   if (!trimmed) {
     return { ok: false, error: { line: 1, column: 1, offset: 0, expected: '', actual: '', message: 'Empty rules file' } };
@@ -501,14 +528,14 @@ export function parseToASTOrError(
   }
   // Expression positions are recorded against the caller's source directly.
   buildPositions = new SourcePositions(trimmed, leadingLineOffset, leadingTrimmed - lastLeadingNewline - 1);
-  let built: ReturnType<typeof matchBounded<FirestoreRules>>;
+  let built: ReturnType<typeof matchBounded>;
   try {
-    built = matchBounded(trimmed, undefined, (match) => semantics(match).toAST() as FirestoreRules, input.trimEnd(), leadingTrimmed);
+    built = matchBounded(trimmed, undefined, true, input.trimEnd(), leadingTrimmed, options.segmentDepth);
   } finally {
     buildPositions = null;
   }
   if (!built.ok) return built;
-  const ast = built.value;
+  const ast = built.value as FirestoreRules;
   if (leadingLineOffset > 0) shiftAstLines(ast, leadingLineOffset);
   return { ok: true, ast };
 }
