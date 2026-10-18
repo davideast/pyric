@@ -167,6 +167,13 @@ describe('padding cost in the simulator', () => {
   }
 });
 
+/**
+ * Two simulations of a request padded to its limit. Alone the slowest took
+ * 2.4 s (2026-10-18, WSL2); late in a full packages/pyric run one took
+ * 11.8 s, past bun's 5 s default.
+ */
+const PADDED_SIMULATION_TIMEOUT_MS = 30_000;
+
 for (const suite of captures.suites) {
   describe(`expression count against production: ${suite.id}`, () => {
     const source = readFileSync(join(FIXTURES, suite.rulesFile), 'utf8');
@@ -214,7 +221,7 @@ for (const suite of captures.suites) {
         const { below, at } = c.production.threshold;
         expect(simulate(withPadding, padded(tc, { [PAD_TOKEN]: below }), getDoc).resourceLimit).toBeUndefined();
         expect(simulate(withPadding, padded(tc, { [PAD_TOKEN]: at }), getDoc).resourceLimit?.kind).toBe('expressions');
-      });
+      }, PADDED_SIMULATION_TIMEOUT_MS);
     }
   });
 }
