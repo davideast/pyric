@@ -8,6 +8,12 @@ import {
 import { StorageLatLng } from './rules-latlng.js';
 import { StoragePath } from './rules-path.js';
 import { describeRulesType as describeType } from '../../rules/simulator/rules-type.js';
+import { RulesValue } from '../../rules/simulator/wrappers/base.js';
+import { Bytes } from '../../rules/simulator/wrappers/bytes.js';
+import { RulesFloat } from '../../rules/simulator/wrappers/float.js';
+import { LatLng } from '../../rules/simulator/wrappers/latlng.js';
+import { Path } from '../../rules/simulator/wrappers/path.js';
+import { Timestamp } from '../../rules/simulator/wrappers/timestamp.js';
 import {
   RuleError,
   isRuleError as isErr,
@@ -17,22 +23,50 @@ type MethodCall = Extract<Expr, { kind: 'methodcall' }>;
 
 /**
  * Wrap raw Firestore document data values into Storage rules values
- * (wrapping GeoPoint as latlng and DocumentReference/Path as path).
+ * (preserving RulesValue instances, wrapping floats in RulesFloat, and
+ * wrapping GeoPoint/DocumentReference sentinels as StorageLatLng/StoragePath
+ * without clobbering plain user maps that happen to carry `path` or
+ * `latitude`/`longitude` alongside other fields).
  */
 function wrapFirestoreValue(val: unknown): unknown {
   if (val === null || val === undefined) return val;
+  if (typeof val === 'number') {
+    return Number.isInteger(val) ? val : new RulesFloat(val);
+  }
+  if (val instanceof Date) {
+    return Timestamp.fromMillis(val.getTime());
+  }
+  if (val instanceof Uint8Array) {
+    return new Bytes(val);
+  }
+  if (val instanceof LatLng) {
+    return new StorageLatLng(val.lat, val.lng);
+  }
+  if (val instanceof Path) {
+    return new StoragePath(val.toString());
+  }
+  if (val instanceof RulesValue) {
+    return val;
+  }
   if (typeof val === 'object') {
     if (Array.isArray(val)) {
       return val.map(wrapFirestoreValue);
     }
     const obj = val as Record<string, unknown>;
+    const keys = Object.keys(obj);
     const lat = obj.latitude ?? obj._latitude;
     const lng = obj.longitude ?? obj._longitude;
-    if (typeof lat === 'number' && typeof lng === 'number') {
-      return new StorageLatLng(lat, lng);
+    if (
+      obj.__type === 'latlng' ||
+      (keys.length === 2 && typeof lat === 'number' && typeof lng === 'number')
+    ) {
+      return new StorageLatLng(lat as number, lng as number);
     }
-    if (typeof obj.path === 'string' && obj.path.startsWith('/')) {
-      return new StoragePath(obj.path);
+    if (
+      obj.__type === 'path' ||
+      (keys.length === 1 && typeof obj.path === 'string' && obj.path.startsWith('/databases/'))
+    ) {
+      return new StoragePath(obj.path as string);
     }
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(obj)) {
@@ -59,8 +93,7 @@ export function evalFirestoreBuiltin(expr: MethodCall, ctx: EvalCtx): unknown {
     );
   }
   if (expr.args.length !== 1) {
-    // Wrong call shape: production rejects at compile; never absorbed.
-    throw new RuleUnsupportedError(`firestore.${expr.method}() expects a single path argument`);
+    throw new RuleEvalError(`firestore.${expr.method}() expects a single path argument`);
   }
   const arg = expr.args[0];
   let docPath: string;
@@ -73,13 +106,13 @@ export function evalFirestoreBuiltin(expr: MethodCall, ctx: EvalCtx): unknown {
   } else {
     const val = evalExpr(arg, ctx);
     if (isErr(val)) return val;
-    if (typeof val === 'string' || val instanceof StoragePath) {
-      const pathString = val instanceof StoragePath ? val.path : val;
+    if (val instanceof StoragePath || (val instanceof RulesValue && val.typeName === 'path')) {
+      const pathString = val instanceof StoragePath ? val.path : String(val);
       const segments = pathString.split('/').filter(Boolean).map((value) => ({ kind: 'literal' as const, value }));
       docPath = buildFirestoreDocPath({ kind: 'path', segments }, ctx);
     } else {
-      throw new RuleUnsupportedError(
-        `firestore.${expr.method}() requires a /databases/.../documents/... path literal`,
+      return new RuleError(
+        `Function not found error: Name: [${expr.method}].`,
       );
     }
   }

@@ -14,8 +14,16 @@ import { normalizeAuthState } from '../../sandbox/sandbox-context.js';
  * A field the record does not carry is left `undefined`, which the
  * evaluator's property read reports as production's absent-property ERROR.
  */
+function omitUndefined<T extends Record<string, unknown>>(obj: T): T {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (v !== undefined) out[k] = v;
+  }
+  return out as T;
+}
+
 export function buildResourceObject(resource: StorageResource): Record<string, unknown> {
-  return {
+  return omitUndefined({
     size: resource.size,
     contentType: resource.contentType,
     metadata: resource.metadata,
@@ -25,7 +33,7 @@ export function buildResourceObject(resource: StorageResource): Record<string, u
     metageneration: resource.metageneration,
     timeCreated: isoToTimestamp(resource.timeCreated),
     updated: isoToTimestamp(resource.updated),
-  };
+  });
 }
 
 /** ISO-8601 → timestamp. An unparseable or absent value stays `undefined`
@@ -58,7 +66,10 @@ export function buildRequestObject(input: EvaluationInput, now: number): Record<
     // Production treats an operation without an incoming object (notably
     // delete/read) as an absent binding. A direct null comparison errors just
     // like a property read; neither may turn the missing value into an allow.
-    resource: input.request.resource ?? new RuleError('Property resource is undefined on object.'),
+    resource:
+      input.request.resource !== undefined
+        ? omitUndefined(input.request.resource as unknown as Record<string, unknown>)
+        : new RuleError('Property resource is undefined on object.'),
     method: input.request.method,
     // A path value, which `request.path[0]` reads by segment.
     path: new StoragePath(input.request.path),

@@ -81,7 +81,7 @@ function evalListMethod(receiver: unknown, expr: MethodCall, ctx: EvalCtx): unkn
   return result;
 }
 
-/** `Map.get(key, default)` for the production-probed string-key form. */
+/** `Map.get(key, default)` for string keys and nested key-path lists. */
 function evalMapGet(receiver: unknown, expr: MethodCall, ctx: EvalCtx): unknown {
   if (!isRulesMap(receiver)) throw functionNotFound(expr.method);
   if (expr.args.length !== 2) {
@@ -90,10 +90,25 @@ function evalMapGet(receiver: unknown, expr: MethodCall, ctx: EvalCtx): unknown 
   const args = evalArguments(expr, ctx);
   if (isErr(args)) return args;
   const [key, fallback] = args;
-  if (typeof key !== 'string') {
-    throw new RuleEvalError(`get() key must be a string`);
+  if (typeof key === 'string') {
+    return Object.hasOwn(receiver, key) && receiver[key] !== undefined ? receiver[key] : fallback;
   }
-  return Object.prototype.hasOwnProperty.call(receiver, key) ? receiver[key] : fallback;
+  if (Array.isArray(key)) {
+    for (const part of key) {
+      if (typeof part !== 'string') {
+        throw new RuleEvalError(`get() key list elements must be strings`);
+      }
+    }
+    let current: unknown = receiver;
+    for (const part of key) {
+      if (!isRulesMap(current) || !Object.hasOwn(current, part) || current[part] === undefined) {
+        return fallback;
+      }
+      current = current[part];
+    }
+    return current;
+  }
+  throw new RuleEvalError(`get() key must be a string or list of strings`);
 }
 
 /**

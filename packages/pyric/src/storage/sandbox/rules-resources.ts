@@ -1,6 +1,14 @@
 import { clientContentEncoding, uploadContentDisposition } from '../content-defaults.js';
 import type { StorageRequestResource, StorageResource } from './rules.js';
 
+function omitUndefined<T extends object>(obj: T): T {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (v !== undefined) out[k] = v;
+  }
+  return out as T;
+}
+
 export function resourceFromStored(
   stored:
     | {
@@ -18,7 +26,7 @@ export function resourceFromStored(
     | undefined,
 ): StorageResource | null {
   if (!stored) return null;
-  return {
+  return omitUndefined({
     size: stored.size,
     contentType: stored.contentType,
     metadata: stored.customMetadata,
@@ -38,7 +46,7 @@ export function resourceFromStored(
     // Persisted as strings (FullMetadata shape); production types both `int`.
     generation: numberOrUndefined(stored.generation),
     metageneration: numberOrUndefined(stored.metageneration),
-  };
+  });
 }
 
 /**
@@ -135,5 +143,5 @@ export function requestResourceFor(object: WrittenObject, write: StorageWrite): 
     resource.generation = numberOrUndefined(object.generation);
     resource.metageneration = numberOrUndefined(object.metageneration);
   }
-  return resource;
+  return omitUndefined(resource);
 }

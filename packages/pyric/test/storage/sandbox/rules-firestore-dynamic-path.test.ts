@@ -31,12 +31,17 @@ describe('08-storage-firestore-dynamic-path-and-value-wrapping', () => {
     );
   }
 
-  test('allows firestore.get with dynamic string-concatenated path expression', () => {
-    const r = evalFs(
+  test('denies firestore.get with bare string expression (requires Path) and allows path(...) constructor', () => {
+    const bare = evalFs(
       "firestore.get('/databases/(default)/documents/users/' + request.auth.uid).data.premium == true",
       { 'users/alice': { premium: true } },
     );
-    expect(r.allowed).toBe(true);
+    expect(bare.allowed).toBe(false);
+    const wrapped = evalFs(
+      "firestore.get(path('/databases/(default)/documents/users/' + request.auth.uid)).data.premium == true",
+      { 'users/alice': { premium: true } },
+    );
+    expect(wrapped.allowed).toBe(true);
   });
 
   test('allows firestore.exists with path() constructor expression', () => {
