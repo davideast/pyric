@@ -231,7 +231,15 @@ export function functionContainsGet(
         return e.args.some(check);
       case 'binaryOp': return check(e.left) || check(e.right);
       case 'unaryOp': return check(e.operand);
-      case 'methodCall': return check(e.object) || e.args.some(check);
+      case 'methodCall':
+        if (
+          e.object.type === 'identifier' &&
+          e.object.name === 'firestore' &&
+          (e.method === 'get' || e.method === 'exists')
+        ) {
+          return true;
+        }
+        return check(e.object) || e.args.some(check);
       case 'memberAccess': return check(e.object);
       case 'bracketAccess': return check(e.object) || check(e.index);
       case 'sliceAccess': return check(e.object) || check(e.start) || check(e.end);
@@ -351,7 +359,10 @@ export function collectAllRules(
   match: MatchBlock,
   parentPath = '',
 ): { rule: AllowRule; path: string; matchFunctions: FunctionDef[] }[] {
-  const isDocumentsRoot = match.path.raw.includes('databases') && match.path.raw.includes('documents');
+  const isDocumentsRoot =
+    (match.path.raw.includes('databases') && match.path.raw.includes('documents')) ||
+    (match.path.raw.includes('/b/') && match.path.raw.includes('/o')) ||
+    /^\/?b\/[^/]+\/o$/.test(match.path.raw);
   const currentPath = joinMatchPath(parentPath, match.path.raw);
   const childPrefix = isDocumentsRoot && !parentPath ? '' : currentPath;
   const results: { rule: AllowRule; path: string; matchFunctions: FunctionDef[] }[] = [];

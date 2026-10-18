@@ -321,3 +321,82 @@ describe('FS-COV-5b/5c and FS-FUZ-4 regressions', () => {
     expect(elapsed).toBeLessThan(250);
   });
 });
+
+describe('ST-LNT-3, ST-LNT-4a, ST-LNT-6a: service firebase.storage and 2+modules imports', () => {
+  test('ST-LNT-3: valid Storage ruleset with firestore.exists(), /b/{bucket}/o root, and request.resource.size has no false SEM-5, SEC-6, or STR-2', () => {
+    const validStorage = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+    match /users/{uid}/avatar.png {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow create: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.size < 1048576
+        && request.resource.contentType == 'image/png'
+        && firestore.exists(/databases/(default)/documents/users/$(request.auth.uid));
+    }
+  }
+}`;
+    const findings = validate(validStorage);
+    expect(findings.some(i => i.code === 'SEM-5' && i.message.includes("'firestore'"))).toBe(false);
+    expect(findings.some(i => i.code === 'SEC-6')).toBe(false);
+    expect(findings.some(i => i.code === 'STR-2')).toBe(false);
+    expect(findings.some(i => i.code === 'SEC-4')).toBe(false);
+  });
+
+  test('ST-LNT-3b: bare exists() or get() in Storage rules emits SEM-4', () => {
+    const bareExists = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{uid}/avatar.png {
+      allow read: if request.auth != null && exists(/databases/(default)/documents/users/$(request.auth.uid));
+    }
+  }
+}`;
+    const findings = validate(bareExists);
+    expect(findings.some(i => i.code === 'SEM-4' && i.message.includes("'exists'"))).toBe(true);
+  });
+
+  test('ST-LNT-4a: Storage ruleset exceeding 2 firestore.get/exists calls emits SEM-3', () => {
+    const overStorageBudget = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function docRole(id) {
+      return firestore.get(/databases/(default)/documents/users/$(id)).data.role;
+    }
+    match /files/{fileId} {
+      allow read: if request.auth != null
+        && docRole(request.auth.uid) == 'admin'
+        && firestore.exists(/databases/(default)/documents/orgs/a)
+        && firestore.exists(/databases/(default)/documents/orgs/b);
+    }
+  }
+}`;
+    const findings = validate(overStorageBudget);
+    const sem3 = findings.find(i => i.code === 'SEM-3');
+    expect(sem3).toBeDefined();
+    expect(sem3!.message).toContain('exceeds the 2-call budget');
+  });
+
+  test('ST-LNT-6a: 2+modules imported auth helpers resolve without false SEM-4 or SEC-3', () => {
+    const modularRules = `rules_version = '2+modules';
+import { isOwner } from 'auth';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid} {
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid) && request.resource.data.name is string;
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}`;
+    const findings = validate(modularRules);
+    expect(findings.some(i => i.code === 'SEM-4')).toBe(false);
+    expect(findings.some(i => i.code === 'SEC-3')).toBe(false);
+  });
+});
