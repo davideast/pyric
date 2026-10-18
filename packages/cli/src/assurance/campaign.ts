@@ -332,7 +332,13 @@ export class AuthorizationCampaign {
     }
 
     const operation = original.mutation.operation;
-    const data = "data" in operation ? operation.data : undefined;
+    const payloadKey = operation.service === "storage" ? "customMetadata" : "data";
+    const data =
+      operation.service === "storage"
+        ? operation.customMetadata
+        : "data" in operation
+          ? operation.data
+          : undefined;
     if (
       original.mutation.dimension !== "payload" ||
       !data ||
@@ -349,12 +355,17 @@ export class AuthorizationCampaign {
     }
 
     let kept = { ...(data as Record<string, unknown>) };
+    const rawControlPayload =
+      original.control.service === "storage"
+        ? original.control.customMetadata
+        : "data" in original.control
+          ? original.control.data
+          : undefined;
     const controlData =
-      "data" in original.control &&
-      original.control.data &&
-      typeof original.control.data === "object" &&
-      !Array.isArray(original.control.data)
-        ? (original.control.data as Record<string, unknown>)
+      rawControlPayload &&
+      typeof rawControlPayload === "object" &&
+      !Array.isArray(rawControlPayload)
+        ? (rawControlPayload as Record<string, unknown>)
         : {};
     const retainsPayloadDelta = (candidate: Record<string, unknown>) =>
       Object.keys(candidate).some(
@@ -384,7 +395,10 @@ export class AuthorizationCampaign {
         id: `${original.id}--min-${field}`,
         mutation: {
           ...original.mutation,
-          operation: { ...operation, data: candidateData } as typeof operation,
+          operation: {
+            ...operation,
+            [payloadKey]: candidateData,
+          } as typeof operation,
         },
       };
       const report = await runAuthorizationCampaign({

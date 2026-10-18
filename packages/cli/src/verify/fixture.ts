@@ -218,10 +218,11 @@ export function parseVerifyFixture(value: unknown): PyricVerifyFixture {
 
 export function fixtureVerifiableServices(
   fixture: PyricVerifyFixture,
-): Array<'firestore' | 'rtdb'> {
-  const services: Array<'firestore' | 'rtdb'> = [];
+): Array<'firestore' | 'rtdb' | 'storage'> {
+  const services: Array<'firestore' | 'rtdb' | 'storage'> = [];
   if (fixture.services.firestore) services.push('firestore');
   if (fixture.services.rtdb) services.push('rtdb');
+  if (fixture.services.storage) services.push('storage');
   return services;
 }
 

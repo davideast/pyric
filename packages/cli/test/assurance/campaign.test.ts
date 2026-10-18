@@ -2,6 +2,7 @@ import "fake-indexeddb/auto";
 
 import { describe, expect, it } from "bun:test";
 import {
+  createAuthorizationCampaign,
   runAuthorizationCampaign,
   type AuthorizationCampaignSpec,
 } from "../../src/assurance/index.js";
@@ -255,5 +256,99 @@ describe("runAuthorizationCampaign", () => {
         customMetadata: { owner: "mallory" },
       },
     });
+  });
+
+  it("classifies Storage get on a missing object as ALLOW when rules permit read and minimizes Storage customMetadata payloads (ST-CON-6)", async () => {
+    const campaign = createAuthorizationCampaign({
+      id: "st-con-6-test",
+      target: {
+        schema: "pyric.assurance.target.v1",
+        network: "forbid",
+        rules: {
+          storage: `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /docs/{id} {
+      allow get, create: if true;
+    }
+  }
+}`,
+        },
+        state: {
+          storage: [
+            {
+              path: "docs/seeded.txt",
+              dataBase64: "c2VlZGVk",
+              contentType: "text/plain",
+            },
+          ],
+        },
+      },
+    });
+
+    campaign.addActor({
+      id: "anon",
+      acquisition: { kind: "anonymous-request" },
+    });
+    campaign.addInvariant({
+      id: "inv-st",
+      service: "storage",
+      statement: "Missing object read is allowed and payload customMetadata is minimized",
+      expected: "DENY",
+      source: "agent",
+      confidence: "authoritative",
+    });
+    campaign.addProbe({
+      id: "probe-st-missing-get",
+      actorId: "anon",
+      invariantId: "inv-st",
+      control: { service: "storage", method: "get", path: "docs/seeded.txt" },
+      mutation: {
+        dimension: "path",
+        description: "read missing object",
+        operation: { service: "storage", method: "get", path: "docs/missing.txt" },
+      },
+    });
+    campaign.addProbe({
+      id: "probe-st-payload",
+      actorId: "anon",
+      invariantId: "inv-st",
+      control: {
+        service: "storage",
+        method: "upload",
+        path: "docs/out.txt",
+        dataBase64: "aGk=",
+        contentType: "text/plain",
+        customMetadata: {},
+      },
+      mutation: {
+        dimension: "payload",
+        description: "upload with extra metadata keys",
+        operation: {
+          service: "storage",
+          method: "upload",
+          path: "docs/out.txt",
+          dataBase64: "aGk=",
+          contentType: "text/plain",
+          customMetadata: {
+            escalatedRole: "admin",
+            extraNoise1: "x",
+            extraNoise2: "y",
+          },
+        },
+      },
+    });
+
+    await campaign.run();
+    const missingGet = campaign.inspect("probe-st-missing-get");
+    expect(missingGet.control.decision).toBe("ALLOW");
+    expect(missingGet.mutation.decision).toBe("ALLOW");
+
+    const minimized = await campaign.minimize("probe-st-payload");
+    expect(minimized.changed).toBe(true);
+    expect(minimized.removedPayloadFields).toEqual([
+      "escalatedRole",
+      "extraNoise1",
+    ]);
   });
 });

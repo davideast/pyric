@@ -32,7 +32,7 @@ import type { Args, Fail, InvalidArguments, MethodRecord } from '../../method-ty
 /** One case, as the engine's request shape, from either form's fields. */
 function requestOf(
   source: Args,
-  service: string,
+  _service: string,
   rules: unknown,
   requestTime: unknown,
 ): RulesRequest {
@@ -44,9 +44,7 @@ function requestOf(
   if (rules !== undefined) request.rules = String(rules);
   const instant = source.requestTime ?? requestTime;
   if (instant !== undefined) request.requestTime = String(instant);
-  // Storage rules read the object rather than the payload, and the evaluator
-  // takes no write value, so a data argument does not reach that engine.
-  if (source.data !== undefined && service !== 'storage') {
+  if (source.data !== undefined) {
     request.data = source.data;
   }
   if (source.query !== undefined) request.query = source.query as Record<string, unknown>;

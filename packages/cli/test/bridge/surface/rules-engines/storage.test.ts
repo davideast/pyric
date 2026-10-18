@@ -5,8 +5,11 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
 import { getClock, initializeSandbox } from 'pyric/sandbox';
+import { getStorageSandbox, ref, uploadBytes } from 'pyric/storage';
+import { compileStorageRules } from 'pyric/storage/internal';
 
 import { createSurfaceContext } from '../../../../src/bridge/surface/context.js';
+import { METHODS_BY_KEY } from '../../../../src/bridge/surface/index.js';
 import { STORAGE_RULES } from '../../../../src/bridge/surface/rules-engines/storage.js';
 
 const TIME_GATED_RULES = `rules_version = '2';
@@ -177,5 +180,161 @@ describe('simulate', () => {
       path: 'uploads/note.txt',
     });
     expect((after.data as { allowed: boolean }).allowed).toBe(true);
+  });
+
+  it('populates resource from existing stored object metadata in the sandbox (ST-CON-1)', async () => {
+    const sandbox = initializeSandbox();
+    const ctx = createSurfaceContext(sandbox);
+    const rules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /docs/{docId} {
+      allow create: if request.auth != null;
+      allow get: if resource != null && resource.metadata.owner == request.auth.uid;
+    }
+  }
+}`;
+    await STORAGE_RULES.install(ctx, rules);
+    const authedStorage = getStorageSandbox(sandbox.withAuth({ uid: 'alice' }));
+    await uploadBytes(ref(authedStorage, 'docs/readme.txt'), new TextEncoder().encode('hello world'), {
+      contentType: 'text/plain',
+      customMetadata: { owner: 'alice' },
+    });
+
+    const simAlice = await STORAGE_RULES.simulate(ctx, {
+      operation: 'get',
+      path: 'docs/readme.txt',
+      uid: 'alice',
+    });
+    expect((simAlice.data as { allowed: boolean }).allowed).toBe(true);
+
+    const simBob = await STORAGE_RULES.simulate(ctx, {
+      operation: 'get',
+      path: 'docs/readme.txt',
+      uid: 'bob',
+    });
+    expect((simBob.data as { allowed: boolean }).allowed).toBe(false);
+  });
+
+  it('passes request.data through rules.simulate and constructs request.resource for Storage writes (ST-CON-2)', async () => {
+    const ctx = freshContext();
+    const rules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /uploads/{fileName} {
+      allow create: if request.resource != null
+        && request.resource.contentType == 'image/png'
+        && request.resource.size < 1024
+        && request.resource.metadata.owner == request.auth.uid;
+    }
+  }
+}`;
+    await STORAGE_RULES.install(ctx, rules);
+    const simulateMethod = METHODS_BY_KEY.get('rules.simulate')!;
+    const simResult = await simulateMethod.handler(
+      {
+        service: 'storage',
+        operation: 'create',
+        path: 'uploads/a.png',
+        uid: 'alice',
+        data: {
+          contentType: 'image/png',
+          size: 128,
+          metadata: { owner: 'alice' },
+        },
+      },
+      ctx,
+    );
+    expect(simResult.ok).toBe(true);
+    expect((simResult.data as { allowed: boolean }).allowed).toBe(true);
+  });
+
+  it('matches root bucket path b/{bucket}/o without trailing slash on empty or / path (ST-CON-3b)', async () => {
+    const ctx = freshContext();
+    const rules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    allow list: if request.auth != null;
+    match /files/{file} {
+      allow read: if true;
+    }
+  }
+}`;
+    await STORAGE_RULES.install(ctx, rules);
+    const simRoot = await STORAGE_RULES.simulate(ctx, {
+      operation: 'list',
+      path: '/',
+      uid: 'alice',
+    });
+    expect((simRoot.data as { allowed: boolean }).allowed).toBe(true);
+  });
+
+  it('evaluates rules_version = 2+modules imports across compileFailure, lint, and simulate (MOD-CON-1)', async () => {
+    const ctx = freshContext();
+    const moduleRules = `rules_version = '2+modules';
+import { isAuthenticated } from 'auth';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /files/{name} {
+      allow read: if isAuthenticated();
+    }
+  }
+}`;
+    await STORAGE_RULES.install(ctx, moduleRules);
+
+    const simInstalled = await STORAGE_RULES.simulate(ctx, {
+      operation: 'get',
+      path: 'files/test.txt',
+      uid: 'alice',
+    });
+    expect((simInstalled.data as { allowed: boolean }).allowed).toBe(true);
+
+    const simDraft = await STORAGE_RULES.simulate(ctx, {
+      operation: 'get',
+      path: 'files/test.txt',
+      uid: 'alice',
+      rules: moduleRules,
+    });
+    expect((simDraft.data as { allowed: boolean }).allowed).toBe(true);
+
+    const brokenModuleRules = `rules_version = '2+modules';
+import { doesNotExist } from 'auth';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /files/{name} {
+      allow read: if doesNotExist();
+    }
+  }
+}`;
+    expect(STORAGE_RULES.compileFailure(brokenModuleRules)).not.toBeNull();
+    const lintBroken = await STORAGE_RULES.lint(ctx, brokenModuleRules);
+    expect(lintBroken.ok).toBe(false);
+  });
+
+  it('rejects invalid RE2 regex literals and import under rules_version = 2 at compile/install time (ST-CON-4)', async () => {
+    const ctx = freshContext();
+    const brokenRegexRules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{file} {
+      allow read: if file.matches("(");
+    }
+  }
+}`;
+    const regexInstall = await STORAGE_RULES.install(ctx, brokenRegexRules);
+    expect(regexInstall.ok).toBe(false);
+
+    const v2WithImport = `rules_version = '2';
+import { isAuthenticated } from 'auth';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{file} {
+      allow read: if isAuthenticated();
+    }
+  }
+}`;
+    expect(() => compileStorageRules(v2WithImport)).toThrow(/rules_version = '2\+modules'/);
+    const v2Install = await STORAGE_RULES.install(ctx, v2WithImport);
+    expect(v2Install.ok).toBe(false);
   });
 });
