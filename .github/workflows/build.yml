@@ -300,11 +300,15 @@ jobs:
         run: bun scripts/ci/test-shard.ts --shard=${{ matrix.shard }}/2
 
   library-tests:
-    name: Run library + UI tests
+    name: Run library + UI tests (${{ matrix.shard }}/2)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: [plan, build-packages]
     if: needs.plan.outputs.check-set == 'full'
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     steps:
       - uses: actions/checkout@v4
 
@@ -335,10 +339,16 @@ jobs:
         # its own conformance-suite job. In-job concurrency was measured first
         # and rejected: on a 2-core runner two CPU-bound streams saved 16s and
         # starved the conformance model's 60s beforeAll budget into a timeout.
+        # packages/pyric, about 240s of the 290s serial step, is split across
+        # the two shards by scripts/ci/test-shard.ts; shard 2 also runs the
+        # remaining suites (test:ci:libraries:rest, about 45s).
         # test:ci:libraries stays the canonical serial form for local runs and
         # the release gates; scripts/ci/library-split.test.ts pins
-        # core = libraries minus conformance so the split cannot drift.
-        run: bun run test:ci:libraries:core
+        # core = libraries minus conformance and rest = core minus
+        # packages/pyric, so the split cannot drift.
+        run: |
+          bun scripts/ci/test-shard.ts --package=pyric --shard=${{ matrix.shard }}/2
+          if [ "${{ matrix.shard }}" = "2" ]; then bun run test:ci:libraries:rest; fi
 
   rtdb-differential:
     name: RTDB differential (sandbox, SharedWorker host, Node host)

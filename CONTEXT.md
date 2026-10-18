@@ -642,8 +642,10 @@ build across the clean) and is what `pretest` uses.
 - `rtdb-differential`, which runs seeded RTDB operation sequences on the
   in-page sandbox, the SharedWorker host, and the Node host and compares them;
 - `app-scenarios` (the `test/apps/` suite) when `plan.ts` selects it;
-- `library-tests` (`test:ci:libraries:core`) and `conformance-suite`
-  (`packages/conformance`), split onto separate runners to avoid CPU contention;
+- 2-shard `library-tests` (`test:ci:libraries:core`: `packages/pyric` split
+  by `scripts/ci/test-shard.ts --package=pyric`, the rest on shard 2) and
+  `conformance-suite` (`packages/conformance`), split onto separate runners to
+  avoid CPU contention;
 - `conformance-gates` (`scripts/ci/conformance-coupling-gate.sh` and
   `scripts/ci/conformance-gates.sh`);
 - `browser-conformance` (Playwright suites for served app + SharedWorker,
