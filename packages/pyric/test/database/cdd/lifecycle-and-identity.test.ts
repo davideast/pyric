@@ -370,3 +370,24 @@ describe('rtdb-modular CDD: multiple database instances', () => {
     expect(unaffected).toMatchObject({ ok: true, checkedEvents: 1 });
   });
 });
+
+// Row HD1 records what the web hosted client does with a call in flight when
+// its socket drops; the CLI suites and the app scenario the row names pin that
+// path. This assertion pins the sandbox side of the boundary: the in-page
+// sandbox has no socket, so a write, an onDisconnect registration and a
+// transaction issued around goOffline() and goOnline() each settle in process.
+describe('rtdb-modular CDD: calls in flight at a hosted connection drop', () => {
+  row('HD1', async () => {
+    const { db } = setup();
+    const room = api.ref(db, 'rooms/r1');
+    const write = api.set(room, 'written across the drop');
+    const arm = api.onDisconnect(api.ref(db, 'status/alice')).set('offline');
+    const counter = api.runTransaction(api.ref(db, 'counter'), (count: number | null) => (count ?? 0) + 1);
+    api.goOffline(db);
+    api.goOnline(db);
+    await expect(write).resolves.toBeUndefined();
+    await expect(arm).resolves.toBeUndefined();
+    expect((await counter).committed).toBe(true);
+    expect((await api.get(room)).val()).toBe('written across the drop');
+  });
+});
