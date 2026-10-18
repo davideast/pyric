@@ -47,7 +47,9 @@ Answer three questions about a ruleset, with evidence:
    every wildcard's reach is stated.
 
 7. **Prove the findings.** Back each critical/high finding with
-   `firestore_simulate_rules` (vary auth context and operation) or the hosted
+   `firestore_simulate_rules` / `pyric rules simulate --service firestore` (vary
+   auth context, operation, and for `list` pass `query.where` to check the
+   separate `queryProof.verdict` alongside `decision`) or the hosted
    Rules Test API, reached with `pyric verify --engine rules-test-api|both`;
    `pyric verify cases` can generate the case list from a captured fixture.
    Complete when each such finding cites a passing simulation/test

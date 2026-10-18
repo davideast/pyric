@@ -44,6 +44,10 @@ import { restoredStateCounts, stateForSummary } from './state-summary.js';
 import { parseStateFile } from './state-file.js';
 import { inlineStorage } from './state-objects.js';
 import { createHostedPersistence, formatStorageRepairs, type HostedPersistence } from './hosted/persistence.js';
+import {
+  runProjectFixturesOnRulesReload,
+  type RulesFixtureCheckSummary,
+} from './rules-fixture-check.js';
 
 export interface SandboxSessionOptions {
   boundHost?: string;
@@ -139,7 +143,7 @@ export class SandboxSeedError extends Error {
 
 export type RulesReloadResult =
   | { kind: 'not-configured' }
-  | { kind: 'reloaded'; rulesHash: string; clients: number }
+  | { kind: 'reloaded'; rulesHash: string; clients: number; fixtureCheck?: RulesFixtureCheckSummary }
   | { kind: 'rejected'; error: Error }
   /** The rules file was deleted. The service is back to the state it starts
    *  in without a rules file: no rules, and `policy` for every read and write. */
@@ -470,7 +474,12 @@ export async function createSandboxSession(
         live.rules = rules;
         live.rulesHash = rulesHash;
         events.broadcast('rules-changed', { rules, rulesHash });
-        return { kind: 'reloaded', rulesHash, clients: events.clientCount() };
+        const fixtureCheck = await runProjectFixturesOnRulesReload({
+          projectDir: options.projectDir,
+          service: 'firestore',
+          firestoreRules: rules,
+        });
+        return { kind: 'reloaded', rulesHash, clients: events.clientCount(), fixtureCheck };
       } catch (error) {
         const isPrepareError = error instanceof RulesPrepareError;
         attemptedModuleFiles = isPrepareError ? error.moduleFiles : [];
@@ -512,7 +521,13 @@ export async function createSandboxSession(
           rules: updated.rules,
           rulesHash: updated.rulesHash,
         });
-        return { kind: 'reloaded', rulesHash: updated.rulesHash, clients: events.clientCount() };
+        const fixtureCheck = await runProjectFixturesOnRulesReload({
+          projectDir: options.projectDir,
+          service: 'rtdb',
+          rtdbRules: updated.rules,
+          rtdbInstance: target.instance === database.defaultInstance ? undefined : target.instance,
+        });
+        return { kind: 'reloaded', rulesHash: updated.rulesHash, clients: events.clientCount(), fixtureCheck };
       } catch (error) {
         const failure = error instanceof Error ? error : new Error(String(error));
         return { kind: 'rejected', error: failure };

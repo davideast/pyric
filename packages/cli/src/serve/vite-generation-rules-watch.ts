@@ -54,6 +54,12 @@ export function watchViteGenerationRules(input: {
           const isReloaded = result.kind === 'reloaded';
           if (isReloaded) {
             server.config.logger.info(`  ↻ [pyric] rules reloaded (${result.rulesHash})`);
+            if (result.fixtureCheck && result.fixtureCheck.ran > 0) {
+              const logFn = result.fixtureCheck.ok
+                ? (m: string) => server.config.logger.info(m)
+                : (m: string) => server.config.logger.warn(m);
+              for (const line of result.fixtureCheck.lines) logFn(line);
+            }
           } else {
             const isRejected = result.kind === 'rejected';
             if (isRejected) {
@@ -69,6 +75,12 @@ export function watchViteGenerationRules(input: {
           for (const { instance, result } of results) {
             if (result.kind === 'reloaded') {
               server.config.logger.info(`  ↻ [pyric] rtdb rules reloaded for ${instance} (${result.rulesHash})`);
+              if (result.fixtureCheck && result.fixtureCheck.ran > 0) {
+                const logFn = result.fixtureCheck.ok
+                  ? (m: string) => server.config.logger.info(m)
+                  : (m: string) => server.config.logger.warn(m);
+                for (const line of result.fixtureCheck.lines) logFn(line);
+              }
             } else if (result.kind === 'rejected') {
               server.config.logger.warn(
                 `  ⚠ [pyric] rtdb rules NOT reloaded for ${instance} (last-good stays live): ${result.error.message}`,
