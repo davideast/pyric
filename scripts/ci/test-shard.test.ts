@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { listTests, parseShard, partition } from './test-shard.ts';
+import { listTests, parseShard, partition, shardedPackages } from './test-shard.ts';
 
 describe('CLI test shards', () => {
   const files = listTests();
@@ -8,6 +8,13 @@ describe('CLI test shards', () => {
     expect(files.length).toBeGreaterThan(400);
     expect(files.every((file) => file.endsWith('.test.ts'))).toBe(true);
     expect([...files].sort()).toEqual(files);
+  });
+
+  test('the pyric list covers its suite, the .spec.ts files bun test also discovers included', () => {
+    const pyric = listTests(shardedPackages.pyric);
+    expect(pyric.length).toBeGreaterThan(600);
+    expect(pyric.some((file) => file.endsWith('.spec.ts'))).toBe(true);
+    expect(pyric.every((file) => file.endsWith('.test.ts') || file.endsWith('.spec.ts'))).toBe(true);
   });
 
   for (const total of [1, 2, 3, 5]) {

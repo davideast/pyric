@@ -1,20 +1,25 @@
 #!/usr/bin/env bun
-// Runs one shard of the CLI test suite. `bun test` has no shard option, so the
-// files are partitioned here: the sorted list of `*.test.ts` files under
-// packages/cli (the set `bun test` discovers there) is split by index modulo the
-// shard count, and each shard passes its own files to `bun test` explicitly.
+// Runs one shard of a package's test suite. `bun test` has no shard option, so
+// the files are partitioned here: the sorted list of `*.test.ts` and `*.spec.ts`
+// files under the package (the set `bun test` discovers there) is split by index
+// modulo the shard count, and each shard passes its own files to `bun test`
+// explicitly. The package is packages/cli unless `--package` names another.
 //
-//   bun scripts/ci/test-shard.ts --shard=1/2 [--list] [-- <extra bun test args>]
+//   bun scripts/ci/test-shard.ts [--package=pyric] --shard=1/2 [--list] [-- <extra bun test args>]
 
 import { Glob } from 'bun';
 import { resolve } from 'node:path';
 
-const cliRoot = resolve(import.meta.dir, '../../packages/cli');
+/** The packages whose suites are sharded, by `--package` name. */
+export const shardedPackages = {
+  cli: resolve(import.meta.dir, '../../packages/cli'),
+  pyric: resolve(import.meta.dir, '../../packages/pyric'),
+} as const;
 
-/** Sorted package-relative paths of every CLI test file, as `./path`. */
-export function listTests(cwd: string = cliRoot): string[] {
+/** Sorted package-relative paths of every test file, as `./path`. */
+export function listTests(cwd: string = shardedPackages.cli): string[] {
   const files: string[] = [];
-  for (const file of new Glob('**/*.test.ts').scanSync({ cwd })) {
+  for (const file of new Glob('**/*.{test,spec}.ts').scanSync({ cwd })) {
     if (file.split('/').includes('node_modules')) continue;
     files.push(`./${file}`);
   }
@@ -44,13 +49,17 @@ if (import.meta.main) {
   const passthrough = separator === -1 ? [] : args.slice(separator + 1);
   const spec = own.find((arg) => arg.startsWith('--shard='))?.slice('--shard='.length) ?? '';
   const { index, total } = parseShard(spec);
-  const shard = partition(listTests(), index, total);
+  const name = own.find((arg) => arg.startsWith('--package='))?.slice('--package='.length) ?? 'cli';
+  const isKnownPackage = Object.hasOwn(shardedPackages, name);
+  if (!isKnownPackage) throw new Error(`--package must be one of ${Object.keys(shardedPackages).join(', ')}, received "${name}"`);
+  const root = shardedPackages[name as keyof typeof shardedPackages];
+  const shard = partition(listTests(root), index, total);
   if (own.includes('--list')) {
     console.log(shard.join('\n'));
   } else {
-    console.log(`CLI test shard ${index}/${total}: ${shard.length} files`);
+    console.log(`${name} test shard ${index}/${total}: ${shard.length} files`);
     const run = Bun.spawnSync(['bun', 'test', ...passthrough, ...shard], {
-      cwd: cliRoot,
+      cwd: root,
       stdio: ['inherit', 'inherit', 'inherit'],
     });
     process.exit(run.exitCode ?? 1);
