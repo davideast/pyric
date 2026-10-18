@@ -219,4 +219,58 @@ service firebase.storage {
     } });
     expect(result.success, result.success ? undefined : result.error.message).toBe(true);
   });
+
+  test('propagates provenance and receiver types across imported module function return values and uncalled root helpers', () => {
+    const firestoreChain = resolveModules(`rules_version = '2+modules';
+import { getIncoming, checkSize } from './policy';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /docs/{id} {
+      allow write: if checkSize(getIncoming());
+    }
+  }
+}`, {
+      modules: {
+        './policy': 'export function getIncoming() { return request.resource; }\nexport function checkSize(res) { return res.size < 1024; }',
+      },
+    });
+    expect(firestoreChain.success).toBe(false);
+
+    const rootLetChain = resolveModules(`rules_version = '2+modules';
+import { getCount, checkKeys } from './policy';
+service firebase.storage {
+  function rootHelper() {
+    let c = getCount();
+    return checkKeys(c);
+  }
+  match /b/{bucket}/o {
+    match /{path=**} {
+      allow read: if rootHelper();
+    }
+  }
+}`, {
+      modules: {
+        './policy': 'export function getCount() { return 123; }\nexport function checkKeys(val) { return val.keys().size() > 0; }',
+      },
+    });
+    expect(rootLetChain.success).toBe(false);
+
+    const uncalledRootFn = resolveModules(`rules_version = '2+modules';
+import { checkSize } from './policy';
+service cloud.firestore {
+  function unusedHelper() {
+    return checkSize(request.resource);
+  }
+  match /databases/{database}/documents {
+    match /docs/{id} {
+      allow read: if true;
+    }
+  }
+}`, {
+      modules: {
+        './policy': 'export function checkSize(res) { return res.size < 1024; }',
+      },
+    });
+    expect(uncalledRootFn.success).toBe(false);
+  });
 });

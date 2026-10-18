@@ -807,4 +807,21 @@ service firebase.storage {
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error.message).toContain("method '.union()' requires set receiver, got list");
   });
+  test('rejects invalid methods on Storage string bindings (name, bucket, slices) and aliased request', () => {
+    for (const expression of [
+      "request.resource.name.hasAll(['a'])",
+      'resource.name.toSet().size() > 0',
+      "resource.bucket.hasOnly(['b'])",
+      'request.resource.name[0:3].keys().size() > 0',
+      "let req = request; return req.matches('x') && req.hasAll([]);",
+    ]) {
+      const body = expression.startsWith('let ') ? expression : `return ${expression};`;
+      const result = resolveModules(
+        makeStorageSource("import { broken } from './policy';", 'broken()'),
+        { modules: { './policy': `export function broken() { ${body} }` } },
+      );
+      expect(result.success, expression).toBe(false);
+      if (!result.success) expect(result.error.code).toBe('INCOMPATIBLE_FUNCTION');
+    }
+  });
 });

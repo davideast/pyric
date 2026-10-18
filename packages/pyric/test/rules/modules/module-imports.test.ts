@@ -160,6 +160,19 @@ describe('imports inside a module', () => {
     if (result.success) expect(result.data.resolved.match(/function validCreate\(/g)).toHaveLength(1);
   });
 
+  test('canonicalizes stdlib path alias and bare stdlib key in diamond imports', () => {
+    const result = resolveModules(
+      source(
+        "import { resultUnchanged } from './stdlib/results.rules';\nimport { immutableFields, fieldUnchanged } from './stdlib/lifecycle.rules';",
+        "allow update: if resultUnchanged() && immutableFields(['host']) && fieldUnchanged('host');",
+      ),
+    );
+    expect(result.success, result.success ? undefined : result.error.message).toBe(true);
+    if (result.success) {
+      expect(result.data.resolved.match(/function fieldUnchanged\(/g)).toHaveLength(1);
+    }
+  });
+
   test('a module on disk imports a sibling file and the stdlib', () => {
     const dir = mkdtempSync(join(tmpdir(), 'pyric-module-imports-'));
     mkdirSync(join(dir, 'games'));
