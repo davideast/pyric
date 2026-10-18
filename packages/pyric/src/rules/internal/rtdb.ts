@@ -103,7 +103,7 @@ export {
   ruleset,
   defineRtdbRules,
 } from '../rtdb/constraints/index.js';
-export { checkRtdbRules } from '../rtdb/constraints/document.js';
+export { checkRtdbRules, normalizeSimulationInput } from '../rtdb/constraints/document.js';
 export { rtdbRulesSourceRejection } from '../rtdb/source-rejection.js';
 export type { RtdbRulesSourceRejection } from '../rtdb/source-rejection.js';
 export type {
