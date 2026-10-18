@@ -10,6 +10,16 @@ const row1 = defineRows({
   },
 });
 
+/** What a call in flight at a hosted socket drop does on the web hosted client (ADR-0019 decision 7). */
+const droppedConnectionRow = defineRows({
+  surface: "storage",
+  defaults: {
+    section: "Calls in flight when the hosted connection drops",
+    status: "diverged-documented",
+    automation: "unit-backed",
+  },
+});
+
 const row2 = defineRows({
   surface: "storage",
   defaults: {
@@ -1422,6 +1432,21 @@ export const storageRegistry = {
           risk: ["specific-value", "unobserved"],
           riskScore: 3,
           riskReasons: ["asserts which objects remain", "not observed in production"],
+        }),
+      ],
+    },
+    {
+      kind: 'table',
+      prefix: "### Calls in flight when the hosted connection drops\n\nThe web hosted client talks to the Node host over one WebSocket. When that socket drops, a call the socket had already taken is in flight: the host may or may not have run it (ADR-0019 decision 7). Each row here states what becomes of such a call, against what the production Web SDK does when its own connection drops.\n",
+      rows: [
+        droppedConnectionRow({
+          rowRef: "HD1",
+          featureKeys: ["uploadBytesResumable", "getMetadata"],
+          api: "Operations in flight at a hosted connection drop (web hosted client)",
+          behavior: "A Storage operation (`getMetadata`, `deleteObject`, `list`, or an upload step) the web hosted client's socket had taken when it dropped fails once with `unavailable` and the message \"The hosted sandbox connection was lost. Requests already sent may have completed; check state before retrying.\" It is not sent again. In production the Storage Web SDK retries a request that fails on the network with exponential backoff, for up to 2 minutes for an operation and 10 minutes for an upload, and then fails it with `storage/retry-limit-exceeded`.",
+          statusNote: "fails at once with `unavailable` where production retries, then fails with `storage/retry-limit-exceeded`",
+          evidence: "Production behavior read from `@firebase/storage` 0.14.3 `dist/index.esm.js`: `DEFAULT_MAX_OPERATION_RETRY_TIME` (2 minutes), `DEFAULT_MAX_UPLOAD_RETRY_TIME` (10 minutes), and `retryLimitExceeded()` in the request retry loop. `packages/cli/test/serve/worker/hosted-reconnect-hold.test.ts` drops a real loopback socket with `storage.getMetadata` and `storage.deleteObject` in flight and asserts each fails once with that message and reaches the host once.",
+          conformanceTests: ["packages/cli/test/serve/worker/hosted-reconnect-hold.test.ts"],
         }),
       ],
     },
