@@ -85,6 +85,29 @@ export type {
   QueryProofResidual,
   QueryWhereConstraint,
 } from '../simulator/query-proof.js';
+export {
+  buildQueryRepro,
+  listQueryFromConstraints,
+  listQueryToConstraints,
+  proveListQuery,
+  renderQueryRemediation,
+  renderQueryRepro,
+} from '../simulator/list-query-proof.js';
+export type {
+  ListProofVerdict,
+  ListQueryProofReport,
+  QueryProofDiagnostic,
+  QueryProofFailure,
+  QueryRepro,
+} from '../simulator/list-query-proof.js';
+export {
+  analyzeListRulePathInvariance,
+  buildListRuleFunctionScope,
+} from '../simulator/list-rule-path-proof.js';
+export type {
+  ListRuleFunctionScope,
+  ListRulePathAnalysis,
+} from '../simulator/list-rule-path-proof.js';
 export { evaluate, UnsupportedError, TraceRecorder } from '../simulator/evaluator.js';
 export type { SimulationContext, ExprTraceEntry } from '../simulator/evaluator.js';
 export { projectAfterState } from '../simulator/project-after-state.js';
@@ -115,6 +138,7 @@ export type {
   FunctionMock,
   ExpressionReportLevel,
   ListQuery,
+  ListQueryWhereConstraint,
   RulesTestApiResultDetails,
   RulesTestIssue,
   RuleEvaluation,
@@ -123,8 +147,11 @@ export type {
 } from '../test/spec.js';
 export {
   FIRESTORE_METHODS,
+  ListQuerySchema,
+  ListQueryWhereConstraintSchema,
   TestCaseSchema,
   TestIdentitySchema,
+  buildApiTestCase,
   renderLegacyDebugMessages,
   projectEvaluatedRule,
 } from '../test/spec.js';

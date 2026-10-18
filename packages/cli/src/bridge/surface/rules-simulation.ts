@@ -28,8 +28,17 @@ export interface SimulationRequest {
   rules?: string;
   /** ISO 8601 instant `request.time` evaluates at. Defaults to the sandbox clock. */
   requestTime?: string;
-  /** The `request.query` a `list` carries. */
-  query?: { limit?: number; offset?: number; orderBy?: string };
+  /** The `request.query` (and `where` constraints for static list-query proof) a `list` carries. */
+  query?: {
+    where?: Array<{
+      field: string;
+      op: string;
+      value: string | number | boolean | null | Array<string | number | boolean | null>;
+    }>;
+    limit?: number;
+    offset?: number;
+    orderBy?: string;
+  };
 }
 
 export interface SimulationOutcome {

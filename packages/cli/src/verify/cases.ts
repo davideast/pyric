@@ -206,6 +206,14 @@ function isFunctionMock(value: unknown): value is FunctionMock {
 
 function isListQuery(value: unknown): value is NonNullable<TestCase['query']> {
   if (!isListQueryCandidate(value)) return false;
+  if ('where' in value && value.where !== undefined) {
+    if (!Array.isArray(value.where)) return false;
+    for (const clause of value.where) {
+      if (typeof clause !== 'object' || clause === null || Array.isArray(clause)) return false;
+      const c = clause as Record<string, unknown>;
+      if (typeof c.field !== 'string' || typeof c.op !== 'string' || !('value' in c)) return false;
+    }
+  }
   if ('limit' in value && value.limit !== undefined && typeof value.limit !== 'number') return false;
   if ('offset' in value && value.offset !== undefined && typeof value.offset !== 'number') return false;
   if ('orderBy' in value && value.orderBy !== undefined && typeof value.orderBy !== 'string') return false;

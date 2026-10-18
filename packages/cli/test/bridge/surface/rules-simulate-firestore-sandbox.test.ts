@@ -108,6 +108,41 @@ describe('rules.simulate for firestore takes a list query', () => {
     expect(allowed(await call(ctx, 'simulate', { operation: 'list', path: 'posts', uid: 'alice', query: { limit: 50 } }))).toBe(false);
   });
 
+  it('evaluates static list-query provability with query.where and reports queryProof alongside allowed (#371)', async () => {
+    const sandbox = initializeSandbox();
+    setRules(sandbox, `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /posts/{id} {
+      allow list: if resource.data.owner == request.auth.uid;
+    }
+  }
+}`);
+    seedDocuments(sandbox, DOCS);
+    const ctx = createSurfaceContext(sandbox);
+
+    // Without where: single-doc path evaluates stored resource (allowed: true), while queryProof is UNPROVABLE
+    const unprovableDoc = await call(ctx, 'simulate', {
+      operation: 'list',
+      path: 'posts/p1',
+      uid: 'alice',
+    });
+    expect(unprovableDoc.ok).toBe(true);
+    expect(allowed(unprovableDoc)).toBe(true);
+    expect((unprovableDoc.data as { queryProof?: { verdict?: string } })?.queryProof?.verdict).toBe('UNPROVABLE');
+
+    // With matching where on collection path: both allowed: true and queryProof: PROVABLE
+    const provableQuery = await call(ctx, 'simulate', {
+      operation: 'list',
+      path: 'posts',
+      uid: 'alice',
+      query: { where: [{ field: 'owner', op: '==', value: 'alice' }] },
+    });
+    expect(provableQuery.ok).toBe(true);
+    expect(allowed(provableQuery)).toBe(true);
+    expect((provableQuery.data as { queryProof?: { verdict?: string } })?.queryProof?.verdict).toBe('PROVABLE');
+  });
+
   it('refuses a query on a firestore get', async () => {
     const result = await call(seeded().ctx, 'simulate', { operation: 'get', path: 'posts/p1', query: { limit: 5 } });
     expect(result.ok).toBe(false);

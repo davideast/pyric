@@ -82,12 +82,15 @@ export const FIRESTORE_RULES: RulesEngine = {
     if (!outcome.result.ok) return operationFailure(outcome.result.summary, outcome.result.data);
     const detail = simulationDetail(outcome.result);
     const decision = outcome.allowed ? 'ALLOW' : 'DENY';
-    const verdict = `${request.operation} ${request.path}: ${decision}`;
+    const queryProof = detail?.queryProof as { verdict?: string } | undefined;
+    const proofLabel = queryProof?.verdict !== undefined ? ` (queryProof: ${queryProof.verdict})` : '';
+    const verdict = `${request.operation} ${request.path}: ${decision}${proofLabel}`;
     const unmatched = unmatchedPathReason(detail);
     const data: Record<string, unknown> = {
       allowed: outcome.allowed,
       auth: outcome.auth,
       case: detail,
+      ...(queryProof !== undefined ? { queryProof } : {}),
     };
     if (unmatched === null) {
       return { ok: true, summary: verdict, data };
@@ -113,14 +116,18 @@ export async function explainFirestoreDenial(
 ) {
   const outcome = await simulateFirestoreCase(ctx, caseFor(request));
   if (!outcome.result.ok) return operationFailure(outcome.result.summary, outcome.result.data);
+  const detail = simulationDetail(outcome.result);
+  const queryProof = detail?.queryProof as { verdict?: string } | undefined;
   const verdict = outcome.allowed ? 'allowed' : 'denied';
+  const proofSuffix = queryProof?.verdict !== undefined ? ` (queryProof: ${queryProof.verdict})` : '';
   return {
     ok: true,
-    summary: `${request.operation} ${request.path} is ${verdict} for this identity.`,
+    summary: `${request.operation} ${request.path} is ${verdict} for this identity.${proofSuffix}`,
     data: {
       allowed: outcome.allowed,
       auth: outcome.auth,
-      case: simulationDetail(outcome.result),
+      case: detail,
+      ...(queryProof !== undefined ? { queryProof } : {}),
     },
   };
 }

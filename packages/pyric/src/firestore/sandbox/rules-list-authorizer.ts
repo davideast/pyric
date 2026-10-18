@@ -10,8 +10,10 @@ import { proveCollectionGroupRules } from './collection-group-rule-proof.js';
 import type { FirestoreEventBus } from './event-bus.js';
 import { makeError, type FirestoreSimError } from './errors.js';
 import {
+  buildQueryRepro,
   proveListQuery,
   renderQueryRemediation,
+  renderQueryRepro,
   type ListProofVerdict,
   type QueryConstraints,
 } from './list-query-proof.js';
@@ -153,6 +155,7 @@ export class RulesListAuthorizer {
       ? this.simulator.simulateParsed(residualAst, this.rules.source, [testCase], {
         getDoc,
         sourceMap: this.rules.sourceMap(),
+        skipQueryProof: true,
       })
       : this.simulator.simulate(this.rules.source, [testCase], { getDoc });
     const evalMs = performance.now() - evalStart;
@@ -251,12 +254,23 @@ export class RulesListAuthorizer {
     const reasons = primary
       ? [message, ...residualReasons.filter(reason => !reason.startsWith('No allow rules found'))]
       : residualReasons;
-    const remediation = primary ? renderQueryRemediation(primary.residual) : undefined;
+    const narrowingRemediation = primary ? renderQueryRemediation(primary.residual) : undefined;
+    const reproInput = {
+      path: request.path,
+      auth: request.auth,
+      constraints: request.constraints,
+    };
+    const repro = primary ? buildQueryRepro(reproInput) : undefined;
+    const reproText = primary ? renderQueryRepro(reproInput) : undefined;
+    const remediation = narrowingRemediation && reproText
+      ? `${narrowingRemediation}\n\n${reproText}`
+      : (narrowingRemediation ?? reproText);
     const error = makeError('permission-denied', message, {
       request: { method: 'list', path: request.path, auth: request.auth },
       query: request.constraints,
       queryProof,
       ...(remediation ? { remediation } : {}),
+      ...(repro ? { repro } : {}),
       ...(primary?.rule || evaluatedRule ? { rule: primary?.rule ?? evaluatedRule } : {}),
     });
     this.emitRequest({
