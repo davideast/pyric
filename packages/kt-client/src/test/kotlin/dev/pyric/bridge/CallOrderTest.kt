@@ -40,6 +40,7 @@ class CallOrderTest {
     private val sent = CopyOnWriteArrayList<Sent>()
     @Volatile private var awaitedCount = Int.MAX_VALUE
     private val allSent = CompletableDeferred<Unit>()
+    @Volatile private var onRecorded: (() -> Unit)? = null
 
     @BeforeEach
     fun setUp() {
@@ -77,11 +78,36 @@ class CallOrderTest {
         if (frame["type"] != "worker-op") return
         val method = (frame["op"] as Map<String, Any?>)["method"] as String
         sent.add(Sent(method, Thread.currentThread()))
+        onRecorded?.invoke()
         if (sent.size >= awaitedCount) allSent.complete(Unit)
     }
 
     private suspend fun awaitState(state: BridgeConnectionState) {
         withTimeout(10_000) { client.connectionStates.first { it == state } }
+    }
+
+    /**
+     * Waits until operations go straight to the socket. `finishAttach` publishes
+     * ATTACHED before it releases the hold queue, so an operation issued the
+     * moment ATTACHED is seen may be held and sent from the release thread, in
+     * order (D1, D2). A probe read sent on this thread during the call shows the
+     * gate is open; it stays open until a drop. A held probe is awaited before
+     * the next one, so the probes never pile up.
+     */
+    private suspend fun awaitOpenGate() {
+        awaitState(BridgeConnectionState.ATTACHED)
+        val caller = Thread.currentThread()
+        while (true) {
+            val recorded = CompletableDeferred<Unit>()
+            onRecorded = { recorded.complete(Unit) }
+            val before = sent.size
+            firestore.document("rooms/gate").get()
+            val sentAtCall = sent.drop(before).any { it.thread === caller }
+            withTimeout(10_000) { recorded.await() }
+            onRecorded = null
+            if (sentAtCall) break
+        }
+        sent.clear()
     }
 
     private fun user(): FirebaseUser = FirebaseUser(auth, mapOf("uid" to "u1"))
@@ -114,7 +140,7 @@ class CallOrderTest {
 
     @Test
     fun `every operation entry point sends its frame on the caller's thread before it returns`() = runBlocking {
-        awaitState(BridgeConnectionState.ATTACHED)
+        awaitOpenGate()
         val caller = Thread.currentThread()
 
         for ((method, call) in entryPoints()) {
@@ -127,7 +153,7 @@ class CallOrderTest {
 
     @Test
     fun `operations across services issued while attached reach the socket in call order`() = runBlocking {
-        awaitState(BridgeConnectionState.ATTACHED)
+        awaitOpenGate()
 
         val expected = issueAcrossServices()
 
