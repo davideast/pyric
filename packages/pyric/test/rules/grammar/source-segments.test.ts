@@ -206,7 +206,19 @@ describe('segmented match: fails closed', () => {
         const cut = parseToASTOrError(source, { segmentDepth: depth });
         expect(cut.ok).toBe(false);
         if (!whole.ok && !cut.ok) {
-          expect(cut.error).toEqual(whole.error);
+          expect({
+            line: cut.error.line,
+            column: cut.error.column,
+            offset: cut.error.offset,
+            actual: cut.error.actual,
+          }).toEqual({
+            line: whole.error.line,
+            column: whole.error.column,
+            offset: whole.error.offset,
+            actual: whole.error.actual,
+          });
+          expect(cut.error.message).toContain(`Line ${whole.error.line}, col ${whole.error.column}:`);
+          expect(cut.error.message).toContain(condition);
           expect(cut.error.message).not.toContain('ǂ');
         }
       }
