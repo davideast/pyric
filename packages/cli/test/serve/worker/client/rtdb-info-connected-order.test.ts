@@ -100,8 +100,8 @@ function open(host: Host) {
 
 /**
  * The presence sample from the Firebase docs: on each `true`, queue the disconnect write.
- * A test that drops the socket can catch a re-arm in flight, and ADR-0019 decision 7
- * fails that one with `unavailable`. Every other outcome is a failure of the test.
+ * A re-arm in flight when the socket drops never settles, as in production (#1088), so
+ * the sample's bare call is safe here too.
  */
 function rearmPresence(database: client.ClientRtdb): boolean[] {
   const seen: boolean[] = [];
@@ -109,13 +109,9 @@ function rearmPresence(database: client.ClientRtdb): boolean[] {
   client.rtdbOnValue(client.rtdbRef(database, '.info/connected'), (snapshot) => {
     const connected = snapshot.val() as boolean;
     seen.push(connected);
-    if (connected) client.rtdbOnDisconnect(status).set('offline').catch(expectLostInFlight);
+    if (connected) void client.rtdbOnDisconnect(status).set('offline');
   });
   return seen;
-}
-
-function expectLostInFlight(error: unknown): void {
-  expect(error).toMatchObject({ code: 'unavailable', message: expect.stringContaining('connection was lost') });
 }
 
 const isRearm = (frame: WorkerFrame): boolean => frame.method === 'rtdb.onDisconnectSet' && frame.path === '/status/alice';

@@ -10,6 +10,16 @@ const row1 = defineRows({
   },
 });
 
+/** What a call in flight at a hosted socket drop does on the web hosted client (ADR-0019 decision 7). */
+const droppedConnectionRow = defineRows({
+  surface: "auth",
+  defaults: {
+    section: "Calls in flight when the hosted connection drops",
+    status: "diverged-documented",
+    automation: "unit-backed",
+  },
+});
+
 const row2 = defineRows({
   surface: "auth",
   defaults: {
@@ -1668,6 +1678,21 @@ export const authRegistry = {
           evidence: "Was a BUG until this climb, and worth naming as one: the array was fabricated, not read. Now fixed and locked. `unit:sandbox-linking-reauth.test.ts` now pins that a Google link surfaces `google.com` in `providerData`, that `unlink` shrinks it, and that unlinking the last provider leaves it empty rather than falling back to a synthesized `'password'` entry.",
           automation: "unit-backed",
           conformanceTests: ["packages/pyric/test/auth/sandbox-linking-reauth.test.ts"],
+        }),
+      ],
+    },
+    {
+      kind: 'table',
+      prefix: "### Calls in flight when the hosted connection drops\n\nThe web hosted client talks to the Node host over one WebSocket. When that socket drops, a call the socket had already taken is in flight: the host may or may not have run it (ADR-0019 decision 7). Each row here states what becomes of such a call, against what the production Web SDK does when its own connection drops.\n",
+      rows: [
+        droppedConnectionRow({
+          rowRef: "HD1",
+          featureKeys: ["signInWithEmailAndPassword"],
+          api: "Operations in flight at a hosted connection drop (web hosted client)",
+          behavior: "An Auth operation (a sign-in, a profile update, a token refresh) the web hosted client's socket had taken when it dropped fails once with `unavailable` and the message \"The hosted sandbox connection was lost. Requests already sent may have completed; check state before retrying.\" It is not sent again. In production the Auth Web SDK fails a request whose network call fails with `auth/network-request-failed` and does not retry it.",
+          statusNote: "fails with `unavailable` where production fails with `auth/network-request-failed`",
+          evidence: "Production behavior read from `@firebase/auth` 1.13.1 `dist/esm`: a failed `fetch` is reported through `_fail(auth, \"network-request-failed\")`, and the request is not retried. `packages/cli/test/serve/worker/hosted-reconnect-hold.test.ts` drops a real loopback socket with `auth.signInEmail` in flight and asserts it fails once with that message and reaches the host once.",
+          conformanceTests: ["packages/cli/test/serve/worker/hosted-reconnect-hold.test.ts"],
         }),
       ],
     },

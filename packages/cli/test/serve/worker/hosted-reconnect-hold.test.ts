@@ -238,7 +238,7 @@ test('close() while holding fails held operations once and sends none', async ()
   expect(host.sent(second.id)).toEqual([]);
 });
 
-test('an operation in flight at the drop fails once and is not re-sent', async () => {
+test('a non-RTDB operation in flight at the drop fails once and is not re-sent', async () => {
   const host = new Host();
   const answer = (frame: WorkerFrame, reply: Reply) => { if (frame.method !== 'slow') reply('done'); };
   host.start({ answer });
@@ -266,4 +266,125 @@ test('a listener opened while interrupted is subscribed exactly once after re-at
   const afterAttach = host.frames.slice(before);
   expect(afterAttach.filter(frame => frame.t === 'sub' && frame.subId === restored)).toHaveLength(1);
   expect(afterAttach.filter(frame => frame.t === 'unsub' && frame.subId === restored)).toEqual([]);
+});
+
+// ADR-0019 decision 7, amended for #1088: RTDB operations in flight at the drop
+// follow @firebase/database 1.1.3 (onRealtimeDisconnect_, restoreState_).
+
+/** The first host answers nothing in `unanswered`, so those stay in flight; later hosts answer everything. */
+function silentFor(...unanswered: string[]) {
+  let silent = true;
+  const answer = (frame: WorkerFrame, reply: Reply) => {
+    const staysInFlight = silent && unanswered.includes(frame.method ?? '');
+    if (!staysInFlight) reply('done');
+  };
+  return { answer, speak: () => { silent = false; } };
+}
+
+/** Attached with `methods` in flight, then dropped. */
+async function droppedWithInFlight(host: Host, ...methods: string[]) {
+  const first = silentFor(...methods);
+  host.start({ answer: first.answer });
+  const client = open(host);
+  await until(() => client.states.includes('attached'));
+  const inFlight = methods.map((method) => {
+    const sent = op(client.db, method);
+    // Caught at the call, so a rejection at the drop is never unhandled.
+    const rejection = sent.outcome.then(() => undefined, (error: Error & { code?: string }) => error);
+    return { ...sent, rejection };
+  });
+  await until(() => inFlight.every(({ id }) => host.sent(id).length === 1));
+  host.stop();
+  await until(() => client.states.at(-1) === 'interrupted');
+  first.speak();
+  const reattached = () => client.states.filter(state => state === 'attached').length > 1;
+  return { ...client, inFlight, restart: () => host.start({ answer: first.answer }), reattached };
+}
+
+/** Tracks whether an outcome ever settles. */
+function watch(outcome: Promise<unknown>): { settled: () => boolean } {
+  let settled = false;
+  outcome.then(() => { settled = true; }, () => { settled = true; });
+  return { settled: () => settled };
+}
+
+const ping = (db: ClientDb) => rawRpc(db.port, { t: 'op', id: nextId(), method: 'ping' } as unknown as InboundMessage);
+
+test('RTDB writes and reads in flight at the drop are sent again after re-attach and resolve on the new reply', async () => {
+  const methods = ['rtdb.set', 'rtdb.update', 'rtdb.remove', 'rtdb.setPriority', 'rtdb.setWithPriority', 'rtdb.push', 'rtdb.get'];
+  const host = new Host();
+  const { inFlight, restart, reattached } = await droppedWithInFlight(host, ...methods);
+  restart();
+  await until(reattached);
+  for (const { id, outcome } of inFlight) {
+    expect(await settle(outcome)).toEqual({ value: 'done' });
+    expect(host.sent(id)).toHaveLength(2);
+  }
+});
+
+test('a re-sent RTDB write goes ahead of an operation issued while interrupted', async () => {
+  const host = new Host();
+  const { db, inFlight: [write], restart, reattached } = await droppedWithInFlight(host, 'rtdb.set');
+  const later = op(db, 'rtdb.set');
+  restart();
+  await until(reattached);
+  await later.outcome;
+  const ids = host.frames.map(frame => frame.id);
+  expect(ids.lastIndexOf(write!.id)).toBeLessThan(ids.indexOf(later.id));
+});
+
+test('a re-sent RTDB write has no hold deadline', async () => {
+  setHoldDeadlineForTesting(100);
+  const host = new Host();
+  const { inFlight: [write], restart, reattached } = await droppedWithInFlight(host, 'rtdb.set');
+  const outcome = watch(write!.outcome);
+  await new Promise(resolve => setTimeout(resolve, 300));
+  expect(outcome.settled()).toBe(false);
+  restart();
+  await until(reattached);
+  expect(await settle(write!.outcome)).toEqual({ value: 'done' });
+});
+
+test('an RTDB onDisconnect in flight at the drop never settles and is not sent again', async () => {
+  const methods = ['rtdb.onDisconnectSet', 'rtdb.onDisconnectUpdate', 'rtdb.onDisconnectRemove', 'rtdb.onDisconnectCancel'];
+  const host = new Host();
+  const { db, inFlight, restart, reattached } = await droppedWithInFlight(host, ...methods);
+  const outcomes = inFlight.map(({ outcome }) => watch(outcome));
+  restart();
+  await until(reattached);
+  expect(await ping(db)).toBe('done');
+  expect(outcomes.map(outcome => outcome.settled())).toEqual(methods.map(() => false));
+  for (const { id } of inFlight) expect(host.sent(id)).toHaveLength(1);
+});
+
+test('an RTDB transaction commit in flight at the drop rejects with Error(\'disconnect\') and is not sent again', async () => {
+  const host = new Host();
+  const { db, inFlight: [commit], restart, reattached } = await droppedWithInFlight(host, 'rtdb.transactionCommit');
+  const error = await commit!.rejection;
+  expect(error).toBeInstanceOf(Error);
+  expect(error!.message).toBe('disconnect');
+  expect(error!.code).toBeUndefined();
+  restart();
+  await until(reattached);
+  expect(await ping(db)).toBe('done');
+  expect(host.sent(commit!.id)).toHaveLength(1);
+});
+
+test('Firestore, Storage and Auth operations in flight at the drop still fail once with unavailable and are not re-sent', async () => {
+  const methods = ['setDoc', 'getDoc', 'batchCommit', 'storage.getMetadata', 'storage.deleteObject', 'auth.signInEmail'];
+  const host = new Host();
+  const { db, inFlight, restart, reattached } = await droppedWithInFlight(host, ...methods);
+  for (const { rejection } of inFlight) expect(await rejection).toMatchObject({ code: 'unavailable', message: CONNECTION_LOST });
+  restart();
+  await until(reattached);
+  expect(await ping(db)).toBe('done');
+  for (const { id } of inFlight) expect(host.sent(id)).toHaveLength(1);
+});
+
+test('close() while a re-sent RTDB write waits fails it once and sends it no more', async () => {
+  const host = new Host();
+  const { db, inFlight: [write] } = await droppedWithInFlight(host, 'rtdb.set');
+  db.port.close();
+  expect(await settle(write!.outcome)).toEqual({ code: 'unavailable', message: CONNECTION_CLOSED });
+  expect(host.sent(write!.id)).toHaveLength(1);
 });

@@ -23,6 +23,16 @@ const namedDatabaseRow = defineRows({
   },
 });
 
+/** What a call in flight at a hosted socket drop does on the web hosted client (ADR-0019 decision 7). */
+const droppedConnectionRow = defineRows({
+  surface: "firestore",
+  defaults: {
+    section: "Calls in flight when the hosted connection drops",
+    status: "diverged-documented",
+    automation: "unit-backed",
+  },
+});
+
 const row2 = defineRows({
   surface: "firestore",
   defaults: {
@@ -2367,6 +2377,21 @@ export const firestoreRegistry = {
           automation: "unit-backed",
           conformanceTests: ["packages/pyric/test/firestore/query-proof-application.test.ts","packages/pyric/test/firestore/query-proof-diagnostics.test.ts","packages/pyric/test/firestore/query-proof-enforcement.test.ts"],
           rowNumber: 139,
+        }),
+      ],
+    },
+    {
+      kind: 'table',
+      prefix: "### Calls in flight when the hosted connection drops\n\nThe web hosted client talks to the Node host over one WebSocket. When that socket drops, a call the socket had already taken is in flight: the host may or may not have run it (ADR-0019 decision 7). Each row here states what becomes of such a call, against what the production Web SDK does when its own connection drops.\n",
+      rows: [
+        droppedConnectionRow({
+          rowRef: "HD1",
+          featureKeys: ["setDoc", "getDoc"],
+          api: "Writes and reads in flight at a hosted connection drop (web hosted client)",
+          behavior: "A Firestore write (`setDoc`, `updateDoc`, `deleteDoc`, a batch `commit`) or read (`getDoc`, `getDocs`) the web hosted client's socket had taken when it dropped fails once with `unavailable` and the message \"The hosted sandbox connection was lost. Requests already sent may have completed; check state before retrying.\" It is not sent again. In production the Firestore Web SDK keeps a write in its mutation queue and sends it again on the next write stream until the backend acknowledges it, and answers a `getDoc` from its local cache, with `fromCache`, or fails it with `unavailable` when the document is not cached.",
+          statusNote: "a write in flight fails instead of being sent again; pyric has no local cache to answer a read from",
+          evidence: "Production behavior read from `@firebase/firestore` 4.14.1, as recorded in ADR-0019 (\"Reads and writes are treated alike, unlike production\"). `packages/cli/test/serve/worker/hosted-reconnect-hold.test.ts` drops a real loopback socket with `setDoc`, `getDoc` and `batchCommit` in flight and asserts each fails once with that message and reaches the host once. The Realtime Database follows its SDK here instead (row `rtdb-modular#HD1`, #1088).",
+          conformanceTests: ["packages/cli/test/serve/worker/hosted-reconnect-hold.test.ts"],
         }),
       ],
     },

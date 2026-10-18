@@ -46,6 +46,8 @@ export const _pending = new Map<string, {
   release?: () => void;
   /** When the app issued the request; a hold deadline counts from here. */
   issuedAt: number;
+  /** The frame the request sent, so a transport can send it again after a drop. */
+  message: InboundMessage;
   resolve: (v: unknown) => void;
   reject: (e: Error & { code?: string }) => void;
 }>();
@@ -306,6 +308,34 @@ export function rejectPendingRequests(
       pending.reject(error);
     }
   }
+}
+
+/** The outstanding calls on `port` that `selects` picks, in issue order, with the frame each sent. */
+export function pendingRequestsOn(
+  port: ClientPort,
+  selects: (id: string) => boolean,
+): Array<{ id: string; message: InboundMessage }> {
+  const requests: Array<{ id: string; message: InboundMessage }> = [];
+  for (const [id, pending] of _pending) {
+    const isSelected = pending.port === port && selects(id);
+    if (isSelected) requests.push({ id, message: pending.message });
+  }
+  return requests;
+}
+
+/** Rejects one outstanding call with `error`, which may carry no code. */
+export function rejectPendingRequest(id: string, error: Error): void {
+  const pending = takePendingRequest(id);
+  pending?.reject(error);
+}
+
+/**
+ * Forgets one outstanding call without settling it: no reply can reach it
+ * and its promise never settles, as production drops a sent onDisconnect's
+ * callback when its connection drops.
+ */
+export function forgetPendingRequest(id: string): void {
+  takePendingRequest(id);
 }
 
 /** Drop every client-side correlation owned by a closing app port. */
@@ -742,6 +772,7 @@ export function rawRpc(
       budget: budget,
       release: budgetReservation?.release,
       issuedAt: reservation?.issuedAt ?? issueTime(),
+      message: msg,
       resolve,
       reject,
     });

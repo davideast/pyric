@@ -29,6 +29,12 @@ before return, delivery order, getters that match their streams, and
 cancellation. See
 [the amendment](#amendment-2026-10-17-one-delivery-contract-for-every-client).
 
+Amended: 2026-10-18. On the web hosted client, a Realtime Database call in
+flight at a drop follows the SDK: a write or `get` is sent again after the
+restore, a sent onDisconnect operation never settles, and a sent transaction
+commit rejects with `Error('disconnect')`. See
+[the amendment](#amendment-2026-10-18-realtime-database-calls-in-flight-follow-the-sdk-on-the-web-hosted-client).
+
 ## Context
 
 The Dart (`packages/flutter-client`), Swift (`packages/swift-client`) and Kotlin
@@ -160,7 +166,9 @@ All three clients implement one reconnect protocol in their bridge client
      a `worker-res` fails once with `unavailable` and the message "The bridge
      connection was lost. Requests already sent may have completed; check state
      before retrying." It is never re-sent: the host may already have applied
-     it.
+     it. On the web hosted client, Realtime Database calls follow the SDK
+     instead
+     ([amendment of 2026-10-18](#amendment-2026-10-18-realtime-database-calls-in-flight-follow-the-sdk-on-the-web-hosted-client)).
    - **Issued while not attached.** An operation issued while the client is
      `connecting` or `interrupted` (or, on the web client, `restoring`) is held:
      neither sent nor failed. When the client next attaches, held operations are
@@ -324,7 +332,8 @@ pyric fails a held write after 10 seconds. Without a local view, a write that
 waits indefinitely gives the app no signal at all, while a bounded failure that
 says the request was not sent is safe to retry. The Realtime Database's
 re-sending of in-flight writes is not adopted; decision 7's never-resend rule
-for operations in flight is unchanged.
+for operations in flight is unchanged. The 2026-10-18 amendment adopts it for
+the web hosted client's Realtime Database calls.
 
 ### All four clients change
 
@@ -651,7 +660,8 @@ does not change.
   transactions succeeded or not". The Firestore SDKs write every
   unacknowledged batch again after the next handshake. Pyric keeps decision
   7's rule that an operation in flight is never re-sent, and applies the
-  sent/unsent split to every operation.
+  sent/unsent split to every operation. The 2026-10-18 amendment re-sends
+  the web hosted client's Realtime Database writes.
 
 ## Amendment (2026-10-17): one delivery contract for every client
 
@@ -701,7 +711,8 @@ it.
   operation whose frame the transport took fails once with the
   connection-lost message and is never sent again, including by a
   transaction's retry loop. One whose frame was refused or never handed over
-  is held.
+  is held. The 2026-10-18 amendment classifies the web hosted client's
+  Realtime Database calls as the SDK does.
 - **D5. Release order.** After a re-attach the client sends, in this order:
   the restore (Auth on a replaced host, then the restored listeners in the
   order they were opened), then subscriptions opened while not attached, then
@@ -759,3 +770,89 @@ it.
   needs.
 - A pull request that adds an entry point or a stream on any client states
   which of D1 to D10 it was checked against.
+
+## Amendment (2026-10-18): Realtime Database calls in flight follow the SDK on the web hosted client
+
+Decision 7 fails every operation in flight at a drop once with `unavailable`,
+so that a caller learns the call may or may not have applied. For the Realtime
+Database that is not what the SDK does
+([#1088](https://github.com/davideast/pyric/issues/1088)). The difference
+showed in the presence sample from the Firebase docs, which calls
+`onDisconnect(ref).set('offline')` without a rejection handler each time
+`.info/connected` turns true. On pyric, a socket drop while that call awaited
+its reply raised an unhandled rejection. On Firebase nothing happens.
+
+### What the SDK does
+
+Read from `@firebase/database` 1.1.3, `dist/index.esm.js`, as installed in
+this repository:
+
+- On a drop, `onRealtimeDisconnect_` calls `cancelSentTransactions_()` and
+  then sets `requestCBHash_ = {}`, which drops the response callback of every
+  sent request.
+- The work queues survive the drop. After the next handshake,
+  `restoreState_` sends Auth, then every listen, then every entry in
+  `outstandingPuts_`, then every queued onDisconnect operation, then every
+  entry in `outstandingGets_`. A write or `get` in flight at the drop is sent
+  again and resolves on the new reply. There is no deadline.
+- `sendOnDisconnect_` sends an onDisconnect operation once and keeps it only
+  in `requestCBHash_`. The `onDisconnectRequestQueue_` holds only operations
+  issued while not connected. A sent onDisconnect operation is therefore never
+  sent again, and its promise never settles.
+- `cancelSentTransactions_` completes each transaction put already sent with
+  status `disconnect`. The transaction aborts, and `runTransaction` rejects
+  with `new Error('disconnect')`, an error with no code. It is not retried.
+
+### The rule on the web hosted client
+
+| In flight at the drop | Before | After |
+| --- | --- | --- |
+| `set`, `update`, `remove`, `setPriority`, `setWithPriority`, `push` | Fails with `unavailable` | Held again, ahead of every operation issued later, and sent after the restore. Resolves on the new reply. No deadline. |
+| `get` | Fails with `unavailable` | Sent again after the restore, as a write is. No deadline. |
+| `onDisconnect` `set`, `update`, `remove`, `cancel` | Fails with `unavailable` | Never settles, and is not sent again. |
+| Transaction commit | Fails with `unavailable` | Rejects with `Error('disconnect')`, and is not retried. |
+
+- **Order.** A call sent again keeps its issue order and goes ahead of every
+  operation held after the drop, after every frame of the restore in
+  decision 5. That matches the SDK, which sends outstanding puts after the
+  listens.
+- **No deadline.** A call sent again waits for the next attach as the SDK
+  waits for its next connection. It fails only through the close rule: an
+  explicit close, or a failure that permits no retry, fails it once with the
+  close error and sends it no more.
+- **A write may apply twice.** The host may have applied a write before the
+  drop, and then applies it again. The SDK accepts the same hazard. A `set`,
+  `update` or `remove` applied twice leaves the same data, but a rules check
+  or a server value such as a timestamp is evaluated twice.
+- **Every other call is unchanged.** Firestore, Storage, Auth, Messaging and
+  AI streams keep decision 7's rule, and each service's conformance registry
+  names what its SDK does instead.
+- **Issued while not attached is unchanged.** A call issued while the client
+  is not attached still has the 10-second hold deadline, for the Realtime
+  Database too, where the SDK queues it with no deadline. The conformance
+  registry records that difference on row `rtdb-modular#HD1`.
+
+### Where the rule does not reach
+
+- **The native clients.** The Kotlin, Swift and Flutter clients keep decision
+  7's rule: a Realtime Database call in flight at a drop fails once with
+  `unavailable`. The production Android and iOS SDKs re-send their
+  outstanding puts as the Web SDK does, so the native clients now differ from
+  the web hosted client. Native client work is parked in
+  [#1048](https://github.com/davideast/pyric/issues/1048), and this gap goes
+  with it.
+- **Other planes.** The in-page sandbox has no transport to drop. The
+  SharedWorker client talks over a `MessagePort` that lives as long as the
+  page, and it fails pending calls only when the worker cannot start. Neither
+  has a drop to classify. The Node remote client (`remoteSandbox()`) is not
+  bound by this amendment and keeps decision 7's rule.
+
+### Consequences of the amendment
+
+- The presence sample runs unchanged across a drop: the re-arm in flight
+  never settles, and the next `true` re-arms it on the new connection.
+- An app that caught the in-flight `unavailable` on an RTDB write to retry it
+  no longer sees the error. The write is sent again for it.
+- An app that waited on an in-flight `onDisconnect()` promise waits forever,
+  as it does on Firebase. It should re-arm on the next `.info/connected`
+  `true`, as the presence sample does.

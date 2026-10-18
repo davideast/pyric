@@ -99,6 +99,16 @@ const multiInstanceRow = defineRows({
   },
 });
 
+/** What a call in flight at a hosted socket drop does on the web hosted client (ADR-0019 decision 7). */
+const droppedConnectionRow = defineRows({
+  surface: "rtdb-modular",
+  defaults: {
+    section: "Calls in flight when the hosted connection drops",
+    status: "conforms",
+    automation: "unit-backed",
+  },
+});
+
 const row7 = defineRows({
   surface: "rtdb",
   defaults: {
@@ -3359,6 +3369,27 @@ export const rtdbRegistry = {
           conformanceTests: ["packages/pyric/test/database/modular/oracle-conformance-reference-writes.test.ts"],
           conformanceDisposition: "pending-fix",
           aliases: ["rtdb#174"],
+        }),
+      ],
+    },
+    {
+      kind: 'table',
+      prefix: "### Calls in flight when the hosted connection drops\n\nThe web hosted client talks to the Node host over one WebSocket. When that socket drops, a call the socket had already taken is in flight: the host may or may not have run it (ADR-0019 decision 7). Each row here states what becomes of such a call, against what the production Web SDK does when its own connection drops.\n",
+      rows: [
+        droppedConnectionRow({
+          rowRef: "HD1",
+          featureKeys: ["set", "get", "onDisconnect", "runTransaction"],
+          api: "Calls in flight at a hosted connection drop (web hosted client)",
+          behavior: "When the web hosted client's socket drops, an RTDB write (`set`, `update`, `remove`, `setPriority`, `setWithPriority`, `push`) or `get` the socket had taken is sent again after the client re-attaches, ahead of any call issued later, and resolves on the new reply with no deadline. A write sent again may apply twice. An `onDisconnect` registration or `cancel()` the socket had taken never settles and is not sent again. A transaction commit the socket had taken rejects with `Error('disconnect')`, which has no code, and is not retried.",
+          statusNote: "web hosted client; the Kotlin, Swift and Flutter clients still fail these with `unavailable` (#1048)",
+          evidence: "Production behavior read from `@firebase/database` 1.1.3 `dist/index.esm.js`: `onRealtimeDisconnect_` calls `cancelSentTransactions_` and clears `requestCBHash_`, the callbacks of every sent request; `restoreState_` sends the listens, then `outstandingPuts_`, then queued onDisconnects, then `outstandingGets_` again; a sent onDisconnect lives only in `requestCBHash_` (`sendOnDisconnect_`), so its promise never settles; and a cancelled transaction completes with `new Error('disconnect')`. `packages/cli/test/serve/worker/hosted-reconnect-hold.test.ts` drops a real loopback socket with each method in flight and asserts its outcome, the re-sent order and that a re-sent write has no deadline. `packages/cli/test/serve/worker/hosted-delivery-contract.test.ts` drives `set`, `onDisconnect().set()` and `runTransaction` through the client functions. App scenario `test/apps/rtdb-write-in-flight-at-drop` drops Chromium's hosted socket against a Vite dev server with a `set` and an `onDisconnect().set()` in flight, and asserts no unhandled rejection, the `set` resolving after the reconnect, and its value stored (#1088). CDD assertion `rtdb-modular#HD1` pins the sandbox side: the in-page sandbox has no socket, so the same calls settle in process across `goOffline()` and `goOnline()`.",
+          notes: "A call issued while the client is not attached, and never sent, is held for at most 10 seconds and then fails with `unavailable` saying it was not sent, where the SDK queues it with no deadline. ADR-0019 decision 7 keeps that deadline for reads and writes alike; only calls in flight at the drop follow the SDK.",
+          conformanceTests: [
+            "packages/cli/test/serve/worker/hosted-reconnect-hold.test.ts",
+            "packages/cli/test/serve/worker/hosted-delivery-contract.test.ts",
+            "test/apps/rtdb-write-in-flight-at-drop/scenario.ts",
+            "packages/pyric/test/database/cdd/lifecycle-and-identity.test.ts",
+          ],
         }),
       ],
     },
