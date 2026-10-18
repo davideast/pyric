@@ -22,4 +22,13 @@ describe('rules-language production coverage', () => {
     expect(rtdb?.constructs.find((construct) => construct.id === 'rtdb.semantic.validate-non-cascade')?.verdict).toBe('verified');
     expect(rtdb?.verifiedConstructs).toBe(90);
   }, FULL_GRAPH_TIMEOUT_MS);
+
+  it('verifies Storage corpus constructs with input-digest-bound observations and zero unresolved AST nodes', async () => {
+    const report = await computeCoverageReport();
+    const storage = report.engines.find((engine) => engine.engine === 'storage');
+
+    expect(storage?.unresolved).toEqual([]);
+    expect(storage?.verifiedScenarioCount).toBe(28);
+    expect(storage?.verifiedConstructs).toBe(126);
+  }, FULL_GRAPH_TIMEOUT_MS);
 });

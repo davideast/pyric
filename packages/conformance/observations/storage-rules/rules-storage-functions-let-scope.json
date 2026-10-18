@@ -8,6 +8,10 @@
   "observedAt": "2026-09-28T03:39:08.882Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "fcdcee64296078261954ba10aaf1b6e1a4a34b91cf4e9305bb447040fd0f98bf"
+  },
   "behavior": {
     "let + nested calls: small png under 5MB": "ALLOW",
     "let + nested calls: oversized png denied": "DENY",

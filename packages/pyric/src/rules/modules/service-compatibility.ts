@@ -4,6 +4,7 @@ import {
   FIRESTORE_METHODS as GENERATED_FIRESTORE_METHODS,
   FIRESTORE_METHOD_RECEIVER_TYPES,
   FIRESTORE_NAMESPACE_METHODS,
+  STORAGE_DIRECT_FUNCTIONS as GENERATED_STORAGE_DIRECT_FUNCTIONS,
   STORAGE_METHODS as GENERATED_STORAGE_METHODS,
   STORAGE_METHOD_RECEIVER_TYPES,
   STORAGE_NAMESPACE_METHODS,
@@ -42,6 +43,7 @@ const FIRESTORE_NAMESPACES: Readonly<Record<string, ReadonlySet<string>>> = Obje
   Object.entries(FIRESTORE_NAMESPACE_METHODS).map(([namespace, methods]) => [namespace, new Set(methods)]),
 );
 
+const STORAGE_DIRECT_FUNCTIONS = new Set<string>(GENERATED_STORAGE_DIRECT_FUNCTIONS);
 const STORAGE_METHODS = new Set<string>(GENERATED_STORAGE_METHODS);
 const STORAGE_NAMESPACES: Readonly<Record<string, ReadonlySet<string>>> = Object.fromEntries(
   Object.entries(STORAGE_NAMESPACE_METHODS).map(([namespace, methods]) => [namespace, new Set(methods)]),
@@ -142,10 +144,10 @@ function serviceIncompatibility(
       }
       case 'functionCall': {
         const called = ctx.functions.get(e.name);
-        if (!called && service === 'firebase.storage') {
-          return `function '${e.name}()'`;
-        }
-        if (!called && !FIRESTORE_DIRECT_FUNCTIONS.has(e.name)) return `function '${e.name}()'`;
+        const directFunctions = service === 'cloud.firestore'
+          ? FIRESTORE_DIRECT_FUNCTIONS
+          : STORAGE_DIRECT_FUNCTIONS;
+        if (!called && !directFunctions.has(e.name)) return `function '${e.name}()'`;
         for (const arg of e.args) {
           const issue = walk(arg);
           if (issue) return issue;

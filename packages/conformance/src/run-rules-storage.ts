@@ -46,6 +46,7 @@ import {
 } from '../rules-corpus/storage/index.ts';
 import { readObservationLinkage } from './observation-linkage.ts';
 import { resolvedFirebaseVersion } from './package-version.ts';
+import { storageRulesTestInputDigest, type StorageScenarioInputDigest } from './storage-rules-input-digest.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // rules-storage-* observations belong to the native 'storage-rules' surface.
@@ -59,6 +60,7 @@ interface Observation {
   observedAt: string;
   fbSdkVersion: string;
   projectId: string;
+  inputDigest: StorageScenarioInputDigest;
   behavior: Record<string, unknown>;
   diagnostics?: Record<string, { notes?: string[]; api?: TestResult['api'] }>;
 }
@@ -191,6 +193,7 @@ async function capture(scenarios: StorageScenario[]): Promise<void> {
       observedAt: new Date().toISOString(),
       fbSdkVersion,
       projectId: scope.projectId,
+      inputDigest: storageRulesTestInputDigest(scenario.rules, scenario.cases),
       behavior,
       ...(Object.keys(diagnostics).length > 0 ? { diagnostics } : {}),
     };

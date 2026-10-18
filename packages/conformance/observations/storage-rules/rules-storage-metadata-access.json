@@ -8,6 +8,10 @@
   "observedAt": "2026-09-28T06:04:28.743Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "6e35b8d51bee10d5ef073080c307a157e9076cade944a21faf34e26178d070f1"
+  },
   "behavior": {
     "dotted metadata: owner matches → allow": "ALLOW",
     "dotted metadata: owner mismatch → deny": "DENY",

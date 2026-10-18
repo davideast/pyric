@@ -8,6 +8,10 @@
   "observedAt": "2026-07-11T03:09:46.334Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "45f4772bbfd840d18cc5f710971bb9fcc5f159067d27e01d0818d82854ff6465"
+  },
   "behavior": {
     "firestore.get(): profile uid matches caller → allow": "ALLOW",
     "firestore.get(): profile uid mismatch → deny": "DENY",

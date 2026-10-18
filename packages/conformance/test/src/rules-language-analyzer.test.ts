@@ -90,6 +90,40 @@ service firebase.storage {
     for (const pack of ALL_RULES_STORAGE_SCENARIOS) {
       const res = analyze('storage', pack.rules);
       for (const id of res.ids) expect(known.has(id)).toBe(true);
+      expect(res.unresolved).toEqual([]);
+    }
+  });
+
+  it('attributes storage ternary, slice, in, is, modulo, unary-minus, namespaces, and methods without false-crediting not', () => {
+    const sampleRules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /files/{fileId} {
+      allow read: if (request.auth == null ? false : firestore.exists(/databases/(default)/documents/u/$(request.auth.uid)))
+        && (-1 % 2 == -1)
+        && (fileId is string)
+        && (fileId in ['a', 'b'])
+        && (fileId[0:1].split('/')).size() == 1
+        && math.abs(-5) == 5;
+    }
+  }
+}`;
+    const res = analyzeStorage(sampleRules);
+    expect(res.unresolved).toEqual([]);
+    expect(res.ids.has('storage.operator.not')).toBe(false);
+    for (const id of [
+      'storage.operator.ternary',
+      'storage.function.firestore.exists',
+      'storage.operator.unary-minus',
+      'storage.operator.mod',
+      'storage.operator.is',
+      'storage.operator.in',
+      'storage.operator.slice',
+      'storage.method.string.split',
+      'storage.method.size',
+      'storage.function.math.abs',
+    ]) {
+      expect(res.ids.has(id)).toBe(true);
     }
   });
 

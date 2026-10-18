@@ -1,6 +1,7 @@
 import { loadSnapshot, type RulesEngine } from '../rules-language/load.ts';
 import { surfaceRegistries } from '../registry/index.ts';
 import { assertFirestoreRulesOracleReplay } from './firestore-rules-oracle-replay.ts';
+import { assertStorageRulesOracleReplay } from './storage-rules-oracle-replay.ts';
 import { analyze } from './rules-language-analyzer.ts';
 import { loadRulesLanguageScenarios } from './rules-language-scenarios.ts';
 import {
@@ -43,6 +44,7 @@ const RULES_ENGINES: readonly RulesEngine[] = ['firestore', 'storage', 'rtdb'];
 /** Derive production-backed construct coverage after replaying current evidence. */
 export async function computeCoverageReport(): Promise<CoverageReport> {
   await assertFirestoreRulesOracleReplay();
+  assertStorageRulesOracleReplay();
   const engines: EngineCoverage[] = [];
   const scopes = indexConstructScopes(surfaceRegistries);
   for (const engine of RULES_ENGINES) {
