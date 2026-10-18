@@ -6,6 +6,9 @@ import { onSnapshot } from '../../../src/serve/worker/client/firestore-reads.js'
 import { messagingGetMessaging, messagingSubscribe } from '../../../src/serve/worker/client/messaging.js';
 import { rtdbGetDatabase, rtdbRef } from '../../../src/serve/worker/client/rtdb-references.js';
 import { rtdbOnValue } from '../../../src/serve/worker/client/rtdb-listeners.js';
+import { rtdbSet } from '../../../src/serve/worker/client/rtdb-writes.js';
+import { rtdbOnDisconnect } from '../../../src/serve/worker/client/rtdb-connection-lifecycle.js';
+import { rtdbRunTransaction } from '../../../src/serve/worker/client/rtdb-transactions.js';
 import { aiStreamGenerateContent } from '../../../src/serve/worker/client/ai.js';
 import { addedKeys, attached, barrier, cleanups, dropped, gate, Host, until } from './hosted-delivery-contract-support.js';
 
@@ -184,4 +187,31 @@ test('an AI stream in flight at a drop fails once, and its unsub is released aft
   await barrier(db);
   expect(outcomes).toEqual([{ code: 'unavailable', message: CONNECTION_LOST }]);
   expect(host.subscriptionFrames(subId!)).toEqual(['sub', 'unsub']);
+});
+
+// ── Decision 7, amended for #1088: RTDB calls in flight at a drop ─────────
+
+test('RTDB calls in flight at a drop: set is sent again and resolves, onDisconnect never settles, a transaction rejects with disconnect', async () => {
+  const host = new Host();
+  const inFlight = ['rtdb.set', 'rtdb.onDisconnectSet', 'rtdb.transactionCommit'];
+  for (const method of inFlight) host.unanswered.add(method);
+  host.answers.set('rtdb.get', { value: 1, exists: true });
+  const { db, states } = await attached(host);
+  const database = rtdbGetDatabase(db);
+  const write = settle(rtdbSet(rtdbRef(database, 'rooms/r1'), 'across the drop'));
+  let armSettled = false;
+  void rtdbOnDisconnect(rtdbRef(database, 'status/alice')).set('offline').finally(() => { armSettled = true; });
+  const transaction = settle(rtdbRunTransaction(rtdbRef(database, 'counter'), (count: number | null) => (count ?? 0) + 1));
+  await until(() => inFlight.every(method => host.frames.some(frame => frame.method === method)));
+  host.stop();
+  await until(() => states.at(-1) === 'interrupted');
+  host.unanswered.clear();
+  host.start();
+  await until(() => states.filter(state => state === 'attached').length > 1);
+  expect(await write).toEqual({ value: undefined });
+  expect(await transaction).toEqual({ code: undefined, message: 'disconnect' });
+  await barrier(db);
+  expect(armSettled).toBe(false);
+  const sentTimes = (method: string) => host.frames.filter(frame => frame.method === method).length;
+  expect(inFlight.map(sentTimes)).toEqual([2, 1, 1]);
 });

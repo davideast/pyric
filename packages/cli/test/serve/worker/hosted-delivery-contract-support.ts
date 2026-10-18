@@ -19,6 +19,10 @@ type Socket = { send(data: string): void };
 
 export class Host {
   readonly frames: WorkerFrame[] = [];
+  /** Methods this host leaves unanswered, so they stay in flight. */
+  readonly unanswered = new Set<string>();
+  /** The value this host answers for a method; null when absent. */
+  readonly answers = new Map<string, unknown>();
   readonly port: number;
   private server: ReturnType<typeof Bun.serve> | undefined;
   private socket: Socket | undefined;
@@ -73,7 +77,11 @@ export class Host {
           const frame = message.message as WorkerFrame;
           frames.push(frame);
           if (frame.t !== 'op') return;
-          socket.send(JSON.stringify({ type: 'worker-message-result', message: { t: 'res', id: frame.id, ok: true, value: null } }));
+          const method = frame.method ?? '';
+          const staysInFlight = host.unanswered.has(method);
+          if (staysInFlight) return;
+          const value = host.answers.get(method) ?? null;
+          socket.send(JSON.stringify({ type: 'worker-message-result', message: { t: 'res', id: frame.id, ok: true, value } }));
         },
       },
     });

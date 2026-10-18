@@ -43,6 +43,7 @@ export function rtdbRunTransaction<T>(
       const current = expected === null ? null : structuredClone(expected);
       const value = transactionUpdate(current);
       if (value === undefined) return transactionResult(false, before);
+      // A commit in flight at a hosted drop rejects with Error('disconnect') and is not retried (#1088).
       const wire = await rtdbRpc(ref, {
         t: 'op',
         id: nextId(),

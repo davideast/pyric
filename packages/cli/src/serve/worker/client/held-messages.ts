@@ -4,6 +4,9 @@
  * was issued; a subscription frame has no deadline. Held messages are sent
  * once, after the client's restore traffic: subscription frames first, then
  * operations, each in issue order (ADR-0019, 2026-10-17 amendment, D5).
+ * An RTDB operation the dropped socket took is held again, ahead of every
+ * later operation and with no deadline, as the Realtime Database SDK re-sends
+ * its outstanding writes and reads on reconnect (#1088).
  */
 import { FirebaseError } from 'pyric/app';
 import type { InboundMessage } from '../protocol.js';
@@ -45,6 +48,12 @@ function subscriptionId(message: InboundMessage): string | undefined {
 
 export interface HeldMessages {
   hold(message: InboundMessage): void;
+  /**
+   * Holds operations a dropped socket took, in their issue order, ahead of
+   * every message held now. They have no deadline: they wait for the next
+   * attach, or fail when the client closes.
+   */
+  holdAgain(messages: InboundMessage[]): void;
   /** True while the operation with this correlation id has not been sent. */
   holdsRequest(id: string): boolean;
   /** True for a restore frame of a subscription that is itself still held. */
@@ -97,6 +106,9 @@ export function createHeldMessages(port: ClientPort): HeldMessages {
       const hasExpired = remaining <= 0;
       if (hasExpired) { expire(entry, id); return; }
       entry.deadline = setTimeout(() => expire(entry, id), remaining);
+    },
+    holdAgain(messages) {
+      held.unshift(...messages.map(message => ({ message })));
     },
     holdsRequest(id) {
       return held.some(entry => requestId(entry.message) === id);

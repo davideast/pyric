@@ -10,6 +10,7 @@ import { failInFlightStreams, nextId, rawRpc, rejectPendingRequests, restoreAuth
 import { endFailedPort } from './disconnect.js';
 import type { ClientDb, ClientPort } from './handles.js';
 import { createHeldMessages } from './held-messages.js';
+import { settleInFlightAtDrop } from './in-flight-at-drop.js';
 
 /** The HTTP origin that serves a WebSocket endpoint. */
 function httpOriginOf(socketUrl: string): string {
@@ -170,9 +171,9 @@ export function getHostedFirestore(target: {
     state = 'interrupted';
     socket = undefined;
     notifyConnectionChange();
-    // Only requests already handed to the socket fail; held ones wait for the next attach.
+    // Only requests already handed to the socket are settled; held ones wait for the next attach.
     const lost = new FirebaseError('unavailable', CONNECTION_LOST);
-    rejectPendingRequests(port, lost, id => !held.holdsRequest(id));
+    settleInFlightAtDrop(port, held, lost, id => !held.holdsRequest(id));
     // An AI stream is not restored, so one the socket took fails like an operation in flight.
     failInFlightStreams(port, lost, subId => held.holdsSubscription({ t: 'unsub', subId }));
     connection.close();
