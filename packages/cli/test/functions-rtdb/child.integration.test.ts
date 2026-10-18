@@ -40,6 +40,17 @@ async function waitForValue(path: string, expected: unknown): Promise<void> {
   throw new Error(`timed out waiting for ${path}=${JSON.stringify(expected)}`);
 }
 
+/**
+ * Wait for `count` events. The child reports an execution after the function
+ * returns, so its writes can land before its event does.
+ */
+async function waitForEvents(events: readonly FunctionsRtdbChildEvent[], count: number): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (events.length < count && Date.now() < deadline) {
+    await new Promise((resolveSleep) => setTimeout(resolveSleep, 20));
+  }
+}
+
 beforeAll(async () => {
   if (!existsSync(childModule)) {
     throw new Error(`Functions child is not built — run bun run --cwd packages/cli build (${childModule})`);
@@ -181,6 +192,7 @@ describe('isolated Functions RTDB child', () => {
     await observer.rtdb.set('messages/id/original', 'hello');
     await waitForValue('messages/id/uppercase', 'HELLO');
     await waitForValue('messages/id/processed', 'id:HELLO');
+    await waitForEvents(events, 2);
 
     expect(events).toContainEqual({
       type: 'execution',
@@ -220,10 +232,7 @@ describe('isolated Functions RTDB child', () => {
       unsupportedTriggers: [],
     });
     await observer.rtdb.set('esm-messages/id/original', 'hello');
-    const eventDeadline = Date.now() + 5_000;
-    while (events.length === 0 && Date.now() < eventDeadline) {
-      await new Promise((resolveSleep) => setTimeout(resolveSleep, 20));
-    }
+    await waitForEvents(events, 1);
     expect(events).toContainEqual({
       type: 'execution',
       exportName: 'makeUppercase',
