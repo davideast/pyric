@@ -67,10 +67,10 @@ function promoteFirestore(
     const document = next.firestore[path];
     const wasDeleted = document === undefined;
     if (wasDeleted) {
-      target.admin.deleteDocument(path);
+      getInternalEnv(target).adminDeleteDocument(path);
       continue;
     }
-    target.admin.setDocument(path, decodeStateDocument(document, next.firestoreEncoding));
+    getInternalEnv(target).adminSetDocument(path, decodeStateDocument(document, next.firestoreEncoding));
   }
 }
 
