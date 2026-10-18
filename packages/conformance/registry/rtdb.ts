@@ -3374,7 +3374,7 @@ export const rtdbRegistry = {
     },
     {
       kind: 'table',
-      prefix: "### Calls in flight when the hosted connection drops\n\nThe web hosted client talks to the Node host over one WebSocket. When that socket drops, a call the socket had already taken is in flight: the host may or may not have run it (ADR-0019 decision 7). Each row here states what becomes of such a call, against what the production Web SDK does when its own connection drops.\n",
+      prefix: "### Calls in flight when the hosted connection drops\n\nThe web hosted client talks to the Node host over one WebSocket. When that socket drops, a call the socket had already taken is in flight: the host may or may not have run it (ADR-0019 decision 7). Each row here states what becomes of such a call, against what the production Web SDK does when its own connection drops. The Node remote client (`remoteSandbox()`, used by `node --import @pyric/cli/register`) has its own socket to the host; row HD2 covers it.\n",
       rows: [
         droppedConnectionRow({
           rowRef: "HD1",
@@ -3391,6 +3391,17 @@ export const rtdbRegistry = {
             "test/apps/rtdb-write-in-flight-at-drop/scenario.ts",
             "packages/pyric/test/database/cdd/lifecycle-and-identity.test.ts",
           ],
+        }),
+        droppedConnectionRow({
+          rowRef: "HD2",
+          featureKeys: ["set", "get"],
+          status: "diverged-documented",
+          api: "Calls in flight at a hosted connection drop (Node remote client)",
+          behavior: "When the Node remote client's socket to the host drops, every RTDB call it had sent fails once with `unavailable` and the message \"The remote sandbox connection was lost. Requests already sent may have completed; check state before retrying.\" It is not sent again; the next call connects again. Every call also fails with `deadline-exceeded` after 35 seconds without a reply. In production, `@firebase/database` running in Node sends an in-flight write or `get` again after the reconnect and resolves it on the new reply with no deadline, as the Web SDK does (row HD1).",
+          statusNote: "Node remote client fails in-flight calls with `unavailable` where the SDK sends them again (#1107)",
+          evidence: "Production behavior: the same `@firebase/database` 1.1.3 code as row HD1 (`onRealtimeDisconnect_`, `restoreState_`); the package runs the same database core in Node. Pyric behavior: `packages/cli/src/remote/index.ts` `loseConnection` disposes the core, which rejects every pending call, and `DEFAULT_OP_TIMEOUT_MS` is 35000. `packages/cli/test/remote/reconnect.test.ts` stops a real host with `rtdb.set` in flight and asserts it fails once with `unavailable` and that message, and is not replayed on the restarted host.",
+          notes: "ADR-0019's amendment of 2026-10-18 brought the web hosted client in line with the SDK and left this client on decision 7's rule. The Node client has no `.info/connected`, so the presence sample behind #1088 cannot run on it.",
+          conformanceTests: ["packages/cli/test/remote/reconnect.test.ts"],
         }),
       ],
     },
