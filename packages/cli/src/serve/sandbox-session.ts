@@ -6,7 +6,7 @@ import { createIndexConfigStore } from './index-config-store.js';
 import type { FlowConfig } from './flow-config.js';
 import { existsSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ActivityIncident } from 'pyric/firestore/internal';
 import { defaultAvatarSvg } from 'pyric/auth/internal';
@@ -339,7 +339,11 @@ export async function createSandboxSession(
 
     const databaseInstances = (): DatabaseInstancesRules => ({
       defaultInstance: database.defaultInstance,
+      ...(database.projectId === undefined ? {} : { projectId: database.projectId }),
       rules: Object.fromEntries([...liveDatabase].map(([instance, loaded]) => [instance, loaded?.rules ?? null])),
+      ...(database.targets.length === 0 ? {} : {
+        rulesFiles: Object.fromEntries(database.targets.map((target) => [target.instance, relative(options.projectDir, target.path)])),
+      }),
       ...(livePending.size === 0 ? {} : {
         pendingTargets: database.pending.map((target) => ({
           target: target.target,

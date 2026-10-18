@@ -551,10 +551,12 @@ service firebase.storage {
     ]);
     expect(session.payload().databaseInstances).toEqual({
       defaultInstance: 'demo-default-rtdb',
+      projectId: 'demo',
       rules: {
         'demo-default-rtdb': { rules: { a: { '.read': true } } },
         second: { rules: { b: { '.read': true } } },
       },
+      rulesFiles: { 'demo-default-rtdb': 'a.rules.json', second: 'b.rules.json' },
     });
     expect(session.payload().databaseRules).toEqual({ rules: { a: { '.read': true } } });
     expect(session.databaseRulesFiles()).toEqual([join(root, 'a.rules.json'), join(root, 'b.rules.json')]);

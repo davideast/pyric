@@ -5,6 +5,7 @@ import { defaultClientApp, resolveClientApp } from '../sandbox/internal/client-a
 import {
   databaseInstanceKey,
   defaultDatabaseInstanceName,
+  isDefaultDatabaseInstance,
   parseDatabaseUrl,
   resolveDatabaseInstance,
   type DatabaseInstance,
@@ -200,13 +201,13 @@ function assertOpenedOnce(appRuntime: object, argument: string | undefined, root
 }
 
 /** `undefined` for the project's default instance named by its URL, as the
- *  SDK resolves that URL and `getDatabase(app)` to one instance. */
+ *  SDK resolves that URL and `getDatabase(app)` to one instance. The legacy
+ *  `https://<projectId>.firebaseio.com` names the default instance too. */
 function projectDefaultAsUndefined(
   instance: DatabaseInstance | undefined,
   projectId: string | undefined,
 ): DatabaseInstance | undefined {
-  const namesDefault = instance !== undefined && projectId !== undefined
-    && instance.name === defaultDatabaseInstanceName(projectId);
+  const namesDefault = instance !== undefined && isDefaultDatabaseInstance(instance.name, projectId);
   return namesDefault ? undefined : instance;
 }
 

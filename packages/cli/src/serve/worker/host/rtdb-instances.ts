@@ -11,8 +11,9 @@
  * An operation names its instance with the protocol's `instance` field; an
  * absent field is the default instance. The default instance's name,
  * `<projectId>-default-rtdb` or the name `firebase.json` gives it, resolves to
- * the same entry, as the production
- * SDK resolves `getDatabase(app)` and that URL to one instance.
+ * the same entry, as the production SDK resolves `getDatabase(app)` and that
+ * URL to one instance. So does `<projectId>`, the default instance of a
+ * project created before about 2020 (`https://<projectId>.firebaseio.com`).
  */
 
 import {
@@ -27,6 +28,7 @@ import {
   UNNAMED_DEFAULT_DATABASE_INSTANCE,
   databaseInstanceNamed,
   defaultDatabaseInstanceName,
+  isDefaultDatabaseInstance,
   undeployedInstanceNotice,
   type DatabaseInstanceRegistry,
 } from 'pyric/sandbox/internal';
@@ -34,13 +36,21 @@ import type { AuthLens } from 'pyric/sandbox';
 
 import type { HostCtx, HostRtdbInstance, PortLike } from '../host-context.js';
 import { portSession } from '../host-auth.js';
+import { defaultInstanceDeploy, twoDefaultRulesFilesMessage } from '../../database-instance-rules-host.js';
 import { authStateForLens, lensCacheKey, sessionCacheKey } from './core.js';
+
+/** The project id the host serves: the server's, else the first app port's. */
+export function hostProjectId(ctx: HostCtx): string | undefined {
+  if (ctx.rtdbProjectId) return ctx.rtdbProjectId;
+  const fromApp = ctx.appOptions?.projectId;
+  return typeof fromApp === 'string' && fromApp.length > 0 ? fromApp : undefined;
+}
 
 /** The default instance's name, when known: the project config's, else the app's project default. */
 export function defaultInstanceNameOf(ctx: HostCtx): string | undefined {
   if (ctx.defaultRtdbInstance) return ctx.defaultRtdbInstance;
-  const fromApp = ctx.appOptions?.projectId;
-  return typeof fromApp === 'string' && fromApp.length > 0 ? defaultDatabaseInstanceName(fromApp) : undefined;
+  const projectId = hostProjectId(ctx);
+  return projectId === undefined ? undefined : defaultDatabaseInstanceName(projectId);
 }
 
 /** The host's instance registry, created on first use. */
@@ -78,9 +88,7 @@ export function rtdbInstanceKey(ctx: HostCtx, name?: string): string {
   // id is known, so it is matched before it is parsed as an instance name.
   if (name === undefined || name === ctx.defaultRtdbInstance || name === UNNAMED_DEFAULT_DATABASE_INSTANCE) return registry.defaultKey;
   const instance = databaseInstanceNamed(name);
-  const appProject = ctx.appOptions?.projectId;
-  const isDefault = instance.name === defaultInstanceNameOf(ctx)
-    || (typeof appProject === 'string' && instance.name === defaultDatabaseInstanceName(appProject));
+  const isDefault = instance.name === defaultInstanceNameOf(ctx) || isDefaultDatabaseInstance(instance.name, hostProjectId(ctx));
   if (isDefault) return registry.defaultKey;
   return registry.keyOf(instance);
 }
@@ -93,9 +101,12 @@ export function rtdbInstance(ctx: HostCtx, name?: string): HostRtdbInstance {
 /**
  * Adopt the default instance's name once the first app port names its
  * project. Without `.firebaserc` or `--project`, `firebase.json` rules for
- * `<projectId>-default-rtdb` were deployed before the host knew that name is
- * the default instance's; they move to the default instance, which
- * `getDatabase(app)` reads and writes.
+ * `<projectId>-default-rtdb` or `<projectId>` were deployed before the host
+ * knew those names are the default instance's; they move to the default
+ * instance, which `getDatabase(app)` reads and writes. Rules for both names
+ * from different sources are refused, as `firebase.json` is refused when the
+ * project is known at startup: the default instance is locked and the error
+ * names both files.
  */
 export function adoptAppDefaultRtdbInstance(ctx: HostCtx): void {
   const projectId = ctx.appOptions?.projectId;
@@ -103,18 +114,50 @@ export function adoptAppDefaultRtdbInstance(ctx: HostCtx): void {
   if (typeof projectId !== 'string' || projectId.length === 0 || knowsDefault) return;
   const name = defaultDatabaseInstanceName(projectId);
   const registry = ctx.rtdbInstances;
-  const named = registry?.get(name);
-  if (registry !== undefined && named !== undefined && name !== registry.defaultKey) {
-    registry.delete(name);
-    const fallback = registry.getOrCreate(registry.defaultKey);
-    const deployed = named.rules;
-    if (deployed !== undefined) {
-      const enforced = deployed.status === 'active' ? deployed.source : deployed.lastKnownGood ?? null;
-      rtdbSandbox.setRules(fallback.live, enforced as { rules: Record<string, unknown> } | null);
-      fallback.rules = deployed;
-    }
-  }
+  if (registry !== undefined) adoptDefaultEntries(ctx, registry, projectId);
   ctx.defaultRtdbInstance = name;
+}
+
+type DeployedRules = NonNullable<HostRtdbInstance['rules']>;
+
+/** Move the rules held under either name of the project's default instance to it, and forget those entries. */
+function adoptDefaultEntries(ctx: HostCtx, registry: DatabaseInstanceRegistry<HostRtdbInstance>, projectId: string): void {
+  const [first, ...others] = takeDefaultEntries(registry, projectId);
+  if (first === undefined) return;
+  const fallback = registry.getOrCreate(registry.defaultKey);
+  const conflicting = others.find((other) => JSON.stringify(other.rules.source) !== JSON.stringify(first.rules.source));
+  if (conflicting !== undefined) {
+    const files = ctx.rtdbRulesFiles;
+    const text = twoDefaultRulesFilesMessage(
+      defaultDatabaseInstanceName(projectId),
+      projectId,
+      defaultInstanceDeploy(first.name, files),
+      defaultInstanceDeploy(conflicting.name, files),
+    );
+    console.error(`[pyric] ${text}`);
+    rtdbSandbox.setRules(fallback.live, LOCKED_DATABASE_RULES);
+    fallback.rules = { source: LOCKED_DATABASE_RULES, updatedAt: Date.now(), status: 'error', messages: [{ severity: 'error', text }] };
+    return;
+  }
+  const deployed = first.rules;
+  const enforced = deployed.status === 'active' ? deployed.source : deployed.lastKnownGood ?? null;
+  rtdbSandbox.setRules(fallback.live, enforced as { rules: Record<string, unknown> } | null);
+  fallback.rules = deployed;
+}
+
+/** Remove the entries named by either name of the default instance; returns the rules they held. */
+function takeDefaultEntries(
+  registry: DatabaseInstanceRegistry<HostRtdbInstance>,
+  projectId: string,
+): Array<{ name: string; rules: DeployedRules }> {
+  const taken: Array<{ name: string; rules: DeployedRules }> = [];
+  for (const name of [defaultDatabaseInstanceName(projectId), projectId]) {
+    const entry = name === registry.defaultKey ? undefined : registry.get(name);
+    if (entry === undefined) continue;
+    registry.delete(name);
+    if (entry.rules !== undefined) taken.push({ name, rules: entry.rules });
+  }
+  return taken;
 }
 
 /** Log, once per instance, how an instance without deployed rules is served. */

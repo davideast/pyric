@@ -94,7 +94,7 @@ sandbox swap.
 
 Ask an MCP-connected agent to inventory the reads your application performs, then inspect the local tree with `rtdb_crawl_structure`. [Work with an agent](../agent/work-with-an-agent.md) gives a complete RTDB task prompt, and [Set up your agent](../agent/set-up-your-agent.md) explains the browser bridge.
 
-When `firebase.json` declares more than one database instance, pass `--instance` to `pyric database`, or `instance` to the MCP `database` tool, with the instance name or its URL. Without it, a call reads and writes the default instance.
+When `firebase.json` declares more than one database instance, pass `--instance` to `pyric database`, or `instance` to the MCP `database` tool, with the instance name or its URL. Without it, a call reads and writes the default instance. `<projectId>` and `https://<projectId>.firebaseio.com`, the default instance of a project created before about 2020, also select the default instance.
 
 ```sh
 pyric database get --instance shard-00 --path rooms/lobby

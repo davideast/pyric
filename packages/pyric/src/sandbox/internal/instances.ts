@@ -51,6 +51,22 @@ export function defaultDatabaseInstanceName(projectId: string): string {
   return `${projectId}-default-rtdb`;
 }
 
+/**
+ * Whether `name` is the project's default instance: `<projectId>-default-rtdb`,
+ * or `<projectId>`, the default instance of a project created before about
+ * 2020 (`https://<projectId>.firebaseio.com`). Both name one instance.
+ *
+ * `name` is an instance name, as {@link parseDatabaseUrl} or
+ * {@link databaseInstanceNamed} returns it; the host it came from does not
+ * matter, as instance names are global. Without a project id no name is the
+ * default instance, and {@link UNNAMED_DEFAULT_DATABASE_INSTANCE} is left to
+ * the caller.
+ */
+export function isDefaultDatabaseInstance(name: string, projectId: string | undefined): boolean {
+  const hasProject = projectId !== undefined && projectId.length > 0;
+  return hasProject && (name === projectId || name === defaultDatabaseInstanceName(projectId));
+}
+
 /** The instance the SDK uses for an app with a project id and no `databaseURL`. */
 export function defaultDatabaseInstance(projectId: string): DatabaseInstance {
   return parseDatabaseUrl(`${defaultDatabaseInstanceName(projectId)}.firebaseio.com`);

@@ -108,3 +108,31 @@ export function createPendingDatabaseTargets(
     },
   };
 }
+
+/** One name of the default instance that rules were deployed to, with its rules file when known. */
+export interface DefaultInstanceDeploy {
+  name: string;
+  file?: string;
+}
+
+/** The deploy of `name`, with its rules file when `files` names one. */
+export function defaultInstanceDeploy(name: string, files: Readonly<Record<string, string>> | undefined): DefaultInstanceDeploy {
+  const file = files?.[name];
+  return file === undefined ? { name } : { name, file };
+}
+
+/**
+ * The refusal of two rules files for the default instance, learned once the
+ * app names its project: `<projectId>` and `<projectId>-default-rtdb` both
+ * name it, so this is the startup refusal of two files for one instance. The
+ * sandbox keeps the default instance locked.
+ */
+export function twoDefaultRulesFilesMessage(
+  defaultName: string,
+  projectId: string,
+  first: DefaultInstanceDeploy,
+  second: DefaultInstanceDeploy,
+): string {
+  const describe = (deploy: DefaultInstanceDeploy): string => `${deploy.file ?? `the rules for "${deploy.name}"`} to "${deploy.name}"`;
+  return `firebase.json deploys two rules files to database instance "${defaultName}": ${describe(first)} and ${describe(second)}, which both name the default instance of project "${projectId}". The Firebase CLI deploys both at once, so the configuration does not determine which one production keeps. Deploy one rules file to each instance. The default instance stays locked until then.`;
+}

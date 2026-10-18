@@ -93,6 +93,14 @@ export interface HostCtx {
    */
   defaultRtdbInstance?: string;
   /**
+   * The project id the server resolved, when one is set. `<projectId>` names
+   * the default RTDB instance as `<projectId>-default-rtdb` does; before this
+   * is set, the host learns the project from the first app port's options.
+   */
+  rtdbProjectId?: string;
+  /** Each declared RTDB instance's rules file, for messages that name it. */
+  rtdbRulesFiles?: Record<string, string>;
+  /**
    * The project's `firebase.json` deploy targets no project resolved when the
    * server started. The first app port's project id resolves them.
    */

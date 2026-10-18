@@ -33,6 +33,8 @@ interface LoadedRulesFile {
 
 export interface LoadedFirebaseJsonRules {
   defaultInstance: string;
+  /** The project id the rules were resolved for, when one was set. */
+  projectId?: string;
   files: LoadedRulesFile[];
 }
 
@@ -151,5 +153,5 @@ export function loadFirebaseJsonRules(
   if (files.size === 0) {
     throw new Error(`${NAME}: ${jsonPath} deploys no Realtime Database rules.`);
   }
-  return { defaultInstance: resolved.defaultInstance, files: [...files.values()] };
+  return { defaultInstance: resolved.defaultInstance, ...(projectId === undefined ? {} : { projectId }), files: [...files.values()] };
 }
