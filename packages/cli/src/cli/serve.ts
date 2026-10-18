@@ -562,6 +562,9 @@ async function startServeRuntime(opts: {
             const isRejected = result.kind === 'rejected';
             if (isReloaded) {
               logger.note(`  ↻ rules reloaded (hash ${result.rulesHash}) → ${result.clients} page(s)`);
+              if (result.fixtureCheck && result.fixtureCheck.ran > 0) {
+                for (const line of result.fixtureCheck.lines) logger.note(line);
+              }
             } else if (isRejected) {
               logger.note(`  ⚠ rules NOT reloaded (last-good stays live): ${result.error.message}`);
             }
@@ -602,6 +605,9 @@ async function startServeRuntime(opts: {
               for (const { instance, file: source, result } of results) {
                 if (result.kind === 'reloaded') {
                   logger.note(`  ↻ rtdb rules reloaded for ${instance} (hash ${result.rulesHash}) → ${result.clients} page(s)`);
+                  if (result.fixtureCheck && result.fixtureCheck.ran > 0) {
+                    for (const line of result.fixtureCheck.lines) logger.note(line);
+                  }
                 } else if (result.kind === 'rejected') {
                   logger.note(`  ⚠ rtdb rules NOT reloaded for ${instance} (last-good stays live): ${result.error.message}`);
                 } else if (result.kind === 'removed') {

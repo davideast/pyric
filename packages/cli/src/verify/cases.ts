@@ -26,6 +26,7 @@ export interface DeriveRulesTestCasesOptions {
   service?: 'firestore';
   includeAllowed?: boolean;
   includeDenied?: boolean;
+  includeListenerReads?: boolean;
   mockReads?: 'strict' | 'omit';
 }
 
@@ -50,6 +51,7 @@ export function deriveRulesTestCases(
   const fixture = parseVerifyFixture(fixtureInput);
   const includeAllowed = opts.includeAllowed ?? true;
   const includeDenied = opts.includeDenied ?? true;
+  const includeListenerReads = opts.includeListenerReads ?? true;
   const mockReads = opts.mockReads ?? 'strict';
   const derived: DerivedRulesTestCase[] = [];
   const warnings: VerifyFixtureWarning[] = [];
@@ -57,7 +59,13 @@ export function deriveRulesTestCases(
 
   for (const event of fixture.events) {
     if (!isFirestoreRequestEvent(event)) continue;
-    if (event.origin === 'listener') continue;
+    if (event.origin === 'listener') {
+      const isInitialListenerRead =
+        includeListenerReads &&
+        (event.method === 'get' || event.method === 'list') &&
+        (event as { triggeredBy?: unknown }).triggeredBy === undefined;
+      if (!isInitialListenerRead) continue;
+    }
     if (event.detail?.admin === true) continue;
     if (event.result === 'allow' && !includeAllowed) continue;
     if (event.result === 'deny' && !includeDenied) continue;

@@ -275,10 +275,69 @@ function verifyFirestoreSandbox(
     firestore.state.documents,
   );
   const mapped = divergences.map(mapFirestoreDivergence);
+
+  const readDerivation = deriveRulesTestCases(fixture, {
+    service: 'firestore',
+    includeListenerReads: true,
+    mockReads: 'omit',
+  });
+  const readCases = readDerivation.testCases.filter(
+    (tc) => tc.method === 'get' || tc.method === 'list',
+  );
+  if (readCases.length > 0) {
+    const simulator = new SimulateFirestoreRulesHandler();
+    const simulated = simulator.simulate(rules, readCases, {
+      getDoc: (docPath) => firestore.state.documents[docPath] ?? null,
+    });
+    if (!simulated.success) {
+      mapped.push({
+        service: 'firestore',
+        kind: 'unsupported',
+        reason: simulated.error.message,
+      });
+    } else {
+      for (const [index, testResult] of simulated.data.results.entries()) {
+        const tc = readCases[index];
+        const queryUnprovable =
+          tc?.method === 'list' &&
+          testResult.queryProof !== undefined &&
+          !testResult.queryProof.provable;
+        const effectiveDecision = queryUnprovable ? 'DENY' : testResult.decision;
+        if (effectiveDecision === 'UNSUPPORTED') {
+          mapped.push({
+            service: 'firestore',
+            kind: 'unsupported',
+            path: tc?.path,
+            method: tc?.method,
+            reason: testResult.notes.join('\n') || 'unsupported read simulation',
+          });
+        } else if (tc?.expectation === 'ALLOW' && effectiveDecision !== 'ALLOW') {
+          mapped.push({
+            service: 'firestore',
+            kind: 'now-denied',
+            path: tc.path,
+            method: tc.method,
+            reason:
+              testResult.queryProof?.reason ??
+              (testResult.notes.join('\n') || `expected ALLOW, got ${effectiveDecision}`),
+          });
+        } else if (tc?.expectation === 'DENY' && effectiveDecision === 'ALLOW') {
+          mapped.push({
+            service: 'firestore',
+            kind: 'now-allowed',
+            path: tc.path,
+            method: tc.method,
+            reason: testResult.notes.join('\n') || 'expected DENY, got ALLOW',
+          });
+        }
+      }
+    }
+  }
+
   return {
     engine: 'sandbox',
     ok: mapped.every(isInformational),
-    checkedEvents: fixture.events.filter(isProtectedFirestoreWrite).length,
+    checkedEvents: fixture.events.filter(isProtectedFirestoreWrite).length + readCases.length,
     divergences: mapped,
   };
 }
@@ -299,6 +358,7 @@ async function verifyFirestoreRulesTestApi(
 
   const derivation = deriveRulesTestCases(fixture, {
     service: 'firestore',
+    includeListenerReads: false,
     ...opts.caseDerivation,
   });
   const divergences = derivation.unsupportedEvents.map(mapUnsupportedEvent);

@@ -16,6 +16,16 @@ import {
 import { defineRtdbRules, allow, deny } from 'pyric/rules';
 import { initializeSandbox } from 'pyric/sandbox';
 import { getAdminFirestore, getFirestore } from 'pyric/sandbox/admin-firestore';
+import {
+  collection as fsCollection,
+  getDocs as fsGetDocs,
+  getFirestore as getClientFirestore,
+  onSnapshot as fsOnSnapshot,
+  query as fsQuery,
+  where as fsWhere,
+} from 'pyric/firestore';
+import { setRules as setFirestoreRules, seedDocuments as seedFirestoreDocuments } from 'pyric/sandbox/firestore';
+import { runDerivedCases } from '../../src/bridge/surface/assurance-cases.js';
 import { getStorageSandbox, ref as storageRef, uploadBytes } from 'pyric/storage';
 import {
   buildVerifyFixture,
@@ -540,5 +550,74 @@ service firebase.storage {
     const fixture = buildVerifyFixture({ sandbox: initializeSandbox() });
     const sandbox = initializeSandbox();
     expect(() => restoreStorageRulesFromFixture(fixture, sandbox)).not.toThrow();
+  });
+});
+
+describe('verifyFixture Firestore list-query provability (#371)', () => {
+  const PUBLIC_POSTS_RULES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /posts/{id} {
+      allow read: if resource.data.visibility == 'public';
+    }
+  }
+}`;
+
+  const TENANT_TIGHTENED_RULES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /posts/{id} {
+      allow read: if resource.data.visibility == 'public' && resource.data.tenantId == 'acme';
+    }
+  }
+}`;
+
+  async function captureListQueryJourney(): Promise<PyricVerifyFixture> {
+    const sandbox = initializeSandbox();
+    setFirestoreRules(sandbox, PUBLIC_POSTS_RULES);
+    await getAdminFirestore(sandbox).doc('posts/p1').set({ visibility: 'public', tenantId: 'acme' });
+    const clientDb = getClientFirestore(sandbox.withAuth({ uid: 'alice' }));
+    await fsGetDocs(fsQuery(fsCollection(clientDb, 'posts'), fsWhere('visibility', '==', 'public')));
+    const unsub = fsOnSnapshot(
+      fsQuery(fsCollection(clientDb, 'posts'), fsWhere('visibility', '==', 'public')),
+      () => {},
+    );
+    unsub();
+    return buildVerifyFixture({
+      sandbox,
+      firestoreRules: PUBLIC_POSTS_RULES,
+    });
+  }
+
+  it('replays captured Firestore list queries and passes when candidate rules remain provable', async () => {
+    const fixture = await captureListQueryJourney();
+    const result = await verifyFixture(fixture, {
+      rules: { firestore: PUBLIC_POSTS_RULES },
+    });
+    expect(result.ok).toBe(true);
+    expect(result.services.firestore?.divergences).toEqual([]);
+    expect(result.services.firestore?.checkedEvents).toBeGreaterThanOrEqual(1);
+  });
+
+  it('reports now-denied when candidate rules make a captured list query unprovable', async () => {
+    const fixture = await captureListQueryJourney();
+    const result = await verifyFixture(fixture, {
+      rules: { firestore: TENANT_TIGHTENED_RULES },
+    });
+    expect(result.ok).toBe(false);
+    const nowDenied = (result.services.firestore?.divergences ?? []).filter(
+      (d) => d.kind === 'now-denied' && d.method === 'list' && d.path === 'posts',
+    );
+    expect(nowDenied.length).toBeGreaterThanOrEqual(1);
+    expect(nowDenied[0]?.reason).toContain('tenantId');
+
+    const casesRun = runDerivedCases(fixture, TENANT_TIGHTENED_RULES);
+    if ('error' in casesRun) throw new Error(casesRun.error);
+    expect(casesRun.diverged).toBeGreaterThanOrEqual(1);
+    const listCase = casesRun.cases.find((c) => c.method === 'list' && c.path === 'posts');
+    expect(listCase?.recorded).toBe('allow');
+    expect(listCase?.candidate).toBe('deny');
+    expect(listCase?.agrees).toBe(false);
+    expect(listCase?.queryProof?.verdict).toBe('UNPROVABLE');
   });
 });
