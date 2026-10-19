@@ -1306,12 +1306,14 @@ function resentCalls(count: number): string {
 
 /** The one warning a drop logs, naming the calls in flight that wait to be sent again. */
 function connectionLostWarning(reason: string, serveUrl: string, resent: number): string {
-  let message =
-    `pyric: ${reason} at ${serveUrl}; calls wait up to 10 seconds for it, calls in flight are sent again, ` +
-    'and live listeners reconnect when the host answers.';
   const hasResent = resent > 0;
-  if (hasResent) message += resentCalls(resent);
-  return message;
+  if (!hasResent) {
+    return `pyric: ${reason} at ${serveUrl}; calls wait up to 10 seconds for it, and live listeners reconnect when the host answers.`;
+  }
+  return (
+    `pyric: ${reason} at ${serveUrl}; calls wait up to 10 seconds for it, calls in flight are sent again, ` +
+    `and live listeners reconnect when the host answers.${resentCalls(resent)}`
+  );
 }
 
 /**

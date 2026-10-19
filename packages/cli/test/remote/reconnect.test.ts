@@ -167,6 +167,8 @@ describe('remoteSandbox after its host restarts on the same url', () => {
 
     await first.stop();
     await waitFor(() => warnings.length === 1);
+    expect(warnings[0]).toContain('calls wait up to 10 seconds for it, and live listeners reconnect');
+    expect(warnings[0]).not.toContain('sent again');
     const whileDown = lazy.rtdb.get('a');
     // Long enough for the 250 ms and 500 ms retries to fail against nothing.
     await Bun.sleep(900);
@@ -189,6 +191,7 @@ describe('remoteSandbox after its host restarts on the same url', () => {
 
     await first.stop();
     await waitFor(() => warnings.length === 1);
+    expect(warnings[0]).toContain('calls in flight are sent again');
     expect(warnings[0]).toContain('1 call in flight waits to be sent again.');
     expect(settled).toBe(false);
 
