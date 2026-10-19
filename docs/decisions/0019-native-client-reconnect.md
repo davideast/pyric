@@ -35,6 +35,11 @@ restore, a sent onDisconnect operation never settles, and a sent transaction
 commit rejects with `Error('disconnect')`. See
 [the amendment](#amendment-2026-10-18-realtime-database-calls-in-flight-follow-the-sdk-on-the-web-hosted-client).
 
+Amended: 2026-10-19. The Node remote client holds an operation issued while
+its connection is lost, as decision 7 rules, and follows the 2026-10-18 rule
+for Realtime Database calls in flight at a drop. See
+[the amendment](#amendment-2026-10-19-the-node-remote-client-follows-decision-7-and-the-realtime-database-rule).
+
 ## Context
 
 The Dart (`packages/flutter-client`), Swift (`packages/swift-client`) and Kotlin
@@ -166,9 +171,11 @@ All three clients implement one reconnect protocol in their bridge client
      a `worker-res` fails once with `unavailable` and the message "The bridge
      connection was lost. Requests already sent may have completed; check state
      before retrying." It is never re-sent: the host may already have applied
-     it. On the web hosted client, Realtime Database calls follow the SDK
-     instead
-     ([amendment of 2026-10-18](#amendment-2026-10-18-realtime-database-calls-in-flight-follow-the-sdk-on-the-web-hosted-client)).
+     it. On the web hosted client and the Node remote client, Realtime
+     Database calls follow the SDK instead (amendments of
+     [2026-10-18](#amendment-2026-10-18-realtime-database-calls-in-flight-follow-the-sdk-on-the-web-hosted-client)
+     and
+     [2026-10-19](#amendment-2026-10-19-the-node-remote-client-follows-decision-7-and-the-realtime-database-rule)).
    - **Issued while not attached.** An operation issued while the client is
      `connecting` or `interrupted` (or, on the web client, `restoring`) is held:
      neither sent nor failed. When the client next attaches, held operations are
@@ -467,11 +474,13 @@ them.
   `unavailable`.
 - The heartbeat's timers do not keep an idle Node process alive; a finished
   script still exits.
-- Its operations keep their existing behavior. An operation issued on the lazy
-  handle while it is reconnecting waits for the connection attempt in progress,
-  or starts one, and fails if that attempt fails. This amendment does not
-  extend decision 7's hold, across attempts with a 10-second deadline, to the
-  Node remote client.
+- As first written, its operations kept their existing behavior: an operation
+  issued on the lazy handle while it was reconnecting waited for one
+  connection attempt and failed if that attempt failed, outside decision 7's
+  hold. The
+  [amendment of 2026-10-19](#amendment-2026-10-19-the-node-remote-client-follows-decision-7-and-the-realtime-database-rule)
+  replaces that rule: the lazy handle holds such an operation across attempts
+  for up to 10 seconds.
 - `pyric-admin` does not implement onDisconnect, so an admin process registers
   none through it, and the close rule releases its listeners and its presence
   entry. An onDisconnect operation sent over the handle's raw relay channel
@@ -849,8 +858,7 @@ this repository:
 - **Other planes.** The in-page sandbox has no transport to drop. The
   SharedWorker client talks over a `MessagePort` that lives as long as the
   page, and it fails pending calls only when the worker cannot start. Neither
-  has a drop to classify. The Node remote client (`remoteSandbox()`) is not
-  bound by this amendment and keeps decision 7's rule.
+  has a drop to classify.
 
 ### Consequences of the amendment
 
@@ -861,3 +869,119 @@ this repository:
 - An app that waited on an in-flight `onDisconnect()` promise waits forever,
   as it does on Firebase. It should re-arm on the next `.info/connected`
   `true`, as the presence sample does.
+
+## Amendment (2026-10-19): the Node remote client follows decision 7 and the Realtime Database rule
+
+The Node remote client is the lazy `remoteSandbox()` handle that
+`node --import @pyric/cli/register` installs, through which `firebase-admin`
+reaches the host. The heartbeat amendment of 2026-10-14 bound it to the
+heartbeat and the close rule but left its operations out of decision 7's hold,
+and the 2026-10-18 amendment left its Realtime Database calls in flight on
+decision 7's rule ([#1107](https://github.com/davideast/pyric/issues/1107)).
+This amendment binds it to both.
+
+### Why
+
+App scenario `test/apps/node-client-host-restart` runs a `firebase-admin`
+writer under `node --import @pyric/cli/register` that sets one value every
+100 ms, 120 times, and edits `vite.config.js` partway through, so the hosted
+Vite dev server restarts in place on the same URL. Four runs on main
+(6caa965a):
+
+| Run | Failed | `unavailable` (in flight) | `not-found` (issued while down) | Stored | Vite back at |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 3 | 2 | 1 | 117 | 457 ms |
+| 2 | 6 | 2 | 4 | 114 | 651 ms |
+| 3 | 4 | 2 | 2 | 116 | 433 ms |
+| 4 | 2 | 1 | 1 | 118 | 433 ms |
+
+- Every failed write was missing from the database. `@firebase/database`,
+  which `firebase-admin` runs in Node, would have queued each one and sent it
+  after the reconnect.
+- The writes in flight at the drop failed with the connection-lost message.
+- The writes issued while the host was down failed at once with `not-found`,
+  saying `PYRIC_SANDBOX=remote:<url>` was stale and to start `pyric sandbox`.
+  The host was back on the same URL within about 650 ms, so that advice was
+  wrong.
+
+### The rule on the Node remote client
+
+These apply to the lazy handle once it has attached for the first time.
+
+- **Issued while the connection is lost.** An operation is held, as decision 7
+  holds one issued while not attached. It is sent once after the next attach,
+  or fails once with `unavailable` 10 seconds after it was issued, with the
+  message "The remote sandbox connection was not restored within 10 seconds.
+  The request was not sent." followed by "Last attempt:" and the reason the
+  last connection attempt failed. A later attach never sends it. Once sent,
+  its own timeout starts.
+- **Storage byte route.** Asking for the host's HTTP byte route while the
+  connection is lost waits on the same hold, and the bytes then move over
+  HTTP. A byte transfer already under way is unchanged.
+- **Subscriptions.** A listener opened while the connection is lost waits
+  with no deadline and attaches with the restored listeners.
+- **Realtime Database calls in flight.** They follow the table of the
+  2026-10-18 amendment. Both clients classify a call with `rtdbFateAtDrop` in
+  `packages/cli/src/serve/worker/rtdb-drop-fates.ts`, so the two cannot drift.
+  A write or `get` is held again, ahead of every held operation and with no
+  deadline, and resolves on the reply to the copy sent on the next
+  connection. A sent onDisconnect operation never settles, and a sent
+  transaction commit rejects with `Error('disconnect')`. Every other call in
+  flight, on Firestore, Storage, Auth or Messaging, fails once with
+  `unavailable` and the connection-lost message, as decision 7 rules.
+- **Order.** After the next attach the client sends the restored listeners
+  and the listeners opened while the connection was lost, then the Realtime
+  Database calls that were in flight, in issue order, then the operations
+  issued while the connection was lost, in issue order (D5).
+- **Connection attempts.** While anything waits, the client reconnects on
+  decision 3's schedule. An attempt that fails is retried whatever its code,
+  including `not-found` (no host answered the configured URL),
+  `failed-precondition` and `deadline-exceeded`: a host that is restarting
+  answers none of them for a moment. A policy close (1008) is final, as
+  decision 2 rules, whether it ends the attached connection or refuses the
+  attach of a returning host. Held and re-held operations then fail once with
+  `permission-denied`, none is sent, and waiting listeners end.
+- **Close.** `close()` fails every held and re-held operation once with
+  "remote sandbox connection closed by the client" and sends none of them.
+
+### Where the Node remote client differs
+
+- **Before the first attach.** A connection attempt that fails before the
+  handle has ever attached still fails the operation at once, an exception to
+  decision 7's rule for the first attach. A script started with no host
+  running gets the remedy its error names (start `pyric sandbox`, or open the
+  page) at once instead of after 10 seconds. A host that is restarting has
+  always attached once before.
+- **A push without a key.** `pyric-admin` mints its push key and sends it, so
+  its push is sent again like any write. A push sent over the raw channel
+  without a key asks the host to mint one, and sending it again would add a
+  second child, so it fails once with `unavailable`.
+- **The eager handle.** `connectRemoteSandbox()` called without
+  `onConnectionLost` does not reconnect. A drop fails its pending operations
+  and ends its listeners, as before.
+- **The per-send timeout.** A sent operation still fails with
+  `deadline-exceeded` after 35 seconds without a reply, including one sent
+  again after a drop, where the SDK has no deadline.
+
+### No late reply to guard against
+
+The web hosted client keeps its host session across a drop, so a late reply
+to the copy the dropped socket took can arrive on the new socket, and the new
+request id makes it settle nothing. The Node remote client attaches as a new
+consumer session on every connection, and the host never routes a reply for
+one session to another. A call sent again goes under an id the new
+connection mints only because each connection numbers its own requests from
+the start.
+
+### Consequences of the amendment
+
+- A `firebase-admin` process that writes across a dev server restart sees a
+  delay and no errors, and every write is stored.
+- A Realtime Database write in flight at the drop may apply twice, as on the
+  web hosted client.
+- A process holding a write that was in flight, against a host that never
+  returns, keeps running until it calls `close()`, as a process on the SDK
+  waits on its outstanding writes. The reconnect timer keeps its event loop
+  alive meanwhile. An operation issued while the connection is lost keeps it
+  alive for at most 10 seconds.
+- Registry row `rtdb-modular#HD2` conforms.

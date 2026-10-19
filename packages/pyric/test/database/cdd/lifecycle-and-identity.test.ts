@@ -391,9 +391,10 @@ describe('rtdb-modular CDD: calls in flight at a hosted connection drop', () => 
     expect((await api.get(room)).val()).toBe('written across the drop');
   });
 
-  // Row HD2 records the same drop on the Node remote client, which fails
-  // these calls where the SDK sends them again; packages/cli/test/remote pins
-  // that path. The sandbox side is the one HD1 pins for a write and a get.
+  // Row HD2 records the same drop on the Node remote client, which sends
+  // these calls again after it reconnects, as the SDK does;
+  // packages/cli/test/remote and test/apps/node-client-host-restart pin that
+  // path. The sandbox side is the one HD1 pins for a write and a get.
   row('HD2', async () => {
     const { db } = setup();
     const room = api.ref(db, 'rooms/r2');
