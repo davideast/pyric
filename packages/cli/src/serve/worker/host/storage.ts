@@ -123,6 +123,22 @@ export function storeBucketOf(ctx: HostCtx, name: string | undefined): string {
   return isDefault ? DEFAULT_BUCKET : name;
 }
 
+export function defaultBucketNames(ctx: HostCtx): ReadonlySet<string> {
+  return defaultBucketNamesByHost.get(ctx) ?? new Set();
+}
+
+export function seedDefaultBucketNames(ctx: HostCtx, names: Iterable<string>): void {
+  let target = defaultBucketNamesByHost.get(ctx);
+  for (const name of names) {
+    if (name === '' || name === DEFAULT_BUCKET) continue;
+    if (target === undefined) {
+      target = new Set();
+      defaultBucketNamesByHost.set(ctx, target);
+    }
+    target.add(name);
+  }
+}
+
 /** The bucket an op's object is stored in, after noting the caller's name for the default bucket. */
 function bucketOfOp(ctx: HostCtx, msg: StorageBucketWire): string {
   const named = msg.defaultBucket;
@@ -133,7 +149,10 @@ function bucketOfOp(ctx: HostCtx, msg: StorageBucketWire): string {
       names = new Set();
       defaultBucketNamesByHost.set(ctx, names);
     }
-    names.add(named);
+    if (!names.has(named)) {
+      names.add(named);
+      ctx.onDefaultBucketName?.(named);
+    }
   }
   return storeBucketOf(ctx, msg.bucket);
 }

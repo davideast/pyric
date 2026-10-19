@@ -324,6 +324,8 @@ export async function salvageHostedState(sourceInput: string, outputInput: strin
         validateHostedDatabase(recovered);
         recovered.connection.exec('PRAGMA wal_checkpoint(TRUNCATE)');
       } finally { recovered.close(); }
+      const defaultBucketsFile = join(source, 'default-buckets.json');
+      if (existsSync(defaultBucketsFile)) copyFileSync(defaultBucketsFile, join(output, 'default-buckets.json'));
       writeFileSync(join(output, 'recovery-report.json'), JSON.stringify(report, null, 2));
       return report;
     } finally { input.close(); }
