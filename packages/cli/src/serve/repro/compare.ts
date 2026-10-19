@@ -58,7 +58,9 @@ export function normalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(normalize);
   if (!isPlainObject(value)) return value;
   const keys = Object.keys(value);
-  const isTimestamp = 'seconds' in value && 'nanoseconds' in value && keys.every((key) => key === 'seconds' || key === 'nanoseconds' || key.startsWith('_') || key === 'type');
+  const isTimestamp = 'seconds' in value
+    && ('nanoseconds' in value || 'nanos' in value)
+    && keys.every((key) => key === 'seconds' || key === 'nanoseconds' || key === 'nanos' || key.startsWith('_') || key === 'type');
   if (isTimestamp) return TIME;
   const copy: Record<string, unknown> = {};
   for (const key of keys.sort()) {

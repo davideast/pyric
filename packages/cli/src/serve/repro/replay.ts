@@ -88,6 +88,7 @@ interface Plane {
   /** Frames the host sent a session since the plane started. */
   received(session: string): OutboundMessage[];
   deployRules(service: 'firestore' | 'database' | 'storage', source: unknown, instance?: string): Promise<void>;
+  clearActiveFirestoreRules(): void;
   disconnectClient(session: string, event: 'disconnect' | 'interrupted'): Promise<void>;
   stageUpload(uploadId: string, partIndex: number, offset: number, bytes: Uint8Array): Promise<void>;
   close(): Promise<void>;
@@ -172,6 +173,9 @@ async function startNodePlane(base: ReproBase): Promise<Plane> {
     async deployRules(service, source, instance) {
       await runtime.deployRules(service, source === null ? null : typeof source === 'string' ? source : JSON.stringify(source), instance);
     },
+    clearActiveFirestoreRules() {
+      runtime.clearActiveFirestoreRules();
+    },
     async disconnectClient(session, event) {
       runtime.receive({
         type: event === 'disconnect' ? 'worker-client-disconnect' : 'worker-client-interrupted',
@@ -201,7 +205,7 @@ async function startWorkerPlane(base: ReproBase): Promise<Plane> {
     { buildWorkerCtx },
     { cleanupPortWithDisconnect, handleMessage },
     { drainPortRtdbDisconnects },
-    { setDatabaseRules, handleRulesOp, normalizeDatabaseRules },
+    { setDatabaseRules, deployFirestoreRulesToHost, normalizeDatabaseRules },
     { createMemoryBackend },
     { getStorageSandbox },
     { getStorageService, replaceStorageRules },
@@ -243,10 +247,18 @@ async function startWorkerPlane(base: ReproBase): Promise<Plane> {
       if (service === 'storage') {
         await replaceStorageRules(ctx.sandbox, typeof source === 'string' ? source : null);
       } else if (service === 'database') {
-        setDatabaseRules(ctx, instance, normalizeDatabaseRules(source));
+        const deployed = setDatabaseRules(ctx, instance, normalizeDatabaseRules(source));
+        if (!deployed.ok) throw new Error(deployed.messages.map((message) => message.text).join('; '));
       } else if (typeof source === 'string') {
-        handleRulesOp(ctx, { postMessage() {} }, { t: 'op', id: 'repro-rules', method: 'setFirestoreRules', source }, ctx.db);
+        const deployed = deployFirestoreRulesToHost(ctx, source);
+        if (!deployed.ok) {
+          const errorMessages = deployed.messages.filter((m) => m.severity === 'error').map((m) => m.text).filter(Boolean);
+          throw new Error(deployed.rejectionMessage ?? (errorMessages.length > 0 ? errorMessages.join('; ') : 'Invalid Firestore security rules.'));
+        }
       }
+    },
+    clearActiveFirestoreRules() {
+      if (ctx.activeRules) delete ctx.activeRules.firestore;
     },
     async disconnectClient(session, event) {
       const owned = ports.get(session);
@@ -315,6 +327,7 @@ async function applyBase(plane: Plane, base: ReproBase, timeoutMs: number): Prom
     await setup(SETUP_SESSION, { method: 'rtdb.set', instance, path: '/', value: tree, actAs: { mode: 'admin' } });
   }
   if (base.rules.firestore !== null) await setup(SETUP_SESSION, { method: 'setFirestoreRules', source: base.rules.firestore });
+  else plane.clearActiveFirestoreRules();
   if (base.rules.storage !== null) await plane.deployRules('storage', base.rules.storage);
   for (const [session, identity] of Object.entries(base.sessions)) {
     if (identity.signInProvider === 'custom') {

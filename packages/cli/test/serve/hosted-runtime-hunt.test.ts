@@ -310,7 +310,15 @@ service cloud.firestore {
     try {
       assert.equal((await sendOp('tab-1', { method: 'getDoc', path: 'items/a' })).ok, true);
 
+      await assert.rejects(runtime.deployRules('firestore', null));
       await assert.rejects(runtime.deployRules('firestore', 'THIS IS NOT VALID FIRESTORE RULES {{{'));
+      await assert.rejects(
+        runtime.deployRules('firestore', \`rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o { allow read: if true; }
+}\`),
+        /Expected 'service cloud\\.firestore'/,
+      );
       await assert.rejects(runtime.deployRules('database', '{ broken json'));
 
       const validRules = \`rules_version = '2';
@@ -326,11 +334,25 @@ service cloud.firestore {
         {},
       );
       assert.equal(setRes.ok, true);
+      assert.equal((await sendOp('tab-1', { method: 'getDoc', path: 'items/a' })).ok, false);
+
+      await assert.rejects(runtime.deployRules('firestore', null));
+      await assert.rejects(runtime.deployRules('firestore', 'THIS IS NOT VALID FIRESTORE RULES {{{'));
+      await assert.rejects(runtime.deployRules('firestore', \`rules_version = '2+modules';
+import { missingHelper } from './missing';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read: if missingHelper();
+    }
+  }
+}\`));
 
       const active = await sendOp('tab-1', { method: 'getActiveRules', service: 'firestore' });
       assert.equal(active.ok, true);
       assert.equal(active.value.status, 'active');
       assert.equal(active.value.source, validRules);
+      assert.equal((await sendOp('tab-1', { method: 'getDoc', path: 'items/a' })).ok, false);
 
       const repro = await runtime.captureRepro(dir);
       assert.deepEqual(
