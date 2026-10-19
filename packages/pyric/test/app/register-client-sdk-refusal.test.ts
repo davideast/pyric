@@ -24,9 +24,9 @@ function runClientSdks(setting: string): Outcome[] {
   return result.stdout.toString().trim().split('\n').map((line) => JSON.parse(line) as Outcome);
 }
 
-describe('client SDKs under the Node register adapter (#1082)', () => {
-  it('reads remote, remote:<url>, 1 and true as a remote activation, and local as in-process', () => {
-    for (const setting of ['remote', 'remote:http://127.0.0.1:5173', ' remote:http://h ', '1', 'true']) {
+describe('client SDKs under the in-process register adapter (#1082)', () => {
+  it('reads remote, remote:<url>, an empty remote url, 1 and true as a remote activation, and local as in-process', () => {
+    for (const setting of ['remote', 'remote:http://127.0.0.1:5173', ' remote:http://h ', 'remote:', '1', 'true']) {
       expect(isRemoteSandboxActivation(setting), setting).toBe(true);
     }
     for (const setting of [undefined, '', 'local', 'remotely', 'false', '0']) {
@@ -34,7 +34,7 @@ describe('client SDKs under the Node register adapter (#1082)', () => {
     }
   });
 
-  for (const setting of ['remote:http://127.0.0.1:1', 'remote', '1', 'true']) {
+  for (const setting of ['remote:http://127.0.0.1:1', 'remote', 'remote:', '1', 'true']) {
     it(`refuses every client service call with failed-precondition under PYRIC_SANDBOX=${setting}`, () => {
       const outcomes = runClientSdks(setting);
       expect(outcomes.map(({ name }) => name)).toEqual(SERVICES);

@@ -417,3 +417,25 @@ Net effect on the plan: phase C absorbs the surface handle-resolver (correction
 side-split codec (correction 5); and the design gains a second record kind for
 subscriptions (correction 4). Phase A — the conformance harness — remains the
 first production step and is unchanged.
+
+## Amendment (2026-10-19): the hosted client in a Node process is a third boundary
+
+Client Firebase SDKs in a server process that `@pyric/cli/register` activated
+against the Node host now run the web hosted client in Node (#1082):
+`firebase/app`, `firebase/database`, `firebase/firestore`, `firebase/auth` and
+`firebase/storage` resolve to `@pyric/cli/register/client/*`, which load the
+served SDK surfaces over the `worker-port` transport, with a Node runtime origin
+in place of the page's location and a `ws` socket in place of the browser's.
+
+That client comes from the application's own `@pyric/cli`, and the host may be a
+different install (`pyric sandbox --hosted` from a global CLI). So the
+client-to-host wire, which decision 1 treats as lockstep, crosses versions here,
+as the bridge relay to `pyric-admin` does. The same rules apply at this third
+boundary: frames stay additive, decode stays tolerant, and the client warns once
+when the host's `serveVersion` differs from its own (`remote/version-skew.ts`,
+shared with the Node remote client). The change itself adds no frame and no
+field: the attach frame's `clientInfo.platform` was already a free string and
+now carries `node`, and every op is one the web hosted client already sends.
+The bridge still refuses a `worker-port` attach to a host without the
+`worker-port` capability, which is how a Node process off the Node host learns
+to refuse instead of reaching the browser tab's session.

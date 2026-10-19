@@ -194,9 +194,9 @@ assert.strictEqual(typeof globalThis[Symbol.for('pyric.remote.sandboxFactory')],
 const clientApp = require('firebase/app').initializeApp({ projectId: 'cjs-demo' });
 assert.strictEqual(clientApp.name, '[DEFAULT]');
 assert.strictEqual(clientApp.options.projectId, 'cjs-demo');
-// Under a remote activation the client mirrors refuse rather than open a
-// private in-process sandbox (#1082).
-assert.throws(() => require('firebase/firestore').getFirestore(clientApp), { code: 'failed-precondition' });
+// Under a remote activation firebase/firestore is the Node host client (#1082):
+// its handle is the hosted client's, and making it opens no connection.
+assert.strictEqual(require('firebase/firestore').getFirestore(clientApp).__kind, 'client-db');
 console.log('CJS_OK');
 `,
   );
@@ -259,15 +259,15 @@ const clientApp = clientAppModule.initializeApp(
   { apiKey: 'ignored', projectId: 'register-inertness' },
   'register-inertness',
 );
-// A remote activation makes the client mirror refuse (#1082); only the
-// mirror raises that error, so it proves the rewrite as well as a handle does.
+// Under a remote activation firebase/firestore is the Node host client
+// (#1082), whose handle is the hosted client's; otherwise the pyric mirror's
+// handle carries its target symbol, and the real SDK's carries neither.
 function isFirestoreRewritten() {
-  try {
-    return Object.getOwnPropertySymbols(firestoreModule.getFirestore(clientApp))
-      .some((symbol) => symbol.description === 'pyric/firestore/target');
-  } catch (error) {
-    return error?.code === 'failed-precondition' && String(error.message).startsWith('pyric:');
-  }
+  const db = firestoreModule.getFirestore(clientApp);
+  const isNodeHostClient = db.__kind === 'client-db';
+  if (isNodeHostClient) return true;
+  return Object.getOwnPropertySymbols(db)
+    .some((symbol) => symbol.description === 'pyric/firestore/target');
 }
 console.log(JSON.stringify({
   rewritten: app.ADMIN_APP_TARGET === Symbol.for('pyric.admin.app.target'),
@@ -335,7 +335,7 @@ describe('@pyric/cli/register (child process)', () => {
   it.skipIf(!hasRegisterHooks)('rewrites CJS require() via the sync hooks', () => {
     const res = runNode('main.cjs', { PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000' });
     expect(res.stderr).toContain('@pyric/cli/register: active');
-    expect(res.stdout).toContain('CJS_OK');
+    expect(res.stdout, res.stderr).toContain('CJS_OK');
     expect(res.status).toBe(0);
   });
 
@@ -355,7 +355,7 @@ describe('@pyric/cli/register (child process)', () => {
 
   it('is inert without PYRIC_SANDBOX — real firebase-admin, no factory, no log', () => {
     const res = runNode('probe.mjs', {}, inactiveFixtureDir);
-    expect(res.status).toBe(0);
+    expect(res.status, res.stderr).toBe(0);
     expect(JSON.parse(res.stdout)).toEqual({
       rewritten: false,
       firestoreRewritten: false,

@@ -163,7 +163,7 @@ const row15 = defineRows({
   },
 });
 
-/** Client SDKs in a `node --import @pyric/cli/register` process under a remote activation (#1082). */
+/** Client SDKs in a `node --import @pyric/cli/register` process on the Node host (#1082). */
 const serverProcessRow = defineRows({
   surface: "storage",
   defaults: {
@@ -1462,19 +1462,21 @@ export const storageRegistry = {
     },
     {
       kind: 'table',
-      prefix: "### Client SDKs in a registered server process\n\nA server process started with `node --import @pyric/cli/register` and `PYRIC_SANDBOX=remote`, `remote:<url>`, `1` or `true` reaches the sandbox host through `firebase-admin`. The client SDKs have no path to the host yet (#1082), so each one refuses instead of running against a private in-process sandbox the host never sees. `PYRIC_SANDBOX=local` keeps the in-process sandbox. In production the client SDKs run in Node and reach the project.\n",
+      prefix: "### Client SDKs in a registered server process\n\nA server process started with `node --import @pyric/cli/register` and `PYRIC_SANDBOX=remote`, `remote:<url>`, `1` or `true` runs the client SDKs against the Node host (#1082): `firebase/app`, `firebase/database`, `firebase/firestore`, `firebase/auth` and `firebase/storage` resolve to `@pyric/cli`'s Node client, which reaches the host over its own hosted connection with the process's own signed-in session, so the host's rules apply as they do for any other client. Off the Node host every call fails instead of running against a private in-process sandbox, and the client services with no path to the host refuse. `PYRIC_SANDBOX=local` keeps the in-process sandbox. In production the client SDKs run in Node and reach the project.\n",
       rows: [
         serverProcessRow({
           rowRef: "RS1",
           featureKeys: ["getStorage"],
           api: "getStorage(app) in a registered server process",
-          behavior: "Under a remote register activation, `getStorage(app)` on a client app throws, or its first call rejects, with code `failed-precondition` and the message \"pyric: client Firebase SDKs (firebase/database, firebase/firestore, firebase/auth, firebase/storage) do not reach the sandbox host from a server process yet (PYRIC_SANDBOX=<value>). Use firebase-admin in server code. See https://github.com/davideast/pyric/issues/1082.\" No in-process sandbox is created. Under `PYRIC_SANDBOX=local` the client SDK runs against the in-process sandbox.",
-          statusNote: "refused until the client SDKs reach the host (#1082); production runs them in Node",
-          evidence: "`packages/pyric/test/app/register-client-sdk-refusal.test.ts` runs `firebase/storage` through the Node register adapter in a child process under each remote setting and asserts `failed-precondition` with the message, and under `PYRIC_SANDBOX=local` asserts the in-process sandbox. `register-child.test.ts` asserts the refusal through a CJS `require()` under `remote:<url>`. App scenario `test/apps/client-sdk-under-register` runs the client SDKs under `node --import @pyric/cli/register` against a hosted Vite dev server and asserts each refusal and that firebase-admin finds nothing they tried to write on the host; on main the RTDB write failed `PERMISSION_DENIED` and the Firestore write and Auth sign-up succeeded against a private sandbox.",
+          behavior: "Under a remote register activation on the Node host, `firebase/storage` in a server process uploads and reads the host's objects under its rules, over the host's byte route. An upload issued before the process's connection has attached waits for the attachment, keeps its place in the call order, and never sends its bytes as frames to a host that takes them only over the route; it fails as a held call does if the connection is not restored within 10 seconds. A finished upload does not keep the process up. When the host is not the Node host, every call fails with `failed-precondition` and a message naming the Node host (`pyric sandbox --hosted` or `pyric({ hosted: true })`); when no host is found, with the discovery error `pyric-admin` gets. No call falls back to an in-process sandbox.",
+          statusNote: "a resumable upload issued before the connection attaches reports its progress in one step on a byte-route host",
+          evidence: "App scenario `test/apps/client-sdk-under-register` runs the client SDKs under `node --import @pyric/cli/register` against a hosted Vite dev server, reads back with `firebase-admin` and a page, and asserts an upload issued as the process's first call that firebase-admin downloads, its HTTP download URL, and that a finished upload does not hold the process. `storage-byte-route-settled.test.ts` pins the wait, the call order and the deadline. On main (942cb175) it failed: the calls ran against a private in-process sandbox, so an upload returned a `data:` URL and firebase-admin read nothing they wrote. `packages/cli/test/register/node-origin.test.ts` runs the served surfaces under a Node origin whose host is not the Node host, or cannot be found, and asserts every call fails, `useWorker` stays true, the served app entry's placeholder sandbox stays empty, and a `pyric/*` mirror resolved from the app refuses. `mapping.test.ts` pins the mapping per activation value..",
           conformanceTests: [
-            "packages/pyric/test/app/register-client-sdk-refusal.test.ts",
-            "packages/cli/test/register/register-child.test.ts",
             "test/apps/client-sdk-under-register/scenario.ts",
+            "packages/cli/test/register/node-origin.test.ts",
+            "packages/cli/test/register/mapping.test.ts",
+            "packages/cli/test/register/register-child.test.ts",
+            "packages/cli/test/serve/worker/storage-byte-route-settled.test.ts",
           ],
         }),
       ],

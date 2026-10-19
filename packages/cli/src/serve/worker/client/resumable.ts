@@ -165,7 +165,11 @@ class ClientUploadTaskImpl implements ClientUploadTask {
   }
 
   private _start(): void {
-    const routed = byteRouteOf(this._ref) !== undefined;
+    // Before the first attachment the transport cannot say whether the host
+    // has a byte route. `uploadBytes` then keeps this upload's place in the
+    // call order until it can, and sends it over the route or as frames (#1082).
+    const routeUnknown = this._ref.port.byteRouteSettled?.() !== undefined;
+    const routed = !routeUnknown && byteRouteOf(this._ref) !== undefined;
     if (routed) void this._sendOverRoute();
     else void this._commitUpload();
   }
@@ -536,7 +540,7 @@ class ClientUploadTaskImpl implements ClientUploadTask {
     if (isNotRunning) {
       return;
     }
-    const routed = byteRouteOf(this._ref) !== undefined;
+    const routed = byteRouteOf(this._ref) !== undefined && !this._committing;
     if (routed) {
       void this._sendOverRoute();
       return;

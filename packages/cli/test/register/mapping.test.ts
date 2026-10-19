@@ -94,3 +94,38 @@ describe('resolveEsmOnlySubpath', () => {
     expect(resolveEsmOnlySubpath(null, '.')).toBeNull();
   });
 });
+
+describe('mapFirebaseSpecifier under a remote activation (#1082)', () => {
+  const remoteSettings = ['remote', 'remote:http://127.0.0.1:5173', '1', 'true'];
+
+  it('sends the client SDKs the Node host serves to its Node client', () => {
+    for (const sandbox of remoteSettings) {
+      expect(mapFirebaseSpecifier('firebase/app', undefined, { sandbox }), sandbox).toBe('@pyric/cli/register/client/app');
+      for (const service of ['database', 'firestore', 'auth', 'storage']) {
+        expect(mapFirebaseSpecifier(`firebase/${service}`, undefined, { sandbox }), `${sandbox} ${service}`)
+          .toBe(`@pyric/cli/register/client/${service}`);
+      }
+    }
+  });
+
+  it('keeps the mirrors for client SDKs with no path to the host, and for firebase-admin', () => {
+    const sandbox = 'remote';
+    expect(mapFirebaseSpecifier('firebase/ai', undefined, { sandbox })).toBe('pyric/ai');
+    expect(mapFirebaseSpecifier('firebase/messaging', undefined, { sandbox })).toBe('pyric/messaging');
+    expect(mapFirebaseSpecifier('firebase/functions', undefined, { sandbox })).toBe('pyric/functions');
+    expect(mapFirebaseSpecifier('firebase/firestore/lite', undefined, { sandbox })).toBe('pyric/firestore/lite');
+    expect(mapFirebaseSpecifier('firebase-admin/database', undefined, { sandbox })).toBe('pyric-admin/database');
+  });
+
+  it('routes app through the Node client bridge when production AI pass-through is on', () => {
+    expect(mapFirebaseSpecifier('firebase/app', undefined, { sandbox: 'remote', aiMode: 'production' }))
+      .toBe('@pyric/cli/register/client/app-bridge');
+  });
+
+  it('keeps the in-process adapter under local, an empty remote url, or no activation', () => {
+    for (const sandbox of ['local', 'remote:', '']) {
+      expect(mapFirebaseSpecifier('firebase/app', undefined, { sandbox }), sandbox).toBe('pyric/app/register');
+      expect(mapFirebaseSpecifier('firebase/database', undefined, { sandbox }), sandbox).toBe('pyric/database');
+    }
+  });
+});

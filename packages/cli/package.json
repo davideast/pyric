@@ -112,6 +112,48 @@
         "import": "./dist/register/app-bridge.js"
       }
     },
+    "./register/client/app": {
+      "types": "./dist/register/client/app.d.ts",
+      "node": {
+        "types": "./dist/register/client/app.d.ts",
+        "import": "./dist/register/client/app.js"
+      }
+    },
+    "./register/client/app-bridge": {
+      "types": "./dist/register/client/app-bridge.d.ts",
+      "node": {
+        "types": "./dist/register/client/app-bridge.d.ts",
+        "import": "./dist/register/client/app-bridge.js"
+      }
+    },
+    "./register/client/auth": {
+      "types": "./dist/register/client/auth.d.ts",
+      "node": {
+        "types": "./dist/register/client/auth.d.ts",
+        "import": "./dist/register/client/auth.js"
+      }
+    },
+    "./register/client/database": {
+      "types": "./dist/register/client/database.d.ts",
+      "node": {
+        "types": "./dist/register/client/database.d.ts",
+        "import": "./dist/register/client/database.js"
+      }
+    },
+    "./register/client/firestore": {
+      "types": "./dist/register/client/firestore.d.ts",
+      "node": {
+        "types": "./dist/register/client/firestore.d.ts",
+        "import": "./dist/register/client/firestore.js"
+      }
+    },
+    "./register/client/storage": {
+      "types": "./dist/register/client/storage.d.ts",
+      "node": {
+        "types": "./dist/register/client/storage.d.ts",
+        "import": "./dist/register/client/storage.js"
+      }
+    },
     "./flow": {
       "types": "./dist/serve/runtime/flow-treatments/types.d.ts",
       "import": "./dist/serve/runtime/flow-treatments/types.js"

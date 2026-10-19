@@ -281,7 +281,7 @@ const row21 = defineRows({
   },
 });
 
-/** Client SDKs in a `node --import @pyric/cli/register` process under a remote activation (#1082). */
+/** Client SDKs in a `node --import @pyric/cli/register` process on the Node host (#1082). */
 const serverProcessRow = defineRows({
   surface: "rtdb-modular",
   defaults: {
@@ -3443,19 +3443,21 @@ export const rtdbRegistry = {
     },
     {
       kind: 'table',
-      prefix: "### Client SDKs in a registered server process\n\nA server process started with `node --import @pyric/cli/register` and `PYRIC_SANDBOX=remote`, `remote:<url>`, `1` or `true` reaches the sandbox host through `firebase-admin`. The client SDKs have no path to the host yet (#1082), so each one refuses instead of running against a private in-process sandbox the host never sees. `PYRIC_SANDBOX=local` keeps the in-process sandbox. In production the client SDKs run in Node and reach the project.\n",
+      prefix: "### Client SDKs in a registered server process\n\nA server process started with `node --import @pyric/cli/register` and `PYRIC_SANDBOX=remote`, `remote:<url>`, `1` or `true` runs the client SDKs against the Node host (#1082): `firebase/app`, `firebase/database`, `firebase/firestore`, `firebase/auth` and `firebase/storage` resolve to `@pyric/cli`'s Node client, which reaches the host over its own hosted connection with the process's own signed-in session, so the host's rules apply as they do for any other client. Off the Node host every call fails instead of running against a private in-process sandbox, and the client services with no path to the host refuse. `PYRIC_SANDBOX=local` keeps the in-process sandbox. In production the client SDKs run in Node and reach the project.\n",
       rows: [
         serverProcessRow({
           rowRef: "RS1",
           featureKeys: ["getDatabase"],
           api: "getDatabase(app) in a registered server process",
-          behavior: "Under a remote register activation, `getDatabase(app)` on a client app throws, or its first call rejects, with code `failed-precondition` and the message \"pyric: client Firebase SDKs (firebase/database, firebase/firestore, firebase/auth, firebase/storage) do not reach the sandbox host from a server process yet (PYRIC_SANDBOX=<value>). Use firebase-admin in server code. See https://github.com/davideast/pyric/issues/1082.\" No in-process sandbox is created. Under `PYRIC_SANDBOX=local` the client SDK runs against the in-process sandbox.",
-          statusNote: "refused until the client SDKs reach the host (#1082); production runs them in Node",
-          evidence: "`packages/pyric/test/app/register-client-sdk-refusal.test.ts` runs `firebase/database` through the Node register adapter in a child process under each remote setting and asserts `failed-precondition` with the message, and under `PYRIC_SANDBOX=local` asserts the in-process sandbox. `register-child.test.ts` asserts the refusal through a CJS `require()` under `remote:<url>`. App scenario `test/apps/client-sdk-under-register` runs the client SDKs under `node --import @pyric/cli/register` against a hosted Vite dev server and asserts each refusal and that firebase-admin finds nothing they tried to write on the host; on main the RTDB write failed `PERMISSION_DENIED` and the Firestore write and Auth sign-up succeeded against a private sandbox. CDD assertion `rtdb-modular#RS1` pins the sandbox side: an app registry bound to the refusal throws `failed-precondition` from `getDatabase(app)` on the first call and again on the next, so no database handle is ever opened.",
+          behavior: "Under a remote register activation on the Node host, `firebase/database` in a server process reads and writes the host's data under its rules as the process's signed-in user: a write the rules deny for that user fails with `PERMISSION_DENIED`, `.info/connected` follows the process's connection, and an `onDisconnect` write runs when that connection ends. From its first RTDB call on an instance the process stays up until `goOffline()` on that instance or `deleteApp()`, as `@firebase/database` keeps a Node process up. When the host is not the Node host, every call fails with `failed-precondition` and a message naming the Node host (`pyric sandbox --hosted` or `pyric({ hosted: true })`); when no host is found, with the discovery error `pyric-admin` gets. No call falls back to an in-process sandbox.",
+          statusNote: "the app must use the same Firebase options as the host's other clients (one configuration per runtime)",
+          evidence: "App scenario `test/apps/client-sdk-under-register` runs the client SDKs under `node --import @pyric/cli/register` against a hosted Vite dev server, reads back with `firebase-admin` and a page, and asserts a write and a read, a denied write to another user's path, `.info/connected`, an `onDisconnect` that ran after the process exited, and that a process stays up after a write until `goOffline()`. `node-realm.test.ts` pins when the process is held. CDD assertion `rtdb-modular#RS1` pins the sandbox side: rules evaluate per signed-in session, and a registry bound to the refusal opens no database handle. On main (942cb175) it failed: the calls ran against a private in-process sandbox, so an upload returned a `data:` URL and firebase-admin read nothing they wrote. `packages/cli/test/register/node-origin.test.ts` runs the served surfaces under a Node origin whose host is not the Node host, or cannot be found, and asserts every call fails, `useWorker` stays true, the served app entry's placeholder sandbox stays empty, and a `pyric/*` mirror resolved from the app refuses. `mapping.test.ts` pins the mapping per activation value..",
           conformanceTests: [
-            "packages/pyric/test/app/register-client-sdk-refusal.test.ts",
-            "packages/cli/test/register/register-child.test.ts",
             "test/apps/client-sdk-under-register/scenario.ts",
+            "packages/cli/test/register/node-origin.test.ts",
+            "packages/cli/test/register/mapping.test.ts",
+            "packages/cli/test/register/register-child.test.ts",
+            "packages/cli/test/register/node-realm.test.ts",
             "packages/pyric/test/database/cdd/lifecycle-and-identity.test.ts",
           ],
         }),

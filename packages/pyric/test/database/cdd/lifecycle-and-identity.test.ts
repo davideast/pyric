@@ -416,10 +416,20 @@ describe('rtdb-modular CDD: calls in flight at a hosted connection drop', () => 
     expect([snap.size, snap.hasChildren(), keys(snap), snap.child('1').val()]).toEqual([3, true, ['0', '1', '2'], 'b']);
   });
 
-  // Row RS1 records the client SDKs refusing in a server process that
-  // @pyric/cli/register activated against a remote host (#1082). The sandbox
-  // side: an app registry bound to the refusal opens no database handle.
+  // Row RS1 records the client SDKs in a server process that
+  // @pyric/cli/register activated against the Node host (#1082): their calls
+  // run under that process's own signed-in session, and an app registry bound
+  // to the refusal stands in for any service with no path to the host. The
+  // sandbox side: rules evaluate per session as they do for the process on the
+  // host, and a refused registry opens no database handle.
   row('RS1', async () => {
+    const sandbox = initializeSandbox();
+    const rules = { rules: { users: { $uid: { '.read': 'auth.uid === $uid', '.write': 'auth.uid === $uid' } } } };
+    rtdbSandbox.setRules(getDatabase(sandbox), rules);
+    const alice = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+    await expect(api.set(api.ref(alice, 'users/alice'), 'mine')).resolves.toBeUndefined();
+    await expect(api.set(api.ref(alice, 'users/bob'), 'theirs')).rejects.toMatchObject({ code: 'PERMISSION_DENIED' });
+
     await resetAppRegistryForTests();
     bindAppRegistryRefusal(() => clientSdkRefusal('remote'));
     try {

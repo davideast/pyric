@@ -3,10 +3,10 @@
  */
 import type { PyricNextOptions } from './types.js';
 import { readProjectPointerUrl } from '../serve/discovery.js';
+import { parsePyricSandbox } from 'pyric/sandbox/internal';
 
 const DEFAULT_LOOPBACK_HOST = 'http://127.0.0.1';
 const DEFAULT_SANDBOX_PORT = 4000;
-const REMOTE_PREFIX = 'remote:';
 const MIN_PORT = 1;
 const MAX_PORT = 65535;
 
@@ -99,12 +99,13 @@ export function resolveSandboxTargetUrl(options?: PyricNextOptions, cwd: string 
     return `${DEFAULT_LOOPBACK_HOST}:${options.port}`;
   }
 
-  const envSandbox = process.env.PYRIC_SANDBOX?.trim();
-  if (envSandbox !== undefined && envSandbox.startsWith(REMOTE_PREFIX)) {
-    const explicitUrl = normalizeUrl(envSandbox.slice(REMOTE_PREFIX.length));
-    return resolveExplicitRemoteUrl(explicitUrl, readProjectPointerUrl(cwd));
+  const activation = parsePyricSandbox(process.env.PYRIC_SANDBOX);
+  const isRemote = activation.mode === 'remote';
+  const explicitUrl = isRemote ? activation.url : undefined;
+  if (explicitUrl !== undefined) {
+    return resolveExplicitRemoteUrl(normalizeUrl(explicitUrl), readProjectPointerUrl(cwd));
   }
-  if (envSandbox === 'remote') {
+  if (isRemote) {
     const pointerUrl = readProjectPointerUrl(cwd);
     if (pointerUrl !== null) return pointerUrl;
   }

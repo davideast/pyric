@@ -48,7 +48,9 @@ pyric sandbox --hosted -- npm run dev
 
 When running `-- <command>`, Pyric automatically activates `@pyric/cli/register` in the child environment via `NODE_OPTIONS`. Unchanged `firebase-admin` imports in your child command connect to the Node host.
 
-Client Firebase SDKs (`firebase/database`, `firebase/firestore`, `firebase/auth` and `firebase/storage`) in a server process do not reach the host yet. Their first call fails with `failed-precondition`, so use `firebase-admin` in server code. [#1082](https://github.com/davideast/pyric/issues/1082) tracks client SDK support.
+Client Firebase SDKs in the child connect to the Node host too. `firebase/database`, `firebase/firestore`, `firebase/auth` and `firebase/storage` run as the process's own signed-in user, so your rules apply to server code as they do in production. The app must use the same Firebase options as your pages. `firebase/ai` and `firebase/messaging` in a server process fail with `failed-precondition`; use `firebase-admin` for those. Against the browser-hosted sandbox (`pyric sandbox` without `--hosted`), client SDKs in a server process fail with `failed-precondition` and name the Node host.
+
+A process that used `firebase/database` stays running until it calls `goOffline()` or `deleteApp()`, as the production SDK keeps it running.
 
 ### Vite plugin: `pyric({ hosted: true })`
 

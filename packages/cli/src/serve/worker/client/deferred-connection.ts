@@ -4,18 +4,47 @@ import type { ClientDb, ClientPort } from './handles.js';
 import { endPortSubscriptions, rejectPendingRequests, wirePort } from './core.js';
 import { closeSendOrder } from './send-order.js';
 
-/** Keep SDK handles and correlations on one port while choosing its transport. */
-export function getDeferredFirestore(connection: Promise<(port: ClientPort) => ClientDb>): ClientDb {
+type TransportChoice = Promise<(port: ClientPort) => ClientDb>;
+
+/** Whether a frame needs the transport: an operation or a subscription, not app configuration or the clock. */
+function needsTransport(message: InboundMessage): boolean {
+  return message.t === 'op' || message.t === 'sub';
+}
+
+/**
+ * Keep SDK handles and correlations on one port while choosing its transport.
+ * Given a function, the choice starts at the first operation or subscription,
+ * so a handle no call uses opens nothing (a Node process, #1082).
+ */
+export function getDeferredFirestore(choice: TransportChoice | (() => TransportChoice)): ClientDb {
+  let startChoice: () => void = () => {};
+  const connection: TransportChoice = typeof choice === 'function'
+    ? new Promise((resolve, reject) => { startChoice = () => { startChoice = () => {}; choice().then(resolve, reject); }; })
+    : choice;
   const queued: InboundMessage[] = [];
   const observers = new Map<(connected: boolean) => void, (() => void) | undefined>();
   let closed = false;
   let failure: FirebaseError | undefined;
+  let chosen = false;
+  // Until the transport is chosen nobody knows its byte route; after, the
+  // transport answers (the hosted one installs its own on this port).
+  const awaitTransportRoute = async (): Promise<void> => {
+    // Asking for the route is a call about to send; it starts the choice.
+    startChoice();
+    await transportChosen;
+    const ownsRouteAnswer = port.byteRouteSettled === pendingRoute;
+    if (ownsRouteAnswer) return;
+    await port.byteRouteSettled?.();
+  };
+  const pendingRoute = (): Promise<void> | undefined => (chosen ? undefined : awaitTransportRoute());
   const port: ClientPort = {
+    byteRouteSettled: pendingRoute,
     onmessage: null,
     postMessage(message) {
-      if (failure) throw failure;
-      if (closed) throw new FirebaseError('app/app-deleted', 'Firebase App was deleted');
+      // Deleting the app settles even when the transport could not be chosen.
       const cancelsStartup = message.t === 'disconnect';
+      if (!cancelsStartup && failure) throw failure;
+      if (!cancelsStartup && closed) throw new FirebaseError('app/app-deleted', 'Firebase App was deleted');
       if (cancelsStartup) {
         queued.length = 0;
         closed = true;
@@ -23,9 +52,12 @@ export function getDeferredFirestore(connection: Promise<(port: ClientPort) => C
         return;
       }
       queued.push(message);
+      if (needsTransport(message)) startChoice();
     },
     start() {},
     observeConnection(listener) {
+      // Watching the connection (`.info/connected`) needs one.
+      startChoice();
       observers.set(listener, undefined);
       listener(false);
       return () => { observers.get(listener)?.(); observers.delete(listener); };
@@ -42,7 +74,8 @@ export function getDeferredFirestore(connection: Promise<(port: ClientPort) => C
     },
   };
   wirePort(port);
-  void connection.then(connect => {
+  const transportChosen = connection.then(connect => {
+    chosen = true;
     if (closed) return;
     // The transport installs methods on this port; it must not replace its identity.
     connect(port);
@@ -61,7 +94,10 @@ export function getDeferredFirestore(connection: Promise<(port: ClientPort) => C
       if (isLocalTransport) listener(true);
     }
   }).catch(error => {
-    failure = new FirebaseError('unavailable', error instanceof Error ? error.message : String(error));
+    chosen = true;
+    // A transport that refuses with its own code keeps it (a Node process off the Node host, #1082).
+    const isFirebaseError = error instanceof FirebaseError;
+    failure = isFirebaseError ? error : new FirebaseError('unavailable', error instanceof Error ? error.message : String(error));
     closeSendOrder(port);
     rejectPendingRequests(port, failure);
     for (const message of queued.splice(0)) {

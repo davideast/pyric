@@ -1,13 +1,19 @@
 import { recordDiagnostic } from '../runtime/diagnostics-client.js';
 import { pageListenerObservation } from '../runtime/listener-observation.js';
 import type { InitPayload } from '../init-payload.js';
+import { initPayloadUrl, nodeRuntimeOrigin } from './runtime-origin.js';
 
 const hasDocument = typeof document !== 'undefined';
 if (hasDocument) pageListenerObservation(document);
 const documentLike = hasDocument ? document : undefined;
 const hostedDeclaration = documentLike?.querySelector('meta[name="pyric-sandbox-host"]');
-const requiresHostedSandbox = hostedDeclaration?.getAttribute('content') === 'node';
+// A Node process the register bootstrap activated (#1082) requires the Node
+// host as a page that declares it does; the host it discovered is this project's.
+const isNodeRealm = nodeRuntimeOrigin() !== undefined;
+const declaresNodeHost = hostedDeclaration?.getAttribute('content') === 'node';
+const requiresHostedSandbox = declaresNodeHost || isNodeRealm;
 const expectedProjectKey = hostedDeclaration?.getAttribute('data-project-key');
+const checksProjectKey = declaresNodeHost;
 const HOSTED_INIT_TIMEOUT_MS = 5_000;
 const HOSTED_INIT_MAX_BACKOFF_MS = 5_000;
 
@@ -24,14 +30,15 @@ async function requestInitPayload(): Promise<InitPayload> {
     )), HOSTED_INIT_TIMEOUT_MS)
     : undefined;
   try {
-    const response = await fetch('/__pyric/init.json', { signal: abortController.signal });
+    const response = await fetch(await initPayloadUrl(), { signal: abortController.signal });
     status = response.status;
     const hasFailedResponse = !response.ok;
     if (hasFailedResponse) throw new Error(`/__pyric/init.json → ${response.status}`);
     const payload: InitPayload = await response.json();
-    const isDifferentHost = requiresHostedSandbox && payload.hosted !== true;
+    // A Node process names the off-host case itself, as a refusal (worker-runtime.ts).
+    const isDifferentHost = declaresNodeHost && payload.hosted !== true;
     if (isDifferentHost) throw new InitIdentityError('/__pyric/init.json does not select the requested Node host.');
-    const isDifferentProject = requiresHostedSandbox && payload.projectKey !== expectedProjectKey;
+    const isDifferentProject = checksProjectKey && payload.projectKey !== expectedProjectKey;
     if (isDifferentProject) throw new InitIdentityError('/__pyric/init.json belongs to a different project.');
     recordDiagnostic({ phase: 'init-ready', code: status });
     return payload;
@@ -53,7 +60,9 @@ async function requestInitPayloadWhenAvailable(): Promise<InitPayload> {
     try {
       return await requestInitPayload();
     } catch (error) {
-      const isFinal = !requiresHostedSandbox || error instanceof InitIdentityError;
+      // A Node process fails its calls at once when the host is down, as the
+      // Node remote client does before its first attach; a page waits for it.
+      const isFinal = !requiresHostedSandbox || isNodeRealm || error instanceof InitIdentityError;
       if (isFinal) throw error;
       const delay = Math.min(HOSTED_INIT_MAX_BACKOFF_MS, 250 * 2 ** attempt);
       const jitter = Math.random() * Math.min(250, delay / 10);
@@ -62,10 +71,30 @@ async function requestInitPayloadWhenAvailable(): Promise<InitPayload> {
   }
 }
 
-/** Shared by transport selection and page initialization without a module cycle. */
-export const initPayloadRequest = requestInitPayloadWhenAvailable();
+/**
+ * A promise whose work starts at its first use. A page reads `init.json` as it
+ * loads; a Node process reads it at its first call, so importing an SDK opens
+ * no connection and holds nothing, as the production SDK does (#1082).
+ */
+function startedOnUse<T>(start: () => Promise<T>): Promise<T> {
+  let started: Promise<T> | undefined;
+  const run = (): Promise<T> => (started ??= start());
+  const lazy = {
+    then: (onFulfilled?: ((value: T) => unknown) | null, onRejected?: ((reason: unknown) => unknown) | null) =>
+      run().then(onFulfilled, onRejected),
+    catch: (onRejected?: ((reason: unknown) => unknown) | null) => run().catch(onRejected),
+    finally: (onFinally?: (() => void) | null) => run().finally(onFinally),
+    [Symbol.toStringTag]: 'Promise',
+  };
+  return lazy as unknown as Promise<T>;
+}
 
-export const initPayload: Promise<InitPayload | null> = initPayloadRequest.catch((error: unknown) => {
+/** Shared by transport selection and page initialization without a module cycle. */
+export const initPayloadRequest: Promise<InitPayload> = isNodeRealm
+  ? startedOnUse(requestInitPayloadWhenAvailable)
+  : requestInitPayloadWhenAvailable();
+
+const readPayload = (): Promise<InitPayload | null> => initPayloadRequest.catch((error: unknown) => {
   if (requiresHostedSandbox) {
     const isError = error instanceof Error;
     const detail = isError ? error.message : String(error);
@@ -73,6 +102,8 @@ export const initPayload: Promise<InitPayload | null> = initPayloadRequest.catch
   }
   return null;
 });
+
+export const initPayload: Promise<InitPayload | null> = isNodeRealm ? startedOnUse(readPayload) : readPayload();
 
 let sessionTokenRequest: Promise<string | null> | undefined;
 let sessionTokenIsStale = false;

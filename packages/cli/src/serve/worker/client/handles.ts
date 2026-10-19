@@ -35,6 +35,12 @@ export interface ClientPort {
    * origin that serves it, and the page's session token for its own reads.
    */
   byteRoute?: ByteRouteAccess;
+  /**
+   * Until the transport knows whether {@link byteRoute} applies, a promise
+   * that settles when it does: at the first attachment, or when the connection
+   * ends. Undefined once known. Absent on transports that never have a byte route.
+   */
+  byteRouteSettled?(): Promise<void> | undefined;
 }
 
 /** How a client reaches the host's HTTP byte route. */

@@ -11,6 +11,7 @@ import {
   type RemoteSandboxFactoryOptions,
   type Sandbox,
 } from 'pyric/sandbox';
+import { parsePyricSandbox } from 'pyric/sandbox/internal';
 import { readFileSync } from 'node:fs';
 
 import { assertAdminAppActive, markAdminAppDeleted } from './lifecycle.js';
@@ -233,21 +234,18 @@ function initializeAmbientApp(name: string, options: AdminAppOptions): PyricAdmi
 }
 
 function parsePyricSandboxEnv(env: string): RemoteSandboxFactoryOptions {
-  const value = env.trim();
-  const isRemoteOrBoolean = value === 'remote' || value === '1' || value === 'true';
-  if (isRemoteOrBoolean) {
-    return {};
+  const activation = parsePyricSandbox(env);
+  if (activation.mode === 'remote') {
+    const hasUrl = activation.url !== undefined;
+    return hasUrl ? { url: activation.url } : {};
   }
-  if (value.startsWith('remote:')) {
-    const url = value.slice('remote:'.length).trim();
-    if (url === '') {
-      throw new Error(
-        'pyric-admin: PYRIC_SANDBOX=remote: has an empty url. Use ' +
-          'PYRIC_SANDBOX=remote to auto-discover the running `pyric sandbox`, ' +
-          'or, from outside the project directory, PYRIC_SANDBOX=remote:<url> with the host url.',
-      );
-    }
-    return { url };
+  const isEmptyUrl = activation.mode === 'invalid' && activation.reason === 'empty-url';
+  if (isEmptyUrl) {
+    throw new Error(
+      'pyric-admin: PYRIC_SANDBOX=remote: has an empty url. Use ' +
+        'PYRIC_SANDBOX=remote to auto-discover the running `pyric sandbox`, ' +
+        'or, from outside the project directory, PYRIC_SANDBOX=remote:<url> with the host url.',
+    );
   }
   throw new Error(
     `pyric-admin: unrecognized PYRIC_SANDBOX value "${env}". Supported ` +
