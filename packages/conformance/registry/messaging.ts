@@ -1034,6 +1034,7 @@ const serverProcessRows: CompatibilityRow[] = [
       "test/apps/client-sdk-under-register/scenario.ts",
       "packages/cli/test/register/mapping.test.ts",
       "packages/cli/test/register/node-origin.test.ts",
+      "packages/pyric/test/messaging/oracle-conformance.test.ts",
     ],
   }),
 ];

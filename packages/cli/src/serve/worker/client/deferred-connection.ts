@@ -4,8 +4,23 @@ import type { ClientDb, ClientPort } from './handles.js';
 import { endPortSubscriptions, rejectPendingRequests, wirePort } from './core.js';
 import { closeSendOrder } from './send-order.js';
 
-/** Keep SDK handles and correlations on one port while choosing its transport. */
-export function getDeferredFirestore(connection: Promise<(port: ClientPort) => ClientDb>): ClientDb {
+type TransportChoice = Promise<(port: ClientPort) => ClientDb>;
+
+/** Whether a frame needs the transport: an operation or a subscription, not app configuration or the clock. */
+function needsTransport(message: InboundMessage): boolean {
+  return message.t === 'op' || message.t === 'sub';
+}
+
+/**
+ * Keep SDK handles and correlations on one port while choosing its transport.
+ * Given a function, the choice starts at the first operation or subscription,
+ * so a handle no call uses opens nothing (a Node process, #1082).
+ */
+export function getDeferredFirestore(choice: TransportChoice | (() => TransportChoice)): ClientDb {
+  let startChoice: () => void = () => {};
+  const connection: TransportChoice = typeof choice === 'function'
+    ? new Promise((resolve, reject) => { startChoice = () => { startChoice = () => {}; choice().then(resolve, reject); }; })
+    : choice;
   const queued: InboundMessage[] = [];
   const observers = new Map<(connected: boolean) => void, (() => void) | undefined>();
   let closed = false;
@@ -14,6 +29,8 @@ export function getDeferredFirestore(connection: Promise<(port: ClientPort) => C
   // Until the transport is chosen nobody knows its byte route; after, the
   // transport answers (the hosted one installs its own on this port).
   const awaitTransportRoute = async (): Promise<void> => {
+    // Asking for the route is a call about to send; it starts the choice.
+    startChoice();
     await transportChosen;
     const ownsRouteAnswer = port.byteRouteSettled === pendingRoute;
     if (ownsRouteAnswer) return;
@@ -35,9 +52,12 @@ export function getDeferredFirestore(connection: Promise<(port: ClientPort) => C
         return;
       }
       queued.push(message);
+      if (needsTransport(message)) startChoice();
     },
     start() {},
     observeConnection(listener) {
+      // Watching the connection (`.info/connected`) needs one.
+      startChoice();
       observers.set(listener, undefined);
       listener(false);
       return () => { observers.get(listener)?.(); observers.delete(listener); };

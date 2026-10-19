@@ -194,9 +194,9 @@ assert.strictEqual(typeof globalThis[Symbol.for('pyric.remote.sandboxFactory')],
 const clientApp = require('firebase/app').initializeApp({ projectId: 'cjs-demo' });
 assert.strictEqual(clientApp.name, '[DEFAULT]');
 assert.strictEqual(clientApp.options.projectId, 'cjs-demo');
-// Under a remote activation firebase/firestore is the Node host client (#1082).
-assert.ok(require.resolve('firebase/firestore').replaceAll('\\\\', '/').endsWith('/register/client/firestore.js'));
-assert.strictEqual(typeof require('firebase/firestore').getFirestore, 'function');
+// Under a remote activation firebase/firestore is the Node host client (#1082):
+// its handle is the hosted client's, and making it opens no connection.
+assert.strictEqual(require('firebase/firestore').getFirestore(clientApp).__kind, 'client-db');
 console.log('CJS_OK');
 `,
   );
@@ -259,14 +259,14 @@ const clientApp = clientAppModule.initializeApp(
   { apiKey: 'ignored', projectId: 'register-inertness' },
   'register-inertness',
 );
-// Under a remote activation firebase/firestore resolves to the Node host
-// client (#1082), which opens its connection at the first call; read the
-// rewrite from where the import resolved instead of calling it there.
+// Under a remote activation firebase/firestore is the Node host client
+// (#1082), whose handle is the hosted client's; otherwise the pyric mirror's
+// handle carries its target symbol, and the real SDK's carries neither.
 function isFirestoreRewritten() {
-  const resolved = import.meta.resolve('firebase/firestore');
-  const isNodeHostClient = resolved.endsWith('/register/client/firestore.js');
+  const db = firestoreModule.getFirestore(clientApp);
+  const isNodeHostClient = db.__kind === 'client-db';
   if (isNodeHostClient) return true;
-  return Object.getOwnPropertySymbols(firestoreModule.getFirestore(clientApp))
+  return Object.getOwnPropertySymbols(db)
     .some((symbol) => symbol.description === 'pyric/firestore/target');
 }
 console.log(JSON.stringify({
@@ -335,7 +335,7 @@ describe('@pyric/cli/register (child process)', () => {
   it.skipIf(!hasRegisterHooks)('rewrites CJS require() via the sync hooks', () => {
     const res = runNode('main.cjs', { PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000' });
     expect(res.stderr).toContain('@pyric/cli/register: active');
-    expect(res.stdout).toContain('CJS_OK');
+    expect(res.stdout, res.stderr).toContain('CJS_OK');
     expect(res.status).toBe(0);
   });
 

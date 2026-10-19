@@ -101,7 +101,7 @@ function createControlClient(workerRequested: boolean): ClientDb | null {
  * with the origin's off-host error. There is no in-page fallback in Node.
  */
 function openNodeHostedDb(origin: NodeRuntimeOrigin): ClientDb {
-  const transport = Promise.all([initPayload, origin.host()]).then(([configuration, host]) => {
+  const transport = () => Promise.all([initPayload, origin.host()]).then(([configuration, host]) => {
     const isNodeHost = configuration?.hosted === true;
     if (!isNodeHost) throw origin.offHostError('the host at ' + host + ' is not the Node host');
     payload = configuration;
