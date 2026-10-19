@@ -24,7 +24,13 @@ export default defineConfig({
 });
 ```
 
-The plugin attaches directly to Vite's Connect middleware stack and import map resolution. All requests to `/__pyric/*` and imports of `firebase/*` execute directly on a Vite development server port (default 5173).
+The plugin attaches directly to Vite's Connect middleware stack and import map resolution. All requests to `/__pyric/*` and the browser's imports of `firebase/*` execute directly on a Vite development server port (default 5173).
+
+## Server-rendered code
+
+Under `vite dev`, modules Vite loads for server rendering are not swapped yet ([#1123](https://github.com/davideast/pyric/issues/1123)). Their `firebase/*` and `firebase-admin/*` imports get the Firebase SDK. The plugin runs a network guard in the dev server process that refuses connections to live Google and Firebase endpoints, so those calls fail or stay pending instead of reaching production. The dev server log names each refused host.
+
+`PYRIC_GUARD=warn` reports those connections and lets them through, `PYRIC_GUARD=off` turns the guard off, and `PYRIC_GUARD_ALLOW` permits the hosts it names. The AI upstream in the plugin's `ai` options stays permitted. The guard does not run during `vite build` or `vite preview`, and it does not affect browser code. See [Environment variables](../reference/cli.md#environment-variables).
 
 ## Start your local server
 
