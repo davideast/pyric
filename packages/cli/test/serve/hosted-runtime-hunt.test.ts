@@ -627,6 +627,71 @@ service cloud.firestore {
       await runtime.close();
     }
   },
+
+  async 'sw-hst-11'() {
+    const dir = realpathSync(makeTempDir('sw-hst-11-'));
+    let activeRuntime = null;
+    let serverUrl = '';
+    const server = createServer(async (req, res) => {
+      const url = new URL(req.url ?? '/', serverUrl);
+      const handled = await activeRuntime.storageHttp(req, res, url);
+      if (!handled) res.writeHead(404).end();
+    });
+    httpServers.push(server);
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    serverUrl = \`http://127.0.0.1:\${server.address().port}\`;
+
+    const harness = createHarness(
+      dir,
+      { appOptions: { projectId: 'digchatapp' } },
+      { baseUrl: () => serverUrl },
+    );
+
+    const host1 = await harness.start();
+    activeRuntime = host1.runtime;
+    try {
+      const begin = await host1.sendOp('admin-uploader', {
+        method: 'storage.beginUpload',
+        bucket: 'digchatapp.firebasestorage.app',
+        defaultBucket: 'digchatapp.firebasestorage.app',
+        path: 'spaces/s1/pixel.bin',
+        size: 5,
+        downloadTokens: 'tok-persist-1',
+        actAs: { mode: 'admin' },
+      });
+      assert.equal(begin.ok, true);
+      const putRes = await fetch(new URL(begin.value.uploadUrl, serverUrl), {
+        method: 'PUT',
+        body: new TextEncoder().encode('hello'),
+      });
+      assert.equal(putRes.status, 200);
+      const finish = await host1.sendOp('admin-uploader', {
+        method: 'storage.finishUpload',
+        uploadId: begin.value.uploadId,
+        actAs: { mode: 'admin' },
+      });
+      assert.equal(finish.ok, true);
+    } finally {
+      await host1.runtime.close();
+    }
+
+    const host2 = await harness.start();
+    activeRuntime = host2.runtime;
+    try {
+      const okRes = await fetch(\`\${serverUrl}/__pyric/storage/v0/b/digchatapp.firebasestorage.app/o/spaces%2Fs1%2Fpixel.bin?alt=media&token=tok-persist-1\`);
+      assert.equal(okRes.status, 200);
+      assert.equal(await okRes.text(), 'hello');
+
+      const badTokenRes = await fetch(\`\${serverUrl}/__pyric/storage/v0/b/digchatapp.firebasestorage.app/o/spaces%2Fs1%2Fpixel.bin?alt=media&token=wrong\`);
+      assert.equal(badTokenRes.status, 403);
+
+      const otherBucketRes = await fetch(\`\${serverUrl}/__pyric/storage/v0/b/unrelated-secondary-bucket/o/spaces%2Fs1%2Fpixel.bin?alt=media&token=tok-persist-1\`);
+      assert.equal(otherBucketRes.status, 404);
+    } finally {
+      await host2.runtime.close();
+    }
+  },
 };
 
 const target = process.argv[2];
@@ -702,5 +767,9 @@ describe('hosted Node runtime & repro hunt regressions (SW-HST-1..10)', () => {
 
   test('SW-HST-10: runMethod, captureRepro, and mcpProjectError accept symlinked project directories while rejecting outside directories', () => {
     runScenario('sw-hst-10');
+  }, 30_000);
+
+  test('SW-HST-11: caller defaultBucket aliases persist across Node host restarts so download URLs resolve on cold boot', () => {
+    runScenario('sw-hst-11');
   }, 30_000);
 });

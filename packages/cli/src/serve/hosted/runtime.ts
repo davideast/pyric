@@ -2,7 +2,15 @@ import { createDenialThrottle, noteAiDiagnostic } from '../namespace.js';
 import { aiDiagnosticPayloadFor } from '../ai-diagnostics-relay.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createStorageByteRoute } from './storage-byte-route.js';
-import { finishUploadSession, openUploadSession, storeBucketOf, uploadSessionOf, uploadTokenOf } from '../worker/host/storage.js';
+import {
+  defaultBucketNames,
+  finishUploadSession,
+  openUploadSession,
+  seedDefaultBucketNames,
+  storeBucketOf,
+  uploadSessionOf,
+  uploadTokenOf,
+} from '../worker/host/storage.js';
 import type { ServeLogger } from '../server.js';
 import { fetchAiUpstream, resolveAiProxyUpstream } from '../ai-proxy.js';
 import {
@@ -15,7 +23,7 @@ import {
 import { SERVE_HISTORY_LIMITS } from '../observation-limits.js';
 import { randomUUID } from 'node:crypto';
 import { createOperationBudget } from '../../bridge/operation-budget.js';
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { open as openFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -25,7 +33,7 @@ import { setRules } from 'pyric/sandbox/firestore';
 import { sandbox as rtdbSandbox } from 'pyric/database';
 import { sandbox as authSandbox } from 'pyric/auth';
 import { FirebaseError } from 'pyric/app';
-import { installStorageBackend, replaceStorageRules } from 'pyric/storage/internal';
+import { DEFAULT_BUCKET, installStorageBackend, replaceStorageRules } from 'pyric/storage/internal';
 import { assertJsonSafeRelayValue, MAX_MOUNTED_MCP_SESSIONS, type BridgeMessage, type ToolCallRequest, type WorkerResFrame } from '../../bridge/protocol.js';
 import { dispatchSandboxTool, SANDBOX_TOOL_NAMES } from '../../bridge/client/dispatch.js';
 import { sandboxToolEffect } from '../../bridge/tool-families.js';
@@ -41,7 +49,7 @@ import { restoreFirestoreSubscriptions } from '../worker/host/subscriptions.js';
 import { drainPortRtdbDisconnects } from '../worker/host/rtdb.js';
 import { hostDatabaseInstances } from '../worker/host/rtdb-instance-catalog.js';
 import { serializeError, type InboundMessage, type OutboundMessage } from '../worker/protocol.js';
-import { createHostedPersistence, formatStorageRepairs, HOSTED_NAMESPACE, type HostedPersistence } from './persistence.js';
+import { createHostedPersistence, formatStorageRepairs, HOSTED_NAMESPACE, hostedStateDirectory, type HostedPersistence } from './persistence.js';
 import { requiresHealthyPersistence } from './persistence-admission.js';
 import { MAX_HOSTED_METHOD_OWNERS, type HostedMethodRequest } from './method-protocol.js';
 import { createReproRecorder, type ReproRecorder } from '../repro/recorder.js';
@@ -160,9 +168,33 @@ export async function createHostedRuntime(
       fetchAiUpstream(input, init, aiThrottle, ai.logger, 'ai-upstream'),
     { preconnect: fetch.preconnect },
   );
+  const defaultBucketsPath = join(hostedStateDirectory(ownedProjectDir), 'default-buckets.json');
+  function loadPersistedDefaultBuckets(): string[] {
+    if (!existsSync(defaultBucketsPath)) return [];
+    try {
+      const parsed: unknown = JSON.parse(readFileSync(defaultBucketsPath, 'utf8'));
+      return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string' && item !== '') : [];
+    } catch {
+      return [];
+    }
+  }
+  function savePersistedDefaultBuckets(): void {
+    try {
+      mkdirSync(hostedStateDirectory(ownedProjectDir), { recursive: true });
+      const tmp = `${defaultBucketsPath}.${randomUUID()}.tmp`;
+      writeFileSync(tmp, JSON.stringify([...defaultBucketNames(ctx)].sort()));
+      renameSync(tmp, defaultBucketsPath);
+    } catch {
+      // Best-effort alias hint; does not affect object durability.
+    }
+  }
+
   const ctx: HostCtx = {
     sandbox,
     flushPersistence,
+    onDefaultBucketName: () => {
+      savePersistedDefaultBuckets();
+    },
     db: getFirestore(sandbox),
     instanceId,
     subs: new Map(),
@@ -172,6 +204,7 @@ export async function createHostedRuntime(
     aiUpstream: { baseUrl: resolveAiProxyUpstream(ai.proxyUpstream).target, fetch: aiFetch },
     storageByteRoute: true,
   };
+  seedDefaultBucketNames(ctx, loadPersistedDefaultBuckets());
   const hostedFetch: typeof fetch = Object.assign(
     (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
       const isRelativeUrl = typeof input === 'string';
@@ -459,7 +492,12 @@ export async function createHostedRuntime(
 
   const storageBytes = createStorageByteRoute({
     storage: {
-      objectFile: (bucket, path) => persistence.storage.objectFile(bucket, path),
+      objectFile: async (bucket, path) => {
+        const direct = await persistence.storage.objectFile(bucket, path);
+        if (direct !== undefined || bucket === DEFAULT_BUCKET) return direct;
+        if (defaultBucketNames(ctx).size > 0 || ctx.appOptions?.storageBucket !== undefined) return undefined;
+        return persistence.storage.objectFile(DEFAULT_BUCKET, path);
+      },
       uploadProgress: uploadId => persistence.storage.uploadProgress(uploadId),
       async appendUpload(uploadId, offset, bytes) {
         const progress = await persistence.storage.appendUpload(uploadId, offset, bytes);

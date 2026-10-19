@@ -70,6 +70,8 @@ export interface HostCtx {
   sandbox: LocalSandbox;
   /** Persistence acknowledgment policy supplied by the owning runtime. */
   flushPersistence?: () => Promise<void>;
+  /** Records a caller-supplied default Storage bucket alias in durable host state. */
+  onDefaultBucketName?: (name: string) => void;
   /** Stable worker-lifetime activity identity for each page/app port. */
   activityJourneyIds?: WeakMap<PortLike, string>;
   activityJourneySequence?: number;

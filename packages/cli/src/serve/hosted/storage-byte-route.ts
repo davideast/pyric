@@ -113,7 +113,8 @@ export function createStorageByteRoute(opts: StorageByteRouteOptions) {
     const missing = object === undefined;
     if (missing) return refuse(res, 404, 'No such object.');
     const presented = url.searchParams.get('token') ?? undefined;
-    const downloadTokens = (object.metadata.downloadTokens ?? '').split(',').filter(token => token !== '');
+    const rawTokens = object.metadata.downloadTokens ?? object.metadata.customMetadata?.firebaseStorageDownloadTokens ?? '';
+    const downloadTokens = rawTokens.split(',').filter(token => token !== '');
     const byDownloadToken = downloadTokens.some(token => timingSafeTokenMatch(presented, token));
     const authorized = presentsSession(req, url) || byDownloadToken;
     if (!authorized) return refuse(res, 403, 'This URL carries no token that grants this object.');
