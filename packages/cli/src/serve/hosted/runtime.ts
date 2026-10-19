@@ -5,7 +5,13 @@ import { createStorageByteRoute } from './storage-byte-route.js';
 import { finishUploadSession, openUploadSession, storeBucketOf, uploadSessionOf, uploadTokenOf } from '../worker/host/storage.js';
 import type { ServeLogger } from '../server.js';
 import { fetchAiUpstream, resolveAiProxyUpstream } from '../ai-proxy.js';
-import { databaseInstanceRulesHost, handleRulesOp, setDatabaseRules, setDatabaseTargetRules } from '../worker/host/rules.js';
+import {
+  databaseInstanceRulesHost,
+  deployFirestoreRulesToHost,
+  normalizeDatabaseRules,
+  setDatabaseRules,
+  setDatabaseTargetRules,
+} from '../worker/host/rules.js';
 import { SERVE_HISTORY_LIMITS } from '../observation-limits.js';
 import { randomUUID } from 'node:crypto';
 import { createOperationBudget } from '../../bridge/operation-budget.js';
@@ -31,7 +37,6 @@ import type { DatabaseRulesDestination, InitPayload } from '../init-payload.js';
 import { applyServeInit } from '../worker/serve-init.js';
 import { cleanupPortWithDisconnect, handleMessage, type HostCtx, type PortLike } from '../worker/host.js';
 import { ensureAuth, setPortSession } from '../worker/host-auth.js';
-import { normalizeDatabaseRules } from '../worker/host/rules.js';
 import { restoreFirestoreSubscriptions } from '../worker/host/subscriptions.js';
 import { drainPortRtdbDisconnects } from '../worker/host/rtdb.js';
 import { hostDatabaseInstances } from '../worker/host/rtdb-instance-catalog.js';
@@ -527,25 +532,20 @@ export async function createHostedRuntime(
       }
       if (source === null) throw new Error('Firestore rules source is required.');
       const previousFirestoreRules = ctx.activeRules?.firestore ? structuredClone(ctx.activeRules.firestore) : undefined;
-      const op = { t: 'op' as const, id: 'file-rules-reload', method: 'setFirestoreRules' as const, source };
-      try {
-        handleRulesOp(ctx, {
-          postMessage(reply) {
-            if (reply.t !== 'res') return;
-            if (!reply.ok) throw new Error(reply.error.message);
-            const value = reply.value as { ok?: unknown; messages?: Array<{ text?: string }> } | null;
-            if (typeof value === 'object' && value !== null && value.ok === false) {
-              const messages = Array.isArray(value.messages) ? value.messages.map(m => m.text).filter(Boolean) : [];
-              throw new Error(messages.length > 0 ? messages.join('; ') : 'Invalid Firestore security rules.');
-            }
-          },
-        }, op, ctx.db);
-      } catch (error) {
+      const deployed = deployFirestoreRulesToHost(ctx, source);
+      if (!deployed.ok) {
         if (ctx.activeRules) {
           if (previousFirestoreRules === undefined) delete ctx.activeRules.firestore;
-          else ctx.activeRules.firestore = previousFirestoreRules;
+          else {
+            ctx.activeRules.firestore = previousFirestoreRules;
+            const previousSource = previousFirestoreRules.status === 'active'
+              ? previousFirestoreRules.source
+              : previousFirestoreRules.lastKnownGood;
+            if (typeof previousSource === 'string') setRules(ctx.sandbox, previousSource);
+          }
         }
-        throw error;
+        const errorMessages = deployed.messages.filter((m) => m.severity === 'error').map((m) => m.text).filter(Boolean);
+        throw new Error(deployed.rejectionMessage ?? (errorMessages.length > 0 ? errorMessages.join('; ') : 'Invalid Firestore security rules.'));
       }
       recorder?.note({ kind: 'rules', at: Date.now(), service, source });
     },
@@ -578,6 +578,10 @@ export async function createHostedRuntime(
           }
         },
       );
+    },
+    /** Clears tracked active Firestore rules metadata without changing enforced sandbox rules. */
+    clearActiveFirestoreRules(): void {
+      if (ctx.activeRules) delete ctx.activeRules.firestore;
     },
     /** The Node host's per-instance RTDB rules, as `connectDatabaseInstanceRules` applies them. */
     databaseRules: databaseInstanceRulesHost(ctx),
@@ -629,7 +633,7 @@ export async function createHostedRuntime(
             }
           } else if (key === 'rules.set') {
             if (args.service === 'firestore' && typeof args.rules === 'string') {
-              handleRulesOp(ctx, { postMessage() {} }, { t: 'op', id: 'method-rules-set', method: 'setFirestoreRules', source: args.rules }, ctx.db);
+              deployFirestoreRulesToHost(ctx, args.rules);
               restoreFirestoreSubscriptions(ctx);
               recorder?.note({ kind: 'rules', at: Date.now(), service: 'firestore', source: args.rules });
             } else if (args.service === 'database') {
