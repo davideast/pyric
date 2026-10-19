@@ -12,11 +12,18 @@ beforeEach(() => resetAppRegistryForTests());
 afterEach(() => resetAppRegistryForTests());
 
 describe('Node register app adapter', () => {
-  it('depends on Firestore through its published sandbox control seam', () => {
-    const source = readFileSync(new URL('./register.ts', import.meta.url), 'utf8');
+  it('loads rules through the published sandbox control seams', () => {
+    const adapter = readFileSync(new URL('./register.ts', import.meta.url), 'utf8');
+    const rules = readFileSync(new URL('./register-rules.ts', import.meta.url), 'utf8');
 
-    expect(source).toContain("from 'pyric/sandbox/firestore'");
-    expect(source).not.toContain("from '../firestore/");
+    expect(adapter).toContain("from './register-rules.js'");
+    expect(rules).toContain("from 'pyric/sandbox/firestore'");
+    expect(rules).toContain("from 'pyric/sandbox/database'");
+    for (const source of [adapter, rules]) {
+      expect(source).not.toContain("from '../firestore/");
+      expect(source).not.toContain("from '../database/");
+      expect(source).not.toContain("from '../storage/");
+    }
   });
 
   it('translates Firebase options into a sandbox app while preserving public config fields', () => {

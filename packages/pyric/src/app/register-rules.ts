@@ -19,7 +19,7 @@ import { setRules as setDatabaseRules, toStrictRulesJson } from 'pyric/sandbox/d
 import { getDatabase } from 'pyric/database';
 import { getStorageSandbox } from 'pyric/storage';
 import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
-import { DEFAULT_DATABASE_RULES_FILE } from '../sandbox/internal/database-rules-config.js';
+import { DEFAULT_DATABASE_RULES_FILE } from 'pyric/sandbox/internal';
 import { loadFirebaseJsonRules } from '../rules/api/rtdb-firebase-json.js';
 
 interface RulesEntry {
