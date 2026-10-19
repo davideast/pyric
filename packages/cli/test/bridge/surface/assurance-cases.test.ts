@@ -4,8 +4,11 @@
  */
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
+import { initializeSandbox } from 'pyric/sandbox';
+import { getFirestore } from 'pyric/sandbox/admin-firestore';
 
 import { runDerivedCases } from '../../../src/bridge/surface/assurance-cases.js';
+import { buildVerifyFixture } from '../../../src/verify/index.js';
 import { ALICE_NOTE_RULES, NO_NOTE_RULES, recordNoteSession } from './assurance-fixture.js';
 
 /** Rules that keep one note writable and close the other. */
@@ -53,5 +56,44 @@ describe('runDerivedCases', () => {
     const run = runDerivedCases(await recordNoteSession(), 'not rules at all {');
     if (!('error' in run)) throw new Error('an unparseable ruleset produced verdicts');
     expect(run.error.length).toBeGreaterThan(0);
+  });
+
+  it('resolves exists() and get() against fixture.services.firestore.state.documents', async () => {
+    const initialRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /{document=**} { allow read, write: if request.auth != null; }
+  }
+}`;
+    const sandbox = initializeSandbox();
+    const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
+    db.setRules(initialRules);
+    await db.doc('rooms/r1/members/alice').set({ role: 'member' });
+    await db.doc('rooms/r1/messages/m1').set({ text: 'hello', author: 'alice' });
+
+    const fixture = buildVerifyFixture({
+      sandbox,
+      description: 'alice joins room r1 and posts message m1',
+      firestoreRules: initialRules,
+    });
+
+    const candidateRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /rooms/{roomId}/members/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+    match /rooms/{roomId}/messages/{msgId} {
+      allow create: if request.auth != null &&
+        exists(/databases/$(database)/documents/rooms/$(roomId)/members/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/rooms/$(roomId)/members/$(request.auth.uid)).data.role == 'member';
+    }
+  }
+}`;
+
+    const run = runDerivedCases(fixture, candidateRules);
+    if ('error' in run) throw new Error(run.error);
+    expect(run.diverged).toBe(0);
+    expect(run.agreed).toBe(2);
   });
 });

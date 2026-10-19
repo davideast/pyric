@@ -25,6 +25,8 @@ import {
   type SecurityInvariant,
 } from "./types.js";
 
+AssuranceInputError.prototype.name = "AssuranceInputError";
+
 /** The services whose rules an operation can name. */
 export const OPERATION_SERVICES = [
   "firestore",
@@ -86,6 +88,26 @@ export const OPERATION_METHODS: Readonly<Record<string, readonly string[]>> = {
 /** The requires node kinds a probe can carry. */
 export const REQUIRES_KINDS = ["construct", "registry-row"] as const;
 
+/** The comparison operators a Firestore query constraint can name. */
+export const FIRESTORE_QUERY_OPS = [
+  "<",
+  "<=",
+  "==",
+  "!=",
+  ">=",
+  ">",
+  "array-contains",
+  "in",
+  "not-in",
+  "array-contains-any",
+] as const;
+
+/** The directions a Firestore orderBy clause can name. */
+export const FIRESTORE_ORDER_DIRECTIONS = ["asc", "desc"] as const;
+
+/** The orderBy kinds an RTDB query can name. */
+export const RTDB_ORDER_KINDS = ["child", "key", "value", "priority"] as const;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -140,6 +162,33 @@ function requiredRecord(
   }
 }
 
+/** Reject a value that is not a valid base64 string, naming where it sits. */
+function assertValidBase64(
+  value: unknown,
+  where: string,
+): asserts value is string {
+  if (typeof value !== "string") {
+    throw new AssuranceInputError(`${where} must be a string. ${received(value)}.`);
+  }
+  try {
+    atob(value);
+  } catch {
+    throw new AssuranceInputError(`${where} must be valid base64. ${received(value)}.`);
+  }
+}
+
+/** Reject a value that is not a positive integer, naming where it sits. */
+function assertPositiveInteger(
+  value: unknown,
+  where: string,
+): asserts value is number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    throw new AssuranceInputError(
+      `${where} must be a positive integer. ${received(value)}.`,
+    );
+  }
+}
+
 export function assertTarget(
   target: unknown,
   where = "target",
@@ -179,6 +228,9 @@ export function assertTarget(
   }
   if (target.state.firestore !== undefined) {
     requiredRecord(target.state.firestore, `${where}.state.firestore`);
+    for (const [docPath, docData] of Object.entries(target.state.firestore)) {
+      requiredRecord(docData, `${where}.state.firestore[${docPath}]`);
+    }
   }
   if (target.state.storage !== undefined) {
     if (!Array.isArray(target.state.storage)) {
@@ -190,11 +242,7 @@ export function assertTarget(
       const at = `${where}.state.storage[${index}]`;
       requiredRecord(object, at);
       requiredString(object.path, at, "path");
-      if (typeof object.dataBase64 !== "string") {
-        throw new AssuranceInputError(
-          `${at}.dataBase64 must be a string. ${received(object.dataBase64)}.`,
-        );
-      }
+      assertValidBase64(object.dataBase64, `${at}.dataBase64`);
     }
   }
   if (target.state.auth !== undefined) {
@@ -329,17 +377,73 @@ function assertOperation(
   if (operation.service === "firestore" && operation.data !== undefined) {
     requiredRecord(operation.data, `${where}.data`);
   }
+  if (operation.service === "rtdb" && operation.method === "update") {
+    requiredRecord(operation.data, `${where}.data`);
+  }
   if (operation.service !== "storage" && operation.query !== undefined) {
-    requiredRecord(operation.query, `${where}.query`);
+    const queryAt = `${where}.query`;
+    requiredRecord(operation.query, queryAt);
+    if (operation.service === "firestore") {
+      if (operation.query.where !== undefined) {
+        if (!Array.isArray(operation.query.where)) {
+          throw new AssuranceInputError(
+            `${queryAt}.where must be an array. ${received(operation.query.where)}.`,
+          );
+        }
+        for (const [index, item] of operation.query.where.entries()) {
+          const at = `${queryAt}.where[${index}]`;
+          requiredRecord(item, at);
+          requiredString(item.field, at, "field");
+          enumValue(item.op, FIRESTORE_QUERY_OPS, at, "op");
+        }
+      }
+      if (operation.query.orderBy !== undefined) {
+        if (!Array.isArray(operation.query.orderBy)) {
+          throw new AssuranceInputError(
+            `${queryAt}.orderBy must be an array. ${received(operation.query.orderBy)}.`,
+          );
+        }
+        for (const [index, item] of operation.query.orderBy.entries()) {
+          const at = `${queryAt}.orderBy[${index}]`;
+          requiredRecord(item, at);
+          requiredString(item.field, at, "field");
+          if (item.direction !== undefined) {
+            enumValue(item.direction, FIRESTORE_ORDER_DIRECTIONS, at, "direction");
+          }
+        }
+      }
+      if (operation.query.limit !== undefined) {
+        assertPositiveInteger(operation.query.limit, `${queryAt}.limit`);
+      }
+    } else if (operation.service === "rtdb") {
+      if (operation.query.orderBy !== undefined) {
+        const at = `${queryAt}.orderBy`;
+        requiredRecord(operation.query.orderBy, at);
+        enumValue(operation.query.orderBy.kind, RTDB_ORDER_KINDS, at, "kind");
+        if (operation.query.orderBy.kind === "child") {
+          requiredString(operation.query.orderBy.path, at, "path");
+        }
+      }
+      if (operation.query.limitToFirst !== undefined) {
+        assertPositiveInteger(
+          operation.query.limitToFirst,
+          `${queryAt}.limitToFirst`,
+        );
+      }
+      if (operation.query.limitToLast !== undefined) {
+        assertPositiveInteger(
+          operation.query.limitToLast,
+          `${queryAt}.limitToLast`,
+        );
+      }
+    }
   }
   if (operation.service === "storage") {
-    if (
-      operation.dataBase64 !== undefined &&
-      typeof operation.dataBase64 !== "string"
-    ) {
-      throw new AssuranceInputError(
-        `${where}.dataBase64 must be a string. ${received(operation.dataBase64)}.`,
-      );
+    if (operation.method === "upload") {
+      requiredString(operation.dataBase64, where, "dataBase64");
+    }
+    if (operation.dataBase64 !== undefined) {
+      assertValidBase64(operation.dataBase64, `${where}.dataBase64`);
     }
     if (
       operation.contentType !== undefined &&
@@ -367,6 +471,7 @@ function stableValue(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableValue).join(",")}]`;
   const record = value as Record<string, unknown>;
   return `{${Object.keys(record)
+    .filter((key) => record[key] !== undefined)
     .sort()
     .map((key) => `${JSON.stringify(key)}:${stableValue(record[key])}`)
     .join(",")}}`;

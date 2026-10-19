@@ -9,11 +9,13 @@
  * holds. The second is what a caller asking what breaks means, and the first is
  * what it costs.
  */
+import { getActiveRules } from 'pyric/sandbox/database';
 import { z } from 'zod';
 
+import { parseRtdbRulesText } from '../../../../rtdb/rules-json.js';
 import { CAPTURE_RELATIVE_PATH } from '../../../../serve/capture-store.js';
 
-import { verifyFixture, type VerifyDivergence } from '../../../../verify/index.js';
+import { verifyFixture, type VerifyDivergence, type VerifyRulesInput } from '../../../../verify/index.js';
 import {
   candidateRules,
   readFixtureFile,
@@ -88,18 +90,40 @@ export default {
     if ('refusal' in read) return read.refusal;
 
     const service = verifiableService(args.service as string | undefined);
-    const rules =
-      typeof args.candidateRules === 'string' ? args.candidateRules : activeFirestoreRules(ctx);
-    if (service === 'firestore' && rules.length === 0) {
-      return operationFailure(
-        'No candidate rules were supplied and the sandbox is running none, so there is nothing to replay against.',
-      );
+    let firestoreRules = '';
+    let rulesInput: VerifyRulesInput;
+    if (service === 'firestore') {
+      firestoreRules =
+        typeof args.candidateRules === 'string' ? args.candidateRules : activeFirestoreRules(ctx);
+      if (firestoreRules.length === 0) {
+        return operationFailure(
+          'No candidate rules were supplied and the sandbox is running none, so there is nothing to replay against.',
+        );
+      }
+      rulesInput = { firestore: firestoreRules };
+    } else {
+      let rtdbRules: ReturnType<typeof getActiveRules> = null;
+      if (typeof args.candidateRules === 'string') {
+        try {
+          rtdbRules = parseRtdbRulesText(args.candidateRules, (reason) => reason);
+        } catch (error) {
+          return operationFailure(error instanceof Error ? error.message : String(error));
+        }
+      } else {
+        rtdbRules = getActiveRules(ctx.sandbox);
+      }
+      if (rtdbRules === null || rtdbRules === undefined) {
+        return operationFailure(
+          'No candidate rules were supplied and the sandbox is running none, so there is nothing to replay against.',
+        );
+      }
+      rulesInput = { rtdb: rtdbRules };
     }
 
     let replayed;
     try {
       replayed = await verifyFixture(read.fixture, {
-        rules: service === 'firestore' ? { firestore: rules } : { rtdb: JSON.parse(rules) },
+        rules: rulesInput,
         services: [service],
         engines: ['sandbox'],
       });
@@ -108,8 +132,10 @@ export default {
     }
 
     const state = stateDivergences(replayed.services[service]?.divergences ?? []);
-    const decided = service === 'firestore' ? runDerivedCases(read.fixture, rules) : { cases: [] };
-    const verdicts = 'cases' in decided ? verdictDivergences(decided.cases) : [];
+    const decided =
+      service === 'firestore' ? runDerivedCases(read.fixture, firestoreRules) : { cases: [] };
+    if ('error' in decided) return operationFailure(decided.error);
+    const verdicts = verdictDivergences(decided.cases);
     const divergences = [...verdicts, ...state];
     const skippedInstances = replayed.services[service]?.skippedInstances ?? [];
     const found =
