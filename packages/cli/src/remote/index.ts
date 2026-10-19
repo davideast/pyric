@@ -28,9 +28,14 @@
  *
  * RECONNECT: the lazy handle (`remoteSandbox`, what `@pyric/cli/register`
  * installs) treats a host that drops an attached connection, such as a hosted
- * Vite dev server restarting on a config edit, as a lost connection: the next
- * op connects again, and live listeners reconnect on ADR 0019's backoff and
- * are resubscribed (#949). The eager `connectRemoteSandbox` handle does not.
+ * Vite dev server restarting on a config edit, as a lost connection, and
+ * reconnects on ADR 0019's backoff (#949, #1107). Live listeners are
+ * resubscribed. An RTDB write or read in flight at the drop is sent again on
+ * the next connection, as the SDK does; other calls in flight fail once. A
+ * call issued while the connection is lost waits up to 10 seconds for it and
+ * is then sent once, or fails unsent. Before the first attach, a failed
+ * connect still fails the call. The eager `connectRemoteSandbox` handle does
+ * not reconnect.
  *
  * NODE-ONLY: uses `ws` and `node:fs` — exported via a `node`-conditional
  * subpath (`@pyric/cli/remote`), never bundled for the browser.
@@ -56,6 +61,7 @@ import { isBridgeMessage, MAX_BRIDGE_FRAME_BYTES, NO_SANDBOX_ERROR_MESSAGE, STOR
 import { encodeBridgeMessage } from '../bridge/frame-output.js';
 import { createOperationBudget } from '../bridge/operation-budget.js';
 import { watchHostLiveness, type HostLiveness } from './host-liveness.js';
+import { createHeldCalls, type ReleasedOp } from './held-calls.js';
 import { cliVersion } from '../pkg-version.js';
 import { MAX_STORAGE_OP_BYTES, storagePayloadTooLarge } from '../serve/worker/protocol.js';
 import { hasValidAttachFields } from '../bridge/attach-validation.js';
@@ -75,6 +81,9 @@ const DEFAULT_OP_TIMEOUT_MS = 35_000;
 
 /** How long the attach handshake may take before connect() fails. */
 const ATTACH_TIMEOUT_MS = 5_000;
+
+/** Why an op in flight at a drop failed: the host may have applied it. */
+const CONNECTION_LOST = 'The remote sandbox connection was lost. Requests already sent may have completed; check state before retrying.';
 
 function remoteError(
   code: string,
@@ -102,6 +111,7 @@ function noTabError(serveUrl: string): Error & { code: string } {
 /** An app server that persisted a production download URL asks for the URL the
  *  host it reaches serves for the same object. */
 export { localStorageUrl } from './local-storage-url.js';
+export type { ReleasedOp } from './held-calls.js';
 
 // ─── Public types ──────────────────────────────────────────────────────────
 
@@ -130,11 +140,13 @@ export interface ConnectRemoteSandboxOptions {
   opTimeoutMs?: number;
   /**
    * Called once when an attached connection closes without the client asking
-   * (the host stopped or restarted). When set, the close rejects pending ops
-   * but leaves listeners quiet, so the caller can reconnect and resubscribe
-   * them; when absent, the close ends every listener with `unavailable`.
+   * (the host stopped or restarted). When set, the close settles each op in
+   * flight by its fate at a drop and hands the caller, as `resend`, the RTDB
+   * writes and reads to send again on its next connection; it leaves listeners
+   * quiet, so the caller can reconnect and resubscribe them. When absent, the
+   * close rejects every pending op and ends every listener with `unavailable`.
    */
-  onConnectionLost?: (reason: string) => void;
+  onConnectionLost?: (reason: string, resend: ReleasedOp[]) => void;
 }
 
 /**
@@ -304,13 +316,6 @@ export interface RemoteSandboxCore {
    * none.
    */
   releaseInFlight(lostMessage: string): ReleasedOp[];
-}
-
-/** A call in flight at a drop that the next connection sends again; settling it settles the caller's promise. */
-export interface ReleasedOp {
-  payload: WorkerOpPayload;
-  resolve: (value: unknown) => void;
-  reject: (error: Error) => void;
 }
 
 /** An `rtdb.push` carries its key when `pyric-admin` minted it; one without asks the host to mint it. */
@@ -1113,11 +1118,13 @@ export async function connectRemoteSandbox(
       core.fail(reason);
       return;
     }
-    // Ops in flight fail once, unreplayed: the host may already have applied them.
-    core.dispose('The remote sandbox connection was lost. Requests already sent may have completed; check state before retrying.');
+    // RTDB writes and reads go to the caller to send again, as the SDK does;
+    // every other op in flight fails once, unreplayed, since the host may
+    // already have applied it.
+    const resend = core.releaseInFlight(CONNECTION_LOST);
     if (lossReported) return;
     lossReported = true;
-    onConnectionLost(reason);
+    onConnectionLost(reason, resend);
   };
   ws.on('close', (code) => {
     liveness?.stop();
@@ -1220,8 +1227,14 @@ export interface LazyRemoteSandbox extends RemoteSandbox {
  * "…and retry" guidance. `connectRemoteSandbox` (eager) is unchanged.
  *
  * A connection the host drops (a hosted dev server restarting on the same
- * url) is a lost connection, not a stopped sandbox: the next op connects
- * again, and live listeners reconnect with backoff and are resubscribed.
+ * url) is a lost connection, not a stopped sandbox. The handle reconnects with
+ * backoff and resubscribes live listeners. RTDB writes and reads in flight at
+ * the drop are sent again after the listeners, with no deadline; other calls
+ * in flight fail once with `unavailable`. A call issued while the connection
+ * is lost waits up to 10 seconds from its issue for the reconnect and is then
+ * sent once; past that it fails with `unavailable`, unsent. A host that
+ * refuses this client (a policy close) is final: waiting calls fail with
+ * `permission-denied`. `close()` fails every waiting call and sends none.
  */
 export function remoteSandbox(options: ConnectRemoteSandboxOptions = {}): LazyRemoteSandbox {
   return createLazyRemoteSandbox(
@@ -1233,7 +1246,7 @@ export function remoteSandbox(options: ConnectRemoteSandboxOptions = {}): LazyRe
 /** The code of a connection the host refused (a policy close, 1008): final, never retried. */
 const REFUSED_CODE = 'permission-denied';
 
-/** Longest wait between reconnects for live listeners. */
+/** Longest wait between reconnects. */
 const RECONNECT_MAX_DELAY_MS = 5_000;
 
 /** The wait before reconnect attempt `attempt` (from 0): ADR 0019's schedule, 250 ms doubling to 5 s, with jitter. */
@@ -1281,52 +1294,104 @@ function asRemoteError(err: unknown): Error & { code: string } {
   return remoteError('unavailable', String(err));
 }
 
+/** The error every call gets once the lazy handle is closed. */
+function closedByClientError(): Error & { code: string } {
+  return remoteError('unavailable', 'remote sandbox connection closed by the client');
+}
+
+function resentCalls(count: number): string {
+  if (count === 1) return ' 1 call in flight waits to be sent again.';
+  return ` ${count} calls in flight wait to be sent again.`;
+}
+
+/** The one warning a drop logs, naming the calls in flight that wait to be sent again. */
+function connectionLostWarning(reason: string, serveUrl: string, resent: number): string {
+  let message =
+    `pyric: ${reason} at ${serveUrl}; calls wait up to 10 seconds for it, calls in flight are sent again, ` +
+    'and live listeners reconnect when the host answers.';
+  const hasResent = resent > 0;
+  if (hasResent) message += resentCalls(resent);
+  return message;
+}
+
 /**
  * The lazy wrapper with the connect function injected — the test seam
  * (tests inject a fake connect; production injects `connectRemoteSandbox`).
- * `connect` receives the callback its connection reports a loss through.
+ * `connect` receives the callback its connection reports a loss through,
+ * with the calls in flight to send again on the next connection.
  */
 export function createLazyRemoteSandbox(
-  connect: (onConnectionLost: (reason: string) => void) => Promise<RemoteSandbox>,
+  connect: (onConnectionLost: (reason: string, resend?: ReleasedOp[]) => void) => Promise<RemoteSandbox>,
   options: { url?: string; configuredUrl?: string; warn?: (message: string) => void } = {},
 ): LazyRemoteSandbox {
+  /** The connect in progress, or the one that attached. */
   let inner: Promise<RemoteSandbox> | null = null;
+  /** The attached connection, while it lasts. */
+  let current: RemoteSandbox | null = null;
+  let everAttached = false;
+  let lastAttemptFailure: string | undefined;
   let connection = 0;
   let closed = false;
   const subscriptions = new Set<LazySubscription>();
+  const held = createHeldCalls({ lastAttempt: () => lastAttemptFailure });
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let reconnectAttempt = 0;
 
   function ensure(): Promise<RemoteSandbox> {
-    if (closed) {
-      return Promise.reject(
-        remoteError('unavailable', 'remote sandbox connection closed by the client'),
-      );
-    }
+    if (closed) return Promise.reject(closedByClientError());
     if (!inner) {
       connection += 1;
       const id = connection;
-      inner = connect((reason) => connectionLost(id, reason)).then(
-        (h) => {
-          if (closed) {
-            h.close();
-            throw remoteError('unavailable', 'remote sandbox connection closed by the client');
-          }
-          // Discovery resolved the real URL — reflect it on the outer handle.
-          (handle as { serveUrl: string }).serveUrl = h.serveUrl;
-          reconnectAttempt = 0;
-          for (const subscription of subscriptions) attach(subscription, h);
-          return h;
-        },
-        (err) => {
-          // Fail-fast surfaces on this op, but don't latch: the remediation
-          // is "open <url> and retry", so the next op re-attempts the connect.
-          inner = null;
-          throw err;
-        },
-      );
+      inner = connect((reason, resend = []) => connectionLost(id, reason, resend)).then(attached, attemptFailed);
     }
     return inner;
+  }
+
+  /** Subscriptions attach first, then held calls go: the ones in flight at the drop, then the rest in issue order. */
+  function attached(h: RemoteSandbox): RemoteSandbox {
+    if (closed) {
+      h.close();
+      throw closedByClientError();
+    }
+    // Discovery resolved the real URL — reflect it on the outer handle.
+    (handle as { serveUrl: string }).serveUrl = h.serveUrl;
+    reconnectAttempt = 0;
+    lastAttemptFailure = undefined;
+    everAttached = true;
+    current = h;
+    for (const subscription of subscriptions) attach(subscription, h);
+    held.flush(h.channel);
+    return h;
+  }
+
+  function attemptFailed(err: unknown): never {
+    // Before the first attach the failure surfaces on this op, unlatched: the
+    // remediation is "open <url> and retry", so the next op re-attempts. After
+    // it, the failure is a host still restarting, and the schedule retries.
+    inner = null;
+    const error = asRemoteError(err);
+    lastAttemptFailure = error.message;
+    if (everAttached) retryAfter(error);
+    throw err;
+  }
+
+  /** Every failure is retried on the schedule except a host refusing this client, which is final. */
+  function retryAfter(error: Error & { code: string }): void {
+    const isRefused = error.code === REFUSED_CODE;
+    if (isRefused) {
+      refuse(error);
+      return;
+    }
+    reconnectAttempt += 1;
+    scheduleReconnect();
+  }
+
+  /** A host that refuses this client refuses every retry: held calls fail unsent, and waiting listeners end. */
+  function refuse(error: Error & { code: string }): void {
+    held.fail(error);
+    for (const subscription of subscriptions) {
+      if (subscription.detach === null) endSubscription(subscription, error);
+    }
   }
 
   /** A listener error is terminal: the listener leaves the set and is not resubscribed. */
@@ -1349,22 +1414,25 @@ export function createLazyRemoteSandbox(
       );
     } catch (err) {
       // A connection that closed under this attach has already reported its
-      // loss (inner is reset), and the reconnect resubscribes; any other
-      // refusal ends the listener.
-      const wasConnectionLost = inner === null || closed;
+      // loss, and the reconnect resubscribes; any other refusal ends the listener.
+      const wasConnectionLost = current !== h || closed;
       if (!wasConnectionLost) endSubscription(subscription, asRemoteError(err));
     }
   }
 
-  function connectionLost(id: number, reason: string): void {
-    const isCurrentConnection = id === connection && !closed;
+  function connectionLost(id: number, reason: string, resend: ReleasedOp[]): void {
+    if (closed) {
+      for (const call of resend) call.reject(closedByClientError());
+      return;
+    }
+    const isCurrentConnection = id === connection;
     if (!isCurrentConnection) return;
     inner = null;
+    current = null;
+    held.holdAgain(resend);
     // Once per drop, not per retry: a listener whose host never returns does
     // not wait silently, and a long outage does not flood the log.
-    const message =
-      `pyric: ${reason} at ${handle.serveUrl}; the next op connects again, ` +
-      'and live listeners reconnect when the host answers.';
+    const message = connectionLostWarning(reason, handle.serveUrl, resend.length);
     if (options.warn) options.warn(message);
     else process.stderr.write(`${message}\n`);
     for (const subscription of subscriptions) {
@@ -1374,30 +1442,28 @@ export function createLazyRemoteSandbox(
     scheduleReconnect();
   }
 
-  /** Reconnect while any listener waits for one. The pending timer holds the event loop, as a live listener does. */
+  /** True after a drop, until the next attach. */
+  function isLost(): boolean {
+    return everAttached && current === null && !closed;
+  }
+
+  /**
+   * Reconnect while a listener or a held call waits for one, on the schedule,
+   * never ahead of it. The pending timer holds the event loop, as a live
+   * listener does.
+   */
   function scheduleReconnect(): void {
     const isScheduled = reconnectTimer !== null;
+    const isConnecting = inner !== null;
     const hasWaitingListener = [...subscriptions].some((subscription) => subscription.detach === null);
-    const needsReconnect = !closed && !isScheduled && hasWaitingListener;
+    const hasHeldCall = held.size > 0;
+    const hasWaitingWork = hasWaitingListener || hasHeldCall;
+    const needsReconnect = !closed && !isScheduled && !isConnecting && hasWaitingWork;
     if (!needsReconnect) return;
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
-      ensure().then(
-        () => {},
-        (err) => {
-          const error = asRemoteError(err);
-          const isRefused = error.code === REFUSED_CODE;
-          if (isRefused) {
-            // A host that refuses this client refuses every retry: end the waiting listeners.
-            for (const subscription of subscriptions) {
-              if (subscription.detach === null) endSubscription(subscription, error);
-            }
-            return;
-          }
-          reconnectAttempt += 1;
-          scheduleReconnect();
-        },
-      );
+      // A failure reschedules from attemptFailed.
+      ensure().catch(() => {});
     }, reconnectDelay(reconnectAttempt));
   }
 
@@ -1407,27 +1473,46 @@ export function createLazyRemoteSandbox(
     reconnectTimer = null;
   }
 
+  /** A call issued after a drop waits for the next attach, up to the hold deadline. */
+  function heldUntilReconnect<T>(call: Promise<T>): Promise<T> {
+    scheduleReconnect();
+    return call;
+  }
+
   const channel: RemoteSandboxChannel = {
-    op: (payload) => ensure().then((h) => h.channel.op(payload)),
-    byteRoute: () => ensure().then((h) => h.channel.byteRoute?.()),
+    op(payload) {
+      const live = current;
+      if (live) return live.channel.op(payload);
+      if (isLost()) return heldUntilReconnect(held.hold(payload, Date.now()));
+      return ensure().then((h) => h.channel.op(payload));
+    },
+    byteRoute() {
+      if (isLost()) return heldUntilReconnect(held.holdByteRoute(Date.now()));
+      return ensure().then((h) => h.channel.byteRoute?.());
+    },
     subscribe(sub, onSnap, onError) {
       const subscription: LazySubscription = { sub, onSnap, onError, detach: null, last: null, resumed: false };
       subscriptions.add(subscription);
-      ensure().then(
-        (h) => attach(subscription, h),
-        (err) => {
-          // A listener made while no host answers fails fast, as an op does.
-          const isLive = subscriptions.has(subscription);
-          if (isLive) endSubscription(subscription, asRemoteError(err));
-        },
-      );
+      if (isLost()) {
+        // It attaches with the others when the host answers, with no deadline.
+        scheduleReconnect();
+      } else {
+        ensure().then(
+          (h) => attach(subscription, h),
+          (err) => {
+            // A listener made while no host answers fails fast, as an op does.
+            const isLive = subscriptions.has(subscription);
+            if (isLive) endSubscription(subscription, asRemoteError(err));
+          },
+        );
+      }
       return () => {
         const wasLive = subscriptions.delete(subscription);
         if (!wasLive) return;
         subscription.detach?.();
         subscription.detach = null;
-        const hasNoListeners = subscriptions.size === 0;
-        if (hasNoListeners) cancelReconnect();
+        const hasNoWaitingWork = subscriptions.size === 0 && held.size === 0;
+        if (hasNoWaitingWork) cancelReconnect();
       };
     },
   };
@@ -1443,8 +1528,10 @@ export function createLazyRemoteSandbox(
       closed = true;
       cancelReconnect();
       subscriptions.clear();
+      held.fail(closedByClientError());
       const settled = inner;
       inner = null;
+      current = null;
       if (settled) {
         settled.then(
           (h) => h.close(),

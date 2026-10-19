@@ -20,10 +20,13 @@ import {
   type RemoteSandboxChannel,
 } from '../../src/remote/index.js';
 import { setHeartbeatForTesting } from '../../src/remote/host-liveness.js';
+import { setHoldDeadlineForTesting } from '../../src/remote/held-calls.js';
 
 /**
  * A bridge host that acknowledges attach, answers every op with `generation`
- * (or none, with `answersOps: false`), sends one snap per subscription, and
+ * (or none, with `answersOps: false`, or only the methods `answersOps`
+ * accepts), records each op's method and each sub and op in frame order,
+ * sends one snap per subscription, and
  * answers `ping` with `pong`, as the bridge does. With `refusesAttach`, it
  * refuses every attach with a policy close (1008), as the bridge does when it
  * declines a hosted session. `muteClients` makes the sockets open now go
@@ -33,7 +36,7 @@ import { setHeartbeatForTesting } from '../../src/remote/host-liveness.js';
 async function startFakeHost(
   port: number,
   generation: string,
-  answersOps = true,
+  answersOps: boolean | ((method: string) => boolean) = true,
   refusesAttach = false,
 ): Promise<{
   port: number;
@@ -43,6 +46,8 @@ async function startFakeHost(
   setGeneration: (next: string) => void;
   subs: string[];
   ops: string[];
+  methods: string[];
+  frames: string[];
   attaches: () => number;
 }> {
   const http = createServer();
@@ -51,6 +56,13 @@ async function startFakeHost(
   await once(http, 'listening');
   const subs: string[] = [];
   const ops: string[] = [];
+  const methods: string[] = [];
+  const frames: string[] = [];
+  const answers = (method: string): boolean => {
+    const answersSome = typeof answersOps === 'function';
+    if (answersSome) return answersOps(method);
+    return answersOps;
+  };
   let attaches = 0;
   const muted = new WeakSet<object>();
   server.on('connection', socket => {
@@ -67,11 +79,14 @@ async function startFakeHost(
         reply({ type: 'attach-ack', protocol: 1, bridgeVersion: 'test', peerConnected: true, clientSessionId: generation });
       } else if (msg.type === 'worker-op') {
         ops.push(msg.id);
-        if (answersOps) reply({ type: 'worker-res', id: msg.id, ok: true, value: { key: null, exists: true, value: generation, size: 1 } });
+        methods.push(msg.op.method);
+        frames.push(`op ${msg.op.method}`);
+        if (answers(msg.op.method)) reply({ type: 'worker-res', id: msg.id, ok: true, value: { key: null, exists: true, value: generation, size: 1 } });
       } else if (msg.type === 'ping') {
         reply({ type: 'pong', id: msg.id });
       } else if (msg.type === 'worker-sub') {
         subs.push(msg.subId);
+        frames.push('sub');
         reply({ type: 'worker-snap', subId: msg.subId, value: { key: null, exists: true, value: generation, size: 1 } });
       }
     });
@@ -99,6 +114,8 @@ async function startFakeHost(
     setGeneration,
     subs,
     ops,
+    methods,
+    frames,
     attaches: () => attaches,
   };
 }
@@ -141,37 +158,45 @@ describe('remoteSandbox after its host restarts on the same url', () => {
     expect(await lazy.rtdb.get('ticks/2')).toBe('second');
   });
 
-  it('fails an op issued while the host is down and runs a later one once it is back', async () => {
+  it('holds an op issued while the host is down and sends it once it is back', async () => {
     const first = await startFakeHost(0, 'first');
-    const lazy = remoteSandbox({ url: `http://127.0.0.1:${first.port}` });
+    const warnings: string[] = [];
+    const lazy = remoteSandbox({ url: `http://127.0.0.1:${first.port}`, warn: message => warnings.push(message) });
     cleanups.push(() => lazy.close());
     expect(await lazy.rtdb.get('a')).toBe('first');
 
     await first.stop();
-    const whileDown = await lazy.rtdb.get('a').catch((error: { code?: string }) => error);
-    expect((whileDown as { code?: string }).code).toBe('unavailable');
+    await waitFor(() => warnings.length === 1);
+    const whileDown = lazy.rtdb.get('a');
+    // Long enough for the 250 ms and 500 ms retries to fail against nothing.
+    await Bun.sleep(900);
 
     const second = await startFakeHost(first.port, 'second');
     cleanups.push(second.stop);
-    expect(await lazy.rtdb.get('a')).toBe('second');
+    expect(await whileDown).toBe('second');
+    expect(second.methods).toEqual(['rtdb.get']);
   });
 
-  it('fails an op in flight at the drop once, without replaying it on the new host', async () => {
-    const first = await startFakeHost(0, 'first', false);
-    const lazy = remoteSandbox({ url: `http://127.0.0.1:${first.port}` });
+  it('sends an rtdb.set in flight at the drop again on the restarted host, under a new id, and resolves on its reply', async () => {
+    const first = await startFakeHost(0, 'first', method => method !== 'rtdb.set');
+    const warnings: string[] = [];
+    const lazy = remoteSandbox({ url: `http://127.0.0.1:${first.port}`, warn: message => warnings.push(message) });
     cleanups.push(() => lazy.close());
-    const inFlight = lazy.rtdb.set('a', 1).catch((error: Error & { code?: string }) => error);
-    await waitFor(() => first.ops.length === 1);
+    expect(await lazy.rtdb.get('a')).toBe('first');
+    let settled = false;
+    const inFlight = lazy.rtdb.set('a', 1).finally(() => (settled = true));
+    await waitFor(() => first.ops.length === 2);
 
     await first.stop();
-    const error = (await inFlight) as Error & { code?: string };
-    expect(error.code).toBe('unavailable');
-    expect(error.message).toContain('Requests already sent may have completed');
+    await waitFor(() => warnings.length === 1);
+    expect(warnings[0]).toContain('1 call in flight waits to be sent again.');
+    expect(settled).toBe(false);
 
     const second = await startFakeHost(first.port, 'second');
     cleanups.push(second.stop);
-    expect(await lazy.rtdb.get('a')).toBe('second');
-    expect(second.ops).toHaveLength(1);
+    await inFlight;
+    expect(second.methods).toEqual(['rtdb.set']);
+    expect(second.ops).not.toContain(first.ops[1]);
   });
 
   it('warns once per drop while its listeners wait for the host, not once per retry', async () => {
@@ -259,6 +284,170 @@ describe('remoteSandbox after its host restarts on the same url', () => {
   });
 });
 
+type Outcome = { settled: false } | { settled: true; value?: unknown; error?: Error & { code?: string } };
+
+/** Records how `call` settles, without awaiting it. */
+function track(call: Promise<unknown>): Outcome {
+  const outcome: { settled: boolean; value?: unknown; error?: Error & { code?: string } } = { settled: false };
+  call.then(
+    value => Object.assign(outcome, { settled: true, value }),
+    (error: Error & { code?: string }) => Object.assign(outcome, { settled: true, error }),
+  );
+  return outcome as Outcome;
+}
+
+function errorOf(outcome: Outcome): (Error & { code?: string }) | undefined {
+  if (!outcome.settled) return undefined;
+  return outcome.error;
+}
+
+/** A lazy handle on a host that answers the methods `answers` accepts, and the warnings it logs. */
+async function lazyOnHost(answers: (method: string) => boolean = () => true) {
+  const first = await startFakeHost(0, 'first', answers);
+  const warnings: string[] = [];
+  const lazy = remoteSandbox({ url: `http://127.0.0.1:${first.port}`, warn: message => warnings.push(message) });
+  cleanups.push(() => lazy.close());
+  expect(await lazy.rtdb.get('a')).toBe('first');
+  const drop = async (): Promise<void> => {
+    await first.stop();
+    await waitFor(() => warnings.length === 1);
+  };
+  return { first, lazy, warnings, drop };
+}
+
+const instance = undefined;
+
+describe('remoteSandbox calls across a host restart (#1107)', () => {
+  afterEach(() => setHoldDeadlineForTesting(undefined));
+
+  it('settles each RTDB call in flight at the drop by its fate, and sends again only writes and reads', async () => {
+    let answered = 0;
+    const answersFirstOnly = (): boolean => ++answered === 1;
+    const { first, lazy, drop } = await lazyOnHost(answersFirstOnly);
+    const onDisconnect = track(lazy.channel.op({ method: 'rtdb.onDisconnectSet', instance, path: 'a', value: 0 }));
+    const commit = track(lazy.channel.op({ method: 'rtdb.transactionCommit', instance, path: 'a', expected: 1, value: 2 }));
+    const keylessPush = track(lazy.rtdb.push('list', 1));
+    const metadata = track(lazy.storage.getMetadata('x'));
+    const get = track(lazy.rtdb.get('b'));
+    await waitFor(() => first.ops.length === 6);
+
+    await drop();
+    await waitFor(() => [commit, keylessPush, metadata].every(outcome => outcome.settled));
+    const disconnect = errorOf(commit);
+    expect(disconnect).toBeInstanceOf(Error);
+    expect(disconnect?.message).toBe('disconnect');
+    expect(disconnect?.code).toBeUndefined();
+    expect(errorOf(keylessPush)?.code).toBe('unavailable');
+    expect(errorOf(metadata)?.code).toBe('unavailable');
+    expect(errorOf(metadata)?.message).toContain('Requests already sent may have completed');
+
+    const second = await startFakeHost(first.port, 'second');
+    cleanups.push(second.stop);
+    await waitFor(() => get.settled);
+    expect(get).toEqual({ settled: true, value: 'second' });
+    await Bun.sleep(50);
+    expect(onDisconnect.settled).toBe(false);
+    expect(second.methods).toEqual(['rtdb.get']);
+  });
+
+  it('sends a keyed push in flight at the drop again', async () => {
+    const { first, lazy, drop } = await lazyOnHost(method => method !== 'rtdb.push');
+    const push = lazy.channel.op({ method: 'rtdb.push', instance, path: 'list', key: 'k1', value: 1 });
+    await waitFor(() => first.ops.length === 2);
+    await drop();
+    const second = await startFakeHost(first.port, 'second');
+    cleanups.push(second.stop);
+    await push;
+    expect(second.methods).toEqual(['rtdb.push']);
+  });
+
+  it('restores listeners first, then calls in flight at the drop, then calls issued while down, in issue order', async () => {
+    const { first, lazy, drop } = await lazyOnHost(method => method !== 'rtdb.set');
+    const values: unknown[] = [];
+    lazy.rtdb.onValue('ticks', snapshot => values.push(snapshot.value));
+    await waitFor(() => values.length === 1);
+    const inFlight = [lazy.rtdb.set('a', 1), lazy.rtdb.set('b', 2)];
+    await waitFor(() => first.ops.length === 3);
+
+    await drop();
+    const whileDown = [lazy.rtdb.get('c'), lazy.rtdb.update('d', { x: 1 })];
+    const second = await startFakeHost(first.port, 'second');
+    cleanups.push(second.stop);
+    await Promise.all([...inFlight, ...whileDown]);
+    expect(second.frames).toEqual(['sub', 'op rtdb.set', 'op rtdb.set', 'op rtdb.get', 'op rtdb.update']);
+  });
+
+  it('fails a call held past its deadline unsent, while a call in flight at the drop outlives it', async () => {
+    setHoldDeadlineForTesting(600);
+    const { first, lazy, drop } = await lazyOnHost(method => method !== 'rtdb.set');
+    const inFlight = track(lazy.rtdb.set('a', 1));
+    await waitFor(() => first.ops.length === 2);
+
+    await drop();
+    const held = track(lazy.rtdb.get('b'));
+    await waitFor(() => held.settled, 2_000);
+    const expired = errorOf(held);
+    expect(expired?.code).toBe('unavailable');
+    expect(expired?.message).toStartWith(
+      'The remote sandbox connection was not restored within 10 seconds. The request was not sent. Last attempt: ',
+    );
+    await Bun.sleep(300);
+    expect(inFlight.settled).toBe(false);
+
+    const second = await startFakeHost(first.port, 'second');
+    cleanups.push(second.stop);
+    await waitFor(() => inFlight.settled);
+    expect(errorOf(inFlight)).toBeUndefined();
+    expect(second.methods).toEqual(['rtdb.set']);
+  });
+
+  it('fails held and re-held calls with permission-denied, unsent, when the returning host refuses the attach', async () => {
+    const { first, lazy, drop } = await lazyOnHost(method => method !== 'rtdb.set');
+    const inFlight = lazy.rtdb.set('a', 1).catch((error: Error & { code?: string }) => error);
+    await waitFor(() => first.ops.length === 2);
+    await drop();
+    const held = lazy.rtdb.get('b').catch((error: Error & { code?: string }) => error);
+
+    const second = await startFakeHost(first.port, 'second', true, true);
+    cleanups.push(second.stop);
+    expect(((await inFlight) as Error & { code?: string }).code).toBe('permission-denied');
+    expect(((await held) as Error & { code?: string }).code).toBe('permission-denied');
+    expect(second.ops).toEqual([]);
+  });
+
+  it('fails held and re-held calls once on close() and sends none of them', async () => {
+    const { first, lazy, drop } = await lazyOnHost(method => method !== 'rtdb.set');
+    const inFlight = lazy.rtdb.set('a', 1).catch((error: Error) => error);
+    await waitFor(() => first.ops.length === 2);
+    await drop();
+    const held = lazy.rtdb.get('b').catch((error: Error) => error);
+
+    lazy.close();
+    expect(((await inFlight) as Error).message).toContain('closed by the client');
+    expect(((await held) as Error).message).toContain('closed by the client');
+    const second = await startFakeHost(first.port, 'second');
+    cleanups.push(second.stop);
+    // Long enough for the first two retries a held call would trigger.
+    await Bun.sleep(900);
+    expect(second.attaches()).toBe(0);
+  });
+
+  it('attaches a listener opened while the host is down once it is back, with no deadline', async () => {
+    setHoldDeadlineForTesting(200);
+    const { first, lazy, drop } = await lazyOnHost();
+    await drop();
+    const values: unknown[] = [];
+    const errors: unknown[] = [];
+    lazy.rtdb.onValue('ticks', snapshot => values.push(snapshot.value), error => errors.push(error));
+    await Bun.sleep(500);
+    const second = await startFakeHost(first.port, 'second');
+    cleanups.push(second.stop);
+    await waitFor(() => values.length === 1);
+    expect(values).toEqual(['second']);
+    expect(errors).toEqual([]);
+  });
+});
+
 /** A heartbeat short enough for a test: ping every 50 ms, 300 ms of silence is a drop. */
 const fastHeartbeat = { intervalMs: 50, timeoutMs: 300 };
 
@@ -303,7 +492,7 @@ describe('remoteSandbox when its host stops answering without closing the socket
     expect(errors).toEqual([]);
   });
 
-  it('fails an op sent on the silent socket once and runs an op issued while reconnecting once', async () => {
+  it('sends an rtdb.set sent on the silent socket again, and fails a Storage call sent there once', async () => {
     const host = await startFakeHost(0, 'first');
     cleanups.push(host.stop);
     const warnings: string[] = [];
@@ -312,15 +501,19 @@ describe('remoteSandbox when its host stops answering without closing the socket
     expect(await lazy.rtdb.get('a')).toBe('first');
 
     host.muteClients();
-    const unanswered = await lazy.rtdb.set('a', 1).catch((error: Error & { code?: string }) => error);
-    expect((unanswered as Error & { code?: string }).code).toBe('unavailable');
+    const unanswered = lazy.rtdb.set('a', 1);
+    const metadata = await lazy.storage.getMetadata('x').catch((error: Error & { code?: string }) => error);
+    expect((metadata as Error & { code?: string }).code).toBe('unavailable');
+    expect((metadata as Error).message).toContain('Requests already sent may have completed');
+    await unanswered;
     expect(warnings).toHaveLength(1);
+    expect(host.attaches()).toBe(2);
+    // The muted socket recorded nothing; the new one took the set once.
+    expect(host.methods).toEqual(['rtdb.get', 'rtdb.set']);
 
     host.setGeneration('second');
-    const opsBefore = host.ops.length;
     expect(await lazy.rtdb.get('a')).toBe('second');
-    expect(host.ops.length - opsBefore).toBe(1);
-    expect(host.attaches()).toBe(2);
+    expect(host.methods).toEqual(['rtdb.get', 'rtdb.set', 'rtdb.get']);
   });
 
   it('ends the eager handle\'s listeners with unavailable', async () => {
@@ -398,6 +591,26 @@ describe('createLazyRemoteSandbox when the connection is lost', () => {
     lost[0]!('connection lost again');
     await lazy.channel.op({ method: 'getSnapshot' });
     expect(connects).toBe(2);
+  });
+
+  it('retries a reconnect that fails with not-found, failed-precondition, or deadline-exceeded while it holds a call', async () => {
+    const failures = ['not-found', 'failed-precondition', 'deadline-exceeded'];
+    let connects = 0;
+    let lose: (reason: string) => void = () => {};
+    const lazy = createLazyRemoteSandbox(async onConnectionLost => {
+      connects += 1;
+      lose = onConnectionLost;
+      const failure = failures[connects - 2];
+      const hostIsRestarting = failure !== undefined;
+      if (hostIsRestarting) throw Object.assign(new Error(`host restarting (${failure})`), { code: failure });
+      return fakeConnection().handle;
+    }, { warn: () => {} });
+    cleanups.push(() => lazy.close());
+    await lazy.channel.op({ method: 'getSnapshot' });
+
+    lose('connection lost');
+    await lazy.channel.op({ method: 'getSnapshot' });
+    expect(connects).toBe(5);
   });
 
   it('keeps retrying with backoff while a listener is live and stops once it unsubscribes', async () => {

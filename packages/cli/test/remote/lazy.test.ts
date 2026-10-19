@@ -95,6 +95,25 @@ describe('createLazyRemoteSandbox', () => {
     expect(inner.ops).toHaveLength(1);
   });
 
+  it('after a loss, holds an op through a failed connect instead of rejecting it', async () => {
+    let connects = 0;
+    let lose: (reason: string) => void = () => {};
+    const inner = fakeInner();
+    const lazy = createLazyRemoteSandbox(async (onConnectionLost) => {
+      connects += 1;
+      lose = onConnectionLost;
+      if (connects === 2) throw Object.assign(new Error('serve restarting'), { code: 'unavailable' });
+      return inner.handle;
+    }, { warn: () => {} });
+    await lazy.rtdb.get('a');
+
+    lose('connection lost');
+    await lazy.rtdb.set('b', 1);
+    expect(connects).toBe(3);
+    expect(inner.ops.map((o) => o.method)).toEqual(['rtdb.get', 'rtdb.set']);
+    lazy.close();
+  });
+
   it('ready connects eagerly and resolves / rejects with the connect outcome', async () => {
     let connects = 0;
     const lazy = createLazyRemoteSandbox(async () => {
