@@ -31,7 +31,7 @@ import { SERVE_HISTORY_LIMITS } from '../observation-limits.js';
 
 import { getFirestore } from 'pyric/firestore';
 import { seedDocuments, setRules, snapshotDocuments } from 'pyric/sandbox/firestore';
-import { rulesSourceRejection } from 'pyric/rules/internal';
+import { parseToASTOrError, rulesSourceRejection } from 'pyric/rules/internal';
 import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
 import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database';
 import { getAuth, sandbox as authOps, type SeedUser } from 'pyric/auth';
@@ -49,7 +49,14 @@ import { setupAiDiagnosticsRelay } from '../ai-diagnostics-relay.js';
 import { createWorkerDurableBackend, setupServerAuthFlush } from './durable-persistence.js';
 import { ensureAuth, getOrCreateInstanceId, type HostCtx } from './host.js';
 import { defaultInstanceNameOf, rtdbInstance } from './host/rtdb-instances.js';
-import { databaseInstanceRulesHost, resolvePendingDatabaseTargets, setDatabaseRules, setDatabaseTargetRules } from './host/rules.js';
+import {
+  databaseInstanceRulesHost,
+  deployFirestoreRulesToHost,
+  firestoreRuleMessages,
+  resolvePendingDatabaseTargets,
+  setDatabaseRules,
+  setDatabaseTargetRules,
+} from './host/rules.js';
 import { connectDatabaseInstanceRules, createPendingDatabaseTargets } from '../database-instance-rules-host.js';
 import { buildVerifyFixture, type PyricVerifyFixture } from '../../verify/fixture.js';
 import { captureRtdbInstances, defaultInstanceUrl } from '../../verify/rtdb-instance-capture.js';
@@ -91,10 +98,9 @@ export function setupWorkerHotReload(
     try {
       const { rules } = JSON.parse(ev.data) as { rules: string; rulesHash?: string };
       // The check every rules load path runs; a refused source leaves the
-      // active rules in force.
-      const rejection = rulesSourceRejection(rules);
-      if (rejection !== null) throw new Error(`Firestore ${rejection.message}`);
-      setRules(ctx.sandbox, rules);
+      // active rules in force while updating `ctx.activeRules.firestore` error status.
+      const deployed = deployFirestoreRulesToHost(ctx, rules);
+      if (deployed.rejectionMessage !== null) throw new Error(deployed.rejectionMessage);
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error('[pyric worker] rules hot-reload failed:', err instanceof Error ? err.message : String(err));
@@ -225,7 +231,7 @@ function sandboxHasExistingData(ctx: HostCtx): boolean {
 export function applyServeInit(
   ctx: HostCtx,
   payload: InitPayload,
-  env: ServeInitEnv,
+  env: ServeInitEnv = { fetch: globalThis.fetch },
 ): ServeInitResult {
   const result: ServeInitResult = {
     rulesDeployed: false,
@@ -264,25 +270,32 @@ export function applyServeInit(
   //    rules, surface loudly.
   if (payload.rules) {
     const rejection = rulesSourceRejection(payload.rules);
-    if (rejection !== null) {
-      result.rulesParseError = `Firestore ${rejection.message}`;
+    const parsed = rejection === null ? parseToASTOrError(payload.rules) : null;
+    const wrongService = parsed !== null && parsed.ok && parsed.ast.service && parsed.ast.service.name !== 'cloud.firestore'
+      ? parsed.ast.service
+      : null;
+    if (rejection !== null || wrongService !== null) {
+      result.rulesParseError = wrongService !== null
+        ? `Firestore rules did not compile: Expected 'service cloud.firestore', got 'service ${wrongService.name}'.`
+        : `Firestore ${rejection!.message}`;
       console.error(
         '[pyric worker] firestore.rules not loaded, running WITHOUT your rules:',
         result.rulesParseError,
       );
     } else {
-      setRules(ctx.sandbox, payload.rules);
+      const lint = setRules(ctx.sandbox, payload.rules);
       result.rulesDeployed = true;
-      // Record the deployed source on ctx (mirrors the database branch below)
+      // Record the deployed source + lint findings on ctx (mirrors the database branch below)
       // so diagnostics report it AND the `resetAll` op can re-deploy it —
       // `sandbox.resetAll()` swaps the env, which wipes env-owned Firestore
       // rules; a data reset must not silently de-govern writes.
       ctx.activeRules ??= {};
       ctx.activeRules.firestore = {
         source: payload.rules,
+        lastKnownGood: payload.rules,
         updatedAt: Date.now(),
         status: 'active',
-        messages: [],
+        messages: firestoreRuleMessages(lint),
       };
     }
   }

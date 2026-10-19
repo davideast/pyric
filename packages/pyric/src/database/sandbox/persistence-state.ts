@@ -3,6 +3,7 @@ import type { ChildListeners } from './child-listeners.js';
 import type { JsonValue } from './data-tree.js';
 import type { Priority } from './query.js';
 import type { ValueListeners } from './value-listeners.js';
+import { WritePlane } from './write-plane.js';
 
 function decode(root: JsonValue): {
   data: JsonValue;
@@ -141,11 +142,15 @@ function decode(root: JsonValue): {
 }
 
 export class PersistenceState {
+  private readonly writes: WritePlane;
+
   constructor(
     private readonly state: BackendState,
     private readonly values: ValueListeners,
     private readonly children: ChildListeners,
-  ) {}
+  ) {
+    this.writes = new WritePlane(state, values, children);
+  }
 
   exportTree(): JsonValue {
     return this.state.tree.snapshot();
@@ -186,6 +191,7 @@ export class PersistenceState {
     this.state.tree.restore(dataToRestore);
     this.state.priorities.restore(persisted.priorities);
     this.state.mutations.mark('/');
+    this.writes.cancelDeniedListeners();
     this.values.fanOut(['/']);
     this.children.fanOut(priors);
   }

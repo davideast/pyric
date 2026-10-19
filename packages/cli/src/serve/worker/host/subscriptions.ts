@@ -28,6 +28,7 @@ import { listenIndexWarning } from 'pyric/database/internal';
 import type { FirestoreSubMessage, RtdbValueSubMessage, UnsubMessage } from '../protocol.js';
 import { serializeError, isRtdbSub } from '../protocol.js';
 import { activityJourneyId, type HostCtx, type PortLike, post } from '../host-context.js';
+import { reconcilePortSessions } from '../host-auth.js';
 import {
   lensDb,
   opProvenance,
@@ -97,14 +98,17 @@ function resubscribeSessionSubs(ctx: HostCtx, port: PortLike): void {
   }
 }
 
-/** Firestore replaces its environment; RTDB restores in place and already notified its listeners. */
+/** Firestore replaces its environment; RTDB restores in place and rebinds only ports whose session changed. */
 export function restoreFirestoreSubscriptions(ctx: HostCtx): void {
+  const reconciledPorts = reconcilePortSessions(ctx);
   const byPort = _subscriptionIntents.get(ctx);
   const hasNoIntents = byPort === undefined;
   if (hasNoIntents) return;
   for (const [port, intents] of [...byPort]) {
+    const portReconciled = reconciledPorts.has(port);
     for (const [subId, msg] of [...intents]) {
-      const requiresRebinding = !isRtdbSub(msg);
+      const followsAppSession = !msg.actAs || msg.actAs.mode === 'app-session';
+      const requiresRebinding = !isRtdbSub(msg) || (portReconciled && followsAppSession);
       if (requiresRebinding) restartSubscription(ctx, port, subId, msg);
     }
   }

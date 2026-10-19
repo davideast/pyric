@@ -25,6 +25,7 @@ import {
 
 import type { OpMessage } from '../protocol.js';
 import { type HostCtx, type PortLike, ok, fail, bestEffortFlush } from '../host-context.js';
+import { reapplyActiveHostRulesAfterReset, syncHostRulesAfterCheckpointRestore } from './rules.js';
 import { restoreFirestoreSubscriptions } from './subscriptions.js';
 import { exportStateBundle, importStateBundle } from './state-transfer.js';
 
@@ -122,7 +123,12 @@ export async function handleConnectionOp(
 
     case 'importState': {
       try {
-        await importStateBundle(ctx.sandbox, msg.bundle);
+        const imported = await importStateBundle(ctx.sandbox, msg.bundle);
+        if (imported.kind === 'checkpoint') {
+          syncHostRulesAfterCheckpointRestore(ctx, imported.rules);
+        } else {
+          reapplyActiveHostRulesAfterReset(ctx);
+        }
         restoreFirestoreSubscriptions(ctx);
         await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, { ok: true });
@@ -170,6 +176,7 @@ export async function handleConnectionOp(
         ok(port, msg.id, { ok: false, error: `no such checkpoint: ${msg.name}` });
         break;
       }
+      syncHostRulesAfterCheckpointRestore(ctx, restored.state.rules);
       restoreFirestoreSubscriptions(ctx);
       await bestEffortFlush(ctx, msg.method);
       ok(port, msg.id, { ok: true, at: restored.at, counts: restored.counts });

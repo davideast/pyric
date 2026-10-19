@@ -12,9 +12,12 @@
  */
 
 import type { Firestore } from 'pyric/firestore';
+import type { SandboxRuleSources } from 'pyric/sandbox';
+import { LOCKED_DATABASE_RULES } from 'pyric/sandbox/internal';
 import { setRules } from 'pyric/sandbox/firestore';
 import {
   lintFirestoreRules,
+  parseToASTOrError,
   rulesSourceRejection,
   type CompileLimitViolation,
 } from 'pyric/rules/internal';
@@ -24,7 +27,7 @@ import { sandbox as rtdbSandbox } from 'pyric/database';
 import { parseRtdbRulesText } from '../../../rtdb/rules-json.js';
 import type { OpMessage } from '../protocol.js';
 import type { DatabaseInstanceRulesHost, DatabaseTargetDeploy } from '../../database-instance-rules-host.js';
-import { type ActiveRulesState, type HostCtx, type PortLike, ok, fail } from '../host-context.js';
+import { type ActiveRulesState, type HostCtx, type PortLike, ok, fail, bestEffortFlush } from '../host-context.js';
 import { rtdbInstance, rtdbInstanceKey, rtdbInstances } from './rtdb-instances.js';
 
 export function normalizeDatabaseRules(source: unknown): { rules: Record<string, unknown> } | null {
@@ -158,7 +161,7 @@ function activeRulesView(
 }
 
 /** The lint findings of an installed ruleset, one message each. */
-function firestoreRuleMessages(result: { warnings?: Array<{ severity?: string; message?: string }> }) {
+export function firestoreRuleMessages(result: { warnings?: Array<{ severity?: string; message?: string }> }) {
   const messages: Array<{ severity: 'info' | 'warn' | 'error'; text: string; line?: number; column?: number }> = [];
   for (const warning of result.warnings ?? []) {
     messages.push({
@@ -179,6 +182,119 @@ function compileLimitMessages(violations: readonly CompileLimitViolation[]) {
   }));
 }
 
+/** Deploy Firestore rules to the sandbox and update `ctx.activeRules.firestore`, refusing non-`cloud.firestore` services. */
+export function deployFirestoreRulesToHost(ctx: HostCtx, source: string): {
+  ok: boolean;
+  warnings: ReturnType<typeof lintFirestoreRules>['warnings'];
+  messages: ActiveRulesState['messages'];
+  rejectionMessage: string | null;
+} {
+  const rejection = rulesSourceRejection(source);
+  const parsed = rejection === null ? parseToASTOrError(source) : null;
+  const wrongService = parsed !== null && parsed.ok && parsed.ast.service && parsed.ast.service.name !== 'cloud.firestore'
+    ? parsed.ast.service
+    : null;
+  const refused = rejection !== null || wrongService !== null;
+  const result = refused ? lintFirestoreRules(source) : setRules(ctx.sandbox, source);
+  const wrongServiceText = wrongService !== null
+    ? `Expected 'service cloud.firestore', got 'service ${wrongService.name}'.`
+    : null;
+  const messages = wrongService !== null
+    ? [{
+        severity: 'error' as const,
+        text: wrongServiceText!,
+        ...(wrongService.loc ? { line: wrongService.loc.line } : {}),
+      }]
+    : rejection === null
+      ? firestoreRuleMessages(result)
+      : rejection.kind === 'parse'
+        ? [{ severity: 'error' as const, text: `Firestore ${rejection.message}`, line: rejection.line, column: rejection.column }]
+        : compileLimitMessages(rejection.violations);
+  const okDeploy = !messages.some((m) => m.severity === 'error');
+  ctx.activeRules ??= {};
+  const previous = ctx.activeRules.firestore?.status === 'active'
+    ? ctx.activeRules.firestore.source
+    : ctx.activeRules.firestore?.lastKnownGood;
+  ctx.activeRules.firestore = {
+    // The source the sandbox enforces: the new one when it was installed,
+    // even with lint errors, and the active one when it was refused.
+    source: !refused ? source : ctx.activeRules.firestore?.source ?? source,
+    updatedAt: Date.now(),
+    status: okDeploy ? 'active' : 'error',
+    messages,
+    ...(previous ? { lastKnownGood: previous } : {}),
+  };
+  const rejectionMessage = wrongServiceText !== null
+    ? `Firestore rules did not compile: ${wrongServiceText}`
+    : rejection !== null
+      ? `Firestore ${rejection.message}`
+      : null;
+  return { ok: okDeploy, warnings: result.warnings, messages, rejectionMessage };
+}
+
+/** Synchronize `ctx.activeRules` and RTDB instance rules after a full-state checkpoint restore. */
+export function syncHostRulesAfterCheckpointRestore(ctx: HostCtx, rules: SandboxRuleSources): void {
+  if (rules.firestore.length > 0) {
+    ctx.activeRules ??= {};
+    ctx.activeRules.firestore = {
+      source: rules.firestore,
+      lastKnownGood: rules.firestore,
+      updatedAt: Date.now(),
+      status: 'active',
+      messages: firestoreRuleMessages(lintFirestoreRules(rules.firestore)),
+    };
+  } else if (ctx.activeRules) {
+    delete ctx.activeRules.firestore;
+  }
+
+  const defaultRtdb = rtdbInstance(ctx);
+  if (rules.database !== null) {
+    defaultRtdb.rules = {
+      source: structuredClone(rules.database),
+      lastKnownGood: structuredClone(rules.database),
+      updatedAt: Date.now(),
+      status: 'active',
+      messages: [],
+    };
+  } else {
+    delete defaultRtdb.rules;
+  }
+
+  for (const [, instance] of ctx.rtdbInstances?.entries() ?? []) {
+    if (instance.selector === undefined) continue;
+    const databaseRules = instance.rules;
+    const hasActiveDatabaseRules = databaseRules?.status === 'active';
+    const databaseSource = hasActiveDatabaseRules ? databaseRules.source : databaseRules?.lastKnownGood;
+    if (databaseSource !== undefined) {
+      rtdbSandbox.setRules(instance.live, normalizeDatabaseRules(databaseSource));
+    } else {
+      const policy = ctx.rtdbDefaultPolicy ?? 'deny';
+      rtdbSandbox.setDefaultPolicy(instance.live, policy);
+      rtdbSandbox.setRules(instance.live, policy === 'allow' ? null : LOCKED_DATABASE_RULES);
+    }
+  }
+}
+
+/** Re-apply active host Firestore and RTDB rules onto `ctx.sandbox` after a legacy data-only snapshot import. */
+export function reapplyActiveHostRulesAfterReset(ctx: HostCtx): void {
+  const firestoreRules = ctx.activeRules?.firestore;
+  const hasActiveRules = firestoreRules?.status === 'active';
+  const source = hasActiveRules ? firestoreRules.source : firestoreRules?.lastKnownGood;
+  if (typeof source === 'string') setRules(ctx.sandbox, source);
+  for (const [, instance] of ctx.rtdbInstances?.entries() ?? []) {
+    const databaseRules = instance.rules;
+    const hasActiveDatabaseRules = databaseRules?.status === 'active';
+    const databaseSource = hasActiveDatabaseRules ? databaseRules.source : databaseRules?.lastKnownGood;
+    if (databaseSource !== undefined) {
+      rtdbSandbox.setRules(instance.live, normalizeDatabaseRules(databaseSource));
+    } else if (instance.selector !== undefined) {
+      const policy = ctx.rtdbDefaultPolicy ?? 'deny';
+      rtdbSandbox.setDefaultPolicy(instance.live, policy);
+      rtdbSandbox.setRules(instance.live, policy === 'allow' ? null : LOCKED_DATABASE_RULES);
+    }
+  }
+}
+
 /** The rules deploy/status op methods routed to {@link handleRulesOp}. */
 const RULES_METHODS = new Set<string>([
   'setRules',
@@ -192,50 +308,28 @@ export function isRulesOp(method: OpMessage['method']): boolean {
   return RULES_METHODS.has(method);
 }
 
-export function handleRulesOp(
+export async function handleRulesOp(
   ctx: HostCtx,
   port: PortLike,
   msg: OpMessage,
   db: Firestore,
-): void {
+): Promise<void> {
+  void db;
   switch (msg.method) {
     case 'setRules':
     case 'setFirestoreRules': {
       try {
-        // Production rejects a ruleset that does not parse, or is past its
-        // compile limits, before it evaluates any request. The sandbox keeps
-        // the active ruleset, and the status carries the reason every CLI
-        // rules load path refuses with (the parse failure at its position,
-        // or production's compile messages).
-        const rejection = rulesSourceRejection(msg.source);
-        const result = rejection !== null ? lintFirestoreRules(msg.source) : setRules(ctx.sandbox, msg.source);
-        const messages = rejection === null
-          ? firestoreRuleMessages(result)
-          : rejection.kind === 'parse'
-            ? [{ severity: 'error' as const, text: `Firestore ${rejection.message}`, line: rejection.line, column: rejection.column }]
-            : compileLimitMessages(rejection.violations);
-        const okDeploy = !messages.some((m) => m.severity === 'error');
-        ctx.activeRules ??= {};
-        const previous = ctx.activeRules.firestore?.status === 'active'
-          ? ctx.activeRules.firestore.source
-          : ctx.activeRules.firestore?.lastKnownGood;
-        ctx.activeRules.firestore = {
-          // The source the sandbox enforces: the new one when it was installed,
-          // even with lint errors, and the active one when it was refused.
-          source: rejection === null ? msg.source : ctx.activeRules.firestore?.source ?? msg.source,
-          updatedAt: Date.now(),
-          status: okDeploy ? 'active' : 'error',
-          messages,
-          ...(previous ? { lastKnownGood: previous } : {}),
-        };
-        ok(port, msg.id, { warnings: result.warnings, messages, ok: okDeploy });
+        const deployed = deployFirestoreRulesToHost(ctx, msg.source);
+        ok(port, msg.id, { warnings: deployed.warnings, messages: deployed.messages, ok: deployed.ok });
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
 
     case 'setDatabaseRules': {
       try {
-        ok(port, msg.id, setDatabaseRules(ctx, msg.instance, msg.source));
+        const result = setDatabaseRules(ctx, msg.instance, msg.source);
+        await bestEffortFlush(ctx, msg.method);
+        ok(port, msg.id, result);
       } catch (e) { fail(port, msg.id, e); }
       break;
     }

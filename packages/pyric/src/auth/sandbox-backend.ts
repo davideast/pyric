@@ -2015,7 +2015,7 @@ export class SandboxBackend {
     const stored = this.usersByUid.get(user.uid);
     const claims = stored?.customClaims ?? {};
     const hasStoredUser = stored !== undefined;
-    if (hasStoredUser) {
+    if (hasStoredUser && authenticates) {
       stored.lastLoginAt = this.now().toISOString();
       this.notifyUsersChanged();
     }

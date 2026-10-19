@@ -338,10 +338,37 @@ function applyFirestoreDocuments(
   }
 }
 
-/** Replace the target's Realtime Database tree and install the state's ruleset. */
+/** Build a persistence envelope carrying both the target RTDB tree and its ruleset for atomic restore. */
+function databaseEnvelopeWithRules(
+  database: FullSandboxState['database'],
+  rules: DatabaseRuleset | null,
+): JsonValue {
+  const clonedDb = structuredClone(database);
+  const clonedRules = structuredClone(rules) as JsonValue;
+  if (
+    clonedDb !== null
+    && typeof clonedDb === 'object'
+    && !Array.isArray(clonedDb)
+    && (clonedDb as Record<string, JsonValue>)['.pyricRtdbPersistence'] === 1
+    && 'data' in clonedDb
+    && typeof (clonedDb as Record<string, JsonValue>).priorities === 'object'
+    && (clonedDb as Record<string, JsonValue>).priorities !== null
+    && !Array.isArray((clonedDb as Record<string, JsonValue>).priorities)
+  ) {
+    return { ...(clonedDb as Record<string, JsonValue>), rules: clonedRules };
+  }
+  return {
+    '.pyricRtdbPersistence': 1,
+    data: clonedDb,
+    priorities: {},
+    rules: clonedRules,
+  };
+}
+
+/** Replace the target's Realtime Database tree and install the state's ruleset atomically before fan-out. */
 function applyDatabase(sandbox: LocalSandbox, state: FullSandboxState): void {
   const backend = databaseBackendFor(sandbox);
-  backend.restoreTree(structuredClone(state.database));
+  backend.restoreTree(databaseEnvelopeWithRules(state.database, state.rules.database));
   backend.setRules(structuredClone(state.rules.database));
 }
 

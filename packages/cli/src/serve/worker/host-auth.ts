@@ -107,20 +107,44 @@ export function portSession(ctx: HostCtx, port: PortLike): MintedSession | null 
   return portSessionsFor(ctx).get(port) ?? null;
 }
 
+function resolveSignInTenant(
+  ctx: HostCtx,
+  port: PortLike,
+  explicitTenantId: string | null | undefined,
+): string | null {
+  if (explicitTenantId === null) {
+    portTenantsFor(ctx).delete(port);
+    return null;
+  }
+  if (explicitTenantId !== undefined) {
+    return explicitTenantId;
+  }
+  return portTenant(ctx, port);
+}
+
 /**
  * Bind (or clear) a port's session and fan the change out to THAT PORT's
  * authState/idToken subs — the per-port analog of the old cross-tab
  * broadcast. Every sign-in mints a fresh token (mintSession did), so the
  * idToken stream fires alongside authState, matching the real observers.
  */
-function setPortSession(ctx: HostCtx, port: PortLike, session: MintedSession | null): void {
+function setPortSession(
+  ctx: HostCtx,
+  port: PortLike,
+  session: MintedSession | null,
+  options?: { skipResubscribe?: boolean },
+): void {
   if (session) {
     const tenant = session.user.tenantId ?? portTenant(ctx, port);
-    if (tenant) {
-      portTenantsFor(ctx).set(port, tenant);
-    }
     session.state.tenant = tenant ?? undefined;
     (session.user as { tenantId?: string | null }).tenantId = tenant ?? null;
+    if (tenant && session.state.token) {
+      const firebaseClaim = session.state.token.firebase;
+      const firebaseObj = (typeof firebaseClaim === 'object' && firebaseClaim !== null)
+        ? { ...(firebaseClaim as Record<string, unknown>), tenant }
+        : { tenant };
+      session.state.token = { ...session.state.token, firebase: firebaseObj };
+    }
   }
   portSessionsFor(ctx).set(port, session);
 
@@ -133,7 +157,9 @@ function setPortSession(ctx: HostCtx, port: PortLike, session: MintedSession | n
   // Firestore/RTDB listeners under the NEW identity, so a sign-out re-evaluates
   // live streams (auth-gated data is revoked, not leaked) and a sign-in
   // grants them. Studio-lens subs (explicit actAs) are untouched.
-  ctx.resubscribePortSubs?.(port);
+  if (!options?.skipResubscribe) {
+    ctx.resubscribePortSubs?.(port);
+  }
 
   const newUid = session?.user.uid ?? null;
   const lastUid = _lastAuthStateUid.has(port) ? _lastAuthStateUid.get(port)! : null;
@@ -155,6 +181,36 @@ function setPortSession(ctx: HostCtx, port: PortLike, session: MintedSession | n
 }
 
 export { setPortSession };
+
+/** Reconcile every connected port's session with `ctx.auth` after a full-state reset, import, or restore. */
+export function reconcilePortSessions(ctx: HostCtx): Set<PortLike> {
+  ctx.sessionDbs?.clear();
+  clearRtdbSessionHandles(ctx);
+  ctx.sessionStorages?.clear();
+  const changed = new Set<PortLike>();
+  if (!ctx.portSessions || ctx.portSessions.size === 0) return changed;
+  const auth = ensureAuth(ctx);
+  const usersByUid = new Map(authSandboxOps.listUsers(auth).map((u) => [u.uid, u]));
+  for (const [port, session] of [...ctx.portSessions]) {
+    if (session === null) continue;
+    const record = usersByUid.get(session.user.uid);
+    if (!record || record.disabled) {
+      setPortSession(ctx, port, null, { skipResubscribe: true });
+      changed.add(port);
+      continue;
+    }
+    const providerClaim = (session.state.token?.firebase as { sign_in_provider?: string } | undefined)?.sign_in_provider;
+    const kind = providerClaim === 'custom' ? 'custom' : 'uid';
+    const refreshed = authSandboxOps.mintSession(auth, {
+      kind,
+      uid: session.user.uid,
+      tenantId: session.user.tenantId ?? null,
+    });
+    setPortSession(ctx, port, refreshed, { skipResubscribe: true });
+    changed.add(port);
+  }
+  return changed;
+}
 
 /** Apply a forced ID-token refresh to this port's data authorization state. */
 function refreshPortAuthorization(
@@ -199,9 +255,10 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
   switch (msg.method) {
     case 'auth.createUser': {
       try {
+        const tenantId = resolveSignInTenant(ctx, port, msg.tenantId);
         const session = authSandboxOps.mintSession(auth, {
           kind: 'createPassword', email: msg.email, password: msg.password,
-          tenantId: msg.tenantId ?? null,
+          tenantId,
         });
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx, msg.method); // new user record must be durable at ack
@@ -212,11 +269,13 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
 
     case 'auth.signInEmail': {
       try {
+        const tenantId = resolveSignInTenant(ctx, port, msg.tenantId);
         const session = authSandboxOps.mintSession(auth, {
           kind: 'password', email: msg.email, password: msg.password,
-          tenantId: msg.tenantId ?? null,
+          tenantId,
         });
         setPortSession(ctx, port, session);
+        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, credReply(session, null, false));
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -224,14 +283,18 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
 
     case 'auth.signInAnonymously': {
       try {
+        const tenantId = resolveSignInTenant(ctx, port, msg.tenantId);
         const existing = portSession(ctx, port);
-        const hasAnonymousSession = existing !== null && existing.user.isAnonymous;
+        const hasAnonymousSession =
+          existing !== null
+          && existing.user.isAnonymous
+          && (existing.user.tenantId ?? null) === tenantId;
         if (hasAnonymousSession) {
           ok(port, msg.id, credReply(existing, null, false));
           break;
         }
         const session = authSandboxOps.mintSession(auth, {
-          kind: 'anonymous', tenantId: msg.tenantId ?? null,
+          kind: 'anonymous', tenantId,
         });
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx, msg.method);
@@ -250,10 +313,11 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
 
     case 'auth.restorePortSession': {
       try {
+        const tenantId = resolveSignInTenant(ctx, port, msg.tenantId);
         let session: MintedSession | null = null;
         try {
           session = authSandboxOps.mintSession(auth, {
-            kind: 'uid', uid: msg.uid, tenantId: msg.tenantId ?? null,
+            kind: 'uid', uid: msg.uid, tenantId,
           });
         } catch {
           session = null;
@@ -315,7 +379,11 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
 
     case 'auth.setTenantId': {
       try {
-        portTenantsFor(ctx).set(port, msg.tenantId);
+        if (msg.tenantId === null) {
+          portTenantsFor(ctx).delete(port);
+        } else {
+          portTenantsFor(ctx).set(port, msg.tenantId);
+        }
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -403,10 +471,11 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
           setPortSession(ctx, port, null);
           ok(port, msg.id, null);
         } else {
+          const tenantId = resolveSignInTenant(ctx, port, msg.tenantId);
           const freshSession = authSandboxOps.mintSession(auth, {
             kind: 'uid',
             uid,
-            tenantId: msg.tenantId ?? portTenant(ctx, port) ?? null,
+            tenantId,
           });
           setPortSession(ctx, port, freshSession);
           ok(port, msg.id, serializeUser(freshSession.user));
@@ -458,12 +527,13 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         if (hasNoCredential) {
           throw new Error('auth.signInWithCredential requires credential payload or providerId');
         }
+        const tenantId = resolveSignInTenant(ctx, port, msg.tenantId);
         const { uid, isNewUser } = resolveOAuthCredentialUser(auth, cred);
         const session = authSandboxOps.mintSession(auth, {
           kind: 'provider',
           uid,
           providerId: cred.providerId,
-          tenantId: msg.tenantId ?? null,
+          tenantId,
         });
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx, msg.method);
@@ -474,12 +544,13 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
 
     case 'auth.acceptIdentity': {
       try {
+        const tenantId = resolveSignInTenant(ctx, port, msg.tenantId);
         const { providerId, photoURL, ...identity } = msg.identity;
         const { uid, isNewUser } = resolveOAuthCredentialUser(auth, {
           ...identity, providerId, photoURL: photoURL ?? undefined,
         });
         const session = authSandboxOps.mintSession(auth, {
-          kind: 'provider', uid, providerId, tenantId: msg.tenantId ?? null,
+          kind: 'provider', uid, providerId, tenantId,
         });
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx, msg.method);
