@@ -2,39 +2,20 @@
  * What becomes of an operation the web hosted client's socket took when that
  * socket drops (ADR-0019 decision 7, amended for #1088).
  *
- * Realtime Database operations follow `@firebase/database` 1.1.3. On a drop
- * it clears the response callbacks but keeps its outstanding writes and reads,
- * and `restoreState_` sends them again after it reconnects. An onDisconnect it
- * already sent lives only in those callbacks, so its promise never settles. A
- * sent transaction is cancelled and `runTransaction` rejects with
- * `Error('disconnect')`. Every other operation fails once with `unavailable`.
+ * Realtime Database operations follow the table in `../rtdb-drop-fates.ts`,
+ * which the Node remote client shares. Every other operation fails once with
+ * `unavailable`.
  */
 import type { InboundMessage } from '../protocol.js';
+import { rtdbFateAtDrop, type DropFate } from '../rtdb-drop-fates.js';
 import { forgetPendingRequest, pendingRequestsOn, reissuePendingRequests, rejectPendingRequest } from './core.js';
 import type { ClientPort } from './handles.js';
 import type { HeldMessages } from './held-messages.js';
 
-type Fate = 'resend' | 'forget' | 'disconnect' | 'fail';
-
-const RTDB_FATES: Readonly<Record<string, Fate>> = {
-  'rtdb.set': 'resend',
-  'rtdb.setPriority': 'resend',
-  'rtdb.setWithPriority': 'resend',
-  'rtdb.update': 'resend',
-  'rtdb.remove': 'resend',
-  'rtdb.push': 'resend',
-  'rtdb.get': 'resend',
-  'rtdb.onDisconnectSet': 'forget',
-  'rtdb.onDisconnectUpdate': 'forget',
-  'rtdb.onDisconnectRemove': 'forget',
-  'rtdb.onDisconnectCancel': 'forget',
-  'rtdb.transactionCommit': 'disconnect',
-};
-
-function fateOf(message: InboundMessage): Fate {
+function fateOf(message: InboundMessage): DropFate {
   const isOperation = message.t === 'op';
   if (!isOperation) return 'fail';
-  return RTDB_FATES[message.method] ?? 'fail';
+  return rtdbFateAtDrop(message.method);
 }
 
 /**
