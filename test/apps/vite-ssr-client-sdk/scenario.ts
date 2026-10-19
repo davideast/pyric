@@ -3,11 +3,10 @@
 // those imports load the real SDK (#1123). Until the plugin routes them, the
 // dev server's network guard refuses their connections to live Firebase.
 // Each call is driven through both of Vite's SSR loaders. In production AI
-// mode the guard permits Firebase AI Logic; a local proxy stands in for the
-// network there, so nothing in this scenario reaches a Google endpoint.
+// mode the guard permits Firebase AI Logic; egress-stand-in.mjs, preloaded
+// into that dev server, stands in for the network beneath the guard and
+// refuses what it permits, so nothing in this scenario reaches Google.
 import assert from 'node:assert/strict';
-import { createServer, type Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
 import { scenario } from '../driver.ts';
 
@@ -53,16 +52,9 @@ async function settled(url: string, runner: string, tag: string, label: string):
 const settledSignIn = (url: string, runner: string, tag: string) =>
   settled(url, runner, tag, 'auth.signInAnonymously');
 
-/** An HTTPS proxy that records each tunnel it is asked for and refuses it. */
-async function refusingProxy(): Promise<{ server: Server; url: string; tunnels: string[] }> {
-  const tunnels: string[] = [];
-  const server = createServer((_request, response) => response.writeHead(403).end());
-  server.on('connect', (request, socket) => {
-    tunnels.push(String(request.url));
-    socket.end('HTTP/1.1 403 Forbidden\r\n\r\n');
-  });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  return { server, url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, tunnels };
+/** Each host the egress stand-in refused, in order. */
+function standInRefusals(log: string): string[] {
+  return [...log.matchAll(/\[egress stand-in\] refused fetch to (\S+)/g)].map((match) => match[1]!);
 }
 
 function assertRefused(outcomes: Outcomes, runner: string): void {
@@ -119,12 +111,10 @@ export default scenario(async (app) => {
 
   await app.step('stop the sandbox AI mode dev server', () => host.process.stop());
 
-  const proxy = await app.step('start a proxy that stands in for the network and refuses every tunnel', () => refusingProxy());
-
-  const production = await app.step('start the hosted dev server in production AI mode, behind the proxy', () =>
+  const production = await app.step('start the hosted dev server in production AI mode, over the egress stand-in', () =>
     app.devServer({
       name: 'production-ai-dev-server',
-      env: { PYRIC_AI_MODE: 'production', NODE_USE_ENV_PROXY: '1', HTTPS_PROXY: proxy.url, NO_PROXY: '127.0.0.1,localhost' },
+      env: { PYRIC_AI_MODE: 'production', NODE_OPTIONS: '--import ./egress-stand-in.mjs' },
     }));
 
   await app.step('production AI mode: the guard lets SSR firebase/ai out, and only to Firebase AI Logic', async () => {
@@ -132,9 +122,9 @@ export default scenario(async (app) => {
     await ssr(production.url, 'start-ai', 'legacy', 'ai');
     const outcomes = await settled(production.url, 'legacy', 'ai', 'ai.generateContent');
     assert.equal(outcomes['ai.generateContent']!.state, 'rejected', `firebase/ai: ${JSON.stringify(outcomes)}`);
-    assert.deepEqual(proxy.tunnels, ['firebasevertexai.googleapis.com:443']);
-    assert.doesNotMatch(production.process.output.slice(since), /net-guard BLOCK/);
+    await production.process.waitForLog(/\[egress stand-in\] refused fetch to /, { since, timeoutMs: 10_000 });
+    const log = production.process.output.slice(since);
+    assert.deepEqual(standInRefusals(log), ['firebasevertexai.googleapis.com'], `dev server log:\n${log}`);
+    assert.doesNotMatch(log, /net-guard BLOCK/);
   });
-
-  await app.step('stop the proxy', () => new Promise<void>((resolve) => proxy.server.close(() => resolve())));
 });
