@@ -196,6 +196,156 @@ describe('database replay()', () => {
     expect(result.replayedState).toEqual({ item: 'v2' });
   });
 
+  it('replays admin runTransaction and admin setPriority as setup context without rule evaluation', async () => {
+    const rules = {
+      rules: {
+        counters: {
+          $id: {
+            '.read': "auth != null && auth.uid === 'alice'",
+            '.write': "auth != null && auth.uid === 'alice'",
+          },
+        },
+        ranked: {
+          $id: {
+            '.read': true,
+            '.write': "auth != null && auth.uid === 'alice' && data.getPriority() === 10",
+          },
+        },
+      },
+    };
+    const sandbox = initializeSandbox();
+    const adminDb = getAdminDatabase(sandbox);
+    const aliceDb = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+    rtdbSandbox.setRules(aliceDb, rules);
+
+    await runTransaction(ref(adminDb, 'counters/c1'), (cur) => (cur ?? 0) + 10);
+    await set(ref(adminDb, 'ranked/item'), 'initial');
+    await setPriority(ref(adminDb, 'ranked/item'), 10);
+    await runTransaction(ref(aliceDb, 'counters/c1'), (cur) => (cur ?? 0) + 1);
+    await set(ref(aliceDb, 'ranked/item'), 'updated-by-alice');
+
+    const result = await replay(sandbox.history(), {
+      rules,
+      capturedState: rtdbSandbox.snapshotState(adminDb),
+    });
+
+    expect(result.divergences).toEqual([]);
+    expect(result.ok).toBe(true);
+    expect(result.checkedEvents).toBe(2);
+    expect(result.replayedState).toEqual({
+      counters: { c1: 11 },
+      ranked: { item: 'updated-by-alice' },
+    });
+  });
+
+  it('restores priorities and overwritten ancestor scalars when rewinding transaction, update, ancestor remove, and child set', async () => {
+    const rules = {
+      rules: {
+        item: {
+          '.read': true,
+          '.write': 'data.getPriority() === 5',
+        },
+        group: {
+          $key: {
+            '.read': true,
+            '.write': "data.parent().child('a').getPriority() === 5",
+          },
+        },
+        parent: {
+          '.read': true,
+          '.write': "data.child('child').getPriority() === 5",
+        },
+        a: {
+          b: {
+            '.read': true,
+            '.write': "data.parent().val() === 'scalar'",
+          },
+        },
+      },
+    };
+
+    const sandbox = initializeSandbox();
+    const db = getDatabase(sandbox.withAuth({ uid: 'u1' }));
+    rtdbSandbox.setData(db, {
+      '/item': { '.value': 'v1', '.priority': 5 },
+      '/group': {
+        a: { '.value': 'v1', '.priority': 5 },
+        b: 'v0',
+      },
+      '/parent': {
+        child: { '.value': 'v1', '.priority': 5 },
+      },
+      '/a': 'scalar',
+    });
+    rtdbSandbox.setRules(db, rules);
+
+    await runTransaction(ref(db, 'item'), () => 'v2');
+    await update(ref(db, 'group'), { a: 'v2' });
+    await remove(ref(db, 'parent'));
+    await set(ref(db, 'a/b'), 'nested');
+
+    const result = await replay(sandbox.history(), {
+      rules,
+      capturedState: rtdbSandbox.snapshotState(db),
+    });
+
+    expect(result.divergences).toEqual([]);
+    expect(result.ok).toBe(true);
+    expect(result.checkedEvents).toBe(4);
+    expect(result.replayedState).toEqual({
+      item: 'v2',
+      group: { a: 'v2', b: 'v0' },
+      a: { b: 'nested' },
+    });
+  });
+
+  it('checks unchanged setPriority commits against candidate rules and treats null capturedState as an empty root', async () => {
+    const allowAlice = {
+      rules: {
+        item: {
+          '.read': true,
+          '.write': "auth != null && auth.uid === 'alice'",
+        },
+      },
+    };
+    const denyAll = {
+      rules: {
+        item: {
+          '.read': true,
+          '.write': false,
+        },
+      },
+    };
+
+    const sbPrio = initializeSandbox();
+    const adminDb = getAdminDatabase(sbPrio);
+    const aliceDb = getDatabase(sbPrio.withAuth({ uid: 'alice' }));
+    rtdbSandbox.setRules(aliceDb, allowAlice);
+    await setWithPriority(ref(adminDb, 'item'), 'v1', 5);
+    await setPriority(ref(aliceDb, 'item'), 5);
+
+    const deniedReplay = await replay(sbPrio.history(), {
+      rules: denyAll,
+      capturedState: rtdbSandbox.snapshotState(adminDb),
+    });
+    expect(deniedReplay.ok).toBe(false);
+    expect(deniedReplay.checkedEvents).toBe(1);
+    expect(deniedReplay.divergences).toEqual([
+      expect.objectContaining({ kind: 'now-denied', method: 'setPriority', path: '/item' }),
+    ]);
+
+    const sbEmpty = initializeSandbox();
+    const emptyDb = getDatabase(sbEmpty.withAuth({ uid: 'alice' }));
+    rtdbSandbox.setRules(emptyDb, allowAlice);
+
+    const emptyReplay = await replay(sbEmpty.history(), {
+      rules: allowAlice,
+      capturedState: null,
+    });
+    expect(emptyReplay.divergences).toEqual([]);
+    expect(emptyReplay.ok).toBe(true);
+  });
+
   describe('captured query reads', () => {
     const CAPTURE = { rules: { '.read': true, '.write': true, items: { '.indexOn': ['owner'] } } };
 

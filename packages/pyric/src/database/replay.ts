@@ -256,13 +256,22 @@ async function rewindRtdbCommits(
 ): Promise<void> {
   for (const commit of [...commits].reverse()) {
     if (!commit.path) continue;
+    const overwritten = overwrittenAncestorDetail(commit);
+    if (overwritten !== null) {
+      await set(ref(adminDb, overwritten.path), overwritten.state);
+      continue;
+    }
     const dbRef = ref(adminDb, commit.path);
     if (commit.method === 'setPriority') {
       await setPriority(dbRef, priorityDetail(commit, 'priorPriority'));
       continue;
     }
+    if (hasPriorExportDetail(commit)) {
+      await set(dbRef, commit.detail?.priorExport ?? null);
+      continue;
+    }
     await set(dbRef, commit.priorState ?? null);
-    if (hasPriorityDetail(commit)) {
+    if (hasPriorPriorityDetail(commit)) {
       await setPriority(dbRef, priorityDetail(commit, 'priorPriority'));
     }
   }
@@ -325,6 +334,26 @@ function hasPriorityDetail(commit: SandboxCommitEvent): boolean {
     && Object.prototype.hasOwnProperty.call(commit.detail, 'priority');
 }
 
+function hasPriorPriorityDetail(commit: SandboxCommitEvent): boolean {
+  return commit.detail !== undefined
+    && Object.prototype.hasOwnProperty.call(commit.detail, 'priorPriority');
+}
+
+function hasPriorExportDetail(commit: SandboxCommitEvent): boolean {
+  return commit.detail !== undefined
+    && Object.prototype.hasOwnProperty.call(commit.detail, 'priorExport');
+}
+
+function overwrittenAncestorDetail(
+  commit: SandboxCommitEvent,
+): { path: string; state: unknown } | null {
+  const raw = commit.detail?.overwrittenAncestor;
+  if (!isJsonObject(raw) || typeof raw.path !== 'string' || !Object.hasOwn(raw, 'state')) {
+    return null;
+  }
+  return { path: raw.path, state: raw.state };
+}
+
 function priorityDetail(
   commit: SandboxCommitEvent,
   field: 'priority' | 'priorPriority',
@@ -341,6 +370,10 @@ function isRtdbCommit(event: SandboxEvent): event is SandboxCommitEvent {
   return event.kind === 'commit' && event.service === 'rtdb';
 }
 
+function isEmptyRoot(value: unknown): boolean {
+  return value === null || (isJsonObject(value) && Object.keys(value).length === 0);
+}
+
 function collectStateDrift(
   expected: unknown,
   actual: unknown,
@@ -348,6 +381,7 @@ function collectStateDrift(
   out: RtdbReplayDivergence[],
 ): void {
   if (jsonValuesEqual(expected, actual)) return;
+  if (path === '/' && isEmptyRoot(expected) && isEmptyRoot(actual)) return;
   if (!isJsonObject(expected) || !isJsonObject(actual)) {
     out.push({
       kind: 'state-drift',

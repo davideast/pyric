@@ -18,6 +18,44 @@ function rowsToVal(rows: QueryRow[]): JsonValue {
   return Object.fromEntries(rows.map(({ key, value }) => [key, value])) as JsonValue;
 }
 
+/**
+ * Capture the pre-write metadata needed to rewind a commit at `path` when
+ * simple `set(path, priorState)` would lose descendant `.priority` metadata or
+ * an ancestor scalar primitive overwritten by a deeper path write.
+ */
+export function captureRewindDetail(
+  state: BackendState,
+  path: string,
+  before: JsonValue,
+  priorNodePriority: Priority,
+  includeOwnPriority = false,
+): Record<string, unknown> {
+  const segments = pathSegments(path);
+  for (let depth = 0; depth < segments.length; depth++) {
+    const ancestorPath = joinPath(segments.slice(0, depth));
+    const ancestorVal = state.tree.read(ancestorPath);
+    if (ancestorVal !== null && typeof ancestorVal !== 'object') {
+      const ancestorPriority = state.priorities.get(ancestorPath);
+      return {
+        overwrittenAncestor: {
+          path: ancestorPath,
+          state: withPriorities(ancestorVal, [{ segments: [], priority: ancestorPriority }]),
+        },
+      };
+    }
+  }
+  const below = state.prioritiesBelow(path);
+  if (below.length > 0) {
+    return {
+      priorExport: withPriorities(before, [{ segments: [], priority: priorNodePriority }, ...below]),
+    };
+  }
+  if (includeOwnPriority && priorNodePriority !== null) {
+    return { priorPriority: priorNodePriority };
+  }
+  return {};
+}
+
 const ROOT_IDENTIFIER_PATTERN = /\broot\b/;
 const DATA_IDENTIFIER_PATTERN = /\bdata\b/;
 const PARENT_IDENTIFIER_PATTERN = /\bparent\b/;
@@ -178,6 +216,7 @@ export class WritePlane {
     });
     const priors = this.children.snapshotParents();
     const priorNodePriority = this.state.priorities.get(path);
+    const rewindDetail = captureRewindDetail(this.state, path, before, priorNodePriority);
     this.state.tree.write(path, resolved);
     this.state.priorities.replace(path, resolved === null ? null : priority, (p) => this.state.tree.read(p) !== null);
     this.storeNestedPriorities(path, written.nested);
@@ -186,7 +225,11 @@ export class WritePlane {
     const hasPriority = prioritySupplied || priorNodePriority !== null;
     this.state.events.commit(null, after === null ? 'remove' : 'set', path, {
       data: value, priorState: before, nextState: after, replay: { requestTime: now },
-      detail: hasPriority ? { admin: true, priority, priorPriority: priorNodePriority } : { admin: true },
+      detail: {
+        admin: true,
+        ...(hasPriority ? { priority, priorPriority: priorNodePriority } : {}),
+        ...rewindDetail,
+      },
     });
     this.state.notifyWrite();
   }
@@ -194,6 +237,8 @@ export class WritePlane {
   adminUpdate(path: string, patch: Record<string, JsonValue>): void {
     const now = this.state.clock.now();
     const before = this.state.tree.read(path);
+    const priorNodePriority = this.state.priorities.get(path);
+    const rewindDetail = captureRewindDetail(this.state, path, before, priorNodePriority, true);
     const expanded = this.resolvePatch(path, patch, now);
     const inline = this.patchPriorities(path, patch);
     const multiPath = Object.keys(patch).some((key) => key.includes('/'));
@@ -218,8 +263,8 @@ export class WritePlane {
     this.storePatchPriorities(inline);
     this.changed(Object.keys(expanded), priors);
     const detail = multiPath
-      ? { admin: true, multiPath: true, paths: Object.keys(expanded) }
-      : { admin: true, multiPath: false, keys: Object.keys(patch) };
+      ? { admin: true, multiPath: true, paths: Object.keys(expanded), ...rewindDetail }
+      : { admin: true, multiPath: false, keys: Object.keys(patch), ...rewindDetail };
     this.state.events.commit(null, 'update', path, {
       data: patch, priorState: before, nextState: this.state.tree.read(path),
       replay: { requestTime: now }, detail,
@@ -376,6 +421,8 @@ export class WritePlane {
     }
     for (const record of allowed) record();
     const before = this.state.tree.read(path);
+    const priorNodePriority = this.state.priorities.get(path);
+    const rewindDetail = captureRewindDetail(this.state, path, before, priorNodePriority, true);
     const priors = this.children.snapshotParents();
     if (multiPath) this.state.tree.multiUpdate(expanded);
     else this.state.tree.shallowUpdate(path, shallowPatch);
@@ -387,8 +434,8 @@ export class WritePlane {
       data: patch, priorState: before, nextState: after, groupId, groupKind: 'batch',
       replay: { requestTime: now },
       detail: multiPath
-        ? { multiPath: true, paths: Object.keys(expanded) }
-        : { multiPath: false, keys: Object.keys(shallowPatch) },
+        ? { multiPath: true, paths: Object.keys(expanded), ...rewindDetail }
+        : { multiPath: false, keys: Object.keys(shallowPatch), ...rewindDetail },
     });
     this.state.events.mutation(auth, 'update', canonicalPath(path), {
       after: multiPath ? expanded : shallowPatch,
@@ -429,6 +476,7 @@ export class WritePlane {
     }
     this.state.events.operation(auth, op, path, 'allow', evaluation, common);
     const priors = this.children.snapshotParents();
+    const rewindDetail = captureRewindDetail(this.state, path, before, priorNodePriority);
     this.state.tree.write(path, resolved);
     this.state.priorities.replace(path, resolved === null ? null : priority, (p) => this.state.tree.read(p) !== null);
     this.storeNestedPriorities(path, written.nested);
@@ -436,9 +484,13 @@ export class WritePlane {
     const after = this.state.tree.read(path);
     const effectiveOp = after === null ? 'remove' : op;
     const hasPriority = prioritySupplied || priorNodePriority !== null;
+    const detail = {
+      ...(hasPriority ? { priority, priorPriority: priorNodePriority } : {}),
+      ...rewindDetail,
+    };
     this.state.events.commit(auth, effectiveOp, path, {
       data: value, priorState: before, nextState: after, replay: { requestTime: now },
-      detail: hasPriority ? { priority, priorPriority: priorNodePriority } : undefined,
+      detail: Object.keys(detail).length > 0 ? detail : undefined,
     });
     this.state.events.mutation(auth, effectiveOp, canonicalPath(path), { before, after });
     this.state.notifyWrite();
