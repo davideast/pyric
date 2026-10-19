@@ -22,7 +22,7 @@ import type { ClientPort } from './handles.js';
 import { createOperationBudget } from '../../../bridge/operation-budget.js';
 import { requestInstance } from '../request-instance.js';
 import { hasValidOutboundEnvelope, hasValidReplyOutcome, snapshotError } from '../outbound-validation.js';
-import { closeSendOrder, issueTime, postInOrder, waitsToSubscribe, withdrawSubscription, type SendReservation } from './send-order.js';
+import { closeSendOrder, issueTime, postInOrder, waitsToSubscribe, withdrawOperation, withdrawSubscription, type SendReservation } from './send-order.js';
 
 // ─── Port + correlation machinery ─────────────────────────────────────────
 
@@ -384,6 +384,7 @@ export function endPortSubscriptions(
     _snapSubs.delete(id);
     const isFirestoreSubscription = subscription.service === 'firestore';
     if (isFirestoreSubscription) subscription.error?.(error);
+    else if (isAiStream(subscription.message)) subscription.error?.(streamError);
     subscription.close?.();
   }
   for (const [id, subscription] of [..._eventSubs]) {
@@ -550,7 +551,19 @@ export function wirePort(port: ClientPort): void {
       }
     } else if (isSnapshot) {
       const sub = _snapSubs.get(msg.subId);
-      const isForeignSubscription = sub === undefined || sub.port !== port;
+      if (sub === undefined) {
+        const eventSub = _eventSubs.get(msg.subId);
+        const errPayload = snapshotError(msg);
+        if (eventSub !== undefined && eventSub.port === port && errPayload !== undefined) {
+          closeSubscription(port, msg.subId, eventSub.message.clientSessionId);
+          const err = errPayload.codeless !== true
+            ? new FirebaseError(errPayload.code, errPayload.message)
+            : Object.assign(new Error(errPayload.message), { code: 'unavailable' });
+          eventSub.error?.(err);
+        }
+        return;
+      }
+      const isForeignSubscription = sub.port !== port;
       if (isForeignSubscription) return;
       const errPayload = snapshotError(msg);
       const hasError = errPayload !== undefined;
@@ -826,6 +839,7 @@ function operationBudget(port: ClientPort, clientSessionId: string | undefined):
 function takePendingRequest(id: string) {
   const request = _pending.get(id);
   _pending.delete(id);
+  if (request !== undefined) withdrawOperation(request.port, id);
   request?.release?.();
   return request;
 }

@@ -188,10 +188,10 @@ export function writeBatch(db: ClientDb): ClientWriteBatch {
 /** Client-side transaction handle. */
 export interface ClientTransaction {
   get<T = DocumentData>(ref: DocRefHandle<T>): Promise<ClientDocSnapshot<T>>;
-  set<T = DocumentData>(ref: DocRefHandle<T>, data: T, options?: ClientSetOptions): void;
-  update(ref: DocRefHandle, data: Record<string, unknown>): void;
-  update(ref: DocRefHandle, field: string | FieldPath, value: unknown, ...moreFieldsAndValues: unknown[]): void;
-  delete(ref: DocRefHandle): void;
+  set<T = DocumentData>(ref: DocRefHandle<T>, data: T, options?: ClientSetOptions): ClientTransaction;
+  update(ref: DocRefHandle, data: Record<string, unknown>): ClientTransaction;
+  update(ref: DocRefHandle, field: string | FieldPath, value: unknown, ...moreFieldsAndValues: unknown[]): ClientTransaction;
+  delete(ref: DocRefHandle): ClientTransaction;
 }
 
 /**
@@ -276,13 +276,16 @@ export async function runTransaction<R>(
           const capturedOptions = captureSetOptions(options);
           const payload = convertSetData(ref, data);
           writes.push({ method: 'set', path: ref.descriptor.path, data: encodeDocValue(payload), valueEncoding: DOC_VALUE_ENCODING, options: capturedOptions });
+          return txn;
         },
         update(ref: DocRefHandle, dataOrField: unknown, ...rest: unknown[]) {
           const fields = encodeUpdate('Transaction.update', ref, dataOrField, rest);
           writes.push({ method: 'update', path: ref.descriptor.path, fields, valueEncoding: DOC_VALUE_ENCODING });
+          return txn;
         },
         delete(ref) {
           writes.push({ method: 'delete', path: ref.descriptor.path });
+          return txn;
         },
       };
 

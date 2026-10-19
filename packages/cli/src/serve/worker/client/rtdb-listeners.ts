@@ -118,11 +118,11 @@ function openValueSubscription(
   const subHandler = {
     port: ref.port,
     next: (wire: unknown) => {
-      const warning = (wire as RtdbWireSnapshot | null)?.warning;
-      if (typeof warning === 'string') logDatabaseWarning(warning);
       if (listenOptions?.onlyOnce && fired) return;
       const content = deliveredContent(wire);
       if (fired && content === delivered) return;
+      const warning = (wire as RtdbWireSnapshot | null)?.warning;
+      if (typeof warning === 'string') logDatabaseWarning(warning);
       delivered = content;
       fired = true;
       // Reported on the subscription id the sandbox also records as the
@@ -243,30 +243,6 @@ export function rtdbOnValue(
 
 type ChildEventKind = 'added' | 'changed' | 'removed' | 'moved';
 
-function directChildren(value: unknown): Record<string, unknown> {
-  if (Array.isArray(value)) {
-    return Object.fromEntries(
-      value.flatMap((child, index) => child == null ? [] : [[String(index), child]]),
-    );
-  }
-  if (value === null || typeof value !== 'object') return {};
-  return value as Record<string, unknown>;
-}
-
-function rtdbKeyCompare(left: string, right: string): number {
-  const integerKey = (key: string): number | null => {
-    if (!/^(0|[1-9]\d*)$/.test(key)) return null;
-    const value = Number(key);
-    return Number.isSafeInteger(value) && value <= 2_147_483_647 ? value : null;
-  };
-  const leftInteger = integerKey(left);
-  const rightInteger = integerKey(right);
-  if (leftInteger !== null && rightInteger !== null) return leftInteger - rightInteger;
-  if (leftInteger !== null) return -1;
-  if (rightInteger !== null) return 1;
-  return left < right ? -1 : left > right ? 1 : 0;
-}
-
 function onChildEvent(
   target: RtdbTarget,
   kind: ChildEventKind,
@@ -293,11 +269,6 @@ function onChildEvent(
         });
       }
     });
-    if (current.length === 0) {
-      for (const key of Object.keys(directChildren(parent.val())).sort(rtdbKeyCompare)) {
-        current.push({ key, value: directChildren(parent.val())[key] });
-      }
-    }
     const emit = (entry: RtdbWireEntry, previousChildName: string | null): void => {
       try {
         next(makeRtdbSnapshot(

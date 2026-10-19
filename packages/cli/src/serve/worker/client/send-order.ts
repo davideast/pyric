@@ -133,6 +133,31 @@ export function reserveSend(port: ClientPort): SendReservation {
   };
 }
 
+function queuedOperation(port: ClientPort, id: string): { entry: Entry; index: number } | undefined {
+  const order = orders.get(port);
+  for (const entry of order?.entries ?? []) {
+    const index = entry.frames.findIndex(frame => 'id' in frame.message && frame.message.id === id);
+    if (index >= 0) return { entry, index };
+  }
+  return undefined;
+}
+
+/** True while an operation frame waits behind a reservation, unsent. */
+export function waitsToSend(port: ClientPort, id: string): boolean {
+  return queuedOperation(port, id) !== undefined;
+}
+
+/**
+ * Takes an operation frame out of the call order when it has not been posted
+ * yet, so a locally cancelled or timed-out call never drains to the transport.
+ */
+export function withdrawOperation(port: ClientPort, id: string): boolean {
+  const queued = queuedOperation(port, id);
+  const isQueued = queued !== undefined;
+  if (isQueued) queued.entry.frames.splice(queued.index, 1);
+  return isQueued;
+}
+
 function queuedSubscription(port: ClientPort, subId: string): { entry: Entry; index: number } | undefined {
   const order = orders.get(port);
   for (const entry of order?.entries ?? []) {
