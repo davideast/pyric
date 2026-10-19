@@ -17,6 +17,9 @@ import { defineRtdbRules, allow, deny } from 'pyric/rules';
 import { initializeSandbox } from 'pyric/sandbox';
 import { getAdminFirestore, getFirestore } from 'pyric/sandbox/admin-firestore';
 import {
+  Bytes as FsBytes,
+  GeoPoint as FsGeoPoint,
+  Timestamp as FsTimestamp,
   collection as fsCollection,
   deleteField as fsDeleteField,
   doc as fsDoc,
@@ -24,8 +27,10 @@ import {
   getFirestore as getClientFirestore,
   onSnapshot as fsOnSnapshot,
   query as fsQuery,
+  serverTimestamp as fsServerTimestamp,
   setDoc as fsSetDoc,
   updateDoc as fsUpdateDoc,
+  vector as fsVector,
   where as fsWhere,
 } from 'pyric/firestore';
 import { SimulateFirestoreRulesHandler } from 'pyric/rules/internal';
@@ -978,5 +983,49 @@ service firebase.storage {
     });
     expect(resultB.ok).toBe(true);
     expect(resultB.services.storage?.divergences).toEqual([]);
+  });
+
+  it('rehydrates JSON-serialized Firestore wrapper types during verifyFixture write simulation (AV-REP-1c)', async () => {
+    const typedRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /items/{id} {
+      allow read, write: if request.auth != null
+        && request.resource.data.eventAt is timestamp
+        && request.resource.data.payload is bytes
+        && request.resource.data.coords is latlng
+        && request.resource.data.parentRef.path == 'items/root';
+    }
+  }
+}`;
+    const sandbox = initializeSandbox();
+    setFirestoreRules(sandbox, typedRules);
+    const db = getClientFirestore(sandbox.withAuth({ uid: 'alice' }));
+
+    await fsSetDoc(fsDoc(db, 'items/item1'), {
+      eventAt: FsTimestamp.fromMillis(1700000000000),
+      payload: FsBytes.fromUint8Array(new Uint8Array([1, 2, 3])),
+      coords: new FsGeoPoint(37.7749, -122.4194),
+      embedding: fsVector([0.1, 0.2, 0.3]),
+      parentRef: fsDoc(db, 'items/root'),
+      createdAt: fsServerTimestamp(),
+    });
+    await fsUpdateDoc(fsDoc(db, 'items/item1'), {
+      eventAt: FsTimestamp.fromMillis(1700000005000),
+      payload: FsBytes.fromUint8Array(new Uint8Array([1, 2, 3])),
+      coords: new FsGeoPoint(37.7749, -122.4194),
+      embedding: fsVector([0.1, 0.2, 0.3]),
+      parentRef: fsDoc(db, 'items/root'),
+      updatedAt: fsServerTimestamp(),
+    });
+
+    const rawFixture = buildVerifyFixture({ sandbox, firestoreRules: typedRules });
+    const persistedFixture = JSON.parse(JSON.stringify(rawFixture)) as PyricVerifyFixture;
+    const verifyResult = await verifyFixture(persistedFixture, {
+      rules: { firestore: typedRules },
+    });
+
+    expect(verifyResult.ok).toBe(true);
+    expect(verifyResult.services.firestore?.divergences).toEqual([]);
   });
 });
