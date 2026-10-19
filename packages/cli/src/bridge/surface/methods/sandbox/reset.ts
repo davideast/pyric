@@ -10,6 +10,8 @@
  * clears only that service's data; the others are untouched.
  */
 import { z } from 'zod';
+import { deleteDoc, doc, getAdminFirestore } from 'pyric/firestore';
+import { snapshotDocuments } from 'pyric/sandbox/firestore';
 import { getAdminDatabase, ref as databaseRef, remove as databaseRemove } from 'pyric/database';
 import { deleteObject, ref as storageRef } from 'pyric/storage';
 import { getAdminStorageSandbox } from 'pyric/storage/internal';
@@ -24,7 +26,10 @@ type Scope = (typeof RESET_SCOPES)[number];
 
 async function resetScope(scope: Scope, ctx: SurfaceContext): Promise<void> {
   if (scope === 'firestore') {
-    ctx.sandbox.reset();
+    const db = getAdminFirestore(ctx.sandbox);
+    for (const path of Object.keys(snapshotDocuments(ctx.sandbox))) {
+      await deleteDoc(doc(db, path));
+    }
     return;
   }
   if (scope === 'database') {

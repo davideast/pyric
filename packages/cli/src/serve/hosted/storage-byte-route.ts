@@ -143,7 +143,7 @@ export function createStorageByteRoute(opts: StorageByteRouteOptions) {
       res.end();
       return;
     }
-    const stream = createReadStream(object.file, { start, end });
+    const stream = createReadStream(object.file, { start, end, highWaterMark: 4096 });
     res.on('close', () => stream.destroy());
     stream.on('error', () => res.destroy());
     stream.pipe(res);
@@ -161,6 +161,7 @@ export function createStorageByteRoute(opts: StorageByteRouteOptions) {
     start: number,
     progress: UploadProgress,
     headers: Record<string, string>,
+    expectedBytes?: number,
   ): Promise<UploadProgress | undefined> {
     const misplaced = start !== progress.received;
     if (misplaced) {
@@ -168,12 +169,28 @@ export function createStorageByteRoute(opts: StorageByteRouteOptions) {
       refuse(res, 409, `The upload has received ${progress.received} bytes; send from there.`, { ...headers, ...receivedRange(progress) });
       return undefined;
     }
+    if (expectedBytes !== undefined) {
+      const contentLength = getHeader(req, 'content-length');
+      if (contentLength !== undefined && Number(contentLength) !== expectedBytes) {
+        req.resume();
+        refuse(res, 400, `Content-Range declares ${expectedBytes} bytes, Content-Length declares ${contentLength}.`, headers);
+        return undefined;
+      }
+    }
     let offset = start;
+    let transferred = 0;
     let latest = progress;
     try {
       for await (const chunk of req as AsyncIterable<Buffer>) {
+        if (expectedBytes !== undefined && transferred + chunk.byteLength > expectedBytes) {
+          throw new Error(`Content-Range declares ${expectedBytes} bytes, body exceeded that range.`);
+        }
         latest = await opts.storage.appendUpload(uploadId, offset, new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength));
         offset += chunk.byteLength;
+        transferred += chunk.byteLength;
+      }
+      if (expectedBytes !== undefined && transferred !== expectedBytes) {
+        throw new Error(`Content-Range declares ${expectedBytes} bytes, received ${transferred}.`);
       }
     } catch (error) {
       req.resume();
@@ -217,8 +234,28 @@ export function createStorageByteRoute(opts: StorageByteRouteOptions) {
       req.resume();
       return refuse(res, 400, 'Content-Range must be "bytes a-b/total" or "bytes */total".');
     }
-    const start = Array.isArray(sending) ? Number(sending[1]) : sending.start;
-    const latest = await appendBody(req, res, uploadId, start, progress, {});
+    let start = 0;
+    let expectedBytes: number | undefined;
+    if (Array.isArray(sending)) {
+      start = Number(sending[1]);
+      const end = Number(sending[2]);
+      const total = sending[3];
+      const backwards = !Number.isSafeInteger(start) || !Number.isSafeInteger(end) || end < start;
+      if (backwards) {
+        req.resume();
+        return refuse(res, 400, 'Content-Range end byte must be at least start byte.');
+      }
+      if (total !== '*' && Number(total) !== progress.size) {
+        req.resume();
+        return refuse(res, 400, `The upload expects ${progress.size} bytes; Content-Range names ${total}.`);
+      }
+      if (end >= progress.size) {
+        req.resume();
+        return refuse(res, 400, `Content-Range end byte ${end} exceeds upload size ${progress.size}.`);
+      }
+      expectedBytes = end - start + 1;
+    }
+    const latest = await appendBody(req, res, uploadId, start, progress, {}, expectedBytes);
     const refused = latest === undefined;
     if (refused) return;
     return reportProgress(res, latest);
@@ -278,6 +315,25 @@ export function createStorageByteRoute(opts: StorageByteRouteOptions) {
     }
     const whole = slice === undefined || slice === null;
     const total = whole ? undefined : slice[3];
+    let sliceStart = 0;
+    let expectedBytes: number | undefined;
+    if (!whole) {
+      sliceStart = Number(slice[1]);
+      const sliceEnd = Number(slice[2]);
+      const backwards = !Number.isSafeInteger(sliceStart) || !Number.isSafeInteger(sliceEnd) || sliceEnd < sliceStart;
+      if (backwards) {
+        req.resume();
+        return refuse(res, 400, 'Content-Range end byte must be at least start byte.', cors);
+      }
+      if (total !== undefined && total !== '*') {
+        const parsedTotal = Number(total);
+        if (!Number.isSafeInteger(parsedTotal) || sliceEnd >= parsedTotal) {
+          req.resume();
+          return refuse(res, 400, `Content-Range end byte ${sliceEnd} exceeds declared total ${total}.`, cors);
+        }
+      }
+      expectedBytes = sliceEnd - sliceStart + 1;
+    }
     if (!opened) {
       // The session's size: the whole body's length, or the total the first slice names.
       const declared = whole ? getHeader(req, 'content-length') : total;
@@ -308,8 +364,12 @@ export function createStorageByteRoute(opts: StorageByteRouteOptions) {
       req.resume();
       return refuse(res, 400, `The upload session holds an object of ${progress.size} bytes; Content-Range names ${total}.`, cors);
     }
-    const start = whole ? 0 : Number(slice[1]);
-    const latest = await appendBody(req, res, uploadId!, start, progress, cors);
+    if (!whole && sliceStart + expectedBytes! > progress.size) {
+      req.resume();
+      return refuse(res, 400, `Content-Range end byte exceeds upload session size ${progress.size}.`, cors);
+    }
+    const start = whole ? 0 : sliceStart;
+    const latest = await appendBody(req, res, uploadId!, start, progress, cors, expectedBytes);
     const refused = latest === undefined;
     if (refused) return;
     const complete = latest.received === latest.size;

@@ -29,6 +29,8 @@ export type ReproDatabaseRules = Record<string, { rules: Record<string, unknown>
 export interface ReproPortSession {
   uid: string;
   tenantId: string | null;
+  signInProvider?: string | null;
+  customClaims?: Record<string, unknown>;
 }
 
 /** Everything the host held when the recorded log starts. */
@@ -68,6 +70,10 @@ export type ReproEntry =
   | { kind: 'in'; at: number; session: string; frame: InboundMessage }
   /** A frame the host sent a port: an operation result or a listener event. */
   | { kind: 'out'; at: number; session: string; frame: OutboundMessage }
+  /** A transport disconnect or interruption for a client session. */
+  | { kind: 'client'; at: number; session: string; event: 'disconnect' | 'interrupted' }
+  /** Staged bytes written to a pending Storage upload over the HTTP byte route. */
+  | { kind: 'upload'; at: number; uploadId: string; partIndex: number; offset: number; dataB64: string }
   /** A rules deploy from the project's rules files. */
   | { kind: 'rules'; at: number; service: 'firestore' | 'database' | 'storage'; instance?: string; source: unknown }
   /** A command or MCP method call that changed state outside any port. Replay cannot run it. */
@@ -87,6 +93,11 @@ export interface ReproFile {
 const entrySchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('in'), at: z.number(), session: z.string(), frame: z.object({ t: z.string() }).passthrough() }),
   z.object({ kind: z.literal('out'), at: z.number(), session: z.string(), frame: z.object({ t: z.string() }).passthrough() }),
+  z.object({ kind: z.literal('client'), at: z.number(), session: z.string(), event: z.enum(['disconnect', 'interrupted']) }),
+  z.object({
+    kind: z.literal('upload'), at: z.number(),
+    uploadId: z.string(), partIndex: z.number(), offset: z.number(), dataB64: z.string(),
+  }),
   z.object({
     kind: z.literal('rules'), at: z.number(),
     service: z.enum(['firestore', 'database', 'storage']), instance: z.string().optional(), source: z.unknown(),
@@ -112,7 +123,12 @@ const reproSchema = z.object({
     permissive: z.boolean(),
     appOptions: z.record(z.unknown()).nullable(),
     messaging: z.boolean().optional(),
-    sessions: z.record(z.object({ uid: z.string(), tenantId: z.string().nullable() })),
+    sessions: z.record(z.object({
+      uid: z.string(),
+      tenantId: z.string().nullable(),
+      signInProvider: z.string().nullable().optional(),
+      customClaims: z.record(z.unknown()).optional(),
+    })),
     subscriptions: z.record(z.array(z.object({ t: z.literal('sub') }).passthrough())),
   }),
   entries: z.array(entrySchema),
