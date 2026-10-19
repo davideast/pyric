@@ -12,12 +12,13 @@ function ssrRoutes() {
           : server.ssrLoadModule("/src/ssr.js");
       server.middlewares.use(async (req, res, next) => {
         const url = new URL(req.url, "http://localhost");
-        const action = url.pathname.match(/^\/ssr\/(start|status)$/)?.[1];
+        const action = url.pathname.match(/^\/ssr\/(start|start-ai|status)$/)?.[1];
         if (!action) return next();
         try {
           const mod = await load(url.searchParams.get("runner"));
           const tag = url.searchParams.get("tag");
-          const body = action === "start" ? mod.start(tag) : mod.status(tag);
+          const actions = { start: mod.start, "start-ai": mod.startAiOnly, status: mod.status };
+          const body = actions[action](tag);
           res.setHeader("content-type", "application/json");
           res.end(JSON.stringify(body));
         } catch (error) {

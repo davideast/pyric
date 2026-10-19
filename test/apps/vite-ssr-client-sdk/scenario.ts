@@ -2,7 +2,10 @@
 // externalizes installed packages for SSR before plugins resolve them, so
 // those imports load the real SDK (#1123). Until the plugin routes them, the
 // dev server's network guard refuses their connections to live Firebase.
-// Each call is driven through both of Vite's SSR loaders.
+// Each call is driven through both of Vite's SSR loaders. In production AI
+// mode the guard permits Firebase AI Logic; egress-stand-in.mjs, preloaded
+// into that dev server, stands in for the network beneath the guard and
+// refuses what it permits, so nothing in this scenario reaches Google.
 import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
 import { scenario } from '../driver.ts';
@@ -18,6 +21,7 @@ const PRODUCTION_HOSTS = [
   'demo-app-default-rtdb.firebaseio.com',
   'firestore.googleapis.com',
   'firebasestorage.googleapis.com',
+  'firebasevertexai.googleapis.com',
 ];
 
 /** What the dev server log shows when a live Firebase backend answered. */
@@ -34,16 +38,23 @@ async function ssr(url: string, action: 'start' | 'status', runner: string, tag:
   return JSON.parse(body) as Outcomes;
 }
 
-/** Polls until sign-in settles: the one SDK call that reports a refused connection to its caller. */
-async function settledSignIn(url: string, runner: string, tag: string): Promise<Outcomes> {
+/** Polls until `label` settles. Sign-in and firebase/ai report a refused connection to their caller. */
+async function settled(url: string, runner: string, tag: string, label: string): Promise<Outcomes> {
   const deadline = Date.now() + 15_000;
   for (;;) {
     const outcomes = await ssr(url, 'status', runner, tag);
-    const signIn = outcomes['auth.signInAnonymously'];
-    if (signIn?.state !== 'pending') return outcomes;
-    assert.ok(Date.now() < deadline, `sign-in did not settle: ${JSON.stringify(outcomes)}`);
+    if (outcomes[label]?.state !== 'pending') return outcomes;
+    assert.ok(Date.now() < deadline, `${label} did not settle: ${JSON.stringify(outcomes)}`);
     await delay(100);
   }
+}
+
+const settledSignIn = (url: string, runner: string, tag: string) =>
+  settled(url, runner, tag, 'auth.signInAnonymously');
+
+/** Each host the egress stand-in refused, in order. */
+function standInRefusals(log: string): string[] {
+  return [...log.matchAll(/\[egress stand-in\] refused fetch to (\S+)/g)].map((match) => match[1]!);
 }
 
 function assertRefused(outcomes: Outcomes, runner: string): void {
@@ -96,5 +107,24 @@ export default scenario(async (app) => {
     assert.match(result.output, /legacy: \{"rtdb":null,"firestore":null\}/);
     assert.match(result.output, /environment: \{"rtdb":null,"firestore":null\}/);
     assert.match(result.output, /browser: \{"rtdb":\{"from":"browser"\},"firestore":\{"from":"browser"\}\}/);
+  });
+
+  await app.step('stop the sandbox AI mode dev server', () => host.process.stop());
+
+  const production = await app.step('start the hosted dev server in production AI mode, over the egress stand-in', () =>
+    app.devServer({
+      name: 'production-ai-dev-server',
+      env: { PYRIC_AI_MODE: 'production', NODE_OPTIONS: '--import ./egress-stand-in.mjs' },
+    }));
+
+  await app.step('production AI mode: the guard lets SSR firebase/ai out, and only to Firebase AI Logic', async () => {
+    const since = production.process.mark();
+    await ssr(production.url, 'start-ai', 'legacy', 'ai');
+    const outcomes = await settled(production.url, 'legacy', 'ai', 'ai.generateContent');
+    assert.equal(outcomes['ai.generateContent']!.state, 'rejected', `firebase/ai: ${JSON.stringify(outcomes)}`);
+    await production.process.waitForLog(/\[egress stand-in\] refused fetch to /, { since, timeoutMs: 10_000 });
+    const log = production.process.output.slice(since);
+    assert.deepEqual(standInRefusals(log), ['firebasevertexai.googleapis.com'], `dev server log:\n${log}`);
+    assert.doesNotMatch(log, /net-guard BLOCK/);
   });
 });

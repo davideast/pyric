@@ -30,7 +30,7 @@ The plugin attaches directly to Vite's Connect middleware stack and import map r
 
 Under `vite dev`, modules Vite loads for server rendering are not swapped yet ([#1123](https://github.com/davideast/pyric/issues/1123)). Their `firebase/*` and `firebase-admin/*` imports get the Firebase SDK. The plugin runs a network guard in the dev server process that refuses connections to live Google and Firebase endpoints, so those calls fail or stay pending instead of reaching production. The dev server log names each refused host.
 
-`PYRIC_GUARD=warn` reports those connections and lets them through, `PYRIC_GUARD=off` turns the guard off, and `PYRIC_GUARD_ALLOW` permits the hosts it names. The AI upstream in the plugin's `ai` options stays permitted. The guard does not run during `vite build` or `vite preview`, and it does not affect browser code. See [Environment variables](../reference/cli.md#environment-variables).
+`PYRIC_GUARD=warn` reports those connections and lets them through, `PYRIC_GUARD=off` turns the guard off, and `PYRIC_GUARD_ALLOW` permits the hosts it names. The AI upstream in the plugin's `ai` options stays permitted. In production AI mode (`ai: { mode: 'production' }`, `PYRIC_AI_MODE=production`, or `PYRIC_AI_PASSTHROUGH=1`), the guard also permits `firebasevertexai.googleapis.com`, so server-rendered `firebase/ai` calls reach Firebase AI Logic as you chose; in the default sandbox AI mode they are refused like the rest. The guard does not run during `vite build` or `vite preview`, and it does not affect browser code. See [Environment variables](../reference/cli.md#environment-variables).
 
 ## Start your local server
 

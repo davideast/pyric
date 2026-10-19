@@ -14,6 +14,8 @@ import { redactUrl } from 'pyric/ai/internal';
 import { sanitizeForTerminal } from './ai-terminal-text.js';
 import type { AiEngineConfigWire } from './worker/protocol.js';
 import { permitGuardHost } from '../register/net-guard.js';
+import { FIREBASE_AI_LOGIC_HOST } from '../google-endpoints.js';
+import type { AiMode } from './firebase-module-swap.js';
 
 /** The dev server's diagnostics throttle, as this module needs it: the
  *  denials route owns the instance, and the proxy shares it so a failing
@@ -203,10 +205,17 @@ export function aiUpstreamGuardAllowance(configured: string | undefined): string
  * The plugin resolves them after the guard installed, from its options or the
  * Vite env: the proxy upstream it forwards to, and an engine base URL on
  * another origin. Same-origin paths such as the AI proxy route are not
- * destinations the guard sees.
+ * destinations the guard sees. In production AI mode `firebase/ai` is the
+ * Firebase SDK by choice, so its Firebase AI Logic host is a destination too.
  */
-export function permitAiUpstreams(ai: { proxyUpstream?: string | undefined; engineWire?: AiEngineConfigWire | undefined }): void {
+export function permitAiUpstreams(ai: {
+  mode?: AiMode | undefined;
+  proxyUpstream?: string | undefined;
+  engineWire?: AiEngineConfigWire | undefined;
+}): void {
   const destinations: string[] = [];
+  const usesFirebaseAiLogic = ai.mode === 'production';
+  if (usesFirebaseAiLogic) destinations.push(FIREBASE_AI_LOGIC_HOST);
   if (ai.proxyUpstream !== undefined) destinations.push(ai.proxyUpstream);
   const engineBaseUrl = (ai.engineWire as { baseUrl?: unknown } | undefined)?.baseUrl;
   const engineOnAnotherOrigin = typeof engineBaseUrl === 'string' && /^https?:\/\//i.test(engineBaseUrl);
