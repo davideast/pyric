@@ -63,13 +63,24 @@ function checkpointFile(path: string): Checkpoint | null {
   return isCheckpointEnvelope(parsed) ? parsed : null;
 }
 
-function insertCheckpoint(connection: SqlConnection, name: string, checkpoint: Checkpoint): void {
+export function writeCheckpointRow(
+  connection: SqlConnection,
+  name: string,
+  at: number,
+  counts: unknown,
+  state: unknown,
+  hashes: readonly string[],
+): void {
   connection.prepare(`INSERT INTO checkpoints (name, at, counts, state) VALUES (?, ?, ?, ?)
     ON CONFLICT(name) DO UPDATE SET at=excluded.at, counts=excluded.counts, state=excluded.state`)
-    .run(name, checkpoint.at, JSON.stringify(checkpoint.counts), JSON.stringify(checkpoint.state));
+    .run(name, at, JSON.stringify(counts), JSON.stringify(state));
   connection.prepare('DELETE FROM checkpoint_objects WHERE name=?').run(name);
   const insertObject = connection.prepare('INSERT INTO checkpoint_objects (name, sha256) VALUES (?, ?)');
-  for (const sha256 of hashesOf(checkpoint)) insertObject.run(name, sha256);
+  for (const sha256 of hashes) insertObject.run(name, sha256);
+}
+
+function insertCheckpoint(connection: SqlConnection, name: string, checkpoint: Checkpoint): void {
+  writeCheckpointRow(connection, name, checkpoint.at, checkpoint.counts, checkpoint.state, hashesOf(checkpoint));
 }
 
 /**
