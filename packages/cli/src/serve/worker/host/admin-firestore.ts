@@ -13,7 +13,17 @@
 
 import type { OpMessage } from '../protocol.js';
 import { snapshotDocuments } from 'pyric/sandbox/firestore';
+import { encodeDocValue, requireDocumentData } from 'pyric/firestore/internal/value-codec';
 import { type HostCtx, type PortLike, ok, fail, bestEffortFlush } from '../host-context.js';
+
+/**
+ * Serialize a stored sandbox document into wire-safe JSON objects so `RulesBytes`
+ * (`Uint8Array`) and sibling `RulesValue` wrappers become their `.toJSON()`
+ * marker objects before crossing the hosted/bridge JSON relay.
+ */
+function encodeAdminDocument(document: unknown): Record<string, unknown> {
+  return requireDocumentData(JSON.parse(JSON.stringify(encodeDocValue(document))));
+}
 
 /** The admin-lens op methods routed to {@link handleAdminFirestoreOp}. */
 const ADMIN_METHODS = new Set<string>([
@@ -36,14 +46,19 @@ export async function handleAdminFirestoreOp(
   switch (msg.method) {
     case 'admin.getDocument': {
       try {
-        ok(port, msg.id, ctx.sandbox.admin.getDocument(msg.path));
+        const doc = ctx.sandbox.admin.getDocument(msg.path);
+        ok(port, msg.id, doc == null ? doc : encodeAdminDocument(doc));
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
 
     case 'admin.listDocuments': {
       try {
-        ok(port, msg.id, ctx.sandbox.admin.listDocuments(msg.path));
+        const rows = ctx.sandbox.admin.listDocuments(msg.path).map((row) => ({
+          ...row,
+          data: encodeAdminDocument(row.data),
+        }));
+        ok(port, msg.id, rows);
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
@@ -74,7 +89,7 @@ export async function handleAdminFirestoreOp(
         for (const [path, data] of Object.entries(snap)) {
           if (prefix && !path.startsWith(prefix)) continue;
           if (msg.maxDepth !== undefined && path.split('/').length > msg.maxDepth) continue;
-          out[path] = data;
+          out[path] = encodeAdminDocument(data);
         }
         ok(port, msg.id, out);
       } catch (e) { fail(port, msg.id, e); }

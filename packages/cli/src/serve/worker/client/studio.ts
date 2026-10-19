@@ -7,8 +7,15 @@
 import type { InboundMessage } from '../protocol.js';
 import type { SandboxEvent, SandboxSnapshot } from 'pyric/sandbox';
 import { EventHistory, OBSERVATION_HISTORY_LIMITS } from 'pyric/sandbox/internal';
+import { DOC_VALUE_ENCODING, rehydrateEncodedDocValue } from 'pyric/firestore/internal/value-codec';
 import { closeSubscription, nextId, nextSubId, openEventSubscription, rpc } from './core.js';
 import type { ClientDb, ClientPort, Unsubscribe } from './handles.js';
+
+const RulesPathCtor = (
+  rehydrateEncodedDocValue({ __type: 'path', segments: [] }, DOC_VALUE_ENCODING) as {
+    constructor: new (segments: string[], bindings?: Record<string, string>) => unknown;
+  }
+).constructor;
 
 // ════════════════════════════════════════════════════════════════════════
 //  EVENT STREAM (Pyric Studio keystone — onEvent/history over the port)
@@ -191,13 +198,85 @@ export function eventHistory(db: ClientDb): Promise<readonly SandboxEvent[]> {
   });
 }
 
+function isScalarWireMarker(obj: Record<string, unknown>): boolean {
+  if (obj.__type__ === '__vector__' && Array.isArray(obj.value)) return true;
+  if (typeof obj.__type === 'string') {
+    return (
+      obj.__type === 'timestamp' ||
+      obj.__type === 'bytes' ||
+      obj.__type === 'latlng' ||
+      obj.__type === 'duration' ||
+      obj.__type === 'reference'
+    );
+  }
+  if (typeof obj.type === 'string') {
+    return (
+      obj.type === 'firestore/timestamp/1.0' ||
+      obj.type === 'firestore/bytes/1.0' ||
+      obj.type === 'firestore/geoPoint/1.0' ||
+      obj.type === 'firestore/vectorValue/1.0'
+    );
+  }
+  return false;
+}
+
+function decodeSnapshotValue(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map(decodeSnapshotValue);
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) return value;
+
+  const obj = value as Record<string, unknown>;
+  if (obj.type === 'pyric/map/1.0') {
+    const fields = obj.fields;
+    if (fields === null || typeof fields !== 'object' || Array.isArray(fields)) {
+      throw new TypeError('Invalid encoded map fields.');
+    }
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(fields as Record<string, unknown>)) {
+      out[k] = decodeSnapshotValue(v);
+    }
+    return out;
+  }
+
+  if (obj.__type === 'number') {
+    if (obj.value === 'NaN') return Number.NaN;
+    if (obj.value === 'Infinity') return Infinity;
+    if (obj.value === '-Infinity') return -Infinity;
+    if (obj.value === '-0') return -0;
+  }
+
+  if (obj.__type === 'path' && Array.isArray(obj.segments)) {
+    const rawBindings = obj.bindings;
+    const bindings = rawBindings !== null && typeof rawBindings === 'object' && !Array.isArray(rawBindings)
+      ? (rawBindings as Record<string, string>)
+      : undefined;
+    return new RulesPathCtor(obj.segments as string[], bindings);
+  }
+
+  if (isScalarWireMarker(obj)) {
+    return rehydrateEncodedDocValue(obj, DOC_VALUE_ENCODING);
+  }
+
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    out[k] = decodeSnapshotValue(v);
+  }
+  return out;
+}
+
 /**
  * Export the current sandbox snapshot (Pyric Studio rules re-run). Studio forks
  * it locally to test a denied op against edited rules or re-issue it as the
  * attempting user, on a throwaway branch (no live mutation).
  */
 export async function getSnapshot(db: ClientDb): Promise<SandboxSnapshot> {
-  return (await rpc(db.port, { t: 'op', id: nextId(), method: 'getSnapshot' })) as SandboxSnapshot;
+  const raw = (await rpc(db.port, { t: 'op', id: nextId(), method: 'getSnapshot' })) as SandboxSnapshot;
+  const firestore: Record<string, Record<string, unknown>> = {};
+  for (const [docPath, docData] of Object.entries(raw.firestore ?? {})) {
+    firestore[docPath] = decodeSnapshotValue(docData) as Record<string, unknown>;
+  }
+  return { firestore, services: raw.services };
 }
 
 /**

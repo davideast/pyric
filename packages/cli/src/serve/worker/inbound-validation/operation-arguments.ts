@@ -3,6 +3,7 @@ import type { OpMessage } from '../protocol.js';
 import { DELIVERY_STAGES } from 'pyric/messaging/internal';
 import { requireDocumentData } from 'pyric/firestore/internal/value-codec';
 import { requireFirestorePath, requireSingleUpdateForm, requireUpdateFields } from '../protocol/firestore-validation.js';
+import { assertQueryStructure } from '../host/query-structure.js';
 import { isMessageRecord, requireShape, requireRecord, requireString, requireOptionalString,
   requireOptionalBoolean, requireOptionalRecord, requireNumber, requireOptionalNumber } from './fields.js';
 import { assertRtdbQuery } from './rtdb-query.js';
@@ -183,6 +184,7 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       requireOptionalString(message.origin, 'origin');
       return;
     case 'storage.putBytes':
+      requireString(message.dataB64, 'dataB64');
       requireOptionalRecord(message.metadata, 'metadata');
       requireOptionalString(message.contentType, 'contentType');
       requireOptionalString(message.downloadTokens, 'downloadTokens');
@@ -250,7 +252,12 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       requireShape(hasSupportedVisibility, 'visibility');
       return;
     }
+    case 'getDocs':
+    case 'count':
+      assertQueryStructure(message.source);
+      return;
     case 'aggregate': {
+      assertQueryStructure(message.source);
       const spec = message.spec;
       requireRecord(spec, 'spec');
       for (const aggregate of Object.values(spec)) {
@@ -412,14 +419,25 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       requireShape(hasValidVisibility, 'visibility');
       return;
     }
-    case 'getDoc':
-    case 'getDocs':
-    case 'deleteDoc':
-    case 'count':
-    case 'batchCommit':
-    case 'txnCommit':
+    case 'listSubcollections':
+      requireString(message.docPath, 'docPath');
+      return;
     case 'setRules':
     case 'setFirestoreRules':
+      requireString(message.source, 'source');
+      return;
+    case 'messaging.subscribeToTopic':
+    case 'messaging.unsubscribeFromTopic': {
+      requireString(message.topic, 'topic');
+      const hasStringTokens = Array.isArray(message.tokens)
+        && message.tokens.every(token => typeof token === 'string');
+      requireShape(hasStringTokens, 'tokens');
+      return;
+    }
+    case 'getDoc':
+    case 'deleteDoc':
+    case 'batchCommit':
+    case 'txnCommit':
     case 'setDatabaseRules':
     case 'admin.getDocument':
     case 'admin.listDocuments':
@@ -433,7 +451,6 @@ export function assertOperationArguments(message: Record<string, unknown>): void
     case 'rtdb.goOffline':
     case 'rtdb.goOnline':
     case 'listRootCollections':
-    case 'listSubcollections':
     case 'auth.createUser':
     case 'auth.signInEmail':
     case 'auth.signInAnonymously':
@@ -462,8 +479,6 @@ export function assertOperationArguments(message: Record<string, unknown>): void
     case 'listCheckpoints':
     case 'getSnapshot':
     case 'resetAll':
-    case 'messaging.subscribeToTopic':
-    case 'messaging.unsubscribeFromTopic':
       return;
     default: {
       const unsupportedMethod: never = method;
