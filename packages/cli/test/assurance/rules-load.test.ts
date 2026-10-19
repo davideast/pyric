@@ -128,4 +128,111 @@ service cloud.firestore {
       message: "Firestore rules did not parse at line 4, column 57: expected ';' after the allow statement.",
     });
   });
+
+  it("refuses Storage rules with invalid RE2 patterns or wrong service block as invalid-probe (AV-RUN-1)", async () => {
+    const readOp = (path: string): FirebaseOperation => ({
+      service: "storage",
+      method: "get",
+      path,
+    });
+    const invalidRegexReport = await runAuthorizationCampaign(
+      campaign(
+        {
+          storage: `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /files/{fileName} { allow read: if fileName.matches("("); }
+  }
+}`,
+        },
+        {},
+        readOp("files/alice.txt"),
+        readOp("files/other.txt"),
+        "path",
+      ),
+    );
+    expect(invalidRegexReport.results[0]!.classification).toBe("invalid-probe");
+    expect(invalidRegexReport.results[0]!.control.error?.code).toBe("rules-refused");
+    expect(invalidRegexReport.results[0]!.qualification.requirements).toContainEqual(
+      expect.objectContaining({ id: "storage.rules-load", supported: false }),
+    );
+
+    const wrongServiceReport = await runAuthorizationCampaign(
+      campaign(
+        {
+          storage: `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /files/{fileName} { allow read: if true; }
+  }
+}`,
+        },
+        {},
+        readOp("files/alice.txt"),
+        readOp("files/other.txt"),
+        "path",
+      ),
+    );
+    expect(wrongServiceReport.results[0]!.classification).toBe("invalid-probe");
+    expect(wrongServiceReport.results[0]!.control.error?.code).toBe("rules-refused");
+    expect(wrongServiceReport.results[0]!.qualification.requirements).toContainEqual(
+      expect.objectContaining({ id: "storage.rules-load", supported: false }),
+    );
+  });
+
+  it("refuses a non-Firestore service block in target.rules.firestore as invalid-probe (AV-RUN-2)", async () => {
+    const report = await runAuthorizationCampaign(
+      campaign(
+        {
+          firestore: `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /rooms/{roomId} { allow read, write: if true; }
+  }
+}`,
+        },
+        { firestore: { "rooms/r1": { ownerId: "alice" } } },
+        { service: "firestore", method: "get", path: "rooms/r1" },
+        { service: "firestore", method: "get", path: "rooms/r2" },
+        "path",
+      ),
+    );
+    const [result] = report.results;
+    expect(result!.classification).toBe("invalid-probe");
+    expect(result!.control.error).toEqual({
+      code: "rules-refused",
+      message: "Firestore rules did not compile: Expected 'service cloud.firestore', got 'service firebase.storage'.",
+    });
+    expect(result!.qualification.requirements).toContainEqual(
+      expect.objectContaining({ id: "firestore.rules-load", supported: false }),
+    );
+  });
+
+  it("refuses non-deployable RTDB rules as invalid-probe instead of throwing (AV-RUN-3)", async () => {
+    const report = await runAuthorizationCampaign(
+      campaign(
+        {
+          rtdb: {
+            rules: {
+              profiles: {
+                $uid: {
+                  ".read": "auth != null",
+                  ".write": "auth[data] == true",
+                },
+              },
+            },
+          },
+        },
+        { rtdb: { profiles: { alice: { ownerId: "alice" } } } },
+        { service: "rtdb", method: "set", path: "/profiles/alice", data: { ownerId: "alice" } },
+        { service: "rtdb", method: "set", path: "/profiles/alice", data: { ownerId: "mallory" } },
+      ),
+    );
+    const [result] = report.results;
+    expect(result!.classification).toBe("invalid-probe");
+    expect(result!.control.error?.code).toBe("rules-refused");
+    expect(result!.qualification.requirements).toContainEqual(
+      expect.objectContaining({ id: "rtdb.rules-load", supported: false }),
+    );
+  });
 });

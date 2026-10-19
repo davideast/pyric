@@ -20,7 +20,8 @@ import {
   type MatchBlock,
   type PathSegment,
 } from "pyric/rules/internal";
-import { parseStorageRules } from "pyric/storage";
+import { rtdbRulesSourceRejection } from "pyric/rules/internal/rtdb";
+import { compileStorageRules } from "pyric/storage/internal";
 import {
   CONFORMANCE_VERDICTS,
   type ConformanceVerdict,
@@ -94,31 +95,59 @@ function requirement(
  * Why production would refuse to load the rules a service runs under, in
  * production's words (`Firestore rules did not compile: Line 4: Expression is
  * too complex to evaluate safely.`), or undefined when it would load them.
- * RTDB targets carry compiled rules JSON and have no source to check.
  */
 export function rulesLoadRefusal(
   target: LocalFirebaseTarget,
   service: AssuranceProbe["control"]["service"],
 ): string | undefined {
+  if (service === "rtdb") {
+    if (!target.rules.rtdb) return undefined;
+    const rejection = rtdbRulesSourceRejection(target.rules.rtdb);
+    return rejection === null ? undefined : rejection.message;
+  }
   const source =
     service === "firestore"
       ? target.rules.firestore
-      : service === "storage"
-        ? target.rules.storage
-        : undefined;
+      : target.rules.storage;
   if (typeof source !== "string" || source.trim().length === 0) return undefined;
   const rejection = rulesSourceRejection(source);
-  if (rejection === null) return undefined;
-  return `${service === "firestore" ? "Firestore" : "Storage"} ${rejection.message}`;
+  if (rejection !== null) {
+    return `${service === "firestore" ? "Firestore" : "Storage"} ${rejection.message}`;
+  }
+  if (service === "firestore") {
+    const parsed = parseToASTOrError(source);
+    if (
+      parsed.ok &&
+      parsed.ast.service?.name &&
+      parsed.ast.service.name !== "cloud.firestore"
+    ) {
+      return `Firestore rules did not compile: Expected 'service cloud.firestore', got 'service ${parsed.ast.service.name}'.`;
+    }
+    return undefined;
+  }
+  try {
+    compileStorageRules(source);
+    return undefined;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.startsWith("Storage ")
+      ? message
+      : `Storage rules did not compile: ${message}`;
+  }
 }
 
 /** The requirement that production would load a service's rules source. */
 function rulesLoadRequirement(
   target: LocalFirebaseTarget,
-  service: "firestore" | "storage",
+  service: "firestore" | "rtdb" | "storage",
 ): CapabilityRequirement {
   const refusal = rulesLoadRefusal(target, service);
-  const name = service === "firestore" ? "Firestore" : "Storage";
+  const name =
+    service === "firestore"
+      ? "Firestore"
+      : service === "rtdb"
+        ? "RTDB"
+        : "Storage";
   return requirement(
     `${service}.rules-load`,
     refusal === undefined,
@@ -251,31 +280,54 @@ function compatibleRtdbPrefix(
   return true;
 }
 
+function rtdbOperationTargetSegmentLists(
+  operation: AssuranceProbe["control"],
+): string[][] {
+  if (operation.service !== "rtdb") return [];
+  const baseSegments = operation.path.split("/").filter(Boolean);
+  if (
+    operation.method === "update" &&
+    operation.data &&
+    typeof operation.data === "object" &&
+    !Array.isArray(operation.data)
+  ) {
+    const keys = Object.keys(operation.data as Record<string, unknown>);
+    if (keys.length > 0) {
+      return keys.map((relKey) => [
+        ...baseSegments,
+        ...relKey.split("/").filter(Boolean),
+      ]);
+    }
+  }
+  return [baseSegments];
+}
+
 function rtdbRuleAppliesToOperation(
   rule: RtdbRuleSource,
   operation: AssuranceProbe["control"],
 ): boolean {
   if (operation.service !== "rtdb") return false;
-  const segments = operation.path.split("/").filter(Boolean);
   const isRead = operation.method === "get";
-  if (rule.kind === ".read") {
-    return (
-      isRead &&
-      rule.segments.length <= segments.length &&
-      compatibleRtdbPrefix(rule.segments, segments, rule.segments.length)
-    );
-  }
-  if (rule.kind === ".write") {
-    return (
-      !isRead &&
-      rule.segments.length <= segments.length &&
-      compatibleRtdbPrefix(rule.segments, segments, rule.segments.length)
-    );
-  }
-  if (isRead) return false;
+  return rtdbOperationTargetSegmentLists(operation).some((segments) => {
+    if (rule.kind === ".read") {
+      return (
+        isRead &&
+        rule.segments.length <= segments.length &&
+        compatibleRtdbPrefix(rule.segments, segments, rule.segments.length)
+      );
+    }
+    if (rule.kind === ".write") {
+      return (
+        !isRead &&
+        rule.segments.length <= segments.length &&
+        compatibleRtdbPrefix(rule.segments, segments, rule.segments.length)
+      );
+    }
+    if (isRead) return false;
 
-  const overlapLength = Math.min(rule.segments.length, segments.length);
-  return compatibleRtdbPrefix(rule.segments, segments, overlapLength);
+    const overlapLength = Math.min(rule.segments.length, segments.length);
+    return compatibleRtdbPrefix(rule.segments, segments, overlapLength);
+  });
 }
 
 function firestoreRequirements(
@@ -363,8 +415,9 @@ function rtdbRequirements(
     if (!usesDataOrNewData) return false;
     return operations.some((operation) => {
       if (!rtdbRuleAppliesToOperation(rule, operation)) return false;
-      const opSegments = operation.path.split("/").filter(Boolean);
-      return rule.segments.length < opSegments.length;
+      return rtdbOperationTargetSegmentLists(operation).some(
+        (opSegments) => rule.segments.length < opSegments.length,
+      );
     });
   });
   const requirements = [
@@ -373,6 +426,7 @@ function rtdbRequirements(
       !!rules,
       "RTDB probes require an explicit rules JSON document.",
     ),
+    ...(rules ? [rulesLoadRequirement(target, "rtdb")] : []),
     requirement(
       "rtdb.rules-parse",
       invalidExpressions.length === 0,
@@ -440,7 +494,7 @@ function storageRequirements(
   requirements.push(load);
   if (!load.supported) return requirements;
   try {
-    parseStorageRules(rules);
+    compileStorageRules(rules);
     requirements.push(
       requirement(
         "storage.rules-subset",

@@ -51,7 +51,10 @@ import {
   uploadBytes,
   type FirebaseStorage,
 } from "pyric/storage";
-import { getAdminStorageSandbox } from "pyric/storage/internal";
+import {
+  arrayBufferToBase64,
+  getAdminStorageSandbox,
+} from "pyric/storage/internal";
 import { rtdbRulesSourceRejection } from "pyric/rules/internal/rtdb";
 import {
   initializeSandbox,
@@ -59,6 +62,7 @@ import {
   type LocalSandbox,
   type SandboxEvent,
 } from "pyric/sandbox";
+import { getInternalEnv } from "pyric/sandbox/internal";
 import { qualifyProbe, rulesLoadRefusal } from "./capabilities.js";
 import {
   assertActor,
@@ -176,6 +180,7 @@ function stableStringify(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
   const record = value as Record<string, unknown>;
   return `{${Object.keys(record)
+    .filter((key) => record[key] !== undefined)
     .sort()
     .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
     .join(",")}}`;
@@ -194,10 +199,25 @@ function targetHash(target: LocalFirebaseTarget): string {
 function authUsers(target: LocalFirebaseTarget): SeedUser[] {
   return (target.state.auth?.users ?? []).map((user) => ({
     uid: user.uid,
-    email: user.email ?? `${user.uid}@fixture.pyric.invalid`,
-    password: user.password ?? "__pyric_fixture_password__",
+    ...(typeof user.email === "string" ? { email: user.email } : {}),
+    ...(user.password !== undefined ? { password: user.password } : {}),
     ...(user.customClaims ? { customClaims: user.customClaims } : {}),
   }));
+}
+
+function normalizeFirestorePath(path: string): string {
+  return path.replace(/^\/+|\/+$/g, "");
+}
+
+function normalizeFirestoreDocuments(
+  docs: Record<string, Record<string, unknown>> | undefined,
+): Record<string, Record<string, unknown>> {
+  if (!docs) return {};
+  const normalized: Record<string, Record<string, unknown>> = {};
+  for (const [path, data] of Object.entries(docs)) {
+    normalized[normalizeFirestorePath(path)] = data;
+  }
+  return normalized;
 }
 
 function seedAuth(
@@ -322,7 +342,7 @@ async function createRuntime(
   if (service === "firestore") {
     const firestore = getFirestore(context);
     setRules(sandbox, target.rules.firestore!);
-    seedDocuments(sandbox, target.state.firestore ?? {});
+    seedDocuments(sandbox, normalizeFirestoreDocuments(target.state.firestore));
     runtime.firestore = firestore;
   } else if (service === "rtdb") {
     const rtdb = getDatabase(context);
@@ -334,6 +354,12 @@ async function createRuntime(
     runtime.rtdb = rtdb;
     runtime.rtdbAdmin = admin;
   } else {
+    if (target.state.firestore) {
+      seedDocuments(
+        sandbox,
+        normalizeFirestoreDocuments(target.state.firestore),
+      );
+    }
     const dbName = [
       "pyric-assurance",
       campaignId,
@@ -428,12 +454,14 @@ function errorDecision(error: unknown): {
 async function executeFirestore(
   operation: FirebaseOperation,
   db: Firestore,
+  runtime: ServiceRuntime,
 ): Promise<unknown> {
   if (operation.service !== "firestore")
     throw new Error("Expected a Firestore operation.");
+  const path = normalizeFirestorePath(operation.path);
   switch (operation.method) {
     case "get": {
-      const snapshot = await getDoc(doc(db, operation.path));
+      const snapshot = await getDoc(doc(db, path));
       const exists =
         typeof snapshot.exists === "function"
           ? snapshot.exists()
@@ -451,28 +479,43 @@ async function executeFirestore(
       if (operation.query?.limit !== undefined)
         constraints.push(limit(operation.query.limit));
       const source = constraints.length
-        ? query(collection(db, operation.path), ...constraints)
-        : collection(db, operation.path);
+        ? query(collection(db, path), ...constraints)
+        : collection(db, path);
       const snapshot = await getDocs(source as Query);
       return snapshot.docs.map((item) => ({
-        path: `${operation.path.replace(/\/$/, "")}/${item.id}`,
+        path: `${path}/${item.id}`,
         data: item.data(),
       }));
     }
-    case "create":
+    case "create": {
+      doc(db, path);
+      const result = getInternalEnv(runtime.sandbox).execute({
+        method: "create",
+        path,
+        data: operation.data ?? {},
+        auth: runtime.actor.auth,
+      });
+      if (!result.allowed) {
+        throw (
+          result.error ??
+          new Error(result.debugMessages.join("; ") || "create denied")
+        );
+      }
+      return null;
+    }
     case "set":
-      await setDoc(doc(db, operation.path), operation.data ?? {});
+      await setDoc(doc(db, path), operation.data ?? {});
       return null;
     case "merge":
-      await setDoc(doc(db, operation.path), operation.data ?? {}, {
+      await setDoc(doc(db, path), operation.data ?? {}, {
         merge: true,
       });
       return null;
     case "update":
-      await updateDoc(doc(db, operation.path), operation.data ?? {});
+      await updateDoc(doc(db, path), operation.data ?? {});
       return null;
     case "delete":
-      await deleteDoc(doc(db, operation.path));
+      await deleteDoc(doc(db, path));
       return null;
   }
 }
@@ -567,8 +610,10 @@ async function executeStorage(
           getBlob(target),
           getMetadata(target),
         ]);
+        const buffer = await blob.arrayBuffer();
         return {
-          text: await blob.text(),
+          dataBase64: arrayBufferToBase64(buffer),
+          text: new TextDecoder().decode(buffer),
           contentType: metadata.contentType,
           customMetadata: metadata.customMetadata ?? {},
         };
@@ -623,13 +668,14 @@ async function readState(
 ): Promise<unknown> {
   if (operation.service === "firestore") {
     const state = snapshotDocuments(runtime.sandbox);
+    const normalizedPath = normalizeFirestorePath(operation.path);
     if (operation.method === "list") {
-      const prefix = `${operation.path.replace(/\/$/, "")}/`;
+      const prefix = `${normalizedPath}/`;
       return Object.fromEntries(
         Object.entries(state).filter(([path]) => path.startsWith(prefix)),
       );
     }
-    return state[operation.path] ?? null;
+    return state[normalizedPath] ?? null;
   }
   if (operation.service === "rtdb") {
     return (await getRtdb(rtdbRef(runtime.rtdbAdmin!, operation.path))).val();
@@ -654,8 +700,10 @@ async function readStorageState(
       getBlob(target),
       getMetadata(target),
     ]);
+    const buffer = await blob.arrayBuffer();
     return {
-      text: await blob.text(),
+      dataBase64: arrayBufferToBase64(buffer),
+      text: new TextDecoder().decode(buffer),
       contentType: metadata.contentType,
       customMetadata: metadata.customMetadata ?? {},
     };
@@ -690,7 +738,7 @@ async function executeOperation(
   try {
     output =
       operation.service === "firestore"
-        ? await executeFirestore(operation, runtime.firestore!)
+        ? await executeFirestore(operation, runtime.firestore!, runtime)
         : operation.service === "rtdb"
           ? await executeRtdb(operation, runtime.rtdb!)
           : await executeStorage(operation, runtime.storage!);
@@ -725,6 +773,25 @@ function skippedEvidence(
   return { operation, decision, events: [] };
 }
 
+const READ_METHODS = new Set(["get", "list"]);
+
+function hasReadImpact(
+  operation: FirebaseOperation,
+  output: unknown,
+): boolean {
+  if (output === undefined || output === null) return false;
+  if (operation.method === "list") {
+    if (Array.isArray(output)) return output.length > 0;
+    if (typeof output === "object") {
+      const listing = output as { items?: unknown[]; prefixes?: unknown[] };
+      if (Array.isArray(listing.items) && Array.isArray(listing.prefixes)) {
+        return listing.items.length > 0 || listing.prefixes.length > 0;
+      }
+    }
+  }
+  return true;
+}
+
 function classify(
   actor: ActorEvidence,
   invariant: SecurityInvariant,
@@ -738,9 +805,10 @@ function classify(
     return "invalid-probe";
   if (mutation.decision === invariant.expected) return "no-counterexample";
   if (invariant.expected === "DENY" && mutation.decision === "ALLOW") {
-    const hasImpact =
-      stateDiff.changed ||
-      (mutation.output !== undefined && mutation.output !== null);
+    const isRead = READ_METHODS.has(mutation.operation.method);
+    const hasImpact = isRead
+      ? hasReadImpact(mutation.operation, mutation.output)
+      : stateDiff.changed;
     return actor.reachability === "reachable" &&
       invariant.confidence !== "tentative" &&
       hasImpact

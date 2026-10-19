@@ -371,8 +371,11 @@ export class AuthorizationCampaign {
       Object.keys(candidate).some(
         (field) =>
           stableValue(candidate[field]) !== stableValue(controlData[field]),
+      ) ||
+      Object.keys(controlData).some(
+        (field) => !(field in candidate) && controlData[field] !== undefined,
       );
-    if (!retainsPayloadDelta(kept)) {
+    if (!retainsPayloadDelta(kept) || Object.keys(kept).length <= 1) {
       return {
         probeId,
         changed: false,
@@ -416,7 +419,7 @@ export class AuthorizationCampaign {
     }
     if (removedPayloadFields.length > 0) {
       this.#probes.set(probeId, bestProbe);
-      this.#report = replaceResult(this.#report!, bestResult);
+      this.#report = replaceResult(this.#report!, bestResult, this.#probes.size);
     }
     return {
       probeId,
@@ -439,17 +442,21 @@ export class AuthorizationCampaign {
           (options.includeCandidates &&
             result.classification === "candidate-signal"),
       )
-      .map((result) => ({
-        schema: "pyric.assurance.case.v1" as const,
-        id: result.probeId,
-        campaignId: this.id,
-        actorId: result.actorEvidence.actorId,
-        invariant: result.invariant,
-        control: result.control.operation,
-        mutation: result.mutationSpec,
-        expect: result.invariant.expected,
-        qualification: result.qualification,
-      }));
+      .map((result) => {
+        const probe = this.#probes.get(result.probeId);
+        return {
+          schema: "pyric.assurance.case.v1" as const,
+          id: result.probeId,
+          campaignId: this.id,
+          actorId: result.actorEvidence.actorId,
+          invariant: result.invariant,
+          control: result.control.operation,
+          mutation: result.mutationSpec,
+          expect: result.invariant.expected,
+          qualification: result.qualification,
+          ...(probe?.requires ? { requires: probe.requires } : {}),
+        };
+      });
   }
 
   async verifyRules(options: {
@@ -550,6 +557,7 @@ function stableValue(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableValue).join(",")}]`;
   const record = value as Record<string, unknown>;
   return `{${Object.keys(record)
+    .filter((key) => record[key] !== undefined)
     .sort()
     .map((key) => `${JSON.stringify(key)}:${stableValue(record[key])}`)
     .join(",")}}`;
@@ -560,7 +568,12 @@ function mergeReports(
   incoming: AuthorizationCampaignReport,
   totalProbes: number,
 ): AuthorizationCampaignReport {
-  if (!existing) return incoming;
+  if (!existing) {
+    return {
+      ...incoming,
+      summary: summarizeResults(incoming.results, totalProbes),
+    };
+  }
   const byId = new Map(
     existing.results.map((result) => [result.probeId, result]),
   );
@@ -576,6 +589,7 @@ function mergeReports(
 function replaceResult(
   report: AuthorizationCampaignReport,
   replacement: AssuranceProbeResult,
+  totalProbes: number = report.summary.probes,
 ): AuthorizationCampaignReport {
   const results = report.results.map((result) =>
     result.probeId === replacement.probeId ? replacement : result,
@@ -583,7 +597,7 @@ function replaceResult(
   return {
     ...report,
     results,
-    summary: summarizeResults(results, results.length),
+    summary: summarizeResults(results, totalProbes),
   };
 }
 

@@ -101,4 +101,87 @@ describe("RTDB assurance qualification reads rule identifiers from the parse", (
     const qualification = qualifyProbe(target, probe);
     expect(qualification.supported).toBe(true);
   });
+
+  it("expands relative child keys in RTDB update payloads when qualifying ancestor data/newData and query rules (AV-RUN-4)", () => {
+    const target: LocalFirebaseTarget = {
+      ...targetBase,
+      rules: {
+        rtdb: {
+          rules: {
+            rooms: {
+              $roomId: {
+                ".write":
+                  'auth != null && newData.child("owner").val() == data.child("owner").val() && query.limitToFirst == 10',
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const rootUpdateProbe: AssuranceProbe = {
+      id: "rtdb-root-update",
+      actorId: "alice",
+      invariantId: "boundary",
+      control: {
+        service: "rtdb",
+        method: "update",
+        path: "/",
+        data: { "rooms/r1/title": "Allowed" },
+      },
+      mutation: {
+        dimension: "payload",
+        description: "Update owner via relative key at root.",
+        operation: {
+          service: "rtdb",
+          method: "update",
+          path: "/",
+          data: { "rooms/r1/owner": "mallory" },
+        },
+      },
+    };
+
+    const rootQualification = qualifyProbe(target, rootUpdateProbe);
+    expect(rootQualification.supported).toBe(false);
+    expect(rootQualification.requirements).toContainEqual(
+      expect.objectContaining({ id: "rtdb.query-rules", supported: false }),
+    );
+    expect(rootQualification.requirements).toContainEqual(
+      expect.objectContaining({
+        id: "rtdb.rule-location-data",
+        supported: false,
+      }),
+    );
+
+    const parentUpdateProbe: AssuranceProbe = {
+      id: "rtdb-parent-update",
+      actorId: "alice",
+      invariantId: "boundary",
+      control: {
+        service: "rtdb",
+        method: "update",
+        path: "/rooms/r1",
+        data: { title: "Allowed" },
+      },
+      mutation: {
+        dimension: "payload",
+        description: "Update owner via relative key at parent.",
+        operation: {
+          service: "rtdb",
+          method: "update",
+          path: "/rooms/r1",
+          data: { owner: "mallory" },
+        },
+      },
+    };
+
+    const parentQualification = qualifyProbe(target, parentUpdateProbe);
+    expect(parentQualification.supported).toBe(false);
+    expect(parentQualification.requirements).toContainEqual(
+      expect.objectContaining({
+        id: "rtdb.rule-location-data",
+        supported: false,
+      }),
+    );
+  });
 });
