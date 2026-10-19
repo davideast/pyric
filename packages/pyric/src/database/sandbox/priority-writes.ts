@@ -19,13 +19,31 @@ export class PriorityWrites {
 
   adminSet(path: string, priority: Priority): void {
     validatePriority(priority);
-    if (this.state.tree.read(path) === null) return;
+    const current = this.state.tree.read(path);
+    if (current === null) return;
+    const now = this.state.clock.now();
+    const priorPriority = this.state.priorities.get(path);
+    this.state.events.operation(null, 'setPriority', path, 'not-applicable', undefined, {
+      at: now,
+      origin: 'admin',
+      request: { data: priority },
+      resourceBefore: { data: current, exists: true },
+      resourceAfter: { data: current, exists: true },
+      detail: { admin: true, priority, priorPriority },
+    });
     const priors = this.children.snapshotParents();
-    const changed = this.state.priorities.get(path) !== priority;
+    const changed = priorPriority !== priority;
     this.state.priorities.set(path, priority);
     this.state.mutations.mark(path);
     if (changed) this.values.fanOut([path]);
     this.children.fanOut(priors);
+    this.state.events.commit(null, 'setPriority', path, {
+      data: priority,
+      priorState: priorPriority,
+      nextState: priority,
+      replay: { requestTime: now },
+      detail: { admin: true, priority, priorPriority },
+    });
     this.state.notifyWrite();
   }
 
@@ -52,6 +70,13 @@ export class PriorityWrites {
       throw permissionDenied(rtdbDenialContext(evaluation, auth, 'setPriority', path, { data: priority }));
     }
     this.state.events.operation(auth, 'setPriority', path, 'allow', evaluation, common);
+    this.state.events.commit(auth, 'setPriority', path, {
+      data: priority,
+      priorState: priorPriority,
+      nextState: current === null ? null : priority,
+      replay: { requestTime: at },
+      detail: { priority, priorPriority },
+    });
     if (current === null) return;
     const priors = this.children.snapshotParents();
     const changed = priorPriority !== priority;
@@ -60,10 +85,6 @@ export class PriorityWrites {
     if (changed) this.values.fanOut([path]);
     this.children.fanOut(priors);
     if (changed) {
-      this.state.events.commit(auth, 'setPriority', path, {
-        data: priority, priorState: priorPriority, nextState: priority,
-        detail: { priority, priorPriority },
-      });
       this.state.events.mutation(auth, 'setPriority', canonicalPath(path), {
         before: priorPriority, after: priority, detail: { priorityMetadata: true },
       });

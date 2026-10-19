@@ -8,6 +8,7 @@ import { validatePriority } from './priority-state.js';
 import { withDenialContext } from './rules-eval.js';
 import { resolveSentinels } from './sentinels.js';
 import type { ValueListeners } from './value-listeners.js';
+import { captureRewindDetail } from './write-plane.js';
 
 /** Production rejects a denied transaction with a codeless plain `Error`
  *  whose message is `permission_denied`. */
@@ -98,6 +99,7 @@ export class Transactions {
       }
     }
     const hasNode = (p: string): boolean => this.state.tree.read(p) !== null;
+    const rewindDetail = captureRewindDetail(this.state, path, current, currentPriority, true);
     if (applyLocally) {
       const childPriors = this.children.snapshotParents();
       this.state.tree.write(path, resolved);
@@ -105,7 +107,7 @@ export class Transactions {
       this.storeNestedPriorities(segments, written.nested, hasNode);
       this.values.fanOut([path]);
       this.children.fanOut(childPriors);
-      this.recordCommit(auth, path, proposed, current, resolved, groupId, now, at, true, evaluation, isAdmin);
+      this.recordCommit(auth, path, proposed, current, resolved, groupId, now, at, true, evaluation, isAdmin, rewindDetail);
       return { committed: true, val: resolved, key };
     }
     const opResult = isAdmin ? 'not-applicable' : 'allow';
@@ -124,7 +126,7 @@ export class Transactions {
     this.state.mutations.mark(path);
     this.values.fanOut([path]);
     this.children.fanOut(childPriors);
-    this.finishEvents(auth, path, proposed, current, resolved, groupId, now, false);
+    this.finishEvents(auth, path, proposed, current, resolved, groupId, now, false, isAdmin, rewindDetail);
     this.state.notifyWrite();
     return { committed: true, val: resolved, key };
   }
@@ -154,6 +156,7 @@ export class Transactions {
     resolved: JsonValue, groupId: string, now: number, at: number, applyLocally: boolean,
     evaluation: ReturnType<BackendState['rules']['evaluate']> | undefined,
     isAdmin: boolean,
+    rewindDetail: Record<string, unknown>,
   ): void {
     const opResult = isAdmin ? 'not-applicable' : 'allow';
     const opOrigin = isAdmin ? 'admin' : 'transaction';
@@ -164,7 +167,7 @@ export class Transactions {
       resourceAfter: { data: resolved, exists: resolved !== null },
       groupId, groupKind: 'transaction',
     });
-    this.finishEvents(auth, path, proposed, current, resolved, groupId, now, applyLocally);
+    this.finishEvents(auth, path, proposed, current, resolved, groupId, now, applyLocally, isAdmin, rewindDetail);
     this.state.mutations.mark(path);
     this.state.notifyWrite();
   }
@@ -172,11 +175,17 @@ export class Transactions {
   private finishEvents(
     auth: AuthState, path: string, proposed: JsonValue, current: JsonValue,
     resolved: JsonValue, groupId: string, now: number, applyLocally: boolean,
+    isAdmin: boolean, rewindDetail: Record<string, unknown>,
   ): void {
     this.state.events.commit(auth, 'transaction', path, {
       data: proposed, priorState: current, nextState: resolved,
       groupId, groupKind: 'transaction', replay: { requestTime: now },
-      detail: { committed: true, applyLocally },
+      detail: {
+        ...(isAdmin ? { admin: true } : {}),
+        committed: true,
+        applyLocally,
+        ...rewindDetail,
+      },
     });
     this.state.events.mutation(auth, 'transaction', canonicalPath(path), {
       before: current, after: resolved, detail: { committed: true },
