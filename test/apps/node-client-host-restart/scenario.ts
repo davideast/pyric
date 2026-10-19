@@ -113,6 +113,8 @@ export default scenario(async (app) => {
   await app.step('the writer exits cleanly and logs no unhandled rejection', () => {
     assert.equal(exitCode, 0, writer.output);
     assert.doesNotMatch(writer.output, /unhandled rejection|uncaught exception/);
+    // A restart on the same URL is not a stopped sandbox: no call reports the URL as stale.
+    assert.doesNotMatch(writer.output, /is stale/);
     assert.equal(ticks.length, TICKS, `the writer logged ${ticks.length} outcomes, not ${TICKS}`);
   });
 
