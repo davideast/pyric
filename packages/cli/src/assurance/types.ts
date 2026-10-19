@@ -324,6 +324,7 @@ export interface SecurityCase {
   mutation: ProbeMutation;
   expect: "ALLOW" | "DENY";
   qualification: EngineQualification;
+  requires?: CapabilityDependency[];
 }
 
 export interface MinimizationResult {

@@ -260,4 +260,116 @@ describe("campaign classification integrity", () => {
       }),
     );
   });
+
+  it("classifies empty list reads and no-op Storage writes as candidate-signal rather than local-counterexample (AV-RUN-6)", async () => {
+    const report = await runAuthorizationCampaign({
+      schema: "pyric.assurance.campaign.v1",
+      id: "av-run-6-impact",
+      target: {
+        schema: "pyric.assurance.target.v1",
+        network: "forbid",
+        rules: {
+          firestore: `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /rooms/{roomId} { allow read, write: if true; }
+    match /secrets/{docId} { allow read, write: if true; }
+  }
+}`,
+          storage: `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} { allow read, write: if true; }
+  }
+}`,
+        },
+        state: {
+          auth: { users: [{ uid: "alice", email: "alice@example.com" }] },
+          firestore: { "rooms/r1": { owner: "alice" } },
+          storage: [
+            {
+              path: "files/alice.txt",
+              dataBase64: Buffer.from("same-content", "utf8").toString("base64"),
+              contentType: "text/plain",
+              customMetadata: { owner: "alice" },
+            },
+          ],
+        },
+      },
+      actors: [{ id: "alice", acquisition: { kind: "fixture-user", uid: "alice" } }],
+      invariants: [
+        {
+          id: "fs-inv",
+          service: "firestore",
+          statement: "Secrets must not be listed.",
+          expected: "DENY",
+          source: "declared",
+          confidence: "authoritative",
+        },
+        {
+          id: "st-inv",
+          service: "storage",
+          statement: "Private prefix and files must not be accessed.",
+          expected: "DENY",
+          source: "declared",
+          confidence: "authoritative",
+        },
+      ],
+      probes: [
+        {
+          id: "empty-firestore-list",
+          actorId: "alice",
+          invariantId: "fs-inv",
+          control: { service: "firestore", method: "list", path: "rooms" },
+          mutation: {
+            dimension: "path",
+            description: "List empty secrets collection.",
+            operation: { service: "firestore", method: "list", path: "secrets" },
+          },
+        },
+        {
+          id: "empty-storage-list",
+          actorId: "alice",
+          invariantId: "st-inv",
+          control: { service: "storage", method: "list", path: "files" },
+          mutation: {
+            dimension: "path",
+            description: "List empty private prefix.",
+            operation: { service: "storage", method: "list", path: "private" },
+          },
+        },
+        {
+          id: "noop-storage-write",
+          actorId: "alice",
+          invariantId: "st-inv",
+          control: {
+            service: "storage",
+            method: "updateMetadata",
+            path: "files/alice.txt",
+            contentType: "text/plain",
+            customMetadata: { owner: "alice", tag: "v1" },
+          },
+          mutation: {
+            dimension: "payload",
+            description: "No-op updateMetadata with identical metadata as fixture.",
+            operation: {
+              service: "storage",
+              method: "updateMetadata",
+              path: "files/alice.txt",
+              contentType: "text/plain",
+              customMetadata: { owner: "alice" },
+            },
+          },
+        },
+      ],
+    });
+
+    expect(report.results.map((r) => r.classification)).toEqual([
+      "candidate-signal",
+      "candidate-signal",
+      "candidate-signal",
+    ]);
+    expect(report.summary.localCounterexamples).toBe(0);
+    expect(report.summary.candidateSignals).toBe(3);
+  });
 });
