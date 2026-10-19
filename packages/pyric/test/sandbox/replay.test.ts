@@ -10,14 +10,22 @@
  */
 import { describe, it, expect } from 'bun:test';
 import {
+  getClock,
   initializeSandbox,
   replay,
   type Divergence,
   type RequestEvent,
   type Sandbox,
+  type SandboxEvent,
   type WriteSandboxEvent,
 } from '../../src/sandbox/index.js';
 import { getInternalEnv } from '../../src/sandbox/internal/sandbox-impl.js';
+import {
+  Bytes,
+  GeoPoint,
+  Timestamp,
+  vector,
+} from '../../src/firestore/index.js';
 
 const RULES = `rules_version = '2';
 service cloud.firestore {
@@ -280,5 +288,181 @@ service cloud.firestore {
     const result = replay(sandbox.history(), RULES);
     expect(result.divergences).toHaveLength(0);
     expect(result.sandbox.snapshot().firestore['things/a']).toEqual({ v: 1 });
+  });
+
+  it('AV-REP-1a/b: rehydrates JSON-roundtripped Firestore values on replay and diffs against persisted state without false divergences', () => {
+    const typedRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /items/{id} {
+      allow read: if true;
+      allow write: if request.resource.data.createdAt is timestamp
+                   && request.resource.data.payload is bytes
+                   && request.resource.data.location is latlng
+                   && request.resource.data.parentRef is reference
+                   && request.resource.data.parentRef.path == 'items/root'
+                   && request.resource.data.updatedAt is timestamp;
+    }
+  }
+}`;
+    const sb = initializeSandbox();
+    const env = getInternalEnv(sb);
+    env.seed({ rules: typedRules });
+
+    const res = env.execute({
+      method: 'set',
+      path: 'items/1',
+      auth: { uid: 'alice' },
+      data: {
+        createdAt: Timestamp.fromMillis(1700000000000),
+        payload: Bytes.fromUint8Array(new Uint8Array([1, 2, 3])),
+        location: new GeoPoint(37.7749, -122.4194),
+        embedding: vector([0.1, 0.2, 0.3]),
+        parentRef: { id: 'root', path: 'items/root', _path: {}, _firestore: {} },
+        updatedAt: { __type: 'serverTimestamp' },
+      },
+    });
+    expect(res.allowed).toBe(true);
+
+    const persistedEvents = JSON.parse(JSON.stringify(sb.history())).map((e: SandboxEvent) => {
+      if (e.kind === 'request' && e.request?.resourceData) {
+        return {
+          ...e,
+          request: {
+            ...e.request,
+            resourceData: {
+              ...e.request.resourceData,
+              parentRef: { id: 'root', path: 'items/root' },
+            },
+          },
+        };
+      }
+      return e;
+    });
+    const persistedState = JSON.parse(JSON.stringify(sb.snapshot().firestore));
+
+    const result = replay(persistedEvents, typedRules, { pinRequestTime: true }, persistedState);
+    expect(result.divergences).toEqual([]);
+    expect(result.sandbox.snapshot().firestore['items/1']).toBeDefined();
+  });
+
+  it('AV-REP-2: preserves sentinels across multiple writes to the same document path', () => {
+    const { sandbox, env } = setup();
+    getClock(sandbox).set(1000);
+
+    env.execute({
+      method: 'set',
+      path: 'things/doc1',
+      auth: { uid: 'alice' },
+      data: {
+        title: 'v1',
+        createdAt: { __type: 'serverTimestamp' },
+      },
+    });
+    getClock(sandbox).set(2000);
+    env.execute({
+      method: 'update',
+      path: 'things/doc1',
+      auth: { uid: 'alice' },
+      data: {
+        title: 'v2',
+        updatedAt: { __type: 'serverTimestamp' },
+      },
+    });
+
+    const result = replay(sandbox.history(), RULES, { pinRequestTime: false }, sandbox.snapshot().firestore);
+    const real = result.divergences.filter((d) => d.kind === 'real-divergence');
+    expect(real).toEqual([]);
+  });
+
+  it('AV-REP-3a/b: preResolutionDataFor skips denied RequestEvents and does not reuse consumed RequestEvents across writes', () => {
+    const { sandbox: sbA, env: envA } = setup();
+
+    envA.execute({ method: 'set', path: 'things/1', auth: { uid: 'mallory' }, data: { v: 999 } });
+    envA.execute({ method: 'set', path: 'things/1', auth: { uid: 'alice' }, data: { v: 1 } });
+
+    // Strip Alice's RequestEvent while keeping Mallory's denied RequestEvent.
+    const eventsA = sbA.history().filter(
+      (e) => !(e.kind === 'request' && e.auth?.uid === 'alice'),
+    );
+    const resA = replay(eventsA, RULES, {}, sbA.snapshot().firestore);
+    expect(resA.divergences).toEqual([]);
+    expect(resA.sandbox.snapshot().firestore['things/1']).toEqual({ v: 1 });
+
+    // Two consecutive writes to the same path; strip only the second RequestEvent.
+    const { sandbox: sbB, env: envB } = setup();
+    envB.execute({
+      method: 'set',
+      path: 'things/2',
+      auth: { uid: 'alice' },
+      data: { v: 1, ts: { __type: 'serverTimestamp' } },
+    });
+    envB.execute({
+      method: 'set',
+      path: 'things/2',
+      auth: { uid: 'alice' },
+      data: { v: 2 },
+    });
+
+    const eventsB = sbB.history().filter(
+      (e) => !(e.kind === 'request' && (e.request?.resourceData as { v?: number } | undefined)?.v === 2),
+    );
+    const resB = replay(eventsB, RULES, {}, sbB.snapshot().firestore);
+    expect(resB.divergences).toEqual([]);
+    expect(resB.sandbox.snapshot().firestore['things/2']).toEqual({ v: 2 });
+  });
+
+  it('AV-REP-4b/c: surfaces real-divergence for denied addDoc followed by setDoc and for denied transient setDoc+deleteDoc', () => {
+    const noDraftRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /things/{id} {
+      allow read, write: if request.auth.uid == 'alice'
+        && request.resource.data.draft == false;
+    }
+  }
+}`;
+    const denyAllRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}`;
+
+    // (b) addDoc({ draft: true }) followed by setDoc(ref, { draft: false })
+    const { sandbox: sbB, env: envB } = setup();
+    const { path: autoPath } = envB.createWithAutoId('things', { draft: true }, { uid: 'alice' });
+    envB.execute({ method: 'set', path: autoPath, auth: { uid: 'alice' }, data: { draft: false } });
+
+    const replayB = replay(sbB.history(), noDraftRules, {}, sbB.snapshot().firestore);
+    expect(replayB.pathAliases.size).toBe(0);
+    expect(replayB.divergences.some((d) => d.kind === 'real-divergence' && d.path === autoPath)).toBe(true);
+
+    // (c) setDoc followed by deleteDoc, replayed under DENY_ALL
+    const { sandbox: sbC, env: envC } = setup();
+    envC.execute({ method: 'set', path: 'things/temp', auth: { uid: 'alice' }, data: { draft: false } });
+    envC.execute({ method: 'delete', path: 'things/temp', auth: { uid: 'alice' } });
+
+    const replayC = replay(sbC.history(), denyAllRules, {}, sbC.snapshot().firestore);
+    expect(replayC.divergences.some((d) => d.kind === 'real-divergence' && d.path === 'things/temp')).toBe(true);
+  });
+
+  it('AV-REP-5b: createWithAutoId does not crash replay when candidate rules fail or throw', () => {
+    const { sandbox: sb, env } = setup();
+    const { path: autoPath } = env.createWithAutoId('things', { v: 1 }, { uid: 'alice' });
+
+    const invalidRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /things/{id} {
+      allow read, write: if SYNTAX ERROR (((
+    }
+  }
+}`;
+    const result = replay(sb.history(), invalidRules, {}, sb.snapshot().firestore);
+    expect(result.pathAliases.size).toBe(0);
+    expect(result.divergences.some((d) => d.kind === 'real-divergence' && d.path === autoPath)).toBe(true);
   });
 });
