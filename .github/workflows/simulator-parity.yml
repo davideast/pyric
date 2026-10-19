@@ -2,9 +2,13 @@
 #   1. simulator-tests — in-process Firestore Rules simulator suite on PRs
 #      that touch the simulator or its grammar (no secrets needed).
 #   2. parity-stress   — production-parity packs against the live Rules
-#      Test API (requires the PARITY_SA_BASE64 repo secret — a minimal SA
-#      holding only `firebaserules.rulesets.test`; skips cleanly when the
-#      secret is absent so external-contributor PRs don't fail).
+#      Test API. Authenticates through Workload Identity Federation as a
+#      service account holding only `firebaserules.rulesets.test`; no key is
+#      stored. Runs when the GCP_WIF_PROVIDER repo variable is set; skips with
+#      a warning when it is not, and on pull requests from forks, which cannot
+#      mint an OIDC token. Once it runs, an auth failure fails the job.
+#      packages/conformance/docs/how-to-run-the-conformance-system.md has the
+#      one-time GCP setup.
 #
 # Post-mirror layout: simulator + grammar live under
 # packages/pyric/src/{firestore/sandbox,rules/{grammar,simulator}}/.
@@ -70,34 +74,52 @@ jobs:
     name: Parity stress (live Rules Test API)
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    # Don't fail external-contributor PRs that can't access the secret.
-    # When PARITY_SA_BASE64 is empty the test steps short-circuit and the
-    # job reports success with a clear log line. (Restored per
-    # design rationale §5; original block: commit 74d2e34.)
+    # id-token: write lets google-github-actions/auth exchange this job's
+    # GitHub OIDC token for short-lived Google credentials.
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.3.11'
-      - name: Check secret availability
-        id: secret-check
+      # Skips only when federation is not configured for this run: the
+      # GCP_WIF_PROVIDER variable is unset, or the pull request comes from a
+      # fork, whose token cannot request an OIDC token. A configuration that is
+      # present but broken fails a later step instead of skipping.
+      - name: Check Workload Identity Federation configuration
+        id: wif-check
         env:
-          # The parity packs run on a minimal, firebaserules-only service
-    # account — separate from any broader deploy credentials.
-          PARITY_SA_BASE64: ${{ secrets.PARITY_SA_BASE64 }}
+          GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
+          PARITY_SA_EMAIL: ${{ vars.PARITY_SA_EMAIL }}
+          FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
         run: |
-          if [ -z "$PARITY_SA_BASE64" ]; then
+          if [ "$FORK_PR" = "true" ]; then
             echo "available=false" >> "$GITHUB_OUTPUT"
-          echo "::warning::PARITY_SA_BASE64 not configured — parity stress skipped. Add the secret (a service account with firebaserules.rulesets.test) to enable production parity gating."
+            echo "::warning::Parity stress skipped: pull requests from forks cannot request a GitHub OIDC token."
+          elif [ -z "$GCP_WIF_PROVIDER" ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Parity stress skipped: the GCP_WIF_PROVIDER repository variable is not set. packages/conformance/docs/how-to-run-the-conformance-system.md has the Workload Identity Federation setup."
+          elif [ -z "$PARITY_SA_EMAIL" ]; then
+            echo "::error::GCP_WIF_PROVIDER is set but PARITY_SA_EMAIL is not. Set both repository variables."
+            exit 1
           else
             echo "available=true" >> "$GITHUB_OUTPUT"
           fi
+      # Writes an external-account credentials file and exports
+      # GOOGLE_APPLICATION_CREDENTIALS and GOOGLE_CLOUD_PROJECT. Fails the job
+      # when the provider or the service account binding rejects the exchange.
+      - name: Authenticate to Google Cloud
+        if: steps.wif-check.outputs.available == 'true'
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.PARITY_SA_EMAIL }}
       # Bun re-downloads every dependency from the registry without this;
       # persisting its install cache lets `bun install` reuse prior downloads.
-      # Gated like Install itself: no point restoring/saving a cache for a
-      # run that skips installing because its secret is absent.
       - name: Cache Bun dependencies
-        if: steps.secret-check.outputs.available == 'true'
+        if: steps.wif-check.outputs.available == 'true'
         uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
@@ -105,10 +127,13 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
       - name: Install
-        if: steps.secret-check.outputs.available == 'true'
+        if: steps.wif-check.outputs.available == 'true'
         run: bun install --frozen-lockfile --filter pyric
+      # PARITY_REQUIRE_CREDENTIAL=1 makes the packs fail, not skip, when no
+      # credential resolves. A credential that cannot mint a token fails the
+      # first scenario.
       - name: Run live parity packs
-        if: steps.secret-check.outputs.available == 'true'
+        if: steps.wif-check.outputs.available == 'true'
         env:
-          PARITY_SA_BASE64: ${{ secrets.PARITY_SA_BASE64 }}
+          PARITY_REQUIRE_CREDENTIAL: '1'
         run: bun test packages/pyric/test/rules/parity

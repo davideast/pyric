@@ -65,9 +65,8 @@ export interface ProbeAccess {
 
 /**
  * Credentials for the capture: the oracle service account when
- * `PYRIC_ORACLE_SA_PATH` is set, otherwise the Rules parity scope, which reads
- * `PARITY_SA_BASE64` or falls back to the firebase CLI login for
- * `PARITY_PROJECT_ID`.
+ * `PYRIC_ORACLE_SA_PATH` is set, otherwise the Rules parity scope
+ * (packages/pyric/test/rules/parity/credential.ts).
  */
 export async function resolveProbeAccess(): Promise<ProbeAccess> {
   const saPath = process.env.PYRIC_ORACLE_SA_PATH;

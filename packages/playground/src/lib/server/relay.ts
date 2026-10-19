@@ -112,7 +112,7 @@ const DEFAULT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
  * parsing it inline. The reason this exists: Vite's SSR module runner
  * statically replaces `process.env` with `{}` inside modules it
  * evaluates (a sane default for production where secrets shouldn't
- * land in bundles). That means `process.env.PARITY_SA_BASE64` is
+ * land in bundles). That means `process.env.DEPLOY_SA_JSON_BASE64` is
  * always undefined inside Astro dev's SSR — even when the host
  * process has the var set via `bun --env-file`. Parsing the file
  * ourselves sidesteps the issue entirely; we own the read.
@@ -164,27 +164,18 @@ type SaSource =
  * Resolution order:
  *
  *   1. `DEPLOY_SA_PATH` env — explicit path override (CI / docker).
- *   2. `PARITY_SA_BASE64` / `DEPLOY_SA_JSON_BASE64` env — base64-
- *      encoded SA JSON. The repo's root `.env` already carries
- *      `PARITY_SA_BASE64`; loading the root .env via the dev script
- *      (`bun --env-file=../../.env astro dev`) makes this Just Work
- *      locally without ever putting a JSON file on disk.
+ *   2. `DEPLOY_SA_JSON_BASE64` env, base64-encoded SA JSON, read from
+ *      the process or the root `.env`.
  *   3. Walk up from the function's directory looking for
  *      `sa.json` (deploy-shipped) or `ignored/digame-mas-service-account.json`.
  */
 function findServiceAccount(): SaSource {
-  // Lookup order — favors the full-permission deploy SA over any
-  // limited env var. The deploy SA can write RTDB; the parity-test-
-  // runner SA can NOT (it's scoped for parity tests). Order:
+  // Lookup order:
   //
   //   1. DEPLOY_SA_JSON_BASE64 (explicit override)
   //   2. DEPLOY_SA_PATH        (explicit override)
   //   3. `sa.json` walked up from this module (deploy bundles it)
   //   4. `ignored/digame-mas-service-account.json` walked up
-  //   5. PARITY_SA_BASE64      (last-resort fallback — limited perms;
-  //                              expected to 401 on RTDB writes,
-  //                              left in only so the relay constructs
-  //                              instead of crashing)
   const b64Explicit =
     diskEnv.DEPLOY_SA_JSON_BASE64 ?? process.env.DEPLOY_SA_JSON_BASE64;
   if (b64Explicit) return decodeBase64Sa(b64Explicit);
@@ -202,8 +193,6 @@ function findServiceAccount(): SaSource {
     if (parent === dir) break;
     dir = parent;
   }
-  const b64Parity = diskEnv.PARITY_SA_BASE64 ?? process.env.PARITY_SA_BASE64;
-  if (b64Parity) return decodeBase64Sa(b64Parity);
   throw new Error(
     'rtdb: no service account found. The deploy ships sa.json with the function; ' +
       'for local dev, place a credentialed SA at ' +
