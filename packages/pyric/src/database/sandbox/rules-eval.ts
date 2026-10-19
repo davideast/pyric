@@ -14,11 +14,11 @@
  *     from Firestore's lowercase `'permission-denied'`).
  *   - `.message === 'PERMISSION_DENIED: Permission denied'`.
  *
- * Default-allow stance: if no rules have been deployed, every operation
- * is permitted. Matches the live RTDB default for projects whose rules
- * have never been written (the console's "Start in test mode" template
- * is `{ ".read": "auth != null", ".write": "auth != null" }`; an
- * unconfigured DB allows everything until rules deploy).
+ * Default policy: when no rules are loaded, every client read and write is
+ * denied ("No RTDB rules loaded; default deny."), as production denies them
+ * on an instance whose rules were never deployed. `setDefaultPolicy('allow')`
+ * opens an instance without rules; the dev server's permissive mode uses it.
+ * `/.info/` paths are readable either way.
  */
 import {
   compileRtdbRules,

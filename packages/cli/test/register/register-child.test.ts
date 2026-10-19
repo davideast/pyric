@@ -504,3 +504,105 @@ describe('@pyric/cli/register beacon (child process)', () => {
     expect(res.stderr).toContain('@pyric/cli/register: beacon ACTIVE');
   }, 30_000);
 });
+
+/**
+ * #1120: `PYRIC_SANDBOX=local` runs the client SDKs in process. The project's
+ * `firebase.json` rules govern them as they govern the dev server: Firestore,
+ * each Realtime Database instance (named and deploy-target entries), and
+ * Storage. Before the fix only `firestore.rules` loaded, so every RTDB and
+ * Storage call was denied by the default policy.
+ */
+describe('@pyric/cli/register local rules (child process)', () => {
+  let rulesFixtureDir: string;
+
+  beforeAll(() => {
+    rulesFixtureDir = mkdtempSync(join(tmpdir(), 'pyric-register-rules-'));
+    const nm = join(rulesFixtureDir, 'node_modules');
+    mkdirSync(nm);
+    symlinkSync(join(repoRoot, 'packages/pyric-admin'), join(nm, 'pyric-admin'));
+    symlinkSync(join(repoRoot, 'packages/pyric'), join(nm, 'pyric'));
+    const files: Record<string, string> = {
+      'package.json': JSON.stringify({ name: 'register-rules-fixture', type: 'module' }),
+      'firebase.json': JSON.stringify({
+        firestore: { rules: 'firestore.rules' },
+        database: [
+          { instance: 'rules-demo-default-rtdb', rules: 'database.rules.json' },
+          { target: 'chat', rules: 'chat.rules.json' },
+        ],
+        storage: { rules: 'storage.rules' },
+      }),
+      '.firebaserc': JSON.stringify({
+        projects: { default: 'rules-demo' },
+        targets: { 'rules-demo': { database: { chat: ['rules-demo-chat'] } } },
+      }),
+      'firestore.rules': `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /open/{doc} { allow read, write: if true; }
+  }
+}`,
+      'database.rules.json': JSON.stringify({ rules: { open: { '.read': true, '.write': true } } }),
+      'chat.rules.json': JSON.stringify({ rules: { rooms: { '.read': true, '.write': true } } }),
+      'storage.rules': `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /public/{file} { allow read, write: if true; }
+  }
+}`,
+      'rules.mjs': `import assert from 'node:assert';
+import { initializeApp } from 'firebase/app';
+import { doc, getFirestore, setDoc } from 'firebase/firestore';
+import { getDatabase, ref, set } from 'firebase/database';
+import { getStorage, ref as storageRef, uploadString } from 'firebase/storage';
+const app = initializeApp({ apiKey: 'ignored', projectId: 'rules-demo', storageBucket: 'rules-demo.appspot.com' });
+const denied = (code) => (error) => error?.code === code;
+const failures = [];
+async function check(service, run) {
+  try {
+    await run();
+  } catch (error) {
+    failures.push(service + ': ' + (error?.message ?? String(error)));
+  }
+}
+
+const db = getFirestore(app);
+await check('firestore', async () => {
+  await setDoc(doc(db, 'open/a'), { ok: true });
+  await assert.rejects(setDoc(doc(db, 'closed/a'), { ok: false }), denied('permission-denied'));
+});
+
+const rtdb = getDatabase(app);
+await check('rtdb default instance', async () => {
+  await set(ref(rtdb, 'open/a'), 'default instance allows open/');
+  await assert.rejects(set(ref(rtdb, 'rooms/a'), 'no rule'), denied('PERMISSION_DENIED'));
+});
+
+const chat = getDatabase(app, 'https://rules-demo-chat.firebaseio.com');
+await check('rtdb chat target', async () => {
+  await set(ref(chat, 'rooms/a'), 'chat target allows rooms/');
+  await assert.rejects(set(ref(chat, 'open/a'), 'no rule'), denied('PERMISSION_DENIED'));
+});
+
+const storage = getStorage(app);
+await check('storage', async () => {
+  await uploadString(storageRef(storage, 'public/a.txt'), 'hello');
+  await assert.rejects(uploadString(storageRef(storage, 'private/a.txt'), 'no rule'), denied('storage/unauthorized'));
+});
+
+console.log(failures.length === 0 ? 'LOCAL_RULES_OK' : 'LOCAL_RULES_FAILED\\n' + failures.join('\\n'));
+process.exit(0);
+`,
+    };
+    for (const [name, content] of Object.entries(files)) writeFileSync(join(rulesFixtureDir, name), content);
+  });
+
+  afterAll(() => {
+    if (rulesFixtureDir) rmSync(rulesFixtureDir, { recursive: true, force: true });
+  });
+
+  it('applies every rules file firebase.json declares to the in-process client SDKs', () => {
+    const res = runNode('rules.mjs', { PYRIC_SANDBOX: 'local' }, rulesFixtureDir);
+    expect(res.stderr).not.toContain('could not load');
+    expect(res).toMatchObject({ status: 0, stdout: expect.stringContaining('LOCAL_RULES_OK') });
+  });
+});
