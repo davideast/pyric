@@ -29,4 +29,23 @@ describe('RTDB worker snapshots', () => {
     expect(snapshot.child('first').priority).toBe(10);
     expect(snapshot.child('first').exportVal()).toEqual({ rank: 1, '.priority': 10 });
   });
+
+  it('iterates an array value below the top level by index, skipping holes', async () => {
+    const { db } = await connectClient();
+    const rtdb = client.rtdbGetDatabase(db);
+    const rooms = client.rtdbRef(rtdb, 'snapshot-arrays');
+    await client.rtdbSet(rooms, { r1: { members: ['ada', 'grace'] }, r2: { members: { 0: 'x', 2: 'z' } } });
+
+    const snapshot = await client.rtdbGet(rooms);
+    const nested: string[] = [];
+    snapshot.forEach((room) => {
+      room.child('members').forEach((member) => {
+        nested.push(`${room.key}/${member.key}=${String(member.val())}`);
+      });
+    });
+
+    expect(nested).toEqual(['r1/0=ada', 'r1/1=grace', 'r2/0=x', 'r2/2=z']);
+    expect(snapshot.child('r2/members').size).toBe(2);
+    expect(snapshot.child('r2/members').hasChildren()).toBe(true);
+  });
 });

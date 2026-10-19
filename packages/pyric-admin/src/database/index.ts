@@ -98,6 +98,7 @@ import {
 } from '../app/index.js';
 import { assertAdminAppActive } from '../app/lifecycle.js';
 import { increment, serverTimestamp } from 'pyric/database';
+import { valueAtChildPath, valueChildren } from 'pyric/database/internal';
 import { deferredExport } from 'pyric/app/internal';
 
 /** `firebase-admin/database`'s `enableLogging`. The sandbox does not model
@@ -820,6 +821,9 @@ function buildSandboxSnap(
   const segs = pathSegments(path);
   const key = segs.length === 0 ? null : segs[segs.length - 1]!;
   const exists = val !== null;
+  // An array value still has children: `val()` renders integer keys as an
+  // array, and the SDK iterates them as '0', '1', ... (#1110).
+  const children = valueChildren(val);
   const snap = {
     key,
     get ref(): AdminReference {
@@ -833,35 +837,21 @@ function buildSandboxSnap(
     },
     child(p: string): AdminDataSnapshot {
       const childSegs = pathSegments(p);
-      let cur: JsonValue = val;
-      for (const s of childSegs) {
-        if (cur === null || typeof cur !== 'object' || Array.isArray(cur)) {
-          cur = null;
-          break;
-        }
-        cur = (cur as Record<string, JsonValue>)[s] ?? null;
-      }
-      return buildSandboxSnap(refAt, joinPath([...segs, ...childSegs]), cur);
+      const childVal = valueAtChildPath(val, childSegs) as JsonValue;
+      return buildSandboxSnap(refAt, joinPath([...segs, ...childSegs]), childVal);
     },
     hasChild(p: string): boolean {
       return snap.child(p).exists();
     },
     hasChildren(): boolean {
-      return (
-        val !== null &&
-        typeof val === 'object' &&
-        !Array.isArray(val) &&
-        Object.keys(val as Record<string, JsonValue>).length > 0
-      );
+      return children.length > 0;
     },
     numChildren(): number {
-      if (val === null || typeof val !== 'object' || Array.isArray(val)) return 0;
-      return Object.keys(val as Record<string, JsonValue>).length;
+      return children.length;
     },
     forEach(cb: (child: AdminDataSnapshot) => boolean | void): boolean {
-      if (val === null || typeof val !== 'object' || Array.isArray(val)) return false;
-      for (const [k, v] of Object.entries(val as Record<string, JsonValue>)) {
-        const childSnap = buildSandboxSnap(refAt, joinPath([...segs, k]), v);
+      for (const { key: childKey, value } of children) {
+        const childSnap = buildSandboxSnap(refAt, joinPath([...segs, childKey]), value as JsonValue);
         if (cb(childSnap) === true) return true;
       }
       return false;
