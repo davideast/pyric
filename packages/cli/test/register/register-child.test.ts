@@ -194,7 +194,9 @@ assert.strictEqual(typeof globalThis[Symbol.for('pyric.remote.sandboxFactory')],
 const clientApp = require('firebase/app').initializeApp({ projectId: 'cjs-demo' });
 assert.strictEqual(clientApp.name, '[DEFAULT]');
 assert.strictEqual(clientApp.options.projectId, 'cjs-demo');
-assert.strictEqual(typeof require('firebase/firestore').getFirestore(clientApp), 'object');
+// Under a remote activation the client mirrors refuse rather than open a
+// private in-process sandbox (#1082).
+assert.throws(() => require('firebase/firestore').getFirestore(clientApp), { code: 'failed-precondition' });
 console.log('CJS_OK');
 `,
   );
@@ -257,11 +259,19 @@ const clientApp = clientAppModule.initializeApp(
   { apiKey: 'ignored', projectId: 'register-inertness' },
   'register-inertness',
 );
-const clientDb = firestoreModule.getFirestore(clientApp);
+// A remote activation makes the client mirror refuse (#1082); only the
+// mirror raises that error, so it proves the rewrite as well as a handle does.
+function isFirestoreRewritten() {
+  try {
+    return Object.getOwnPropertySymbols(firestoreModule.getFirestore(clientApp))
+      .some((symbol) => symbol.description === 'pyric/firestore/target');
+  } catch (error) {
+    return error?.code === 'failed-precondition' && String(error.message).startsWith('pyric:');
+  }
+}
 console.log(JSON.stringify({
   rewritten: app.ADMIN_APP_TARGET === Symbol.for('pyric.admin.app.target'),
-  firestoreRewritten: Object.getOwnPropertySymbols(clientDb)
-    .some((symbol) => symbol.description === 'pyric/firestore/target'),
+  firestoreRewritten: isFirestoreRewritten(),
   factory: typeof factory,
 }));
 `;

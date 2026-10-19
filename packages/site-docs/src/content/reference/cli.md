@@ -33,7 +33,7 @@ Pyric selects what to run in this order:
 
 A Functions source declared in `firebase.json` can still run when the child application command is skipped.
 
-The child receives `PYRIC_SANDBOX` and a `NODE_OPTIONS` import for `@pyric/cli/register`. This routes supported `firebase/*` and `firebase-admin/*` imports to the local sandbox. A `firebase-admin/*` subpath the sandbox does not mirror, such as `firebase-admin/remote-config`, still resolves, so the child loads, and calling any of its exports throws `PyricDeferredApiError`. The import never reaches the real `firebase-admin`.
+The child receives `PYRIC_SANDBOX` and a `NODE_OPTIONS` import for `@pyric/cli/register`. This routes supported `firebase-admin/*` imports to the sandbox host. Client SDKs (`firebase/database`, `firebase/firestore`, `firebase/auth` and `firebase/storage`) in the child do not reach the host yet: their first call fails with `failed-precondition` ([#1082](https://github.com/davideast/pyric/issues/1082)). A `firebase-admin/*` subpath the sandbox does not mirror, such as `firebase-admin/remote-config`, still resolves, so the child loads, and calling any of its exports throws `PyricDeferredApiError`. The import never reaches the real `firebase-admin`.
 
 ## Flags
 
