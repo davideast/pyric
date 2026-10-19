@@ -10,16 +10,20 @@ afterEach(() => {
   for (const directory of workDirs.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
 
-function runPublish(options: { skip?: boolean; dryRun?: boolean; failBunCommand?: string; publishTag?: string } = {}) {
+function runPublish(
+  options: { skip?: boolean; dryRun?: boolean; failBunCommand?: string; publishTag?: string; npmRegistry?: string } = {},
+) {
   const work = mkdtempSync(join(tmpdir(), 'pyric-publish-contract-'));
   workDirs.push(work);
   const bin = join(work, 'bin');
   Bun.spawnSync(['mkdir', '-p', bin]);
   const log = join(work, 'commands.log');
+  const registryLog = join(work, 'registry.log');
   const fake = `#!/bin/bash
 set -eu
 name="$(basename "$0")"
 echo "$name $*" >> "$COMMAND_LOG"
+if [ "$name" = "npm" ]; then echo "\${NPM_CONFIG_REGISTRY:-}" >> "$REGISTRY_LOG"; fi
 if [ "$name $*" = "bun run packages/conformance/src/print-fb-tag.ts" ]; then echo fb12.13; fi
 if [ -n "\${FAIL_BUN_COMMAND:-}" ] && [ "$name $*" = "bun $FAIL_BUN_COMMAND" ]; then exit 17; fi
 `;
@@ -31,19 +35,25 @@ if [ -n "\${FAIL_BUN_COMMAND:-}" ] && [ "$name $*" = "bun $FAIL_BUN_COMMAND" ]; 
   const args = [join(root, 'scripts/publish-alpha.sh')];
   if (options.dryRun) args.push('--dry-run');
   args.push('0.1.0-alpha.9');
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    PATH: `${bin}:${process.env.PATH}`,
+    COMMAND_LOG: log,
+    REGISTRY_LOG: registryLog,
+    FAIL_BUN_COMMAND: options.failBunCommand ?? '',
+    PYRIC_PUBLISH_SKIP_GATES: options.skip ? '1' : '0',
+    PYRIC_PUBLISH_TAG: options.publishTag ?? '',
+    NPM_CONFIG_REGISTRY: 'http://workstation-proxy.internal:999/',
+  };
+  if (options.npmRegistry !== undefined) env.PYRIC_NPM_REGISTRY = options.npmRegistry;
+  else delete env.PYRIC_NPM_REGISTRY;
   const result = spawnSync('/bin/bash', args, {
     cwd: root,
     encoding: 'utf8',
-    env: {
-      ...process.env,
-      PATH: `${bin}:${process.env.PATH}`,
-      COMMAND_LOG: log,
-      FAIL_BUN_COMMAND: options.failBunCommand ?? '',
-      PYRIC_PUBLISH_SKIP_GATES: options.skip ? '1' : '0',
-      PYRIC_PUBLISH_TAG: options.publishTag ?? '',
-    },
+    env,
   });
-  return { result, commands: readFileSync(log, 'utf8').trim().split('\n') };
+  const registries = Bun.file(registryLog).size > 0 ? readFileSync(registryLog, 'utf8').trim().split('\n') : [];
+  return { result, commands: readFileSync(log, 'utf8').trim().split('\n'), registries };
 }
 
 describe('alpha publish safety contract', () => {
@@ -151,5 +161,16 @@ describe('alpha publish safety contract', () => {
     expect(distTagAdds.some((c) => c.endsWith(' latest'))).toBe(true);
     expect(distTagAdds.some((c) => c.endsWith(' alpha'))).toBe(true);
     expect(distTagAdds.some((c) => c.endsWith(' fb12.13'))).toBe(true);
+  });
+
+  test('pins NPM_CONFIG_REGISTRY to registry.npmjs.org even when ambient env points elsewhere', () => {
+    const { result, registries } = runPublish({ skip: true, publishTag: 'exp' });
+    expect(result.status).toBe(0);
+    expect(registries.length).toBeGreaterThan(0);
+    expect(registries.every((r) => r === 'https://registry.npmjs.org/')).toBe(true);
+
+    const custom = runPublish({ skip: true, publishTag: 'exp', npmRegistry: 'http://127.0.0.1:4873/' });
+    expect(custom.result.status).toBe(0);
+    expect(custom.registries.every((r) => r === 'http://127.0.0.1:4873/')).toBe(true);
   });
 });
