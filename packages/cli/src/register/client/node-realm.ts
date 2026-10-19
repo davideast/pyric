@@ -60,6 +60,35 @@ function holdsProcess(port: ClientPort, state: PortState): boolean {
   return usesRtdb || outstandingWorkOn(port) > 0;
 }
 
+let warnedUnreleasable = false;
+
+/**
+ * Keeps an open `ws` socket from holding the process by itself. The public
+ * seam is `ws`'s `'upgrade'` event, whose HTTP response carries the upgraded
+ * `net.Socket`; the private `_socket` field is the fallback at `'open'`. If a
+ * `ws` release exposes neither, the process warns once and keeps working: it
+ * then stays up while the connection is open, rather than exiting early.
+ */
+export function releaseUpgradedSocket(
+  socket: NodeWebSocket,
+  warn: (message: string) => void = (message) => process.stderr.write(message),
+): void {
+  let released = false;
+  const release = (candidate: unknown): void => {
+    const isNetworkSocket = candidate instanceof Socket;
+    if (released || !isNetworkSocket) return;
+    candidate.unref();
+    released = true;
+  };
+  socket.on('upgrade', (response: { socket?: unknown }) => release(response.socket));
+  socket.on('open', () => {
+    release((socket as unknown as { _socket?: unknown })._socket);
+    if (released || warnedUnreleasable) return;
+    warnedUnreleasable = true;
+    warn('pyric: this version of `ws` exposes no socket to unreference, so a Node process using the client Firebase SDKs stays up while its connection to the Node host is open.\n');
+  });
+}
+
 export interface NodeSocketRealm extends HostedSocketRealm {
   /** Whether the realm is holding the process (for tests). */
   holdsProcess(): boolean;
@@ -108,11 +137,7 @@ export function createNodeSocketRealm(options: { onAttached?: (ack: { serveVersi
     platform: 'node',
     createSocket(url) {
       const socket = new NodeWebSocket(url, { maxPayload: MAX_BRIDGE_FRAME_BYTES });
-      socket.on('open', () => {
-        const underlying = (socket as unknown as { _socket?: unknown })._socket;
-        const isNetworkSocket = underlying instanceof Socket;
-        if (isNetworkSocket) underlying.unref();
-      });
+      releaseUpgradedSocket(socket);
       return socket as unknown as WebSocket;
     },
     releaseTimer(timer) {
