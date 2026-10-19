@@ -4,6 +4,7 @@ import {
   type EventService,
   type SandboxOperationEvent,
   type ServiceMutationEvent,
+  type WriteSandboxEvent,
 } from 'pyric/sandbox';
 import { evaluateStorageRules, type StorageRequestMethod } from 'pyric/storage';
 import {
@@ -19,6 +20,7 @@ import {
   type RtdbRulesDocument,
 } from 'pyric/rules/internal/rtdb';
 import {
+  rulesSourceRejection,
   SimulateFirestoreRulesHandler,
   type ExpressionReportLevel,
   type TestCase,
@@ -280,50 +282,80 @@ function verifyFirestoreSandbox(
     throw new VerifyInputError('fixture does not contain services.firestore.');
   }
 
+  const initialData = reconstructInitialFirestoreDocuments(fixture);
+  const seedWrites: WriteSandboxEvent[] = Object.entries(initialData).map(
+    ([path, data], index) => ({
+      kind: 'write',
+      id: `__verify_seed_${index}__`,
+      at: 0,
+      method: 'set',
+      path,
+      auth: null,
+      data,
+      priorState: null,
+      nextState: data,
+      requestTime: { seconds: 0, nanoseconds: 0 },
+      detail: { admin: true },
+    }),
+  );
+
   const { divergences } = replayFirestore(
-    fixture.events,
+    seedWrites.length > 0 ? [...seedWrites, ...fixture.events] : fixture.events,
     rules,
     {},
     firestore.state.documents,
   );
   const mapped = divergences.map(mapFirestoreDivergence);
 
-  const readDerivation = deriveRulesTestCases(fixture, {
+  const docsByEventId = buildPointInTimeFirestoreDocs(fixture, initialData);
+  const derivation = deriveRulesTestCases(fixture, {
     service: 'firestore',
     includeListenerReads: true,
     mockReads: 'omit',
   });
-  const readCases = readDerivation.testCases.filter(
+  const readCases = derivation.testCases.filter(
     (tc) => tc.method === 'get' || tc.method === 'list',
   );
-  if (readCases.length > 0) {
+  const deniedWriteCases = derivation.testCases.filter(
+    (tc) => tc.method !== 'get' && tc.method !== 'list' && tc.expectation === 'DENY',
+  );
+
+  if (derivation.derived.length > 0) {
     const simulator = new SimulateFirestoreRulesHandler();
-    const simulated = simulator.simulate(rules, readCases, {
-      getDoc: (docPath) => firestore.state.documents[docPath] ?? null,
-    });
-    if (!simulated.success) {
-      mapped.push({
-        service: 'firestore',
-        kind: 'unsupported',
-        reason: simulated.error.message,
+    for (const { eventId, testCase: tc } of derivation.derived) {
+      const isRead = tc.method === 'get' || tc.method === 'list';
+      const pointInTimeDocs = docsByEventId.get(eventId) ?? firestore.state.documents;
+      const simulated = simulator.simulate(rules, [tc], {
+        getDoc: (docPath) => pointInTimeDocs[docPath] ?? null,
       });
-    } else {
-      for (const [index, testResult] of simulated.data.results.entries()) {
-        const tc = readCases[index];
-        const queryUnprovable =
-          tc?.method === 'list' &&
-          testResult.queryProof !== undefined &&
-          !testResult.queryProof.provable;
-        const effectiveDecision = queryUnprovable ? 'DENY' : testResult.decision;
+      if (!simulated.success) {
+        mapped.push({
+          service: 'firestore',
+          kind: 'unsupported',
+          path: tc.path,
+          method: tc.method,
+          reason: simulated.error.message,
+        });
+        break;
+      }
+      const testResult = simulated.data.results[0];
+      if (!testResult) continue;
+      const queryUnprovable =
+        tc.method === 'list' &&
+        testResult.queryProof !== undefined &&
+        !testResult.queryProof.provable;
+      const effectiveDecision = queryUnprovable ? 'DENY' : testResult.decision;
+
+      if (isRead) {
         if (effectiveDecision === 'UNSUPPORTED') {
           mapped.push({
             service: 'firestore',
             kind: 'unsupported',
-            path: tc?.path,
-            method: tc?.method,
+            path: tc.path,
+            method: tc.method,
             reason: testResult.notes.join('\n') || 'unsupported read simulation',
           });
-        } else if (tc?.expectation === 'ALLOW' && effectiveDecision !== 'ALLOW') {
+        } else if (tc.expectation === 'ALLOW' && effectiveDecision !== 'ALLOW') {
           mapped.push({
             service: 'firestore',
             kind: 'now-denied',
@@ -333,7 +365,7 @@ function verifyFirestoreSandbox(
               testResult.queryProof?.reason ??
               (testResult.notes.join('\n') || `expected ALLOW, got ${effectiveDecision}`),
           });
-        } else if (tc?.expectation === 'DENY' && effectiveDecision === 'ALLOW') {
+        } else if (tc.expectation === 'DENY' && effectiveDecision === 'ALLOW') {
           mapped.push({
             service: 'firestore',
             kind: 'now-allowed',
@@ -342,6 +374,47 @@ function verifyFirestoreSandbox(
             reason: testResult.notes.join('\n') || 'expected DENY, got ALLOW',
           });
         }
+      } else if (tc.expectation === 'DENY') {
+        if (effectiveDecision === 'UNSUPPORTED') {
+          mapped.push({
+            service: 'firestore',
+            kind: 'unsupported',
+            path: tc.path,
+            method: tc.method,
+            reason: testResult.notes.join('\n') || 'unsupported write simulation',
+          });
+        } else if (effectiveDecision === 'ALLOW') {
+          mapped.push({
+            service: 'firestore',
+            kind: 'now-allowed',
+            path: tc.path,
+            method: tc.method,
+            reason: testResult.notes.join('\n') || 'expected DENY, got ALLOW',
+          });
+        }
+      } else if (tc.expectation === 'ALLOW' && effectiveDecision !== 'ALLOW') {
+        const hasExistingDivergence = mapped.some(
+          (d) => d.path === tc.path && d.kind !== 'expected-drift',
+        );
+        if (!hasExistingDivergence) {
+          if (effectiveDecision === 'UNSUPPORTED') {
+            mapped.push({
+              service: 'firestore',
+              kind: 'unsupported',
+              path: tc.path,
+              method: tc.method,
+              reason: testResult.notes.join('\n') || 'unsupported write simulation',
+            });
+          } else {
+            mapped.push({
+              service: 'firestore',
+              kind: 'now-denied',
+              path: tc.path,
+              method: tc.method,
+              reason: testResult.notes.join('\n') || `expected ALLOW, got ${effectiveDecision}`,
+            });
+          }
+        }
       }
     }
   }
@@ -349,9 +422,70 @@ function verifyFirestoreSandbox(
   return {
     engine: 'sandbox',
     ok: mapped.every(isInformational),
-    checkedEvents: fixture.events.filter(isProtectedFirestoreWrite).length + readCases.length,
+    checkedEvents:
+      fixture.events.filter(isProtectedFirestoreWrite).length +
+      readCases.length +
+      deniedWriteCases.length,
     divergences: mapped,
   };
+}
+
+function reconstructInitialFirestoreDocuments(
+  fixture: PyricVerifyFixture,
+): Record<string, Record<string, unknown>> {
+  const firestore = fixture.services.firestore;
+  if (!firestore) return {};
+  const firstSeenState = new Map<string, Record<string, unknown> | null>();
+  for (const event of fixture.events) {
+    if (event.kind === 'request') {
+      const service = (event as { service?: unknown }).service;
+      if (service !== undefined && service !== 'firestore') continue;
+      if (!firstSeenState.has(event.path) && event.resourceBefore !== undefined) {
+        firstSeenState.set(
+          event.path,
+          event.resourceBefore.exists && event.resourceBefore.data !== null
+            ? event.resourceBefore.data
+            : null,
+        );
+      }
+    } else if (event.kind === 'write') {
+      if (!firstSeenState.has(event.path)) {
+        firstSeenState.set(event.path, event.priorState !== null ? event.priorState : null);
+      }
+    }
+  }
+  const initialData: Record<string, Record<string, unknown>> = {};
+  for (const [docPath, docData] of firstSeenState.entries()) {
+    if (docData !== null) {
+      initialData[docPath] = docData;
+    }
+  }
+  for (const [docPath, docData] of Object.entries(firestore.state.documents)) {
+    if (!firstSeenState.has(docPath)) {
+      initialData[docPath] = docData;
+    }
+  }
+  return initialData;
+}
+
+function buildPointInTimeFirestoreDocs(
+  fixture: PyricVerifyFixture,
+  initialData: Record<string, Record<string, unknown>>,
+): Map<string, Record<string, Record<string, unknown>>> {
+  const currentDocs: Record<string, Record<string, unknown>> = { ...initialData };
+  const docsByEventId = new Map<string, Record<string, Record<string, unknown>>>();
+  for (const event of fixture.events) {
+    if (event.kind === 'request') {
+      docsByEventId.set(event.id, { ...currentDocs });
+    } else if (event.kind === 'write') {
+      if (event.nextState === null || event.method === 'delete') {
+        delete currentDocs[event.path];
+      } else {
+        currentDocs[event.path] = event.nextState;
+      }
+    }
+  }
+  return docsByEventId;
 }
 
 function isProtectedFirestoreWrite(event: PyricVerifyFixture['events'][number]): boolean {
@@ -504,10 +638,18 @@ async function verifyStorage(
 
   const objectState = new Map<string, StoredMetadata>();
   const seededKeys = new Set<string>();
+  const knownBuckets = new Set<string>();
   for (const event of fixture.events) {
-    if (event.kind !== 'service_mutation' || event.service !== 'storage') continue;
+    if (event.service !== 'storage') continue;
+    if (event.kind === 'operation') {
+      const opBucket = storageOperationBucket(event as SandboxOperationEvent);
+      if (opBucket) knownBuckets.add(opBucket);
+      continue;
+    }
+    if (event.kind !== 'service_mutation') continue;
     const mutation = event as ServiceMutationEvent;
     const bucket = storageMutationBucket(mutation);
+    knownBuckets.add(bucket);
     const key = `${bucket}/${(mutation.path ?? '').replace(/^\/+/, '')}`;
     if (!seededKeys.has(key)) {
       seededKeys.add(key);
@@ -519,6 +661,7 @@ async function verifyStorage(
 
   const divergences: VerifyDivergence[] = [];
   let checkedEvents = 0;
+  const consumedMutationIndices = new Set<number>();
 
   for (let i = 0; i < fixture.events.length; i++) {
     const event = fixture.events[i]!;
@@ -547,17 +690,24 @@ async function verifyStorage(
     let pairedMutation: ServiceMutationEvent | undefined;
     if (opEvent.result === 'allow' && isStorageWriteMethod(opEvent.method)) {
       for (let j = i + 1; j < fixture.events.length; j++) {
+        if (consumedMutationIndices.has(j)) continue;
         const next = fixture.events[j]!;
         if (next.service !== 'storage') continue;
-        if (next.kind === 'operation' && next.path === opEvent.path) break;
         if (next.kind === 'service_mutation' && next.path === opEvent.path) {
           pairedMutation = next as ServiceMutationEvent;
+          consumedMutationIndices.add(j);
           break;
         }
       }
     }
 
-    const bucket = pairedMutation ? storageMutationBucket(pairedMutation) : DEFAULT_BUCKET;
+    const bucket = resolveStorageOperationBucket(
+      opEvent,
+      pairedMutation,
+      objectPath,
+      objectState,
+      knownBuckets,
+    );
     const key = `${bucket}/${objectPath}`;
     const existing =
       pairedMutation && pairedMutation.before !== undefined
@@ -661,6 +811,35 @@ function isStorageWriteMethod(method: string | undefined): boolean {
   return method === 'create' || method === 'update' || method === 'delete' || method === 'write';
 }
 
+function storageOperationBucket(opEvent: SandboxOperationEvent): string | undefined {
+  const directBucket = (opEvent as { bucket?: unknown }).bucket;
+  if (typeof directBucket === 'string' && directBucket.length > 0) return directBucket;
+  const detailBucket = (opEvent.detail as { bucket?: unknown } | undefined)?.bucket;
+  if (typeof detailBucket === 'string' && detailBucket.length > 0) return detailBucket;
+  return undefined;
+}
+
+function resolveStorageOperationBucket(
+  opEvent: SandboxOperationEvent,
+  pairedMutation: ServiceMutationEvent | undefined,
+  objectPath: string,
+  objectState: ReadonlyMap<string, StoredMetadata>,
+  knownBuckets: ReadonlySet<string>,
+): string {
+  const opBucket = storageOperationBucket(opEvent);
+  if (opBucket) return opBucket;
+  if (pairedMutation) return storageMutationBucket(pairedMutation);
+  const matchingBuckets: string[] = [];
+  for (const candidateBucket of knownBuckets) {
+    if (objectState.has(`${candidateBucket}/${objectPath}`)) {
+      matchingBuckets.push(candidateBucket);
+    }
+  }
+  if (matchingBuckets.length === 1) return matchingBuckets[0]!;
+  if (knownBuckets.size === 1) return [...knownBuckets][0]!;
+  return DEFAULT_BUCKET;
+}
+
 function storageMutationBucket(mutation: ServiceMutationEvent): string {
   const detailBucket = (mutation.detail as { bucket?: unknown } | undefined)?.bucket;
   if (typeof detailBucket === 'string' && detailBucket.length > 0) return detailBucket;
@@ -758,9 +937,23 @@ function addEngineDrift(
 
 function requireFirestoreRules(input: VerifyRulesInput): string {
   const rules = input.firestore;
-  if (typeof rules === 'string') return rules;
-  if (rules && typeof rules.source === 'string') return rules.source;
-  throw new VerifyInputError('missing candidate Firestore rules. Pass rules.firestore.');
+  const source =
+    typeof rules === 'string'
+      ? rules
+      : rules && typeof rules.source === 'string'
+        ? rules.source
+        : undefined;
+  if (source === undefined) {
+    throw new VerifyInputError('missing candidate Firestore rules. Pass rules.firestore.');
+  }
+  if (source.trim().length === 0) {
+    throw new VerifyInputError('candidate Firestore rules would not deploy: empty rules source.');
+  }
+  const rejection = rulesSourceRejection(source);
+  if (rejection !== null) {
+    throw new VerifyInputError(`candidate Firestore rules would not deploy: ${rejection.message}`);
+  }
+  return source;
 }
 
 function requireStorageRules(input: VerifyRulesInput, fixture: PyricVerifyFixture): string {

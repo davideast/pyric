@@ -329,4 +329,61 @@ describe('runVerify', () => {
 
     expect(code).toBe(2);
   });
+
+  it('loads candidate storage.rules from firebase.json and supports --service storage / --rules storage=<path> (AV-VER-1)', async () => {
+    const dir = tmp();
+    const permissiveStorageRules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if true;
+    }
+  }
+}`;
+    const denyingStorageRules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}`;
+    const storageFixture: PyricVerifyFixture = {
+      schema: 'pyric.verify.fixture.v1',
+      events: [
+        {
+          kind: 'operation',
+          id: 'op-1',
+          at: 1000,
+          service: 'storage',
+          method: 'get',
+          path: 'uploads/secret.txt',
+          auth: { uid: 'alice' },
+          result: 'allow',
+          origin: 'user',
+        },
+      ],
+      services: {
+        storage: {
+          rules: { format: 'storage.rules', source: permissiveStorageRules },
+          state: null,
+        },
+      },
+    };
+    writeFirebaseJson(dir, { storage: { rules: 'storage.rules' } });
+    writeFileSync(join(dir, 'storage.rules'), denyingStorageRules);
+    writeFileSync(join(dir, 'allow.storage.rules'), permissiveStorageRules);
+    writeFileSync(join(dir, 'session.json'), JSON.stringify(storageFixture));
+
+    // Implicit service selection loads candidate storage.rules and reports regression (exit 1).
+    expect(await verifyIn(dir, ['session.json'])).toBe(1);
+
+    // Explicit --service storage --rules storage=<path>
+    expect(
+      await verifyIn(dir, ['session.json', '--service', 'storage', '--rules', 'storage=storage.rules']),
+    ).toBe(1);
+    expect(
+      await verifyIn(dir, ['session.json', '--service', 'storage', '--rules', 'storage=allow.storage.rules']),
+    ).toBe(0);
+  });
 });

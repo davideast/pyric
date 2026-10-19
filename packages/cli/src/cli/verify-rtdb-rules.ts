@@ -13,7 +13,7 @@
  * override for an instance the session never used. Declared instances the
  * session did not use are ignored.
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
@@ -130,13 +130,22 @@ export async function resolveRtdbCandidateRules(input: RtdbCandidateRulesInput):
   const readConfig = async (): Promise<FirebaseJson | null> => (config === undefined ? (config = await input.readFirebaseJson()) : config);
 
   const chosen = new Map<InstanceKey, string>();
-  if (input.overrides.default !== undefined) chosen.set(undefined, input.overrides.default);
+  if (input.overrides.default !== undefined) {
+    if (!needed.includes(undefined)) {
+      throw new Error(
+        `--rules rtdb=${input.overrides.default}: the session never used the default instance. Instances the session used: ${recordedList(needed)}.`,
+      );
+    }
+    chosen.set(undefined, input.overrides.default);
+  }
   for (const override of input.overrides.instances) {
     const key = overrideKey(override.instance, keyOf);
     const isRecorded = needed.includes(key);
     if (!isRecorded) throw new Error(unrecordedOverride(override.instance, key, needed, await readConfig()));
     const existing = chosen.get(key);
-    const conflicts = existing !== undefined && resolve(input.cwd, existing) !== resolve(input.cwd, override.path);
+    const conflicts =
+      existing !== undefined &&
+      canonicalizeRulesPath(input.cwd, existing) !== canonicalizeRulesPath(input.cwd, override.path);
     if (conflicts) throw new Error(`--rules names two rules files for ${describeInstance(key)}: ${existing} and ${override.path}.`);
     chosen.set(key, override.path);
   }
@@ -170,6 +179,15 @@ export async function resolveRtdbCandidateRules(input: RtdbCandidateRulesInput):
     else (rules.rtdbInstances ??= {})[key] = parsed;
   }
   return { rules, paths };
+}
+
+function canonicalizeRulesPath(cwd: string, p: string): string {
+  const abs = resolve(cwd, p);
+  try {
+    return realpathSync(abs);
+  } catch {
+    return abs;
+  }
 }
 
 function overrideKey(raw: string, keyOf: (name: string) => InstanceKey): InstanceKey {

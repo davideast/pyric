@@ -18,12 +18,17 @@ import { initializeSandbox } from 'pyric/sandbox';
 import { getAdminFirestore, getFirestore } from 'pyric/sandbox/admin-firestore';
 import {
   collection as fsCollection,
+  deleteField as fsDeleteField,
+  doc as fsDoc,
   getDocs as fsGetDocs,
   getFirestore as getClientFirestore,
   onSnapshot as fsOnSnapshot,
   query as fsQuery,
+  setDoc as fsSetDoc,
+  updateDoc as fsUpdateDoc,
   where as fsWhere,
 } from 'pyric/firestore';
+import { SimulateFirestoreRulesHandler } from 'pyric/rules/internal';
 import { setRules as setFirestoreRules, seedDocuments as seedFirestoreDocuments } from 'pyric/sandbox/firestore';
 import { runDerivedCases } from '../../src/bridge/surface/assurance-cases.js';
 import { getMetadata, getStorageSandbox, ref as storageRef, uploadBytes } from 'pyric/storage';
@@ -661,5 +666,317 @@ service cloud.firestore {
     expect(listCase?.candidate).toBe('deny');
     expect(listCase?.agrees).toBe(false);
     expect(listCase?.queryProof?.verdict).toBe('UNPROVABLE');
+  });
+});
+
+describe('verifyFixture and deriveRulesTestCases regressions (AV-VER-2..6)', () => {
+  it('detects now-allowed on captured denied writes, now-denied on transient writes, and rejects invalid candidate Firestore rules (AV-VER-2 / AV-REP-5)', async () => {
+    const strictRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /notes/{id} {
+      allow read, write: if request.auth != null && request.auth.uid == 'alice';
+    }
+  }
+}`;
+    const wideOpenRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /notes/{id} {
+      allow read, write: if true;
+    }
+  }
+}`;
+    const denyAllRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /notes/{id} {
+      allow read, write: if false;
+    }
+  }
+}`;
+
+    // Scenario A: Denied write by mallory becomes allowed under wide-open rules.
+    const sandboxA = initializeSandbox();
+    const malloryDb = getFirestore(sandboxA.withAuth({ uid: 'mallory' }));
+    malloryDb.setRules(strictRules);
+    await expect(malloryDb.doc('notes/secret').set({ text: 'pwned' })).rejects.toThrow();
+    const fixtureA = buildVerifyFixture({ sandbox: sandboxA, firestoreRules: strictRules });
+
+    const resultA = await verifyFixture(fixtureA, { rules: { firestore: wideOpenRules } });
+    expect(resultA.ok).toBe(false);
+    expect(resultA.services.firestore?.checkedEvents).toBe(1);
+    expect(resultA.services.firestore?.divergences).toEqual([
+      expect.objectContaining({
+        service: 'firestore',
+        kind: 'now-allowed',
+        path: 'notes/secret',
+      }),
+    ]);
+
+    // Scenario B: Allowed write by alice followed by admin delete (final state {}) is now denied.
+    const sandboxB = initializeSandbox();
+    const aliceDb = getFirestore(sandboxB.withAuth({ uid: 'alice' }));
+    const adminDb = getAdminFirestore(sandboxB);
+    aliceDb.setRules(strictRules);
+    await aliceDb.doc('notes/temp').set({ text: 'draft' });
+    await adminDb.doc('notes/temp').delete();
+    const fixtureB = buildVerifyFixture({ sandbox: sandboxB, firestoreRules: strictRules });
+
+    const resultB = await verifyFixture(fixtureB, { rules: { firestore: denyAllRules } });
+    expect(resultB.ok).toBe(false);
+    expect(resultB.services.firestore?.divergences).toEqual([
+      expect.objectContaining({
+        service: 'firestore',
+        kind: 'now-denied',
+        path: 'notes/temp',
+      }),
+    ]);
+
+    // Scenario C: Syntax-invalid candidate Firestore rules throw VerifyInputError.
+    await expect(
+      verifyFixture(fixtureA, { rules: { firestore: 'THIS WILL NOT PARSE {{{' } }),
+    ).rejects.toThrow(VerifyInputError);
+  });
+
+  it('preserves denied write payload on existing docs and deleteField() post-state on allowed updates (AV-VER-3)', async () => {
+    const rules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /docs/{id} {
+      allow create: if request.auth != null && request.resource.data.owner == request.auth.uid;
+      allow update: if request.auth != null
+        && resource.data.owner == request.auth.uid
+        && request.resource.data.owner == resource.data.owner
+        && !('secret' in request.resource.data);
+    }
+  }
+}`;
+    const sandbox = initializeSandbox();
+    setFirestoreRules(sandbox, rules);
+    const clientDb = getClientFirestore(sandbox.withAuth({ uid: 'alice' }));
+
+    await fsSetDoc(fsDoc(clientDb, 'docs/1'), { owner: 'alice', title: 'v1', secret: 'redact-me' });
+    await fsUpdateDoc(fsDoc(clientDb, 'docs/1'), { secret: fsDeleteField() });
+    await expect(fsUpdateDoc(fsDoc(clientDb, 'docs/1'), { owner: 'bob' })).rejects.toThrow();
+
+    const fixture = buildVerifyFixture({ sandbox, firestoreRules: rules });
+    const derived = deriveRulesTestCases(fixture);
+    const simulator = new SimulateFirestoreRulesHandler();
+    const simResult = simulator.simulate(rules, derived.testCases);
+    expect(simResult.success).toBe(true);
+    if (!simResult.success) return;
+
+    expect(simResult.data.results[1]?.state).toBe('PASSED');
+    expect(simResult.data.results[1]?.decision).toBe('ALLOW');
+    expect(derived.testCases[2]?.data?.owner).toBe('bob');
+    expect(simResult.data.results[2]?.state).toBe('PASSED');
+    expect(simResult.data.results[2]?.decision).toBe('DENY');
+  });
+
+  it('detects get()/exists() dependencies on real sandbox-captured RequestEvents (AV-VER-4)', async () => {
+    const rulesWithExistsAndGet = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /projects/{projectId} {
+      allow get: if request.auth != null
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.active == true;
+    }
+  }
+}`;
+    const sandbox = initializeSandbox();
+    setFirestoreRules(sandbox, rulesWithExistsAndGet);
+    seedFirestoreDocuments(sandbox, {
+      'admins/alice': { active: true },
+      'projects/p1': { name: 'Apollo' },
+    });
+    const aliceDb = getFirestore(sandbox.withAuth({ uid: 'alice' }));
+    const snap = await aliceDb.doc('projects/p1').get();
+    expect(snap.exists).toBe(true);
+
+    const fixture = buildVerifyFixture({ sandbox, firestoreRules: rulesWithExistsAndGet });
+    const strictDerivation = deriveRulesTestCases(fixture, { mockReads: 'strict' });
+    const omitDerivation = deriveRulesTestCases(fixture, { mockReads: 'omit' });
+
+    expect(strictDerivation.ok).toBe(false);
+    expect(strictDerivation.unsupportedEvents).toHaveLength(1);
+    expect(omitDerivation.warnings.some((w) => w.code === 'READ_MOCKS_OMITTED')).toBe(true);
+  });
+
+  it('evaluates Firestore read lookups against point-in-time state and preserves pre-seeded documents (AV-VER-5)', async () => {
+    const rules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /acl/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+    match /secrets/{docId} {
+      allow get: if request.auth != null
+        && exists(/databases/$(database)/documents/acl/$(request.auth.uid));
+    }
+  }
+}`;
+    // Scenario A: acl/alice exists when secrets/s1 is read, then acl/alice is deleted.
+    const sandboxA = initializeSandbox();
+    setFirestoreRules(sandboxA, rules);
+    const aliceDbA = getFirestore(sandboxA.withAuth({ uid: 'alice' }));
+    await aliceDbA.doc('acl/alice').set({ active: true });
+    await aliceDbA.doc('secrets/s1').get();
+    await aliceDbA.doc('acl/alice').delete();
+    const fixtureA = buildVerifyFixture({ sandbox: sandboxA, firestoreRules: rules });
+
+    const verifyA = await verifyFixture(fixtureA, { rules: { firestore: rules } });
+    expect(verifyA.ok).toBe(true);
+    expect(verifyA.services.firestore?.divergences).toEqual([]);
+
+    // Scenario B: Pre-seeded documents via seedDocuments before session capture.
+    const sandboxB = initializeSandbox();
+    setFirestoreRules(sandboxB, rules);
+    seedFirestoreDocuments(sandboxB, {
+      'acl/alice': { active: true },
+      'secrets/s1': { text: 'classified' },
+    });
+    const aliceDbB = getFirestore(sandboxB.withAuth({ uid: 'alice' }));
+    await aliceDbB.doc('secrets/s1').get();
+    const fixtureB = buildVerifyFixture({ sandbox: sandboxB, firestoreRules: rules });
+
+    const verifyB = await verifyFixture(fixtureB, { rules: { firestore: rules } });
+    expect(verifyB.ok).toBe(true);
+    expect(verifyB.services.firestore?.divergences).toEqual([]);
+  });
+
+  it('preserves non-default Storage bucket on get/list/denied ops and pairs concurrent mutations in FIFO order (AV-VER-6)', async () => {
+    const wildcardBucketRulesWithResourceCheck = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /docs/{file} {
+      allow create: if request.auth != null && request.resource.size > 0;
+      allow get: if request.auth != null && resource != null && resource.size > 0;
+    }
+  }
+}`;
+    const customBucketFixture: PyricVerifyFixture = {
+      schema: 'pyric.verify.fixture.v1',
+      events: [
+        {
+          kind: 'operation',
+          id: 'op-upload',
+          at: 1000,
+          service: 'storage',
+          method: 'create',
+          path: 'docs/report.pdf',
+          auth: { uid: 'alice' },
+          result: 'allow',
+          origin: 'user',
+        },
+        {
+          kind: 'service_mutation',
+          id: 'mut-upload',
+          at: 1001,
+          service: 'storage',
+          op: 'object_put',
+          path: 'docs/report.pdf',
+          after: {
+            fullPath: 'docs/report.pdf',
+            bucket: 'my-custom-bucket',
+            size: 512,
+            contentType: 'application/pdf',
+          },
+          detail: { bucket: 'my-custom-bucket' },
+        },
+        {
+          kind: 'operation',
+          id: 'op-get',
+          at: 1002,
+          service: 'storage',
+          method: 'get',
+          path: 'docs/report.pdf',
+          auth: { uid: 'alice' },
+          result: 'allow',
+          origin: 'user',
+        },
+      ],
+      services: {
+        storage: {
+          rules: { format: 'storage.rules', source: wildcardBucketRulesWithResourceCheck },
+          state: null,
+        },
+      },
+    };
+    const resultA = await verifyFixture(customBucketFixture, {
+      rules: { storage: wildcardBucketRulesWithResourceCheck },
+    });
+    expect(resultA.ok).toBe(true);
+    expect(resultA.services.storage?.divergences).toEqual([]);
+
+    const concurrentUploadsFixture: PyricVerifyFixture = {
+      schema: 'pyric.verify.fixture.v1',
+      events: [
+        {
+          kind: 'operation',
+          id: 'op-upload-1',
+          at: 2000,
+          service: 'storage',
+          method: 'create',
+          path: 'docs/concurrent.pdf',
+          auth: { uid: 'alice' },
+          result: 'allow',
+          origin: 'user',
+        },
+        {
+          kind: 'operation',
+          id: 'op-upload-2',
+          at: 2001,
+          service: 'storage',
+          method: 'create',
+          path: 'docs/concurrent.pdf',
+          auth: { uid: 'alice' },
+          result: 'allow',
+          origin: 'user',
+        },
+        {
+          kind: 'service_mutation',
+          id: 'mut-upload-1',
+          at: 2002,
+          service: 'storage',
+          op: 'object_put',
+          path: 'docs/concurrent.pdf',
+          after: {
+            fullPath: 'docs/concurrent.pdf',
+            bucket: 'pyric-default',
+            size: 128,
+            contentType: 'application/pdf',
+          },
+          detail: { bucket: 'pyric-default' },
+        },
+        {
+          kind: 'service_mutation',
+          id: 'mut-upload-2',
+          at: 2003,
+          service: 'storage',
+          op: 'object_put',
+          path: 'docs/concurrent.pdf',
+          after: {
+            fullPath: 'docs/concurrent.pdf',
+            bucket: 'pyric-default',
+            size: 256,
+            contentType: 'application/pdf',
+          },
+          detail: { bucket: 'pyric-default' },
+        },
+      ],
+      services: {
+        storage: {
+          rules: { format: 'storage.rules', source: wildcardBucketRulesWithResourceCheck },
+          state: null,
+        },
+      },
+    };
+    const resultB = await verifyFixture(concurrentUploadsFixture, {
+      rules: { storage: wildcardBucketRulesWithResourceCheck },
+    });
+    expect(resultB.ok).toBe(true);
+    expect(resultB.services.storage?.divergences).toEqual([]);
   });
 });
