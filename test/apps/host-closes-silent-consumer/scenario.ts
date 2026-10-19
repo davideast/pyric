@@ -34,8 +34,8 @@ export const slow = true;
 const WINDOW_MS = 40_000;
 const HEARTBEAT_MS = 15_000;
 const CLIENT_LIVENESS_MS = 45_000;
-/** The lazy handle's once-per-drop line: `pyric: <reason> at <url>; the next op connects again, ...`. */
-const LOSS_LINE = /pyric: (.+) at http:\/\/127\.0\.0\.1:\d+; the next op connects again/;
+/** The lazy handle's once-per-drop line: `pyric: <reason> at <url>; calls wait up to 10 seconds for it, ...`. */
+const LOSS_LINE = /pyric: (.+) at http:\/\/127\.0\.0\.1:\d+; calls wait up to 10 seconds for it, (?:calls in flight are sent again, )?and live listeners reconnect when the host answers\./;
 
 /** Settles `pending` within `ms`, or fails naming the call that never settled. */
 function within<T>(call: string, ms: number, pending: Promise<T>): Promise<T> {

@@ -39,6 +39,10 @@
 #    receive an `fb*` tag (it is a scaffolder, not a Firebase mirror).
 set -euo pipefail
 
+# Pin npm commands (publish, dist-tag, child consumer smokes) to public npmjs.org
+# even on machines whose .npmrc defaults to a corporate mirror or proxy.
+export NPM_CONFIG_REGISTRY="${PYRIC_NPM_REGISTRY:-https://registry.npmjs.org/}"
+
 DRY_RUN=0
 if [ "${1:-}" = "--dry-run" ]; then
   DRY_RUN=1
