@@ -278,9 +278,9 @@ function selectedServices(flag: FlagValue | undefined, fixtures: Fixture[]): Ver
       union.add(service);
     }
   }
-  if (union.size === 0) {
-    throw new Error('fixture does not contain firestore or rtdb rules services.');
-  }
+    if ( union.size === 0 ) {
+      throw new Error('fixture does not contain firestore, rtdb, or storage rules services.');
+    }
   return [...union].sort();
 }
 
@@ -348,11 +348,40 @@ async function resolveCandidateRules(
     Object.assign(rules, rtdb.rules);
     Object.assign(paths, rtdb.paths);
   }
+  if (services.includes('storage')) {
+    const configured = configuredStorageRules(await readConfig());
+    const defaultStoragePath = resolve(cwd, 'storage.rules');
+    const rel =
+      overrides.storage ??
+      configured ??
+      (existsSync(defaultStoragePath) ? 'storage.rules' : undefined);
+    if (!rel) {
+      throw new Error('missing candidate storage rules. Pass --rules storage=<path> or configure firebase.json.');
+    }
+    const path = resolve(cwd, rel);
+    if (!existsSync(path)) {
+      throw new Error(`rules file not found for storage: ${path}`);
+    }
+    paths.storage = path;
+    rules.storage = readFileSync(path, 'utf8');
+  }
   return { rules, paths };
 }
 
-function parseRulesOverrides(flag: FlagValue | undefined): { firestore?: string; rtdb: RtdbRulesOverrides } {
-  const out: { firestore?: string; rtdb: RtdbRulesOverrides } = { rtdb: { instances: [] } };
+function configuredStorageRules(config: FirebaseJson | null): string | undefined {
+  const block = config?.storage;
+  const entries = block ? (Array.isArray(block) ? block : [block]) : [];
+  return entries.find((e) => e && typeof e === 'object' && e.rules)?.rules;
+}
+
+function parseRulesOverrides(flag: FlagValue | undefined): {
+  firestore?: string;
+  rtdb: RtdbRulesOverrides;
+  storage?: string;
+} {
+  const out: { firestore?: string; rtdb: RtdbRulesOverrides; storage?: string } = {
+    rtdb: { instances: [] },
+  };
   for (const raw of flagStrings(flag)) {
     const eq = raw.indexOf('=');
     if (eq <= 0 || eq === raw.length - 1) {
@@ -366,6 +395,7 @@ function parseRulesOverrides(flag: FlagValue | undefined): { firestore?: string;
     }
     const service = toVerifiableService(key);
     if (service === 'rtdb') out.rtdb.default = path;
+    else if (service === 'storage') out.storage = path;
     else out.firestore = path;
   }
   return out;
@@ -380,9 +410,9 @@ async function readFirebaseJsonOrNull(cwd: string): Promise<FirebaseJson | null>
 }
 
 function toVerifiableService(raw: string): VerifiableService {
-  if (raw === 'firestore' || raw === 'rtdb') return raw;
+  if (raw === 'firestore' || raw === 'rtdb' || raw === 'storage') return raw;
   if (raw === 'database') return 'rtdb';
-  throw new Error(`unsupported verify service '${raw}'. Supported services: firestore, rtdb.`);
+  throw new Error(`unsupported verify service '${raw}'. Supported services: firestore, rtdb, storage.`);
 }
 
 function flagStrings(value: FlagValue | undefined): string[] {

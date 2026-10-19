@@ -1,6 +1,6 @@
 /** `pyric verify` checks each RTDB instance a session used against that instance's rules. */
 import { afterEach, describe, expect, it, spyOn } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getDatabase, ref, set, sandbox as rtdbSandbox } from 'pyric/database';
@@ -41,7 +41,7 @@ afterEach(() => {
 
 /** A project directory holding `files` (objects are written as JSON) and the captured session. */
 async function project(files: Record<string, unknown>, fixture?: PyricVerifyFixture): Promise<string> {
-  const dir = mkdtempSync(join(tmpdir(), 'pyric-verify-instances-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'pyric-verify-instances-')));
   dirs.push(dir);
   for (const [name, content] of Object.entries(files)) {
     writeFileSync(join(dir, name), typeof content === 'string' ? content : JSON.stringify(content));
@@ -183,5 +183,43 @@ describe('pyric verify with more than one RTDB instance', () => {
     const fixture = buildVerifyFixture({ sandbox, rtdbRules: SIGNED_IN, rtdbState: rtdbSandbox.snapshotState(main) });
     const dir = await project({ 'firebase.json': {}, 'database.rules.json': SIGNED_IN }, fixture);
     expect((await verify(dir)).code).toBe(0);
+  });
+
+  it('refuses --rules rtdb=<path> when the session only used named instances, and deduplicates symlinked overrides (AV-VER-7)', async () => {
+    const sandbox = initializeSandbox();
+    const main = getDatabase(sandbox);
+    const shard = getDatabase(sandbox, SHARD);
+    rtdbSandbox.setRules(main, SIGNED_IN);
+    rtdbSandbox.setRules(shard, SIGNED_IN);
+    await set(ref(getDatabase(sandbox.withAuth({ uid: 'alice' }), SHARD), 'rooms/lobby'), { name: 'shard only' });
+    const namedOnlyFixture = buildVerifyFixture({
+      sandbox,
+      rtdbRules: SIGNED_IN,
+      rtdbState: rtdbSandbox.snapshotState(main),
+      rtdbInstances: captureRtdbInstances(sandbox, 'demo-app-default-rtdb'),
+    });
+
+    const dir = await project(
+      { 'database.rules.json': SIGNED_IN, 'shard.rules.json': SIGNED_IN },
+      namedOnlyFixture,
+    );
+    const unusedDefault = await verify(dir, [
+      '--rules',
+      'rtdb=database.rules.json',
+      '--rules',
+      'rtdb:shard-00=shard.rules.json',
+    ]);
+    expect(unusedDefault.code).toBe(2);
+    expect(unusedDefault.err).toContain('the session never used the default instance');
+
+    const symlinkDir = join(dir, 'linked');
+    symlinkSync(dir, symlinkDir);
+    const symlinkDup = await verify(dir, [
+      '--rules',
+      `rtdb:shard-00=${join(dir, 'shard.rules.json')}`,
+      '--rules',
+      `rtdb:shard-00=${join(symlinkDir, 'shard.rules.json')}`,
+    ]);
+    expect(symlinkDup.code).toBe(0);
   });
 });
