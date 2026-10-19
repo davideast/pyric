@@ -200,6 +200,47 @@ describe('remote core — event-loop hold (ref/unref transitions)', () => {
     node.core.dispose('closed');
     expect(node.holds).toEqual(['ref', 'unref', 'ref', 'unref']);
   });
+
+  it('releaseInFlight settles each call by its fate, unrefs once, and is idempotent (#1107)', async () => {
+    const bridge = createBridge({ version: 'test', callTimeoutMs: 5000 });
+    connectTab(bridge, makeWorkerCtx(), { dropOps: true }); // nothing answers
+    const node = connectNode(bridge, { opTimeoutMs: 60 });
+    await node.core.ready;
+
+    const outcomes: string[] = [];
+    const record = (name: string, call: Promise<unknown>): void => {
+      call.then(
+        () => outcomes.push(`${name}: resolved`),
+        (error: Error & { code?: string }) => outcomes.push(`${name}: ${error.code ?? 'no code'} ${error.message}`),
+      );
+    };
+    const instance = undefined;
+    record('set', node.channel.op({ method: 'rtdb.set', instance, path: 'a', value: 1 }));
+    record('onDisconnect', node.channel.op({ method: 'rtdb.onDisconnectSet', instance, path: 'a', value: 0 }));
+    record('commit', node.channel.op({ method: 'rtdb.transactionCommit', instance, path: 'a', expected: 1, value: 2 }));
+    record('keyless push', node.channel.op({ method: 'rtdb.push', instance, path: 'list', value: 1 }));
+    record('keyed push', node.channel.op({ method: 'rtdb.push', instance, path: 'list', key: 'k1', value: 1 }));
+    record('metadata', node.channel.op({ method: 'storage.getMetadata', path: 'x' }));
+    node.channel.subscribe({ target: { service: 'rtdb', path: 'x' } }, () => {});
+    expect(node.holds).toEqual(['ref']);
+
+    const released = node.core.releaseInFlight('lost');
+    expect(released.map((call) => call.payload.method)).toEqual(['rtdb.set', 'rtdb.push']);
+    expect(node.holds).toEqual(['ref', 'unref']);
+    expect(node.core.releaseInFlight('lost again')).toEqual([]);
+    expect(node.holds).toEqual(['ref', 'unref']);
+
+    // Past the per-send timeout: a released call has no timer left.
+    await tick(120);
+    expect(outcomes).toEqual([
+      'commit: no code disconnect',
+      'keyless push: unavailable lost',
+      'metadata: unavailable lost',
+    ]);
+    released[0]!.resolve(null);
+    await tick();
+    expect(outcomes.at(-1)).toBe('set: resolved');
+  });
 });
 
 // ─── Terminal listener errors ───────────────────────────────────────────────

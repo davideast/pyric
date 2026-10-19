@@ -60,6 +60,7 @@ import { cliVersion } from '../pkg-version.js';
 import { MAX_STORAGE_OP_BYTES, storagePayloadTooLarge } from '../serve/worker/protocol.js';
 import { hasValidAttachFields } from '../bridge/attach-validation.js';
 import { hasValidReplyOutcome, snapshotError } from '../serve/worker/outbound-validation.js';
+import { rtdbFateAtDrop, type DropFate } from '../serve/worker/rtdb-drop-fates.js';
 import {
   discoverServe,
   selectExplicitHost,
@@ -296,6 +297,37 @@ export interface RemoteSandboxCore {
   fail(reason: string, code?: string): void;
   /** Close explicitly; reject pending calls (as `code`, default `unavailable`) and quietly detach listeners. Idempotent. */
   dispose(reason?: string, code?: string): void;
+  /**
+   * Settle a drop the caller reconnects from: every call in flight meets its
+   * fate (`fateAtDrop`), listeners detach quietly, and the calls to send again
+   * are returned unsettled, in issue order. Idempotent: a second call returns
+   * none.
+   */
+  releaseInFlight(lostMessage: string): ReleasedOp[];
+}
+
+/** A call in flight at a drop that the next connection sends again; settling it settles the caller's promise. */
+export interface ReleasedOp {
+  payload: WorkerOpPayload;
+  resolve: (value: unknown) => void;
+  reject: (error: Error) => void;
+}
+
+/** An `rtdb.push` carries its key when `pyric-admin` minted it; one without asks the host to mint it. */
+function isKeylessPush(payload: WorkerOpPayload): boolean {
+  const isPush = payload.method === 'rtdb.push';
+  if (!isPush) return false;
+  return payload.key === undefined;
+}
+
+/**
+ * What becomes of a call in flight at a drop. RTDB calls follow the shared
+ * table, as on the web hosted client, except a push without a key: sent
+ * again, the host would mint a second key and add a second child.
+ */
+function fateAtDrop(payload: WorkerOpPayload): DropFate {
+  if (isKeylessPush(payload)) return 'fail';
+  return rtdbFateAtDrop(payload.method);
 }
 
 /**
@@ -317,10 +349,7 @@ export function createRemoteSandboxCore(
   let disposed: string | null = null;
   let advertised: readonly string[] = [];
 
-  const pending = new Map<
-    string,
-    { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }
-  >();
+  const pending = new Map<string, ReleasedOp & { timer: ReturnType<typeof setTimeout> }>();
   const subs = new Map<
     string,
     { onSnap: (value: unknown) => void; onError?: (err: Error & { code: string }) => void }
@@ -400,7 +429,7 @@ export function createRemoteSandboxCore(
           );
         }
       }, opTimeoutMs);
-      pending.set(id, { resolve, reject, timer });
+      pending.set(id, { payload, resolve, reject, timer });
       updateLoopHold();
       try {
         send(message);
@@ -562,6 +591,27 @@ export function createRemoteSandboxCore(
     readyReject(err); // no-op if already settled
   }
 
+  function releaseInFlight(lostMessage: string): ReleasedOp[] {
+    const isDisposed = Boolean(disposed);
+    if (isDisposed) return [];
+    disposed = lostMessage;
+    const lost = remoteError('unavailable', lostMessage);
+    const released: ReleasedOp[] = [];
+    for (const call of pending.values()) {
+      clearTimeout(call.timer);
+      const fate = fateAtDrop(call.payload);
+      if (fate === 'resend') released.push({ payload: call.payload, resolve: call.resolve, reject: call.reject });
+      else if (fate === 'disconnect') call.reject(new Error('disconnect'));
+      else if (fate === 'fail') call.reject(lost);
+      // 'forget': a sent onDisconnect never settles, as on Firebase.
+    }
+    pending.clear();
+    subs.clear();
+    updateLoopHold();
+    readyReject(lost); // no-op if already settled
+    return released;
+  }
+
   /** Transport failure ends active listeners; explicit client close remains silent. */
   function fail(reason: string, code = 'unavailable'): void {
     const listeners = [...subs.values()];
@@ -580,6 +630,7 @@ export function createRemoteSandboxCore(
     ready,
     channel: { op, subscribe },
     dispose,
+    releaseInFlight,
   };
 }
 
