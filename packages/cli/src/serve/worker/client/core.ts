@@ -93,6 +93,27 @@ function appDeletedError(): Error & { code: string } {
   return Object.assign(new Error('Firebase App was deleted'), { code: 'app/app-deleted' });
 }
 
+/**
+ * What on `port` is still waiting on the host: requests without a reply, and
+ * data subscriptions (Firestore, RTDB, an AI stream). Auth state, presence,
+ * messaging and event-stream subscriptions are not counted; they observe the
+ * host rather than wait on it. A Node process stays up while this is nonzero.
+ */
+export function outstandingWorkOn(port: ClientPort): number {
+  let count = 0;
+  for (const pending of _pending.values()) {
+    const ownsRequest = pending.port === port;
+    if (ownsRequest) count += 1;
+  }
+  for (const subscription of _snapSubs.values()) {
+    const ownsSubscription = subscription.port === port;
+    const target = (subscription.message as { target?: unknown } | undefined)?.target;
+    const waitsOnData = typeof target === 'object' && target !== null;
+    if (ownsSubscription && waitsOnData) count += 1;
+  }
+  return count;
+}
+
 export function isDisconnectedPort(port: ClientPort): boolean {
   return disconnectedPorts.has(port);
 }

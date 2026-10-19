@@ -78,7 +78,9 @@ const moduleApi = Module as unknown as {
  */
 function resolveEsmOnlyForRequire(mapped: string): string | null {
   if (typeof moduleApi.findPackageJSON !== 'function') return null;
-  const slash = mapped.indexOf('/');
+  // A scoped name (`@pyric/cli/register/client/app`) spans its first slash.
+  const isScoped = mapped.startsWith('@');
+  const slash = mapped.indexOf('/', isScoped ? mapped.indexOf('/') + 1 : 0);
   const pkgName = slash === -1 ? mapped : mapped.slice(0, slash);
   const subpath = slash === -1 ? '.' : `.${mapped.slice(slash)}`;
   let pkgJsonPath: string | undefined;

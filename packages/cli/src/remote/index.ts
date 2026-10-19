@@ -62,18 +62,13 @@ import { encodeBridgeMessage } from '../bridge/frame-output.js';
 import { createOperationBudget } from '../bridge/operation-budget.js';
 import { watchHostLiveness, type HostLiveness } from './host-liveness.js';
 import { createHeldCalls, type ReleasedOp } from './held-calls.js';
-import { cliVersion } from '../pkg-version.js';
 import { MAX_STORAGE_OP_BYTES, storagePayloadTooLarge } from '../serve/worker/protocol.js';
 import { hasValidAttachFields } from '../bridge/attach-validation.js';
 import { hasValidReplyOutcome, snapshotError } from '../serve/worker/outbound-validation.js';
 import { rtdbFateAtDrop, type DropFate } from '../serve/worker/rtdb-drop-fates.js';
-import {
-  discoverServe,
-  selectExplicitHost,
-  selectProjectHost,
-  type AnsweringHost,
-  type Discovered,
-} from '../serve/discovery.js';
+import type { AnsweringHost, Discovered } from '../serve/discovery.js';
+import { resolveRemoteHost } from './resolve-host.js';
+import { versionSkewGuidance as skewGuidance } from './version-skew.js';
 
 /** Sits just above the bridge's own 30s `callTimeoutMs` so a legitimately
  *  slow worker op still completes (same layering as `mcp-proxy`'s 35s). */
@@ -485,14 +480,11 @@ export function createRemoteSandboxCore(
       case 'attach-ack': {
         // Version-skew stamp: warn ONCE when the serve process runs a
         // different @pyric/cli version (absent stamp = old server = silent).
-        const needsVersionGuidance =
-          versionSkewGuidance === null &&
-          typeof msg.serveVersion === 'string' &&
-          msg.serveVersion !== cliVersion();
-        if (needsVersionGuidance) {
-          versionSkewGuidance =
-            `pyric sandbox is running version ${msg.serveVersion}, this client is ` +
-            `${cliVersion()}. Restart pyric sandbox and reload the browser tab.`;
+        const guidance = versionSkewGuidance === null
+          ? skewGuidance(msg.serveVersion, 'Restart pyric sandbox and reload the browser tab.')
+          : null;
+        if (guidance !== null) {
+          versionSkewGuidance = guidance;
           process.stderr.write(`pyric: ${versionSkewGuidance}\n`);
         }
         advertised = Array.isArray(msg.capabilities) ? msg.capabilities.filter(item => typeof item === 'string') : [];
@@ -945,17 +937,6 @@ export function createRemoteSandboxHandle(opts: {
 
 // ─── connect ───────────────────────────────────────────────────────────────
 
-/** Explicit URLs whose stale-URL fallback this process has already reported. */
-const reportedStaleUrls = new Set<string>();
-
-function warnOncePerUrl(url: string, message: string, warn?: (message: string) => void): void {
-  const key = url.replace(/\/$/, '');
-  if (reportedStaleUrls.has(key)) return;
-  reportedStaleUrls.add(key);
-  if (warn) warn(message);
-  else process.stderr.write(`${message}\n`);
-}
-
 /**
  * Discover the running `pyric sandbox --bridge`, attach to its bridge WS as a
  * worker-relay CONSUMER (never a peer — attaching cannot kick the browser
@@ -975,48 +956,15 @@ export async function connectRemoteSandbox(
   // the guidance opens a DIFFERENT browser origin (127.0.0.1 vs localhost →
   // separate SharedWorkers → split sandboxes). `wsBase` is connectivity: the
   // literal loopback family the health probe actually reached.
-  let serveUrl: string;
-  let wsBase: string;
-  const requestedUrl = options.url;
-  const hasExplicitUrl = requestedUrl !== undefined && requestedUrl.length > 0;
-  const configuredUrl = options.configuredUrl;
-  const hasConfiguredUrl = configuredUrl !== undefined && configuredUrl.length > 0;
-  if (hasExplicitUrl) {
-    serveUrl = requestedUrl.replace(/\/$/, '');
-    wsBase = serveUrl;
-  } else if (hasConfiguredUrl) {
-    const choice = await selectExplicitHost({
-      url: configuredUrl,
-      cwd,
-      launcherInstanceId: options.instanceId,
-      discover: options.discover,
-      probe: options.probe,
-    });
-    if (choice.kind === 'stale') throw remoteError('not-found', choice.message);
-    if (choice.kind === 'refused') throw remoteError('failed-precondition', choice.message);
-    if (choice.kind === 'project') {
-      warnOncePerUrl(configuredUrl, `pyric: ${choice.notice}`, options.warn);
-      serveUrl = choice.host.url;
-      wsBase = choice.host.base;
-    } else {
-      serveUrl = choice.serveUrl;
-      wsBase = choice.base;
-    }
-  } else {
-    const refused: string[] = [];
-    const found = selectProjectHost(await (options.discover ?? discoverServe)(cwd), (m) => refused.push(m));
-    const hasNoDiscovery = found === null;
-    if (hasNoDiscovery) {
-      throw remoteError(
-        'not-found',
-        'no running `pyric sandbox --bridge` found (looked for .pyric/serve.json in ' +
-          `${cwd}) — start your dev server with the bridge enabled and retry.` +
-          (refused.length > 0 ? ` ${refused.join(' ')}` : ''),
-      );
-    }
-    serveUrl = found.url;
-    wsBase = found.base;
-  }
+  const { serveUrl, wsBase } = await resolveRemoteHost({
+    cwd,
+    url: options.url,
+    configuredUrl: options.configuredUrl,
+    instanceId: options.instanceId,
+    discover: options.discover,
+    probe: options.probe,
+    warn: options.warn,
+  });
 
   const wsUrl = `${wsBase.replace(/^http/, 'ws')}/__pyric/sandbox`;
   const ws = new WebSocket(wsUrl, { maxPayload: MAX_BRIDGE_FRAME_BYTES });

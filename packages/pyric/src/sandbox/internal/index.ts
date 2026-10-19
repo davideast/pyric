@@ -212,3 +212,4 @@ export {
   type DatabaseRulesFileTarget,
   type UnresolvedDatabaseRulesTarget,
 } from './database-rules-config.js';
+export { parsePyricSandbox, isRemoteActivation, type PyricSandboxActivation } from './sandbox-activation.js';

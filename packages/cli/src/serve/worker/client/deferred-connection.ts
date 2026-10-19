@@ -10,12 +10,24 @@ export function getDeferredFirestore(connection: Promise<(port: ClientPort) => C
   const observers = new Map<(connected: boolean) => void, (() => void) | undefined>();
   let closed = false;
   let failure: FirebaseError | undefined;
+  let chosen = false;
+  // Until the transport is chosen nobody knows its byte route; after, the
+  // transport answers (the hosted one installs its own on this port).
+  const awaitTransportRoute = async (): Promise<void> => {
+    await transportChosen;
+    const ownsRouteAnswer = port.byteRouteSettled === pendingRoute;
+    if (ownsRouteAnswer) return;
+    await port.byteRouteSettled?.();
+  };
+  const pendingRoute = (): Promise<void> | undefined => (chosen ? undefined : awaitTransportRoute());
   const port: ClientPort = {
+    byteRouteSettled: pendingRoute,
     onmessage: null,
     postMessage(message) {
-      if (failure) throw failure;
-      if (closed) throw new FirebaseError('app/app-deleted', 'Firebase App was deleted');
+      // Deleting the app settles even when the transport could not be chosen.
       const cancelsStartup = message.t === 'disconnect';
+      if (!cancelsStartup && failure) throw failure;
+      if (!cancelsStartup && closed) throw new FirebaseError('app/app-deleted', 'Firebase App was deleted');
       if (cancelsStartup) {
         queued.length = 0;
         closed = true;
@@ -42,7 +54,8 @@ export function getDeferredFirestore(connection: Promise<(port: ClientPort) => C
     },
   };
   wirePort(port);
-  void connection.then(connect => {
+  const transportChosen = connection.then(connect => {
+    chosen = true;
     if (closed) return;
     // The transport installs methods on this port; it must not replace its identity.
     connect(port);
@@ -61,7 +74,10 @@ export function getDeferredFirestore(connection: Promise<(port: ClientPort) => C
       if (isLocalTransport) listener(true);
     }
   }).catch(error => {
-    failure = new FirebaseError('unavailable', error instanceof Error ? error.message : String(error));
+    chosen = true;
+    // A transport that refuses with its own code keeps it (a Node process off the Node host, #1082).
+    const isFirebaseError = error instanceof FirebaseError;
+    failure = isFirebaseError ? error : new FirebaseError('unavailable', error instanceof Error ? error.message : String(error));
     closeSendOrder(port);
     rejectPendingRequests(port, failure);
     for (const message of queued.splice(0)) {

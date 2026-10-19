@@ -1012,6 +1012,32 @@ const INTRO = [
   '| ? | **Unverified** — a target with a derived failing test, not a guarantee |',
 ].join('\n');
 
+/** Client SDKs in a `node --import @pyric/cli/register` process on the Node host (#1082). */
+const serverProcessRow = defineRows({
+  surface: "messaging",
+  defaults: {
+    section: "Client SDKs in a registered server process",
+    status: "diverged-documented",
+    automation: "unit-backed",
+  },
+});
+
+const serverProcessRows: CompatibilityRow[] = [
+  serverProcessRow({
+    rowRef: "RS1",
+    featureKeys: ["Messaging"],
+    api: "getMessaging(app) in a registered server process",
+    behavior: "Under a remote register activation, `getMessaging(app)` in a server process fails with `failed-precondition` and a message that names the client services that do reach the Node host: `firebase/messaging` has no path to the host, and no in-process sandbox stands in for it.",
+    statusNote: "refused in a server process; production runs it in Node",
+    evidence: "App scenario `test/apps/client-sdk-under-register` calls it under `node --import @pyric/cli/register` against a hosted Vite dev server and asserts the refusal; on main (942cb175) it returned a handle on a private in-process sandbox. `mapping.test.ts` pins that the subpath keeps its mirror under a remote activation, and `node-origin.test.ts` that a mirror resolved from such an app refuses.",
+    conformanceTests: [
+      "test/apps/client-sdk-under-register/scenario.ts",
+      "packages/cli/test/register/mapping.test.ts",
+      "packages/cli/test/register/node-origin.test.ts",
+    ],
+  }),
+];
+
 const rows: CompatibilityRow[] = [
   ...clientRows,
   ...swRows,
@@ -1023,6 +1049,7 @@ const rows: CompatibilityRow[] = [
   ...adminResponseRows,
   ...adminErrorRows,
   ...adminBehaviorRows,
+  ...serverProcessRows,
 ];
 
 export const messagingRegistry: CompatibilitySurfaceRegistry = {
@@ -1041,6 +1068,7 @@ export const messagingRegistry: CompatibilitySurfaceRegistry = {
     { kind: 'table', prefix: `## ${ADMIN_RESPONSES}\n`, rows: adminResponseRows },
     { kind: 'table', prefix: `## ${ADMIN_ERRORS}\n`, rows: adminErrorRows },
     { kind: 'table', prefix: `## ${ADMIN_BEHAVIOR}\n`, rows: adminBehaviorRows },
+    { kind: 'table', prefix: `## Client SDKs in a registered server process\n`, rows: serverProcessRows },
   ],
 };
 

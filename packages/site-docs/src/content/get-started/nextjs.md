@@ -40,7 +40,7 @@ Each alias names a module `@pyric/cli` exports, such as `firebase/firestore` to 
 
 `firebase/firestore/lite` goes to Pyric's deferred lite entry. Imports resolve, and a call such as `getFirestore()` throws `PyricDeferredApiError` naming `firebase/firestore/lite`, instead of reaching production Firestore. Use `firebase/firestore` to run against the sandbox.
 
-Server components and route handlers keep `firebase` and `firebase-admin` external, so the `@pyric/cli/register` hook that `pyric sandbox` preloads routes `firebase-admin` to the sandbox at runtime. Client SDKs (`firebase/database`, `firebase/firestore`, `firebase/auth` and `firebase/storage`) in server code do not reach the sandbox yet: their first call fails with `failed-precondition`. Use `firebase-admin` in server components and route handlers until [#1082](https://github.com/davideast/pyric/issues/1082) lands.
+Server components and route handlers keep `firebase` and `firebase-admin` external, so the `@pyric/cli/register` hook that `pyric sandbox` preloads routes them to the sandbox at runtime. Under `pyric sandbox --hosted`, `firebase/database`, `firebase/firestore`, `firebase/auth` and `firebase/storage` in server code reach the Node host as the server process's own signed-in user. Against the browser-hosted sandbox they fail with `failed-precondition`; use `firebase-admin` in server code there.
 
 ## Supervise your development server
 

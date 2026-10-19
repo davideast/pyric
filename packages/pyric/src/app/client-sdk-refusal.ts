@@ -1,34 +1,39 @@
 /**
- * Client Firebase SDKs in a server process that `@pyric/cli/register`
+ * Client Firebase services in a server process that `@pyric/cli/register`
  * activated against a remote sandbox host (#1082).
  *
- * Under `PYRIC_SANDBOX=remote`, `remote:<url>`, `1` or `true`, `firebase-admin`
- * reaches the host through the remote sandbox factory. The client mirrors
- * (`pyric/database`, `pyric/firestore`, `pyric/auth`, `pyric/storage`) have no
- * path to the host yet, and a process-local sandbox would be a private store
- * the host never sees. So the register adapter binds the app registry to no
- * sandbox at all: the first service call on an app fails with
- * `failed-precondition` and says what to do instead. `PYRIC_SANDBOX=local`
- * keeps the in-process sandbox.
+ * Under `PYRIC_SANDBOX=remote`, `remote:<url>`, `1` or `true`, the register
+ * mapping sends `firebase/database`, `firebase/firestore`, `firebase/auth`
+ * and `firebase/storage` to `@pyric/cli`'s Node client, which reaches the Node
+ * host. Every other client service resolved from such an app (`firebase/ai`,
+ * `firebase/messaging`), and the in-process register adapter itself, refuse:
+ * a process-local sandbox would be a private store the host never sees. The
+ * app registry is bound to no sandbox at all, so the first such call fails
+ * with `failed-precondition`. `PYRIC_SANDBOX=local` keeps the in-process
+ * sandbox.
  */
 import { FirebaseError } from '../sandbox/internal/firebase-error.js';
+import { parsePyricSandbox } from '../sandbox/internal/sandbox-activation.js';
 
 const ISSUE_URL = 'https://github.com/davideast/pyric/issues/1082';
 
-/** Whether `PYRIC_SANDBOX` selects a remote host, as `pyric-admin`'s ambient init reads it. */
+/**
+ * Whether `PYRIC_SANDBOX` names a remote host, including `remote:` with an
+ * empty url, which `pyric-admin` refuses and no in-process sandbox may stand in for.
+ */
 export function isRemoteSandboxActivation(value: string | undefined): boolean {
-  const setting = value?.trim() ?? '';
-  const namesRemoteHost = setting === 'remote' || setting.startsWith('remote:');
-  const isBooleanOn = setting === '1' || setting === 'true';
-  return namesRemoteHost || isBooleanOn;
+  const activation = parsePyricSandbox(value);
+  const isRemote = activation.mode === 'remote';
+  const isEmptyRemoteUrl = activation.mode === 'invalid' && activation.reason === 'empty-url';
+  return isRemote || isEmptyRemoteUrl;
 }
 
-/** The error every client service call raises in a remotely activated process. */
+/** The error a client service with no path to the host raises in a remotely activated process. */
 export function clientSdkRefusal(setting: string): FirebaseError {
   return new FirebaseError(
     'failed-precondition',
-    'pyric: client Firebase SDKs (firebase/database, firebase/firestore, firebase/auth, firebase/storage) ' +
-      `do not reach the sandbox host from a server process yet (PYRIC_SANDBOX=${setting.trim()}). ` +
-      `Use firebase-admin in server code. See ${ISSUE_URL}.`,
+    `pyric: this client Firebase service does not reach the sandbox host from a server process (PYRIC_SANDBOX=${setting.trim()}). ` +
+      'On the Node host, firebase/database, firebase/firestore, firebase/auth and firebase/storage do; ' +
+      `use firebase-admin in server code for anything else. See ${ISSUE_URL}.`,
   );
 }

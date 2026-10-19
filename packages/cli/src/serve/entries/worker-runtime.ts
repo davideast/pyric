@@ -16,6 +16,7 @@ import { getHostedFirestore } from '../worker/client/websocket-connection.js';
 import { currentSessionToken, forgetSessionToken, initPayload } from './init-payload.js';
 import type { WorkerInitPayload } from '../init-payload.js';
 import { toPageOriginWsUrl } from './bridge-url.js';
+import { hostLocation, nodeRuntimeOrigin, type NodeRuntimeOrigin } from './runtime-origin.js';
 import { isServiceWorkerRealm } from '../worker/service-worker-channel.js';
 import {
   PYRIC_WORKER_URL,
@@ -42,14 +43,7 @@ export let useWorker = isServiceWorker && typeof BroadcastChannel !== 'undefined
 export let workerDb: ClientDb | null = null;
 export let presenceSession: ReturnType<typeof startPresence> | null = null;
 
-function hostedTarget(): {
-  url: string;
-  projectKey: string;
-  retryInitialConnection: true;
-  onConnection: (state: HostedConnectionState) => void;
-  onError: (error: FirebaseError) => void;
-  sessionToken: () => Promise<string | null>;
-} {
+function hostedTarget(node?: { host: string; origin: NodeRuntimeOrigin }): Parameters<typeof getHostedFirestore>[0] {
   const bridgeUrl = payload?.bridgeUrl;
   const isEndpointMissing = typeof bridgeUrl !== 'string';
   if (isEndpointMissing) throw new Error('The hosted sandbox has no bridge endpoint.');
@@ -57,10 +51,12 @@ function hostedTarget(): {
   const isProjectMissing = typeof projectKey !== 'string' || projectKey.length === 0;
   if (isProjectMissing) throw new Error('The hosted sandbox has no project identity.');
   return {
-    url: toPageOriginWsUrl(bridgeUrl, location, 'page-origin'),
+    url: toPageOriginWsUrl(bridgeUrl, hostLocation(node?.host), 'page-origin'),
     projectKey,
     // A page can load while the host is unreachable; the first attach retries like a reconnect.
-    retryInitialConnection: true,
+    // A Node process fails its calls at once instead, as the Node remote client does.
+    retryInitialConnection: node === undefined,
+    realm: node?.origin.socketRealm,
     onConnection: state => {
       runtimeStatus.setHostedConnection(state);
       // A host that returns may be a new boot with its own session token.
@@ -99,7 +95,25 @@ function createControlClient(workerRequested: boolean): ClientDb | null {
   return null;
 }
 
+/**
+ * A Node process's app connection: once `init.json` on the discovered host
+ * says it is the Node host, the hosted transport; otherwise every call fails
+ * with the origin's off-host error. There is no in-page fallback in Node.
+ */
+function openNodeHostedDb(origin: NodeRuntimeOrigin): ClientDb {
+  const transport = Promise.all([initPayload, origin.host()]).then(([configuration, host]) => {
+    const isNodeHost = configuration?.hosted === true;
+    if (!isNodeHost) throw origin.offHostError('the host at ' + host + ' is not the Node host');
+    payload = configuration;
+    reportPersistenceHealth(configuration);
+    return (port: Parameters<typeof getHostedFirestore>[1]) => getHostedFirestore(hostedTarget({ host, origin }), port);
+  });
+  return getDeferredFirestore(transport);
+}
+
 export function openWorkerDb(appName: string): ClientDb {
+  const nodeOrigin = nodeRuntimeOrigin();
+  if (nodeOrigin !== undefined) return openNodeHostedDb(nodeOrigin);
   if (!useWorker) throw new Error('No Pyric worker transport is initialized in this browser context.');
   if (isServiceWorker) return getDeferredFirestore(initPayload.then(configuration => {
     payload = configuration;
@@ -223,7 +237,23 @@ function initialize(configuration: WorkerInitPayload | null): void {
   }
 }
 
-if (!isServiceWorker) {
+/**
+ * A Node process always uses the hosted transport and never the in-page
+ * sandbox: there is no control port, presence or worker replacement, and a
+ * failed `init.json` reaches each call instead of a page's status chip.
+ */
+function initializeNode(): void {
+  useHosted = true;
+  useWorker = true;
+  workerDb = null;
+  presenceSession = null;
+  runtimeStatus.setWorker({ mode: 'hosted', runningEpoch: null });
+}
+
+const isNodeRealm = nodeRuntimeOrigin() !== undefined;
+if (isNodeRealm) {
+  initializeNode();
+} else if (!isServiceWorker) {
   const pagePayload = globalThis.__PYRIC_WORKER_INIT__;
   const pageHasNoPayload = typeof document !== 'undefined' && pagePayload === undefined;
   if (pageHasNoPayload) throw new Error('Missing Pyric page initialization. Reload the page through the sandbox server.');

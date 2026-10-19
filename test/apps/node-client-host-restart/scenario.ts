@@ -8,9 +8,9 @@
 // the server is back; then the scenario tells it to stop. So the restart
 // always lands inside the writes, however long Vite takes to notice the edit.
 //
-// The writer uses firebase-admin, not the modular `firebase/database` SDK:
-// under register the modular SDK gets an in-process sandbox that never
-// reaches the host (#1082), so it would measure nothing about the drop.
+// The writer uses firebase-admin, whose Node remote client this scenario
+// covers. The modular `firebase/database` SDK in a registered process runs the
+// web hosted client instead (#1082); row HD1 covers its drops.
 //
 // In production, firebase-admin's Database runs the `@firebase/database` core,
 // which queues a write issued while it is offline and sends an in-flight write

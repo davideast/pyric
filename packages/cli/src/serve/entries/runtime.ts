@@ -44,9 +44,9 @@ import { setupAiDiagnosticsRelay } from '../ai-diagnostics-relay.js';
 import { getPyricRuntimeStatus } from '../runtime/status.js';
 export { sandbox } from './app-backend.js';
 import { sandbox } from './app-backend.js';
-import { createDatabaseRulesDeployment } from './database-rules.js';
+import { databaseRules } from './page-database-rules.js';
 
-export const databaseRules = createDatabaseRulesDeployment(sandbox);
+export { databaseRules };
 
 /**
  * The DEFAULT-ON worker path (Phase 3c): when SharedWorker is available the

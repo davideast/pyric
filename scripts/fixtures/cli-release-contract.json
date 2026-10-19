@@ -154,6 +154,12 @@
     "./remote",
     "./register",
     "./register/app-bridge",
+    "./register/client/app",
+    "./register/client/app-bridge",
+    "./register/client/auth",
+    "./register/client/database",
+    "./register/client/firestore",
+    "./register/client/storage",
     "./next/internal/ai",
     "./next/internal/app",
     "./next/internal/auth",
@@ -166,7 +172,7 @@
     "./next/internal/react-hook"
   ],
   "allowedFirebaseSdkImportEdges": [
-    "dist/register/app-bridge.js -> firebase/app",
+    "dist/register/app-bridge-shadow.js -> firebase/app",
     "dist/serve/entries/app-ai-passthrough.js -> firebase/app"
   ],
   "removedExports": [

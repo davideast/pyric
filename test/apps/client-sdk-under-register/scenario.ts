@@ -1,51 +1,120 @@
 // A server process started with `node --import @pyric/cli/register` and
 // PYRIC_SANDBOX=remote:<Node host url> uses the client Firebase SDKs, as a
-// script or a server-rendered route does. They have no path to the host yet,
-// so each one refuses with failed-precondition and says to use
-// firebase-admin, instead of running against a private in-process sandbox
-// whose writes the host never sees (#1082).
+// script or a server-rendered route does (#1082). They reach the Node host
+// with the process's own signed-in user, so the host's rules apply as in
+// production: what they write is what firebase-admin and the page read, a
+// path the rules deny for that user is denied, and an onDisconnect write runs
+// once the process is gone. The services with no path to the host refuse.
+// Each process stays up only while its SDKs would hold a production process.
 import assert from 'node:assert/strict';
-import { scenario } from '../driver.ts';
+import { scenario, type App } from '../driver.ts';
+
+declare function readBack(): Promise<{ database: unknown; firestore: unknown }>;
 
 type Outcome = { ok: true; value: unknown } | { ok: false; code: string | null; message: string };
 
 function outcome(output: string, name: string): Outcome {
-  const match = output.match(new RegExp(`^${name.replace('.', '\\.')} (.*)$`, 'm'));
+  const match = output.match(new RegExp(`^${name.replaceAll('.', '\\.')} (.*)$`, 'm'));
   assert.ok(match, `no ${name} line in:\n${output}`);
   return JSON.parse(match[1]) as Outcome;
 }
 
-const REFUSAL = /^pyric: client Firebase SDKs .* do not reach the sandbox host from a server process yet \(PYRIC_SANDBOX=remote:http:\/\/127\.0\.0\.1:\d+\)\. Use firebase-admin in server code\. See https:\/\/github\.com\/davideast\/pyric\/issues\/1082\.$/;
+function expectOk(output: string, name: string, value: unknown): void {
+  assert.deepEqual(outcome(output, name), { ok: true, value }, `${name}:\n${output}`);
+}
+
+function expectCode(output: string, name: string, code: string, message?: RegExp): void {
+  const result = outcome(output, name);
+  assert.equal(result.ok, false, `${name} must fail:\n${output}`);
+  if (result.ok) return;
+  assert.equal(result.code, code, `${name}:\n${output}`);
+  if (message !== undefined) assert.match(result.message, message);
+}
+
+const UNSUPPORTED = /^pyric: this client Firebase service does not reach the sandbox host from a server process .* See https:\/\/github\.com\/davideast\/pyric\/issues\/1082\.$/;
+
+/** Runs lifetime.mjs for one case; `held` is whether the process was still up 3 s after its work. */
+async function lifetime(app: App, env: Record<string, string>, which: string): Promise<boolean> {
+  const { output } = await app.serverScript('lifetime.mjs', [which], { env, timeoutMs: 30_000 });
+  assert.match(output, new RegExp(`^${which} done$`, 'm'), output);
+  return /^held$/m.test(output);
+}
 
 export default scenario(async (app) => {
   const host = await app.step('start the Node host', () => app.devServer());
   const env = { PYRIC_SANDBOX: `remote:${host.url}` };
 
-  const client = await app.step('the client SDKs run in a registered server process', async () => {
-    const { output } = await app.serverScript('client.mjs', [], { env });
+  await app.step('firebase-admin seeds the host', async () => {
+    const { output } = await app.serverScript('admin.mjs', ['seed'], { env });
+    expectOk(output, 'admin.seed.database', null);
+    expectOk(output, 'admin.seed.firestore', null);
+  });
+
+  const client = await app.step('the client SDKs run in a registered server process and it exits on its own', async () => {
+    const { output } = await app.serverScript('client.mjs', [], { env, timeoutMs: 30_000 });
+    assert.match(output, /^client done$/m, output);
     return output;
   });
 
-  for (const service of ['database', 'firestore', 'auth', 'storage']) {
-    await app.step(`client ${service} refuses with failed-precondition and names firebase-admin`, () => {
-      const result = outcome(client, service);
-      assert.equal(result.ok, false, `${service} must not succeed against a private sandbox: ${JSON.stringify(result)}`);
-      assert.equal(result.ok === false && result.code, 'failed-precondition', JSON.stringify(result));
-      assert.match(result.ok === false ? result.message : '', REFUSAL);
-    });
-  }
-
-  await app.step('client functions keeps its deferred-mirror error', () => {
-    const result = outcome(client, 'functions');
-    assert.equal(result.ok, false, JSON.stringify(result));
-    assert.match(result.ok === false ? result.message : '', /'firebase\/functions' is not yet mirrored/);
+  await app.step('an upload issued before the connection attached went over the byte route', () => {
+    expectOk(client, 'storage.upload', 'server/client.txt');
+    expectOk(client, 'storage.url', '/__pyric/storage/v0/b/demo-app.appspot.com/o/server%2Fclient.txt');
   });
 
-  await app.step('nothing the client SDKs tried to write is on the host', async () => {
+  await app.step('RTDB and Firestore read and write the host', () => {
+    expectOk(client, 'database.set', null);
+    expectOk(client, 'database.get', 'from admin');
+    expectOk(client, 'database.connected', true);
+    expectOk(client, 'firestore.setDoc', null);
+    expectOk(client, 'firestore.getDoc', { from: 'admin' });
+  });
+
+  await app.step("the host's rules apply as the process's signed-in user", () => {
+    assert.equal(outcome(client, 'auth.createUser').ok, true, client);
+    expectOk(client, 'database.ownPath', null);
+    expectCode(client, 'database.otherPath', 'PERMISSION_DENIED');
+  });
+
+  await app.step('services with no path to the host refuse with failed-precondition', () => {
+    expectCode(client, 'ai', 'failed-precondition', UNSUPPORTED);
+    expectCode(client, 'messaging', 'failed-precondition', UNSUPPORTED);
+    const functions = outcome(client, 'functions');
+    assert.equal(functions.ok, false, client);
+    assert.match(functions.ok ? '' : functions.message, /'firebase\/functions' is not yet mirrored/);
+  });
+
+  await app.step('firebase-admin on the host reads what the client SDKs wrote, and the onDisconnect ran', async () => {
+    const { output: cjs } = await app.serverScript('client.cjs', [], { env });
+    expectOk(cjs, 'cjs.database', null);
+    expectOk(cjs, 'cjs.firestore', null);
     const { output } = await app.serverScript('admin.mjs', [], { env });
-    assert.deepEqual(outcome(output, 'admin.database'), { ok: true, value: null }, output);
-    assert.deepEqual(outcome(output, 'admin.firestore'), { ok: true, value: null }, output);
-    assert.deepEqual(outcome(output, 'admin.auth'), { ok: true, value: [] }, output);
-    assert.deepEqual(outcome(output, 'admin.storage'), { ok: true, value: false }, output);
+    expectOk(output, 'admin.database', 'from client sdk');
+    expectOk(output, 'admin.firestore', { from: 'client sdk' });
+    expectOk(output, 'admin.auth', 'node@example.com');
+    expectOk(output, 'admin.ownPath', 'mine');
+    expectOk(output, 'admin.otherPath', null);
+    expectOk(output, 'admin.presence', 'gone');
+    expectOk(output, 'admin.storage', 'from client sdk');
+    expectOk(output, 'admin.cjs', 'from require');
+  });
+
+  await app.step('the page on the host reads what the server process wrote', async () => {
+    const page = await app.page(host.url);
+    await page.waitForFunction(() => 'readBack' in window);
+    assert.deepEqual(await page.evaluate(() => readBack()), { database: 'from client sdk', firestore: { from: 'client sdk' } });
+  });
+
+  await app.step('an app with other options gets its calls rejected, and nothing throws past them', async () => {
+    const { output } = await app.serverScript('client.cjs', ['other-config'], { env });
+    expectCode(output, 'cjs.database', 'app/multiple-configs-not-supported');
+    expectCode(output, 'cjs.firestore', 'app/multiple-configs-not-supported');
+  });
+
+  await app.step('a process stays up only while its SDKs would hold it in production', async () => {
+    assert.equal(await lifetime(app, env, 'storage'), false, 'a finished upload holds nothing');
+    assert.equal(await lifetime(app, env, 'firestore'), false, 'a finished Firestore write does not hold the process');
+    assert.equal(await lifetime(app, env, 'listener'), true, 'an open Firestore listener holds it');
+    assert.equal(await lifetime(app, env, 'rtdb'), true, 'RTDB holds it until goOffline() or deleteApp()');
+    assert.equal(await lifetime(app, env, 'offline'), false, 'goOffline() releases it');
   });
 });

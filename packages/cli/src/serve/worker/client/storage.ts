@@ -21,6 +21,7 @@ import { dataRpc, nextId, wirePort } from './core.js';
 import { reserveSend, type SendReservation } from './send-order.js';
 import { lastSegment } from './handles.js';
 import type { ByteRouteAccess, ClientDb, ClientPort } from './handles.js';
+import { withinHoldDeadline } from './held-messages.js';
 
 // ─── Storage (Pyric Studio data browse) ───────────────────────────────────
 // A worker-backed `FirebaseStorage` mirror: `ref` is client-side (path math),
@@ -226,6 +227,29 @@ export function byteRouteOf(reference: ClientStorageReference): ByteRouteAccess 
   return reference.port.byteRoute;
 }
 
+/**
+ * Runs `run` once the transport knows whether the host has a byte route (#1082).
+ * A call issued before the first attachment waits for it, so bytes never go as
+ * frames to a host that takes them only over its byte route. While it waits,
+ * the call keeps its place in the call order (ADR-0019 D1): `run` gets that
+ * reservation for its first frame, and gives it up before using the route.
+ */
+async function afterRouteSettles<T>(
+  reference: ClientStorageReference,
+  run: (route: ByteRouteAccess | undefined, reservation: SendReservation | undefined) => Promise<T>,
+): Promise<T> {
+  const pending = reference.port.byteRouteSettled?.();
+  const isKnown = pending === undefined;
+  if (isKnown) return run(byteRouteOf(reference), undefined);
+  const reservation = reserveSend(reference.port);
+  try {
+    await withinHoldDeadline(pending);
+    return await run(byteRouteOf(reference), reservation);
+  } finally {
+    reservation.release();
+  }
+}
+
 /** Begin an upload over the RPC, where rules decide; returns where its bytes go. */
 export async function beginRouteUpload(
   reference: ClientStorageReference,
@@ -318,16 +342,25 @@ export async function getBlob(
 async function readStorageBytesInternal(
   reference: ClientStorageReference,
 ): Promise<{ bytes: Uint8Array; contentType?: string; size: number }> {
-  const route = byteRouteOf(reference);
-  const routed = route !== undefined;
-  if (routed) return readOverRoute(route, reference);
+  return afterRouteSettles(reference, (route, reservation) => {
+    const routed = route !== undefined;
+    if (!routed) return readStorageBytesAsFrames(reference, reservation);
+    reservation?.release();
+    return readOverRoute(route, reference);
+  });
+}
+
+async function readStorageBytesAsFrames(
+  reference: ClientStorageReference,
+  reservation: SendReservation | undefined,
+): Promise<{ bytes: Uint8Array; contentType?: string; size: number }> {
   try {
     const res = (await dataRpc(reference.port, {
       t: 'op',
       id: nextId(),
       method: 'storage.getBytes',
       path: reference.fullPath,
-    })) as { dataB64: string; contentType?: string; size: number };
+    }, reservation)) as { dataB64: string; contentType?: string; size: number };
     return {
       bytes: base64ToBytes(res.dataB64),
       contentType: res.contentType,
@@ -387,14 +420,15 @@ function readStorageBytes(reference: ClientStorageReference): Promise<{
 export async function getDownloadURL(reference: ClientStorageReference): Promise<string> {
   // A host with a byte route returns the object's HTTP URL, carrying its
   // persistent download token, as production does.
-  const route = byteRouteOf(reference);
-  const routed = route !== undefined;
-  if (routed) {
+  const routedUrl = await afterRouteSettles(reference, async (route, reservation) => {
+    const routed = route !== undefined;
+    if (!routed) return undefined;
     const { path } = (await dataRpc(reference.port, {
       t: 'op', id: nextId(), method: 'storage.getDownloadURL', path: reference.fullPath,
-    })) as { path: string };
+    }, reservation)) as { path: string };
     return new URL(path, route.baseUrl).href;
-  }
+  });
+  if (routedUrl !== undefined) return routedUrl;
   const blob = await getBlob(reference);
   const contentType = blob.type || 'application/octet-stream';
   const base64 = arrayBufferToBase64(await blob.arrayBuffer());
@@ -431,13 +465,17 @@ export async function uploadBytes(
   data: Blob | Uint8Array | ArrayBuffer,
   metadata?: ClientSettableMetadata,
 ): Promise<{ ref: ClientStorageReference; metadata: FullMetadata }> {
-  const route = byteRouteOf(reference);
-  const routed = route !== undefined;
-  if (routed) return uploadOverRoute(reference, route, uploadBlobOf(data), metadata);
-  const isBlob = data instanceof Blob;
-  if (isBlob) return uploadBlobInOrder(reference, data, metadata);
-  const bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : data;
-  return uploadByteArray(reference, bytes, metadata?.contentType, metadata);
+  return afterRouteSettles(reference, (route, reservation) => {
+    const routed = route !== undefined;
+    if (routed) {
+      reservation?.release();
+      return uploadOverRoute(reference, route, uploadBlobOf(data), metadata);
+    }
+    const isBlob = data instanceof Blob;
+    if (isBlob) return uploadBlobInOrder(reference, data, metadata, reservation);
+    const bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : data;
+    return uploadByteArray(reference, bytes, metadata?.contentType, metadata, reservation);
+  });
 }
 
 /**
@@ -449,12 +487,13 @@ async function uploadBlobInOrder(
   reference: ClientStorageReference,
   data: Blob,
   metadata: ClientSettableMetadata | undefined,
+  claimed?: SendReservation,
 ): Promise<{ ref: ClientStorageReference; metadata: FullMetadata }> {
   const tooLarge = data.size > MAX_STORAGE_OBJECT_BYTES;
   if (tooLarge) throw storageQuotaExceeded(data.size, `uploadBytes payload for '${reference.fullPath}'`);
   // contentType precedence mirrors pyric/storage: caller metadata → Blob.type.
   const contentType = metadata?.contentType ?? (data.type !== '' ? data.type : undefined);
-  const reservation = reserveSend(reference.port);
+  const reservation = claimed ?? reserveSend(reference.port);
   try {
     const bytes = new Uint8Array(await data.arrayBuffer());
     return await uploadByteArray(reference, bytes, contentType, metadata, reservation);

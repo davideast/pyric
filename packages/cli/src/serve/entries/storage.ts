@@ -1,111 +1,12 @@
 /**
  * The bundle the import map serves for `firebase/storage`.
  *
- * Served apps keep their normal Firebase Storage imports. In worker mode, browse
- * and metadata reads use the shared worker-hosted object store; operations that
- * still lack a worker protocol fail loudly. In in-page fallback mode, the entry
- * delegates to `pyric/storage` against the page sandbox.
+ * The page runtime deploys the project's rules (and seed, persistence, bridge)
+ * with top-level await, so app code that imports this entry runs after them.
+ * `firebase/auth` cannot import it: Service Workers reject top-level await (#697).
+ * The SDK surface lives in `./storage-surface.js`, which a Node process that
+ * `@pyric/cli/register` activated imports without the page runtime (#1082).
  */
 import './init.js';
-// The page runtime deploys the project's rules (and seed, persistence, bridge)
-// with top-level await, so app code that imports this entry runs after them.
-// `firebase/auth` cannot import it: Service Workers reject top-level await (#697).
 import './runtime.js';
-import { observeStorageOperation } from 'pyric/storage/internal';
-import * as ip from 'pyric/storage';
-import {
-  getStorage as pyricGetStorage,
-  type FirebaseStorage,
-} from 'pyric/storage';
-import {
-  getStorage as workerGetStorage,
-  getBlob as workerGetBlob,
-  getBytes as workerGetBytes,
-  getDownloadURL as workerGetDownloadURL,
-  getMetadata as workerGetMetadata,
-  listAll as workerListAll,
-  ref as workerRef,
-  uploadBytes as workerUploadBytes,
-  uploadString as workerUploadString,
-  uploadBytesResumable as workerUploadBytesResumable,
-  deleteObject as workerDeleteObject,
-} from '../worker/client.js';
-import { useWorker } from './worker-runtime.js';
-import { getApp, type FirebaseApp } from 'pyric/app';
-import { workerClientForApp } from './app-client.js';
-import { updateMetadata as unavailableUpdateMetadata } from './unsupported/storage.js';
-
-const workerStorageByApp = new WeakMap<FirebaseApp, FirebaseStorage>();
-
-export function getStorage(app?: FirebaseApp, _bucketUrl?: string): FirebaseStorage {
-  const resolved = app ?? getApp();
-  if (!useWorker) return pyricGetStorage(resolved, _bucketUrl);
-  const existing = workerStorageByApp.get(resolved);
-  if (existing) return existing;
-  const client = workerClientForApp(resolved);
-  // The default bucket goes by the app's `storageBucket` option, as the host
-  // and firebase-admin name it.
-  const configured = resolved.options?.storageBucket;
-  const bucket = typeof configured === 'string' && configured !== '' ? configured : undefined;
-  const handle = Object.assign(workerGetStorage(client, undefined, bucket), { app: resolved }) as unknown as FirebaseStorage;
-  workerStorageByApp.set(resolved, handle);
-  return handle;
-}
-
-export const ref = (useWorker ? workerRef : ip.ref) as typeof ip.ref;
-export const listAll = (useWorker ? observeStorageOperation('listAll', workerListAll) : ip.listAll) as typeof ip.listAll;
-export const getMetadata = (
-  useWorker ? observeStorageOperation('getMetadata', workerGetMetadata) : ip.getMetadata
-) as typeof ip.getMetadata;
-export const getBlob = (useWorker ? observeStorageOperation('getBlob', workerGetBlob) : ip.getBlob) as typeof ip.getBlob;
-export const getDownloadURL = (
-  useWorker ? observeStorageOperation('getDownloadURL', workerGetDownloadURL) : ip.getDownloadURL
-) as typeof ip.getDownloadURL;
-
-export const StorageError = ip.StorageError;
-
-// pyric replaces the Firebase emulator; connectStorageEmulator is a
-// no-op. Served apps are already talking to the pyric sandbox (or the
-// SharedWorker's shared store), which IS the local emulator — pointing
-// it at a `firebase-tools` emulator host would be a step backward, not
-// forward, so the call is logged and swallowed rather than forwarded.
-export function connectStorageEmulator(
-  storage: unknown,
-  _host: string,
-  _port: number,
-  _options?: unknown,
-): void {
-  console.info(
-    '[pyric sandbox] Pyric replaces the Firebase emulator; connectStorageEmulator is a no-op.',
-  );
-  if (!useWorker) ip.connectStorageEmulator(storage as FirebaseStorage, _host, _port, _options as never);
-}
-
-// Byte ops use the worker protocol (base64 `storage.putBytes` /
-// `storage.getBytes` / `storage.deleteObject`) and the initiating app port's
-// authenticated session. All app ports reach the same object store and
-// ruleset; only their active Auth sessions differ. Payloads are capped at
-// 8 MiB per op.
-export const uploadBytes = (useWorker ? observeStorageOperation('uploadBytes', workerUploadBytes) : ip.uploadBytes) as typeof ip.uploadBytes;
-
-let selectedUploadBytesResumable = ip.uploadBytesResumable;
-const isWorkerMode = useWorker === true;
-if (isWorkerMode) {
-  selectedUploadBytesResumable = observeStorageOperation('uploadBytesResumable', workerUploadBytesResumable) as unknown as typeof ip.uploadBytesResumable;
-}
-export const uploadBytesResumable: typeof ip.uploadBytesResumable = selectedUploadBytesResumable;
-
-export const getBytes = (useWorker ? observeStorageOperation('getBytes', workerGetBytes) : ip.getBytes) as typeof ip.getBytes;
-export const deleteObject = (useWorker ? observeStorageOperation('deleteObject', workerDeleteObject) : ip.deleteObject) as typeof ip.deleteObject;
-
-export const uploadString = (useWorker ? observeStorageOperation('uploadString', workerUploadString) : ip.uploadString) as typeof ip.uploadString;
-export const updateMetadata: typeof ip.updateMetadata = useWorker
-  ? observeStorageOperation('updateMetadata', (_ref: Parameters<typeof ip.updateMetadata>[0], ..._args: [Parameters<typeof ip.updateMetadata>[1]]) => unavailableUpdateMetadata())
-  : ip.updateMetadata;
-
-export {
-  StringFormat,
-  StorageErrorCode,
-} from 'pyric/storage';
-
-export * from './unsupported/storage.js';
+export * from './storage-surface.js';

@@ -28,6 +28,18 @@ export function setHoldDeadlineForTesting(ms: number | undefined): void {
   holdDeadlineMs = ms ?? HOLD_DEADLINE_MS;
 }
 
+/**
+ * Waits, as a held message does, for `settled`, and fails with the hold
+ * error once the deadline passes first.
+ */
+export function withinHoldDeadline(settled: Promise<void>): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new FirebaseError('unavailable', HOLD_EXPIRED)), holdDeadlineMs);
+  });
+  return Promise.race([settled, expired]).finally(() => clearTimeout(timer));
+}
+
 interface HeldMessage {
   message: InboundMessage;
   /** Present for an operation awaiting a reply; it fails when this fires. */

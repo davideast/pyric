@@ -54,6 +54,7 @@
  */
 import { createRequire } from 'node:module';
 import type { GuardMode } from './net-guard.js';
+import { parsePyricSandbox, type PyricSandboxActivation } from 'pyric/sandbox/internal';
 
 /** The dev server route that receives beacons (`serve/beacon-route.ts`). */
 export const BEACON_PATH = '/__pyric/beacon';
@@ -148,6 +149,14 @@ export function sendBeaconRequest(endpoint: string, body: string, token: string)
   req.end(body);
 }
 
+/** The url an activator names: `remote:<url>`'s, or a bare value read as one. */
+function beaconUrlOf(activation: PyricSandboxActivation): string | null {
+  if (activation.mode === 'remote') return activation.url ?? null;
+  const isUnrecognized = activation.mode === 'invalid' && activation.reason === 'unrecognized';
+  if (isUnrecognized) return activation.value;
+  return null;
+}
+
 /**
  * The beacon endpoint implied by an activator value, or `null` when none is.
  * Accepts `remote:<url>` (what `buildChildEnv` writes) and a bare URL; any
@@ -155,11 +164,8 @@ export function sendBeaconRequest(endpoint: string, body: string, token: string)
  * guess is worse than an honest absence.
  */
 export function beaconEndpoint(sandbox: string | undefined): string | null {
-  if (sandbox === undefined) return null;
-  const raw = sandbox.trim();
-  if (raw.length === 0) return null;
-  const value = raw.startsWith('remote:') ? raw.slice('remote:'.length).trim() : raw;
-  if (value.length === 0) return null;
+  const value = beaconUrlOf(parsePyricSandbox(sandbox));
+  if (value === null) return null;
   let url: URL;
   try {
     url = new URL(value);
