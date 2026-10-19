@@ -31,6 +31,16 @@ afterAll(async () => {
   for (const r of stops) await r.handle.stop();
 });
 
+/**
+ * startServe returns with its rules watches armed. Under Bun, a new directory
+ * watch is still opening each of the directory's entries on another thread
+ * for a moment after that, and a change landing in that moment can be lost
+ * with no error (#1119). The serve watch recovers from the case Bun reports,
+ * an entry deleted before it was opened; this pause keeps a test's first
+ * change out of that moment for the case Bun does not report.
+ */
+const settleNewWatches = (): Promise<void> => new Promise((res) => setTimeout(res, 100));
+
 describe('rules hot-reload (SSE)', () => {
   it('file change → SSE rules-changed + live init.json hash', async () => {
     const cwd = project();
@@ -54,7 +64,7 @@ describe('rules hot-reload (SSE)', () => {
       }
     })();
 
-    await new Promise((res) => setTimeout(res, 100)); // let the watcher arm
+    await settleNewWatches();
     writeFileSync(join(cwd, 'firestore.rules'), RULES_V2);
 
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -74,12 +84,13 @@ describe('rules hot-reload (SSE)', () => {
 
   it('a broken save is skipped — last-good stays live', async () => {
     const cwd = project();
-    const r = await startServe({ cwd, port: 0, cacheRoot: join(cwd, '.c'), logger: silentServeLogger() });
+    const { logger, notes } = capturingLogger();
+    const r = await startServe({ cwd, port: 0, cacheRoot: join(cwd, '.c'), logger });
     stops.push(r);
     const before = (await (await fetch(r.handle.url + '/__pyric/init.json')).json()) as { rulesHash: string };
-    await new Promise((res) => setTimeout(res, 100));
+    await settleNewWatches();
     writeFileSync(join(cwd, 'firestore.rules'), 'rules_version = ;;; broken');
-    await new Promise((res) => setTimeout(res, 500)); // watcher debounce + processing
+    expect(await waitForNote(notes, 'rules NOT reloaded')).not.toBeNull();
     const after = (await (await fetch(r.handle.url + '/__pyric/init.json')).json()) as { rulesHash: string };
     expect(after.rulesHash).toBe(before.rulesHash); // unchanged
   }, 10_000);
@@ -117,7 +128,7 @@ describe('rules files that do not exist at startup', () => {
     const { logger, notes } = capturingLogger();
     const r = await startServe({ cwd, port: 0, cacheRoot: join(cwd, '.c'), logger });
     stops.push(r);
-    await new Promise((res) => setTimeout(res, 100));
+    await settleNewWatches();
     writeFileSync(join(cwd, 'database.rules.json'), DATABASE_RULES);
 
     expect(await waitForNote(notes, 'rtdb rules reloaded')).not.toBeNull();
@@ -131,7 +142,7 @@ describe('rules files that do not exist at startup', () => {
     const { logger, notes } = capturingLogger();
     const r = await startServe({ cwd, port: 0, cacheRoot: join(cwd, '.c'), logger });
     stops.push(r);
-    await new Promise((res) => setTimeout(res, 100));
+    await settleNewWatches();
     rmSync(join(cwd, 'database.rules.json'));
 
     const notice = await waitForNote(notes, 'rtdb rules removed');
@@ -149,7 +160,7 @@ describe('rules files that do not exist at startup', () => {
     const { logger, notes } = capturingLogger();
     const r = await startServe({ cwd, port: 0, cacheRoot: join(cwd, '.c'), logger });
     stops.push(r);
-    await new Promise((res) => setTimeout(res, 100));
+    await settleNewWatches();
     writeFileSync(join(cwd, 'firestore.rules'), RULES_V1);
 
     expect(await waitForNote(notes, 'rules reloaded')).not.toBeNull();
@@ -162,7 +173,7 @@ describe('rules files that do not exist at startup', () => {
     const { logger, notes } = capturingLogger();
     const r = await startServe({ cwd, port: 0, cacheRoot: join(cwd, '.c'), logger });
     stops.push(r);
-    await new Promise((res) => setTimeout(res, 100));
+    await settleNewWatches();
     rmSync(join(cwd, 'firestore.rules'));
 
     const notice = await waitForNote(notes, 'rules NOT reloaded');
@@ -199,7 +210,7 @@ describe('Storage rules hot-reload', () => {
         if (m) return JSON.parse(m[1]!) as { rules: string | null; rulesHash: string | null };
       }
     })();
-    await new Promise((res) => setTimeout(res, 100));
+    await settleNewWatches();
     writeFileSync(join(cwd, 'storage.rules'), storageRules('created'));
 
     const note = await waitForNote(notes, 'storage rules reloaded');
@@ -218,7 +229,7 @@ describe('Storage rules hot-reload', () => {
     const { logger, notes } = capturingLogger();
     const r = await startServe({ cwd, port: 0, cacheRoot: join(cwd, '.c'), logger });
     stops.push(r);
-    await new Promise((res) => setTimeout(res, 100));
+    await settleNewWatches();
     writeFileSync(join(cwd, 'storage.rules'), storageRules('second'));
     expect(await waitForNote(notes, 'storage rules reloaded')).not.toBeNull();
 
@@ -235,7 +246,7 @@ describe('Storage rules hot-reload', () => {
     const { logger, notes } = capturingLogger();
     const r = await startServe({ cwd, port: 0, cacheRoot: join(cwd, '.c'), logger });
     stops.push(r);
-    await new Promise((res) => setTimeout(res, 100));
+    await settleNewWatches();
     rmSync(join(cwd, 'storage.rules'));
 
     const notice = await waitForNote(notes, 'storage rules removed');

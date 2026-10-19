@@ -75,8 +75,35 @@ export const watchFileOrWhenCreatedWith = (fileSystem: WatchFileSystem): WatchFi
         target = parent;
       }
     }
-    current.on('error', (error) => events.emit('error', error));
+    const watcher = current;
+    watcher.on('error', (error) => {
+      const isReplaced = watcher !== current;
+      if (isReplaced || closed) return;
+      if (isMissing(error)) {
+        rearmAfterLostWatch();
+        return;
+      }
+      events.emit('error', error);
+    });
     return target === directory;
+  };
+
+  // Bun opens each entry of a newly watched directory after watch() returns.
+  // An entry deleted before Bun opens it fails the watch with ENOENT, and the
+  // watch delivers nothing after that. Watch again, after the failing
+  // watcher's callback returns, and report a change: the file may have
+  // changed while nothing was watching it.
+  const rearmAfterLostWatch = (): void => {
+    setImmediate(() => {
+      if (closed) return;
+      try {
+        attach();
+      } catch (error) {
+        events.emit('error', error);
+        return;
+      }
+      listener();
+    });
   };
 
   // The path one segment below `dir` on the way to `file`.
