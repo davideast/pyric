@@ -404,4 +404,14 @@ describe('rtdb-modular CDD: calls in flight at a hosted connection drop', () => 
     await expect(write).resolves.toBeUndefined();
     expect((await api.get(room)).val()).toBe('written from Node');
   });
+  // pyric-admin and the worker bridge iterate an array value by index;
+  // their own tests pin those planes. The sandbox side is an admin handle's
+  // array read, which keeps one child per index.
+  row('AS1', async () => {
+    const target = api.ref(getAdminDatabase(initializeSandbox()), 'ticks');
+    await api.set(target, ['a', 'b', 'c']);
+    const snap = await api.get(target);
+    expect(snap.val()).toEqual(['a', 'b', 'c']);
+    expect([snap.size, snap.hasChildren(), keys(snap), snap.child('1').val()]).toEqual([3, true, ['0', '1', '2'], 'b']);
+  });
 });

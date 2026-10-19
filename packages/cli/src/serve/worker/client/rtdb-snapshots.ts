@@ -1,5 +1,6 @@
 /** RTDB snapshot wire shape and Firebase-compatible client hydration. */
 import type { RtdbDataSnapshot, RtdbRefHandle } from './handles.js';
+import { valueChildren } from 'pyric/database/internal';
 import { rtdbChild } from './rtdb-references.js';
 
 export interface RtdbWireEntry {
@@ -82,12 +83,9 @@ export function makeRtdbSnapshot(
     exportVal: () => exportValue ?? null,
     toJSON: () => exportValue ?? null,
     forEach: (callback) => {
-      const orderedEntries: RtdbWireEntry[] = entries ?? (
-        !value || typeof value !== 'object' || Array.isArray(value)
-          ? []
-          : Object.entries(value as Record<string, unknown>)
-              .map(([key, child]) => ({ key, value: child }))
-      );
+      // Without the host's ordered entries (a `child()` or iterated
+      // snapshot), an array value still has children keyed by index (#1110).
+      const orderedEntries: RtdbWireEntry[] = entries ?? valueChildren(value);
       for (const entry of orderedEntries) {
         if (callback(makeRtdbSnapshot(
           rtdbChild(refHandle, entry.key),

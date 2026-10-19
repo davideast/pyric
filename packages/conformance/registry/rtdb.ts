@@ -109,6 +109,16 @@ const droppedConnectionRow = defineRows({
   },
 });
 
+/** Snapshot children outside the client DataSnapshot: `pyric-admin` and the worker bridge's hydrated snapshots. */
+const snapshotChildrenRow = defineRows({
+  surface: "rtdb-modular",
+  defaults: {
+    section: "Snapshot children of array values",
+    status: "conforms",
+    automation: "unit-backed",
+  },
+});
+
 const row7 = defineRows({
   surface: "rtdb",
   defaults: {
@@ -3401,6 +3411,20 @@ export const rtdbRegistry = {
           notes: "A call issued while the connection is lost, and never sent, is held for at most 10 seconds from its issue and then fails with `unavailable` saying it was not sent, where the SDK queues it with no deadline, as on the web hosted client (row HD1). Before the handle's first attach, a failed connect fails the call at once, as before. A call sent again still fails with `deadline-exceeded` after 35 seconds without a reply once it is sent, where the SDK has no deadline. The eager `connectRemoteSandbox()` handle does not reconnect and fails calls in flight with `unavailable`. The Node client has no `.info/connected`, so the presence sample behind #1088 cannot run on it.",
           conformanceTests: [
             "packages/cli/test/remote/reconnect.test.ts",
+            "test/apps/node-client-host-restart/scenario.ts",
+            "packages/pyric/test/database/cdd/lifecycle-and-identity.test.ts",
+          ],
+        }),
+        snapshotChildrenRow({
+          rowRef: "AS1",
+          featureKeys: ["get", "child"],
+          api: "pyric-admin DataSnapshot forEach / numChildren / hasChildren / child, and worker bridge snapshots",
+          behavior: "A node whose keys are integers keeps its children when `val()` renders it as an array. A `pyric-admin` snapshot of such a node, read in process or through the remote arm, iterates `forEach` over children keyed `'0'`, `'1'`, ... in index order, skipping indexes that hold no value, and `numChildren()`, `hasChildren()`, `child('1')` and `hasChild('1')` count and address the same children. A snapshot the worker bridge hydrates without the host's ordered entries, from `child()` or inside `forEach`, iterates an array value the same way. `forEach` stops when the callback returns `true` and returns `true`.",
+          evidence: "Production behavior read from `@firebase/database` 1.1.3 `dist/index.node.cjs.js`: `DataSnapshot.forEach` returns `false` only for a leaf node and otherwise walks the node's children in priority, then `nameCompare` key order; `hasChildren` is `!isLeafNode() && !isEmpty()`; `size` is `ChildrenNode.numChildren()`; `ChildrenNode.val` renders a node as an array only when every key is an integer and the largest is below twice the key count, leaving missing indexes as holes. Pyric behavior: `valueChildren` (exported from `pyric/database/internal`) lists a value's children (array indexes as string keys without holes or nulls, or object keys in `nameCompare` order), used by `packages/pyric-admin/src/database/index.ts` `buildSandboxSnap` and `packages/cli/src/serve/worker/client/rtdb-snapshots.ts` `makeRtdbSnapshot`. `packages/pyric-admin/test/database/array-children.test.ts` asserts a dense, sparse and nested array, each child's key, value and reference, and the early exit. `packages/cli/test/serve/worker/client/rtdb-snapshots.test.ts` iterates a nested and a sparse array below the top level of a worker snapshot. App scenario `test/apps/node-client-host-restart` reads the stored ticks back with `forEach` from a `firebase-admin` process under `node --import @pyric/cli/register` (#1110). CDD assertion `rtdb-modular#AS1` pins the sandbox side: an array written through `getAdminDatabase` iterates as one child per index.",
+          notes: "The in-process `pyric-admin` arm stores writes without the write-boundary normalization, so an object with keys `0`, `1`, `2` written there reads back as an object rather than an array (#1121).",
+          conformanceTests: [
+            "packages/pyric-admin/test/database/array-children.test.ts",
+            "packages/cli/test/serve/worker/client/rtdb-snapshots.test.ts",
             "test/apps/node-client-host-restart/scenario.ts",
             "packages/pyric/test/database/cdd/lifecycle-and-identity.test.ts",
           ],
