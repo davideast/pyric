@@ -1,12 +1,14 @@
 import { createHash } from 'node:crypto';
-import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve, sep, isAbsolute } from 'node:path';
 import { tmpdir } from 'node:os';
 import { z } from 'zod';
 import { bundleRecords, serializeToBuckets } from 'pyric/sandbox';
+import { CHECKPOINT_NAME_PATTERN } from 'pyric/sandbox/checkpoints';
 import { decodeImportBundle, validatePersistenceEncoding, storedMetadataSchema, validatePersistedService, persistedServiceHasData, UnsupportedPersistedServiceError } from 'pyric/sandbox/internal';
 import { claimProjectState } from '../project-ownership.js';
-import { createBlobStore } from './blob-store.js';
+import { createBlobStore, hashFile } from './blob-store.js';
+import { writeCheckpointRow } from './checkpoints.js';
 import { openHostedDatabase, READABLE_HOSTED_SCHEMA_VERSIONS } from './database.js';
 import { openNodeSqlite, sqlText } from './sqlite.js';
 import { storedObjects } from './stored-objects.js';
@@ -16,6 +18,7 @@ export interface RecoveryReport {
   recoveredDocuments: number;
   recoveredServices: number;
   recoveredObjects: number;
+  recoveredCheckpoints: number;
   repairedObjects: StorageMetadataRepair[];
   excluded: Array<{ namespace: string; id: string; reason: string }>;
   /** Object files whose content does not match their hash, copied to `file` in the output. */
@@ -23,9 +26,12 @@ export interface RecoveryReport {
 }
 
 const QUARANTINE_REASON = 'Object bytes do not match their hash; the file was copied to quarantine';
+const SHA256_HEX = /^[0-9a-f]{64}$/;
 
 const metadataShape = z.object({ version: z.literal(3), services: z.record(z.unknown()) });
 const bucketShape = z.object({ docs: z.record(z.unknown()), encoding: z.string().optional(), checksum: z.number().optional() });
+const checkpointCountsShape = z.record(z.number().int().nonnegative());
+const checkpointStateShape = z.object({ storage: z.array(z.unknown()).optional() }).passthrough();
 const emptyMeta = { version: 3, savedAt: 0, services: {} };
 
 function contains(parent: string, child: string): boolean {
@@ -83,13 +89,17 @@ export async function salvageHostedState(sourceInput: string, outputInput: strin
       if (unsupported) throw new Error(`Unsupported hosted database version ${String(version)}; recovery was not attempted.`);
       const corrupt = input.prepare('PRAGMA quick_check').all().some(row => row.quick_check !== 'ok');
       if (corrupt) throw new Error('Physical SQLite corruption prevents this recovery. The original directory is unchanged.');
-      const report: RecoveryReport = { recoveredDocuments: 0, recoveredServices: 0, recoveredObjects: 0, repairedObjects: [], excluded: [], quarantined: [] };
+      const report: RecoveryReport = {
+        recoveredDocuments: 0, recoveredServices: 0, recoveredObjects: 0, recoveredCheckpoints: 0,
+        repairedObjects: [], excluded: [], quarantined: [],
+      };
       const documents: Record<string, Record<string, unknown>> = {};
       const services: Record<string, unknown> = {};
       const duplicatePaths = new Set<string>();
       const rows = input.prepare('SELECT namespace, id, payload FROM records ORDER BY namespace, id').all();
+      const hasRecords = rows.length > 0;
       const hasMetadata = rows.some(row => row.namespace === 'hosted' && row.id === 'meta');
-      const missingMetadata = !hasMetadata;
+      const missingMetadata = hasRecords && !hasMetadata;
       if (missingMetadata) throw new Error('Missing hosted metadata; recovery cannot establish the payload format.');
       for (const row of rows) {
         const namespace = sqlText(row, 'namespace');
@@ -193,12 +203,124 @@ export async function salvageHostedState(sourceInput: string, outputInput: strin
             if (wrongSize) report.repairedObjects.push({ bucket: row.bucket, path: row.path, recordedSize: metadata.size, actualSize: content.byteLength });
           } catch { report.excluded.push({ namespace: 'storage', id, reason: 'Object validation failed' }); }
         }
-        const emptyRecovery = report.recoveredDocuments + report.recoveredServices + report.recoveredObjects === 0;
+        const hasCheckpointsTable = input.prepare("SELECT 1 AS present FROM sqlite_master WHERE type='table' AND name='checkpoints'").get() !== undefined;
+        const hasCheckpointObjectsTable = input.prepare("SELECT 1 AS present FROM sqlite_master WHERE type='table' AND name='checkpoint_objects'").get() !== undefined;
+        if (hasCheckpointsTable) {
+          const checkpointRows = input.prepare('SELECT name, at, counts, state FROM checkpoints ORDER BY name').all();
+          const checkpointObjectRows = hasCheckpointObjectsTable
+            ? input.prepare('SELECT sha256 FROM checkpoint_objects WHERE name=? ORDER BY sha256')
+            : undefined;
+          for (const row of checkpointRows) {
+            let name: string;
+            try { name = sqlText(row, 'name'); }
+            catch { report.excluded.push({ namespace: 'checkpoints', id: String(row.name), reason: 'Invalid checkpoint name' }); continue; }
+            const at = Number(row.at);
+            const validEnvelope = CHECKPOINT_NAME_PATTERN.test(name)
+              && (typeof row.at === 'number' || typeof row.at === 'bigint')
+              && Number.isFinite(at);
+            if (!validEnvelope) {
+              report.excluded.push({ namespace: 'checkpoints', id: name, reason: 'Invalid checkpoint metadata' });
+              continue;
+            }
+            let rawCounts: unknown;
+            let rawState: unknown;
+            try {
+              rawCounts = JSON.parse(sqlText(row, 'counts'));
+              rawState = JSON.parse(sqlText(row, 'state'));
+            } catch {
+              report.excluded.push({ namespace: 'checkpoints', id: name, reason: 'Invalid JSON' });
+              continue;
+            }
+            const parsedCounts = checkpointCountsShape.safeParse(rawCounts);
+            const parsedState = checkpointStateShape.safeParse(rawState);
+            const validPayload = parsedCounts.success && parsedState.success;
+            if (!validPayload) {
+              report.excluded.push({ namespace: 'checkpoints', id: name, reason: 'Checkpoint validation failed' });
+              continue;
+            }
+            const entriesByHash = new Map<string, { bucket: string; path: string; size?: number }>();
+            const hashes = new Set<string>();
+            let invalidReference = false;
+            for (const entry of parsedState.data.storage ?? []) {
+              const isEntryObject = entry !== null && typeof entry === 'object' && !Array.isArray(entry);
+              if (!isEntryObject) { invalidReference = true; break; }
+              const record = entry as Record<string, unknown>;
+              const hasHash = 'sha256' in record;
+              if (!hasHash) continue;
+              const hash = record.sha256;
+              const validHash = typeof hash === 'string' && SHA256_HEX.test(hash);
+              if (!validHash) { invalidReference = true; break; }
+              hashes.add(hash);
+              const meta = record.metadata as Record<string, unknown> | undefined;
+              const bucket = typeof meta?.bucket === 'string' ? meta.bucket : 'pyric-default';
+              const entryPath = typeof record.path === 'string' ? record.path : (typeof meta?.fullPath === 'string' ? meta.fullPath : hash);
+              const size = typeof record.size === 'number' ? record.size : undefined;
+              entriesByHash.set(hash, { bucket, path: entryPath, size });
+            }
+            if (!invalidReference && checkpointObjectRows !== undefined) {
+              for (const objectRow of checkpointObjectRows.all(name)) {
+                let hash: string;
+                try { hash = sqlText(objectRow, 'sha256'); }
+                catch { invalidReference = true; break; }
+                const validHash = SHA256_HEX.test(hash);
+                if (!validHash) { invalidReference = true; break; }
+                hashes.add(hash);
+              }
+            }
+            if (invalidReference) {
+              report.excluded.push({ namespace: 'checkpoints', id: name, reason: 'Checkpoint object validation failed' });
+              continue;
+            }
+            let brokenReason: string | undefined;
+            const verifiedFiles: Array<{ sha256: string; file: string; size: number }> = [];
+            for (const sha256 of hashes) {
+              const file = sourceObjects.path(sha256);
+              const info = entriesByHash.get(sha256) ?? { bucket: 'pyric-default', path: `${name}/${sha256}` };
+              const exists = existsSync(file);
+              if (!exists) {
+                brokenReason = 'Missing checkpoint object file';
+                break;
+              }
+              const rotted = hashFile(file) !== sha256;
+              if (rotted) {
+                mkdirSync(join(output, 'quarantine'), { recursive: true });
+                copyFileSync(file, join(output, 'quarantine', sha256));
+                const alreadyQuarantined = report.quarantined.some(item => item.sha256 === sha256 && item.bucket === info.bucket && item.path === info.path);
+                if (!alreadyQuarantined) {
+                  report.quarantined.push({ bucket: info.bucket, path: info.path, sha256, file: `quarantine/${sha256}` });
+                }
+                brokenReason = QUARANTINE_REASON;
+                break;
+              }
+              const actualSize = statSync(file).size;
+              const wrongSize = info.size !== undefined && info.size !== actualSize;
+              if (wrongSize) {
+                brokenReason = 'Checkpoint object size mismatch';
+                break;
+              }
+              verifiedFiles.push({ sha256, file, size: actualSize });
+            }
+            if (brokenReason !== undefined) {
+              report.excluded.push({ namespace: 'checkpoints', id: name, reason: brokenReason });
+              continue;
+            }
+            for (const verified of verifiedFiles) {
+              const missingInOutput = recovered.objects.size(verified.sha256) === undefined;
+              if (missingInOutput) recovered.objects.importFile(verified.file, { sha256: verified.sha256, size: verified.size });
+            }
+            const sortedHashes = [...hashes].sort();
+            recovered.commit(() => writeCheckpointRow(recovered.connection, name, at, parsedCounts.data, parsedState.data, sortedHashes));
+            report.recoveredCheckpoints++;
+          }
+        }
+        const emptyRecovery = report.recoveredDocuments + report.recoveredServices + report.recoveredObjects + report.recoveredCheckpoints === 0;
         if (emptyRecovery) throw new Error('No recoverable state was found; no empty replacement was produced.');
-        const records = serializeToBuckets(documents, services, Date.now());
-        const decoded = decodeImportBundle(bundleRecords(records));
-        for (const [name, data] of Object.entries(decoded.services)) validatePersistedService(name, data);
-        await recovered.records.putRecords('hosted', records);
+        if (hasRecords) {
+          const records = serializeToBuckets(documents, services, Date.now());
+          const decoded = decodeImportBundle(bundleRecords(records));
+          for (const [name, data] of Object.entries(decoded.services)) validatePersistedService(name, data);
+          await recovered.records.putRecords('hosted', records);
+        }
         validateHostedDatabase(recovered);
         recovered.connection.exec('PRAGMA wal_checkpoint(TRUNCATE)');
       } finally { recovered.close(); }

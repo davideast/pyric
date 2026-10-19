@@ -18,6 +18,8 @@ const SHA256_HEX = /^[0-9a-f]{64}$/;
 
 /** The Storage entries a document carries, validated as a seed's are. */
 function storageEntries(value: unknown): StorageStateEntry[] {
+  const empty = value === null;
+  if (empty) return [];
   return parseStateFile({ version: 1, storage: value }, 'Storage section').storage ?? [];
 }
 
@@ -60,13 +62,22 @@ export function createHostedStateView(projectDir: string, directory: string, dat
   function writeSection(section: StateSection, value: unknown, writes: StorageWrites, objectsFrom?: string): void {
     const isFirestore = section === 'firestore';
     if (isFirestore) {
+      const existing = database.readRecords(namespace);
+      const parsedMeta = z.object({ services: z.record(z.unknown()) }).safeParse(existing.get('meta'));
+      const existingServices = parsedMeta.success ? parsedMeta.data.services : {};
       let records = new Map<string, unknown>();
       const hasValue = value !== null;
       if (hasValue) {
         records = parseBundle(JSON.stringify(value));
-        decodeImportBundle(bundleRecords(records));
+        const incoming = decodeImportBundle(bundleRecords(records));
+        const mergedServices = { ...existingServices, ...incoming.services };
+        const meta = records.get('meta') as Record<string, unknown>;
+        records.set('meta', { ...meta, services: mergedServices });
+      } else {
+        const hasServices = Object.keys(existingServices).length > 0;
+        if (hasServices) records = serializeToBuckets({}, existingServices, Date.now());
       }
-      const removed = [...database.readRecords(namespace).keys()].filter(id => !records.has(id));
+      const removed = [...existing.keys()].filter(id => !records.has(id));
       database.commitChanges(namespace, records, removed);
       return;
     }
@@ -79,6 +90,15 @@ export function createHostedStateView(projectDir: string, directory: string, dat
       let snapshot: ReturnType<typeof decodeImportBundle> = { firestore: {}, services: {} };
       const hasRecords = records.size > 0;
       if (hasRecords) snapshot = decodeImportBundle(bundleRecords(records));
+      const clearsAuth = !hasValue;
+      if (clearsAuth) {
+        const { auth: _cleared, ...restServices } = snapshot.services;
+        const hasRemainingState = Object.keys(snapshot.firestore).length > 0 || Object.keys(restServices).length > 0;
+        const next = hasRemainingState ? serializeToBuckets(snapshot.firestore, restServices, Date.now()) : new Map<string, unknown>();
+        const removed = [...records.keys()].filter(id => !next.has(id));
+        database.commitChanges(namespace, next, removed);
+        return;
+      }
       const previousAuth = z.object({ providers: z.record(z.boolean()) }).safeParse(snapshot.services.auth);
       let providers: Record<string, boolean> = {};
       const hasProviderConfiguration = previousAuth.success;
@@ -89,6 +109,7 @@ export function createHostedStateView(projectDir: string, directory: string, dat
     }
     const objects = storageEntries(value);
     database.commit(() => {
+      connection.exec('DELETE FROM storage_objects');
       for (const object of objects) {
         const referenced = isStorageReference(object);
         if (referenced) {

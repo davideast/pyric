@@ -115,7 +115,7 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit, o
   function uploadOf(uploadId: string): Upload {
     const upload = uploads.get(uploadId);
     const missingUpload = upload === undefined;
-    if (missingUpload) throw new Error(`Upload '${uploadId}' not found or already completed.`);
+    if (missingUpload) throw new FirebaseError('storage/object-not-found', `storage/object-not-found: Upload '${uploadId}' not found.`);
     return upload;
   }
 
@@ -236,7 +236,12 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit, o
           const upload = uploadOf(uploadId);
           const received = upload.file.received;
           const incomplete = received !== upload.size;
-          if (incomplete) throw new Error(`Staged bytes (${received}) do not match declared size (${upload.size}).`);
+          if (incomplete) {
+            throw new FirebaseError(
+              'storage/invalid-argument',
+              `storage/invalid-argument: Uploaded bytes (${received}) did not match declared size (${upload.size}).`,
+            );
+          }
           upload.file.seal();
           const blob = await openAsBlob(upload.file.path, { type: upload.contentType });
           finishedUploads.set(blob, upload);
@@ -265,7 +270,7 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit, o
           const misplaced = offset !== received;
           if (misplaced) throw new UploadOffsetError(received);
           const overflows = received + bytes.byteLength > upload.size;
-          if (overflows) throw new Error(`Upload '${uploadId}' would pass its declared size of ${upload.size} bytes.`);
+          if (overflows) throw new FirebaseError('storage/invalid-argument', `Upload '${uploadId}' would pass its declared size of ${upload.size} bytes.`);
           upload.file.append(bytes);
           return { received: upload.file.received, size: upload.size };
         });
