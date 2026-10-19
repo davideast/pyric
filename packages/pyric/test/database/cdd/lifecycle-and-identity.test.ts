@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import { deleteApp, initializeApp } from '../../../src/app/index.js';
-import { resetAppRegistryForTests } from '../../../src/app/registry.js';
+import { bindAppRegistryRefusal, resetAppRegistryForTests } from '../../../src/app/registry.js';
+import { clientSdkRefusal } from '../../../src/app/client-sdk-refusal.js';
 import {
   TARGET_SYMBOL,
   api,
@@ -413,5 +414,27 @@ describe('rtdb-modular CDD: calls in flight at a hosted connection drop', () => 
     const snap = await api.get(target);
     expect(snap.val()).toEqual(['a', 'b', 'c']);
     expect([snap.size, snap.hasChildren(), keys(snap), snap.child('1').val()]).toEqual([3, true, ['0', '1', '2'], 'b']);
+  });
+
+  // Row RS1 records the client SDKs refusing in a server process that
+  // @pyric/cli/register activated against a remote host (#1082). The sandbox
+  // side: an app registry bound to the refusal opens no database handle.
+  row('RS1', async () => {
+    await resetAppRegistryForTests();
+    bindAppRegistryRefusal(() => clientSdkRefusal('remote'));
+    try {
+      const app = initializeApp({ projectId: 'demo-app' });
+      for (const attempt of ['first', 'second']) {
+        let code: string | undefined;
+        try {
+          getDatabase(app);
+        } catch (error) {
+          code = (error as { code?: string }).code;
+        }
+        expect(code, attempt).toBe('failed-precondition');
+      }
+    } finally {
+      await resetAppRegistryForTests();
+    }
   });
 });

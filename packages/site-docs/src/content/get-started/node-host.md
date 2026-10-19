@@ -46,7 +46,9 @@ pyric sandbox --hosted
 pyric sandbox --hosted -- npm run dev
 ```
 
-When running `-- <command>`, Pyric automatically activates `@pyric/cli/register` in the child environment via `NODE_OPTIONS`. Unchanged `firebase-admin` and `firebase` imports in your child command resolve directly to the local sandbox.
+When running `-- <command>`, Pyric automatically activates `@pyric/cli/register` in the child environment via `NODE_OPTIONS`. Unchanged `firebase-admin` imports in your child command connect to the Node host.
+
+Client Firebase SDKs (`firebase/database`, `firebase/firestore`, `firebase/auth` and `firebase/storage`) in a server process do not reach the host yet. Their first call fails with `failed-precondition`, so use `firebase-admin` in server code. [#1082](https://github.com/davideast/pyric/issues/1082) tracks client SDK support.
 
 ### Vite plugin: `pyric({ hosted: true })`
 

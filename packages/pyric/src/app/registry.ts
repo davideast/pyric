@@ -1,6 +1,7 @@
 /** Firebase-compatible client app registry backed by one local sandbox. */
 import type { FirebaseApp, FirebaseAppSettings, FirebaseOptions } from './types.js';
 import {
+  attachRefusedSandboxApp,
   attachSandboxApp,
   installDefaultAppResolver,
   markSandboxAppDeleted,
@@ -22,6 +23,7 @@ const deletedApps = new WeakSet<FirebaseApp>();
 const appNames = new WeakMap<FirebaseApp, string>();
 let backendOptions: FirebaseOptions | undefined;
 let backendSandbox: ReturnType<typeof initializeSandbox> | undefined;
+let backendRefusal: (() => Error) | undefined;
 
 /** Internal host seam: bind the exact client registry to an existing sandbox. */
 export function bindAppRegistrySandbox(sandbox: ReturnType<typeof initializeSandbox>): void {
@@ -29,6 +31,14 @@ export function bindAppRegistrySandbox(sandbox: ReturnType<typeof initializeSand
     throw new Error('pyric/app/internal: the app registry sandbox is already bound');
   }
   backendSandbox = sandbox;
+}
+
+/** Internal host seam: apps get no sandbox; every service call raises `refusal()`. */
+export function bindAppRegistryRefusal(refusal: () => Error): void {
+  if (backendOptions !== undefined || backendSandbox !== undefined) {
+    throw new Error('pyric/app/internal: the app registry sandbox is already bound');
+  }
+  backendRefusal = refusal;
 }
 
 function appError(code: string, message: string): FirebaseError {
@@ -139,9 +149,11 @@ export function initializeApp(
     throw duplicateAppError(settings.name);
   }
 
+  const refusal = backendRefusal;
+  const isRefused = refusal !== undefined;
   if (backendOptions === undefined) {
     backendOptions = cloneValue(optionsSnapshot);
-    backendSandbox ??= initializeSandbox();
+    if (!isRefused) backendSandbox ??= initializeSandbox();
   } else if (!firebaseOptionsEqual(backendOptions, optionsSnapshot)) {
     throw multipleConfigsError();
   }
@@ -151,13 +163,17 @@ export function initializeApp(
     cloneValue(optionsSnapshot),
     settings.automaticDataCollectionEnabled,
   );
-  // The default app is the sandbox's ambient client session. Named apps get
-  // independent sessions while sharing the same data/user-store backend.
-  attachSandboxApp(
-    app,
-    backendSandbox!,
-    settings.name === DEFAULT_APP_NAME ? backendSandbox! : undefined,
-  );
+  if (isRefused) {
+    attachRefusedSandboxApp(app, refusal);
+  } else {
+    // The default app is the sandbox's ambient client session. Named apps get
+    // independent sessions while sharing the same data/user-store backend.
+    attachSandboxApp(
+      app,
+      backendSandbox!,
+      settings.name === DEFAULT_APP_NAME ? backendSandbox! : undefined,
+    );
+  }
   appRegistry.set(settings.name, { app, options: optionsSnapshot, settings });
   return app;
 }
@@ -187,6 +203,7 @@ export async function resetAppRegistryForTests(): Promise<void> {
   appRegistry.clear();
   backendSandbox?.dispose();
   backendSandbox = undefined;
+  backendRefusal = undefined;
   backendOptions = undefined;
 }
 
