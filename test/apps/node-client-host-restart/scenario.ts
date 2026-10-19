@@ -3,8 +3,10 @@
 // `node --import @pyric/cli/register`, which routes firebase-admin to the
 // host through the Node remote client, and calls `ref('ticks/<n>').set(n)`
 // every 100 ms. A few seconds in, the scenario edits vite.config.js, which is
-// what restarts a Vite dev server in a user's project, and the writer keeps
-// going for a few seconds after the server is back.
+// what restarts a Vite dev server in a user's project. The writer keeps going
+// until it has seen the connection drop and has issued 30 more writes after
+// the server is back; then the scenario tells it to stop. So the restart
+// always lands inside the writes, however long Vite takes to notice the edit.
 //
 // The writer uses firebase-admin, not the modular `firebase/database` SDK:
 // under register the modular SDK gets an in-process sandbox that never
@@ -18,13 +20,18 @@
 //
 // Before asserting, it prints what the writer saw: how many writes failed,
 // with which codes, and when, relative to the config edit and to Vite's
-// "server restarted" line. Nothing waits on a timeout: the writer runs for
-// 12 seconds and then waits for its writes to settle.
+// "server restarted" line. Nothing waits on a timeout: each wait ends on an
+// event (a log line or a write), and its bound only fails the scenario.
 import assert from 'node:assert/strict';
 import { scenario, sleep, type App, type AppProcess, type DevServer } from '../driver.ts';
 
-const TICKS = 120;
+/** The writer never runs past two minutes of writes. */
+const MAX_TICKS = 1200;
 const STEADY_TICKS = 30;
+/** Writes issued after Vite reports the restart before the writer stops. */
+const TICKS_AFTER_RESTART = 30;
+/** The line the Node remote client logs when the host drops its connection. */
+const DROP_WARNING = /^pyric: remote sandbox connection closed/m;
 
 interface Tick { n: number; issuedAt: number; settledAt: number; ok: boolean; code?: string | null; message?: string }
 
@@ -51,6 +58,15 @@ async function restartByConfigEdit(app: App, host: DevServer): Promise<number> {
   const [outcome] = await host.process.waitForLog(/server restarted|server restart failed/, { since: mark, timeoutMs: 60_000 });
   assert.equal(outcome, 'server restarted', `Vite reported: ${host.process.output.slice(mark).trim()}`);
   return Date.now();
+}
+
+async function untilIssuedAfter(writer: AppProcess, at: number, count: number, limitMs: number): Promise<void> {
+  const deadline = Date.now() + limitMs;
+  while (ticksOf(writer).filter((tick) => tick.issuedAt > at).length < count) {
+    assert.ok(writer.running, `the writer exited before ${count} writes after the restart:\n${writer.output}`);
+    assert.ok(Date.now() < deadline, `the writer issued fewer than ${count} writes within ${limitMs / 1000}s of the restart:\n${writer.output}`);
+    await sleep(100);
+  }
 }
 
 async function storedTicks(app: App, url: string): Promise<number[]> {
@@ -92,13 +108,23 @@ export default scenario(async (app) => {
   const host = await app.step('start the hosted dev server', () => app.devServer());
 
   const writer = await app.step(`start the writer; ${STEADY_TICKS} writes resolve`, async () => {
-    const writer = app.serverProcess('writer.mjs', [String(TICKS)], { env: { PYRIC_SANDBOX: `remote:${host.url}` } });
+    const writer = app.serverProcess('writer.mjs', [String(MAX_TICKS)], { env: { PYRIC_SANDBOX: `remote:${host.url}` } });
     await untilSettled(writer, STEADY_TICKS, 30_000);
     return writer;
   });
 
   const editedAt = Date.now();
   const restartedAt = await app.step('edit vite.config.js; Vite restarts the server', () => restartByConfigEdit(app, host));
+
+  await app.step('the writer sees the connection drop', () =>
+    writer.waitForLog(DROP_WARNING, { timeoutMs: 30_000 }).catch(() => {
+      assert.fail(`the writer never logged a dropped connection, so the restart did not happen during its writes:\n${writer.output}`);
+    }));
+
+  await app.step(`the writer issues ${TICKS_AFTER_RESTART} writes after the restart, then stops`, async () => {
+    await untilIssuedAfter(writer, restartedAt, TICKS_AFTER_RESTART, 60_000);
+    app.writeFile('writer-stop', '');
+  });
 
   const exitCode = await app.step('the writer finishes its writes and exits', async () => {
     const code = await Promise.race([writer.exited, sleep(90_000).then(() => 'timeout' as const)]);
@@ -115,7 +141,8 @@ export default scenario(async (app) => {
     assert.doesNotMatch(writer.output, /unhandled rejection|uncaught exception/);
     // A restart on the same URL is not a stopped sandbox: no call reports the URL as stale.
     assert.doesNotMatch(writer.output, /is stale/);
-    assert.equal(ticks.length, TICKS, `the writer logged ${ticks.length} outcomes, not ${TICKS}`);
+    const issued = Number(writer.output.match(/^writer done (\d+)$/m)?.[1]);
+    assert.equal(ticks.length, issued, `the writer logged ${ticks.length} outcomes for ${issued} writes`);
   });
 
   await app.step('every write resolves, as the SDK queues and re-sends across a brief outage', () => {
@@ -124,6 +151,6 @@ export default scenario(async (app) => {
   });
 
   await app.step('every tick is stored', () => {
-    assert.deepEqual(stored, Array.from({ length: TICKS }, (_, n) => n));
+    assert.deepEqual(stored, Array.from({ length: ticks.length }, (_, n) => n));
   });
 });
