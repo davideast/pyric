@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import type { UserConfig } from 'vite';
 import { NET_GUARD_GLOBAL, GUARD_BLOCKED_CODE } from '../../src/register/net-guard.js';
+import { FIREBASE_AI_LOGIC_HOST } from '../../src/google-endpoints.js';
+import type { PyricOptions } from '../../src/serve/vite-plugin.js';
 import {
   VITE_SSR_GUARD_NOTE,
   VITE_SSR_ISSUE_URL,
@@ -173,5 +175,76 @@ describe('pyric() installs the guard only for the dev server', () => {
   it('not for vite build or vite preview', () => {
     expect(runConfig({ command: 'build', mode: 'development' })).toEqual([]);
     expect(runConfig({ command: 'serve', mode: 'production', isPreview: true })).toEqual([]);
+  });
+});
+
+describe('the AI mode decides whether Firebase AI Logic passes the guard', () => {
+  const slot = globalThis as unknown as Record<symbol, unknown>;
+  const attempted = Symbol.for('pyric.viteNetGuardAttempted');
+  const keys = ['PYRIC_AI_MODE', 'PYRIC_AI_PASSTHROUGH', 'PYRIC_GUARD', 'PYRIC_GUARD_ALLOW'] as const;
+  const priorGuard = slot[NET_GUARD_GLOBAL];
+  const priorAttempt = slot[attempted];
+  const priorEnv = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+
+  afterEach(() => {
+    slot[NET_GUARD_GLOBAL] = priorGuard;
+    slot[attempted] = priorAttempt;
+    for (const key of keys) {
+      const value = priorEnv[key];
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  /** A real guard over stand-in seams, published where the plugin finds it, then the plugin's dev config hook. */
+  function devServerGuard(options: PyricOptions, env: Record<string, string>) {
+    delete slot[NET_GUARD_GLOBAL];
+    delete slot[attempted];
+    for (const key of keys) delete process.env[key];
+    Object.assign(process.env, env);
+    const seams = fakeSeams();
+    installViteNetGuard({ env: {}, write: logLines().write, hooks: seams.hooks });
+    const hook = pyric({ ui: false, ...options }).config;
+    if (!hook) throw new Error('pyric() plugin did not return a config hook');
+    const configHook = typeof hook === 'function' ? hook : hook.handler;
+    configHook({}, { command: 'serve', mode: 'development' });
+    const reaches = (host: string): boolean => {
+      try {
+        seams.net.connect({ host, port: 443 });
+        return true;
+      } catch (error) {
+        expect((error as { code?: string }).code).toBe(GUARD_BLOCKED_CODE);
+        return false;
+      }
+    };
+    return reaches;
+  }
+
+  const productionSettings: Array<[string, PyricOptions, Record<string, string>]> = [
+    ['ai.mode production', { ai: { mode: 'production' } }, {}],
+    ['PYRIC_AI_MODE=production', {}, { PYRIC_AI_MODE: 'production' }],
+    ['PYRIC_AI_PASSTHROUGH=1', {}, { PYRIC_AI_PASSTHROUGH: '1' }],
+  ];
+
+  for (const [name, options, env] of productionSettings) {
+    it(`${name} permits ${FIREBASE_AI_LOGIC_HOST} and keeps other Firebase hosts blocked`, () => {
+      const reaches = devServerGuard(options, env);
+      expect(reaches(FIREBASE_AI_LOGIC_HOST)).toBe(true);
+      expect(reaches('firestore.googleapis.com')).toBe(false);
+      expect(reaches('identitytoolkit.googleapis.com')).toBe(false);
+      expect(reaches('aiplatform.googleapis.com')).toBe(false);
+    });
+  }
+
+  it(`sandbox mode keeps ${FIREBASE_AI_LOGIC_HOST} and every other Firebase host blocked`, () => {
+    const reaches = devServerGuard({}, {});
+    expect(reaches(FIREBASE_AI_LOGIC_HOST)).toBe(false);
+    expect(reaches('firestore.googleapis.com')).toBe(false);
+    expect(reaches('demo-default-rtdb.firebaseio.com')).toBe(false);
+  });
+
+  it('an explicit ai.mode sandbox outranks PYRIC_AI_MODE=production', () => {
+    const reaches = devServerGuard({ ai: { mode: 'sandbox' } }, { PYRIC_AI_MODE: 'production' });
+    expect(reaches(FIREBASE_AI_LOGIC_HOST)).toBe(false);
   });
 });

@@ -2,8 +2,12 @@
 // externalizes installed packages for SSR before plugins resolve them, so
 // those imports load the real SDK (#1123). Until the plugin routes them, the
 // dev server's network guard refuses their connections to live Firebase.
-// Each call is driven through both of Vite's SSR loaders.
+// Each call is driven through both of Vite's SSR loaders. In production AI
+// mode the guard permits Firebase AI Logic; a local proxy stands in for the
+// network there, so nothing in this scenario reaches a Google endpoint.
 import assert from 'node:assert/strict';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
 import { scenario } from '../driver.ts';
 
@@ -18,6 +22,7 @@ const PRODUCTION_HOSTS = [
   'demo-app-default-rtdb.firebaseio.com',
   'firestore.googleapis.com',
   'firebasestorage.googleapis.com',
+  'firebasevertexai.googleapis.com',
 ];
 
 /** What the dev server log shows when a live Firebase backend answered. */
@@ -34,16 +39,30 @@ async function ssr(url: string, action: 'start' | 'status', runner: string, tag:
   return JSON.parse(body) as Outcomes;
 }
 
-/** Polls until sign-in settles: the one SDK call that reports a refused connection to its caller. */
-async function settledSignIn(url: string, runner: string, tag: string): Promise<Outcomes> {
+/** Polls until `label` settles. Sign-in and firebase/ai report a refused connection to their caller. */
+async function settled(url: string, runner: string, tag: string, label: string): Promise<Outcomes> {
   const deadline = Date.now() + 15_000;
   for (;;) {
     const outcomes = await ssr(url, 'status', runner, tag);
-    const signIn = outcomes['auth.signInAnonymously'];
-    if (signIn?.state !== 'pending') return outcomes;
-    assert.ok(Date.now() < deadline, `sign-in did not settle: ${JSON.stringify(outcomes)}`);
+    if (outcomes[label]?.state !== 'pending') return outcomes;
+    assert.ok(Date.now() < deadline, `${label} did not settle: ${JSON.stringify(outcomes)}`);
     await delay(100);
   }
+}
+
+const settledSignIn = (url: string, runner: string, tag: string) =>
+  settled(url, runner, tag, 'auth.signInAnonymously');
+
+/** An HTTPS proxy that records each tunnel it is asked for and refuses it. */
+async function refusingProxy(): Promise<{ server: Server; url: string; tunnels: string[] }> {
+  const tunnels: string[] = [];
+  const server = createServer((_request, response) => response.writeHead(403).end());
+  server.on('connect', (request, socket) => {
+    tunnels.push(String(request.url));
+    socket.end('HTTP/1.1 403 Forbidden\r\n\r\n');
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  return { server, url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, tunnels };
 }
 
 function assertRefused(outcomes: Outcomes, runner: string): void {
@@ -97,4 +116,25 @@ export default scenario(async (app) => {
     assert.match(result.output, /environment: \{"rtdb":null,"firestore":null\}/);
     assert.match(result.output, /browser: \{"rtdb":\{"from":"browser"\},"firestore":\{"from":"browser"\}\}/);
   });
+
+  await app.step('stop the sandbox AI mode dev server', () => host.process.stop());
+
+  const proxy = await app.step('start a proxy that stands in for the network and refuses every tunnel', () => refusingProxy());
+
+  const production = await app.step('start the hosted dev server in production AI mode, behind the proxy', () =>
+    app.devServer({
+      name: 'production-ai-dev-server',
+      env: { PYRIC_AI_MODE: 'production', NODE_USE_ENV_PROXY: '1', HTTPS_PROXY: proxy.url, NO_PROXY: '127.0.0.1,localhost' },
+    }));
+
+  await app.step('production AI mode: the guard lets SSR firebase/ai out, and only to Firebase AI Logic', async () => {
+    const since = production.process.mark();
+    await ssr(production.url, 'start-ai', 'legacy', 'ai');
+    const outcomes = await settled(production.url, 'legacy', 'ai', 'ai.generateContent');
+    assert.equal(outcomes['ai.generateContent']!.state, 'rejected', `firebase/ai: ${JSON.stringify(outcomes)}`);
+    assert.deepEqual(proxy.tunnels, ['firebasevertexai.googleapis.com:443']);
+    assert.doesNotMatch(production.process.output.slice(since), /net-guard BLOCK/);
+  });
+
+  await app.step('stop the proxy', () => new Promise<void>((resolve) => proxy.server.close(() => resolve())));
 });
