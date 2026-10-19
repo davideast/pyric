@@ -1,7 +1,8 @@
 import { FirebaseError } from 'pyric/app';
 import type { InboundMessage } from '../protocol.js';
 import type { ClientDb, ClientPort } from './handles.js';
-import { rejectPendingRequests, wirePort } from './core.js';
+import { endPortSubscriptions, rejectPendingRequests, wirePort } from './core.js';
+import { closeSendOrder } from './send-order.js';
 
 /** Keep SDK handles and correlations on one port while choosing its transport. */
 export function getDeferredFirestore(connection: Promise<(port: ClientPort) => ClientDb>): ClientDb {
@@ -29,7 +30,16 @@ export function getDeferredFirestore(connection: Promise<(port: ClientPort) => C
       listener(false);
       return () => { observers.get(listener)?.(); observers.delete(listener); };
     },
-    close() { closed = true; queued.length = 0; observers.clear(); port.onmessage = null; },
+    close() {
+      closed = true;
+      queued.length = 0;
+      observers.clear();
+      closeSendOrder(port);
+      const closedError = new FirebaseError('app/app-deleted', 'Firebase App was deleted');
+      rejectPendingRequests(port, closedError);
+      endPortSubscriptions(port, new FirebaseError('aborted', 'The operation was aborted.'), closedError);
+      port.onmessage = null;
+    },
   };
   wirePort(port);
   void connection.then(connect => {
@@ -52,6 +62,7 @@ export function getDeferredFirestore(connection: Promise<(port: ClientPort) => C
     }
   }).catch(error => {
     failure = new FirebaseError('unavailable', error instanceof Error ? error.message : String(error));
+    closeSendOrder(port);
     rejectPendingRequests(port, failure);
     for (const message of queued.splice(0)) {
       const isSubscription = message.t === 'sub';
@@ -59,6 +70,7 @@ export function getDeferredFirestore(connection: Promise<(port: ClientPort) => C
         data: { t: 'snap', subId: message.subId, value: { __error: { code: failure.code, message: failure.message } } },
       }));
     }
+    endPortSubscriptions(port, failure);
   });
   return { __kind: 'client-db', port };
 }

@@ -6,11 +6,12 @@ import { FirebaseError } from 'pyric/app';
 import { BROWSER_FRAME_LIMIT_CLOSE_CODE, BRIDGE_FRAME_LIMIT_MESSAGE, encodeBridgeMessage } from '../../../bridge/frame-output.js';
 import type { InboundMessage, OutboundMessage } from '../protocol.js';
 import { hasValidOutboundEnvelope, hasValidReplyOutcome } from '../outbound-validation.js';
-import { failInFlightStreams, nextId, rawRpc, rejectPendingRequests, restoreAuthSubscriptions, restoreObservationSubscriptions, restoreMessagingSubscriptions, wirePort } from './core.js';
+import { _pending, failInFlightStreams, nextId, rawRpc, rejectPendingRequests, restoreAuthSubscriptions, restoreObservationSubscriptions, restoreMessagingSubscriptions, wirePort } from './core.js';
 import { endFailedPort } from './disconnect.js';
 import type { ClientDb, ClientPort } from './handles.js';
 import { createHeldMessages } from './held-messages.js';
 import { settleInFlightAtDrop } from './in-flight-at-drop.js';
+import { closeSendOrder, waitsToSend } from './send-order.js';
 
 /** The HTTP origin that serves a WebSocket endpoint. */
 function httpOriginOf(socketUrl: string): string {
@@ -71,6 +72,8 @@ export function getHostedFirestore(target: {
       }
       const isDetached = !isAttached;
       if (isDetached) {
+        const isSettledOperation = (message.t === 'op' || message.t === 'tool') && !_pending.has(message.id);
+        if (isSettledOperation) return;
         encodeRequest({ type: 'worker-message', message });
         held.hold(message);
         return;
@@ -96,32 +99,41 @@ export function getHostedFirestore(target: {
       return () => { connectionListeners.delete(listener); };
     },
     close() {
-      state = 'closed';
-      notifyConnectionChange();
-      connectionListeners.clear();
-      held.fail(new FirebaseError('unavailable', CONNECTION_CLOSED));
-      resumeToken = undefined;
-      interruptedAt = undefined;
-      hostInstanceId = undefined;
-      appConfig = undefined;
-      port.restoreAuth = undefined;
-      port.messagingVisibility = undefined;
-      clearTimeout(attachDeadline);
-      clearTimeout(reconnectTimer);
-      clearTimeout(heartbeatTimer);
-      const closingSocket = socket;
-      socket = undefined;
-      const canNotifyHost = closingSocket?.readyState === WebSocket.OPEN;
-      try {
-        if (canNotifyHost) send(closingSocket, { type: 'worker-message', message: { t: 'disconnect', id: nextId() } });
-      } catch {
-        // A socket may close before the final notification can be sent.
-      }
-      closingSocket?.close();
-      port.onmessage = null;
+      closePort(new FirebaseError('unavailable', CONNECTION_CLOSED));
     },
   } satisfies ClientPort);
   const held = createHeldMessages(port);
+
+  function closePort(error: FirebaseError): void {
+    const isAlreadyClosed = state === 'closed';
+    if (isAlreadyClosed) return;
+    state = 'closed';
+    notifyConnectionChange();
+    connectionListeners.clear();
+    closeSendOrder(port);
+    held.fail(error);
+    rejectPendingRequests(port, error);
+    endFailedPort(port, error);
+    resumeToken = undefined;
+    interruptedAt = undefined;
+    hostInstanceId = undefined;
+    appConfig = undefined;
+    port.restoreAuth = undefined;
+    port.messagingVisibility = undefined;
+    clearTimeout(attachDeadline);
+    clearTimeout(reconnectTimer);
+    clearTimeout(heartbeatTimer);
+    const closingSocket = socket;
+    socket = undefined;
+    const canNotifyHost = closingSocket?.readyState === WebSocket.OPEN;
+    try {
+      if (canNotifyHost) send(closingSocket, { type: 'worker-message', message: { t: 'disconnect', id: nextId() } });
+    } catch {
+      // A socket may close before the final notification can be sent.
+    }
+    closingSocket?.close();
+    port.onmessage = null;
+  }
 
   function notifyConnectionChange(): void {
     report(state);
@@ -149,13 +161,9 @@ export function getHostedFirestore(target: {
     const isClosed = state === 'closed';
     if (isClosed) return;
     const error = new FirebaseError('unavailable', message);
-    // Held operations fail with this error too, not with the close() error.
-    held.fail(error);
-    port.close();
+    // Held, in-flight, and subscription listeners all end once with this error (D6).
+    closePort(error);
     target.onError?.(error);
-    rejectPendingRequests(port, error);
-    // Every subscription ends once with this error, as an app's deletion ends them (D6).
-    endFailedPort(port, error);
   }
 
   function isCurrent(connection: WebSocket): boolean {
@@ -173,7 +181,7 @@ export function getHostedFirestore(target: {
     notifyConnectionChange();
     // Only requests already handed to the socket are settled; held ones wait for the next attach.
     const lost = new FirebaseError('unavailable', CONNECTION_LOST);
-    settleInFlightAtDrop(port, held, lost, id => !held.holdsRequest(id));
+    settleInFlightAtDrop(port, held, lost, id => !held.holdsRequest(id) && !waitsToSend(port, id));
     // An AI stream is not restored, so one the socket took fails like an operation in flight.
     failInFlightStreams(port, lost, subId => held.holdsSubscription({ t: 'unsub', subId }));
     connection.close();

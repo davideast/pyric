@@ -11,6 +11,7 @@ import { rtdbFateAtDrop, type DropFate } from '../rtdb-drop-fates.js';
 import { forgetPendingRequest, pendingRequestsOn, reissuePendingRequests, rejectPendingRequest } from './core.js';
 import type { ClientPort } from './handles.js';
 import type { HeldMessages } from './held-messages.js';
+import { waitsToSend } from './send-order.js';
 
 function fateOf(message: InboundMessage): DropFate {
   const isOperation = message.t === 'op';
@@ -29,7 +30,7 @@ export function settleInFlightAtDrop(
   wasSent: (id: string) => boolean,
 ): void {
   const resent: string[] = [];
-  for (const { id, message } of pendingRequestsOn(port, wasSent)) {
+  for (const { id, message } of pendingRequestsOn(port, id => wasSent(id) && !waitsToSend(port, id))) {
     const fate = fateOf(message);
     if (fate === 'resend') resent.push(id);
     else if (fate === 'forget') forgetPendingRequest(id);

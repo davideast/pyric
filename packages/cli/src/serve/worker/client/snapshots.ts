@@ -37,6 +37,20 @@ function frameMetadata(raw: { hasPendingWrites?: unknown }): SnapshotMetadata {
   return raw.hasPendingWrites === true ? PENDING_METADATA : SETTLED_METADATA;
 }
 
+export interface RawCursorSnapshot {
+  readonly id: string;
+  readonly path: string;
+  readonly exists: boolean;
+  readonly data: Record<string, unknown> | undefined;
+}
+
+const rawCursorSnapshots = new WeakMap<object, RawCursorSnapshot>();
+
+/** Converter-free raw document state recorded on worker client snapshots for cursor bounds. */
+export function rawClientSnapshotForCursor(snapshot: object): RawCursorSnapshot | undefined {
+  return rawCursorSnapshots.get(snapshot);
+}
+
 export function makeDocSnapshot<T = DocumentData>(
   raw: RawDocResult,
   port: ClientPort,
@@ -69,7 +83,7 @@ export function makeDocSnapshot<T = DocumentData>(
     }
     return document as T;
   };
-  return {
+  const docSnapshot: ClientDocSnapshot<T> = {
     id: raw.id,
     path,
     // Query snapshot refs are real worker handles, not path-only lookalikes:
@@ -79,6 +93,8 @@ export function makeDocSnapshot<T = DocumentData>(
     metadata,
     data: read,
   };
+  rawCursorSnapshots.set(docSnapshot, { id: raw.id, path, exists: raw.exists, data });
+  return docSnapshot;
 }
 
 export interface RawQueryResult {
@@ -88,15 +104,16 @@ export interface RawQueryResult {
 }
 
 /**
- * Per-listener state for `docChanges()`: the previous query result the
- * listener delivered, and whether it subscribed with
- * `includeMetadataChanges`. A listener passes the same state to every
- * {@link makeSnapshot} call, so each snapshot's changes are computed against
- * the one before it.
+ * Per-listener state for `docChanges()` and re-establishment deduplication:
+ * the previous query or document result the listener delivered, and whether it
+ * subscribed with `includeMetadataChanges`. A listener passes the same state
+ * to every {@link makeSnapshot} call, so each snapshot's changes are computed
+ * against the one before it.
  */
 export interface QueryChangeBaseline {
   readonly excludesMetadataChanges: boolean;
   previous?: RawDocResult[];
+  previousDocument?: RawDocResult;
   previousHasPendingWrites?: boolean;
 }
 
@@ -154,11 +171,22 @@ export function makeSnapshot(
   }
   const isDocument = isDocumentResult(raw);
   if (isDocument) {
+    const metadata = frameMetadata(raw as { hasPendingWrites?: unknown });
+    const previous = baseline.previousDocument;
+    const isSameDocument = previous !== undefined
+      && previous.exists === raw.exists
+      && (!raw.exists || previous.data?.json === raw.data?.json);
+    const isUnchanged = isSameDocument
+      && (baseline.excludesMetadataChanges
+        || metadata.hasPendingWrites === baseline.previousHasPendingWrites);
+    if (isUnchanged) return null;
+    baseline.previousDocument = raw;
+    baseline.previousHasPendingWrites = metadata.hasPendingWrites;
     return makeDocSnapshot(
       raw,
       port,
       createDocumentReference(port, raw.path ?? raw.id, converter),
-      frameMetadata(raw as { hasPendingWrites?: unknown }),
+      metadata,
     );
   }
   throw new FirebaseError('invalid-argument', 'The sandbox sent a malformed Firestore snapshot.');
