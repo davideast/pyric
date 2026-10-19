@@ -16,6 +16,22 @@ import { RtdbBackend } from './backend.js';
 import type { JsonValue } from './data-tree.js';
 
 const registryBySandbox = new WeakMap<Sandbox, DatabaseInstanceRegistry<RtdbBackend>>();
+const fullStateRestoreDepth = new WeakMap<Sandbox, number>();
+
+/** Suppress transient `reset()` rule wipes while a full-state checkpoint replace is installing its ruleset. */
+export async function withDatabaseRulesPreservedOnReset<T>(
+  sandbox: Sandbox,
+  fn: () => Promise<T>,
+): Promise<T> {
+  fullStateRestoreDepth.set(sandbox, (fullStateRestoreDepth.get(sandbox) ?? 0) + 1);
+  try {
+    return await fn();
+  } finally {
+    const next = (fullStateRestoreDepth.get(sandbox) ?? 1) - 1;
+    if (next <= 0) fullStateRestoreDepth.delete(sandbox);
+    else fullStateRestoreDepth.set(sandbox, next);
+  }
+}
 
 /** The sandbox's backend for `instance`; `undefined` is the default instance. */
 export function getOrCreateBackend(sandbox: Sandbox, instance?: DatabaseInstance): RtdbBackend {
@@ -53,7 +69,9 @@ function backendsFor(sandbox: Sandbox): DatabaseInstanceRegistry<RtdbBackend> {
     if (event.kind === 'session_boundary' && event.phase === 'reset') {
       for (const [, backend] of registry.entries()) {
         backend.invalidateConnectionQueues();
-        backend.setRules(null);
+        if (!fullStateRestoreDepth.has(sandbox)) {
+          backend.setRules(null);
+        }
       }
     }
   });
