@@ -42,6 +42,7 @@ export type {
 interface PyricInitPayload {
   rules?: string | null;
   databaseRules?: { rules: Record<string, unknown> } | null;
+  storageRules?: string | null;
   bridgeUrl?: string | null;
 }
 
@@ -145,6 +146,9 @@ export function createSandboxAttachmentProvider(
       rules.firestore = payload.rules;
     }
     if (payload.databaseRules?.rules) rules.rtdb = payload.databaseRules;
+    if (typeof payload.storageRules === "string" && payload.storageRules.trim()) {
+      rules.storage = payload.storageRules;
+    }
 
     return cloneSandboxTarget(sandbox, rules, {
       requestedUrl: url,
@@ -196,7 +200,9 @@ function cloneSandboxTarget(
       service: "storage",
       code: "storage-attachment-unavailable",
       reason:
-        "The served runtime does not yet expose Storage rules or complete object enumeration; provide explicit Storage rules and objects in a fixture campaign.",
+        rules.storage !== undefined
+          ? "Storage object enumeration is not yet exposed by attachment; provide explicit Storage objects in target.state.storage."
+          : "The served runtime does not yet expose Storage rules or complete object enumeration; provide explicit Storage rules and objects in a fixture campaign.",
     },
   ];
   if (!rules.firestore && Object.keys(snapshot.firestore).length > 0) {

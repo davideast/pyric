@@ -27,9 +27,12 @@ import {
   writeCapture,
 } from './assurance-fixture.js';
 import { OPEN_ORDER_RULES, OWNER_ORDER_RULES } from '../../fixtures/order-rules.js';
-import { finishHandlerSuite, projectDir, run } from './handler-harness.js';
+import { finishHandlerSuite, projectDir, run, sandbox as sharedSandbox } from './handler-harness.js';
 import { buildVerifyFixture } from '../../../src/verify/index.js';
 import { captureRtdbInstances } from '../../../src/verify/rtdb-instance-capture.js';
+import { validateArguments } from '../../../src/bridge/surface/method-validation.js';
+import mapRecord from '../../../src/bridge/surface/methods/assurance/map.js';
+import proposeRecord from '../../../src/bridge/surface/methods/assurance/propose.js';
 
 afterAll(() => finishHandlerSuite('assurance'));
 
@@ -220,4 +223,85 @@ it('names a database instance the session used that the candidate rules do not c
   });
   expect((replayed.data as { skippedInstances?: string[] }).skippedInstances).toEqual(['shard-00']);
   expect(replayed.summary).toContain('Not checked: the session also used database instance(s) shard-00');
+});
+
+it('fails replaySession when candidate Firestore rules do not parse', async () => {
+  writeCapture(projectDir, '.pyric/last-session.json', await recordNoteSession());
+
+  const broken = await run('assurance.replaySession', {
+    candidateRules: 'not valid firestore rules {{{',
+  });
+  expect(broken.ok).toBe(false);
+  expect(broken.summary).toContain('did not parse');
+});
+
+it('replays a database capture using active sandbox RTDB rules when candidateRules is omitted, and accepts commented RTDB candidateRules', async () => {
+  const OPEN = { rules: { '.read': true, '.write': true } };
+  const recSandbox = initializeSandbox();
+  rtdbSandbox.setRules(getDatabase(recSandbox), OPEN);
+  await set(ref(getDatabase(recSandbox), 'items/a'), 'hello');
+  writeCapture(
+    projectDir,
+    '.pyric/rtdb-session.json',
+    buildVerifyFixture({
+      sandbox: recSandbox,
+      rtdbRules: OPEN,
+      rtdbState: rtdbSandbox.snapshotState(getDatabase(recSandbox)),
+    }),
+  );
+
+  rtdbSandbox.setRules(getDatabase(sharedSandbox), OPEN);
+
+  const omitted = await run('assurance.replaySession', {
+    sessionPath: '.pyric/rtdb-session.json',
+    service: 'database',
+  });
+  expect(omitted.ok).toBe(true);
+
+  const commented = await run('assurance.replaySession', {
+    sessionPath: '.pyric/rtdb-session.json',
+    service: 'database',
+    candidateRules: '// RTDB rules with comment\n{"rules":{".read":true,".write":true,}}',
+  });
+  expect(commented.ok).toBe(true);
+});
+
+it('accepts primitive RTDB set payloads in assurance.map and assurance.propose argument validation', () => {
+  const mapValidation = validateArguments(mapRecord, {
+    campaignId: 'rtdb-campaign',
+    observations: [
+      {
+        id: 'obs-rtdb-primitive',
+        actorId: 'anon',
+        operation: {
+          service: 'rtdb',
+          method: 'set',
+          path: '/rooms/r1/members/mallory/status',
+          data: 'online',
+        },
+        result: 'ALLOW',
+        source: 'captured',
+      },
+    ],
+  });
+  expect(mapValidation).toBeNull();
+
+  const proposeValidation = validateArguments(proposeRecord, {
+    campaignId: 'rtdb-campaign',
+    observationId: 'obs-rtdb-primitive',
+    invariantId: 'inv-status',
+    mutations: [
+      {
+        dimension: 'payload',
+        description: 'Mutate status string in RTDB set',
+        operation: {
+          service: 'rtdb',
+          method: 'set',
+          path: '/rooms/r1/members/mallory/status',
+          data: 'admin',
+        },
+      },
+    ],
+  });
+  expect(proposeValidation).toBeNull();
 });

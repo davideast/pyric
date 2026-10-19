@@ -90,7 +90,9 @@ export function runDerivedCases(
     };
   }
 
-  const simulated = new SimulateFirestoreRulesHandler().simulate(rules, derivation.testCases);
+  const simulated = new SimulateFirestoreRulesHandler().simulate(rules, derivation.testCases, {
+    getDoc: (docPath) => fixture.services.firestore?.state?.documents?.[docPath] ?? null,
+  });
   if (!simulated.success) return { error: simulated.error.message };
 
   const cases: CaseVerdict[] = [];

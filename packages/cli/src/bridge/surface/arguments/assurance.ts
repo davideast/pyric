@@ -86,7 +86,7 @@ export const firebaseOperation = z
       .enum(OPERATION_METHOD_VALUES as [string, ...string[]])
       .describe('The request method, from the set the named service evaluates.'),
     path: z.string().min(1).describe('The document, node, or object path.'),
-    data: z.record(z.unknown()).optional().describe('The value written, for a write.'),
+    data: z.unknown().optional().describe('The value written, for a write.'),
     query: z.record(z.unknown()).optional().describe('The query, for a list.'),
     dataBase64: z.string().optional().describe('The object body, for a storage upload.'),
     contentType: z.string().optional().describe('The object content type, for a storage upload.'),

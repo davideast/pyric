@@ -16,6 +16,7 @@
 import { getActiveRules } from 'pyric/sandbox/database';
 import type { LocalSandbox } from 'pyric/sandbox';
 import type { ToolContext } from 'pyric/sandbox/internal';
+import { getStorageRulesResolution } from 'pyric/storage/internal';
 
 import { createOwnedSandboxAttachmentProvider } from '../../assurance/attachment.js';
 import type { AssuranceToolName } from '../../assurance/tool-names.js';
@@ -24,9 +25,10 @@ import {
   createAssuranceTools,
 } from '../../assurance/tools.js';
 import type { LocalFirebaseTarget } from '../../assurance/types.js';
-import { activeFirestoreRules } from './rules-simulation.js';
+import { firestoreRulesInForce } from './firestore-rules-load.js';
 import { operationFailure } from './context.js';
 import type { Args } from './method-types.js';
+import { storageFor } from './service-handles.js';
 import type { OperationResult, SurfaceContext } from './types.js';
 
 /**
@@ -52,12 +54,14 @@ export function campaignStore(sandbox: LocalSandbox): AssuranceCampaignStore {
 /** The rules each service of this sandbox is enforcing, as a campaign target names them. */
 export function sandboxRules(ctx: SurfaceContext): LocalFirebaseTarget['rules'] {
   const rules: LocalFirebaseTarget['rules'] = {};
-  const firestore = activeFirestoreRules(ctx);
+  const firestore = firestoreRulesInForce(ctx.sandbox);
   if (firestore.length > 0) rules.firestore = firestore;
   const database = getActiveRules(ctx.sandbox);
   if (database !== null && database !== undefined) {
     rules.rtdb = database as { rules: Record<string, unknown> };
   }
+  const storage = getStorageRulesResolution(storageFor(ctx))?.source;
+  if (storage !== undefined && storage.length > 0) rules.storage = storage;
   return rules;
 }
 
