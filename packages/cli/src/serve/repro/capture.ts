@@ -8,14 +8,19 @@
  */
 import { readFile } from 'node:fs/promises';
 import { captureCheckpoint } from 'pyric/sandbox/checkpoints';
-import { sandbox as rtdbSandbox } from 'pyric/database';
+import { get as rtdbGet, getAdminDatabase, ref as rtdbRef } from 'pyric/database';
+import { sdkActivity, UNNAMED_DEFAULT_DATABASE_INSTANCE } from 'pyric/sandbox/internal';
 import { cliVersion } from '../../pkg-version.js';
 import type { HostCtx, PortLike } from '../worker/host-context.js';
 import { portSession } from '../worker/host-auth.js';
 import { rtdbInstances } from '../worker/host/rtdb-instances.js';
-import { UNNAMED_DEFAULT_DATABASE_INSTANCE } from 'pyric/sandbox/internal';
-import { REPRO_SCHEMA, redactSecrets, type ReproBase, type ReproDatabaseRules, type ReproFile, type ReproPortSession } from './format.js';
+import { REPRO_SCHEMA, redactSecrets, type ReproBase, type ReproDatabaseRules, type ReproEntry, type ReproFile, type ReproPortSession } from './format.js';
 import type { ReproLog } from './recorder.js';
+
+const STANDARD_TOKEN_CLAIMS = new Set([
+  'firebase', 'uid', 'user_id', 'sub', 'iss', 'aud', 'iat', 'exp',
+  'auth_time', 'email', 'email_verified', 'phone_number', 'name', 'picture', 'nonce',
+]);
 
 /** The ruleset an instance or service enforces: the active one, or the last good one when a deploy was refused. */
 function enforced(rules: { status: 'active' | 'error'; source: unknown; lastKnownGood?: unknown } | undefined): unknown {
@@ -38,14 +43,32 @@ export async function captureReproBase(
     const name = isDefault ? defaultInstance : key;
     if (isDefault) continue;
     database[name] = enforced(entry.rules) as ReproDatabaseRules[string];
-    databaseInstances[name] = rtdbSandbox.snapshotState(entry.live);
+    const adminDb = getAdminDatabase(ctx.sandbox, entry.selector);
+    const snap = await sdkActivity.silence(() => rtdbGet(rtdbRef(adminDb, '/')));
+    databaseInstances[name] = snap.exportVal();
   }
   // The default instance's tree and rules are the checkpoint's.
   database[defaultInstance] = checkpoint.state.rules.database;
   const sessions: Record<string, ReproPortSession> = {};
   for (const [id, port] of ports) {
     const session = portSession(ctx, port);
-    if (session) sessions[id] = { uid: session.user.uid, tenantId: session.state.tenant ?? null };
+    if (session) {
+      const token = session.state.token as Record<string, unknown> | undefined;
+      const firebaseClaim = token?.firebase as { sign_in_provider?: unknown } | undefined;
+      const signInProvider = typeof firebaseClaim?.sign_in_provider === 'string' ? firebaseClaim.sign_in_provider : undefined;
+      const customClaims: Record<string, unknown> = {};
+      if (token) {
+        for (const [claim, val] of Object.entries(token)) {
+          if (!STANDARD_TOKEN_CLAIMS.has(claim)) customClaims[claim] = val;
+        }
+      }
+      sessions[id] = {
+        uid: session.user.uid,
+        tenantId: session.state.tenant ?? null,
+        ...(signInProvider !== undefined ? { signInProvider } : {}),
+        ...(Object.keys(customClaims).length > 0 ? { customClaims } : {}),
+      };
+    }
   }
   const firestore = enforced(ctx.activeRules?.firestore);
   return {
@@ -53,7 +76,7 @@ export async function captureReproBase(
     checkpoint,
     databaseInstances,
     rules: {
-      firestore: typeof firestore === 'string' ? firestore : checkpoint.state.rules.firestore || null,
+      firestore: typeof firestore === 'string' ? firestore : null,
       database,
       storage: checkpoint.state.rules.storage,
     },
@@ -88,16 +111,42 @@ async function inlineStorage(base: ReproBase, objectFile: ObjectFileLookup): Pro
   return { ...base, checkpoint: { ...base.checkpoint, state } };
 }
 
+/** Read a recorded byte-route upload slice back from its staging file when writing a repro. */
+export type UploadSliceLookup = (uploadId: string, offset: number, length: number) => Promise<Uint8Array>;
+
 /** The repro file for a recorded log: JSON only, secrets removed, Storage bytes inline. */
-export async function buildReproFile(log: ReproLog, objectFile: ObjectFileLookup): Promise<ReproFile> {
+export async function buildReproFile(
+  log: ReproLog,
+  objectFile: ObjectFileLookup,
+  uploadSlice?: UploadSliceLookup,
+): Promise<ReproFile> {
   const base = await inlineStorage(log.base, objectFile);
+  const entries: ReproEntry[] = [];
+  for (const entry of log.entries) {
+    if (entry.kind === 'upload-slice') {
+      if (uploadSlice === undefined) {
+        throw new Error(`The bytes of Storage upload '${entry.uploadId}' are no longer on disk; the repro cannot carry them.`);
+      }
+      const bytes = await uploadSlice(entry.uploadId, entry.offset, entry.length);
+      entries.push({
+        kind: 'upload',
+        at: entry.at,
+        uploadId: entry.uploadId,
+        partIndex: entry.partIndex,
+        offset: entry.offset,
+        dataB64: Buffer.from(bytes).toString('base64'),
+      });
+    } else {
+      entries.push(entry);
+    }
+  }
   const file: ReproFile = {
     schema: REPRO_SCHEMA,
     createdAt: new Date().toISOString(),
     recordedBy: cliVersion(),
     truncated: log.truncated,
     base,
-    entries: log.entries,
+    entries,
   };
   return redactSecrets(JSON.parse(JSON.stringify(file))) as ReproFile;
 }

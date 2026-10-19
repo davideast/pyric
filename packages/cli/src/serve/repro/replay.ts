@@ -88,6 +88,8 @@ interface Plane {
   /** Frames the host sent a session since the plane started. */
   received(session: string): OutboundMessage[];
   deployRules(service: 'firestore' | 'database' | 'storage', source: unknown, instance?: string): Promise<void>;
+  disconnectClient(session: string, event: 'disconnect' | 'interrupted'): Promise<void>;
+  stageUpload(uploadId: string, partIndex: number, offset: number, bytes: Uint8Array): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -144,16 +146,21 @@ function collector() {
 }
 
 async function startNodePlane(base: ReproBase): Promise<Plane> {
-  const { createHostedRuntime } = await import('../hosted/runtime.js');
+  const [{ createHostedRuntime }, { createHostedPersistence }] = await Promise.all([
+    import('../hosted/runtime.js'),
+    import('../hosted/persistence.js'),
+  ]);
   const directory = realpathSync(mkdtempSync(join(tmpdir(), 'pyric-repro-')));
+  const persistence = await createHostedPersistence(directory);
   const frames = collector();
   let runtime: Awaited<ReturnType<typeof createHostedRuntime>>;
   try {
     runtime = await createHostedRuntime(payloadFor(base, directory, true), 'http://127.0.0.1:1', (message) => {
       const isWorkerReply = message.type === 'worker-message-result' && message.clientSessionId !== undefined;
       if (isWorkerReply) frames.push(message.clientSessionId as string, message.message);
-    }, directory, { record: false });
+    }, directory, { record: false, persistence });
   } catch (error) {
+    persistence.close();
     rmSync(directory, { recursive: true, force: true });
     throw error;
   }
@@ -165,10 +172,23 @@ async function startNodePlane(base: ReproBase): Promise<Plane> {
     async deployRules(service, source, instance) {
       await runtime.deployRules(service, source === null ? null : typeof source === 'string' ? source : JSON.stringify(source), instance);
     },
+    async disconnectClient(session, event) {
+      runtime.receive({
+        type: event === 'disconnect' ? 'worker-client-disconnect' : 'worker-client-interrupted',
+        clientSessionId: session,
+      });
+      await settle();
+    },
+    async stageUpload(uploadId, _partIndex, offset, bytes) {
+      const progress = await persistence.storage.uploadProgress(uploadId);
+      if (progress === undefined) return;
+      await persistence.storage.appendUpload(uploadId, offset, bytes);
+    },
     async close() {
       try {
         await runtime.close();
       } finally {
+        persistence.close();
         rmSync(directory, { recursive: true, force: true });
       }
     },
@@ -177,13 +197,22 @@ async function startNodePlane(base: ReproBase): Promise<Plane> {
 
 async function startWorkerPlane(base: ReproBase): Promise<Plane> {
   await installIndexedDb();
-  const [{ buildWorkerCtx }, { handleMessage }, { setDatabaseRules, handleRulesOp }, { createMemoryBackend }, { replaceStorageRules }, { normalizeDatabaseRules }] = await Promise.all([
+  const [
+    { buildWorkerCtx },
+    { cleanupPortWithDisconnect, handleMessage },
+    { drainPortRtdbDisconnects },
+    { setDatabaseRules, handleRulesOp, normalizeDatabaseRules },
+    { createMemoryBackend },
+    { getStorageSandbox },
+    { getStorageService, replaceStorageRules },
+  ] = await Promise.all([
     import('../worker/serve-init.js'),
     import('../worker/host.js'),
+    import('../worker/host/rtdb.js'),
     import('../worker/host/rules.js'),
     import('pyric/sandbox'),
+    import('pyric/storage'),
     import('pyric/storage/internal'),
-    import('../worker/host/rules.js'),
   ]);
   const payload = payloadFor(base, `pyric-repro-${crypto.randomUUID()}`, false);
   const fetchInit = (async (input: Parameters<typeof fetch>[0]) => {
@@ -204,7 +233,10 @@ async function startWorkerPlane(base: ReproBase): Promise<Plane> {
   return {
     send(session, frame) {
       const owned = portFor(session);
-      owned.pending = owned.pending.then(() => handleMessage(ctx, owned.port, frame)).catch(() => {});
+      owned.pending = owned.pending.then(() => {
+        if (frame.resumeSession === true) ctx.disconnectedPorts?.delete(owned.port);
+        return handleMessage(ctx, owned.port, frame);
+      }).catch(() => {});
     },
     received: frames.received,
     async deployRules(service, source, instance) {
@@ -214,6 +246,27 @@ async function startWorkerPlane(base: ReproBase): Promise<Plane> {
         setDatabaseRules(ctx, instance, normalizeDatabaseRules(source));
       } else if (typeof source === 'string') {
         handleRulesOp(ctx, { postMessage() {} }, { t: 'op', id: 'repro-rules', method: 'setFirestoreRules', source }, ctx.db);
+      }
+    },
+    async disconnectClient(session, event) {
+      const owned = ports.get(session);
+      if (!owned) return;
+      if (event === 'disconnect') {
+        ports.delete(session);
+        await owned.pending.then(() => cleanupPortWithDisconnect(ctx, owned.port)).catch(() => {});
+      } else {
+        owned.pending = owned.pending.then(() => drainPortRtdbDisconnects(ctx, owned.port)).catch(() => {});
+        await owned.pending;
+      }
+      await settle();
+    },
+    async stageUpload(uploadId, partIndex, _offset, bytes) {
+      const service = await getStorageService(getStorageSandbox(ctx.sandbox));
+      if (!service.backend.putPart) return;
+      try {
+        await service.backend.putPart(uploadId, partIndex, bytes);
+      } catch {
+        // Orphaned upload chunks from before a window rollover have no open upload on replay.
       }
     },
     async close() {
@@ -262,8 +315,20 @@ async function applyBase(plane: Plane, base: ReproBase, timeoutMs: number): Prom
     await setup(SETUP_SESSION, { method: 'rtdb.set', instance, path: '/', value: tree, actAs: { mode: 'admin' } });
   }
   if (base.rules.firestore !== null) await setup(SETUP_SESSION, { method: 'setFirestoreRules', source: base.rules.firestore });
+  if (base.rules.storage !== null) await plane.deployRules('storage', base.rules.storage);
   for (const [session, identity] of Object.entries(base.sessions)) {
-    await setup(session, { method: 'auth.restorePortSession', uid: identity.uid, tenantId: identity.tenantId });
+    if (identity.signInProvider === 'custom') {
+      await setup(session, {
+        method: 'auth.signInWithCustomToken',
+        customToken: JSON.stringify({
+          uid: identity.uid,
+          ...(identity.customClaims ? { claims: identity.customClaims } : {}),
+        }),
+        ...(identity.tenantId !== null ? { tenantId: identity.tenantId } : {}),
+      });
+    } else {
+      await setup(session, { method: 'auth.restorePortSession', uid: identity.uid, tenantId: identity.tenantId });
+    }
   }
   for (const [session, subscriptions] of Object.entries(base.subscriptions)) {
     for (const frame of subscriptions) plane.send(session, restoreRedactedTokens(frame) as InboundMessage);
@@ -333,6 +398,15 @@ async function replayOn(name: ReplayPlaneName, file: ReproFile, timeoutMs: numbe
     for (const [index, entry] of file.entries.entries()) {
       if (entry.kind === 'rules') {
         await plane.deployRules(entry.service, entry.source, entry.instance);
+        continue;
+      }
+      if (entry.kind === 'client') {
+        await plane.disconnectClient(entry.session, entry.event);
+        continue;
+      }
+      if (entry.kind === 'upload') {
+        const uploadId = bindings.toReplay(entry.uploadId) as string;
+        await plane.stageUpload(uploadId, entry.partIndex, entry.offset, Buffer.from(entry.dataB64, 'base64'));
         continue;
       }
       if (entry.kind === 'external') continue;

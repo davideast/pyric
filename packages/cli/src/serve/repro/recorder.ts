@@ -22,14 +22,26 @@ export const DEFAULT_REPRO_WINDOW = 1000;
 /** What the host supplies when a window opens; the recorder adds the listeners it tracked. */
 export type ReproBaseCapture = () => Promise<Omit<ReproBase, 'subscriptions'>>;
 
+/** An upload chunk whose bytes live in the host's staging file until a repro file is written. */
+export interface RecordedUploadSlice {
+  kind: 'upload-slice';
+  at: number;
+  uploadId: string;
+  partIndex: number;
+  offset: number;
+  length: number;
+}
+
+export type RecordedEntry = ReproEntry | RecordedUploadSlice;
+
 interface Window {
   base: ReproBase;
-  entries: ReproEntry[];
+  entries: RecordedEntry[];
 }
 
 export interface ReproLog {
   base: ReproBase;
-  entries: ReproEntry[];
+  entries: RecordedEntry[];
   truncated: boolean;
 }
 
@@ -38,8 +50,8 @@ export interface ReproRecorder {
   inbound(session: string, frame: InboundMessage): Promise<void>;
   /** Record a result or listener event the host sent a port. */
   outbound(session: string, frame: OutboundMessage): void;
-  /** Record a rules deploy or an out-of-band state change. */
-  note(entry: Extract<ReproEntry, { kind: 'rules' | 'external' }>): void;
+  /** Record a rules deploy, transport disconnect, byte-route upload, or out-of-band state change. */
+  note(entry: Exclude<ReproEntry, { kind: 'in' | 'out' }> | RecordedUploadSlice): void;
   /** The log since the oldest starting state kept. Reads a starting state when nothing is recorded yet. */
   log(): Promise<ReproLog>;
 }
@@ -51,7 +63,12 @@ function isRecordedInbound(frame: InboundMessage): boolean {
   return !isEventStream;
 }
 
-export function createReproRecorder(options: { capture: ReproBaseCapture; limit?: number; now?: () => number }): ReproRecorder {
+export function createReproRecorder(options: {
+  capture: ReproBaseCapture;
+  limit?: number;
+  now?: () => number;
+  onDrop?: (dropped: RecordedEntry[], retained: RecordedEntry[]) => void;
+}): ReproRecorder {
   const limit = Math.max(1, options.limit ?? DEFAULT_REPRO_WINDOW);
   const now = options.now ?? Date.now;
   let previous: Window | undefined;
@@ -75,11 +92,13 @@ export function createReproRecorder(options: { capture: ReproBaseCapture; limit?
       try {
         const subscriptions = openSubscriptions();
         const base = { ...(await options.capture()), subscriptions };
-        const hadCurrent = current !== undefined;
-        if (hadCurrent) {
-          const dropsWindow = previous !== undefined;
+        const retained = current;
+        if (retained !== undefined) {
+          const dropped = previous;
+          const dropsWindow = dropped !== undefined;
           if (dropsWindow) truncated = true;
-          previous = current;
+          previous = retained;
+          if (dropped !== undefined) options.onDrop?.(dropped.entries, retained.entries);
         }
         current = { base, entries: [] };
       } finally {
@@ -104,7 +123,7 @@ export function createReproRecorder(options: { capture: ReproBaseCapture; limit?
     }
   }
 
-  function append(entry: ReproEntry): void {
+  function append(entry: RecordedEntry): void {
     current?.entries.push(entry);
   }
 
@@ -128,6 +147,9 @@ export function createReproRecorder(options: { capture: ReproBaseCapture; limit?
       if (isRecorded) append({ kind: 'out', at: now(), session, frame });
     },
     note(entry) {
+      if (entry.kind === 'client' && entry.event === 'disconnect') {
+        open.delete(entry.session);
+      }
       append(entry);
     },
     async log() {

@@ -9,10 +9,15 @@ import { databaseInstanceRulesHost, handleRulesOp, setDatabaseRules, setDatabase
 import { SERVE_HISTORY_LIMITS } from '../observation-limits.js';
 import { randomUUID } from 'node:crypto';
 import { createOperationBudget } from '../../bridge/operation-budget.js';
-import { realpathSync } from 'node:fs';
-import { isAbsolute, relative, sep } from 'node:path';
-import { createSandboxRoot, emitSandboxEvent, makeSandboxRuntimeErrorEvent } from 'pyric/sandbox/internal';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { open as openFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { createSandboxRoot, emitSandboxEvent, getInternalEnv, makeSandboxRuntimeErrorEvent } from 'pyric/sandbox/internal';
 import { getFirestore } from 'pyric/firestore';
+import { setRules } from 'pyric/sandbox/firestore';
+import { sandbox as rtdbSandbox } from 'pyric/database';
+import { sandbox as authSandbox } from 'pyric/auth';
 import { FirebaseError } from 'pyric/app';
 import { installStorageBackend, replaceStorageRules } from 'pyric/storage/internal';
 import { assertJsonSafeRelayValue, MAX_MOUNTED_MCP_SESSIONS, type BridgeMessage, type ToolCallRequest, type WorkerResFrame } from '../../bridge/protocol.js';
@@ -25,6 +30,9 @@ import type { OperationResult } from '../../bridge/surface/types.js';
 import type { DatabaseRulesDestination, InitPayload } from '../init-payload.js';
 import { applyServeInit } from '../worker/serve-init.js';
 import { cleanupPortWithDisconnect, handleMessage, type HostCtx, type PortLike } from '../worker/host.js';
+import { ensureAuth, setPortSession } from '../worker/host-auth.js';
+import { normalizeDatabaseRules } from '../worker/host/rules.js';
+import { restoreFirestoreSubscriptions } from '../worker/host/subscriptions.js';
 import { drainPortRtdbDisconnects } from '../worker/host/rtdb.js';
 import { hostDatabaseInstances } from '../worker/host/rtdb-instance-catalog.js';
 import { serializeError, type InboundMessage, type OutboundMessage } from '../worker/protocol.js';
@@ -44,6 +52,15 @@ interface OperationQueue {
 
 interface HostedPort extends OperationQueue {
   port: PortLike;
+  transport: HostedTransport;
+}
+
+function resolveRealPath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
 }
 
 /** Server-owned persistence and AI configuration; never sent to browsers. */
@@ -188,9 +205,26 @@ export async function createHostedRuntime(
   // A `database` method's `instance` resolves as a client's does on this host.
   surfaceContext.databaseInstances = hostDatabaseInstances(ctx);
   const ports = new Map<string, HostedPort>();
+  const uploadPartCounts = new Map<string, number>();
+  const recordedUploadFiles = new Map<string, string>();
+  const recordedUploadsDir = ai.record === false ? undefined : mkdtempSync(join(tmpdir(), 'pyric-repro-uploads-'));
   const recorder: ReproRecorder | undefined = ai.record === false ? undefined : createReproRecorder({
     limit: ai.reproWindow,
     capture: () => captureReproBase(ctx, [...ports].map(([id, owned]) => [id, owned.port] as [string, PortLike])),
+    onDrop(dropped, retained) {
+      const retainedIds = new Set<string>();
+      for (const entry of retained) {
+        if (entry.kind === 'upload-slice' || entry.kind === 'upload') retainedIds.add(entry.uploadId);
+      }
+      for (const entry of dropped) {
+        if (entry.kind !== 'upload-slice' && entry.kind !== 'upload') continue;
+        if (retainedIds.has(entry.uploadId)) continue;
+        const filePath = recordedUploadFiles.get(entry.uploadId);
+        recordedUploadFiles.delete(entry.uploadId);
+        uploadPartCounts.delete(entry.uploadId);
+        if (filePath !== undefined) rmSync(filePath, { force: true });
+      }
+    },
   });
   // A replay host has no deploy targets, so the log names the instances a
   // target's rules reach.
@@ -210,6 +244,37 @@ export async function createHostedRuntime(
     return `mcp:${message.callerId ?? 'legacy'}`;
   }
 
+  function restoreHostRules(reconcileDatabase = true): void {
+    const firestoreRules = ctx.activeRules?.firestore;
+    const hasActiveRules = firestoreRules?.status === 'active';
+    const source = hasActiveRules ? firestoreRules.source : firestoreRules?.lastKnownGood;
+    if (typeof source === 'string') setRules(ctx.sandbox, source);
+    if (!reconcileDatabase) return;
+    for (const [, instance] of ctx.rtdbInstances?.entries() ?? []) {
+      const databaseRules = instance.rules;
+      const hasActiveDatabaseRules = databaseRules?.status === 'active';
+      const databaseSource = hasActiveDatabaseRules ? databaseRules.source : databaseRules?.lastKnownGood;
+      if (databaseSource !== undefined) rtdbSandbox.setRules(instance.live, normalizeDatabaseRules(databaseSource));
+    }
+  }
+
+  function reconcilePortSessions(): void {
+    if (!ctx.portSessions || ctx.portSessions.size === 0) return;
+    const knownUids = new Set(authSandbox.listUsers(ensureAuth(ctx)).map(user => user.uid));
+    for (const [port, session] of [...ctx.portSessions.entries()]) {
+      if (session !== null && !knownUids.has(session.user.uid)) {
+        setPortSession(ctx, port, null);
+        ctx.portSessions.delete(port);
+      }
+    }
+  }
+
+  function syncFirestoreActiveRulesFromSandbox(): void {
+    const source = getInternalEnv(ctx.sandbox).getRules();
+    ctx.activeRules ??= {};
+    ctx.activeRules.firestore = { status: 'active', source, lastKnownGood: source, updatedAt: Date.now(), messages: [] };
+  }
+
   async function handleToolCall(message: ToolCallRequest): Promise<void> {
     await recorder?.inbound(toolSession(message), {
       t: 'tool', id: message.id, name: message.name, args: message.args ?? {},
@@ -220,6 +285,14 @@ export async function createHostedRuntime(
       const changesState = effect === 'write';
       if (changesState) requireHealthyPersistence();
       let result = await dispatchSandboxTool(sandbox, message.name, message.args, message.actAs);
+      if (result.ok) {
+        if (message.name === 'firestore_simulator_create') {
+          syncFirestoreActiveRulesFromSandbox();
+          restoreFirestoreSubscriptions(ctx);
+        } else if (message.name === 'auth_delete_user') {
+          reconcilePortSessions();
+        }
+      }
       if (changesState) result = await persistMutationResult(result);
       const isRead = effect === 'read';
       if (isRead) result = describeRead(result);
@@ -287,19 +360,27 @@ export async function createHostedRuntime(
     }
   }
 
+  function deliverOutbound(clientSessionId: string, message: OutboundMessage, transport: HostedTransport): void {
+    recorder?.outbound(clientSessionId, message);
+    const usesWorkerRelay = transport === 'worker-relay';
+    if (usesWorkerRelay) relayMessage(clientSessionId, message);
+    else send({ type: 'worker-message-result', clientSessionId, message });
+  }
+
   function portFor(clientSessionId: string, transport: HostedTransport): HostedPort {
     const existing = ports.get(clientSessionId);
     const hasExistingPort = existing !== undefined;
     if (hasExistingPort) return existing;
-    const port: PortLike = {
-      postMessage(message) {
-        recorder?.outbound(clientSessionId, message);
-        const usesWorkerRelay = transport === 'worker-relay';
-        if (usesWorkerRelay) relayMessage(clientSessionId, message);
-        else send({ type: 'worker-message-result', clientSessionId, message });
+    const owned: HostedPort = {
+      port: {
+        postMessage(message) {
+          deliverOutbound(clientSessionId, message, owned.transport);
+        },
       },
+      transport,
+      pending: Promise.resolve(),
+      budget: createOperationBudget(),
     };
-    const owned = { port, pending: Promise.resolve(), budget: createOperationBudget() };
     ports.set(clientSessionId, owned);
     return owned;
   }
@@ -312,14 +393,18 @@ export async function createHostedRuntime(
       const reservation = owned.budget.reserve(incoming);
       const isRefused = !reservation.accepted;
       if (isRefused) {
-        owned.port.postMessage({ t: 'res', id: incoming.id, ok: false, error: reservation.error });
+        deliverOutbound(clientSessionId, { t: 'res', id: incoming.id, ok: false, error: reservation.error }, transport);
         return;
       }
       releaseOperation = reservation.release;
     }
     // Admission owns identity. A payload cannot address another app's port.
-    const message = { ...incoming, clientSessionId: undefined, resumeSession: undefined };
+    const message: InboundMessage = incoming.resumeSession === true
+      ? { ...incoming, clientSessionId: undefined, resumeSession: true }
+      : { ...incoming, clientSessionId: undefined, resumeSession: undefined };
     owned.pending = owned.pending.then(async () => {
+      owned.transport = transport;
+      if (message.resumeSession === true) ctx.disconnectedPorts?.delete(owned.port);
       await recorder?.inbound(clientSessionId, message);
       const changesDurableState = message.t === 'op' && requiresHealthyPersistence(message);
       if (changesDurableState) requireHealthyPersistence();
@@ -343,7 +428,10 @@ export async function createHostedRuntime(
     const isMissingPort = owned === undefined;
     if (isMissingPort) return;
     ports.delete(clientSessionId);
-    const closing = owned.pending.then(() => cleanupPortWithDisconnect(ctx, owned.port));
+    const closing = owned.pending.then(() => {
+      if (!closed) recorder?.note({ kind: 'client', at: Date.now(), session: clientSessionId, event: 'disconnect' });
+      return cleanupPortWithDisconnect(ctx, owned.port);
+    });
     closingPorts.add(closing);
     try {
       await closing;
@@ -356,13 +444,46 @@ export async function createHostedRuntime(
     const owned = ports.get(clientSessionId);
     const isMissingPort = owned === undefined;
     if (isMissingPort) return;
-    owned.pending = owned.pending.then(() => drainPortRtdbDisconnects(ctx, owned.port)).catch((error: unknown) => {
+    owned.pending = owned.pending.then(() => {
+      recorder?.note({ kind: 'client', at: Date.now(), session: clientSessionId, event: 'interrupted' });
+      return drainPortRtdbDisconnects(ctx, owned.port);
+    }).catch((error: unknown) => {
       console.error('[pyric hosted] RTDB disconnect cleanup failed:', error);
     });
   }
 
   const storageBytes = createStorageByteRoute({
-    storage: persistence.storage,
+    storage: {
+      objectFile: (bucket, path) => persistence.storage.objectFile(bucket, path),
+      uploadProgress: uploadId => persistence.storage.uploadProgress(uploadId),
+      async appendUpload(uploadId, offset, bytes) {
+        const progress = await persistence.storage.appendUpload(uploadId, offset, bytes);
+        if (recorder !== undefined && recordedUploadsDir !== undefined) {
+          let filePath = recordedUploadFiles.get(uploadId);
+          if (filePath === undefined) {
+            filePath = join(recordedUploadsDir, `${randomUUID()}.bin`);
+            recordedUploadFiles.set(uploadId, filePath);
+          }
+          const fh = await openFile(filePath, 'a');
+          try {
+            await fh.appendFile(bytes);
+          } finally {
+            await fh.close();
+          }
+          const partIndex = uploadPartCounts.get(uploadId) ?? 0;
+          uploadPartCounts.set(uploadId, partIndex + 1);
+          recorder.note({
+            kind: 'upload-slice',
+            at: Date.now(),
+            uploadId,
+            partIndex,
+            offset,
+            length: bytes.byteLength,
+          });
+        }
+        return progress;
+      },
+    },
     sessionToken: payload.sessionToken,
     uploadToken: uploadId => uploadTokenOf(ctx, uploadId),
     bucketOf: name => storeBucketOf(ctx, name),
@@ -389,9 +510,9 @@ export async function createHostedRuntime(
      *  an unresolved deploy target, as {@link setDatabaseTargetRules} takes it. */
     async deployRules(service: 'firestore' | 'database' | 'storage', source: string | null, instance?: DatabaseRulesDestination): Promise<void> {
       if (closed) throw new Error('The hosted sandbox is closed.');
-      if (typeof instance !== 'object') recorder?.note({ kind: 'rules', at: Date.now(), service, ...(instance === undefined ? {} : { instance }), source });
       if (service === 'storage') {
         await replaceStorageRules(ctx.sandbox, source);
+        recorder?.note({ kind: 'rules', at: Date.now(), service, source });
         return;
       }
       if (service === 'database') {
@@ -399,16 +520,34 @@ export async function createHostedRuntime(
           ? setDatabaseTargetRules(ctx, instance.target, source)
           : setDatabaseRules(ctx, instance, source);
         if (!deployed.ok) throw new Error(deployed.messages.map((message) => message.text).join('; '));
+        if (typeof instance !== 'object') {
+          recorder?.note({ kind: 'rules', at: Date.now(), service, ...(instance === undefined ? {} : { instance }), source });
+        }
         return;
       }
       if (source === null) throw new Error('Firestore rules source is required.');
+      const previousFirestoreRules = ctx.activeRules?.firestore ? structuredClone(ctx.activeRules.firestore) : undefined;
       const op = { t: 'op' as const, id: 'file-rules-reload', method: 'setFirestoreRules' as const, source };
-      handleRulesOp(ctx, {
-        postMessage(reply) {
-          const failed = reply.t === 'res' && !reply.ok;
-          if (failed) throw new Error(reply.error.message);
-        },
-      }, op, ctx.db);
+      try {
+        handleRulesOp(ctx, {
+          postMessage(reply) {
+            if (reply.t !== 'res') return;
+            if (!reply.ok) throw new Error(reply.error.message);
+            const value = reply.value as { ok?: unknown; messages?: Array<{ text?: string }> } | null;
+            if (typeof value === 'object' && value !== null && value.ok === false) {
+              const messages = Array.isArray(value.messages) ? value.messages.map(m => m.text).filter(Boolean) : [];
+              throw new Error(messages.length > 0 ? messages.join('; ') : 'Invalid Firestore security rules.');
+            }
+          },
+        }, op, ctx.db);
+      } catch (error) {
+        if (ctx.activeRules) {
+          if (previousFirestoreRules === undefined) delete ctx.activeRules.firestore;
+          else ctx.activeRules.firestore = previousFirestoreRules;
+        }
+        throw error;
+      }
+      recorder?.note({ kind: 'rules', at: Date.now(), service, source });
     },
     /**
      * The repro file for the operations recorded so far: the starting state,
@@ -416,12 +555,29 @@ export async function createHostedRuntime(
      */
     async captureRepro(callerProjectDir: string = ownedProjectDir): Promise<ReproFile> {
       if (closed) throw new Error('The hosted sandbox is closed.');
-      const projectDistance = relative(ownedProjectDir, callerProjectDir);
+      const projectDistance = relative(ownedProjectDir, resolveRealPath(callerProjectDir));
       const isOutsideProject = projectDistance === '..' || projectDistance.startsWith(`..${sep}`) || isAbsolute(projectDistance);
       if (isOutsideProject) throw new Error('The discovered host belongs to another project.');
       if (recorder === undefined) throw new Error('This host does not record operations.');
       const log = await recorder.log();
-      return buildReproFile(log, sha256 => persistence.state.objectFile?.(sha256));
+      return buildReproFile(
+        log,
+        sha256 => persistence.state.objectFile?.(sha256),
+        async (uploadId, offset, length) => {
+          const filePath = recordedUploadFiles.get(uploadId);
+          if (filePath === undefined) {
+            throw new Error(`The bytes of Storage upload '${uploadId}' are no longer on disk; the repro cannot carry them.`);
+          }
+          const fh = await openFile(filePath, 'r');
+          try {
+            const buffer = Buffer.allocUnsafe(length);
+            const { bytesRead } = await fh.read(buffer, 0, length, offset);
+            return buffer.subarray(0, bytesRead);
+          } finally {
+            await fh.close();
+          }
+        },
+      );
     },
     /** The Node host's per-instance RTDB rules, as `connectDatabaseInstanceRules` applies them. */
     databaseRules: databaseInstanceRulesHost(ctx),
@@ -431,7 +587,7 @@ export async function createHostedRuntime(
     runMethod(call: HostedMethodRequest, connection: object): Promise<OperationResult> {
       if (closed) return Promise.resolve({ ok: false, summary: 'The hosted sandbox is closed.' });
       const { key, args, projectDir: callerProjectDir } = call;
-      const projectDistance = relative(ownedProjectDir, callerProjectDir);
+      const projectDistance = relative(ownedProjectDir, resolveRealPath(callerProjectDir));
       const namesParentDirectory = projectDistance === '..' || projectDistance.startsWith(`..${sep}`);
       const isOutsideProject = namesParentDirectory || isAbsolute(projectDistance);
       if (isOutsideProject) return Promise.resolve({ ok: false, summary: 'The discovered host belongs to another project.' });
@@ -454,8 +610,43 @@ export async function createHostedRuntime(
         const changesHeldIdentity = method.operation === 'switch_auth_identity';
         const changesDurableState = hasMutationEffect && !changesHeldIdentity;
         if (changesDurableState) requireHealthyPersistence();
-        if (changesDurableState) recorder?.note({ kind: 'external', at: Date.now(), source: 'command', name: key });
+        if (changesDurableState && key !== 'rules.set') {
+          recorder?.note({ kind: 'external', at: Date.now(), source: 'command', name: key });
+        }
         let outcome = await callMethod(method, args, surfaceContext, call.allowProduction);
+        if (outcome.ok) {
+          if (key === 'sandbox.reset') {
+            const scope = typeof args.scope === 'string' ? args.scope : 'all';
+            if (scope === 'all') {
+              restoreHostRules(true);
+              reconcilePortSessions();
+              restoreFirestoreSubscriptions(ctx);
+            } else if (scope === 'firestore') {
+              restoreHostRules(false);
+              restoreFirestoreSubscriptions(ctx);
+            } else if (scope === 'auth') {
+              reconcilePortSessions();
+            }
+          } else if (key === 'rules.set') {
+            if (args.service === 'firestore' && typeof args.rules === 'string') {
+              handleRulesOp(ctx, { postMessage() {} }, { t: 'op', id: 'method-rules-set', method: 'setFirestoreRules', source: args.rules }, ctx.db);
+              restoreFirestoreSubscriptions(ctx);
+              recorder?.note({ kind: 'rules', at: Date.now(), service: 'firestore', source: args.rules });
+            } else if (args.service === 'database') {
+              const dbSource = typeof args.rules === 'string' ? args.rules : args.rules === undefined ? null : JSON.stringify(args.rules);
+              setDatabaseRules(ctx, undefined, dbSource);
+              recorder?.note({ kind: 'rules', at: Date.now(), service: 'database', source: dbSource });
+            } else if (args.service === 'storage') {
+              recorder?.note({ kind: 'rules', at: Date.now(), service: 'storage', source: typeof args.rules === 'string' ? args.rules : null });
+            }
+          } else if (key === 'sandbox.seed' || key === 'sandbox.seedFromFixture' || key === 'sandbox.restore' || key === 'sandbox.promote') {
+            syncFirestoreActiveRulesFromSandbox();
+            reconcilePortSessions();
+            restoreFirestoreSubscriptions(ctx);
+          } else if (key === 'auth.deleteUser') {
+            reconcilePortSessions();
+          }
+        }
         if (changesDurableState) outcome = await persistMutationResult(outcome);
         const isRead = method.effect === 'read';
         if (isRead) return describeRead(outcome);
@@ -541,6 +732,7 @@ export async function createHostedRuntime(
           initialized.dispose();
           sandbox.dispose();
           closeOwnedPersistence();
+          if (recordedUploadsDir !== undefined) rmSync(recordedUploadsDir, { recursive: true, force: true });
         }
       })();
       return closePromise;
