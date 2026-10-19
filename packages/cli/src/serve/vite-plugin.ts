@@ -58,6 +58,7 @@ import { localGenerationSlot, projectGenerationSlot } from './vite-generation-re
 import { createViteModuleContext, createViteModuleSwap } from './vite-module-swap.js';
 import { createVitePageRuntime } from './vite-page-runtime.js';
 import { stampHostedTarget } from './runtime/hosted-target.js';
+import { installViteNetGuard } from './vite-net-guard.js';
 
 export interface PyricOptions {
   /** Run the dev sandbox in the Vite server process, shared across browsers and
@@ -270,6 +271,10 @@ export function pyric(options: PyricOptions = {}): Plugin {
     enforce: 'pre',
 
     config(config, env) {
+      // Before the page runtime permits its AI upstreams on the guard. Only
+      // the dev server: a build or a preview runs no server-rendered app code.
+      const isDevServer = env.command === 'serve' && env.isPreview !== true;
+      if (isDevServer) installViteNetGuard();
       const moduleConfig = moduleSwap.config();
       const pageConfig = pageRuntime.config(config, env);
       const serverWatchConfig: UserConfig = {
