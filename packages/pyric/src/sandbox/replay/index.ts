@@ -59,7 +59,15 @@ import {
 } from '../index.js';
 import { getInternalEnv } from '../internal/sandbox-impl.js';
 import { getClock } from '../clock.js';
-import { Timestamp } from 'pyric/rules/internal';
+import {
+  Bytes,
+  Duration,
+  LatLng,
+  Path,
+  Reference,
+  Timestamp,
+  Vector,
+} from 'pyric/rules/internal';
 import { enginePayloadOf } from '../../firestore/sandbox/update-fields.js';
 import type { BatchOperationInput } from '../../firestore/sandbox/writes.js';
 
@@ -123,6 +131,8 @@ export function replay(
   env.seed({ rules });
 
   const pathAliases = new Map<string, string>();
+  const deniedWrites: Array<{ path: string; before: unknown }> = [];
+  const consumedRequestIndices = new Set<number>();
   const writes = events.filter((e): e is WriteSandboxEvent => e.kind === 'write');
   const clock = getClock(sandbox);
   let clockPinned = false;
@@ -138,9 +148,11 @@ export function replay(
   // pre-resolution `request.resourceData`), or else from the write's own
   // `data` (post-resolution).
   const dataFor = (wEv: WriteSandboxEvent): DocData | undefined => {
-    const requested = preResolutionDataFor(wEv, events);
-    if (requested !== undefined) return requested;
-    return enginePayloadOf({ resourceData: wEv.data, updateMask: wEv.updateMask }) as DocData | undefined;
+    const requested = preResolutionDataFor(wEv, events, consumedRequestIndices);
+    const raw = requested !== undefined
+      ? requested
+      : (enginePayloadOf({ resourceData: wEv.data, updateMask: wEv.updateMask }) as DocData | undefined);
+    return raw !== undefined ? (rehydrateReplayValue(raw) as DocData) : undefined;
   };
   const remap = aliasRemapper(pathAliases);
 
@@ -152,7 +164,7 @@ export function replay(
     const group = groupAt(writes, index);
     if (group.length > 0) {
       pinClockTo(wEv);
-      replayGroup(env, group, dataFor, remap);
+      replayGroup(env, group, dataFor, remap, deniedWrites);
       index += group.length;
       continue;
     }
@@ -171,13 +183,21 @@ export function replay(
       const targetPath = remap(wEv.path);
       const collection = targetPath.slice(0, targetPath.lastIndexOf('/'));
       pinClockTo(wEv);
-      const { path: mintedPath } = env.createWithAutoId(
-        collection,
-        (data ?? {}) as DocData,
-        wEv.auth,
-        bypassRules,
-      );
-      pathAliases.set(wEv.path, mintedPath);
+      try {
+        const { path: mintedPath, result } = env.createWithAutoId(
+          collection,
+          (data ?? {}) as DocData,
+          wEv.auth,
+          bypassRules,
+        );
+        if (result.allowed) {
+          pathAliases.set(wEv.path, mintedPath);
+        } else {
+          deniedWrites.push({ path: wEv.path, before: wEv.nextState ?? wEv.data ?? {} });
+        }
+      } catch {
+        deniedWrites.push({ path: wEv.path, before: wEv.nextState ?? wEv.data ?? {} });
+      }
       continue;
     }
 
@@ -193,10 +213,14 @@ export function replay(
       if (hasRequestTime) operation.requestTime = requestTime;
       if (bypassRules) operation.bypassRules = true;
       if (wEv.merge !== undefined) operation.merge = wEv.merge;
-      env.execute(operation);
+      const res = env.execute(operation);
+      if (!res.allowed) {
+        deniedWrites.push({ path: wEv.path, before: wEv.nextState ?? wEv.data ?? wEv.priorState ?? {} });
+      }
     } catch {
       // Replay denials surface as state divergence below; keep going
       // to surface as much as possible in one pass.
+      deniedWrites.push({ path: wEv.path, before: wEv.nextState ?? wEv.data ?? wEv.priorState ?? {} });
     }
   }
   if (clockPinned) clock.reset();
@@ -204,7 +228,7 @@ export function replay(
   const replayedState = getInternalEnv(sandbox).snapshot();
   const hasOriginalState = originalState !== undefined;
   const divergences = hasOriginalState
-    ? computeDivergences(writes, originalState, replayedState, pathAliases)
+    ? computeDivergences(writes, originalState, replayedState, pathAliases, deniedWrites)
     : [];
 
   return { sandbox, divergences, pathAliases };
@@ -212,6 +236,137 @@ export function replay(
 
 function isAdminWrite(event: WriteSandboxEvent): boolean {
   return event.detail?.admin === true;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+const DOC_REF_KEYS = new Set(['id', 'path', 'bypassRules', 'auth', 'env']);
+
+function isSerializedDocRef(obj: Record<string, unknown>): obj is { id: string; path: string } {
+  const keys = Object.keys(obj);
+  if (keys.length < 2 || !keys.every((k) => DOC_REF_KEYS.has(k))) return false;
+  if (typeof obj.id !== 'string' || typeof obj.path !== 'string') return false;
+  const segments = obj.path.split('/');
+  return (
+    segments.length >= 2
+    && segments.length % 2 === 0
+    && segments.every((s) => s.length > 0)
+    && segments[segments.length - 1] === obj.id
+  );
+}
+
+function base64UrlDecode(s: string): Uint8Array {
+  const std = s.replace(/-/g, '+').replace(/_/g, '/');
+  const pad = std.length % 4 === 0 ? '' : '='.repeat(4 - (std.length % 4));
+  const bin = atob(std + pad);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function base64StdDecode(s: string): Uint8Array {
+  const bin = atob(s);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+/**
+ * Rehydrate JSON-roundtripped Firestore values (`Timestamp`, `Bytes`,
+ * `GeoPoint`/`LatLng`, `Vector`, `Reference`, `Duration`, `Path`) and
+ * preserve/normalize FieldValue sentinels so rules evaluation and state
+ * diffing operate on canonical rules wrapper instances.
+ */
+function rehydrateReplayValue(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map(rehydrateReplayValue);
+  if (!isPlainRecord(value)) return value;
+
+  if (typeof value._methodName === 'string') {
+    switch (value._methodName) {
+      case 'serverTimestamp':
+      case 'FieldValue.serverTimestamp':
+        return { __type: 'serverTimestamp' };
+      case 'increment':
+      case 'FieldValue.increment':
+        return { __type: 'increment', value: Number(value._operand ?? value.value ?? 0) };
+      case 'arrayUnion':
+      case 'FieldValue.arrayUnion':
+        return {
+          __type: 'arrayUnion',
+          values: Array.isArray(value._elements) ? value._elements.map(rehydrateReplayValue) : [],
+        };
+      case 'arrayRemove':
+      case 'FieldValue.arrayRemove':
+        return {
+          __type: 'arrayRemove',
+          values: Array.isArray(value._elements) ? value._elements.map(rehydrateReplayValue) : [],
+        };
+      case 'deleteField':
+      case 'FieldValue.delete':
+        return { __type: 'deleteField' };
+    }
+  }
+
+  if (typeof value.__type === 'string') {
+    switch (value.__type) {
+      case 'serverTimestamp':
+      case 'increment':
+      case 'deleteField':
+        return value;
+      case 'arrayUnion':
+      case 'arrayRemove':
+        return {
+          ...value,
+          values: Array.isArray(value.values) ? value.values.map(rehydrateReplayValue) : value.values,
+        };
+      case 'timestamp':
+        return new Timestamp(value.seconds as number, value.nanos as number);
+      case 'bytes':
+        return new Bytes(base64UrlDecode(value.base64 as string));
+      case 'latlng':
+        return new LatLng(value.lat as number, value.lng as number);
+      case 'duration':
+        return new Duration(value.seconds as number, value.nanos as number);
+      case 'reference':
+        return new Reference(value.path as string);
+      case 'path':
+        return new Path(value.segments as string[]);
+    }
+  }
+
+  if (value.__type__ === '__vector__' && Array.isArray(value.value)) {
+    return new Vector(Object.freeze((value.value as number[]).slice()));
+  }
+
+  if (typeof value.type === 'string') {
+    switch (value.type) {
+      case 'firestore/timestamp/1.0':
+        return new Timestamp(value.seconds as number, value.nanoseconds as number);
+      case 'firestore/bytes/1.0':
+        return new Bytes(base64StdDecode(value.bytes as string));
+      case 'firestore/geoPoint/1.0':
+        return new LatLng(value.latitude as number, value.longitude as number);
+      case 'firestore/vectorValue/1.0': {
+        const vec = Array.isArray(value.vectorValues) ? (value.vectorValues as number[]) : [];
+        return new Vector(Object.freeze(vec.slice()));
+      }
+    }
+  }
+
+  if (isSerializedDocRef(value)) {
+    return new Reference(value.path);
+  }
+
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value)) {
+    out[k] = rehydrateReplayValue(v);
+  }
+  return out;
 }
 
 /**
@@ -258,6 +413,7 @@ function replayGroup(
   group: readonly WriteSandboxEvent[],
   dataFor: (event: WriteSandboxEvent) => DocData | undefined,
   remap: (path: string) => string,
+  deniedWrites: Array<{ path: string; before: unknown }>,
 ): void {
   const operations = group.map((event) => {
     const operation: BatchOperationInput = { method: batchMethodOf(event), path: remap(event.path) };
@@ -269,9 +425,17 @@ function replayGroup(
     return operation;
   });
   try {
-    env.batch(operations, group[0]!.auth, isAdminWrite(group[0]!));
+    const res = env.batch(operations, group[0]!.auth, isAdminWrite(group[0]!));
+    if (!res.allowed) {
+      for (const event of group) {
+        deniedWrites.push({ path: event.path, before: event.nextState ?? event.data ?? event.priorState ?? {} });
+      }
+    }
   } catch {
     // A rejected batch surfaces as state divergence, like a denied write.
+    for (const event of group) {
+      deniedWrites.push({ path: event.path, before: event.nextState ?? event.data ?? event.priorState ?? {} });
+    }
   }
 }
 
@@ -279,7 +443,7 @@ function replayGroup(
  * Best-effort pre-resolution data extraction. The `request` event that
  * precedes a `write` event in onEvent order carries `request.resourceData`
  * with sentinels intact. Match by path + method + groupId (best-effort)
- * and take the closest preceding request event.
+ * and take the closest preceding allowed, unconsumed request event.
  *
  * When the captured stream doesn't include a paired request event,
  * fall back to the write's post-resolution `data` (which won't have
@@ -288,14 +452,27 @@ function replayGroup(
 function preResolutionDataFor(
   wEv: WriteSandboxEvent,
   allEvents: readonly SandboxEvent[],
+  consumedRequestIndices: Set<number>,
 ): DocData | undefined {
-  // Find the latest request event AT OR BEFORE this write that matches.
+  // Find the latest unconsumed allowed request event BEFORE this write that matches.
   const wIdx = allEvents.indexOf(wEv);
   if (wIdx < 0) return undefined;
-  for (let i = wIdx; i >= 0; i--) {
+  for (let i = wIdx - 1; i >= 0; i--) {
     const e = allEvents[i];
-    if (!e || e.kind !== 'request') continue;
+    if (!e) continue;
+    if (e.kind === 'write') {
+      if (!wEv.groupId && !e.groupId && e.path === wEv.path) break;
+      continue;
+    }
+    if (e.kind !== 'request') continue;
+    if (consumedRequestIndices.has(i)) continue;
+    if (e.result !== 'allow') continue;
     if (e.path !== wEv.path) continue;
+    const sameGroup = wEv.groupId !== undefined ? e.groupId === wEv.groupId : e.groupId === undefined;
+    if (!sameGroup) continue;
+    const methodMatches = e.method === wEv.method || e.method === 'set' || wEv.method === 'set';
+    if (!methodMatches) continue;
+    consumedRequestIndices.add(i);
     return enginePayloadOf(e.request) as DocData | undefined;
   }
   return undefined;
@@ -329,6 +506,7 @@ function computeDivergences(
   originalState: Record<string, DocData>,
   replayedState: Record<string, DocData>,
   pathAliases: Map<string, string>,
+  deniedWrites: ReadonlyArray<{ path: string; before: unknown }> = [],
 ): Divergence[] {
   const out: Divergence[] = [];
 
@@ -340,7 +518,7 @@ function computeDivergences(
   const sentinelsByPath = new Map<string, Map<string, SentinelKind>>();
   for (const w of writes) {
     if (w.sentinels && w.sentinels.length > 0) {
-      const m = new Map<string, SentinelKind>();
+      const m = sentinelsByPath.get(w.path) ?? new Map<string, SentinelKind>();
       for (const s of w.sentinels) m.set(s.field, s.kind as SentinelKind);
       sentinelsByPath.set(w.path, m);
     }
@@ -370,7 +548,27 @@ function computeDivergences(
     }
     if (origDoc === undefined || replDoc === undefined) continue;
 
-    diffDoc(path, origDoc, replDoc, sentinelsByPath.get(path) ?? new Map(), out);
+    diffDoc(
+      path,
+      rehydrateReplayValue(origDoc),
+      rehydrateReplayValue(replDoc),
+      sentinelsByPath.get(path) ?? new Map(),
+      out,
+    );
+  }
+
+  for (const denied of deniedWrites) {
+    const alreadyReported = out.some(
+      (d) => d.kind === 'real-divergence' && d.path === denied.path,
+    );
+    if (!alreadyReported) {
+      out.push({
+        kind: 'real-divergence',
+        path: denied.path,
+        before: denied.before,
+        after: replayedState[remap(denied.path)],
+      });
+    }
   }
 
   return out;
@@ -405,15 +603,11 @@ function diffDoc(
 
     if (a === b) return;
 
-    const aIsObj = a !== null && typeof a === 'object' && !Array.isArray(a);
-    const bIsObj = b !== null && typeof b === 'object' && !Array.isArray(b);
-    if (aIsObj && bIsObj) {
-      const ao = a as Record<string, unknown>;
-      const bo = b as Record<string, unknown>;
-      const keys = new Set([...Object.keys(ao), ...Object.keys(bo)]);
+    if (isPlainRecord(a) && isPlainRecord(b)) {
+      const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
       for (const k of keys) {
         const next = fieldPath ? `${fieldPath}.${k}` : k;
-        walk(ao[k], bo[k], next);
+        walk(a[k], b[k], next);
       }
       return;
     }
