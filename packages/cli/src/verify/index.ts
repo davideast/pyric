@@ -393,6 +393,16 @@ function verifyFirestoreSandbox(
           });
         }
       } else if (tc.expectation === 'ALLOW' && effectiveDecision !== 'ALLOW') {
+        const isTransientPath =
+          !(tc.path in firestore.state.documents) && !(tc.path in initialData);
+        if (isTransientPath) {
+          const stateDriftIdx = mapped.findIndex(
+            (d) => d.path === tc.path && d.kind === 'state-drift',
+          );
+          if (stateDriftIdx >= 0) {
+            mapped.splice(stateDriftIdx, 1);
+          }
+        }
         const hasExistingDivergence = mapped.some(
           (d) => d.path === tc.path && d.kind !== 'expected-drift',
         );
