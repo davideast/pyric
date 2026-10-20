@@ -397,15 +397,11 @@
         "typescript": "^5.7.0",
       },
       "peerDependencies": {
-        "@inbrowser/agent": "0.4.2",
         "firebase": ">=12",
         "pyric": "workspace:*",
         "react": ">=18",
         "react-dom": ">=18",
       },
-      "optionalPeers": [
-        "@inbrowser/agent",
-      ],
     },
   },
   "overrides": {

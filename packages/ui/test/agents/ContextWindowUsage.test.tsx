@@ -14,12 +14,18 @@ g.IS_REACT_ACT_ENVIRONMENT = true;
 
 import { afterEach, describe, expect, it } from 'bun:test';
 import { cleanup, fireEvent, render } from '@testing-library/react';
-import type { ContextWindowSnapshot } from '@inbrowser/agent/usage';
+import type { ContextWindowSnapshot as UpstreamContextWindowSnapshot } from '@inbrowser/agent/usage';
 import {
   ContextWindowMeter,
   ContextWindowPanel,
   RequestUsageTimeline,
+  type ContextWindowSnapshot,
 } from '../../src/agents/index.js';
+
+// Compile-time structural assignability proof against @inbrowser/agent/usage:
+export const _assertUpstreamSnapshotAssignable = (
+  upstream: UpstreamContextWindowSnapshot,
+): ContextWindowSnapshot => upstream;
 
 afterEach(() => cleanup());
 
@@ -136,5 +142,15 @@ describe('context/token usage agent components', () => {
     expect(container.querySelector('[data-pyric-ui="request-usage-row"]')).not.toBeNull();
     fireEvent.click(container.querySelector('[data-pyric-ui="request-usage-tool"]')!);
     expect(opened).toEqual(['m1:c1']);
+  });
+
+  it('ships self-contained structural usage declarations with zero @inbrowser/agent peer dependency', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const uiRoot = path.resolve(import.meta.dir, '../..');
+    const pkg = JSON.parse(fs.readFileSync(path.join(uiRoot, 'package.json'), 'utf8'));
+    expect(pkg.dependencies?.['@inbrowser/agent']).toBeUndefined();
+    expect(pkg.peerDependencies?.['@inbrowser/agent']).toBeUndefined();
+    expect(pkg.peerDependenciesMeta?.['@inbrowser/agent']).toBeUndefined();
   });
 });
