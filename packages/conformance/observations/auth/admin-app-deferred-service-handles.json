@@ -1,0 +1,54 @@
+{
+  "name": "admin-app-deferred-service-handles",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "All 12 additional firebase-admin modular service factories (getAppCheck, getDataConnect, getEventarc, getExtensions, getFunctions, getInstallations, getInstanceId, getMachineLearning, getPhoneNumberVerification, getProjectManagement, getRemoteConfig, getSecurityRules) and the 7 matching root admin.*() accessors throw FirebaseAppError app/no-app before initializeApp(), and after initializeApp() resolve the default or named App synchronously without network I/O, bind handle.app === app, and cache per app (with DataConnect cached per location-serviceId). rowIds empty — admin-bootstrap capture; admin matrix rows land post-publish.",
+  "observedAt": "2026-10-20T14:40:03.323Z",
+  "adminSdkVersion": "13.10.0",
+  "behavior": {
+    "noAppCode": "app/no-app",
+    "noAppErrorName": "FirebaseAppError",
+    "noAppMessage": "The default Firebase app does not exist. Make sure you call initializeApp() before using any of the Firebase services.",
+    "noAppAppliesTo": [
+      "getAppCheck",
+      "getDataConnect",
+      "getEventarc",
+      "getExtensions",
+      "getFunctions",
+      "getInstallations",
+      "getInstanceId",
+      "getMachineLearning",
+      "getPhoneNumberVerification",
+      "getProjectManagement",
+      "getRemoteConfig",
+      "getSecurityRules"
+    ],
+    "resolvedFactories": [
+      "getAppCheck",
+      "getDataConnect",
+      "getEventarc",
+      "getExtensions",
+      "getFunctions",
+      "getInstallations",
+      "getInstanceId",
+      "getMachineLearning",
+      "getPhoneNumberVerification",
+      "getProjectManagement",
+      "getRemoteConfig",
+      "getSecurityRules"
+    ],
+    "allBindExactApp": true,
+    "allCachePerApp": true,
+    "allIsolateNamedApp": true,
+    "matchingRootAccessors": [
+      "appCheck",
+      "installations",
+      "instanceId",
+      "machineLearning",
+      "projectManagement",
+      "remoteConfig",
+      "securityRules"
+    ],
+    "dataConnectCachesByLocationAndServiceId": true
+  }
+}

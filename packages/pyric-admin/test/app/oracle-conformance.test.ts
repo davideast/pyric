@@ -34,6 +34,19 @@ import { getDatabase } from '../../src/database/index.js';
 import { getAuth } from '../../src/auth/index.js';
 import { getStorage } from '../../src/storage/index.js';
 import { getFirestore } from '../../src/firestore/index.js';
+import admin from '../../src/admin.js';
+import { getAppCheck } from '../../src/app-check/index.js';
+import { getDataConnect } from '../../src/data-connect/index.js';
+import { getEventarc } from '../../src/eventarc/index.js';
+import { getExtensions } from '../../src/extensions/index.js';
+import { getFunctions } from '../../src/functions/index.js';
+import { getInstallations } from '../../src/installations/index.js';
+import { getInstanceId } from '../../src/instance-id/index.js';
+import { getMachineLearning } from '../../src/machine-learning/index.js';
+import { getPhoneNumberVerification } from '../../src/phone-number-verification/index.js';
+import { getProjectManagement } from '../../src/project-management/index.js';
+import { getRemoteConfig } from '../../src/remote-config/index.js';
+import { getSecurityRules } from '../../src/security-rules/index.js';
 
 // admin-app-* observations live under the 'auth' surface subdirectory.
 const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations', 'auth');
@@ -254,11 +267,87 @@ describe('oracle conformance (admin app registry)', () => {
     expect(snap.val()).toEqual(bad);
   });
 
+  it('admin-app-deferred-service-handles (all 12 deferred factories + 7 root accessors)', () => {
+    const obs = load('admin-app-deferred-service-handles');
+    const connector = { location: 'us-central1', serviceId: 'svc', connector: 'conn-a' } as const;
+    const factories: ReadonlyArray<readonly [string, (app?: PyricAdminApp) => { readonly app: PyricAdminApp }]> = [
+      ['getAppCheck', (app) => getAppCheck(app)],
+      ['getDataConnect', (app) => getDataConnect(connector, app)],
+      ['getEventarc', (app) => getEventarc(app)],
+      ['getExtensions', (app) => getExtensions(app)],
+      ['getFunctions', (app) => getFunctions(app)],
+      ['getInstallations', (app) => getInstallations(app)],
+      ['getInstanceId', (app) => getInstanceId(app)],
+      ['getMachineLearning', (app) => getMachineLearning(app)],
+      ['getPhoneNumberVerification', (app) => getPhoneNumberVerification(app)],
+      ['getProjectManagement', (app) => getProjectManagement(app)],
+      ['getRemoteConfig', (app) => getRemoteConfig(app)],
+      ['getSecurityRules', (app) => getSecurityRules(app)],
+    ];
+
+    // 1. Before initializeApp(): every factory throws FirebaseAppError app/no-app.
+    const noAppAppliesTo: string[] = [];
+    for (const [name, fn] of factories) {
+      const err = expectThrewCode(() => fn(), obs.noAppCode as string);
+      expect(err.name).toBe(obs.noAppErrorName as string);
+      expect(err.message).toBe(obs.noAppMessage as string);
+      noAppAppliesTo.push(name);
+    }
+    expect(noAppAppliesTo).toEqual(obs.noAppAppliesTo as string[]);
+
+    // 2. With default + named apps: synchronous handle resolution, app binding, per-app caching.
+    const defaultApp = initializeApp({ sandbox: initializeSandbox() });
+    const secondaryApp = initializeApp({ sandbox: initializeSandbox() }, 'secondary');
+    const resolvedFactories: string[] = [];
+    let allBindExactApp = true;
+    let allCachePerApp = true;
+    let allIsolateNamedApp = true;
+    for (const [name, fn] of factories) {
+      const noArg = fn();
+      const explicit = fn(defaultApp);
+      const secondary = fn(secondaryApp);
+      resolvedFactories.push(name);
+      if (noArg.app !== defaultApp || secondary.app !== secondaryApp) allBindExactApp = false;
+      if (noArg !== explicit) allCachePerApp = false;
+      if (secondary === explicit) allIsolateNamedApp = false;
+    }
+    expect(resolvedFactories).toEqual(obs.resolvedFactories as string[]);
+    expect(allBindExactApp).toBe(obs.allBindExactApp as boolean);
+    expect(allCachePerApp).toBe(obs.allCachePerApp as boolean);
+    expect(allIsolateNamedApp).toBe(obs.allIsolateNamedApp as boolean);
+
+    // 3. Root admin.*() accessors match their modular counterparts.
+    const rootPairs: ReadonlyArray<
+      readonly [string, (app?: PyricAdminApp) => unknown, (app?: PyricAdminApp) => unknown]
+    > = [
+      ['appCheck', (app) => admin.appCheck(app), (app) => getAppCheck(app)],
+      ['installations', (app) => admin.installations(app), (app) => getInstallations(app)],
+      ['instanceId', (app) => admin.instanceId(app), (app) => getInstanceId(app)],
+      ['machineLearning', (app) => admin.machineLearning(app), (app) => getMachineLearning(app)],
+      ['projectManagement', (app) => admin.projectManagement(app), (app) => getProjectManagement(app)],
+      ['remoteConfig', (app) => admin.remoteConfig(app), (app) => getRemoteConfig(app)],
+      ['securityRules', (app) => admin.securityRules(app), (app) => getSecurityRules(app)],
+    ];
+    const matchingRootAccessors = rootPairs
+      .filter(([, rootFn, modFn]) => rootFn() === modFn() && rootFn(defaultApp) === modFn(defaultApp))
+      .map(([name]) => name);
+    expect(matchingRootAccessors).toEqual(obs.matchingRootAccessors as string[]);
+
+    // 4. DataConnect caches per `${location}-${serviceId}` matching upstream DataConnectService.
+    const dcSameService =
+      getDataConnect({ location: 'us-central1', serviceId: 'svc', connector: 'conn-a' }, defaultApp) ===
+      getDataConnect({ location: 'us-central1', serviceId: 'svc', connector: 'conn-b' }, defaultApp);
+    const dcDifferentService =
+      getDataConnect({ location: 'us-central1', serviceId: 'svc-other', connector: 'conn-a' }, defaultApp) !==
+      getDataConnect({ location: 'us-central1', serviceId: 'svc', connector: 'conn-a' }, defaultApp);
+    expect(dcSameService && dcDifferentService).toBe(obs.dataConnectCachesByLocationAndServiceId as boolean);
+  });
+
   // ── completeness: every admin-app observation is asserted or explicitly N/A ─
 
   it('every admin-app observation is covered (no silent gaps)', () => {
     const r = obsGate.report();
-    expect(r.committed.length).toBeGreaterThanOrEqual(11);
+    expect(r.committed.length).toBeGreaterThanOrEqual(12);
     expect(r.loadedButUnused).toEqual([]); // a bare load() with no field read fails
     expect(r.uncovered).toEqual([]); // every capture is asserted or explicitly N/A
   });
