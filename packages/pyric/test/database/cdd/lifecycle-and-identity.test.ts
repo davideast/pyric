@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import { deleteApp, initializeApp } from '../../../src/app/index.js';
 import { bindAppRegistryRefusal, resetAppRegistryForTests } from '../../../src/app/registry.js';
-import { clientSdkRefusal } from '../../../src/app/client-sdk-refusal.js';
+import { clientSdkRefusal, clientSdkRefusalFor } from '../../../src/app/client-sdk-refusal.js';
 import {
   TARGET_SYMBOL,
   api,
@@ -446,5 +446,43 @@ describe('rtdb-modular CDD: calls in flight at a hosted connection drop', () => 
     } finally {
       await resetAppRegistryForTests();
     }
+  });
+
+  // Row RS2 records the client SDKs in server-rendered modules under vite dev
+  // (#1123): the dev server's in-process activation stands in for
+  // PYRIC_SANDBOX, so they run as one SSR session on its host. The sandbox
+  // side: rules evaluate per session, and the refusal a service with no path
+  // to the host gets names that activation.
+  row('RS2', async () => {
+    const sandbox = initializeSandbox();
+    const rules = { rules: { users: { $uid: { '.read': 'auth.uid === $uid', '.write': 'auth.uid === $uid' } } } };
+    rtdbSandbox.setRules(getDatabase(sandbox), rules);
+    const session = getDatabase(sandbox.withAuth({ uid: 'ssr-user' }));
+    await expect(api.set(api.ref(session, 'users/ssr-user/page'), 'mine')).resolves.toBeUndefined();
+    await expect(api.set(api.ref(session, 'users/someone-else/page'), 'theirs')).rejects.toMatchObject({ code: 'PERMISSION_DENIED' });
+
+    await resetAppRegistryForTests();
+    const label = "the Vite dev server's server-rendered modules";
+    bindAppRegistryRefusal(() => clientSdkRefusalFor(label));
+    try {
+      const app = initializeApp({ projectId: 'demo-app' });
+      expect(() => getDatabase(app)).toThrow(label);
+    } finally {
+      await resetAppRegistryForTests();
+    }
+  });
+
+  // Row RS3 records firebase-admin in server-rendered modules under vite dev:
+  // pyric-admin bound to the dev server's host, as admin. The sandbox side:
+  // an admin handle reads and writes past the rules that deny a signed-in user.
+  row('RS3', async () => {
+    const sandbox = initializeSandbox();
+    const rules = { rules: { users: { $uid: { '.read': 'auth.uid === $uid', '.write': 'auth.uid === $uid' } } } };
+    rtdbSandbox.setRules(getDatabase(sandbox), rules);
+    const admin = getAdminDatabase(sandbox);
+    await expect(api.set(api.ref(admin, 'users/ssr-user/page'), 'from admin')).resolves.toBeUndefined();
+    expect((await api.get(api.ref(admin, 'users/ssr-user/page'))).val()).toBe('from admin');
+    const stranger = getDatabase(sandbox.withAuth({ uid: 'someone-else' }));
+    await expect(api.get(api.ref(stranger, 'users/ssr-user/page'))).rejects.toMatchObject({ code: 'PERMISSION_DENIED' });
   });
 });

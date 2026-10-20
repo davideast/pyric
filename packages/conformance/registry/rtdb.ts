@@ -3463,6 +3463,32 @@ export const rtdbRegistry = {
         }),
       ],
     },
+    {
+      kind: 'table',
+      prefix: "### Server-rendered modules under `vite dev`\n\nModules Vite loads for server rendering under `vite dev` with `pyric()` (`server.ssrLoadModule`, a runnable environment, a framework's SSR entry and loaders) get the modules a registered server process gets (#1123): the client SDKs reach the dev server's own Node host as one signed-in SSR session per dev server process, and `firebase-admin` reaches it as admin. This holds with Vite's default externalization and with `ssr.noExternal`. A SharedWorker dev server refuses them, naming `pyric({ hosted: true })`, and a server environment Vite does not run in its own process (workerd) gets a module that throws when it loads. In production these modules run the Firebase SDKs in the server's runtime and reach the project.\n",
+      rows: [
+        serverProcessRow({
+          rowRef: "RS2",
+          section: "Server-rendered modules under vite dev",
+          featureKeys: ["getDatabase"],
+          api: "getDatabase(app) in a server-rendered module under vite dev",
+          behavior: "On a hosted dev server, `firebase/database` in a server-rendered module reads and writes the host's data under its rules as the SSR session's user: a write the rules deny for that user fails with `PERMISSION_DENIED`. `ssrLoadModule`, the environment runner and every `ssr.noExternal` setting share one app and one session. Closing the dev server lets the process go, so a process that created the server through Vite's API ends on its own, though RTDB would otherwise hold it until `goOffline()`. On a SharedWorker dev server every call fails with `failed-precondition` and a message naming `pyric({ hosted: true })`. No call reaches production or an in-process sandbox.",
+          statusNote: "one SSR session per dev server process, as one Node server process has one auth state; per-request identity (`initializeServerApp`) is unsupported",
+          evidence: "App scenario `test/apps/vite-ssr-client-sdk` writes and reads the SSR user's own path, is denied another user's, reads the writes back with `firebase-admin` in SSR and in a process on the host, repeats it with `ssr.noExternal` `['firebase']` and `true`, refuses on a SharedWorker dev server, and creates a dev server through Vite's API that ends on its own after SSR used RTDB. On main (ba2c0bf0a) the scenario failed: SSR sign-in rejected with `auth/network-request-failed` from the network guard, and the RTDB, Firestore and Storage writes did not settle, because the imports loaded the real SDK. `vite-module-swap.test.ts` pins the routing per specifier, AI mode and environment (Vite 5's `ssr` option, a runnable environment, a non-runnable one), `vite-ssr-activation.test.ts` the host, the restart hand-over and the SharedWorker refusal, and `vite-plugin-firestore.test.ts` runs Vite with `firebase` installed, so it takes the externalized path. CDD assertion `rtdb-modular#RS2` pins the sandbox side. `node-realm.test.ts` pins the release when the in-process host ends.",
+          conformanceTests: ["test/apps/vite-ssr-client-sdk/scenario.ts", "packages/cli/test/serve/vite-module-swap.test.ts", "packages/cli/test/serve/vite-ssr-activation.test.ts", "packages/cli/test/serve/vite-plugin-firestore.test.ts", "packages/cli/test/register/node-realm.test.ts", "packages/pyric/test/database/cdd/lifecycle-and-identity.test.ts"],
+        }),
+        serverProcessRow({
+          rowRef: "RS3",
+          section: "Server-rendered modules under vite dev",
+          featureKeys: ["getDatabase"],
+          api: "firebase-admin/database in a server-rendered module under vite dev",
+          behavior: "On a hosted dev server, `firebase-admin` in a server-rendered module resolves to `pyric-admin` bound to the dev server's host, as a `firebase-admin` process on the host is: a bare `initializeApp()` connects to it, reads bypass the rules, and the writes of browsers and SSR sessions are visible. On a SharedWorker dev server its first call fails with `failed-precondition` and a message naming `pyric({ hosted: true })`, without dialing.",
+          statusNote: "admin reads and writes bypass the rules, as firebase-admin's do",
+          evidence: "App scenario `test/apps/vite-ssr-client-sdk` reads a path the rules let only the SSR user read, and a browser's write, with `firebase-admin` in SSR through both loaders and with each externalization setting, and gets the refusal on a SharedWorker dev server. On main (ba2c0bf0a) `firebase-admin` in SSR was the real SDK. `ambient-init.test.ts` pins that a bare `initializeApp()` binds the in-process activation's sandbox when PYRIC_SANDBOX is unset, and that the variable wins when set. CDD assertion `rtdb-modular#RS3` pins the sandbox side.",
+          conformanceTests: ["test/apps/vite-ssr-client-sdk/scenario.ts", "packages/pyric-admin/test/app/ambient-init.test.ts", "packages/pyric/test/database/cdd/lifecycle-and-identity.test.ts"],
+        }),
+      ],
+    },
   ],
 } satisfies CompatibilitySurfaceRegistry;
 
