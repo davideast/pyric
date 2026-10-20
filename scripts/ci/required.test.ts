@@ -34,6 +34,13 @@ describe('required CI result', () => {
     const entries = [...nativeJob.matchAll(/- sdk: (\w+)\n\s+os: [\w-]+\n\s+blocking: (true|false)/g)]
       .map(([, sdk, blocking]) => [sdk, blocking]);
     expect(Object.fromEntries(entries)).toEqual({ kotlin: 'false', flutter: 'true', swift: 'true' });
+    // Job-level `continue-on-error` alone still marks the GitHub Check Run red (`X`),
+    // causing `gh pr checks` to exit 1. Kotlin steps must also carry step-level
+    // `continue-on-error: true` while Flutter and Swift steps stay hard-failing.
+    const kotlinStep = nativeJob.slice(nativeJob.indexOf('- name: Run Kotlin client tests'), nativeJob.indexOf('- name: Set up Flutter'));
+    expect(kotlinStep).toContain('continue-on-error: true');
+    const blockingSteps = nativeJob.slice(nativeJob.indexOf('- name: Set up Flutter'));
+    expect(blockingSteps).not.toContain('continue-on-error: true');
   });
 
   test('accepts skipped jobs only when their check set did not select them', () => {
