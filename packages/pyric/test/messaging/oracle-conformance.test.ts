@@ -34,7 +34,7 @@ import { join } from 'node:path';
 import { messagingRows } from '../../../../packages/conformance/registry/messaging.ts';
 import { createObservationGate } from '../../../../packages/conformance/src/observation-gate.ts';
 import { initializeApp } from 'pyric/app';
-import { bindAppRegistryRefusal, clientSdkRefusal, createAppForSandbox } from 'pyric/app/internal';
+import { bindAppRegistryRefusal, clientSdkRefusal, clientSdkRefusalFor, createAppForSandbox } from 'pyric/app/internal';
 import { initializeSandbox } from 'pyric/sandbox';
 import { BrokerSendError, DEFAULT_SENDER_ID, getMessagingBroker } from 'pyric/messaging/internal';
 import { resetAppRegistryForTests } from '../../dist/app/registry.js';
@@ -486,6 +486,21 @@ const assertions: Record<string, () => Promise<void> | void> = {
     try {
       const app = initializeApp({ apiKey: 'demo', appId: 'demo', projectId: 'demo-app' });
       expect(() => m.getMessaging(app)).toThrow(expect.objectContaining({ code: 'failed-precondition' }));
+    } finally {
+      await resetAppRegistryForTests();
+    }
+  },
+  'messaging#RS2': async () => {
+    // Server-rendered modules under vite dev (#1123) bind the registry to the
+    // refusal under the dev server's in-process activation, named by its label.
+    const m = await loadClient();
+    await resetAppRegistryForTests();
+    const label = "the Vite dev server's server-rendered modules";
+    bindAppRegistryRefusal(() => clientSdkRefusalFor(label));
+    try {
+      const app = initializeApp({ apiKey: 'demo', appId: 'demo', projectId: 'demo-app' });
+      expect(() => m.getMessaging(app)).toThrow(expect.objectContaining({ code: 'failed-precondition' }));
+      expect(() => m.getMessaging(app)).toThrow(label);
     } finally {
       await resetAppRegistryForTests();
     }

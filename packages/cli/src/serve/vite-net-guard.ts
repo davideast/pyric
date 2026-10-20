@@ -1,13 +1,14 @@
 /**
  * The network guard in the Vite dev server process.
  *
- * Under `vite dev` the plugin swaps `firebase/*` for the browser. Modules Vite
- * loads for server rendering (`ssrLoadModule`, an environment runner, a
- * framework's SSR entry or loaders) are a different path: Vite externalizes
- * installed packages for SSR before any plugin `resolveId` runs, so their
- * `firebase/*` and `firebase-admin/*` imports load the real SDKs and talk to
- * live Firebase (#1123). Until the plugin routes them, this guard keeps that
- * traffic from reaching production.
+ * Under `vite dev` the plugin swaps `firebase/*` for the browser and routes
+ * the served `firebase/*` subpaths and `firebase-admin/*` in the modules Vite
+ * loads for server rendering to the sandbox (`vite-ssr-routing.ts`, #1123).
+ * Some Firebase code in the dev server process still loads the real SDK:
+ * other `firebase/*` subpaths, an installed package Vite externalizes that
+ * imports `firebase` itself (Node loads it, so no plugin sees its imports),
+ * and the config file's own imports. This guard keeps that traffic from
+ * reaching production.
  *
  * It installs the register's guard (`../register/net-guard.ts`) rather than a
  * copy. Two things differ from a `@pyric/cli/register` child:
@@ -29,12 +30,13 @@ export const VITE_SSR_ISSUE_URL = 'https://github.com/davideast/pyric/issues/112
 /** Stands in for `PYRIC_SANDBOX` in the env the guard reads; never written to `process.env`. */
 const VITE_GUARD_ACTIVATOR = 'vite-dev';
 
-/** Explains a guard verdict in the dev server: why SSR code reached production. */
+/** Explains a guard verdict in the dev server: which Firebase code still reaches production. */
 export const VITE_SSR_GUARD_NOTE =
-  '[pyric] This Vite dev server does not swap firebase/* or firebase-admin/* imports in server-rendered ' +
-  `modules yet, so those calls go to live Firebase instead of the sandbox (${VITE_SSR_ISSUE_URL}). ` +
-  'Until then, call Firebase from browser code, or call firebase-admin from a separate process started with ' +
-  '`node --import @pyric/cli/register` and PYRIC_SANDBOX=remote against a hosted dev server.\n';
+  '[pyric] Firebase code in this Vite dev server process tried to reach live Firebase. The plugin routes ' +
+  'the served firebase/* imports and firebase-admin/* in server-rendered modules to the sandbox; other ' +
+  'firebase/* subpaths, an installed package that imports firebase itself, and the Vite config\'s own ' +
+  `imports keep the real SDK (${VITE_SSR_ISSUE_URL}). Call that Firebase code from a module Vite loads, ` +
+  'or from a separate process started with `node --import @pyric/cli/register` and PYRIC_SANDBOX=remote.\n';
 
 type GuardSlot = Record<symbol, unknown>;
 

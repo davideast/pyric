@@ -92,10 +92,18 @@ export function releaseUpgradedSocket(
 export interface NodeSocketRealm extends HostedSocketRealm {
   /** Whether the realm is holding the process (for tests). */
   holdsProcess(): boolean;
+  /**
+   * Stops every connection open now from holding the process, for a host in
+   * this process that has ended for good: production RTDB holds a process
+   * while it reconnects, but nothing will answer these connections again.
+   * Connections opened later hold the process as usual.
+   */
+  releaseAll(): void;
 }
 
 export function createNodeSocketRealm(options: { onAttached?: (ack: { serveVersion?: unknown }) => void } = {}): NodeSocketRealm {
   const ports = new Map<ClientPort, PortState>();
+  const releasedPorts = new WeakSet<ClientPort>();
   let keepAlive: ReturnType<typeof setInterval> | undefined;
   let recomputeQueued = false;
 
@@ -145,6 +153,8 @@ export function createNodeSocketRealm(options: { onAttached?: (ack: { serveVersi
       if (canRelease) timer.unref();
     },
     traffic(port, event) {
+      const isReleased = releasedPorts.has(port);
+      if (isReleased) return;
       const state = stateOf(port);
       if (event.closed === true) {
         state.closed = true;
@@ -164,6 +174,11 @@ export function createNodeSocketRealm(options: { onAttached?: (ack: { serveVersi
     },
     holdsProcess() {
       return keepAlive !== undefined;
+    },
+    releaseAll() {
+      for (const port of ports.keys()) releasedPorts.add(port);
+      ports.clear();
+      recompute();
     },
   };
 }

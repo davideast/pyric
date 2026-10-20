@@ -30,9 +30,14 @@ export function isRemoteSandboxActivation(value: string | undefined): boolean {
 
 /** The error a client service with no path to the host raises in a remotely activated process. */
 export function clientSdkRefusal(setting: string): FirebaseError {
+  return clientSdkRefusalFor(`PYRIC_SANDBOX=${setting.trim()}`);
+}
+
+/** The same refusal, for an activation named by `label` (an in-process activation names itself). */
+export function clientSdkRefusalFor(label: string): FirebaseError {
   return new FirebaseError(
     'failed-precondition',
-    `pyric: this client Firebase service does not reach the sandbox host from a server process (PYRIC_SANDBOX=${setting.trim()}). ` +
+    `pyric: this client Firebase service does not reach the sandbox host from a server process (${label}). ` +
       'On the Node host, firebase/database, firebase/firestore, firebase/auth and firebase/storage do; ' +
       `use firebase-admin in server code for anything else. See ${ISSUE_URL}.`,
   );

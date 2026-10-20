@@ -99,6 +99,12 @@ export interface BridgeMount {
   mcpUrl(origin: { host: string; port: number }): string;
 }
 
+/** A host as a URL writes it: an IPv6 literal (`::1`, from `server.host`) in brackets. */
+export function urlHost(host: string): string {
+  const isBareIpv6 = host.includes(':') && !host.startsWith('[');
+  return isBareIpv6 ? `[${host}]` : host;
+}
+
 export interface BridgeHostOptions {
   /** Every server accepting upgrades (static serve may bind both IP families). */
   servers: Server[];
@@ -649,8 +655,8 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
     },
     sandboxConnected: () => bridge.health().sandboxConnected === true,
     onSandboxPeerConnected: bridge.onSandboxPeerConnected,
-    wsUrl: ({ host, port }) => `ws://${host}:${port}${WS_PATH}`,
-    mcpUrl: ({ host, port }) => `http://${host}:${port}${MCP_PATH}`,
+    wsUrl: ({ host, port }) => `ws://${urlHost(host)}:${port}${WS_PATH}`,
+    mcpUrl: ({ host, port }) => `http://${urlHost(host)}:${port}${MCP_PATH}`,
     close(): Promise<void> {
       const closing = closePromise;
       const isClosing = closing !== null;

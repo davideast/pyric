@@ -59,6 +59,20 @@ import { createViteModuleContext, createViteModuleSwap } from './vite-module-swa
 import { createVitePageRuntime } from './vite-page-runtime.js';
 import { stampHostedTarget } from './runtime/hosted-target.js';
 import { installViteNetGuard } from './vite-net-guard.js';
+import { attachViteSsrActivation } from './vite-ssr-activation.js';
+import type { SwapEnvironment, SwapResolveContext } from './vite-module-swap.js';
+
+/** Vite 6's `configEnvironment` hook, which the Vite 5 `Plugin` type does not declare. */
+interface EnvironmentHooks {
+  configEnvironment(name: string, config: { consumer?: string }): { resolve: { external: string[] } } | null;
+}
+
+/** The plugin context's `environment`, present from Vite 6. */
+function environmentOf(context: object): SwapEnvironment | undefined {
+  const hasEnvironment = 'environment' in context;
+  if (!hasEnvironment) return undefined;
+  return (context as { environment?: SwapEnvironment }).environment;
+}
 
 export interface PyricOptions {
   /** Run the dev sandbox in the Vite server process, shared across browsers and
@@ -229,7 +243,7 @@ function resolveFirebaseProjectDir(defaultRoot: string, explicitRoot?: string): 
  *   import { pyric } from '@pyric/cli/vite';
  *   export default defineConfig({ plugins: [pyric()] });
  */
-export function pyric(options: PyricOptions = {}): Plugin {
+export function pyric(options: PyricOptions = {}): Plugin & EnvironmentHooks {
   const moduleContext = createViteModuleContext();
   const { entries, cliRoot } = moduleContext;
   const workerRuntime = createViteWorkerRuntime();
@@ -275,7 +289,7 @@ export function pyric(options: PyricOptions = {}): Plugin {
       // the dev server: a build or a preview runs no server-rendered app code.
       const isDevServer = env.command === 'serve' && env.isPreview !== true;
       if (isDevServer) installViteNetGuard();
-      const moduleConfig = moduleSwap.config();
+      const moduleConfig = moduleSwap.config({ devServer: isDevServer });
       const pageConfig = pageRuntime.config(config, env);
       const serverWatchConfig: UserConfig = {
         server: {
@@ -300,12 +314,20 @@ export function pyric(options: PyricOptions = {}): Plugin {
       if (isBuild) owners = await readOwners(resolveFirebaseProjectDir(resolved.root, options.root), options.owners);
     },
 
-    resolveId(source, importer) {
-      return moduleSwap.resolveId(source, importer);
+    configEnvironment(name, environmentConfig) {
+      return moduleSwap.configEnvironment(name, environmentConfig);
+    },
+
+    resolveId(source, importer, resolveOptions) {
+      const context: SwapResolveContext = {
+        resolve: (id, from, opts) => this.resolve(id, from, opts),
+        environment: environmentOf(this),
+      };
+      return moduleSwap.resolvePluginId(context, source, importer, resolveOptions);
     },
 
     load(id) {
-      return moduleSwap.load(id);
+      return moduleSwap.loadPluginModule(id);
     },
 
     async configureServer(server) {
@@ -343,6 +365,8 @@ export function pyric(options: PyricOptions = {}): Plugin {
       };
       const generation = await createViteSandboxGeneration(generationInput);
       slot.set(generation);
+      // Server-rendered firebase/* and firebase-admin/* reach this server's host (#1123).
+      const ssrActivation = attachViteSsrActivation(server, options.hosted === true);
       hostedProjectKey = options.hosted ? projectDir : undefined;
       // Vite creates a replacement before closing the old server. Cleanup
       // belongs to this server, even when another generation is now active;
@@ -350,6 +374,7 @@ export function pyric(options: PyricOptions = {}): Plugin {
       const closeServer = server.close.bind(server);
       server.close = async () => {
         slot.release(generation);
+        ssrActivation.close();
         try {
           await generation.close();
         } finally {

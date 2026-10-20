@@ -79,6 +79,13 @@
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js"
     },
+    "./vite/ssr-loader": {
+      "types": "./dist/serve/vite-ssr-loader.d.ts",
+      "node": {
+        "types": "./dist/serve/vite-ssr-loader.d.ts",
+        "import": "./dist/serve/vite-ssr-loader.js"
+      }
+    },
     "./next": {
       "types": "./dist/next/index.d.ts",
       "import": "./dist/next/index.js"

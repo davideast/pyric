@@ -29,11 +29,21 @@ export default { plugins: [pyric()] };
 
 When the bundler reaches `firebase/firestore` in browser code, it gets Pyric's mirror instead of the Firebase SDK. Your `addDoc` call lands in a local backend with your rules enforced. No request leaves your machine. Because resolution happens before bundling, the swap reaches your dependencies too. A library that imports `firebase/firestore` on your behalf lands on the sandbox exactly like your own code.
 
-### Server-rendered modules are not swapped yet
+### Server-rendered modules
 
-Modules Vite loads for server rendering under `vite dev` keep the Firebase SDK: `server.ssrLoadModule`, an environment runner, and the SSR entry and loaders of a framework built on Vite. Vite loads installed packages for those modules straight from `node_modules`, before any plugin resolves them, so their `firebase/*` and `firebase-admin/*` imports would talk to your real project.
+Under `vite dev`, modules Vite loads for server rendering get the swap too: `server.ssrLoadModule`, an environment runner, and the SSR entry and loaders of a framework built on Vite. They get the same modules a Node process started with `node --import @pyric/cli/register` gets.
 
-The dev server's network guard refuses those connections instead. Sign-in fails with `auth/network-request-failed`. Realtime Database, Firestore, and Storage calls stay pending while the SDK retries, as they do offline. The dev server log names each refused host. Routing these imports to the sandbox is tracked in [#1123](https://github.com/davideast/pyric/issues/1123). Until then, make Firebase calls from browser code.
+| In a server-rendered module | `pyric({ hosted: true })` | the default SharedWorker sandbox |
+|---|---|---|
+| `firebase/app`, `auth`, `database`, `firestore`, `storage` | reach the dev server's sandbox, signed in as the server's own user, under your rules | each call fails with `failed-precondition`, naming `hosted: true` |
+| `firebase/ai`, `firebase/messaging` | each call fails with `failed-precondition` | the same |
+| `firebase-admin/*` | reaches the dev server's sandbox as admin, past your rules | each call fails with `failed-precondition`, naming `hosted: true` |
+
+Server code has one signed-in user for the whole dev server process, shared by every request, as a Node server that calls `initializeApp` has in production. Browser sessions are separate.
+
+Vite's default externalization and `ssr.noExternal` both work. A server environment Vite does not run in its own Node process, such as a Cloudflare Workers runtime, gets a module that throws when it loads.
+
+The dev server's network guard stays on for Firebase code the swap does not reach: other `firebase/*` subpaths, an installed package that imports `firebase` itself, and your Vite config's own imports. The dev server log names each refused host.
 
 `pyric sandbox` does the same swap for a static page or a Node process. The served page carries an import map, so the browser makes the same substitution without Vite.
 

@@ -28,9 +28,24 @@ The plugin attaches directly to Vite's Connect middleware stack and import map r
 
 ## Server-rendered code
 
-Under `vite dev`, modules Vite loads for server rendering are not swapped yet ([#1123](https://github.com/davideast/pyric/issues/1123)). Their `firebase/*` and `firebase-admin/*` imports get the Firebase SDK. The plugin runs a network guard in the dev server process that refuses connections to live Google and Firebase endpoints, so those calls fail or stay pending instead of reaching production. The dev server log names each refused host.
+Under `vite dev`, server-rendered modules get the swap too ([how the swap works](./how-the-swap-works.md#server-rendered-modules)). With `pyric({ hosted: true })`, their `firebase/*` calls reach the dev server's sandbox as the server's own signed-in user, under your rules, and `firebase-admin/*` reaches it as admin. With the default SharedWorker sandbox, server code cannot reach the sandbox, so those calls fail with `failed-precondition` and say to set `hosted: true`.
 
-`PYRIC_GUARD=warn` reports those connections and lets them through, `PYRIC_GUARD=off` turns the guard off, and `PYRIC_GUARD_ALLOW` permits the hosts it names. The AI upstream in the plugin's `ai` options stays permitted. In production AI mode (`ai: { mode: 'production' }`, `PYRIC_AI_MODE=production`, or `PYRIC_AI_PASSTHROUGH=1`), the guard also permits `firebasevertexai.googleapis.com`, so server-rendered `firebase/ai` calls reach Firebase AI Logic as you chose; in the default sandbox AI mode they are refused like the rest. The guard does not run during `vite build` or `vite preview`, and it does not affect browser code. See [Environment variables](../reference/cli.md#environment-variables).
+```js
+// src/routes/profile.server.js, loaded by your framework's dev SSR
+import { initializeApp, getApps } from 'firebase/app';
+import { getAuth, signInAnonymously } from 'firebase/auth';
+import { getDatabase, ref, set } from 'firebase/database';
+import { firebaseConfig } from '../firebase-config.js';
+
+const app = getApps()[0] ?? initializeApp(firebaseConfig);
+const { user } = await signInAnonymously(getAuth(app));
+await set(ref(getDatabase(app), `users/${user.uid}/lastSeen`), Date.now());
+// Lands in the dev server's sandbox; Studio and firebase-admin see it.
+```
+
+The plugin also runs a network guard in the dev server process that refuses connections to live Google and Firebase endpoints. It catches Firebase code the swap does not reach: other `firebase/*` subpaths, an installed package that imports `firebase` itself, and your Vite config's own imports. The dev server log names each refused host.
+
+`PYRIC_GUARD=warn` reports those connections and lets them through, `PYRIC_GUARD=off` turns the guard off, and `PYRIC_GUARD_ALLOW` permits the hosts it names. The AI upstream in the plugin's `ai` options stays permitted. In production AI mode (`ai: { mode: 'production' }`, `PYRIC_AI_MODE=production`, or `PYRIC_AI_PASSTHROUGH=1`), the guard also permits `firebasevertexai.googleapis.com`, so server-rendered `firebase/ai` calls reach Firebase AI Logic as you chose; in the default sandbox AI mode they fail with `failed-precondition`. The guard does not run during `vite build` or `vite preview`, and it does not affect browser code. See [Environment variables](../reference/cli.md#environment-variables).
 
 ## Start your local server
 

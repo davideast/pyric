@@ -24,6 +24,11 @@ import {
   type RemoteSandbox,
   type RemoteSandboxFactoryOptions,
 } from 'pyric/sandbox';
+import {
+  clearProcessActivation,
+  installProcessActivation,
+  type ProcessActivation,
+} from 'pyric/sandbox/internal';
 
 import {
   cert,
@@ -248,6 +253,45 @@ describe('ambient init — production guard', () => {
       const app = initializeApp(undefined, `test-app-${val}`);
       expect(isSandboxAdminApp(app)).toBe(true);
       if (isSandboxAdminApp(app)) expect(app.sandbox).toBe(handle);
+    }
+  });
+});
+
+describe('ambient init under an in-process activation (#1123)', () => {
+  function activationWith(sandbox: ReturnType<typeof initializeSandbox>): ProcessActivation {
+    return {
+      label: 'a host in this process',
+      host: () => Promise.resolve('http://127.0.0.1:5173'),
+      offHostError: (detail) => new Error(detail),
+      adminSandbox: () => sandbox,
+    };
+  }
+
+  it('binds the activation sandbox when PYRIC_SANDBOX is unset, and names the activation', () => {
+    const sandbox = initializeSandbox();
+    const activation = activationWith(sandbox);
+    installProcessActivation(activation);
+    try {
+      const app = initializeApp();
+      expect(isSandboxAdminApp(app) && app.sandbox).toBe(sandbox);
+      expect(initializeApp()).toBe(app);
+      expect(stderrLines).toEqual(['pyric: firebase-admin routed to sandbox (a host in this process)\n']);
+    } finally {
+      clearProcessActivation(activation);
+    }
+  });
+
+  it('lets PYRIC_SANDBOX win over the activation', () => {
+    const { calls, handle } = installFakeFactory();
+    const activation = activationWith(initializeSandbox());
+    installProcessActivation(activation);
+    process.env.PYRIC_SANDBOX = 'remote:http://127.0.0.1:9000';
+    try {
+      const app = initializeApp();
+      expect(isSandboxAdminApp(app) && app.sandbox).toBe(handle);
+      expect(calls).toEqual([{ url: 'http://127.0.0.1:9000' }]);
+    } finally {
+      clearProcessActivation(activation);
     }
   });
 });

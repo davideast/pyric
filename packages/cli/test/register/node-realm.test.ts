@@ -56,6 +56,23 @@ describe('Node socket realm', () => {
     expect(realm.holdsProcess()).toBe(false);
   });
 
+  it('lets the process go when its in-process host ends, and holds again for a new connection (#1123)', async () => {
+    const realm = createNodeSocketRealm();
+    const port = fakePort();
+    const rtdbSet = { t: 'op', id: 'a', method: 'rtdb.set', instance: undefined, path: 'x', value: 1 } as InboundMessage;
+    realm.traffic(port, { sent: rtdbSet });
+    await settle();
+    expect(realm.holdsProcess()).toBe(true);
+    realm.releaseAll();
+    expect(realm.holdsProcess()).toBe(false);
+    realm.traffic(port, { sent: rtdbSet });
+    await settle();
+    expect(realm.holdsProcess()).toBe(false);
+    realm.traffic(fakePort(), { sent: rtdbSet });
+    await settle();
+    expect(realm.holdsProcess()).toBe(true);
+  });
+
   it('does not hold for Auth or Firestore frames that wait on nothing', async () => {
     const realm = createNodeSocketRealm();
     const port = fakePort();

@@ -6,19 +6,24 @@ function ssrRoutes() {
   return {
     name: "ssr-routes",
     configureServer(server) {
-      const load = (runner) =>
+      const load = (runner, path) =>
         runner === "environment"
-          ? server.environments.ssr.runner.import("/src/ssr.js")
-          : server.ssrLoadModule("/src/ssr.js");
+          ? server.environments.ssr.runner.import(path)
+          : server.ssrLoadModule(path);
       server.middlewares.use(async (req, res, next) => {
         const url = new URL(req.url, "http://localhost");
-        const action = url.pathname.match(/^\/ssr\/(start|start-ai|status)$/)?.[1];
+        const action = url.pathname.match(/^\/ssr\/(run|run-ai|admin)$/)?.[1];
         if (!action) return next();
         try {
-          const mod = await load(url.searchParams.get("runner"));
+          const runner = url.searchParams.get("runner");
           const tag = url.searchParams.get("tag");
-          const actions = { start: mod.start, "start-ai": mod.startAiOnly, status: mod.status };
-          const body = actions[action](tag);
+          let body;
+          if (action === "admin") {
+            body = await (await load(runner, "/src/ssr-admin.js")).read(url.searchParams.get("uid"), tag);
+          } else {
+            const mod = await load(runner, "/src/ssr.js");
+            body = await (action === "run" ? mod.run(tag) : mod.runAiOnly());
+          }
           res.setHeader("content-type", "application/json");
           res.end(JSON.stringify(body));
         } catch (error) {
@@ -30,6 +35,12 @@ function ssrRoutes() {
   };
 }
 
+// The scenario starts this dev server in several shapes: the SharedWorker
+// sandbox (PYRIC_TEST_HOSTED=0), and the externalization settings frameworks
+// use (PYRIC_TEST_NO_EXTERNAL=firebase or all).
+const noExternal = { firebase: ["firebase"], all: true }[process.env.PYRIC_TEST_NO_EXTERNAL ?? ""];
+
 export default {
-  plugins: [pyric({ hosted: true }), ssrRoutes()],
+  ...(noExternal === undefined ? {} : { ssr: { noExternal } }),
+  plugins: [pyric({ hosted: process.env.PYRIC_TEST_HOSTED !== "0" }), ssrRoutes()],
 };

@@ -2425,6 +2425,32 @@ export const firestoreRegistry = {
         }),
       ],
     },
+    {
+      kind: 'table',
+      prefix: "### Server-rendered modules under `vite dev`\n\nModules Vite loads for server rendering under `vite dev` with `pyric()` (`server.ssrLoadModule`, a runnable environment, a framework's SSR entry and loaders) get the modules a registered server process gets (#1123): the client SDKs reach the dev server's own Node host as one signed-in SSR session per dev server process, and `firebase-admin` reaches it as admin. This holds with Vite's default externalization and with `ssr.noExternal`. A SharedWorker dev server refuses them, naming `pyric({ hosted: true })`, and a server environment Vite does not run in its own process (workerd) gets a module that throws when it loads. In production these modules run the Firebase SDKs in the server's runtime and reach the project.\n",
+      rows: [
+        serverProcessRow({
+          rowRef: "RS2",
+          section: "Server-rendered modules under vite dev",
+          featureKeys: ["getFirestore"],
+          api: "getFirestore(app) in a server-rendered module under vite dev",
+          behavior: "On a hosted dev server, `firebase/firestore` in a server-rendered module reads and writes the host's documents under its rules as the SSR session's user: a write the rules deny for that user fails with `permission-denied`. `ssrLoadModule`, the environment runner and every `ssr.noExternal` setting share one app and one session. On a SharedWorker dev server every call fails with `failed-precondition` and a message naming `pyric({ hosted: true })`. No call reaches production or an in-process sandbox.",
+          statusNote: "one SSR session per dev server process, as one Node server process has one auth state; per-request identity (`initializeServerApp`) is unsupported",
+          evidence: "App scenario `test/apps/vite-ssr-client-sdk` writes and reads the SSR user's own document, is denied another user's, reads the writes back with `firebase-admin` in SSR and in a process on the host, with each externalization setting, and refuses on a SharedWorker dev server. On main (ba2c0bf0a) the scenario failed: SSR sign-in rejected with `auth/network-request-failed` from the network guard, and the RTDB, Firestore and Storage writes did not settle, because the imports loaded the real SDK. `vite-module-swap.test.ts` pins the routing per specifier, AI mode and environment (Vite 5's `ssr` option, a runnable environment, a non-runnable one), `vite-ssr-activation.test.ts` the host, the restart hand-over and the SharedWorker refusal, and `vite-plugin-firestore.test.ts` runs Vite with `firebase` installed, so it takes the externalized path.",
+          conformanceTests: ["test/apps/vite-ssr-client-sdk/scenario.ts", "packages/cli/test/serve/vite-module-swap.test.ts", "packages/cli/test/serve/vite-ssr-activation.test.ts", "packages/cli/test/serve/vite-plugin-firestore.test.ts"],
+        }),
+        serverProcessRow({
+          rowRef: "RS3",
+          section: "Server-rendered modules under vite dev",
+          featureKeys: ["getFirestore"],
+          api: "firebase-admin/firestore in a server-rendered module under vite dev",
+          behavior: "On a hosted dev server, `firebase-admin/firestore` in a server-rendered module reads and writes the dev server host's documents as admin, past the rules, as a `firebase-admin` process on the host does. On a SharedWorker dev server its first call fails with `failed-precondition` and a message naming `pyric({ hosted: true })`.",
+          statusNote: "admin reads and writes bypass the rules, as firebase-admin's do",
+          evidence: "App scenario `test/apps/vite-ssr-client-sdk` reads a document the rules let only the SSR user read with `firebase-admin` in SSR through both loaders and with each externalization setting. On main (ba2c0bf0a) `firebase-admin` in SSR was the real SDK. `ambient-init.test.ts` pins the ambient binding.",
+          conformanceTests: ["test/apps/vite-ssr-client-sdk/scenario.ts", "packages/pyric-admin/test/app/ambient-init.test.ts"],
+        }),
+      ],
+    },
   ],
 } satisfies CompatibilitySurfaceRegistry;
 

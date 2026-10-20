@@ -213,3 +213,10 @@ export {
   type UnresolvedDatabaseRulesTarget,
 } from './database-rules-config.js';
 export { parsePyricSandbox, isRemoteActivation, type PyricSandboxActivation } from './sandbox-activation.js';
+export {
+  clearProcessActivation,
+  installProcessActivation,
+  onProcessActivationEnd,
+  processActivation,
+  type ProcessActivation,
+} from './process-activation.js';
