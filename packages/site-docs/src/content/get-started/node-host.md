@@ -134,6 +134,7 @@ pyric sandbox salvage --source .pyric/state/hosted --out .pyric/state/recovered
 ### With the Vite plugin
 - Your application, Pyric Studio, docs, and MCP endpoints all share Vite's single port (default 5173).
 - Studio is served at `/__pyric/ui/studio`.
+- Server-rendered modules use this host too: their `firebase/*` and `firebase-admin/*` calls land in the same sandbox ([Vite plugin](./vite.md#server-rendered-code)).
 
 ---
 
