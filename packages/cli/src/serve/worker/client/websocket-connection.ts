@@ -66,6 +66,7 @@ export function getHostedFirestore(target: {
   let socket: WebSocket | undefined;
   let resumeToken: string | undefined;
   let hostInstanceId: string | undefined;
+  let fromPriorHost = false;
   let appConfig: Extract<InboundMessage, { t: 'appConfig' }> | undefined;
   let needsSessionRestore = false;
   let hasEverAttached = false;
@@ -159,6 +160,7 @@ export function getHostedFirestore(target: {
     resumeToken = undefined;
     interruptedAt = undefined;
     hostInstanceId = undefined;
+    fromPriorHost = false;
     appConfig = undefined;
     port.restoreAuth = undefined;
     port.messagingVisibility = undefined;
@@ -277,7 +279,9 @@ export function getHostedFirestore(target: {
       target.onConnection?.(state);
       const configuration = appConfig;
       const hasConfiguration = configuration !== undefined;
-      if (hasConfiguration) postMessage(configuration);
+      if (hasConfiguration) {
+        postMessage(fromPriorHost ? { ...configuration, fromPriorHost: true } : configuration);
+      }
       await port.restoreAuth?.(message => rawRpc(port, message, postMessage));
       const isStaleConnection = !isCurrent(connection);
       if (isStaleConnection) return;
@@ -395,6 +399,7 @@ export function getHostedFirestore(target: {
           const isResume = hasEverAttached;
           const hasHostIdentity = typeof message.hostInstanceId === 'string' && message.hostInstanceId.length > 0;
           const changedHost = isResume && hostInstanceId !== undefined && hasHostIdentity && message.hostInstanceId !== hostInstanceId;
+          if (changedHost) fromPriorHost = true;
           const attemptsResume = isResume && !requestsFreshSession;
           const receivedDifferentGrant = message.resumeToken !== resumeToken;
           const changedSessionUnexpectedly = attemptsResume && receivedDifferentGrant && !changedHost;

@@ -48,13 +48,19 @@ export function defaultSdkEntries(): Record<string, string> {
   };
   return {
     ai: pick('ai'),
+    analytics: pick('analytics'),
     app: pick('app'),
     'app-ai-passthrough': pick('app-ai-passthrough'),
+    'app-check': pick('app-check'),
     auth: pick('auth'),
     firestore: pick('firestore'),
+    'firestore-lite': pick('firestore-lite'),
+    functions: pick('functions'),
     database: pick('database'),
     messaging: pick('messaging'),
     'messaging-sw': pick('messaging-sw'),
+    performance: pick('performance'),
+    'remote-config': pick('remote-config'),
     storage: pick('storage'),
     init: pick('init'),
   };

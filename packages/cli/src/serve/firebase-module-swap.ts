@@ -18,12 +18,18 @@
 /** Modules the swap serves. Keys are the bare specifiers app code uses. */
 export const SDK_MODULES = [
   'firebase/ai',
+  'firebase/analytics',
   'firebase/app',
+  'firebase/app-check',
   'firebase/auth',
   'firebase/firestore',
+  'firebase/firestore/lite',
+  'firebase/functions',
   'firebase/database',
   'firebase/messaging',
   'firebase/messaging/sw',
+  'firebase/performance',
+  'firebase/remote-config',
   'firebase/storage',
 ] as const;
 

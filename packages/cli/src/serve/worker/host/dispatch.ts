@@ -79,9 +79,22 @@ import {
 } from './presence.js';
 import { handleSub, handleRtdbSub, handleUnsub, dropPortSubscriptionIntents } from './subscriptions.js';
 
-function configConflictError(): Error & { code: string } {
+function diffTopLevelOptionKeys(
+  expected: Record<string, unknown>,
+  actual: Record<string, unknown>,
+): string[] {
+  const keys = [...new Set([...Object.keys(expected), ...Object.keys(actual)])].sort();
+  return keys.filter((key) => !firebaseOptionsEqual(expected[key], actual[key]));
+}
+
+function configConflictError(
+  expected?: Record<string, unknown>,
+  actual?: Record<string, unknown>,
+): Error & { code: string } {
+  const differing = expected && actual ? diffTopLevelOptionKeys(expected, actual) : [];
+  const detail = differing.length > 0 ? ` (differs on: ${differing.join(', ')})` : '';
   return Object.assign(
-    new Error('Pyric currently supports one Firebase configuration per runtime'),
+    new Error(`Pyric currently supports one Firebase configuration per runtime${detail}`),
     { code: 'app/multiple-configs-not-supported' },
   );
 }
@@ -226,14 +239,59 @@ export async function handleMessage(
 
   const configuresApp = msg.t === 'appConfig';
   if (configuresApp) {
+    const isFromPriorHost = msg.fromPriorHost === true;
     const hasNoAppOptions = ctx.appOptions === undefined;
     if (hasNoAppOptions) {
       ctx.appOptions = structuredClone(msg.options);
+      ctx.appOptionsFromPriorHost = isFromPriorHost;
+      if (isFromPriorHost) {
+        (ctx.priorHostConfigPorts ??= new Set()).add(targetPort);
+        ctx.defaultRtdbAdoptedFromPriorHost = ctx.defaultRtdbInstance === undefined
+          || ctx.defaultRtdbInstance === '__unnamed_default__';
+      }
       adoptAppDefaultRtdbInstance(ctx);
       resolvePendingDatabaseTargets(ctx);
+    } else if (ctx.appOptionsFromPriorHost === true && !isFromPriorHost) {
+      const priorOptions = ctx.appOptions!;
+      const priorPorts = [...(ctx.priorHostConfigPorts ?? [])];
+      ctx.appOptionsFromPriorHost = false;
+      ctx.priorHostConfigPorts?.clear();
+      const supersedesPriorHost = !firebaseOptionsEqual(priorOptions, msg.options);
+      if (supersedesPriorHost) {
+        ctx.appOptions = structuredClone(msg.options);
+        if (ctx.defaultRtdbAdoptedFromPriorHost) {
+          ctx.defaultRtdbInstance = undefined;
+          ctx.defaultRtdbAdoptedFromPriorHost = false;
+        }
+        adoptAppDefaultRtdbInstance(ctx);
+        resolvePendingDatabaseTargets(ctx);
+        const conflict = configConflictError(ctx.appOptions, priorOptions);
+        for (const stalePort of priorPorts) {
+          if (stalePort === targetPort) continue;
+          const staleSubs = ctx.subs.get(stalePort);
+          if (staleSubs !== undefined) {
+            for (const subId of staleSubs.keys()) {
+              stalePort.postMessage({
+                t: 'snap',
+                subId,
+                value: { __error: { code: conflict.code, message: conflict.message } },
+              });
+            }
+          }
+          cleanupPort(ctx, stalePort);
+          ctx.disconnectedPorts?.delete(stalePort);
+          (ctx.rejectedConfigPorts ??= new WeakSet()).add(stalePort);
+          (ctx.rejectedConfigDetails ??= new WeakMap()).set(stalePort, priorOptions);
+        }
+      }
     } else {
       const optionsConflict = !firebaseOptionsEqual(ctx.appOptions, msg.options);
-      if (optionsConflict) (ctx.rejectedConfigPorts ??= new WeakSet()).add(targetPort);
+      if (optionsConflict) {
+        (ctx.rejectedConfigPorts ??= new WeakSet()).add(targetPort);
+        (ctx.rejectedConfigDetails ??= new WeakMap()).set(targetPort, structuredClone(msg.options));
+      } else if (ctx.appOptionsFromPriorHost === true && isFromPriorHost) {
+        ctx.priorHostConfigPorts?.add(targetPort);
+      }
     }
     return;
   }
@@ -243,10 +301,10 @@ export async function handleMessage(
   if (rejectsConfig) {
     const isOperation = msg.t === 'op' || msg.t === 'tool';
     const isDataSubscription = msg.t === 'sub' && msg.target !== 'events';
+    const error = configConflictError(ctx.appOptions, ctx.rejectedConfigDetails?.get(targetPort));
     if (isOperation) {
-      fail(targetPort, msg.id, configConflictError());
+      fail(targetPort, msg.id, error);
     } else if (isDataSubscription) {
-      const error = configConflictError();
       targetPort.postMessage({
         t: 'snap',
         subId: msg.subId,
@@ -407,6 +465,7 @@ export async function cleanupPortWithDisconnect(ctx: HostCtx, port: PortLike): P
  */
 export function cleanupPort(ctx: HostCtx, port: PortLike): void {
   (ctx.disconnectedPorts ??= new WeakSet()).add(port);
+  ctx.priorHostConfigPorts?.delete(port);
   const failures: unknown[] = [];
   const attempt = (cleanup: () => void): void => {
     try {

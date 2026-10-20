@@ -293,18 +293,24 @@ export const db = getFirestore(initializeSandbox());`,
 });
 
 describe('the real wrapper entries (plan step 1.2)', () => {
-  it('defaultSdkEntries locates every served Firebase entry including both Messaging planes', () => {
+  it('defaultSdkEntries locates every served Firebase entry including deferred subpaths and both Messaging planes', () => {
     const entries = (require('../../src/serve/bundler.js') as typeof import('../../src/serve/bundler.js')).defaultSdkEntries();
     expect(Object.keys(entries).sort()).toEqual([
       'ai',
+      'analytics',
       'app',
       'app-ai-passthrough',
+      'app-check',
       'auth',
       'database',
       'firestore',
+      'firestore-lite',
+      'functions',
       'init',
       'messaging',
       'messaging-sw',
+      'performance',
+      'remote-config',
       'storage',
     ]);
   });
