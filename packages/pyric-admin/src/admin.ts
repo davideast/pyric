@@ -8,16 +8,24 @@
  * As upstream, the `firestore` and `database` accessors also carry their
  * namespace values (`admin.firestore.FieldValue`, `admin.database.ServerValue`).
  * `admin.app(name?)` returns an initialized app and `admin.apps` lists them,
- * so `if (!admin.apps.length) admin.initializeApp()` works. The accessors of services the sandbox does not model are deferred: calling
- * one throws a `PyricDeferredApiError` naming it.
+ * so `if (!admin.apps.length) admin.initializeApp()` works. Accessors for
+ * unmodeled services return their `App`-bound handle just like their modular
+ * `get<Service>(app?)` counterparts; invoking methods on those handles fails
+ * with `PyricDeferredApiError` naming the method and subpath.
  */
-import { deferredExport } from 'pyric/app/internal';
 import * as appModule from './app/index.js';
 import * as firestoreModule from './firestore/index.js';
 import { getAuth } from './auth/index.js';
 import { enableLogging, getDatabase, ServerValue } from './database/index.js';
 import { getStorage } from './storage/index.js';
 import { getMessaging } from './messaging/index.js';
+import { getAppCheck } from './app-check/index.js';
+import { getInstallations } from './installations/index.js';
+import { getInstanceId } from './instance-id/index.js';
+import { getMachineLearning } from './machine-learning/index.js';
+import { getProjectManagement } from './project-management/index.js';
+import { getRemoteConfig } from './remote-config/index.js';
+import { getSecurityRules } from './security-rules/index.js';
 
 export const credential = {
   cert: appModule.cert,
@@ -49,14 +57,13 @@ export const messaging = (app?: appModule.PyricAdminApp) => getMessaging(app);
 /** As upstream `admin.app(name?)`: the named app, or the default app. */
 export const app = (name?: string) => appModule.getApp(name);
 
-const SUBPATH = 'pyric-admin';
-export const appCheck = deferredExport(SUBPATH, 'appCheck');
-export const installations = deferredExport(SUBPATH, 'installations');
-export const instanceId = deferredExport(SUBPATH, 'instanceId');
-export const machineLearning = deferredExport(SUBPATH, 'machineLearning');
-export const projectManagement = deferredExport(SUBPATH, 'projectManagement');
-export const remoteConfig = deferredExport(SUBPATH, 'remoteConfig');
-export const securityRules = deferredExport(SUBPATH, 'securityRules');
+export const appCheck = (app?: appModule.PyricAdminApp) => getAppCheck(app);
+export const installations = (app?: appModule.PyricAdminApp) => getInstallations(app);
+export const instanceId = (app?: appModule.PyricAdminApp) => getInstanceId(app);
+export const machineLearning = (app?: appModule.PyricAdminApp) => getMachineLearning(app);
+export const projectManagement = (app?: appModule.PyricAdminApp) => getProjectManagement(app);
+export const remoteConfig = (app?: appModule.PyricAdminApp) => getRemoteConfig(app);
+export const securityRules = (app?: appModule.PyricAdminApp) => getSecurityRules(app);
 
 const admin = {
   ...appModule,

@@ -816,7 +816,7 @@ running it costs a human.
 
 | Rig | Captures | Needs |
 |---|---|---|
-| `admin-app` | 11 `admin-app-` observations: the `firebase-admin` app registry (initializeApp / getApp / getApps / deleteApp, no-arg accessor resolution, `FirebaseAppError` shapes) | The installed `firebase-admin` package. No service account, project, or credential of any kind. |
+| `admin-app` | 12 `admin-app-` observations: the `firebase-admin` app registry (initializeApp / getApp / getApps / deleteApp, service handle container resolution across modeled and deferred subpaths, `FirebaseAppError` shapes) | The installed `firebase-admin` package. No service account, project, or credential of any kind. |
 | `app-registry` | 14 `app-registry-` observations: the `firebase/app` client registry, its error shapes, `SDK_VERSION`, and the logging seam | The installed `firebase` package. `initializeApp` is fed placeholder options; nothing reaches a real project because no service is ever opened. |
 
 These two are pure in-process probes of installed library code. That is why

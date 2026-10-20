@@ -1,14 +1,36 @@
 /**
- * `pyric-admin/phone-number-verification`: a deferred entry for `firebase-admin/phone-number-verification`.
- *
- * The sandbox does not model Phone Number Verification. Every value `firebase-admin/phone-number-verification`
- * exports is present so imports link; using one throws `PyricDeferredApiError`.
- * See `../deferred.ts`.
+ * `pyric-admin/phone-number-verification`: deferred service handle for `firebase-admin/phone-number-verification`.
  */
-import { deferredAdminEntry } from '../deferred.js';
+import type { PyricAdminApp } from '../app/index.js';
+import { guardDeferredServiceApp, wireDeferredService } from '../deferred.js';
 
 export { PyricDeferredApiError } from '../deferred.js';
 
-export const {
-  PhoneNumberVerification, getPhoneNumberVerification,
-} = deferredAdminEntry('phone-number-verification');
+export class PhoneNumberVerification {
+  readonly #app: PyricAdminApp;
+
+  /** @internal */
+  constructor(...args: unknown[]) {
+    this.#app = guardDeferredServiceApp(
+      'phone-number-verification',
+      'PhoneNumberVerification',
+      args,
+    );
+  }
+
+  get app(): PyricAdminApp {
+    return this.#app;
+  }
+
+  declare verifyToken: (...args: unknown[]) => Promise<never>;
+}
+
+export const getPhoneNumberVerification: (app?: PyricAdminApp) => PhoneNumberVerification =
+  wireDeferredService(
+    PhoneNumberVerification,
+    'phone-number-verification',
+    'PhoneNumberVerification',
+    {
+      async: ['verifyToken'],
+    },
+  );

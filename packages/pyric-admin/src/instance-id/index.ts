@@ -1,14 +1,38 @@
 /**
- * `pyric-admin/instance-id`: a deferred entry for `firebase-admin/instance-id`.
- *
- * The sandbox does not model Instance ID. Every value `firebase-admin/instance-id`
- * exports is present so imports link; using one throws `PyricDeferredApiError`.
- * See `../deferred.ts`.
+ * `pyric-admin/instance-id`: deferred service handle for `firebase-admin/instance-id`.
  */
-import { deferredAdminEntry } from '../deferred.js';
+import type { PyricAdminApp } from '../app/index.js';
+import {
+  deferredAdminEntry,
+  guardDeferredServiceApp,
+  wireDeferredService,
+} from '../deferred.js';
 
 export { PyricDeferredApiError } from '../deferred.js';
 
-export const {
-  FirebaseInstanceIdError, InstanceId, InstanceIdClientErrorCode, getInstanceId,
-} = deferredAdminEntry('instance-id');
+export class InstanceId {
+  readonly #app: PyricAdminApp;
+
+  /** @internal */
+  constructor(...args: unknown[]) {
+    this.#app = guardDeferredServiceApp('instance-id', 'InstanceId', args);
+  }
+
+  get app(): PyricAdminApp {
+    return this.#app;
+  }
+
+  declare deleteInstanceId: (...args: unknown[]) => Promise<never>;
+}
+
+export const getInstanceId: (app?: PyricAdminApp) => InstanceId = wireDeferredService(
+  InstanceId,
+  'instance-id',
+  'InstanceId',
+  {
+    async: ['deleteInstanceId'],
+  },
+);
+
+export const { FirebaseInstanceIdError, InstanceIdClientErrorCode } =
+  deferredAdminEntry('instance-id');

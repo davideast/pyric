@@ -1,14 +1,37 @@
 /**
- * `pyric-admin/functions`: a deferred entry for `firebase-admin/functions`.
- *
- * The sandbox does not model Cloud Functions task queues. Every value `firebase-admin/functions`
- * exports is present so imports link; using one throws `PyricDeferredApiError`.
- * See `../deferred.ts`.
+ * `pyric-admin/functions`: deferred service handle for `firebase-admin/functions`.
  */
-import { deferredAdminEntry } from '../deferred.js';
+import type { PyricAdminApp } from '../app/index.js';
+import {
+  deferredAdminEntry,
+  guardDeferredServiceApp,
+  wireDeferredService,
+} from '../deferred.js';
 
 export { PyricDeferredApiError } from '../deferred.js';
 
-export const {
-  Functions, TaskQueue, getFunctions,
-} = deferredAdminEntry('functions');
+export class Functions {
+  readonly #app: PyricAdminApp;
+
+  /** @internal */
+  constructor(...args: unknown[]) {
+    this.#app = guardDeferredServiceApp('functions', 'Functions', args);
+  }
+
+  get app(): PyricAdminApp {
+    return this.#app;
+  }
+
+  declare taskQueue: (...args: unknown[]) => never;
+}
+
+export const getFunctions: (app?: PyricAdminApp) => Functions = wireDeferredService(
+  Functions,
+  'functions',
+  'Functions',
+  {
+    sync: ['taskQueue'],
+  },
+);
+
+export const { TaskQueue } = deferredAdminEntry('functions');

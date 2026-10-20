@@ -30,6 +30,18 @@ import * as databaseEntry from '../../src/database/index.js';
 import * as firestoreEntry from '../../src/firestore/index.js';
 import * as storageEntry from '../../src/storage/index.js';
 import * as messagingEntry from '../../src/messaging/index.js';
+import * as appCheckEntry from '../../src/app-check/index.js';
+import * as dataConnectEntry from '../../src/data-connect/index.js';
+import * as eventarcEntry from '../../src/eventarc/index.js';
+import * as extensionsEntry from '../../src/extensions/index.js';
+import * as functionsEntry from '../../src/functions/index.js';
+import * as installationsEntry from '../../src/installations/index.js';
+import * as instanceIdEntry from '../../src/instance-id/index.js';
+import * as machineLearningEntry from '../../src/machine-learning/index.js';
+import * as phoneNumberVerificationEntry from '../../src/phone-number-verification/index.js';
+import * as projectManagementEntry from '../../src/project-management/index.js';
+import * as remoteConfigEntry from '../../src/remote-config/index.js';
+import * as securityRulesEntry from '../../src/security-rules/index.js';
 import { ALLOWLIST } from './surface-allowlist.js';
 import { firebaseAdminVersion, loadUpstreamSurface, type PathStep } from './upstream-surface.js';
 
@@ -154,6 +166,35 @@ const PROBES: readonly Probe[] = [
   },
 
   { entry: 'messaging', owner: 'Messaging', path: ['getMessaging'], make: (arm) => messagingEntry.getMessaging(arm.app) },
+
+  // Deferred service handles: `get<Service>(app)` succeeds and every member on
+  // the returned handle matches upstream (`.app` implemented, methods deferred).
+  { entry: 'app-check', owner: 'AppCheck', path: ['getAppCheck'], make: (arm) => appCheckEntry.getAppCheck(arm.app) },
+  {
+    entry: 'data-connect',
+    owner: 'DataConnect',
+    path: ['getDataConnect'],
+    make: (arm) =>
+      dataConnectEntry.getDataConnect(
+        { location: 'us-central1', serviceId: 'surface-service', connector: 'surface-connector' },
+        arm.app,
+      ),
+  },
+  { entry: 'eventarc', owner: 'Eventarc', path: ['getEventarc'], make: (arm) => eventarcEntry.getEventarc(arm.app) },
+  { entry: 'extensions', owner: 'Extensions', path: ['getExtensions'], make: (arm) => extensionsEntry.getExtensions(arm.app) },
+  { entry: 'functions', owner: 'Functions', path: ['getFunctions'], make: (arm) => functionsEntry.getFunctions(arm.app) },
+  { entry: 'installations', owner: 'Installations', path: ['getInstallations'], make: (arm) => installationsEntry.getInstallations(arm.app) },
+  { entry: 'instance-id', owner: 'InstanceId', path: ['getInstanceId'], make: (arm) => instanceIdEntry.getInstanceId(arm.app) },
+  { entry: 'machine-learning', owner: 'MachineLearning', path: ['getMachineLearning'], make: (arm) => machineLearningEntry.getMachineLearning(arm.app) },
+  {
+    entry: 'phone-number-verification',
+    owner: 'PhoneNumberVerification',
+    path: ['getPhoneNumberVerification'],
+    make: (arm) => phoneNumberVerificationEntry.getPhoneNumberVerification(arm.app),
+  },
+  { entry: 'project-management', owner: 'ProjectManagement', path: ['getProjectManagement'], make: (arm) => projectManagementEntry.getProjectManagement(arm.app) },
+  { entry: 'remote-config', owner: 'RemoteConfig', path: ['getRemoteConfig'], make: (arm) => remoteConfigEntry.getRemoteConfig(arm.app) },
+  { entry: 'security-rules', owner: 'SecurityRules', path: ['getSecurityRules'], make: (arm) => securityRulesEntry.getSecurityRules(arm.app) },
 ];
 
 const MIRRORED_MODULES: Record<(typeof MIRRORED_ENTRIES)[number], Module> = {
