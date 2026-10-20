@@ -160,8 +160,16 @@ export interface HostCtx {
   /** Firebase options accepted by the first app-owned port. All named apps
    * and tabs share this one backend, so later app ports must match it. */
   appOptions?: Record<string, unknown>;
+  /** True while `appOptions` has only been seeded by ports re-attaching from an earlier host instance. */
+  appOptionsFromPriorHost?: boolean;
+  /** True when `adoptAppDefaultRtdbInstance` derived `defaultRtdbInstance` from a provisional prior-host port. */
+  defaultRtdbAdoptedFromPriorHost?: boolean;
+  /** Re-attached prior-host ports provisionally sharing `appOptions` until a fresh client confirms or supersedes it. */
+  priorHostConfigPorts?: Set<PortLike>;
   /** App ports that attempted to attach a different Firebase configuration. */
   rejectedConfigPorts?: WeakSet<PortLike>;
+  /** Conflicting options supplied by each rejected port, used to name differing keys in errors. */
+  rejectedConfigDetails?: WeakMap<PortLike, Record<string, unknown>>;
   /**
    * The ONE shared auth handle for the worker — the USER POOL (who exists)
    * and the admin surface. Lazily created on first auth op or auth

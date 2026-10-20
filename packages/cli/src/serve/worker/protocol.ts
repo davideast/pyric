@@ -451,6 +451,8 @@ export interface DisconnectMessage {
 export interface AppConfigMessage {
   t: 'appConfig';
   options: Record<string, unknown>;
+  /** Set when a long-lived client re-attaches from an earlier host instance without reloading. */
+  fromPriorHost?: boolean;
 }
 
 /**

@@ -213,6 +213,7 @@ export function createConsumerSession(
   const subs = new Map<string, () => void>();
   /** Tags the operations this socket dispatches. */
   const socketIdentity = {};
+  let attachedFromPriorHost = false;
 
   function detach(): void {
     const retainedSession = workerSession;
@@ -279,6 +280,7 @@ export function createConsumerSession(
         if (ownsWorkerPort) {
           const hasHostIdentity = typeof attachMsg.hostInstanceId === 'string' && attachMsg.hostInstanceId.length > 0;
           const changedHost = hasHostIdentity && attachMsg.hostInstanceId !== bridge.instanceId;
+          attachedFromPriorHost = changedHost;
           let resumeToken = attachMsg.resumeToken;
           if (changedHost) resumeToken = undefined;
           workerSession = bridge.workerSessions.attach(resumeToken);
@@ -367,7 +369,10 @@ export function createConsumerSession(
         const deletesApp = msg.message.t === 'disconnect';
         if (deletesApp) workerSession?.retire();
         try {
-          bridge.forwardWorkerMessage(msg.message, clientSessionId);
+          const forwarded = attachedFromPriorHost && msg.message.t === 'appConfig'
+            ? { ...msg.message, fromPriorHost: true }
+            : msg.message;
+          bridge.forwardWorkerMessage(forwarded, clientSessionId);
         } catch (cause) {
           const error = serializeError(cause);
           const request = msg.message;

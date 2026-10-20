@@ -126,7 +126,7 @@ describe('server-rendered imports under vite dev (#1123)', () => {
     for (const specifier of [...SDK_MODULES, 'firebase-admin', 'firebase-admin/app', 'firebase-admin/database']) {
       expect(specifier.replace(alias.find, alias.replacement)).toBe(aliased(specifier));
     }
-    for (const specifier of ['firebase/analytics', 'firebase/firestore/lite', 'firebase-functions', 'firebase']) {
+    for (const specifier of ['firebase/unknown-subpath', 'firebase-functions', 'firebase']) {
       expect(alias.find.test(specifier)).toBe(false);
     }
     expect(config.ssr?.external).toEqual(['@pyric/cli']);
@@ -163,6 +163,12 @@ describe('server-rendered imports under vite dev (#1123)', () => {
     }
     expect(await routed('firebase/ai')).toBe('\0pyric-ssr-target:pyric/ai');
     expect(await routed('firebase/messaging/sw')).toBe('\0pyric-ssr-target:pyric/messaging/sw');
+    for (const deferred of ['analytics', 'app-check', 'firestore/lite', 'functions', 'performance', 'remote-config']) {
+      expect(await routed(`firebase/${deferred}`)).toBe(`\0pyric-ssr-target:pyric/${deferred}`);
+      const shim = await swap.loadPluginModule(`\0pyric-ssr-target:pyric/${deferred}`);
+      expect(shim).toContain(`loadServerTarget("pyric/${deferred}")`);
+      expect(shim).toContain('PyricDeferredApiError');
+    }
     expect(await routed('firebase-admin')).toBe('\0pyric-ssr-target:pyric-admin');
     expect(await routed('firebase-admin/firestore')).toBe('\0pyric-ssr-target:pyric-admin/firestore');
     expect(fake.passedOn).toEqual([]);
