@@ -3,7 +3,7 @@ import type {
   ContextWindowSnapshot,
   SessionRequestUsage,
   SessionTokenUsage,
-} from '@inbrowser/agent/usage';
+} from './usage-types.js';
 
 type ClassSlots = {
   root?: string;

@@ -171,7 +171,9 @@ assert_declaration_deps_declared() {
   rm -rf "$tmp"
 }
 assert_declaration_deps_declared "$TARBALL_PYRIC"
+assert_declaration_deps_declared "$TARBALL_PYRIC_ADMIN"
 assert_declaration_deps_declared "$TARBALL_PYRIC_CLI"
+assert_declaration_deps_declared "$TARBALL_UI"
 
 # ─── Phase 2.5: publish file-set + runtime-asset presence ──────────────
 # Hermetic (NO registry): `npm pack --dry-run --json` computes the exact file set
