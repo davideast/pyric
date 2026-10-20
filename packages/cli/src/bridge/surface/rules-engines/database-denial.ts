@@ -15,6 +15,8 @@ import type { RtdbCaseResult, RtdbRuleEvaluation, RtdbRulesJson } from 'pyric/ru
 import { locateRtdbTrace } from 'pyric/rules/internal/rtdb';
 import type { LocatedRtdbRuleEvaluation } from 'pyric/rules/internal/rtdb';
 import { operationFailure } from '../context.js';
+import { instanceSelector, onInstance } from '../database-instance.js';
+import { databaseFor } from '../service-handles.js';
 import type { OperationResult, SurfaceContext } from '../types.js';
 import {
   identityFor,
@@ -30,6 +32,8 @@ export interface DatabaseDenialRequest {
   operation: string;
   path: string;
   uid?: string;
+  /** Realtime Database instance name, URL, or `default`. */
+  instance?: string;
   /** The value written; for an `update`, the patch keyed by paths relative to `path`. */
   data?: unknown;
   /** The query a `read` carries, in the members rules read as `query.*`. */
@@ -168,6 +172,7 @@ function fixOf(
 function rulesetFor(
   ctx: SurfaceContext,
   request: DatabaseDenialRequest,
+  selector: string | undefined,
 ): { ruleset: RtdbRulesJson; evaluated: 'running' | 'draft'; text?: string; notes: string[] } | OperationResult {
   const notes: string[] = [];
   if (request.rules !== undefined) {
@@ -175,7 +180,10 @@ function rulesetFor(
     if ('problem' in parsed) return operationFailure(notRules(parsed.problem));
     return { ruleset: parsed.ruleset, evaluated: 'draft', text: request.rules, notes };
   }
-  const running = getActiveRules(ctx.sandbox);
+  const running =
+    selector === undefined
+      ? getActiveRules(ctx.sandbox)
+      : getActiveRules(databaseFor(ctx, selector));
   if (running === null) return operationFailure(NO_RULES_LOADED);
   if (request.source === undefined) return { ruleset: running, evaluated: 'running', notes };
   const parsed = parseRuleset(request.source);
@@ -189,16 +197,18 @@ function rulesetFor(
 }
 
 /** Explain why one database request was allowed or denied, rule by rule. */
-export function explainDatabaseDenial(
+export async function explainDatabaseDenial(
   ctx: SurfaceContext,
   request: DatabaseDenialRequest,
-): OperationResult {
-  const chosen = rulesetFor(ctx, request);
+): Promise<OperationResult> {
+  const selector =
+    request.instance === undefined ? undefined : await instanceSelector(ctx, request.instance);
+  const chosen = rulesetFor(ctx, request, selector);
   if ('ok' in chosen) return chosen;
 
   const operation = ruleKindOf(request.operation);
   const auth = identityFor(ctx, request.uid);
-  const result = simulateAgainst(ctx, chosen.ruleset, request, auth);
+  const result = simulateAgainst(ctx, chosen.ruleset, request, auth, selector);
   const allowed = result.decision === 'ALLOW';
   const path = rooted(request.path);
   const trace: TraceEntry[] =
@@ -215,7 +225,10 @@ export function explainDatabaseDenial(
     trace,
     notes: chosen.notes,
   };
-  const summary = `${request.operation} ${request.path} is ${allowed ? 'allowed' : 'denied'} for this identity.`;
+  const summary = onInstance(
+    `${request.operation} ${request.path} is ${allowed ? 'allowed' : 'denied'} for this identity.`,
+    selector,
+  );
   const identity = auth === null ? null : { uid: auth.uid, token: auth.claims };
   const wrap = (detail: Record<string, unknown>): OperationResult => ({
     ok: true,

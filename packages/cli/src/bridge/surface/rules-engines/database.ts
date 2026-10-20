@@ -2,9 +2,13 @@
 import { rtdbRules } from 'pyric/rules';
 import { locateRtdbTrace } from 'pyric/rules/internal/rtdb';
 import type { RtdbCase, RtdbRulesJson } from 'pyric/rules';
-import { snapshotState } from 'pyric/sandbox/database';
+import { resolveDatabaseInstance } from 'pyric/sandbox/internal';
+import { getActiveRules, setRules, snapshotState } from 'pyric/sandbox/database';
 import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
+import { projectDatabaseInstances } from '../database-instance-catalog.js';
+import { instanceSelector, onInstance } from '../database-instance.js';
 import { databaseRulesSource, installDatabaseRules } from '../database-rules-load.js';
+import { databaseFor } from '../service-handles.js';
 import { parseRtdbRulesText } from '../../../rtdb/rules-json.js';
 import { callSandboxTool, operationFailure } from '../context.js';
 import { requestInstant } from '../request-instant.js';
@@ -58,14 +62,27 @@ export function rooted(path: string): string {
   return path.startsWith('/') ? path : `/${path}`;
 }
 
+/** Resolve `instance` for `rules.set`, allowing newly named RTDB instances before data is written to them. */
+async function deploySelector(ctx: SurfaceContext, raw: unknown): Promise<string | undefined> {
+  if (raw === undefined) return undefined;
+  const instance = resolveDatabaseInstance(String(raw));
+  if (instance === undefined) return undefined;
+  const catalog = ctx.databaseInstances ?? (await projectDatabaseInstances(ctx.sandbox, ctx.projectDir));
+  return catalog.select(instance.name) === undefined ? undefined : instance.name;
+}
+
 /** Evaluate one case against a supplied ruleset rather than the running one. */
 export function simulateAgainst(
   ctx: SurfaceContext,
   ruleset: RtdbRulesJson,
   request: Omit<RulesRequest, 'data'> & { data?: unknown },
   auth: { uid: string; claims: Record<string, unknown> } | null,
+  selector?: string,
 ) {
-  const tree = snapshotState(ctx.sandbox);
+  const tree =
+    selector === undefined
+      ? snapshotState(ctx.sandbox)
+      : snapshotState(databaseFor(ctx, selector));
   let data: Record<string, unknown> = {};
   if (tree !== null && typeof tree === 'object') data = tree as Record<string, unknown>;
   let identity: RtdbCase['auth'] = null;
@@ -100,10 +117,14 @@ export const DATABASE_RULES: RulesEngine = {
     return rejection === null ? null : { body: rejection.message, fix: RECOMPILE_FIX };
   },
 
-  async lint(ctx, rules) {
+  async lint(ctx, rules, instance) {
+    const selector = instance === undefined ? undefined : await instanceSelector(ctx, instance);
     let ruleset: RtdbRulesJson | null = null;
     if (rules === undefined) {
-      ruleset = databaseRulesSource(ctx.sandbox);
+      ruleset =
+        selector === undefined
+          ? databaseRulesSource(ctx.sandbox)
+          : getActiveRules(databaseFor(ctx, selector));
     } else {
       const parsed = parseRuleset(rules);
       if ('problem' in parsed) {
@@ -118,16 +139,18 @@ export const DATABASE_RULES: RulesEngine = {
     const errors = issues.filter((issue) => issue.severity === 'error').length;
     return markLintFindings({
       ok: errors === 0,
-      summary: `${issues.length} findings, ${errors} errors`,
+      summary: onInstance(`${issues.length} findings, ${errors} errors`, selector),
       data: { issues },
     });
   },
 
   async simulate(ctx, request) {
+    const selector =
+      request.instance === undefined ? undefined : await instanceSelector(ctx, request.instance);
     const auth = identityFor(ctx, request.uid);
     const path = rooted(request.path);
 
-    if (request.rules === undefined) {
+    if (request.rules === undefined && selector === undefined) {
       const call: Record<string, unknown> = {
         operation: request.operation,
         path,
@@ -139,31 +162,48 @@ export const DATABASE_RULES: RulesEngine = {
       return callSandboxTool(ctx, 'rtdb_simulate_access', call);
     }
 
-    const parsed = parseRuleset(request.rules);
-    if ('problem' in parsed) {
-      return operationFailure(notRules(parsed.problem));
+    let ruleset: RtdbRulesJson;
+    if (request.rules !== undefined) {
+      const parsed = parseRuleset(request.rules);
+      if ('problem' in parsed) {
+        return operationFailure(notRules(parsed.problem));
+      }
+      ruleset = parsed.ruleset;
+    } else {
+      const active = getActiveRules(databaseFor(ctx, selector));
+      if (active === null) return operationFailure(NO_RULES_LOADED);
+      ruleset = active;
     }
-    const evaluated = simulateAgainst(ctx, parsed.ruleset, request, auth);
+    const evaluated = simulateAgainst(ctx, ruleset, request, auth, selector);
+    const result: Record<string, unknown> = {
+      decision: evaluated.decision,
+      allowed: evaluated.decision === 'ALLOW',
+      matchedPath: evaluated.matchedPath,
+      matchedRule: evaluated.matchedRule,
+      reason: evaluated.reason,
+      trace:
+        request.rules !== undefined ? locateRtdbTrace(request.rules, evaluated.trace) : evaluated.trace,
+    };
     return {
       ok: !evaluated.unsupported,
-      summary: `${request.operation} ${request.path}: ${evaluated.decision}`,
-      data: {
-        decision: evaluated.decision,
-        allowed: evaluated.decision === 'ALLOW',
-        matchedPath: evaluated.matchedPath,
-        matchedRule: evaluated.matchedRule,
-        reason: evaluated.reason,
-        trace: locateRtdbTrace(request.rules, evaluated.trace),
-      },
+      summary: onInstance(`${request.operation} ${request.path}: ${evaluated.decision}`, selector),
+      data: result,
     };
   },
 
-  async install(ctx, rules) {
+  async install(ctx, rules, instance) {
     const parsed = parseRuleset(rules);
     if ('problem' in parsed) {
       return operationFailure(
         `Database rules did not parse: ${parsed.problem}. Pass rules JSON with a top-level 'rules' object, then call set again.`,
       );
+    }
+    const selector = await deploySelector(ctx, instance);
+    if (selector !== undefined) {
+      const rejection = rtdbRulesSourceRejection(parsed.ruleset);
+      if (rejection !== null) return operationFailure(`${rejection.message} ${RECOMPILE_FIX}`);
+      setRules(databaseFor(ctx, selector), parsed.ruleset);
+      return { ok: true, summary: onInstance('Database rules installed.', selector) };
     }
     const rejection = installDatabaseRules(ctx.sandbox, parsed.ruleset);
     if (rejection !== null) return operationFailure(`${rejection.message} ${RECOMPILE_FIX}`);

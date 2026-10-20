@@ -48,6 +48,7 @@ import { ensureAuth, setPortSession } from '../worker/host-auth.js';
 import { restoreFirestoreSubscriptions } from '../worker/host/subscriptions.js';
 import { drainPortRtdbDisconnects } from '../worker/host/rtdb.js';
 import { hostDatabaseInstances } from '../worker/host/rtdb-instance-catalog.js';
+import { rtdbInstance } from '../worker/host/rtdb-instances.js';
 import { serializeError, type InboundMessage, type OutboundMessage } from '../worker/protocol.js';
 import { createHostedPersistence, formatStorageRepairs, HOSTED_NAMESPACE, hostedStateDirectory, type HostedPersistence } from './persistence.js';
 import { requiresHealthyPersistence } from './persistence-admission.js';
@@ -676,8 +677,16 @@ export async function createHostedRuntime(
               recorder?.note({ kind: 'rules', at: Date.now(), service: 'firestore', source: args.rules });
             } else if (args.service === 'database') {
               const dbSource = typeof args.rules === 'string' ? args.rules : args.rules === undefined ? null : JSON.stringify(args.rules);
-              setDatabaseRules(ctx, undefined, dbSource);
-              recorder?.note({ kind: 'rules', at: Date.now(), service: 'database', source: dbSource });
+              const rawInstance = typeof args.instance === 'string' ? args.instance : undefined;
+              setDatabaseRules(ctx, rawInstance, dbSource);
+              const targetSelector = rtdbInstance(ctx, rawInstance).selector;
+              recorder?.note({
+                kind: 'rules',
+                at: Date.now(),
+                service: 'database',
+                ...(targetSelector === undefined ? {} : { instance: targetSelector }),
+                source: dbSource,
+              });
             } else if (args.service === 'storage') {
               recorder?.note({ kind: 'rules', at: Date.now(), service: 'storage', source: typeof args.rules === 'string' ? args.rules : null });
             }
