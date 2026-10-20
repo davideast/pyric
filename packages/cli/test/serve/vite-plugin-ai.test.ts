@@ -8,6 +8,7 @@ import type { ViteDevServer } from 'vite';
 
 import { bundleWorker, workerSourceHash } from '../../src/serve/bundler.js';
 import { pyric } from '../../src/serve/vite-plugin.js';
+import { browserEntriesInNode } from './vite-plugin-harness.js';
 
 let server: ViteDevServer | undefined;
 let fixtureRoot: string | undefined;
@@ -71,7 +72,7 @@ export async function run() {
         configFile: false,
         logLevel: 'silent',
         root: fixtureRoot,
-        plugins: [pyric({ ui: false })],
+        plugins: [browserEntriesInNode(), pyric({ ui: false })],
         server: { middlewareMode: true },
         optimizeDeps: { noDiscovery: true },
       });
@@ -140,7 +141,7 @@ export async function run() {
         configFile: false,
         logLevel: 'silent',
         root: fixtureRoot,
-        plugins: [pyric({ ui: false })],
+        plugins: [browserEntriesInNode(), pyric({ ui: false })],
         server: { middlewareMode: true },
         optimizeDeps: { noDiscovery: true },
       });

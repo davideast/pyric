@@ -1,5 +1,7 @@
 import { bundleWorker, defaultSdkEntries, workerSourceHash } from '../../src/serve/bundler.js';
 import { pyric } from '../../src/serve/vite-plugin.js';
+import { createViteModuleContext, createViteModuleSwap } from '../../src/serve/vite-module-swap.js';
+import { unaliasedSpecifier } from '../../src/serve/vite-ssr-routing.js';
 import { join } from 'node:path';
 import { Writable } from 'node:stream';
 import { homedir } from 'node:os';
@@ -176,4 +178,25 @@ export async function callPyricStack(
 
 export async function initJson(handler: PyricMiddleware): Promise<import('../../src/serve/init-payload.js').InitPayload> {
   return JSON.parse((await callPyric(handler, { path: '/__pyric/init.json' })).body);
+}
+
+/**
+ * Runs the browser entries in this Node test process: `ssrLoadModule` is the
+ * harness these suites execute app code with, and since #1123 a server import
+ * routes to the Node host client. This plugin, placed before `pyric()`,
+ * resolves each aliased Firebase import as the browser would, so the suite
+ * exercises the page's swap. Server-rendered routing has its own suites.
+ */
+export function browserEntriesInNode(): import('vite').Plugin {
+  const clientSwap = createViteModuleSwap(createViteModuleContext());
+  return {
+    name: 'test:browser-entries-in-node',
+    enforce: 'pre',
+    resolveId(source, importer) {
+      const original = unaliasedSpecifier(source);
+      const isAliasedFirebaseImport = original !== null;
+      if (!isAliasedFirebaseImport) return null;
+      return clientSwap.resolveId(original, importer);
+    },
+  };
 }
