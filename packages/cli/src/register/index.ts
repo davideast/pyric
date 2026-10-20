@@ -111,7 +111,7 @@ function activate(): void {
   // the factory global pulls in the remote sandbox) and any of it could open
   // a socket. Installing the guard first leaves no window in which
   // sandbox-substituted code runs unguarded. The reverse ordering buys
-  // nothing: the guard mutates globals only (`undici.globalDispatcher.1`,
+  // nothing: the guard mutates globals only (`undici.globalDispatcher.*`,
   // `net`/`tls` connect, the Agent and Socket prototypes) and depends on
   // nothing the hooks establish.
   //

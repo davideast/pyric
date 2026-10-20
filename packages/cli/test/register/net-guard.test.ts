@@ -1074,3 +1074,63 @@ describe('EgressVerdict shape', () => {
     expect(sub.endpoint).toBe('cloudfunctions.net');
   });
 });
+
+describe('installNetGuard multi-slot undici globalDispatcher coverage', () => {
+  const noNet = { connect: () => ({}), createConnection: () => ({}) };
+  const noTls = { connect: () => ({}) };
+  const noPrototypes = { agentPrototypes: [], socketPrototypes: [] };
+
+  it('wraps undici.globalDispatcher.1, .2 (Node 24+), and dynamically discovered .N slots simultaneously', () => {
+    const slot1 = Symbol.for('undici.globalDispatcher.1');
+    const slot2 = Symbol.for('undici.globalDispatcher.2');
+    const slot3 = Symbol.for('undici.globalDispatcher.3');
+    const d1 = mockDispatcher();
+    const d2 = mockDispatcher();
+    const d3 = mockDispatcher();
+    const scope: Record<symbol, unknown> = {
+      [slot1]: d1,
+      [slot2]: d2,
+      [slot3]: d3,
+    };
+    const log = collector();
+    const guard = installNetGuard({
+      scope,
+      env: { PYRIC_SANDBOX: '1', PYRIC_GUARD: 'block' },
+      write: log.write,
+      net: noNet,
+      tls: noTls,
+      ...noPrototypes,
+    });
+    expect(guard).not.toBeNull();
+    expect(scope[slot1]).not.toBe(d1);
+    expect(scope[slot2]).not.toBe(d2);
+    expect(scope[slot3]).not.toBe(d3);
+
+    expect(() =>
+      (scope[slot2] as { dispatch: (opts: unknown, handler: unknown) => unknown }).dispatch(
+        { origin: 'https://firestore.googleapis.com' },
+        {},
+      ),
+    ).toThrow(/pyric net-guard blocked fetch egress to firestore\.googleapis\.com/);
+    expect(() =>
+      (scope[slot3] as { dispatch: (opts: unknown, handler: unknown) => unknown }).dispatch(
+        { origin: 'https://identitytoolkit.googleapis.com' },
+        {},
+      ),
+    ).toThrow(/pyric net-guard blocked fetch egress to identitytoolkit\.googleapis\.com/);
+
+    // Reassert wraps a newly replaced .2 slot without disturbing .1
+    const firstWrapped1 = scope[slot1];
+    scope[slot2] = mockDispatcher();
+    guard!.reassert();
+    expect(scope[slot1]).toBe(firstWrapped1);
+    expect(() =>
+      (scope[slot2] as { dispatch: (opts: unknown, handler: unknown) => unknown }).dispatch(
+        { origin: 'https://firebasestorage.googleapis.com' },
+        {},
+      ),
+    ).toThrow(/pyric net-guard blocked fetch egress to firebasestorage\.googleapis\.com/);
+    expect(log.lines.some((l) => l.includes('net-guard BLOCK firestore.googleapis.com'))).toBe(true);
+    guard!.stop();
+  });
+});
