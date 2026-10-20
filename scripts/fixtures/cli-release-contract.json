@@ -148,6 +148,7 @@
     "./discover",
     "./flow",
     "./vite",
+    "./vite/ssr-loader",
     "./next",
     "./bundler",
     "./serve/worker",
