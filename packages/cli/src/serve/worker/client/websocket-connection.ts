@@ -56,6 +56,8 @@ export function getHostedFirestore(target: {
   sessionToken?: () => Promise<string | null>;
   /** Present outside a page; see {@link HostedSocketRealm}. */
   realm?: HostedSocketRealm;
+  /** Host boot identity baked into the served HTML / module at compile time. */
+  initialHostInstanceId?: string;
 }, existingPort?: ClientPort): ClientDb {
   const connectionId = `socket-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   const report = (phase: DiagnosticEvent['phase'], code?: number) => {
@@ -65,7 +67,7 @@ export function getHostedFirestore(target: {
   let state: HostedConnectionState = 'connecting';
   let socket: WebSocket | undefined;
   let resumeToken: string | undefined;
-  let hostInstanceId: string | undefined;
+  let hostInstanceId: string | undefined = target.initialHostInstanceId;
   let fromPriorHost = false;
   let appConfig: Extract<InboundMessage, { t: 'appConfig' }> | undefined;
   let needsSessionRestore = false;

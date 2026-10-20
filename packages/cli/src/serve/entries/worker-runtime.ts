@@ -66,6 +66,9 @@ function hostedTarget(node?: { host: string; origin: NodeRuntimeOrigin }): Param
     onError: error => runtimeStatus.reportError(error, 'worker'),
     // The worker selection stamped into the page carries no session token; init.json does.
     sessionToken: currentSessionToken,
+    initialHostInstanceId: node === undefined
+      ? (globalThis.__PYRIC_HOST_INSTANCE_ID__ ?? globalThis.__PYRIC_WORKER_INIT__?.instanceId)
+      : undefined,
   };
 }
 

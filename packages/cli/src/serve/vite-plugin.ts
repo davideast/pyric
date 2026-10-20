@@ -268,6 +268,7 @@ export function pyric(options: PyricOptions = {}): Plugin & EnvironmentHooks {
   // instance a Vite restart builds closes it before claiming the same files.
   const instanceSlot = localGenerationSlot();
   let hostedProjectKey: string | undefined;
+  let hostedInstanceId: string | undefined;
   let owners: OwnersConfig | undefined = resolveOwnersConfig(undefined, options.owners);
 
   return {
@@ -326,11 +327,20 @@ export function pyric(options: PyricOptions = {}): Plugin & EnvironmentHooks {
       return moduleSwap.resolvePluginId(context, source, importer, resolveOptions);
     },
 
-    load(id) {
-      return moduleSwap.loadPluginModule(id);
-    },
+      load(id) {
+        return moduleSwap.loadPluginModule(id);
+      },
 
-    async configureServer(server) {
+      transform(code, id, transformOptions) {
+        if (hostedInstanceId === undefined || transformOptions?.ssr === true) return null;
+        const cleanId = id.split('?')[0];
+        if (cleanId === entries.app || cleanId === entries['messaging-sw']) {
+          return `globalThis.__PYRIC_HOST_INSTANCE_ID__=${JSON.stringify(hostedInstanceId)};\n${code}`;
+        }
+        return null;
+      },
+
+      async configureServer(server) {
       const projectDir = resolveFirebaseProjectDir(server.config.root, options.root);
       const stateScope = generationStateScope(options);
       const ownsProjectState = stateScope !== null;
@@ -368,6 +378,7 @@ export function pyric(options: PyricOptions = {}): Plugin & EnvironmentHooks {
       // Server-rendered firebase/* and firebase-admin/* reach this server's host (#1123).
       const ssrActivation = attachViteSsrActivation(server, options.hosted === true);
       hostedProjectKey = options.hosted ? projectDir : undefined;
+      hostedInstanceId = options.hosted ? generation.instanceId : undefined;
       // Vite creates a replacement before closing the old server. Cleanup
       // belongs to this server, even when another generation is now active;
       // closing a generation its replacement already closed is a no-op.
@@ -396,7 +407,7 @@ export function pyric(options: PyricOptions = {}): Plugin & EnvironmentHooks {
     },
 
     transformIndexHtml(html) {
-      return stampHostedTarget(pageRuntime.transformIndexHtml(html), hostedProjectKey, owners);
+      return stampHostedTarget(pageRuntime.transformIndexHtml(html), hostedProjectKey, owners, hostedInstanceId);
     },
   };
 }

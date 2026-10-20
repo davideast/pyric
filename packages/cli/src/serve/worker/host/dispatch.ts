@@ -240,24 +240,42 @@ export async function handleMessage(
   const configuresApp = msg.t === 'appConfig';
   if (configuresApp) {
     const isFromPriorHost = msg.fromPriorHost === true;
+    const isHostVerified = msg.hostVerified === true && !isFromPriorHost;
     const hasNoAppOptions = ctx.appOptions === undefined;
     if (hasNoAppOptions) {
       ctx.appOptions = structuredClone(msg.options);
       ctx.appOptionsFromPriorHost = isFromPriorHost;
+      ctx.appOptionsVerified = isHostVerified;
       if (isFromPriorHost) {
         (ctx.priorHostConfigPorts ??= new Set()).add(targetPort);
+        ctx.defaultRtdbAdoptedFromPriorHost = ctx.defaultRtdbInstance === undefined
+          || ctx.defaultRtdbInstance === '__unnamed_default__';
+      } else if (!isHostVerified) {
+        (ctx.unverifiedConfigPorts ??= new Set()).add(targetPort);
         ctx.defaultRtdbAdoptedFromPriorHost = ctx.defaultRtdbInstance === undefined
           || ctx.defaultRtdbInstance === '__unnamed_default__';
       }
       adoptAppDefaultRtdbInstance(ctx);
       resolvePendingDatabaseTargets(ctx);
-    } else if (ctx.appOptionsFromPriorHost === true && !isFromPriorHost) {
+    } else if (
+      (ctx.appOptionsFromPriorHost === true && !isFromPriorHost)
+      || (ctx.appOptionsVerified !== true && isHostVerified)
+    ) {
       const priorOptions = ctx.appOptions!;
-      const priorPorts = [...(ctx.priorHostConfigPorts ?? [])];
+      const priorPorts = [
+        ...(ctx.priorHostConfigPorts ?? []),
+        ...(isHostVerified ? (ctx.unverifiedConfigPorts ?? []) : []),
+      ];
       ctx.appOptionsFromPriorHost = false;
+      ctx.appOptionsVerified = isHostVerified;
       ctx.priorHostConfigPorts?.clear();
-      const supersedesPriorHost = !firebaseOptionsEqual(priorOptions, msg.options);
-      if (supersedesPriorHost) {
+      if (isHostVerified) {
+        ctx.unverifiedConfigPorts?.clear();
+      } else {
+        (ctx.unverifiedConfigPorts ??= new Set()).add(targetPort);
+      }
+      const supersedesProvisional = !firebaseOptionsEqual(priorOptions, msg.options);
+      if (supersedesProvisional) {
         ctx.appOptions = structuredClone(msg.options);
         if (ctx.defaultRtdbAdoptedFromPriorHost) {
           ctx.defaultRtdbInstance = undefined;
@@ -283,6 +301,8 @@ export async function handleMessage(
           (ctx.rejectedConfigPorts ??= new WeakSet()).add(stalePort);
           (ctx.rejectedConfigDetails ??= new WeakMap()).set(stalePort, priorOptions);
         }
+      } else {
+        ctx.defaultRtdbAdoptedFromPriorHost = false;
       }
     } else {
       const optionsConflict = !firebaseOptionsEqual(ctx.appOptions, msg.options);
@@ -291,6 +311,8 @@ export async function handleMessage(
         (ctx.rejectedConfigDetails ??= new WeakMap()).set(targetPort, structuredClone(msg.options));
       } else if (ctx.appOptionsFromPriorHost === true && isFromPriorHost) {
         ctx.priorHostConfigPorts?.add(targetPort);
+      } else if (ctx.appOptionsVerified !== true && !isHostVerified) {
+        (ctx.unverifiedConfigPorts ??= new Set()).add(targetPort);
       }
     }
     return;

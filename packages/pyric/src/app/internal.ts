@@ -7,7 +7,7 @@ import {
   ownSandboxAppResource,
 } from './runtime.js';
 
-export { bindAppRegistryRefusal, bindAppRegistrySandbox } from './registry.js';
+export { bindAppRegistryRefusal, bindAppRegistrySandbox, resetAppRegistryForTests } from './registry.js';
 export { clientSdkRefusal, clientSdkRefusalFor } from './client-sdk-refusal.js';
 export { firebaseOptionsEqual } from './options.js';
 export { isSandboxAppDeleted };

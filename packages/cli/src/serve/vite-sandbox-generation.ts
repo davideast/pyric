@@ -71,6 +71,7 @@ export interface ViteSandboxGenerationInput {
 }
 
 export interface ViteSandboxGeneration {
+  readonly instanceId?: string;
   close(): Promise<void>;
 }
 
@@ -364,7 +365,7 @@ export async function createViteSandboxGeneration(
       listenerDisposers.push(() => httpServer.removeListener('close', onServerClose));
     }
 
-    return { close };
+    return { instanceId: bridge?.instanceId, close };
   } catch (error) {
     await close();
     throw error;

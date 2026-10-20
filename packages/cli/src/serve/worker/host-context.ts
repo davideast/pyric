@@ -162,10 +162,14 @@ export interface HostCtx {
   appOptions?: Record<string, unknown>;
   /** True while `appOptions` has only been seeded by ports re-attaching from an earlier host instance. */
   appOptionsFromPriorHost?: boolean;
+  /** True once `appOptions` has been confirmed or set by a client verified against this host instance. */
+  appOptionsVerified?: boolean;
   /** True when `adoptAppDefaultRtdbInstance` derived `defaultRtdbInstance` from a provisional prior-host port. */
   defaultRtdbAdoptedFromPriorHost?: boolean;
   /** Re-attached prior-host ports provisionally sharing `appOptions` until a fresh client confirms or supersedes it. */
   priorHostConfigPorts?: Set<PortLike>;
+  /** Ports whose bundles presented no host instance id, held provisionally until a verified current-host client attaches. */
+  unverifiedConfigPorts?: Set<PortLike>;
   /** App ports that attempted to attach a different Firebase configuration. */
   rejectedConfigPorts?: WeakSet<PortLike>;
   /** Conflicting options supplied by each rejected port, used to name differing keys in errors. */
