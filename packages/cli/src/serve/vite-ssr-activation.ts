@@ -18,8 +18,14 @@
  * One activation serves the process. A Vite restart builds the next server
  * before closing the old one, so the newest server is the one in force, and
  * closing a replaced server changes nothing. Closing the server in force
- * removes the activation and closes `firebase-admin`'s connection, so a
- * process that created the server through Vite's API can end on its own.
+ * removes the activation, and the Node client stops holding the process, so
+ * a process that created the server through Vite's API can end on its own.
+ *
+ * `firebase-admin`'s app lives as long as the process (its registry is
+ * process-wide, as firebase-admin's is), so it gets one connection handle for
+ * the process, which dials the server in force at each connect. Closing a
+ * server leaves the handle open: an idle handle holds nothing, and the next
+ * dev server this process creates is reached by the same app.
  */
 import type { AddressInfo } from 'node:net';
 import type { ViteDevServer } from 'vite';
@@ -119,8 +125,6 @@ export function attachViteSsrActivation(
       if (isReplaced) return;
       inForce = undefined;
       clearProcessActivation(activation);
-      adminSandbox?.close();
-      adminSandbox = undefined;
     },
   };
 }

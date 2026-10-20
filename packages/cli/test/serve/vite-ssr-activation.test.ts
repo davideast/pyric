@@ -65,6 +65,14 @@ describe('attachViteSsrActivation', () => {
     expect(processActivation()).toBeUndefined();
   });
 
+  it('gives firebase-admin one handle for the process, kept across dev servers', () => {
+    const firstServer = attach(fakeServer(ipv4('127.0.0.1', 5001)), true);
+    const first = processActivation()!.adminSandbox();
+    firstServer.close();
+    attach(fakeServer(ipv4('127.0.0.1', 5002)), true);
+    expect(processActivation()!.adminSandbox()).toBe(first);
+  });
+
   it('installs nothing when PYRIC_SANDBOX already activates the process', () => {
     attach(fakeServer(ipv4('127.0.0.1')), true, { PYRIC_SANDBOX: 'remote:http://127.0.0.1:9000' });
     expect(processActivation()).toBeUndefined();
