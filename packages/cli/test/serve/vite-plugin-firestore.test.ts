@@ -13,6 +13,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ViteDevServer } from 'vite';
 
+import { resetAppRegistryForTests } from 'pyric/app/internal';
 import { bundleWorker, defaultSdkEntries, workerSourceHash } from '../../src/serve/bundler.js';
 import { pyric } from '../../src/serve/vite-plugin.js';
 
@@ -49,6 +50,7 @@ export async function run() {
 }
 
 beforeAll(async () => {
+  await resetAppRegistryForTests();
   await bundleWorker({ outDir: join(homedir(), '.pyric', 'vite-worker', workerSourceHash()) });
   fixtureRoot = createFixture();
   const { createServer } = await import('vite');
@@ -66,6 +68,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await server?.close();
+  await resetAppRegistryForTests();
   if (fixtureRoot) rmSync(fixtureRoot, { recursive: true, force: true });
 });
 
