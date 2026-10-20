@@ -4,7 +4,10 @@ import { SDK_MODULES, pyricPackageRoot } from '../../src/serve/bundler.js';
 import {
   createViteModuleContext,
   createViteModuleSwap,
+  type SwapEnvironment,
+  type SwapResolveContext,
 } from '../../src/serve/vite-module-swap.js';
+import { SSR_SWAP_PREFIX } from '../../src/serve/vite-ssr-routing.js';
 import { sdkImportMap } from '../../src/serve/html-injection.js';
 
 const context = createViteModuleContext();
@@ -46,6 +49,7 @@ describe('Vite module swap', () => {
     const config = swap.config();
     expect(config.optimizeDeps?.exclude).toEqual([
       ...SDK_MODULES,
+      'firebase-admin',
       '@firebase/app',
       '@firebase/component',
       '@firebase/ai',
@@ -54,6 +58,7 @@ describe('Vite module swap', () => {
     ]);
     expect(config.optimizeDeps?.include).toBeUndefined();
     expect(config.optimizeDeps?.esbuildOptions?.plugins).toHaveLength(1);
+    expect(config.resolve).toBeUndefined();
   });
 
   it('augments rather than replaces Vite filesystem allowances', () => {
@@ -94,4 +99,105 @@ describe('import map and Vite resolver agree', () => {
       expect(Object.keys(importMap).every((specifier) => (SDK_MODULES as readonly string[]).includes(specifier))).toBe(true);
     });
   }
+});
+
+/** A plugin context that records what falls through to Vite's own resolution. */
+function fakeContext(environment?: SwapEnvironment): SwapResolveContext & { passedOn: string[] } {
+  const passedOn: string[] = [];
+  return {
+    passedOn,
+    environment,
+    resolve: async (source) => {
+      passedOn.push(source);
+      return { id: `/node_modules/${source}.js` };
+    },
+  };
+}
+
+const runnableSsr = { name: 'ssr', config: { consumer: 'server' }, runner: {} } as SwapEnvironment;
+const workerdSsr: SwapEnvironment = { name: 'worker', config: { consumer: 'server' } };
+const clientEnvironment: SwapEnvironment = { name: 'client', config: { consumer: 'client' } };
+const aliased = (specifier: string) => `${SSR_SWAP_PREFIX}${specifier}`;
+
+describe('server-rendered imports under vite dev (#1123)', () => {
+  it('aliases the served firebase/* specifiers and every firebase-admin subpath, in dev only', () => {
+    const config = swap.config({ devServer: true });
+    const alias = (config.resolve?.alias as Array<{ find: RegExp; replacement: string }>)[0]!;
+    for (const specifier of [...SDK_MODULES, 'firebase-admin', 'firebase-admin/app', 'firebase-admin/database']) {
+      expect(specifier.replace(alias.find, alias.replacement)).toBe(aliased(specifier));
+    }
+    for (const specifier of ['firebase/analytics', 'firebase/firestore/lite', 'firebase-functions', 'firebase']) {
+      expect(alias.find.test(specifier)).toBe(false);
+    }
+    expect(config.ssr?.external).toEqual(['@pyric/cli']);
+    expect(swap.config({ devServer: false }).resolve).toBeUndefined();
+  });
+
+  it('keeps the SSR loader external in other server environments, only under vite dev', () => {
+    const devSwap = createViteModuleSwap(context);
+    devSwap.config({ devServer: true });
+    expect(devSwap.configEnvironment('worker', {})).toEqual({ resolve: { external: ['@pyric/cli'] } });
+    expect(devSwap.configEnvironment('rsc', { consumer: 'server' })).toEqual({ resolve: { external: ['@pyric/cli'] } });
+    expect(devSwap.configEnvironment('ssr', { consumer: 'server' })).toBeNull();
+    expect(devSwap.configEnvironment('client', {})).toBeNull();
+    const buildSwap = createViteModuleSwap(context);
+    buildSwap.config({ devServer: false });
+    expect(buildSwap.configEnvironment('worker', {})).toBeNull();
+  });
+
+  it('gives the client its entries through the alias, and passes the rest to Vite', async () => {
+    const fake = fakeContext(clientEnvironment);
+    expect(await swap.resolvePluginId(fake, aliased('firebase/firestore'), userImporter)).toBe(context.entries.firestore);
+    expect(await swap.resolvePluginId(fake, aliased('firebase-admin/app'), userImporter))
+      .toEqual({ id: '/node_modules/firebase-admin/app.js' });
+    expect(fake.passedOn).toEqual(['firebase-admin/app']);
+    expect(await swap.resolvePluginId(fake, 'react', userImporter)).toBeNull();
+  });
+
+  it('routes a runnable server environment to what the register maps a remote Node process to', async () => {
+    const fake = fakeContext(runnableSsr);
+    const routed = async (specifier: string) => swap.resolvePluginId(fake, aliased(specifier), userImporter);
+    expect(await routed('firebase/app')).toBe('\0pyric-ssr-target:@pyric/cli/register/client/app');
+    for (const service of ['auth', 'database', 'firestore', 'storage']) {
+      expect(await routed(`firebase/${service}`)).toBe(`\0pyric-ssr-target:@pyric/cli/register/client/${service}`);
+    }
+    expect(await routed('firebase/ai')).toBe('\0pyric-ssr-target:pyric/ai');
+    expect(await routed('firebase/messaging/sw')).toBe('\0pyric-ssr-target:pyric/messaging/sw');
+    expect(await routed('firebase-admin')).toBe('\0pyric-ssr-target:pyric-admin');
+    expect(await routed('firebase-admin/firestore')).toBe('\0pyric-ssr-target:pyric-admin/firestore');
+    expect(fake.passedOn).toEqual([]);
+  });
+
+  it('tells the server apart by the ssr option on Vite 5, which has no environments', async () => {
+    const fake = fakeContext();
+    expect(await swap.resolvePluginId(fake, aliased('firebase/database'), userImporter, { ssr: true }))
+      .toBe('\0pyric-ssr-target:@pyric/cli/register/client/database');
+    expect(await swap.resolvePluginId(fake, aliased('firebase/database'), userImporter)).toBe(context.entries.database);
+  });
+
+  it('leaves the real firebase/ai to Vite on the server in production AI mode', async () => {
+    const prodSwap = createViteModuleSwap(context, { getAiMode: () => 'production' });
+    const fake = fakeContext(runnableSsr);
+    expect(await prodSwap.resolvePluginId(fake, aliased('firebase/ai'), userImporter))
+      .toEqual({ id: '/node_modules/firebase/ai.js' });
+    expect(await prodSwap.resolvePluginId(fake, aliased('firebase/app'), userImporter))
+      .toBe('\0pyric-ssr-target:@pyric/cli/register/client/app-bridge');
+  });
+
+  it('gives a server environment Vite does not run in this process a module that throws', async () => {
+    const id = await swap.resolvePluginId(fakeContext(workerdSsr), aliased('firebase/firestore'), userImporter);
+    expect(id).toBe('\0pyric-ssr-outside:worker:firebase/firestore');
+    const source = await swap.loadPluginModule(id as string);
+    expect(source).toMatch(/^throw new Error\(/);
+    expect(source).toContain('firebase/firestore in the Vite \\"worker\\" environment runs outside');
+    expect(source).toContain('pyric({ hosted: true })');
+  });
+
+  it('loads a routed target through the SSR loader, re-exporting its names', async () => {
+    const source = await swap.loadPluginModule('\0pyric-ssr-target:pyric-admin/app') as string;
+    expect(source).toContain('import { loadServerTarget } from "@pyric/cli/vite/ssr-loader";');
+    expect(source).toContain('const __pyricTarget = await loadServerTarget("pyric-admin/app");');
+    expect(source).toMatch(/__pyric\d+ as initializeApp/);
+    expect(await swap.loadPluginModule('/src/app.ts')).toBeNull();
+  });
 });
