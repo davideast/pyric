@@ -108,6 +108,17 @@ export class DocumentRefImpl implements DocumentReference {
     return makeDocSnapshot(this, data);
   }
 
+  async create(data: DocumentData, opts?: OperationOptions): Promise<void> {
+    const result = this.env.execute({
+      method: 'create',
+      path: this.path,
+      data,
+      auth: opts?.auth !== undefined ? opts.auth : this.auth,
+      bypassRules: this.bypassRules,
+    });
+    if (!result.allowed) throwFromDenial(result, 'create denied');
+  }
+
   async set(data: DocumentData, options?: SetOptions): Promise<void> {
     // Three branches — each rides on the same execute() pipeline but
     // chooses a different combination of (rule clause, storage mode):

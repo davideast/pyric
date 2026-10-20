@@ -37,6 +37,7 @@ export type WireConstraint =
 
 /** Mirrors the protocol's `WriteDescriptor`. */
 export type WireWrite =
+  | { method: 'create'; path: string; data: unknown }
   | { method: 'set'; path: string; data: unknown; options?: { merge?: boolean; mergeFields?: string[] } }
   | { method: 'update'; path: string; fields: WireUpdateField[] }
   | { method: 'delete'; path: string };

@@ -22,6 +22,7 @@ import {
 } from './state.js';
 import { applyConverterToDocSnap, tagSnapshotRefs, wrapSandboxDocSnap } from './snapshots.js';
 import { requireDocumentData } from './internal/document-data.js';
+import { registerAtomicWriterCreate } from './internal/atomic-create.js';
 import { parseChainUpdate } from './chain-update.js';
 import type { DocumentData, DocumentReference, DocumentSnapshot, Firestore, FirestoreDataConverter, Transaction, TransactionOptions, WriteBatch } from './types.js';
 
@@ -64,6 +65,10 @@ export async function runTransaction<R>(
           return transaction;
         },
       };
+      registerAtomicWriterCreate(transaction, (ref, data) => {
+        const payload = convertSetData(ref, data);
+        backing.create(database.doc(ref.path), payload);
+      });
       return fn(transaction);
     }, options)),
   );
@@ -119,5 +124,10 @@ export function writeBatch(db: Firestore): WriteBatch {
       );
     },
   };
+  registerAtomicWriterCreate(batch, (ref, data) => {
+    const payload = convertSetData(ref, data);
+    backing.create(database.doc(ref.path), payload);
+    writes++;
+  });
   return tag(batch, target);
 }

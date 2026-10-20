@@ -81,6 +81,12 @@ export function makeDocRef(arm: RemoteArm, path: string): DocumentReference {
       const wire = (await armOp(arm, { method: 'getDoc', path })) as WireDocSnap;
       return makeDocumentSnapshot(ref, wire);
     },
+    async create(data: DocumentData, _opts?: OperationOptions): Promise<void> {
+      await armOp(arm, {
+        method: 'batchCommit',
+        writes: [{ method: 'create', path, data: encodeWriteData(data) }],
+      });
+    },
     async set(data: DocumentData, options?: SetOptions): Promise<void> {
       await armOp(arm, {
         method: 'setDoc',

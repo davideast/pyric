@@ -69,6 +69,10 @@ export async function runRemoteTransaction<R>(
         }
         return txGetDoc(refOrQuery as DocumentReference) as Promise<never>;
       },
+      create(ref: DocumentReference, data: DocumentData): Transaction {
+        writes.push({ method: 'create', path: ref.path, data: encodeWriteData(data) });
+        return tx;
+      },
       set(ref: DocumentReference, data: DocumentData, options?: SetOptions): Transaction {
         const write: WireWrite = { method: 'set', path: ref.path, data: encodeWriteData(data) };
         const wireOptions = toWireSetOptions(options);

@@ -111,8 +111,22 @@ import {
 } from '../google-endpoints.js';
 import { nodeAgentPrototypes, nodeSocketPrototypes } from './connect-prototypes.js';
 
-/** undici's global-dispatcher slot. Version-suffixed by undici itself. */
-const UNDICI_GLOBAL_DISPATCHER = Symbol.for('undici.globalDispatcher.1');
+/** undici's version-suffixed global-dispatcher slots (`undici.globalDispatcher.1` in undici 6 / Node 20–22, `.2` in undici 7+ / Node 24+). */
+const UNDICI_DISPATCHER_KEY_PREFIX = 'undici.globalDispatcher.';
+const KNOWN_UNDICI_DISPATCHER_SLOTS: readonly symbol[] = [
+  Symbol.for('undici.globalDispatcher.1'),
+  Symbol.for('undici.globalDispatcher.2'),
+];
+
+function undiciDispatcherSlots(scope: Record<symbol, unknown>): Set<symbol> {
+  const slots = new Set<symbol>(KNOWN_UNDICI_DISPATCHER_SLOTS);
+  for (const sym of Object.getOwnPropertySymbols(scope)) {
+    if (Symbol.keyFor(sym)?.startsWith(UNDICI_DISPATCHER_KEY_PREFIX)) {
+      slots.add(sym);
+    }
+  }
+  return slots;
+}
 
 /** Marks a rejection as the guard's, so callers can tell it from a DNS/TLS
  *  failure. A blocked `fetch` only exposes it as `error.cause.code`. */
@@ -552,17 +566,20 @@ export function installNetGuard(hooks: NetGuardHooks = {}): NetGuard | null {
     guardConnect(prototype as { [k: string]: unknown }, 'connect');
   }
 
-  let installed: unknown;
+  const installed = new Map<symbol, Dispatcher>();
   const wrapGlobalDispatcher = (): void => {
-    const current = scope[UNDICI_GLOBAL_DISPATCHER];
-    if (current === undefined || current === null) return;
-    if (current === installed) return;
-    if (typeof (current as Dispatcher).dispatch !== 'function') return;
-    // PLAIN ASSIGNMENT. undici's own property is
-    // `configurable: false, writable: true`; a `defineProperty` that tries to
-    // make it configurable throws and takes the process down.
-    installed = wrapDispatcher(current as Dispatcher, reporterOptions);
-    scope[UNDICI_GLOBAL_DISPATCHER] = installed;
+    for (const slot of undiciDispatcherSlots(scope)) {
+      const current = scope[slot];
+      if (current === undefined || current === null) continue;
+      if (current === installed.get(slot)) continue;
+      if (typeof (current as Dispatcher).dispatch !== 'function') continue;
+      // PLAIN ASSIGNMENT. undici's own property is
+      // `configurable: false, writable: true`; a `defineProperty` that tries to
+      // make it configurable throws and takes the process down.
+      const wrapped = wrapDispatcher(current as Dispatcher, reporterOptions);
+      installed.set(slot, wrapped);
+      scope[slot] = wrapped;
+    }
   };
   if (hooks.scope === undefined) materializeGlobalDispatcher();
   wrapGlobalDispatcher();

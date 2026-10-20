@@ -76,6 +76,11 @@ export class TransactionImpl implements Transaction {
     return makeDocSnapshot(refOrQuery, data);
   }
 
+  create(ref: DocumentReference, data: DocumentData): Transaction {
+    this.simTx.create(ref.path, data);
+    return this;
+  }
+
   set(ref: DocumentReference, data: DocumentData, options?: SetOptions): Transaction {
     const mergeFields = options?.mergeFields;
     const hasFieldMask = mergeFields !== undefined;
