@@ -51,12 +51,18 @@ describe('HTML sandbox injection', () => {
   it('maps every served Firebase module', () => {
     expect(Object.keys(sdkImportMap()).sort()).toEqual([
       'firebase/ai',
+      'firebase/analytics',
       'firebase/app',
+      'firebase/app-check',
       'firebase/auth',
       'firebase/database',
       'firebase/firestore',
+      'firebase/firestore/lite',
+      'firebase/functions',
       'firebase/messaging',
       'firebase/messaging/sw',
+      'firebase/performance',
+      'firebase/remote-config',
       'firebase/storage',
     ]);
   });
