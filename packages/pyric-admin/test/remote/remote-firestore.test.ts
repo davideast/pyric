@@ -1267,6 +1267,96 @@ function conformanceSuite(name: string, makeDb: () => Promise<SandboxFirestore> 
       // The write buffered before the violation must NOT have committed.
       expect((await db.doc('rw/x').get()).data()).toEqual({ v: 1 });
     });
+
+    it('create() parity across DocumentReference, WriteBatch, and Transaction (including concurrent invite race)', async () => {
+      const db = await makeDb();
+
+      // 1. DocumentReference.create: succeeds when absent, fails with already-exists when present.
+      await db.doc('creates/d1').create({ owner: 'alice', createdAt: FieldValue.serverTimestamp() });
+      const created = (await db.doc('creates/d1').get()).data()!;
+      expect(created.owner).toBe('alice');
+      expect(created.createdAt).toBeInstanceOf(Timestamp);
+
+      let dupErr: (Error & { code?: string }) | undefined;
+      try {
+        await db.doc('creates/d1').create({ owner: 'mallory' });
+      } catch (e) {
+        dupErr = e as Error & { code?: string };
+      }
+      expect(dupErr?.code).toBe('already-exists');
+      expect((await db.doc('creates/d1').get()).data()!.owner).toBe('alice');
+
+      // 2. WriteBatch.create: atomic rollback on collision + delete-then-create on same doc.
+      let batchErr: (Error & { code?: string }) | undefined;
+      try {
+        await db
+          .batch()
+          .set(db.doc('creates/rollback-canary'), { leaked: true })
+          .create(db.doc('creates/d1'), { owner: 'mallory' })
+          .commit();
+      } catch (e) {
+        batchErr = e as Error & { code?: string };
+      }
+      expect(batchErr?.code).toBe('already-exists');
+      expect((await db.doc('creates/rollback-canary').get()).exists).toBe(false);
+
+      await db
+        .batch()
+        .delete(db.doc('creates/d1'))
+        .create(db.doc('creates/d1'), { owner: 'bob' })
+        .commit();
+      expect((await db.doc('creates/d1').get()).data()).toEqual({ owner: 'bob' });
+
+      // 3. Transaction.create: reads-before-writes, atomic collision rollback, and concurrent get-or-create contention retry.
+      let rawErr: (Error & { code?: string }) | undefined;
+      try {
+        await db.runTransaction(async (tx) => {
+          tx.create(db.doc('creates/raw-canary'), { v: 1 });
+          await tx.get(db.doc('creates/d1'));
+        });
+      } catch (e) {
+        rawErr = e as Error & { code?: string };
+      }
+      expect(rawErr?.code).toBe('failed-precondition');
+      expect((await db.doc('creates/raw-canary').get()).exists).toBe(false);
+
+      let txCollisionErr: (Error & { code?: string }) | undefined;
+      try {
+        await db.runTransaction(async (tx) => {
+          tx.set(db.doc('creates/tx-rollback-canary'), { leaked: true });
+          tx.create(db.doc('creates/d1'), { owner: 'mallory' });
+        });
+      } catch (e) {
+        txCollisionErr = e as Error & { code?: string };
+      }
+      expect(txCollisionErr?.code).toBe('already-exists');
+      expect((await db.doc('creates/tx-rollback-canary').get()).exists).toBe(false);
+
+      let seq = 0;
+      const getOrCreateSpaceInvite = (uid: string, spaceId: string) =>
+        db.runTransaction(async (tx) => {
+          const userDoc = db.collection('userInvites').doc(uid);
+          const data = (await tx.get(userDoc)).data() as { codes?: Record<string, string> } | undefined;
+          const existing = data?.codes?.[spaceId];
+          if (existing) return { code: existing };
+          const code = `CODE_${++seq}`;
+          tx.create(db.collection('spaceInvites').doc(code), {
+            spaceId,
+            inviterUid: uid,
+            createdAt: FieldValue.serverTimestamp(),
+          });
+          tx.set(userDoc, { codes: { [spaceId]: code } }, { merge: true });
+          return { code };
+        });
+
+      const [resA, resB] = await Promise.all([
+        getOrCreateSpaceInvite('alice', 'space-07'),
+        getOrCreateSpaceInvite('alice', 'space-07'),
+      ]);
+      expect(resA.code).toBe(resB.code);
+      const invitesSnap = await db.collection('spaceInvites').get();
+      expect(invitesSnap.docs.map((d) => d.id)).toEqual([resA.code]);
+    });
   });
 }
 

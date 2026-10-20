@@ -192,7 +192,7 @@ export const ALLOWLIST: readonly AllowlistGroup[] = [
   {
     entry: 'firestore',
     owner: 'DocumentReference',
-    members: ['create', 'firestore', 'isEqual', 'listCollections', 'onSnapshot', 'withConverter'],
+    members: ['firestore', 'isEqual', 'listCollections', 'onSnapshot', 'withConverter'],
     reason:
       'reference and query members past the modeled read and write path; not yet stubbed on the local and remote reference builders',
   },
@@ -233,15 +233,9 @@ export const ALLOWLIST: readonly AllowlistGroup[] = [
   },
   {
     entry: 'firestore',
-    owner: 'WriteBatch',
-    members: ['create'],
-    reason: 'create-if-absent writes are not modeled on batches and transactions',
-  },
-  {
-    entry: 'firestore',
     owner: 'Transaction',
-    members: ['create', 'getAll'],
-    reason: 'create-if-absent writes and multi-document reads are not modeled on transactions',
+    members: ['getAll'],
+    reason: 'multi-document reads are not modeled on transactions',
   },
   {
     entry: 'firestore',

@@ -42,6 +42,11 @@ export class WriteBatchImpl implements WriteBatch {
     private readonly bypassRules: boolean = false,
   ) {}
 
+  create(ref: DocumentReference, data: DocumentData): WriteBatch {
+    this.ops.push({ method: 'create', path: ref.path, data: cloneDoc(data) });
+    return this;
+  }
+
   set(ref: DocumentReference, data: DocumentData, options?: SetOptions): WriteBatch {
     const operation: BatchOperationInput = { method: 'set', path: ref.path, data: cloneDoc(data) };
     const mergeFields = options?.mergeFields;

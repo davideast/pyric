@@ -97,6 +97,7 @@ export interface DocumentReference {
   readonly parent: CollectionReference;
   collection(name: string): CollectionReference;
   get(opts?: OperationOptions): Promise<DocumentSnapshot>;
+  create(data: DocumentData, opts?: OperationOptions): Promise<void>;
   set(data: DocumentData, options?: SetOptions): Promise<void>;
   update(data: DocumentData, opts?: OperationOptions): Promise<void>;
   update(field: string | FieldPath, value: unknown, ...moreFieldsAndValues: unknown[]): Promise<void>;
@@ -219,6 +220,7 @@ export interface CollectionReference extends Query {
 }
 
 export interface WriteBatch {
+  create(ref: DocumentReference, data: DocumentData): WriteBatch;
   set(ref: DocumentReference, data: DocumentData, options?: SetOptions): WriteBatch;
   update(ref: DocumentReference, data: DocumentData): WriteBatch;
   update(ref: DocumentReference, field: string | FieldPath, value: unknown, ...moreFieldsAndValues: unknown[]): WriteBatch;
@@ -235,6 +237,7 @@ export interface Transaction {
   // lands.
   get(ref: DocumentReference): Promise<DocumentSnapshot>;
   get(query: Query): Promise<QuerySnapshot>;
+  create(ref: DocumentReference, data: DocumentData): Transaction;
   set(ref: DocumentReference, data: DocumentData, options?: SetOptions): Transaction;
   update(ref: DocumentReference, data: DocumentData): Transaction;
   update(ref: DocumentReference, field: string | FieldPath, value: unknown, ...moreFieldsAndValues: unknown[]): Transaction;

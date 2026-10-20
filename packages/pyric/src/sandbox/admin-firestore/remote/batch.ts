@@ -26,6 +26,11 @@ export function makeWriteBatch(arm: RemoteArm): WriteBatch {
   const writes: WireWrite[] = [];
   let committed = false;
   const batch: WriteBatch = {
+    create(ref: DocumentReference, data: DocumentData): WriteBatch {
+      assertNotCommitted();
+      writes.push({ method: 'create', path: ref.path, data: encodeWriteData(data) });
+      return batch;
+    },
     set(ref: DocumentReference, data: DocumentData, options?: SetOptions): WriteBatch {
       assertNotCommitted();
       const write: WireWrite = { method: 'set', path: ref.path, data: encodeWriteData(data) };

@@ -121,6 +121,7 @@ export type AggregateSpecDescriptor = Record<string, AggregateFieldDescriptor>;
 // ─── Write descriptors for batch + transaction ────────────────────────────
 
 export type WriteDescriptor =
+  | { method: 'create'; path: string; data: unknown; valueEncoding?: DocValueEncoding }
   | { method: 'set'; path: string; data: unknown; valueEncoding?: DocValueEncoding; options?: { merge?: boolean; mergeFields?: string[] } }
   | ({ method: 'update'; path: string; valueEncoding?: DocValueEncoding } & UpdatePayload)
   | { method: 'delete'; path: string };

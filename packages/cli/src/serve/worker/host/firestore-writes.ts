@@ -30,7 +30,10 @@ import {
   type Firestore,
   type DocumentReference,
   type SetOptions,
+  type Transaction as ModularTransaction,
+  type WriteBatch,
 } from 'pyric/firestore';
+import { atomicWriterCreate } from 'pyric/firestore/internal';
 import { assertEncodedDocValueDepth, rehydrateEncodedDocValue, requireDocumentData, type DocValueEncoding } from 'pyric/firestore/internal/value-codec';
 import {
   Bytes as RulesBytes,
@@ -203,16 +206,9 @@ function callUpdate<R>(
 
 // ─── Atomic write helper ──────────────────────────────────────────────────
 
-type AtomicWriter = {
-  set(ref: DocumentReference, data: Record<string, unknown>, options?: SetOptions): void;
-  update(ref: DocumentReference, data: Record<string, unknown>): void;
-  update(ref: DocumentReference, field: FieldPath, value: unknown, ...moreFieldsAndValues: unknown[]): void;
-  delete(ref: DocumentReference): void;
-};
-
 function applyAtomicWrite(
   db: Firestore,
-  writer: AtomicWriter,
+  writer: WriteBatch | ModularTransaction,
   write: WriteDescriptor,
 ): void {
   const isInvalidWrite = write === null || typeof write !== 'object' || Array.isArray(write);
@@ -222,6 +218,11 @@ function applyAtomicWrite(
   const path = requireFirestorePath(write.path);
   const ref = pyricDoc(db, path);
   switch (write.method) {
+    case 'create': {
+      const data = prepareWriteData(write.data, write.valueEncoding) as Record<string, unknown>;
+      atomicWriterCreate(writer, ref, data);
+      return;
+    }
     case 'set': {
       const data = prepareWriteData(write.data, write.valueEncoding) as Record<string, unknown>;
       writer.set(ref, data, write.options);
