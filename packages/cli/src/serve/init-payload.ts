@@ -117,8 +117,11 @@ export interface InitPayload {
 export type WorkerInitPayload = Pick<InitPayload, 'hosted' | 'projectKey' | 'bridgeUrl' | 'persistenceUnhealthy'> & {
   /** `owners` from `pyric.json` or the Vite plugin; absent when neither sets it. */
   owners?: OwnersConfig;
+  /** Host boot identity baked into served HTML / Vite client modules at build time. */
+  instanceId?: string;
 };
 
 declare global {
   var __PYRIC_WORKER_INIT__: WorkerInitPayload | undefined;
+  var __PYRIC_HOST_INSTANCE_ID__: string | undefined;
 }

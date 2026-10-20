@@ -453,6 +453,8 @@ export interface AppConfigMessage {
   options: Record<string, unknown>;
   /** Set when a long-lived client re-attaches from an earlier host instance without reloading. */
   fromPriorHost?: boolean;
+  /** Set when the attaching client proved compile-time/HTML origin from this running host instance. */
+  hostVerified?: boolean;
 }
 
 /**

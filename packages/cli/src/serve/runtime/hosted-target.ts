@@ -19,13 +19,19 @@ export function readHostedTarget(): { url: string; projectKey: string } | null {
   return { url: `${protocol}//${location.host}/__pyric/sandbox`, projectKey };
 }
 
-export function stampHostedTarget(html: string, projectKey: string | undefined, owners?: OwnersConfig): string {
+export function stampHostedTarget(
+  html: string,
+  projectKey: string | undefined,
+  owners?: OwnersConfig,
+  instanceId?: string,
+): string {
   const hosted = projectKey !== undefined;
   const payload: WorkerInitPayload = {
     hosted, projectKey: projectKey ?? null,
     bridgeUrl: hosted ? '/__pyric/sandbox' : null,
   };
   if (owners !== undefined) payload.owners = owners;
+  if (hosted && instanceId !== undefined) payload.instanceId = instanceId;
   const serialized = JSON.stringify(payload).replaceAll('<', '\\u003c');
   let declaration = `<script data-pyric-worker-init>globalThis.__PYRIC_WORKER_INIT__=${serialized};</script>`;
   if (hosted) {

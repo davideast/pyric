@@ -197,4 +197,117 @@ describe('worker host appConfig lock and pre-restart tab supersede', () => {
       options: { projectId: 'digchatapp', recaptchaEnterpriseSiteKey: 'k' },
     });
   });
+
+  it('lets a host-verified page and updated SW supersede an unverified cached Service Worker that woke first', async () => {
+    const ctx = await makeCtx();
+    const ports = new Map<string, ReturnType<typeof makePort>>();
+    const bridge = createBridge({ projectKey: 'spaces-live' });
+    bridge.registerSandboxPeer(
+      (frame) => {
+        if (frame.type === 'worker-message' && frame.clientSessionId) {
+          let entry = ports.get(frame.clientSessionId);
+          if (!entry) {
+            entry = makePort();
+            ports.set(frame.clientSessionId, entry);
+          }
+          void handleMessage(ctx, entry.port, frame.message);
+        }
+      },
+      [],
+      'sandbox-live',
+      ['worker-port'],
+    );
+
+    const oldConfigWithoutRecaptcha = {
+      apiKey: 'AIzaSyDMNpNUevipcCuUurfcn8zLQuHA3Y04_nQ',
+      authDomain: 'digchatapp.firebaseapp.com',
+      databaseURL: 'https://digchatapp-default-rtdb.firebaseio.com',
+      projectId: 'digchatapp',
+      storageBucket: 'digchatapp.firebasestorage.app',
+      messagingSenderId: '647740033774',
+      appId: '1:647740033774:web:c5120f83178bc2644b41ff',
+    };
+    const currentConfig = {
+      ...oldConfigWithoutRecaptcha,
+      recaptchaEnterpriseSiteKey: '6Ld2QOItAAAAALupvnroD0n_rIqtE_LWxLVu9zUR',
+    };
+
+    // T+0ms: Cached pre-upgrade Service Worker wakes from Chrome SW cache in a fresh JS isolate (no hostInstanceId).
+    const cachedOldSw = createConsumerSession(bridge, () => {});
+    cachedOldSw.handleMessage({
+      type: 'attach',
+      protocol: 1,
+      transport: 'worker-port',
+      clientInfo: { platform: 'browser' },
+    });
+    cachedOldSw.handleMessage({
+      type: 'worker-message',
+      message: { t: 'appConfig', options: oldConfigWithoutRecaptcha },
+    });
+
+    // T+1ms: Fresh HTML page stamped by THIS running server attaches with bridge.instanceId.
+    const freshPage = createConsumerSession(bridge, () => {});
+    freshPage.handleMessage({
+      type: 'attach',
+      protocol: 1,
+      transport: 'worker-port',
+      hostInstanceId: bridge.instanceId,
+      clientInfo: { platform: 'browser' },
+    });
+    freshPage.handleMessage({
+      type: 'worker-message',
+      message: { t: 'appConfig', options: currentConfig },
+    });
+
+    // T+817ms: Freshly recompiled Service Worker activates via skipWaiting() and attaches with bridge.instanceId.
+    const freshSw = createConsumerSession(bridge, () => {});
+    freshSw.handleMessage({
+      type: 'attach',
+      protocol: 1,
+      transport: 'worker-port',
+      hostInstanceId: bridge.instanceId,
+      clientInfo: { platform: 'browser' },
+    });
+    freshSw.handleMessage({
+      type: 'worker-message',
+      message: { t: 'appConfig', options: currentConfig },
+    });
+
+    const [, pagePort, swPort] = [...ports.values()];
+    await handleMessage(ctx, pagePort!.port, {
+      t: 'op',
+      id: 'page-write',
+      method: 'setDoc',
+      path: 'spaces/s1',
+      data: { ok: true },
+    });
+    await handleMessage(ctx, swPort!.port, {
+      t: 'op',
+      id: 'sw-read',
+      method: 'getDoc',
+      path: 'spaces/s1',
+    });
+
+    expect((pagePort!.messages[0] as ResMessage).ok).toBe(true);
+    expect((swPort!.messages[0] as ResMessage).ok).toBe(true);
+
+    // Once locked by a host-verified client, a second host-verified client with a different config is rejected.
+    const conflictingVerifiedPage = makePort();
+    await handleMessage(ctx, conflictingVerifiedPage.port, {
+      t: 'appConfig',
+      options: { ...currentConfig, projectId: 'other-project' },
+      hostVerified: true,
+    });
+    await handleMessage(ctx, conflictingVerifiedPage.port, {
+      t: 'op',
+      id: 'conflict-read',
+      method: 'getDoc',
+      path: 'spaces/s1',
+    });
+    const conflictReply = conflictingVerifiedPage.messages[0] as ResMessage;
+    expect(conflictReply.ok).toBe(false);
+    if (!conflictReply.ok) {
+      expect(conflictReply.error.code).toBe('app/multiple-configs-not-supported');
+    }
+  });
 });

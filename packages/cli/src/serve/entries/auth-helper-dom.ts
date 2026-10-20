@@ -69,6 +69,10 @@ export function mountAuthHelperDialog(helper: ServeAuthHelper): void {
   dialog.addEventListener('click', (e) => {
     if (e.target === dialog) helper.cancel(); // backdrop only
   });
+  // Isolate typing and browser autofill events inside the sandbox dialog from host app window shortcuts.
+  for (const type of ['keydown', 'keyup', 'keypress'] as const) {
+    dialog.addEventListener(type, (e) => e.stopPropagation());
+  }
 
   const render = (): void => {
     const snap = helper.snapshot();

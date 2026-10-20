@@ -23,13 +23,18 @@ export interface ServeTagOptions {
   aiMode?: AiMode;
   workerVersion?: string;
   forceInPage?: boolean;
-  hosted?: { projectKey: string };
+  hosted?: { projectKey: string; instanceId?: string };
   /** The project's listener-owner settings, applied on the page before any listener opens. */
   owners?: OwnersConfig;
 }
 
 export function injectServeTags(html: string, options: ServeTagOptions = {}): string {
-  return stampHostedTarget(injectRuntimeTags(html, options), options.hosted?.projectKey, options.owners);
+  return stampHostedTarget(
+    injectRuntimeTags(html, options),
+    options.hosted?.projectKey,
+    options.owners,
+    options.hosted?.instanceId,
+  );
 }
 
 function injectRuntimeTags(html: string, options: ServeTagOptions): string {
