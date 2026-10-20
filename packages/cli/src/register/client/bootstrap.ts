@@ -17,15 +17,32 @@
  *   with no path to the host (`firebase/ai`, `firebase/messaging`) fails at its
  *   first call and nothing falls back to an in-process sandbox.
  *
+ * A host running in this process (the Vite plugin's dev server, #1123)
+ * installs an in-process activation instead of `PYRIC_SANDBOX`; when the
+ * variable is unset, the host, the off-host error and the refusal come from
+ * that activation, read at each use so a restarted dev server's replaces the old.
+ *
  * Nothing here sets or reads `location`, `window` or `document`.
  */
-import { bindAppRegistryRefusal, clientSdkRefusal } from 'pyric/app/internal';
-import { parsePyricSandbox } from 'pyric/sandbox/internal';
+import { bindAppRegistryRefusal, clientSdkRefusal, clientSdkRefusalFor } from 'pyric/app/internal';
+import {
+  onProcessActivationEnd,
+  parsePyricSandbox,
+  processActivation,
+  type ProcessActivation,
+} from 'pyric/sandbox/internal';
 import { installNodeRuntimeOrigin } from '../../serve/entries/runtime-origin.js';
 import { resolveRemoteHost } from '../../remote/resolve-host.js';
 import { versionSkewGuidance } from '../../remote/version-skew.js';
 import { createNodeSocketRealm } from './node-realm.js';
 import { offHostRefusal } from './off-host-refusal.js';
+
+/** The in-process activation, when `PYRIC_SANDBOX` does not activate this process. */
+function inProcessActivation(): ProcessActivation | undefined {
+  const setting = process.env.PYRIC_SANDBOX ?? '';
+  const isEnvUnset = setting.trim().length === 0;
+  return isEnvUnset ? processActivation() : undefined;
+}
 
 function resolveHost(): Promise<string> {
   const activation = parsePyricSandbox(process.env.PYRIC_SANDBOX);
@@ -49,8 +66,13 @@ function reportVersionSkew(serveVersion: unknown): void {
 
 let host: Promise<string> | undefined;
 
-/** Resolves the host once, at the first call that needs it. */
+/**
+ * Resolves the host once, at the first call that needs it. An in-process
+ * activation is asked each time: it answers from the dev server in force.
+ */
 function hostOnce(): Promise<string> {
+  const inProcess = inProcessActivation();
+  if (inProcess !== undefined) return inProcess.host();
   if (host === undefined) {
     host = resolveHost();
     // Each call hears a discovery failure through init.json; this is not one more.
@@ -59,12 +81,19 @@ function hostOnce(): Promise<string> {
   return host;
 }
 
+const socketRealm = createNodeSocketRealm({ onAttached: ack => reportVersionSkew(ack.serveVersion) });
+// The in-process host ended for good (its dev server closed): let the process go.
+onProcessActivationEnd(() => socketRealm.releaseAll());
+
 installNodeRuntimeOrigin({
   realm: 'node',
   host: hostOnce,
-  socketRealm: createNodeSocketRealm({ onAttached: ack => reportVersionSkew(ack.serveVersion) }),
-  offHostError: offHostRefusal,
+  socketRealm,
+  offHostError: (detail) => inProcessActivation()?.offHostError(detail) ?? offHostRefusal(detail),
 });
 
 const setting = process.env.PYRIC_SANDBOX ?? '';
-bindAppRegistryRefusal(() => clientSdkRefusal(setting));
+bindAppRegistryRefusal(() => {
+  const inProcess = inProcessActivation();
+  return inProcess === undefined ? clientSdkRefusal(setting) : clientSdkRefusalFor(inProcess.label);
+});

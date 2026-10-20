@@ -11,7 +11,7 @@ import {
   type RemoteSandboxFactoryOptions,
   type Sandbox,
 } from 'pyric/sandbox';
-import { parsePyricSandbox } from 'pyric/sandbox/internal';
+import { parsePyricSandbox, processActivation } from 'pyric/sandbox/internal';
 import { readFileSync } from 'node:fs';
 
 import { assertAdminAppActive, markAdminAppDeleted } from './lifecycle.js';
@@ -197,7 +197,15 @@ export function deleteApp(app: PyricAdminApp): Promise<void> {
 
 function initializeAmbientApp(name: string, options: AdminAppOptions): PyricAdminApp {
   const env = process.env.PYRIC_SANDBOX;
-  if (env === undefined || env.trim() === '') {
+  const isEnvUnset = env === undefined || env.trim() === '';
+  // A host running in this process (the Vite plugin's dev server) activates
+  // it without the variable; see `installProcessActivation`.
+  const activation = isEnvUnset ? processActivation() : undefined;
+  if (activation !== undefined) {
+    process.stderr.write(`pyric: firebase-admin routed to sandbox (${activation.label})\n`);
+    return { [ADMIN_APP_TARGET]: 'sandbox', sandbox: activation.adminSandbox(), name, options };
+  }
+  if (env === undefined || isEnvUnset) {
     throw new Error(
       'pyric-admin/app is a sandbox-only mirror and no sandbox is active. ' +
         'Run under `pyric sandbox`, set PYRIC_SANDBOX with @pyric/cli/register, ' +
