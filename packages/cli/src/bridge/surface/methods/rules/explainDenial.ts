@@ -7,7 +7,17 @@
  * under a method whose name promises a trace.
  */
 import { z } from 'zod';
-import { checkOperation, checkRequestShape, checkRulesCompile, query, REQUEST_METHODS, RENAMES, requestMethodsOf } from '../../arguments/rules.js';
+import {
+  checkDatabaseInstance,
+  checkOperation,
+  checkRequestShape,
+  checkRulesCompile,
+  instance,
+  query,
+  REQUEST_METHODS,
+  RENAMES,
+  requestMethodsOf,
+} from '../../arguments/rules.js';
 import { explainDatabaseDenial } from '../../rules-engines/database-denial.js';
 import { explainFirestoreDenial } from '../../rules-engines/firestore.js';
 import { quoted } from '../../closest-name.js';
@@ -22,7 +32,7 @@ export default {
   method: 'explainDenial',
   sdkOrigin: 'pyric',
   effect: 'read',
-  signature: `explainDenial(operation: ${REQUEST_METHODS.join('|')}, path, service?: ${EXPLAINED_SERVICES.join('|')}, uid?, data?, query?, rules?, source?)`,
+  signature: `explainDenial(operation: ${REQUEST_METHODS.join('|')}, path, service?: ${EXPLAINED_SERVICES.join('|')}, uid?, data?, query?, rules?, source?, instance?)`,
   description: 'Trace why a request was denied, rule by rule.',
   args: z.object({
     operation: z
@@ -58,6 +68,7 @@ export default {
       .describe(
         'Database only: the text of the rules file the running ruleset was loaded from. It adds file lines to the trace when it parses to the running ruleset, and is otherwise ignored with a note. The running ruleset is still the one evaluated.',
       ),
+    instance,
     query: query.optional(),
   }),
   operation: {
@@ -75,6 +86,8 @@ export default {
         'service',
       );
     }
+    const invalidInstance = checkDatabaseInstance(args, fail, named);
+    if (invalidInstance) return invalidInstance;
     // A Firestore explanation evaluates a draft `rules` like simulate does
     // (FS-CON-3); `source` only adds file lines to the database trace.
     if (named === 'firestore' && args.source !== undefined) {
@@ -107,6 +120,7 @@ export default {
         operation: String(args.operation),
         path: String(args.path),
         ...(args.uid !== undefined ? { uid: String(args.uid) } : {}),
+        ...(args.instance !== undefined ? { instance: String(args.instance) } : {}),
         ...(args.data !== undefined ? { data: args.data } : {}),
         ...(args.rules !== undefined ? { rules: String(args.rules) } : {}),
         ...(args.source !== undefined ? { source: String(args.source) } : {}),

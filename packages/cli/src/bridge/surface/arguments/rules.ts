@@ -15,6 +15,7 @@ import { z } from 'zod';
 import { RULES_SERVICES, rulesEngineFor } from '../rules-engines/registry.js';
 import type { Args, Fail, InvalidArguments } from '../method-types.js';
 import { quoted } from '../closest-name.js';
+import { checkInstance, INSTANCE_RENAMES, instanceArgument } from './database.js';
 import { checkInstant } from './instants.js';
 
 /** Reject a `requestTime` that does not parse as a date. */
@@ -31,7 +32,27 @@ export const RENAMES: Readonly<Record<string, string>> = {
   rulesSource: 'rules',
   method: 'operation',
   op: 'operation',
+  ...INSTANCE_RENAMES,
 };
+
+/** Optional Realtime Database instance selector on `rules` calls (`service: 'database'`). */
+export const instance = instanceArgument.describe(
+  'The Realtime Database instance: a name such as shard-00, its URL, or default. Applies to service database only; omitted, the default instance.',
+);
+
+/** Reject `instance` on services that have no Realtime Database instances, or an unparseable instance name. */
+export function checkDatabaseInstance(args: Args, fail: Fail, effectiveService?: string): InvalidArguments | null {
+  if (args.instance === undefined) return null;
+  const target = effectiveService ?? String(args.service);
+  if (target !== 'database') {
+    return fail(
+      `instance applies to Realtime Database rules, and this call targets ${target}.`,
+      `Drop 'instance', or pass service 'database'.`,
+      'instance',
+    );
+  }
+  return checkInstance(args, fail);
+}
 
 /**
  * The `service` argument, whose values are the engine record names. Zod takes

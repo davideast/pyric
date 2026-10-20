@@ -222,7 +222,7 @@ describe('the sdk-service validator', () => {
   it('refuses a service that has no Security Rules', async () => {
     const result = await call('rules', 'lint', { service: 'firestone' });
     expect(result.summary).toBe(
-      "rules.lint: argument 'service' is 'firestone', which is not one of firestore, database, storage. The SDK signature is lint(service: firestore|database|storage, rules?). Pass 'service' as 'firestore'.",
+      "rules.lint: argument 'service' is 'firestone', which is not one of firestore, database, storage. The SDK signature is lint(service: firestore|database|storage, rules?, instance?). Pass 'service' as 'firestore'.",
     );
   });
 

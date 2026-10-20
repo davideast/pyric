@@ -27,6 +27,8 @@ export interface RulesRequest {
   /** The query a database `read` carries, in the members rules read as `query.*`. */
   query?: Record<string, unknown>;
   rules?: string;
+  /** Realtime Database instance name, URL, or `default` when evaluating non-default instances. */
+  instance?: string;
   /**
    * The instant `request.time` (Firestore, Storage) or `now` (database)
    * evaluates at, as an ISO 8601 string. Omit to evaluate at the sandbox
@@ -52,9 +54,9 @@ export interface RulesEngine {
    */
   compileFailure(source: string): RulesSourceProblem | null;
   /** Check a ruleset for errors without evaluating a request. */
-  lint(ctx: SurfaceContext, rules: string | undefined): Promise<OperationResult>;
+  lint(ctx: SurfaceContext, rules: string | undefined, instance?: string): Promise<OperationResult>;
   /** Evaluate one request and report allow or deny. */
   simulate(ctx: SurfaceContext, request: RulesRequest): Promise<OperationResult>;
   /** Install a ruleset into the running sandbox. */
-  install(ctx: SurfaceContext, rules: string): Promise<OperationResult>;
+  install(ctx: SurfaceContext, rules: string, instance?: string): Promise<OperationResult>;
 }

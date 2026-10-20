@@ -10,10 +10,12 @@
 import { z } from 'zod';
 import {
   cases,
+  checkDatabaseInstance,
   checkOneForm,
   checkOperation,
   checkRequestTime,
   data,
+  instance,
   operation,
   checkRequestShape,
   path,
@@ -35,6 +37,7 @@ function requestOf(
   _service: string,
   rules: unknown,
   requestTime: unknown,
+  callInstance: unknown,
 ): RulesRequest {
   const request: RulesRequest = {
     operation: String(source.operation),
@@ -42,6 +45,7 @@ function requestOf(
   };
   if (source.uid !== undefined) request.uid = String(source.uid);
   if (rules !== undefined) request.rules = String(rules);
+  if (callInstance !== undefined) request.instance = String(callInstance);
   const instant = source.requestTime ?? requestTime;
   if (instant !== undefined) request.requestTime = String(instant);
   if (source.data !== undefined) {
@@ -68,7 +72,7 @@ export default {
   method: 'simulate',
   sdkOrigin: 'pyric',
   effect: 'read',
-  signature: `simulate(service: ${SERVICES.join('|')}, operation?: ${REQUEST_METHODS.join('|')}, path?, uid?, data?, query?, cases?, rules?, requestTime?)`,
+  signature: `simulate(service: ${SERVICES.join('|')}, operation?: ${REQUEST_METHODS.join('|')}, path?, uid?, data?, query?, cases?, rules?, instance?, requestTime?)`,
   description:
     'Evaluate one request, or many through cases, at requestTime or the sandbox clock, and report allow or deny. For database rules, data may be any JSON value, update takes a patch keyed by the paths written, and a read may carry a query.',
   args: z.object({
@@ -83,6 +87,7 @@ export default {
       .string()
       .optional()
       .describe('Rules source to evaluate. Defaults to the rules the sandbox is running.'),
+    instance,
     requestTime: z
       .string()
       .optional()
@@ -97,6 +102,7 @@ export default {
   renames: RENAMES,
   example: { service: 'firestore', operation: 'get', path: 'users/alice', uid: 'alice' },
   validate: (args, { fail }) =>
+    checkDatabaseInstance(args, fail) ??
     checkOneForm(args, fail) ??
     checkOperation(args, fail) ??
     checkRequestShape(args, fail) ??
@@ -105,13 +111,13 @@ export default {
     const target = String(args.service);
     if (Array.isArray(args.cases)) {
       const requests = args.cases.map((one) =>
-        requestOf(one as Args, target, args.rules, args.requestTime),
+        requestOf(one as Args, target, args.rules, args.requestTime, args.instance),
       );
       return simulateCases(ctx, target, requests);
     }
     return rulesEngineFor(target).simulate(
       ctx,
-      requestOf(args, target, args.rules, args.requestTime),
+      requestOf(args, target, args.rules, args.requestTime, args.instance),
     );
   },
 } satisfies MethodRecord;
