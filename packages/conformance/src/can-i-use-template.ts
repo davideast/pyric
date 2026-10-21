@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { ASSURANCES, AVAILABILITIES, FIDELITIES, type ConformanceModel } from './conformance-model.ts';
+import { ASSURANCES, AVAILABILITIES, FIDELITIES, type ConformanceModel, type FeatureSupport } from './conformance-model.ts';
 
 const QUERY_RUNTIME_SOURCE = readFileSync(new URL('./can-i-use-query.ts', import.meta.url), 'utf8').trim();
 
@@ -35,15 +35,40 @@ export function renderCliQuery(model: ConformanceModel): string {
   ].join('\n');
 }
 
-/** Render the deliberately compact browser projection. Claims and their full
- * evidence chains stay in the Node projection; browser agents need only the
- * answer, caveats, and route back to generated evidence. */
+interface CaveatTable {
+  caveatText: string[];
+  supports: Array<Omit<FeatureSupport, 'claims' | 'caveats'> & { caveats: number[] }>;
+}
+
+/** Many features share one registry row, so the same caveat text repeats
+ * across distant records where gzip cannot see it. Store each text once and
+ * let features reference it by index; the module rebuilds the same answers. */
+function internCaveats(model: ConformanceModel): CaveatTable {
+  const caveatText: string[] = [];
+  const indexByText = new Map<string, number>();
+  const intern = (text: string): number => {
+    const known = indexByText.get(text);
+    if (known !== undefined) return known;
+    const nextIndex = caveatText.length;
+    caveatText.push(text);
+    indexByText.set(text, nextIndex);
+    return nextIndex;
+  };
+  const supports = model.supports.map(({ claims: _claims, caveats, ...answer }) => ({ ...answer, caveats: caveats.map(intern) }));
+  return { caveatText, supports };
+}
+
+/** Render the deliberately compact browser projection. Claims and their
+ * evidence chains stay in the Node projection. Caveats ship whole, and for a
+ * registry row that does not conform they include the row's evidence text. */
 export function renderBrowserQuery(model: ConformanceModel): string {
-  const supports = model.supports.map(({ claims: _claims, ...support }) => support);
+  const { caveatText, supports } = internCaveats(model);
   return [
-    ...sharedHeader('// Source: the central conformance model; full evidence remains Node-only.', supports),
+    ...sharedHeader('// Source: the central conformance model; claims and their evidence chains remain Node-only.', supports),
     'export interface BrowserFeatureSupport { feature: string; surface: DeveloperSurface; importPaths: readonly string[]; evidenceSlug: string; availability: Availability; fidelity: Fidelity; assurance: Assurance; summary: string; caveats: readonly string[]; }',
-    `export const CONFORMANCE_SUPPORTS: readonly BrowserFeatureSupport[] = ${JSON.stringify(supports)};`,
+    `const CAVEAT_TEXT: readonly string[] = ${JSON.stringify(caveatText)};`,
+    `const INTERNED_SUPPORTS: readonly (Omit<BrowserFeatureSupport, 'caveats'> & { caveats: readonly number[] })[] = ${JSON.stringify(supports)};`,
+    'export const CONFORMANCE_SUPPORTS: readonly BrowserFeatureSupport[] = INTERNED_SUPPORTS.map((support) => ({ ...support, caveats: support.caveats.map((index) => CAVEAT_TEXT[index]!) }));',
     '',
     QUERY_RUNTIME_SOURCE,
     '',
