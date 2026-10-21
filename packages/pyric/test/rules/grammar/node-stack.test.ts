@@ -74,6 +74,18 @@ interface Outcome {
   decisions?: string[];
 }
 
+/**
+ * The one node child compiles every probe in `beforeAll`. At idle (load 0.3 per
+ * thread on 32 threads) the hook took 0.55 to 0.63 s; under 64 busy loops on
+ * 32 threads it took up to 2.7 s, and under 128 up to 5.0 s, at bun's 5 s
+ * default (2026-10-21, WSL2). Before the probes shared one child, each test
+ * spawned its own, and one hit that default at 5,012 ms on a CI runner (#1169).
+ */
+const NODE_PROBES_TIMEOUT_MS = 30_000;
+
+/** The spawn stops the child just before the hook times out, so the error names its signal. */
+const NODE_SPAWN_TIMEOUT_MS = NODE_PROBES_TIMEOUT_MS - 2_000;
+
 type FirestoreGroup = 'grouped' | 'at129' | 'andMember' | 'brackets';
 
 /** Every source the tests probe, keyed by the test that reads its result. */
@@ -86,12 +98,14 @@ interface Probes {
   parser: [string, string, string];
 }
 
+type ParserOutcome = { valid: boolean } | { error: string };
+
 interface Results {
   firestore: Record<FirestoreGroup, Outcome[]>;
   /** Null when the source compiles, else the error message. */
   storage: (string | null)[];
-  /** `.valid` of each parser probe. */
-  parser: boolean[];
+  /** `.valid` of each parser probe, or the message it threw. */
+  parser: ParserOutcome[];
 }
 
 /**
@@ -122,24 +136,33 @@ function runProbes(probes: Probes): Results {
     };
     const firestore = Object.fromEntries(Object.entries(probes.firestore).map(([group, sources]) => [group, sources.map(compile)]));
     const storage = probes.storage.map(parseStorage);
+    const parse = (fn, source) => {
+      try { return { valid: fn(source).valid }; } catch (e) { return { error: String(e?.message ?? e) }; }
+    };
     const [expr, badExpr, rules] = probes.parser;
-    const parser = [parseExpression(expr).valid, parseExpression(badExpr).valid, parseRulesFile(rules).valid];
+    const parser = [parse(parseExpression, expr), parse(parseExpression, badExpr), parse(parseRulesFile, rules)];
     process.stdout.write(JSON.stringify({ firestore, storage, parser }));
   `;
   const res = spawnSync('node', ['--input-type=module', '--eval', script, JSON.stringify(probes)], {
     encoding: 'utf8',
-    timeout: 60_000,
+    timeout: NODE_SPAWN_TIMEOUT_MS,
     maxBuffer: 16 * 1024 * 1024,
   });
-  if (res.status !== 0) throw new Error(`node exited ${res.status}: ${res.stderr}`);
-  return JSON.parse(res.stdout) as Results;
+  if (res.status !== 0) {
+    throw new Error(`node exited ${res.status} (signal ${res.signal}${res.error ? `, ${res.error.message}` : ''}): ${res.stderr}`);
+  }
+  try {
+    return JSON.parse(res.stdout) as Results;
+  } catch (e) {
+    throw new Error(`node wrote ${Buffer.byteLength(res.stdout)} bytes that are not JSON (${(e as Error).message}): ${res.stdout.slice(0, 200)}`);
+  }
 }
 
 interface Boundary { service: string; shape: string; largestPass: number | null; smallestFail: number | null }
 let boundaries: Boundary[];
 function bound(service: string, shape: Shape): Boundary {
   const found = boundaries.find((b) => b.service === service && b.shape === shape);
-  if (found === undefined) throw new Error(`no captured boundary for ${service} ${shape}`);
+  if (found === undefined) throw new Error(`no captured boundary for ${service} ${shape} in ${capturesPath}`);
   return found;
 }
 
@@ -197,15 +220,6 @@ function parserSources(): [string, string, string] {
   const badExpr = `${'('.repeat(97)}request.auth.uid == == 'a'${')'.repeat(97)}`;
   return [expr, badExpr, firestore(probeBlock('paren-nesting', 97))];
 }
-
-/**
- * The one node child compiles every probe in this hook. At idle (load 0.3 per
- * thread on 32 threads) the hook took 0.55 to 0.63 s; under 64 busy loops on
- * 32 threads it took up to 2.7 s, and under 128 up to 5.0 s, at bun's 5 s
- * default (2026-10-21, WSL2). Before the probes shared one child, each test
- * spawned its own, and one hit that default at 5,012 ms on a CI runner (#1169).
- */
-const NODE_PROBES_TIMEOUT_MS = 30_000;
 
 let results: Results;
 
@@ -269,6 +283,6 @@ describe('parseStorageRules() under node reads every nesting production compiles
 
 describe('parseExpression() and parseRulesFile() under node', () => {
   test('read 97 nested groups and reject a syntax error inside them', () => {
-    expect(results.parser).toEqual([true, false, true]);
+    expect(results.parser).toEqual([{ valid: true }, { valid: false }, { valid: true }]);
   });
 });
