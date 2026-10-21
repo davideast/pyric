@@ -3,11 +3,15 @@ import { handleStudioOp } from '../../../src/serve/worker/host/studio.js';
 import { initializeSandbox } from 'pyric/sandbox';
 import type { HostCtx } from '../../../src/serve/worker/host/core.js';
 import { getInternalEnv } from 'pyric/sandbox/internal';
+import { getDatabase, ref, onValue, set } from 'pyric/database';
+import { sandbox as rtdbSandbox } from 'pyric/database';
 
 describe('worker studio resetAll rules behavior', () => {
   it('enforces permissive rules with lint errors and keeps RTDB listener', async () => {
     const sandbox = initializeSandbox();
-        const ctx: HostCtx = {
+    const db = getDatabase(sandbox);
+    
+    const ctx: HostCtx = {
       sandbox,
       rtdbInstances: new Map(),
       rtdbDefaultPolicy: 'deny',
@@ -23,7 +27,31 @@ describe('worker studio resetAll rules behavior', () => {
       env: {}
     };
 
+    const instance = {
+      name: 'default',
+      live: db,
+      rules: {
+        status: 'active' as const,
+        source: '{ "rules": { ".read": true, ".write": true } }',
+        messages: [],
+        updatedAt: Date.now()
+      },
+      sessions: new Map()
+    };
+    ctx.rtdbInstances?.set('default', instance);
+    rtdbSandbox.setRules(db, { rules: { '.read': true, '.write': true } });
 
+    await set(ref(db, 'a'), 1);
+
+    const events: unknown[] = [];
+    let cancels = 0;
+    const unsub = onValue(ref(db, 'a'), 
+      (snap) => { events.push(snap.val()); },
+      () => { cancels++; }
+    );
+
+    // wait for initial event
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     let postedMsg: any = null;
     try {
@@ -33,6 +61,10 @@ describe('worker studio resetAll rules behavior', () => {
     } catch(e) {}
     
     expect(postedMsg?.value?.errors).toEqual([]);
+
+    // Listener not cancelled, got null
+    expect(cancels).toBe(0);
+    expect(events).toEqual([1, null]);
 
     // Firestore permissive rules are enforced
     const fsRules = getInternalEnv(sandbox).getRules();

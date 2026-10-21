@@ -196,9 +196,19 @@ export class PersistenceState {
     this.children.fanOut(priors);
   }
 
-  reset(): void {
+  reset(preserveRules = false): void {
     this.state.resetGeneration += 1;
-    this.restore(null);
+    const priors = this.children.snapshotParents();
+    this.state.tree.restore({});
+    this.state.priorities.restore({});
+    this.state.mutations.mark('/');
+    if (!preserveRules) {
+      this.state.rules.setRules(null);
+      this.state.activeRules = null;
+    }
+    this.writes.cancelDeniedListeners();
+    this.values.fanOut(['/']);
+    this.children.fanOut(priors);
   }
 
   subscribe(onChange: () => void): () => void {

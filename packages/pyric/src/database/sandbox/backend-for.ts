@@ -113,7 +113,7 @@ function backendsFor(sandbox: Sandbox): DatabaseInstanceRegistry<RtdbBackend> {
     },
     // Sandbox.resetAll clears the tree of every instance.
     reset: () => {
-      for (const [, backend] of registry.entries()) backend.resetTree();
+      for (const [, backend] of registry.entries()) backend.resetTree(fullStateRestoreDepth.has(sandbox));
     },
   });
 
