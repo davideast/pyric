@@ -288,6 +288,28 @@ export interface SandboxChildHandle {
 export type DevChildHandle = SandboxChildHandle;
 
 /**
+ * The line `pyric sandbox <word>` prints when <word> was run as a command and
+ * no such command exists: it lists the `pyric sandbox` methods, since the
+ * likely cause is a mistyped method. Null for a path (`./bin/dev`), which
+ * names a file rather than a method. The registry loads only on this path,
+ * so a normal start does not pay for it.
+ */
+export async function sandboxMethodHint(command: string): Promise<string | null> {
+  const isPath = command.length === 0 || command.includes('/') || command.includes('\\');
+  if (isPath) return null;
+  const { SERVICE_COMMANDS } = await import('./service-commands.generated.js');
+  const methods = SERVICE_COMMANDS
+    .filter(({ path }) => path[0] === 'sandbox' && path.length === 2)
+    .map(({ path }) => path[1]);
+  const isMethod = (methods as readonly string[]).includes(command);
+  if (isMethod || methods.length === 0) return null;
+  return (
+    `pyric sandbox: '${command}' is neither a command on PATH nor a \`pyric sandbox\` method. ` +
+    `Methods: ${methods.join(', ')}.\n`
+  );
+}
+
+/**
  * Spawn the child with inherited stdin and `[dev]`-prefixed stdout/stderr.
  * In `--json` mode ALL child output goes to stderr — stdout carries exactly
  * the one machine line (the serve --json contract).
@@ -356,7 +378,18 @@ export function spawnSandboxChild(
   const exited = new Promise<number>((resolve) => {
     child.once('error', (e) => {
       process.stderr.write(`pyric sandbox: failed to run \`${plan.label}\`: ${e.message}\n`);
-      resolve(1);
+      const notFound = (e as NodeJS.ErrnoException).code === 'ENOENT';
+      if (!notFound) {
+        resolve(1);
+        return;
+      }
+      // `pyric sandbox <word>` runs <word> as a command when it is not a
+      // sandbox method, so a mistyped method lands here. Name the methods
+      // instead of guessing one: several of them replace or wipe state.
+      void sandboxMethodHint(command ?? '').then((hint) => {
+        if (hint !== null) process.stderr.write(hint);
+        resolve(1);
+      });
     });
     child.once('exit', (code, signal) => {
       out.flush();

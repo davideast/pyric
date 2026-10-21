@@ -29,6 +29,21 @@ export default scenario(async (app) => {
     assert.equal(await page.evaluate(() => readStatus()), 'found after a stale url');
   });
 
+  // `pyric sandbox save` is not a sandbox method (`checkpoint` is), so the CLI
+  // runs `save` as a child command on a second server in this project. That
+  // server used to replace .pyric/serve.json and then delete it on exit,
+  // leaving the running host undiscoverable.
+  await app.step('a mistyped pyric sandbox method leaves the running host discoverable', async () => {
+    const before = JSON.parse(app.readFile('.pyric/serve.json')) as { url: string; instanceId: string };
+    const typo = await app.pyric(['sandbox', 'save', '--name', 'cp1', '--json']);
+    const after = JSON.parse(app.readFile('.pyric/serve.json')) as { url: string; instanceId: string };
+    assert.deepEqual({ url: after.url, instanceId: after.instanceId }, { url: before.url, instanceId: before.instanceId });
+    assert.equal(typo.code, 1, typo.output);
+    assert.match(typo.output, /'save' is neither a command on PATH nor a `pyric sandbox` method/);
+    await app.serverScript('server.mjs', ['found after a mistyped method'], { env: { PYRIC_SANDBOX: 'remote' } });
+    assert.equal(await page.evaluate(() => readStatus()), 'found after a mistyped method');
+  });
+
   await app.step('a script exits promptly when the pointer names a port that never answers', async () => {
     await host.process.stop();
     const hole = await app.blackholedPort();

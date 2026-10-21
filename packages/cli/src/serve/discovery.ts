@@ -296,6 +296,22 @@ function isPointerProcessAlive(pid: unknown): boolean {
 }
 
 /**
+ * Whether a project's `.pyric/serve.json` names another host that is still
+ * running, so a server starting in the same project must not replace it.
+ * The pointer is held only when it names a different instance and a live pid
+ * other than this process: a pointer without a pid, or one this process wrote
+ * for an earlier mount (a Vite restart), can be replaced, so a stale pointer
+ * never locks discovery out.
+ */
+export function pointerHeldByAnotherHost(pointer: { pid?: unknown; instanceId?: unknown }, instanceId: string): boolean {
+  if (pointer.instanceId === instanceId) return false;
+  const pid = pointer.pid;
+  const hasPid = typeof pid === 'number' && Number.isInteger(pid) && pid > 0;
+  if (!hasPid || pid === process.pid) return false;
+  return isPointerProcessAlive(pid);
+}
+
+/**
  * The display URL the project's `.pyric/serve.json` records, read without a
  * health probe, for callers that must resolve synchronously. A pointer whose
  * writing process has exited is skipped. `null` when no live pointer is found

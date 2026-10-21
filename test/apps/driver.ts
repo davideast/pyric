@@ -227,6 +227,12 @@ export interface App {
    * stops it or the run ends; the run's teardown resumes it if it is paused.
    */
   serverProcess(script: string, args?: string[], options?: { env?: Record<string, string> }): AppProcess;
+  /**
+   * Runs the installed `pyric` command (`@pyric/cli`'s bin, under node) with
+   * `args` to exit, from the app directory. Unlike `serverScript`, a non-zero
+   * exit is returned rather than thrown, so a scenario can assert a refusal.
+   */
+  pyric(args: string[], options?: { env?: Record<string, string>; timeoutMs?: number }): Promise<ScriptResult>;
   /** The browser context for this app. Requests to hosts other than 127.0.0.1 and localhost are aborted unless a route answers them. */
   browser(): Promise<BrowserContext>;
   /** Opens `url` in a new page of the app's browser context. */
@@ -382,6 +388,25 @@ export class AppRun implements App {
     );
     this.processes.push(child);
     return child;
+  }
+
+  async pyric(args: string[], options: { env?: Record<string, string>; timeoutMs?: number } = {}): Promise<ScriptResult> {
+    this.scriptCount += 1;
+    const child = new AppProcess(
+      `pyric ${this.scriptCount} (${args.join(' ')})`,
+      'node',
+      [join('node_modules', '@pyric', 'cli', 'dist', 'cli', 'index.js'), ...args],
+      this.dir,
+      appEnvironment(this.home, options.env),
+    );
+    this.processes.push(child);
+    const timeoutMs = options.timeoutMs ?? 60_000;
+    const finished = await Promise.race([child.exited.then(() => true), sleep(timeoutMs).then(() => false)]);
+    if (!finished) {
+      await child.stop();
+      throw new Error(`pyric ${args.join(' ')} did not exit within ${timeoutMs / 1000}s:\n${child.output}`);
+    }
+    return { code: await child.exited, output: child.output };
   }
 
   async serverScript(

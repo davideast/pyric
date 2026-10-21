@@ -13,6 +13,7 @@ import {
   parseCommandString,
   registerModuleUrl,
   resolveSandboxChild,
+  sandboxMethodHint,
   waitForSandboxPeer,
 } from '../../src/cli/sandbox-runner.js';
 
@@ -329,5 +330,21 @@ describe('formatStartupEnvExport', () => {
       registerUrl: 'file:///r.js',
     });
     expect(output).not.toContain('PYRIC_BEACON_TOKEN');
+  });
+});
+
+describe('sandboxMethodHint', () => {
+  it('names the sandbox methods when a word that is not a command was run', async () => {
+    const hint = await sandboxMethodHint('save');
+    expect(hint).toContain("'save' is neither a command on PATH nor a `pyric sandbox` method");
+    expect(hint).toContain('checkpoint');
+    expect(hint).toContain('restore');
+  });
+
+  it('says nothing for a path or an actual sandbox method', async () => {
+    expect(await sandboxMethodHint('./bin/dev')).toBeNull();
+    expect(await sandboxMethodHint('/usr/local/bin/vite')).toBeNull();
+    expect(await sandboxMethodHint('')).toBeNull();
+    expect(await sandboxMethodHint('checkpoint')).toBeNull();
   });
 });
