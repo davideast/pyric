@@ -35,8 +35,8 @@ await outcome("storage.url", async () => new URL(await getDownloadURL(storageRef
 // A resumable upload canceled once its last request is on the wire: that
 // request cannot be recalled, so the task rejects only after the object it
 // stored is deleted, and a read after the rejection finds nothing (#1137).
-await outcome("storage.cancelAfterLastSlice", async () => {
-  const target = storageRef(getStorage(app), "server/canceled.txt");
+async function cancelAfterLastSlice(path) {
+  const target = storageRef(getStorage(app), path);
   const task = uploadBytesResumable(target, new TextEncoder().encode("canceled upload"));
   task.on("state_changed", (snapshot) => {
     const allSent = snapshot.state === "running" && snapshot.bytesTransferred === snapshot.totalBytes;
@@ -45,7 +45,8 @@ await outcome("storage.cancelAfterLastSlice", async () => {
   const rejected = await task.then(() => "stored", (error) => error.code);
   const readBack = await getBytes(target).then(() => "present", (error) => error.code);
   return { rejected, readBack };
-});
+}
+await outcome("storage.cancelAfterLastSlice", () => cancelAfterLastSlice("server/canceled.txt"));
 
 const db = getDatabase(app);
 await outcome("database.set", () => set(ref(db, "server/client"), "from client sdk"));
@@ -58,6 +59,10 @@ await outcome("firestore.getDoc", async () => (await getDoc(doc(getFirestore(app
 await outcome("auth.createUser", async () =>
   (await createUserWithEmailAndPassword(getAuth(app), "node@example.com", "secret123")).user.uid);
 const user = getAuth(app).currentUser;
+// Rules that allow the upload's create and deny every delete: the cancel
+// still rejects storage/canceled and leaves no object, as production stores
+// nothing for a canceled upload (#1157).
+await outcome("storage.cancelCreateOnly", () => cancelAfterLastSlice("uploads/a.png"));
 await outcome("database.ownPath", () => set(ref(db, `users/${user?.uid}`), "mine"));
 await outcome("database.otherPath", () => set(ref(db, "users/someone-else"), "theirs"));
 await outcome("database.onDisconnect", () => onDisconnect(ref(db, "server/presence")).set("gone"));

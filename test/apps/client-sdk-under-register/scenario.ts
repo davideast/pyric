@@ -79,6 +79,10 @@ export default scenario(async (app) => {
     expectCode(client, 'database.otherPath', 'PERMISSION_DENIED');
   });
 
+  await app.step('a canceled upload leaves no object under rules that allow its create and deny every delete', () => {
+    expectOk(client, 'storage.cancelCreateOnly', { rejected: 'storage/canceled', readBack: 'storage/object-not-found' });
+  });
+
   await app.step('services with no path to the host refuse with failed-precondition', () => {
     expectCode(client, 'ai', 'failed-precondition', UNSUPPORTED);
     expectCode(client, 'messaging', 'failed-precondition', UNSUPPORTED);

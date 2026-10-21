@@ -249,14 +249,26 @@ export type OpMessage = (
   | ({ t: 'op'; id: string; method: 'storage.getBlob'; path: string } & StorageBucketWire)
   /** firebase-admin's `File.setMetadata`, on the admin lens only: custom keys merge, `null` removes one. */
   | ({ t: 'op'; id: string; method: 'storage.setMetadata'; path: string; patch: StorageMetadataPatchWire } & StorageBucketWire)
-  /** An upload. `downloadTokens`, as firebase-admin's `save` sets them, is taken on the admin lens only. */
-  | ({ t: 'op'; id: string; method: 'storage.putBytes'; path: string; dataB64: string; contentType?: string; metadata?: Record<string, unknown>; downloadTokens?: string } & StorageBucketWire)
+  /**
+   * An upload. `downloadTokens`, as firebase-admin's `save` sets them, is taken on the admin lens only.
+   * With `rollback`, the reply's metadata carries a `rollbackToken` for `storage.rollbackUpload`;
+   * a host that predates it ignores the field and sends none.
+   */
+  | ({ t: 'op'; id: string; method: 'storage.putBytes'; path: string; dataB64: string; contentType?: string; metadata?: Record<string, unknown>; downloadTokens?: string; rollback?: boolean } & StorageBucketWire)
   | ({ t: 'op'; id: string; method: 'storage.getBytes'; path: string; offset?: number; length?: number; expectedGeneration?: string } & StorageBucketWire)
   | ({ t: 'op'; id: string; method: 'storage.beginUpload'; path: string; size: number; contentType?: string; metadata?: Record<string, unknown>; downloadTokens?: string } & StorageBucketWire)
   | { t: 'op'; id: string; method: 'storage.putPart'; uploadId: string; partIndex: number; dataB64: string }
-  | { t: 'op'; id: string; method: 'storage.finishUpload'; uploadId: string }
+  /** Commit a staged upload. `rollback` asks for a `rollbackToken`, as on `storage.putBytes`. */
+  | { t: 'op'; id: string; method: 'storage.finishUpload'; uploadId: string; rollback?: boolean }
   | { t: 'op'; id: string; method: 'storage.abortUpload'; uploadId: string }
   | ({ t: 'op'; id: string; method: 'storage.deleteObject'; path: string } & StorageBucketWire)
+  /**
+   * Roll back a canceled upload's own commit without evaluating rules: deletes
+   * the generation that commit stored, or nothing if a later write replaced it.
+   * Replies `{ deleted }`. Refused (`storage/unauthorized`) for a token this
+   * client was not issued, an expired one, or one used already.
+   */
+  | { t: 'op'; id: string; method: 'storage.rollbackUpload'; rollbackToken: string }
   /**
    * firebase-admin's `File.copy`, on the admin lens only. The copy keeps the
    * source's metadata; `patch` changes it on the copy. `destinationBucket`

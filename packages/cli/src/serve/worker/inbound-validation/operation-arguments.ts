@@ -188,6 +188,7 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       requireOptionalRecord(message.metadata, 'metadata');
       requireOptionalString(message.contentType, 'contentType');
       requireOptionalString(message.downloadTokens, 'downloadTokens');
+      requireOptionalBoolean(message.rollback, 'rollback');
       return;
     case 'storage.beginUpload':
       requireNumber(message.size, 'size');
@@ -201,8 +202,14 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       requireString(message.dataB64, 'dataB64');
       return;
     case 'storage.finishUpload':
+      requireString(message.uploadId, 'uploadId');
+      requireOptionalBoolean(message.rollback, 'rollback');
+      return;
     case 'storage.abortUpload':
       requireString(message.uploadId, 'uploadId');
+      return;
+    case 'storage.rollbackUpload':
+      requireString(message.rollbackToken, 'rollbackToken');
       return;
     case 'storage.getBytes':
       requireOptionalNumber(message.offset, 'offset');

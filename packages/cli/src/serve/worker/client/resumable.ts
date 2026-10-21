@@ -9,13 +9,13 @@ import { storageTaskProgress, storageTaskResult } from 'pyric/storage/internal';
  */
 import type { FullMetadata } from 'pyric/storage';
 import { sandboxNow } from './clock.js';
-import type { ClientStorageReference, ClientSettableMetadata, RouteUpload } from './storage.js';
+import type { ClientStorageReference, ClientSettableMetadata, CommittedUpload, RouteUpload } from './storage.js';
 import {
-  abortRouteUpload, beginRouteUpload, byteRouteOf, finishRouteUpload, routeUploadOffset,
-  sendRouteSlice, uploadBlobOf, uploadBytes,
+  abortRouteUpload, beginRouteUpload, byteRouteOf, commitUpload, finishRouteUpload, routeUploadOffset,
+  sendRouteSlice, uploadBlobOf,
 } from './storage.js';
 import type { CommitOutcome } from './upload-rollback.js';
-import { commitOutcomeOf, removeStoredObject, rollbackFailedError, storedObject } from './upload-rollback.js';
+import { commitOutcomeOf, removeStoredObject, rollbackFailedError, storedUpload } from './upload-rollback.js';
 
 export type ClientTaskState = 'running' | 'paused' | 'success' | 'canceled' | 'error';
 
@@ -253,22 +253,25 @@ class ClientUploadTaskImpl implements ClientUploadTask {
   }
 
   /**
-   * Undo what a canceled upload left on the host: discard its staged route
-   * upload, then delete the object if a sent commit stored it, whether that
-   * commit settled while paused or settles after the cancel.
+   * Undo what a canceled upload left on the host: wait for a sent commit,
+   * discard the staged route upload, then delete the object if the commit
+   * stored it, whether it settled while paused or settles after the cancel.
+   * The commit settles first, so the discard never drops staged bytes that a
+   * finish in flight is still storing.
    */
   private async _rollBackCanceled(): Promise<void> {
     const held = this._heldOutcome;
     this._heldOutcome = undefined;
     const sent = this._sentCommit;
+    const outcome = held ?? (sent === undefined ? undefined : await sent);
     const upload = this._upload;
     if (upload !== undefined) await abortRouteUpload(upload);
-    const heldStored = storedObject(held);
-    const sentStored = sent !== undefined && storedObject(await sent);
-    if (heldStored || sentStored) await removeStoredObject(this._ref);
+    const stored = storedUpload(outcome);
+    if (stored !== undefined) await removeStoredObject(this._ref, stored);
   }
 
-  private _sendCommit(commit: Promise<FullMetadata>): Promise<CommitOutcome> {
+  /** Send the commit, asking the host for the token that rolls it back. */
+  private _sendCommit(commit: Promise<CommittedUpload>): Promise<CommitOutcome> {
     const sent = commitOutcomeOf(commit);
     this._sentCommit = sent;
     return sent;
@@ -546,7 +549,7 @@ class ClientUploadTaskImpl implements ClientUploadTask {
         this._notifyObservers('next');
       }
       if (!running()) return;
-      const outcome = await this._sendCommit(finishRouteUpload(upload));
+      const outcome = await this._sendCommit(finishRouteUpload(upload, true));
       const finishFailedWhileRunning = 'error' in outcome && running();
       if (finishFailedWhileRunning) throw outcome.error;
       this._settleCommit(outcome);
@@ -619,8 +622,7 @@ class ClientUploadTaskImpl implements ClientUploadTask {
     const hasStarted = this._committing || this._heldOutcome !== undefined;
     if (isNotRunning || hasStarted) return;
     this._committing = true;
-    const stored = uploadBytes(this._ref, this._data, this._metadata).then((result) => result.metadata);
-    const outcome = await this._sendCommit(stored);
+    const outcome = await this._sendCommit(commitUpload(this._ref, this._data, this._metadata, true));
     this._committing = false;
     this._settleCommit(outcome);
   }

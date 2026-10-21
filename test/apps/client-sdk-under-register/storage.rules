@@ -2,5 +2,10 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
     match /server/{name} { allow read, write: if true; }
+    match /uploads/{file} {
+      allow read: if true;
+      allow create: if request.auth != null;
+      allow delete: if false;
+    }
   }
 }

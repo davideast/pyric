@@ -93,6 +93,7 @@ export const operationPersistence = {
   'storage.finishUpload': true,
   'storage.abortUpload': true,
   'storage.deleteObject': true,
+  'storage.rollbackUpload': true,
   'storage.copyObject': true,
   // The object is written when the session's last byte arrives, not by this op.
   'storage.createUploadSession': false,
