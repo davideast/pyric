@@ -123,6 +123,17 @@ const ADMIN = { actAs: { mode: 'admin' } } as const;
 
 // ─── Byte ops ───────────────────────────────────────────────────────────────
 
+/** Polls `read` until it finds the object, for at most two seconds. */
+async function untilStored(read: () => Promise<unknown>): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  for (;;) {
+    const found = await read().then(() => true, () => false);
+    if (found) return;
+    if (Date.now() > deadline) throw new Error('the object was never stored');
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 describe('storage worker ops — putBytes / getBytes / deleteObject', () => {
   it('round-trips non-UTF8 binary byte-for-byte (base64 payloads)', async () => {
     const ctx = makeCtx();
@@ -423,13 +434,24 @@ describe('storage worker ops: download tokens set by an upload', () => {
     const fetchedMeta = await workerGetMetadata(secondaryRef);
     expect(fetchedMeta.bucket).toBe('bucket-b');
 
-    // ST-ENF-3d: pause() followed by cancel() rolls back the held upload
+    // ST-ENF-3d: pause() followed by cancel() rolls back the held upload.
+    // The commit is sent at the call and cannot be recalled, so the task
+    // rejects only once the object it stored is gone, whether the commit
+    // settled before the cancel or after it (#1137).
     const pausedCancelRef = workerRef(storageA, 'paused-then-canceled.bin');
     const workerTask = workerUploadBytesResumable(pausedCancelRef, new Uint8Array([5, 6, 7, 8]));
     expect(workerTask.pause()).toBe(true);
-    await new Promise((r) => setTimeout(r, 30));
     expect(workerTask.cancel()).toBe(true);
-    await new Promise((r) => setTimeout(r, 30));
+    await expect(Promise.resolve(workerTask)).rejects.toMatchObject({ code: 'storage/canceled' });
     await expect(workerGetBytes(pausedCancelRef)).rejects.toMatchObject({ code: 'storage/object-not-found' });
+
+    // The same once the paused commit has stored the object and is held for resume.
+    const heldCancelRef = workerRef(storageA, 'held-then-canceled.bin');
+    const heldTask = workerUploadBytesResumable(heldCancelRef, new Uint8Array([9]));
+    expect(heldTask.pause()).toBe(true);
+    await untilStored(() => workerGetBytes(heldCancelRef));
+    expect(heldTask.cancel()).toBe(true);
+    await expect(Promise.resolve(heldTask)).rejects.toMatchObject({ code: 'storage/canceled' });
+    await expect(workerGetBytes(heldCancelRef)).rejects.toMatchObject({ code: 'storage/object-not-found' });
   });
 });

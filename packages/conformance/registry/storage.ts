@@ -758,10 +758,15 @@ export const storageRegistry = {
         row5({
           rowRef: "50",
           behavior: "`task.cancel()` rejects the upload with `storage/canceled`",
-          evidence: "`unit:resumable-upload.test.ts` confirms cancellation rejects with `storage/canceled` and leaves no falsely completed object in storage.",
+          evidence: "`unit:resumable-upload.test.ts` confirms cancellation rejects with `storage/canceled` and leaves no falsely completed object in storage. The worker client sends its commit once and cannot recall it, so a cancel that races the commit deletes what it stored, and the task rejects only once the object is gone. `storage-ops.test.ts` pins this for a commit settling after the cancel and for one held while paused. The app scenario `test/apps/client-sdk-under-register` cancels an upload under `node --import @pyric/cli/register` once its last byte route slice is sent, and reads `storage/object-not-found` after the rejection; on main (8e1ee9cb4) the object stayed (#1137). When the rollback delete itself fails, the task rejects with the delete's code instead of `storage/canceled`.",
           risk: ["specific-value","error-code"],
           riskScore: 5,
           riskReasons: ["asserts 1 specific value(s)","asserts Firebase error code(s): `storage/canceled`"],
+          conformanceTests: [
+            "packages/pyric/test/storage/resumable-upload.test.ts",
+            "packages/cli/test/serve/worker/storage-ops.test.ts",
+            "test/apps/client-sdk-under-register/scenario.ts",
+          ],
         }),
       ],
     },

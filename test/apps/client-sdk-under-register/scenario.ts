@@ -61,6 +61,10 @@ export default scenario(async (app) => {
     expectOk(client, 'storage.url', '/__pyric/storage/v0/b/demo-app.appspot.com/o/server%2Fclient.txt');
   });
 
+  await app.step('a resumable upload canceled after its last slice leaves no object once it rejects', () => {
+    expectOk(client, 'storage.cancelAfterLastSlice', { rejected: 'storage/canceled', readBack: 'storage/object-not-found' });
+  });
+
   await app.step('RTDB and Firestore read and write the host', () => {
     expectOk(client, 'database.set', null);
     expectOk(client, 'database.get', 'from admin');

@@ -6,7 +6,7 @@ import { initializeApp, deleteApp } from "firebase/app";
 import { getDatabase, ref, set, get, onValue, onDisconnect } from "firebase/database";
 import { getFirestore, doc, setDoc, getDoc } from "firebase/firestore";
 import { getAuth, createUserWithEmailAndPassword } from "firebase/auth";
-import { getStorage, ref as storageRef, uploadString, getDownloadURL } from "firebase/storage";
+import { getStorage, ref as storageRef, uploadString, uploadBytesResumable, getBytes, getDownloadURL } from "firebase/storage";
 import { getFunctions, httpsCallable } from "firebase/functions";
 
 const app = initializeApp({
@@ -31,6 +31,21 @@ const upload = outcome("storage.upload", async () =>
   (await uploadString(storageRef(getStorage(app), "server/client.txt"), "from client sdk")).metadata.fullPath);
 await upload;
 await outcome("storage.url", async () => new URL(await getDownloadURL(storageRef(getStorage(app), "server/client.txt"))).pathname);
+
+// A resumable upload canceled once its last request is on the wire: that
+// request cannot be recalled, so the task rejects only after the object it
+// stored is deleted, and a read after the rejection finds nothing (#1137).
+await outcome("storage.cancelAfterLastSlice", async () => {
+  const target = storageRef(getStorage(app), "server/canceled.txt");
+  const task = uploadBytesResumable(target, new TextEncoder().encode("canceled upload"));
+  task.on("state_changed", (snapshot) => {
+    const allSent = snapshot.state === "running" && snapshot.bytesTransferred === snapshot.totalBytes;
+    if (allSent) queueMicrotask(() => task.cancel());
+  });
+  const rejected = await task.then(() => "stored", (error) => error.code);
+  const readBack = await getBytes(target).then(() => "present", (error) => error.code);
+  return { rejected, readBack };
+});
 
 const db = getDatabase(app);
 await outcome("database.set", () => set(ref(db, "server/client"), "from client sdk"));
