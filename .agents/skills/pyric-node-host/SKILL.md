@@ -16,7 +16,8 @@ then exercise it and report what you find.
   Persistence is always on; there is no `--persist` to add.
 - The bridge is mounted automatically. Do not add `bridge: true` or `--bridge` for it.
 - One host owns a project at a time. A second start in the same project is refused with
-  `A sandbox already owns this project's persisted state.` Attach to the running one instead.
+  `A hosted sandbox already owns this project's hosted state. Attach to its bridge or stop it
+  before starting another hosted sandbox.` Attach to the running one instead.
 - `GET <url>/__pyric/health` reports `"sandboxConnected": true` as soon as the host starts. No
   page has to be open, because the Node process is the sandbox.
 
@@ -105,7 +106,22 @@ Work through these and record the observed result for each. Each line states wha
    A write from one reaches a listener in the other without a reload.
 3. **Host restart with a page open.** Leave a page with Firestore and RTDB listeners open, restart
    the host on the same port, then write. The page recovers its listeners and receives the write
-   without a reload. Writes made while the host was down are not replayed.
+   without a reload. Operations issued while the host is down follow ADR-0019 decision 7
+   (`docs/decisions/0019-native-client-reconnect.md`), so check each case on its own:
+   - Issued while disconnected, host back within 10 seconds of the call: the client holds the
+     operation and sends it once, in issue order, after its listeners and Auth are restored. The
+     write is present after the restart.
+   - Issued while disconnected, host not back within 10 seconds: the operation fails once with
+     `unavailable` and `The hosted sandbox connection was not restored within 10 seconds. The
+     request was not sent.` (`The remote sandbox connection ...` from a Node process using
+     `PYRIC_SANDBOX=remote`). It is never sent later, so the write is absent after the restart.
+   - In flight when the socket dropped: a Realtime Database `set`, `update`, `remove`, `push`,
+     `setPriority`, `setWithPriority`, or `get` is sent again on reconnect, as the RTDB SDK does;
+     a sent `runTransaction` rejects with `Error('disconnect')`; any other operation, including
+     every Firestore write, fails once with `unavailable` and is not re-sent.
+
+   A write that is sent after the 10-second window, or one that is lost or duplicated in any
+   case above, is a finding.
 4. **Reset and checkpoint load with live listeners.** Each listener fires once per state change,
    not twice. RTDB rules still apply after a reset.
 5. **Interrupted write.** Kill the host with SIGKILL during a burst of writes, then start it. It
