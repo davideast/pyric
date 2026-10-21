@@ -19,9 +19,41 @@ import type { StorageReference } from './reference.js';
 import { getStorageService, storageAuth, storageOperationProvenance, targetOf } from './service.js';
 
 /**
+ * What a commit replaced, as its rollback keeps it: nothing, the object with
+ * the bytes it holds in memory, or an object too large to keep, which a
+ * rollback cannot put back.
+ */
+export type ReplacedAtCommit =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'kept'; readonly object: StoredObject; readonly heldBytes: number }
+  | { readonly kind: 'too-large'; readonly size: number };
+
+/**
+ * Keep the object a commit replaced, as the backend's write returned it
+ * (`uploadObjectReplacing`). A backend that reads replaced objects from files
+ * on disk holds no bytes for it; elsewhere an object larger than
+ * `maxHeldBytes` is not kept.
+ */
+export async function keepReplacedObject(
+  ref: StorageReference,
+  replaced: StoredObject | undefined,
+  maxHeldBytes: number,
+): Promise<ReplacedAtCommit> {
+  if (replaced === undefined) return { kind: 'none' };
+  const backend = (await getStorageService(ref.storage)).backend;
+  const onDisk = backend.replacedObjectsOnDisk === true;
+  if (onDisk) return { kind: 'kept', object: replaced, heldBytes: 0 };
+  const size = replaced.blob.size;
+  const tooLarge = size > maxHeldBytes;
+  if (tooLarge) return { kind: 'too-large', size };
+  return { kind: 'kept', object: replaced, heldBytes: size };
+}
+
+/**
  * Put `prior` back at `ref` only while the object there is still
- * `generation`. Resolves false, writing nothing, when the object is gone or a
- * later write replaced that generation.
+ * `generation`, checked and written in one backend transaction. Resolves
+ * false, writing nothing, when the object is gone or a later write replaced
+ * that generation.
  */
 export async function restoreObjectGeneration(
   ref: StorageReference,
@@ -29,19 +61,18 @@ export async function restoreObjectGeneration(
   prior: StoredObject,
   provenance?: EventProvenance,
 ): Promise<boolean> {
-  const service = await getStorageService(ref.storage);
-  const existing = await service.backend.getMetadata(ref.fullPath);
-  const isThatGeneration = existing !== undefined && existing.generation === generation;
-  if (!isThatGeneration) return false;
-  await service.backend.put(ref.fullPath, prior.blob, prior.metadata);
-  emitObjectRestore(ref, existing, prior.metadata, provenance);
-  return true;
+  const backend = (await getStorageService(ref.storage)).backend;
+  // Read for the event only; the write below checks the generation itself.
+  const before = await backend.getMetadata(ref.fullPath);
+  const restored = await backend.replaceIfGeneration(ref.fullPath, generation, prior);
+  if (restored) emitObjectRestore(ref, before, prior.metadata, provenance);
+  return restored;
 }
 
 /** Land the restore on the sandbox stream as the `object_put` it is. */
 function emitObjectRestore(
   ref: StorageReference,
-  replaced: StoredMetadata,
+  replaced: StoredMetadata | undefined,
   restored: StoredMetadata,
   provenance: EventProvenance | undefined,
 ): void {
@@ -74,26 +105,51 @@ export interface CanceledCommit {
 }
 
 /**
+ * How a rollback ended: `deleted` when the commit had created the object and
+ * it is gone, `restored` when the object it replaced is back, neither when a
+ * later write had replaced the commit's generation and was kept, and `error`,
+ * the error the cancel ends with, when the rollback failed.
+ */
+export interface RollbackOutcome {
+  readonly deleted: boolean;
+  readonly restored: boolean;
+  readonly error?: Error;
+}
+
+/**
  * Undo a canceled commit: restore the object it replaced, or delete the one
  * it created, in both cases only while its own generation is still there.
- * Resolves the error the cancel ends with when the rollback fails.
+ * Never rejects; a failed rollback resolves with its `error`.
+ */
+export async function undoCanceledCommit(
+  ref: StorageReference,
+  commit: CanceledCommit,
+  provenance?: EventProvenance,
+): Promise<RollbackOutcome> {
+  const prior = commit.prior;
+  if (prior !== undefined) {
+    return restoreObjectGeneration(ref, commit.generation, prior, provenance).then(
+      (restored) => ({ deleted: false, restored }),
+      (cause: unknown) => ({ deleted: false, restored: false, error: canceledRollbackFailed(ref.fullPath, cause, 'restore') }),
+    );
+  }
+  return deleteObjectGeneration(ref, commit.generation, provenance).then(
+    (deleted) => ({ deleted, restored: false }),
+    (cause: unknown) => ({ deleted: false, restored: false, error: canceledRollbackFailed(ref.fullPath, cause, 'remove') }),
+  );
+}
+
+/**
+ * Undo a canceled commit, as {@link undoCanceledCommit} does. Resolves the
+ * error the cancel ends with when the rollback fails.
  */
 export async function rollBackCanceledCommit(
   ref: StorageReference,
   commit: CanceledCommit,
   provenance?: EventProvenance,
 ): Promise<Error | undefined> {
-  const prior = commit.prior;
-  if (prior !== undefined) {
-    return restoreObjectGeneration(ref, commit.generation, prior, provenance).then(
-      () => undefined,
-      (cause: unknown) => canceledRollbackFailed(ref.fullPath, cause, 'restore'),
-    );
-  }
-  return deleteObjectGeneration(ref, commit.generation, provenance).then(
-    () => undefined,
-    (cause: unknown) => canceledRollbackFailed(ref.fullPath, cause, 'remove'),
-  );
+  const outcome = await undoCanceledCommit(ref, commit, provenance);
+  return outcome.error;
 }
 
 /** What failed, by what the rollback was undoing. */

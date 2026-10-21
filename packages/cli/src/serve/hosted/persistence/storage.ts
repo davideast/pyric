@@ -244,6 +244,9 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit, o
   function view(scope?: string): ScopedStorageBackend {
     const defaultBucket = scope ?? 'pyric-default';
     return {
+      // `put` returns a replaced object as a Blob over its content-addressed
+      // file, which a later write does not remove.
+      replacedObjectsOnDisk: true,
       async put(path, blob, value, issue) {
         const tooLarge = blob.size > MAX_STORAGE_OBJECT_BYTES;
         if (tooLarge) throw storageQuotaExceeded(blob.size, 'Storage object');

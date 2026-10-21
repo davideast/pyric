@@ -251,8 +251,9 @@ export type OpMessage = (
   | ({ t: 'op'; id: string; method: 'storage.setMetadata'; path: string; patch: StorageMetadataPatchWire } & StorageBucketWire)
   /**
    * An upload. `downloadTokens`, as firebase-admin's `save` sets them, is taken on the admin lens only.
-   * With `rollback`, the reply's metadata carries a `rollbackToken` for `storage.rollbackUpload`;
-   * a host that predates it ignores the field and sends none.
+   * With `rollback`, the reply's metadata carries a `rollbackToken` for `storage.rollbackUpload`,
+   * and `replacedObject: true` when the commit replaced an object;
+   * a host that predates it ignores the field and sends neither.
    */
   | ({ t: 'op'; id: string; method: 'storage.putBytes'; path: string; dataB64: string; contentType?: string; metadata?: Record<string, unknown>; downloadTokens?: string; rollback?: boolean } & StorageBucketWire)
   | ({ t: 'op'; id: string; method: 'storage.getBytes'; path: string; offset?: number; length?: number; expectedGeneration?: string } & StorageBucketWire)
@@ -263,10 +264,13 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'storage.abortUpload'; uploadId: string }
   | ({ t: 'op'; id: string; method: 'storage.deleteObject'; path: string } & StorageBucketWire)
   /**
-   * Roll back a canceled upload's own commit without evaluating rules: deletes
-   * the generation that commit stored, or nothing if a later write replaced it.
-   * Replies `{ deleted }`. Refused (`storage/unauthorized`) for a token this
-   * client was not issued, an expired one, or one used already.
+   * Roll back a canceled upload's own commit without evaluating rules: puts
+   * back the object that commit replaced, or deletes the one it created, and
+   * does nothing if a later write replaced the commit's generation. Replies
+   * `{ deleted, restored }`; a host before #1159 replies `{ deleted }` and
+   * always deletes. Refused (`storage/unauthorized`) for a token this client
+   * was not issued, an expired one, or one used already. Any other failure
+   * is the rollback's own, and the commit's object may still be there.
    */
   | { t: 'op'; id: string; method: 'storage.rollbackUpload'; rollbackToken: string }
   /**

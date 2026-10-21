@@ -128,12 +128,12 @@ export async function deleteObjectGeneration(
   guardNonRoot(ref, 'deleteObject');
   const target = targetOf(ref.storage);
   const service = await getStorageService(ref.storage);
+  // Read for the event only; the delete below checks the generation itself,
+  // in one transaction, so a later write is never removed.
   const existing = await service.backend.getMetadata(ref.fullPath);
-  const isThatGeneration = existing !== undefined && existing.generation === generation;
-  if (!isThatGeneration) return false;
-  await service.backend.delete(ref.fullPath);
-  emitObjectDelete(ref, existing, storageOperationProvenance(target, provenance));
-  return true;
+  const deleted = await service.backend.deleteIfGeneration(ref.fullPath, generation);
+  if (deleted) emitObjectDelete(ref, existing, storageOperationProvenance(target, provenance));
+  return deleted;
 }
 
 function emitObjectDelete(

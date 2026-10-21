@@ -77,12 +77,13 @@ interface HookedBackend {
 async function hookCommit(storage: FirebaseStorage, size: number, hook: CommitHook): Promise<HookedBackend> {
   const backend = (await getStorageService(storage)).backend;
   const put = backend.put.bind(backend);
-  const remove = backend.delete.bind(backend);
+  const remove = backend.deleteIfGeneration.bind(backend);
+  const replace = backend.replaceIfGeneration.bind(backend);
   const commitGenerations: string[] = [];
   let fired = false;
-  backend.put = async (path, blob, metadata) => {
+  backend.put = async (path, blob, metadata, issue) => {
     if (fired) await delay(ROLLBACK_DELAY_MS);
-    await put(path, blob, metadata);
+    const replaced = await put(path, blob, metadata, issue);
     const isACommit = blob.size === size;
     if (isACommit) commitGenerations.push(metadata.generation);
     const isTheFirstCommit = isACommit && !fired;
@@ -90,10 +91,16 @@ async function hookCommit(storage: FirebaseStorage, size: number, hook: CommitHo
       fired = true;
       await hook.afterCommitStored();
     }
+    return replaced;
   };
-  backend.delete = async (path, bucket) => {
+  // The rollback's writes, slowed once the commit is stored.
+  backend.deleteIfGeneration = async (path, generation, bucket) => {
     if (fired) await delay(ROLLBACK_DELAY_MS);
-    await remove(path, bucket);
+    return remove(path, generation, bucket);
+  };
+  backend.replaceIfGeneration = async (path, generation, prior, bucket) => {
+    if (fired) await delay(ROLLBACK_DELAY_MS);
+    return replace(path, generation, prior, bucket);
   };
   return { backend, commitGenerations };
 }
@@ -200,9 +207,9 @@ describe('a canceled in-page upload rolls back before it rejects (#1161)', () =>
     expect(await bytesAt(fileRef)).toEqual([5, 5]);
   });
 
-  // Depends on #1160: under a frozen clock the newer write mints the same
-  // generation as the canceled commit, so the rollback cannot tell them apart.
-  it.todo('keeps a newer write that landed in the same millisecond as the canceled commit', async () => {
+  // Under a frozen clock the newer write still mints its own generation
+  // (#1160), so the rollback tells it apart from the canceled commit.
+  it('keeps a newer write that landed in the same millisecond as the canceled commit', async () => {
     setSystemTime(new Date('2026-10-21T00:00:00.000Z'));
     try {
       const storage = freshStorage('same-millisecond');
@@ -299,7 +306,7 @@ describe('a canceled in-page upload rolls back before it rejects (#1161)', () =>
     const fileRef = ref(storage, 'cancel/rollback-fails.bin');
     let task: UploadTask | undefined;
     const { backend } = await hookCommit(storage, 4, { afterCommitStored: () => { task?.cancel(); } });
-    backend.delete = async () => {
+    backend.deleteIfGeneration = async () => {
       throw diskFull();
     };
     task = uploadBytesResumable(fileRef, new Uint8Array([1, 2, 3, 4]));
@@ -320,11 +327,8 @@ describe('a canceled in-page upload rolls back before it rejects (#1161)', () =>
     await uploadBytes(fileRef, new Uint8Array([7, 7, 7]));
     let task: UploadTask | undefined;
     const { backend } = await hookCommit(storage, 4, { afterCommitStored: () => { task?.cancel(); } });
-    const put = backend.put;
-    backend.put = async (path, blob, metadata) => {
-      const isTheRestore = blob.size === 3;
-      if (isTheRestore) throw diskFull();
-      await put(path, blob, metadata);
+    backend.replaceIfGeneration = async () => {
+      throw diskFull();
     };
     task = uploadBytesResumable(fileRef, new Uint8Array([9, 9, 9, 9]));
 

@@ -6,7 +6,7 @@ import { initializeApp, deleteApp } from "firebase/app";
 import { getDatabase, ref, set, get, onValue, onDisconnect } from "firebase/database";
 import { getFirestore, doc, setDoc, getDoc } from "firebase/firestore";
 import { getAuth, createUserWithEmailAndPassword } from "firebase/auth";
-import { getStorage, ref as storageRef, uploadString, uploadBytesResumable, getBytes, getDownloadURL } from "firebase/storage";
+import { getStorage, ref as storageRef, uploadString, uploadBytesResumable, getBytes, getMetadata, getDownloadURL } from "firebase/storage";
 import { getFunctions, httpsCallable } from "firebase/functions";
 
 const app = initializeApp({
@@ -63,6 +63,18 @@ const user = getAuth(app).currentUser;
 // still rejects storage/canceled and leaves no object, as production stores
 // nothing for a canceled upload (#1157).
 await outcome("storage.cancelCreateOnly", () => cancelAfterLastSlice("uploads/a.png"));
+// The same cancel over an object already at the path: the earlier object
+// stays, bytes and metadata, as production never replaced it (#1159).
+async function cancelOverwrite(path) {
+  const target = storageRef(getStorage(app), path);
+  const earlier = await uploadString(target, "v1", "raw", { contentType: "text/plain", customMetadata: { version: "one" } });
+  const { rejected } = await cancelAfterLastSlice(path);
+  const text = new TextDecoder().decode(await getBytes(target));
+  const after = await getMetadata(target);
+  const sameGeneration = after.generation === earlier.metadata.generation;
+  return { rejected, text, customMetadata: after.customMetadata, sameGeneration };
+}
+await outcome("storage.cancelOverwrite", () => cancelOverwrite("uploads/b.txt"));
 await outcome("database.ownPath", () => set(ref(db, `users/${user?.uid}`), "mine"));
 await outcome("database.otherPath", () => set(ref(db, "users/someone-else"), "theirs"));
 await outcome("database.onDisconnect", () => onDisconnect(ref(db, "server/presence")).set("gone"));

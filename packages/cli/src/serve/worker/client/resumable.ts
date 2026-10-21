@@ -15,7 +15,12 @@ import {
   sendRouteSlice, uploadBlobOf,
 } from './storage.js';
 import type { CommitOutcome } from './upload-rollback.js';
-import { commitOutcomeOf, removeStoredObject, rollbackFailedError, storedUpload } from './upload-rollback.js';
+import { commitOutcomeOf, removeStoredObject, storedUpload } from './upload-rollback.js';
+
+function asError(value: unknown): Error {
+  if (value instanceof Error) return value;
+  return new Error(String(value));
+}
 
 export type ClientTaskState = 'running' | 'paused' | 'success' | 'canceled' | 'error';
 
@@ -238,18 +243,28 @@ class ClientUploadTaskImpl implements ClientUploadTask {
 
     if (canCancel) {
       const canceled = createCanceledError();
-      this._error = canceled;
       this._updateSnapshot('canceled', this._snapshot.bytesTransferred);
       this._inFlight?.abort();
-      const rollback = this._rollBackCanceled();
-      this._notifyObservers('error');
-      void rollback.then(
-        () => this._reject(canceled),
-        (failure: unknown) => this._reject(rollbackFailedError(this._ref, failure)),
+      // A failed rollback rejects with the error removeStoredObject words.
+      void this._rollBackCanceled().then(
+        () => this._settleCanceled(canceled),
+        (failure: unknown) => this._settleCanceled(asError(failure)),
       );
       return true;
     }
     return false;
+  }
+
+  /**
+   * End a canceled task once its rollback is done: error observers, later
+   * subscribers, and the promise all get the same error, as Firebase settles
+   * them together, so an observer that reads the path finds it as the cancel
+   * leaves it. A failed rollback's error replaces `storage/canceled`.
+   */
+  private _settleCanceled(error: Error): void {
+    this._error = error;
+    this._notifyObservers('error');
+    this._reject(error);
   }
 
   /**
