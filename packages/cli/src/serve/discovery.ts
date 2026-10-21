@@ -19,6 +19,7 @@
  */
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { getJsonWithin } from './get-json-within.js';
 
 /** Ports probed when the pointer is absent — serve's default scan window PLUS
  *  the standard Vite dev ports (5173-5177), which the plain 3473+ window would miss
@@ -92,15 +93,18 @@ export function basesForPort(port: number): string[] {
   return [`http://127.0.0.1:${port}`, `http://[::1]:${port}`];
 }
 
+/** How long one health probe may take, connect included. Loopback answers in
+ *  milliseconds; a port that has not answered in a second is not going to. */
+const HEALTH_PROBE_DEADLINE_MS = 1000;
+
+/** A sandbox bridge's health at `base`, or `null`. Bounded by
+ *  {@link HEALTH_PROBE_DEADLINE_MS} and leaves no socket behind (#1162). */
 export async function probeHealth(base: string): Promise<HealthLite | null> {
-  try {
-    const res = await fetch(`${base}/__pyric/health`, { signal: AbortSignal.timeout(1000) });
-    if (res.status !== 200) return null;
-    const body = (await res.json()) as HealthLite;
-    return body.mode === 'sandbox' ? body : null;
-  } catch {
-    return null;
-  }
+  const response = await getJsonWithin(`${base}/__pyric/health`, HEALTH_PROBE_DEADLINE_MS);
+  if (response === null) return null;
+  const body = response.body as HealthLite | null;
+  const isSandbox = typeof body === 'object' && body !== null && body.mode === 'sandbox';
+  return isSandbox ? body : null;
 }
 
 /**
