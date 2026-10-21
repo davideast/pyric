@@ -26,6 +26,7 @@
  */
 
 import type { StorageReferenceRecord } from './sandbox/persistence-state.js';
+import { higherGeneration, raisedMark, type GenerationIssuer } from './generation.js';
 
 /**
  * Legacy shared database name — used only when NO project identity is
@@ -79,11 +80,16 @@ export function storageDbName(projectId?: string | null): string {
 }
 /**
  * Schema version. Bump and add an `upgradeneeded` branch when the
- * store layout changes.
+ * store layout changes. Version 2 adds the `generations` store.
  */
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 const BLOBS_STORE = 'blobs';
 const METADATA_STORE = 'metadata';
+/**
+ * Each path's high-water mark: the highest generation ever stored there. A
+ * delete or a reset leaves it, so no later write repeats a generation.
+ */
+const GENERATIONS_STORE = 'generations';
 
 /**
  * Persisted metadata for a single stored object. Mirrors Firebase's
@@ -171,8 +177,14 @@ export interface StorageBackend {
    * the other back. Existing entries at the same path are replaced.
    * Resolves to the object the write replaced, read in that same
    * transaction, or `undefined` when the path was empty.
+   *
+   * Every write raises the path's high-water mark to the generation it
+   * stores; nothing lowers it, not a delete and not a reset. With `issue`,
+   * the backend asks it for the generation inside the transaction, passing the
+   * higher of the stored generation and the mark, and sets
+   * `metadata.generation` to the answer before writing.
    */
-  put(path: string, blob: Blob, metadata: StoredMetadata): Promise<StoredObject | undefined>;
+  put(path: string, blob: Blob, metadata: StoredMetadata, issue?: GenerationIssuer): Promise<StoredObject | undefined>;
 
   /**
    * Delete the object at `path` only while its stored generation is
@@ -308,8 +320,27 @@ export async function openStorageBackend(
     const db = await openDatabase(dbName);
     return new IndexedDbStorageBackend(db, defaultBucket);
   } catch (err) {
+    // Without IndexedDB (Node, a worker without it) memory is the store.
+    // With it, a store this tab cannot open is a fallback the user must hear about.
+    const hasIndexedDb = typeof indexedDB !== 'undefined';
+    if (hasIndexedDb) warnNotPersisting(dbName, describeOpenFailure(err), 'other tabs reload');
     return new InMemoryStorageBackend(defaultBucket);
   }
+}
+
+/** Raised when another tab holds an older connection open and will not step aside. */
+class OpenBlockedError extends Error {
+  override readonly name = 'OpenBlockedError';
+}
+
+function describeOpenFailure(err: unknown): string {
+  const named = err instanceof Error || (typeof DOMException !== 'undefined' && err instanceof DOMException);
+  if (named) return `${(err as Error).name}: ${(err as Error).message}`;
+  return String(err);
+}
+
+function warnNotPersisting(dbName: string, reason: string, until: string): void {
+  console.warn(`[pyric] Storage could not use the IndexedDB store "${dbName}" (${reason}). Storage will not persist until ${until}.`);
 }
 
 interface StagedPartUpload {
@@ -392,6 +423,7 @@ class InMemoryUploadStaging {
 export class InMemoryStorageBackend implements StorageBackend {
   private readonly blobs = new Map<string, Blob>();
   private readonly metadata = new Map<string, StoredMetadata>();
+  private readonly highWater = new Map<string, string>();
   private readonly staging = new InMemoryUploadStaging();
   private _defaultBucket: string | undefined;
 
@@ -399,7 +431,7 @@ export class InMemoryStorageBackend implements StorageBackend {
     this._defaultBucket = defaultBucket;
   }
 
-  async put(path: string, blob: Blob, metadata: StoredMetadata): Promise<StoredObject | undefined> {
+  async put(path: string, blob: Blob, metadata: StoredMetadata, issue?: GenerationIssuer): Promise<StoredObject | undefined> {
     const bucket = metadata.bucket || this._defaultBucket || DEFAULT_BUCKET;
     if (!this._defaultBucket) {
       this._defaultBucket = bucket;
@@ -410,8 +442,11 @@ export class InMemoryStorageBackend implements StorageBackend {
     }
     const key = toStorageKey(bucket, path);
     const replaced = this.objectAt(key);
+    const mark = this.highWater.get(key);
+    if (issue !== undefined) metadata.generation = issue(higherGeneration(replaced?.metadata.generation, mark));
     this.blobs.set(key, blob);
     this.metadata.set(key, metadata);
+    this.highWater.set(key, raisedMark(mark, metadata.generation));
     return replaced;
   }
 
@@ -567,14 +602,30 @@ export class IndexedDbStorageBackend implements StorageBackend {
   private readonly staging = new InMemoryUploadStaging();
   private _defaultBucket: string | undefined;
 
+  /** Why this tab's connection closed, once a newer schema took the store over. */
+  private closedReason: string | undefined;
+
   constructor(
     private readonly db: IDBDatabase,
     defaultBucket?: string,
   ) {
     this._defaultBucket = defaultBucket;
+    // Let a newer schema version open: this connection steps aside, and every
+    // later operation says why instead of failing with InvalidStateError.
+    db.addEventListener('versionchange', () => {
+      db.close();
+      this.closedReason = 'a newer pyric build opened it in another tab';
+      warnNotPersisting(db.name, this.closedReason, 'this tab reloads');
+    });
   }
 
-  async put(path: string, blob: Blob, metadata: StoredMetadata): Promise<StoredObject | undefined> {
+  private transaction(stores: string | string[], mode: IDBTransactionMode): IDBTransaction {
+    const closed = this.closedReason !== undefined;
+    if (closed) throw new Error(`The IndexedDB store "${this.db.name}" closed because ${this.closedReason}. Reload this tab to use Storage.`);
+    return this.db.transaction(stores, mode);
+  }
+
+  async put(path: string, blob: Blob, metadata: StoredMetadata, issue?: GenerationIssuer): Promise<StoredObject | undefined> {
     const bucket = metadata.bucket || this._defaultBucket || DEFAULT_BUCKET;
     if (!this._defaultBucket) {
       this._defaultBucket = bucket;
@@ -584,13 +635,33 @@ export class IndexedDbStorageBackend implements StorageBackend {
       metadata.bucket = bucket;
     }
     const key = toStorageKey(bucket, path);
-    const tx = this.db.transaction([BLOBS_STORE, METADATA_STORE], 'readwrite');
+    const tx = this.transaction([BLOBS_STORE, METADATA_STORE, GENERATIONS_STORE], 'readwrite');
     // Requests in one transaction run in order, so the reads see the object
-    // the writes replace.
+    // the writes replace. The writes are issued from the mark's success event,
+    // while the transaction is still active, so no other write lands between.
     const replaced = readObject(tx, key);
-    tx.objectStore(BLOBS_STORE).put(blob, key);
-    tx.objectStore(METADATA_STORE).put(metadata, key);
-    await awaitTransaction(tx);
+    const markRequest = tx.objectStore(GENERATIONS_STORE).get(key);
+    // An issuer that throws, or a value the store cannot clone, aborts the
+    // transaction; the write rejects with that error, not the abort's.
+    let failure: { error: unknown } | undefined;
+    markRequest.addEventListener('success', () => {
+      const mark = markRequest.result as string | undefined;
+      try {
+        if (issue !== undefined) metadata.generation = issue(higherGeneration(replaced.object()?.metadata.generation, mark));
+        tx.objectStore(BLOBS_STORE).put(blob, key);
+        tx.objectStore(METADATA_STORE).put(metadata, key);
+        tx.objectStore(GENERATIONS_STORE).put(raisedMark(mark, metadata.generation), key);
+      } catch (error) {
+        failure = { error };
+        tx.abort();
+      }
+    });
+    try {
+      await awaitTransaction(tx);
+    } catch (error) {
+      if (failure !== undefined) throw failure.error;
+      throw error;
+    }
     return replaced.object();
   }
 
@@ -602,7 +673,7 @@ export class IndexedDbStorageBackend implements StorageBackend {
     const target = bucket ?? this._defaultBucket ?? DEFAULT_BUCKET;
     if (prior !== undefined) assertPriorAt(prior, target, path);
     const key = toStorageKey(target, path);
-    const tx = this.db.transaction([BLOBS_STORE, METADATA_STORE], 'readwrite');
+    const tx = this.transaction([BLOBS_STORE, METADATA_STORE], 'readwrite');
     let wrote = false;
     // The write is issued from the read's success event, while the
     // transaction is still active, so no other write can land between them.
@@ -625,7 +696,7 @@ export class IndexedDbStorageBackend implements StorageBackend {
   }
 
   async getBlob(path: string, bucket?: string): Promise<Blob | undefined> {
-    const tx = this.db.transaction(BLOBS_STORE, 'readonly');
+    const tx = this.transaction(BLOBS_STORE, 'readonly');
     const store = tx.objectStore(BLOBS_STORE);
     if (bucket) {
       return awaitRequest<Blob | undefined>(store.get(toStorageKey(bucket, path)));
@@ -658,7 +729,7 @@ export class IndexedDbStorageBackend implements StorageBackend {
   }
 
   async getMetadata(path: string, bucket?: string): Promise<StoredMetadata | undefined> {
-    const tx = this.db.transaction(METADATA_STORE, 'readonly');
+    const tx = this.transaction(METADATA_STORE, 'readonly');
     const store = tx.objectStore(METADATA_STORE);
     if (bucket) {
       return awaitRequest<StoredMetadata | undefined>(store.get(toStorageKey(bucket, path)));
@@ -693,7 +764,7 @@ export class IndexedDbStorageBackend implements StorageBackend {
   async getObject(path: string, bucket?: string): Promise<StoredObject | undefined> {
     const key = toStorageKey(bucket ?? this._defaultBucket ?? DEFAULT_BUCKET, path);
     // One transaction over both stores reads both halves of the same write.
-    const tx = this.db.transaction([BLOBS_STORE, METADATA_STORE], 'readonly');
+    const tx = this.transaction([BLOBS_STORE, METADATA_STORE], 'readonly');
     const [blob, metadata] = await Promise.all([
       awaitRequest<Blob | undefined>(tx.objectStore(BLOBS_STORE).get(key)),
       awaitRequest<StoredMetadata | undefined>(tx.objectStore(METADATA_STORE).get(key)),
@@ -707,7 +778,7 @@ export class IndexedDbStorageBackend implements StorageBackend {
     const b = bucket ?? metadata.bucket ?? this._defaultBucket ?? DEFAULT_BUCKET;
     if (!metadata.bucket) metadata.bucket = b;
     const key = toStorageKey(b, path);
-    const tx = this.db.transaction(METADATA_STORE, 'readwrite');
+    const tx = this.transaction(METADATA_STORE, 'readwrite');
     tx.objectStore(METADATA_STORE).put(metadata, key);
     await awaitTransaction(tx);
   }
@@ -715,7 +786,7 @@ export class IndexedDbStorageBackend implements StorageBackend {
   async delete(path: string, bucket?: string): Promise<void> {
     const targetBucket = bucket ?? this._defaultBucket ?? DEFAULT_BUCKET;
     const key = toStorageKey(targetBucket, path);
-    const tx = this.db.transaction([BLOBS_STORE, METADATA_STORE], 'readwrite');
+    const tx = this.transaction([BLOBS_STORE, METADATA_STORE], 'readwrite');
     tx.objectStore(BLOBS_STORE).delete(key);
     tx.objectStore(METADATA_STORE).delete(key);
     await awaitTransaction(tx);
@@ -723,7 +794,7 @@ export class IndexedDbStorageBackend implements StorageBackend {
 
   async listByPrefix(prefix: string, bucket?: string): Promise<StoredMetadata[]> {
     const targetBucket = bucket ?? this._defaultBucket ?? DEFAULT_BUCKET;
-    const tx = this.db.transaction(METADATA_STORE, 'readonly');
+    const tx = this.transaction(METADATA_STORE, 'readonly');
     const keyPrefix = `${targetBucket}/${prefix}`;
     const range = IDBKeyRange.bound(keyPrefix, keyPrefix + '\ufffd', false, false);
     return awaitRequest<StoredMetadata[]>(
@@ -732,7 +803,7 @@ export class IndexedDbStorageBackend implements StorageBackend {
   }
 
   async reset(bucket?: string): Promise<void> {
-    const tx = this.db.transaction([BLOBS_STORE, METADATA_STORE], 'readwrite');
+    const tx = this.transaction([BLOBS_STORE, METADATA_STORE], 'readwrite');
     if (!bucket) {
       tx.objectStore(BLOBS_STORE).clear();
       tx.objectStore(METADATA_STORE).clear();
@@ -784,9 +855,12 @@ export class ScopedStorageBackend implements StorageBackend {
     readonly bucket: string,
   ) {}
 
-  put(path: string, blob: Blob, metadata: StoredMetadata): Promise<StoredObject | undefined> {
+  async put(path: string, blob: Blob, metadata: StoredMetadata, issue?: GenerationIssuer): Promise<StoredObject | undefined> {
     const meta = metadata.bucket ? metadata : { ...metadata, bucket: this.bucket };
-    return this.underlying.put(path, blob, meta);
+    const replaced = await this.underlying.put(path, blob, meta, issue);
+    // The underlying backend sets the generation it issued on its copy.
+    metadata.generation = meta.generation;
+    return replaced;
   }
 
   deleteIfGeneration(path: string, generation: string, bucket?: string): Promise<boolean> {
@@ -889,12 +963,27 @@ function openDatabase(dbName: string): Promise<IDBDatabase> {
         if (!db.objectStoreNames.contains(METADATA_STORE)) {
           db.createObjectStore(METADATA_STORE);
         }
+        // Version 1 to 2: an empty store of marks. A path with no mark falls
+        // back to its stored generation.
+        if (!db.objectStoreNames.contains(GENERATIONS_STORE)) {
+          db.createObjectStore(GENERATIONS_STORE);
+        }
       });
-      req.addEventListener('success', () => resolve(req.result));
+      let blocked = false;
+      req.addEventListener('success', () => {
+        // An open that was blocked has already fallen back; once the older
+        // tab lets go, the late connection is not used.
+        if (blocked) {
+          req.result.close();
+          return;
+        }
+        resolve(req.result);
+      });
       req.addEventListener('error', () => reject(req.error));
-      req.addEventListener('blocked', () =>
-        reject(new Error(`IndexedDB open blocked for db "${dbName}"`)),
-      );
+      req.addEventListener('blocked', () => {
+        blocked = true;
+        reject(new OpenBlockedError('another tab holds it open on an older pyric build'));
+      });
     } catch (err) {
       reject(err);
     }

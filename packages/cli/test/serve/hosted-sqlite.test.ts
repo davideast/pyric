@@ -64,6 +64,10 @@ test('Node checks Storage generations and writes in one mutation for rollbacks',
   expect(await runNodeFixture('storage-conditional')).toBe('Storage conditional writes passed');
 });
 
+test('Node keeps Storage generation marks across sandboxes, a reopen with a restore, and a reset', async () => {
+  expect(await runNodeFixture('storage-high-water')).toBe('Storage high-water marks passed');
+});
+
 test('unsupported database versions refuse startup without replacing data', async () => {
   expect(await runNodeFixture('version')).toBe('Version refusal passed');
 });

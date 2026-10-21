@@ -28,13 +28,11 @@ function makeMetadata(bucket: string, fullPath: string, size: number, contentTyp
       'docs/readme.txt',
       new Blob(['hello-storage'], { type: 'text/plain' }),
       makeMetadata('pyric-default', 'docs/readme.txt', 13),
-      'pyric-default',
     );
     await persistence.storage.put(
       'assets/banner.txt',
       new Blob(['other-bucket'], { type: 'text/plain' }),
       makeMetadata('secondary-bucket', 'assets/banner.txt', 12),
-      'secondary-bucket',
     );
     assert.equal((persistence.state.readSection('storage') as unknown[]).length, 2);
 
