@@ -14,6 +14,7 @@
  * Documented in the design rationale section "Migration
  * scope summary".
  */
+export { withDatabaseRulesPreservedOnReset } from "../../database/sandbox/backend-for.js";
 export { getInternalEnv } from './sandbox-impl.js';
 export type { ToolContext, ToolHandler, ToolParameters, ToolResult } from './tool-handler.js';
 export { decodeImportBundle, validatePersistenceEncoding } from '../persistence/import-bundle.js';

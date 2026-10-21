@@ -16,6 +16,7 @@ import { fetchAiUpstream, resolveAiProxyUpstream } from '../ai-proxy.js';
 import {
   databaseInstanceRulesHost,
   deployFirestoreRulesToHost,
+  resetHostSandbox,
   normalizeDatabaseRules,
   setDatabaseRules,
   setDatabaseTargetRules,
@@ -281,20 +282,6 @@ export async function createHostedRuntime(
   /** The log records an MCP caller's tool calls as a port of its own. */
   function toolSession(message: ToolCallRequest): string {
     return `mcp:${message.callerId ?? 'legacy'}`;
-  }
-
-  function restoreHostRules(reconcileDatabase = true): void {
-    const firestoreRules = ctx.activeRules?.firestore;
-    const hasActiveRules = firestoreRules?.status === 'active';
-    const source = hasActiveRules ? firestoreRules.source : firestoreRules?.lastKnownGood;
-    if (typeof source === 'string') setRules(ctx.sandbox, source);
-    if (!reconcileDatabase) return;
-    for (const [, instance] of ctx.rtdbInstances?.entries() ?? []) {
-      const databaseRules = instance.rules;
-      const hasActiveDatabaseRules = databaseRules?.status === 'active';
-      const databaseSource = hasActiveDatabaseRules ? databaseRules.source : databaseRules?.lastKnownGood;
-      if (databaseSource !== undefined) rtdbSandbox.setRules(instance.live, normalizeDatabaseRules(databaseSource));
-    }
   }
 
   function reconcilePortSessions(): void {
@@ -656,16 +643,20 @@ export async function createHostedRuntime(
         if (changesDurableState && key !== 'rules.set') {
           recorder?.note({ kind: 'external', at: Date.now(), source: 'command', name: key });
         }
-        let outcome = await callMethod(method, args, surfaceContext, call.allowProduction);
+        let outcome: OperationResult;
+        if (key === 'sandbox.reset') {
+          const scope = typeof args.scope === 'string' ? args.scope : 'all';
+          outcome = await resetHostSandbox(ctx, scope, () => callMethod(method, args, surfaceContext, call.allowProduction));
+        } else {
+          outcome = await callMethod(method, args, surfaceContext, call.allowProduction);
+        }
         if (outcome.ok) {
           if (key === 'sandbox.reset') {
             const scope = typeof args.scope === 'string' ? args.scope : 'all';
             if (scope === 'all') {
-              restoreHostRules(true);
               reconcilePortSessions();
               restoreFirestoreSubscriptions(ctx);
             } else if (scope === 'firestore') {
-              restoreHostRules(false);
               restoreFirestoreSubscriptions(ctx);
             } else if (scope === 'auth') {
               reconcilePortSessions();
