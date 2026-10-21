@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, sym
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { createHostedPersistence, hostedStateDirectory, loadHostedSnapshot } from '../../../src/serve/hosted/persistence.js';
+import { CHECKPOINT_TABLES } from '../../../src/serve/hosted/persistence/checkpoints.js';
 import { HOSTED_SCHEMA_VERSION, openHostedDatabase } from '../../../src/serve/hosted/persistence/database.js';
 import { salvageHostedState } from '../../../src/serve/hosted/persistence/salvage.js';
 
@@ -67,10 +68,10 @@ const FILE_OBJECTS_TABLE = `CREATE TABLE storage_objects (
   PRIMARY KEY (bucket, path)
 ) STRICT`;
 
-type EarlierSchema = 'version-1' | 'version-1-nine-column-staging' | 'version-2' | 'version-3' | 'version-4';
-const EARLIER_SCHEMAS: readonly EarlierSchema[] = ['version-1', 'version-1-nine-column-staging', 'version-2', 'version-3', 'version-4'];
-const holdsInlineBytes = (schema: EarlierSchema): boolean => schema !== 'version-3' && schema !== 'version-4';
-const versionOf = (schema: EarlierSchema): number => ({ 'version-1': 1, 'version-1-nine-column-staging': 1, 'version-2': 2, 'version-3': 3, 'version-4': 4 })[schema];
+type EarlierSchema = 'version-1' | 'version-1-nine-column-staging' | 'version-2' | 'version-3' | 'version-4' | 'version-5';
+const EARLIER_SCHEMAS: readonly EarlierSchema[] = ['version-1', 'version-1-nine-column-staging', 'version-2', 'version-3', 'version-4', 'version-5'];
+const holdsInlineBytes = (schema: EarlierSchema): boolean => schema !== 'version-3' && schema !== 'version-4' && schema !== 'version-5';
+const versionOf = (schema: EarlierSchema): number => ({ 'version-1': 1, 'version-1-nine-column-staging': 1, 'version-2': 2, 'version-3': 3, 'version-4': 4, 'version-5': 5 })[schema];
 
 /** A project whose hosted state an earlier release wrote. */
 function earlierRelease(name: string, schema: EarlierSchema): string {
@@ -83,6 +84,8 @@ function earlierRelease(name: string, schema: EarlierSchema): string {
   database.exec(holdsInlineBytes(schema) ? INLINE_OBJECTS_TABLE : FILE_OBJECTS_TABLE);
   if (schema === 'version-1-nine-column-staging') database.exec(NINE_COLUMN_STAGING);
   if (schema === 'version-2' || schema === 'version-3') database.exec(VERSION_2_STAGING);
+  // Version 5 added the checkpoint tables.
+  if (schema === 'version-5') database.exec(CHECKPOINT_TABLES);
   const insertRecord = database.prepare('INSERT INTO records VALUES (?, ?, ?)');
   for (const [id, payload] of records) insertRecord.run('hosted', id, JSON.stringify(payload));
   for (const object of objects) {
@@ -164,9 +167,18 @@ for (const schema of EARLIER_SCHEMAS) {
   const after = inspect(project);
   assert.equal(after.version, HOSTED_SCHEMA_VERSION, `${schema}: version after upgrade`);
   assert.deepEqual(after.staging, [], `${schema}: no staging table after upgrade`);
-  assert.deepEqual(after.tables, ['checkpoint_objects', 'checkpoints', 'records', 'storage_objects'], `${schema}: tables after upgrade`);
+  assert.deepEqual(after.tables, ['checkpoint_objects', 'checkpoints', 'records', 'storage_generations', 'storage_objects'], `${schema}: tables after upgrade`);
   assert.deepEqual(after.columns, ['bucket', 'path', 'metadata', 'mime', 'sha256', 'size'], `${schema}: object columns after upgrade`);
   assert.equal(after.records, before.records);
+  // A write after the upgrade issues above the generation the earlier release stored.
+  {
+    const persistence = await createHostedPersistence(project);
+    try {
+      const next = metadata('notes/before.txt', body.byteLength, 'text/plain');
+      await persistence.storage.put('notes/before.txt', new Blob([body], { type: 'text/plain' }), next, floor => String(BigInt(floor ?? '0') + 1n));
+      assert.equal(next.generation, '2', `${schema}: generation after upgrade`);
+    } finally { persistence.close(); }
+  }
   for (const object of objects) assertSameBytes(readFileSync(objectFile(project, object.bytes)), object.bytes, `${schema}: ${object.path} file`);
   // The database no longer holds the bytes, and gives their space back.
   const databaseSize = statSync(join(hostedStateDirectory(project), 'state.sqlite')).size;

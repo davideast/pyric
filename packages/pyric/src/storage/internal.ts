@@ -40,6 +40,7 @@ export {
   type UploadObjectOptions,
 } from './upload.js';
 export { arrayBufferToBase64, base64ToBytes } from './base64.js';
+export { generationIssuer, higherGeneration, type GenerationIssuer } from './generation.js';
 export { isStorageUrl, parseStorageUrl, refPathOf, type StorageLocation } from './url.js';
 export {
   compileStorageRules,

@@ -26,6 +26,7 @@
  */
 
 import type { StorageReferenceRecord } from './sandbox/persistence-state.js';
+import { higherGeneration, type GenerationIssuer } from './generation.js';
 
 /**
  * Legacy shared database name — used only when NO project identity is
@@ -79,11 +80,16 @@ export function storageDbName(projectId?: string | null): string {
 }
 /**
  * Schema version. Bump and add an `upgradeneeded` branch when the
- * store layout changes.
+ * store layout changes. Version 2 adds the `generations` store.
  */
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 const BLOBS_STORE = 'blobs';
 const METADATA_STORE = 'metadata';
+/**
+ * Each path's high-water mark: the highest generation ever stored there. A
+ * delete or a reset leaves it, so no later write repeats a generation.
+ */
+const GENERATIONS_STORE = 'generations';
 
 /**
  * Persisted metadata for a single stored object. Mirrors Firebase's
@@ -171,8 +177,14 @@ export interface StorageBackend {
    * the other back. Existing entries at the same path are replaced.
    * Resolves to the object the write replaced, read in that same
    * transaction, or `undefined` when the path was empty.
+   *
+   * Every write raises the path's high-water mark to the generation it
+   * stores; nothing lowers it, not a delete and not a reset. With `issue`,
+   * the backend asks it for the generation inside the transaction, passing the
+   * higher of the stored generation and the mark, and sets
+   * `metadata.generation` to the answer before writing.
    */
-  put(path: string, blob: Blob, metadata: StoredMetadata): Promise<StoredObject | undefined>;
+  put(path: string, blob: Blob, metadata: StoredMetadata, issue?: GenerationIssuer): Promise<StoredObject | undefined>;
 
   /**
    * Delete the object at `path` only while its stored generation is
@@ -392,6 +404,7 @@ class InMemoryUploadStaging {
 export class InMemoryStorageBackend implements StorageBackend {
   private readonly blobs = new Map<string, Blob>();
   private readonly metadata = new Map<string, StoredMetadata>();
+  private readonly highWater = new Map<string, string>();
   private readonly staging = new InMemoryUploadStaging();
   private _defaultBucket: string | undefined;
 
@@ -399,7 +412,7 @@ export class InMemoryStorageBackend implements StorageBackend {
     this._defaultBucket = defaultBucket;
   }
 
-  async put(path: string, blob: Blob, metadata: StoredMetadata): Promise<StoredObject | undefined> {
+  async put(path: string, blob: Blob, metadata: StoredMetadata, issue?: GenerationIssuer): Promise<StoredObject | undefined> {
     const bucket = metadata.bucket || this._defaultBucket || DEFAULT_BUCKET;
     if (!this._defaultBucket) {
       this._defaultBucket = bucket;
@@ -410,8 +423,11 @@ export class InMemoryStorageBackend implements StorageBackend {
     }
     const key = toStorageKey(bucket, path);
     const replaced = this.objectAt(key);
+    const mark = this.highWater.get(key);
+    if (issue !== undefined) metadata.generation = issue(higherGeneration(replaced?.metadata.generation, mark));
     this.blobs.set(key, blob);
     this.metadata.set(key, metadata);
+    this.highWater.set(key, higherGeneration(mark, metadata.generation) ?? metadata.generation);
     return replaced;
   }
 
@@ -574,7 +590,7 @@ export class IndexedDbStorageBackend implements StorageBackend {
     this._defaultBucket = defaultBucket;
   }
 
-  async put(path: string, blob: Blob, metadata: StoredMetadata): Promise<StoredObject | undefined> {
+  async put(path: string, blob: Blob, metadata: StoredMetadata, issue?: GenerationIssuer): Promise<StoredObject | undefined> {
     const bucket = metadata.bucket || this._defaultBucket || DEFAULT_BUCKET;
     if (!this._defaultBucket) {
       this._defaultBucket = bucket;
@@ -584,12 +600,24 @@ export class IndexedDbStorageBackend implements StorageBackend {
       metadata.bucket = bucket;
     }
     const key = toStorageKey(bucket, path);
-    const tx = this.db.transaction([BLOBS_STORE, METADATA_STORE], 'readwrite');
+    const tx = this.db.transaction([BLOBS_STORE, METADATA_STORE, GENERATIONS_STORE], 'readwrite');
     // Requests in one transaction run in order, so the reads see the object
-    // the writes replace.
+    // the writes replace. The writes are issued from the mark's success event,
+    // while the transaction is still active, so no other write lands between.
     const replaced = readObject(tx, key);
-    tx.objectStore(BLOBS_STORE).put(blob, key);
-    tx.objectStore(METADATA_STORE).put(metadata, key);
+    const markRequest = tx.objectStore(GENERATIONS_STORE).get(key);
+    markRequest.addEventListener('success', () => {
+      const mark = markRequest.result as string | undefined;
+      try {
+        if (issue !== undefined) metadata.generation = issue(higherGeneration(replaced.object()?.metadata.generation, mark));
+        tx.objectStore(BLOBS_STORE).put(blob, key);
+        tx.objectStore(METADATA_STORE).put(metadata, key);
+        tx.objectStore(GENERATIONS_STORE).put(higherGeneration(mark, metadata.generation) ?? metadata.generation, key);
+      } catch (error) {
+        tx.abort();
+        throw error;
+      }
+    });
     await awaitTransaction(tx);
     return replaced.object();
   }
@@ -784,9 +812,12 @@ export class ScopedStorageBackend implements StorageBackend {
     readonly bucket: string,
   ) {}
 
-  put(path: string, blob: Blob, metadata: StoredMetadata): Promise<StoredObject | undefined> {
+  async put(path: string, blob: Blob, metadata: StoredMetadata, issue?: GenerationIssuer): Promise<StoredObject | undefined> {
     const meta = metadata.bucket ? metadata : { ...metadata, bucket: this.bucket };
-    return this.underlying.put(path, blob, meta);
+    const replaced = await this.underlying.put(path, blob, meta, issue);
+    // The underlying backend sets the generation it issued on its copy.
+    metadata.generation = meta.generation;
+    return replaced;
   }
 
   deleteIfGeneration(path: string, generation: string, bucket?: string): Promise<boolean> {
@@ -889,8 +920,17 @@ function openDatabase(dbName: string): Promise<IDBDatabase> {
         if (!db.objectStoreNames.contains(METADATA_STORE)) {
           db.createObjectStore(METADATA_STORE);
         }
+        // Version 1 to 2: an empty store of marks. A path with no mark falls
+        // back to its stored generation.
+        if (!db.objectStoreNames.contains(GENERATIONS_STORE)) {
+          db.createObjectStore(GENERATIONS_STORE);
+        }
       });
-      req.addEventListener('success', () => resolve(req.result));
+      req.addEventListener('success', () => {
+        // Let a later schema version open: this connection steps aside.
+        req.result.addEventListener('versionchange', () => req.result.close());
+        resolve(req.result);
+      });
       req.addEventListener('error', () => reject(req.error));
       req.addEventListener('blocked', () =>
         reject(new Error(`IndexedDB open blocked for db "${dbName}"`)),

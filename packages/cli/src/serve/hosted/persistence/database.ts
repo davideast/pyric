@@ -11,13 +11,38 @@ import { FILE_BYTES_SCHEMA_VERSION, storedObjects } from './stored-objects.js';
 const FILE_STAGING_SCHEMA_VERSION = 4;
 
 /** Version 5 keeps the host's checkpoints, and the object hashes they name. */
-export const HOSTED_SCHEMA_VERSION = 5;
+const CHECKPOINTS_SCHEMA_VERSION = 5;
+
+/** Version 6 keeps each Storage path's generation high-water mark. */
+export const HOSTED_SCHEMA_VERSION = 6;
 
 /**
  * Every schema version this build can read. A writable open upgrades an older
  * one in place; a read-only open reads it as it is.
  */
-export const READABLE_HOSTED_SCHEMA_VERSIONS: ReadonlySet<number> = new Set([1, 2, FILE_BYTES_SCHEMA_VERSION, FILE_STAGING_SCHEMA_VERSION, HOSTED_SCHEMA_VERSION]);
+export const READABLE_HOSTED_SCHEMA_VERSIONS: ReadonlySet<number> = new Set([
+  1, 2, FILE_BYTES_SCHEMA_VERSION, FILE_STAGING_SCHEMA_VERSION, CHECKPOINTS_SCHEMA_VERSION, HOSTED_SCHEMA_VERSION,
+]);
+
+/**
+ * Each Storage path's high-water mark: the highest generation ever stored
+ * there. Deletes, resets and restores leave it, so no write repeats one.
+ */
+const STORAGE_GENERATIONS_TABLE = `
+  CREATE TABLE storage_generations (
+    bucket TEXT NOT NULL,
+    path TEXT NOT NULL,
+    generation TEXT NOT NULL,
+    PRIMARY KEY (bucket, path)
+  ) STRICT;
+`;
+
+/** Version 5 to 6: an empty table of marks. A path with no mark falls back to its stored generation. */
+function addGenerationsTable(connection: SqlConnection): void {
+  inTransaction(connection, () => {
+    connection.exec(`${STORAGE_GENERATIONS_TABLE} PRAGMA user_version=${HOSTED_SCHEMA_VERSION};`);
+  });
+}
 
 /** Object metadata; the bytes are the file `objects/<ab>/<sha256>`. */
 const storageObjectsTable = (name: string): string => `
@@ -102,6 +127,7 @@ export async function openHostedDatabase(directory: string, options: { readOnly?
             PRIMARY KEY (namespace, id)
           ) STRICT;
           ${storageObjectsTable('storage_objects')}
+          ${STORAGE_GENERATIONS_TABLE}
           ${CHECKPOINT_TABLES}
           PRAGMA user_version=${HOSTED_SCHEMA_VERSION};
         `);
@@ -122,7 +148,9 @@ export async function openHostedDatabase(directory: string, options: { readOnly?
         if (holdsInlineBytes) moveBytesToFiles(connection, objects, schemaVersion);
         const stagesInTable = schemaVersion === FILE_BYTES_SCHEMA_VERSION;
         if (stagesInTable) dropStagingTable(connection);
-        addCheckpointTables(connection, objects, options.checkpointFiles, HOSTED_SCHEMA_VERSION);
+        const lacksCheckpoints = schemaVersion < CHECKPOINTS_SCHEMA_VERSION;
+        if (lacksCheckpoints) addCheckpointTables(connection, objects, options.checkpointFiles, CHECKPOINTS_SCHEMA_VERSION);
+        addGenerationsTable(connection);
         schemaVersion = HOSTED_SCHEMA_VERSION;
         // Without the bytes and the staged parts the live data is small, so
         // rebuilding the file to give their pages back is quick.
