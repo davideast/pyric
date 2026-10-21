@@ -51,6 +51,7 @@ export {
 export { DEFAULT_BUCKET, type StorageBackend, type StoredMetadata } from './persistence.js';
 export { copyObject } from './copy.js';
 export { deleteObjectGeneration } from './download.js';
+export { canceledRollbackFailed, restoreObjectGeneration } from './upload-rollback.js';
 export { fetchFromByteRoute, uploadOverByteRoute, type RemoteByteRoute, type RemoteReadRequest, type RemoteUploadRequest } from './remote-bytes.js';
 
 export { observeStorageOperation, storageTaskProgress, storageTaskResult } from '../sandbox/internal/storage-activity.js';
