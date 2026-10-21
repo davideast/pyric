@@ -32,7 +32,7 @@ import { toFullMetadata, type SettableMetadata, type UploadResult } from './meta
 import { planeOf, uploadContentDisposition } from './content-defaults.js';
 import { StorageError, invalidRootOperation, invalidFormat } from './errors.js';
 import { clockGeneration, issueGeneration } from './generation.js';
-import type { StoredMetadata } from './persistence.js';
+import type { StoredMetadata, StoredObject } from './persistence.js';
 import type { StorageReference } from './reference.js';
 
 const OCTET = 'application/octet-stream';
@@ -76,6 +76,17 @@ export interface UploadObjectOptions {
   downloadTokens?: string;
 }
 
+/** An upload's result, with the object its write replaced. */
+export interface ReplacingUploadResult {
+  result: UploadResult;
+  /**
+   * The object at the path just before the write, read by the backend in the
+   * same transaction as the write, or `undefined` when the path was empty. A
+   * rollback puts it back with `replaceIfGeneration`.
+   */
+  replaced: StoredObject | undefined;
+}
+
 /**
  * The upload pipeline behind {@link uploadBytes}. The admin plane can also
  * create the object with download tokens, in the same write as its bytes.
@@ -84,8 +95,19 @@ export async function uploadObject(
   ref: StorageReference,
   data: Blob | Uint8Array | ArrayBuffer,
   metadata: SettableMetadata | undefined,
-  { provenance, downloadTokens }: UploadObjectOptions = {},
+  options: UploadObjectOptions = {},
 ): Promise<UploadResult> {
+  const { result } = await uploadObjectReplacing(ref, data, metadata, options);
+  return result;
+}
+
+/** {@link uploadObject}, also returning the object the write replaced. */
+export async function uploadObjectReplacing(
+  ref: StorageReference,
+  data: Blob | Uint8Array | ArrayBuffer,
+  metadata: SettableMetadata | undefined,
+  { provenance, downloadTokens }: UploadObjectOptions = {},
+): Promise<ReplacingUploadResult> {
   guardNonRoot(ref, 'uploadBytes');
   const target = targetOf(ref.storage);
   const setsTokens = downloadTokens !== undefined;
@@ -115,7 +137,7 @@ export async function uploadObject(
   }, target, operationProvenance);
   // Every version gets its own generation, even within one clock tick (#1160).
   stored.generation = issueGeneration(target.sandbox, stored, uploadedAt.getTime(), existing?.generation);
-  await service.backend.put(ref.fullPath, blob, stored);
+  const replaced = await service.backend.put(ref.fullPath, blob, stored);
   // Land the put on the unified Studio stream. Best-effort: a throw from
   // the emit path must not fail the upload the caller just completed.
   try {
@@ -127,13 +149,13 @@ export async function uploadObject(
         op: 'object_put',
         path: ref.fullPath,
         auth: storageAuth(target),
-        before: existing ?? undefined,
+        before: replaced?.metadata,
         after: stored,
         detail: {
           bucket: ref.bucket,
           size: stored.size,
           contentType: stored.contentType,
-          overwrite: existing != null,
+          overwrite: replaced !== undefined,
         },
       }),
       operationProvenance,
@@ -141,7 +163,7 @@ export async function uploadObject(
   } catch {
     // Observational — never let event emission break a storage write.
   }
-  return { ref, metadata: toFullMetadata(stored, planeOf(target)) };
+  return { result: { ref, metadata: toFullMetadata(stored, planeOf(target)) }, replaced };
 }
 
 /**

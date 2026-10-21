@@ -60,6 +60,10 @@ test('Node issues increasing Storage generations under a fixed clock and across 
   expect(await runNodeFixture('storage-generation')).toBe('Storage generations passed');
 });
 
+test('Node checks Storage generations and writes in one mutation for rollbacks', async () => {
+  expect(await runNodeFixture('storage-conditional')).toBe('Storage conditional writes passed');
+});
+
 test('unsupported database versions refuse startup without replacing data', async () => {
   expect(await runNodeFixture('version')).toBe('Version refusal passed');
 });

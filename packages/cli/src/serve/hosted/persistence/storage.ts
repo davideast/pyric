@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { openAsBlob } from 'node:fs';
 import { FirebaseError } from 'pyric/app';
-import type { StorageBackend, StorageReferenceRecord, StoredMetadata } from 'pyric/storage/internal';
+import type { StorageBackend, StorageReferenceRecord, StoredMetadata, StoredObject } from 'pyric/storage/internal';
 import { storedMetadataSchema } from 'pyric/sandbox/internal';
 import { MAX_STORAGE_OBJECT_BYTES, storageQuotaExceeded } from '../../worker/protocol/storage.js';
 import type { BlobStore, StagedFile, StoredBytes } from './blob-store.js';
@@ -151,6 +151,42 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit, o
   const referencesStmt = lazyStatement(connection, 'SELECT sha256, size, mime, metadata FROM storage_objects WHERE bucket=? ORDER BY path');
   const objectFileStmt = lazyStatement(connection, 'SELECT sha256, size, mime, metadata FROM storage_objects WHERE bucket=? AND path=?');
 
+  // The bytes behind each replaced object `put` returned, so putting it back
+  // writes only its row while its file is still held.
+  const replacedBytes = new WeakMap<Blob, StoredBytes>();
+
+  /** The object at a path as one row, read inside a queued mutation. */
+  async function objectAt(bucket: string, path: string): Promise<StoredObject | undefined> {
+    const row = objectFileStmt().get(bucket, path);
+    const missingObject = row === undefined;
+    if (missingObject) return undefined;
+    const stored = storedBytesOf(row);
+    const blob = await openAsBlob(objects.path(stored.sha256), { type: sqlText(row, 'mime') });
+    replacedBytes.set(blob, stored);
+    return { blob, metadata: metadataOf(row) };
+  }
+
+  function currentGeneration(bucket: string, path: string): string | undefined {
+    const row = metadata.get(bucket, path);
+    const missingObject = row === undefined;
+    if (missingObject) return undefined;
+    return metadataOf(row).generation;
+  }
+
+  /** Put `prior` back at its path, by reference when this store still holds its bytes. */
+  async function restoreObject(path: string, prior: StoredObject): Promise<void> {
+    const stored = replacedBytes.get(prior.blob);
+    const unheld = stored === undefined || objects.size(stored.sha256) !== stored.size;
+    if (unheld) {
+      putBytes(path, new Uint8Array(await prior.blob.arrayBuffer()), prior.blob.type, prior.metadata);
+      return;
+    }
+    const value = storedMetadataSchema.parse(prior.metadata);
+    const mismatchedObject = value.fullPath !== path || value.size !== stored.size;
+    if (mismatchedObject) throw new Error('Storage metadata does not match its object.');
+    commit(() => { put().run(value.bucket, path, JSON.stringify(value), prior.blob.type, stored.sha256, stored.size); });
+  }
+
   function view(scope?: string): ScopedStorageBackend {
     const defaultBucket = scope ?? 'pyric-default';
     return {
@@ -159,13 +195,43 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit, o
         if (tooLarge) throw storageQuotaExceeded(blob.size, 'Storage object');
         const upload = finishedUploads.get(blob);
         const finishesUpload = upload !== undefined;
+        const bucket = value.bucket || defaultBucket;
         if (finishesUpload) {
-          await enqueue(() => adoptUpload(path, upload, blob.type, value));
-          return;
+          return enqueue(async () => {
+            const replaced = await objectAt(bucket, path);
+            adoptUpload(path, upload, blob.type, value);
+            return replaced;
+          });
         }
-        await enqueue(async () => {
+        return enqueue(async () => {
           const bytes = new Uint8Array(await blob.arrayBuffer());
+          const replaced = await objectAt(bucket, path);
           putBytes(path, bytes, blob.type, value);
+          return replaced;
+        });
+      },
+      async deleteIfGeneration(path, generation, bucket = defaultBucket) {
+        return enqueue(() => {
+          const replaced = currentGeneration(bucket, path) !== generation;
+          if (replaced) return false;
+          commit(() => { remove.run(bucket, path); });
+          return true;
+        });
+      },
+      async replaceIfGeneration(path, generation, prior, bucket = defaultBucket) {
+        // Every Storage mutation runs through this queue, so nothing lands
+        // between the check and the write.
+        return enqueue(async () => {
+          const replaced = currentGeneration(bucket, path) !== generation;
+          if (replaced) return false;
+          if (prior === undefined) {
+            commit(() => { remove.run(bucket, path); });
+            return true;
+          }
+          const otherBucket = prior.metadata.bucket !== bucket;
+          if (otherBucket) throw new Error('Storage metadata cannot change object identity or size.');
+          await restoreObject(path, prior);
+          return true;
         });
       },
       mutate: work => enqueue(() => commit(() => work(writes))),
