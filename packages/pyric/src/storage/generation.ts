@@ -43,6 +43,11 @@ export function higherGeneration(a: string | undefined, b: string | undefined): 
   return b;
 }
 
+/** A path's mark after a write stores `generation`: the higher of the two. */
+export function raisedMark(mark: string | undefined, generation: string): string {
+  return higherGeneration(mark, generation) ?? generation;
+}
+
 /** The sandbox clock's milliseconds times 1000, at the magnitude production generations count in. */
 export function clockGeneration(epochMs: number): bigint {
   return BigInt(Math.floor(epochMs * 1000));

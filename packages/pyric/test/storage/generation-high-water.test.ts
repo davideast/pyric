@@ -8,7 +8,7 @@
  * restored to an earlier snapshot, never repeat a generation.
  */
 import 'fake-indexeddb/auto';
-import { describe, it, expect } from 'bun:test';
+import { afterEach, describe, it, expect, spyOn } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import { getClock } from 'pyric/sandbox/internal';
 import {
@@ -159,10 +159,85 @@ describe.each(BACKENDS)('the generation issuer, %s backend', (_name, open) => {
     expect(next.generation).toBe('9');
   });
 
+  it('issues increasing generations across a delete between two concurrent writes', async () => {
+    const backend = await open();
+    const [first, second] = [metadataFor('0', 1), metadataFor('0', 1)];
+    await Promise.all([
+      backend.put(PATH, new Blob(['a']), first, issueAbove),
+      backend.delete(PATH, BUCKET),
+      backend.put(PATH, new Blob(['b']), second, issueAbove),
+    ]);
+    expect(BigInt(second.generation)).toBeGreaterThan(BigInt(first.generation));
+  });
+
+  it('rejects with the error the issuer threw and leaves the object as it was', async () => {
+    const backend = await open();
+    await backend.put(PATH, new Blob(['a']), metadataFor('4', 1));
+    const failing = (): string => { throw new Error('issuer failed'); };
+    await expect(backend.put(PATH, new Blob(['b']), metadataFor('0', 1), failing)).rejects.toThrow('issuer failed');
+    expect((await backend.getMetadata(PATH, BUCKET))?.generation).toBe('4');
+  });
+
   it('issues distinct generations for concurrent writes', async () => {
     const backend = await open();
     const writes = [metadataFor('0', 1), metadataFor('0', 1), metadataFor('0', 1)];
     await Promise.all(writes.map((metadata) => backend.put(PATH, new Blob(['x']), metadata, issueAbove)));
     expect(writes.map((metadata) => metadata.generation).sort()).toEqual(['1', '2', '3']);
+  });
+});
+
+describe('a store this tab cannot open', () => {
+  let warn: ReturnType<typeof spyOn> | undefined;
+  afterEach(() => warn?.mockRestore());
+
+  function openRaw(dbName: string, version: number): Promise<IDBDatabase> {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(dbName, version);
+      request.addEventListener('upgradeneeded', () => {
+        for (const store of ['blobs', 'metadata']) {
+          if (!request.result.objectStoreNames.contains(store)) request.result.createObjectStore(store);
+        }
+      });
+      request.addEventListener('success', () => resolve(request.result));
+      request.addEventListener('error', () => reject(request.error));
+    });
+  }
+
+  function warnings(): string[] {
+    return (warn?.mock.calls ?? []).map((call: unknown[]) => call.map(String).join(' '));
+  }
+
+  it('warns, naming the store, when an older tab blocks the upgrade', async () => {
+    warn = spyOn(console, 'warn').mockImplementation(() => {});
+    const dbName = uniqueName();
+    // An older build: a version-1 connection that never steps aside.
+    const older = await openRaw(dbName, 1);
+    const backend = await openStorageBackend(dbName, BUCKET);
+    expect(backend).toBeInstanceOf(InMemoryStorageBackend);
+    expect(warnings()).toHaveLength(1);
+    expect(warnings()[0]).toContain(dbName);
+    expect(warnings()[0]).toContain('Storage will not persist until other tabs reload');
+    older.close();
+  });
+
+  it('warns, naming the store, when a newer build has upgraded it', async () => {
+    warn = spyOn(console, 'warn').mockImplementation(() => {});
+    const dbName = uniqueName();
+    (await openRaw(dbName, 99)).close();
+    const backend = await openStorageBackend(dbName, BUCKET);
+    expect(backend).toBeInstanceOf(InMemoryStorageBackend);
+    expect(warnings()).toHaveLength(1);
+    expect(warnings()[0]).toContain(dbName);
+    expect(warnings()[0]).toContain('VersionError');
+  });
+
+  it('warns and refuses later writes once a newer build takes the store over', async () => {
+    warn = spyOn(console, 'warn').mockImplementation(() => {});
+    const dbName = uniqueName();
+    const backend = await openStorageBackend(dbName, BUCKET);
+    (await openRaw(dbName, 99)).close();
+    expect(warnings()).toHaveLength(1);
+    expect(warnings()[0]).toContain(dbName);
+    await expect(backend.put(PATH, new Blob(['a']), metadataFor('1', 1))).rejects.toThrow('Reload this tab');
   });
 });

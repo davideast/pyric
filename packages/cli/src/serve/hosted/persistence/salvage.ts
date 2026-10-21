@@ -10,7 +10,8 @@ import { claimProjectState } from '../project-ownership.js';
 import { createBlobStore, hashFile } from './blob-store.js';
 import { writeCheckpointRow } from './checkpoints.js';
 import { openHostedDatabase, READABLE_HOSTED_SCHEMA_VERSIONS } from './database.js';
-import { openNodeSqlite, sqlText } from './sqlite.js';
+import { openNodeSqlite, sqlText, type SqlConnection } from './sqlite.js';
+import type { StorageGenerationMark } from './storage.js';
 import { storedObjects } from './stored-objects.js';
 import { repairedStorageMetadata, validateHostedDatabase, type StorageMetadataRepair } from './validate.js';
 
@@ -203,6 +204,7 @@ export async function salvageHostedState(sourceInput: string, outputInput: strin
             if (wrongSize) report.repairedObjects.push({ bucket: row.bucket, path: row.path, recordedSize: metadata.size, actualSize: content.byteLength });
           } catch { report.excluded.push({ namespace: 'storage', id, reason: 'Object validation failed' }); }
         }
+        await recovered.storage.raiseMarks(generationMarks(input));
         const hasCheckpointsTable = input.prepare("SELECT 1 AS present FROM sqlite_master WHERE type='table' AND name='checkpoints'").get() !== undefined;
         const hasCheckpointObjectsTable = input.prepare("SELECT 1 AS present FROM sqlite_master WHERE type='table' AND name='checkpoint_objects'").get() !== undefined;
         if (hasCheckpointsTable) {
@@ -338,4 +340,22 @@ export async function salvageHostedState(sourceInput: string, outputInput: strin
     if (hasScratch) rmSync(cleanupDirectory, { recursive: true, force: true });
     owner?.close();
   }
+}
+
+/**
+ * The Storage generation marks a version-6 or later source keeps, so the
+ * recovered store never reissues a generation the source already issued, even
+ * for an object deleted before the salvage. A mark that is not a generation is
+ * left out; the recovered objects' own generations still bound their paths.
+ */
+function generationMarks(input: SqlConnection): StorageGenerationMark[] {
+  const hasMarks = input.prepare("SELECT 1 AS present FROM sqlite_master WHERE type='table' AND name='storage_generations'").get() !== undefined;
+  if (!hasMarks) return [];
+  const marks: StorageGenerationMark[] = [];
+  for (const row of input.prepare('SELECT bucket, path, generation FROM storage_generations').all()) {
+    const generation = row.generation;
+    const valid = typeof row.bucket === 'string' && typeof row.path === 'string' && typeof generation === 'string' && /^[0-9]+$/.test(generation);
+    if (valid) marks.push({ bucket: row.bucket as string, path: row.path as string, generation: generation as string });
+  }
+  return marks;
 }

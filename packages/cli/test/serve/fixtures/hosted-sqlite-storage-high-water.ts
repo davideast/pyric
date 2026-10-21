@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { initializeSandbox } from 'pyric/sandbox';
 import { getClock } from 'pyric/sandbox/internal';
-import { getStorageSandbox, ref, uploadBytes, type FirebaseStorage } from 'pyric/storage';
+import { deleteObject, getStorageSandbox, ref, uploadBytes, type FirebaseStorage } from 'pyric/storage';
 import { installStorageBackend, referenceStorageState, resetStorageState, restoreStorageReferences } from 'pyric/storage/internal';
+import { join } from 'node:path';
 import { openHostedDatabase } from '../../../src/serve/hosted/persistence/database.js';
+import { salvageHostedState } from '../../../src/serve/hosted/persistence/salvage.js';
 
 // Generation high-water marks on the Node host's SQLite store (issue #1160):
 // two sandboxes on one store writing one path concurrently, a reopen followed
@@ -22,8 +24,8 @@ function frozenStorage(database: Database): FirebaseStorage {
   return getStorageSandbox(sandbox, { rules: RULES });
 }
 
-async function write(storage: FirebaseStorage, body: string): Promise<bigint> {
-  const result = await uploadBytes(ref(storage, PATH), new Blob([body]));
+async function write(storage: FirebaseStorage, body: string, path = PATH): Promise<bigint> {
+  const result = await uploadBytes(ref(storage, path), new Blob([body]));
   return BigInt(result.metadata.generation);
 }
 
@@ -54,5 +56,42 @@ try {
   // A reset keeps the marks.
   await resetStorageState(storage);
   assert.ok(await write(storage, 'h') > next, 'generation after a reset does not pass the one before it');
+} finally { database.close(); }
+// A delete between two concurrent writes.
+database = await openHostedDatabase(directory);
+try {
+  const storage = database.storage;
+  const issueAbove = (floor: string | undefined): string => String(BigInt(floor ?? '0') + 1n);
+  const metadataFor = () => ({
+    bucket: 'pyric-default', fullPath: 'raced.bin', name: 'raced.bin', size: 1, generation: '0', metageneration: '1',
+    timeCreated: '2030-01-01T00:00:00Z', updated: '2030-01-01T00:00:00Z', contentType: 'application/octet-stream',
+  });
+  const [first, second] = [metadataFor(), metadataFor()];
+  await Promise.all([
+    storage.put('raced.bin', new Blob(['a']), first, issueAbove),
+    storage.delete('raced.bin'),
+    storage.put('raced.bin', new Blob(['b']), second, issueAbove),
+  ]);
+  assert.ok(BigInt(second.generation) > BigInt(first.generation), `generations ${first.generation}, ${second.generation} do not increase`);
+} finally { database.close(); }
+
+// Salvage keeps the marks, even for an object deleted before it.
+const damaged = join(directory, 'salvage-source');
+const repaired = join(directory, 'salvage-output');
+let deleted: bigint;
+database = await openHostedDatabase(damaged);
+try {
+  const storage = frozenStorage(database);
+  await write(storage, 'a', 'p.bin');
+  deleted = await write(storage, 'b', 'p.bin');
+  await deleteObject(ref(storage, 'p.bin'));
+  // Salvage needs some state to recover.
+  await write(storage, 'kept', 'kept.bin');
+} finally { database.close(); }
+await salvageHostedState(damaged, repaired);
+database = await openHostedDatabase(repaired);
+try {
+  const next = await write(frozenStorage(database), 'c', 'p.bin');
+  assert.ok(next > deleted, `generation ${next} after salvage does not pass ${deleted}`);
 } finally { database.close(); }
 console.log('Storage high-water marks passed');

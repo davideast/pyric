@@ -638,7 +638,7 @@ export const storageRegistry = {
         row3({
           rowRef: "118",
           behavior: "Each write of an object gets a new, larger `generation`, a numeric string, even in one millisecond, under a fixed clock, or from two sandboxes on one store",
-          evidence: "The backend issues it in the write's transaction above a per-path mark that survives deletes, resets, reopens and restores. Value is clock ms x 1000. Tests: `generation.test.ts`, `generation-high-water.test.ts`, worker, Node host and pyric-admin generation tests. Shape: oracle `storage-upload-then-getmetadata.json`",
+          evidence: "The backend issues it in the write's transaction above a per-path mark kept in the same store. Value is clock ms x 1000, not microseconds. A tab that falls back to memory (store blocked or newer) is outside this. Tests: `generation.test.ts`, `generation-high-water.test.ts`, worker, Node host and pyric-admin generation tests. Shape: oracle `storage-upload-then-getmetadata.json`",
           risk: ["specific-value","metadata"],
           riskScore: 3,
           riskReasons: ["asserts 1 specific value(s)","asserts metadata shape"],
