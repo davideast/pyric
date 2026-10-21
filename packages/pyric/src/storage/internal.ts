@@ -35,6 +35,8 @@ export {
   decodeString,
   defaultRawContentType,
   uploadObject,
+  uploadObjectReplacing,
+  type ReplacingUploadResult,
   type UploadObjectOptions,
 } from './upload.js';
 export { arrayBufferToBase64, base64ToBytes } from './base64.js';
@@ -48,7 +50,7 @@ export {
   snapshotStorageState, restoreStorageState, resetStorageState, referenceStorageState, restoreStorageReferences,
   type StorageStateRecord, type StorageReferenceRecord,
 } from './sandbox/persistence-state.js';
-export { DEFAULT_BUCKET, type StorageBackend, type StoredMetadata } from './persistence.js';
+export { DEFAULT_BUCKET, assertPriorAt, type StorageBackend, type StoredMetadata, type StoredObject } from './persistence.js';
 export { copyObject } from './copy.js';
 export { deleteObjectGeneration } from './download.js';
 export { canceledRollbackFailed, restoreObjectGeneration } from './upload-rollback.js';

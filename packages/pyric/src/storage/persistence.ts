@@ -136,6 +136,17 @@ export interface StoredObject {
   metadata: StoredMetadata;
 }
 
+/**
+ * Reject a prior object that would land somewhere other than where it came
+ * from, or whose size disagrees with its bytes. `replaceIfGeneration` on every
+ * backend checks this before it writes.
+ */
+export function assertPriorAt(prior: StoredObject, bucket: string, path: string): void {
+  const elsewhere = prior.metadata.bucket !== bucket || prior.metadata.fullPath !== path;
+  if (elsewhere) throw new Error('A prior Storage object can only be put back at its own bucket and path.');
+  assertMatchingSize(prior.blob, prior.metadata);
+}
+
 /** Reject metadata whose size disagrees with the bytes it is stored with. */
 function assertMatchingSize(blob: Blob, metadata: StoredMetadata): void {
   const mismatchedObject = metadata.size !== blob.size;
@@ -158,8 +169,24 @@ export interface StorageBackend {
    * Write a blob + its metadata atomically. Both stores update under
    * one `readwrite` transaction so a failure on either path rolls
    * the other back. Existing entries at the same path are replaced.
+   * Resolves to the object the write replaced, read in that same
+   * transaction, or `undefined` when the path was empty.
    */
-  put(path: string, blob: Blob, metadata: StoredMetadata): Promise<void>;
+  put(path: string, blob: Blob, metadata: StoredMetadata): Promise<StoredObject | undefined>;
+
+  /**
+   * Delete the object at `path` only while its stored generation is
+   * `generation`, checked and deleted in one transaction. Resolves to whether
+   * it deleted, so a later write at the path is never removed.
+   */
+  deleteIfGeneration(path: string, generation: string, bucket?: string): Promise<boolean>;
+
+  /**
+   * Put `prior` back at `path`, or leave the path empty when `prior` is
+   * `undefined`, only while the stored generation is `generation`, checked and
+   * written in one transaction. Resolves to whether it wrote.
+   */
+  replaceIfGeneration(path: string, generation: string, prior: StoredObject | undefined, bucket?: string): Promise<boolean>;
 
   /**
    * Read the blob stored at `path` within `bucket`. Resolves to `undefined` when no
@@ -372,7 +399,7 @@ export class InMemoryStorageBackend implements StorageBackend {
     this._defaultBucket = defaultBucket;
   }
 
-  async put(path: string, blob: Blob, metadata: StoredMetadata): Promise<void> {
+  async put(path: string, blob: Blob, metadata: StoredMetadata): Promise<StoredObject | undefined> {
     const bucket = metadata.bucket || this._defaultBucket || DEFAULT_BUCKET;
     if (!this._defaultBucket) {
       this._defaultBucket = bucket;
@@ -382,8 +409,36 @@ export class InMemoryStorageBackend implements StorageBackend {
       metadata.bucket = bucket;
     }
     const key = toStorageKey(bucket, path);
+    const replaced = this.objectAt(key);
     this.blobs.set(key, blob);
     this.metadata.set(key, metadata);
+    return replaced;
+  }
+
+  private objectAt(key: string): StoredObject | undefined {
+    const blob = this.blobs.get(key);
+    const metadata = this.metadata.get(key);
+    const missingObject = blob === undefined || metadata === undefined;
+    if (missingObject) return undefined;
+    return { blob, metadata };
+  }
+
+  async deleteIfGeneration(path: string, generation: string, bucket?: string): Promise<boolean> {
+    return this.replaceIfGeneration(path, generation, undefined, bucket);
+  }
+
+  async replaceIfGeneration(path: string, generation: string, prior: StoredObject | undefined, bucket?: string): Promise<boolean> {
+    const target = bucket ?? this._defaultBucket ?? DEFAULT_BUCKET;
+    if (prior !== undefined) assertPriorAt(prior, target, path);
+    const key = toStorageKey(target, path);
+    const replaced = this.metadata.get(key)?.generation !== generation;
+    if (replaced) return false;
+    this.blobs.delete(key);
+    this.metadata.delete(key);
+    if (prior === undefined) return true;
+    this.blobs.set(key, prior.blob);
+    this.metadata.set(key, prior.metadata);
+    return true;
   }
 
   async getBlob(path: string, bucket?: string): Promise<Blob | undefined> {
@@ -427,12 +482,7 @@ export class InMemoryStorageBackend implements StorageBackend {
   }
 
   async getObject(path: string, bucket?: string): Promise<StoredObject | undefined> {
-    const key = toStorageKey(bucket ?? this._defaultBucket ?? DEFAULT_BUCKET, path);
-    const blob = this.blobs.get(key);
-    const metadata = this.metadata.get(key);
-    const missingObject = blob === undefined || metadata === undefined;
-    if (missingObject) return undefined;
-    return { blob, metadata };
+    return this.objectAt(toStorageKey(bucket ?? this._defaultBucket ?? DEFAULT_BUCKET, path));
   }
 
   async putMetadata(path: string, metadata: StoredMetadata, bucket?: string): Promise<void> {
@@ -524,7 +574,7 @@ export class IndexedDbStorageBackend implements StorageBackend {
     this._defaultBucket = defaultBucket;
   }
 
-  async put(path: string, blob: Blob, metadata: StoredMetadata): Promise<void> {
+  async put(path: string, blob: Blob, metadata: StoredMetadata): Promise<StoredObject | undefined> {
     const bucket = metadata.bucket || this._defaultBucket || DEFAULT_BUCKET;
     if (!this._defaultBucket) {
       this._defaultBucket = bucket;
@@ -535,9 +585,43 @@ export class IndexedDbStorageBackend implements StorageBackend {
     }
     const key = toStorageKey(bucket, path);
     const tx = this.db.transaction([BLOBS_STORE, METADATA_STORE], 'readwrite');
+    // Requests in one transaction run in order, so the reads see the object
+    // the writes replace.
+    const replaced = readObject(tx, key);
     tx.objectStore(BLOBS_STORE).put(blob, key);
     tx.objectStore(METADATA_STORE).put(metadata, key);
     await awaitTransaction(tx);
+    return replaced.object();
+  }
+
+  async deleteIfGeneration(path: string, generation: string, bucket?: string): Promise<boolean> {
+    return this.replaceIfGeneration(path, generation, undefined, bucket);
+  }
+
+  async replaceIfGeneration(path: string, generation: string, prior: StoredObject | undefined, bucket?: string): Promise<boolean> {
+    const target = bucket ?? this._defaultBucket ?? DEFAULT_BUCKET;
+    if (prior !== undefined) assertPriorAt(prior, target, path);
+    const key = toStorageKey(target, path);
+    const tx = this.db.transaction([BLOBS_STORE, METADATA_STORE], 'readwrite');
+    let wrote = false;
+    // The write is issued from the read's success event, while the
+    // transaction is still active, so no other write can land between them.
+    const request = tx.objectStore(METADATA_STORE).get(key);
+    request.addEventListener('success', () => {
+      const current = request.result as StoredMetadata | undefined;
+      const replaced = current?.generation !== generation;
+      if (replaced) return;
+      wrote = true;
+      if (prior === undefined) {
+        tx.objectStore(BLOBS_STORE).delete(key);
+        tx.objectStore(METADATA_STORE).delete(key);
+        return;
+      }
+      tx.objectStore(BLOBS_STORE).put(prior.blob, key);
+      tx.objectStore(METADATA_STORE).put(prior.metadata, key);
+    });
+    await awaitTransaction(tx);
+    return wrote;
   }
 
   async getBlob(path: string, bucket?: string): Promise<Blob | undefined> {
@@ -700,9 +784,17 @@ export class ScopedStorageBackend implements StorageBackend {
     readonly bucket: string,
   ) {}
 
-  put(path: string, blob: Blob, metadata: StoredMetadata): Promise<void> {
+  put(path: string, blob: Blob, metadata: StoredMetadata): Promise<StoredObject | undefined> {
     const meta = metadata.bucket ? metadata : { ...metadata, bucket: this.bucket };
     return this.underlying.put(path, blob, meta);
+  }
+
+  deleteIfGeneration(path: string, generation: string, bucket?: string): Promise<boolean> {
+    return this.underlying.deleteIfGeneration(path, generation, bucket ?? this.bucket);
+  }
+
+  replaceIfGeneration(path: string, generation: string, prior: StoredObject | undefined, bucket?: string): Promise<boolean> {
+    return this.underlying.replaceIfGeneration(path, generation, prior, bucket ?? this.bucket);
   }
 
   references(bucket?: string): Promise<StorageReferenceRecord[]> {
@@ -807,6 +899,21 @@ function openDatabase(dbName: string): Promise<IDBDatabase> {
       reject(err);
     }
   });
+}
+
+/** Read both halves of the object at `key` inside `tx`; `object()` is valid once `tx` completes. */
+function readObject(tx: IDBTransaction, key: string): { object(): StoredObject | undefined } {
+  const blob = tx.objectStore(BLOBS_STORE).get(key);
+  const metadata = tx.objectStore(METADATA_STORE).get(key);
+  return {
+    object() {
+      const found = blob.result as Blob | undefined;
+      const stored = metadata.result as StoredMetadata | undefined;
+      const missingObject = found === undefined || stored === undefined;
+      if (missingObject) return undefined;
+      return { blob: found, metadata: stored };
+    },
+  };
 }
 
 function awaitRequest<T>(req: IDBRequest<T>): Promise<T> {

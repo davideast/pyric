@@ -635,6 +635,23 @@ export const storageRegistry = {
           automation: "unit-backed",
           conformanceTests: ["packages/pyric/test/storage/metadata.test.ts"],
         }),
+        row3({
+          rowRef: "118",
+          behavior: "Each write of an object gets a new, larger `generation`, a numeric string, even in one millisecond or under a fixed clock",
+          status: "diverged-documented",
+          evidence: "Sandbox generations are clock ms x 1000, raised per path. Not yet: two sandboxes sharing one store, or a reopen then restore, can repeat one. Tests: `generation.test.ts`, the worker, Node host and pyric-admin generation tests. Shape: oracle `storage-upload-then-getmetadata.json`",
+          risk: ["specific-value","metadata"],
+          riskScore: 3,
+          riskReasons: ["asserts 1 specific value(s)","asserts metadata shape"],
+          automation: "unit-backed",
+          oracleObservations: ["storage-upload-then-getmetadata"],
+          conformanceTests: [
+            "packages/pyric/test/storage/generation.test.ts",
+            "packages/cli/test/serve/worker/storage-generation.test.ts",
+            "packages/cli/test/serve/hosted-sqlite.test.ts",
+            "packages/pyric-admin/test/storage/generations.test.ts",
+          ],
+        }),
       ],
     },
     {
