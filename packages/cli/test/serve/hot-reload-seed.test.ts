@@ -259,6 +259,16 @@ describe('Storage rules hot-reload', () => {
   }, 15_000);
 });
 
+/**
+ * Each --seed test builds the SDK bundles into a fresh cache before it reads
+ * the seed. At idle the slowest test took 1.7 s. Under 32 busy loops on 32
+ * threads it took up to 4.9 s, just under bun's 5 s default; under 64 it
+ * took up to 13.3 s, and without this timeout every such run failed
+ * (2026-10-21, WSL2). A timeout stops esbuild mid-build, and the next test's
+ * startServe then fails with "The service was stopped" (#1134).
+ */
+const COLD_BUILD_TIMEOUT_MS = 30_000;
+
 describe('--seed', () => {
   it('valid seed lands in the init payload', async () => {
     const cwd = project();
@@ -269,7 +279,7 @@ describe('--seed', () => {
       seed: Record<string, Record<string, unknown>>;
     };
     expect(payload.seed['tasks/t1']).toEqual({ title: 'seeded', done: false });
-  });
+  }, COLD_BUILD_TIMEOUT_MS);
 
   it('rejects a non-object seed file with a clear error', async () => {
     const cwd = project();
@@ -277,5 +287,5 @@ describe('--seed', () => {
     await expect(
       startServe({ cwd, port: 0, cacheRoot: join(cwd, '.c'), logger: silentServeLogger(), seed: 'seed.json' }),
     ).rejects.toThrow(/--seed must be a JSON object/);
-  });
+  }, COLD_BUILD_TIMEOUT_MS);
 });
