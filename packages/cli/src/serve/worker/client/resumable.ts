@@ -11,9 +11,11 @@ import type { FullMetadata } from 'pyric/storage';
 import { sandboxNow } from './clock.js';
 import type { ClientStorageReference, ClientSettableMetadata, RouteUpload } from './storage.js';
 import {
-  abortRouteUpload, beginRouteUpload, byteRouteOf, deleteObject, finishRouteUpload, routeUploadOffset,
+  abortRouteUpload, beginRouteUpload, byteRouteOf, finishRouteUpload, routeUploadOffset,
   sendRouteSlice, uploadBlobOf, uploadBytes,
 } from './storage.js';
+import type { CommitOutcome } from './upload-rollback.js';
+import { commitOutcomeOf, removeStoredObject, rollbackFailedError, storedObject } from './upload-rollback.js';
 
 export type ClientTaskState = 'running' | 'paused' | 'success' | 'canceled' | 'error';
 
@@ -82,7 +84,9 @@ class ClientUploadTaskImpl implements ClientUploadTask {
   private _didIntermediateProgress = false;
   private _committing = false;
   /** The commit's outcome when it settled while paused; resuming reports it. */
-  private _heldOutcome: { result: { metadata: FullMetadata } } | { error: unknown } | undefined;
+  private _heldOutcome: CommitOutcome | undefined;
+  /** The commit once it is sent; it cannot be recalled, so a cancel waits on it. */
+  private _sentCommit: Promise<CommitOutcome> | undefined;
   private _error: Error | undefined;
   private readonly _ref: ClientStorageReference;
   private readonly _data: Blob | Uint8Array | ArrayBuffer;
@@ -233,21 +237,51 @@ class ClientUploadTaskImpl implements ClientUploadTask {
     }
 
     if (canCancel) {
-      this._error = createCanceledError();
+      const canceled = createCanceledError();
+      this._error = canceled;
       this._updateSnapshot('canceled', this._snapshot.bytesTransferred);
       this._inFlight?.abort();
-      const upload = this._upload;
-      if (upload !== undefined) void abortRouteUpload(upload);
-      const held = this._heldOutcome;
-      this._heldOutcome = undefined;
-      if (held !== undefined && 'result' in held) {
-        void deleteObject(this._ref).catch(() => { /* Best-effort rollback */ });
-      }
+      const rollback = this._rollBackCanceled();
       this._notifyObservers('error');
-      this._reject(this._error);
+      void rollback.then(
+        () => this._reject(canceled),
+        (failure: unknown) => this._reject(rollbackFailedError(this._ref, failure)),
+      );
       return true;
     }
     return false;
+  }
+
+  /**
+   * Undo what a canceled upload left on the host: discard its staged route
+   * upload, then delete the object if a sent commit stored it, whether that
+   * commit settled while paused or settles after the cancel.
+   */
+  private async _rollBackCanceled(): Promise<void> {
+    const held = this._heldOutcome;
+    this._heldOutcome = undefined;
+    const sent = this._sentCommit;
+    const upload = this._upload;
+    if (upload !== undefined) await abortRouteUpload(upload);
+    const heldStored = storedObject(held);
+    const sentStored = sent !== undefined && storedObject(await sent);
+    if (heldStored || sentStored) await removeStoredObject(this._ref);
+  }
+
+  private _sendCommit(commit: Promise<FullMetadata>): Promise<CommitOutcome> {
+    const sent = commitOutcomeOf(commit);
+    this._sentCommit = sent;
+    return sent;
+  }
+
+  /** Report the outcome a commit held while paused; false when there is none. */
+  private _releaseHeldOutcome(): boolean {
+    const held = this._heldOutcome;
+    if (held === undefined) return false;
+    this._heldOutcome = undefined;
+    if ('result' in held) this._succeed(held.result.metadata);
+    else this._fail(held.error);
+    return true;
   }
 
   on(
@@ -512,12 +546,10 @@ class ClientUploadTaskImpl implements ClientUploadTask {
         this._notifyObservers('next');
       }
       if (!running()) return;
-      const metadata = await finishRouteUpload(upload);
-      if (!running()) return;
-      this._updateSnapshot('success', upload.size, metadata);
-      this._notifyObservers('next');
-      this._notifyObservers('complete');
-      this._resolve(this._snapshot);
+      const outcome = await this._sendCommit(finishRouteUpload(upload));
+      const finishFailedWhileRunning = 'error' in outcome && running();
+      if (finishFailedWhileRunning) throw outcome.error;
+      this._settleCommit(outcome);
     } catch (error: unknown) {
       this._inFlight = undefined;
       // A pause or a cancel aborts the slice in flight; neither is a failure.
@@ -542,7 +574,8 @@ class ClientUploadTaskImpl implements ClientUploadTask {
     }
     const routed = byteRouteOf(this._ref) !== undefined && !this._committing;
     if (routed) {
-      void this._sendOverRoute();
+      const reported = this._releaseHeldOutcome();
+      if (!reported) void this._sendOverRoute();
       return;
     }
 
@@ -558,15 +591,8 @@ class ClientUploadTaskImpl implements ClientUploadTask {
       this._notifyObservers('next');
     }
 
-    const held = this._heldOutcome;
-    const settledWhilePaused = held !== undefined;
-    if (settledWhilePaused) {
-      this._heldOutcome = undefined;
-      if ('result' in held) this._succeed(held.result.metadata);
-      else this._fail(held.error);
-      return;
-    }
-    void this._commitUpload();
+    const reported = this._releaseHeldOutcome();
+    if (!reported) void this._commitUpload();
   }
 
   private _succeed(metadata: FullMetadata): void {
@@ -586,24 +612,21 @@ class ClientUploadTaskImpl implements ClientUploadTask {
   /**
    * Upload the object in one call. It is sent once: a pause cannot recall a
    * sent frame, so an outcome that arrives while paused is held for resume,
-   * and only a cancel rolls the object back.
+   * and a cancel waits on it to roll the object back.
    */
   private async _commitUpload(): Promise<void> {
     const isNotRunning = this._snapshot.state !== 'running';
     const hasStarted = this._committing || this._heldOutcome !== undefined;
     if (isNotRunning || hasStarted) return;
     this._committing = true;
-    let outcome: { result: { metadata: FullMetadata } } | { error: unknown };
-    try {
-      outcome = { result: await uploadBytes(this._ref, this._data, this._metadata) };
-    } catch (error: unknown) {
-      outcome = { error };
-    }
+    const stored = uploadBytes(this._ref, this._data, this._metadata).then((result) => result.metadata);
+    const outcome = await this._sendCommit(stored);
     this._committing = false;
     this._settleCommit(outcome);
   }
 
-  private _settleCommit(outcome: { result: { metadata: FullMetadata } } | { error: unknown }): void {
+  /** Report a settled commit, or hold it while paused; a cancel rolls it back itself. */
+  private _settleCommit(outcome: CommitOutcome): void {
     const state = this._snapshot.state;
     const isRunning = state === 'running';
     if (isRunning) {
@@ -612,10 +635,7 @@ class ClientUploadTaskImpl implements ClientUploadTask {
       return;
     }
     const isPaused = state === 'paused';
-    if (isPaused) { this._heldOutcome = outcome; return; }
-    const isCanceled = state === 'canceled';
-    const wasStored = 'result' in outcome;
-    if (isCanceled && wasStored) void deleteObject(this._ref).catch(() => { /* Best-effort rollback */ });
+    if (isPaused) this._heldOutcome = outcome;
   }
 }
 
