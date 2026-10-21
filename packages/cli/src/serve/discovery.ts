@@ -19,7 +19,7 @@
  */
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { getJsonWithin } from './get-json-within.js';
+import { getJsonWithin } from '../bounded-request.js';
 
 /** Ports probed when the pointer is absent — serve's default scan window PLUS
  *  the standard Vite dev ports (5173-5177), which the plain 3473+ window would miss

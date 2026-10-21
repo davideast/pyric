@@ -76,6 +76,7 @@ The dev server port comes from the command line, which overrides any `server.por
 | `process.waitForLog(pattern, { since })` | Waits for a log line. `process.mark()` gives the `since` offset. |
 | `app.readFile` / `app.writeFile` | Read or edit a file in the installed app, for example `vite.config.js`. |
 | `app.freePort()` | A port nothing listens on. |
+| `app.blackholedPort()` | A port whose connects never complete and never refuse, as a closed port behaves under WSL mirrored networking. |
 | `app.browserLog` | Every page's console lines, page errors, and error responses so far, for asserting what a user would see in the console. |
 | `app.expectHostError(pattern)` | Allows a page request to a `/__pyric/` route to answer with an error, matched against `"<status> <method> <path>?<query>"`. |
 

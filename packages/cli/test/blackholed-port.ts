@@ -24,7 +24,9 @@ export async function blackholedPort(): Promise<BlackholedPort> {
       `const server = require('node:net').createServer();
 server.listen({ port: 0, host: '127.0.0.1', backlog: 1 }, () => {
   process.stdout.write(server.address().port + '\\n');
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
+  // Bounded, so a listener orphaned by a crashed test frees its port.
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 120000);
+  process.exit(0);
 });`,
     ],
     { stdio: ['ignore', 'pipe', 'inherit'] },
@@ -40,14 +42,24 @@ server.listen({ port: 0, host: '127.0.0.1', backlog: 1 }, () => {
   };
   for (let attempt = 0; attempt < 16; attempt += 1) {
     const filler = connect(port, '127.0.0.1');
+    // Errors after the queue fills (the destroy at close) are expected.
     filler.on('error', () => {});
     fillers.push(filler);
-    const connected = await new Promise<boolean>((resolve) => {
+    // Only a connect that neither completes nor fails is dropped. A refusal
+    // means this kernel resets on overflow, and the port is not blackholed.
+    const connected = await new Promise<boolean>((resolve, reject) => {
       const timer = setTimeout(() => resolve(false), 250);
       filler.once('connect', () => {
         clearTimeout(timer);
         resolve(true);
       });
+      filler.once('error', (error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+    }).catch((error: unknown) => {
+      close();
+      throw error;
     });
     if (!connected) return { port, close };
   }
