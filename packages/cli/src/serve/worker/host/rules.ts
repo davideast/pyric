@@ -13,7 +13,7 @@
 
 import type { Firestore } from 'pyric/firestore';
 import type { SandboxRuleSources } from 'pyric/sandbox';
-import { LOCKED_DATABASE_RULES } from 'pyric/sandbox/internal';
+import { LOCKED_DATABASE_RULES, withDatabaseRulesPreservedOnReset } from 'pyric/sandbox/internal';
 import { setRules } from 'pyric/sandbox/firestore';
 import {
   lintFirestoreRules,
@@ -263,8 +263,7 @@ export function syncHostRulesAfterCheckpointRestore(ctx: HostCtx, rules: Sandbox
   for (const [, instance] of ctx.rtdbInstances?.entries() ?? []) {
     if (instance.selector === undefined) continue;
     const databaseRules = instance.rules;
-    const hasActiveDatabaseRules = databaseRules?.status === 'active';
-    const databaseSource = hasActiveDatabaseRules ? databaseRules.source : databaseRules?.lastKnownGood;
+    const databaseSource = databaseRules?.source;
     if (databaseSource !== undefined) {
       rtdbSandbox.setRules(instance.live, normalizeDatabaseRules(databaseSource));
     } else {
@@ -275,16 +274,14 @@ export function syncHostRulesAfterCheckpointRestore(ctx: HostCtx, rules: Sandbox
   }
 }
 
-/** Re-apply active host Firestore and RTDB rules onto `ctx.sandbox` after a legacy data-only snapshot import. */
+/** Re-apply active host Firestore and RTDB rules onto `ctx.sandbox` after a legacy data-only snapshot import or a sandbox reset. */
 export function reapplyActiveHostRulesAfterReset(ctx: HostCtx): void {
   const firestoreRules = ctx.activeRules?.firestore;
-  const hasActiveRules = firestoreRules?.status === 'active';
-  const source = hasActiveRules ? firestoreRules.source : firestoreRules?.lastKnownGood;
+  const source = firestoreRules?.source;
   if (typeof source === 'string') setRules(ctx.sandbox, source);
   for (const [, instance] of ctx.rtdbInstances?.entries() ?? []) {
     const databaseRules = instance.rules;
-    const hasActiveDatabaseRules = databaseRules?.status === 'active';
-    const databaseSource = hasActiveDatabaseRules ? databaseRules.source : databaseRules?.lastKnownGood;
+    const databaseSource = databaseRules?.source;
     if (databaseSource !== undefined) {
       rtdbSandbox.setRules(instance.live, normalizeDatabaseRules(databaseSource));
     } else if (instance.selector !== undefined) {
@@ -293,6 +290,19 @@ export function reapplyActiveHostRulesAfterReset(ctx: HostCtx): void {
       rtdbSandbox.setRules(instance.live, policy === 'allow' ? null : LOCKED_DATABASE_RULES);
     }
   }
+}
+
+/** Helper to preserve rules while fully resetting the sandbox. */
+export async function resetHostSandbox<T>(ctx: HostCtx, scope: string, doReset: () => Promise<T>): Promise<T> {
+  const result = await withDatabaseRulesPreservedOnReset(ctx.sandbox, doReset);
+  if (scope === 'all') {
+    reapplyActiveHostRulesAfterReset(ctx);
+  } else if (scope === 'firestore') {
+    const firestoreRules = ctx.activeRules?.firestore;
+    const source = firestoreRules?.source;
+    if (typeof source === 'string') setRules(ctx.sandbox, source);
+  }
+  return result;
 }
 
 /** The rules deploy/status op methods routed to {@link handleRulesOp}. */

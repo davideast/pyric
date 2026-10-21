@@ -11,7 +11,7 @@ import type { SandboxSnapshot } from 'pyric/sandbox';
 import { setRules } from 'pyric/sandbox/firestore';
 import { sandbox as rtdbSandbox } from 'pyric/database';
 import { Path as RulesPath } from 'pyric/rules/internal';
-import { normalizeDatabaseRules } from './rules.js';
+import { normalizeDatabaseRules, resetHostSandbox } from './rules.js';
 
 import type { OpMessage } from '../protocol.js';
 import { type HostCtx, type PortLike, ok, fail, bestEffortFlush } from '../host-context.js';
@@ -107,22 +107,7 @@ export async function handleStudioOp(
       // payload's `errors` so Studio can surface a half-clear instead of
       // reporting a clean reset.
       try {
-        const { errors } = await ctx.sandbox.resetAll();
-        // Reset clears Firestore and RTDB rules. Restore the active project
-        // policy before serving reads or reattaching Firestore listeners.
-        const firestoreRules = ctx.activeRules?.firestore;
-        const hasActiveRules = firestoreRules?.status === 'active';
-        const source = hasActiveRules ? firestoreRules.source : firestoreRules?.lastKnownGood;
-        const hasRulesSource = typeof source === 'string';
-        if (hasRulesSource) setRules(ctx.sandbox, source);
-        // Each RTDB instance gets its own rules back.
-        for (const [, instance] of ctx.rtdbInstances?.entries() ?? []) {
-          const databaseRules = instance.rules;
-          const hasActiveDatabaseRules = databaseRules?.status === 'active';
-          const databaseSource = hasActiveDatabaseRules ? databaseRules.source : databaseRules?.lastKnownGood;
-          const hasDatabaseSource = databaseSource !== undefined;
-          if (hasDatabaseSource) rtdbSandbox.setRules(instance.live, normalizeDatabaseRules(databaseSource));
-        }
+        const { errors } = await resetHostSandbox(ctx, 'all', () => ctx.sandbox.resetAll());
         restoreFirestoreSubscriptions(ctx);
         // The server capture (`.pyric/last-session.json`) persists the event
         // history a rebooting worker re-primes into Traffic. Flush it NOW —
