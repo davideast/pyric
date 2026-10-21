@@ -87,14 +87,22 @@ try {
   assert.equal(past.headers.get('content-range'), `bytes */${take.byteLength}`);
 
   // Serving a 300 MiB object streams it: resident memory does not grow with the object.
+  // The first large stream also grows V8's young generation to a ceiling that depends on
+  // the Node version, not on the object (about 60 MiB on Node 24, 25 on Node 22). A route
+  // that buffers holds the whole object at once, so the peak is held under half of it.
   {
-    const rssBefore = process.memoryUsage().rss;
+    const rssBefore = process.memoryUsage.rss();
+    let peak = rssBefore;
     const response = await fetch(objectUrl('media/long.wav', `alt=media&token=${SESSION}`));
     let received = 0;
-    for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) received += chunk.byteLength;
-    const growth = process.memoryUsage().rss - rssBefore;
+    for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
+      received += chunk.byteLength;
+      peak = Math.max(peak, process.memoryUsage.rss());
+    }
+    const growth = peak - rssBefore;
+    const budget = LARGE / 2;
     assert.equal(received, LARGE);
-    assert.ok(growth < 64 * MiB, `serving grew rss by ${(growth / MiB).toFixed(1)} MiB`);
+    assert.ok(growth < budget, `serving a ${LARGE / MiB} MiB object grew rss by ${(growth / MiB).toFixed(1)} MiB at its peak, over ${budget / MiB} MiB`);
   }
 
   // An upload is a PUT to its own URL with its own token, continued from the offset the host holds.
