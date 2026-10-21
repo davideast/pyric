@@ -63,7 +63,8 @@ emit_stubs() {
   local dir="$1"
   echo "▸ Emitting stubs for packages/$dir"
   (cd "packages/$dir" && \
-    if jq -e '.scripts.prebuild' package.json >/dev/null 2>&1; then
+    HAS_PREBUILD=$(node -p "!!require('./package.json').scripts?.prebuild") && \
+    if [ "$HAS_PREBUILD" = "true" ]; then
       bun run prebuild
     fi && \
     npx tsc --emitDeclarationOnly --noCheck)
