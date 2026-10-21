@@ -28,4 +28,13 @@ describe('can-i-use source template', () => {
     expect(source).not.toContain('"claims":');
     expect(Buffer.byteLength(source)).toBeLessThan(600_000);
   });
+
+  it('stores each shared caveat text once in the browser projection', () => {
+    const source = renderBrowserQuery(model);
+    const shared = model.supports
+      .flatMap(({ caveats }) => caveats)
+      .find((caveat, index, all) => caveat.length > 80 && all.indexOf(caveat) !== index);
+    expect(shared).toBeDefined();
+    expect(source.split(JSON.stringify(shared)).length - 1).toBe(1);
+  });
 });
