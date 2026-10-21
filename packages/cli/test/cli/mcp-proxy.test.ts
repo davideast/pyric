@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { discoverServe } from '../../src/cli/mcp-proxy.js';
 import { startServe, type ServeRuntime } from '../../src/cli/serve.js';
 import { silentServeLogger } from '../../src/serve/server.js';
+import { closedPort } from '../closed-port.js';
 
 function project(): string {
   const dir = mkdtempSync(join(tmpdir(), 'pyric-proxy-'));
@@ -55,12 +56,13 @@ describe('discoverServe', () => {
 
   it('ignores a stale pointer (points at a dead port) and finds nothing', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'pyric-stale-'));
+    const port = await closedPort();
     mkdirSync(join(cwd, '.pyric'), { recursive: true });
     writeFileSync(
       join(cwd, '.pyric', 'serve.json'),
-      JSON.stringify({ url: 'http://localhost:59999', mcpUrl: 'http://localhost:59999/__pyric/mcp', port: 59999 }),
+      JSON.stringify({ url: `http://localhost:${port}`, mcpUrl: `http://localhost:${port}/__pyric/mcp`, port }),
     );
-    // nothing on :59999, and (empty scan set) no environment fallback
+    // nothing on the freed port, and (empty scan set) no environment fallback
     expect(await discoverServe(cwd, undefined, noScan)).toBeNull();
   });
 

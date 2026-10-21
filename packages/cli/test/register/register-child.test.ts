@@ -15,6 +15,8 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync 
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { blackholedPort } from '../blackholed-port.js';
+import { closedPort } from '../closed-port.js';
 
 const toolsRoot = resolve(import.meta.dir, '../..');
 const repoRoot = resolve(toolsRoot, '../..');
@@ -311,12 +313,36 @@ describe('@pyric/cli/register (child process)', () => {
     expect(res.status).toBe(0);
   });
 
-  it('reports a stale PYRIC_SANDBOX url when nothing answers and the project runs no host', () => {
-    // Port 1 is reliably not listening.
-    const res = runNode('stale.mjs', { PYRIC_SANDBOX: 'remote:http://127.0.0.1:1' });
+  it('reports a stale PYRIC_SANDBOX url when nothing answers and the project runs no host', async () => {
+    const port = await closedPort();
+    const res = runNode('stale.mjs', { PYRIC_SANDBOX: `remote:http://127.0.0.1:${port}` });
     expect(res.stdout).toContain('STALE_OK');
     expect(res.status).toBe(0);
   });
+
+  it('exits promptly when the project pointer names a port whose connect never completes', async () => {
+    // #1162: the discovery probe of the pointer's port must close its socket
+    // at the deadline, or the pending connect holds the child open about 10 s.
+    const hole = await blackholedPort();
+    const projectDir = join(fixtureDir, 'blackholed-project');
+    try {
+      mkdirSync(join(projectDir, '.pyric'), { recursive: true });
+      writeFileSync(
+        join(projectDir, '.pyric', 'serve.json'),
+        JSON.stringify({ port: hole.port, url: `http://localhost:${hole.port}`, instanceId: 'blackholed-host' }),
+      );
+      const stalePort = await closedPort();
+      const started = performance.now();
+      const res = runNode('../stale.mjs', { PYRIC_SANDBOX: `remote:http://127.0.0.1:${stalePort}` }, projectDir);
+      const exitMs = performance.now() - started;
+      expect(res.stdout).toContain('STALE_OK');
+      expect(res.status).toBe(0);
+      expect(exitMs).toBeLessThan(5_000);
+    } finally {
+      hole.close();
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  }, 30_000);
 
   it('initializes unchanged client Firebase service imports through the sandbox app adapter', () => {
     const res = runNode('client.mjs', { PYRIC_SANDBOX: 'local' });
@@ -503,10 +529,11 @@ describe('@pyric/cli/register beacon (child process)', () => {
     }
   }, 30_000);
 
-  it('survives a bridge that refuses the beacon, and the child still runs', () => {
-    // Port 1 is reliably not listening; the POST must fail silently.
+  it('survives a bridge that refuses the beacon, and the child still runs', async () => {
+    // Nothing listens on a freed port; the POST must fail silently.
+    const port = await closedPort();
     const res = runNode('beacon.mjs', {
-      PYRIC_SANDBOX: 'remote:http://127.0.0.1:1',
+      PYRIC_SANDBOX: `remote:http://127.0.0.1:${port}`,
       PYRIC_DEBUG: '1',
     });
     expect(res.status).toBe(0);

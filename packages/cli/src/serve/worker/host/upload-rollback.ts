@@ -11,6 +11,12 @@
  * redeems it once: it deletes that generation without evaluating rules, or
  * deletes nothing when a later write replaced it. A token from another
  * client, an expired one, or one already used is refused.
+ *
+ * This token is a fidelity mechanism, not a security control. Rules in pyric
+ * govern what the Firebase SDK calls do; a client that speaks the worker
+ * protocol directly can already send `actAs: { mode: 'admin' }` and skip
+ * them. So a raw client that uploads with `rollback: true` and redeems the
+ * token after a successful upload gains nothing it did not already have.
  */
 import { FirebaseError } from 'pyric/app';
 import type { HostCtx, PortLike } from '../host-context.js';

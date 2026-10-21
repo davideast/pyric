@@ -11,6 +11,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 import type { Browser, BrowserContext, Page } from '@playwright/test';
+import { blackholedPort, type BlackholedPort } from '../../packages/cli/test/blackholed-port.ts';
 
 export interface LogWaitOptions {
   /** Only output after this offset (from `mark()`) counts. Default: all output. */
@@ -234,6 +235,11 @@ export interface App {
   writeFile(path: string, text: string): void;
   /** A free TCP port on 127.0.0.1. */
   freePort(): Promise<number>;
+  /**
+   * A port on 127.0.0.1 whose connects never complete and never refuse, as a
+   * closed port behaves under WSL mirrored networking. Held until the run ends.
+   */
+  blackholedPort(): Promise<number>;
   /** Every page's console lines, page errors, and error responses so far, in order. */
   readonly browserLog: readonly string[];
   /**
@@ -313,6 +319,7 @@ export class AppRun implements App {
   private context: BrowserContext | undefined;
   private serverCount = 0;
   private scriptCount = 0;
+  private readonly blackholes: BlackholedPort[] = [];
 
   constructor(
     readonly name: string,
@@ -333,6 +340,12 @@ export class AppRun implements App {
 
   freePort(): Promise<number> {
     return freePort();
+  }
+
+  async blackholedPort(): Promise<number> {
+    const hole = await blackholedPort();
+    this.blackholes.push(hole);
+    return hole.port;
   }
 
   async devServer(options: { env?: Record<string, string>; name?: string; port?: number } = {}): Promise<DevServer> {
@@ -452,5 +465,6 @@ export class AppRun implements App {
   async close(): Promise<void> {
     await this.context?.close().catch(() => {});
     await Promise.all(this.processes.map((child) => child.stop()));
+    for (const hole of this.blackholes) hole.close();
   }
 }

@@ -3,12 +3,12 @@
  * A server found by the port scan may belong to another project, so the
  * commands that attach to a host refuse it and say so.
  */
-import { createServer } from 'node:net';
 import { describe, expect, it } from 'bun:test';
 import { runBridgeCommand } from '../../src/cli/bridge-tool-call.js';
 import { parseArgs } from '../../src/cli/parse-args.js';
 import { selectExplicitHost, selectProjectHost, type Discovered } from '../../src/serve/discovery.js';
 import { connectRemoteSandbox } from '../../src/remote/index.js';
+import { closedPort } from '../closed-port.js';
 
 function sandbox(port: number, source: string, pointerProjectDir?: string): Discovered {
   return {
@@ -19,19 +19,6 @@ function sandbox(port: number, source: string, pointerProjectDir?: string): Disc
     instanceId: `instance-${port}`,
     source,
   };
-}
-
-/** A loopback port that refuses connections at once: bound, then closed.
- *  Port 1 is not safe for this; some networks drop it instead of refusing. */
-function closedPort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const server = createServer().listen(0, '127.0.0.1', () => {
-      const address = server.address();
-      const port = typeof address === 'object' && address ? address.port : 0;
-      server.close(() => resolve(port));
-    });
-    server.on('error', reject);
-  });
 }
 
 const mine = sandbox(5192, 'pointer /workspace/app/.pyric/serve.json', '/workspace/app');
@@ -224,9 +211,10 @@ describe('connectRemoteSandbox with a configured url', () => {
   });
 
   it('rejects a stale url with no running host for this project as not-found', async () => {
+    const port = await closedPort();
     await expect(
       connectRemoteSandbox({
-        configuredUrl: 'http://127.0.0.1:1',
+        configuredUrl: `http://127.0.0.1:${port}`,
         cwd: '/workspace',
         discover: async () => null,
         probe: async () => null,

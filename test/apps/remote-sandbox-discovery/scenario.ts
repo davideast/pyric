@@ -1,7 +1,9 @@
 // A server script finds the running dev server without a hardcoded port.
 // Bare PYRIC_SANDBOX=remote finds it through the project's .pyric/serve.json.
 // A remote:<url> left in a .env file after the host moved ports is stale: the
-// script warns once and uses this project's running host instead.
+// script warns once and uses this project's running host instead. With the
+// host stopped and a pointer naming a port whose connects never complete, a
+// script still exits promptly once discovery gives up (#1162).
 import assert from 'node:assert/strict';
 import { scenario } from '../driver.ts';
 
@@ -25,5 +27,17 @@ export default scenario(async (app) => {
     const result = await app.serverScript('server.mjs', ['found after a stale url'], { env: { PYRIC_SANDBOX: `remote:${stale}` } });
     assert.match(result.output, new RegExp(`PYRIC_SANDBOX=remote:${stale.replaceAll('.', '\\.')} is stale`));
     assert.equal(await page.evaluate(() => readStatus()), 'found after a stale url');
+  });
+
+  await app.step('a script exits promptly when the pointer names a port that never answers', async () => {
+    await host.process.stop();
+    const hole = await app.blackholedPort();
+    app.writeFile('.pyric/serve.json', JSON.stringify({ port: hole, url: `http://localhost:${hole}`, instanceId: 'blackholed-host' }));
+    const stale = `http://127.0.0.1:${await app.freePort()}`;
+    const started = performance.now();
+    const result = await app.serverScript('stale-exit.mjs', [], { env: { PYRIC_SANDBOX: `remote:${stale}` } });
+    const exitMs = performance.now() - started;
+    assert.match(result.output, /write refused: .*is stale/);
+    assert.ok(exitMs < 5_000, `stale-exit.mjs took ${Math.round(exitMs)} ms to exit:\n${result.output}`);
   });
 });

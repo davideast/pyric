@@ -41,9 +41,13 @@
  * It is diagnostics. A refused connection, a 500, an unreachable host: every
  * one of those is swallowed. `emitBeacon` is `void`, never awaited.
  *
- * It is sent over a raw `node:http` request, an unref'd socket under a hard
- * one-second bound (see {@link BEACON_TIMEOUT_MS}), rather than `fetch`, whose
- * pending promise has neither knob. A short `node seed.js` child must not sit
+ * It is sent through `boundedRequest` (`../bounded-request.ts`): a raw
+ * `node:http` request over an unref'd socket under a hard one-second bound
+ * (see {@link BEACON_TIMEOUT_MS}), rather than `fetch`, whose pending promise
+ * has neither knob. The bound is an unref'd timer that destroys the request,
+ * not a request timeout: against a blackholed loopback address a 300 ms
+ * `req.setTimeout()` was measured firing at 5006 ms, because it does not arm
+ * until the `connect` event. A short `node seed.js` child must not sit
  * around after finishing its work just to deliver a diagnostic. A child that
  * exits before the beacon lands simply loses the machine channel, which is
  * exactly why the watchdog on the other end is warn-only.
@@ -52,7 +56,7 @@
  * catalog, so it passes the net-guard installed moments earlier without a
  * verdict.
  */
-import { createRequire } from 'node:module';
+import { boundedRequest } from '../bounded-request.js';
 import type { GuardMode } from './net-guard.js';
 import { parsePyricSandbox, type PyricSandboxActivation } from 'pyric/sandbox/internal';
 
@@ -106,47 +110,19 @@ const BEACON_TIMEOUT_MS = 1_000;
  * rejects a beacon without it.
  */
 export function sendBeaconRequest(endpoint: string, body: string, token: string): void {
-  const require = createRequire(import.meta.url);
-  const secure = endpoint.startsWith('https:');
-  const http = require(secure ? 'node:https' : 'node:http') as {
-    request: (url: string, options: unknown) => {
-      on(event: string, listener: (arg: unknown) => void): unknown;
-      destroy(): void;
-      end(chunk: string): void;
-    };
-  };
-  const req = http.request(endpoint, {
+  // A refused, reset or dropped connection is an expected outcome, not an
+  // error the child should ever hear about, so the result is ignored.
+  void boundedRequest(endpoint, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
       'content-length': Buffer.byteLength(body),
       [BEACON_TOKEN_HEADER]: token,
     },
+    body,
+    deadlineMs: BEACON_TIMEOUT_MS,
+    unref: true,
   });
-
-  // The bound on how long this can delay the child's exit is the unref'd timer
-  // below, not the socket and not a request timeout. A pending connect holds
-  // the event loop open regardless of `socket.unref()`, and `req.setTimeout()`
-  // does not arm until the `connect` event, so against a blackholed loopback
-  // address a 300 ms request timeout was measured firing at 5006 ms, when the
-  // kernel reset the connection. The timer destroys the request instead: it
-  // cannot hold the loop by itself, and it always gets to run.
-  const abort = setTimeout(() => req.destroy(), BEACON_TIMEOUT_MS);
-  abort.unref?.();
-  const settle = (): void => clearTimeout(abort);
-
-  req.on('socket', (socket) => {
-    (socket as { unref?: () => void }).unref?.();
-  });
-  // A refused/reset connection is an expected outcome, not an error the child
-  // should ever hear about.
-  req.on('error', settle);
-  req.on('close', settle);
-  req.on('response', (res) => {
-    (res as { resume?: () => void }).resume?.();
-    settle();
-  });
-  req.end(body);
 }
 
 /** The url an activator names: `remote:<url>`'s, or a bare value read as one. */

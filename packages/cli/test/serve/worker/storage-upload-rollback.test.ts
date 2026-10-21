@@ -11,7 +11,7 @@
  */
 import 'fake-indexeddb/auto';
 import { afterEach, describe, expect, it, setSystemTime } from 'bun:test';
-import { createMemoryBackend, initializeSandbox } from 'pyric/sandbox';
+import { createMemoryBackend, getClock, initializeSandbox } from 'pyric/sandbox';
 import { getAuth } from 'pyric/auth';
 import { getFirestore } from 'pyric/firestore';
 import { getStorageSandbox } from 'pyric/storage';
@@ -129,8 +129,12 @@ describe('a commit asks the host for its rollback token', () => {
 
 describe('the rollback deletes only that client\'s own commit', () => {
   it('deletes nothing once another write replaced the generation it stored', async () => {
-    const client = clientOf(makeCtx());
+    const ctx = makeCtx();
+    const client = clientOf(ctx);
     const { rollbackToken } = await put(client, 'uploads/a.png', 'canceled', { rollback: true });
+    // Generations come from the sandbox clock in milliseconds until #1160, so
+    // the later write must land in a later millisecond to get its own.
+    getClock(ctx.sandbox).advance(1);
     await put(client, 'uploads/a.png', 'written after', ADMIN);
     expect(await valueOf(client({ method: 'storage.rollbackUpload', rollbackToken, ...SIGNED_IN }))).toEqual({ deleted: false });
     expect(await stored(client, 'uploads/a.png')).toBe('written after');
