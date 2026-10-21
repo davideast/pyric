@@ -183,6 +183,58 @@ class FakeServer extends EventEmitter {
 }
 
 describe('hosted bridge lifecycle', () => {
+  // A second server in the same project (a mistyped `pyric sandbox <method>`
+  // starts one) must not replace the pointer of a host that is still running.
+  function attachOver(existing: Record<string, unknown> | string): { pointer: string; warnings: string[]; close: () => Promise<void>; cleanup: () => void } {
+    const projectDir = mkdtempSync(join(tmpdir(), 'pyric-bridge-pointer-'));
+    const pointer = join(projectDir, '.pyric', 'serve.json');
+    mkdirSync(dirname(pointer), { recursive: true });
+    writeFileSync(pointer, typeof existing === 'string' ? existing : JSON.stringify(existing));
+    const server = new FakeServer();
+    server.listening = true;
+    const warnings: string[] = [];
+    const mount = createBridgeMount({ disableAuditLog: true });
+    mount.attachHost({
+      servers: [server as unknown as Server],
+      projectDir,
+      origin: () => ({ host: 'localhost', port: 4322 }),
+      collision: { warn: (message) => warnings.push(message), fetchImpl: async () => new Response('', { status: 404 }) },
+    });
+    return {
+      pointer,
+      warnings,
+      close: () => mount.close(),
+      cleanup: () => rmSync(projectDir, { recursive: true, force: true }),
+    };
+  }
+
+  it('leaves a running host\'s pointer in place, warns, and keeps it after closing', async () => {
+    const live = { url: 'http://localhost:3473', port: 3473, pid: process.ppid, instanceId: 'running-host' };
+    const { pointer, warnings, close, cleanup } = attachOver(live);
+    expect(JSON.parse(readFileSync(pointer, 'utf8'))).toEqual(live);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('http://localhost:3473');
+    expect(warnings[0]).toContain('http://localhost:4322');
+    await close();
+    expect(JSON.parse(readFileSync(pointer, 'utf8'))).toEqual(live);
+    cleanup();
+  });
+
+  for (const [name, existing] of [
+    ['a pointer whose process has exited', { url: 'http://localhost:3473', pid: 2 ** 31 - 2, instanceId: 'gone' }],
+    ['a pointer without a pid', { url: 'http://localhost:3473', instanceId: 'no-pid' }],
+    ['a pointer this process wrote for an earlier mount', { url: 'http://localhost:3473', pid: process.pid, instanceId: 'earlier' }],
+    ['a malformed pointer', '{not json'],
+  ] as const) {
+    it(`replaces ${name}`, async () => {
+      const { pointer, warnings, close, cleanup } = attachOver(existing as Record<string, unknown> | string);
+      expect(JSON.parse(readFileSync(pointer, 'utf8'))).toMatchObject({ url: 'http://localhost:4322', pid: process.pid });
+      expect(warnings).toHaveLength(0);
+      await close();
+      cleanup();
+    });
+  }
+
   it('publishes one canonical identity and removes only its own discovery pointer', async () => {
     const projectDir = mkdtempSync(join(tmpdir(), 'pyric-bridge-host-'));
     const pointer = join(projectDir, '.pyric', 'serve.json');

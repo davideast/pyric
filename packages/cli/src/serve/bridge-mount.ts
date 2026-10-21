@@ -28,6 +28,7 @@ import { buildMcpServer } from '../bridge/server/mcp.js';
 import { getBridgeToolSurface } from '../bridge/server/mcp-contract.js';
 import { createAuditWriter } from '../bridge/server/audit.js';
 import { attachPeer, collectBody, BODY_TOO_LARGE_CODE } from '../bridge/server/peer.js';
+import { pointerHeldByAnotherHost } from './discovery.js';
 import { pyricVersion } from './standalone-assets.js';
 import { getHeader, isAllowedHost, isAllowedLoopbackRequest, isAllowedOrigin, isAllowedUpgrade } from './server.js';
 import { MAX_BRIDGE_FRAME_BYTES, MAX_MOUNTED_MCP_SESSIONS, STORAGE_BYTE_ROUTE_CAPABILITY, WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY } from '../bridge/protocol.js';
@@ -263,6 +264,19 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       if (ownsPointer) rmSync(pointer);
     } catch {
       // Best effort. A malformed or concurrently replaced pointer is not ours.
+    }
+  };
+
+  /** The pointer's contents when it names another live host; null when this mount may write it. */
+  const livePointerHolder = (pointer: string): { url?: string; pid?: unknown } | null => {
+    try {
+      const isMissing = !existsSync(pointer);
+      if (isMissing) return null;
+      const current = JSON.parse(readFileSync(pointer, 'utf8')) as { url?: string; pid?: unknown; instanceId?: unknown };
+      return pointerHeldByAnotherHost(current, bridge.instanceId) ? current : null;
+    } catch {
+      // A malformed pointer names no host.
+      return null;
     }
   };
 
@@ -538,6 +552,16 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
         const currentOrigin = origin();
         const cannotPublish = !currentOrigin?.port || attachmentClosed;
         if (cannotPublish) return;
+        const holder = livePointerHolder(pointer);
+        if (holder !== null) {
+          const warn = collision?.warn ?? ((message: string) => { process.stderr.write(message); });
+          warn(
+            `\n⚠  pyric: ${pointer} names another running sandbox (${holder.url ?? 'unknown url'}, pid ${String(holder.pid)}). ` +
+              `This server at http://${urlHost(currentOrigin.host)}:${currentOrigin.port} leaves it in place, so ` +
+              '`pyric <tool> <method>`, `pyric mcp`, and PYRIC_SANDBOX=remote keep finding that one.\n',
+          );
+          return;
+        }
         try {
           mkdirSync(dirname(pointer), { recursive: true });
           writeFileSync(pointer, JSON.stringify({
