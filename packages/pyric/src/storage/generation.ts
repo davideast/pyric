@@ -8,11 +8,14 @@
  * writes must never share one, even in the same millisecond or under a fixed
  * sandbox clock (issue #1160).
  *
- * A generation is the sandbox clock in microseconds, raised above both the
- * generation stored at the path and every generation this sandbox has issued
- * for the path. The stored generation keeps an overwrite increasing after the
- * store is reopened in a new process; the issued mark keeps it increasing
- * after a delete or a restore to an earlier version. Different objects written
+ * A generation is the sandbox clock's milliseconds times 1000 (the clock has
+ * no finer reading, so this only matches production's magnitude), raised
+ * above both the generation stored at the path and every generation this
+ * sandbox has issued for the path. The stored generation keeps an overwrite
+ * increasing after the store is reopened in a new process; the issued mark
+ * keeps it increasing after a delete or a restore to an earlier version, in
+ * one process. Two sandboxes sharing one store can still repeat a generation,
+ * and so can a reopen followed by a restore. Different objects written
  * in one clock tick share the clock's generation, as production allows. Every
  * write plane (in-page, SharedWorker host, Node host, the admin plane) writes
  * through `uploadObject`, which mints here.
@@ -44,7 +47,12 @@ function generationValue(generation: string | undefined): bigint {
   return 0n;
 }
 
-/** The sandbox clock's instant in whole microseconds, as production generations count. */
+function larger(a: bigint, b: bigint): bigint {
+  if (a > b) return a;
+  return b;
+}
+
+/** The sandbox clock's milliseconds times 1000, at the magnitude production generations count in. */
 export function clockGeneration(epochMs: number): bigint {
   return BigInt(Math.floor(epochMs * 1000));
 }
@@ -69,9 +77,8 @@ export function issueGeneration(
   const key = `${location.bucket}/${location.fullPath}`;
   const issuedBefore = issued.get(key) ?? 0n;
   const stored = generationValue(storedGeneration);
-  const floor = issuedBefore > stored ? issuedBefore : stored;
-  const clock = clockGeneration(epochMs);
-  const next = clock > floor ? clock : floor + 1n;
+  const floor = larger(issuedBefore, stored);
+  const next = larger(clockGeneration(epochMs), floor + 1n);
   issued.set(key, next);
   return String(next);
 }

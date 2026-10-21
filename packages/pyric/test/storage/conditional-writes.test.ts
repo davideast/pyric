@@ -87,6 +87,14 @@ describe.each(BACKENDS)('generation-checked writes, %s backend', (_name, open) =
     expect(await bytesAt(backend)).toBeUndefined();
   });
 
+  it('refuses to put a prior object back at another bucket or path', async () => {
+    const backend = await open();
+    await backend.put(PATH, bytes(1), metadataFor('1', 1));
+    const elsewhere = { blob: bytes(2), metadata: { ...metadataFor('0', 1), fullPath: 'media/other.bin' } };
+    await expect(backend.replaceIfGeneration(PATH, '1', elsewhere, BUCKET)).rejects.toThrow('its own bucket and path');
+    expect(await bytesAt(backend)).toEqual([1]);
+  });
+
   it('keeps a write issued while a delete is checking', async () => {
     const backend = await open();
     await backend.put(PATH, bytes(1), metadataFor('1', 1));
@@ -94,6 +102,27 @@ describe.each(BACKENDS)('generation-checked writes, %s backend', (_name, open) =
     const writing = backend.put(PATH, bytes(5, 5), metadataFor('2', 2));
     await Promise.all([deleting, writing]);
     expect(await bytesAt(backend)).toEqual([5, 5]);
+  });
+
+  it('does not delete a write issued before the delete', async () => {
+    const backend = await open();
+    await backend.put(PATH, bytes(3), metadataFor('3', 1));
+    const writing = backend.put(PATH, bytes(4, 4), metadataFor('4', 2));
+    const deleting = backend.deleteIfGeneration(PATH, '3', BUCKET);
+    await writing;
+    expect(await deleting).toBe(false);
+    expect(await bytesAt(backend)).toEqual([4, 4]);
+  });
+
+  it('gives concurrent writes the objects they each replaced', async () => {
+    const backend = await open();
+    await backend.put(PATH, bytes(1), metadataFor('1', 1));
+    const [first, second] = await Promise.all([
+      backend.put(PATH, bytes(2), metadataFor('2', 1)),
+      backend.put(PATH, bytes(3), metadataFor('3', 1)),
+    ]);
+    expect(first?.metadata.generation).toBe('1');
+    expect(second?.metadata.generation).toBe('2');
   });
 
   it('keeps a write issued while a restore is checking', async () => {

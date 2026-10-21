@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { rmSync } from 'node:fs';
 import { openHostedDatabase } from '../../../src/serve/hosted/persistence/database.js';
 
 // Generation-checked writes on the Node host's SQLite store: `put` returns the
@@ -45,6 +46,34 @@ try {
   const replaced = await storage.put(path, bytes(6), metadataFor('5', 1));
   await Promise.all([storage.replaceIfGeneration(path, '5', replaced), storage.put(path, bytes(7, 7), metadataFor('6', 2))]);
   assert.deepEqual(await bytesAt(), [7, 7]);
+
+  // A write issued before a delete is not deleted by it.
+  await storage.put(path, bytes(3), metadataFor('13', 1));
+  const writing = storage.put(path, bytes(4, 4), metadataFor('14', 2));
+  const deleting = storage.deleteIfGeneration(path, '13');
+  await writing;
+  assert.equal(await deleting, false);
+  assert.deepEqual(await bytesAt(), [4, 4]);
+
+  // Concurrent writes each get the object they replaced.
+  const [first, second] = await Promise.all([
+    storage.put(path, bytes(1), metadataFor('15', 1)),
+    storage.put(path, bytes(2), metadataFor('16', 1)),
+  ]);
+  assert.equal(first?.metadata.generation, '14');
+  assert.equal(second?.metadata.generation, '15');
+  assert.equal(await storage.replaceIfGeneration(path, '16', { blob: bytes(7, 7), metadata: metadataFor('6', 2) }), true);
+
+  // A prior object for another path is refused.
+  const elsewhere = { blob: bytes(8), metadata: { ...metadataFor('0', 1), fullPath: 'media/other.bin' } };
+  await assert.rejects(storage.replaceIfGeneration(path, '6', elsewhere), /its own bucket and path/);
+
+  // A row whose file is gone is overwritten, and gives back no replaced object.
+  const broken = await storage.objectFile(bucket, path);
+  rmSync(broken!.file);
+  assert.equal(await storage.put(path, bytes(9, 9, 9), metadataFor('17', 3)), undefined);
+  assert.deepEqual(await bytesAt(), [9, 9, 9]);
+  await storage.put(path, bytes(7, 7), metadataFor('6', 2));
 
   // A prior object from elsewhere is written from its bytes.
   const foreign = { blob: bytes(9, 9, 9), metadata: metadataFor('1', 3) };

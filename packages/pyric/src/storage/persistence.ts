@@ -136,6 +136,17 @@ export interface StoredObject {
   metadata: StoredMetadata;
 }
 
+/**
+ * Reject a prior object that would land somewhere other than where it came
+ * from, or whose size disagrees with its bytes. `replaceIfGeneration` on every
+ * backend checks this before it writes.
+ */
+export function assertPriorAt(prior: StoredObject, bucket: string, path: string): void {
+  const elsewhere = prior.metadata.bucket !== bucket || prior.metadata.fullPath !== path;
+  if (elsewhere) throw new Error('A prior Storage object can only be put back at its own bucket and path.');
+  assertMatchingSize(prior.blob, prior.metadata);
+}
+
 /** Reject metadata whose size disagrees with the bytes it is stored with. */
 function assertMatchingSize(blob: Blob, metadata: StoredMetadata): void {
   const mismatchedObject = metadata.size !== blob.size;
@@ -417,10 +428,11 @@ export class InMemoryStorageBackend implements StorageBackend {
   }
 
   async replaceIfGeneration(path: string, generation: string, prior: StoredObject | undefined, bucket?: string): Promise<boolean> {
-    const key = toStorageKey(bucket ?? this._defaultBucket ?? DEFAULT_BUCKET, path);
+    const target = bucket ?? this._defaultBucket ?? DEFAULT_BUCKET;
+    if (prior !== undefined) assertPriorAt(prior, target, path);
+    const key = toStorageKey(target, path);
     const replaced = this.metadata.get(key)?.generation !== generation;
     if (replaced) return false;
-    if (prior !== undefined) assertMatchingSize(prior.blob, prior.metadata);
     this.blobs.delete(key);
     this.metadata.delete(key);
     if (prior === undefined) return true;
@@ -587,8 +599,9 @@ export class IndexedDbStorageBackend implements StorageBackend {
   }
 
   async replaceIfGeneration(path: string, generation: string, prior: StoredObject | undefined, bucket?: string): Promise<boolean> {
-    if (prior !== undefined) assertMatchingSize(prior.blob, prior.metadata);
-    const key = toStorageKey(bucket ?? this._defaultBucket ?? DEFAULT_BUCKET, path);
+    const target = bucket ?? this._defaultBucket ?? DEFAULT_BUCKET;
+    if (prior !== undefined) assertPriorAt(prior, target, path);
+    const key = toStorageKey(target, path);
     const tx = this.db.transaction([BLOBS_STORE, METADATA_STORE], 'readwrite');
     let wrote = false;
     // The write is issued from the read's success event, while the

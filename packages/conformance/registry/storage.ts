@@ -637,8 +637,9 @@ export const storageRegistry = {
         }),
         row3({
           rowRef: "118",
-          behavior: "Each write of an object gets its own `generation`: a numeric string at microsecond magnitude that increases with every overwrite, including two writes in one millisecond or under a fixed sandbox clock",
-          evidence: "`unit:generation.test.ts` (fixed clock, same millisecond, concurrent writes, delete then rewrite, restore, reopen) + SharedWorker host `storage-generation.test.ts` (a range read pinned to the replaced generation fails `storage/object-changed`) + Node host `hosted-sqlite.test.ts` (across a restart) + pyric-admin `generations.test.ts` on both arms. Shape from oracle `storage-upload-then-getmetadata.json` (`metadataGeneration: '1779067804587568'`)",
+          behavior: "Each write of an object gets a new, larger `generation`, a numeric string, even in one millisecond or under a fixed clock",
+          status: "diverged-documented",
+          evidence: "Sandbox generations are clock ms x 1000, raised per path. Not yet: two sandboxes sharing one store, or a reopen then restore, can repeat one. Tests: `generation.test.ts`, the worker, Node host and pyric-admin generation tests. Shape: oracle `storage-upload-then-getmetadata.json`",
           risk: ["specific-value","metadata"],
           riskScore: 3,
           riskReasons: ["asserts 1 specific value(s)","asserts metadata shape"],

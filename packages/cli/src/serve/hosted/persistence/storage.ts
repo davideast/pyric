@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { openAsBlob } from 'node:fs';
 import { FirebaseError } from 'pyric/app';
-import type { StorageBackend, StorageReferenceRecord, StoredMetadata, StoredObject } from 'pyric/storage/internal';
+import { assertPriorAt, type StorageBackend, type StorageReferenceRecord, type StoredMetadata, type StoredObject } from 'pyric/storage/internal';
 import { storedMetadataSchema } from 'pyric/sandbox/internal';
 import { MAX_STORAGE_OBJECT_BYTES, storageQuotaExceeded } from '../../worker/protocol/storage.js';
 import type { BlobStore, StagedFile, StoredBytes } from './blob-store.js';
@@ -155,12 +155,17 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit, o
   // writes only its row while its file is still held.
   const replacedBytes = new WeakMap<Blob, StoredBytes>();
 
-  /** The object at a path as one row, read inside a queued mutation. */
+  /**
+   * The object at a path as one row, read inside a queued mutation. A row
+   * whose file is gone has no object to give back, so an overwrite repairs it.
+   */
   async function objectAt(bucket: string, path: string): Promise<StoredObject | undefined> {
     const row = objectFileStmt().get(bucket, path);
     const missingObject = row === undefined;
     if (missingObject) return undefined;
     const stored = storedBytesOf(row);
+    const missingFile = objects.size(stored.sha256) !== stored.size;
+    if (missingFile) return undefined;
     const blob = await openAsBlob(objects.path(stored.sha256), { type: sqlText(row, 'mime') });
     replacedBytes.set(blob, stored);
     return { blob, metadata: metadataOf(row) };
@@ -178,6 +183,8 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit, o
     const stored = replacedBytes.get(prior.blob);
     const unheld = stored === undefined || objects.size(stored.sha256) !== stored.size;
     if (unheld) {
+      const fromThisStore = stored !== undefined;
+      if (fromThisStore) throw new Error(`The bytes of the prior Storage object at '${path}' are no longer held.`);
       putBytes(path, new Uint8Array(await prior.blob.arrayBuffer()), prior.blob.type, prior.metadata);
       return;
     }
@@ -221,6 +228,7 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit, o
       async replaceIfGeneration(path, generation, prior, bucket = defaultBucket) {
         // Every Storage mutation runs through this queue, so nothing lands
         // between the check and the write.
+        if (prior !== undefined) assertPriorAt(prior, bucket, path);
         return enqueue(async () => {
           const replaced = currentGeneration(bucket, path) !== generation;
           if (replaced) return false;
@@ -228,8 +236,6 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit, o
             commit(() => { remove.run(bucket, path); });
             return true;
           }
-          const otherBucket = prior.metadata.bucket !== bucket;
-          if (otherBucket) throw new Error('Storage metadata cannot change object identity or size.');
           await restoreObject(path, prior);
           return true;
         });

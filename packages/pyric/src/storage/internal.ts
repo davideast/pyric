@@ -50,7 +50,7 @@ export {
   snapshotStorageState, restoreStorageState, resetStorageState, referenceStorageState, restoreStorageReferences,
   type StorageStateRecord, type StorageReferenceRecord,
 } from './sandbox/persistence-state.js';
-export { DEFAULT_BUCKET, type StorageBackend, type StoredMetadata, type StoredObject } from './persistence.js';
+export { DEFAULT_BUCKET, assertPriorAt, type StorageBackend, type StoredMetadata, type StoredObject } from './persistence.js';
 export { copyObject } from './copy.js';
 export { fetchFromByteRoute, uploadOverByteRoute, type RemoteByteRoute, type RemoteReadRequest, type RemoteUploadRequest } from './remote-bytes.js';
 
