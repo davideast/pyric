@@ -125,6 +125,7 @@ const ROUTABLE_METHODS = {
     'storage.putBytes',
     'storage.getBytes',
     'storage.deleteObject',
+    'storage.rollbackUpload',
   ],
   auth: [
     'auth.createUser',
@@ -166,10 +167,10 @@ describe('host dispatch table (frozen)', () => {
     ctx = await makeCtx();
   });
 
-  it('routes exactly 83 op methods across all families', () => {
-    expect(ALL_METHODS.length).toBe(83);
+  it('routes exactly 84 op methods across all families', () => {
+    expect(ALL_METHODS.length).toBe(84);
     // No duplicates in the frozen list.
-    expect(new Set(ALL_METHODS).size).toBe(83);
+    expect(new Set(ALL_METHODS).size).toBe(84);
   });
 
   for (const [family, methods] of Object.entries(ROUTABLE_METHODS)) {

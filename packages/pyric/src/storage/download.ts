@@ -23,6 +23,7 @@ import { resourceFromStored } from './sandbox/rules-resources.js';
 import { objectNotFound, invalidRootOperation } from './errors.js';
 import { arrayBufferToBase64 } from './base64.js';
 import type { StorageReference } from './reference.js';
+import type { StoredMetadata } from './persistence.js';
 
 /**
  * Read the blob at `ref` and return its contents as an
@@ -109,6 +110,38 @@ export async function deleteObject(
     resource: resourceFromStored(existing),
   }, target, operationProvenance);
   await service.backend.delete(ref.fullPath);
+  emitObjectDelete(ref, existing, operationProvenance);
+}
+
+/**
+ * Delete the object at `ref` only while it is still `generation`, without
+ * evaluating rules. This is the host's rollback of a canceled upload's own
+ * write, which production never stores and so never deletes through the
+ * rules; the host decides who may call it. Resolves false, deleting nothing,
+ * when the object is gone or a later write replaced that generation.
+ */
+export async function deleteObjectGeneration(
+  ref: StorageReference,
+  generation: string,
+  provenance?: EventProvenance,
+): Promise<boolean> {
+  guardNonRoot(ref, 'deleteObject');
+  const target = targetOf(ref.storage);
+  const service = await getStorageService(ref.storage);
+  const existing = await service.backend.getMetadata(ref.fullPath);
+  const isThatGeneration = existing !== undefined && existing.generation === generation;
+  if (!isThatGeneration) return false;
+  await service.backend.delete(ref.fullPath);
+  emitObjectDelete(ref, existing, storageOperationProvenance(target, provenance));
+  return true;
+}
+
+function emitObjectDelete(
+  ref: StorageReference,
+  existing: StoredMetadata | undefined,
+  operationProvenance: ReturnType<typeof storageOperationProvenance>,
+): void {
+  const target = targetOf(ref.storage);
   try {
     emitSandboxEvent(
       target.sandbox,

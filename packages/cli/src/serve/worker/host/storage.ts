@@ -33,6 +33,7 @@ import {
   DEFAULT_BUCKET,
   bindStorageOperationContext,
   copyObject,
+  deleteObjectGeneration,
   getAdminStorageSandbox,
   getStorageService,
   patchObjectMetadata,
@@ -67,6 +68,7 @@ import {
 import { type HostCtx, type PortLike, ok, fail, bestEffortFlush } from '../host-context.js';
 import { authStateForLens, lensCacheKey, opProvenance, sessionCacheKey } from './core.js';
 import { portSession } from '../host-auth.js';
+import { redeemRollbackGrant, rollbackReceipt } from './upload-rollback.js';
 
 /** An upload between `storage.beginUpload` and `storage.finishUpload`. */
 interface PendingUpload {
@@ -433,6 +435,7 @@ const STORAGE_METHODS = new Set<string>([
   'storage.finishUpload',
   'storage.abortUpload',
   'storage.deleteObject',
+  'storage.rollbackUpload',
   'storage.copyObject',
   'storage.createUploadSession',
 ]);
@@ -584,8 +587,9 @@ export async function handleStorageOp(
         if (exceedsDecodedLimit) {
           throw storagePayloadTooLarge(bytes.byteLength, `storage.putBytes payload for '${msg.path}'`);
         }
+        const bucket = bucketOfOp(ctx, msg);
         const storage = bindStorageOperationContext(
-          lensStorage(ctx, msg.actAs, port, bucketOfOp(ctx, msg)),
+          lensStorage(ctx, msg.actAs, port, bucket),
           opProvenance(msg),
         );
         const result = await uploadObject(
@@ -595,8 +599,9 @@ export async function handleStorageOp(
           { downloadTokens: uploadDownloadTokens(msg) },
         );
         await bestEffortFlush(ctx, msg.method);
+        const stored = { bucket, path: result.metadata.fullPath, generation: result.metadata.generation };
         // FullMetadata — plain JSON, relay-safe.
-        ok(port, msg.id, namedMetadata(ctx, msg, result.metadata));
+        ok(port, msg.id, { ...namedMetadata(ctx, msg, result.metadata), ...rollbackReceipt(ctx, port, msg.rollback, stored) });
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
@@ -713,7 +718,8 @@ export async function handleStorageOp(
         pendingUploads(ctx).delete(msg.uploadId);
         await service.backend.abortUpload?.(msg.uploadId);
         await bestEffortFlush(ctx, msg.method);
-        ok(port, msg.id, { ...result.metadata, bucket: pending!.bucketName });
+        const stored = { bucket: pending!.bucket, path: result.metadata.fullPath, generation: result.metadata.generation };
+        ok(port, msg.id, { ...result.metadata, bucket: pending!.bucketName, ...rollbackReceipt(ctx, port, msg.rollback, stored) });
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
@@ -811,6 +817,23 @@ export async function handleStorageOp(
         await storageDeleteObject(storageRef(storage, msg.path));
         await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, null);
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'storage.rollbackUpload': {
+      // A canceled upload's own commit, rolled back without evaluating rules
+      // (see upload-rollback.ts): only the generation that commit stored, and
+      // only for the client it was issued to.
+      try {
+        const committed = redeemRollbackGrant(ctx, port, msg.rollbackToken);
+        const storage = bindStorageOperationContext(
+          lensStorage(ctx, msg.actAs, port, committed.bucket),
+          opProvenance(msg),
+        );
+        const deleted = await deleteObjectGeneration(storageRef(storage, committed.path), committed.generation);
+        if (deleted) await bestEffortFlush(ctx, msg.method);
+        ok(port, msg.id, { deleted });
       } catch (e) { fail(port, msg.id, e); }
       break;
     }

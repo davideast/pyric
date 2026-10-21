@@ -30,6 +30,8 @@ service firebase.storage {
     // Rules grant when any match allows, so private/ is simply never matched.
     match /media/{rest=**} { allow read, write: if true; }
     match /notes/{rest=**} { allow read, write: if true; }
+    // Uploads may be created and never deleted (#1157).
+    match /uploads/{file} { allow read, create: if true; allow delete: if false; }
   }
 }`);
 const ctx: HostCtx = { sandbox, db: getFirestore(sandbox), instanceId: 'web-byte-route', subs: new Map() };
@@ -186,6 +188,32 @@ try {
     await new Promise(resolve => setTimeout(resolve, 50));
     assert.ok(ops.includes('storage.abortUpload'), `ops: ${ops.join(', ')}`);
     assert.equal(await persistence.storage.getMetadata('media/canceled.wav', bucket), undefined);
+  }
+
+  // Paused once its last slice is sent, so the route's finish stores the object
+  // while paused, then canceled, under rules that deny every delete: the host
+  // rolls back that commit without the rules, so the task rejects
+  // storage/canceled and leaves nothing (#1157).
+  {
+    const bytes = patterned(6 * MiB, 23);
+    ops.length = 0;
+    const task = uploadBytesResumable(ref(storage, 'uploads/a.png'), bytes);
+    task.on('state_changed', snapshot => {
+      const allSent = snapshot.state === 'running' && snapshot.bytesTransferred === snapshot.totalBytes;
+      if (allSent) queueMicrotask(() => task.pause());
+    });
+    const deadline = Date.now() + 10_000;
+    while (await persistence.storage.getMetadata('uploads/a.png', bucket) === undefined) {
+      assert.ok(Date.now() < deadline, 'the finish never stored the object');
+      await new Promise(resolve => setTimeout(resolve, 5));
+    }
+    assert.equal(task.snapshot.state, 'paused');
+    task.cancel();
+    await assert.rejects(task, (error: { code?: string }) => error.code === 'storage/canceled');
+    assert.ok(ops.includes('storage.finishUpload'), `the finish was sent: ${ops.join(', ')}`);
+    assert.ok(ops.includes('storage.rollbackUpload'), `ops: ${ops.join(', ')}`);
+    assert.ok(!ops.includes('storage.deleteObject'), `no rules-checked delete: ${ops.join(', ')}`);
+    assert.equal(await persistence.storage.getMetadata('uploads/a.png', bucket), undefined);
   }
 
   // An app that kept a download URL deletes the object by a reference to it.
