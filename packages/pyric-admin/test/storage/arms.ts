@@ -4,7 +4,8 @@
  * bridge, every frame JSON round-tripped as the wire would carry it).
  */
 import 'fake-indexeddb/auto';
-import { initializeSandbox } from 'pyric/sandbox';
+import { initializeSandbox, type Sandbox } from 'pyric/sandbox';
+import { getClock } from 'pyric/sandbox/internal';
 import { getFirestore } from 'pyric/firestore';
 import { getStorageSandbox } from 'pyric/storage';
 import { createBridge, type Bridge } from '../../../cli/src/bridge/server/bridge.js';
@@ -25,6 +26,15 @@ service firebase.storage {
 /** Options an arm's app is initialized with, besides its sandbox. */
 export interface ArmOptions {
   storageBucket?: string;
+  /** Pin the host sandbox's clock to this instant. */
+  fixedClockAt?: number;
+}
+
+/** A fresh host sandbox, its clock pinned when the arm asks. */
+function hostSandbox(fixedClockAt: number | undefined): Sandbox {
+  const sandbox = initializeSandbox();
+  if (fixedClockAt !== undefined) getClock(sandbox).set(fixedClockAt);
+  return sandbox;
 }
 
 const overWire = <T>(frame: T): T => JSON.parse(JSON.stringify(frame)) as T;
@@ -32,13 +42,13 @@ const overWire = <T>(frame: T): T => JSON.parse(JSON.stringify(frame)) as T;
 let sequence = 0;
 
 /** An app on the in-process sandbox. */
-export function inProcessApp(options: ArmOptions = {}): PyricAdminApp {
-  return initializeApp({ sandbox: initializeSandbox(), ...options }, `storage-admin-local-${++sequence}`);
+export function inProcessApp({ fixedClockAt, ...options }: ArmOptions = {}): PyricAdminApp {
+  return initializeApp({ sandbox: hostSandbox(fixedClockAt), ...options }, `storage-admin-local-${++sequence}`);
 }
 
 /** An app on a remote handle to a SharedWorker host. */
-export function sharedWorkerApp(options: ArmOptions = {}): PyricAdminApp {
-  const sandbox = initializeSandbox();
+export function sharedWorkerApp({ fixedClockAt, ...options }: ArmOptions = {}): PyricAdminApp {
+  const sandbox = hostSandbox(fixedClockAt);
   getStorageSandbox(sandbox, { dbName: `storage-admin-oracle-${++sequence}-${Math.random().toString(36).slice(2, 8)}`, rules: OPEN_RULES });
   const ctx: HostCtx = { db: getFirestore(sandbox), sandbox, instanceId: 'storage-admin-oracle', subs: new Map() };
   const bridge: Bridge = createBridge({ mode: 'sandbox', version: 'test' });

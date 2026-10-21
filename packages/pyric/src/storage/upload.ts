@@ -31,6 +31,7 @@ import { resourceFromStored, requestResourceFor } from './sandbox/rules-resource
 import { toFullMetadata, type SettableMetadata, type UploadResult } from './metadata.js';
 import { planeOf, uploadContentDisposition } from './content-defaults.js';
 import { StorageError, invalidRootOperation, invalidFormat } from './errors.js';
+import { clockGeneration, issueGeneration } from './generation.js';
 import type { StoredMetadata } from './persistence.js';
 import type { StorageReference } from './reference.js';
 
@@ -112,6 +113,8 @@ export async function uploadObject(
     },
     resource: resourceFromStored(existing),
   }, target, operationProvenance);
+  // Every version gets its own generation, even within one clock tick (#1160).
+  stored.generation = issueGeneration(target.sandbox, stored, uploadedAt.getTime(), existing?.generation);
   await service.backend.put(ref.fullPath, blob, stored);
   // Land the put on the unified Studio stream. Best-effort: a throw from
   // the emit path must not fail the upload the caller just completed.
@@ -184,7 +187,8 @@ export function buildStoredMetadata(args: {
 }): StoredMetadata {
   const { ref, blob, settable } = args;
   const now = (args.now ?? new Date()).toISOString();
-  const generation = generationFromTime(args.now ?? new Date());
+  // Provisional: `uploadObject` issues the generation the write stores.
+  const generation = String(clockGeneration((args.now ?? new Date()).getTime()));
   const name = ref.name;
   const client = planeOf(targetOf(ref.storage)) === 'client';
   return {
@@ -308,14 +312,6 @@ function base64ToBytes(b64: string): Uint8Array {
 
 export function defaultRawContentType(format: StringFormat): string {
   return format === 'raw' ? 'text/plain;charset=utf-8' : OCTET;
-}
-
-function generationFromTime(now: Date): string {
-  // Generation is a stringified counter in production. We mint a
-  // unique-enough value from the wallclock — collisions are
-  // tolerable for the v1 scope (single-process IDB; no cross-tab
-  // contention contract).
-  return String(now.getTime());
 }
 
 function guardNonRoot(ref: StorageReference, op: string): void {

@@ -635,6 +635,22 @@ export const storageRegistry = {
           automation: "unit-backed",
           conformanceTests: ["packages/pyric/test/storage/metadata.test.ts"],
         }),
+        row3({
+          rowRef: "118",
+          behavior: "Each write of an object gets its own `generation`: a numeric string at microsecond magnitude that increases with every overwrite, including two writes in one millisecond or under a fixed sandbox clock",
+          evidence: "`unit:generation.test.ts` (fixed clock, same millisecond, concurrent writes, delete then rewrite, restore, reopen) + SharedWorker host `storage-generation.test.ts` (a range read pinned to the replaced generation fails `storage/object-changed`) + Node host `hosted-sqlite.test.ts` (across a restart) + pyric-admin `generations.test.ts` on both arms. Shape from oracle `storage-upload-then-getmetadata.json` (`metadataGeneration: '1779067804587568'`)",
+          risk: ["specific-value","metadata"],
+          riskScore: 3,
+          riskReasons: ["asserts 1 specific value(s)","asserts metadata shape"],
+          automation: "unit-backed",
+          oracleObservations: ["storage-upload-then-getmetadata"],
+          conformanceTests: [
+            "packages/pyric/test/storage/generation.test.ts",
+            "packages/cli/test/serve/worker/storage-generation.test.ts",
+            "packages/cli/test/serve/hosted-sqlite.test.ts",
+            "packages/pyric-admin/test/storage/generations.test.ts",
+          ],
+        }),
       ],
     },
     {

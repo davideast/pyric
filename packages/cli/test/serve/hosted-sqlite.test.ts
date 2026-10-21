@@ -56,6 +56,10 @@ test('Storage retains binary bytes, metadata and bucket isolation after restart'
   expect(await runNodeFixture('storage')).toBe('Storage restart passed');
 });
 
+test('Node issues increasing Storage generations under a fixed clock and across a restart', async () => {
+  expect(await runNodeFixture('storage-generation')).toBe('Storage generations passed');
+});
+
 test('unsupported database versions refuse startup without replacing data', async () => {
   expect(await runNodeFixture('version')).toBe('Version refusal passed');
 });
