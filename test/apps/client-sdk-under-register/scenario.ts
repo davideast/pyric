@@ -83,6 +83,12 @@ export default scenario(async (app) => {
     expectOk(client, 'storage.cancelCreateOnly', { rejected: 'storage/canceled', readBack: 'storage/object-not-found' });
   });
 
+  await app.step('a canceled upload over an existing object keeps the earlier object and its metadata', () => {
+    expectOk(client, 'storage.cancelOverwrite', {
+      rejected: 'storage/canceled', text: 'v1', customMetadata: { version: 'one' }, sameGeneration: true,
+    });
+  });
+
   await app.step('services with no path to the host refuse with failed-precondition', () => {
     expectCode(client, 'ai', 'failed-precondition', UNSUPPORTED);
     expectCode(client, 'messaging', 'failed-precondition', UNSUPPORTED);

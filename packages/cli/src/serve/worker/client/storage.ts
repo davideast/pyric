@@ -305,20 +305,22 @@ export async function routeUploadOffset(upload: RouteUpload, signal?: AbortSigna
 
 /**
  * A stored upload's metadata and, when its commit asked for one, the token
- * that rolls it back (`storage.rollbackUpload`). A host that predates the
- * token sends none.
+ * that rolls it back (`storage.rollbackUpload`), with `replacedObject` when
+ * the commit replaced an object. A host that predates the token sends neither.
  */
 export interface CommittedUpload {
   readonly metadata: FullMetadata;
   readonly rollbackToken?: string;
+  readonly replacedObject?: boolean;
 }
 
-/** Split a commit's reply into the object's metadata and its rollback token. */
+/** Split a commit's reply into the object's metadata and its rollback receipt. */
 function committedFrom(reference: ClientStorageReference, reply: unknown): CommittedUpload {
-  const { rollbackToken, ...stored } = reply as FullMetadata & { rollbackToken?: unknown };
+  const { rollbackToken, replacedObject, ...stored } = reply as FullMetadata & { rollbackToken?: unknown; replacedObject?: unknown };
   const metadata = withReferenceBucket(reference, stored as FullMetadata);
   const hasToken = typeof rollbackToken === 'string';
-  return hasToken ? { metadata, rollbackToken } : { metadata };
+  if (!hasToken) return { metadata };
+  return { metadata, rollbackToken, replacedObject: replacedObject === true };
 }
 
 /** The request field that asks a commit for its rollback token. */
@@ -335,14 +337,14 @@ export async function finishRouteUpload(upload: RouteUpload, rollback = false): 
 }
 
 /**
- * Roll back a canceled upload's own commit by its token, without the rules.
- * Resolves whether the host deleted it; false when a later write replaced it.
+ * Roll back a canceled upload's own commit by its token, without the rules:
+ * the host puts back the object the commit replaced, or deletes the one it
+ * created, and keeps a later write that replaced the commit.
  */
-export async function rollBackUpload(reference: ClientStorageReference, rollbackToken: string): Promise<boolean> {
-  const reply = (await dataRpc(reference.port, {
+export async function rollBackUpload(reference: ClientStorageReference, rollbackToken: string): Promise<void> {
+  await dataRpc(reference.port, {
     t: 'op', id: nextId(), method: 'storage.rollbackUpload', rollbackToken,
-  })) as { deleted: boolean };
-  return reply.deleted;
+  });
 }
 
 /** Discard an upload on the host; best effort, as the caller is already failing. */

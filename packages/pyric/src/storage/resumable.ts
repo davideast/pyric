@@ -15,7 +15,7 @@ import type { SettableMetadata, FullMetadata, UploadResult } from './metadata.js
 import { toFullMetadata } from './metadata.js';
 import { planeOf } from './content-defaults.js';
 import { getStorageService, targetOf } from './service.js';
-import { uploadBytes, buildStoredMetadata } from './upload.js';
+import { buildStoredMetadata, uploadObjectReplacing } from './upload.js';
 import { invalidRootOperation, uploadCanceled, type StorageError } from './errors.js';
 import type { StoredObject } from './persistence.js';
 import { rollBackCanceledCommit } from './upload-rollback.js';
@@ -498,12 +498,15 @@ class UploadTaskImpl implements UploadTask {
   /** Store the upload, noting the object it replaces. */
   private async _storeUpload(): Promise<CommitOutcome> {
     try {
-      const target = targetOf(this._ref.storage);
-      const service = await getStorageService(this._ref.storage);
-      const prior = await service.backend.getObject(this._ref.fullPath, target.bucket);
+      // Yield once, as the commit always has, so a cancel issued in the same
+      // turn as the upload stops it before anything is stored.
+      await getStorageService(this._ref.storage);
       const stoppedFirst = this._snapshot.state !== 'running';
       if (stoppedFirst) return undefined;
-      const result = await uploadBytes(this._ref, this._blob, this._metadata, this._provenance);
+      // The backend returns the object its write replaced, read in the same
+      // transaction, so a write landing just before this one is what a
+      // rollback puts back.
+      const { result, replaced: prior } = await uploadObjectReplacing(this._ref, this._blob, this._metadata, { provenance: this._provenance });
       return { stored: { result, prior } };
     } catch (error: unknown) {
       return { error };

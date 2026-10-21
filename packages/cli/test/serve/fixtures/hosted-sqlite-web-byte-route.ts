@@ -216,6 +216,35 @@ try {
     assert.equal(await persistence.storage.getMetadata('uploads/a.png', bucket), undefined);
   }
 
+  // The same cancel over an object already at the path: the host puts the
+  // earlier object back, bytes and metadata, as production never replaced it
+  // (#1159). It is larger than a host holds in memory for a rollback, so it
+  // comes back only because this backend keeps it as its file on disk.
+  {
+    const earlier = patterned(65 * MiB, 29);
+    await uploadBytes(ref(storage, 'uploads/b.png'), earlier, { contentType: 'image/png', customMetadata: { version: 'one' } });
+    const before = await persistence.storage.getMetadata('uploads/b.png', bucket);
+    assert.ok(before !== undefined);
+    ops.length = 0;
+    const task = uploadBytesResumable(ref(storage, 'uploads/b.png'), patterned(6 * MiB, 31));
+    task.on('state_changed', snapshot => {
+      const allSent = snapshot.state === 'running' && snapshot.bytesTransferred === snapshot.totalBytes;
+      if (allSent) queueMicrotask(() => task.pause());
+    });
+    const deadline = Date.now() + 10_000;
+    while ((await persistence.storage.getMetadata('uploads/b.png', bucket))?.generation === before.generation) {
+      assert.ok(Date.now() < deadline, 'the finish never stored the new object');
+      await new Promise(resolve => setTimeout(resolve, 5));
+    }
+    assert.equal(task.snapshot.state, 'paused');
+    task.cancel();
+    await assert.rejects(task, (error: { code?: string }) => error.code === 'storage/canceled');
+    assert.ok(ops.includes('storage.finishUpload'), `the finish was sent: ${ops.join(', ')}`);
+    assert.ok(ops.includes('storage.rollbackUpload'), `ops: ${ops.join(', ')}`);
+    assert.deepEqual(await persistence.storage.getMetadata('uploads/b.png', bucket), before);
+    assert.deepEqual(new Uint8Array(await getBytes(ref(storage, 'uploads/b.png'))), earlier);
+  }
+
   // An app that kept a download URL deletes the object by a reference to it.
   {
     const url = await getDownloadURL(ref(storage, 'notes/note.txt'));

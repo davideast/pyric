@@ -13,6 +13,8 @@
 import 'fake-indexeddb/auto';
 import { describe, it, expect } from 'bun:test';
 import {
+  InMemoryStorageBackend,
+  ScopedStorageBackend,
   openStorageBackend,
   type StorageBackend,
   type StoredMetadata,
@@ -230,5 +232,19 @@ describe('IndexedDB persistence', () => {
     await db.delete('nope/missing.json');
     expect(await db.getBlob('nope/missing.json')).toBeUndefined();
     db.close();
+  });
+});
+
+// A rollback keeps the object a write replaced. Only a backend whose replaced
+// objects read their bytes from files on disk may say so; the others hold the
+// bytes in memory, and the host bounds what it keeps of them (#1159).
+describe('replacedObjectsOnDisk', () => {
+  it('is unset on the memory and IndexedDB backends and on their bucket views', async () => {
+    const indexedDb = await openStorageBackend(uniqueDbName('on-disk-flag'));
+    const memory = new InMemoryStorageBackend();
+    for (const backend of [indexedDb, memory, new ScopedStorageBackend(memory, 'other-bucket')]) {
+      expect(backend.replacedObjectsOnDisk).not.toBe(true);
+    }
+    indexedDb.close();
   });
 });

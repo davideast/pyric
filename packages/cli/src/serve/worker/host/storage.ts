@@ -33,7 +33,6 @@ import {
   DEFAULT_BUCKET,
   bindStorageOperationContext,
   copyObject,
-  deleteObjectGeneration,
   getAdminStorageSandbox,
   getStorageService,
   patchObjectMetadata,
@@ -44,6 +43,7 @@ import {
   requestResourceFor,
   resourceFromStored,
   uploadObject,
+  uploadObjectReplacing,
 } from 'pyric/storage/internal';
 import { FirebaseError } from 'pyric/app';
 import type { AuthLens, EventProvenance } from 'pyric/sandbox';
@@ -68,7 +68,7 @@ import {
 import { type HostCtx, type PortLike, ok, fail, bestEffortFlush } from '../host-context.js';
 import { authStateForLens, lensCacheKey, opProvenance, sessionCacheKey } from './core.js';
 import { portSession } from '../host-auth.js';
-import { redeemRollbackGrant, rollbackReceipt } from './upload-rollback.js';
+import { redeemRollbackGrant, replacedForRollback, rollBackCommit, rollbackReceipt } from './upload-rollback.js';
 
 /** An upload between `storage.beginUpload` and `storage.finishUpload`. */
 interface PendingUpload {
@@ -592,14 +592,16 @@ export async function handleStorageOp(
           lensStorage(ctx, msg.actAs, port, bucket),
           opProvenance(msg),
         );
-        const result = await uploadObject(
-          storageRef(storage, msg.path),
+        const target = storageRef(storage, msg.path);
+        const { result, replaced: earlier } = await uploadObjectReplacing(
+          target,
           bytes,
           toSettableMetadata(msg),
           { downloadTokens: uploadDownloadTokens(msg) },
         );
+        const replaced = await replacedForRollback(target, msg.rollback, earlier);
         await bestEffortFlush(ctx, msg.method);
-        const stored = { bucket, path: result.metadata.fullPath, generation: result.metadata.generation };
+        const stored = { bucket, path: result.metadata.fullPath, generation: result.metadata.generation, replaced };
         // FullMetadata — plain JSON, relay-safe.
         ok(port, msg.id, { ...namedMetadata(ctx, msg, result.metadata), ...rollbackReceipt(ctx, port, msg.rollback, stored) });
       } catch (e) { fail(port, msg.id, e); }
@@ -714,11 +716,13 @@ export async function handleStorageOp(
         // A Blob of the staged bytes; a backend that staged them in a file keeps
         // that file as the object instead of reading it.
         const staged = await service.backend.readUpload(msg.uploadId);
-        const result = await uploadObject(storageRef(storage, pending!.path), staged, pending!.settable, { downloadTokens: pending!.downloadTokens });
+        const target = storageRef(storage, pending!.path);
+        const { result, replaced: earlier } = await uploadObjectReplacing(target, staged, pending!.settable, { downloadTokens: pending!.downloadTokens });
+        const replaced = await replacedForRollback(target, msg.rollback, earlier);
         pendingUploads(ctx).delete(msg.uploadId);
         await service.backend.abortUpload?.(msg.uploadId);
         await bestEffortFlush(ctx, msg.method);
-        const stored = { bucket: pending!.bucket, path: result.metadata.fullPath, generation: result.metadata.generation };
+        const stored = { bucket: pending!.bucket, path: result.metadata.fullPath, generation: result.metadata.generation, replaced };
         ok(port, msg.id, { ...result.metadata, bucket: pending!.bucketName, ...rollbackReceipt(ctx, port, msg.rollback, stored) });
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -823,17 +827,21 @@ export async function handleStorageOp(
 
     case 'storage.rollbackUpload': {
       // A canceled upload's own commit, rolled back without evaluating rules
-      // (see upload-rollback.ts): only the generation that commit stored, and
-      // only for the client it was issued to.
+      // (see upload-rollback.ts): the object it replaced is put back, or the
+      // one it created deleted, only while the path still holds that commit's
+      // generation, checked and written in one backend transaction, and only
+      // for the client the token was issued to. A failed rollback fails the call, so
+      // the client never reports storage/canceled while the upload's object stays.
       try {
         const committed = redeemRollbackGrant(ctx, port, msg.rollbackToken);
         const storage = bindStorageOperationContext(
           lensStorage(ctx, msg.actAs, port, committed.bucket),
           opProvenance(msg),
         );
-        const deleted = await deleteObjectGeneration(storageRef(storage, committed.path), committed.generation);
-        if (deleted) await bestEffortFlush(ctx, msg.method);
-        ok(port, msg.id, { deleted });
+        const { deleted, restored } = await rollBackCommit(storageRef(storage, committed.path), committed, opProvenance(msg));
+        const changed = deleted || restored;
+        if (changed) await bestEffortFlush(ctx, msg.method);
+        ok(port, msg.id, { deleted, restored });
       } catch (e) { fail(port, msg.id, e); }
       break;
     }

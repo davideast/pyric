@@ -296,6 +296,13 @@ export interface StorageBackend {
   references?(bucket?: string): Promise<StorageReferenceRecord[]>;
 
   /**
+   * True when the objects `put` returns as replaced read their bytes from
+   * files on disk rather than holding them in memory, so keeping one costs no
+   * memory. Only a backend that keeps object files has it.
+   */
+  readonly replacedObjectsOnDisk?: boolean;
+
+  /**
    * Store an object whose bytes this backend already holds under
    * `reference.sha256`, writing only its metadata.
    */
@@ -854,6 +861,10 @@ export class ScopedStorageBackend implements StorageBackend {
     private readonly underlying: StorageBackend,
     readonly bucket: string,
   ) {}
+
+  get replacedObjectsOnDisk(): boolean | undefined {
+    return this.underlying.replacedObjectsOnDisk;
+  }
 
   async put(path: string, blob: Blob, metadata: StoredMetadata, issue?: GenerationIssuer): Promise<StoredObject | undefined> {
     const meta = metadata.bucket ? metadata : { ...metadata, bucket: this.bucket };

@@ -1,15 +1,20 @@
 /**
  * Rolling back a canceled upload. A commit that was already sent cannot be
- * recalled, so a cancel that races it deletes what it stored. A canceled
- * upload leaves no object, as the Firebase SDK guarantees, and the task
- * rejects only once that holds.
+ * recalled, so a cancel that races it undoes what it stored. A canceled
+ * upload leaves the path as it found it, as the Firebase SDK guarantees, and
+ * the task rejects only once that holds.
  *
  * Production never stores a canceled upload, so its rules never see a delete
  * for one. The commit therefore asks the host for a rollback token, and the
- * rollback redeems it: the host deletes the generation that commit stored
- * without evaluating rules (#1157). A host that sent no token, or refused it,
- * gets the delete the rules decide instead.
+ * rollback redeems it: without evaluating rules, the host puts back the
+ * object that commit replaced (#1159), or deletes the generation it stored
+ * when it replaced none (#1157). A host that sent no token, or refused it,
+ * gets the delete the rules decide instead. That delete cannot bring back an
+ * object the commit replaced, so when the receipt says it replaced one, the
+ * rollback fails instead and the upload's object stays.
  */
+import { FirebaseError } from 'pyric/app';
+import { canceledRollbackFailed } from 'pyric/storage/internal';
 import type { ClientStorageReference, CommittedUpload } from './storage.js';
 import { deleteObject, rollBackUpload } from './storage.js';
 
@@ -35,25 +40,28 @@ function codeOf(error: unknown): string | undefined {
   return undefined;
 }
 
-/** Roll back by token; false when the host sent none or refused it. */
+/**
+ * Roll back by token; false when the host sent no token or refused it
+ * (`storage/unauthorized`). Any other failure is the rollback's own.
+ */
 async function rolledBackByToken(reference: ClientStorageReference, rollbackToken: string | undefined): Promise<boolean> {
   const hasToken = rollbackToken !== undefined;
   if (!hasToken) return false;
   try {
     await rollBackUpload(reference, rollbackToken);
     return true;
-  } catch {
-    return false;
+  } catch (error: unknown) {
+    const refused = codeOf(error) === 'storage/unauthorized';
+    if (refused) return false;
+    throw error;
   }
 }
 
-/**
- * Delete what a canceled commit stored. An object already gone, or replaced
- * by a later write, is rolled back.
- */
-export async function removeStoredObject(reference: ClientStorageReference, stored: CommittedUpload): Promise<void> {
-  const rolledBack = await rolledBackByToken(reference, stored.rollbackToken);
-  if (rolledBack) return;
+/** Without a token, the delete the rules decide: it undoes a commit that created the object. */
+async function deleteWithRules(reference: ClientStorageReference, stored: CommittedUpload): Promise<void> {
+  if (stored.replacedObject === true) {
+    throw new FirebaseError('storage/unknown', 'The host no longer holds the object this upload replaced, so it cannot be restored.');
+  }
   try {
     await deleteObject(reference);
   } catch (error: unknown) {
@@ -62,16 +70,22 @@ export async function removeStoredObject(reference: ClientStorageReference, stor
   }
 }
 
+/** What the rollback undoes, for the error it fails with. */
+function undoOf(stored: CommittedUpload): 'remove' | 'restore' {
+  if (stored.replacedObject === true) return 'restore';
+  return 'remove';
+}
+
 /**
- * The rejection of a cancel whose rollback failed. It carries the delete's
- * code, not `storage/canceled`, because the object the upload stored is still
- * there, and `storage/canceled` promises it is not.
+ * Undo what a canceled commit stored. An object already gone, or replaced by
+ * a later write, is rolled back. A failure rejects with the error the cancel
+ * ends with, worded for the restore or the removal it was.
  */
-export function rollbackFailedError(reference: ClientStorageReference, cause: unknown): Error & { code: string } {
-  const code = codeOf(cause) ?? 'storage/unknown';
-  const reason = cause instanceof Error ? cause.message : String(cause);
-  const message = `${code}: The upload to '${reference.fullPath}' was canceled after it was stored, and removing it failed: ${reason}`;
-  const error = new Error(message, { cause }) as Error & { code: string };
-  error.code = code;
-  return error;
+export async function removeStoredObject(reference: ClientStorageReference, stored: CommittedUpload): Promise<void> {
+  try {
+    const rolledBack = await rolledBackByToken(reference, stored.rollbackToken);
+    if (!rolledBack) await deleteWithRules(reference, stored);
+  } catch (cause: unknown) {
+    throw canceledRollbackFailed(reference.fullPath, cause, undoOf(stored));
+  }
 }
