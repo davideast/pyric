@@ -49,20 +49,22 @@ function internCaveats(model: ConformanceModel): CaveatTable {
   const intern = (text: string): number => {
     const known = indexByText.get(text);
     if (known !== undefined) return known;
-    indexByText.set(text, caveatText.length);
-    return caveatText.push(text) - 1;
+    const nextIndex = caveatText.length;
+    caveatText.push(text);
+    indexByText.set(text, nextIndex);
+    return nextIndex;
   };
   const supports = model.supports.map(({ claims: _claims, caveats, ...answer }) => ({ ...answer, caveats: caveats.map(intern) }));
   return { caveatText, supports };
 }
 
-/** Render the deliberately compact browser projection. Claims and their full
- * evidence chains stay in the Node projection; browser agents need only the
- * answer, caveats, and route back to generated evidence. */
+/** Render the deliberately compact browser projection. Claims and their
+ * evidence chains stay in the Node projection. Caveats ship whole, and for a
+ * registry row that does not conform they include the row's evidence text. */
 export function renderBrowserQuery(model: ConformanceModel): string {
   const { caveatText, supports } = internCaveats(model);
   return [
-    ...sharedHeader('// Source: the central conformance model; full evidence remains Node-only.', supports),
+    ...sharedHeader('// Source: the central conformance model; claims and their evidence chains remain Node-only.', supports),
     'export interface BrowserFeatureSupport { feature: string; surface: DeveloperSurface; importPaths: readonly string[]; evidenceSlug: string; availability: Availability; fidelity: Fidelity; assurance: Assurance; summary: string; caveats: readonly string[]; }',
     `const CAVEAT_TEXT: readonly string[] = ${JSON.stringify(caveatText)};`,
     `const INTERNED_SUPPORTS: readonly (Omit<BrowserFeatureSupport, 'caveats'> & { caveats: readonly number[] })[] = ${JSON.stringify(supports)};`,
