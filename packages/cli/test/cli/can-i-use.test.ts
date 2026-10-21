@@ -2,21 +2,41 @@ import { describe, expect, it } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 
-const PACKAGE_ROOT = join(import.meta.dir, '..', '..');
-const CLI_ENTRY = join(PACKAGE_ROOT, 'src', 'cli', 'index.ts');
+import { CLI_ENTRY, PACKAGE_ROOT, runCli, runDispatch } from './run-cli.js';
+
 const REJECT_CONFORMANCE_PRELOAD = join(PACKAGE_ROOT, 'test', 'fixtures', 'reject-conformance-preload.ts');
 
-function runCli(args: string[]): { code: number; stdout: string; stderr: string } {
-  const result = spawnSync('bun', [CLI_ENTRY, ...args], {
-    cwd: PACKAGE_ROOT,
-    encoding: 'utf8',
-    timeout: 30_000,
+// Each child `bun` process costs about a second at idle, so these tests spawn
+// the real entry once per behavior and check the remaining inputs through the
+// same parser and dispatcher in this process (#1166).
+
+const NONCANONICAL_SPELLINGS = [
+  'getafter',
+  'GETAFTER',
+  'get-after',
+  'get_after',
+  'getAfter(not canonical)',
+  'Firestore-Rules/getAfter',
+  'firestore_rules/getAfter',
+  'firestore-rules:getAfter',
+  ' getAfter',
+  'getAfter ',
+  'firestore-rules/ getAfter',
+  'firestore-rules/getAfter ',
+] as const;
+
+function expectNoncanonicalRejection(result: { code: number; stdout: string }): void {
+  expect(result.code).toBe(1);
+  expect(JSON.parse(result.stdout)).toMatchObject({
+    match: 'suggestions',
+    supports: [expect.objectContaining({ feature: 'getAfter' })],
   });
-  return {
-    code: result.status ?? -1,
-    stdout: result.stdout ?? '',
-    stderr: result.stderr ?? '',
-  };
+}
+
+function expectUnknownOption(result: { code: number; stdout: string; stderr: string }): void {
+  expect(result.code).toBe(1);
+  expect(result.stdout).toBe('');
+  expect(result.stderr).toContain('unknown option');
 }
 
 describe('can-i-use command', () => {
@@ -45,34 +65,35 @@ describe('can-i-use command', () => {
     });
   });
 
-  it('accepts both documented JSON flag positions', () => {
+  it('accepts both documented JSON flag positions', async () => {
     for (const args of [
       ['can-i-use', 'getAfter', '--json=true'],
       ['can-i-use', '--json', 'getAfter'],
     ]) {
-      const result = runCli(args);
+      const result = await runDispatch(args);
       expect(result.code).toBe(0);
       expect(JSON.parse(result.stdout)).toMatchObject({ match: 'exact' });
     }
   });
 
-  it('rejects unknown and invalid flags instead of silently printing human output', () => {
+  it('rejects an unknown flag from the real CLI entry instead of printing human output', () => {
+    expectUnknownOption(runCli(['can-i-use', 'getAfter', '--jsoon']));
+  });
+
+  it('rejects unknown and invalid flags instead of silently printing human output', async () => {
     for (const flag of ['--jsoon', '--json=banana']) {
-      const result = runCli(['can-i-use', 'getAfter', flag]);
-      expect(result.code).toBe(1);
-      expect(result.stdout).toBe('');
-      expect(result.stderr).toContain('unknown option');
+      expectUnknownOption(await runDispatch(['can-i-use', 'getAfter', flag]));
     }
   });
 
-  it('returns the usage-error status when no feature name is provided', () => {
-    const result = runCli(['can-i-use']);
+  it('returns the usage-error status when no feature name is provided', async () => {
+    const result = await runDispatch(['can-i-use']);
     expect(result.code).toBe(1);
     expect(result.stderr).toContain('provide a developer feature name');
   });
 
-  it('returns a failing status for an unmatched JSON query', () => {
-    const result = runCli(['can-i-use', 'featureThatDoesNotExistAnywhere', '--json']);
+  it('returns a failing status for an unmatched JSON query', async () => {
+    const result = await runDispatch(['can-i-use', 'featureThatDoesNotExistAnywhere', '--json']);
     expect(result.code).toBe(1);
     expect(result.stderr).toBe('');
     expect(JSON.parse(result.stdout)).toEqual({
@@ -82,58 +103,44 @@ describe('can-i-use command', () => {
     });
   });
 
-  it('labels fuzzy matches as suggestions and exits nonzero', () => {
-    const result = runCli(['can-i-use', 'getDown']);
+  it('labels fuzzy matches as suggestions and exits nonzero', async () => {
+    const result = await runDispatch(['can-i-use', 'getDown']);
     expect(result.code).toBe(1);
     expect(result.stdout).toContain('No exact conformance feature matched');
     expect(result.stdout).toContain('storage/getDownloadURL');
     expect(result.stdout).not.toContain('availability:');
   });
 
-  it('rejects noncanonical spelling instead of returning a trust answer', () => {
-    for (const query of [
-      'getafter',
-      'GETAFTER',
-      'get-after',
-      'get_after',
-      'getAfter(not canonical)',
-      'Firestore-Rules/getAfter',
-      'firestore_rules/getAfter',
-      'firestore-rules:getAfter',
-      ' getAfter',
-      'getAfter ',
-      'firestore-rules/ getAfter',
-      'firestore-rules/getAfter ',
-    ]) {
-      const result = runCli(['can-i-use', query, '--json']);
-      expect(result.code).toBe(1);
-      expect(JSON.parse(result.stdout)).toMatchObject({
-        match: 'suggestions',
-        supports: [expect.objectContaining({ feature: 'getAfter' })],
-      });
-    }
-  }, 15_000);
+  it('rejects a noncanonical spelling from the real CLI entry instead of returning a trust answer', () => {
+    expectNoncanonicalRejection(runCli(['can-i-use', 'firestore-rules/getAfter ', '--json']));
+  });
 
-  it('shows ambiguous candidates but never returns a successful trust answer', () => {
+  it('rejects every noncanonical spelling instead of returning a trust answer', async () => {
+    for (const query of NONCANONICAL_SPELLINGS) {
+      expectNoncanonicalRejection(await runDispatch(['can-i-use', query, '--json']));
+    }
+  });
+
+  it('shows ambiguous candidates but never returns a successful trust answer', async () => {
     for (const [args, marker] of [
       [['can-i-use', 'get'], 'matches more than one surface'],
       [['can-i-use', 'get', '--json'], '"match":"ambiguous"'],
     ] as const) {
-      const result = runCli(args);
+      const result = await runDispatch([...args]);
       expect(result.code).toBe(1);
       expect(result.stdout).toContain(marker);
     }
   });
 
-  it('keeps normalized multi-matches in discovery mode', () => {
-    const result = runCli(['can-i-use', 'GET']);
+  it('keeps normalized multi-matches in discovery mode', async () => {
+    const result = await runDispatch(['can-i-use', 'GET']);
     expect(result.code).toBe(1);
     expect(result.stdout).toContain('No exact conformance feature matched');
     expect(result.stdout).not.toContain('availability:');
   });
 
-  it('keeps feature discovery out of rules-fixture verification', () => {
-    const result = runCli(['verify', 'can-i-use', 'getAfter', '--json']);
+  it('keeps feature discovery out of rules-fixture verification', async () => {
+    const result = await runDispatch(['verify', 'can-i-use', 'getAfter', '--json']);
     expect(result.code).not.toBe(0);
     expect(result.stdout).toBe('');
   });
