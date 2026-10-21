@@ -18,7 +18,7 @@ import { getStorageService, targetOf } from './service.js';
 import { uploadBytes, buildStoredMetadata } from './upload.js';
 import { invalidRootOperation, uploadCanceled, type StorageError } from './errors.js';
 import type { StoredObject } from './persistence.js';
-import { canceledRollbackFailed, rollBackCanceledCommit } from './upload-rollback.js';
+import { rollBackCanceledCommit } from './upload-rollback.js';
 
 export type TaskEvent = 'state_changed';
 export type TaskState = 'running' | 'paused' | 'success' | 'canceled' | 'error';
@@ -202,9 +202,10 @@ class UploadTaskImpl implements UploadTask {
   }
 
   /**
-   * Cancel the upload. Observers hear `storage/canceled` at once; the task
-   * rejects once a commit that raced the cancel is rolled back, and with the
-   * rollback's own error when that fails, as the object is then still there.
+   * Cancel the upload. The snapshot is `canceled` at once. Observers and the
+   * promise hear `storage/canceled` together, once a commit that raced the
+   * cancel is rolled back, as the Firebase SDK settles them together. When
+   * the rollback fails they hear its own error, as the object is still there.
    */
   cancel(): boolean {
     let canCancel = false;
@@ -219,15 +220,8 @@ class UploadTaskImpl implements UploadTask {
     }
 
     if (canCancel) {
-      const canceled = uploadCanceled();
-      this._error = canceled;
       this._updateSnapshot('canceled', this._snapshot.bytesTransferred);
-      const rollback = this._rollBackCanceled();
-      this._notifyObservers('error');
-      void rollback.then(
-        () => this._reject(canceled),
-        (failure: unknown) => this._reject(canceledRollbackFailed(this._ref.fullPath, failure)),
-      );
+      void this._rollBackCanceled().then((error) => this._settleCanceled(error));
       return true;
     }
     return false;
@@ -516,7 +510,12 @@ class UploadTaskImpl implements UploadTask {
     }
   }
 
-  /** Report a settled commit, or hold it while paused; a cancel rolls it back itself. */
+  /**
+   * Report a settled commit, or hold it while paused; a cancel rolls it back
+   * itself. While a commit is held, readers already see the object and its
+   * `object_put` event has fired, before the task reports success, as in the
+   * worker client.
+   */
   private _settleCommit(outcome: CommitOutcome): void {
     const state = this._snapshot.state;
     const isRunning = state === 'running';
@@ -553,6 +552,13 @@ class UploadTaskImpl implements UploadTask {
     this._fail(outcome.error);
   }
 
+  /** Tell observers and the promise how the cancel ended, together. */
+  private _settleCanceled(error: Error): void {
+    this._error = error;
+    this._notifyObservers('error');
+    this._reject(error);
+  }
+
   private _fail(err: unknown): void {
     let errObj: Error;
     const isInstanceOfError = err instanceof Error;
@@ -570,16 +576,17 @@ class UploadTaskImpl implements UploadTask {
   /**
    * Undo what a canceled upload stored: wait for a sent commit, then roll
    * back the generation it wrote, whether it settled while paused or settles
-   * after the cancel.
+   * after the cancel. Resolves the error the cancel ends with.
    */
-  private async _rollBackCanceled(): Promise<void> {
+  private async _rollBackCanceled(): Promise<Error> {
     const held = this._heldOutcome;
     this._heldOutcome = undefined;
     const outcome = held ?? (await this._sentCommit);
     const stored = outcome !== undefined && 'stored' in outcome;
-    if (!stored) return;
+    if (!stored) return uploadCanceled();
     const commit = { generation: outcome.stored.result.metadata.generation, prior: outcome.stored.prior };
-    await rollBackCanceledCommit(this._ref, commit, this._provenance);
+    const failed = await rollBackCanceledCommit(this._ref, commit, this._provenance);
+    return failed ?? uploadCanceled();
   }
 }
 

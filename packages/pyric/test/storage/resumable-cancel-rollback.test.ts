@@ -9,7 +9,7 @@
  * then reads the path would see the object if the task rejected first.
  */
 import 'fake-indexeddb/auto';
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect, setSystemTime } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import {
   getStorageSandbox,
@@ -64,20 +64,29 @@ interface CommitHook {
   afterCommitStored(): Promise<void> | void;
 }
 
+interface HookedBackend {
+  readonly backend: StorageBackend;
+  /** The generation of every write of `size` bytes: the task's commits. */
+  readonly commitGenerations: string[];
+}
+
 /**
  * Hook the backend so `hook` runs once the commit of `size` bytes is stored,
  * and every write after it is slowed, as a rollback over a slow disk is.
  */
-async function hookCommit(storage: FirebaseStorage, size: number, hook: CommitHook): Promise<StorageBackend> {
+async function hookCommit(storage: FirebaseStorage, size: number, hook: CommitHook): Promise<HookedBackend> {
   const backend = (await getStorageService(storage)).backend;
   const put = backend.put.bind(backend);
   const remove = backend.delete.bind(backend);
+  const commitGenerations: string[] = [];
   let fired = false;
   backend.put = async (path, blob, metadata) => {
     if (fired) await delay(ROLLBACK_DELAY_MS);
     await put(path, blob, metadata);
-    const isTheCommit = !fired && blob.size === size;
-    if (isTheCommit) {
+    const isACommit = blob.size === size;
+    if (isACommit) commitGenerations.push(metadata.generation);
+    const isTheFirstCommit = isACommit && !fired;
+    if (isTheFirstCommit) {
       fired = true;
       await hook.afterCommitStored();
     }
@@ -86,7 +95,26 @@ async function hookCommit(storage: FirebaseStorage, size: number, hook: CommitHo
     if (fired) await delay(ROLLBACK_DELAY_MS);
     await remove(path, bucket);
   };
-  return backend;
+  return { backend, commitGenerations };
+}
+
+/** The error code an observer heard, and what its read of the path found. */
+interface ObserverRead {
+  readonly code: string;
+  readonly read: number[] | string | undefined;
+}
+
+/** Read `fileRef` from an error observer, as an app's error handler would. */
+function readOnError(task: UploadTask, fileRef: StorageReference): Promise<ObserverRead> {
+  return new Promise((resolve) => {
+    task.on('state_changed', null, (error) => {
+      const code = (error as { code: string }).code;
+      void getBytes(fileRef).then(
+        (buffer) => resolve({ code, read: [...new Uint8Array(buffer)] }),
+        (failure: { code?: string }) => resolve({ code, read: failure.code }),
+      );
+    });
+  });
 }
 
 async function bytesAt(fileRef: StorageReference): Promise<number[]> {
@@ -105,23 +133,37 @@ describe('a canceled in-page upload rolls back before it rejects (#1161)', () =>
     const storage = freshStorage('new-object');
     const fileRef = ref(storage, 'cancel/new.bin');
     let task: UploadTask | undefined;
-    const observed: string[] = [];
-    let canceledReturned: boolean | undefined;
+    const atCancel: string[] = [];
     await hookCommit(storage, 4, {
       afterCommitStored() {
-        canceledReturned = task?.cancel();
-        observed.push(task?.snapshot.state ?? 'none');
+        atCancel.push(String(task?.cancel()), task?.snapshot.state ?? 'none');
       },
     });
     task = uploadBytesResumable(fileRef, new Uint8Array([1, 2, 3, 4]));
-    task.on('state_changed', null, (error) => observed.push((error as { code: string }).code));
 
     const rejection = await rejectionOf(task);
 
-    expect(canceledReturned).toBe(true);
-    expect(observed).toEqual(['storage/canceled', 'canceled']);
+    expect(atCancel).toEqual(['true', 'canceled']);
     expect(rejection.code).toBe('storage/canceled');
     await expect(getMetadata(fileRef)).rejects.toMatchObject({ code: 'storage/object-not-found' });
+  });
+
+  it('tells error observers once the rollback is done, so a read from the observer finds no object', async () => {
+    const storage = freshStorage('observer-read');
+    const fileRef = ref(storage, 'cancel/observer-read.bin');
+    let task: UploadTask | undefined;
+    let lateObserver: Promise<ObserverRead> | undefined;
+    await hookCommit(storage, 4, {
+      afterCommitStored() {
+        task?.cancel();
+        if (task !== undefined) lateObserver = readOnError(task, fileRef);
+      },
+    });
+    task = uploadBytesResumable(fileRef, new Uint8Array([1, 2, 3, 4]));
+    const observer = readOnError(task, fileRef);
+
+    expect(await observer).toEqual({ code: 'storage/canceled', read: 'storage/object-not-found' });
+    expect(await lateObserver).toEqual({ code: 'storage/canceled', read: 'storage/object-not-found' });
   });
 
   it('restores the earlier object once the rejection of a canceled overwrite is seen', async () => {
@@ -158,6 +200,30 @@ describe('a canceled in-page upload rolls back before it rejects (#1161)', () =>
     expect(await bytesAt(fileRef)).toEqual([5, 5]);
   });
 
+  // Depends on #1160: under a frozen clock the newer write mints the same
+  // generation as the canceled commit, so the rollback cannot tell them apart.
+  it.todo('keeps a newer write that landed in the same millisecond as the canceled commit', async () => {
+    setSystemTime(new Date('2026-10-21T00:00:00.000Z'));
+    try {
+      const storage = freshStorage('same-millisecond');
+      const fileRef = ref(storage, 'cancel/same-millisecond.bin');
+      let task: UploadTask | undefined;
+      await hookCommit(storage, 4, {
+        async afterCommitStored() {
+          task?.cancel();
+          await uploadBytes(fileRef, new Uint8Array([5, 5]));
+        },
+      });
+      task = uploadBytesResumable(fileRef, new Uint8Array([1, 2, 3, 4]));
+
+      expect((await rejectionOf(task)).code).toBe('storage/canceled');
+
+      expect(await bytesAt(fileRef)).toEqual([5, 5]);
+    } finally {
+      setSystemTime();
+    }
+  });
+
   it('keeps a newer write over a canceled overwrite instead of restoring the earlier object', async () => {
     const storage = freshStorage('newer-over-overwrite');
     const fileRef = ref(storage, 'cancel/newer-overwrite.bin');
@@ -185,7 +251,7 @@ describe('a canceled in-page upload rolls back before it rejects (#1161)', () =>
     let task: UploadTask | undefined;
     let stored!: () => void;
     const commitStored = new Promise<void>((resolve) => { stored = resolve; });
-    await hookCommit(storage, 4, {
+    const hooked = await hookCommit(storage, 4, {
       afterCommitStored() {
         task?.pause();
         stored();
@@ -194,11 +260,13 @@ describe('a canceled in-page upload rolls back before it rejects (#1161)', () =>
     task = uploadBytesResumable(fileRef, new Uint8Array([1, 2, 3, 4]));
     await commitStored;
     expect(task.snapshot.state).toBe('paused');
+    await delay(ROLLBACK_DELAY_MS * 2);
 
     expect(task.cancel()).toBe(true);
     expect((await rejectionOf(task)).code).toBe('storage/canceled');
 
     await expect(getMetadata(fileRef)).rejects.toMatchObject({ code: 'storage/object-not-found' });
+    expect(hooked.commitGenerations).toHaveLength(1);
   });
 
   it('reports a commit that stored while paused once the task resumes', async () => {
@@ -207,7 +275,7 @@ describe('a canceled in-page upload rolls back before it rejects (#1161)', () =>
     let task: UploadTask | undefined;
     let stored!: () => void;
     const commitStored = new Promise<void>((resolve) => { stored = resolve; });
-    await hookCommit(storage, 4, {
+    const hooked = await hookCommit(storage, 4, {
       afterCommitStored() {
         task?.pause();
         stored();
@@ -221,27 +289,81 @@ describe('a canceled in-page upload rolls back before it rejects (#1161)', () =>
     const done = await task;
 
     expect(done.state).toBe('success');
+    expect(hooked.commitGenerations).toEqual([done.metadata.generation]);
     expect((await getMetadata(fileRef)).generation).toBe(done.metadata.generation);
     expect(await bytesAt(fileRef)).toEqual([1, 2, 3, 4]);
   });
 
-  it('rejects with the rollback delete\'s own error when that delete fails', async () => {
+  it('ends with the rollback delete\'s own error, for observers and the promise alike, when that delete fails', async () => {
     const storage = freshStorage('rollback-fails');
     const fileRef = ref(storage, 'cancel/rollback-fails.bin');
     let task: UploadTask | undefined;
-    const observed: string[] = [];
-    const backend = await hookCommit(storage, 4, { afterCommitStored: () => { task?.cancel(); } });
+    const { backend } = await hookCommit(storage, 4, { afterCommitStored: () => { task?.cancel(); } });
     backend.delete = async () => {
-      throw Object.assign(new Error('The disk is full.'), { code: 'storage/retry-limit-exceeded' });
+      throw diskFull();
     };
     task = uploadBytesResumable(fileRef, new Uint8Array([1, 2, 3, 4]));
-    task.on('state_changed', null, (error) => observed.push((error as { code: string }).code));
+    const observer = readOnError(task, fileRef);
+
+    const rejection = await rejectionOf(task);
+    const late = await readOnError(task, fileRef);
+
+    expect(rejection.code).toBe('storage/retry-limit-exceeded');
+    expect(String((rejection as Error).message)).toContain("'cancel/rollback-fails.bin' was canceled after it was stored, and removing it failed");
+    expect(await observer).toEqual({ code: 'storage/retry-limit-exceeded', read: [1, 2, 3, 4] });
+    expect(late).toEqual({ code: 'storage/retry-limit-exceeded', read: [1, 2, 3, 4] });
+  });
+
+  it('says it was restoring the earlier object when that restore fails', async () => {
+    const storage = freshStorage('restore-fails');
+    const fileRef = ref(storage, 'cancel/restore-fails.bin');
+    await uploadBytes(fileRef, new Uint8Array([7, 7, 7]));
+    let task: UploadTask | undefined;
+    const { backend } = await hookCommit(storage, 4, { afterCommitStored: () => { task?.cancel(); } });
+    const put = backend.put;
+    backend.put = async (path, blob, metadata) => {
+      const isTheRestore = blob.size === 3;
+      if (isTheRestore) throw diskFull();
+      await put(path, blob, metadata);
+    };
+    task = uploadBytesResumable(fileRef, new Uint8Array([9, 9, 9, 9]));
 
     const rejection = await rejectionOf(task);
 
-    expect(observed).toEqual(['storage/canceled']);
     expect(rejection.code).toBe('storage/retry-limit-exceeded');
-    expect(String((rejection as Error).message)).toContain("'cancel/rollback-fails.bin'");
-    expect(await bytesAt(fileRef)).toEqual([1, 2, 3, 4]);
+    expect(String((rejection as Error).message)).toContain('and restoring the object it replaced failed');
+  });
+
+  it('records the restore of the earlier object as an object_put', async () => {
+    const sandbox = initializeSandbox({});
+    const dbName = `pyric-storage-cancel-rollback-events-${Math.random().toString(36).slice(2, 10)}`;
+    const storage = getStorageSandbox(sandbox, { dbName, rules: OPEN_RULES });
+    const fileRef = ref(storage, 'cancel/restore-event.bin');
+    await uploadBytes(fileRef, new Uint8Array([7, 7, 7]));
+    const earlier = await getMetadata(fileRef);
+    let task: UploadTask | undefined;
+    await hookCommit(storage, 4, { afterCommitStored: () => { task?.cancel(); } });
+    task = uploadBytesResumable(fileRef, new Uint8Array([9, 9, 9, 9]));
+    await rejectionOf(task);
+
+    const events = storageMutationsAt(sandbox.history(), 'cancel/restore-event.bin');
+    expect(events.map((event) => event.op)).toEqual(['object_put', 'object_put', 'object_put']);
+    expect(events[2]?.after).toMatchObject({ generation: earlier.generation, size: 3 });
   });
 });
+
+function diskFull(): Error {
+  return Object.assign(new Error('The disk is full.'), { code: 'storage/retry-limit-exceeded' });
+}
+
+interface StorageMutation {
+  readonly op: string;
+  readonly after?: { generation?: string; size?: number };
+}
+
+function storageMutationsAt(history: readonly unknown[], path: string): StorageMutation[] {
+  const mutations = history as readonly { kind?: string; service?: string; path?: string }[];
+  return mutations
+    .filter((event) => event.kind === 'service_mutation' && event.service === 'storage' && event.path === path)
+    .map((event) => event as StorageMutation);
+}
