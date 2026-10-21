@@ -26,6 +26,7 @@ import {
   sendBeaconRequest,
   type BeaconReport,
 } from '../../src/register/beacon.js';
+import { closedPort } from '../closed-port.js';
 
 const report: BeaconReport = {
   pid: 4242,
@@ -226,10 +227,10 @@ describe('sendBeaconRequest', () => {
     }
   });
 
-  it('never throws at a refused endpoint', () => {
-    // Port 1 is reliably not listening.
+  it('never throws at a refused endpoint', async () => {
+    const port = await closedPort();
     expect(() =>
-      sendBeaconRequest(`http://127.0.0.1:1${BEACON_PATH}`, '{}', 'launch-secret'),
+      sendBeaconRequest(`http://127.0.0.1:${port}${BEACON_PATH}`, '{}', 'launch-secret'),
     ).not.toThrow();
   });
 });
