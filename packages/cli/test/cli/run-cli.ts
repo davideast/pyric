@@ -13,8 +13,9 @@ export const PACKAGE_ROOT = join(import.meta.dir, '..', '..');
 export const CLI_ENTRY = join(PACKAGE_ROOT, 'src', 'cli', 'index.ts');
 
 /** Runs the real CLI entry in a child `bun` process. Each call costs a cold
- * start (about a second at idle), so a test that checks many inputs runs one
- * here as integration evidence and the rest through {@link runDispatch}. */
+ * start (about 0.4 s at idle, over 1 s under load), so a test that checks
+ * many inputs runs one here as integration evidence and the rest through
+ * {@link runDispatch}. */
 export function runCli(args: string[], input?: string): CliRun {
   const result = spawnSync('bun', [CLI_ENTRY, ...args], {
     cwd: PACKAGE_ROOT,
@@ -31,7 +32,8 @@ export function runCli(args: string[], input?: string): CliRun {
 
 /** Runs the same argument parser and dispatcher the CLI entry runs, in this
  * process, capturing what the command writes. The returned code is the one
- * the entry passes to `process.exit`. */
+ * the entry passes to `process.exit`. It captures only `process.stdout.write`
+ * and `process.stderr.write`, not `console.*`. */
 export async function runDispatch(args: string[]): Promise<CliRun> {
   let stdout = '';
   let stderr = '';

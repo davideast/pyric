@@ -2,13 +2,14 @@ import { describe, expect, it } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 
-import { CLI_ENTRY, PACKAGE_ROOT, runCli, runDispatch } from './run-cli.js';
+import { CLI_ENTRY, type CliRun, PACKAGE_ROOT, runCli, runDispatch } from './run-cli.js';
 
 const REJECT_CONFORMANCE_PRELOAD = join(PACKAGE_ROOT, 'test', 'fixtures', 'reject-conformance-preload.ts');
 
-// Each child `bun` process costs about a second at idle, so these tests spawn
-// the real entry once per behavior and check the remaining inputs through the
-// same parser and dispatcher in this process (#1166).
+// Each child `bun` process costs about 0.4 s at idle and over 1 s under
+// load, so these tests spawn the real entry once per behavior and check the
+// remaining inputs through the same parser and dispatcher in this process
+// (#1166).
 
 const NONCANONICAL_SPELLINGS = [
   'getafter',
@@ -76,6 +77,13 @@ describe('can-i-use command', () => {
     }
   });
 
+  it('prints human output when the JSON flag is false', async () => {
+    const result = await runDispatch(['can-i-use', 'getAfter', '--json=false']);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('availability:');
+    expect(() => JSON.parse(result.stdout)).toThrow();
+  });
+
   it('rejects an unknown flag from the real CLI entry instead of printing human output', () => {
     expectUnknownOption(runCli(['can-i-use', 'getAfter', '--jsoon']));
   });
@@ -140,7 +148,16 @@ describe('can-i-use command', () => {
   });
 
   it('keeps feature discovery out of rules-fixture verification', async () => {
-    const result = await runDispatch(['verify', 'can-i-use', 'getAfter', '--json']);
+    // runVerify resolves its fixture path against process.cwd(), so pin the
+    // cwd to the one the spawned CLI used.
+    const previousCwd = process.cwd();
+    process.chdir(PACKAGE_ROOT);
+    let result: CliRun;
+    try {
+      result = await runDispatch(['verify', 'can-i-use', 'getAfter', '--json']);
+    } finally {
+      process.chdir(previousCwd);
+    }
     expect(result.code).not.toBe(0);
     expect(result.stdout).toBe('');
   });
