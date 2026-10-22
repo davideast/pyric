@@ -286,6 +286,7 @@ const adminRows: CompatibilityRow[] = [
   row({
     plane: 'app-check-admin',
     rowRef: 'create-token-shape',
+    flipped: 'oracle-backed',
     section: SEC_ADMIN,
     api: 'getAppCheck().createToken(appId)',
     featureKeys: ['createToken'],
@@ -296,6 +297,7 @@ const adminRows: CompatibilityRow[] = [
   row({
     plane: 'app-check-admin',
     rowRef: 'create-token-ttl',
+    flipped: 'oracle-backed',
     section: SEC_ADMIN,
     api: 'getAppCheck().createToken(appId, { ttlMillis })',
     featureKeys: ['createToken'],
@@ -307,17 +309,20 @@ const adminRows: CompatibilityRow[] = [
   row({
     plane: 'app-check-admin',
     rowRef: 'create-token-unknown-app',
+    diverged: 'by-design',
     section: SEC_ADMIN,
     api: 'getAppCheck().createToken(unknownAppId)',
     featureKeys: ['createToken'],
-    behavior: 'An app id the project does not own rejects with `app-check/unknown-error` and the message `App not registered: <appId>.`',
-    evidence: 'capture `app-check-admin-create-token-unknown-app`.',
+    behavior: 'Production: an app id the project does not own rejects with `app-check/unknown-error` and the message `App not registered: <appId>.` Sandbox: it has no list of the project\'s registered apps, so it mints a token for any non-empty app id; an empty app id rejects with `app-check/invalid-argument`.',
+    evidence: 'capture `app-check-admin-create-token-unknown-app`; the sandbox side is pinned in the admin suite.',
     observations: ['app-check-admin-create-token-unknown-app'],
     errorText: true,
+    notes: 'Divergence, by design: the sandbox does not model Firebase app registrations. A project config that lists app ids would let it refuse unknown ones.',
   }),
   row({
     plane: 'app-check-admin',
     rowRef: 'verify-token',
+    flipped: 'oracle-backed',
     section: SEC_ADMIN,
     api: 'getAppCheck().verifyToken(token)',
     featureKeys: ['verifyToken'],
@@ -328,6 +333,7 @@ const adminRows: CompatibilityRow[] = [
   row({
     plane: 'app-check-admin',
     rowRef: 'verify-token-rejections',
+    flipped: 'oracle-backed',
     section: SEC_ADMIN,
     api: 'getAppCheck().verifyToken(badToken)',
     featureKeys: ['verifyToken'],
@@ -339,6 +345,7 @@ const adminRows: CompatibilityRow[] = [
   row({
     plane: 'app-check-admin',
     rowRef: 'verify-token-consume',
+    flipped: 'oracle-backed',
     section: SEC_ADMIN,
     api: 'getAppCheck().verifyToken(token, { consume: true })',
     featureKeys: ['verifyToken'],

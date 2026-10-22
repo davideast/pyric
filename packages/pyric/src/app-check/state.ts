@@ -3,7 +3,10 @@
  * token listeners. Keyed by the app object, as upstream keys it.
  */
 import type { FirebaseApp } from '../app/types.js';
-import { mintToken, type MintedToken } from './token.js';
+import { mintAppCheckToken, type MintedAppCheckToken as MintedToken } from '../sandbox/internal/app-check-token.js';
+
+/** Web App Check tokens live one hour (capture `app-check-client-debug-get-token`). */
+const TTL_SECONDS = 3600;
 import type { AppCheckProvider } from './providers.js';
 
 export interface AppCheckTokenResult {
@@ -53,18 +56,18 @@ function isValid(token: MintedToken | null, nowMillis: number): token is MintedT
   return token !== null && token.expireTimeMillis > nowMillis;
 }
 
-export function cachedOrMint(app: FirebaseApp, state: AppCheckState, forceRefresh: boolean): AppCheckTokenResult {
+export async function cachedOrMint(app: FirebaseApp, state: AppCheckState, forceRefresh: boolean): Promise<AppCheckTokenResult> {
   const now = Date.now();
   const reuse = !forceRefresh && isValid(state.cached, now);
   if (reuse) return { token: state.cached!.token };
-  state.cached = mintToken(identityOf(app), now);
+  state.cached = await mintAppCheckToken(identityOf(app), TTL_SECONDS, now);
   const result = { token: state.cached.token };
   notify(state.observers, result);
   return result;
 }
 
-export function mintLimitedUse(app: FirebaseApp): AppCheckTokenResult {
-  return { token: mintToken(identityOf(app)).token };
+export async function mintLimitedUse(app: FirebaseApp): Promise<AppCheckTokenResult> {
+  return { token: (await mintAppCheckToken(identityOf(app), TTL_SECONDS)).token };
 }
 
 export function addObserver(state: AppCheckState, observer: TokenObserver): () => void {

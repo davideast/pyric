@@ -14,6 +14,7 @@ import { appCheckRows } from '../../../conformance/registry/app-check.ts';
 import { createObservationGate } from '../../../conformance/src/observation-gate.ts';
 import { jwtShape, tamperSignature, type Secrets } from '../../../conformance/src/capture/app-check/redact.ts';
 import { initializeSandbox } from 'pyric/sandbox';
+import { mintAppCheckToken } from 'pyric/sandbox/internal';
 import { deleteApp, getApps, initializeApp } from '../../src/app/index.js';
 import { getAppCheck } from '../../src/app-check/index.js';
 
@@ -67,22 +68,33 @@ const assertions: Record<string, () => Promise<void>> = {
   },
   'app-check-admin#create-token-unknown-app': async () => {
     const o = obs('app-check-admin-create-token-unknown-app');
+    // Divergence, by design (row app-check-admin#create-token-unknown-app).
+    // Production refuses an app id the project does not own:
+    expect(o).toEqual({ threw: true, code: 'app-check/unknown-error', message: 'App not registered: 1:<projectNumber>:web:0000000000000000000000.' });
+    // The sandbox has no app registrations, so it mints for any non-empty id,
+    // and refuses only an empty one.
+    const service = appCheck();
     const unknown = `1:${PROJECT_NUMBER}:web:0000000000000000000000`;
-    const actual = await rejection(() => appCheck().createToken(unknown));
-    expect({ ...actual, message: actual.threw ? (actual as { message: string }).message.replace(PROJECT_NUMBER, '<projectNumber>') : '' }).toEqual(o);
+    const minted = await service.createToken(unknown);
+    expect(jwtShape(minted.token, { ...SECRETS, appId: unknown }).subEqualsAppId).toBe(true);
+    expect(await rejection(() => service.createToken(''))).toEqual({ threw: true, code: 'app-check/invalid-argument', message: '`appId` must be a non-empty string.' });
   },
   'app-check-admin#verify-token': async () => {
     const o = obs('app-check-admin-verify-token');
     const service = appCheck();
     const { token } = await service.createToken(APP_ID);
-    const result = await service.verifyToken(token);
-    expect({
+    const describeResult = (result: Awaited<ReturnType<AdminAppCheck['verifyToken']>>) => ({
       resultKeySet: Object.keys(result).sort(),
       appIdEqualsConfig: result.appId === APP_ID,
       decodedClaimNames: Object.keys(result.token).sort(),
       decodedAppIdEqualsConfig: result.token.app_id === APP_ID,
       alreadyConsumed: result.alreadyConsumed ?? null,
-    }).toEqual(o.adminMinted);
+    });
+    expect(describeResult(await service.verifyToken(token))).toEqual(o.adminMinted);
+    // A web-plane token: pyric/app-check's getToken mints through this same
+    // shared function, as production's debug exchange mints tokens Admin verifies.
+    const web = await mintAppCheckToken({ appId: APP_ID, projectId: PROJECT_ID }, 3600);
+    expect(describeResult(await service.verifyToken(web.token))).toEqual(o.debugExchanged);
   },
   'app-check-admin#verify-token-rejections': async () => {
     const o = obs('app-check-admin-verify-tampered');

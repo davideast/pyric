@@ -73,7 +73,7 @@ A SharedWorker can outlive a Vite module update, so a refreshed page may otherwi
 
 For a Node child process, `pyric sandbox` sets `PYRIC_SANDBOX` and preloads `@pyric/cli/register`, which maps `firebase/*` to `pyric/*` and `firebase-admin/*` to `pyric-admin/*` for that process. The rule is the same as the browser. With activation present, it uses the sandbox. Without activation, it uses Firebase.
 
-Every `firebase-admin/*` subpath maps into `pyric-admin`, including the services the sandbox does not model, such as `firebase-admin/app-check`, `firebase-admin/remote-config`, and `firebase-admin/security-rules`. Those subpaths resolve, their exports link, and `get<Service>(app)` (or `admin.<service>(app)`) returns an `App`-bound handle without network calls so servers that initialize unmodeled services at module load start cleanly. Calling a method on that handle (or using a non-service export directly) fails with `PyricDeferredApiError`, naming the symbol and subpath:
+Every `firebase-admin/*` subpath maps into `pyric-admin`, including the services the sandbox does not model, such as `firebase-admin/remote-config`, `firebase-admin/security-rules`, and `firebase-admin/installations`. Those subpaths resolve, their exports link, and `get<Service>(app)` (or `admin.<service>(app)`) returns an `App`-bound handle without network calls so servers that initialize unmodeled services at module load start cleanly. Calling a method on that handle (or using a non-service export directly) fails with `PyricDeferredApiError`, naming the symbol and subpath:
 
 ```text
 pyric-admin/remote-config: RemoteConfig.getTemplate is not implemented in pyric-admin/remote-config sandbox backend. The sandbox does not model this API; calls fail with this message.

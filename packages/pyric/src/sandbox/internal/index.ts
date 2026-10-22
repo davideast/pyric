@@ -221,3 +221,12 @@ export {
   processActivation,
   type ProcessActivation,
 } from './process-activation.js';
+export {
+  appCheckProjectNumber,
+  checkAppCheckToken,
+  mintAppCheckToken,
+  type AppCheckIdentity,
+  type AppCheckTokenCheck,
+  type AppCheckTokenClaims,
+  type MintedAppCheckToken,
+} from './app-check-token.js';
