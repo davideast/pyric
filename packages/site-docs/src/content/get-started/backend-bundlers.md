@@ -145,11 +145,13 @@ Add your bundler watch script and server runner to `package.json`:
 ```json
 {
   "scripts": {
-    "dev": "rolldown -c -w & node --watch dist/server.js",
+    "dev": "rolldown -c && (rolldown -c -w & node --watch dist/server.js)",
     "build": "rolldown -c"
   }
 }
 ```
+
+The first `rolldown -c` writes `dist/server.js` before `node --watch` starts, so a clean checkout with no `dist` starts too.
 
 Launch your application with `pyric sandbox`, naming the command after `--`:
 
@@ -165,7 +167,7 @@ npx pyric sandbox --hosted -- npm run dev
 
 ## 4. Unbundled workflows (no bundler needed)
 
-If your development workflow does not bundle dependencies into an intermediate file—for example, if you run TypeScript files directly with `tsx` or native Node:
+If your development workflow does not bundle dependencies into an intermediate file, for example when you run TypeScript files directly with `tsx` or native Node:
 
 ```json
 {

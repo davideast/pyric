@@ -69,7 +69,7 @@ Browser (http://localhost:3000)
   └── SharedWorker Sandbox ──> Direct WebSocket    ──> Pyric Dev Host (Port 3473)
 ```
 
-1. **Single-Origin Browser Access**: Your app and Studio both load from your Next.js application port (`http://localhost:3000`). Next.js HTTP rewrites seamlessly proxy Pyric (`/__pyric/*`) and Studio (`/__pyric/ui/studio`) through that single port. Because your app and Studio share this exact origin, they share the single browser `SharedWorker` that holds your active Firestore data and IndexedDB persistence.
+1. **Single-Origin Browser Access**: Your app and Studio both load from your Next.js application port (`http://localhost:3000`). Next.js HTTP rewrites proxy Pyric (`/__pyric/*`) and Studio (`/__pyric/ui/studio`) through that single port. Because your app and Studio share this exact origin, they share the single browser `SharedWorker` that holds your active Firestore data and IndexedDB persistence.
 2. **Direct WebSocket Synchrony**: Next.js development rewrites proxy standard HTTP traffic but cannot forward WebSockets (`Upgrade: websocket`). To synchronize real-time edits between your open browser tab and server-side Route Handlers, the browser runtime bypasses the rewrite proxy to connect its WebSocket bridge directly to port 3473.
 
 ## Server-side Admin SDK queries
@@ -96,7 +96,7 @@ export async function GET() {
 Where the call lands depends on the sandbox:
 
 - **Node host (recommended for server code):** Set your dev script to `pyric sandbox --hosted -- next dev`. Route handlers and server components reach the Node host directly, with no browser open. See [Node host mode](./node-host.md).
-- **SharedWorker sandbox (the default):** Admin calls run in a browser tab connected to the sandbox. Until one connects, and again after the last one closes, they fail with `unavailable` and `no browser tab is connected to the sandbox`. The error names the page to open, `http://localhost:3473` by default. Keep that tab open while your server code runs.
+- **SharedWorker sandbox (the default):** Admin calls run in your app's browser tab, against the same data the app sees. Keep your app open at `http://localhost:3000` while your server code runs. With no app tab open, or after the last one closes, they fail with `unavailable` and `no browser tab is connected to the sandbox`.
 
 ## Configure or disable the runtime chip
 
