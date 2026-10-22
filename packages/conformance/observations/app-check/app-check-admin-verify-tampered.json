@@ -1,0 +1,27 @@
+{
+  "name": "app-check-admin-verify-tampered",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "verifyToken rejections: a minted token with one signature character changed, the string not-a-jwt, and the empty string. rowIds empty: the app-check surface is climbing under CDD and this capture is parked in exceptions/ until a row cites it.",
+  "observedAt": "2026-10-22T03:09:04.634Z",
+  "fbSdkVersion": "12.13.0",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "tamperedSignature": {
+      "threw": true,
+      "code": "app-check/invalid-argument",
+      "message": "The provided App Check token has invalid signature."
+    },
+    "notJwt": {
+      "threw": true,
+      "code": "app-check/invalid-argument",
+      "message": "Decoding App Check token failed. Make sure you passed the entire string JWT which represents the Firebase App Check token."
+    },
+    "emptyString": {
+      "threw": true,
+      "code": "app-check/invalid-argument",
+      "message": "Decoding App Check token failed. Make sure you passed the entire string JWT which represents the Firebase App Check token."
+    }
+  }
+}

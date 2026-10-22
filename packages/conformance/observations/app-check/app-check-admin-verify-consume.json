@@ -1,0 +1,35 @@
+{
+  "name": "app-check-admin-verify-consume",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Replay protection through verifyToken(token, { consume: true }) on a fresh Admin-minted token: the first call, a second consume, and a plain verify after consumption. rowIds empty: the app-check surface is climbing under CDD and this capture is parked in exceptions/ until a row cites it.",
+  "observedAt": "2026-10-22T03:10:05.272Z",
+  "fbSdkVersion": "12.13.0",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "firstConsume": {
+      "resultKeySet": [
+        "alreadyConsumed",
+        "appId",
+        "token"
+      ],
+      "alreadyConsumed": false
+    },
+    "secondConsume": {
+      "resultKeySet": [
+        "alreadyConsumed",
+        "appId",
+        "token"
+      ],
+      "alreadyConsumed": true
+    },
+    "plainVerifyAfterConsume": {
+      "resultKeySet": [
+        "appId",
+        "token"
+      ],
+      "alreadyConsumed": null
+    }
+  }
+}

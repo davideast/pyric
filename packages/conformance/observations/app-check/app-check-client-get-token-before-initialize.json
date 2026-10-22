@@ -1,0 +1,102 @@
+{
+  "name": "app-check-client-get-token-before-initialize",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Public getToken passed an object whose app never called initializeAppCheck, and initializeAppCheck called after firebase/ai already built a model on the app, followed by getToken and one generateContent whose X-Firebase-AppCheck header is recorded. rowIds empty: the app-check surface is climbing under CDD and this capture is parked in exceptions/ until a row cites it.",
+  "observedAt": "2026-10-22T03:10:07.486Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "publicGetTokenWithUninitializedApp": {
+      "threw": true,
+      "name": "FirebaseError",
+      "code": "appCheck/use-before-activation",
+      "message": "AppCheck: App Check is being used before initializeAppCheck() is called for FirebaseApp before. Call initializeAppCheck() before instantiating other Firebase services. (appCheck/use-before-activation).",
+      "customDataKeys": [
+        "appName"
+      ],
+      "customData": {
+        "appName": "before"
+      }
+    },
+    "initializeAfterAi": {
+      "threw": false
+    },
+    "getTokenAfterLateInitialize": {
+      "keySet": [
+        "token"
+      ],
+      "token": {
+        "length": 932,
+        "segmentCount": 3,
+        "isJwt": true,
+        "headerKeySet": [
+          "alg",
+          "kid",
+          "typ"
+        ],
+        "alg": "RS256",
+        "typ": "JWT",
+        "kidPresent": true,
+        "claimNames": [
+          "aud",
+          "exp",
+          "iat",
+          "iss",
+          "jti",
+          "provider",
+          "sub"
+        ],
+        "issShape": "https://firebaseappcheck.googleapis.com/<projectNumber>",
+        "audShape": [
+          "projects/<projectNumber>",
+          "projects/genkit-idx"
+        ],
+        "subEqualsAppId": true,
+        "ttlSeconds": 3600,
+        "hasJti": true
+      },
+      "error": null,
+      "internalError": null
+    },
+    "aiGenerationAfterLateInitialize": {
+      "threw": true,
+      "name": "FirebaseError",
+      "code": "fetch-error",
+      "message": "AI: Error fetching from https://firebasevertexai.googleapis.com/v1beta/projects/genkit-idx/models/gemini-flash-lite-latest:generateContent: [403 Forbidden] Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check (AI/fetch-error)",
+      "customDataKeys": [],
+      "customData": null
+    },
+    "aiRequestAfterLateInitialize": {
+      "requestSeen": true,
+      "path": "/v1beta/projects/genkit-idx/models/gemini-flash-lite-latest:generateContent",
+      "headerNames": [
+        "accept",
+        "content-type",
+        "origin",
+        "referer",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "user-agent",
+        "x-firebase-appid",
+        "x-goog-api-client",
+        "x-goog-api-key"
+      ],
+      "appCheckHeaderPresent": false,
+      "appCheckHeaderShape": null,
+      "appCheckHeaderIsSdkDummyToken": false,
+      "responseStatus": 403,
+      "responseBody": {
+        "error": {
+          "code": 403,
+          "message": "Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check",
+          "status": "PERMISSION_DENIED"
+        }
+      },
+      "appCheckHeaderEquals": {
+        "lateGetToken": false
+      }
+    }
+  }
+}

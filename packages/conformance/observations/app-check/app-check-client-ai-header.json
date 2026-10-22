@@ -1,0 +1,175 @@
+{
+  "name": "app-check-client-ai-header",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "The X-Firebase-AppCheck header the real firebase/ai SDK attaches to generateContent (GoogleAI backend, observed with a Playwright route and continued unchanged, enforcement off): with App Check initialized, on a second app whose getAI options set useLimitedUseAppCheckTokens (compared with that app's cached getToken token), and on an app that never initialized App Check. Each request records the production response status and, when not 200, the error body. rowIds empty: the app-check surface is climbing under CDD and this capture is parked in exceptions/ until a row cites it.",
+  "observedAt": "2026-10-22T03:10:12.626Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "appCheckInitialized": {
+      "requestSeen": true,
+      "path": "/v1beta/projects/genkit-idx/models/gemini-flash-lite-latest:generateContent",
+      "headerNames": [
+        "accept",
+        "content-type",
+        "origin",
+        "referer",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "user-agent",
+        "x-firebase-appcheck",
+        "x-firebase-appid",
+        "x-goog-api-client",
+        "x-goog-api-key"
+      ],
+      "appCheckHeaderPresent": true,
+      "appCheckHeaderShape": {
+        "length": 932,
+        "segmentCount": 3,
+        "isJwt": true,
+        "headerKeySet": [
+          "alg",
+          "kid",
+          "typ"
+        ],
+        "alg": "RS256",
+        "typ": "JWT",
+        "kidPresent": true,
+        "claimNames": [
+          "aud",
+          "exp",
+          "iat",
+          "iss",
+          "jti",
+          "provider",
+          "sub"
+        ],
+        "issShape": "https://firebaseappcheck.googleapis.com/<projectNumber>",
+        "audShape": [
+          "projects/<projectNumber>",
+          "projects/genkit-idx"
+        ],
+        "subEqualsAppId": true,
+        "ttlSeconds": 3600,
+        "hasJti": true
+      },
+      "appCheckHeaderIsSdkDummyToken": false,
+      "responseStatus": 200,
+      "responseBody": {
+        "ok": true
+      },
+      "appCheckHeaderEquals": {
+        "cachedGetToken": true
+      },
+      "generation": {
+        "threw": false,
+        "value": {
+          "finishReason": "STOP"
+        }
+      }
+    },
+    "limitedUseModel": {
+      "requestSeen": true,
+      "path": "/v1beta/projects/genkit-idx/models/gemini-flash-lite-latest:generateContent",
+      "headerNames": [
+        "accept",
+        "content-type",
+        "origin",
+        "referer",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "user-agent",
+        "x-firebase-appcheck",
+        "x-firebase-appid",
+        "x-goog-api-client",
+        "x-goog-api-key"
+      ],
+      "appCheckHeaderPresent": true,
+      "appCheckHeaderShape": {
+        "length": 932,
+        "segmentCount": 3,
+        "isJwt": true,
+        "headerKeySet": [
+          "alg",
+          "kid",
+          "typ"
+        ],
+        "alg": "RS256",
+        "typ": "JWT",
+        "kidPresent": true,
+        "claimNames": [
+          "aud",
+          "exp",
+          "iat",
+          "iss",
+          "jti",
+          "provider",
+          "sub"
+        ],
+        "issShape": "https://firebaseappcheck.googleapis.com/<projectNumber>",
+        "audShape": [
+          "projects/<projectNumber>",
+          "projects/genkit-idx"
+        ],
+        "subEqualsAppId": true,
+        "ttlSeconds": 3600,
+        "hasJti": true
+      },
+      "appCheckHeaderIsSdkDummyToken": false,
+      "responseStatus": 200,
+      "responseBody": {
+        "ok": true
+      },
+      "appCheckHeaderEquals": {
+        "limitedUseAppCachedGetToken": false
+      },
+      "headerTokenIsNewLimitedUse": true,
+      "generation": {
+        "threw": false,
+        "value": {
+          "finishReason": "STOP"
+        }
+      }
+    },
+    "noAppCheck": {
+      "requestSeen": true,
+      "path": "/v1beta/projects/genkit-idx/models/gemini-flash-lite-latest:generateContent",
+      "headerNames": [
+        "accept",
+        "content-type",
+        "origin",
+        "referer",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "user-agent",
+        "x-firebase-appid",
+        "x-goog-api-client",
+        "x-goog-api-key"
+      ],
+      "appCheckHeaderPresent": false,
+      "appCheckHeaderShape": null,
+      "appCheckHeaderIsSdkDummyToken": false,
+      "responseStatus": 403,
+      "responseBody": {
+        "error": {
+          "code": 403,
+          "message": "Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check",
+          "status": "PERMISSION_DENIED"
+        }
+      },
+      "appCheckHeaderEquals": {},
+      "generation": {
+        "threw": true,
+        "name": "FirebaseError",
+        "code": "fetch-error",
+        "message": "AI: Error fetching from https://firebasevertexai.googleapis.com/v1beta/projects/genkit-idx/models/gemini-flash-lite-latest:generateContent: [403 Forbidden] Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check (AI/fetch-error)",
+        "customDataKeys": [],
+        "customData": null
+      }
+    }
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "name": "app-check-client-initialize-twice",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "initializeAppCheck called a second time on the same app: with identical options (same provider instance), with a new provider instance built from the same factory, and with a different isTokenAutoRefreshEnabled. rowIds empty: the app-check surface is climbing under CDD and this capture is parked in exceptions/ until a row cites it.",
+  "observedAt": "2026-10-22T03:10:07.113Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "sameOptions": {
+      "threw": false,
+      "returnsSameInstance": true
+    },
+    "sameOptionsNewProviderInstance": {
+      "threw": false,
+      "returnsSameInstance": true
+    },
+    "differentAutoRefresh": {
+      "threw": true,
+      "name": "FirebaseError",
+      "code": "appCheck/already-initialized",
+      "message": "AppCheck: You have already called initializeAppCheck() for FirebaseApp twice with different options. To avoid this error, call initializeAppCheck() with the same options as when it was originally called. This will return the already initialized instance. (appCheck/already-initialized).",
+      "customDataKeys": [
+        "appName"
+      ],
+      "customData": {
+        "appName": "twice"
+      }
+    },
+    "instanceKeySet": [
+      "app",
+      "heartbeatServiceProvider"
+    ]
+  }
+}

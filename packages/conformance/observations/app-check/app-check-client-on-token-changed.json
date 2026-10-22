@@ -1,0 +1,27 @@
+{
+  "name": "app-check-client-on-token-changed",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Debug mode only (registered debug token): onTokenChanged with a listener function and with an observer object, registered before the first getToken. Counts are read 300 ms after each step: after the first get, after a second get, after a forced refresh, after two getLimitedUseToken calls, and after unsubscribing and forcing again; argument key sets; which token each call carried; and a listener registered after a token exists (synchronously and within 500 ms). rowIds empty: the app-check surface is climbing under CDD and this capture is parked in exceptions/ until a row cites it.",
+  "observedAt": "2026-10-22T03:10:11.719Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "unsubscribeType": "function",
+    "listenerCallsAfterFirstGet": 0,
+    "listenerCallsAfterTwoGets": 0,
+    "listenerCallsAfterForceRefresh": 0,
+    "listenerCallsAfterLimitedUse": 0,
+    "listenerCallsAfterUnsubscribeAndForce": 0,
+    "listenerCallsTotal": 0,
+    "listenerArgKeySets": [],
+    "listenerTokenSequence": [],
+    "observerCallsTotal": 0,
+    "observerTokenSequence": [],
+    "lateListenerCallsSynchronous": 0,
+    "lateListenerCallsWithin500ms": 1,
+    "lateListenerTokenSequence": [
+      "forcedAfterUnsubscribe"
+    ]
+  }
+}

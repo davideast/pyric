@@ -1,0 +1,15 @@
+{
+  "name": "app-check-admin-create-token-unknown-app",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "createToken for a syntactically valid web app id that the project does not own (the real app id with its hash replaced by zeros). rowIds empty: the app-check surface is climbing under CDD and this capture is parked in exceptions/ until a row cites it.",
+  "observedAt": "2026-10-22T03:09:04.340Z",
+  "fbSdkVersion": "12.13.0",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "threw": true,
+    "code": "app-check/unknown-error",
+    "message": "App not registered: 1:<projectNumber>:web:0000000000000000000000."
+  }
+}
