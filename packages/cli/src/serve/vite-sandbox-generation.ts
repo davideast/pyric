@@ -44,6 +44,7 @@ import {
 import { attachViteGenerationMiddleware } from './vite-generation-middleware.js';
 import { watchViteGenerationRules } from './vite-generation-rules-watch.js';
 import { claimProjectState, type ProjectStateScope } from './hosted/project-ownership.js';
+import { servesHttps } from './vite-https.js';
 
 export interface ViteSandboxGenerationOptions {
   hosted?: boolean;
@@ -251,7 +252,7 @@ export async function createViteSandboxGeneration(
       const host = hasHostname ? configuredHost : 'localhost';
       const hasNoListeningPort = port <= 0;
       if (hasNoListeningPort) return null;
-      return activeBridge.wsUrl({ host, port });
+      return activeBridge.wsUrl({ host, port, secure: servesHttps(server) });
     };
     const configuredHost = server.config.server.host;
     const hasBoundHost = typeof configuredHost === 'string';

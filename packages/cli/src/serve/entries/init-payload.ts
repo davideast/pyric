@@ -31,7 +31,8 @@ async function requestInitPayload(): Promise<InitPayload> {
     )), HOSTED_INIT_TIMEOUT_MS)
     : undefined;
   try {
-    const response = await fetch(await initPayloadUrl(), { signal: abortController.signal });
+    const fetchHost = nodeRuntimeOrigin()?.socketRealm.fetch ?? fetch;
+    const response = await fetchHost(await initPayloadUrl(), { signal: abortController.signal });
     status = response.status;
     const hasFailedResponse = !response.ok;
     if (hasFailedResponse) throw new Error(`/__pyric/init.json → ${response.status}`);

@@ -43,6 +43,8 @@ export interface HostedSocketRealm {
   traffic(port: ClientPort, event: { sent?: InboundMessage; closed?: boolean }): void;
   /** The host's attach acknowledgment, for its version stamp. */
   attached?(ack: { serveVersion?: unknown }): void;
+  /** How HTTP requests reach the host (`init.json`, the Storage byte route), when not the global fetch. */
+  fetch?: (input: string | URL, init?: RequestInit) => Promise<Response>;
 }
 
 /** Own one app's physical connections while retaining its logical SDK port. */
@@ -448,7 +450,7 @@ export function getHostedFirestore(target: {
           const offersByteRoute = capabilities.includes(STORAGE_BYTE_ROUTE_CAPABILITY);
           const sessionToken = target.sessionToken;
           const usesByteRoute = offersByteRoute && sessionToken !== undefined;
-          if (usesByteRoute) port.byteRoute = { baseUrl: httpOriginOf(socketUrl), sessionToken };
+          if (usesByteRoute) port.byteRoute = { baseUrl: httpOriginOf(socketUrl), sessionToken, fetch: realm?.fetch };
           else delete port.byteRoute;
           settleByteRoute();
           realm?.attached?.(message);

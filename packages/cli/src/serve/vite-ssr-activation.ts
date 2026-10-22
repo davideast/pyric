@@ -26,6 +26,13 @@
  * the process, which dials the server in force at each connect. Closing a
  * server leaves the handle open: an idle handle holds nothing, and the next
  * dev server this process creates is reached by the same app.
+ *
+ * A dev server that serves HTTPS (`server.https`, often a self-signed
+ * certificate) is dialed over https and wss. Those dials trust the server's
+ * own certificate, read from `server.https.cert`, and only for its origin
+ * (`../remote/loopback-tls.ts`); the process's TLS verification is otherwise
+ * untouched. A server whose certificate cannot be read that way is refused,
+ * naming HTTPS.
  */
 import type { AddressInfo } from 'node:net';
 import type { ViteDevServer } from 'vite';
@@ -34,9 +41,12 @@ import type { Sandbox } from 'pyric/sandbox';
 import {
   clearProcessActivation,
   installProcessActivation,
+  type HostTrust,
   type ProcessActivation,
 } from 'pyric/sandbox/internal';
 import { connectRemoteSandbox, createLazyRemoteSandbox, type LazyRemoteSandbox } from '../remote/index.js';
+import { hostTrustFor, isTrustedOrigin } from '../remote/loopback-tls.js';
+import { servesHttps } from './vite-https.js';
 import { VITE_SSR_ISSUE_URL } from './vite-net-guard.js';
 
 const LABEL = "the Vite dev server's server-rendered modules";
@@ -44,6 +54,8 @@ const LABEL = "the Vite dev server's server-rendered modules";
 interface ServerInForce {
   readonly server: ViteDevServer;
   readonly hosted: boolean;
+  /** Its certificate's trust, read once it listens over HTTPS. */
+  trust?: HostTrust;
 }
 
 let inForce: ServerInForce | undefined;
@@ -60,27 +72,56 @@ export function viteSsrRefusal(detail?: string): FirebaseError {
   );
 }
 
+/** The refusal for an HTTPS dev server whose certificate the loopback dial cannot trust. */
+export function httpsCertificateRefusal(): FirebaseError {
+  return new FirebaseError(
+    'failed-precondition',
+    'pyric: this Vite dev server serves HTTPS, and server-rendered modules reach it over loopback trusting only ' +
+      'its own certificate, which pyric reads from server.https.cert as PEM. This server has none there (a pfx ' +
+      `bundle, or a certificate set another way): set server.https.cert and server.https.key, or serve HTTP. See ${VITE_SSR_ISSUE_URL}.`,
+  );
+}
+
 /** The url a Node client on this machine dials for a server bound to `address`. */
-export function loopbackBase(address: AddressInfo): string {
+export function loopbackBase(address: AddressInfo, secure = false): string {
+  const scheme = secure ? 'https' : 'http';
   const isWildcard = address.address === '0.0.0.0' || address.address === '::';
   const isIpv6 = address.family === 'IPv6' || (address.family as unknown) === 6;
-  if (isWildcard) return `http://127.0.0.1:${address.port}`;
+  if (isWildcard) return `${scheme}://127.0.0.1:${address.port}`;
   const host = isIpv6 ? `[${address.address}]` : address.address;
-  return `http://${host}:${address.port}`;
+  return `${scheme}://${host}:${address.port}`;
 }
 
 function listeningBase(server: ViteDevServer): Promise<string> {
   const http = server.httpServer;
   if (!http) return Promise.reject(new Error('pyric: the Vite dev server has no HTTP server (middleware mode).'));
-  const base = (): string => loopbackBase(http.address() as AddressInfo);
+  const base = (): string => loopbackBase(http.address() as AddressInfo, servesHttps(server));
   if (http.listening) return Promise.resolve(base());
   return new Promise((resolve) => http.once('listening', () => resolve(base())));
 }
 
-function currentHost(): Promise<string> {
+/** The trust for the server in force once it listens: null for HTTP, a refusal for HTTPS it cannot trust. */
+async function trustFor(current: ServerInForce): Promise<HostTrust | null> {
+  const base = await listeningBase(current.server);
+  const isPlainHttp = !servesHttps(current.server);
+  if (isPlainHttp) return null;
+  current.trust ??= hostTrustFor(base, current.server.config?.server?.https) ?? undefined;
+  const trust = current.trust;
+  if (trust === undefined) throw httpsCertificateRefusal();
+  return trust;
+}
+
+async function currentHost(): Promise<string> {
   const current = inForce;
-  if (current === undefined) return Promise.reject(new Error('pyric: the Vite dev server has closed.'));
+  if (current === undefined) throw new Error('pyric: the Vite dev server has closed.');
+  await trustFor(current);
   return listeningBase(current.server);
+}
+
+function hostTrust(url: string): HostTrust | undefined {
+  const trust = inForce?.trust;
+  const isCovered = trust !== undefined && isTrustedOrigin(trust, url);
+  return isCovered ? trust : undefined;
 }
 
 function refusedSandbox(): Sandbox {
@@ -89,7 +130,7 @@ function refusedSandbox(): Sandbox {
 
 function hostedSandbox(): Sandbox {
   adminSandbox ??= createLazyRemoteSandbox((onConnectionLost) =>
-    currentHost().then((url) => connectRemoteSandbox({ url, onConnectionLost })));
+    currentHost().then((url) => connectRemoteSandbox({ url, trust: hostTrust(url), onConnectionLost })));
   return adminSandbox;
 }
 
@@ -98,6 +139,7 @@ const activation: ProcessActivation = {
   host: currentHost,
   offHostError: (detail) => viteSsrRefusal(detail),
   adminSandbox: () => (inForce?.hosted === true ? hostedSandbox() : refusedSandbox()),
+  hostTrust,
 };
 
 export interface ViteSsrActivation {

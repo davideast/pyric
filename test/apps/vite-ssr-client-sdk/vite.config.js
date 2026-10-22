@@ -1,3 +1,4 @@
+import basicSsl from "@vitejs/plugin-basic-ssl";
 import { pyric } from "@pyric/cli/vite";
 
 // A small SSR middleware, the shape a framework's dev SSR takes. `runner`
@@ -36,11 +37,13 @@ function ssrRoutes() {
 }
 
 // The scenario starts this dev server in several shapes: the SharedWorker
-// sandbox (PYRIC_TEST_HOSTED=0), and the externalization settings frameworks
-// use (PYRIC_TEST_NO_EXTERNAL=firebase or all).
+// sandbox (PYRIC_TEST_HOSTED=0), the externalization settings frameworks
+// use (PYRIC_TEST_NO_EXTERNAL=firebase or all), and HTTPS with a generated
+// self-signed certificate (PYRIC_TEST_HTTPS=1).
 const noExternal = { firebase: ["firebase"], all: true }[process.env.PYRIC_TEST_NO_EXTERNAL ?? ""];
+const https = process.env.PYRIC_TEST_HTTPS === "1" ? [basicSsl()] : [];
 
 export default {
   ...(noExternal === undefined ? {} : { ssr: { noExternal } }),
-  plugins: [pyric({ hosted: process.env.PYRIC_TEST_HOSTED !== "0" }), ssrRoutes()],
+  plugins: [...https, pyric({ hosted: process.env.PYRIC_TEST_HOSTED !== "0" }), ssrRoutes()],
 };

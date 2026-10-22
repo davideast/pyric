@@ -238,6 +238,7 @@ export {
   installProcessActivation,
   onProcessActivationEnd,
   processActivation,
+  type HostTrust,
   type ProcessActivation,
 } from './process-activation.js';
 export {
