@@ -17,6 +17,19 @@
  */
 import type { Sandbox } from '../types/service.js';
 
+/**
+ * The certificate a host in this process serves HTTPS with, which a loopback
+ * dial to that host's origin trusts, and no other dial.
+ */
+export interface HostTrust {
+  /** The host's HTTP origin (`https://127.0.0.1:5173`). */
+  readonly origin: string;
+  /** PEM certificates the dial verifies the host's chain against: its own. */
+  readonly ca: readonly string[];
+  /** SHA-256 fingerprint (colon-separated hex) of the leaf the host must present. */
+  readonly fingerprint256: string;
+}
+
 export interface ProcessActivation {
   /** How messages name this activation, where they would name `PYRIC_SANDBOX=<value>`. */
   readonly label: string;
@@ -26,6 +39,8 @@ export interface ProcessActivation {
   readonly offHostError: (detail: string) => Error;
   /** The sandbox `pyric-admin`'s ambient `initializeApp()` binds. */
   readonly adminSandbox: () => Sandbox;
+  /** The trust a dial to `url` takes, when `url` is on a host here that serves HTTPS. */
+  readonly hostTrust?: (url: string) => HostTrust | undefined;
 }
 
 const SLOT = Symbol.for('pyric.sandbox.processActivation');

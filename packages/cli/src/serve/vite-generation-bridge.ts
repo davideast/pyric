@@ -6,7 +6,9 @@ import type {
   BridgeHostOptions,
   BridgeMount,
   BridgeMountOptions,
+  BridgeOrigin,
 } from './bridge-mount.js';
+import { servesHttps } from './vite-https.js';
 
 function resolveAllowedHosts(allowedHosts: true | string[] | undefined): true | string[] {
   if (allowedHosts === true) return true;
@@ -54,10 +56,11 @@ export function attachViteGenerationBridge(input: {
   const httpServer = server.httpServer as unknown as HttpServer;
   const host =
     (typeof server.config.server.host === 'string' && server.config.server.host) || 'localhost';
-  const origin = (): { host: string; port: number } | null => {
+  const secure = servesHttps(server);
+  const origin = (): BridgeOrigin | null => {
     const address = httpServer.address();
     const port = address && typeof address === 'object' ? address.port : 0;
-    return port > 0 ? { host, port } : null;
+    return port > 0 ? { host, port, secure } : null;
   };
   const hostOptions: BridgeHostOptions = {
     servers: [httpServer],

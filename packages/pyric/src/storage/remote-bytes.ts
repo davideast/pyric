@@ -13,6 +13,11 @@ export interface RemoteByteRoute {
   baseUrl: string;
   /** The host's session token, which authorizes this process's reads. */
   sessionToken(): Promise<string | null>;
+  /**
+   * How requests reach the host, when not the global fetch: a host in this
+   * process that serves HTTPS is dialed trusting its own certificate.
+   */
+  fetch?: (input: string | URL, init?: RequestInit) => Promise<Response>;
 }
 
 /** The channel operations an upload needs. */
@@ -80,7 +85,7 @@ export async function uploadOverByteRoute(channel: OperationChannel, route: Remo
     let offset = 0;
     while (offset < data.size) {
       const end = Math.min(offset + SLICE_BYTES, data.size);
-      const response = await fetch(url, {
+      const response = await (route.fetch ?? fetch)(url, {
         method: 'PUT',
         headers: { 'content-range': `bytes ${offset}-${end - 1}/${data.size}` },
         body: data.slice(offset, end),
@@ -123,7 +128,7 @@ export async function fetchFromByteRoute(route: RemoteByteRoute, request: Remote
   const headers: Record<string, string> = { 'x-pyric-session-token': token };
   const ranged = request.start !== undefined || request.end !== undefined;
   if (ranged) headers.range = `bytes=${request.start ?? 0}-${request.end ?? ''}`;
-  const response = await fetch(url, { headers });
+  const response = await (route.fetch ?? fetch)(url, { headers });
   const pastEnd = response.status === 416;
   if (pastEnd) return new Response(new Uint8Array(0), { status: 206 });
   if (!response.ok) throw routeFailure(response.status, request.path);

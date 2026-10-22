@@ -87,7 +87,11 @@ function hostOnce(): Promise<string> {
   return host;
 }
 
-const socketRealm = createNodeSocketRealm({ onAttached: ack => reportVersionSkew(ack.serveVersion) });
+const socketRealm = createNodeSocketRealm({
+  onAttached: ack => reportVersionSkew(ack.serveVersion),
+  // Only a host in this process can name a certificate to trust, and only for its own origin.
+  trust: url => inProcessActivation()?.hostTrust?.(url),
+});
 // The in-process host ended for good (its dev server closed): let the process go.
 onProcessActivationEnd(() => socketRealm.releaseAll());
 

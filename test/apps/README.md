@@ -69,7 +69,7 @@ The dev server port comes from the command line, which overrides any `server.por
 
 | Helper | What it does |
 |---|---|
-| `app.devServer({ env, port })` | Starts `vite` from the app's `node_modules` on a free port, or on `port`, and waits until `/` and `/__pyric/init.json` answer. Returns `{ url, port, process }`. Pass the port of a stopped server to bring a host back on the same URL. |
+| `app.devServer({ env, port, https })` | Starts `vite` from the app's `node_modules` on a free port, or on `port`, and waits until `/` and `/__pyric/init.json` answer. Pass `https: true` when the app's config serves HTTPS in this run. Returns `{ url, port, process }`. Pass the port of a stopped server to bring a host back on the same URL. |
 | `app.serverScript(script, args, { env })` | Runs the script under `node --import @pyric/cli/register` until it exits. Throws on a non-zero exit. |
 | `app.page(url)` | Opens a page in the app's browser context. |
 | `app.browser()` | The app's browser context, for routes that answer external requests. |

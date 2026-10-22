@@ -47,6 +47,8 @@ export interface ClientPort {
 export interface ByteRouteAccess {
   baseUrl: string;
   sessionToken(): Promise<string | null>;
+  /** How requests reach the host, when not the global fetch (see `HostedSocketRealm.fetch`). */
+  fetch?: (input: string | URL, init?: RequestInit) => Promise<Response>;
 }
 
 /** Opaque client-side Firestore handle. Holds the MessagePort to the worker. */
