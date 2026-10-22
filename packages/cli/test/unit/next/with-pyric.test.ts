@@ -307,12 +307,29 @@ describe('withPyric Next.js configuration wrapper', () => {
   it("inlines the launcher's page transport selection for client bundles", async () => {
     const selection = JSON.stringify({ hosted: true, projectKey: '/app', bridgeUrl: '/__pyric/sandbox' });
     process.env.PYRIC_WORKER_INIT = selection;
+    process.env.PYRIC_WORKER_INIT_HOST = 'http://127.0.0.1:4000';
     try {
       const res = await resolveWith({ env: { KEEP: '1' } });
       expect(res.env?.NEXT_PUBLIC_PYRIC_WORKER_INIT).toBe(selection);
       expect(res.env?.KEEP).toBe('1');
     } finally {
       delete process.env.PYRIC_WORKER_INIT;
+      delete process.env.PYRIC_WORKER_INIT_HOST;
+    }
+  });
+
+  it('inlines no selection that names another host than the rewrites reach', async () => {
+    process.env.PYRIC_WORKER_INIT = JSON.stringify({ hosted: false, projectKey: null, bridgeUrl: null });
+    process.env.PYRIC_WORKER_INIT_HOST = 'http://127.0.0.1:4000';
+    try {
+      const other = await resolveWith({}, { port: 3473 });
+      expect('NEXT_PUBLIC_PYRIC_WORKER_INIT' in (other.env ?? {})).toBe(false);
+      delete process.env.PYRIC_WORKER_INIT_HOST;
+      const unnamed = await resolveWith({});
+      expect('NEXT_PUBLIC_PYRIC_WORKER_INIT' in (unnamed.env ?? {})).toBe(false);
+    } finally {
+      delete process.env.PYRIC_WORKER_INIT;
+      delete process.env.PYRIC_WORKER_INIT_HOST;
     }
   });
 

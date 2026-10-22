@@ -194,12 +194,17 @@ describe('buildChildEnv', () => {
   it("hands the child the host's page transport selection and drops an inherited one", () => {
     const workerInit = { hosted: true, projectKey: '/app', bridgeUrl: '/__pyric/sandbox' };
     const env = buildChildEnv(
-      { PYRIC_WORKER_INIT: '{"hosted":false}' },
+      { PYRIC_WORKER_INIT: '{"hosted":false}', PYRIC_WORKER_INIT_HOST: 'http://outer:2' },
       { serveUrl: 'http://h:1', registerUrl: 'file:///r.js', workerInit },
     );
     expect(JSON.parse(env.PYRIC_WORKER_INIT ?? '')).toEqual(workerInit);
-    const bare = buildChildEnv({ PYRIC_WORKER_INIT: '{"hosted":false}' }, { serveUrl: 'http://h:1', registerUrl: 'file:///r.js' });
+    expect(env.PYRIC_WORKER_INIT_HOST).toBe('http://h:1');
+    const bare = buildChildEnv(
+      { PYRIC_WORKER_INIT: '{"hosted":false}', PYRIC_WORKER_INIT_HOST: 'http://outer:2' },
+      { serveUrl: 'http://h:1', registerUrl: 'file:///r.js' },
+    );
     expect('PYRIC_WORKER_INIT' in bare).toBe(false);
+    expect('PYRIC_WORKER_INIT_HOST' in bare).toBe(false);
   });
 
   it('omits the beacon secret when the launcher runs no beacon receiver', () => {

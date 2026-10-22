@@ -199,8 +199,14 @@ export function buildChildEnv(
   // An inherited identity names an outer launcher's host, not this one.
   delete env.PYRIC_SANDBOX_INSTANCE;
   if (opts.instanceId !== undefined) env.PYRIC_SANDBOX_INSTANCE = opts.instanceId;
+  // The selection names the host at `serveUrl`; `withPyric` inlines it only
+  // when its rewrites target that same host.
   delete env.PYRIC_WORKER_INIT;
-  if (opts.workerInit !== undefined) env.PYRIC_WORKER_INIT = JSON.stringify(opts.workerInit);
+  delete env.PYRIC_WORKER_INIT_HOST;
+  if (opts.workerInit !== undefined) {
+    env.PYRIC_WORKER_INIT = JSON.stringify(opts.workerInit);
+    env.PYRIC_WORKER_INIT_HOST = opts.serveUrl;
+  }
   const guardAllow = childGuardAllow(base.PYRIC_GUARD_ALLOW, opts.guardAllow ?? []);
   if (guardAllow !== undefined) env.PYRIC_GUARD_ALLOW = guardAllow;
   return env;

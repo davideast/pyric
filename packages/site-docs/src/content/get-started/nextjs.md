@@ -35,9 +35,6 @@ export default withPyric(nextConfig);
 | Client `firebase/*` imports | `resolve.alias` in client compiles | `resolveAlias` |
 | Node built-ins in client code | `resolve.fallback` sets `fs`, `path` and `url` to empty modules | unchanged |
 | Server imports of `firebase` and `firebase-admin` | `serverExternalPackages` | `serverExternalPackages` |
-| The sandbox selection for client pages | `env` | `env` |
-
-Next serves your pages, so Pyric can't add its sandbox selection to their HTML. `pyric sandbox` passes the selection to `next dev`, and `withPyric` inlines it into client bundles as `NEXT_PUBLIC_PYRIC_WORKER_INIT`. Start `next dev` through `pyric sandbox`, as the next section shows, or client pages report a missing Pyric page initialization.
 
 Each alias names a module `@pyric/cli` exports, such as `firebase/firestore` to `@pyric/cli/next/internal/firestore`, so both bundlers resolve it from your project's dependencies. The aliased specifiers are `firebase/ai`, `firebase/analytics`, `firebase/app`, `firebase/app-check`, `firebase/auth`, `firebase/database`, `firebase/firestore`, `firebase/firestore/lite`, `firebase/functions`, `firebase/messaging`, `firebase/messaging/sw`, `firebase/performance`, `firebase/remote-config` and `firebase/storage`. `@firebase/*` packages are never aliased, so internal SDK plumbing stays untouched.
 
@@ -60,6 +57,8 @@ Prefix your development start command with `pyric sandbox` in `package.json`:
 ```
 
 Start the supervised server with `npm run dev`. Pyric boots its sandbox host in the background, sets `PYRIC_SANDBOX` for server-side queries, and launches `next dev`.
+
+`pyric sandbox --persist -- next dev` doesn't save state yet: the host refuses the browser's saves through the Next.js rewrite, so `.pyric/state/state.json` is never written. Track the fix in [#1194](https://github.com/davideast/pyric/issues/1194).
 
 ## Understand the two-server architecture
 

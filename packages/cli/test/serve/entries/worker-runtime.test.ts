@@ -141,3 +141,13 @@ test('an unstamped page selects the SharedWorker its bundle inlines', async () =
     expect(realm.connections).toEqual(['shared-worker']);
   } finally { realm.dispose(); }
 });
+
+test('a stamped page keeps its stamp over a selection its bundle inlines', async () => {
+  const realm = await runtimeRealm({ inlinedSelection: { hosted: true, projectKey: 'other', bridgeUrl: '/__pyric/sandbox' }, stamped: true, hosted: false, sharedWorker: true });
+  try {
+    expect(realm.workerInit()).toEqual({ hosted: false, projectKey: null, bridgeUrl: null });
+    expect(realm.document?.querySelector('meta[name="pyric-sandbox-host"]')).toBeNull();
+    expect(realm.runtime.useHosted).toBe(false);
+    expect(realm.status().mode).toBe('shared-worker');
+  } finally { realm.dispose(); }
+});

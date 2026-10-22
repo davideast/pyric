@@ -4,9 +4,11 @@
 // signed-out auth state, see a post firebase-admin writes, and have a signed-out
 // write denied by the template's rules, with no page error. Before #1193 was
 // fixed every load threw "Missing Pyric page initialization" and nothing mounted.
+// The `--persist` case also asserts a known gap, that no state is saved
+// (#1194), so it fails when that is fixed.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { cpSync, readFileSync, readdirSync } from 'node:fs';
+import { cpSync, existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { scenario, sleep, type App } from '../driver.ts';
 
@@ -14,13 +16,20 @@ interface Case {
   name: string;
   hosted: boolean;
   turbopack: boolean;
+  persist: boolean;
 }
 
 const CASES: readonly Case[] = [
-  { name: 'pyric sandbox -- next dev', hosted: false, turbopack: false },
-  { name: 'pyric sandbox --hosted -- next dev', hosted: true, turbopack: false },
-  { name: 'pyric sandbox -- next dev --turbopack', hosted: false, turbopack: true },
+  { name: 'pyric sandbox -- next dev', hosted: false, turbopack: false, persist: false },
+  { name: 'pyric sandbox --hosted -- next dev', hosted: true, turbopack: false, persist: false },
+  { name: 'pyric sandbox -- next dev --turbopack', hosted: false, turbopack: true, persist: false },
+  { name: 'pyric sandbox --persist -- next dev', hosted: false, turbopack: false, persist: true },
 ];
+
+/** The 403 the host's origin guard answers through the rewrite (#1194): the one error response a page may get. */
+const KNOWN_ERROR_RESPONSE = /^\[page \d+ response 403\] POST http:\/\/127\.0\.0\.1:\d+\/__pyric\/diagnostics$/;
+/** The console line Chromium prints for any failed response; the response lines say which. */
+const FAILED_RESOURCE = /^\[page \d+ console\.error\] Failed to load resource: /;
 
 /** Scaffolds the template with the installed create-pyric and lays its files over the installed app. */
 function scaffold(app: App): void {
@@ -71,6 +80,7 @@ async function runCase(app: App, testCase: Case): Promise<void> {
   if (testCase.turbopack) nextArgs.push('--turbopack');
   const sandboxArgs = ['sandbox', '--no-open', '--port', String(sandboxPort)];
   if (testCase.hosted) sandboxArgs.push('--hosted');
+  if (testCase.persist) sandboxArgs.push('--persist');
   const env = { PATH: `${join(app.dir, 'node_modules', '.bin')}:${process.env.PATH ?? ''}` };
 
   const sandbox = await app.step(`${testCase.name}: Next serves the template`, async () => {
@@ -124,9 +134,25 @@ async function runCase(app: App, testCase: Case): Promise<void> {
     );
   });
 
+  if (testCase.persist) {
+    // Known gap (#1194): the SharedWorker saves state through the rewrite with
+    // the Next origin, which the host's origin guard refuses, so nothing is
+    // saved. The driver does not see SharedWorker requests, so the file is the
+    // evidence. When #1194 lands this step fails: flip it to assert the file.
+    await app.step(`${testCase.name}: no state file is written yet (#1194)`, async () => {
+      const stateFile = join(app.dir, '.pyric', 'state', 'state.json');
+      // Persistence debounces a save by 400 ms; 5 s is ample for one to land.
+      await sleep(5_000);
+      assert.equal(existsSync(stateFile), false, `${stateFile} was written, so #1194 is fixed: assert the save instead`);
+    });
+  }
+
   await app.step(`${testCase.name}: the page raised no error`, async () => {
-    const pageErrors = app.browserLog.slice(logStart).filter((line) => / error\] /.test(line));
-    assert.deepEqual(pageErrors, []);
+    const lines = app.browserLog.slice(logStart);
+    const pageErrors = lines.filter((line) => / error\] /.test(line));
+    const consoleErrors = lines.filter((line) => / console\.error\] /.test(line) && !FAILED_RESOURCE.test(line));
+    const errorResponses = lines.filter((line) => / response \d+\] /.test(line) && !KNOWN_ERROR_RESPONSE.test(line));
+    assert.deepEqual({ pageErrors, consoleErrors, errorResponses }, { pageErrors: [], consoleErrors: [], errorResponses: [] });
     await page.close();
     await sandbox.stop();
   });
