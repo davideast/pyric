@@ -1,10 +1,15 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { createServer, request, type Server } from 'node:http';
+import { createServer, get, request, type Server } from 'node:http';
 import { join } from 'node:path';
 import { startHttpChildServer } from '../../src/functions/http/child-server.js';
 import type { DiscoveredOnRequest } from '../../src/functions/http/discovery.js';
 import type { AddressInfo } from 'node:net';
-import { createFunctionsHttpGateway, type FunctionsHttpGateway } from '../../src/functions/http/gateway.js';
+import {
+  createFunctionsHttpGateway,
+  type FunctionsHttpGateway,
+  type FunctionsHttpRecord,
+} from '../../src/functions/http/gateway.js';
+import { hostingRewrites } from '../../src/functions/http/rewrites.js';
 import { FUNCTION_TARGET_HEADER } from '../../src/functions/http/child-server.js';
 
 const servers: Server[] = [];
@@ -135,4 +140,76 @@ describe('functions HTTP gateway', () => {
       await child.close();
     }
   });
+
+  test('a hosting rewrite forwards the full URL, only __session, and the forwarding headers, unless a file answers', async () => {
+    const seen: Array<Record<string, unknown>> = [];
+    const child = await listen(createServer((req, res) => {
+      seen.push({ url: req.url, cookie: req.headers.cookie, host: req.headers['x-forwarded-host'], original: req.headers['x-original-url'] });
+      res.end('ok');
+    }));
+    const records: FunctionsHttpRecord[] = [];
+    const gateway = createFunctionsHttpGateway({
+      projectId: 'demo-app',
+      initial: { kind: 'starting' },
+      rewrites: hostingRewrites({ hosting: { rewrites: [{ source: '/api/**', function: 'api' }, { source: '/east/**', function: { functionId: 'api', region: 'us-east1' } }] } }),
+      staticFileExists: (pathname) => pathname === '/api/static.txt',
+      onServed: (record) => records.push(record),
+    });
+    const base = await plane(gateway);
+    expect((await fetch(`${base}/api/before`)).status).toBe(503);
+    gateway.update({
+      kind: 'ready',
+      http: { port: Number(new URL(child).port), functions: [{ exportName: 'api', regions: ['us-central1'], platform: 'gcfv2', privateInvoker: false, timeoutSeconds: null }] },
+    });
+    const response = await fetch(`${base}/api/items/42?x=1`, { headers: { cookie: 'other=1; __session=s1' } });
+    expect(await response.text()).toBe('ok');
+    expect(seen).toEqual([{ url: '/api/items/42?x=1', cookie: '__session=s1', host: new URL(base).host, original: '/api/items/42?x=1' }]);
+    expect((await fetch(`${base}/api/static.txt`)).status).toBe(404); // the plane's static fallback answered
+    const wrongRegion = await fetch(`${base}/east/x`);
+    expect(wrongRegion.status).toBe(404);
+    expect(await wrongRegion.text()).toBe('Function us-east1-api named by a hosting rewrite does not exist, valid functions are: us-central1-api');
+    expect(records.map(({ exportName, method, path, status, timedOut }) => ({ exportName, method, path, status, timedOut }))).toEqual([
+      { exportName: 'api', method: 'GET', path: '/api/items/42?x=1', status: 200, timedOut: false },
+    ]);
+  });
+
+  test('a function that does not answer within timeoutSeconds gets 504, or a closed connection once headers are out', async () => {
+    const child = await listen(createServer((req, res) => {
+      if (req.url === '/partial') {
+        res.writeHead(200);
+        res.write('partial');
+      }
+    }));
+    const records: FunctionsHttpRecord[] = [];
+    const gateway = createFunctionsHttpGateway({ projectId: 'demo-app', initial: { kind: 'starting' }, onServed: (record) => records.push(record) });
+    gateway.update({
+      kind: 'ready',
+      http: { port: Number(new URL(child).port), functions: [{ exportName: 'slow', regions: ['us-central1'], platform: 'gcfv2', privateInvoker: false, timeoutSeconds: 1 }] },
+    });
+    const base = await plane(gateway);
+    const startedAt = Date.now();
+    const cut = await fetch(`${base}/demo-app/us-central1/slow`);
+    expect(cut.status).toBe(504);
+    expect(await cut.text()).toBe('pyric: slow did not respond within its timeout (1 s).');
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(1_000);
+    // One request on its own connection (fetch would retry a GET whose socket resets).
+    const partial = await new Promise<{ status: number | undefined; body: string; aborted: boolean }>((resolvePartial) => {
+      get(`${base}/demo-app/us-central1/slow/partial`, { agent: false }, (response) => {
+        let body = '';
+        let aborted = false;
+        response.setEncoding('utf8');
+        response.on('data', (chunk: string) => { body += chunk; });
+        response.on('aborted', () => { aborted = true; });
+        response.on('close', () => resolvePartial({ status: response.statusCode, body, aborted }));
+      });
+    });
+    expect(partial.status).toBe(200);
+    expect(partial.body.startsWith('partial')).toBe(true);
+    expect(partial.aborted).toBe(true);
+    await Bun.sleep(50);
+    expect(records.map(({ status, timedOut }) => ({ status, timedOut }))).toEqual([
+      { status: 504, timedOut: true },
+      { status: null, timedOut: true },
+    ]);
+  }, 10_000);
 });

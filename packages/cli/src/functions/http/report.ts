@@ -3,7 +3,7 @@
  * and the Vite plugin say the same thing.
  */
 import type { FunctionsChildHttpReady, FunctionsChildReady, SerializedFunctionsError } from '../child-protocol.js';
-import type { FunctionsHttpState } from './gateway.js';
+import type { FunctionsHttpRecord, FunctionsHttpState } from './gateway.js';
 
 /** One URL per served function and region, under the emulator path. */
 export function httpFunctionLines(http: FunctionsChildHttpReady, serveUrl: string, projectId: string): string[] {
@@ -45,3 +45,18 @@ export function stateAfterStart(
 /** What both planes print when the child stops beating. */
 export const UNRESPONSIVE_LINE =
   'Functions child unresponsive: no heartbeat for 10 s, so a handler may be stuck in a synchronous loop. Restarting it.';
+
+/**
+ * The execution record of one served request, as a log line (functions-http#21;
+ * owner decision: log lines only, in browser mode, for the first slice).
+ * `failed` is true for a 5xx, a timeout, or no complete response.
+ */
+export function servedLine(record: FunctionsHttpRecord): { failed: boolean; line: string } {
+  const outcome = record.status === null ? 'no response' : String(record.status);
+  const timedOut = record.timedOut ? ' timed out' : '';
+  const failed = record.status === null || record.status >= 500 || record.timedOut;
+  return {
+    failed,
+    line: `function  ${record.exportName} ← ${record.method} ${record.path} ${outcome}${timedOut} (${record.durationMs} ms)`,
+  };
+}
