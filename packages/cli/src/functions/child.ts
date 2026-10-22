@@ -10,6 +10,8 @@ import {
   serializeError,
   type FunctionsChildMessage,
 } from './child-protocol.js';
+import { startHttpChildServer, type HttpChildServer } from './http/child-server.js';
+import { httpFunctionInfo, httpOnRequestFamily, inspectOnRequest } from './http/discovery.js';
 import { loadFunctionsModuleExports } from './module-loader.js';
 import { rtdbCreatedFamily } from './rtdb/discovery.js';
 import type { OnValueCreatedExecutionHost } from './rtdb/execution.js';
@@ -23,6 +25,18 @@ interface AdminAppModule {
 
 function send(message: FunctionsChildMessage): void {
   process.send?.(message);
+}
+
+/**
+ * An exception thrown outside any handler's own call and promise (a timer
+ * callback in an onRequest handler, say) would end this process, and with it
+ * every RTDB trigger it serves. The owner decision for functions-http#12 is to
+ * report it and keep serving instead of restarting.
+ */
+function surviveUncaughtErrors(): void {
+  const report = (error: unknown): void => send({ type: 'uncaught-error', error: serializeError(error) });
+  process.on('uncaughtException', report);
+  process.on('unhandledRejection', report);
 }
 
 async function runFunctionsChild(): Promise<void> {
@@ -39,11 +53,13 @@ async function runFunctionsChild(): Promise<void> {
   serveInstanceAsDefault(instance);
   const app = adminApp.initializeApp();
   let host: OnValueCreatedExecutionHost | undefined;
+  let httpServer: HttpChildServer | undefined;
   let closing: Promise<void> | undefined;
 
   const close = (): Promise<void> => {
     if (closing) return closing;
     closing = (async () => {
+      await httpServer?.close();
       host?.close();
       await host?.idle();
       app.sandbox.close();
@@ -85,10 +101,18 @@ async function runFunctionsChild(): Promise<void> {
       send,
     });
     await host.ready;
+    const httpFunctions = inspectOnRequest(exported);
+    if (httpFunctions.length > 0) {
+      surviveUncaughtErrors();
+      httpServer = await startHttpChildServer(entry, httpFunctions);
+    }
     send({
       type: 'ready',
       triggerCount: host.triggerCount,
-      unsupportedTriggers: findUnsupportedTriggers(exported, [rtdbCreatedFamily]),
+      unsupportedTriggers: findUnsupportedTriggers(exported, [rtdbCreatedFamily, httpOnRequestFamily]),
+      ...(httpServer === undefined
+        ? {}
+        : { http: { port: httpServer.port, functions: httpFunctions.map(httpFunctionInfo) } }),
     });
   } catch (error) {
     await close();

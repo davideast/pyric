@@ -323,6 +323,10 @@ const ROWS: Record<string, RowAssertion> = {
       expect(Date.now() - startedAt).toBeLessThan(450);
       expect([first.status, second.status]).toEqual([200, 200]);
       expect([first.body, second.body]).toEqual(['chunk-1\nchunk-2\nchunk-3\n', 'chunk-1\nchunk-2\nchunk-3\n']);
+      // maxInstances: 1 is read and not applied: two overlapping requests are both served.
+      const whoami = () => sendProbeRequest(`${url}${functionPath('pyricHttpUncaught')}`, { id: 'row-19-max', function: 'pyricHttpUncaught', via: 'cloudfunctions' });
+      const capped = await Promise.all([whoami(), whoami()]);
+      expect(capped.map((response) => response.status)).toEqual([200, 200]);
     },
   },
   'functions-http#20': {

@@ -148,6 +148,7 @@ export function spawnFunctionsChild(
       resolveReady({
         triggerCount: raw.triggerCount,
         unsupportedTriggers: raw.unsupportedTriggers,
+        ...(raw.http === undefined ? {} : { http: raw.http }),
       });
     } else if (raw.type === 'fatal') {
       if (!readySettled) {
@@ -156,7 +157,7 @@ export function spawnFunctionsChild(
           `Functions RTDB child failed: ${raw.error.stack ?? raw.error.message}`,
         ));
       }
-    } else if (raw.type === 'execution' || raw.type === 'delivery-error') {
+    } else if (raw.type === 'execution' || raw.type === 'delivery-error' || raw.type === 'uncaught-error') {
       options.onEvent?.(raw);
     }
   });
