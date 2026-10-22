@@ -7,6 +7,7 @@ import type {
   FunctionsProject,
 } from '../functions/project.js';
 import type { BridgeMount } from './bridge-mount.js';
+import { isAllowedHost } from './server.js';
 import type {
   ViteFunctionsDevelopmentAttachment,
   ViteFunctionsDevelopmentOptions,
@@ -64,6 +65,15 @@ export function attachViteGenerationFunctions(input: {
     watch: resolved.options.watch,
     host,
     httpServer: server.httpServer as unknown as HttpServer,
+    middlewares: server.middlewares,
+    isAllowedRequest: (req) => {
+      const serverOptions = server.config.server;
+      return serverOptions.allowedHosts === true || isAllowedHost(
+        req.headers.host,
+        typeof serverOptions.host === 'string' ? serverOptions.host : 'localhost',
+        Array.isArray(serverOptions.allowedHosts) ? serverOptions.allowedHosts : [],
+      );
+    },
     watcher: server.watcher,
     logger: server.config.logger,
     bridge,

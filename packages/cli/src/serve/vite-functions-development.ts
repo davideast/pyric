@@ -1,4 +1,4 @@
-import type { Server } from 'node:http';
+import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import path from 'node:path';
 import type { ViteDevServer } from 'vite';
 import type { FunctionsProject } from '../functions/project.js';
@@ -9,7 +9,17 @@ import {
   type FunctionsDevelopmentResult,
   type FunctionsDevelopmentRuntime,
 } from '../functions/development-runtime.js';
+import { createFunctionsHttpGateway, type FunctionsHttpGateway } from '../functions/http/gateway.js';
+import {
+  createPrivateInvokerWarnings,
+  httpFunctionLines,
+  stateAfterStart,
+  UNRESPONSIVE_LINE,
+  uncaughtErrorLine,
+} from '../functions/http/report.js';
 import type { BridgeMount } from './bridge-mount.js';
+
+type ConnectHandler = (req: IncomingMessage, res: ServerResponse, next: (error?: unknown) => void) => void;
 
 export interface ViteFunctionsDevelopmentOptions {
   cwd: string;
@@ -20,6 +30,10 @@ export interface ViteFunctionsDevelopmentOptions {
   watch?: boolean;
   host: string;
   httpServer: Server;
+  /** Vite's Connect stack; the Functions HTTP routes mount on it. */
+  middlewares: { use(handler: ConnectHandler): unknown };
+  /** The plane's DNS-rebinding guard, applied before a Functions route answers. */
+  isAllowedRequest(req: IncomingMessage): boolean;
   watcher: ViteDevServer['watcher'];
   logger: ViteDevServer['config']['logger'];
   bridge: BridgeMount;
@@ -48,7 +62,21 @@ function reportEvent(
     logger.error(`  ✖ [pyric] Functions child exited unexpectedly (code ${event.code}).`);
     return;
   }
+  if (event.type === 'starting') return;
+  if (event.type === 'unresponsive') {
+    logger.error(`  ✖ [pyric] ${UNRESPONSIVE_LINE}`);
+    return;
+  }
+  if (event.type === 'restarted') {
+    if (event.result.kind === 'ready') logger.info('  ↻ [pyric] functions restarted');
+    else logger.error(`  ✖ [pyric] functions did not restart (${event.result.kind === 'failed' ? event.result.error.message : 'no sandbox peer'})`);
+    return;
+  }
   const childEvent = event.event;
+  if (childEvent.type === 'uncaught-error') {
+    logger.error(`  ✖ [pyric] ${uncaughtErrorLine(childEvent.error)}`);
+    return;
+  }
   if (childEvent.type === 'execution') {
     const params = Object.entries(childEvent.params)
       .map(([name, value]) => `${name}=${value}`)
@@ -73,6 +101,7 @@ function reportResult(
   result: FunctionsDevelopmentResult,
   mode: 'initial' | 'reload',
   serveUrl: string,
+  warnPrivateInvokers: ReturnType<typeof createPrivateInvokerWarnings>,
 ): void {
   const { logger, project, cwd } = options;
   if (result.kind === 'no-peer') {
@@ -95,12 +124,20 @@ function reportResult(
     return;
   }
   const ready = result.ready;
-  logger.info(
-    mode === 'reload'
-      ? `  ↻ [pyric] functions reloaded (${ready.triggerCount} trigger${ready.triggerCount === 1 ? '' : 's'})`
-      : `  ✔ [pyric] functions ${ready.triggerCount} onValueCreated ` +
-          `trigger${ready.triggerCount === 1 ? '' : 's'} from ${path.relative(cwd, project.entry)}`,
-  );
+  const reportsTriggers = mode === 'reload' || ready.triggerCount > 0 || ready.http === undefined;
+  if (reportsTriggers) {
+    logger.info(
+      mode === 'reload'
+        ? `  ↻ [pyric] functions reloaded (${ready.triggerCount} trigger${ready.triggerCount === 1 ? '' : 's'})`
+        : `  ✔ [pyric] functions ${ready.triggerCount} onValueCreated ` +
+            `trigger${ready.triggerCount === 1 ? '' : 's'} from ${path.relative(cwd, project.entry)}`,
+    );
+  }
+  if (ready.http) {
+    const [heading, ...urls] = httpFunctionLines(ready.http, serveUrl, options.projectId);
+    logger.info(`  ✔ [pyric] ${heading}\n${urls.join('\n')}`);
+    for (const warning of warnPrivateInvokers(ready.http)) logger.warn(`  ⚠ [pyric] ${warning}`);
+  }
   for (const unsupported of ready.unsupportedTriggers) {
     logger.warn(
       `  ⚠ [pyric] functions export ${unsupported.exportName} uses unsupported trigger ` +
@@ -129,6 +166,20 @@ export function attachViteFunctionsDevelopment(
   let starting: Promise<FunctionsDevelopmentResult> | null = null;
   let reconnectQueued = false;
   let closePromise: Promise<void> | null = null;
+  const warnPrivateInvokers = createPrivateInvokerWarnings();
+  const gateway: FunctionsHttpGateway = createFunctionsHttpGateway({
+    projectId: options.projectId,
+    initial: { kind: 'starting' },
+  });
+  options.middlewares.use((req, res, next) => {
+    if (closed || !options.isAllowedRequest(req)) {
+      next();
+      return;
+    }
+    gateway.handle(req, res).then((handled) => {
+      if (!handled) next();
+    }, next);
+  });
 
   const serveUrl = (): string | null => {
     const address = httpServer.address();
@@ -150,8 +201,10 @@ export function attachViteFunctionsDevelopment(
     starting = activeRuntime.start();
     void starting.then(result => {
       running = result.kind === 'ready';
+      const url = serveUrl() ?? `http://${host}:0`;
+      gateway.update(stateAfterStart(result, url));
       const shouldReport = !closed;
-      if (shouldReport) reportResult(options, result, 'initial', serveUrl() ?? `http://${host}:0`);
+      if (shouldReport) reportResult(options, result, 'initial', url, warnPrivateInvokers);
     }).finally(() => { starting = null; retryQueued(); });
   };
   const releasePeerListener = bridge.onSandboxPeerConnected(startFunctions);
@@ -172,11 +225,21 @@ export function attachViteFunctionsDevelopment(
       readiness: createInProcessFunctionsPeerReadiness(bridge.sandboxConnected),
       onEvent: (event) => {
         const exited = event.type === 'unexpected-exit';
-        if (exited) running = false;
+        if (exited) {
+          running = false;
+          gateway.update({ kind: 'exited', code: event.code });
+        }
+        if (event.type === 'unresponsive') gateway.update({ kind: 'unresponsive' });
+        if (event.type === 'restarted') {
+          running = event.result.kind === 'ready';
+          gateway.update(stateAfterStart(event.result, url));
+        }
+        if (event.type === 'starting') gateway.update({ kind: event.mode === 'reload' ? 'reloading' : 'starting' });
         reportEvent(options.logger, event);
       },
       ...(options.childModuleUrl === undefined ? {} : { childModuleUrl: options.childModuleUrl }),
     });
+    gateway.update({ kind: 'waiting-peer', serveUrl: url });
     startFunctions();
   };
 
@@ -189,12 +252,15 @@ export function attachViteFunctionsDevelopment(
     reloadDebounce = setTimeout(() => {
       if (!runtime || closed) return;
       running = false;
+      gateway.update({ kind: 'reloading' });
       const transition = runtime.reload();
       if (reportedReload === transition) return;
       reportedReload = transition;
       void transition.then((result) => {
         running = result.kind === 'ready';
-        if (!closed) reportResult(options, result, 'reload', serveUrl() ?? `http://${host}:0`);
+        const url = serveUrl() ?? `http://${host}:0`;
+        gateway.update(stateAfterStart(result, url));
+        if (!closed) reportResult(options, result, 'reload', url, warnPrivateInvokers);
       }).finally(() => {
         if (reportedReload === transition) reportedReload = null;
         retryQueued();
@@ -216,6 +282,7 @@ export function attachViteFunctionsDevelopment(
       if (closePromise) return closePromise;
       closePromise = (async () => {
         closed = true;
+        gateway.update({ kind: 'stopped' });
         releasePeerListener();
         reconnectQueued = false;
         if (reloadDebounce) clearTimeout(reloadDebounce);
