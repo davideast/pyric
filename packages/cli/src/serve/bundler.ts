@@ -27,6 +27,15 @@ import { homedir } from 'node:os';
 import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as esbuild from 'esbuild';
+import { withWorkerBuildLock, type WorkerBuildLock } from './worker-build-lock.js';
+import {
+  WORKER_EPOCH_FILE,
+  WORKER_FILE,
+  publishWorkerBundle,
+  readCompletedWorkerBundle,
+  removeBuildLeftovers,
+  stagingPathPrefix,
+} from './worker-bundle-cache.js';
 
 export { SDK_MODULES } from './firebase-module-swap.js';
 
@@ -365,16 +374,6 @@ export interface WorkerBundleOptions {
 }
 
 const WORKER_EPOCH_PLACEHOLDER = 'PYRIC_EPOCH_HERE';
-const WORKER_EPOCH_FILE = '.worker-epoch';
-
-/** Read the executable epoch written alongside a completed worker bundle. */
-function readWorkerBundleEpoch(outDir: string): string {
-  const epoch = readFileSync(join(outDir, WORKER_EPOCH_FILE), 'utf8').trim();
-  if (!/^[a-f0-9]{16}$/.test(epoch)) {
-    throw new Error(`pyric sandbox: invalid SharedWorker epoch in ${join(outDir, WORKER_EPOCH_FILE)}`);
-  }
-  return epoch;
-}
 
 /**
  * Conservative worker CACHE key. The worker bundle shares the SDK `outDir`
@@ -439,6 +438,10 @@ export function sourceTreeHash(root: string): string {
  * while `cacheKey()` includes the complete CLI source graph. A worker/client
  * or protocol edit therefore invalidates the shared SDK generation too, so
  * the page and worker halves cannot come from different source generations.
+ *
+ * Builders sharing `outDir` (every project on the machine shares
+ * `~/.pyric/vite-worker/<hash>`) take turns under a lock and publish from a
+ * staging directory; see `worker-bundle-cache.ts`.
  */
 export interface WorkerBundleResult {
   outFile: string;
@@ -446,24 +449,59 @@ export interface WorkerBundleResult {
 }
 
 export async function bundleWorker(opts: WorkerBundleOptions): Promise<WorkerBundleResult> {
-  const outFile = join(opts.outDir, 'worker.js');
-  const marker = join(opts.outDir, '.worker-complete');
-  const sourceHash = workerSourceHash();
-  const hash = opts.epochSalt
-    ? createHash('sha256').update(sourceHash).update('\0').update(opts.epochSalt).digest('hex')
-    : sourceHash;
-  if (
-    !opts.noCache &&
-    existsSync(outFile) &&
-    existsSync(marker) &&
-    existsSync(join(opts.outDir, WORKER_EPOCH_FILE)) &&
-    readFileSync(marker, 'utf8') === hash
-  ) {
-    return { outFile, epoch: readWorkerBundleEpoch(opts.outDir) };
-  }
+  const outFile = join(opts.outDir, WORKER_FILE);
+  const hash = workerBundleHash(opts.epochSalt);
+  const reusesCache = !opts.noCache;
+  const cachedEpoch = reusesCache ? readCompletedWorkerBundle(opts.outDir, hash) : null;
+  if (cachedEpoch) return { outFile, epoch: cachedEpoch };
 
-  mkdirSync(opts.outDir, { recursive: true });
-  const root = pyricPackageRoot();
+  for (let attempt = 1; ; attempt++) {
+    const epoch = await withWorkerBuildLock(opts.outDir, (lock) => buildUnderLock(opts, hash, lock));
+    if (epoch) return { outFile, epoch };
+    const isLastAttempt = attempt >= MAX_WORKER_PUBLISH_ATTEMPTS;
+    if (isLastAttempt) {
+      throw new Error(`pyric sandbox: another process kept replacing the SharedWorker bundle in ${opts.outDir}`);
+    }
+  }
+}
+
+const MAX_WORKER_PUBLISH_ATTEMPTS = 3;
+
+/**
+ * Build and publish while holding the lock, then return the epoch of the
+ * bundle on disk. That is the bundle the page is served, even when another
+ * process published over ours, or null when what is on disk is torn.
+ */
+async function buildUnderLock(opts: WorkerBundleOptions, hash: string, lock: WorkerBuildLock): Promise<string | null> {
+  // Another process may have finished this bundle while we waited.
+  const builtMeanwhile = opts.noCache ? null : readCompletedWorkerBundle(opts.outDir, hash);
+  if (builtMeanwhile) return builtMeanwhile;
+  removeBuildLeftovers(opts.outDir);
+  const stagingDir = mkdtempSync(stagingPathPrefix(opts.outDir));
+  try {
+    await buildWorkerInto(stagingDir, opts);
+    // A builder whose lock was taken over as abandoned leaves the directory to the new holder.
+    if (lock.isHeld()) publishWorkerBundle(stagingDir, opts.outDir, hash);
+  } finally {
+    rmSync(stagingDir, { recursive: true, force: true });
+  }
+  return readCompletedWorkerBundle(opts.outDir, hash);
+}
+
+/** The marker hash: the worker source graph, plus the boot salt when one is given. */
+function workerBundleHash(epochSalt: string | undefined): string {
+  const sourceHash = workerSourceHash();
+  if (!epochSalt) return sourceHash;
+  return createHash('sha256').update(sourceHash).update('\0').update(epochSalt).digest('hex');
+}
+
+/**
+ * Build the worker into a private staging directory and bake its epoch.
+ * The staging directory is a sibling of `outDir`, so the sourcemap's relative
+ * source paths stay correct after the files move.
+ */
+async function buildWorkerInto(stagingDir: string, opts: WorkerBundleOptions): Promise<string> {
+  const outFile = join(stagingDir, WORKER_FILE);
   const result = await esbuild.build({
     entryPoints: [opts.entryPath ?? workerEntryPath()],
     outfile: outFile,
@@ -496,7 +534,6 @@ export async function bundleWorker(opts: WorkerBundleOptions): Promise<WorkerBun
   if (opts.epochSalt) epochHash.update('\0').update(opts.epochSalt);
   const epoch = epochHash.digest('hex').slice(0, 16);
   writeFileSync(outFile, canonicalSource.replaceAll(WORKER_EPOCH_PLACEHOLDER, epoch));
-  writeFileSync(join(opts.outDir, WORKER_EPOCH_FILE), epoch);
-  writeFileSync(marker, hash);
-  return { outFile, epoch };
+  writeFileSync(join(stagingDir, WORKER_EPOCH_FILE), epoch);
+  return epoch;
 }
