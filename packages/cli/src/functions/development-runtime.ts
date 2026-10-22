@@ -21,6 +21,8 @@ export type FunctionsDevelopmentResult =
   | { kind: 'failed'; error: Error };
 
 export type FunctionsDevelopmentEvent =
+  /** A sandbox peer is connected and the child is about to spawn. */
+  | { type: 'starting'; mode: 'initial' | 'reload' }
   | { type: 'child-event'; event: FunctionsChildEvent }
   | { type: 'output'; stream: 'stdout' | 'stderr'; line: string }
   | { type: 'unexpected-exit'; code: number };
@@ -214,6 +216,7 @@ export function createFunctionsDevelopmentRuntime(
     }
     if (!connected || closed) return { kind: 'no-peer' };
 
+    emit({ type: 'starting', mode });
     let handle: FunctionsChildHandle;
     try {
       handle = spawn({

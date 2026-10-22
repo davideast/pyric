@@ -11,13 +11,15 @@
 export interface FirebaseEndpoint {
   omit?: unknown;
   region?: unknown;
+  platform?: unknown;
+  timeoutSeconds?: unknown;
   eventTrigger?: {
     eventType?: unknown;
     eventFilters?: Record<string, unknown>;
     eventFilterPathPatterns?: Record<string, unknown>;
   };
   callableTrigger?: unknown;
-  httpsTrigger?: unknown;
+  httpsTrigger?: { invoker?: unknown } | null;
   scheduleTrigger?: unknown;
   taskQueueTrigger?: unknown;
 }
