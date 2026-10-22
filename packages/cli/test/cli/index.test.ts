@@ -1,14 +1,12 @@
 import { describe, expect, it } from 'bun:test';
-import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { FIREBASE_TESTED_AGAINST } from '../../src/version/compat-target.js';
-import { dispatch, parseArgs } from '../../src/cli/index.js';
+import { parseArgs } from '../../src/cli/index.js';
+import { PACKAGE_ROOT, runCli, runDispatch } from './run-cli.js';
 
-const PACKAGE_ROOT = join(import.meta.dir, '..', '..');
-const CLI_ENTRY = join(PACKAGE_ROOT, 'src', 'cli', 'index.ts');
 const REMOVED_PROJECT_COMMANDS = [
   'login',
   'logout',
@@ -25,41 +23,6 @@ const REMOVED_BRIDGE_FLAGS = [
   ['--confirm-timeout', '5000'],
   ['--non-interactive'],
 ] as const;
-
-function runCli(args: string[], input?: string): { code: number; stdout: string; stderr: string } {
-  const result = spawnSync('bun', [CLI_ENTRY, ...args], {
-    cwd: PACKAGE_ROOT,
-    encoding: 'utf8',
-    input,
-    timeout: 30_000,
-  });
-  return {
-    code: result.status ?? -1,
-    stdout: result.stdout ?? '',
-    stderr: result.stderr ?? '',
-  };
-}
-
-async function runDispatch(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
-  let stdout = '';
-  let stderr = '';
-  const stdoutWrite = process.stdout.write;
-  const stderrWrite = process.stderr.write;
-  process.stdout.write = ((chunk: string | Uint8Array) => {
-    stdout += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString();
-    return true;
-  }) as typeof process.stdout.write;
-  process.stderr.write = ((chunk: string | Uint8Array) => {
-    stderr += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString();
-    return true;
-  }) as typeof process.stderr.write;
-  try {
-    return { code: await dispatch(parseArgs(args)), stdout, stderr };
-  } finally {
-    process.stdout.write = stdoutWrite;
-    process.stderr.write = stderrWrite;
-  }
-}
 
 describe('retained pyric command surface', () => {
   it('advertises every local-development workflow through the CLI entry', () => {
