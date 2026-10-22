@@ -2,16 +2,14 @@ import { describe, expect, it } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import type { ChildProcess } from 'node:child_process';
-import type {
-  FunctionsRtdbChildHandle,
-  FunctionsRtdbChildReady,
-} from '../../src/functions-rtdb/child.js';
+import type { FunctionsChildHandle } from '../../src/functions/spawn.js';
+import type { FunctionsChildReady } from '../../src/functions/child-protocol.js';
 import {
   createHttpFunctionsPeerReadiness,
   createFunctionsDevelopmentRuntime,
   type FunctionsDevelopmentEvent,
   type FunctionsPeerReadiness,
-} from '../../src/functions-rtdb/development-runtime.js';
+} from '../../src/functions/development-runtime.js';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -20,7 +18,7 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-function fakeChild(ready: Promise<FunctionsRtdbChildReady>) {
+function fakeChild(ready: Promise<FunctionsChildReady>) {
   const stdout = new PassThrough();
   const stderr = new PassThrough();
   const exit = deferred<number>();
@@ -31,7 +29,7 @@ function fakeChild(ready: Promise<FunctionsRtdbChildReady>) {
     exitCode: null,
     signalCode: null,
   }) as unknown as ChildProcess;
-  const handle: FunctionsRtdbChildHandle = {
+  const handle: FunctionsChildHandle = {
     child,
     ready,
     exited: exit.promise,
@@ -42,7 +40,7 @@ function fakeChild(ready: Promise<FunctionsRtdbChildReady>) {
 
 function runtimeOptions(
   readiness: FunctionsPeerReadiness,
-  spawn: () => FunctionsRtdbChildHandle,
+  spawn: () => FunctionsChildHandle,
   events: FunctionsDevelopmentEvent[] = [],
 ) {
   return {
@@ -96,7 +94,7 @@ describe('Functions development runtime', () => {
   });
 
   it('stops the child before awaiting a pending ready transition', async () => {
-    const ready = deferred<FunctionsRtdbChildReady>();
+    const ready = deferred<FunctionsChildReady>();
     const child = fakeChild(ready.promise);
     child.handle.stop = async () => {
       ready.reject(new Error('stopped during module evaluation'));
@@ -153,7 +151,7 @@ describe('Functions development runtime', () => {
 
   it('serializes reloads and coalesces concurrent requests into one follow-up', async () => {
     const initial = fakeChild(Promise.resolve({ triggerCount: 1, unsupportedTriggers: [] }));
-    const ready2 = deferred<FunctionsRtdbChildReady>();
+    const ready2 = deferred<FunctionsChildReady>();
     const second = fakeChild(ready2.promise);
     const third = fakeChild(Promise.resolve({ triggerCount: 3, unsupportedTriggers: [] }));
     const children = [initial, second, third];
@@ -174,7 +172,7 @@ describe('Functions development runtime', () => {
   });
 
   it('queues a reload behind an in-progress initial start', async () => {
-    const initialReady = deferred<FunctionsRtdbChildReady>();
+    const initialReady = deferred<FunctionsChildReady>();
     const initial = fakeChild(initialReady.promise);
     const reloaded = fakeChild(Promise.resolve({ triggerCount: 2, unsupportedTriggers: [] }));
     const children = [initial, reloaded];
@@ -227,7 +225,7 @@ describe('Functions development runtime', () => {
 });
 
 it('retries a failed initial child once requested, coalesces callers, and refuses after close', async () => {
-  const firstReady = deferred<FunctionsRtdbChildReady>();
+  const firstReady = deferred<FunctionsChildReady>();
   const failed = fakeChild(firstReady.promise);
   const ready = { triggerCount: 1, unsupportedTriggers: [] };
   const replacement = fakeChild(Promise.resolve(ready));

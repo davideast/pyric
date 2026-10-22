@@ -4,7 +4,7 @@ import {
   buildFunctionsChildEnv,
   resolveChildDatabaseHost,
   resolveChildModulePath,
-} from '../../src/functions-rtdb/child.js';
+} from '../../src/functions/spawn.js';
 
 describe('functions child metadata and environment resolution', () => {
   describe('resolveChildDatabaseHost', () => {

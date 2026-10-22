@@ -11,10 +11,10 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
-  spawnFunctionsRtdbChild,
-  type FunctionsRtdbChildEvent,
-  type FunctionsRtdbChildHandle,
-} from '../../src/functions-rtdb/child.js';
+  spawnFunctionsChild,
+  type FunctionsChildHandle,
+} from '../../src/functions/spawn.js';
+import { type FunctionsChildEvent } from '../../src/functions/child-protocol.js';
 import {
   buildChildEnv,
   registerModuleUrl,
@@ -29,13 +29,13 @@ import {
 
 const cliRoot = resolve(import.meta.dir, '../..');
 const repoRoot = resolve(cliRoot, '../..');
-const childModule = join(cliRoot, 'dist/functions-rtdb/child.js');
+const childModule = join(cliRoot, 'dist/functions/child.js');
 
 let fixtureDir: string;
 let runtime: ServeRuntime;
 let peer: { close(): Promise<void> };
 let observer: RemoteSandbox;
-let child: FunctionsRtdbChildHandle | undefined;
+let child: FunctionsChildHandle | undefined;
 
 let childStderr = '';
 
@@ -142,8 +142,8 @@ afterAll(async () => {
 
 describe('Functions RTDB messaging bridge integration (#403)', () => {
   test('delivers Admin Messaging send from child to a worker-minted token across the bridge', async () => {
-    const events: FunctionsRtdbChildEvent[] = [];
-    child = spawnFunctionsRtdbChild({
+    const events: FunctionsChildEvent[] = [];
+    child = spawnFunctionsChild({
       cwd: join(fixtureDir, 'functions'),
       entry: join(fixtureDir, 'functions/index.js'),
       childModuleUrl: pathToFileURL(childModule),
