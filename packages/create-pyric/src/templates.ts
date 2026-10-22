@@ -19,6 +19,7 @@
 import { lstatSync, readFileSync, readdirSync } from 'node:fs';
 import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { FIREBASE_PIN } from './firebase-pins.js';
 import { NEXTJS_TEMPLATE } from './template-nextjs.js';
 
 export const TEMPLATE_NAMES = ['web', 'node', 'static', 'chat', 'nextjs'] as const;
@@ -825,7 +826,7 @@ export const TEMPLATES: Record<TemplateName, ScaffoldTemplate> = {
     },
     // The real firebase package ships day one so the production `vite build`
     // resolves the same canonical imports against it — no code edit at graduation.
-    dependencies: { firebase: '^12.12.0' },
+    dependencies: { firebase: FIREBASE_PIN },
     devDependencies: { '@pyric/cli': '*', vite: '^6.0.0', typescript: '^5.7.0' },
     dirs: ['src'],
     files: (name) => [
@@ -853,7 +854,7 @@ export const TEMPLATES: Record<TemplateName, ScaffoldTemplate> = {
       dev: 'pyric sandbox --hosted --no-open -- node --env-file-if-exists=.env --experimental-strip-types src/app.ts',
      bridge: 'pyric bridge',
     },
-    dependencies: { firebase: '^12.12.0' },
+    dependencies: { firebase: FIREBASE_PIN },
     devDependencies: { '@pyric/cli': '*', '@types/node': '^22.0.0', typescript: '^5.7.0' },
     dirs: ['src'],
     files: (name) => [
@@ -876,7 +877,7 @@ export const TEMPLATES: Record<TemplateName, ScaffoldTemplate> = {
       dev: 'pyric sandbox --seed seed.json',
      'dev:agent': 'pyric sandbox --bridge --seed seed.json',
     },
-    dependencies: { firebase: '^12.12.0' },
+    dependencies: { firebase: FIREBASE_PIN },
     devDependencies: { '@pyric/cli': '*' },
     dirs: ['public'],
     files: (name) => [
