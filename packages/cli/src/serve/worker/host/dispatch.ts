@@ -391,7 +391,7 @@ export async function cleanupPortWithDisconnect(ctx: HostCtx, port: PortLike): P
  */
 export function cleanupPort(ctx: HostCtx, port: PortLike): void {
   (ctx.disconnectedPorts ??= new WeakSet()).add(port);
-  forgetConfigPort(ctx, port);
+  forgetConfigPort(ctx, port, stalePort => cleanupPort(ctx, stalePort));
   const failures: unknown[] = [];
   const attempt = (cleanup: () => void): void => {
     try {

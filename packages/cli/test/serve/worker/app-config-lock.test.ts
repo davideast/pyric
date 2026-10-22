@@ -34,7 +34,7 @@ describe('worker host appConfig lock and pre-restart tab supersede', () => {
 
     await handleMessage(ctx, tabA.port, {
       t: 'appConfig',
-      options: { apiKey: 'demo', projectId: 'spaces', recaptchaEnterpriseSiteKey: 'site-key-1' },
+      options: { apiKey: 'demo', projectId: 'spaces', storageBucket: 'spaces-next.appspot.com' },
     });
     await handleMessage(ctx, tabB.port, {
       t: 'appConfig',
@@ -51,7 +51,7 @@ describe('worker host appConfig lock and pre-restart tab supersede', () => {
     expect(reply.ok).toBe(false);
     if (!reply.ok) {
       expect(reply.error.code).toBe('app/multiple-configs-not-supported');
-      expect(reply.error.message).toContain('differs on: recaptchaEnterpriseSiteKey');
+      expect(reply.error.message).toContain('differs on: storageBucket');
     }
   });
 
@@ -72,7 +72,7 @@ describe('worker host appConfig lock and pre-restart tab supersede', () => {
     };
     const currentConfig = {
       ...oct15Config,
-      recaptchaEnterpriseSiteKey: '6Ld2QOItAAAAALupvnroD0n_rIqtE_LWxLVu9zUR',
+      storageBucket: 'digchatapp-next.firebasestorage.app',
     };
 
     // 1. Background Chrome tab from an earlier server session reconnects first.
@@ -119,7 +119,7 @@ describe('worker host appConfig lock and pre-restart tab supersede', () => {
       value: {
         __error: {
           code: 'app/multiple-configs-not-supported',
-          message: 'Pyric currently supports one Firebase configuration per runtime (differs on: recaptchaEnterpriseSiteKey)',
+          message: 'Pyric currently supports one Firebase configuration per runtime (differs on: storageBucket)',
         },
       },
     });
@@ -137,7 +137,7 @@ describe('worker host appConfig lock and pre-restart tab supersede', () => {
       ok: false,
       error: {
         code: 'app/multiple-configs-not-supported',
-        message: 'Pyric currently supports one Firebase configuration per runtime (differs on: recaptchaEnterpriseSiteKey)',
+        message: 'Pyric currently supports one Firebase configuration per runtime (differs on: storageBucket)',
       },
     });
 
@@ -229,7 +229,7 @@ describe('worker host appConfig lock and pre-restart tab supersede', () => {
     };
     const currentConfig = {
       ...oldConfigWithoutRecaptcha,
-      recaptchaEnterpriseSiteKey: '6Ld2QOItAAAAALupvnroD0n_rIqtE_LWxLVu9zUR',
+      storageBucket: 'digchatapp-next.firebasestorage.app',
     };
 
     // T+0ms: Cached pre-upgrade Service Worker wakes from Chrome SW cache in a fresh JS isolate (no hostInstanceId).
@@ -321,7 +321,8 @@ describe('worker host appConfig lock between verified pages and Node processes',
     databaseURL: 'https://demo-app-default-rtdb.firebaseio.com',
     storageBucket: 'demo-app.appspot.com',
   };
-  const pageConfig = { ...ssrConfig, measurementId: 'G-TEST123' };
+  const pageConfig = { ...ssrConfig, storageBucket: 'other-bucket.appspot.com' };
+  const analyticsConfig = { ...ssrConfig, measurementId: 'G-TEST123', recaptchaEnterpriseSiteKey: 'site-key', apiKey: 'other-key', appId: '1:1:web:2', authDomain: 'other.example.com', messagingSenderId: '42' };
   const warnings: string[] = [];
   let warn: ReturnType<typeof spyOn> | undefined;
   beforeEach(() => {
@@ -336,7 +337,7 @@ describe('worker host appConfig lock between verified pages and Node processes',
     return port.messages.find((message): message is ResMessage => message.t === 'res' && message.id === id)!;
   }
 
-  it('refuses a verified page whose config adds measurementId while a verified Node process holds the config', async () => {
+  it('refuses a verified page whose config names another storage bucket while a verified Node process holds the config', async () => {
     const ctx = await makeCtx();
     const ports = new Map<string, ReturnType<typeof makePort>>();
     const bridge = createBridge({ projectKey: 'ssr-and-page' });
@@ -361,7 +362,7 @@ describe('worker host appConfig lock between verified pages and Node processes',
       type: 'attach', protocol: 1, transport: 'worker-port', hostInstanceId: bridge.instanceId, clientInfo: { platform: 'node' },
     });
     nodeProcess.handleMessage({ type: 'worker-message', message: { t: 'appConfig', options: ssrConfig } });
-    // The page the host served attaches with the same boot, and a config that adds measurementId.
+    // The page the host served attaches with the same boot, and a config that names another bucket.
     const page = createConsumerSession(bridge, () => {});
     page.handleMessage({
       type: 'attach', protocol: 1, transport: 'worker-port', hostInstanceId: bridge.instanceId, clientInfo: { platform: 'browser' },
@@ -374,11 +375,11 @@ describe('worker host appConfig lock between verified pages and Node processes',
     expect(refused.ok).toBe(false);
     if (!refused.ok) {
       expect(refused.error.code).toBe('app/multiple-configs-not-supported');
-      expect(refused.error.message).toContain('differs on: measurementId');
+      expect(refused.error.message).toContain('differs on: storageBucket');
     }
     expect((await op(ctx, nodePort!, 'node-read-after')).ok).toBe(true);
     expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain("[pyric] Refused a client's Firebase config (differs on: measurementId).");
+    expect(warnings[0]).toContain("[pyric] Refused a client's Firebase config (differs on: storageBucket).");
     expect(warnings[0]).toContain('that client keeps working');
   });
 
@@ -393,7 +394,7 @@ describe('worker host appConfig lock between verified pages and Node processes',
     expect((await op(ctx, cachedServiceWorker, 'sw-read')).ok).toBe(false);
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toContain(
-      '[pyric] Replaced the provisional Firebase config with the one a client verified against this host sent (differs on: measurementId).',
+      '[pyric] Replaced the provisional Firebase config with the one a client verified against this host sent (differs on: storageBucket).',
     );
     expect(warnings[0]).toContain('1 client on the earlier config');
   });
@@ -427,5 +428,75 @@ describe('worker host appConfig lock between verified pages and Node processes',
     const read = await op(ctx, refusedTab, 'gone-read');
     expect(read.ok).toBe(false);
     if (!read.ok) expect(read.error.code).not.toBe('app/multiple-configs-not-supported');
+  });
+
+  it('accepts a verified page whose config differs only on keys that pick no backend data', async () => {
+    const ctx = await makeCtx();
+    const nodeProcess = makePort();
+    const page = makePort();
+    await handleMessage(ctx, nodeProcess.port, { t: 'appConfig', options: ssrConfig, hostVerified: true });
+    // measurementId, the App Check site key, apiKey, appId, authDomain and messagingSenderId.
+    await handleMessage(ctx, page.port, { t: 'appConfig', options: analyticsConfig, hostVerified: true });
+
+    expect((await op(ctx, page, 'page-read')).ok).toBe(true);
+    expect((await op(ctx, nodeProcess, 'node-read')).ok).toBe(true);
+    expect(warnings).toEqual([]);
+  });
+
+  it('refuses a config that differs on projectId, databaseURL or storageBucket, naming only those keys', async () => {
+    for (const [key, value] of [
+      ['projectId', 'other-project'],
+      ['databaseURL', 'https://other-rtdb.firebaseio.com'],
+      ['storageBucket', 'other-bucket.appspot.com'],
+    ] as const) {
+      const ctx = await makeCtx();
+      const holder = makePort();
+      const other = makePort();
+      await handleMessage(ctx, holder.port, { t: 'appConfig', options: ssrConfig, hostVerified: true });
+      await handleMessage(ctx, other.port, { t: 'appConfig', options: { ...analyticsConfig, [key]: value }, hostVerified: true });
+      const refused = await op(ctx, other, `${key}-read`);
+      expect(refused.ok, key).toBe(false);
+      if (!refused.ok) expect(refused.error.message, key).toContain(`(differs on: ${key})`);
+    }
+  });
+
+  it('releases the config when its last client disconnects, so a later client may send another', async () => {
+    const ctx = await makeCtx();
+    const script = makePort();
+    const page = makePort();
+    await handleMessage(ctx, script.port, { t: 'appConfig', options: ssrConfig, hostVerified: true });
+    await handleMessage(ctx, script.port, { t: 'disconnect', id: 'script-bye' });
+    await handleMessage(ctx, page.port, { t: 'appConfig', options: pageConfig, hostVerified: true });
+
+    expect((await op(ctx, page, 'page-read')).ok).toBe(true);
+    expect(ctx.appOptions).toEqual(pageConfig);
+  });
+
+  it('keeps the config while another client that shares it is connected', async () => {
+    const ctx = await makeCtx();
+    const script = makePort();
+    const sharedPage = makePort();
+    const otherPage = makePort();
+    await handleMessage(ctx, script.port, { t: 'appConfig', options: ssrConfig, hostVerified: true });
+    await handleMessage(ctx, sharedPage.port, { t: 'appConfig', options: analyticsConfig, hostVerified: true });
+    await handleMessage(ctx, script.port, { t: 'disconnect', id: 'script-bye' });
+    await handleMessage(ctx, otherPage.port, { t: 'appConfig', options: pageConfig, hostVerified: true });
+
+    expect((await op(ctx, sharedPage, 'shared-read')).ok).toBe(true);
+    expect((await op(ctx, otherPage, 'other-read')).ok).toBe(false);
+  });
+
+  it('accepts a client refused while the config was held once the last client holding it disconnects', async () => {
+    const ctx = await makeCtx();
+    const script = makePort();
+    const page = makePort();
+    await handleMessage(ctx, script.port, { t: 'appConfig', options: ssrConfig, hostVerified: true });
+    await handleMessage(ctx, page.port, { t: 'appConfig', options: pageConfig, hostVerified: true });
+    expect((await op(ctx, page, 'page-refused')).ok).toBe(false);
+
+    await handleMessage(ctx, script.port, { t: 'disconnect', id: 'script-bye' });
+
+    expect((await op(ctx, page, 'page-read')).ok).toBe(true);
+    expect(ctx.appOptions).toEqual(pageConfig);
   });
 });

@@ -177,6 +177,10 @@ export interface HostCtx {
   rejectedConfigDetails?: WeakMap<PortLike, Record<string, unknown>>;
   /** Ports refused when they arrived, by the config they sent, so a lock that later adopts it accepts them again. */
   refusedConfigMessages?: Map<PortLike, AppConfigMessage>;
+  /** Connected app ports whose config the host accepted; when the last one goes, the config is released. */
+  configHolderPorts?: Set<PortLike>;
+  /** The default RTDB instance before `appOptions` named it, restored when the config is released. */
+  defaultRtdbBeforeAppConfig?: { instance: string | undefined };
   /**
    * The ONE shared auth handle for the worker — the USER POOL (who exists)
    * and the admin surface. Lazily created on first auth op or auth

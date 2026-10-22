@@ -13,7 +13,7 @@ import type { HostedConnectionState } from '../worker/client/websocket-connectio
 import { getServiceWorkerFirestore } from '../worker/client/service-worker-connection.js';
 import { getDeferredFirestore } from '../worker/client/deferred-connection.js';
 import { getHostedFirestore } from '../worker/client/websocket-connection.js';
-import { currentSessionToken, forgetSessionToken, initPayload } from './init-payload.js';
+import { currentHostInstanceId, currentSessionToken, forgetSessionToken, initPayload } from './init-payload.js';
 import type { WorkerInitPayload } from '../init-payload.js';
 import { toPageOriginWsUrl } from './bridge-url.js';
 import { hostLocation, nodeRuntimeOrigin, type NodeRuntimeOrigin } from './runtime-origin.js';
@@ -72,6 +72,8 @@ function hostedTarget(node?: { host: string; origin: NodeRuntimeOrigin }): Param
     initialHostInstanceId: node === undefined
       ? (globalThis.__PYRIC_HOST_INSTANCE_ID__ ?? globalThis.__PYRIC_WORKER_INIT__?.instanceId)
       : payload?.instanceId,
+    // After a host restart, a Node process reads the new boot's id before it reattaches.
+    currentHostInstanceId: node === undefined ? undefined : currentHostInstanceId,
   };
 }
 

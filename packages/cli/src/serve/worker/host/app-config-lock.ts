@@ -2,8 +2,10 @@
  * The host's one Firebase config.
  *
  * Every app port shares one backend, so the host serves one config: the first
- * one an app port sends. Who sent it decides whether a later, different config
- * may replace it:
+ * one an app port sends. Configs are compared on the keys that pick backend
+ * data (`backend-options.ts`), so a page that adds `measurementId` shares a
+ * server process's config. Who sent it decides whether a later, different
+ * config may replace it:
  *
  * - A client verified against this host boot (it presented this host's
  *   instance id on attach: a page the host served, or a Node process that
@@ -16,28 +18,16 @@
  *
  * A refused client whose config the replacing client turns out to share is
  * accepted again, so it is not stuck behind a provisional lock that is gone.
+ * When the last connected client on the config disconnects (a script that
+ * exited, the last tab closed), the host releases it: refused clients are
+ * judged again, in the order they arrived, and the next config is served.
  * Each refusal and each eviction is logged on the host.
  */
-import { firebaseOptionsEqual } from 'pyric/app/internal';
+import { differenceDetail, sameBackend } from './backend-options.js';
 import type { AppConfigMessage } from '../protocol.js';
 import type { HostCtx, PortLike } from '../host-context.js';
 import { resolvePendingDatabaseTargets } from './rules.js';
 import { adoptAppDefaultRtdbInstance } from './rtdb-instances.js';
-
-function differingTopLevelKeys(
-  expected: Record<string, unknown>,
-  actual: Record<string, unknown>,
-): string[] {
-  const keys = [...new Set([...Object.keys(expected), ...Object.keys(actual)])].sort();
-  return keys.filter((key) => !firebaseOptionsEqual(expected[key], actual[key]));
-}
-
-/** ` (differs on: a, b)`, or nothing when either side is unknown or they agree. */
-function differenceDetail(expected?: Record<string, unknown>, actual?: Record<string, unknown>): string {
-  const differing = expected && actual ? differingTopLevelKeys(expected, actual) : [];
-  const hasDifference = differing.length > 0;
-  return hasDifference ? ` (differs on: ${differing.join(', ')})` : '';
-}
 
 export function configConflictError(
   expected?: Record<string, unknown>,
@@ -65,8 +55,15 @@ function marksDefaultsProvisional(ctx: HostCtx): void {
     || ctx.defaultRtdbInstance === '__unnamed_default__';
 }
 
+function holdsConfig(ctx: HostCtx, port: PortLike): void {
+  (ctx.configHolderPorts ??= new Set()).add(port);
+}
+
 function lockFirstConfig(ctx: HostCtx, port: PortLike, msg: AppConfigMessage, sender: Sender): void {
+  const derivesDefaultRtdb = ctx.defaultRtdbInstance === undefined || ctx.defaultRtdbInstance === '__unnamed_default__';
+  ctx.defaultRtdbBeforeAppConfig = derivesDefaultRtdb ? { instance: ctx.defaultRtdbInstance } : undefined;
   ctx.appOptions = structuredClone(msg.options);
+  holdsConfig(ctx, port);
   ctx.appOptionsFromPriorHost = sender.fromPriorHost;
   ctx.appOptionsVerified = sender.hostVerified;
   if (sender.fromPriorHost) {
@@ -125,7 +122,7 @@ function readmitRefusedPorts(ctx: HostCtx): void {
   const refused = ctx.refusedConfigMessages;
   if (refused === undefined) return;
   for (const [port, msg] of refused) {
-    const sharesNewConfig = firebaseOptionsEqual(ctx.appOptions, msg.options);
+    const sharesNewConfig = sameBackend(ctx.appOptions, msg.options);
     if (!sharesNewConfig) continue;
     refused.delete(port);
     ctx.rejectedConfigPorts?.delete(port);
@@ -148,13 +145,15 @@ function supersedeLock(
   ];
   ctx.appOptionsFromPriorHost = false;
   ctx.appOptionsVerified = sender.hostVerified;
+  // Held before any eviction, so evicting the old holders never releases the config.
+  holdsConfig(ctx, port);
   ctx.priorHostConfigPorts?.clear();
   if (sender.hostVerified) {
     ctx.unverifiedConfigPorts?.clear();
   } else {
     (ctx.unverifiedConfigPorts ??= new Set()).add(port);
   }
-  const keepsConfig = firebaseOptionsEqual(priorOptions, msg.options);
+  const keepsConfig = sameBackend(priorOptions, msg.options);
   if (keepsConfig) {
     ctx.defaultRtdbAdoptedFromPriorHost = false;
     return;
@@ -174,7 +173,7 @@ function supersedeLock(
 }
 
 function joinLockedConfig(ctx: HostCtx, port: PortLike, msg: AppConfigMessage, sender: Sender): void {
-  const conflicts = !firebaseOptionsEqual(ctx.appOptions, msg.options);
+  const conflicts = !sameBackend(ctx.appOptions, msg.options);
   if (conflicts) {
     rejectPort(ctx, port, structuredClone(msg.options));
     (ctx.refusedConfigMessages ??= new Map()).set(port, structuredClone(msg));
@@ -182,10 +181,11 @@ function joinLockedConfig(ctx: HostCtx, port: PortLike, msg: AppConfigMessage, s
       `[pyric] Refused a client's Firebase config${differenceDetail(ctx.appOptions, msg.options)}. ` +
         'This host serves one config, the one another client sent first, and that client keeps working. ' +
         'Every call from the refused client gets app/multiple-configs-not-supported. ' +
-        'Give the page and every server process the same config (they often differ on measurementId), then reload the refused client.',
+        'Give the page and every server process the same projectId, databaseURL and storageBucket, then reload the refused client.',
     );
     return;
   }
+  holdsConfig(ctx, port);
   const joinsPriorHostLock = ctx.appOptionsFromPriorHost === true && sender.fromPriorHost;
   const joinsUnverifiedLock = ctx.appOptionsVerified !== true && !sender.hostVerified;
   if (joinsPriorHostLock) {
@@ -219,9 +219,33 @@ export function handleAppConfig(
   }
 }
 
-/** A port that is gone holds no place in the config lock. */
-export function forgetConfigPort(ctx: HostCtx, port: PortLike): void {
+/** No connected client uses the config: serve the next one, judging refused clients again in arrival order. */
+function releaseConfig(ctx: HostCtx, cleanupPort: (port: PortLike) => void): void {
+  ctx.appOptions = undefined;
+  ctx.appOptionsFromPriorHost = undefined;
+  ctx.appOptionsVerified = undefined;
+  ctx.priorHostConfigPorts?.clear();
+  ctx.unverifiedConfigPorts?.clear();
+  const derivedDefault = ctx.defaultRtdbBeforeAppConfig;
+  if (derivedDefault !== undefined) ctx.defaultRtdbInstance = derivedDefault.instance;
+  ctx.defaultRtdbBeforeAppConfig = undefined;
+  ctx.defaultRtdbAdoptedFromPriorHost = false;
+  const refused = [...(ctx.refusedConfigMessages ?? [])];
+  ctx.refusedConfigMessages?.clear();
+  for (const [port, msg] of refused) {
+    ctx.rejectedConfigPorts?.delete(port);
+    ctx.rejectedConfigDetails?.delete(port);
+    handleAppConfig(ctx, port, msg, cleanupPort);
+  }
+}
+
+/** A port that is gone holds no place in the config lock; the last one to hold the config releases it. */
+export function forgetConfigPort(ctx: HostCtx, port: PortLike, cleanupPort: (port: PortLike) => void): void {
   ctx.priorHostConfigPorts?.delete(port);
   ctx.unverifiedConfigPorts?.delete(port);
   ctx.refusedConfigMessages?.delete(port);
+  const holders = ctx.configHolderPorts;
+  const heldConfig = holders?.delete(port) === true;
+  const releasesConfig = heldConfig && holders.size === 0 && ctx.appOptions !== undefined;
+  if (releasesConfig) releaseConfig(ctx, cleanupPort);
 }
