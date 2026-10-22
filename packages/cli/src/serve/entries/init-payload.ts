@@ -145,15 +145,38 @@ export function forgetSessionToken(): void {
   sessionTokenIsStale = true;
 }
 
-/**
- * The boot id of the host serving `init.json` now, read afresh. A Node process
- * presents it when it reattaches, so after a host restart it presents the new
- * boot. The same read answers the next session-token read, so a reconnect
- * reads `init.json` once.
- */
-export async function currentHostInstanceId(): Promise<string | undefined> {
+/** Reads `init.json` from the host serving it now; the read also answers the next session-token read. */
+async function readHostPayload(): Promise<InitPayload> {
   const payload = await requestInitPayload();
   sessionTokenRequest = Promise.resolve(payload.sessionToken ?? null);
   sessionTokenIsStale = false;
+  return payload;
+}
+
+/** The read a reattach made for its socket url, which its boot id comes from too. */
+let readForReattach: Promise<InitPayload> | undefined;
+
+/**
+ * The `init.json` of the host serving now, read afresh before a Node process
+ * reattaches: its bridge url says where the socket goes, on a host that may
+ * have moved. The next {@link currentHostInstanceId} answers from this read.
+ */
+export function currentHostPayload(): Promise<InitPayload> {
+  const read = readHostPayload();
+  readForReattach = read;
+  return read;
+}
+
+/**
+ * The boot id of the host serving `init.json` now, read afresh. A Node process
+ * presents it when it reattaches, so after a host restart it presents the new
+ * boot. It comes from the read the reattach made for its url when there is one,
+ * and that read answers the next session-token read, so a reconnect reads
+ * `init.json` once.
+ */
+export async function currentHostInstanceId(): Promise<string | undefined> {
+  const pending = readForReattach;
+  readForReattach = undefined;
+  const payload = await (pending ?? readHostPayload());
   return payload.instanceId;
 }
