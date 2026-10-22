@@ -1,0 +1,145 @@
+/**
+ * #1167: CLI commands that probe a local port must give up at their deadline
+ * and let the process exit, even where the port's connect never completes.
+ * Under WSL mirrored networking a closed loopback port drops SYNs instead of
+ * refusing, and an aborted `fetch` leaves undici's connect pending for its own
+ * 10 s timeout, which holds the process open past the command's answer.
+ *
+ * Each command runs in a real Node child (the runtime the bug lives in; Bun's
+ * fetch does not keep the connect) from the built `dist/`, so this needs
+ * `bun run build` first.
+ */
+import { describe, expect, it } from 'bun:test';
+import { spawn } from 'node:child_process';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { blackholedPort } from '../blackholed-port.js';
+
+const dist = (path: string): string => pathToFileURL(join(resolve(import.meta.dir, '../..'), 'dist', path)).href;
+
+interface CommandRun {
+  readonly result: unknown;
+  /** Milliseconds from the call until the command settled. */
+  readonly commandMs: number;
+  /** Milliseconds from the command settling until the parent saw the child exit. */
+  readonly lingerMs: number;
+}
+
+/**
+ * Run `body` (module source whose last statement assigns `result`) in a Node
+ * child, timing the command and the exit after it.
+ */
+function runInNode(body: string): Promise<CommandRun> {
+  const script = `let result;
+const started = performance.now();
+${body}
+const commandMs = performance.now() - started;
+process.stdout.write(JSON.stringify({ result, commandMs, endedAt: Date.now() }));`;
+  const child = spawn('node', ['--input-type=module', '-e', script], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let stdout = '';
+  child.stdout.setEncoding('utf8');
+  child.stdout.on('data', (chunk: string) => { stdout += chunk; });
+  child.stderr.resume();
+  return new Promise((resolvePromise, reject) => {
+    child.once('error', reject);
+    child.once('exit', () => {
+      const exitedAt = Date.now();
+      try {
+        const printed = JSON.parse(stdout) as { result: unknown; commandMs: number; endedAt: number };
+        resolvePromise({ result: printed.result, commandMs: printed.commandMs, lingerMs: exitedAt - printed.endedAt });
+      } catch {
+        reject(new Error(`the command child printed no result: ${JSON.stringify(stdout)}`));
+      }
+    });
+  });
+}
+
+/** Bound on the time between a command settling and its process exiting. */
+const PROMPT_EXIT_MS = 1_500;
+
+const pyricBin = join(resolve(import.meta.dir, '../..'), 'dist/cli/index.js');
+
+/** Run the built `pyric` command in `cwd`, for its exit code and wall time. */
+function runPyric(args: string[], cwd: string): Promise<{ code: number | null; wallMs: number }> {
+  const started = performance.now();
+  const child = spawn('node', [pyricBin, ...args], { cwd, stdio: 'ignore' });
+  return new Promise((resolvePromise, reject) => {
+    child.once('error', reject);
+    child.once('exit', (code) => resolvePromise({ code, wallMs: performance.now() - started }));
+  });
+}
+
+describe('the pyric command against a port whose connect never completes', () => {
+  it('pyric snapshot --port exits about its two 750 ms probes after start', async () => {
+    const hole = await blackholedPort();
+    const cwd = mkdtempSync(join(tmpdir(), 'pyric-snapshot-bin-blackhole-'));
+    try {
+      const run = await runPyric(['snapshot', '--port', String(hole.port)], cwd);
+      expect(run.code).toBe(2);
+      expect(run.wallMs).toBeLessThan(5_000);
+    } finally {
+      hole.close();
+    }
+  }, 30_000);
+
+  it('pyric serve diagnostics --url exits about its 3 s deadline after start', async () => {
+    const hole = await blackholedPort();
+    try {
+      const run = await runPyric(['serve', 'diagnostics', '--url', `http://127.0.0.1:${hole.port}`], tmpdir());
+      expect(run.code).toBe(2);
+      expect(run.wallMs).toBeLessThan(6_500);
+    } finally {
+      hole.close();
+    }
+  }, 30_000);
+});
+
+describe('local probe deadlines', () => {
+  it('pyric snapshot gives up on a live port whose connect never completes, then exits', async () => {
+    const hole = await blackholedPort();
+    const cwd = mkdtempSync(join(tmpdir(), 'pyric-snapshot-blackhole-'));
+    try {
+      const run = await runInNode(`const { runSnapshot } = await import(${JSON.stringify(dist('cli/snapshot.js'))});
+const { parseArgs } = await import(${JSON.stringify(dist('cli/parse-args.js'))});
+const sink = { write() {} };
+result = await runSnapshot(parseArgs(['snapshot', '--port', '${hole.port}']), { cwd: ${JSON.stringify(cwd)}, stdout: sink, stderr: sink });`);
+      expect(run.result).toBe(2);
+      // Two 750 ms probes: init.json, then state.
+      expect(run.commandMs).toBeLessThan(2_500);
+      expect(run.lingerMs).toBeLessThan(PROMPT_EXIT_MS);
+    } finally {
+      hole.close();
+    }
+  }, 30_000);
+
+  it('pyric serve diagnostics reports an unreachable server at its deadline, then exits', async () => {
+    const hole = await blackholedPort();
+    try {
+      const run = await runInNode(`const { runServeDiagnostics } = await import(${JSON.stringify(dist('cli/serve-diagnostics.js'))});
+const { parseArgs } = await import(${JSON.stringify(dist('cli/parse-args.js'))});
+let output = '';
+const code = await runServeDiagnostics(parseArgs(['serve', 'diagnostics', '--url', 'http://127.0.0.1:${hole.port}']), { stdout: { write(value) { output += value; } } });
+result = { code, report: JSON.parse(output) };`);
+      expect(run.result).toMatchObject({ code: 2, report: { server: { http: 'unreachable' } } });
+      expect(run.commandMs).toBeLessThan(4_000);
+      expect(run.lingerMs).toBeLessThan(PROMPT_EXIT_MS);
+    } finally {
+      hole.close();
+    }
+  }, 30_000);
+
+  it('the sandbox peer wait ends at its timeout on a health port whose connect never completes, then exits', async () => {
+    const hole = await blackholedPort();
+    try {
+      const run = await runInNode(`const { waitForSandboxPeer } = await import(${JSON.stringify(dist('cli/sandbox-runner.js'))});
+result = await waitForSandboxPeer('http://127.0.0.1:${hole.port}', { timeoutMs: 1000, intervalMs: 100 });`);
+      expect(run.result).toBe(false);
+      expect(run.commandMs).toBeLessThan(2_500);
+      expect(run.lingerMs).toBeLessThan(PROMPT_EXIT_MS);
+    } finally {
+      hole.close();
+    }
+  }, 30_000);
+});

@@ -20,12 +20,20 @@ import { copyFileSync, createWriteStream, existsSync, mkdirSync, renameSync, rmS
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 import { dirname, join, resolve } from 'node:path';
+import { boundedFetch } from '../bounded-request.js';
 import { hashFile } from '../serve/hosted/persistence/blob-store.js';
 import { hostedStateDirectory, loadHostedSnapshot } from '../serve/hosted/persistence.js';
 import { isStorageReference, objectFileIn, type StorageObjectReference, type StorageStateEntry } from '../serve/state-file.js';
 import { firestoreDocCount } from '../serve/state-summary.js';
 import type { ParsedArgs } from './parse-args.js';
 import { createStateStore, type PyricStateFile } from '../serve/state-store.js';
+
+/**
+ * Milliseconds each live probe (init.json, then state) has, connect included.
+ * A bounded request, so a port whose connect never completes cannot hold the
+ * process open past it (#1167).
+ */
+const LIVE_PROBE_DEADLINE_MS = 750;
 
 /** Ports probed when --port is absent — serve's default + scan window. */
 const SCAN_PORTS = [3473, 3474, 3475, 3476, 3477];
@@ -53,9 +61,7 @@ async function fetchLive(port: number): Promise<LiveState | null> {
   try {
     let headers: Record<string, string> | undefined;
     try {
-      const initRes = await fetch(`http://localhost:${port}/__pyric/init.json`, {
-        signal: AbortSignal.timeout(750),
-      });
+      const initRes = await boundedFetch(`http://localhost:${port}/__pyric/init.json`, { deadlineMs: LIVE_PROBE_DEADLINE_MS });
       if (initRes.status === 200) {
         const initData = (await initRes.json()) as { sessionToken?: string };
         if (initData.sessionToken) {
@@ -65,10 +71,13 @@ async function fetchLive(port: number): Promise<LiveState | null> {
     } catch {
       // If init.json probe fails, attempt state fetch directly
     }
-    const requestHeaders: HeadersInit = headers ?? {};
-    const res = await fetch(`http://localhost:${port}/__pyric/state`, {
+    const requestHeaders: Record<string, string> = headers ?? {};
+    // The whole state document is read within the deadline, as fetch's
+    // abort covered the body too, so it has no size cap of its own.
+    const res = await boundedFetch(`http://localhost:${port}/__pyric/state`, {
       headers: requestHeaders,
-      signal: AbortSignal.timeout(750),
+      deadlineMs: LIVE_PROBE_DEADLINE_MS,
+      maxBytes: Number.POSITIVE_INFINITY,
     });
     if (res.status !== 200) return null;
     const body = (await res.json()) as PyricStateFile;

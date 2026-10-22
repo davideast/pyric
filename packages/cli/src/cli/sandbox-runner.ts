@@ -18,6 +18,7 @@
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { SHELL_OPERATORS } from './unsupported-runtime.js';
+import { boundedFetch } from '../bounded-request.js';
 import type { WorkerInitPayload } from '../serve/init-payload.js';
 
 // ─── First-run race guard ───────────────────────────────────────────────────
@@ -44,12 +45,19 @@ export async function waitForSandboxPeer(
 ): Promise<boolean> {
   const timeoutMs = opts.timeoutMs ?? 30_000;
   const intervalMs = opts.intervalMs ?? 250;
-  const fetchImpl = opts.fetchImpl ?? fetch;
   const sleep = opts.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
   const deadline = Date.now() + timeoutMs;
+  // By default each poll is bounded by the time left, connect included, so a
+  // health port whose connect never completes cannot carry the wait past its
+  // timeout or hold the process open after it (#1167).
+  const fetchHealth = (url: string): Promise<Response> => {
+    const injected = opts.fetchImpl;
+    if (injected) return injected(url);
+    return boundedFetch(url, { deadlineMs: Math.max(1, deadline - Date.now()) });
+  };
   for (;;) {
     try {
-      const res = await fetchImpl(`${serveUrl.replace(/\/$/, '')}/__pyric/health`);
+      const res = await fetchHealth(`${serveUrl.replace(/\/$/, '')}/__pyric/health`);
       if (res.ok) {
         const health = (await res.json()) as { sandboxConnected?: boolean };
         if (health.sandboxConnected === true) return true;
