@@ -1,19 +1,19 @@
 import type { Server } from 'node:http';
 import path from 'node:path';
 import type { ViteDevServer } from 'vite';
-import type { FunctionsRtdbProject } from '../functions-rtdb/project.js';
+import type { FunctionsProject } from '../functions/project.js';
 import {
   createFunctionsDevelopmentRuntime,
   createInProcessFunctionsPeerReadiness,
   type FunctionsDevelopmentEvent,
   type FunctionsDevelopmentResult,
   type FunctionsDevelopmentRuntime,
-} from '../functions-rtdb/development-runtime.js';
+} from '../functions/development-runtime.js';
 import type { BridgeMount } from './bridge-mount.js';
 
 export interface ViteFunctionsDevelopmentOptions {
   cwd: string;
-  project: FunctionsRtdbProject;
+  project: FunctionsProject;
   projectId: string;
   instance?: string;
   region?: string;
