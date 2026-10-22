@@ -93,10 +93,10 @@ import {
 import { assertAdminAppActive } from '../app/lifecycle.js';
 import { defineDeferredMembers } from 'pyric/app/internal';
 import { BUCKET_DEFERRED_MEMBERS, FILE_DEFERRED_MEMBERS } from './deferred-members.js';
-import { deleteListedFiles } from './delete-files.js';
+import { deletedNamesFound, deleteListedFiles } from './delete-files.js';
 import { assertQuery, type DeleteFilesOptions, type GetFilesOptions } from './file-query.js';
-import { getFilesResponse, type GetFilesResponse } from './get-files.js';
-import { namesUnderPrefix, type FolderListing } from './remote-names.js';
+import { getFilesResponse, pageNamesFound, type GetFilesResponse } from './get-files.js';
+import { namesForQuery, type FolderListing } from './remote-names.js';
 
 export type { DeleteFilesOptions, GetFilesApiResponse, GetFilesOptions } from './file-query.js';
 export type { GetFilesResponse } from './get-files.js';
@@ -793,22 +793,24 @@ class RemoteBucket implements Bucket {
 
   async getFiles(query: GetFilesOptions = {}): Promise<GetFilesResponse<File>> {
     assertQuery(query, 'getFiles');
-    return getFilesResponse(await this.namesUnder(query.prefix ?? ''), query, name => this.file(name));
+    const names = await this.namesFor(query, pageNamesFound(query));
+    return getFilesResponse(names, query, name => this.file(name));
   }
 
   async deleteFiles(query: DeleteFilesOptions = {}): Promise<void> {
     assertQuery(query, 'deleteFiles');
-    await deleteListedFiles(await this.namesUnder(query.prefix ?? ''), query, name => this.file(name).delete());
+    const names = await this.namesFor(query, deletedNamesFound(query));
+    await deleteListedFiles(names, query, name => this.file(name).delete());
   }
 
-  /** The host's object names under `prefix`, walked folder by folder with `storage.listAll`. */
-  private namesUnder(prefix: string): Promise<string[]> {
-    return namesUnderPrefix(prefix, async path => (await this.channel.op({
+  /** The host's object names `query` reads, walked folder by folder with `storage.listAll` until `enough`. */
+  private namesFor(query: GetFilesOptions, enough: (name: string) => boolean): Promise<string[]> {
+    return namesForQuery(query, async path => (await this.channel.op({
       method: 'storage.listAll',
       ...this.wire,
       path,
       actAs: STORAGE_REMOTE_ADMIN_LENS,
-    })) as FolderListing);
+    })) as FolderListing, enough);
   }
 }
 

@@ -316,6 +316,78 @@ describe('pyric-admin remote dispatch — Storage data plane', () => {
   });
 });
 
+// ─── Listing a wide, deep tree (#1183) ─────────────────────────────────────
+
+/**
+ * 1,443 objects, a folder per object, as the store in #1183 holds them: 1,000
+ * single-object folders under `media/`, 400 under `users/`, a chain 40
+ * folders deep with an object at each level, and two root files that sort on
+ * either side of `media/`.
+ */
+function wideTreeNames(): string[] {
+  const media = Array.from({ length: 1000 }, (_, n) => `media/${n}/original.jpg`);
+  const users = Array.from({ length: 400 }, (_, n) => `users/u${n}/avatar.png`);
+  const deep = Array.from({ length: 41 }, (_, depth) => `${['deep', ...Array.from({ length: depth }, () => 'd')].join('/')}/level.txt`);
+  return [...media, ...users, ...deep, 'media-index.json', 'media0.txt'];
+}
+
+async function seed(bucket: ReturnType<Storage['bucket']>, names: readonly string[]): Promise<void> {
+  for (let start = 0; start < names.length; start += 64) {
+    await Promise.all(names.slice(start, start + 64).map((name) => bucket.file(name).save(name)));
+  }
+}
+
+const fileNames = (files: Array<{ name: string }>): string[] => files.map((file) => file.name);
+
+describe('pyric-admin remote dispatch: getFiles over a wide, deep tree (#1183)', () => {
+  const NAMES = wideTreeNames();
+
+  it('lists every query the local arm lists, in the same order, and leaves the client usable', async () => {
+    const { app, ctx } = makeStack();
+    // This in-memory host has nothing to persist; skip the flush so 1,443 saves log nothing.
+    ctx.flushPersistence = async () => {};
+    const remote = getStorage(app).bucket();
+    const local = getStorage(initializeApp({ sandbox: initializeSandbox() }, `local-wide-${Date.now()}`)).bucket();
+    await seed(remote, NAMES);
+    await seed(local, NAMES);
+
+    const queries = [
+      {},
+      { prefix: 'media/' },
+      { prefix: 'media' },
+      { maxResults: 100 },
+      { prefix: 'media/', maxResults: 100 },
+      { prefix: 'media/', delimiter: '/' },
+      { delimiter: '/' },
+      { prefix: 'deep/d/d/' },
+      { autoPaginate: false },
+    ];
+    for (const query of queries) {
+      const [remoteFiles, remoteNext, remoteResponse] = await remote.getFiles(query);
+      const [localFiles, localNext, localResponse] = await local.getFiles(query);
+      expect({ query, names: fileNames(remoteFiles) }).toEqual({ query, names: fileNames(localFiles) });
+      expect(remoteNext).toEqual(localNext);
+      expect(remoteResponse).toEqual(localResponse);
+    }
+    expect(fileNames((await remote.getFiles())[0])).toEqual([...NAMES].sort());
+
+    // Page by page with pageToken, as a caller that reads one page at a time does.
+    let remoteQuery: Record<string, unknown> | null = { prefix: 'media/', maxResults: 300 };
+    let localQuery: Record<string, unknown> | null = { prefix: 'media/', maxResults: 300 };
+    while (remoteQuery !== null && localQuery !== null) {
+      const [remoteFiles, nextRemote]: [Array<{ name: string }>, Record<string, unknown> | null, unknown] = await remote.getFiles(remoteQuery);
+      const [localFiles, nextLocal]: [Array<{ name: string }>, Record<string, unknown> | null, unknown] = await local.getFiles(localQuery);
+      expect(fileNames(remoteFiles)).toEqual(fileNames(localFiles));
+      remoteQuery = nextRemote;
+      localQuery = nextLocal;
+    }
+    expect(remoteQuery).toEqual(localQuery);
+
+    const [metadata] = await remote.file('media/7/original.jpg').getMetadata();
+    expect(metadata.name).toBe('media/7/original.jpg');
+  }, 60_000);
+});
+
 // ─── Remediating throws + caps ──────────────────────────────────────────────
 
 describe('pyric-admin remote dispatch — Storage remediating throws', () => {
