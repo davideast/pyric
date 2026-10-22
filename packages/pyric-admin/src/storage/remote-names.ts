@@ -50,9 +50,13 @@ export async function namesForQuery(
   return names;
 }
 
-type WalkNode =
-  | { kind: 'names'; names: string[] }
-  | { kind: 'folder'; path: string; listing?: Promise<FolderListing> };
+interface FolderNode {
+  kind: 'folder';
+  path: string;
+  listing?: Promise<FolderListing>;
+}
+
+type WalkNode = { kind: 'names'; names: string[] } | FolderNode;
 
 /** Yield the names under `query`'s prefix in name order, `concurrency` listings at a time at most. */
 export async function* walkNames(
@@ -62,6 +66,25 @@ export async function* walkNames(
 ): AsyncGenerator<string> {
   const prefix = query.prefix ?? '';
   const start = prefix.slice(0, Math.max(prefix.lastIndexOf('/'), 0));
+  let inFlight = 0;
+  let onSettle: Array<() => void> = [];
+  const aSlotFrees = (): Promise<void> => new Promise(resolve => onSettle.push(resolve));
+  const startListing = (node: FolderNode): Promise<FolderListing> => {
+    inFlight += 1;
+    const listing = listFolder(node.path);
+    // Count the listing until it settles. Handling both outcomes here also
+    // marks a rejection handled, so a walk that stops before reaching a
+    // looked-ahead folder leaves no unhandled rejection.
+    const settled = (): void => {
+      inFlight -= 1;
+      const waiting = onSettle;
+      onSettle = [];
+      for (const resolve of waiting) resolve();
+    };
+    listing.then(settled, settled);
+    node.listing = listing;
+    return listing;
+  };
   // The next node is at the end; nodes below it come later in name order.
   const stack: WalkNode[] = [{ kind: 'folder', path: start }];
   for (let node = stack.pop(); node !== undefined; node = stack.pop()) {
@@ -69,26 +92,31 @@ export async function* walkNames(
       yield* node.names;
       continue;
     }
-    const listing = node.listing ?? listFolder(node.path);
-    listAhead(stack, concurrency - 1, listFolder);
+    // Lookahead may hold every slot; this folder's listing waits for one.
+    while (node.listing === undefined && inFlight >= concurrency) await aSlotFrees();
+    const listing = node.listing ?? startListing(node);
+    listAhead(stack, concurrency, () => inFlight < concurrency, startListing);
     stack.push(...childrenOf(await listing, query).reverse());
   }
 }
 
 /**
- * Start the listings of the next `ahead` folders in name order. A listing
- * started here is awaited when its folder comes up; until then its rejection
- * is marked handled, so a walk that stops first leaves no unhandled one.
+ * Start the listings of the next folders in name order while `hasRoom`,
+ * looking at most `window` folders ahead. A listing started here is awaited
+ * when its folder comes up.
  */
-function listAhead(stack: WalkNode[], ahead: number, listFolder: ListFolder): void {
-  let started = 0;
-  for (let index = stack.length - 1; index >= 0 && started < ahead; index -= 1) {
+function listAhead(
+  stack: WalkNode[],
+  window: number,
+  hasRoom: () => boolean,
+  startListing: (node: FolderNode) => Promise<FolderListing>,
+): void {
+  let seen = 0;
+  for (let index = stack.length - 1; index >= 0 && seen < window && hasRoom(); index -= 1) {
     const node = stack[index]!;
     if (node.kind !== 'folder') continue;
-    started += 1;
-    if (node.listing !== undefined) continue;
-    node.listing = listFolder(node.path);
-    node.listing.catch(() => {});
+    seen += 1;
+    if (node.listing === undefined) void startListing(node);
   }
 }
 
@@ -115,8 +143,6 @@ function childrenOf(listing: FolderListing, query: GetFilesOptions): WalkNode[] 
 
 /** The prefix every name in the folder `folderWithSlash` rolls up to, if they all roll up to one. */
 function rollUpOf(folderWithSlash: string, query: GetFilesOptions): string | undefined {
-  const underPrefix = folderWithSlash.startsWith(query.prefix ?? '');
-  if (!underPrefix) return undefined;
   const entry = entryOf(folderWithSlash, query);
   return entry?.rolledUp === true ? entry.key : undefined;
 }
