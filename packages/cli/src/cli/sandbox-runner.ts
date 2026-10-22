@@ -18,6 +18,7 @@
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { SHELL_OPERATORS } from './unsupported-runtime.js';
+import type { WorkerInitPayload } from '../serve/init-payload.js';
 
 // ─── First-run race guard ───────────────────────────────────────────────────
 
@@ -171,6 +172,10 @@ export interface ChildActivation {
   /** Hosts or URLs the child's network guard permits in addition to the
    *  developer's own `PYRIC_GUARD_ALLOW`, such as the configured AI upstream. */
   readonly guardAllow?: readonly string[];
+  /** The page transport selection the host stamps into the HTML it serves.
+   *  A child that bundles pages pyric never serves (`withPyric` under
+   *  `next dev`) inlines it from `PYRIC_WORKER_INIT`. */
+  readonly workerInit?: WorkerInitPayload | undefined;
 }
 
 /**
@@ -194,6 +199,8 @@ export function buildChildEnv(
   // An inherited identity names an outer launcher's host, not this one.
   delete env.PYRIC_SANDBOX_INSTANCE;
   if (opts.instanceId !== undefined) env.PYRIC_SANDBOX_INSTANCE = opts.instanceId;
+  delete env.PYRIC_WORKER_INIT;
+  if (opts.workerInit !== undefined) env.PYRIC_WORKER_INIT = JSON.stringify(opts.workerInit);
   const guardAllow = childGuardAllow(base.PYRIC_GUARD_ALLOW, opts.guardAllow ?? []);
   if (guardAllow !== undefined) env.PYRIC_GUARD_ALLOW = guardAllow;
   return env;

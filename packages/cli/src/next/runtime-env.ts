@@ -25,6 +25,11 @@ export function augmentRuntimeEnv(config: NextConfigObject, options?: PyricNextO
     existingEnv.PYRIC_RUNTIME_CHIP = chipValue;
   }
 
+  // Next serves the page, so no stamp reaches its HTML. The launcher's
+  // selection is inlined instead (serve/entries/bundled-worker-init.ts).
+  const workerInit = process.env.PYRIC_WORKER_INIT;
+  if (workerInit !== undefined) existingEnv.NEXT_PUBLIC_PYRIC_WORKER_INIT = workerInit;
+
   updatedConfig.env = existingEnv;
   return updatedConfig;
 }

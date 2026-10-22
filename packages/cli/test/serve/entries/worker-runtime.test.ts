@@ -116,3 +116,28 @@ test('a page applies the owner-frame policy its server inlined before any listen
     expect(frame?.kind === 'frame' ? [frame.file, frame.function] : []).toEqual(['https://app.example/src/room-list.js', 'listRooms']);
   } finally { realm.dispose(); }
 });
+
+// A Next.js page has no stamped selection; withPyric inlines the launcher's.
+test('an unstamped page selects the hosted sandbox its bundle inlines and declares it as the stamp does', async () => {
+  const selection = { hosted: true, projectKey: 'orbit', bridgeUrl: '/__pyric/sandbox' };
+  const realm = await runtimeRealm({ inlinedSelection: selection });
+  try {
+    expect(realm.workerInit()).toEqual(selection);
+    const declaration = realm.document?.querySelector('meta[name="pyric-sandbox-host"]');
+    expect(declaration?.getAttribute('content')).toBe('node');
+    expect(declaration?.getAttribute('data-project-key')).toBe('orbit');
+    expect(realm.runtime.useHosted).toBe(true);
+    expect(realm.status().mode).toBe('hosted');
+    expect(realm.connections).toEqual(['wss://app.example/__pyric/sandbox']);
+  } finally { realm.dispose(); }
+});
+
+test('an unstamped page selects the SharedWorker its bundle inlines', async () => {
+  const realm = await runtimeRealm({ inlinedSelection: { hosted: false, projectKey: null, bridgeUrl: null }, sharedWorker: true });
+  try {
+    expect(realm.document?.querySelector('meta[name="pyric-sandbox-host"]')).toBeNull();
+    expect(realm.runtime.useHosted).toBe(false);
+    expect(realm.status().mode).toBe('shared-worker');
+    expect(realm.connections).toEqual(['shared-worker']);
+  } finally { realm.dispose(); }
+});

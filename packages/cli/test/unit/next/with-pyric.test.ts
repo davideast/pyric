@@ -303,4 +303,22 @@ describe('withPyric Next.js configuration wrapper', () => {
     const resUrl = await resolveWith({}, { url: 'http://localhost:3473' }) as Record<string, any>;
     expect(resUrl.env?.NEXT_PUBLIC_PYRIC_STUDIO_URL).toBe('http://localhost:3473/__pyric/ui/studio');
   });
+
+  it("inlines the launcher's page transport selection for client bundles", async () => {
+    const selection = JSON.stringify({ hosted: true, projectKey: '/app', bridgeUrl: '/__pyric/sandbox' });
+    process.env.PYRIC_WORKER_INIT = selection;
+    try {
+      const res = await resolveWith({ env: { KEEP: '1' } });
+      expect(res.env?.NEXT_PUBLIC_PYRIC_WORKER_INIT).toBe(selection);
+      expect(res.env?.KEEP).toBe('1');
+    } finally {
+      delete process.env.PYRIC_WORKER_INIT;
+    }
+  });
+
+  it('inlines no selection when no launcher provided one', async () => {
+    delete process.env.PYRIC_WORKER_INIT;
+    const res = await resolveWith({});
+    expect('NEXT_PUBLIC_PYRIC_WORKER_INIT' in (res.env ?? {})).toBe(false);
+  });
 });

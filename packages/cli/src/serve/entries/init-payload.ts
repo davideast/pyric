@@ -1,3 +1,4 @@
+import './bundled-worker-init.js';
 import { recordDiagnostic } from '../runtime/diagnostics-client.js';
 import { pageListenerObservation } from '../runtime/listener-observation.js';
 import type { InitPayload } from '../init-payload.js';
