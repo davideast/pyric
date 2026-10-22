@@ -1,4 +1,4 @@
-// `node host-move.mjs` writes through its host, then waits while the
+// `node host-move.mjs <tag>` writes through its host, under paths named for `<tag>`, then waits while the
 // scenario stops that host and starts the project's host again on another
 // port, which rewrites .pyric/serve.json. Once the file `host-move-go`
 // appears, the same apps write and read again: the client SDKs must find the
@@ -30,22 +30,23 @@ async function outcome(name, run) {
   }
 }
 
+const tag = process.argv[2] ?? "default";
 const db = getDatabase(app);
 const firestore = getFirestore(app);
 const adminDb = getAdminDatabase(admin);
 
 async function round(phase) {
   await outcome(`${phase}.database`, async () => {
-    await set(ref(db, "server/move"), phase);
-    return (await get(ref(db, "server/move"))).val();
+    await set(ref(db, `server/move/${tag}`), phase);
+    return (await get(ref(db, `server/move/${tag}`))).val();
   });
   await outcome(`${phase}.firestore`, async () => {
-    await setDoc(doc(firestore, "server/move"), { at: phase });
-    return (await getDoc(doc(firestore, "server/move"))).data() ?? null;
+    await setDoc(doc(firestore, "server", `move-${tag}`), { at: phase });
+    return (await getDoc(doc(firestore, "server", `move-${tag}`))).data() ?? null;
   });
   await outcome(`${phase}.admin`, async () => {
-    await adminDb.ref("server/moveAdmin").set(phase);
-    return (await adminDb.ref("server/moveAdmin").get()).val();
+    await adminDb.ref(`server/moveAdmin/${tag}`).set(phase);
+    return (await adminDb.ref(`server/moveAdmin/${tag}`).get()).val();
   });
 }
 

@@ -8,7 +8,8 @@
 // A process started before its host fails its first calls and reaches the
 // host at its next call once the host is up, with no restart. A process whose
 // host stops and comes back on another port finds it there through
-// .pyric/serve.json, for the client SDKs as for firebase-admin.
+// .pyric/serve.json, for the client SDKs as for firebase-admin, whether it
+// discovers its host or names the url that went stale.
 // Each process stays up only while its SDKs would hold a production process.
 import assert from 'node:assert/strict';
 import { scenario, type App } from '../driver.ts';
@@ -159,28 +160,45 @@ export default scenario(async (app) => {
     assert.equal(await lifetime(app, env, 'offline'), false, 'goOffline() releases it');
   });
 
-  const mover = await app.step('a process that discovers its host writes through it', async () => {
-    const mover = app.serverProcess('host-move.mjs', [], { env: { PYRIC_SANDBOX: 'remote' } });
-    await mover.waitForLog(/^host-move waiting$/m, { timeoutMs: 30_000 });
-    expectOk(mover.output, 'first.database', 'first');
-    expectOk(mover.output, 'first.firestore', { at: 'first' });
-    expectOk(mover.output, 'first.admin', 'first');
-    return mover;
+  // One process finds its host through .pyric/serve.json; the other names the
+  // first host's url, which goes stale when the host moves.
+  const movers = await app.step('processes that discover their host, or name its url, write through it', async () => {
+    const movers = {
+      discovers: app.serverProcess('host-move.mjs', ['discovers'], { env: { PYRIC_SANDBOX: 'remote' } }),
+      names: app.serverProcess('host-move.mjs', ['names'], { env: { PYRIC_SANDBOX: `remote:${host.url}` } }),
+    };
+    for (const mover of Object.values(movers)) {
+      await mover.waitForLog(/^host-move waiting$/m, { timeoutMs: 30_000 });
+      expectOk(mover.output, 'first.database', 'first');
+      expectOk(mover.output, 'first.firestore', { at: 'first' });
+      expectOk(mover.output, 'first.admin', 'first');
+    }
+    return movers;
   });
 
-  await app.step('stop the host and start it again on another port', async () => {
+  const moved = await app.step('stop the host and start it again on another port', async () => {
     await host.process.stop();
     const moved = await app.devServer({ name: 'moved dev server', port: await app.freePort() });
     assert.notEqual(moved.port, port);
     const pointer = JSON.parse(app.readFile('.pyric/serve.json')) as { port: number };
     assert.equal(pointer.port, moved.port, '.pyric/serve.json names the moved host');
+    return moved;
   });
 
-  await app.step('the same process reaches the moved host, client SDKs and firebase-admin alike', async () => {
+  await app.step('the same processes reach the moved host, client SDKs and firebase-admin alike', async () => {
     app.writeFile('host-move-go', '');
-    await mover.waitForLog(/^host-move done$/m, { timeoutMs: 60_000 });
-    expectOk(mover.output, 'moved.admin', 'moved');
-    expectOk(mover.output, 'moved.database', 'moved');
-    expectOk(mover.output, 'moved.firestore', { at: 'moved' });
+    for (const mover of Object.values(movers)) {
+      await mover.waitForLog(/^host-move done$/m, { timeoutMs: 60_000 });
+      expectOk(mover.output, 'moved.admin', 'moved');
+      expectOk(mover.output, 'moved.database', 'moved');
+      expectOk(mover.output, 'moved.firestore', { at: 'moved' });
+    }
+  });
+
+  await app.step('the process naming the stale url says once that it uses the moved host', () => {
+    const stale = `PYRIC_SANDBOX=remote:${host.url} is stale`;
+    const notices = movers.names.output.split('\n').filter((line) => line.includes(stale));
+    assert.equal(notices.length, 1, movers.names.output);
+    assert.ok(notices[0]!.includes(`:${moved.port}`), movers.names.output);
   });
 });
