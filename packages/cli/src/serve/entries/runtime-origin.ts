@@ -26,6 +26,12 @@ export interface NodeRuntimeOrigin {
    * settles. Discovery starts at the first call, so importing an SDK opens nothing.
    */
   readonly host: () => Promise<string>;
+  /**
+   * The connection to the host was lost: the next `host()` resolves it again,
+   * as `pyric-admin`'s remote sandbox does at each connect, so a host that
+   * came back on another port is found there.
+   */
+  readonly forgetHost?: () => void;
   /** The socket and event-loop behavior of a hosted connection in Node. */
   readonly socketRealm: HostedSocketRealm;
   /** Raised for every call when the host is not a Node host. */
