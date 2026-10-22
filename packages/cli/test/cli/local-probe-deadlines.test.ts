@@ -96,6 +96,48 @@ describe('the pyric command against a port whose connect never completes', () =>
   }, 30_000);
 });
 
+describe('the dev server collision probe', () => {
+  it('ends its real request when the attachment closes, leaving no socket open', async () => {
+    const run = await runInNode(`const { createBridgeMount } = await import(${JSON.stringify(dist('serve/bridge-mount.js'))});
+const { createServer } = await import('node:http');
+const { EventEmitter } = await import('node:events');
+const { mkdtempSync } = await import('node:fs');
+const { tmpdir } = await import('node:os');
+const { join } = await import('node:path');
+const rejections = [];
+process.on('unhandledRejection', (reason) => { rejections.push(String(reason)); });
+// Accepts the probe's connect and never answers it.
+const silent = createServer(() => {});
+await new Promise((done) => silent.listen(0, '127.0.0.1', done));
+const port = silent.address().port;
+const host = Object.assign(new EventEmitter(), { listening: true, address: () => ({ port }) });
+const mount = createBridgeMount({ disableAuditLog: true });
+const attachment = mount.attachHost({
+  servers: [host],
+  projectDir: mkdtempSync(join(tmpdir(), 'pyric-collision-probe-close-')),
+  origin: () => ({ host: '127.0.0.1', port }),
+  collision: { warn() {} },
+});
+await new Promise((done) => setTimeout(done, 100));
+const accepted = await new Promise((done) => silent.getConnections((_error, count) => done(count)));
+const closeStarted = performance.now();
+await attachment.close();
+const closeMs = performance.now() - closeStarted;
+// A destroyed socket's close reaches the server a turn or two later.
+await new Promise((done) => setTimeout(done, 50));
+const openSockets = await new Promise((done) => silent.getConnections((_error, count) => done(count)));
+await mount.close();
+silent.close();
+result = { accepted, closeMs, openSockets, rejections };`);
+    const outcome = run.result as { accepted: number; closeMs: number; openSockets: number; rejections: string[] };
+    expect(outcome.accepted).toBe(1);
+    expect(outcome.closeMs).toBeLessThan(200);
+    expect(outcome.openSockets).toBe(0);
+    expect(outcome.rejections).toEqual([]);
+    expect(run.lingerMs).toBeLessThan(PROMPT_EXIT_MS);
+  }, 30_000);
+});
+
 describe('local probe deadlines', () => {
   it('pyric snapshot gives up on a live port whose connect never completes, then exits', async () => {
     const hole = await blackholedPort();
