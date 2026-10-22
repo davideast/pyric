@@ -97,6 +97,8 @@ It first deletes any debug token whose display name starts with `pyric-app-check
 
 ## Enforcement step (proposal, not run)
 
+Decision (owner, 2026-10-22): skipped. Enforcement on the oracle project is not changed; the `ENFORCED` envelope stays unobserved.
+
 Only one capture still needs it: `app-check-ai-enforced-envelope`, the same five requests as `app-check-ai-gate-wire` while `ENFORCED`, to learn whether the envelope changes.
 
 - Turn on: `PATCH https://firebaseappcheck.googleapis.com/v1/projects/{project}/services/firebaseml.googleapis.com?updateMask=enforcementMode` with body `{"enforcementMode":"ENFORCED"}`, as the oracle service account (`firebaseappcheck.services.update`, granted).

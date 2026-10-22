@@ -53,6 +53,7 @@ describe('Vite module swap', () => {
       '@firebase/app',
       '@firebase/component',
       '@firebase/ai',
+      '@firebase/app-check',
       '@firebase/util',
       '@firebase/logger',
     ]);
@@ -163,7 +164,8 @@ describe('server-rendered imports under vite dev (#1123)', () => {
     }
     expect(await routed('firebase/ai')).toBe('\0pyric-ssr-target:pyric/ai');
     expect(await routed('firebase/messaging/sw')).toBe('\0pyric-ssr-target:pyric/messaging/sw');
-    for (const deferred of ['analytics', 'app-check', 'firestore/lite', 'functions', 'performance', 'remote-config']) {
+    expect(await routed('firebase/app-check')).toBe('\0pyric-ssr-target:pyric/app-check');
+    for (const deferred of ['analytics', 'firestore/lite', 'functions', 'performance', 'remote-config']) {
       expect(await routed(`firebase/${deferred}`)).toBe(`\0pyric-ssr-target:pyric/${deferred}`);
       const shim = await swap.loadPluginModule(`\0pyric-ssr-target:pyric/${deferred}`);
       expect(shim).toContain(`loadServerTarget("pyric/${deferred}")`);

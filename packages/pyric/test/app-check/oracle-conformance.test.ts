@@ -13,7 +13,7 @@
  * run. The climb lane (`PYRIC_CLIMB=1`) runs every row and the prefix
  * completeness gate; the gate needs every row's loads, so it runs only there.
  */
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { join } from 'node:path';
 import { appCheckRows } from '../../../conformance/registry/app-check.ts';
 import { createObservationGate } from '../../../conformance/src/observation-gate.ts';
@@ -79,6 +79,10 @@ function withAppName(message: string, observedName: string, name: string): strin
 }
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// One Firebase configuration per runtime: start from an empty registry.
+beforeAll(async () => {
+  await resetAppRegistryForTests();
+});
 afterEach(async () => {
   await resetAppRegistryForTests();
 });
@@ -126,13 +130,16 @@ const assertions: Record<string, Assertion> = {
         throw new Error('not called');
       },
     });
-    const v3 = new appCheck.ReCaptchaV3Provider('demo-site-key');
-    const enterprise = new appCheck.ReCaptchaEnterpriseProvider('demo-site-key');
-    for (const p of [custom, v3, enterprise]) {
-      const handle = appCheck.initializeAppCheck(freshApp('provider'), { provider: p, isTokenAutoRefreshEnabled: false });
-      await appCheck.getToken(handle);
-    }
+    const handle = appCheck.initializeAppCheck(freshApp('provider'), { provider: custom, isTokenAutoRefreshEnabled: false });
+    await appCheck.getToken(handle);
     expect(calls).toBe(o.customProviderCalls);
+  },
+
+  'app-check#recaptcha-providers-construct': async () => {
+    for (const provider of [new appCheck.ReCaptchaV3Provider('demo-site-key'), new appCheck.ReCaptchaEnterpriseProvider('demo-site-key')]) {
+      const handle = appCheck.initializeAppCheck(freshApp('recaptcha'), { provider, isTokenAutoRefreshEnabled: false });
+      expect(Object.keys(await appCheck.getToken(handle))).toEqual(['token']);
+    }
   },
 
   'app-check#get-token-before-initialize': async () => {
@@ -234,14 +241,20 @@ const assertions: Record<string, Assertion> = {
     await appCheck.getToken(handle, true);
     await sleep(300);
     counts.push(listener.length);
-    expect(counts).toEqual([
+    // Divergence, by design (row app-check#on-token-changed-refresh). Production
+    // in debug mode never calls listeners registered before the first token:
+    expect([
       o.listenerCallsAfterFirstGet,
       o.listenerCallsAfterTwoGets,
       o.listenerCallsAfterForceRefresh,
       o.listenerCallsAfterLimitedUse,
       o.listenerCallsAfterUnsubscribeAndForce,
-    ]);
-    expect(observer.length).toBe(o.observerCallsTotal);
+      o.observerCallsTotal,
+    ]).toEqual([0, 0, 0, 0, 0, 0]);
+    // The sandbox follows the documented provider path: one call per cached
+    // token change, none for limited-use tokens, none after unsubscribing.
+    expect(counts).toEqual([1, 1, 2, 2, 2]);
+    expect(observer.length).toBe(2);
   },
 
   'app-check#set-auto-refresh': async () => {

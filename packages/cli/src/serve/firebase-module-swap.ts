@@ -70,15 +70,26 @@ export function swappedFirebaseEntries(mode: AiMode): ReadonlyMap<ServedFirebase
   if (mode === 'production') {
     swapped.delete('firebase/ai');
     swapped.set('firebase/app', 'app-ai-passthrough');
+    // The Firebase App Check SDK, attached to the same shadow app as firebase/ai.
+    swapped.set('firebase/app-check', 'app-ai-passthrough-app-check');
   }
   return swapped;
 }
 
 /**
  * Whether an importer is a Pyric app module that wraps the Firebase SDK's own
- * `firebase/app`. Its `firebase/app` import must reach the SDK, never the swap.
+ * `firebase/app` or `firebase/app-check`. Those imports must reach the SDK,
+ * never the swap.
  */
 export function isShadowAppImporter(importer: string | undefined): boolean {
   if (importer === undefined) return false;
   return importer.includes('app-ai-passthrough') || importer.includes('app-bridge');
+}
+
+/** The SDK modules a shadow-app wrapper imports for itself. */
+const BRIDGED_SPECIFIERS: ReadonlySet<string> = new Set(['firebase/app', 'firebase/app-check']);
+
+/** Whether this import is a shadow-app wrapper reaching the Firebase SDK it wraps. */
+export function isBypassedBridgeImport(specifier: string, importer: string | undefined): boolean {
+  return BRIDGED_SPECIFIERS.has(specifier) && isShadowAppImporter(importer);
 }

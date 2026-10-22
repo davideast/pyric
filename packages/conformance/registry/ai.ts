@@ -1061,21 +1061,20 @@ const serverProcessRows: CompatibilityRow[] = [
 /**
  * App Check on the AI path (CDD, climbing with the app-check surface). These
  * rows cite the `app-check-` captures (packages/conformance/docs/app-check/
- * capture-plan.md). Born unverified; each flips only when its assertion set in
- * APP_CHECK_AI_SUITE passes.
+ * capture-plan.md). Born unverified; flipped to conforms when the assertion
+ * sets in APP_CHECK_AI_SUITE passed against the served App Check bridge
+ * (`register/app-bridge-app-check`), with the app scenario as integration
+ * evidence.
  */
 export const APP_CHECK_AI_SUITE = 'packages/cli/test/serve/ai-app-check-passthrough.test.ts';
-const APP_CHECK_CITED_REASON =
-  'Production observed and cited, but not yet replayed against pyric; the citation does not lock the claim until the suite replays it.';
+const APP_CHECK_AI_SCENARIO = 'test/apps/ai-production-app-check/scenario.ts';
 const appCheckAiRow = defineRows({
   surface: 'ai',
   defaults: {
     section: 'App Check on the AI path',
-    status: 'unverified' as const,
-    automation: 'unverified' as const,
-    risk: ['cited-not-replayed'],
-    riskScore: 1,
-    riskReasons: [APP_CHECK_CITED_REASON],
+    status: 'conforms' as const,
+    automation: 'oracle-backed' as const,
+    conformanceTests: [APP_CHECK_AI_SUITE, APP_CHECK_AI_SCENARIO],
   },
 });
 
@@ -1085,7 +1084,7 @@ export const appCheckAiRows: CompatibilityRow[] = [
     featureKeys: ['getAI', 'initializeAppCheck'],
     api: 'initializeAppCheck(app) then getAI(app) in production AI mode',
     behavior: 'In production AI mode the app\'s `firebase/app-check` is the Firebase SDK attached to the same app `firebase/ai` uses, so `generateContent` carries `X-Firebase-AppCheck` equal to the token `getToken` returns, and AI Logic answers 200.',
-    evidence: 'capture `app-check-client-ai-header` (`appCheckInitialized`). Today `firebase/app-check` is swapped to the deferred `pyric/app-check` stub in production AI mode, so no token is sent.',
+    evidence: 'capture `app-check-client-ai-header` (`appCheckInitialized`), replayed by the AI pass-through suite through the served App Check bridge. On main before the bridge, `firebase/app-check` was swapped to the deferred `pyric/app-check` stub in production AI mode, and the real SDK on the Pyric app failed `appCheck/use-before-activation` because activation and lookup used different app objects.',
     oracleObservations: ['app-check-client-ai-header'],
   }),
   appCheckAiRow({
@@ -1103,8 +1102,9 @@ export const appCheckAiRows: CompatibilityRow[] = [
     behavior: 'On an app that never initialized App Check, `firebase/ai` sends no `X-Firebase-AppCheck` header, and AI Logic rejects the request: HTTP 403, `PERMISSION_DENIED`, message `Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check.` with a docs link. A malformed header, the SDK placeholder token, and a tampered token get the same envelope; a valid token answers 200. Seen with App Check enforcement for AI Logic reading UNENFORCED.',
     evidence: 'captures `app-check-ai-gate-wire` (all five cases on the wire) and `app-check-client-ai-header` (`noAppCheck`).',
     oracleObservations: ['app-check-ai-gate-wire', 'app-check-client-ai-header'],
-    risk: ['cited-not-replayed', 'error-code'],
-    riskReasons: [APP_CHECK_CITED_REASON, 'asserts production error status and message text that can drift on re-capture'],
+    risk: ['error-code', 'specific-value'],
+    riskScore: 2,
+    riskReasons: ['asserts production error status and message text that can drift on re-capture'],
     notes: 'The sandbox answer engine does not check App Check, so sandbox AI mode answers tokenless requests; whether it should refuse them is an open decision.',
   }),
   appCheckAiRow({

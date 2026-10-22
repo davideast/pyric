@@ -7,7 +7,8 @@
  * leaves `firebase/app-check` to the Firebase SDK on every plane and that the
  * SDK attaches to the bridged app, and then replays the cited `app-check-`
  * capture: the real `firebase/app-check` and `firebase/ai` run on an app from
- * the served `app-ai-passthrough` entry, with `fetch` answered from the
+ * the served `app-ai-passthrough` entry through the served App Check bridge
+ * (`register/app-bridge-app-check`), with `fetch` answered from the
  * capture so nothing reaches Google. The provider is a `CustomProvider`, so no
  * attestation service is contacted either.
  *
@@ -55,13 +56,32 @@ let appSeq = 0;
 const minted = new Set<string>();
 let failAttestation = false;
 
+/**
+ * A Pyric-shaped app decorated with its shadow Firebase app by the shared
+ * pass-through registry (`register/app-bridge-shadow`), the decoration the
+ * served `app-ai-passthrough` entry and the register adapter both apply. A
+ * minimal registry stands in for the Pyric one so this suite binds no sandbox.
+ */
 async function bridged() {
-  const entry = await import('../../src/serve/entries/app-ai-passthrough.js');
-  const realAppCheck = await import('firebase/app-check');
+  const { shadowedAppRegistry } = await import('../../src/register/app-bridge-shadow.js');
+  // What production AI mode serves for `firebase/app-check` on every plane.
+  const bridge = await import('../../src/register/app-bridge-app-check.js');
+  const sdk = await import('firebase/app-check');
   const realAi = await import('firebase/ai');
+  const pyricLike = new Map<string, { name: string; options: typeof OPTIONS; automaticDataCollectionEnabled: boolean }>();
+  const registry = shadowedAppRegistry({
+    initializeApp: (options, name) => {
+      const app = { name: String(name), options: options as typeof OPTIONS, automaticDataCollectionEnabled: false };
+      pyricLike.set(app.name, app);
+      return app as never;
+    },
+    getApp: (name) => pyricLike.get(name ?? '[DEFAULT]') as never,
+    getApps: () => [...pyricLike.values()] as never,
+    deleteApp: async () => {},
+  });
   appSeq += 1;
-  const app = entry.initializeApp(OPTIONS, `ai-app-check-${appSeq}`);
-  const provider = new realAppCheck.CustomProvider({
+  const app = registry.initializeApp(OPTIONS, `ai-app-check-${appSeq}`);
+  const provider = new sdk.CustomProvider({
     getToken: async () => {
       if (failAttestation) throw new Error('attestation refused');
       const token = `sandbox-token-${appSeq}-${minted.size}`;
@@ -69,7 +89,11 @@ async function bridged() {
       return { token, expireTimeMillis: Date.now() + 3_600_000 };
     },
   });
-  return { app, provider, appCheck: realAppCheck, ai: realAi };
+  const appCheck = {
+    initializeAppCheck: bridge.initializeAppCheck as (app: unknown, options: unknown) => import('firebase/app-check').AppCheck,
+    getToken: bridge.getToken as typeof sdk.getToken,
+  };
+  return { app, provider, appCheck, ai: realAi };
 }
 async function generate(model: { generateContent(prompt: string): Promise<{ response: { candidates?: { finishReason?: string }[] } }> }) {
   try {
@@ -94,10 +118,13 @@ afterAll(() => {
 });
 
 function assertPassthroughRouting(): void {
-  expect(swappedFirebaseEntries('production').has('firebase/app-check')).toBe(false);
+  // Browser planes (Vite and the import map) and the register agree.
+  expect(swappedFirebaseEntries('production').get('firebase/app-check')).toBe('app-ai-passthrough-app-check');
   expect(swappedFirebaseEntries('sandbox').get('firebase/app-check')).toBe('app-check');
-  expect(mapFirebaseSpecifier('firebase/app-check', undefined, { aiMode: 'production', sandbox: '' })).toBeNull();
+  expect(mapFirebaseSpecifier('firebase/app-check', undefined, { aiMode: 'production', sandbox: '' })).toBe('@pyric/cli/register/app-bridge-app-check');
   expect(mapFirebaseSpecifier('firebase/app-check', undefined, { aiMode: 'sandbox', sandbox: '' })).toBe('pyric/app-check');
+  // The wrapper's own SDK imports reach the Firebase SDK.
+  expect(mapFirebaseSpecifier('firebase/app-check', '/x/dist/register/app-bridge-app-check.js', { aiMode: 'production', sandbox: '' })).toBeNull();
 }
 
 const assertions: Record<string, () => Promise<void>> = {
@@ -145,7 +172,7 @@ const assertions: Record<string, () => Promise<void>> = {
     const { app, provider, appCheck, ai } = await bridged();
     const model = ai.getGenerativeModel(ai.getAI(app as never), { model: MODEL });
     let initializeThrew = false;
-    let handle: ReturnType<typeof appCheck.initializeAppCheck> | undefined;
+    let handle: import('firebase/app-check').AppCheck | undefined;
     try {
       handle = appCheck.initializeAppCheck(app as never, { provider, isTokenAutoRefreshEnabled: false });
     } catch {

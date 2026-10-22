@@ -21,7 +21,7 @@
  */
 
 import { parsePyricSandbox } from 'pyric/sandbox/internal';
-import { isShadowAppImporter, resolveAiMode, type AiMode } from '../serve/firebase-module-swap.js';
+import { isBypassedBridgeImport, resolveAiMode, type AiMode } from '../serve/firebase-module-swap.js';
 
 const MAPPINGS: ReadonlyArray<readonly [from: string, to: string]> = [
   // firebase-admin first — `firebase-admin` must never match the bare
@@ -33,6 +33,8 @@ const MAPPINGS: ReadonlyArray<readonly [from: string, to: string]> = [
 /** Client SDK subpaths the Node host client serves under a remote activation. */
 const NODE_HOST_CLIENT_SUBPATHS = new Set(['database', 'firestore', 'auth', 'storage']);
 const NODE_HOST_CLIENT = '@pyric/cli/register/client';
+/** Production AI mode: the Firebase App Check SDK on the shadow app `firebase/ai` reads. */
+const APP_CHECK_BRIDGE = '@pyric/cli/register/app-bridge-app-check';
 
 export interface MapFirebaseOptions {
   aiMode?: AiMode;
@@ -64,8 +66,7 @@ export function mapFirebaseSpecifier(
   options?: MapFirebaseOptions,
 ): string | null {
   const isFirebaseAppSpecifier = specifier === 'firebase/app';
-  const isBypassedBridgeImport = isShadowAppImporter(importer) && isFirebaseAppSpecifier;
-  if (isBypassedBridgeImport) {
+  if (isBypassedBridgeImport(specifier, importer)) {
     return null;
   }
 
@@ -74,6 +75,10 @@ export function mapFirebaseSpecifier(
   const isProductionAiPassthrough = isProductionMode && isFirebaseAiSpecifier;
   if (isProductionAiPassthrough) {
     return null;
+  }
+  const isProductionAppCheck = isProductionMode && specifier === 'firebase/app-check';
+  if (isProductionAppCheck) {
+    return APP_CHECK_BRIDGE;
   }
 
   const setting = options?.sandbox ?? process.env.PYRIC_SANDBOX;

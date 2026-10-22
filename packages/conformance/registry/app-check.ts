@@ -69,19 +69,26 @@ function riskFor(seed: Seed): Pick<CompatibilityRow, 'risk' | 'riskScore' | 'ris
   return { risk, riskScore: observed ? 1 : 2, riskReasons };
 }
 
+/** App scenario that drives the web SDK plane through a real dev server and Chromium. */
+const SANDBOX_SCENARIO = 'test/apps/sandbox-app-check/scenario.ts';
+
+function witnesses(plane: Plane): string[] {
+  return plane === 'app-check' ? [APP_CHECK_SUITES[plane], SANDBOX_SCENARIO] : [APP_CHECK_SUITES[plane]];
+}
+
 function tierFor(seed: Seed): Partial<CompatibilityRow> {
-  const suite = APP_CHECK_SUITES[seed.plane];
+  const suite = witnesses(seed.plane);
   if (seed.unsupportedReason) {
     return { status: 'unsupported', automation: 'unsupported', exceptionReason: seed.unsupportedReason, risk: ['unsupported'], riskScore: 0, riskReasons: [seed.unsupportedReason] };
   }
   if (seed.diverged) {
-    return { status: 'diverged-documented', automation: 'oracle-backed', conformanceDisposition: seed.diverged, conformanceTests: [suite] };
+    return { status: 'diverged-documented', automation: 'oracle-backed', conformanceDisposition: seed.diverged, conformanceTests: suite };
   }
   if (seed.flipped === 'oracle-backed') {
-    return { status: 'conforms', automation: 'oracle-backed', conformanceTests: [suite], risk: [], riskScore: 0, riskReasons: [] };
+    return { status: 'conforms', automation: 'oracle-backed', conformanceTests: suite, risk: [], riskScore: 0, riskReasons: [] };
   }
   if (seed.flipped === 'unit-backed') {
-    return { status: 'conforms', automation: 'unit-backed', conformanceTests: [suite], ...riskFor(seed) };
+    return { status: 'conforms', automation: 'unit-backed', conformanceTests: suite, ...riskFor(seed) };
   }
   return { status: 'unverified', automation: 'unverified', ...riskFor(seed) };
 }
@@ -98,6 +105,7 @@ const initRows: CompatibilityRow[] = [
   row({
     plane: 'app-check',
     rowRef: 'initialize-returns-handle',
+    flipped: 'oracle-backed',
     section: SEC_INIT,
     api: 'initializeAppCheck(app, { provider, isTokenAutoRefreshEnabled }): AppCheck',
     featureKeys: ['initializeAppCheck', 'AppCheck'],
@@ -108,6 +116,7 @@ const initRows: CompatibilityRow[] = [
   row({
     plane: 'app-check',
     rowRef: 'initialize-twice-same-options',
+    flipped: 'oracle-backed',
     section: SEC_INIT,
     api: 'initializeAppCheck(app, options) called twice',
     featureKeys: ['initializeAppCheck'],
@@ -118,6 +127,7 @@ const initRows: CompatibilityRow[] = [
   row({
     plane: 'app-check',
     rowRef: 'initialize-twice-different-options',
+    flipped: 'oracle-backed',
     section: SEC_INIT,
     api: 'initializeAppCheck(app, options) called twice',
     featureKeys: ['initializeAppCheck'],
@@ -129,12 +139,22 @@ const initRows: CompatibilityRow[] = [
   row({
     plane: 'app-check',
     rowRef: 'providers-construct',
+    flipped: 'oracle-backed',
     section: SEC_INIT,
-    api: 'new ReCaptchaV3Provider(siteKey); new ReCaptchaEnterpriseProvider(siteKey); new CustomProvider({ getToken })',
-    featureKeys: ['ReCaptchaV3Provider', 'ReCaptchaEnterpriseProvider', 'CustomProvider'],
-    behavior: 'The three attestation providers construct and are accepted by `initializeAppCheck`. With a debug token in effect, the SDK never calls the provider (a `CustomProvider` whose `getToken` would reject is called zero times).',
-    evidence: 'Construction is upstream-documented (firebase 12.13.0 typings). The provider-not-called fact: capture `app-check-client-debug-get-token` (`customProviderCalls`).',
+    api: 'new CustomProvider({ getToken })',
+    featureKeys: ['CustomProvider'],
+    behavior: 'A `CustomProvider` constructs and is accepted by `initializeAppCheck`. With a debug token in effect, the SDK never calls it (a provider whose `getToken` would reject is called zero times).',
+    evidence: 'capture `app-check-client-debug-get-token` (`customProviderCalls`; the capture initialized App Check with a `CustomProvider`).',
     observations: ['app-check-client-debug-get-token'],
+  }),
+  row({
+    plane: 'app-check',
+    rowRef: 'recaptcha-providers-construct',
+    section: SEC_INIT,
+    api: 'new ReCaptchaV3Provider(siteKey); new ReCaptchaEnterpriseProvider(siteKey)',
+    featureKeys: ['ReCaptchaV3Provider', 'ReCaptchaEnterpriseProvider'],
+    behavior: 'Both reCAPTCHA providers construct from a site key and are accepted by `initializeAppCheck`.',
+    evidence: 'Upstream-documented only (firebase 12.13.0 typings and the App Check web guide). The oracle web app has no reCAPTCHA registration, so no capture exists; the sandbox never loads reCAPTCHA.',
   }),
 ];
 
@@ -145,6 +165,7 @@ const tokenRows: CompatibilityRow[] = [
   row({
     plane: 'app-check',
     rowRef: 'get-token-before-initialize',
+    flipped: 'oracle-backed',
     section: SEC_TOKENS,
     api: 'getToken(appCheck) on an app without initializeAppCheck',
     featureKeys: ['getToken'],
@@ -156,6 +177,7 @@ const tokenRows: CompatibilityRow[] = [
   row({
     plane: 'app-check',
     rowRef: 'get-token-shape',
+    flipped: 'oracle-backed',
     section: SEC_TOKENS,
     api: 'getToken(appCheck, forceRefresh?): Promise<AppCheckTokenResult>',
     featureKeys: ['getToken', 'AppCheckTokenResult'],
@@ -166,6 +188,7 @@ const tokenRows: CompatibilityRow[] = [
   row({
     plane: 'app-check',
     rowRef: 'get-token-caching',
+    flipped: 'oracle-backed',
     section: SEC_TOKENS,
     api: 'getToken(appCheck, forceRefresh?)',
     featureKeys: ['getToken'],
@@ -176,6 +199,7 @@ const tokenRows: CompatibilityRow[] = [
   row({
     plane: 'app-check',
     rowRef: 'limited-use-token',
+    flipped: 'oracle-backed',
     section: SEC_TOKENS,
     api: 'getLimitedUseToken(appCheck): Promise<AppCheckTokenResult>',
     featureKeys: ['getLimitedUseToken'],
@@ -193,7 +217,7 @@ const tokenRows: CompatibilityRow[] = [
     evidence: 'capture `app-check-client-invalid-debug-token` (`getToken`, `getLimitedUseToken`).',
     observations: ['app-check-client-invalid-debug-token'],
     errorText: true,
-    notes: 'The sandbox has no attestation authority that can refuse; a sandbox knob that simulates refusal is a candidate, not a commitment.',
+    unsupportedReason: 'The sandbox has no attestation authority that can refuse a token, so every request succeeds; a knob that simulates refusal is a candidate, not a commitment. Production pass-through runs the real SDK and inherits this behavior.',
   }),
 ];
 
@@ -204,6 +228,7 @@ const listenRows: CompatibilityRow[] = [
   row({
     plane: 'app-check',
     rowRef: 'on-token-changed-existing-token',
+    flipped: 'oracle-backed',
     section: SEC_LISTEN,
     api: 'onTokenChanged(appCheck, listener | observer): Unsubscribe',
     featureKeys: ['onTokenChanged'],
@@ -214,16 +239,19 @@ const listenRows: CompatibilityRow[] = [
   row({
     plane: 'app-check',
     rowRef: 'on-token-changed-refresh',
+    diverged: 'by-design',
     section: SEC_LISTEN,
     api: 'onTokenChanged(appCheck, listener | observer)',
     featureKeys: ['onTokenChanged'],
-    behavior: 'In debug mode, listeners and observers registered before the first `getToken` are never called, not by the first token, a forced refresh, or limited-use tokens. Upstream documents that listeners are called whenever the token changes; that path (an attestation provider, not a debug token) is not captured.',
-    evidence: 'capture `app-check-client-on-token-changed` (every `listenerCalls*` and `observerCallsTotal` count). The attested-provider behavior is upstream-documented only.',
+    behavior: 'Production, debug mode: listeners and observers registered before the first `getToken` are never called, not by the first token, a forced refresh, or limited-use tokens. Sandbox: they are called once each time the cached token changes (the first token and every forced refresh), never for limited-use tokens, and not after unsubscribing, which is the upstream-documented behavior for an attestation provider.',
+    evidence: 'capture `app-check-client-on-token-changed` (every `listenerCalls*` count is 0). The sandbox side and the attested-provider behavior are pinned in the suite; the attested-provider path is upstream-documented, not captured.',
     observations: ['app-check-client-on-token-changed'],
+    notes: 'Divergence, by design: the sandbox has no attestation provider to stand in for, so it follows the documented provider path apps depend on rather than the debug-mode early return.',
   }),
   row({
     plane: 'app-check',
     rowRef: 'set-auto-refresh',
+    flipped: 'oracle-backed',
     section: SEC_LISTEN,
     api: 'setTokenAutoRefreshEnabled(appCheck, isEnabled): void',
     featureKeys: ['setTokenAutoRefreshEnabled'],
@@ -247,7 +275,7 @@ const wireRows: CompatibilityRow[] = [
     evidence: 'capture `app-check-exchange-debug-token-wire`.',
     observations: ['app-check-exchange-debug-token-wire'],
     errorText: true,
-    notes: 'The sandbox mints tokens in process and serves no App Check REST endpoint; a candidate for unsupported.',
+    unsupportedReason: 'The sandbox mints tokens in process and serves no App Check REST endpoint; no app calls the exchange directly.',
   }),
 ];
 
