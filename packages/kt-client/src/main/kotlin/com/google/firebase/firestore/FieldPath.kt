@@ -28,18 +28,22 @@ class FieldPath private constructor(val segments: List<String>) {
     companion object {
         private val DOCUMENT_ID_INSTANCE = FieldPath(listOf("__name__"))
 
+        @JvmStatic
         fun of(vararg fieldNames: String): FieldPath {
             require(fieldNames.isNotEmpty()) { "Invalid field path. Path must not be empty." }
             return FieldPath(fieldNames.toList())
         }
 
+        @JvmStatic
         fun fromDotSeparated(path: String): FieldPath {
             require(path.isNotEmpty()) { "Invalid field path. Path must not be empty." }
             return FieldPath(path.split("."))
         }
 
+        @JvmStatic
         fun documentId(): FieldPath = DOCUMENT_ID_INSTANCE
 
+        @JvmStatic
         fun extract(data: Map<String, Any?>?, path: String): Any? {
             if (data == null) return null
             if (data.containsKey(path)) return data[path]
@@ -47,6 +51,7 @@ class FieldPath private constructor(val segments: List<String>) {
             return extractBySegments(data, segments)
         }
 
+        @JvmStatic
         fun extract(data: Map<String, Any?>?, fieldPath: FieldPath): Any? {
             if (data == null) return null
             return extractBySegments(data, fieldPath.segments)

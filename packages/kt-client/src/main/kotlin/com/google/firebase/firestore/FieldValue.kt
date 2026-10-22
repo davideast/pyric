@@ -31,19 +31,25 @@ abstract class FieldValue internal constructor() {
         private val SERVER_TIMESTAMP_INSTANCE = ServerTimestampSentinel()
         private val DELETE_INSTANCE = DeleteSentinel()
 
+        @JvmStatic
         fun serverTimestamp(): FieldValue = SERVER_TIMESTAMP_INSTANCE
 
+        @JvmStatic
         fun delete(): FieldValue = DELETE_INSTANCE
 
+        @JvmStatic
         fun increment(l: Long): FieldValue = IncrementSentinel(l)
 
+        @JvmStatic
         fun increment(d: Double): FieldValue = IncrementSentinel(d)
 
+        @JvmStatic
         fun arrayUnion(vararg elements: Any?): FieldValue {
             SentinelValidator.validateNoArraySentinels(elements, "arrayUnion")
             return ArrayUnionSentinel(elements.toList())
         }
 
+        @JvmStatic
         fun arrayRemove(vararg elements: Any?): FieldValue {
             SentinelValidator.validateNoArraySentinels(elements, "arrayRemove")
             return ArrayRemoveSentinel(elements.toList())
