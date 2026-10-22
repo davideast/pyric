@@ -67,16 +67,22 @@ function reportVersionSkew(serveVersion: unknown): void {
 let host: Promise<string> | undefined;
 
 /**
- * Resolves the host once, at the first call that needs it. An in-process
+ * Resolves the host at the first call that needs it, and keeps the answer
+ * once one is found. A failed discovery is not kept: a process started before
+ * its host finds it at a later call, as firebase-admin does. An in-process
  * activation is asked each time: it answers from the dev server in force.
  */
 function hostOnce(): Promise<string> {
   const inProcess = inProcessActivation();
   if (inProcess !== undefined) return inProcess.host();
   if (host === undefined) {
-    host = resolveHost();
+    const discovery = resolveHost();
+    host = discovery;
     // Each call hears a discovery failure through init.json; this is not one more.
-    host.catch(() => undefined);
+    discovery.catch(() => {
+      const isLatest = host === discovery;
+      if (isLatest) host = undefined;
+    });
   }
   return host;
 }

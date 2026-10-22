@@ -87,8 +87,7 @@ export default defineConfig({
 
 Update the Next.js configuration in `next.config.mjs`:
 
-```ts
-import { fileURLToPath } from 'node:url';
+```js
 import { withPyric } from '@pyric/cli/next';
 
 /** @type {import('next').NextConfig} */
@@ -99,7 +98,19 @@ const nextConfig = {
 export default withPyric(nextConfig);
 ```
 
-Start the normal development server:
+Run `next dev` under `pyric sandbox` by changing the `dev` script in `package.json`:
+
+```json
+{
+  "scripts": {
+    "dev": "pyric sandbox -- next dev"
+  }
+}
+```
+
+`pyric sandbox` starts the local backend that `withPyric` forwards to. [Next.js](./nextjs.md) covers server code and Node host mode.
+
+Start the development server:
 
 ```bash
 npm run dev

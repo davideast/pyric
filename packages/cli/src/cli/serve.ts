@@ -430,6 +430,7 @@ async function startServeRuntime(opts: {
       permissive: opts.permissive,
       project: opts.firebaseProject ?? resolveFirebaseProject({ projectDir: opts.cwd, option: opts.project }),
       hosted: opts.hosted,
+      hostInstanceId: () => mount?.instanceId,
       deployHostedRules: usesHostedSandbox ? mount?.deployHostedRules : undefined,
       logger,
     });
