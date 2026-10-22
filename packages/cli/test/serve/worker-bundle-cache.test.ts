@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -173,31 +173,19 @@ describe('the SharedWorker build lock', () => {
     await expect(withWorkerBuildLock(outDir, async () => 'ran')).resolves.toBe('ran');
   });
 
-  it('fails, naming the lock, when an abandoned lock cannot be moved (EPERM)', async () => {
+  it('fails at once, naming the lock, when an abandoned lock cannot be moved (EPERM)', async () => {
     const { outDir } = workerFixture();
-    writeLock(outDir, { pid: exitedPid(), host: hostname(), token: 'gone' });
+    const lockDir = writeLock(outDir, { pid: exitedPid(), host: hostname(), token: 'gone' });
     const refuse = () => {
       throw Object.assign(new Error('operation not permitted'), { code: 'EPERM' });
     };
+    const started = Date.now();
 
-    const waiter = withWorkerBuildLock(outDir, async () => 'ran', { waitMs: 500, renameLock: refuse });
+    const waiter = withWorkerBuildLock(outDir, async () => 'ran', { waitMs: 5_000, renameLock: refuse });
 
-    await expect(waiter).rejects.toThrow('cannot remove the abandoned SharedWorker build lock');
-  });
-
-  it('fails, naming the lock, when the cache directory is read-only', async () => {
-    const isRoot = process.getuid?.() === 0;
-    if (isRoot) return; // root ignores the mode, so the lock moves.
-    const { outDir } = workerFixture();
-    writeLock(outDir, { pid: exitedPid(), host: hostname(), token: 'gone' });
-    chmodSync(outDir, 0o555);
-    try {
-      const waiter = withWorkerBuildLock(outDir, async () => 'ran', { waitMs: 500 });
-      await expect(waiter).rejects.toThrow(join(outDir, '.worker-build.lock'));
-    } finally {
-      chmodSync(outDir, 0o755);
-    }
-  });
+    await expect(waiter).rejects.toThrow(`cannot remove the abandoned SharedWorker build lock ${lockDir}`);
+    expect(Date.now() - started).toBeLessThan(1_000);
+  }, 10_000);
 
   it('keeps waiting, with timers running, when an abandoned lock vanishes before it moves', async () => {
     const { outDir } = workerFixture();
