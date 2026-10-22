@@ -66,6 +66,7 @@ import {
   createPrivateInvokerWarnings,
   httpFunctionLines,
   stateAfterStart,
+  UNRESPONSIVE_LINE,
   uncaughtErrorLine,
 } from '../functions/http/report.js';
 import {
@@ -1101,8 +1102,20 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       }
       const isUnexpectedExit = event.type === 'unexpected-exit';
       if (isUnexpectedExit) {
-        functionsGateway?.update({ kind: 'failed', message: `the Functions child exited (code ${event.code})` });
+        functionsGateway?.update({ kind: 'exited', code: event.code });
         resolveFunctionsExit(event.code);
+        return;
+      }
+      if (event.type === 'unresponsive') {
+        functionsGateway?.update({ kind: 'unresponsive' });
+        process.stderr.write(`✖ ${UNRESPONSIVE_LINE}\n`);
+        return;
+      }
+      if (event.type === 'restarted') {
+        functionsGateway?.update(stateAfterStart(event.result, serveUrl));
+        const restarted = event.result.kind === 'ready';
+        if (restarted) info.write('↻ functions restarted\n');
+        else process.stderr.write(`✖ functions did not restart (${event.result.kind === 'failed' ? event.result.error.message : 'no sandbox peer'})\n`);
         return;
       }
       const childEvent = event.event;

@@ -55,7 +55,12 @@ export type FunctionsChildMessage =
   | ({ type: 'ready' } & FunctionsChildReady)
   | FunctionsChildEvent
   | { type: 'fatal'; error: SerializedFunctionsError }
+  /** Sent every HEARTBEAT_INTERVAL_MS while the child's event loop runs. */
+  | { type: 'heartbeat' }
   | { type: 'stopped' };
+
+/** How often the child beats. */
+export const HEARTBEAT_INTERVAL_MS = 1_000;
 
 export function serializeError(error: unknown): SerializedFunctionsError {
   if (error instanceof Error) {

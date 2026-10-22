@@ -115,6 +115,17 @@ describe('functions-http on the Vite plane', () => {
     const written = await getDoc(doc(ctx.db, `pyric_oracle_http/${id}`));
     expect(written.data()).toEqual({ writtenBy: 'pyricHttpEcho', id });
 
+    // An exception thrown from a timer after the response is caught in the child (owner decision,
+    // functions-http#12): the same process answers the next request.
+    const uncaughtUrl = `${base}/${PROJECT_ID}/us-central1/pyricHttpUncaught`;
+    const before = (await (await fetch(uncaughtUrl)).json()) as { instanceId: string };
+    expect((await fetch(`${uncaughtUrl}?mode=after-response`)).status).toBe(200);
+    await Bun.sleep(300);
+    const after = await fetch(uncaughtUrl);
+    expect(after.status).toBe(200);
+    expect(((await after.json()) as { instanceId: string }).instanceId).toBe(before.instanceId);
+    expect(logs.some((line) => line.includes('PYRIC_EXPECTED_ONREQUEST_UNCAUGHT'))).toBe(true);
+
     expect(logs.some((line) => line.includes('onRequest function'))).toBe(true);
   }, 240_000);
 });

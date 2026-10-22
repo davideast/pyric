@@ -7,7 +7,7 @@
  */
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { createRequire } from 'node:module';
-import type { AddressInfo } from 'node:net';
+import type { AddressInfo, Socket } from 'node:net';
 import type { DiscoveredOnRequest } from './discovery.js';
 
 /** The request header the host sets to name the export a request is for. */
@@ -39,6 +39,16 @@ interface ExpressModule {
   text(options: ParserOptions): Middleware;
   urlencoded(options: ParserOptions): Middleware;
   raw(options: ParserOptions): Middleware;
+}
+
+/**
+ * How long a stop or reload waits for in-flight requests before closing them.
+ * The host force-kills the child 2 s after asking it to stop, so this stays under that.
+ */
+const DRAIN_MS = 1_000;
+
+export interface HttpChildServerOptions {
+  drainMs?: number;
 }
 
 export interface HttpChildServer {
@@ -83,17 +93,35 @@ function dispatch(functions: ReadonlyMap<string, DiscoveredOnRequest>): Middlewa
   };
 }
 
+/** Stop accepting, let in-flight requests finish until `drainMs`, then close what is left. */
+function drainAndClose(server: Server, sockets: ReadonlySet<Socket>, drainMs: number): Promise<void> {
+  return new Promise<void>((resolveClose) => {
+    const deadline = setTimeout(() => {
+      for (const socket of sockets) socket.destroy();
+    }, drainMs);
+    deadline.unref();
+    server.close(() => {
+      clearTimeout(deadline);
+      resolveClose();
+    });
+    server.closeIdleConnections?.();
+  });
+}
+
 /** Listen on an ephemeral loopback port and serve the discovered onRequest exports. */
 export function startHttpChildServer(
   entry: string,
   discovered: readonly DiscoveredOnRequest[],
+  options: HttpChildServerOptions = {},
 ): Promise<HttpChildServer> {
   const express = loadExpress(entry);
   const app = express();
   // Cloud Functions runs with NODE_ENV=production, so express's error pages carry no stack or file paths.
   app.set('env', 'production');
   app.disable('x-powered-by');
-  app.enable('trust proxy');
+  // One trusted hop: the host's proxy, which appends the client to X-Forwarded-For.
+  // req.ip is then the client the proxy saw, never an address the client claimed.
+  app.set('trust proxy', 1);
   const parser = { limit: BODY_LIMIT, verify: saveRawBody };
   app.use(express.json({ ...parser, type: 'application/cloudevents+json' }));
   app.use(express.json(parser));
@@ -103,15 +131,17 @@ export function startHttpChildServer(
   app.use(dispatch(new Map(discovered.map((fn) => [fn.exportName, fn]))));
 
   return new Promise((resolveServer, rejectServer) => {
+    const sockets = new Set<Socket>();
     const server = app.listen(0, '127.0.0.1', () => {
       const { port } = server.address() as AddressInfo;
       resolveServer({
         port,
-        close: () => new Promise<void>((resolveClose) => {
-          server.close(() => resolveClose());
-          server.closeAllConnections?.();
-        }),
+        close: () => drainAndClose(server, sockets, options.drainMs ?? DRAIN_MS),
       });
+    });
+    server.on('connection', (socket: Socket) => {
+      sockets.add(socket);
+      socket.once('close', () => sockets.delete(socket));
     });
     server.once('error', rejectServer);
   });

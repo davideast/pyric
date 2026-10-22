@@ -6,6 +6,7 @@
 import { createRequire } from 'node:module';
 import type { RemoteSandbox } from '../remote/index.js';
 import {
+  HEARTBEAT_INTERVAL_MS,
   isChildMessage,
   serializeError,
   type FunctionsChildMessage,
@@ -48,6 +49,11 @@ async function runFunctionsChild(): Promise<void> {
     throw new Error('Functions RTDB child is missing its required environment');
   }
 
+  // A handler stuck in a synchronous loop stops these beats, which is how the host
+  // tells a wedged child from a busy one.
+  const heartbeat = setInterval(() => send({ type: 'heartbeat' }), HEARTBEAT_INTERVAL_MS);
+  heartbeat.unref();
+
   const requireFromEntry = createRequire(entry);
   const adminApp = requireFromEntry('firebase-admin/app') as AdminAppModule;
   serveInstanceAsDefault(instance);
@@ -59,6 +65,7 @@ async function runFunctionsChild(): Promise<void> {
   const close = (): Promise<void> => {
     if (closing) return closing;
     closing = (async () => {
+      clearInterval(heartbeat);
       await httpServer?.close();
       host?.close();
       await host?.idle();
