@@ -16,6 +16,7 @@ import {
   TEMPLATES,
 } from './scaffold.js';
 import { readFileSync } from 'node:fs';
+import { detectPackageManager, nextStepsFor } from './package-manager.js';
 
 function packageVersion(): string {
   const metadata = JSON.parse(
@@ -54,7 +55,10 @@ async function main(): Promise<number> {
   const name = typeof nameFlag === 'string' && nameFlag.length > 0 ? nameFlag : undefined;
 
   const version = packageVersion();
-  const effectiveTemplate = applyDepsMode(TEMPLATES[templateName], 'npm', { version });
+  const pinned = applyDepsMode(TEMPLATES[templateName], 'npm', { version });
+  const packageManager = detectPackageManager(process.env.npm_config_user_agent);
+  const nextSteps = nextStepsFor(pinned.nextSteps, packageManager);
+  const effectiveTemplate = { ...pinned, nextSteps };
 
   return runScaffold(
     {

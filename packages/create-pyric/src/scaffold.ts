@@ -281,7 +281,7 @@ export async function runScaffold(
     merged: [],
     skipped: [],
     conflicts: [],
-    nextSteps: template.nextSteps,
+    nextSteps: effective.nextSteps,
   };
 
   const pkgPath = join(dir, 'package.json');
