@@ -5,8 +5,10 @@
  */
 import { createRequire } from 'node:module';
 import type { RemoteSandbox } from '../remote/index.js';
+import { disconnectFromHost, sendToHost } from './child-ipc.js';
 import {
   HEARTBEAT_INTERVAL_MS,
+  STOP_DEADLINE_MS,
   isChildMessage,
   serializeError,
   type FunctionsChildMessage,
@@ -24,22 +26,10 @@ interface AdminAppModule {
   deleteApp(app: unknown): Promise<void>;
 }
 
-/**
- * Send to the host if the channel is open. The callback matters: without one,
- * a send on a channel that closed emits 'error' on the next tick, and with the
- * uncaught-error handler installed that error is reported by sending again, a
- * next-tick loop that spins a core and starves every signal handler.
- */
-function send(message: FunctionsChildMessage): void {
-  if (!process.connected || !process.send) return;
-  process.send(message, (error: Error | null) => {
-    // The channel closed between the check and the write; the disconnect handler ends this process.
-    void error;
-  });
-}
+const send = (message: FunctionsChildMessage): void => sendToHost(message);
 
-/** How long any shutdown may take before the child exits regardless. */
-const EXIT_DEADLINE_MS = 1_500;
+/** With the host gone there is nothing to wait for: close quickly and exit. */
+const HOST_LOST_DEADLINE_MS = 1_500;
 /** How often the child checks that its parent is still the one that spawned it. */
 const PARENT_POLL_MS = 500;
 
@@ -52,7 +42,8 @@ const PARENT_POLL_MS = 500;
 function surviveUncaughtErrors(): void {
   let reporting = false;
   const report = (error: unknown): void => {
-    // Never re-enter: an error raised while reporting is dropped rather than reported again.
+    // Only blocks synchronous re-entry (an error thrown inside the send). The next-tick
+    // loop a send on a closed channel used to start is prevented in sendToHost instead.
     if (reporting) return;
     reporting = true;
     try {
@@ -104,22 +95,23 @@ async function runFunctionsChild(): Promise<void> {
   const shutdown = async (): Promise<void> => {
     await close();
     send({ type: 'stopped' });
-    if (process.connected) process.disconnect?.();
+    disconnectFromHost();
   };
 
   // The host is gone (its channel closed, or this process was re-parented) or asked
   // us to stop by signal: close what can be closed, and exit by the deadline either way.
   let exiting = false;
-  const exitSoon = (): void => {
+  const exitSoon = (deadlineMs: number): void => {
     if (exiting) return;
     exiting = true;
-    setTimeout(() => process.exit(process.exitCode ?? 0), EXIT_DEADLINE_MS);
+    setTimeout(() => process.exit(process.exitCode ?? 0), deadlineMs);
     void close().catch(() => undefined).finally(() => process.exit(process.exitCode ?? 0));
   };
-  process.once('disconnect', exitSoon);
+  const hostLost = (): void => exitSoon(HOST_LOST_DEADLINE_MS);
+  process.once('disconnect', hostLost);
   const spawnedBy = process.ppid;
   const parentWatch = setInterval(() => {
-    if (process.ppid !== spawnedBy) exitSoon();
+    if (process.ppid !== spawnedBy) hostLost();
   }, PARENT_POLL_MS);
   parentWatch.unref();
 
@@ -129,13 +121,16 @@ async function runFunctionsChild(): Promise<void> {
       void shutdown().catch((error) => {
         send({ type: 'fatal', error: serializeError(error) });
         process.exitCode = 1;
-        process.disconnect?.();
+        disconnectFromHost();
       });
     }
   });
+  // Ctrl-C reaches this process directly, alongside the host's own stop request.
+  // Its deadline is the host's force-kill deadline, so in-flight triggers get the
+  // same time either way.
   const onSignal = (): void => {
     void shutdown().catch(() => undefined);
-    exitSoon();
+    exitSoon(STOP_DEADLINE_MS);
   };
   process.once('SIGINT', onSignal);
   process.once('SIGTERM', onSignal);
@@ -179,6 +174,6 @@ if (process.env.PYRIC_FUNCTIONS_RTDB_CHILD === '1') {
     send({ type: 'fatal', error: serialized });
     process.stderr.write(`${serialized.stack ?? `${serialized.name}: ${serialized.message}`}\n`);
     process.exitCode = 1;
-    process.disconnect?.();
+    disconnectFromHost();
   });
 }
