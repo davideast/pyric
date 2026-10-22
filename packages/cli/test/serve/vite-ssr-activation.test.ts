@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { attachViteSsrActivation, httpsCertificateRefusal, loopbackBase, viteSsrRefusal } from '../../src/serve/vite-ssr-activation.js';
+import { attachViteSsrActivation, httpsCertificateRefusal, httpsUnderBunRefusal, loopbackBase, viteSsrRefusal } from '../../src/serve/vite-ssr-activation.js';
 
 /** A dev server whose HTTP server listens on `address`, or starts listening when told. */
 function fakeServer(address: AddressInfo, listening = true): ViteDevServer & { listen(): void } {
@@ -27,13 +27,15 @@ function fakeHttpsServer(address: AddressInfo, https: unknown): ViteDevServer & 
   return Object.assign(fakeServer(address), { config: { server: { https } } }) as ViteDevServer & { listen(): void };
 }
 
-function selfSignedCert(): string {
+function selfSignedCert(): { cert: string; certPath: string; keyPath: string } {
   const dir = mkdtempSync(join(tmpdir(), 'pyric-ssr-https-'));
+  const certPath = join(dir, 'cert.pem');
+  const keyPath = join(dir, 'key.pem');
   execFileSync('openssl', [
     'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=localhost',
-    '-keyout', join(dir, 'key.pem'), '-out', join(dir, 'cert.pem'),
+    '-keyout', keyPath, '-out', certPath,
   ], { stdio: 'ignore' });
-  return readFileSync(join(dir, 'cert.pem'), 'utf8');
+  return { cert: readFileSync(certPath, 'utf8'), certPath, keyPath };
 }
 
 const ipv4 = (address: string, port = 5173): AddressInfo => ({ address, family: 'IPv4', port });
@@ -45,8 +47,12 @@ afterEach(() => {
   for (const activation of attached.splice(0).reverse()) activation.close();
 });
 
-function attach(server: ViteDevServer, hosted: boolean, env: Record<string, string | undefined> = {}) {
-  const activation = attachViteSsrActivation(server, hosted, env);
+/** Node checks the certificate pin; these tests run under Bun, which does not, so each says which it stands for. */
+const NODE = { honorsCertificatePin: () => true };
+const BUN = { honorsCertificatePin: () => false };
+
+function attach(server: ViteDevServer, hosted: boolean, env: Record<string, string | undefined> = {}, runtime = NODE) {
+  const activation = attachViteSsrActivation(server, hosted, env, runtime);
   attached.push(activation);
   return activation;
 }
@@ -66,7 +72,7 @@ describe('loopbackBase', () => {
 });
 
 describe('an HTTPS dev server', () => {
-  const cert = selfSignedCert();
+  const { cert, certPath, keyPath } = selfSignedCert();
 
   it('is the host at its https url, and trusts its own certificate for that origin only', async () => {
     attach(fakeHttpsServer(ipv4('127.0.0.1', 5443), { cert, key: 'unused' }), true);
@@ -79,7 +85,22 @@ describe('an HTTPS dev server', () => {
     expect(activation.hostTrust?.('https://example.com/')).toBeUndefined();
   });
 
-  it('refuses, naming HTTPS, when its certificate is not PEM in server.https.cert', async () => {
+  it('reads a certificate given as a file path, as Vite does', async () => {
+    attach(fakeHttpsServer(ipv4('127.0.0.1', 5443), { cert: certPath, key: keyPath }), true);
+    const activation = processActivation()!;
+    await expect(activation.host()).resolves.toBe('https://127.0.0.1:5443');
+    expect(activation.hostTrust?.('https://127.0.0.1:5443/')?.ca).toEqual([cert.trim()]);
+  });
+
+  it('refuses under Bun, naming HTTPS and Bun, and trusts nothing', async () => {
+    attach(fakeHttpsServer(ipv4('127.0.0.1', 5443), { cert, key: 'unused' }), true, {}, BUN);
+    const activation = processActivation()!;
+    await expect(activation.host()).rejects.toThrow(httpsUnderBunRefusal().message);
+    expect(httpsUnderBunRefusal().message).toContain('serves HTTPS under Bun');
+    expect(activation.hostTrust?.('https://127.0.0.1:5443/')).toBeUndefined();
+  });
+
+  it('refuses, naming HTTPS, when server.https.cert holds no readable PEM certificate', async () => {
     attach(fakeHttpsServer(ipv4('127.0.0.1', 5443), { pfx: Buffer.from('bundle') }), true);
     const activation = processActivation()!;
     await expect(activation.host()).rejects.toMatchObject({ code: 'failed-precondition' });

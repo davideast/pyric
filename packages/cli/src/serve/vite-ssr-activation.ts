@@ -45,7 +45,7 @@ import {
   type ProcessActivation,
 } from 'pyric/sandbox/internal';
 import { connectRemoteSandbox, createLazyRemoteSandbox, type LazyRemoteSandbox } from '../remote/index.js';
-import { hostTrustFor, isTrustedOrigin } from '../remote/loopback-tls.js';
+import { honorsCertificatePin, hostTrustFor, isTrustedOrigin } from '../remote/loopback-tls.js';
 import { servesHttps } from './vite-https.js';
 import { VITE_SSR_ISSUE_URL } from './vite-net-guard.js';
 
@@ -56,6 +56,8 @@ interface ServerInForce {
   readonly hosted: boolean;
   /** Its certificate's trust, read once it listens over HTTPS. */
   trust?: HostTrust;
+  /** Whether this runtime checks the certificate pin (Node does, Bun does not). */
+  readonly honorsPin: boolean;
 }
 
 let inForce: ServerInForce | undefined;
@@ -77,8 +79,19 @@ export function httpsCertificateRefusal(): FirebaseError {
   return new FirebaseError(
     'failed-precondition',
     'pyric: this Vite dev server serves HTTPS, and server-rendered modules reach it over loopback trusting only ' +
-      'its own certificate, which pyric reads from server.https.cert as PEM. This server has none there (a pfx ' +
-      `bundle, or a certificate set another way): set server.https.cert and server.https.key, or serve HTTP. See ${VITE_SSR_ISSUE_URL}.`,
+      'its own certificate, which pyric reads from server.https.cert: PEM text, or the path of a PEM file. ' +
+      'pyric found no certificate it could read there (a pfx bundle, a file that cannot be read, a malformed ' +
+      `certificate): set server.https.cert to a PEM certificate, or serve HTTP. See ${VITE_SSR_ISSUE_URL}.`,
+  );
+}
+
+/** The refusal for an HTTPS dev server under a runtime that does not check the certificate pin. */
+export function httpsUnderBunRefusal(): FirebaseError {
+  return new FirebaseError(
+    'failed-precondition',
+    'pyric: this Vite dev server serves HTTPS under Bun, and server-rendered modules reach it over loopback ' +
+      "pinned to its own certificate, a check Bun's TLS does not run. Run the dev server under Node, or serve HTTP. " +
+      `See ${VITE_SSR_ISSUE_URL}.`,
   );
 }
 
@@ -105,6 +118,8 @@ async function trustFor(current: ServerInForce): Promise<HostTrust | null> {
   const base = await listeningBase(current.server);
   const isPlainHttp = !servesHttps(current.server);
   if (isPlainHttp) return null;
+  const skipsPin = !current.honorsPin;
+  if (skipsPin) throw httpsUnderBunRefusal();
   current.trust ??= hostTrustFor(base, current.server.config?.server?.https) ?? undefined;
   const trust = current.trust;
   if (trust === undefined) throw httpsCertificateRefusal();
@@ -155,10 +170,11 @@ export function attachViteSsrActivation(
   server: ViteDevServer,
   hosted: boolean,
   env: Record<string, string | undefined> = process.env,
+  runtime: { honorsCertificatePin: () => boolean } = { honorsCertificatePin },
 ): ViteSsrActivation {
   const isActivatedFromOutside = (env.PYRIC_SANDBOX ?? '').trim().length > 0;
   if (isActivatedFromOutside) return { close: () => {} };
-  const attached: ServerInForce = { server, hosted };
+  const attached: ServerInForce = { server, hosted, honorsPin: runtime.honorsCertificatePin() };
   inForce = attached;
   installProcessActivation(activation);
   return {
