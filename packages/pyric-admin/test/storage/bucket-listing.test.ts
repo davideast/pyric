@@ -5,10 +5,10 @@
  * 7.x and `@google-cloud/paginator` behave.
  */
 import { describe, expect, it } from 'bun:test';
-import { deleteListedFiles } from '../../src/storage/delete-files.js';
+import { deletedNamesFound, deleteListedFiles } from '../../src/storage/delete-files.js';
 import { everyListedName, listingPage } from '../../src/storage/file-query.js';
-import { getFilesResponse } from '../../src/storage/get-files.js';
-import { namesUnderPrefix, type FolderListing } from '../../src/storage/remote-names.js';
+import { getFilesResponse, pageNamesFound } from '../../src/storage/get-files.js';
+import { namesForQuery, WALK_CONCURRENCY, type FolderListing } from '../../src/storage/remote-names.js';
 
 const NAMES = ['users/123/a.png', 'users/123/b/c.png', 'users/124/a.png', 'users/2/x', 'readme.txt', 'users'];
 
@@ -101,7 +101,7 @@ describe('deleteListedFiles', () => {
   });
 });
 
-describe('namesUnderPrefix', () => {
+describe('namesForQuery', () => {
   /** A host's folder listing over NAMES, as `storage.listAll` answers it. */
   const listed: string[] = [];
   const listFolder = async (path: string): Promise<FolderListing> => {
@@ -120,11 +120,92 @@ describe('namesUnderPrefix', () => {
 
   it('finds names under a prefix that ends inside a folder name, entering only folders that can hold one', async () => {
     listed.length = 0;
-    expect((await namesUnderPrefix('users/12', listFolder)).sort()).toEqual(['users/123/a.png', 'users/123/b/c.png', 'users/124/a.png']);
+    expect((await namesForQuery({ prefix: 'users/12' }, listFolder)).sort()).toEqual(['users/123/a.png', 'users/123/b/c.png', 'users/124/a.png']);
     expect(listed.sort()).toEqual(['users', 'users/123', 'users/123/b', 'users/124']);
   });
 
   it('walks the whole bucket for an empty prefix', async () => {
-    expect((await namesUnderPrefix('', listFolder)).sort()).toEqual([...NAMES].sort());
+    expect((await namesForQuery({}, listFolder)).sort()).toEqual([...NAMES].sort());
+  });
+});
+
+describe('namesForQuery over a wide tree (#1183)', () => {
+  /** 1,000 single-object folders, a deep chain, and names that sort on either side of a folder. */
+  const WIDE = [
+    ...Array.from({ length: 1000 }, (_, n) => `media/${n}/original.jpg`),
+    ...Array.from({ length: 30 }, (_, depth) => `${['deep', ...Array.from({ length: depth }, () => 'd')].join('/')}/level.txt`),
+    'media', 'media-index.json', 'media0.txt', 'media/1-x', 'media/1/a', 'media/1/b/c',
+  ];
+
+  /** A host over `names` that counts listings in flight, as the client's operation budget does. */
+  function host(names: readonly string[], options: { failAt?: string } = {}) {
+    const stats = { inFlight: 0, maxInFlight: 0, listed: [] as string[] };
+    const listFolder = async (path: string): Promise<FolderListing> => {
+      stats.inFlight += 1;
+      stats.maxInFlight = Math.max(stats.maxInFlight, stats.inFlight);
+      stats.listed.push(path);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      stats.inFlight -= 1;
+      if (path === options.failAt) throw Object.assign(new Error('listing failed'), { code: 'unavailable' });
+      const scan = path === '' ? '' : `${path}/`;
+      const items: FolderListing['items'] = [];
+      const folders = new Set<string>();
+      for (const name of names.filter((each) => each.startsWith(scan))) {
+        const rest = name.slice(scan.length);
+        const slash = rest.indexOf('/');
+        if (slash === -1) items.push({ fullPath: name });
+        else folders.add(scan + rest.slice(0, slash));
+      }
+      return { items, prefixes: [...folders].map((fullPath) => ({ fullPath })) };
+    };
+    return { stats, listFolder };
+  }
+
+  it('walks every folder in name order with at most WALK_CONCURRENCY listings in flight', async () => {
+    const { stats, listFolder } = host(WIDE);
+    expect(await namesForQuery({}, listFolder)).toEqual(listingPage(WIDE, {}, Infinity).names);
+    expect(stats.maxInFlight).toBeLessThanOrEqual(WALK_CONCURRENCY);
+    expect(stats.maxInFlight).toBeGreaterThan(1);
+  });
+
+  it('stops once a single page is found, listing few folders past it', async () => {
+    const { stats, listFolder } = host(WIDE);
+    const query = { prefix: 'media/', maxResults: 10 };
+    const names = await namesForQuery(query, listFolder, pageNamesFound(query));
+    expect(getFilesResponse(names, query, (name) => name)).toEqual(getFilesResponse(WIDE, query, (name) => name));
+    expect(stats.listed.length).toBeLessThan(10 + 2 * WALK_CONCURRENCY);
+  });
+
+  it('resumes at a pageToken without entering the folders before it', async () => {
+    const [, next] = getFilesResponse(WIDE, { prefix: 'media/', maxResults: 500 }, (name) => name);
+    const { stats, listFolder } = host(WIDE);
+    const names = await namesForQuery(next!, listFolder, pageNamesFound(next!));
+    expect(getFilesResponse(names, next!, (name) => name)).toEqual(getFilesResponse(WIDE, next!, (name) => name));
+    expect(stats.listed.length).toBeLessThan(520 + 2 * WALK_CONCURRENCY);
+  });
+
+  it('rolls whole folders up at the delimiter without entering them', async () => {
+    const { stats, listFolder } = host(WIDE);
+    const query = { prefix: 'media/', delimiter: '/' };
+    const names = await namesForQuery(query, listFolder, pageNamesFound(query));
+    expect(getFilesResponse(names, query, (name) => name)).toEqual(getFilesResponse(WIDE, query, (name) => name));
+    expect(stats.listed).toEqual(['media']);
+  });
+
+  it('stops deleteFiles at maxResults files', async () => {
+    const { stats, listFolder } = host(WIDE);
+    const query = { prefix: 'media/', maxResults: 5 };
+    const names = await namesForQuery(query, listFolder, deletedNamesFound(query));
+    expect(everyListedName(names, query)).toEqual(everyListedName(WIDE, query));
+    expect(stats.listed.length).toBeLessThan(5 + 2 * WALK_CONCURRENCY);
+  });
+
+  it('rejects with the failed listing and starts no more listings after it', async () => {
+    const { stats, listFolder } = host(WIDE, { failAt: 'media/500' });
+    await expect(namesForQuery({}, listFolder)).rejects.toThrow('listing failed');
+    const listedAtFailure = stats.listed.length;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(stats.listed.length).toBe(listedAtFailure);
+    expect(stats.inFlight).toBe(0);
   });
 });
