@@ -188,15 +188,18 @@ class FirebaseAuth internal constructor(
     }
 
     fun signOut() {
+        // Signing out is synchronous in the Firebase Android SDK: when this
+        // returns, currentUser is null and the next request is unauthenticated.
+        // Clear the local session first; the host is told afterwards.
+        _currentUser.value = null
+        _lensOverride.value = null
+        _authLens.value = AuthLens.Anon
+        notifyAuthStateChanged()
+        notifyIdTokenChanged()
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 BridgeAuthOperations.signOut(bridgeClient)
             } catch (_: Exception) {}
-            _currentUser.value = null
-            _lensOverride.value = null
-            _authLens.value = AuthLens.Anon
-            notifyAuthStateChanged()
-            notifyIdTokenChanged()
         }
     }
 
