@@ -9,7 +9,15 @@ import type { ClientPort, DocRefHandle } from './handles.js';
 import { createDocumentReference } from './firestore-reference.js';
 import { FirebaseError } from 'pyric/app';
 import type { DocumentData, FirestoreDataConverter, QueryDocumentSnapshot, SnapshotMetadata } from 'pyric/firestore';
-import { computeDocumentChanges, createDocChanges, type DocChangesOptions, type DocumentChange } from 'pyric/sandbox/internal';
+import {
+  computeDocumentChanges,
+  createDocChanges,
+  forEachDocument,
+  getSnapshotField,
+  type DocChangesOptions,
+  type DocumentChange,
+  type SnapshotFieldPath,
+} from 'pyric/sandbox/internal';
 
 // ─── Rehydration (class instance restoration) ─────────────────────────────
 
@@ -92,9 +100,24 @@ export function makeDocSnapshot<T = DocumentData>(
     exists: () => raw.exists,
     metadata,
     data: read,
+    // Production reads the stored field without the converter, as the in-page snapshot does.
+    get: (fieldPath) => readField(data, fieldPath),
   };
   rawCursorSnapshots.set(docSnapshot, { id: raw.id, path, exists: raw.exists, data });
   return docSnapshot;
+}
+
+/**
+ * `DocumentSnapshot.get` of the client SDK: an invalid field path is a
+ * `FirebaseError` with code `invalid-argument`, not a plain `Error`.
+ */
+function readField(data: Record<string, unknown> | undefined, fieldPath: SnapshotFieldPath): unknown {
+  try {
+    return getSnapshotField(data, fieldPath);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new FirebaseError('invalid-argument', `Function DocumentSnapshot.get() called with invalid data. ${reason}`);
+  }
 }
 
 export interface RawQueryResult {
@@ -227,6 +250,7 @@ export function makeQuerySnapshot(
     size: docs.length,
     empty: docs.length === 0,
     docs,
+    forEach: forEachDocument(docs),
     docChanges: createDocChanges(changes, baseline.excludesMetadataChanges),
   };
 }
@@ -241,6 +265,8 @@ export interface ClientDocSnapshot<T = DocumentData> {
   readonly metadata: SnapshotMetadata;
   exists(): boolean;
   data(): T | undefined;
+  /** Production's `DocumentSnapshot.get`: the stored field at `fieldPath`, or `undefined`. */
+  get(fieldPath: SnapshotFieldPath): unknown;
 }
 
 export interface ClientQuerySnapshot {
@@ -248,6 +274,8 @@ export interface ClientQuerySnapshot {
   readonly size: number;
   readonly empty: boolean;
   readonly docs: ClientDocSnapshot[];
+  /** Production's `QuerySnapshot.forEach`: calls `callback` once per document, in query order. */
+  forEach(callback: (doc: ClientDocSnapshot) => void, thisArg?: unknown): void;
   /** Production's `QuerySnapshot.docChanges`: the changes since the
    * listener's previous snapshot, or every document `added` on the first. */
   docChanges(options?: DocChangesOptions): DocumentChange<ClientDocSnapshot>[];

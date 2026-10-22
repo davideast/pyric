@@ -12,6 +12,7 @@ import { createServer } from 'node:net';
 import { join } from 'node:path';
 import type { Browser, BrowserContext, Page } from '@playwright/test';
 import { blackholedPort, type BlackholedPort } from '../../packages/cli/test/blackholed-port.ts';
+import { npmInstallArgs, pinPyricPackages, type Tarballs } from './install.ts';
 
 export interface LogWaitOptions {
   /** Only output after this offset (from `mark()`) counts. Default: all output. */
@@ -239,6 +240,20 @@ export interface App {
    * `pyric sandbox -- next dev`.
    */
   pyricProcess(args: string[], options?: { env?: Record<string, string> }): AppProcess;
+  /**
+   * Runs `command` with `args` to exit from `cwd` (relative to the app
+   * directory; the app directory when omitted), with the app's environment.
+   * A non-zero exit is returned rather than thrown. For the commands a user
+   * types, such as `node node_modules/create-pyric/dist/bin.js` or `npm run dev`.
+   */
+  command(command: string, args: string[], options?: { cwd?: string; env?: Record<string, string>; timeoutMs?: number }): Promise<ScriptResult>;
+  /**
+   * Installs a project the scenario created inside the app directory, such
+   * as one `create-pyric` scaffolded: its Pyric dependencies point at the
+   * packed tarballs, as the app's own do, and `npm install` runs in it.
+   * Throws on a failed install.
+   */
+  installProject(path: string): Promise<ScriptResult>;
   /** The browser context for this app. Requests to hosts other than 127.0.0.1 and localhost are aborted unless a route answers them. */
   browser(): Promise<BrowserContext>;
   /** Opens `url` in a new page of the app's browser context. */
@@ -338,6 +353,8 @@ export class AppRun implements App {
     readonly dir: string,
     private readonly home: string,
     private readonly launchBrowser: () => Promise<Browser>,
+    /** The packed Pyric packages and npm cache the runner installed the app with. */
+    private readonly packages?: { tarballs: Tarballs; npmCache: string },
   ) {}
 
   async step<T>(name: string, run: () => Promise<T> | T): Promise<T> {
@@ -418,6 +435,38 @@ export class AppRun implements App {
       throw new Error(`pyric ${args.join(' ')} did not exit within ${timeoutMs / 1000}s:\n${child.output}`);
     }
     return { code: await child.exited, output: child.output };
+  }
+
+  async command(
+    command: string,
+    args: string[],
+    options: { cwd?: string; env?: Record<string, string>; timeoutMs?: number } = {},
+  ): Promise<ScriptResult> {
+    this.scriptCount += 1;
+    const label = [command, ...args].join(' ');
+    const child = new AppProcess(
+      `command ${this.scriptCount} (${label})`,
+      command,
+      args,
+      join(this.dir, options.cwd ?? '.'),
+      appEnvironment(this.home, options.env),
+    );
+    this.processes.push(child);
+    const timeoutMs = options.timeoutMs ?? 60_000;
+    const finished = await Promise.race([child.exited.then(() => true), sleep(timeoutMs).then(() => false)]);
+    if (!finished) {
+      await child.stop();
+      throw new Error(`${label} did not exit within ${timeoutMs / 1000}s:\n${child.output}`);
+    }
+    return { code: await child.exited, output: child.output };
+  }
+
+  async installProject(path: string): Promise<ScriptResult> {
+    if (!this.packages) throw new Error('installProject needs the packed packages; the runner passes them');
+    pinPyricPackages(join(this.dir, path), this.packages.tarballs);
+    const result = await this.command('npm', npmInstallArgs(this.packages.npmCache), { cwd: path, timeoutMs: 240_000 });
+    if (result.code !== 0) throw new Error(`npm install in ${path} exited with code ${result.code}:\n${result.output}`);
+    return result;
   }
 
   async serverScript(

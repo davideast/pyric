@@ -131,6 +131,14 @@ It can serve static files or start an existing development command. Put Pyric fl
 npx pyric sandbox --bridge -- npm run dev
 ```
 
+Server code that uses the client SDKs (`firebase/firestore`, `firebase/auth`, and the others) reaches only the Node host, so add `--hosted`. Without it, the first call fails with `failed-precondition`. Server code that uses `firebase-admin` works either way.
+
+```bash
+npx pyric sandbox --hosted -- node src/app.ts
+```
+
+See [Node host mode](./node-host.md).
+
 You can also set `command`, `port`, `project`, and rules paths in `pyric.json`. See the [CLI reference](../reference/cli.md). [Test in Node](../ship/test-in-node.md) covers an in-process sandbox for tests and scripts.
 
 ## What remains local

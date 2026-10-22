@@ -100,7 +100,7 @@ async function runApp(name: string, context: {
   const home = join(work, 'home');
   mkdirSync(projectDir);
   mkdirSync(join(home, '.config'), { recursive: true });
-  const run = new AppRun(name, projectDir, home, context.browser);
+  const run = new AppRun(name, projectDir, home, context.browser, { tarballs: context.tarballs, npmCache: context.npmCache });
   const logs: AppResult['logs'] = [];
   let failure: unknown;
   try {

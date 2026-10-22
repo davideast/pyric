@@ -154,7 +154,9 @@ export interface Sandbox {
    *
    * OPTIONAL because remote sandbox proxies can't provide an ambient
    * emit window (events are emitted in the worker they front). Callers
-   * spell `sandbox.runWithProvenance?.(prov, fn) ?? fn()`.
+   * branch on whether the method exists and call `fn()` once either way;
+   * `runWithProvenance?.(prov, fn) ?? fn()` runs `fn` twice when it
+   * returns `undefined`.
    */
   runWithProvenance?<T>(provenance: EventProvenance, fn: () => T): T;
 
