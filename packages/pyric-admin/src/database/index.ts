@@ -105,9 +105,10 @@ import { assertAdminAppActive } from '../app/lifecycle.js';
 import { increment, serverTimestamp } from 'pyric/database';
 import {
   coerceArrays,
+  errorPrefix,
   inlinePriorities,
   normalizeNode,
-  validateUpdatePaths,
+  validateUpdate,
   validateWrite,
   valueAtChildPath,
   valueChildren,
@@ -546,30 +547,36 @@ function trimEmptyAncestors(
 //
 // firebase-admin validates a write before it is sent and throws the error
 // synchronously, so both arms do the same here, with the SDK's text
-// (`validateFirebaseDataArg`, `validateFirebaseMergeDataArg`). The remote
-// arm validates before relaying: the host would otherwise drop the refused
-// parts of the value and store the rest.
+// (`validateFirebaseDataArg`, `validateFirebaseMergeDataArg`). Both arms
+// then write the value as RTDB stores it (`normalizeNode`): the remote arm
+// relays that, not the raw value, so a value JSON would carry differently
+// (a `Date` becomes a string) is written as firebase-admin writes it.
+//
+// Priorities are not modeled on either arm: a valid priority, inline or
+// under an `update()` key ending in `.priority`, is accepted and dropped.
 
-/** Throw the SDK's error for a `set` or `push` value it refuses. `segs` is
- *  the reference's path: for `push`, the parent's. */
-function validateValueArg(fnName: 'set' | 'push', segs: string[], value: unknown): void {
-  validateWrite(value, joinPath(segs), fnName, 'value');
+/** The value a `set` or `push` writes, as RTDB stores it, after throwing the
+ *  SDK's error for a value it refuses. `segs` is the reference's path: for
+ *  `push`, the parent's. */
+function validateValueArg(fnName: 'set' | 'push', segs: string[], value: unknown): JsonValue {
+  validateWrite(value, joinPath(segs), errorPrefix(fnName, 'value'));
   inlinePriorities(value);
+  return normalizeNode(value);
 }
 
-/** Throw the SDK's error for `update` values it refuses: a non-object, a
- *  refused child value, then an invalid or overlapping key. */
-function validateValuesArg(segs: string[], values: unknown): Record<string, unknown> {
-  if (values === null || typeof values !== 'object') {
-    throw new Error('update failed: values argument  must be an object containing the children to replace.');
-  }
-  const entries = Object.entries(values as Record<string, unknown>);
-  for (const [key, value] of entries) {
-    validateWrite(value, joinPath([...segs, ...pathSegments(key)]), 'update', 'values');
-  }
-  validateUpdatePaths(values as Record<string, unknown>);
+/** Whether an `update()` key addresses a priority, as `a/.priority` does. */
+function isPriorityKey(key: string): boolean {
+  const segments = pathSegments(key);
+  return segments[segments.length - 1] === '.priority';
+}
+
+/** The patch an `update` writes, each value as RTDB stores it and priority
+ *  keys dropped, after throwing the SDK's error for values it refuses. */
+function validateValuesArg(segs: string[], values: unknown): Record<string, JsonValue> {
+  const entries = Object.entries(validateUpdate(values, joinPath(segs)));
   for (const [, value] of entries) inlinePriorities(value);
-  return values as Record<string, unknown>;
+  const dataEntries = entries.filter(([key]) => !isPriorityKey(key));
+  return Object.fromEntries(dataEntries.map(([key, value]) => [key, normalizeNode(value)]));
 }
 
 /** Run a synchronous in-memory write as a promise that settles with it. */
@@ -680,8 +687,8 @@ function buildSandboxRef(
     /** Set `value` at this path. `null` deletes. A value the SDK refuses
      *  throws synchronously, as firebase-admin does. */
     set(value: unknown): Promise<void> {
-      validateValueArg('set', segs, value);
-      return settled(() => writePath(state.root, canonical, normalizeNode(value)));
+      const stored = validateValueArg('set', segs, value);
+      return settled(() => writePath(state.root, canonical, stored));
     },
 
     /** Read this path. Resolves to a {@link DataSnapshot}-shaped value. */
@@ -714,7 +721,7 @@ function buildSandboxRef(
       const patch = validateValuesArg(segs, values);
       return settled(() => {
         for (const [k, v] of Object.entries(patch)) {
-          writePath(state.root, joinPath([...segs, ...pathSegments(k)]), normalizeNode(v));
+          writePath(state.root, joinPath([...segs, ...pathSegments(k)]), v);
         }
       });
     },
@@ -730,12 +737,12 @@ function buildSandboxRef(
      *  once the (synchronous) write completes; the underlying ref is
      *  available synchronously via the returned object's own methods. */
     push(value?: unknown, onComplete?: (err: Error | null) => void): AdminThenableReference {
-      if (value !== undefined) validateValueArg('push', segs, value);
+      const stored = value === undefined ? undefined : validateValueArg('push', segs, value);
       const id = generatePushId();
       const childPath = joinPath([...segs, id]);
-      if (value !== undefined) {
+      if (stored !== undefined) {
         try {
-          writePath(state.root, childPath, normalizeNode(value));
+          writePath(state.root, childPath, stored);
         } catch (err) {
           if (onComplete) onComplete(err as Error);
           throw err;
@@ -862,11 +869,13 @@ function buildSandboxRef(
  *  `stored` is the value as RTDB stores it, children by key, with no
  *  arrays. `val()` renders integer keys as an array when they are dense
  *  enough; `exportVal()` and `toJSON()` never do (`ChildrenNode.val`
- *  builds an array only when not exporting). */
+ *  builds an array only when not exporting). `exported`, when given, is the
+ *  host's export of the same node, priorities included. */
 function buildSandboxSnap(
   refAt: (path: string) => AdminReference,
   path: string,
   stored: JsonValue,
+  exported?: unknown,
 ): AdminDataSnapshot {
   const segs = pathSegments(path);
   const key = segs.length === 0 ? null : segs[segs.length - 1]!;
@@ -875,6 +884,8 @@ function buildSandboxSnap(
   // '0', '1', ... in index order (#1110).
   const children = valueChildren(stored);
   const val = coerceArrays(stored);
+  const exportedChild = (childSegs: readonly string[]): unknown =>
+    exported === undefined ? undefined : valueAtChildPath(exported, childSegs);
   const snap = {
     key,
     get ref(): AdminReference {
@@ -889,7 +900,7 @@ function buildSandboxSnap(
     child(p: string): AdminDataSnapshot {
       const childSegs = pathSegments(p);
       const childVal = valueAtChildPath(stored, childSegs) as JsonValue;
-      return buildSandboxSnap(refAt, joinPath([...segs, ...childSegs]), childVal);
+      return buildSandboxSnap(refAt, joinPath([...segs, ...childSegs]), childVal, exportedChild(childSegs));
     },
     hasChild(p: string): boolean {
       return snap.child(p).exists();
@@ -902,7 +913,7 @@ function buildSandboxSnap(
     },
     forEach(cb: (child: AdminDataSnapshot) => boolean | void): boolean {
       for (const { key: childKey, value } of children) {
-        const childSnap = buildSandboxSnap(refAt, joinPath([...segs, childKey]), value as JsonValue);
+        const childSnap = buildSandboxSnap(refAt, joinPath([...segs, childKey]), value as JsonValue, exportedChild([childKey]));
         if (cb(childSnap) === true) return true;
       }
       return false;
@@ -916,9 +927,9 @@ function buildSandboxSnap(
       return null;
     },
     exportVal(): unknown {
-      // The SDK's export format adds `.priority` where one is set;
-      // priorities are not modeled here, so it is the stored value.
-      return structuredClone(stored);
+      // The SDK's export format adds `.priority` where one is set. The
+      // in-process arm models no priorities, so it is the stored value.
+      return structuredClone(exported === undefined ? stored : exported);
     },
   };
   return snap as unknown as AdminDataSnapshot;
@@ -945,6 +956,8 @@ interface RemoteWireSnapshot {
   key: string | null;
   exists: boolean;
   value: unknown;
+  /** `exportVal()` on the host, priorities included. */
+  exportValue?: unknown;
   size: number;
 }
 
@@ -1023,8 +1036,10 @@ function buildRemoteRef(
   const refAt = (p: string): AdminReference => buildRemoteRef(state, db, p);
   // The host sends `val()`, arrays included; storing it again by key
   // recovers the stored value (an array's nulls are holes, not children).
+  // `exportValue` carries the priorities another plane set; this arm writes
+  // none, but reads them back as the host has them.
   const snapFromWire = (wire: RemoteWireSnapshot): AdminDataSnapshot =>
-    buildSandboxSnap(refAt, canonical, normalizeNode(wire.value ?? null));
+    buildSandboxSnap(refAt, canonical, normalizeNode(wire.value ?? null), wire.exportValue);
 
   const ref = {
     key,
@@ -1047,11 +1062,10 @@ function buildRemoteRef(
     /** Set `value` at this path. `null` deletes. Relays `rtdb.set`. A
      *  value the SDK refuses throws synchronously and is not relayed. */
     set(value: unknown): Promise<void> {
-      validateValueArg('set', segs, value);
       return relayRtdbOp(state, {
         method: 'rtdb.set',
         path: canonical,
-        value,
+        value: validateValueArg('set', segs, value),
       }).then(() => undefined);
     },
 
@@ -1130,13 +1144,13 @@ function buildRemoteRef(
      * rejects the thenable and reaches `onComplete`.
      */
     push(value?: unknown, onComplete?: (err: Error | null) => void): AdminThenableReference {
-      if (value !== undefined) validateValueArg('push', segs, value);
+      const stored = value === undefined ? undefined : validateValueArg('push', segs, value);
       const id = generatePushId();
       const childPath = joinPath([...segs, id]);
       const write: Promise<void> =
-        value === undefined
+        stored === undefined
           ? Promise.resolve()
-          : relayRtdbOp(state, { method: 'rtdb.push', path: canonical, key: id, value })
+          : relayRtdbOp(state, { method: 'rtdb.push', path: canonical, key: id, value: stored })
               .then(() => undefined);
       // Surface completion without forcing the caller to await: `.then`'s
       // rejection handler also keeps a fire-and-forget push from becoming

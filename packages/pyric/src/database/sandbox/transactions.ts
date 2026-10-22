@@ -2,7 +2,7 @@ import type { AuthState, RtdbDenialContext } from 'pyric/sandbox';
 import type { BackendState } from './backend-state.js';
 import type { ChildListeners } from './child-listeners.js';
 import { cloneJson, joinPath, pathSegments, type JsonValue } from './data-tree.js';
-import { coerceArrays, normalizeWrite, withPriorities, writePriority, type InlinePriority } from './normalize.js';
+import { coerceArrays, normalizeWrite, TRANSACTION_ERROR_PREFIX, withPriorities, writePriority, type InlinePriority } from './normalize.js';
 import { canonicalPath, denyResultFor, rtdbDenialContext } from './operation-events.js';
 import { validatePriority } from './priority-state.js';
 import { withDenialContext } from './rules-eval.js';
@@ -72,6 +72,7 @@ export class Transactions {
     const resolved = normalizeWrite(
       resolveSentinels(proposed, now, current) as JsonValue,
       path === '/' ? '' : path,
+      TRANSACTION_ERROR_PREFIX,
     );
     const currentPriority = this.state.priorities.get(path);
     const written = writePriority(proposed, currentPriority);

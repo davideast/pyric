@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { deleteApp, getApps, type PyricAdminApp } from '../../src/app/index.js';
 import { getDatabase, type Reference } from '../../src/database/index.js';
-import { inProcessApp, sharedWorkerApp } from './arms.js';
+import * as modular from 'pyric/database';
+import { inProcessApp, sharedWorkerApp, sharedWorkerArm } from './arms.js';
 
 afterEach(async () => {
   await Promise.all(getApps().map((app) => deleteApp(app)));
@@ -13,6 +14,7 @@ const ARMS: Array<[string, () => PyricAdminApp]> = [
 ];
 
 const fn = () => 1;
+const PRIORITY_RULE = 'Firebase priority (a string, finite number, server value, or null).';
 const KEYS_RULE = 'Keys must be non-empty strings and can\'t contain ".", "#", "$", "/", "[", or "]"';
 
 interface RefusedWrite {
@@ -54,6 +56,8 @@ const REFUSED: RefusedWrite[] = [
   { name: 'update() with an invalid key', write: (node) => node.update({ 'a.b': 1 }), message: `update failed: values argument contains an invalid key (a.b) in path /a.b. ${KEYS_RULE}` },
   { name: 'update() with a nested invalid key', write: (node) => node.update({ a: { 'b.c': 1 } }), message: `update failed: values argument  contains an invalid key (b.c) in property 'node.a'.  ${KEYS_RULE}` },
   { name: 'update() with overlapping paths', write: (node) => node.update({ a: 1, 'a/b': 2 }), message: 'update failed: values argument contains a path /a that is ancestor of another path /a/b' },
+  { name: 'update() of a boolean .priority', write: (node) => node.update({ '.priority': true }), message: `update failed: values argument contains an invalid value for '/.priority', which must be a valid ${PRIORITY_RULE}` },
+  { name: "update() of a child's object .priority", write: (node) => node.update({ a: 1, 'b/.priority': { x: 1 } }), message: `update failed: values argument contains an invalid value for '/b/.priority', which must be a valid ${PRIORITY_RULE}` },
   { name: 'update() with .value beside children', write: (node) => node.update({ a: { '.value': 1, b: 2 } }), message: `update failed: values argument  contains ".value" child in property 'node.a' in addition to actual children.` },
   { name: 'push(NaN)', write: (node) => node.push(NaN), message: "push failed: value argument contains NaN in property 'node'" },
   { name: 'push() of an undefined child', write: (node) => node.push({ a: undefined }), message: "push failed: value argument contains undefined in property 'node.a'" },
@@ -88,6 +92,50 @@ describe('both pyric-admin arms refuse the writes firebase-admin refuses (#1121)
       });
     }
   }
+
+  // Priorities are not modeled on either arm: a valid priority is accepted
+  // and dropped, so `val()`, `numChildren()` and `exportVal()` read as the
+  // SDK's `val()` does, with no `.priority`.
+  test('a valid priority in update() or set() is accepted and dropped', async () => {
+    for (const [arm, makeApp] of ARMS) {
+      const db = getDatabase(makeApp());
+      await db.ref('node').set({ a: 1, '.priority': 3, b: { c: 2, '.priority': 'p' } });
+      await db.ref('node').update({ '.priority': 1, 'b/.priority': 2, d: 4 });
+      const snap = await db.ref('node').get();
+      const read = { arm, val: snap.val(), exportVal: snap.exportVal(), numChildren: snap.numChildren() };
+      expect(read).toStrictEqual({ arm, val: { a: 1, b: { c: 2 }, d: 4 }, exportVal: { a: 1, b: { c: 2 }, d: 4 }, numChildren: 3 });
+    }
+  });
+
+  // firebase-admin builds the node with `nodeFromJSON`, which reads only own
+  // enumerable keys, so a Date (none) is an empty node and is dropped.
+  test('a Date value is dropped on both arms', async () => {
+    for (const [arm, makeApp] of ARMS) {
+      const db = getDatabase(makeApp());
+      await db.ref('node').set({ when: new Date(0), b: 1 });
+      await db.ref('node').update({ at: new Date(0) });
+      expect({ arm, val: (await db.ref('node').get()).val() }).toStrictEqual({ arm, val: { b: 1 } });
+    }
+  });
+
+  test("the remote arm's exportVal() carries a priority another plane set", async () => {
+    const { app, host } = sharedWorkerArm();
+    const hostDb = modular.getAdminDatabase(host);
+    await modular.setWithPriority(modular.ref(hostDb, 'node'), { 0: 'a', 1: 'b' }, 5);
+    await modular.setWithPriority(modular.ref(hostDb, 'node/1'), 'b', 'p');
+
+    const snap = await getDatabase(app).ref('node').get();
+
+    expect(snap.val()).toStrictEqual(['a', 'b']);
+    expect(snap.exportVal()).toStrictEqual({ 0: 'a', 1: { '.value': 'b', '.priority': 'p' }, '.priority': 5 });
+    expect(snap.toJSON()).toStrictEqual(snap.exportVal());
+    expect(snap.child('1').exportVal()).toStrictEqual({ '.value': 'b', '.priority': 'p' });
+    const exported: unknown[] = [];
+    snap.forEach((child) => {
+      exported.push(child.exportVal());
+    });
+    expect(exported).toStrictEqual(['a', { '.value': 'b', '.priority': 'p' }]);
+  });
 
   test('an array hole is not refused', async () => {
     for (const [arm, makeApp] of ARMS) {

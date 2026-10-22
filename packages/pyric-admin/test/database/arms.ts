@@ -3,7 +3,7 @@
  * and a remote handle on a SharedWorker host (the real worker host behind the
  * bridge, every frame JSON round-tripped as the wire would carry it).
  */
-import { initializeSandbox } from 'pyric/sandbox';
+import { initializeSandbox, type Sandbox } from 'pyric/sandbox';
 import { getDatabase as getModularDatabase, sandbox as databaseSandbox } from 'pyric/database';
 import { getFirestore } from 'pyric/firestore';
 import { createBridge, type Bridge } from '../../../cli/src/bridge/server/bridge.js';
@@ -25,8 +25,9 @@ export function inProcessApp(): PyricAdminApp {
   return initializeApp({ sandbox: initializeSandbox() }, `database-admin-local-${++sequence}`);
 }
 
-/** The worker host's side of the bridge: replies go back through `bridge`. */
-function hostPeer(bridge: Bridge): void {
+/** The worker host's side of the bridge: replies go back through `bridge`.
+ *  Returns the host's sandbox. */
+function hostPeer(bridge: Bridge): Sandbox {
   const sandbox = initializeSandbox();
   databaseSandbox.setDefaultPolicy(getModularDatabase(sandbox), 'allow');
   // No persistence is enabled, so there is nothing to flush after a write.
@@ -53,17 +54,24 @@ function hostPeer(bridge: Bridge): void {
     const wire = overWire(message);
     if (wire.type === 'worker-op') void handleMessage(ctx, tab, { ...wire.op, t: 'op', id: wire.id } as InboundMessage);
   }, [], 'fake-tab', [WORKER_RELAY_CAPABILITY]);
+  return sandbox;
 }
 
 /** An app on a remote handle to a SharedWorker host. */
 export function sharedWorkerApp(): PyricAdminApp {
+  return sharedWorkerArm().app;
+}
+
+/** An app on a remote handle to a SharedWorker host, and the host's sandbox,
+ *  for writes another plane makes. */
+export function sharedWorkerArm(): { app: PyricAdminApp; host: Sandbox } {
   const bridge = createBridge({ mode: 'sandbox', version: 'test' });
-  hostPeer(bridge);
+  const host = hostPeer(bridge);
   let deliver: (message: BridgeMessage) => void = () => {};
   const session = createConsumerSession(bridge, (message) => deliver(overWire(message)));
   const core = createRemoteSandboxCore({ send: (message) => session.handleMessage(overWire(message)) }, { serveUrl: SERVE_URL });
   deliver = core.handleMessage;
   core.start();
   const remote = createRemoteSandboxHandle({ channel: core.channel, serveUrl: SERVE_URL, close: () => core.dispose('closed') });
-  return initializeApp({ sandbox: remote }, `database-admin-shared-worker-${++sequence}`);
+  return { app: initializeApp({ sandbox: remote }, `database-admin-shared-worker-${++sequence}`), host };
 }

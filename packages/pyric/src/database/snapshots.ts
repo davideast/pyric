@@ -45,10 +45,11 @@ function snapshotWithPriorities(
   priorityOf: PriorityLookup,
 ): DataSnapshot {
   const exists = val !== null;
-  // `val` is the STORED (integer-keyed) shape. Structural ops
+  // `val` is the stored (integer-keyed) shape. Structural ops
   // (`child`/`forEach`/`hasChildren`/`numChildren`) walk it directly;
-  // `val()`/`toJSON()` render the DB-B2 array coercion lazily so a list
-  // written as an array reads back as an array.
+  // `val()` renders the DB-B2 array coercion so a list written as an array
+  // reads back as an array; `exportVal()`/`toJSON()` keep the integer keys,
+  // as `ChildrenNode.val(true)` does.
   const coerced = coerceArrays(val);
   const childCount = (val !== null && typeof val === 'object' && !Array.isArray(val))
     ? Object.keys(val as Record<string, JsonValue>).length
