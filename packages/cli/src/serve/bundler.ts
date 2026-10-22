@@ -24,15 +24,17 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, existsSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, dirname, join, relative, sep } from 'node:path';
+import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as esbuild from 'esbuild';
+import { withWorkerBuildLock, type WorkerBuildLock } from './worker-build-lock.js';
 import {
   WORKER_EPOCH_FILE,
   WORKER_FILE,
   publishWorkerBundle,
   readCompletedWorkerBundle,
-  withWorkerBuildLock,
+  removeBuildLeftovers,
+  stagingPathPrefix,
 } from './worker-bundle-cache.js';
 
 export { SDK_MODULES } from './firebase-module-swap.js';
@@ -453,19 +455,37 @@ export async function bundleWorker(opts: WorkerBundleOptions): Promise<WorkerBun
   const cachedEpoch = reusesCache ? readCompletedWorkerBundle(opts.outDir, hash) : null;
   if (cachedEpoch) return { outFile, epoch: cachedEpoch };
 
-  return withWorkerBuildLock(opts.outDir, async () => {
-    // Another process may have finished this bundle while we waited.
-    const builtMeanwhile = reusesCache ? readCompletedWorkerBundle(opts.outDir, hash) : null;
-    if (builtMeanwhile) return { outFile, epoch: builtMeanwhile };
-    const stagingDir = mkdtempSync(join(dirname(opts.outDir), `.${basename(opts.outDir)}.worker-`));
-    try {
-      const epoch = await buildWorkerInto(stagingDir, opts);
-      publishWorkerBundle(stagingDir, opts.outDir, hash);
-      return { outFile, epoch };
-    } finally {
-      rmSync(stagingDir, { recursive: true, force: true });
+  for (let attempt = 1; ; attempt++) {
+    const epoch = await withWorkerBuildLock(opts.outDir, (lock) => buildUnderLock(opts, hash, lock));
+    if (epoch) return { outFile, epoch };
+    const isLastAttempt = attempt >= MAX_WORKER_PUBLISH_ATTEMPTS;
+    if (isLastAttempt) {
+      throw new Error(`pyric sandbox: another process kept replacing the SharedWorker bundle in ${opts.outDir}`);
     }
-  });
+  }
+}
+
+const MAX_WORKER_PUBLISH_ATTEMPTS = 3;
+
+/**
+ * Build and publish while holding the lock, then return the epoch of the
+ * bundle on disk. That is the bundle the page is served, even when another
+ * process published over ours, or null when what is on disk is torn.
+ */
+async function buildUnderLock(opts: WorkerBundleOptions, hash: string, lock: WorkerBuildLock): Promise<string | null> {
+  // Another process may have finished this bundle while we waited.
+  const builtMeanwhile = opts.noCache ? null : readCompletedWorkerBundle(opts.outDir, hash);
+  if (builtMeanwhile) return builtMeanwhile;
+  removeBuildLeftovers(opts.outDir);
+  const stagingDir = mkdtempSync(stagingPathPrefix(opts.outDir));
+  try {
+    await buildWorkerInto(stagingDir, opts);
+    // A builder whose lock was taken over as abandoned leaves the directory to the new holder.
+    if (lock.isHeld()) publishWorkerBundle(stagingDir, opts.outDir, hash);
+  } finally {
+    rmSync(stagingDir, { recursive: true, force: true });
+  }
+  return readCompletedWorkerBundle(opts.outDir, hash);
 }
 
 /** The marker hash: the worker source graph, plus the boot salt when one is given. */
