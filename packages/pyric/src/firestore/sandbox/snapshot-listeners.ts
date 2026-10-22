@@ -23,6 +23,7 @@ import type { Operation } from './local-environment.js';
 // `typeName` field and no `nanoseconds`). `read-translation.ts` carries no
 // admin-compat-surface dependency, so importing it here is cycle-free.
 import { translateReadData } from './admin-compat/read-translation.js';
+import { forEachDocument } from './for-each-document.js';
 import type { QueryExecutionSpec, QueryScope } from './query-execution.js';
 import type { QueryConstraints } from './list-query-proof.js';
 import {
@@ -295,7 +296,7 @@ export interface QuerySnapshot {
   readonly size: number;
   readonly empty: boolean;
   readonly docs: QueryDocumentSnapshot[];
-  forEach(callback: (snap: QueryDocumentSnapshot) => void): void;
+  forEach(callback: (snap: QueryDocumentSnapshot) => void, thisArg?: unknown): void;
   /**
    * Per findings section 4: cached by `includeMetadataChanges` value; throws if
    * called with `true` when the listener did not subscribe with
@@ -415,9 +416,7 @@ export function buildQuerySnapshot(
     size: docs.length,
     empty: docs.length === 0,
     docs,
-    forEach(cb) {
-      for (const d of docs) cb(d);
-    },
+    forEach: forEachDocument(docs),
     docChanges: createDocChanges(changes, options.excludesMetadataChanges),
   };
 }

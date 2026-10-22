@@ -6,6 +6,7 @@
  */
 import type { Firestore, DocumentSnapshot, QuerySnapshot, Query, Unsubscribe } from './types.js';
 import { onSnapshot } from './listeners.js';
+import { forEachDocument } from './sandbox/for-each-document.js';
 
 export interface SnapshotOptions {
   readonly serverTimestamps?: 'estimate' | 'previous' | 'none';
@@ -30,6 +31,7 @@ export function querySnapshotFromJSON(db: Firestore, json: string): QuerySnapsho
     size: 0,
     empty: true,
     docs: [],
+    forEach: forEachDocument([]),
     metadata: { fromCache: true, hasPendingWrites: false },
   };
 }

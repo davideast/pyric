@@ -4,12 +4,16 @@
  * `getDocs` result; the served client had `docs` but no `forEach`, so the
  * template crashed under `pyric sandbox --hosted`. Both planes must visit the
  * same documents in the same order and read the same fields.
+ *
+ * The in-page side imports `pyric/*` from the package's dist, so run
+ * `scripts/build.sh --packages-only` after editing the sandbox sources.
  */
 import { expect, test } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import { setRules } from 'pyric/sandbox/firestore';
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import * as inPage from 'pyric/firestore';
+import { FirebaseError } from 'pyric/app';
 import * as client from '../../../src/serve/worker/client.js';
 import { makeHostCtx, connectClientToHost, until } from './integration-support.js';
 
@@ -31,21 +35,28 @@ interface DocLike {
   get(fieldPath: unknown): unknown;
 }
 interface SnapLike {
-  forEach(callback: (doc: DocLike) => void): void;
+  forEach(callback: (...args: unknown[]) => void, thisArg?: unknown): void;
 }
 
-/** What a caller observes through `forEach` and `get`. */
+/**
+ * What a caller observes through `forEach` and `get`. Production calls
+ * `callback.call(thisArg, doc)` with the document alone.
+ */
 function observe(snapshot: SnapLike, fieldPath: (...segments: string[]) => unknown): unknown[] {
   const seen: unknown[] = [];
-  snapshot.forEach((doc) => {
+  const self = { label: 'thisArg' };
+  snapshot.forEach(function (this: unknown, ...args: unknown[]) {
+    const doc = args[0] as DocLike;
     seen.push({
       id: doc.id,
+      argCount: args.length,
+      boundThis: this === self,
       n: doc.get('n'),
       author: doc.get('meta.author'),
       dottedKey: doc.get(fieldPath('meta', 'a.b')),
       missing: doc.get('meta.nope'),
     });
-  });
+  }, self);
   return seen;
 }
 
@@ -91,9 +102,9 @@ async function servedPlane(): Promise<{ read: unknown[]; listened: unknown[] }> 
 }
 
 const EXPECTED = [
-  { id: 'a', n: 1, author: 'al', dottedKey: undefined, missing: undefined },
-  { id: 'b', n: 2, author: 'bo', dottedKey: 'dotted', missing: undefined },
-  { id: 'c', n: 3, author: undefined, dottedKey: undefined, missing: undefined },
+  { id: 'a', argCount: 1, boundThis: true, n: 1, author: 'al', dottedKey: undefined, missing: undefined },
+  { id: 'b', argCount: 1, boundThis: true, n: 2, author: 'bo', dottedKey: 'dotted', missing: undefined },
+  { id: 'c', argCount: 1, boundThis: true, n: 3, author: undefined, dottedKey: undefined, missing: undefined },
 ];
 
 test('a served getDocs snapshot and listener snapshot have forEach and get, as the in-page snapshots do', async () => {
@@ -105,7 +116,7 @@ test('a served getDocs snapshot and listener snapshot have forEach and get, as t
   expect(local.listened).toEqual(EXPECTED);
 });
 
-test('a served getDoc snapshot reads a nested field with get', async () => {
+test('a served getDoc snapshot reads a nested field with get and rejects an invalid path with invalid-argument', async () => {
   const previousWorker = globalThis.SharedWorker;
   const ctx = await makeHostCtx();
   try {
@@ -117,6 +128,10 @@ test('a served getDoc snapshot reads a nested field with get', async () => {
     expect(snap.get(new inPage.FieldPath('meta', 'author'))).toBe('xi');
     const missing = await client.getDoc(client.doc(db, 'posts/none'));
     expect(missing.get('meta')).toBeUndefined();
+    let thrown: unknown;
+    try { snap.get('meta..author'); } catch (error) { thrown = error; }
+    expect(thrown).toBeInstanceOf(FirebaseError);
+    expect((thrown as FirebaseError).code).toBe('invalid-argument');
     await client.getWorkerInstanceId(db).catch(() => undefined);
   } finally {
     getInternalEnv(ctx.sandbox).dispose();

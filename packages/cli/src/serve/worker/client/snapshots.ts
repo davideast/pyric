@@ -12,6 +12,7 @@ import type { DocumentData, FirestoreDataConverter, QueryDocumentSnapshot, Snaps
 import {
   computeDocumentChanges,
   createDocChanges,
+  forEachDocument,
   getSnapshotField,
   type DocChangesOptions,
   type DocumentChange,
@@ -100,10 +101,23 @@ export function makeDocSnapshot<T = DocumentData>(
     metadata,
     data: read,
     // Production reads the stored field without the converter, as the in-page snapshot does.
-    get: (fieldPath) => getSnapshotField(data, fieldPath),
+    get: (fieldPath) => readField(data, fieldPath),
   };
   rawCursorSnapshots.set(docSnapshot, { id: raw.id, path, exists: raw.exists, data });
   return docSnapshot;
+}
+
+/**
+ * `DocumentSnapshot.get` of the client SDK: an invalid field path is a
+ * `FirebaseError` with code `invalid-argument`, not a plain `Error`.
+ */
+function readField(data: Record<string, unknown> | undefined, fieldPath: SnapshotFieldPath): unknown {
+  try {
+    return getSnapshotField(data, fieldPath);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new FirebaseError('invalid-argument', `Function DocumentSnapshot.get() called with invalid data. ${reason}`);
+  }
 }
 
 export interface RawQueryResult {
@@ -236,7 +250,7 @@ export function makeQuerySnapshot(
     size: docs.length,
     empty: docs.length === 0,
     docs,
-    forEach: (callback) => { for (const doc of docs) callback(doc); },
+    forEach: forEachDocument(docs),
     docChanges: createDocChanges(changes, baseline.excludesMetadataChanges),
   };
 }
@@ -261,7 +275,7 @@ export interface ClientQuerySnapshot {
   readonly empty: boolean;
   readonly docs: ClientDocSnapshot[];
   /** Production's `QuerySnapshot.forEach`: calls `callback` once per document, in query order. */
-  forEach(callback: (doc: ClientDocSnapshot) => void): void;
+  forEach(callback: (doc: ClientDocSnapshot) => void, thisArg?: unknown): void;
   /** Production's `QuerySnapshot.docChanges`: the changes since the
    * listener's previous snapshot, or every document `added` on the first. */
   docChanges(options?: DocChangesOptions): DocumentChange<ClientDocSnapshot>[];
