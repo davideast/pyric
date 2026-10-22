@@ -36,7 +36,8 @@
  *   - `core/snap/ChildrenNode.ts:194-230` (val array coercion)
  */
 import { SDK_VERSION } from '../../app/diagnostics.js';
-import type { JsonValue } from './data-tree.js';
+import { validateUpdatePaths } from '../writable-path.js';
+import { pathSegments, type JsonValue } from './data-tree.js';
 
 /** True for invalid Firebase keys. Mirrors `INVALID_KEY_REGEX_`
  *  (`validation.ts:45`): `.`, `#`, `$`, `/`, `[`, `]`, control chars. */
@@ -65,6 +66,15 @@ function propertyText(segments: readonly string[]): string {
   return segments.length === 0 ? '' : `in property '${segments.join('.')}'`;
 }
 
+/** The start of the SDK's error for a refused argument, such as
+ *  `push failed: value argument ` (`util.errorPrefix`). */
+export function errorPrefix(fnName: string, argName: string): string {
+  return `${fnName} failed: ${argName} argument `;
+}
+
+/** The start of the SDK's error for a refused transaction result. */
+export const TRANSACTION_ERROR_PREFIX = 'transaction failed: Data returned ';
+
 /**
  * Validate a value against RTDB's write rules, throwing the SDK's error (a
  * plain `Error` with the same text) on the first violation. Mirrors
@@ -72,12 +82,46 @@ function propertyText(segments: readonly string[]): string {
  * function, `NaN` or an infinity anywhere, an invalid key, or a `.value`
  * key beside real children. An array hole is skipped, as the SDK's `each`
  * skips it; an element that is explicitly `undefined` is not. `path` is the
- * path the value is written to, and `fnName` and `argName` name the call
- * (`set` and `value`, `push` and `value`, `update` and `values`).
+ * path the SDK names in the error (for `push`, the parent's), and `prefix`
+ * names the call, as {@link errorPrefix} builds it.
  */
-export function validateWrite(value: unknown, path: string, fnName = 'set', argName = 'value'): void {
-  const segments = path.split('/').filter((segment) => segment.length > 0);
-  validateData(value, segments, `${fnName} failed: ${argName} argument `);
+export function validateWrite(value: unknown, path: string, prefix = errorPrefix('set', 'value')): void {
+  validateData(value, pathSegments(path), prefix);
+}
+
+/** Whether the SDK accepts `value` as a priority: null, a string, a finite
+ *  number, or a server value (`isValidPriority`). */
+function isValidPriority(value: unknown): boolean {
+  if (value === null || typeof value === 'string') return true;
+  if (typeof value === 'number') return !isInvalidJSONNumber(value);
+  return typeof value === 'object' && Object.hasOwn(value, '.sv');
+}
+
+/**
+ * Validate `update()` values as the SDK does before sending them
+ * (`validateFirebaseMergeDataArg`): an object, each value valid at its path,
+ * a valid priority under each key ending in `.priority`, then valid and
+ * non-overlapping keys. Returns the values.
+ */
+export function validateUpdate(values: unknown, path: string): Record<string, unknown> {
+  const prefix = errorPrefix('update', 'values');
+  if (values === null || typeof values !== 'object') {
+    throw new Error(`${prefix} must be an object containing the children to replace.`);
+  }
+  const patch = values as Record<string, unknown>;
+  for (const [key, value] of Object.entries(patch)) {
+    const keySegments = pathSegments(key);
+    validateData(value, [...pathSegments(path), ...keySegments], prefix);
+    const isPriorityKey = keySegments[keySegments.length - 1] === '.priority';
+    if (isPriorityKey && !isValidPriority(value)) {
+      throw new Error(
+        `${prefix}contains an invalid value for '/${keySegments.join('/')}', which must be a valid ` +
+          'Firebase priority (a string, finite number, server value, or null).',
+      );
+    }
+  }
+  validateUpdatePaths(patch);
+  return patch;
 }
 
 function validateData(value: unknown, segments: readonly string[], prefix: string): void {
@@ -130,8 +174,8 @@ function validateData(value: unknown, segments: readonly string[], prefix: strin
  * Leaf primitives (string / number / boolean) pass through unchanged —
  * including at the root (DB-B13: `set(ref(db), 'hello')` is legal).
  */
-export function normalizeWrite(value: unknown, pathPrefix: string, fnName = 'set', argName = 'value'): JsonValue {
-  validateWrite(value, pathPrefix, fnName, argName);
+export function normalizeWrite(value: unknown, pathPrefix: string, prefix = errorPrefix('set', 'value')): JsonValue {
+  validateWrite(value, pathPrefix, prefix);
   return normalizeNode(value) as JsonValue;
 }
 

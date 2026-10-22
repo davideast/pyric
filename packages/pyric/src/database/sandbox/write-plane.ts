@@ -3,7 +3,7 @@ import type { BackendState } from './backend-state.js';
 import type { ChildListeners } from './child-listeners.js';
 import { joinPath, pathSegments, type JsonValue } from './data-tree.js';
 import type { ChildListener, ValueListener } from './listener-types.js';
-import { normalizeWrite, withPriorities, writePriority, type InlinePriority } from './normalize.js';
+import { errorPrefix, normalizeWrite, withPriorities, writePriority, type InlinePriority } from './normalize.js';
 import { canonicalPath, denyResultFor, rtdbDenialContext, rtdbRulesDetail } from './operation-events.js';
 import { validatePriority } from './priority-state.js';
 import { PriorityWrites } from './priority-writes.js';
@@ -436,7 +436,7 @@ export class WritePlane {
     const updates = Object.entries(patch).map(([key, value]) => {
       const absolute = joinPath([...pathSegments(path), ...pathSegments(key)]);
       const resolved = normalizeWrite(
-        resolveSentinels(value, now, this.state.tree.read(absolute)) as JsonValue, absolute, 'update', 'values',
+        resolveSentinels(value, now, this.state.tree.read(absolute)) as JsonValue, absolute, errorPrefix('update', 'values'),
       );
       return { path: absolute, value: withPriorities(resolved, inline.get(absolute) ?? []) };
     });
@@ -574,7 +574,7 @@ export class WritePlane {
     return Object.fromEntries(Object.entries(patch).map(([key, value]) => {
       const absolute = joinPath([...pathSegments(path), ...pathSegments(key)]);
       return [absolute, normalizeWrite(
-        resolveSentinels(value, now, this.state.tree.read(absolute)) as JsonValue, absolute, 'update', 'values',
+        resolveSentinels(value, now, this.state.tree.read(absolute)) as JsonValue, absolute, errorPrefix('update', 'values'),
       )];
     }));
   }
