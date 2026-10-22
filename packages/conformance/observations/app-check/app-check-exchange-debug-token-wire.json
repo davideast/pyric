@@ -1,8 +1,10 @@
 {
   "name": "app-check-exchange-debug-token-wire",
   "matrixRow": "",
-  "rowIds": [],
-  "description": "Raw REST envelope of projects.apps.exchangeDebugToken (the call the web SDK makes in debug mode, API key in the key query parameter): the success key set, ttl, and token shape for a registered debug token, and the error envelope for an unregistered one. rowIds empty: the app-check surface is climbing under CDD and this capture is parked in exceptions/ until a row cites it.",
+  "rowIds": [
+    "app-check#exchange-debug-token-wire"
+  ],
+  "description": "Raw REST envelope of projects.apps.exchangeDebugToken (the call the web SDK makes in debug mode, API key in the key query parameter): the success key set, ttl, and token shape for a registered debug token, and the error envelope for an unregistered one.",
   "observedAt": "2026-10-22T03:09:04.590Z",
   "fbSdkVersion": "12.13.0",
   "adminSdkVersion": "13.10.0",

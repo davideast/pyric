@@ -1,8 +1,12 @@
 {
   "name": "app-check-client-debug-get-token",
   "matrixRow": "",
-  "rowIds": [],
-  "description": "getToken in debug mode with a registered debug token and a CustomProvider that must not be called: result key set, token shape, whether a second getToken reuses the cached token, and whether getToken(appCheck, true) mints a new one. rowIds empty: the app-check surface is climbing under CDD and this capture is parked in exceptions/ until a row cites it.",
+  "rowIds": [
+    "app-check#get-token-caching",
+    "app-check#get-token-shape",
+    "app-check#providers-construct"
+  ],
+  "description": "getToken in debug mode with a registered debug token and a CustomProvider that must not be called: result key set, token shape, whether a second getToken reuses the cached token, and whether getToken(appCheck, true) mints a new one.",
   "observedAt": "2026-10-22T03:10:11.718Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "genkit-idx",

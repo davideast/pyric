@@ -1,8 +1,10 @@
 {
   "name": "app-check-admin-verify-tampered",
   "matrixRow": "",
-  "rowIds": [],
-  "description": "verifyToken rejections: a minted token with one signature character changed, the string not-a-jwt, and the empty string. rowIds empty: the app-check surface is climbing under CDD and this capture is parked in exceptions/ until a row cites it.",
+  "rowIds": [
+    "app-check-admin#verify-token-rejections"
+  ],
+  "description": "verifyToken rejections: a minted token with one signature character changed, the string not-a-jwt, and the empty string.",
   "observedAt": "2026-10-22T03:09:04.634Z",
   "fbSdkVersion": "12.13.0",
   "adminSdkVersion": "13.10.0",

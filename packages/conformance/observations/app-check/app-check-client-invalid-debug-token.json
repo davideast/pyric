@@ -1,8 +1,11 @@
 {
   "name": "app-check-client-invalid-debug-token",
   "matrixRow": "",
-  "rowIds": [],
-  "description": "getToken and getLimitedUseToken in debug mode with a random, unregistered debug token: whether each resolves or rejects, the error code and customData, the shape of any placeholder token, and the X-Firebase-AppCheck header firebase/ai then sends (normal model, and a second app whose getAI options set useLimitedUseAppCheckTokens), with the production response status and error body. rowIds empty: the app-check surface is climbing under CDD and this capture is parked in exceptions/ until a row cites it.",
+  "rowIds": [
+    "ai#app-check-attestation-failure",
+    "app-check#attestation-failure"
+  ],
+  "description": "getToken and getLimitedUseToken in debug mode with a random, unregistered debug token: whether each resolves or rejects, the error code and customData, the shape of any placeholder token, and the X-Firebase-AppCheck header firebase/ai then sends (normal model, and a second app whose getAI options set useLimitedUseAppCheckTokens), with the production response status and error body.",
   "observedAt": "2026-10-22T03:10:12.625Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "genkit-idx",

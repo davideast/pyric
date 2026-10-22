@@ -1,0 +1,302 @@
+/**
+ * Oracle conformance for `pyric/app-check` (surface `app-check`), authored red
+ * under Conformance Driven Development (docs/conformance/cdd.md, Step 3).
+ *
+ * One assertion set per `app-check` row in packages/conformance/registry/app-check.ts.
+ * Where a row cites an `app-check-` capture, the capture's recorded values are
+ * the expected side, loaded through the observation gate, and the sandbox is
+ * driven to produce the same facts. Token shapes are compared with the rig's
+ * own reducer (`jwtShape`), so the suite and the capture describe a token the
+ * same way.
+ *
+ * Blocking run: only expected-green rows (`conforms`, `diverged-documented`)
+ * run. The climb lane (`PYRIC_CLIMB=1`) runs every row and the prefix
+ * completeness gate; the gate needs every row's loads, so it runs only there.
+ */
+import { afterEach, describe, expect, it } from 'bun:test';
+import { join } from 'node:path';
+import { appCheckRows } from '../../../conformance/registry/app-check.ts';
+import { createObservationGate } from '../../../conformance/src/observation-gate.ts';
+import { jwtShape, type Secrets } from '../../../conformance/src/capture/app-check/redact.ts';
+import { initializeApp } from 'pyric/app';
+import * as appCheck from 'pyric/app-check';
+import { resetAppRegistryForTests } from '../../dist/app/registry.js';
+
+const isClimb = process.env.PYRIC_CLIMB === '1';
+const REPO = join(import.meta.dir, '..', '..', '..', '..');
+const OBS_DIR = join(REPO, 'packages', 'conformance', 'observations', 'app-check');
+const AI_SUITE = join(REPO, 'packages', 'cli', 'test', 'serve', 'ai-app-check-passthrough.test.ts');
+
+const gate = createObservationGate({
+  dir: OBS_DIR,
+  match: (file) => file.startsWith('app-check-'),
+  // The AI-path captures are replayed by the AI pass-through suite.
+  siblingSources: [AI_SUITE],
+});
+const obs = gate.load;
+
+/** The oracle project the captures ran against, so shapes compare directly. */
+const PROJECT_ID = 'genkit-idx';
+const PROJECT_NUMBER = '123456789012';
+const APP_ID = `1:${PROJECT_NUMBER}:web:0a1b2c3d4e5f60718293a4`;
+const OPTIONS = { apiKey: 'demo-api-key', appId: APP_ID, projectId: PROJECT_ID };
+const SECRETS: Secrets = { appId: APP_ID, apiKey: OPTIONS.apiKey, projectNumber: PROJECT_NUMBER, values: [] };
+
+let appSeq = 0;
+function freshApp(label: string) {
+  appSeq += 1;
+  return initializeApp(OPTIONS, `${label}-${appSeq}`);
+}
+function provider() {
+  return new appCheck.CustomProvider({
+    getToken: async () => {
+      throw new Error('the sandbox must not call the attestation provider');
+    },
+  });
+}
+function errorFacts(error: unknown) {
+  const e = error as { name?: string; code?: string; message?: string; customData?: Record<string, unknown> };
+  return {
+    threw: true,
+    name: e.name ?? null,
+    code: e.code ?? null,
+    message: String(e.message),
+    customDataKeys: e.customData ? Object.keys(e.customData).sort() : [],
+    customData: e.customData ?? null,
+  };
+}
+async function rejection(operation: () => Promise<unknown> | unknown) {
+  try {
+    await operation();
+  } catch (error) {
+    return errorFacts(error);
+  }
+  return { threw: false };
+}
+/** Observed messages name the app the capture used; swap in the sandbox app's name. */
+function withAppName(message: string, observedName: string, name: string): string {
+  return message.replace(`FirebaseApp ${observedName}`, `FirebaseApp ${name}`);
+}
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+afterEach(async () => {
+  await resetAppRegistryForTests();
+});
+
+type Assertion = () => Promise<void>;
+const assertions: Record<string, Assertion> = {
+  'app-check#initialize-returns-handle': async () => {
+    const o = obs('app-check-client-initialize-twice');
+    const app = freshApp('handle');
+    const handle = appCheck.initializeAppCheck(app, { provider: provider(), isTokenAutoRefreshEnabled: false });
+    expect(o.instanceKeySet).toContain('app');
+    expect(handle.app).toBe(app);
+  },
+
+  'app-check#initialize-twice-same-options': async () => {
+    const o = obs('app-check-client-initialize-twice');
+    const app = freshApp('twice-same');
+    const shared = provider();
+    const first = appCheck.initializeAppCheck(app, { provider: shared, isTokenAutoRefreshEnabled: false });
+    const same = appCheck.initializeAppCheck(app, { provider: shared, isTokenAutoRefreshEnabled: false });
+    const fresh = appCheck.initializeAppCheck(app, { provider: provider(), isTokenAutoRefreshEnabled: false });
+    expect({ threw: false, returnsSameInstance: same === first }).toEqual(o.sameOptions);
+    expect({ threw: false, returnsSameInstance: fresh === first }).toEqual(o.sameOptionsNewProviderInstance);
+  },
+
+  'app-check#initialize-twice-different-options': async () => {
+    const expected = obs('app-check-client-initialize-twice').differentAutoRefresh;
+    const app = freshApp('twice-diff');
+    const shared = provider();
+    appCheck.initializeAppCheck(app, { provider: shared, isTokenAutoRefreshEnabled: false });
+    const actual = await rejection(() => appCheck.initializeAppCheck(app, { provider: shared, isTokenAutoRefreshEnabled: true }));
+    expect(actual).toEqual({
+      ...expected,
+      message: withAppName(expected.message, expected.customData.appName, app.name),
+      customData: { appName: app.name },
+    });
+  },
+
+  'app-check#providers-construct': async () => {
+    const o = obs('app-check-client-debug-get-token');
+    let calls = 0;
+    const custom = new appCheck.CustomProvider({
+      getToken: async () => {
+        calls += 1;
+        throw new Error('not called');
+      },
+    });
+    const v3 = new appCheck.ReCaptchaV3Provider('demo-site-key');
+    const enterprise = new appCheck.ReCaptchaEnterpriseProvider('demo-site-key');
+    for (const p of [custom, v3, enterprise]) {
+      const handle = appCheck.initializeAppCheck(freshApp('provider'), { provider: p, isTokenAutoRefreshEnabled: false });
+      await appCheck.getToken(handle);
+    }
+    expect(calls).toBe(o.customProviderCalls);
+  },
+
+  'app-check#get-token-before-initialize': async () => {
+    const expected = obs('app-check-client-get-token-before-initialize').publicGetTokenWithUninitializedApp;
+    const app = freshApp('before');
+    const actual = await rejection(() => appCheck.getToken({ app } as appCheck.AppCheck));
+    expect(actual).toEqual({
+      ...expected,
+      message: withAppName(expected.message, expected.customData.appName, app.name),
+      customData: { appName: app.name },
+    });
+  },
+
+  'app-check#get-token-shape': async () => {
+    const o = obs('app-check-client-debug-get-token');
+    const handle = appCheck.initializeAppCheck(freshApp('shape'), { provider: provider(), isTokenAutoRefreshEnabled: false });
+    const first = await appCheck.getToken(handle);
+    const forced = await appCheck.getToken(handle, true);
+    const shape = (result: { token: string }) => ({ ...jwtShape(result.token, SECRETS), length: undefined });
+    const expected = (facts: { token: Record<string, unknown> }) => ({ ...facts.token, length: undefined });
+    expect(Object.keys(first).sort()).toEqual(o.first.keySet);
+    expect(shape(first)).toEqual(expected(o.first));
+    expect(shape(forced)).toEqual(expected(o.forced));
+  },
+
+  'app-check#get-token-caching': async () => {
+    const o = obs('app-check-client-debug-get-token');
+    const handle = appCheck.initializeAppCheck(freshApp('cache'), { provider: provider(), isTokenAutoRefreshEnabled: false });
+    const first = await appCheck.getToken(handle);
+    const second = await appCheck.getToken(handle);
+    const forced = await appCheck.getToken(handle, true);
+    expect(second.token === first.token).toBe(o.secondEqualsFirst);
+    expect(forced.token !== first.token).toBe(o.forceRefreshDiffersFromFirst);
+  },
+
+  'app-check#limited-use-token': async () => {
+    const o = obs('app-check-client-limited-use-token');
+    const handle = appCheck.initializeAppCheck(freshApp('limited'), { provider: provider(), isTokenAutoRefreshEnabled: false });
+    const cached = await appCheck.getToken(handle);
+    const a = await appCheck.getLimitedUseToken(handle);
+    const b = await appCheck.getLimitedUseToken(handle);
+    const after = await appCheck.getToken(handle);
+    expect(Object.keys(a).sort()).toEqual(o.limited.keySet);
+    expect({ ...jwtShape(a.token, SECRETS), length: undefined }).toEqual({ ...o.limited.token, length: undefined });
+    expect(a.token !== cached.token).toBe(o.differsFromCachedToken);
+    expect(a.token !== b.token).toBe(o.twoCallsDistinct);
+    expect(after.token === cached.token).toBe(o.cachedTokenAfterLimitedUseUnchanged);
+  },
+
+  'app-check#attestation-failure': async () => {
+    const o = obs('app-check-client-invalid-debug-token');
+    // The sandbox has no attestation authority that can refuse. The assertion
+    // set states what a conforming sandbox would have to produce.
+    const handle = appCheck.initializeAppCheck(freshApp('refused'), { provider: provider(), isTokenAutoRefreshEnabled: false });
+    const actual = await rejection(() => appCheck.getToken(handle));
+    expect(actual).toEqual(o.getToken);
+    expect(await rejection(() => appCheck.getLimitedUseToken(handle))).toEqual(o.getLimitedUseToken);
+  },
+
+  'app-check#on-token-changed-existing-token': async () => {
+    const o = obs('app-check-client-on-token-changed');
+    const handle = appCheck.initializeAppCheck(freshApp('late'), { provider: provider(), isTokenAutoRefreshEnabled: false });
+    const current = await appCheck.getToken(handle);
+    const seen: string[] = [];
+    const unsubscribe = appCheck.onTokenChanged(handle, (result) => seen.push(result.token));
+    const synchronous = seen.length;
+    await sleep(500);
+    unsubscribe();
+    expect(typeof unsubscribe).toBe(o.unsubscribeType);
+    expect(synchronous).toBe(o.lateListenerCallsSynchronous);
+    expect(seen.length).toBe(o.lateListenerCallsWithin500ms);
+    expect(seen.map((token) => (token === current.token ? 'forcedAfterUnsubscribe' : 'other'))).toEqual(o.lateListenerTokenSequence);
+  },
+
+  'app-check#on-token-changed-refresh': async () => {
+    const o = obs('app-check-client-on-token-changed');
+    const handle = appCheck.initializeAppCheck(freshApp('refresh'), { provider: provider(), isTokenAutoRefreshEnabled: false });
+    const listener: string[] = [];
+    const observer: string[] = [];
+    const offListener = appCheck.onTokenChanged(handle, (result) => listener.push(result.token));
+    const offObserver = appCheck.onTokenChanged(handle, { next: (result) => observer.push(result.token), error: () => {} });
+    const counts: number[] = [];
+    await appCheck.getToken(handle);
+    await sleep(300);
+    counts.push(listener.length);
+    await appCheck.getToken(handle);
+    await sleep(300);
+    counts.push(listener.length);
+    await appCheck.getToken(handle, true);
+    await sleep(300);
+    counts.push(listener.length);
+    await appCheck.getLimitedUseToken(handle);
+    await appCheck.getLimitedUseToken(handle);
+    await appCheck.getToken(handle);
+    await sleep(300);
+    counts.push(listener.length);
+    offListener();
+    offObserver();
+    await appCheck.getToken(handle, true);
+    await sleep(300);
+    counts.push(listener.length);
+    expect(counts).toEqual([
+      o.listenerCallsAfterFirstGet,
+      o.listenerCallsAfterTwoGets,
+      o.listenerCallsAfterForceRefresh,
+      o.listenerCallsAfterLimitedUse,
+      o.listenerCallsAfterUnsubscribeAndForce,
+    ]);
+    expect(observer.length).toBe(o.observerCallsTotal);
+  },
+
+  'app-check#set-auto-refresh': async () => {
+    const o = obs('app-check-client-auto-refresh-toggle');
+    const handle = appCheck.initializeAppCheck(freshApp('toggle'), { provider: provider(), isTokenAutoRefreshEnabled: false });
+    const cached = await appCheck.getToken(handle);
+    const off = appCheck.setTokenAutoRefreshEnabled(handle, false);
+    const on = appCheck.setTokenAutoRefreshEnabled(handle, true);
+    appCheck.setTokenAutoRefreshEnabled(handle, false);
+    const after = await appCheck.getToken(handle);
+    expect({ offThrew: false, offReturn: String(off), onThrew: false, onReturn: String(on) }).toEqual({
+      offThrew: o.offThrew,
+      offReturn: o.offReturn,
+      onThrew: o.onThrew,
+      onReturn: o.onReturn,
+    });
+    expect(after.token === cached.token).toBe(o.getTokenAfterToggleReturnsCached);
+  },
+
+  'app-check#exchange-debug-token-wire': async () => {
+    const o = obs('app-check-exchange-debug-token-wire');
+    // The sandbox serves no exchange endpoint; the in-process token must still
+    // carry the TTL the exchange reports.
+    const handle = appCheck.initializeAppCheck(freshApp('wire'), { provider: provider(), isTokenAutoRefreshEnabled: false });
+    const { token } = await appCheck.getToken(handle);
+    expect(`${jwtShape(token, SECRETS).ttlSeconds}s`).toBe(o.registered.ttl);
+    expect(o.unregistered.httpStatus).toBe(403);
+    const sandboxEndpoint = (appCheck as Record<string, unknown>).exchangeDebugToken;
+    expect(sandboxEndpoint).toBeDefined();
+  },
+};
+
+const isExpectedGreen = (status: string) => status === 'conforms' || status === 'diverged-documented';
+const clientRows = appCheckRows.filter((row) => row.surface === 'app-check');
+
+describe('oracle conformance (app-check client)', () => {
+  for (const row of clientRows) {
+    const register = isExpectedGreen(row.status) || isClimb ? it : it.skip;
+    register(`${row.id} ${row.api}`, async () => {
+      const assertion = assertions[row.id];
+      if (!assertion) throw new Error(`no assertion set authored for ${row.id}`);
+      await assertion();
+    });
+  }
+
+  it('completeness: one assertion set per app-check client row (partition gate)', () => {
+    expect(Object.keys(assertions).sort()).toEqual(clientRows.map((row) => row.id).sort());
+    const surfaces = new Set(appCheckRows.map((row) => row.surface));
+    expect([...surfaces].sort()).toEqual(['app-check', 'app-check-admin']);
+  });
+
+  (isClimb ? it : it.skip)('completeness: every observations/app-check/ capture is asserted (prefix gate)', () => {
+    const report = gate.report();
+    expect(report.committed.length).toBe(10);
+    expect(report.loadedButUnused).toEqual([]);
+    expect(report.uncovered).toEqual([]);
+  });
+});

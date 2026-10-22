@@ -6,13 +6,22 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolvedAdminVersion, resolvedFirebaseVersion } from '../../package-version.ts';
+import { allCompatibilityRows } from '../../../registry/index.ts';
 import { redactJson, type Secrets } from './redact.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-export const OBS_DIR = join(HERE, '..', '..', '..', 'observations', 'app-check');
+const OBSERVATIONS = join(HERE, '..', '..', '..', 'observations');
 
-const PRE_ADMISSION =
-  ' rowIds empty: the app-check surface is climbing under CDD and this capture is parked in exceptions/ until a row cites it.';
+/** `app-check-admin-` captures belong to the app-check-admin surface; the rest to app-check. */
+export function observationPath(name: string): string {
+  const surfaceDir = name.startsWith('app-check-admin-') ? 'app-check-admin' : 'app-check';
+  return join(OBSERVATIONS, surfaceDir, `${name}.json`);
+}
+
+/** The registry rows that cite this capture: the observation side of the link. */
+export function citingRowIds(name: string): string[] {
+  return allCompatibilityRows.filter((row) => row.oracleObservations.includes(name)).map((row) => row.id).sort();
+}
 
 export interface ObservationContext {
   projectId: string;
@@ -34,8 +43,8 @@ export function writeObservation(
   const observation = {
     name,
     matrixRow: '',
-    rowIds: [],
-    description: `${description}${PRE_ADMISSION}`,
+    rowIds: citingRowIds(name),
+    description,
     observedAt: new Date().toISOString(),
     fbSdkVersion: resolvedFirebaseVersion(),
     ...(plane === 'admin' ? { adminSdkVersion: resolvedAdminVersion() } : {}),
@@ -44,7 +53,8 @@ export function writeObservation(
   };
   const serialized = `${JSON.stringify(observation, null, 2)}\n`;
   assertNoSecret(serialized, context.secrets, name);
-  mkdirSync(OBS_DIR, { recursive: true });
-  writeFileSync(join(OBS_DIR, `${name}.json`), serialized);
+  const path = observationPath(name);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, serialized);
   console.log(`wrote ${name}`);
 }

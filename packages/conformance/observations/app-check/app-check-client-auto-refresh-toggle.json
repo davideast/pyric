@@ -1,8 +1,10 @@
 {
   "name": "app-check-client-auto-refresh-toggle",
   "matrixRow": "",
-  "rowIds": [],
-  "description": "setTokenAutoRefreshEnabled(appCheck, false) and (appCheck, true) on an instance initialized with isTokenAutoRefreshEnabled false: whether each throws and what it returns, and that getToken still resolves the cached token afterwards. Background refresh timing is not observed. rowIds empty: the app-check surface is climbing under CDD and this capture is parked in exceptions/ until a row cites it.",
+  "rowIds": [
+    "app-check#set-auto-refresh"
+  ],
+  "description": "setTokenAutoRefreshEnabled(appCheck, false) and (appCheck, true) on an instance initialized with isTokenAutoRefreshEnabled false: whether each throws and what it returns, and that getToken still resolves the cached token afterwards. Background refresh timing is not observed.",
   "observedAt": "2026-10-22T03:10:11.719Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "genkit-idx",

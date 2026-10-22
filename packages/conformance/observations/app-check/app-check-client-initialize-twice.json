@@ -1,8 +1,12 @@
 {
   "name": "app-check-client-initialize-twice",
   "matrixRow": "",
-  "rowIds": [],
-  "description": "initializeAppCheck called a second time on the same app: with identical options (same provider instance), with a new provider instance built from the same factory, and with a different isTokenAutoRefreshEnabled. rowIds empty: the app-check surface is climbing under CDD and this capture is parked in exceptions/ until a row cites it.",
+  "rowIds": [
+    "app-check#initialize-returns-handle",
+    "app-check#initialize-twice-different-options",
+    "app-check#initialize-twice-same-options"
+  ],
+  "description": "initializeAppCheck called a second time on the same app: with identical options (same provider instance), with a new provider instance built from the same factory, and with a different isTokenAutoRefreshEnabled.",
   "observedAt": "2026-10-22T03:10:07.113Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "genkit-idx",

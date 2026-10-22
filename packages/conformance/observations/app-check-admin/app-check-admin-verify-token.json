@@ -1,8 +1,10 @@
 {
   "name": "app-check-admin-verify-token",
   "matrixRow": "",
-  "rowIds": [],
-  "description": "verifyToken without options, for an Admin-minted token and for a token from the debug-token exchange: result key set, decoded claim names, and app id agreement. rowIds empty: the app-check surface is climbing under CDD and this capture is parked in exceptions/ until a row cites it.",
+  "rowIds": [
+    "app-check-admin#verify-token"
+  ],
+  "description": "verifyToken without options, for an Admin-minted token and for a token from the debug-token exchange: result key set, decoded claim names, and app id agreement.",
   "observedAt": "2026-10-22T03:09:04.633Z",
   "fbSdkVersion": "12.13.0",
   "adminSdkVersion": "13.10.0",

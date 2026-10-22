@@ -1,8 +1,10 @@
 {
   "name": "app-check-admin-create-token-shape",
   "matrixRow": "",
-  "rowIds": [],
-  "description": "firebase-admin createToken(appId) with no options: the result key set, the default ttlMillis, and the App Check JWT shape (header fields, claim names, iss and aud with the project number redacted, sub against the app id, exp minus iat). Token values are never stored. rowIds empty: the app-check surface is climbing under CDD and this capture is parked in exceptions/ until a row cites it.",
+  "rowIds": [
+    "app-check-admin#create-token-shape"
+  ],
+  "description": "firebase-admin createToken(appId) with no options: the result key set, the default ttlMillis, and the App Check JWT shape (header fields, claim names, iss and aud with the project number redacted, sub against the app id, exp minus iat). Token values are never stored.",
   "observedAt": "2026-10-22T03:09:03.900Z",
   "fbSdkVersion": "12.13.0",
   "adminSdkVersion": "13.10.0",

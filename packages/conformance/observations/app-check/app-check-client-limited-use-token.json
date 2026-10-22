@@ -1,8 +1,10 @@
 {
   "name": "app-check-client-limited-use-token",
   "matrixRow": "",
-  "rowIds": [],
-  "description": "getLimitedUseToken in debug mode: result key set and token shape, whether it differs from the cached getToken token, and whether two calls return distinct tokens. rowIds empty: the app-check surface is climbing under CDD and this capture is parked in exceptions/ until a row cites it.",
+  "rowIds": [
+    "app-check#limited-use-token"
+  ],
+  "description": "getLimitedUseToken in debug mode: result key set and token shape, whether it differs from the cached getToken token, and whether two calls return distinct tokens.",
   "observedAt": "2026-10-22T03:10:11.719Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "genkit-idx",
