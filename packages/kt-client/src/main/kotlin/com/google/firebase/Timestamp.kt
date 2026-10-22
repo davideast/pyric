@@ -43,6 +43,7 @@ class Timestamp(val seconds: Long, val nanoseconds: Int) : Comparable<Timestamp>
     }
 
     companion object {
+        @JvmStatic
         fun now(): Timestamp {
             val nowMs = System.currentTimeMillis()
             return Timestamp(Date(nowMs))

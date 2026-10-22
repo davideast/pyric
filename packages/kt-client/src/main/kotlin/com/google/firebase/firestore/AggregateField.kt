@@ -17,10 +17,13 @@ sealed class AggregateField {
     companion object {
         private val COUNT_INSTANCE = CountAggregateField()
 
+        @JvmStatic
         fun count(): CountAggregateField = COUNT_INSTANCE
 
+        @JvmStatic
         fun sum(field: String): SumAggregateField = SumAggregateField(field)
 
+        @JvmStatic
         fun average(field: String): AverageAggregateField = AverageAggregateField(field)
     }
 }

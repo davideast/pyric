@@ -20,25 +20,31 @@ class FirebaseApp private constructor(
             apps[DEFAULT_APP_NAME] = FirebaseApp(DEFAULT_APP_NAME, defaultOptions)
         }
 
+        @JvmStatic
         fun getInstance(): FirebaseApp = getInstance(DEFAULT_APP_NAME)
 
+        @JvmStatic
         fun getInstance(name: String): FirebaseApp {
             return apps[name] ?: throw IllegalStateException(
                 "Default FirebaseApp is not initialized in this process. Make sure to call FirebaseApp.initializeApp() first."
             )
         }
 
+        @JvmStatic
         fun initializeApp(options: FirebaseOptions): FirebaseApp =
             initializeApp(DEFAULT_APP_NAME, options)
 
+        @JvmStatic
         fun initializeApp(name: String, options: FirebaseOptions): FirebaseApp {
             val app = FirebaseApp(name, options)
             apps[name] = app
             return app
         }
 
+        @JvmStatic
         fun getApps(): List<FirebaseApp> = apps.values.toList()
 
+        @JvmStatic
         fun clearInstancesForTest() {
             apps.clear()
             val defaultOptions = FirebaseOptions.Builder()

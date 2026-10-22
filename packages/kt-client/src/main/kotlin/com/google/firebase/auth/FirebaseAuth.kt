@@ -188,15 +188,18 @@ class FirebaseAuth internal constructor(
     }
 
     fun signOut() {
+        // Signing out is synchronous in the Firebase Android SDK: when this
+        // returns, currentUser is null and the next request is unauthenticated.
+        // Clear the local session first; the host is told afterwards.
+        _currentUser.value = null
+        _lensOverride.value = null
+        _authLens.value = AuthLens.Anon
+        notifyAuthStateChanged()
+        notifyIdTokenChanged()
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 BridgeAuthOperations.signOut(bridgeClient)
             } catch (_: Exception) {}
-            _currentUser.value = null
-            _lensOverride.value = null
-            _authLens.value = AuthLens.Anon
-            notifyAuthStateChanged()
-            notifyIdTokenChanged()
         }
     }
 
@@ -337,7 +340,13 @@ class FirebaseAuth internal constructor(
             msg.contains("too-many-requests", ignoreCase = true) -> "ERROR_TOO_MANY_REQUESTS"
             else -> "ERROR_UNKNOWN"
         }
-        return FirebaseAuthException(code, msg, e)
+        // The same subclasses the Firebase Android SDK throws for these codes.
+        return when (code) {
+            "ERROR_USER_NOT_FOUND", "ERROR_USER_DISABLED" -> FirebaseAuthInvalidUserException(code, msg, e)
+            "ERROR_WRONG_PASSWORD", "ERROR_INVALID_EMAIL", "ERROR_INVALID_CREDENTIAL" ->
+                FirebaseAuthInvalidCredentialsException(code, msg, e)
+            else -> FirebaseAuthException(code, msg, e)
+        }
     }
 
     fun interface AuthStateListener {
@@ -351,20 +360,24 @@ class FirebaseAuth internal constructor(
     companion object {
         private val instances = ConcurrentHashMap<String, FirebaseAuth>()
 
+        @JvmStatic
         fun getInstance(): FirebaseAuth = getInstance(FirebaseApp.getInstance())
 
+        @JvmStatic
         fun getInstance(app: FirebaseApp): FirebaseAuth {
             return instances.computeIfAbsent(app.name) {
                 FirebaseAuth(app, PyricBridgeClient.createDefault())
             }
         }
 
+        @JvmStatic
         fun getInstance(app: FirebaseApp, bridgeClient: PyricBridgeClient): FirebaseAuth {
             return instances.computeIfAbsent(app.name) {
                 FirebaseAuth(app, bridgeClient)
             }
         }
 
+        @JvmStatic
         fun getInstance(
             app: FirebaseApp,
             bridgeClient: PyricBridgeClient,
@@ -375,6 +388,7 @@ class FirebaseAuth internal constructor(
             }
         }
 
+        @JvmStatic
         fun clearInstancesForTest() {
             for (auth in instances.values) {
                 auth.scope.cancel()

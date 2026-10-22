@@ -35,69 +35,91 @@ sealed class Filter {
     }
 
     companion object {
+        @JvmStatic
         fun equalTo(field: String, value: Any?): Filter =
             Unary(FieldPath.fromDotSeparated(field), Unary.Operator.EQUAL, value)
 
+        @JvmStatic
         fun equalTo(fieldPath: FieldPath, value: Any?): Filter =
             Unary(fieldPath, Unary.Operator.EQUAL, value)
 
+        @JvmStatic
         fun notEqualTo(field: String, value: Any?): Filter =
             Unary(FieldPath.fromDotSeparated(field), Unary.Operator.NOT_EQUAL, value)
 
+        @JvmStatic
         fun notEqualTo(fieldPath: FieldPath, value: Any?): Filter =
             Unary(fieldPath, Unary.Operator.NOT_EQUAL, value)
 
+        @JvmStatic
         fun lessThan(field: String, value: Any?): Filter =
             Unary(FieldPath.fromDotSeparated(field), Unary.Operator.LESS_THAN, value)
 
+        @JvmStatic
         fun lessThan(fieldPath: FieldPath, value: Any?): Filter =
             Unary(fieldPath, Unary.Operator.LESS_THAN, value)
 
+        @JvmStatic
         fun lessThanOrEqualTo(field: String, value: Any?): Filter =
             Unary(FieldPath.fromDotSeparated(field), Unary.Operator.LESS_THAN_OR_EQUAL, value)
 
+        @JvmStatic
         fun lessThanOrEqualTo(fieldPath: FieldPath, value: Any?): Filter =
             Unary(fieldPath, Unary.Operator.LESS_THAN_OR_EQUAL, value)
 
+        @JvmStatic
         fun greaterThan(field: String, value: Any?): Filter =
             Unary(FieldPath.fromDotSeparated(field), Unary.Operator.GREATER_THAN, value)
 
+        @JvmStatic
         fun greaterThan(fieldPath: FieldPath, value: Any?): Filter =
             Unary(fieldPath, Unary.Operator.GREATER_THAN, value)
 
+        @JvmStatic
         fun greaterThanOrEqualTo(field: String, value: Any?): Filter =
             Unary(FieldPath.fromDotSeparated(field), Unary.Operator.GREATER_THAN_OR_EQUAL, value)
 
+        @JvmStatic
         fun greaterThanOrEqualTo(fieldPath: FieldPath, value: Any?): Filter =
             Unary(fieldPath, Unary.Operator.GREATER_THAN_OR_EQUAL, value)
 
+        @JvmStatic
         fun arrayContains(field: String, value: Any?): Filter =
             Unary(FieldPath.fromDotSeparated(field), Unary.Operator.ARRAY_CONTAINS, value)
 
+        @JvmStatic
         fun arrayContains(fieldPath: FieldPath, value: Any?): Filter =
             Unary(fieldPath, Unary.Operator.ARRAY_CONTAINS, value)
 
+        @JvmStatic
         fun arrayContainsAny(field: String, values: List<Any?>): Filter =
             Unary(FieldPath.fromDotSeparated(field), Unary.Operator.ARRAY_CONTAINS_ANY, values)
 
+        @JvmStatic
         fun arrayContainsAny(fieldPath: FieldPath, values: List<Any?>): Filter =
             Unary(fieldPath, Unary.Operator.ARRAY_CONTAINS_ANY, values)
 
+        @JvmStatic
         fun inArray(field: String, values: List<Any?>): Filter =
             Unary(FieldPath.fromDotSeparated(field), Unary.Operator.IN, values)
 
+        @JvmStatic
         fun inArray(fieldPath: FieldPath, values: List<Any?>): Filter =
             Unary(fieldPath, Unary.Operator.IN, values)
 
+        @JvmStatic
         fun notInArray(field: String, values: List<Any?>): Filter =
             Unary(FieldPath.fromDotSeparated(field), Unary.Operator.NOT_IN, values)
 
+        @JvmStatic
         fun notInArray(fieldPath: FieldPath, values: List<Any?>): Filter =
             Unary(fieldPath, Unary.Operator.NOT_IN, values)
 
+        @JvmStatic
         fun and(vararg filters: Filter): Filter =
             Composite(Composite.Operator.AND, filters.toList())
 
+        @JvmStatic
         fun or(vararg filters: Filter): Filter =
             Composite(Composite.Operator.OR, filters.toList())
     }
