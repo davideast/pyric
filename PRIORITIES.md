@@ -66,7 +66,7 @@ The on-ramp: the CLI working reliably across platforms, the agent plugins, the V
 - Agent-first path (plugin to bridge) covered end to end (#128)
 - No-SharedWorker and older-Safari fallback and signpost (#129)
 - App Check before AI Logic requires it in November: `initializeAppCheck` and `getToken` work in sandbox mode, and production AI mode passes the real `firebase/app-check` through so AI Logic requests carry a token. Built under CDD (`docs/conformance/cdd.md`) as a new `app-check` surface. Today `pyric/app-check` throws on first use, so an AI Logic app that calls it fails its first run.
-- Cloud Functions HTTP `onRequest`, served by `pyric sandbox` after the `exp` release: an app that exports `onRequest` has it skipped on its first run today. Built under CDD (`docs/conformance/cdd.md`) as a new `functions-http` surface, reusing the Functions child runtime (`packages/cli/src/functions/`, #1185). Callable, Firestore, Storage and more RTDB triggers follow as later items.
+- Cloud Functions HTTP `onRequest`, served by `pyric sandbox` once the Node host is promoted to `latest`: an app that exports `onRequest` has it skipped on its first run today. Built under CDD (`docs/conformance/cdd.md`) as a new `functions-http` surface, reusing the Functions child runtime (`packages/cli/src/functions/`, #1185). Callable, Firestore, Storage and more RTDB triggers follow as later items.
 
 ## Build Velocity and Tech Debt
 
