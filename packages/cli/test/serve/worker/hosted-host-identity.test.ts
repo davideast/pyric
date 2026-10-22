@@ -83,7 +83,11 @@ async function restartAcross(currentHostInstanceId?: () => Promise<string | unde
   cleanups.push(() => db.port.close());
   db.port.postMessage({ t: 'appConfig', options: { projectId: 'orbit' } } as InboundMessage);
   const describe = () => JSON.stringify({ states, received });
-  await until(() => states.includes('attached'), describe);
+  // Restart only once the host has read the first config. The client reports
+  // attached right after sending it, and a socket closed before the host reads
+  // that frame drops it, so the count below would never reach two.
+  const hostHasFirstConfig = () => states.includes('attached') && appConfigs(received).length === 1;
+  await until(hostHasFirstConfig, describe);
   host.restart();
   await until(() => appConfigs(received).length === 2, describe);
   return received;
