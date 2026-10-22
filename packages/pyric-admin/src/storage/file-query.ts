@@ -64,7 +64,7 @@ export function readsEveryPage(query: GetFilesOptions): boolean {
 /** The page of `names` that `query` asks for, `pageSize` entries at most. */
 export function listingPage(names: readonly string[], query: GetFilesOptions, pageSize = pageSizeOf(query)): ListingPage {
   const entries = entriesOf(names, query);
-  const after = query.pageToken === undefined ? undefined : decodeToken(query.pageToken);
+  const after = resumesAfter(query);
   const remaining = after === undefined ? entries : entries.filter(entry => entry.key > after);
   const page = remaining.slice(0, pageSize);
   const more = remaining.length > page.length;
@@ -93,34 +93,46 @@ export function apiResponseOf(page: ListingPage): GetFilesApiResponse {
   };
 }
 
-function pageSizeOf(query: GetFilesOptions): number {
+/** The entry key a query's `pageToken` resumes after, if it has one. */
+export function resumesAfter(query: GetFilesOptions): string | undefined {
+  return query.pageToken === undefined ? undefined : decodeToken(query.pageToken);
+}
+
+export function pageSizeOf(query: GetFilesOptions): number {
   const limited = typeof query.maxResults === 'number' && query.maxResults > 0;
   return limited ? Math.min(query.maxResults!, DEFAULT_PAGE_SIZE) : DEFAULT_PAGE_SIZE;
 }
 
-interface Entry {
+/** A listed entry: a file name, or a prefix that names roll up to at the delimiter. */
+export interface Entry {
   key: string;
   rolledUp: boolean;
 }
 
-/** The names under the prefix, with the delimiter's roll-up applied, in name order. */
-function entriesOf(names: readonly string[], query: GetFilesOptions): Entry[] {
+/** The entry `name` lists as under `query`'s prefix and delimiter, or `undefined` outside the prefix. */
+export function entryOf(name: string, query: GetFilesOptions): Entry | undefined {
   const prefix = query.prefix ?? '';
   const delimiter = query.delimiter ?? '';
+  if (!name.startsWith(prefix)) return undefined;
+  const rest = name.slice(prefix.length);
+  const cut = delimiter === '' ? -1 : rest.indexOf(delimiter);
+  const rolledUp = cut !== -1;
+  const key = rolledUp ? prefix + rest.slice(0, cut + delimiter.length) : name;
+  return { key, rolledUp };
+}
+
+/** The names under the prefix, with the delimiter's roll-up applied, in name order. */
+function entriesOf(names: readonly string[], query: GetFilesOptions): Entry[] {
   const byKey = new Map<string, Entry>();
   for (const name of names) {
-    if (!name.startsWith(prefix)) continue;
-    const rest = name.slice(prefix.length);
-    const cut = delimiter === '' ? -1 : rest.indexOf(delimiter);
-    const rolledUp = cut !== -1;
-    const key = rolledUp ? prefix + rest.slice(0, cut + delimiter.length) : name;
-    byKey.set(key, { key, rolledUp });
+    const entry = entryOf(name, query);
+    if (entry !== undefined) byKey.set(entry.key, entry);
   }
   return [...byKey.values()].sort((a, b) => compareKeys(a.key, b.key));
 }
 
 /** Name order, as the JSON API lists objects. */
-function compareKeys(a: string, b: string): number {
+export function compareKeys(a: string, b: string): number {
   if (a < b) return -1;
   if (a > b) return 1;
   return 0;
