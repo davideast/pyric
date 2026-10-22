@@ -6,7 +6,10 @@
  * an in-memory RTDB implementing this load-bearing data-plane subset:
  *
  *       - `Database.ref(path?)` returns a {@link Reference}.
- *       - `Reference#set(value)` writes into the in-memory tree.
+ *       - `Reference#set(value)` writes into the in-memory tree, normalized
+ *         as the host normalizes it: arrays become integer-keyed children,
+ *         null children and empty objects are dropped, and a read renders
+ *         integer keys back as an array (`ChildrenNode.val`, #1121).
  *       - `Reference#get()` reads; returns a `DataSnapshot`-shaped
  *         `{ exists(), val(), key, child(), forEach(), … }`.
  *       - `Reference#update(values)` merges children (a `null` value
@@ -98,7 +101,7 @@ import {
 } from '../app/index.js';
 import { assertAdminAppActive } from '../app/lifecycle.js';
 import { increment, serverTimestamp } from 'pyric/database';
-import { valueAtChildPath, valueChildren } from 'pyric/database/internal';
+import { coerceArrays, normalizeWrite, valueAtChildPath, valueChildren } from 'pyric/database/internal';
 import { deferredExport } from 'pyric/app/internal';
 
 /** `firebase-admin/database`'s `enableLogging`. The sandbox does not model
@@ -422,19 +425,9 @@ function joinPath(segments: string[]): string {
   return '/' + segments.join('/');
 }
 
-/** Deep-clone a JSON value so stored state doesn't share identity with
- *  caller-held references. */
-function cloneJson<T extends JsonValue>(v: T): T {
-  if (v === null || typeof v !== 'object') return v;
-  if (Array.isArray(v)) return v.map((x) => cloneJson(x as JsonValue)) as T;
-  const out: Record<string, JsonValue> = {};
-  for (const [k, val] of Object.entries(v as Record<string, JsonValue>)) {
-    out[k] = cloneJson(val);
-  }
-  return out as T;
-}
-
-/** Read the value at `path` in `root`. `null` for absent paths. */
+/** Read the value at `path` in `root` as `val()` renders it: integer-keyed
+ *  children as an array when they are dense enough. `null` for absent paths.
+ *  The result is a fresh copy, sharing nothing with the stored tree. */
 function readPath(root: Record<string, JsonValue>, path: string): JsonValue {
   const segs = pathSegments(path);
   let node: JsonValue = root;
@@ -448,16 +441,20 @@ function readPath(root: Record<string, JsonValue>, path: string): JsonValue {
     if (!Object.hasOwn(obj, seg)) return null;
     node = obj[seg]!;
   }
-  return cloneJson(node);
+  return coerceArrays(node);
 }
 
-/** Write `value` at `path`. `null` deletes. Trims empty ancestor objects. */
+/** Write `value` at `path`, validated and normalized as the host writes it
+ *  (`normalizeWrite`), so the stored tree shares nothing with the caller's
+ *  value. A value that normalizes to `null` deletes. Trims empty ancestor
+ *  objects. */
 function writePath(
   root: Record<string, JsonValue>,
   path: string,
-  value: JsonValue,
+  written: unknown,
 ): void {
   const segs = pathSegments(path);
+  const value = normalizeWrite(written, joinPath(segs));
   if (segs.length === 0) {
     // Root write — clear all keys and replace.
     for (const k of Object.keys(root)) delete root[k];
@@ -467,7 +464,7 @@ function writePath(
         'pyric-admin/database sandbox: root write must be an object (or null to clear).',
       );
     }
-    Object.assign(root, cloneJson(value) as Record<string, JsonValue>);
+    Object.assign(root, value);
     return;
   }
   // Walk to parent, creating intermediate objects as needed.
@@ -495,7 +492,7 @@ function writePath(
     delete cursor[lastKey];
     trimEmptyAncestors(root, segs);
   } else {
-    cursor[lastKey] = cloneJson(value);
+    cursor[lastKey] = value;
   }
 }
 
@@ -635,7 +632,7 @@ function buildSandboxRef(
 
     /** Set `value` at this path. `null` deletes. */
     async set(value: unknown): Promise<void> {
-      writePath(state.root, canonical, value as JsonValue);
+      writePath(state.root, canonical, value);
     },
 
     /** Read this path. Resolves to a {@link DataSnapshot}-shaped value. */
@@ -671,7 +668,7 @@ function buildSandboxRef(
       }
       for (const [k, v] of Object.entries(values as Record<string, unknown>)) {
         const subSegs = [...segs, ...pathSegments(k)];
-        writePath(state.root, joinPath(subSegs), v as JsonValue);
+        writePath(state.root, joinPath(subSegs), v);
       }
     },
 
@@ -690,7 +687,7 @@ function buildSandboxRef(
       const childPath = joinPath([...segs, id]);
       if (value !== undefined) {
         try {
-          writePath(state.root, childPath, value as JsonValue);
+          writePath(state.root, childPath, value);
         } catch (err) {
           if (onComplete) onComplete(err as Error);
           throw err;
