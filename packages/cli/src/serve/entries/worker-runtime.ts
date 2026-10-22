@@ -13,7 +13,7 @@ import type { HostedConnectionState } from '../worker/client/websocket-connectio
 import { getServiceWorkerFirestore } from '../worker/client/service-worker-connection.js';
 import { getDeferredFirestore } from '../worker/client/deferred-connection.js';
 import { getHostedFirestore } from '../worker/client/websocket-connection.js';
-import { currentHostInstanceId, currentSessionToken, forgetSessionToken, initPayload } from './init-payload.js';
+import { currentHostInstanceId, currentHostPayload, currentSessionToken, forgetSessionToken, initPayload } from './init-payload.js';
 import type { WorkerInitPayload } from '../init-payload.js';
 import { toPageOriginWsUrl } from './bridge-url.js';
 import { hostLocation, nodeRuntimeOrigin, type NodeRuntimeOrigin } from './runtime-origin.js';
@@ -78,8 +78,17 @@ function hostedTarget(node?: { host: string; origin: NodeRuntimeOrigin }): Param
     // After a host restart, a Node process reads the new boot's id before it reattaches.
     currentHostInstanceId: node === undefined ? undefined : currentHostInstanceId,
     // A Node process redials the host where it runs now, which `.pyric/serve.json` names.
-    currentUrl: node === undefined ? undefined : () => node.origin.host().then(host => toPageOriginWsUrl(bridgeUrl, hostLocation(host), 'page-origin')),
+    // Its socket path comes from the moved host's own init.json, read for this reattach.
+    currentUrl: node === undefined ? undefined : () => movedSocketUrl(node.origin, bridgeUrl),
   };
+}
+
+/** Where a Node process's socket goes on the host serving now, from that host's own `init.json`. */
+async function movedSocketUrl(origin: NodeRuntimeOrigin, firstBridgeUrl: string): Promise<string> {
+  const current = await currentHostPayload();
+  const host = await origin.host();
+  const bridgeUrl = typeof current.bridgeUrl === 'string' ? current.bridgeUrl : firstBridgeUrl;
+  return toPageOriginWsUrl(bridgeUrl, hostLocation(host), 'page-origin');
 }
 
 export const WORKER_URL = PYRIC_WORKER_URL;
