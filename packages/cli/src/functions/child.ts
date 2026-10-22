@@ -24,9 +24,24 @@ interface AdminAppModule {
   deleteApp(app: unknown): Promise<void>;
 }
 
+/**
+ * Send to the host if the channel is open. The callback matters: without one,
+ * a send on a channel that closed emits 'error' on the next tick, and with the
+ * uncaught-error handler installed that error is reported by sending again, a
+ * next-tick loop that spins a core and starves every signal handler.
+ */
 function send(message: FunctionsChildMessage): void {
-  process.send?.(message);
+  if (!process.connected || !process.send) return;
+  process.send(message, (error: Error | null) => {
+    // The channel closed between the check and the write; the disconnect handler ends this process.
+    void error;
+  });
 }
+
+/** How long any shutdown may take before the child exits regardless. */
+const EXIT_DEADLINE_MS = 1_500;
+/** How often the child checks that its parent is still the one that spawned it. */
+const PARENT_POLL_MS = 500;
 
 /**
  * An exception thrown outside any handler's own call and promise (a timer
@@ -35,7 +50,17 @@ function send(message: FunctionsChildMessage): void {
  * report it and keep serving instead of restarting.
  */
 function surviveUncaughtErrors(): void {
-  const report = (error: unknown): void => send({ type: 'uncaught-error', error: serializeError(error) });
+  let reporting = false;
+  const report = (error: unknown): void => {
+    // Never re-enter: an error raised while reporting is dropped rather than reported again.
+    if (reporting) return;
+    reporting = true;
+    try {
+      send({ type: 'uncaught-error', error: serializeError(error) });
+    } finally {
+      reporting = false;
+    }
+  };
   process.on('uncaughtException', report);
   process.on('unhandledRejection', report);
 }
@@ -66,6 +91,7 @@ async function runFunctionsChild(): Promise<void> {
     if (closing) return closing;
     closing = (async () => {
       clearInterval(heartbeat);
+      clearInterval(parentWatch);
       await httpServer?.close();
       host?.close();
       await host?.idle();
@@ -78,8 +104,24 @@ async function runFunctionsChild(): Promise<void> {
   const shutdown = async (): Promise<void> => {
     await close();
     send({ type: 'stopped' });
-    process.disconnect?.();
+    if (process.connected) process.disconnect?.();
   };
+
+  // The host is gone (its channel closed, or this process was re-parented) or asked
+  // us to stop by signal: close what can be closed, and exit by the deadline either way.
+  let exiting = false;
+  const exitSoon = (): void => {
+    if (exiting) return;
+    exiting = true;
+    setTimeout(() => process.exit(process.exitCode ?? 0), EXIT_DEADLINE_MS);
+    void close().catch(() => undefined).finally(() => process.exit(process.exitCode ?? 0));
+  };
+  process.once('disconnect', exitSoon);
+  const spawnedBy = process.ppid;
+  const parentWatch = setInterval(() => {
+    if (process.ppid !== spawnedBy) exitSoon();
+  }, PARENT_POLL_MS);
+  parentWatch.unref();
 
   process.once('message', (raw: unknown) => {
     if (isChildMessage(raw) && raw.type === 'stopped') return;
@@ -91,8 +133,12 @@ async function runFunctionsChild(): Promise<void> {
       });
     }
   });
-  process.once('SIGINT', () => void shutdown());
-  process.once('SIGTERM', () => void shutdown());
+  const onSignal = (): void => {
+    void shutdown().catch(() => undefined);
+    exitSoon();
+  };
+  process.once('SIGINT', onSignal);
+  process.once('SIGTERM', onSignal);
 
   try {
     // The real database provider asks firebase-admin/app for its default app
