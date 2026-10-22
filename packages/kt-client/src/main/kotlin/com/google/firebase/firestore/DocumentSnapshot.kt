@@ -26,7 +26,7 @@ open class DocumentSnapshot internal constructor(
     fun getDocumentReference(field: String): DocumentReference? = get(field) as? DocumentReference
 
     open fun <T> toObject(valueType: Class<T>): T? =
-        if (!exists || rawData == null) null else PojoCodec.deserialize(rawData, valueType)
+        if (!exists || rawData == null) null else PojoCodec.deserialize(rawData, valueType, id, reference)
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
