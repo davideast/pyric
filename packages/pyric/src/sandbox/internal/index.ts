@@ -149,6 +149,10 @@ export * from '../../firestore/sandbox/converters/vector.js';
 export * from '../../firestore/sandbox/converters/fieldvalue.js';
 export * from '../../firestore/sandbox/converters/bytes-geopoint.js';
 export * from '../../firestore/sandbox/snapshot-listeners.js';
+// `DocumentSnapshot.get(fieldPath)` for every plane that rebuilds snapshots
+// (the served worker client, the remote Admin arm), so each reads a field as
+// the in-page snapshot does.
+export { getSnapshotField, type SnapshotFieldPath } from '../../firestore/sandbox/admin-compat/field-path.js';
 // Wire-encoder: produces Firestore JSON wire-format from sandbox
 // values. Used by the discover crawler's sandbox adapter (in
 // pyric/firestore/discover) to bridge LocalEnvironment ↔ the wire
