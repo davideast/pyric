@@ -190,15 +190,19 @@ class FirebaseFirestore(
 
         private val instances = ConcurrentHashMap<Pair<String, String>, FirebaseFirestore>()
 
+        @JvmStatic
         fun getInstance(): FirebaseFirestore =
             getInstance(FirebaseApp.getInstance(), "(default)")
 
+        @JvmStatic
         fun getInstance(app: FirebaseApp): FirebaseFirestore =
             getInstance(app, "(default)")
 
+        @JvmStatic
         fun getInstance(database: String): FirebaseFirestore =
             getInstance(FirebaseApp.getInstance(), database)
 
+        @JvmStatic
         fun getInstance(app: FirebaseApp, database: String): FirebaseFirestore {
             return instances.computeIfAbsent(Pair(app.name, database)) {
                 val bridge = PyricBridgeClient.createDefault()
@@ -207,6 +211,7 @@ class FirebaseFirestore(
             }
         }
 
+        @JvmStatic
         fun getInstance(app: FirebaseApp, bridgeClient: PyricBridgeClient, database: String = "(default)"): FirebaseFirestore {
             return instances.computeIfAbsent(Pair(app.name, database)) {
                 val auth = runCatching { FirebaseAuth.getInstance(app, bridgeClient) }.getOrNull()
@@ -214,6 +219,7 @@ class FirebaseFirestore(
             }
         }
 
+        @JvmStatic
         fun clearInstancesForTest() {
             instances.clear()
         }

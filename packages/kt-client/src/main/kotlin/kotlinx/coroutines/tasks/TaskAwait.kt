@@ -1,3 +1,5 @@
+@file:JvmName("TasksKt")
+
 package kotlinx.coroutines.tasks
 
 import com.google.android.gms.tasks.Task
