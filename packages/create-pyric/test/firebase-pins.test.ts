@@ -36,15 +36,23 @@ describe('scaffold Firebase pins', () => {
   });
 
   test('every template that names firebase or firebase-admin uses the pins', () => {
+    const checked = { firebase: [] as string[], admin: [] as string[] };
     for (const name of TEMPLATE_NAMES) {
       const template = TEMPLATES[name];
       for (const deps of [template.dependencies, template.devDependencies]) {
-        if (deps?.firebase !== undefined) expect({ name, firebase: deps.firebase }).toEqual({ name, firebase: FIREBASE_PIN });
+        if (deps?.firebase !== undefined) {
+          expect({ name, firebase: deps.firebase }).toEqual({ name, firebase: FIREBASE_PIN });
+          checked.firebase.push(name);
+        }
         if (deps?.['firebase-admin'] !== undefined) {
           expect({ name, admin: deps['firebase-admin'] }).toEqual({ name, admin: FIREBASE_ADMIN_PIN });
+          checked.admin.push(name);
         }
       }
     }
+    // A loop that matched nothing would pass without checking a pin.
+    expect(checked.firebase).toEqual(expect.arrayContaining(['web', 'node', 'static', 'chat', 'nextjs']));
+    expect(checked.admin).toEqual(expect.arrayContaining(['chat', 'nextjs']));
   });
 
   test('the chat template and its functions package use the pins', () => {
