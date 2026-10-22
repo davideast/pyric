@@ -1,6 +1,7 @@
 /**
  * Forwards one request from a plane (the sandbox server or Vite) to the
- * child's HTTP listener and streams the answer back unchanged.
+ * child's HTTP listener and streams the answer back unchanged, cutting it at
+ * the function's timeout.
  */
 import { request as httpRequest, type IncomingHttpHeaders, type IncomingMessage, type ServerResponse } from 'node:http';
 import { FUNCTION_TARGET_HEADER } from './child-server.js';
@@ -13,6 +14,17 @@ export interface ProxyTarget {
   exportName: string;
   /** The path and query the function sees. */
   forwardUrl: string;
+  /** Header values to set (a string) or remove (undefined) before forwarding. */
+  headerOverrides?: Record<string, string | undefined>;
+  /** Cut the request after this long. */
+  timeoutMs: number;
+}
+
+/** How a forwarded request ended. */
+export interface ProxyOutcome {
+  /** The status the client received, or null when it received no complete response. */
+  status: number | null;
+  timedOut: boolean;
 }
 
 /** Headers minus hop-by-hop ones, including any the message's own Connection header names. */
@@ -34,14 +46,18 @@ function forwardedHeaders(req: IncomingMessage, target: ProxyTarget): IncomingHt
   headers['x-forwarded-for'] = prior ? `${String(prior)}, ${client}` : client;
   headers['x-forwarded-proto'] = 'http';
   delete headers['x-forwarded-host'];
+  for (const [name, value] of Object.entries(target.headerOverrides ?? {})) {
+    if (value === undefined) delete headers[name];
+    else headers[name] = value;
+  }
   headers[FUNCTION_TARGET_HEADER] = target.exportName;
   return headers;
 }
 
-/** Resolves with the status the function answered, or null when no response reached the client. */
-export function proxyToChild(req: IncomingMessage, res: ServerResponse, target: ProxyTarget): Promise<number | null> {
-  return new Promise((resolveStatus) => {
+export function proxyToChild(req: IncomingMessage, res: ServerResponse, target: ProxyTarget): Promise<ProxyOutcome> {
+  return new Promise((resolveOutcome) => {
     let status: number | null = null;
+    let timedOut = false;
     const upstream = httpRequest({
       host: '127.0.0.1',
       port: target.port,
@@ -49,24 +65,46 @@ export function proxyToChild(req: IncomingMessage, res: ServerResponse, target: 
       path: target.forwardUrl,
       headers: forwardedHeaders(req, target),
     });
-    upstream.on('response', (answer) => {
-      status = answer.statusCode ?? 502;
-      res.writeHead(status, answer.statusMessage, endToEnd(answer.headers));
-      answer.pipe(res);
-      answer.on('error', () => res.destroy());
+    let answer: IncomingMessage | null = null;
+    let cutMidResponse = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      if (res.headersSent) {
+        // Part of the response is out: close the connection so the client sees it end short.
+        cutMidResponse = true;
+        answer?.unpipe(res);
+        res.destroy();
+        upstream.destroy();
+        return;
+      }
+      upstream.destroy();
+      status = 504;
+      res.writeHead(504, { 'content-type': 'text/plain; charset=utf-8' });
+      res.end(`pyric: ${target.exportName} did not respond within its timeout (${target.timeoutMs / 1000} s).`);
+    }, target.timeoutMs);
+    timer.unref();
+    upstream.on('response', (response) => {
+      answer = response;
+      status = response.statusCode ?? 502;
+      res.writeHead(status, response.statusMessage, endToEnd(response.headers));
+      response.pipe(res);
+      response.on('error', () => res.destroy());
     });
     upstream.on('error', () => {
+      if (timedOut) return;
       if (!res.headersSent) {
+        status = 502;
         res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' });
         res.end('pyric: the Functions child closed the connection before answering.');
-        status = 502;
       } else {
         res.destroy();
       }
     });
     res.on('close', () => {
+      clearTimeout(timer);
       if (!upstream.destroyed && !res.writableFinished) upstream.destroy();
-      resolveStatus(res.writableFinished ? status : null);
+      const complete = res.writableFinished && !cutMidResponse;
+      resolveOutcome({ status: complete ? status : null, timedOut });
     });
     req.pipe(upstream);
   });
