@@ -204,7 +204,7 @@ async function readOverRoute(
     const metadata = await fetchMetadataFromHost(reference);
     const url = new URL(storageObjectPath(metadata.bucket, reference.fullPath), route.baseUrl);
     url.searchParams.set('generation', metadata.generation);
-    const response = await fetch(url, { headers: { 'x-pyric-session-token': await sessionTokenOf(route) } });
+    const response = await (route.fetch ?? fetch)(url, { headers: { 'x-pyric-session-token': await sessionTokenOf(route) } });
     const changed = response.status === 412;
     if (changed) continue;
     if (!response.ok) throw routeFailure(response.status, reference.fullPath);
@@ -220,6 +220,8 @@ export interface RouteUpload {
   readonly url: string;
   readonly size: number;
   readonly reference: ClientStorageReference;
+  /** How its slices reach the host: the route's fetch. */
+  readonly fetch?: ByteRouteAccess['fetch'];
 }
 
 /** The byte route a reference's host advertised, if any. */
@@ -270,7 +272,7 @@ export async function beginRouteUpload(
   const uploadUrl = begun.uploadUrl;
   const unrouted = uploadUrl === undefined;
   if (unrouted) throw new FirebaseError('storage/unknown', 'The host began the upload without a byte route URL.');
-  return { uploadId: begun.uploadId, url: new URL(uploadUrl, route.baseUrl).href, size, reference };
+  return { uploadId: begun.uploadId, url: new URL(uploadUrl, route.baseUrl).href, size, reference, fetch: route.fetch };
 }
 
 /** How many bytes a byte route answer says the host holds. */
@@ -284,7 +286,7 @@ function receivedFrom(response: Response, size: number): number {
 /** Send the slice that starts at `offset`; resolves with how many bytes the host now holds. */
 export async function sendRouteSlice(upload: RouteUpload, data: Blob, offset: number, signal?: AbortSignal): Promise<number> {
   const end = Math.min(offset + ROUTE_SLICE_BYTES, upload.size);
-  const response = await fetch(upload.url, {
+  const response = await (upload.fetch ?? fetch)(upload.url, {
     method: 'PUT',
     headers: { 'content-range': `bytes ${offset}-${end - 1}/${upload.size}` },
     body: data.slice(offset, end),
@@ -297,7 +299,7 @@ export async function sendRouteSlice(upload: RouteUpload, data: Blob, offset: nu
 
 /** Ask the host how much of an upload it holds. */
 export async function routeUploadOffset(upload: RouteUpload, signal?: AbortSignal): Promise<number> {
-  const response = await fetch(upload.url, { method: 'PUT', headers: { 'content-range': `bytes */${upload.size}` }, signal });
+  const response = await (upload.fetch ?? fetch)(upload.url, { method: 'PUT', headers: { 'content-range': `bytes */${upload.size}` }, signal });
   const accepted = response.status === 200 || response.status === 308;
   if (!accepted) throw routeFailure(response.status, upload.reference.fullPath);
   return receivedFrom(response, upload.size);

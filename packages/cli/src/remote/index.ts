@@ -40,6 +40,8 @@
  * NODE-ONLY: uses `ws` and `node:fs` — exported via a `node`-conditional
  * subpath (`@pyric/cli/remote`), never bundled for the browser.
  */
+import type { HostTrust } from 'pyric/sandbox/internal';
+import { tlsOptionsFor, trustedFetch, type HostFetch } from './loopback-tls.js';
 import { WebSocket } from 'ws';
 import { Socket } from 'node:net';
 import type { AuthUserRecord, CreateUserRequest, UpdateUserRequest } from 'pyric/auth';
@@ -142,6 +144,11 @@ export interface ConnectRemoteSandboxOptions {
    * close rejects every pending op and ends every listener with `unavailable`.
    */
   onConnectionLost?: (reason: string, resend: ReleasedOp[]) => void;
+  /**
+   * The certificate an HTTPS host in this process serves, trusted for dials
+   * to its origin only (a Vite dev server with `server.https`, #1220).
+   */
+  trust?: HostTrust;
 }
 
 /**
@@ -685,11 +692,19 @@ export function buildRemoteRtdb(channel: RemoteSandboxChannel, instance?: string
   };
 }
 
+/** The byte route on the host at `base`, dialed trusting `trust` when the host serves HTTPS in this process. */
+function byteRouteAt(base: string, trust: HostTrust | undefined): RemoteByteRoute {
+  const isPlainHttp = trust === undefined;
+  if (isPlainHttp) return { baseUrl: base, sessionToken: sessionTokenFrom(base, fetch) };
+  const fetchHost = trustedFetch(trust);
+  return { baseUrl: base, sessionToken: sessionTokenFrom(base, fetchHost), fetch: fetchHost };
+}
+
 /** Read the session token from the host's init.json, as a page does; kept once read, asked again after a failure. */
-function sessionTokenFrom(base: string): () => Promise<string | null> {
+function sessionTokenFrom(base: string, fetchHost: HostFetch): () => Promise<string | null> {
   let token: Promise<string | null> | undefined;
   return async () => {
-    token ??= fetch(`${base}/__pyric/init.json`)
+    token ??= fetchHost(`${base}/__pyric/init.json`)
       .then(response => (response.ok ? response.json() : null))
       .then((body: { sessionToken?: unknown } | null) => (typeof body?.sessionToken === 'string' ? body.sessionToken : null))
       .catch(() => null);
@@ -967,7 +982,9 @@ export async function connectRemoteSandbox(
   });
 
   const wsUrl = `${wsBase.replace(/^http/, 'ws')}/__pyric/sandbox`;
-  const ws = new WebSocket(wsUrl, { maxPayload: MAX_BRIDGE_FRAME_BYTES });
+  const trust = options.trust;
+  const tls = trust === undefined ? {} : tlsOptionsFor(trust);
+  const ws = new WebSocket(wsUrl, { maxPayload: MAX_BRIDGE_FRAME_BYTES, ...tls });
 
   // Event-loop hold (exit-hang fix): `ws` exposes no ref/unref of its own —
   // reach the underlying net.Socket (present once connected). Unref'ing only
@@ -1134,7 +1151,7 @@ export async function connectRemoteSandbox(
   // session token its init.json hands a local process.
   const offersByteRoute = core.capabilities().includes(STORAGE_BYTE_ROUTE_CAPABILITY);
   const byteRoute: RemoteByteRoute | undefined = offersByteRoute
-    ? { baseUrl: wsBase, sessionToken: sessionTokenFrom(wsBase) }
+    ? byteRouteAt(wsBase, trust)
     : undefined;
   return createRemoteSandboxHandle({
     serveUrl,

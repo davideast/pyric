@@ -95,9 +95,26 @@ export interface BridgeMount {
   sandboxConnected(): boolean;
   onSandboxPeerConnected(listener: () => void): () => void;
   /** The browser-side WS URL for the init payload (`bridgeUrl`). */
-  wsUrl(origin: { host: string; port: number }): string;
+  wsUrl(origin: BridgeOrigin): string;
   /** The MCP endpoint for the banner. */
-  mcpUrl(origin: { host: string; port: number }): string;
+  mcpUrl(origin: BridgeOrigin): string;
+}
+
+/** Where a host serves: its host and port, and whether it serves HTTPS. */
+export interface BridgeOrigin {
+  host: string;
+  port: number;
+  /** The server serves TLS, so its urls are https and wss. */
+  secure?: boolean;
+}
+
+function schemes(origin: BridgeOrigin): { http: string; ws: string } {
+  return origin.secure === true ? { http: 'https', ws: 'wss' } : { http: 'http', ws: 'ws' };
+}
+
+/** The base url a host at `origin` is opened at. */
+export function originUrl(origin: BridgeOrigin): string {
+  return `${schemes(origin).http}://${urlHost(origin.host)}:${origin.port}`;
 }
 
 /** A host as a URL writes it: an IPv6 literal (`::1`, from `server.host`) in brackets. */
@@ -113,7 +130,7 @@ export interface BridgeHostOptions {
   lifecycleServer?: Server;
   projectDir: string;
   /** Returns null until a stable, externally reachable origin is known. */
-  origin(): { host: string; port: number } | null;
+  origin(): BridgeOrigin | null;
   /** Defaults true. A host with a broader ordered shutdown can opt out and
    *  explicitly close the returned attachment from its own close listener. */
   closeOnServerClose?: boolean;
@@ -557,7 +574,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
           const warn = collision?.warn ?? ((message: string) => { process.stderr.write(message); });
           warn(
             `\n⚠  pyric: ${pointer} names another running sandbox (${holder.url ?? 'unknown url'}, pid ${String(holder.pid)}). ` +
-              `This server at http://${urlHost(currentOrigin.host)}:${currentOrigin.port} leaves it in place, so ` +
+              `This server at ${originUrl(currentOrigin)} leaves it in place, so ` +
               '`pyric <tool> <method>`, `pyric mcp`, and PYRIC_SANDBOX=remote keep finding that one.\n',
           );
           return;
@@ -565,7 +582,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
         try {
           mkdirSync(dirname(pointer), { recursive: true });
           writeFileSync(pointer, JSON.stringify({
-            url: `http://${currentOrigin.host}:${currentOrigin.port}`,
+            url: originUrl(currentOrigin),
             mcpUrl: mount.mcpUrl(currentOrigin),
             port: currentOrigin.port,
             pid: process.pid,
@@ -679,8 +696,8 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
     },
     sandboxConnected: () => bridge.health().sandboxConnected === true,
     onSandboxPeerConnected: bridge.onSandboxPeerConnected,
-    wsUrl: ({ host, port }) => `ws://${urlHost(host)}:${port}${WS_PATH}`,
-    mcpUrl: ({ host, port }) => `http://${urlHost(host)}:${port}${MCP_PATH}`,
+    wsUrl: (origin) => `${schemes(origin).ws}://${urlHost(origin.host)}:${origin.port}${WS_PATH}`,
+    mcpUrl: (origin) => `${originUrl(origin)}${MCP_PATH}`,
     close(): Promise<void> {
       const closing = closePromise;
       const isClosing = closing !== null;
