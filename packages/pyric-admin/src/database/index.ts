@@ -8,8 +8,10 @@
  *       - `Database.ref(path?)` returns a {@link Reference}.
  *       - `Reference#set(value)` writes into the in-memory tree, normalized
  *         as the host normalizes it: arrays become integer-keyed children,
- *         null children and empty objects are dropped, and a read renders
+ *         null children and empty objects are dropped, and `val()` renders
  *         integer keys back as an array (`ChildrenNode.val`, #1121).
+ *         Inline `.priority` keys are dropped, since priorities are not
+ *         modeled here.
  *       - `Reference#get()` reads; returns a `DataSnapshot`-shaped
  *         `{ exists(), val(), key, child(), forEach(), … }`.
  *       - `Reference#update(values)` merges children (a `null` value
@@ -101,7 +103,16 @@ import {
 } from '../app/index.js';
 import { assertAdminAppActive } from '../app/lifecycle.js';
 import { increment, serverTimestamp } from 'pyric/database';
-import { assertGettablePath, coerceArrays, normalizeWrite, valueAtChildPath, valueChildren } from 'pyric/database/internal';
+import {
+  assertGettablePath,
+  coerceArrays,
+  inlinePriorities,
+  normalizeNode,
+  validateUpdatePaths,
+  validateWrite,
+  valueAtChildPath,
+  valueChildren,
+} from 'pyric/database/internal';
 import { deferredExport } from 'pyric/app/internal';
 
 /** `firebase-admin/database`'s `enableLogging`. The sandbox does not model
@@ -425,9 +436,9 @@ function joinPath(segments: string[]): string {
   return '/' + segments.join('/');
 }
 
-/** Read the value at `path` in `root` as `val()` renders it: integer-keyed
- *  children as an array when they are dense enough. `null` for absent paths.
- *  The result is a fresh copy, sharing nothing with the stored tree. */
+/** Read the stored value at `path` in `root`: integer-keyed children stay
+ *  object keys. `null` for absent paths. The result is a fresh copy, sharing
+ *  nothing with the stored tree. */
 function readPath(root: Record<string, JsonValue>, path: string): JsonValue {
   const segs = pathSegments(path);
   let node: JsonValue = root;
@@ -441,20 +452,17 @@ function readPath(root: Record<string, JsonValue>, path: string): JsonValue {
     if (!Object.hasOwn(obj, seg)) return null;
     node = obj[seg]!;
   }
-  return coerceArrays(node);
+  return structuredClone(node);
 }
 
-/** Write `value` at `path`, validated and normalized as the host writes it
- *  (`normalizeWrite`), so the stored tree shares nothing with the caller's
- *  value. A value that normalizes to `null` deletes. Trims empty ancestor
- *  objects. */
+/** Write a value {@link normalizeNode} built at `path`. `null` deletes.
+ *  Trims empty ancestor objects. */
 function writePath(
   root: Record<string, JsonValue>,
   path: string,
-  written: unknown,
+  value: JsonValue,
 ): void {
   const segs = pathSegments(path);
-  const value = normalizeWrite(written, joinPath(segs));
   if (segs.length === 0) {
     // Root write — clear all keys and replace.
     for (const k of Object.keys(root)) delete root[k];
@@ -532,6 +540,46 @@ function trimEmptyAncestors(
       }
     }
     return;
+  }
+}
+
+// ─── Write validation (both arms) ────────────────────────────────────
+//
+// firebase-admin validates a write before it is sent and throws the error
+// synchronously, so both arms do the same here, with the SDK's text
+// (`validateFirebaseDataArg`, `validateFirebaseMergeDataArg`). The remote
+// arm validates before relaying: the host would otherwise drop the refused
+// parts of the value and store the rest.
+
+/** Throw the SDK's error for a `set` or `push` value it refuses. `segs` is
+ *  the reference's path: for `push`, the parent's. */
+function validateValueArg(fnName: 'set' | 'push', segs: string[], value: unknown): void {
+  validateWrite(value, joinPath(segs), fnName, 'value');
+  inlinePriorities(value);
+}
+
+/** Throw the SDK's error for `update` values it refuses: a non-object, a
+ *  refused child value, then an invalid or overlapping key. */
+function validateValuesArg(segs: string[], values: unknown): Record<string, unknown> {
+  if (values === null || typeof values !== 'object') {
+    throw new Error('update failed: values argument  must be an object containing the children to replace.');
+  }
+  const entries = Object.entries(values as Record<string, unknown>);
+  for (const [key, value] of entries) {
+    validateWrite(value, joinPath([...segs, ...pathSegments(key)]), 'update', 'values');
+  }
+  validateUpdatePaths(values as Record<string, unknown>);
+  for (const [, value] of entries) inlinePriorities(value);
+  return values as Record<string, unknown>;
+}
+
+/** Run a synchronous in-memory write as a promise that settles with it. */
+function settled(write: () => void): Promise<void> {
+  try {
+    write();
+    return Promise.resolve();
+  } catch (error) {
+    return Promise.reject(error);
   }
 }
 
@@ -630,9 +678,11 @@ function buildSandboxRef(
 
     // ─── Data-plane methods (implemented) ────────────────────────────
 
-    /** Set `value` at this path. `null` deletes. */
-    async set(value: unknown): Promise<void> {
-      writePath(state.root, canonical, value);
+    /** Set `value` at this path. `null` deletes. A value the SDK refuses
+     *  throws synchronously, as firebase-admin does. */
+    set(value: unknown): Promise<void> {
+      validateValueArg('set', segs, value);
+      return settled(() => writePath(state.root, canonical, normalizeNode(value)));
     },
 
     /** Read this path. Resolves to a {@link DataSnapshot}-shaped value. */
@@ -660,22 +710,20 @@ function buildSandboxRef(
     },
 
     /** Shallow merge: each key in `values` replaces the corresponding
-     *  child at this path. `null` values delete. */
-    async update(values: object): Promise<void> {
-      if (values === null || typeof values !== 'object') {
-        throw new TypeError(
-          'pyric-admin/database sandbox: update expected an object.',
-        );
-      }
-      for (const [k, v] of Object.entries(values as Record<string, unknown>)) {
-        const subSegs = [...segs, ...pathSegments(k)];
-        writePath(state.root, joinPath(subSegs), v);
-      }
+     *  child at this path. `null` values delete. Values the SDK refuses
+     *  throw synchronously, as firebase-admin does. */
+    update(values: object): Promise<void> {
+      const patch = validateValuesArg(segs, values);
+      return settled(() => {
+        for (const [k, v] of Object.entries(patch)) {
+          writePath(state.root, joinPath([...segs, ...pathSegments(k)]), normalizeNode(v));
+        }
+      });
     },
 
     /** Delete the subtree at this path. Equivalent to `set(null)`. */
-    async remove(): Promise<void> {
-      writePath(state.root, canonical, null);
+    remove(): Promise<void> {
+      return settled(() => writePath(state.root, canonical, null));
     },
 
     /** Mint a 20-char push id, optionally writing `value` at the new
@@ -684,11 +732,12 @@ function buildSandboxRef(
      *  once the (synchronous) write completes; the underlying ref is
      *  available synchronously via the returned object's own methods. */
     push(value?: unknown, onComplete?: (err: Error | null) => void): AdminThenableReference {
+      if (value !== undefined) validateValueArg('push', segs, value);
       const id = generatePushId();
       const childPath = joinPath([...segs, id]);
       if (value !== undefined) {
         try {
-          writePath(state.root, childPath, value);
+          writePath(state.root, childPath, normalizeNode(value));
         } catch (err) {
           if (onComplete) onComplete(err as Error);
           throw err;
@@ -810,18 +859,24 @@ function buildSandboxRef(
  *  the load-bearing subset of firebase-admin's `DataSnapshot` shape.
  *  Backend-agnostic: the snapshot is a pure (path, value) view; `refAt`
  *  supplies backend-appropriate `Reference`s (local tree or remote), so
- *  the local and remote arms share one snapshot implementation. */
+ *  the local and remote arms share one snapshot implementation.
+ *
+ *  `stored` is the value as RTDB stores it, children by key, with no
+ *  arrays. `val()` renders integer keys as an array when they are dense
+ *  enough; `exportVal()` and `toJSON()` never do (`ChildrenNode.val`
+ *  builds an array only when not exporting). */
 function buildSandboxSnap(
   refAt: (path: string) => AdminReference,
   path: string,
-  val: JsonValue,
+  stored: JsonValue,
 ): AdminDataSnapshot {
   const segs = pathSegments(path);
   const key = segs.length === 0 ? null : segs[segs.length - 1]!;
-  const exists = val !== null;
-  // An array value still has children: `val()` renders integer keys as an
-  // array, and the SDK iterates them as '0', '1', ... (#1110).
-  const children = valueChildren(val);
+  const exists = stored !== null;
+  // A node `val()` renders as an array still has its children, keyed
+  // '0', '1', ... in index order (#1110).
+  const children = valueChildren(stored);
+  const val = coerceArrays(stored);
   const snap = {
     key,
     get ref(): AdminReference {
@@ -835,7 +890,7 @@ function buildSandboxSnap(
     },
     child(p: string): AdminDataSnapshot {
       const childSegs = pathSegments(p);
-      const childVal = valueAtChildPath(val, childSegs) as JsonValue;
+      const childVal = valueAtChildPath(stored, childSegs) as JsonValue;
       return buildSandboxSnap(refAt, joinPath([...segs, ...childSegs]), childVal);
     },
     hasChild(p: string): boolean {
@@ -855,7 +910,7 @@ function buildSandboxSnap(
       return false;
     },
     toJSON(): unknown {
-      return val;
+      return snap.exportVal();
     },
     // RTDB priority isn't modeled — return `null`, matching the SDK
     // default for a node without an explicit priority.
@@ -863,9 +918,9 @@ function buildSandboxSnap(
       return null;
     },
     exportVal(): unknown {
-      // No priorities → `exportVal()` matches `val()`. The SDK's
-      // exportVal includes `.priority` when set; we have none.
-      return val;
+      // The SDK's export format adds `.priority` where one is set;
+      // priorities are not modeled here, so it is the stored value.
+      return structuredClone(stored);
     },
   };
   return snap as unknown as AdminDataSnapshot;
@@ -968,8 +1023,10 @@ function buildRemoteRef(
   const segs = pathSegments(canonical);
   const key = segs.length === 0 ? null : segs[segs.length - 1]!;
   const refAt = (p: string): AdminReference => buildRemoteRef(state, db, p);
+  // The host sends `val()`, arrays included; storing it again by key
+  // recovers the stored value (an array's nulls are holes, not children).
   const snapFromWire = (wire: RemoteWireSnapshot): AdminDataSnapshot =>
-    buildSandboxSnap(refAt, canonical, (wire.value ?? null) as JsonValue);
+    buildSandboxSnap(refAt, canonical, normalizeNode(wire.value ?? null));
 
   const ref = {
     key,
@@ -989,13 +1046,15 @@ function buildRemoteRef(
 
     // ─── Data-plane methods (relayed worker ops) ─────────────────────
 
-    /** Set `value` at this path. `null` deletes. Relays `rtdb.set`. */
-    async set(value: unknown): Promise<void> {
-      await relayRtdbOp(state, {
+    /** Set `value` at this path. `null` deletes. Relays `rtdb.set`. A
+     *  value the SDK refuses throws synchronously and is not relayed. */
+    set(value: unknown): Promise<void> {
+      validateValueArg('set', segs, value);
+      return relayRtdbOp(state, {
         method: 'rtdb.set',
         path: canonical,
-        value: value ?? null,
-      });
+        value,
+      }).then(() => undefined);
     },
 
     /** Read this path (`rtdb.get`). Resolves to a `DataSnapshot`. */
@@ -1044,18 +1103,15 @@ function buildRemoteRef(
 
     /** Relays `rtdb.update` — the worker applies the FULL multi-path
      *  update semantics (`pyric/database`), an upgrade over the
-     *  local arm's shallow per-key merge. `null` values delete. */
-    async update(values: object): Promise<void> {
-      if (values === null || typeof values !== 'object') {
-        throw new TypeError(
-          'pyric-admin/database sandbox: update expected an object.',
-        );
-      }
-      await relayRtdbOp(state, {
+     *  local arm's shallow per-key merge. `null` values delete. Values the
+     *  SDK refuses throw synchronously and are not relayed. */
+    update(values: object): Promise<void> {
+      const patch = validateValuesArg(segs, values);
+      return relayRtdbOp(state, {
         method: 'rtdb.update',
         path: canonical,
-        values: values as Record<string, unknown>,
-      });
+        values: patch,
+      }).then(() => undefined);
     },
 
     /** Delete the subtree at this path (`rtdb.remove`). */
@@ -1076,6 +1132,7 @@ function buildRemoteRef(
      * rejects the thenable and reaches `onComplete`.
      */
     push(value?: unknown, onComplete?: (err: Error | null) => void): AdminThenableReference {
+      if (value !== undefined) validateValueArg('push', segs, value);
       const id = generatePushId();
       const childPath = joinPath([...segs, id]);
       const write: Promise<void> =

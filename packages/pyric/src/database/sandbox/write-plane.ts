@@ -436,7 +436,7 @@ export class WritePlane {
     const updates = Object.entries(patch).map(([key, value]) => {
       const absolute = joinPath([...pathSegments(path), ...pathSegments(key)]);
       const resolved = normalizeWrite(
-        resolveSentinels(value, now, this.state.tree.read(absolute)) as JsonValue, absolute,
+        resolveSentinels(value, now, this.state.tree.read(absolute)) as JsonValue, absolute, 'update', 'values',
       );
       return { path: absolute, value: withPriorities(resolved, inline.get(absolute) ?? []) };
     });
@@ -574,7 +574,7 @@ export class WritePlane {
     return Object.fromEntries(Object.entries(patch).map(([key, value]) => {
       const absolute = joinPath([...pathSegments(path), ...pathSegments(key)]);
       return [absolute, normalizeWrite(
-        resolveSentinels(value, now, this.state.tree.read(absolute)) as JsonValue, absolute,
+        resolveSentinels(value, now, this.state.tree.read(absolute)) as JsonValue, absolute, 'update', 'values',
       )];
     }));
   }

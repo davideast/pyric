@@ -14,6 +14,7 @@ interface SnapshotLike {
   key: string | null;
   val(): unknown;
   exportVal(): unknown;
+  toJSON(): unknown;
   child(path: string): SnapshotLike;
   forEach(action: (child: SnapshotLike) => boolean | void): boolean;
 }
@@ -22,6 +23,7 @@ interface SnapshotLike {
 interface Observation {
   val: unknown;
   exportVal: unknown;
+  toJSON: unknown;
   numChildren: number;
   children: Array<[string | null, unknown]>;
   childAt: Record<string, unknown>;
@@ -41,7 +43,7 @@ function observe(snap: SnapshotLike, count: number, probes: readonly string[]): 
     children.push([child.key, child.val()]);
   });
   const childAt = Object.fromEntries(probes.map((probe) => [probe, snap.child(probe).val()]));
-  return { val: snap.val(), exportVal: snap.exportVal(), numChildren: count, children, childAt };
+  return { val: snap.val(), exportVal: snap.exportVal(), toJSON: snap.toJSON(), numChildren: count, children, childAt };
 }
 
 /** Child paths every read probes, present or not. */
@@ -84,24 +86,36 @@ interface Scenario {
   run(plane: Plane): Promise<void>;
   /** What `val()` renders at `node`, as `ChildrenNode.val` renders it. */
   val: unknown;
+  /** What `exportVal()` and `toJSON()` render, when it differs from `val`. */
+  exported?: unknown;
 }
 
 const NODE = 'node';
 
+/** An array of `length` with only `entries` set: the rest are holes. */
+function sparse(length: number, entries: Record<number, unknown>): unknown[] {
+  return Object.assign(new Array<unknown>(length), entries);
+}
+
 // `@firebase/database` stores children by key. `ChildrenNode.val` renders a
 // node as an array when every key is an integer and the largest is below
-// twice the key count, leaving missing indexes as null holes; otherwise it
-// renders an object. Writes drop null children and empty objects.
+// twice the key count, leaving missing indexes as holes; otherwise it
+// renders an object. The export format (`exportVal()`, `toJSON()`) never
+// builds an array. Writes drop null children and empty objects. Inline
+// `.priority` keys are left out here: `pyric-admin` does not model
+// priorities and drops them.
 const SCENARIOS: Scenario[] = [
   {
     name: 'an object with dense integer keys',
     run: (plane) => plane.set(NODE, { 0: 'a', 1: 'b', 2: 'c' }),
     val: ['a', 'b', 'c'],
+    exported: { 0: 'a', 1: 'b', 2: 'c' },
   },
   {
     name: 'an object with sparse integer keys under the array threshold',
     run: (plane) => plane.set(NODE, { 0: 'a', 2: 'c', 3: 'd' }),
-    val: ['a', null, 'c', 'd'],
+    val: sparse(4, { 0: 'a', 2: 'c', 3: 'd' }),
+    exported: { 0: 'a', 2: 'c', 3: 'd' },
   },
   {
     name: 'an object with sparse integer keys over the array threshold',
@@ -112,11 +126,13 @@ const SCENARIOS: Scenario[] = [
     name: 'an array written directly',
     run: (plane) => plane.set(NODE, ['a', 'b']),
     val: ['a', 'b'],
+    exported: { 0: 'a', 1: 'b' },
   },
   {
     name: 'an array with a null element',
     run: (plane) => plane.set(NODE, ['a', null, 'c']),
-    val: ['a', null, 'c'],
+    val: sparse(3, { 0: 'a', 2: 'c' }),
+    exported: { 0: 'a', 2: 'c' },
   },
   {
     name: 'an array whose nulls leave it over the threshold',
@@ -127,6 +143,7 @@ const SCENARIOS: Scenario[] = [
     name: 'nested arrays and integer-keyed objects',
     run: (plane) => plane.set(NODE, { list: { 0: 'x', 1: { 0: 1, 1: 2 } }, flags: { a: [true] } }),
     val: { list: ['x', [1, 2]], flags: { a: [true] } },
+    exported: { list: { 0: 'x', 1: { 0: 1, 1: 2 } }, flags: { a: { 0: true } } },
   },
   {
     name: 'null children',
@@ -137,6 +154,7 @@ const SCENARIOS: Scenario[] = [
     name: 'empty objects',
     run: (plane) => plane.set(NODE, { a: {}, b: { c: {} }, 0: 'zero' }),
     val: ['zero'],
+    exported: { 0: 'zero' },
   },
   {
     name: 'an empty object written over a value',
@@ -153,6 +171,7 @@ const SCENARIOS: Scenario[] = [
       await plane.update(NODE, { 2: 'c' });
     },
     val: ['a', 'b', 'c'],
+    exported: { 0: 'a', 1: 'b', 2: 'c' },
   },
   {
     name: 'update() removing an index from an array node',
@@ -160,7 +179,8 @@ const SCENARIOS: Scenario[] = [
       await plane.set(NODE, ['a', 'b', 'c']);
       await plane.update(NODE, { 0: null });
     },
-    val: [null, 'b', 'c'],
+    val: sparse(3, { 1: 'b', 2: 'c' }),
+    exported: { 1: 'b', 2: 'c' },
   },
   {
     name: 'update() pushing an array node over the threshold',
@@ -174,21 +194,9 @@ const SCENARIOS: Scenario[] = [
     name: 'update() writing an integer-keyed object as a child',
     run: (plane) => plane.update(NODE, { list: { 0: 'x', 1: 'y' }, empty: {} }),
     val: { list: ['x', 'y'] },
-  },
-  {
-    name: 'push() of an integer-keyed object',
-    run: async (plane) => {
-      const key = await plane.push('pushed', { 0: 'a', 1: 'b' });
-      await plane.set(NODE, { 0: key });
-    },
-    val: ['<push key>'],
+    exported: { list: { 0: 'x', 1: 'y' } },
   },
 ];
-
-/** Push keys differ between planes; compare them by position. */
-function withoutPushKeys(observation: Observation): Observation {
-  return JSON.parse(JSON.stringify(observation).replace(/"[-0-9A-Za-z_]{20}"/g, '"<push key>"')) as Observation;
-}
 
 describe('integer-keyed RTDB values read back the same on every plane (#1121)', () => {
   for (const scenario of SCENARIOS) {
@@ -197,13 +205,15 @@ describe('integer-keyed RTDB values read back the same on every plane (#1121)', 
       for (const [name, makePlane] of PLANES) {
         const plane = makePlane();
         await scenario.run(plane);
-        observations.push([name, withoutPushKeys(await plane.read(NODE))]);
+        observations.push([name, await plane.read(NODE)]);
       }
       const [, reference] = observations[0]!;
-      expect(reference.val).toEqual(scenario.val);
-      expect(reference.exportVal).toEqual(scenario.val);
+      // Strict, so a hole and a null are not equal.
+      expect(reference.val).toStrictEqual(scenario.val);
+      expect(reference.exportVal).toStrictEqual(scenario.exported ?? scenario.val);
+      expect(reference.toJSON).toStrictEqual(scenario.exported ?? scenario.val);
       for (const [name, observation] of observations) {
-        expect({ name, ...observation }).toEqual({ name, ...reference });
+        expect({ name, ...observation }).toStrictEqual({ name, ...reference });
       }
     });
   }
@@ -213,9 +223,10 @@ describe('integer-keyed RTDB values read back the same on every plane (#1121)', 
       const plane = makePlane();
       const key = await plane.push('log', { 0: 'a', 1: 'b' });
       const log = await plane.read('log');
-      expect({ name, val: log.val, children: log.children }).toEqual({
+      expect({ name, val: log.val, exportVal: log.exportVal, children: log.children }).toStrictEqual({
         name,
         val: { [key]: ['a', 'b'] },
+        exportVal: { [key]: { 0: 'a', 1: 'b' } },
         children: [[key, ['a', 'b']]],
       });
     }
