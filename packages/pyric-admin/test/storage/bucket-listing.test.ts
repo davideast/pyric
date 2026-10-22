@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'bun:test';
 import { deletedNamesFound, deleteListedFiles } from '../../src/storage/delete-files.js';
-import { everyListedName, listingPage } from '../../src/storage/file-query.js';
+import { everyListedName, listingPage, type GetFilesOptions } from '../../src/storage/file-query.js';
 import { getFilesResponse, pageNamesFound } from '../../src/storage/get-files.js';
 import { namesForQuery, WALK_CONCURRENCY, type FolderListing } from '../../src/storage/remote-names.js';
 
@@ -138,15 +138,22 @@ describe('namesForQuery over a wide tree (#1183)', () => {
   ];
 
   /** A host over `names` that counts listings in flight, as the client's operation budget does. */
-  function host(names: readonly string[], options: { failAt?: string } = {}) {
+  interface HostOptions {
+    /** Listings of these folders reject. */
+    fails?: (path: string) => boolean;
+    /** How long a listing of this folder takes, in milliseconds. */
+    delayMs?: (path: string) => number;
+  }
+
+  function host(names: readonly string[], options: HostOptions = {}) {
     const stats = { inFlight: 0, maxInFlight: 0, listed: [] as string[] };
     const listFolder = async (path: string): Promise<FolderListing> => {
       stats.inFlight += 1;
       stats.maxInFlight = Math.max(stats.maxInFlight, stats.inFlight);
       stats.listed.push(path);
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, options.delayMs?.(path) ?? 0));
       stats.inFlight -= 1;
-      if (path === options.failAt) throw Object.assign(new Error('listing failed'), { code: 'unavailable' });
+      if (options.fails?.(path) === true) throw Object.assign(new Error('listing failed'), { code: 'unavailable' });
       const scan = path === '' ? '' : `${path}/`;
       const items: FolderListing['items'] = [];
       const folders = new Set<string>();
@@ -200,8 +207,52 @@ describe('namesForQuery over a wide tree (#1183)', () => {
     expect(stats.listed.length).toBeLessThan(5 + 2 * WALK_CONCURRENCY);
   });
 
+  it('keeps at most WALK_CONCURRENCY listings in flight while descending past slow siblings', async () => {
+    // A comb 45 folders deep: each level holds the next level `c` and seven
+    // single-object siblings, which list slowly, so lookahead listings for
+    // siblings are still pending while the walk descends.
+    const comb: string[] = [];
+    for (let depth = 0, folder = 'c'; depth < 45; depth += 1, folder += '/c') {
+      for (let sibling = 1; sibling <= 7; sibling += 1) comb.push(`${folder}/s${sibling}/file`);
+    }
+    const { stats, listFolder } = host(comb, { delayMs: (path) => (/\/s\d$/.test(path) ? 20 : 0) });
+    expect(await namesForQuery({}, listFolder)).toEqual(listingPage(comb, {}, Infinity).names);
+    expect(stats.maxInFlight).toBeLessThanOrEqual(WALK_CONCURRENCY);
+  });
+
+  it('resumes at a pageToken that points inside a folder', async () => {
+    const names = ['a/b/c/1', 'a/b/c/2', 'a/b/c/3', 'a/b0', 'a/b/d'];
+    const { listFolder } = host(names);
+    let query: GetFilesOptions | null = { maxResults: 2 };
+    const pages: string[][] = [];
+    while (query !== null) {
+      const found = await namesForQuery(query, listFolder, pageNamesFound(query));
+      const [page, next] = getFilesResponse(found, query, (name) => name);
+      expect([page, next]).toEqual(getFilesResponse(names, query, (name) => name).slice(0, 2));
+      pages.push(page);
+      query = next;
+    }
+    expect(pages).toEqual([['a/b/c/1', 'a/b/c/2'], ['a/b/c/3', 'a/b/d'], ['a/b0']]);
+  });
+
+  it('leaves no unhandled rejection when every lookahead listing rejects', async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const { listFolder } = host(WIDE, { fails: (path) => path.startsWith('media/'), delayMs: (path) => (path === 'media/0' ? 0 : 5) });
+      await expect(namesForQuery({}, listFolder)).rejects.toThrow('listing failed');
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
+    expect(unhandled).toEqual([]);
+  });
+
   it('rejects with the failed listing and starts no more listings after it', async () => {
-    const { stats, listFolder } = host(WIDE, { failAt: 'media/500' });
+    const { stats, listFolder } = host(WIDE, { fails: (path) => path === 'media/500' });
     await expect(namesForQuery({}, listFolder)).rejects.toThrow('listing failed');
     const listedAtFailure = stats.listed.length;
     await new Promise((resolve) => setTimeout(resolve, 10));
