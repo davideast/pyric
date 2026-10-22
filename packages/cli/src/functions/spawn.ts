@@ -23,6 +23,9 @@ export interface SpawnFunctionsChildOptions {
   childModuleUrl?: string | URL;
   nodeExecutable?: string;
   onEvent?(event: FunctionsChildEvent): void;
+  /** Called once when a ready child misses heartbeats for `heartbeatTimeoutMs`. */
+  onUnresponsive?(): void;
+  heartbeatTimeoutMs?: number;
 }
 
 export interface FunctionsChildHandle {
@@ -33,6 +36,9 @@ export interface FunctionsChildHandle {
 }
 
 const FORCE_KILL_AFTER_MS = 2_000;
+
+/** Ten missed beats: long enough for a slow synchronous handler, short enough to notice a loop. */
+const HEARTBEAT_TIMEOUT_MS = 10_000;
 
 export interface FunctionsChildEnvOptions {
   baseEnv: NodeJS.ProcessEnv;
@@ -128,6 +134,20 @@ export function spawnFunctionsChild(
 
   let readySettled = false;
   let stopping = false;
+  let lastBeat = Date.now();
+  let reportedUnresponsive = false;
+  let watchdog: ReturnType<typeof setInterval> | undefined;
+  const heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? HEARTBEAT_TIMEOUT_MS;
+  const watchHeartbeat = (): void => {
+    lastBeat = Date.now();
+    watchdog = setInterval(() => {
+      const silent = Date.now() - lastBeat > heartbeatTimeoutMs;
+      if (!silent || reportedUnresponsive || stopping) return;
+      reportedUnresponsive = true;
+      options.onUnresponsive?.();
+    }, Math.min(1_000, heartbeatTimeoutMs / 2));
+    watchdog.unref();
+  };
   let stderr = '';
   child.stderr?.setEncoding('utf8');
   child.stderr?.on('data', (chunk: string) => {
@@ -143,8 +163,11 @@ export function spawnFunctionsChild(
 
   child.on('message', (raw: unknown) => {
     if (!isChildMessage(raw)) return;
-    if (raw.type === 'ready') {
+    if (raw.type === 'heartbeat') {
+      lastBeat = Date.now();
+    } else if (raw.type === 'ready') {
       readySettled = true;
+      watchHeartbeat();
       resolveReady({
         triggerCount: raw.triggerCount,
         unsupportedTriggers: raw.unsupportedTriggers,
@@ -172,6 +195,7 @@ export function spawnFunctionsChild(
     });
     child.once('close', (code, signal) => {
       if (forceTimer !== undefined) clearTimeout(forceTimer);
+      if (watchdog !== undefined) clearInterval(watchdog);
       const exitCode = typeof code === 'number' ? code : signal ? 1 : 0;
       if (!readySettled) {
         readySettled = true;

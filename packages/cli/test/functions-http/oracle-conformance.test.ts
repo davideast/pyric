@@ -276,11 +276,20 @@ const ROWS: Record<string, RowAssertion> = {
     observation: 'functions-http-onrequest-uncaught-async',
     slow: true,
     async run() {
-      await replayed('functions-http-onrequest-uncaught-async', undefined, slow);
+      // Pyric's side first, so it is checked whether or not the observation is captured.
       const { url, output } = await servingSession();
-      const after = await sendProbeRequest(`${url}${functionPath('pyricHttpEcho')}`, { id: 'row-12', function: 'pyricHttpEcho', via: 'cloudfunctions' });
+      const whoami = async (mode?: string) => sendProbeRequest(
+        `${url}${functionPath('pyricHttpUncaught')}${mode ? `?mode=${mode}` : ''}`,
+        { id: 'row-12', function: 'pyricHttpUncaught', via: 'cloudfunctions' },
+      );
+      const before = await whoami();
+      expect((await whoami('after-response')).status).toBe(200);
+      await Bun.sleep(300);
+      const after = await whoami();
       expect(after.status).toBe(200);
+      expect(echoOf(after).instanceId).toBe(echoOf(before).instanceId);
       expect(output()).not.toMatch(/functions child exited|unexpected-exit/i);
+      await replayed('functions-http-onrequest-uncaught-async', undefined, slow);
     },
   },
   'functions-http#13': { observation: 'functions-http-onrequest-cors-unset', run: () => replayed('functions-http-onrequest-cors-unset') },

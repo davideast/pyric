@@ -15,8 +15,27 @@ export interface ProxyTarget {
   forwardUrl: string;
 }
 
+/** Headers minus hop-by-hop ones, including any the message's own Connection header names. */
 function endToEnd(headers: IncomingHttpHeaders): IncomingHttpHeaders {
-  return Object.fromEntries(Object.entries(headers).filter(([name]) => !HOP_BY_HOP.has(name)));
+  const listed = String(headers.connection ?? '').split(',').map((name) => name.trim().toLowerCase()).filter(Boolean);
+  const dropped = new Set([...HOP_BY_HOP, ...listed]);
+  return Object.fromEntries(Object.entries(headers).filter(([name]) => !dropped.has(name)));
+}
+
+/**
+ * What the child receives: the client's end-to-end headers, the client
+ * appended to X-Forwarded-For, and forwarding headers this hop owns rather
+ * than ones the client sent.
+ */
+function forwardedHeaders(req: IncomingMessage, target: ProxyTarget): IncomingHttpHeaders {
+  const headers = endToEnd(req.headers);
+  const client = req.socket.remoteAddress ?? '';
+  const prior = headers['x-forwarded-for'];
+  headers['x-forwarded-for'] = prior ? `${String(prior)}, ${client}` : client;
+  headers['x-forwarded-proto'] = 'http';
+  delete headers['x-forwarded-host'];
+  headers[FUNCTION_TARGET_HEADER] = target.exportName;
+  return headers;
 }
 
 /** Resolves with the status the function answered, or null when no response reached the client. */
@@ -28,7 +47,7 @@ export function proxyToChild(req: IncomingMessage, res: ServerResponse, target: 
       port: target.port,
       method: req.method,
       path: target.forwardUrl,
-      headers: { ...endToEnd(req.headers), [FUNCTION_TARGET_HEADER]: target.exportName },
+      headers: forwardedHeaders(req, target),
     });
     upstream.on('response', (answer) => {
       status = answer.statusCode ?? 502;

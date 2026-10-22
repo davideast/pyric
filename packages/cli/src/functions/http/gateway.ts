@@ -10,13 +10,17 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { FunctionsChildHttpReady } from '../child-protocol.js';
 import { proxyToChild } from './proxy.js';
-import { matchEmulatorPath, unknownFunctionMessage, type FunctionRoute } from './routes.js';
+import { matchEmulatorPath, type FunctionRoute } from './routes.js';
 
 export type FunctionsHttpState =
   | { kind: 'waiting-peer'; serveUrl: string }
   | { kind: 'starting' }
   | { kind: 'reloading' }
   | { kind: 'failed'; message: string }
+  /** The child stopped beating; the runtime is restarting it. */
+  | { kind: 'unresponsive' }
+  /** The child exited after it was ready. */
+  | { kind: 'exited'; code: number }
   | { kind: 'stopped' }
   | { kind: 'ready'; http: FunctionsChildHttpReady | null };
 
@@ -45,6 +49,10 @@ function unavailableReason(state: FunctionsHttpState): string | null {
       return 'Functions are reloading after a source change. Retry in a moment.';
     case 'failed':
       return `Functions failed to start: ${state.message}`;
+    case 'unresponsive':
+      return 'The Functions child is unresponsive: a handler may be stuck in a synchronous loop. pyric is restarting it; retry in a moment.';
+    case 'exited':
+      return `The Functions child exited (code ${state.code}). Save a Functions source file or restart pyric to start it again.`;
     case 'stopped':
       return 'Functions are stopped.';
     case 'ready':
@@ -74,11 +82,7 @@ export function createFunctionsHttpGateway(options: FunctionsHttpGatewayOptions)
         return true;
       }
       const http = state.kind === 'ready' ? state.http : null;
-      if (route.kind !== 'function' || http === null) {
-        const key = route.kind === 'unknown-function' ? route.key : 'unknown';
-        res.writeHead(404, PLAIN_TEXT).end(unknownFunctionMessage(key, http?.functions ?? []));
-        return true;
-      }
+      if (route.kind !== 'function' || http === null) return false;
       await proxyToChild(req, res, { port: http.port, exportName: route.fn.exportName, forwardUrl: route.forwardUrl });
       return true;
     },

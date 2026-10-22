@@ -14,6 +14,7 @@ import {
   createPrivateInvokerWarnings,
   httpFunctionLines,
   stateAfterStart,
+  UNRESPONSIVE_LINE,
   uncaughtErrorLine,
 } from '../functions/http/report.js';
 import type { BridgeMount } from './bridge-mount.js';
@@ -62,6 +63,15 @@ function reportEvent(
     return;
   }
   if (event.type === 'starting') return;
+  if (event.type === 'unresponsive') {
+    logger.error(`  ✖ [pyric] ${UNRESPONSIVE_LINE}`);
+    return;
+  }
+  if (event.type === 'restarted') {
+    if (event.result.kind === 'ready') logger.info('  ↻ [pyric] functions restarted');
+    else logger.error(`  ✖ [pyric] functions did not restart (${event.result.kind === 'failed' ? event.result.error.message : 'no sandbox peer'})`);
+    return;
+  }
   const childEvent = event.event;
   if (childEvent.type === 'uncaught-error') {
     logger.error(`  ✖ [pyric] ${uncaughtErrorLine(childEvent.error)}`);
@@ -217,7 +227,12 @@ export function attachViteFunctionsDevelopment(
         const exited = event.type === 'unexpected-exit';
         if (exited) {
           running = false;
-          gateway.update({ kind: 'failed', message: `the Functions child exited (code ${event.code})` });
+          gateway.update({ kind: 'exited', code: event.code });
+        }
+        if (event.type === 'unresponsive') gateway.update({ kind: 'unresponsive' });
+        if (event.type === 'restarted') {
+          running = event.result.kind === 'ready';
+          gateway.update(stateAfterStart(event.result, url));
         }
         if (event.type === 'starting') gateway.update({ kind: event.mode === 'reload' ? 'reloading' : 'starting' });
         reportEvent(options.logger, event);

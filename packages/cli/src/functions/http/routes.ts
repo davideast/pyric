@@ -9,8 +9,6 @@ import type { HttpFunctionInfo } from './discovery.js';
 export type FunctionRoute =
   /** A served function, and the URL it sees. */
   | { kind: 'function'; fn: HttpFunctionInfo; forwardUrl: string }
-  /** The emulator path shape under this project, naming no served function. */
-  | { kind: 'unknown-function'; key: string }
   /** The emulator path shape under this project, before the function list is known. */
   | { kind: 'emulator-path' };
 
@@ -21,11 +19,6 @@ export interface FunctionRouteTable {
   projectId: string;
   /** Null until the child reports its functions. */
   functions: readonly HttpFunctionInfo[] | null;
-}
-
-/** The emulator's key for a function: `{region}-{name}`. */
-export function functionKey(region: string, exportName: string): string {
-  return `${region}-${exportName}`;
 }
 
 /** Splits `/{a}/{b}/{c}/rest?query` without decoding, so the forwarded URL keeps the client's bytes. */
@@ -47,12 +40,8 @@ export function matchEmulatorPath(rawUrl: string, table: FunctionRouteTable): Fu
   if (!isEmulatorShape) return null;
   if (table.functions === null) return { kind: 'emulator-path' };
   const fn = table.functions.find((candidate) => candidate.exportName === name && candidate.regions.includes(region));
-  if (!fn) return { kind: 'unknown-function', key: functionKey(region, name) };
+  // Only a discovered key is a function route; anything else stays the plane's (a static
+  // directory may share the project id's name).
+  if (!fn) return null;
   return { kind: 'function', fn, forwardUrl: `${rest || '/'}${search}` };
-}
-
-/** The emulator's answer for an unknown key (`functionsEmulator.js:1233-1247`). */
-export function unknownFunctionMessage(key: string, functions: readonly HttpFunctionInfo[]): string {
-  const valid = functions.flatMap((fn) => fn.regions.map((region) => functionKey(region, fn.exportName)));
-  return `Function ${key} does not exist, valid functions are: ${valid.join(', ')}`;
 }

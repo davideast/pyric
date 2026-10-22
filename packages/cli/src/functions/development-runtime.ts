@@ -24,6 +24,10 @@ export type FunctionsDevelopmentEvent =
   /** A sandbox peer is connected and the child is about to spawn. */
   | { type: 'starting'; mode: 'initial' | 'reload' }
   | { type: 'child-event'; event: FunctionsChildEvent }
+  /** The child stopped beating: a handler is likely stuck in a synchronous loop. The runtime restarts it. */
+  | { type: 'unresponsive' }
+  /** How the restart after an unresponsive child ended. */
+  | { type: 'restarted'; result: FunctionsDevelopmentResult }
   | { type: 'output'; stream: 'stdout' | 'stderr'; line: string }
   | { type: 'unexpected-exit'; code: number };
 
@@ -56,6 +60,8 @@ export interface FunctionsDevelopmentRuntimeOptions {
   spawn?(options: SpawnFunctionsChildOptions): FunctionsChildHandle;
   initialPeerTimeoutMs?: number;
   reloadPeerTimeoutMs?: number;
+  /** Internal test seam for the child heartbeat watchdog. */
+  heartbeatTimeoutMs?: number;
 }
 
 function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
@@ -233,6 +239,8 @@ export function createFunctionsDevelopmentRuntime(
         projectId: options.projectId,
         ...(options.childModuleUrl === undefined ? {} : { childModuleUrl: options.childModuleUrl }),
         onEvent: (event) => emit({ type: 'child-event', event }),
+        onUnresponsive: () => restartUnresponsive(),
+        ...(options.heartbeatTimeoutMs === undefined ? {} : { heartbeatTimeoutMs: options.heartbeatTimeoutMs }),
       });
     } catch (error) {
       return { kind: 'failed', error: asError(error) };
@@ -266,6 +274,14 @@ export function createFunctionsDevelopmentRuntime(
       await stopChild(handle);
       return { kind: 'failed', error: asError(error) };
     }
+  };
+
+  const restartUnresponsive = (): void => {
+    if (closed) return;
+    emit({ type: 'unresponsive' });
+    void runtime.reload().then((result) => {
+      if (!closed) emit({ type: 'restarted', result });
+    });
   };
 
   const runtime: FunctionsDevelopmentRuntime = {

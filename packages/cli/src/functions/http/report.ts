@@ -41,3 +41,7 @@ export function stateAfterStart(
   if (result.kind === 'no-peer') return { kind: 'waiting-peer', serveUrl };
   return { kind: 'failed', message: result.error.message };
 }
+
+/** What both planes print when the child stops beating. */
+export const UNRESPONSIVE_LINE =
+  'Functions child unresponsive: no heartbeat for 10 s, so a handler may be stuck in a synchronous loop. Restarting it.';
