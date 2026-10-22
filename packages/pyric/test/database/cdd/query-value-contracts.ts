@@ -40,12 +40,13 @@ export async function assertM66ArrayCoercionThresholds(): Promise<void> {
   const db = setup();
   for (const [path, value, expected] of [
     ['dense', { 0: 'a', 1: 'b' }, ['a', 'b']],
-    ['sparse-below-threshold', { 0: 'a', 2: 'c' }, ['a', null, 'c']],
+    // A missing index is a hole, as `ChildrenNode.val` leaves it, not a null.
+    ['sparse-below-threshold', { 0: 'a', 2: 'c' }, Object.assign(new Array<string>(3), { 0: 'a', 2: 'c' })],
     ['at-threshold', { 0: 'a', 4: 'e' }, { 0: 'a', 4: 'e' }],
     ['non-integer', { 0: 'a', x: 'x' }, { 0: 'a', x: 'x' }],
   ] as const) {
     await api.set(api.ref(db, path), value);
-    expect((await api.get(api.ref(db, path))).val()).toEqual(expected);
+    expect((await api.get(api.ref(db, path))).val()).toStrictEqual(expected);
   }
 }
 
