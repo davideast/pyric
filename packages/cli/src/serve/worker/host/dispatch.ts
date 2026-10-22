@@ -29,7 +29,6 @@ import {
 // executes against THIS sandbox (one backend for app + Studio + agent), instead
 // of a separate in-page sandbox.
 import { buildSandboxDispatcher } from '../../../bridge/client/dispatch.js';
-import { firebaseOptionsEqual } from 'pyric/app/internal';
 
 import { activityJourneyId, type HostCtx, type PortLike, ok, fail } from '../host-context.js';
 import { getOrCreateRemoteClientPort, RemoteClientPort } from '../remote-client-port.js';
@@ -62,11 +61,11 @@ import {
 } from './core.js';
 import { isFirestoreReadOp, handleFirestoreReadOp } from './firestore-reads.js';
 import { isFirestoreWriteOp, handleFirestoreWriteOp } from './firestore-writes.js';
-import { isRulesOp, handleRulesOp, resolvePendingDatabaseTargets } from './rules.js';
+import { isRulesOp, handleRulesOp } from './rules.js';
 import { handleClockOp, isClockOp, subscribeClock, unsubscribeClock } from './clock.js';
 import { isAdminFirestoreOp, handleAdminFirestoreOp } from './admin-firestore.js';
 import { isRtdbOp, handleRtdbOp, drainPortRtdbDisconnects, forgetPortRtdbConnection } from './rtdb.js';
-import { adoptAppDefaultRtdbInstance } from './rtdb-instances.js';
+import { configConflictError, forgetConfigPort, handleAppConfig } from './app-config-lock.js';
 import { isStorageOp, handleStorageOp } from './storage.js';
 import { isConnectionOp, handleConnectionOp } from './connection.js';
 import { isStudioOp, handleStudioOp } from './studio.js';
@@ -78,26 +77,6 @@ import {
   cleanupPortPresence,
 } from './presence.js';
 import { handleSub, handleRtdbSub, handleUnsub, dropPortSubscriptionIntents } from './subscriptions.js';
-
-function diffTopLevelOptionKeys(
-  expected: Record<string, unknown>,
-  actual: Record<string, unknown>,
-): string[] {
-  const keys = [...new Set([...Object.keys(expected), ...Object.keys(actual)])].sort();
-  return keys.filter((key) => !firebaseOptionsEqual(expected[key], actual[key]));
-}
-
-function configConflictError(
-  expected?: Record<string, unknown>,
-  actual?: Record<string, unknown>,
-): Error & { code: string } {
-  const differing = expected && actual ? diffTopLevelOptionKeys(expected, actual) : [];
-  const detail = differing.length > 0 ? ` (differs on: ${differing.join(', ')})` : '';
-  return Object.assign(
-    new Error(`Pyric currently supports one Firebase configuration per runtime${detail}`),
-    { code: 'app/multiple-configs-not-supported' },
-  );
-}
 
 // ─── Op orchestrator ────────────────────────────────────────────────────────
 
@@ -239,82 +218,7 @@ export async function handleMessage(
 
   const configuresApp = msg.t === 'appConfig';
   if (configuresApp) {
-    const isFromPriorHost = msg.fromPriorHost === true;
-    const isHostVerified = msg.hostVerified === true && !isFromPriorHost;
-    const hasNoAppOptions = ctx.appOptions === undefined;
-    if (hasNoAppOptions) {
-      ctx.appOptions = structuredClone(msg.options);
-      ctx.appOptionsFromPriorHost = isFromPriorHost;
-      ctx.appOptionsVerified = isHostVerified;
-      if (isFromPriorHost) {
-        (ctx.priorHostConfigPorts ??= new Set()).add(targetPort);
-        ctx.defaultRtdbAdoptedFromPriorHost = ctx.defaultRtdbInstance === undefined
-          || ctx.defaultRtdbInstance === '__unnamed_default__';
-      } else if (!isHostVerified) {
-        (ctx.unverifiedConfigPorts ??= new Set()).add(targetPort);
-        ctx.defaultRtdbAdoptedFromPriorHost = ctx.defaultRtdbInstance === undefined
-          || ctx.defaultRtdbInstance === '__unnamed_default__';
-      }
-      adoptAppDefaultRtdbInstance(ctx);
-      resolvePendingDatabaseTargets(ctx);
-    } else if (
-      (ctx.appOptionsFromPriorHost === true && !isFromPriorHost)
-      || (ctx.appOptionsVerified !== true && isHostVerified)
-    ) {
-      const priorOptions = ctx.appOptions!;
-      const priorPorts = [
-        ...(ctx.priorHostConfigPorts ?? []),
-        ...(isHostVerified ? (ctx.unverifiedConfigPorts ?? []) : []),
-      ];
-      ctx.appOptionsFromPriorHost = false;
-      ctx.appOptionsVerified = isHostVerified;
-      ctx.priorHostConfigPorts?.clear();
-      if (isHostVerified) {
-        ctx.unverifiedConfigPorts?.clear();
-      } else {
-        (ctx.unverifiedConfigPorts ??= new Set()).add(targetPort);
-      }
-      const supersedesProvisional = !firebaseOptionsEqual(priorOptions, msg.options);
-      if (supersedesProvisional) {
-        ctx.appOptions = structuredClone(msg.options);
-        if (ctx.defaultRtdbAdoptedFromPriorHost) {
-          ctx.defaultRtdbInstance = undefined;
-          ctx.defaultRtdbAdoptedFromPriorHost = false;
-        }
-        adoptAppDefaultRtdbInstance(ctx);
-        resolvePendingDatabaseTargets(ctx);
-        const conflict = configConflictError(ctx.appOptions, priorOptions);
-        for (const stalePort of priorPorts) {
-          if (stalePort === targetPort) continue;
-          const staleSubs = ctx.subs.get(stalePort);
-          if (staleSubs !== undefined) {
-            for (const subId of staleSubs.keys()) {
-              stalePort.postMessage({
-                t: 'snap',
-                subId,
-                value: { __error: { code: conflict.code, message: conflict.message } },
-              });
-            }
-          }
-          cleanupPort(ctx, stalePort);
-          ctx.disconnectedPorts?.delete(stalePort);
-          (ctx.rejectedConfigPorts ??= new WeakSet()).add(stalePort);
-          (ctx.rejectedConfigDetails ??= new WeakMap()).set(stalePort, priorOptions);
-        }
-      } else {
-        ctx.defaultRtdbAdoptedFromPriorHost = false;
-      }
-    } else {
-      const optionsConflict = !firebaseOptionsEqual(ctx.appOptions, msg.options);
-      if (optionsConflict) {
-        (ctx.rejectedConfigPorts ??= new WeakSet()).add(targetPort);
-        (ctx.rejectedConfigDetails ??= new WeakMap()).set(targetPort, structuredClone(msg.options));
-      } else if (ctx.appOptionsFromPriorHost === true && isFromPriorHost) {
-        ctx.priorHostConfigPorts?.add(targetPort);
-      } else if (ctx.appOptionsVerified !== true && !isHostVerified) {
-        (ctx.unverifiedConfigPorts ??= new Set()).add(targetPort);
-      }
-    }
+    handleAppConfig(ctx, targetPort, msg, stalePort => cleanupPort(ctx, stalePort));
     return;
   }
   // A rejected app port still owns host-side resources until its explicit
@@ -487,7 +391,7 @@ export async function cleanupPortWithDisconnect(ctx: HostCtx, port: PortLike): P
  */
 export function cleanupPort(ctx: HostCtx, port: PortLike): void {
   (ctx.disconnectedPorts ??= new WeakSet()).add(port);
-  ctx.priorHostConfigPorts?.delete(port);
+  forgetConfigPort(ctx, port);
   const failures: unknown[] = [];
   const attempt = (cleanup: () => void): void => {
     try {

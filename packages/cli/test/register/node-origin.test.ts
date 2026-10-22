@@ -17,12 +17,14 @@ interface Line {
   useWorker?: boolean;
   useHosted?: boolean;
   placeholderValue?: unknown;
+  type?: string;
+  hostInstanceId?: string | null;
 }
 
 const FIXTURE = resolve(import.meta.dir, 'fixtures/node-origin-client.ts');
 const SERVICES = ['database', 'firestore', 'auth', 'storage'];
 
-function run(mode: 'off-host' | 'unreachable'): Map<string, Line> {
+function run(mode: 'off-host' | 'unreachable' | 'attach'): Map<string, Line> {
   const result = Bun.spawnSync([process.execPath, FIXTURE, mode], { env: { ...process.env, PYRIC_SANDBOX: '' } });
   expect(result.exitCode, result.stderr.toString()).toBe(0);
   const lines = result.stdout.toString().trim().split('\n').filter(line => line.startsWith('{'));
@@ -46,6 +48,11 @@ describe('served client surfaces under a Node runtime origin', () => {
       expect(line?.message, service).toContain('reach only the Node host');
     }
     expectNoFallback(lines);
+  });
+
+  it("present the host boot named in the Node host's init.json on attach", () => {
+    const lines = run('attach');
+    expect(lines.get('attach')).toEqual({ name: 'attach', type: 'attach', hostInstanceId: 'host-boot-1' });
   });
 
   it('fail every call with the discovery error when no host is found', () => {

@@ -24,6 +24,7 @@ import {
   type OutboundMessage,
   type AuthPersistenceMode,
   type AiEngineConfigWire,
+  type AppConfigMessage,
 } from './protocol.js';
 
 // ─── AI broker (structural view) ──────────────────────────────────────────
@@ -174,6 +175,8 @@ export interface HostCtx {
   rejectedConfigPorts?: WeakSet<PortLike>;
   /** Conflicting options supplied by each rejected port, used to name differing keys in errors. */
   rejectedConfigDetails?: WeakMap<PortLike, Record<string, unknown>>;
+  /** Ports refused when they arrived, by the config they sent, so a lock that later adopts it accepts them again. */
+  refusedConfigMessages?: Map<PortLike, AppConfigMessage>;
   /**
    * The ONE shared auth handle for the worker — the USER POOL (who exists)
    * and the admin surface. Lazily created on first auth op or auth

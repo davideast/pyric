@@ -1,5 +1,5 @@
 import 'fake-indexeddb/auto';
-import { describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { createMemoryBackend, initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
 import { handleMessage, type HostCtx, type PortLike } from '../../../src/serve/worker/host.js';
@@ -309,5 +309,123 @@ describe('worker host appConfig lock and pre-restart tab supersede', () => {
     if (!conflictReply.ok) {
       expect(conflictReply.error.code).toBe('app/multiple-configs-not-supported');
     }
+  });
+});
+
+describe('worker host appConfig lock between verified pages and Node processes', () => {
+  const ssrConfig = {
+    apiKey: 'demo-key',
+    appId: '1:1:web:1',
+    authDomain: 'demo-app.firebaseapp.com',
+    projectId: 'demo-app',
+    databaseURL: 'https://demo-app-default-rtdb.firebaseio.com',
+    storageBucket: 'demo-app.appspot.com',
+  };
+  const pageConfig = { ...ssrConfig, measurementId: 'G-TEST123' };
+  const warnings: string[] = [];
+  let warn: ReturnType<typeof spyOn> | undefined;
+  beforeEach(() => {
+    warnings.length = 0;
+    warn = spyOn(console, 'warn').mockImplementation((...args: unknown[]) => { warnings.push(args.map(String).join(' ')); });
+  });
+  afterEach(() => { warn?.mockRestore(); });
+
+  async function op(ctx: HostCtx, port: ReturnType<typeof makePort>, id: string): Promise<ResMessage> {
+    port.messages.length = 0;
+    await handleMessage(ctx, port.port, { t: 'op', id, method: 'getDoc', path: 'spaces/s1' });
+    return port.messages.find((message): message is ResMessage => message.t === 'res' && message.id === id)!;
+  }
+
+  it('refuses a verified page whose config adds measurementId while a verified Node process holds the config', async () => {
+    const ctx = await makeCtx();
+    const ports = new Map<string, ReturnType<typeof makePort>>();
+    const bridge = createBridge({ projectKey: 'ssr-and-page' });
+    bridge.registerSandboxPeer(
+      (frame) => {
+        if (frame.type === 'worker-message' && frame.clientSessionId) {
+          let entry = ports.get(frame.clientSessionId);
+          if (!entry) {
+            entry = makePort();
+            ports.set(frame.clientSessionId, entry);
+          }
+          void handleMessage(ctx, entry.port, frame.message);
+        }
+      },
+      [],
+      'sandbox-ssr',
+      ['worker-port'],
+    );
+    // A Node process attaches with the instance id from this host's init.json.
+    const nodeProcess = createConsumerSession(bridge, () => {});
+    nodeProcess.handleMessage({
+      type: 'attach', protocol: 1, transport: 'worker-port', hostInstanceId: bridge.instanceId, clientInfo: { platform: 'node' },
+    });
+    nodeProcess.handleMessage({ type: 'worker-message', message: { t: 'appConfig', options: ssrConfig } });
+    // The page the host served attaches with the same boot, and a config that adds measurementId.
+    const page = createConsumerSession(bridge, () => {});
+    page.handleMessage({
+      type: 'attach', protocol: 1, transport: 'worker-port', hostInstanceId: bridge.instanceId, clientInfo: { platform: 'browser' },
+    });
+    page.handleMessage({ type: 'worker-message', message: { t: 'appConfig', options: pageConfig } });
+
+    const [nodePort, pagePort] = [...ports.values()];
+    expect((await op(ctx, nodePort!, 'node-read')).ok).toBe(true);
+    const refused = await op(ctx, pagePort!, 'page-read');
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) {
+      expect(refused.error.code).toBe('app/multiple-configs-not-supported');
+      expect(refused.error.message).toContain('differs on: measurementId');
+    }
+    expect((await op(ctx, nodePort!, 'node-read-after')).ok).toBe(true);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("[pyric] Refused a client's Firebase config (differs on: measurementId).");
+    expect(warnings[0]).toContain('that client keeps working');
+  });
+
+  it('logs the eviction when a verified client replaces a provisional config', async () => {
+    const ctx = await makeCtx();
+    const cachedServiceWorker = makePort();
+    const page = makePort();
+    await handleMessage(ctx, cachedServiceWorker.port, { t: 'appConfig', options: ssrConfig });
+    await handleMessage(ctx, page.port, { t: 'appConfig', options: pageConfig, hostVerified: true });
+
+    expect((await op(ctx, page, 'page-read')).ok).toBe(true);
+    expect((await op(ctx, cachedServiceWorker, 'sw-read')).ok).toBe(false);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain(
+      '[pyric] Replaced the provisional Firebase config with the one a client verified against this host sent (differs on: measurementId).',
+    );
+    expect(warnings[0]).toContain('1 client on the earlier config');
+  });
+
+  it('accepts a client a provisional lock refused once a verified client with its config takes over', async () => {
+    const ctx = await makeCtx();
+    const cachedServiceWorker = makePort();
+    const nodeFromPriorHost = makePort();
+    const page = makePort();
+    await handleMessage(ctx, cachedServiceWorker.port, { t: 'appConfig', options: pageConfig });
+    // Neither is verified, so the Node process, which came second, is refused.
+    await handleMessage(ctx, nodeFromPriorHost.port, { t: 'appConfig', options: ssrConfig, fromPriorHost: true });
+    expect((await op(ctx, nodeFromPriorHost, 'node-refused')).ok).toBe(false);
+
+    await handleMessage(ctx, page.port, { t: 'appConfig', options: ssrConfig, hostVerified: true });
+
+    expect((await op(ctx, page, 'page-read')).ok).toBe(true);
+    expect((await op(ctx, nodeFromPriorHost, 'node-read')).ok).toBe(true);
+    expect((await op(ctx, cachedServiceWorker, 'sw-read')).ok).toBe(false);
+  });
+
+  it('forgets a refused client that disconnects, so a later lock does not accept it', async () => {
+    const ctx = await makeCtx();
+    const cachedServiceWorker = makePort();
+    const refusedTab = makePort();
+    const page = makePort();
+    await handleMessage(ctx, cachedServiceWorker.port, { t: 'appConfig', options: pageConfig });
+    await handleMessage(ctx, refusedTab.port, { t: 'appConfig', options: ssrConfig });
+    await handleMessage(ctx, refusedTab.port, { t: 'disconnect', id: 'bye' });
+    await handleMessage(ctx, page.port, { t: 'appConfig', options: ssrConfig, hostVerified: true });
+    const read = await op(ctx, refusedTab, 'gone-read');
+    expect(read.ok).toBe(false);
+    if (!read.ok) expect(read.error.code).not.toBe('app/multiple-configs-not-supported');
   });
 });

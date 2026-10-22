@@ -66,9 +66,12 @@ function hostedTarget(node?: { host: string; origin: NodeRuntimeOrigin }): Param
     onError: error => runtimeStatus.reportError(error, 'worker'),
     // The worker selection stamped into the page carries no session token; init.json does.
     sessionToken: currentSessionToken,
+    // A page presents the boot its HTML was served by; a stale cached bundle has none (#1153).
+    // A Node process presents the boot whose init.json it just read, so the host
+    // holds its config as verified and a page with another config cannot evict it.
     initialHostInstanceId: node === undefined
       ? (globalThis.__PYRIC_HOST_INSTANCE_ID__ ?? globalThis.__PYRIC_WORKER_INIT__?.instanceId)
-      : undefined,
+      : payload?.instanceId,
   };
 }
 

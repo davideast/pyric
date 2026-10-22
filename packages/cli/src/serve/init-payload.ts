@@ -42,6 +42,12 @@ export interface PendingDatabaseTargetRules {
 
 /** Browser-safe wire contract served by `/__pyric/init.json`. */
 export interface InitPayload {
+  /**
+   * This host boot's identity, on a Node host. A Node process presents it on
+   * attach, as a page presents the one stamped into its HTML, so the host
+   * knows the process is verified against this boot.
+   */
+  instanceId?: string;
   /** Per-server capability for the warning-only activity report endpoint. */
   activityToken?: string;
   /** Per-boot session capability token required on workspace and project endpoints. */
@@ -114,11 +120,9 @@ export interface InitPayload {
  * It also carries the project's listener-owner settings, which must be in
  * force before the application opens its first listener.
  */
-export type WorkerInitPayload = Pick<InitPayload, 'hosted' | 'projectKey' | 'bridgeUrl' | 'persistenceUnhealthy'> & {
+export type WorkerInitPayload = Pick<InitPayload, 'hosted' | 'projectKey' | 'bridgeUrl' | 'persistenceUnhealthy' | 'instanceId'> & {
   /** `owners` from `pyric.json` or the Vite plugin; absent when neither sets it. */
   owners?: OwnersConfig;
-  /** Host boot identity baked into served HTML / Vite client modules at build time. */
-  instanceId?: string;
 };
 
 declare global {
