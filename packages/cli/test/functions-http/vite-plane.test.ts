@@ -94,9 +94,11 @@ describe('functions-http on the Vite plane', () => {
     const base = `http://127.0.0.1:${address && typeof address === 'object' ? address.port : 0}`;
     const echoUrl = `${base}/${PROJECT_ID}/us-central1/pyricHttpEcho`;
 
-    const beforePeer = await fetch(echoUrl);
-    expect(beforePeer.status).toBe(503);
-    expect(await beforePeer.text()).toMatch(/browser tab/);
+    for (const url of [echoUrl, `${base}/api/before-peer`]) {
+      const beforePeer = await fetch(url);
+      expect(beforePeer.status).toBe(503);
+      expect(await beforePeer.text()).toMatch(/browser tab/);
+    }
 
     const ctx = await createFunctionsWorkerHostCtx({
       persistenceKeyPrefix: 'functions-http-vite',
@@ -129,6 +131,16 @@ describe('functions-http on the Vite plane', () => {
     expect(((await after.json()) as { instanceId: string }).instanceId).toBe(before.instanceId);
     expect(logs.some((line) => line.includes('PYRIC_EXPECTED_ONREQUEST_UNCAUGHT'))).toBe(true);
 
+    // firebase.json rewrites /api/** to pyricHttpEcho; the function sees the full original URL.
+    const rewritten = await fetch(`${base}/api/items/7?y=2`, { headers: { cookie: 'drop=1; __session=keep' } });
+    expect(rewritten.status).toBe(200);
+    expect(await rewritten.json()).toMatchObject({ path: '/api/items/7', url: '/api/items/7?y=2', headerValues: { cookie: '__session=keep' } });
+    // A file the dev server serves wins over the rewrite.
+    expect((await fetch(`${base}/index.html`)).status).not.toBe(503);
+
     expect(logs.some((line) => line.includes('onRequest function'))).toBe(true);
+    // One execution record per served request (functions-http#21).
+    expect(logs.filter((line) => line.includes('pyricHttpEcho ← POST /items?x=1 200'))).toHaveLength(1);
+    expect(logs.filter((line) => line.includes('pyricHttpEcho ← GET /api/items/7?y=2 200'))).toHaveLength(1);
   }, 240_000);
 });

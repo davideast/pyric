@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import type { Server as HttpServer } from 'node:http';
 import path from 'node:path';
 import type { ViteDevServer } from 'vite';
@@ -7,7 +7,30 @@ import type {
   FunctionsProject,
 } from '../functions/project.js';
 import type { BridgeMount } from './bridge-mount.js';
+import { hostingRewrites } from '../functions/http/rewrites.js';
 import { isAllowedHost } from './server.js';
+
+/** firebase.json, read synchronously at attach; a missing or unreadable file has no rewrites. */
+function readRewrites(projectDir: string): ReturnType<typeof hostingRewrites> {
+  try {
+    return hostingRewrites(JSON.parse(readFileSync(path.join(projectDir, 'firebase.json'), 'utf8')));
+  } catch {
+    return [];
+  }
+}
+
+/** Vite's own routes and any file under the root or the public dir answer before a rewrite. */
+function viteServesPath(server: ViteDevServer, pathname: string): boolean {
+  if (/^\/(@|__|node_modules\/)/.test(pathname)) return true;
+  const isFile = (file: string): boolean => existsSync(file) && statSync(file).isFile();
+  const relative = pathname.replace(/^\/+/, '');
+  const roots = [server.config.root, server.config.publicDir].filter((dir): dir is string => typeof dir === 'string' && dir.length > 0);
+  return roots.some((dir) => {
+    const file = path.resolve(dir, relative);
+    const inside = file === dir || file.startsWith(`${path.resolve(dir)}${path.sep}`);
+    return inside && (isFile(file) || isFile(path.join(file, 'index.html')));
+  });
+}
 import type {
   ViteFunctionsDevelopmentAttachment,
   ViteFunctionsDevelopmentOptions,
@@ -66,6 +89,8 @@ export function attachViteGenerationFunctions(input: {
     host,
     httpServer: server.httpServer as unknown as HttpServer,
     middlewares: server.middlewares,
+    rewrites: readRewrites(projectDir),
+    staticFileExists: (pathname) => viteServesPath(server, pathname),
     isAllowedRequest: (req) => {
       const serverOptions = server.config.server;
       return serverOptions.allowedHosts === true || isAllowedHost(

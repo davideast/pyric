@@ -34,7 +34,7 @@ import { injectServeTags } from '../serve/html-injection.js';
 import { resolveOwnersConfig } from '../serve/owners-config.js';
 import { resolveAiMode } from '../serve/firebase-module-swap.js';
 import { formatActivityWarning } from '../serve/activity-warning.js';
-import { consoleServeLogger, startStaticServer, stderrServeLogger, type ServeHandle } from '../serve/server.js';
+import { consoleServeLogger, resolveStaticFile, startStaticServer, stderrServeLogger, type ServeHandle } from '../serve/server.js';
 import { createBridgeMount } from '../serve/bridge-mount.js';
 import { openBrowser, shouldAutoOpen } from '../serve/open-browser.js';
 import { readPyricConfig, type PyricConfig } from './pyric-config.js';
@@ -63,10 +63,12 @@ import { createFunctionsHttpGateway, type FunctionsHttpGateway } from '../functi
 import {
   createPrivateInvokerWarnings,
   httpFunctionLines,
+  servedLine,
   stateAfterStart,
   UNRESPONSIVE_LINE,
   uncaughtErrorLine,
 } from '../functions/http/report.js';
+import { hostingRewrites } from '../functions/http/rewrites.js';
 import {
   discoverFunctionsProject,
   type FunctionsProject,
@@ -969,7 +971,18 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     let logger: Parameters<typeof startServe>[0]['logger'];
     if (json) logger = stderrServeLogger();
     if (functionsProjectId !== null) {
-      functionsGateway = createFunctionsHttpGateway({ projectId: functionsProjectId, initial: { kind: 'starting' } });
+      const served = json ? process.stderr : process.stdout;
+      functionsGateway = createFunctionsHttpGateway({
+        projectId: functionsProjectId,
+        initial: { kind: 'starting' },
+        rewrites: hostingRewrites(await readFirebaseJson(cwd).catch(() => null)),
+        staticFileExists: (pathname) => runtime !== undefined && resolveStaticFile(runtime.publicDir, pathname) !== null,
+        onServed: (record) => {
+          const { failed, line } = servedLine(record);
+          if (failed) process.stderr.write(`✖ ${line}\n`);
+          else served.write(`✔ ${line}\n`);
+        },
+      });
     }
     runtime = await startServe({
       cwd: process.cwd(),
