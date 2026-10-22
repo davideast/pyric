@@ -233,6 +233,12 @@ export interface App {
    * exit is returned rather than thrown, so a scenario can assert a refusal.
    */
   pyric(args: string[], options?: { env?: Record<string, string>; timeoutMs?: number }): Promise<ScriptResult>;
+  /**
+   * Starts the installed `pyric` command with `args` and returns at once, as
+   * `serverProcess` does, for a command that runs until stopped, such as
+   * `pyric sandbox -- next dev`.
+   */
+  pyricProcess(args: string[], options?: { env?: Record<string, string> }): AppProcess;
   /** The browser context for this app. Requests to hosts other than 127.0.0.1 and localhost are aborted unless a route answers them. */
   browser(): Promise<BrowserContext>;
   /** Opens `url` in a new page of the app's browser context. */
@@ -390,7 +396,7 @@ export class AppRun implements App {
     return child;
   }
 
-  async pyric(args: string[], options: { env?: Record<string, string>; timeoutMs?: number } = {}): Promise<ScriptResult> {
+  pyricProcess(args: string[], options: { env?: Record<string, string> } = {}): AppProcess {
     this.scriptCount += 1;
     const child = new AppProcess(
       `pyric ${this.scriptCount} (${args.join(' ')})`,
@@ -400,6 +406,11 @@ export class AppRun implements App {
       appEnvironment(this.home, options.env),
     );
     this.processes.push(child);
+    return child;
+  }
+
+  async pyric(args: string[], options: { env?: Record<string, string>; timeoutMs?: number } = {}): Promise<ScriptResult> {
+    const child = this.pyricProcess(args, options);
     const timeoutMs = options.timeoutMs ?? 60_000;
     const finished = await Promise.race([child.exited.then(() => true), sleep(timeoutMs).then(() => false)]);
     if (!finished) {
