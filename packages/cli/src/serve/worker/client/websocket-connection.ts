@@ -8,17 +8,12 @@ import type { InboundMessage, OutboundMessage } from '../protocol.js';
 import { hasValidOutboundEnvelope, hasValidReplyOutcome } from '../outbound-validation.js';
 import { _pending, failInFlightStreams, nextId, rawRpc, rejectPendingRequests, restoreAuthSubscriptions, restoreObservationSubscriptions, restoreMessagingSubscriptions, wirePort } from './core.js';
 import { endFailedPort } from './disconnect.js';
+import { httpOriginOf } from './http-origin.js';
 import type { ClientDb, ClientPort } from './handles.js';
 import { createHeldMessages } from './held-messages.js';
 import { settleInFlightAtDrop } from './in-flight-at-drop.js';
 import { closeSendOrder, waitsToSend } from './send-order.js';
 
-/** The HTTP origin that serves a WebSocket endpoint. */
-function httpOriginOf(socketUrl: string): string {
-  const url = new URL(socketUrl);
-  url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:';
-  return url.origin;
-}
 
 const CONNECTION_LOST = 'The hosted sandbox connection was lost. Requests already sent may have completed; check state before retrying.';
 const CONNECTION_CLOSED = 'The hosted sandbox connection is closed.';

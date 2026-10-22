@@ -41,7 +41,7 @@
  * subpath (`@pyric/cli/remote`), never bundled for the browser.
  */
 import type { HostTrust } from 'pyric/sandbox/internal';
-import { tlsOptionsFor, trustedFetch, type HostFetch } from './loopback-tls.js';
+import { isTrustedOrigin, tlsOptionsFor, trustedFetch, type HostFetch } from './loopback-tls.js';
 import { WebSocket } from 'ws';
 import { Socket } from 'node:net';
 import type { AuthUserRecord, CreateUserRequest, UpdateUserRequest } from 'pyric/auth';
@@ -109,6 +109,8 @@ function noTabError(serveUrl: string): Error & { code: string } {
  *  host it reaches serves for the same object. */
 export { localStorageUrl } from './local-storage-url.js';
 export type { ReleasedOp } from './held-calls.js';
+/** The certificate trust `ConnectRemoteSandboxOptions.trust` takes. */
+export type { HostTrust };
 
 // ─── Public types ──────────────────────────────────────────────────────────
 
@@ -982,7 +984,8 @@ export async function connectRemoteSandbox(
   });
 
   const wsUrl = `${wsBase.replace(/^http/, 'ws')}/__pyric/sandbox`;
-  const trust = options.trust;
+  // The trust covers its own origin only; a socket elsewhere verifies as usual.
+  const trust = options.trust !== undefined && isTrustedOrigin(options.trust, wsUrl) ? options.trust : undefined;
   const tls = trust === undefined ? {} : tlsOptionsFor(trust);
   const ws = new WebSocket(wsUrl, { maxPayload: MAX_BRIDGE_FRAME_BYTES, ...tls });
 
