@@ -61,6 +61,9 @@ function stageFixture(): string {
     join(cwd, 'fixture/node_modules/firebase-functions'),
   );
   writeFileSync(join(cwd, '.firebaserc'), JSON.stringify({ projects: { default: PROJECT_ID } }));
+  // Under the /api/** rewrite, to show a file answers before the rewrite does.
+  mkdirSync(join(cwd, 'api'));
+  writeFileSync(join(cwd, 'api/static.txt'), 'a static file under /api');
   return cwd;
 }
 
@@ -135,12 +138,18 @@ describe('functions-http on the Vite plane', () => {
     const rewritten = await fetch(`${base}/api/items/7?y=2`, { headers: { cookie: 'drop=1; __session=keep' } });
     expect(rewritten.status).toBe(200);
     expect(await rewritten.json()).toMatchObject({ path: '/api/items/7', url: '/api/items/7?y=2', headerValues: { cookie: '__session=keep' } });
-    // A file the dev server serves wins over the rewrite.
-    expect((await fetch(`${base}/index.html`)).status).not.toBe(503);
+    // A file the dev server serves wins over a rewrite that matches its path.
+    const file = await fetch(`${base}/api/static.txt`);
+    expect(file.status).toBe(200);
+    expect(await file.text()).toBe('a static file under /api');
 
     expect(logs.some((line) => line.includes('onRequest function'))).toBe(true);
     // One execution record per served request (functions-http#21).
-    expect(logs.filter((line) => line.includes('pyricHttpEcho ← POST /items?x=1 200'))).toHaveLength(1);
-    expect(logs.filter((line) => line.includes('pyricHttpEcho ← GET /api/items/7?y=2 200'))).toHaveLength(1);
+    // A line is written when the response closes, which can trail the body the client read.
+    for (const record of ['pyricHttpEcho ← POST /items?x=1 200', 'pyricHttpEcho ← GET /api/items/7?y=2 200']) {
+      const lines = () => logs.filter((line) => line.includes(record));
+      await waitFor(async () => lines().length > 0, 5_000, logs);
+      expect(lines()).toHaveLength(1);
+    }
   }, 240_000);
 });

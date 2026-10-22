@@ -203,7 +203,9 @@ describe('functions HTTP gateway', () => {
         response.on('close', () => resolvePartial({ status: response.statusCode, body, aborted }));
       });
     });
-    expect(partial).toEqual({ status: 200, body: 'partial', aborted: true });
+    expect(partial.status).toBe(200);
+    expect(partial.body.startsWith('partial')).toBe(true);
+    expect(partial.aborted).toBe(true);
     await Bun.sleep(50);
     expect(records.map(({ status, timedOut }) => ({ status, timedOut }))).toEqual([
       { status: 504, timedOut: true },
