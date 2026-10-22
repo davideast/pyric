@@ -58,6 +58,8 @@ Prefix your development start command with `pyric sandbox` in `package.json`:
 
 Start the supervised server with `npm run dev`. Pyric boots its sandbox host in the background, sets `PYRIC_SANDBOX` for server-side queries, and launches `next dev`.
 
+`pyric sandbox --persist -- next dev` doesn't save state yet: the host refuses the browser's saves through the Next.js rewrite, so `.pyric/state/state.json` is never written. Track the fix in [#1194](https://github.com/davideast/pyric/issues/1194).
+
 ## Understand the two-server architecture
 
 Why does Next.js run two server processes while Vite runs one? Next.js doesn't expose Express or Connect custom middleware hooks. To preserve native compiling speed without requiring a custom server script, Pyric coordinates two processes:

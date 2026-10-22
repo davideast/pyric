@@ -31,6 +31,8 @@ import type { InitPayload } from '../serve/namespace.js';
 import { formatAiStatusLine } from '../serve/ai-status.js';
 import { aiUpstreamGuardAllowance } from '../serve/ai-proxy.js';
 import { injectServeTags } from '../serve/html-injection.js';
+import { workerInitPayload } from '../serve/runtime/hosted-target.js';
+import type { WorkerInitPayload } from '../serve/init-payload.js';
 import { resolveOwnersConfig } from '../serve/owners-config.js';
 import { resolveAiMode } from '../serve/firebase-module-swap.js';
 import { formatActivityWarning } from '../serve/activity-warning.js';
@@ -114,6 +116,9 @@ export interface ServeRuntime {
    *  records; placed in every child's `PYRIC_SANDBOX_INSTANCE`. Undefined
    *  without the bridge mount. */
   instanceId: string | undefined;
+  /** The transport selection this host stamps into the HTML it serves; placed
+   *  in every child's `PYRIC_WORKER_INIT` for pages it does not serve. */
+  workerInit: WorkerInitPayload;
 }
 
 /** The `--json` stdout contract — one line, keep stable; agents parse this.
@@ -785,7 +790,11 @@ async function startServeRuntime(opts: {
   }
   let mcpUrl: string | null = null;
   if (hasBridge) mcpUrl = mount.mcpUrl(origin);
-  return { handle, publicDir, payload, uiUrl, mcpUrl, persist: persistSummary, beaconCount, beaconToken, instanceId: mount?.instanceId };
+  const workerInit = workerInitPayload(hosted?.projectKey, owners);
+  return {
+    handle, publicDir, payload, uiUrl, mcpUrl, persist: persistSummary, beaconCount, beaconToken,
+    instanceId: mount?.instanceId, workerInit,
+  };
 }
 
 /**
@@ -1182,6 +1191,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       beaconToken: runtime.beaconToken,
       instanceId: runtime.instanceId,
       guardAllow: aiGuardAllow,
+      workerInit: runtime.workerInit,
     });
     // What we are handing the child, stated before it starts: the interlock
     // line and the unsupported-runtime check.

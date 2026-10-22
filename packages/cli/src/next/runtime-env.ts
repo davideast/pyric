@@ -6,6 +6,14 @@ import type { NextConfigObject, PyricNextOptions } from './types.js';
 import { runtimeChipMetaValue } from '../serve/runtime/chip-config.js';
 import { resolveSandboxTargetUrl } from './target-url.js';
 
+/** The launcher's page selection, or undefined when it names another host than `targetUrl`. */
+function launcherWorkerInit(targetUrl: string): string | undefined {
+  const workerInit = process.env.PYRIC_WORKER_INIT;
+  const launcherHost = process.env.PYRIC_WORKER_INIT_HOST?.replace(/\/$/, '');
+  const namesTarget = launcherHost === targetUrl;
+  return namesTarget ? workerInit : undefined;
+}
+
 export function augmentRuntimeEnv(config: NextConfigObject, options?: PyricNextOptions): NextConfigObject {
   const updatedConfig: NextConfigObject = Object.assign({}, config);
   const existingEnv = updatedConfig.env !== undefined ? Object.assign({}, updatedConfig.env) : {};
@@ -24,6 +32,12 @@ export function augmentRuntimeEnv(config: NextConfigObject, options?: PyricNextO
     existingEnv.NEXT_PUBLIC_PYRIC_RUNTIME_CHIP = chipValue;
     existingEnv.PYRIC_RUNTIME_CHIP = chipValue;
   }
+
+  // Next serves the page, so no stamp reaches its HTML. The launcher's
+  // selection is inlined instead (serve/entries/bundled-worker-init.ts), when
+  // it names the host the rewrites reach.
+  const workerInit = launcherWorkerInit(targetUrl);
+  if (workerInit !== undefined) existingEnv.NEXT_PUBLIC_PYRIC_WORKER_INIT = workerInit;
 
   updatedConfig.env = existingEnv;
   return updatedConfig;
