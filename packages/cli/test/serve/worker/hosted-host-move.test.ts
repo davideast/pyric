@@ -79,8 +79,12 @@ test('a Node client resolves the url again after a drop and reattaches to the ho
 
   current = undefined;
   firstHost.stop();
-  // While no host answers, the client keeps resolving on its backoff.
+  // While no host answers, the client keeps resolving on its backoff
+  // (250 ms doubling): a few attempts in 1.5 s, not a tight loop.
   await until(() => resolutions >= 2, describe);
+  const before = resolutions;
+  await new Promise(resolve => setTimeout(resolve, 1_500));
+  expect(resolutions - before).toBeLessThanOrEqual(4);
   current = startHost('boot-2', moved).url;
 
   await until(() => appConfigCount(moved) === 1, describe);
