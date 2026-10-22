@@ -6,6 +6,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  STOP_DEADLINE_MS,
   isChildMessage,
   type FunctionsChildEvent,
   type FunctionsChildReady,
@@ -35,7 +36,7 @@ export interface FunctionsChildHandle {
   stop(): Promise<number>;
 }
 
-const FORCE_KILL_AFTER_MS = 2_000;
+const FORCE_KILL_AFTER_MS = STOP_DEADLINE_MS;
 
 /** Ten missed beats: long enough for a slow synchronous handler, short enough to notice a loop. */
 const HEARTBEAT_TIMEOUT_MS = 10_000;

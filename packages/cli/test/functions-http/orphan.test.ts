@@ -2,8 +2,10 @@
  * The Functions child must not outlive its parent. `pyric sandbox` runs the
  * capture fixture (onRequest functions, so the child also has its HTTP server,
  * heartbeat, and uncaught-error handler); the test SIGKILLs the CLI and
- * asserts its child exits within ~2 s without spinning. A second case orphans
- * the child with its IPC channel cut and asserts SIGTERM still ends it.
+ * asserts its child exits within ~2 s without spinning. A second case sends
+ * SIGTERM to the child while its host still runs, so the signal handler is
+ * what ends it. The root cause itself (a send on a closed channel) is pinned
+ * in child-ipc.test.ts.
  * Linux only: it reads /proc for the child's pid and CPU time.
  */
 import 'fake-indexeddb/auto';
@@ -96,21 +98,25 @@ afterEach(async () => {
 linuxOnly('the Functions child does not outlive its parent', () => {
   test('SIGKILL of pyric sandbox ends its child within ~2 s, without spinning', async () => {
     const { cli, childPid } = await sandboxWithServingChild();
-    const ticksBefore = cpuTicks(childPid) ?? 0;
+    const ticksAtKill = cpuTicks(childPid) ?? 0;
+    let lastTicks = ticksAtKill;
     cli.kill('SIGKILL');
-    const exited = await waitFor(() => (alive(childPid) ? null : true), 2_500);
-    const ticksAfter = cpuTicks(childPid);
+    // Sample CPU for as long as the child lives, so a child that spins and then exits still counts.
+    const exited = await waitFor(() => {
+      const ticks = cpuTicks(childPid);
+      if (ticks !== null) lastTicks = ticks;
+      return alive(childPid) ? null : true;
+    }, 2_500);
     expect(exited).toBe(true);
-    // Had it lived, its CPU over the wait must stay well under one core.
-    if (ticksAfter !== null) expect((ticksAfter - ticksBefore) / CLOCK_TICKS_PER_SECOND).toBeLessThan(0.5);
+    expect((lastTicks - ticksAtKill) / CLOCK_TICKS_PER_SECOND).toBeLessThan(0.5);
   }, 90_000);
 
-  test('an orphaned child still exits on SIGTERM', async () => {
+  test('the child exits on SIGTERM while its host is still running', async () => {
     const { cli, childPid } = await sandboxWithServingChild();
-    cli.kill('SIGKILL');
-    await waitFor(() => (cli.exitCode !== null || cli.signalCode !== null ? true : null), 2_000);
-    // The child is now orphaned, its IPC channel closed; SIGTERM must reach a handler that runs.
-    if (alive(childPid)) process.kill(childPid, 'SIGTERM');
+    // The host is alive and the channel open, so only the child's SIGTERM handler can end it here.
+    expect(cli.exitCode).toBeNull();
+    expect(alive(childPid)).toBe(true);
+    process.kill(childPid, 'SIGTERM');
     const exited = await waitFor(() => (alive(childPid) ? null : true), 2_500);
     expect(exited).toBe(true);
   }, 90_000);

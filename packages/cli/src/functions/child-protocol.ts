@@ -59,6 +59,9 @@ export type FunctionsChildMessage =
   | { type: 'heartbeat' }
   | { type: 'stopped' };
 
+/** How long the host waits after asking the child to stop before it force-kills it; the child keeps to the same deadline. */
+export const STOP_DEADLINE_MS = 2_000;
+
 /** How often the child beats. */
 export const HEARTBEAT_INTERVAL_MS = 1_000;
 
