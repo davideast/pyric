@@ -3,7 +3,7 @@
  * every HTTP function and RTDB trigger stalls with it. The child beats over
  * IPC; the host notices missed beats, and the runtime restarts the child.
  */
-import { describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import type { ChildProcess } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
@@ -34,8 +34,16 @@ function fakeChildModule(): URL {
   return pathToFileURL(file);
 }
 
+const spawnedFakes: FunctionsChildHandle[] = [];
+
+afterEach(() => {
+  for (const handle of spawnedFakes.splice(0)) {
+    if (handle.child.exitCode === null && handle.child.signalCode === null) handle.child.kill('SIGKILL');
+  }
+});
+
 function spawnFake(onUnresponsive: () => void): FunctionsChildHandle {
-  return spawnFunctionsChild({
+  const handle = spawnFunctionsChild({
     cwd: tmpdir(),
     entry: join(tmpdir(), 'index.js'),
     env: process.env,
@@ -46,6 +54,8 @@ function spawnFake(onUnresponsive: () => void): FunctionsChildHandle {
     heartbeatTimeoutMs: 500,
     onUnresponsive,
   });
+  spawnedFakes.push(handle);
+  return handle;
 }
 
 describe('Functions child heartbeat', () => {

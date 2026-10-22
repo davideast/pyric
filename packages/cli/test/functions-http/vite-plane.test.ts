@@ -15,6 +15,7 @@ import { doc, getDoc } from 'pyric/firestore';
 import { bundleWorker, workerSourceHash } from '../../src/serve/bundler.js';
 import { pyric } from '../../src/serve/vite-plugin.js';
 import { connectFunctionsWorkerPeer, createFunctionsWorkerHostCtx } from '../functions-rtdb/worker-peer.js';
+import { killFunctionsChildren } from './children.js';
 
 const cliRoot = resolve(import.meta.dir, '../..');
 const repoRoot = resolve(cliRoot, '../..');
@@ -66,6 +67,8 @@ function stageFixture(): string {
 afterAll(async () => {
   await peer?.close().catch(() => undefined);
   await server?.close().catch(() => undefined);
+  // The plugin runs in this process, so its Functions child is this process's child.
+  killFunctionsChildren(process.pid);
 });
 
 describe('functions-http on the Vite plane', () => {

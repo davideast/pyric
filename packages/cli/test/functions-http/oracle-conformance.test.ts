@@ -43,6 +43,7 @@ import {
   connectFunctionsWorkerPeer,
   createFunctionsWorkerHostCtx,
 } from '../functions-rtdb/worker-peer.js';
+import { functionsChildrenOf, isAlive } from './children.js';
 
 const climbDescribe = process.env.PYRIC_CLIMB === '1' ? describe : describe.skip;
 
@@ -373,7 +374,11 @@ const NOT_APPLICABLE: Record<string, string> = {};
 afterAll(async () => {
   if (closePeer) await closePeer().catch(() => undefined);
   const started = await session?.catch(() => undefined);
+  const cliPid = started?.command.pid;
+  // Collect the children before the CLI dies: afterwards they are re-parented and unfindable by ppid.
+  const children = cliPid === undefined ? [] : functionsChildrenOf(cliPid);
   if (started?.command.exitCode === null) started.command.kill('SIGKILL');
+  for (const pid of children) if (isAlive(pid)) process.kill(pid, 'SIGKILL');
 });
 
 for (const row of functionsHttpRows) {
