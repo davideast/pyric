@@ -6,7 +6,8 @@
   "description": "Private conformance workspace for trust derivation, root/CI gates, and the narrow @pyric/site-docs build adapter. Not published to npm; runtime packages consume generated projections.",
   "exports": {
     "./docs": "./src/docs/index.ts",
-    "./functions-rtdb-fixture": "./src/functions-rtdb-fixture/index.ts"
+    "./functions-rtdb-fixture": "./src/functions-rtdb-fixture/index.ts",
+    "./functions-http-fixture": "./src/functions-http-fixture/index.ts"
   },
   "scripts": {
     "test": "bun test",
