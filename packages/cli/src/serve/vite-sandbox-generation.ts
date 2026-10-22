@@ -274,6 +274,7 @@ export async function createViteSandboxGeneration(
       capture: options.capture,
       studio,
       bridgeUrl,
+      hostInstanceId: () => bridge?.instanceId,
       ai: aiOptions,
       avatars: avatarsConfig,
       aiProxyUpstream: ai.proxyUpstream,
