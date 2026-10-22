@@ -10,7 +10,7 @@ import {
   NODE_BUILTIN_SHIMS,
 } from './bundler.js';
 import {
-  isShadowAppImporter,
+  isBypassedBridgeImport,
   swappedFirebaseEntries,
   type AiMode,
   type ServedFirebaseSpecifier,
@@ -131,8 +131,7 @@ export function createViteModuleSwap(
   let routesServerImports = false;
 
   function resolveId(source: string, importer: string | undefined): string | null {
-    const isBypassedBridgeImport = isShadowAppImporter(importer) && source === 'firebase/app';
-    if (isBypassedBridgeImport) return null;
+    if (isBypassedBridgeImport(source, importer)) return null;
 
     const isFirebaseSpecifier = FIREBASE_SPECIFIER.test(source);
     if (isFirebaseSpecifier) {
@@ -242,6 +241,7 @@ export function createViteModuleSwap(
         '@firebase/app',
         '@firebase/component',
         '@firebase/ai',
+        '@firebase/app-check',
         '@firebase/util',
         '@firebase/logger',
       ];

@@ -119,6 +119,13 @@
         "import": "./dist/register/app-bridge.js"
       }
     },
+    "./register/app-bridge-app-check": {
+      "types": "./dist/register/app-bridge-app-check.d.ts",
+      "node": {
+        "types": "./dist/register/app-bridge-app-check.d.ts",
+        "import": "./dist/register/app-bridge-app-check.js"
+      }
+    },
     "./register/client/app": {
       "types": "./dist/register/client/app.d.ts",
       "node": {

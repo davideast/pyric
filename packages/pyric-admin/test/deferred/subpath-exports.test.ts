@@ -15,14 +15,13 @@ import { fileURLToPath } from 'node:url';
 import { initializeSandbox } from 'pyric/sandbox';
 import admin from 'pyric-admin';
 import { deleteApp, getApps, initializeApp, type PyricAdminApp } from 'pyric-admin/app';
-import { PyricDeferredApiError } from 'pyric-admin/app-check';
+import { PyricDeferredApiError } from 'pyric-admin/remote-config';
 
 interface DeferredSubpathSpec {
   readonly subpath: string;
   readonly factory: string;
   readonly serviceClass: string;
   readonly rootAccessor?:
-    | 'appCheck'
     | 'installations'
     | 'instanceId'
     | 'machineLearning'
@@ -36,13 +35,6 @@ interface DeferredSubpathSpec {
 }
 
 const DEFERRED_SUBPATHS: readonly DeferredSubpathSpec[] = [
-  {
-    subpath: 'app-check',
-    factory: 'getAppCheck',
-    serviceClass: 'AppCheck',
-    rootAccessor: 'appCheck',
-    asyncMethod: 'verifyToken',
-  },
   {
     subpath: 'data-connect',
     factory: 'getDataConnect',

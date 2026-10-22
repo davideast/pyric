@@ -1,5 +1,6 @@
 import { aiRegistry } from './ai.ts';
 import { appRegistry } from './app.ts';
+import { appCheckRegistry } from './app-check.ts';
 import { authRegistry } from './auth.ts';
 import { authFlutterRegistry } from './auth-flutter.ts';
 import { authKotlinRegistry } from './auth-kotlin.ts';
@@ -34,6 +35,7 @@ export const registriesByKey: Record<string, CompatibilitySurfaceRegistry> = Obj
     rtdbRegistry,
     storageRegistry,
     messagingRegistry,
+    appCheckRegistry,
     functionsRtdbRegistry,
     rulesRegistry,
     firestoreFlutterRegistry,

@@ -1,0 +1,62 @@
+{
+  "name": "app-check-exchange-debug-token-wire",
+  "matrixRow": "",
+  "rowIds": [
+    "app-check#exchange-debug-token-wire"
+  ],
+  "description": "Raw REST envelope of projects.apps.exchangeDebugToken (the call the web SDK makes in debug mode, API key in the key query parameter): the success key set, ttl, and token shape for a registered debug token, and the error envelope for an unregistered one.",
+  "observedAt": "2026-10-22T03:09:04.590Z",
+  "fbSdkVersion": "12.13.0",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "registered": {
+      "httpStatus": 200,
+      "keySet": [
+        "token",
+        "ttl"
+      ],
+      "ttl": "3600s",
+      "token": {
+        "length": 932,
+        "segmentCount": 3,
+        "isJwt": true,
+        "headerKeySet": [
+          "alg",
+          "kid",
+          "typ"
+        ],
+        "alg": "RS256",
+        "typ": "JWT",
+        "kidPresent": true,
+        "claimNames": [
+          "aud",
+          "exp",
+          "iat",
+          "iss",
+          "jti",
+          "provider",
+          "sub"
+        ],
+        "issShape": "https://firebaseappcheck.googleapis.com/<projectNumber>",
+        "audShape": [
+          "projects/<projectNumber>",
+          "projects/genkit-idx"
+        ],
+        "subEqualsAppId": true,
+        "ttlSeconds": 3600,
+        "hasJti": true
+      }
+    },
+    "unregistered": {
+      "httpStatus": 403,
+      "body": {
+        "error": {
+          "code": 403,
+          "message": "App attestation failed.",
+          "status": "PERMISSION_DENIED"
+        }
+      }
+    }
+  }
+}

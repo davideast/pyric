@@ -1,6 +1,6 @@
 /**
  * The shared factory behind pyric's *deferred* Firebase Web SDK subpaths —
- * `pyric/functions`, `pyric/analytics`, `pyric/app-check`,
+ * `pyric/functions`, `pyric/analytics`,
  * `pyric/firestore/lite`, `pyric/performance` and `pyric/remote-config`.
  *
  * WHY THESE EXIST AT ALL. pyric is a symbol-for-symbol drop-in for the

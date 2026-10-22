@@ -300,6 +300,7 @@ describe('the real wrapper entries (plan step 1.2)', () => {
       'analytics',
       'app',
       'app-ai-passthrough',
+      'app-ai-passthrough-app-check',
       'app-check',
       'auth',
       'database',
@@ -353,7 +354,8 @@ describe('the real wrapper entries (plan step 1.2)', () => {
       const src = readFileSync(f, 'utf8');
       // provenance banner on every served bundle
       expect(src).toContain('not the real Firebase SDK');
-      if (!f.endsWith('/app-ai-passthrough.js')) {
+      // The production AI pass-through entries wrap the Firebase SDK by design.
+      if (!f.endsWith('/app-ai-passthrough.js') && !f.endsWith('/app-ai-passthrough-app-check.js')) {
         expect(src).not.toMatch(/from\s*["']firebase\//);
       }
       expect(src).not.toMatch(/from\s*["']node:/);

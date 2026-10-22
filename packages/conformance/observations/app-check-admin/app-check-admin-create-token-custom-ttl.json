@@ -1,0 +1,28 @@
+{
+  "name": "app-check-admin-create-token-custom-ttl",
+  "matrixRow": "",
+  "rowIds": [
+    "app-check-admin#create-token-ttl"
+  ],
+  "description": "createToken ttlMillis option: 30 minutes is honored (ttlMillis and exp minus iat), and the errors for 29 minutes and for 7 days plus one second.",
+  "observedAt": "2026-10-22T03:09:03.991Z",
+  "fbSdkVersion": "12.13.0",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "thirtyMinutes": {
+      "ttlMillis": 1800000,
+      "ttlSeconds": 1800
+    },
+    "twentyNineMinutes": {
+      "threw": true,
+      "code": "app-check/invalid-argument",
+      "message": "ttlMillis must be a duration in milliseconds between 30 minutes and 7 days (inclusive)."
+    },
+    "sevenDaysPlusOneSecond": {
+      "threw": true,
+      "code": "app-check/invalid-argument",
+      "message": "ttlMillis must be a duration in milliseconds between 30 minutes and 7 days (inclusive)."
+    }
+  }
+}

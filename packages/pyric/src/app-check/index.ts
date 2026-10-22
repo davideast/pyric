@@ -1,41 +1,110 @@
 /**
- * `pyric/app-check` — a DEFERRED mirror of `firebase/app-check`.
+ * `pyric/app-check`: the sandbox mirror of `firebase/app-check`.
  *
- * App Check attests that a request comes from your app, via reCAPTCHA or a
- * custom attestation provider talking to Google infrastructure. The sandbox
- * has no attestation authority to model against, so the whole surface is
- * deferred.
+ * The sandbox has no attestation authority, so it behaves like production
+ * under a registered debug token: providers are accepted and never called,
+ * and every token request succeeds with a token of production's shape. The
+ * conformance rows are in packages/conformance/registry/app-check.ts and the
+ * suite in packages/pyric/test/app-check/oracle-conformance.test.ts.
  *
- * Every symbol below resolves and links so an app that swaps `firebase` for
- * `pyric` still loads; touching one throws `PyricDeferredApiError` naming this
- * subpath. See `../deferred/entry.ts` for the full rationale.
- *
- * The value list is the exact public runtime surface of `firebase/app-check`
- * (Firebase Web SDK 12.13.0). Keep it in sync when this entry graduates to a
- * real mirror.
+ * The value surface is exactly `firebase/app-check` 12.13.0's.
  */
-import { deferredEntry, type DeferredApi } from '../deferred/entry.js';
+import { getApp } from '../app/registry.js';
+import type { FirebaseApp } from '../app/types.js';
+import { appCheckError } from './errors.js';
+import { CustomProvider, ReCaptchaEnterpriseProvider, ReCaptchaV3Provider, sameProvider, type AppCheckProvider } from './providers.js';
+import {
+  activate,
+  addObserver,
+  cachedOrMint,
+  mintLimitedUse,
+  stateOf,
+  type AppCheckState,
+  type AppCheckTokenResult,
+  type TokenObserver,
+} from './state.js';
 
-export { PyricDeferredApiError } from '../deferred/entry.js';
+export { CustomProvider, ReCaptchaEnterpriseProvider, ReCaptchaV3Provider };
+export type { CustomProviderOptions, AppCheckTokenFromProvider as AppCheckToken } from './providers.js';
+export type { AppCheckTokenResult } from './state.js';
 
-export const {
-  CustomProvider, ReCaptchaEnterpriseProvider, ReCaptchaV3Provider, getLimitedUseToken,
-  getToken, initializeAppCheck, onTokenChanged, setTokenAutoRefreshEnabled,
-} = deferredEntry('app-check');
+export interface AppCheck {
+  readonly app: FirebaseApp;
+}
 
-// Type declarations. Aliased to the deferred placeholder so a consumer's own
-// annotations keep type-checking: every deferred call returns `never`, which is
-// assignable to any of these. Names that Firebase exports as a CLASS appear both
-// here and above — a class is a value and a type, and both meanings must survive
-// the swap.
-export type AppCheck = DeferredApi;
-export type AppCheckOptions = DeferredApi;
-export type AppCheckToken = DeferredApi;
-export type AppCheckTokenListener = DeferredApi;
-export type AppCheckTokenResult = DeferredApi;
-export type CustomProvider = DeferredApi;
-export type CustomProviderOptions = DeferredApi;
-export type PartialObserver = DeferredApi;
-export type ReCaptchaEnterpriseProvider = DeferredApi;
-export type ReCaptchaV3Provider = DeferredApi;
-export type Unsubscribe = DeferredApi;
+export interface AppCheckOptions {
+  provider: AppCheckProvider;
+  isTokenAutoRefreshEnabled?: boolean;
+}
+
+export type AppCheckTokenListener = (token: AppCheckTokenResult) => void;
+export type Unsubscribe = () => void;
+export interface PartialObserver<T> {
+  next?: (value: T) => void;
+  error?: (error: Error) => void;
+  complete?: () => void;
+}
+
+class AppCheckHandle implements AppCheck {
+  constructor(readonly app: FirebaseApp) {}
+}
+
+const handles = new WeakMap<FirebaseApp, AppCheckHandle>();
+
+function hasSameOptions(state: AppCheckState, options: AppCheckOptions): boolean {
+  const refresh = options.isTokenAutoRefreshEnabled ?? false;
+  return state.initialAutoRefresh === refresh && sameProvider(state.provider, options.provider);
+}
+
+export function initializeAppCheck(app: FirebaseApp | undefined, options: AppCheckOptions): AppCheck {
+  const target = app ?? getApp();
+  const existing = stateOf(target);
+  if (existing) {
+    if (!hasSameOptions(existing, options)) throw appCheckError('already-initialized', target.name);
+    return handles.get(target)!;
+  }
+  activate(target, options.provider, options.isTokenAutoRefreshEnabled ?? false);
+  const handle = new AppCheckHandle(target);
+  handles.set(target, handle);
+  return handle;
+}
+
+function activeState(appCheck: AppCheck): AppCheckState {
+  const state = stateOf(appCheck.app);
+  if (!state) throw appCheckError('use-before-activation', appCheck.app.name);
+  return state;
+}
+
+export async function getToken(appCheck: AppCheck, forceRefresh = false): Promise<AppCheckTokenResult> {
+  const state = activeState(appCheck);
+  return cachedOrMint(appCheck.app, state, forceRefresh);
+}
+
+export async function getLimitedUseToken(appCheck: AppCheck): Promise<AppCheckTokenResult> {
+  activeState(appCheck);
+  return mintLimitedUse(appCheck.app);
+}
+
+export function setTokenAutoRefreshEnabled(appCheck: AppCheck, isTokenAutoRefreshEnabled: boolean): void {
+  activeState(appCheck).isTokenAutoRefreshEnabled = isTokenAutoRefreshEnabled;
+}
+
+function toObserver(
+  onNextOrObserver: AppCheckTokenListener | PartialObserver<AppCheckTokenResult>,
+  onError?: (error: Error) => void,
+  onCompletion?: () => void,
+): TokenObserver {
+  if (typeof onNextOrObserver === 'function') {
+    return { next: onNextOrObserver, error: onError, complete: onCompletion };
+  }
+  return { next: onNextOrObserver.next ?? (() => {}), error: onNextOrObserver.error, complete: onNextOrObserver.complete };
+}
+
+export function onTokenChanged(
+  appCheck: AppCheck,
+  onNextOrObserver: AppCheckTokenListener | PartialObserver<AppCheckTokenResult>,
+  onError?: (error: Error) => void,
+  onCompletion?: () => void,
+): Unsubscribe {
+  return addObserver(activeState(appCheck), toObserver(onNextOrObserver, onError, onCompletion));
+}

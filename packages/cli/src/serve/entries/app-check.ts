@@ -1,6 +1,6 @@
 /**
- * `firebase/app-check` under the sandbox: pyric's deferred App Check entry.
- * Imports resolve and link; a call throws `PyricDeferredApiError` naming the
- * subpath, rather than reaching the real Firebase App Check SDK.
+ * `firebase/app-check` under the sandbox: pyric's App Check mirror. Tokens
+ * are minted in process with production's shape; no attestation service is
+ * contacted.
  */
 export * from 'pyric/app-check';

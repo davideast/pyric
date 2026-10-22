@@ -4,6 +4,7 @@
  * and the ESM-only exports walker behind the CJS require() fallback.
  */
 import { describe, it, expect } from 'bun:test';
+import { join } from 'node:path';
 import { mapFirebaseSpecifier } from '../../src/register/mapping.js';
 import { resolveEsmOnlySubpath } from '../../src/register/esm-exports.js';
 
@@ -54,9 +55,24 @@ describe('mapFirebaseSpecifier', () => {
     expect(mapFirebaseSpecifier('firebase/firestore', undefined, { aiMode: 'production' })).toBe('pyric/firestore');
   });
 
+  const cliRoot = join(import.meta.dir, '..', '..');
+
   it('leaves firebase/app unmapped when importer is the shadow app bridge', () => {
-    expect(mapFirebaseSpecifier('firebase/app', '/cli/dist/register/app-bridge.js', { aiMode: 'production' })).toBeNull();
-    expect(mapFirebaseSpecifier('firebase/app', '/cli/src/serve/entries/app-ai-passthrough.ts', { aiMode: 'production' })).toBeNull();
+    expect(mapFirebaseSpecifier('firebase/app', join(cliRoot, 'dist/register/app-bridge.js'), { aiMode: 'production' })).toBeNull();
+    expect(mapFirebaseSpecifier('firebase/app', `file://${join(cliRoot, 'dist/register/client/app-bridge.js')}`, { aiMode: 'production' })).toBeNull();
+    expect(mapFirebaseSpecifier('firebase/app', join(cliRoot, 'src/serve/entries/app-ai-passthrough.ts'), { aiMode: 'production' })).toBeNull();
+  });
+
+  it('maps firebase/app-check to the App Check bridge in production AI mode, and the bridge reaches the SDK', () => {
+    expect(mapFirebaseSpecifier('firebase/app-check', undefined, { aiMode: 'production', sandbox: '' })).toBe('@pyric/cli/register/app-bridge-app-check');
+    expect(mapFirebaseSpecifier('firebase/app-check', join(cliRoot, 'dist/register/app-bridge-app-check.js'), { aiMode: 'production', sandbox: '' })).toBeNull();
+  });
+
+  it('swaps an app file that is merely named like a bridge', () => {
+    for (const userFile of ['/home/me/app/src/register/app-bridge.js', '/home/me/app/dist/register/app-bridge.js', '/home/me/app/app-ai-passthrough.ts']) {
+      expect(mapFirebaseSpecifier('firebase/app-check', userFile, { aiMode: 'sandbox', sandbox: '' })).toBe('pyric/app-check');
+      expect(mapFirebaseSpecifier('firebase/app', userFile, { aiMode: 'production', sandbox: '' })).toBe('@pyric/cli/register/app-bridge');
+    }
   });
 });
 

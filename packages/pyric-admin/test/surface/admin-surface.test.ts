@@ -47,7 +47,6 @@ import { firebaseAdminVersion, loadUpstreamSurface, type PathStep } from './upst
 
 /** Upstream entry points whose `pyric-admin` subpath is a deferred entry. */
 const DEFERRED_ENTRIES = [
-  'app-check',
   'data-connect',
   'eventarc',
   'extensions',
@@ -61,7 +60,7 @@ const DEFERRED_ENTRIES = [
   'security-rules',
 ] as const;
 
-const MIRRORED_ENTRIES = ['.', 'app', 'auth', 'database', 'firestore', 'storage', 'messaging'] as const;
+const MIRRORED_ENTRIES = ['.', 'app', 'auth', 'database', 'firestore', 'storage', 'messaging', 'app-check'] as const;
 
 type Module = Record<string, unknown>;
 
@@ -167,9 +166,10 @@ const PROBES: readonly Probe[] = [
 
   { entry: 'messaging', owner: 'Messaging', path: ['getMessaging'], make: (arm) => messagingEntry.getMessaging(arm.app) },
 
+  { entry: 'app-check', owner: 'AppCheck', path: ['getAppCheck'], make: (arm) => appCheckEntry.getAppCheck(arm.app) },
+
   // Deferred service handles: `get<Service>(app)` succeeds and every member on
   // the returned handle matches upstream (`.app` implemented, methods deferred).
-  { entry: 'app-check', owner: 'AppCheck', path: ['getAppCheck'], make: (arm) => appCheckEntry.getAppCheck(arm.app) },
   {
     entry: 'data-connect',
     owner: 'DataConnect',
@@ -205,6 +205,7 @@ const MIRRORED_MODULES: Record<(typeof MIRRORED_ENTRIES)[number], Module> = {
   firestore: firestoreEntry as Module,
   storage: storageEntry as Module,
   messaging: messagingEntry as Module,
+  'app-check': appCheckEntry as Module,
 };
 
 const TOP_LEVEL = '(exports)';

@@ -1,0 +1,49 @@
+{
+  "name": "app-check-admin-create-token-shape",
+  "matrixRow": "",
+  "rowIds": [
+    "app-check-admin#create-token-shape"
+  ],
+  "description": "firebase-admin createToken(appId) with no options: the result key set, the default ttlMillis, and the App Check JWT shape (header fields, claim names, iss and aud with the project number redacted, sub against the app id, exp minus iat). Token values are never stored.",
+  "observedAt": "2026-10-22T03:09:03.900Z",
+  "fbSdkVersion": "12.13.0",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "resultKeySet": [
+      "token",
+      "ttlMillis"
+    ],
+    "ttlMillis": 3600000,
+    "token": {
+      "length": 933,
+      "segmentCount": 3,
+      "isJwt": true,
+      "headerKeySet": [
+        "alg",
+        "kid",
+        "typ"
+      ],
+      "alg": "RS256",
+      "typ": "JWT",
+      "kidPresent": true,
+      "claimNames": [
+        "aud",
+        "exp",
+        "iat",
+        "iss",
+        "jti",
+        "provider",
+        "sub"
+      ],
+      "issShape": "https://firebaseappcheck.googleapis.com/<projectNumber>",
+      "audShape": [
+        "projects/<projectNumber>",
+        "projects/genkit-idx"
+      ],
+      "subEqualsAppId": true,
+      "ttlSeconds": 3600,
+      "hasJti": true
+    }
+  }
+}

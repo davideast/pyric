@@ -53,6 +53,7 @@ describe('Vite module swap', () => {
       '@firebase/app',
       '@firebase/component',
       '@firebase/ai',
+      '@firebase/app-check',
       '@firebase/util',
       '@firebase/logger',
     ]);
@@ -77,7 +78,18 @@ describe('Vite module swap', () => {
     expect(prodSwap.resolveId('firebase/app', userImporter)).toBe(context.entries['app-ai-passthrough']);
     expect(prodSwap.resolveId('firebase/firestore', userImporter)).toBe(context.entries['firestore']);
     // The passthrough app's own firebase/app import reaches the Firebase SDK.
-    expect(prodSwap.resolveId('firebase/app', '/cli/src/serve/entries/app-ai-passthrough.ts')).toBeNull();
+    expect(prodSwap.resolveId('firebase/app', context.entries['app-ai-passthrough'])).toBeNull();
+    // The App Check bridge and its own firebase/app-check import.
+    expect(prodSwap.resolveId('firebase/app-check', userImporter)).toBe(context.entries['app-ai-passthrough-app-check']);
+    const bridge = path.join(path.dirname(context.entries['app-ai-passthrough']!), '..', '..', 'register', 'app-bridge-app-check.ts');
+    expect(prodSwap.resolveId('firebase/app-check', bridge)).toBeNull();
+  });
+
+  it('swaps an app file that is merely named like a bridge', () => {
+    for (const userFile of ['/home/me/app/src/register/app-bridge.js', '/home/me/app/src/serve/entries/app-ai-passthrough.js']) {
+      expect(swap.resolveId('firebase/app-check', userFile)).toBe(context.entries['app-check']);
+      expect(swap.resolveId('firebase/app', userFile)).toBe(context.entries['app']);
+    }
   });
 });
 
@@ -163,7 +175,8 @@ describe('server-rendered imports under vite dev (#1123)', () => {
     }
     expect(await routed('firebase/ai')).toBe('\0pyric-ssr-target:pyric/ai');
     expect(await routed('firebase/messaging/sw')).toBe('\0pyric-ssr-target:pyric/messaging/sw');
-    for (const deferred of ['analytics', 'app-check', 'firestore/lite', 'functions', 'performance', 'remote-config']) {
+    expect(await routed('firebase/app-check')).toBe('\0pyric-ssr-target:pyric/app-check');
+    for (const deferred of ['analytics', 'firestore/lite', 'functions', 'performance', 'remote-config']) {
       expect(await routed(`firebase/${deferred}`)).toBe(`\0pyric-ssr-target:pyric/${deferred}`);
       const shim = await swap.loadPluginModule(`\0pyric-ssr-target:pyric/${deferred}`);
       expect(shim).toContain(`loadServerTarget("pyric/${deferred}")`);
