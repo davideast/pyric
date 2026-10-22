@@ -8,7 +8,7 @@ import {
   emitExecutionFinished,
   emitHandlerFired,
   emitTriggerDiscovered,
-} from '../../src/functions-rtdb/events.js';
+} from '../../src/functions/events.js';
 
 function functionsEvents(sandbox: LocalSandbox): Array<SandboxEvent & { op: string }> {
   return sandbox

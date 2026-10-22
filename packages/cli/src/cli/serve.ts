@@ -58,11 +58,11 @@ import {
   createHttpFunctionsPeerReadiness,
   type FunctionsDevelopmentEvent,
   type FunctionsDevelopmentRuntime,
-} from '../functions-rtdb/development-runtime.js';
+} from '../functions/development-runtime.js';
 import {
-  discoverFunctionsRtdbProject,
-  type FunctionsRtdbProject,
-} from '../functions-rtdb/project.js';
+  discoverFunctionsProject,
+  type FunctionsProject,
+} from '../functions/project.js';
 import {
   createSandboxSession,
   SandboxSeedError,
@@ -910,10 +910,10 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
   // the bridge (see bridgeEnabledFor) — the child's injected PYRIC_SANDBOX
   // is useless without the /__pyric/sandbox WS mount.
   // One project for the database rules, deploy targets and functions child.
-  let discoveredFunctionsProject: FunctionsRtdbProject | null;
+  let discoveredFunctionsProject: FunctionsProject | null;
   let firebaseProject: FirebaseProjectResolution;
   try {
-    discoveredFunctionsProject = discoverFunctionsRtdbProject(cwd);
+    discoveredFunctionsProject = discoverFunctionsProject(cwd);
     const flagProject = parsed.flags.get('project');
     firebaseProject = resolveFirebaseProject({
       projectDir: cwd,

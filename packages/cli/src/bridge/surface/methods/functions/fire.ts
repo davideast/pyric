@@ -9,24 +9,24 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { getClock } from 'pyric/sandbox';
-import { resolveChildDatabaseHost } from '../../../../functions-rtdb/child.js';
+import { resolveChildDatabaseHost } from '../../../../functions/spawn.js';
 import { resolveFirebaseProject } from '../../../../cli/firebase-project.js';
 import {
   executeOnValueCreated,
   type CreatedEventOptions,
   type CreatedExecutionResult,
-} from '../../../../functions-rtdb/event.js';
-import type { DiscoveredOnValueCreated } from '../../../../functions-rtdb/discovery.js';
+} from '../../../../functions/rtdb/event.js';
+import type { DiscoveredOnValueCreated } from '../../../../functions/rtdb/discovery.js';
 import {
   emitExecutionFinished,
   emitHandlerFired,
   emitTriggerDiscovered,
-} from '../../../../functions-rtdb/events.js';
+} from '../../../../functions/events.js';
 import {
   executionIdFor,
   type FunctionExecutionRecord,
-} from '../../../../functions-rtdb/execution-log.js';
-import { matchRtdbReference, normalizeRtdbReference } from '../../../../functions-rtdb/reference-pattern.js';
+} from '../../../../functions/execution-log.js';
+import { matchRtdbReference, normalizeRtdbReference } from '../../../../functions/rtdb/reference-pattern.js';
 import { pathArgument, timeoutMsArgument, triggerArgument, valueArgument } from '../../arguments/functions.js';
 import { operationFailure } from '../../context.js';
 import { discoverFunctionsTriggers } from '../../functions-runtime.js';

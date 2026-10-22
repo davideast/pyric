@@ -5,9 +5,9 @@ import { readFirebaseJson, readFirebaseRc, type FirebaseJson } from '../cli/fire
 import { resolveFirebaseProject } from '../cli/firebase-project.js';
 import { registerModuleUrl } from '../cli/sandbox-runner.js';
 import {
-  discoverFunctionsRtdbProject,
-  type FunctionsRtdbProject,
-} from '../functions-rtdb/project.js';
+  discoverFunctionsProject,
+  type FunctionsProject,
+} from '../functions/project.js';
 import { formatActivityWarning } from './activity-warning.js';
 import { formatAiStatusNote } from './ai-status.js';
 import {
@@ -100,7 +100,7 @@ export interface ViteSandboxGenerationDependencies {
   resolveAvatarsConfig: typeof resolveAvatarsConfig;
   prepareWorker(runtime: ViteWorkerRuntime, epochSalt: string): Promise<void>;
   workerStatus(runtime: ViteWorkerRuntime): ViteWorkerRuntimeStatus;
-  discoverFunctionsProject(cwd: string): FunctionsRtdbProject | null;
+  discoverFunctionsProject(cwd: string): FunctionsProject | null;
   resolveSiteUiDir: typeof resolveSiteUiDir;
   createBridge(options: BridgeMountOptions): BridgeMount;
   createSession(options: SandboxSessionOptions): Promise<SandboxSession>;
@@ -117,7 +117,7 @@ const DEFAULT_DEPENDENCIES: ViteSandboxGenerationDependencies = {
   resolveAvatarsConfig,
   prepareWorker: (runtime, epochSalt) => runtime.prepare(epochSalt),
   workerStatus: (runtime) => runtime.status(),
-  discoverFunctionsProject: discoverFunctionsRtdbProject,
+  discoverFunctionsProject: discoverFunctionsProject,
   resolveSiteUiDir,
   createBridge: createBridgeMount,
   createSession: createSandboxSession,
