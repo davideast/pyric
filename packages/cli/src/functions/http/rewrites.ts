@@ -6,49 +6,18 @@
  * matched first, and only when no static file answers the path. The function
  * sees the full original URL (firebase-tools `lib/hosting/proxy.js`), and the
  * region defaults to us-central1 (`lib/hosting/functionsProxy.js:20-31`).
+ *
+ * Matching is superstatic 10.0.0's (`lib/utils/patterns.js`): a `source` is
+ * `minimatch(path, source)` with minimatch 6.2.3 defaults, and a `regex` is
+ * `new RegExp(regex, 'u')`, both against `hostingPathname` (gateway.ts).
  */
+import { Minimatch } from 'minimatch';
 import { DEFAULT_REGION } from './discovery.js';
 
 export interface HostingRewrite {
   matches(pathname: string): boolean;
   /** Present when the rewrite's destination is a function. */
   function: { functionId: string; region: string } | null;
-}
-
-/** A Hosting `source` glob as a RegExp: `**` crosses `/`, `*` and `?` do not, `{a,b}` alternates. */
-export function hostingGlob(source: string): RegExp {
-  const glob = source.startsWith('/') ? source : `/${source}`;
-  let pattern = '';
-  for (let index = 0; index < glob.length; index += 1) {
-    const char = glob[index];
-    const rest = glob.slice(index);
-    if (rest.startsWith('/**/')) {
-      pattern += '(?:/|/.*/)';
-      index += 3;
-    } else if (rest === '/**') {
-      pattern += '(?:/.*)?';
-      index += 2;
-    } else if (rest.startsWith('**')) {
-      pattern += '.*';
-      index += 1;
-    } else if (char === '*') {
-      pattern += '[^/]*';
-    } else if (char === '?') {
-      pattern += '[^/]';
-    } else if (char === '{') {
-      const close = glob.indexOf('}', index);
-      if (close === -1) {
-        pattern += '\\{';
-      } else {
-        const options = glob.slice(index + 1, close).split(',').map((option) => option.replace(/[.+^$()|[\]\\]/g, '\\$&'));
-        pattern += `(?:${options.join('|')})`;
-        index = close;
-      }
-    } else {
-      pattern += char.replace(/[.+^$()|[\]\\]/g, '\\$&');
-    }
-  }
-  return new RegExp(`^${pattern}$`);
 }
 
 interface RewriteConfig {
@@ -71,26 +40,36 @@ function functionTarget(rewrite: RewriteConfig): HostingRewrite['function'] {
 
 function matcher(rewrite: RewriteConfig): ((pathname: string) => boolean) | null {
   if (typeof rewrite.source === 'string') {
-    const glob = hostingGlob(rewrite.source);
-    return (pathname) => glob.test(pathname);
+    const glob = new Minimatch(rewrite.source);
+    return (pathname) => glob.match(pathname);
   }
   if (typeof rewrite.regex === 'string') {
-    const regex = new RegExp(rewrite.regex);
+    const regex = new RegExp(rewrite.regex, 'u');
     return (pathname) => regex.test(pathname);
   }
   return null;
 }
 
-/** The rewrites of the one hosting config pyric serves (the first, for a multi-site array). */
-export function hostingRewrites(firebaseJson: unknown): HostingRewrite[] {
+/**
+ * The rewrites of the one hosting config pyric serves (the first, for a
+ * multi-site array). A rewrite whose pattern does not compile is skipped and
+ * reported to `onWarning`; the rest still apply.
+ */
+export function hostingRewrites(firebaseJson: unknown, onWarning?: (warning: string) => void): HostingRewrite[] {
   const hosting = (firebaseJson as { hosting?: unknown } | null)?.hosting;
   const site = Array.isArray(hosting) ? hosting[0] : hosting;
   const rewrites = (site as { rewrites?: unknown } | undefined)?.rewrites;
   if (!Array.isArray(rewrites)) return [];
-  return rewrites.flatMap((raw): HostingRewrite[] => {
+  return rewrites.flatMap((raw, index): HostingRewrite[] => {
     const rewrite = raw as RewriteConfig;
-    const matches = matcher(rewrite);
-    return matches ? [{ matches, function: functionTarget(rewrite) }] : [];
+    try {
+      const matches = matcher(rewrite);
+      return matches ? [{ matches, function: functionTarget(rewrite) }] : [];
+    } catch (error) {
+      const pattern = JSON.stringify(rewrite.source ?? rewrite.regex);
+      onWarning?.(`firebase.json hosting.rewrites[${index}] (${pattern}) is skipped: ${error instanceof Error ? error.message : String(error)}`);
+      return [];
+    }
   });
 }
 

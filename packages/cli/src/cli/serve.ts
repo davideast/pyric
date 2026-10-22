@@ -989,7 +989,10 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       functionsGateway = createFunctionsHttpGateway({
         projectId: functionsProjectId,
         initial: { kind: 'starting' },
-        rewrites: hostingRewrites(await readFirebaseJson(cwd).catch(() => null)),
+        rewrites: hostingRewrites(
+          await readFirebaseJson(cwd).catch(() => null),
+          (warning) => process.stderr.write(`  ⚠ ${warning}\n`),
+        ),
         staticFileExists: (pathname) => runtime !== undefined && resolveStaticFile(runtime.publicDir, pathname) !== null,
         onServed: (record) => {
           const { failed, line } = servedLine(record);

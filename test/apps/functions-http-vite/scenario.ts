@@ -2,7 +2,7 @@
 // plugin instead of `pyric sandbox`: unchanged page and functions source, the
 // /api/** rewrite served by the dev server, and the emulator path beside it.
 import assert from 'node:assert/strict';
-import { scenario } from '../driver.ts';
+import { scenario, sleep } from '../driver.ts';
 
 interface Added {
   status: number;
@@ -47,8 +47,10 @@ export default scenario(async (app) => {
   });
 
   await app.step('each request lands one execution log line', async () => {
-    await host.process.waitForLog(/function {2}api ← POST \/api\/messages 201/);
-    const lines = host.process.output.split('\n').filter((line) => line.includes('function  api ← POST /api/messages 201'));
-    assert.equal(lines.length, 2, lines.join('\n'));
+    // A line is written when the response closes, which can trail the response the client read.
+    const executionLines = () => host.process.output.split('\n').filter((line) => line.includes('function  api ← POST /api/messages 201'));
+    const deadline = Date.now() + 10_000;
+    while (executionLines().length < 2 && Date.now() < deadline) await sleep(50);
+    assert.equal(executionLines().length, 2, executionLines().join('\n'));
   });
 });
