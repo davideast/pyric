@@ -81,8 +81,8 @@ function snapshotWithPriorities(
       return val !== null && typeof val === 'object' && !Array.isArray(val)
         && Object.keys(val as Record<string, JsonValue>).length > 0;
     },
-    exportVal(): JsonValue { return exportValueAt(priorityOf, refForSnap, val).value; },
-    toJSON(): JsonValue { return exportValueAt(priorityOf, refForSnap, val).value; },
+    exportVal(): JsonValue { return exportValueAt(priorityOf, refForSnap, val); },
+    toJSON(): JsonValue { return exportValueAt(priorityOf, refForSnap, val); },
     forEach(cb): boolean {
       if (val === null || typeof val !== 'object' || Array.isArray(val)) return false;
       const rows = executeQuery(
@@ -151,8 +151,8 @@ export function buildSandboxQuerySnap(
       return this.child(p).exists();
     },
     hasChildren(): boolean { return rows.length > 0; },
-    exportVal(): JsonValue { return exportValueAt(priorityLookup(target), refForSnap, val).value; },
-    toJSON(): JsonValue { return exportValueAt(priorityLookup(target), refForSnap, val).value; },
+    exportVal(): JsonValue { return exportValueAt(priorityLookup(target), refForSnap, val); },
+    toJSON(): JsonValue { return exportValueAt(priorityLookup(target), refForSnap, val); },
     forEach(cb): boolean {
       for (const { key, value } of rows) {
         const childRef = child(refForSnap, key);
@@ -169,29 +169,23 @@ function exportValueAt(
   priorityOf: PriorityLookup,
   refForSnap: DatabaseReference,
   value: JsonValue,
-): { value: JsonValue; containsPriority: boolean } {
-  if (value === null) return { value: null, containsPriority: false };
+): JsonValue {
+  if (value === null) return null;
   const priority = priorityOf(refForSnap._path);
   if (typeof value !== 'object' || Array.isArray(value)) {
-    return priority === null
-      ? { value, containsPriority: false }
-      : { value: { '.value': value, '.priority': priority }, containsPriority: true };
+    return priority === null ? value : { '.value': value, '.priority': priority };
   }
+  // `ChildrenNode.val(true)` never builds an array: the export format keeps
+  // integer keys as object keys.
   const exported: Record<string, JsonValue> = {};
-  let containsPriority = priority !== null;
   const rows = executeQuery(
     value,
     { orderBy: null, bounds: [], limit: null },
     (key) => priorityOf(child(refForSnap, key)._path),
   );
   for (const { key, value: childValue } of rows) {
-    const childExport = exportValueAt(priorityOf, child(refForSnap, key), childValue);
-    exported[key] = childExport.value;
-    containsPriority ||= childExport.containsPriority;
+    exported[key] = exportValueAt(priorityOf, child(refForSnap, key), childValue);
   }
   if (priority !== null) exported['.priority'] = priority;
-  return {
-    value: containsPriority ? exported : coerceArrays(exported),
-    containsPriority,
-  };
+  return exported;
 }

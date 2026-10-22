@@ -9,4 +9,4 @@ export { logDatabaseWarning } from './sandbox/query-index.js';
 export { heldDatabaseInstances } from './sandbox/backend-for.js';
 export { isInfoPath, validateUpdatePaths, validateWritablePath } from './writable-path.js';
 export { valueAtChildPath, valueChildren, type ValueChild } from './internal/value-children.js';
-export { coerceArrays, normalizeWrite } from './sandbox/normalize.js';
+export { coerceArrays, inlinePriorities, normalizeNode, validateWrite } from './sandbox/normalize.js';
