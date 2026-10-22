@@ -19,8 +19,12 @@
  * A refused client whose config the replacing client turns out to share is
  * accepted again, so it is not stuck behind a provisional lock that is gone.
  * When the last connected client on the config disconnects (a script that
- * exited, the last tab closed), the host releases it: refused clients are
+ * exited, the last tab closed) and none with the config attaches within a
+ * short grace (a reloading tab), the host releases it: refused clients are
  * judged again, in the order they arrived, and the next config is served.
+ * The next config must keep the `projectId`: the host's RTDB instances,
+ * their data and rules belong to it, so another project is refused until the
+ * host restarts.
  * Each refusal and each eviction is logged on the host.
  */
 import { differenceDetail, sameBackend } from './backend-options.js';
@@ -55,13 +59,16 @@ function marksDefaultsProvisional(ctx: HostCtx): void {
     || ctx.defaultRtdbInstance === '__unnamed_default__';
 }
 
+/** How long the config outlives its last client: a reloading tab reattaches within it. */
+const CONFIG_RELEASE_GRACE_MS = 5_000;
+
 function holdsConfig(ctx: HostCtx, port: PortLike): void {
   (ctx.configHolderPorts ??= new Set()).add(port);
+  clearTimeout(ctx.configReleaseTimer);
+  ctx.configReleaseTimer = undefined;
 }
 
 function lockFirstConfig(ctx: HostCtx, port: PortLike, msg: AppConfigMessage, sender: Sender): void {
-  const derivesDefaultRtdb = ctx.defaultRtdbInstance === undefined || ctx.defaultRtdbInstance === '__unnamed_default__';
-  ctx.defaultRtdbBeforeAppConfig = derivesDefaultRtdb ? { instance: ctx.defaultRtdbInstance } : undefined;
   ctx.appOptions = structuredClone(msg.options);
   holdsConfig(ctx, port);
   ctx.appOptionsFromPriorHost = sender.fromPriorHost;
@@ -210,7 +217,9 @@ export function handleAppConfig(
     ctx.rejectedConfigDetails?.delete(port);
   }
   const hasNoConfig = ctx.appOptions === undefined;
-  if (hasNoConfig) {
+  if (hasNoConfig && changesProject(ctx, msg)) {
+    refuseOtherProject(ctx, port, msg);
+  } else if (hasNoConfig) {
     lockFirstConfig(ctx, port, msg, sender);
   } else if (supersedesLock(ctx, sender)) {
     supersedeLock(ctx, port, msg, sender, cleanupPort);
@@ -221,14 +230,12 @@ export function handleAppConfig(
 
 /** No connected client uses the config: serve the next one, judging refused clients again in arrival order. */
 function releaseConfig(ctx: HostCtx, cleanupPort: (port: PortLike) => void): void {
+  ctx.releasedAppOptions = ctx.appOptions;
   ctx.appOptions = undefined;
   ctx.appOptionsFromPriorHost = undefined;
   ctx.appOptionsVerified = undefined;
   ctx.priorHostConfigPorts?.clear();
   ctx.unverifiedConfigPorts?.clear();
-  const derivedDefault = ctx.defaultRtdbBeforeAppConfig;
-  if (derivedDefault !== undefined) ctx.defaultRtdbInstance = derivedDefault.instance;
-  ctx.defaultRtdbBeforeAppConfig = undefined;
   ctx.defaultRtdbAdoptedFromPriorHost = false;
   const refused = [...(ctx.refusedConfigMessages ?? [])];
   ctx.refusedConfigMessages?.clear();
@@ -246,6 +253,41 @@ export function forgetConfigPort(ctx: HostCtx, port: PortLike, cleanupPort: (por
   ctx.refusedConfigMessages?.delete(port);
   const holders = ctx.configHolderPorts;
   const heldConfig = holders?.delete(port) === true;
-  const releasesConfig = heldConfig && holders.size === 0 && ctx.appOptions !== undefined;
-  if (releasesConfig) releaseConfig(ctx, cleanupPort);
+  const wasLastHolder = heldConfig && holders.size === 0 && ctx.appOptions !== undefined;
+  if (wasLastHolder) scheduleRelease(ctx, cleanupPort);
+}
+
+/** Release after the grace unless a client with the config attaches first (`holdsConfig` cancels it). */
+function scheduleRelease(ctx: HostCtx, cleanupPort: (port: PortLike) => void): void {
+  clearTimeout(ctx.configReleaseTimer);
+  const timer = setTimeout(() => {
+    ctx.configReleaseTimer = undefined;
+    const isStillUnheld = (ctx.configHolderPorts?.size ?? 0) === 0 && ctx.appOptions !== undefined;
+    if (isStillUnheld) releaseConfig(ctx, cleanupPort);
+  }, ctx.configReleaseGraceMs ?? CONFIG_RELEASE_GRACE_MS);
+  // A Node host does not stay up for a pending release.
+  (timer as { unref?: () => void }).unref?.();
+  ctx.configReleaseTimer = timer;
+}
+
+/** The config refusals are judged against: the one served, else the one last released. */
+export function refusalBaseline(ctx: HostCtx): Record<string, unknown> | undefined {
+  return ctx.appOptions ?? ctx.releasedAppOptions;
+}
+
+/** After a release, a config for another project is refused: the host's RTDB data and rules are the first project's. */
+function changesProject(ctx: HostCtx, msg: AppConfigMessage): boolean {
+  const released = ctx.releasedAppOptions;
+  if (released === undefined) return false;
+  return !sameBackend({ projectId: released.projectId }, { projectId: msg.options.projectId });
+}
+
+function refuseOtherProject(ctx: HostCtx, port: PortLike, msg: AppConfigMessage): void {
+  rejectPort(ctx, port, structuredClone(msg.options));
+  (ctx.refusedConfigMessages ??= new Map()).set(port, structuredClone(msg));
+  console.warn(
+    `[pyric] Refused a client's Firebase config${differenceDetail(ctx.releasedAppOptions, msg.options)}. ` +
+      "The clients on this host's earlier config have disconnected, but its Realtime Database data and rules belong to that project. " +
+      'Every call from the refused client gets app/multiple-configs-not-supported. Restart the host to serve another projectId.',
+  );
 }

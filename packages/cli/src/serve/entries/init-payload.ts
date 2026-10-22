@@ -140,16 +140,20 @@ export function currentSessionToken(): Promise<string | null> {
   return sessionTokenRequest;
 }
 
-/**
- * The boot id of the host serving `init.json` now, read afresh. A Node process
- * presents it when it reattaches, so after a host restart it presents the new boot.
- */
-export async function currentHostInstanceId(): Promise<string | undefined> {
-  const payload = await requestInitPayload();
-  return payload.instanceId;
-}
-
 /** The host may have restarted; the next token read fetches `init.json` again. */
 export function forgetSessionToken(): void {
   sessionTokenIsStale = true;
+}
+
+/**
+ * The boot id of the host serving `init.json` now, read afresh. A Node process
+ * presents it when it reattaches, so after a host restart it presents the new
+ * boot. The same read answers the next session-token read, so a reconnect
+ * reads `init.json` once.
+ */
+export async function currentHostInstanceId(): Promise<string | undefined> {
+  const payload = await requestInitPayload();
+  sessionTokenRequest = Promise.resolve(payload.sessionToken ?? null);
+  sessionTokenIsStale = false;
+  return payload.instanceId;
 }

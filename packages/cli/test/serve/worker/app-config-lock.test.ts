@@ -460,12 +460,21 @@ describe('worker host appConfig lock between verified pages and Node processes',
     }
   });
 
-  it('releases the config when its last client disconnects, so a later client may send another', async () => {
+  /** A host whose config release waits `graceMs` after the last client goes. */
+  async function makeReleasingCtx(graceMs = 20): Promise<HostCtx> {
     const ctx = await makeCtx();
+    ctx.configReleaseGraceMs = graceMs;
+    return ctx;
+  }
+  const pastGrace = () => new Promise(resolve => setTimeout(resolve, 60));
+
+  it('releases the config a short while after its last client disconnects, so a later client may send another', async () => {
+    const ctx = await makeReleasingCtx();
     const script = makePort();
     const page = makePort();
     await handleMessage(ctx, script.port, { t: 'appConfig', options: ssrConfig, hostVerified: true });
     await handleMessage(ctx, script.port, { t: 'disconnect', id: 'script-bye' });
+    await pastGrace();
     await handleMessage(ctx, page.port, { t: 'appConfig', options: pageConfig, hostVerified: true });
 
     expect((await op(ctx, page, 'page-read')).ok).toBe(true);
@@ -473,21 +482,22 @@ describe('worker host appConfig lock between verified pages and Node processes',
   });
 
   it('keeps the config while another client that shares it is connected', async () => {
-    const ctx = await makeCtx();
+    const ctx = await makeReleasingCtx();
     const script = makePort();
     const sharedPage = makePort();
     const otherPage = makePort();
     await handleMessage(ctx, script.port, { t: 'appConfig', options: ssrConfig, hostVerified: true });
     await handleMessage(ctx, sharedPage.port, { t: 'appConfig', options: analyticsConfig, hostVerified: true });
     await handleMessage(ctx, script.port, { t: 'disconnect', id: 'script-bye' });
+    await pastGrace();
     await handleMessage(ctx, otherPage.port, { t: 'appConfig', options: pageConfig, hostVerified: true });
 
     expect((await op(ctx, sharedPage, 'shared-read')).ok).toBe(true);
     expect((await op(ctx, otherPage, 'other-read')).ok).toBe(false);
   });
 
-  it('accepts a client refused while the config was held once the last client holding it disconnects', async () => {
-    const ctx = await makeCtx();
+  it('accepts a client refused while the config was held once the grace after its last holder ends', async () => {
+    const ctx = await makeReleasingCtx();
     const script = makePort();
     const page = makePort();
     await handleMessage(ctx, script.port, { t: 'appConfig', options: ssrConfig, hostVerified: true });
@@ -495,8 +505,66 @@ describe('worker host appConfig lock between verified pages and Node processes',
     expect((await op(ctx, page, 'page-refused')).ok).toBe(false);
 
     await handleMessage(ctx, script.port, { t: 'disconnect', id: 'script-bye' });
+    expect((await op(ctx, page, 'page-still-refused')).ok).toBe(false);
+    await pastGrace();
 
     expect((await op(ctx, page, 'page-read')).ok).toBe(true);
     expect(ctx.appOptions).toEqual(pageConfig);
+  });
+
+  it('keeps the config for a reloaded tab that reattaches within the grace, and the refused client stays refused', async () => {
+    const ctx = await makeReleasingCtx(40);
+    const tab = makePort();
+    const refusedTab = makePort();
+    const reloadedTab = makePort();
+    await handleMessage(ctx, tab.port, { t: 'appConfig', options: ssrConfig, hostVerified: true });
+    await handleMessage(ctx, refusedTab.port, { t: 'appConfig', options: pageConfig, hostVerified: true });
+    await handleMessage(ctx, tab.port, { t: 'disconnect', id: 'reload' });
+    await handleMessage(ctx, reloadedTab.port, { t: 'appConfig', options: ssrConfig, hostVerified: true });
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    expect((await op(ctx, reloadedTab, 'reloaded-read')).ok).toBe(true);
+    expect((await op(ctx, refusedTab, 'refused-read')).ok).toBe(false);
+    expect(ctx.appOptions).toEqual(ssrConfig);
+  });
+
+  it('never releases to another projectId: that client is refused, naming projectId and a host restart', async () => {
+    const ctx = await makeReleasingCtx();
+    const projectA = makePort();
+    const projectB = makePort();
+    const otherProject = { ...ssrConfig, projectId: 'other-project' };
+    await handleMessage(ctx, projectA.port, { t: 'appConfig', options: ssrConfig, hostVerified: true });
+    await handleMessage(ctx, projectA.port, {
+      t: 'op', id: 'a-write', method: 'setDoc', path: 'notes/x', data: { from: 'a' },
+    } as never);
+    await handleMessage(ctx, projectA.port, { t: 'disconnect', id: 'a-bye' });
+    await pastGrace();
+    await handleMessage(ctx, projectB.port, { t: 'appConfig', options: otherProject, hostVerified: true });
+
+    const refused = await op(ctx, projectB, 'b-read');
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) {
+      expect(refused.error.code).toBe('app/multiple-configs-not-supported');
+      expect(refused.error.message).toContain('differs on: projectId');
+    }
+    expect(warnings.some(warning => warning.includes('(differs on: projectId)') && warning.includes('Restart the host'))).toBe(true);
+  });
+
+  it('compares databaseURL by instance and storageBucket without gs://', async () => {
+    const equivalent = [
+      { databaseURL: 'https://demo-app-default-rtdb.firebaseio.com/' },
+      { databaseURL: 'https://DEMO-APP-DEFAULT-RTDB.firebaseio.com' },
+      { databaseURL: 'http://127.0.0.1:9000/?ns=demo-app-default-rtdb' },
+      { databaseURL: undefined },
+      { storageBucket: 'gs://demo-app.appspot.com' },
+    ];
+    for (const change of equivalent) {
+      const ctx = await makeCtx();
+      const holder = makePort();
+      const other = makePort();
+      await handleMessage(ctx, holder.port, { t: 'appConfig', options: ssrConfig, hostVerified: true });
+      await handleMessage(ctx, other.port, { t: 'appConfig', options: { ...ssrConfig, ...change }, hostVerified: true });
+      expect((await op(ctx, other, 'other-read')).ok, JSON.stringify(change)).toBe(true);
+    }
   });
 });

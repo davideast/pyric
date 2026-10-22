@@ -80,3 +80,13 @@ describe('served client surfaces under a Node runtime origin', () => {
     expectNoFallback(lines);
   });
 });
+
+describe('the host boot a Node process reads before it reattaches', () => {
+  it('is read from init.json afresh each time, and that read answers the next session-token read', () => {
+    const fixture = resolve(import.meta.dir, 'fixtures/node-boot-reads.ts');
+    const result = Bun.spawnSync([process.execPath, fixture], { env: { ...process.env, PYRIC_SANDBOX: '' } });
+    expect(result.exitCode, result.stderr.toString()).toBe(0);
+    const line = result.stdout.toString().trim().split('\n').find(text => text.startsWith('{'));
+    expect(JSON.parse(line ?? '{}')).toEqual({ first: 'boot-1', second: 'boot-2', token: 'token-2', requests: 2 });
+  });
+});

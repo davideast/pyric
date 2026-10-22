@@ -65,7 +65,7 @@ import { isRulesOp, handleRulesOp } from './rules.js';
 import { handleClockOp, isClockOp, subscribeClock, unsubscribeClock } from './clock.js';
 import { isAdminFirestoreOp, handleAdminFirestoreOp } from './admin-firestore.js';
 import { isRtdbOp, handleRtdbOp, drainPortRtdbDisconnects, forgetPortRtdbConnection } from './rtdb.js';
-import { configConflictError, forgetConfigPort, handleAppConfig } from './app-config-lock.js';
+import { configConflictError, forgetConfigPort, handleAppConfig, refusalBaseline } from './app-config-lock.js';
 import { isStorageOp, handleStorageOp } from './storage.js';
 import { isConnectionOp, handleConnectionOp } from './connection.js';
 import { isStudioOp, handleStudioOp } from './studio.js';
@@ -227,7 +227,7 @@ export async function handleMessage(
   if (rejectsConfig) {
     const isOperation = msg.t === 'op' || msg.t === 'tool';
     const isDataSubscription = msg.t === 'sub' && msg.target !== 'events';
-    const error = configConflictError(ctx.appOptions, ctx.rejectedConfigDetails?.get(targetPort));
+    const error = configConflictError(refusalBaseline(ctx), ctx.rejectedConfigDetails?.get(targetPort));
     if (isOperation) {
       fail(targetPort, msg.id, error);
     } else if (isDataSubscription) {
