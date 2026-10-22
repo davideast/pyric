@@ -15,6 +15,9 @@
  */
 import { afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { join } from 'node:path';
+
+/** Token length is not claimed (see the rows' notes): the shape comparison drops it explicitly. */
+const WITHOUT_LENGTH = { length: undefined };
 import { appCheckRows } from '../../../conformance/registry/app-check.ts';
 import { createObservationGate } from '../../../conformance/src/observation-gate.ts';
 import { jwtShape, type Secrets } from '../../../conformance/src/capture/app-check/redact.ts';
@@ -158,8 +161,8 @@ const assertions: Record<string, Assertion> = {
     const handle = appCheck.initializeAppCheck(freshApp('shape'), { provider: provider(), isTokenAutoRefreshEnabled: false });
     const first = await appCheck.getToken(handle);
     const forced = await appCheck.getToken(handle, true);
-    const shape = (result: { token: string }) => ({ ...jwtShape(result.token, SECRETS), length: undefined });
-    const expected = (facts: { token: Record<string, unknown> }) => ({ ...facts.token, length: undefined });
+    const shape = (result: { token: string }) => ({ ...jwtShape(result.token, SECRETS), ...WITHOUT_LENGTH });
+    const expected = (facts: { token: Record<string, unknown> }) => ({ ...facts.token, ...WITHOUT_LENGTH });
     expect(Object.keys(first).sort()).toEqual(o.first.keySet);
     expect(shape(first)).toEqual(expected(o.first));
     expect(shape(forced)).toEqual(expected(o.forced));
@@ -183,7 +186,7 @@ const assertions: Record<string, Assertion> = {
     const b = await appCheck.getLimitedUseToken(handle);
     const after = await appCheck.getToken(handle);
     expect(Object.keys(a).sort()).toEqual(o.limited.keySet);
-    expect({ ...jwtShape(a.token, SECRETS), length: undefined }).toEqual({ ...o.limited.token, length: undefined });
+    expect({ ...jwtShape(a.token, SECRETS), ...WITHOUT_LENGTH }).toEqual({ ...o.limited.token, ...WITHOUT_LENGTH });
     expect(a.token !== cached.token).toBe(o.differsFromCachedToken);
     expect(a.token !== b.token).toBe(o.twoCallsDistinct);
     expect(after.token === cached.token).toBe(o.cachedTokenAfterLimitedUseUnchanged);

@@ -10,6 +10,9 @@
  */
 import { afterEach, describe, expect, it } from 'bun:test';
 import { join } from 'node:path';
+
+/** Token length is not claimed (see the rows' notes): the shape comparison drops it explicitly. */
+const WITHOUT_LENGTH = { length: undefined };
 import { appCheckRows } from '../../../conformance/registry/app-check.ts';
 import { createObservationGate } from '../../../conformance/src/observation-gate.ts';
 import { jwtShape, tamperSignature, type Secrets } from '../../../conformance/src/capture/app-check/redact.ts';
@@ -32,9 +35,20 @@ type AdminAppCheck = {
   createToken(appId: string, options?: { ttlMillis?: number }): Promise<{ token: string; ttlMillis: number }>;
   verifyToken(token: string, options?: { consume?: boolean }): Promise<{ appId: string; token: Record<string, unknown>; alreadyConsumed?: boolean }>;
 };
-function appCheck(): AdminAppCheck {
-  const app = initializeApp({ sandbox: initializeSandbox(), projectId: PROJECT_ID } as Parameters<typeof initializeApp>[0]);
+let appSeq = 0;
+/** `null` initializes the admin app with no projectId. */
+function appCheck(projectId: string | null = PROJECT_ID): AdminAppCheck {
+  appSeq += 1;
+  const config = projectId === null ? { sandbox: initializeSandbox() } : { sandbox: initializeSandbox(), projectId };
+  const app = initializeApp(config as Parameters<typeof initializeApp>[0], `app-check-admin-${appSeq}`);
   return getAppCheck(app) as unknown as AdminAppCheck;
+}
+/** Re-encodes one claim and keeps the original signature: the content check runs first. */
+function withClaim(token: string, claim: string, value: unknown): string {
+  const [header, payload, signature] = token.split('.');
+  const claims = JSON.parse(Buffer.from(payload!, 'base64url').toString('utf8')) as Record<string, unknown>;
+  claims[claim] = value;
+  return `${header}.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.${signature}`;
 }
 async function rejection(operation: () => Promise<unknown>) {
   try {
@@ -56,7 +70,7 @@ const assertions: Record<string, () => Promise<void>> = {
     const result = await appCheck().createToken(APP_ID);
     expect(Object.keys(result).sort()).toEqual(o.resultKeySet);
     expect(result.ttlMillis).toBe(o.ttlMillis);
-    expect({ ...jwtShape(result.token, SECRETS), length: undefined }).toEqual({ ...o.token, length: undefined });
+    expect({ ...jwtShape(result.token, SECRETS), ...WITHOUT_LENGTH }).toEqual({ ...o.token, ...WITHOUT_LENGTH });
   },
   'app-check-admin#create-token-ttl': async () => {
     const o = obs('app-check-admin-create-token-custom-ttl');
@@ -103,6 +117,23 @@ const assertions: Record<string, () => Promise<void>> = {
     expect(await rejection(() => service.verifyToken(tamperSignature(token)))).toEqual(o.tamperedSignature);
     expect(await rejection(() => service.verifyToken('not-a-jwt'))).toEqual(o.notJwt);
     expect(await rejection(() => service.verifyToken(''))).toEqual(o.emptyString);
+  },
+  'app-check-admin#verify-token-content-checks': async () => {
+    // Upstream-documented (firebase-admin token-verifier.js verifyContent); no capture.
+    const { token } = await appCheck().createToken(APP_ID);
+    const aud = JSON.stringify([`projects/${PROJECT_NUMBER}`, `projects/${PROJECT_ID}`].join(','));
+    expect(await rejection(() => appCheck('another-project').verifyToken(token))).toEqual({
+      threw: true,
+      code: 'app-check/invalid-argument',
+      message: `The provided App Check token has incorrect "aud" (audience) claim. Expected "projects/another-project" but got ${aud}. Make sure the App Check token comes from the same Firebase project as the service account used to authenticate this SDK.`,
+    });
+    expect(await rejection(() => appCheck().verifyToken(withClaim(token, 'iss', 'https://example.com/123')))).toEqual({
+      threw: true,
+      code: 'app-check/invalid-argument',
+      message: 'The provided App Check token has incorrect "iss" (issuer) claim.',
+    });
+    const noProject = await rejection(() => appCheck(null).verifyToken(token));
+    expect(noProject).toMatchObject({ threw: true, code: 'app-check/invalid-credential' });
   },
   'app-check-admin#verify-token-consume': async () => {
     const o = obs('app-check-admin-verify-consume');

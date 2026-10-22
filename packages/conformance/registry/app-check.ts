@@ -184,6 +184,7 @@ const tokenRows: CompatibilityRow[] = [
     behavior: 'Resolves `{ token }` where `token` is a three-segment JWT: header `alg` RS256, `typ` JWT, with a `kid`; claims `aud`, `exp`, `iat`, `iss`, `jti`, `provider`, `sub`; `iss` is `https://firebaseappcheck.googleapis.com/<projectNumber>`, `aud` is `[projects/<projectNumber>, projects/<projectId>]`, `sub` is the app id, and `exp - iat` is 3600 seconds.',
     evidence: 'capture `app-check-client-debug-get-token` (`first`, `forced`).',
     observations: ['app-check-client-debug-get-token'],
+    notes: 'Not claimed: token length. Production tokens were 932 to 933 characters; sandbox tokens are about 780, because the sandbox `kid`, `jti`, and `provider` values are shorter. The suite compares every other field of the shape and drops `length` explicitly.',
   }),
   row({
     plane: 'app-check',
@@ -206,6 +207,7 @@ const tokenRows: CompatibilityRow[] = [
     behavior: 'Resolves `{ token }` with the same JWT shape as `getToken`, a different token on every call, never the cached token, and leaves the cached `getToken` token unchanged.',
     evidence: 'capture `app-check-client-limited-use-token`.',
     observations: ['app-check-client-limited-use-token'],
+    notes: 'Not claimed: token length. Production tokens were 932 to 933 characters; sandbox tokens are about 780, because the sandbox `kid`, `jti`, and `provider` values are shorter. The suite compares every other field of the shape and drops `length` explicitly.',
   }),
   row({
     plane: 'app-check',
@@ -293,6 +295,7 @@ const adminRows: CompatibilityRow[] = [
     behavior: 'Resolves `{ token, ttlMillis: 3600000 }`; the token has the web SDK token shape (RS256 JWT with `kid`, claims `aud`, `exp`, `iat`, `iss`, `jti`, `provider`, `sub`, `exp - iat` 3600).',
     evidence: 'capture `app-check-admin-create-token-shape`.',
     observations: ['app-check-admin-create-token-shape'],
+    notes: 'Not claimed: token length. Production tokens were 932 to 933 characters; sandbox tokens are about 780, because the sandbox `kid`, `jti`, and `provider` values are shorter. The suite compares every other field of the shape and drops `length` explicitly.',
   }),
   row({
     plane: 'app-check-admin',
@@ -340,6 +343,16 @@ const adminRows: CompatibilityRow[] = [
     behavior: 'A token with an altered signature rejects with `app-check/invalid-argument` and `The provided App Check token has invalid signature.`; a non-JWT string and the empty string reject with `app-check/invalid-argument` and the decoding message.',
     evidence: 'capture `app-check-admin-verify-tampered`.',
     observations: ['app-check-admin-verify-tampered'],
+    errorText: true,
+  }),
+  row({
+    plane: 'app-check-admin',
+    rowRef: 'verify-token-content-checks',
+    section: SEC_ADMIN,
+    api: 'getAppCheck().verifyToken(token) on another project, or with a foreign issuer',
+    featureKeys: ['verifyToken'],
+    behavior: 'Before the signature, the token content is checked: an `aud` without `projects/<projectId>` of the verifying app rejects with `app-check/invalid-argument` and `The provided App Check token has incorrect "aud" (audience) claim. Expected "projects/<projectId>" but got "<aud>". Make sure the App Check token comes from the same Firebase project as the service account used to authenticate this SDK.`; an `iss` not starting with `https://firebaseappcheck.googleapis.com/` rejects with `The provided App Check token has incorrect "iss" (issuer) claim.`; with no project id configured, `app-check/invalid-credential`.',
+    evidence: 'Upstream-documented only: firebase-admin 13 `lib/app-check/token-verifier.js` (`verifyContent`, `ensureProjectId`). No capture; verification runs locally in the Admin SDK, so a capture would need no production change.',
     errorText: true,
   }),
   row({

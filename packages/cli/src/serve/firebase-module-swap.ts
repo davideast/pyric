@@ -11,9 +11,11 @@
  * the `pyric sandbox` import map (`html-injection.ts`) and the Vite resolver
  * (`vite-module-swap.ts`). Every front door resolves the mode with
  * {@link resolveAiMode}. One table and one precedence rule, so the planes
- * cannot disagree about what production mode means. Dependency free, so the
- * Node register hook reads the same rule.
+ * cannot disagree about what production mode means. It imports only Node
+ * built-ins, so the Node register hook reads the same rule.
  */
+import { realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 /** Modules the swap serves. Keys are the bare specifiers app code uses. */
 export const SDK_MODULES = [
@@ -76,14 +78,36 @@ export function swappedFirebaseEntries(mode: AiMode): ReadonlyMap<ServedFirebase
   return swapped;
 }
 
+/** This package's root (`src/serve/` and `dist/serve/` both sit two levels below it), as written and resolved. */
+const PACKAGE_ROOTS: readonly string[] = (() => {
+  const root = fileURLToPath(new URL('../../', import.meta.url)).replaceAll('\\', '/');
+  try {
+    const real = `${realpathSync(root).replaceAll('\\', '/').replace(/\/$/, '')}/`;
+    return real === root ? [root] : [root, real];
+  } catch {
+    return [root];
+  }
+})();
+
+/** The shadow-app wrappers, relative to the package root. */
+const SHADOW_MODULE = /^(?:dist|src)\/(?:register\/(?:client\/)?app-bridge[^/]*|serve\/entries\/app-ai-passthrough[^/]*)$/;
+
+function importerFile(importer: string): string {
+  const withoutQuery = importer.replace(/[?#].*$/, '');
+  const path = withoutQuery.startsWith('file://') ? fileURLToPath(withoutQuery) : withoutQuery;
+  return path.replaceAll('\\', '/');
+}
+
 /**
- * Whether an importer is a Pyric app module that wraps the Firebase SDK's own
- * `firebase/app` or `firebase/app-check`. Those imports must reach the SDK,
- * never the swap.
+ * Whether an importer is one of this package's own modules that wrap the
+ * Firebase SDK's `firebase/app` or `firebase/app-check`. Those imports must
+ * reach the SDK, never the swap. Anchored to this package, so an app file that
+ * happens to be named `app-bridge.js` is still swapped.
  */
 export function isShadowAppImporter(importer: string | undefined): boolean {
   if (importer === undefined) return false;
-  return importer.includes('app-ai-passthrough') || importer.includes('app-bridge');
+  const file = importerFile(importer);
+  return PACKAGE_ROOTS.some((root) => file.startsWith(root) && SHADOW_MODULE.test(file.slice(root.length)));
 }
 
 /** The SDK modules a shadow-app wrapper imports for itself. */

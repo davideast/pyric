@@ -124,7 +124,7 @@ function assertPassthroughRouting(): void {
   expect(mapFirebaseSpecifier('firebase/app-check', undefined, { aiMode: 'production', sandbox: '' })).toBe('@pyric/cli/register/app-bridge-app-check');
   expect(mapFirebaseSpecifier('firebase/app-check', undefined, { aiMode: 'sandbox', sandbox: '' })).toBe('pyric/app-check');
   // The wrapper's own SDK imports reach the Firebase SDK.
-  expect(mapFirebaseSpecifier('firebase/app-check', '/x/dist/register/app-bridge-app-check.js', { aiMode: 'production', sandbox: '' })).toBeNull();
+  expect(mapFirebaseSpecifier('firebase/app-check', join(import.meta.dir, '..', '..', 'src', 'register', 'app-bridge-app-check.ts'), { aiMode: 'production', sandbox: '' })).toBeNull();
 }
 
 const assertions: Record<string, () => Promise<void>> = {
@@ -188,18 +188,17 @@ const assertions: Record<string, () => Promise<void>> = {
 
   'ai#app-check-attestation-failure': async () => {
     const o = obs('app-check-client-invalid-debug-token');
-    const { app, provider, appCheck, ai } = await bridged();
-    appCheck.initializeAppCheck(app as never, { provider, isTokenAutoRefreshEnabled: false });
-    failAttestation = true;
-    const generation = await generate(ai.getGenerativeModel(ai.getAI(app as never), { model: MODEL }));
-    expect(seen[0]?.appCheckHeader === SDK_DUMMY_TOKEN).toBe(o.aiRequest.appCheckHeaderIsSdkDummyToken);
-    expect(generation.threw).toBe(o.aiGeneration.threw);
-    seen.length = 0;
-    const limitedApp = await bridged();
-    appCheck.initializeAppCheck(limitedApp.app as never, { provider: limitedApp.provider, isTokenAutoRefreshEnabled: false });
-    const limited = await generate(ai.getGenerativeModel(ai.getAI(limitedApp.app as never, { useLimitedUseAppCheckTokens: true }), { model: MODEL }));
-    expect(seen.length > 0).toBe(o.aiLimitedUseRequest.requestSeen);
-    expect((limited as { code: string }).code).toBe(o.aiLimitedUseGeneration.code);
+    // Debug mode is module-wide in the App Check SDK, so the refusal replays in
+    // its own process (fixtures/app-check-debug-refusal.ts).
+    const child = Bun.spawnSync(['bun', join(import.meta.dir, 'fixtures', 'app-check-debug-refusal.ts')], { stdout: 'pipe', stderr: 'pipe' });
+    const line = child.stdout.toString().trim().split('\n').filter((l) => l.startsWith('{')).at(-1) ?? '';
+    expect(line, child.stderr.toString()).not.toBe('');
+    const replay = JSON.parse(line) as Behavior;
+    const facts = (g: Behavior) => ({ threw: g.threw, code: g.code, message: g.message });
+    expect(replay.aiRequest).toEqual({ requestSeen: o.aiRequest.requestSeen, appCheckHeaderIsSdkDummyToken: o.aiRequest.appCheckHeaderIsSdkDummyToken });
+    expect(facts(replay.aiGeneration)).toEqual(facts(o.aiGeneration));
+    expect(replay.aiLimitedUseRequest.requestSeen).toBe(o.aiLimitedUseRequest.requestSeen);
+    expect(facts(replay.aiLimitedUseGeneration)).toEqual(facts(o.aiLimitedUseGeneration));
   },
 };
 

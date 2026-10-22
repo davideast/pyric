@@ -101,9 +101,10 @@ export async function mintAppCheckToken(
 
 export type AppCheckTokenCheck =
   | { ok: true; claims: AppCheckTokenClaims }
-  | { ok: false; reason: 'malformed' | 'signature' };
+  | { ok: false; reason: 'signature'; claims: AppCheckTokenClaims }
+  | { ok: false; reason: 'malformed' };
 
-/** Decodes a sandbox token and checks its signature. Expiry and audience are the caller's rules. */
+/** Decodes a sandbox token and checks its signature; the decoded claims come back either way. Expiry and audience are the caller's rules. */
 export async function checkAppCheckToken(token: string): Promise<AppCheckTokenCheck> {
   const segments = token.split('.');
   if (segments.length !== 3) return { ok: false, reason: 'malformed' };
@@ -115,6 +116,6 @@ export async function checkAppCheckToken(token: string): Promise<AppCheckTokenCh
     return { ok: false, reason: 'malformed' };
   }
   const expected = await sandboxSignature(`${segments[0]}.${segments[1]}`);
-  if (segments[2] !== expected) return { ok: false, reason: 'signature' };
+  if (segments[2] !== expected) return { ok: false, reason: 'signature', claims };
   return { ok: true, claims };
 }

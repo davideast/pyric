@@ -26,12 +26,21 @@ const MESSAGES = {
   decode: 'Decoding App Check token failed. Make sure you passed the entire string JWT which represents the Firebase App Check token.',
   signature: 'The provided App Check token has invalid signature.',
   expired: 'The provided App Check token has expired. Get a fresh App Check token from your client app and try again.',
-} as const;
+  issuer: 'The provided App Check token has incorrect "iss" (issuer) claim.',
+  noProject:
+    'Must initialize app with a cert credential or set your Firebase project ID as the GOOGLE_CLOUD_PROJECT environment variable to verify an App Check token.',
+  audience: (scoped: string, aud: unknown) =>
+    `The provided App Check token has incorrect "aud" (audience) claim. Expected "${scoped}" but got "${String(aud)}". Make sure the App Check token comes from the same Firebase project as the service account used to authenticate this SDK.`,
+};
+
+const APP_CHECK_ISSUER = 'https://firebaseappcheck.googleapis.com/';
+
+type AppCheckErrorCode = 'invalid-argument' | 'invalid-credential' | 'app-check-token-expired';
 
 class FirebaseAppCheckError extends Error {
   readonly code: string;
 
-  constructor(code: 'invalid-argument' | 'app-check-token-expired', message: string) {
+  constructor(code: AppCheckErrorCode, message: string) {
     super(message);
     this.name = 'FirebaseAppCheckError';
     this.code = `app-check/${code}`;
@@ -104,10 +113,12 @@ export class AppCheck {
 
   async verifyToken(appCheckToken: string, options?: VerifyAppCheckTokenOptions): Promise<VerifyAppCheckTokenResponse> {
     assertAdminAppActive(this.#app);
+    const projectId = this.#projectId();
     const check = typeof appCheckToken === 'string' ? await checkAppCheckToken(appCheckToken) : ({ ok: false, reason: 'malformed' } as const);
-    if (!check.ok) {
-      throw new FirebaseAppCheckError('invalid-argument', check.reason === 'signature' ? MESSAGES.signature : MESSAGES.decode);
-    }
+    if (!check.ok && check.reason === 'malformed') throw new FirebaseAppCheckError('invalid-argument', MESSAGES.decode);
+    // Upstream checks the content before the signature (token-verifier.js decodeAndVerify).
+    verifyContent(check.claims, projectId);
+    if (!check.ok) throw new FirebaseAppCheckError('invalid-argument', MESSAGES.signature);
     const { claims } = check;
     if (claims.exp * 1000 <= Date.now()) throw new FirebaseAppCheckError('app-check-token-expired', MESSAGES.expired);
     const result: VerifyAppCheckTokenResponse = { appId: claims.sub, token: { ...claims, app_id: claims.sub } };
@@ -118,6 +129,21 @@ export class AppCheck {
     }
     return result;
   }
+
+  /** The project a token must be scoped to, resolved as firebase-admin resolves it. */
+  #projectId(): string {
+    const projectId = this.#app.options.projectId ?? process.env.GOOGLE_CLOUD_PROJECT ?? process.env.GCLOUD_PROJECT;
+    if (!projectId) throw new FirebaseAppCheckError('invalid-credential', MESSAGES.noProject);
+    return projectId;
+  }
+}
+
+function verifyContent(claims: AppCheckTokenClaims, projectId: string): void {
+  const scoped = `projects/${projectId}`;
+  const audienceMatches = Array.isArray(claims.aud) && claims.aud.length > 0 && claims.aud.includes(scoped);
+  if (!audienceMatches) throw new FirebaseAppCheckError('invalid-argument', MESSAGES.audience(scoped, claims.aud));
+  const issuerMatches = typeof claims.iss === 'string' && claims.iss.startsWith(APP_CHECK_ISSUER);
+  if (!issuerMatches) throw new FirebaseAppCheckError('invalid-argument', MESSAGES.issuer);
 }
 
 const instances = new WeakMap<PyricAdminApp, AppCheck>();

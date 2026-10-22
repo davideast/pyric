@@ -6,6 +6,10 @@
  * app, not the Pyric app it is handed. Every other export takes the
  * `AppCheck` instance this returns and passes through unchanged.
  *
+ * So the returned handle's `.app` is the shadow Firebase app, not the Pyric
+ * app passed in: same name and options, a different object. The Firebase SDK
+ * reads `.app` itself to find the activation, so it cannot be swapped back.
+ *
  * Served to browser code through `serve/entries/app-ai-passthrough-app-check.ts`
  * and to a registered Node process through the register mapping. The exports
  * are typed loosely on purpose: app code takes its types from `firebase`, and

@@ -78,7 +78,18 @@ describe('Vite module swap', () => {
     expect(prodSwap.resolveId('firebase/app', userImporter)).toBe(context.entries['app-ai-passthrough']);
     expect(prodSwap.resolveId('firebase/firestore', userImporter)).toBe(context.entries['firestore']);
     // The passthrough app's own firebase/app import reaches the Firebase SDK.
-    expect(prodSwap.resolveId('firebase/app', '/cli/src/serve/entries/app-ai-passthrough.ts')).toBeNull();
+    expect(prodSwap.resolveId('firebase/app', context.entries['app-ai-passthrough'])).toBeNull();
+    // The App Check bridge and its own firebase/app-check import.
+    expect(prodSwap.resolveId('firebase/app-check', userImporter)).toBe(context.entries['app-ai-passthrough-app-check']);
+    const bridge = path.join(path.dirname(context.entries['app-ai-passthrough']!), '..', '..', 'register', 'app-bridge-app-check.ts');
+    expect(prodSwap.resolveId('firebase/app-check', bridge)).toBeNull();
+  });
+
+  it('swaps an app file that is merely named like a bridge', () => {
+    for (const userFile of ['/home/me/app/src/register/app-bridge.js', '/home/me/app/src/serve/entries/app-ai-passthrough.js']) {
+      expect(swap.resolveId('firebase/app-check', userFile)).toBe(context.entries['app-check']);
+      expect(swap.resolveId('firebase/app', userFile)).toBe(context.entries['app']);
+    }
   });
 });
 
