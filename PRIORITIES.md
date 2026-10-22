@@ -65,6 +65,7 @@ The on-ramp: the CLI working reliably across platforms, the agent plugins, the V
 - npx cold-start diet (#127)
 - Agent-first path (plugin to bridge) covered end to end (#128)
 - No-SharedWorker and older-Safari fallback and signpost (#129)
+- App Check before AI Logic requires it in November: `initializeAppCheck` and `getToken` work in sandbox mode, and production AI mode passes the real `firebase/app-check` through so AI Logic requests carry a token. Built under CDD (`docs/conformance/cdd.md`) as a new `app-check` surface. Today `pyric/app-check` throws on first use, so an AI Logic app that calls it fails its first run.
 
 ## Build Velocity and Tech Debt
 
