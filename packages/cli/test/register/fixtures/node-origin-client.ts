@@ -1,8 +1,8 @@
 // Child-process fixture for node-origin.test.ts: the served client surfaces
 // under a Node runtime origin whose host is not the Node host (`off-host`: its
-// init.json says `hosted: false`), cannot be found (`unreachable`), or is the
-// Node host (`attach`: the fixture prints the attach frame the client sends,
-// and exits).
+// init.json says `hosted: false`), cannot be found (`unreachable`), cannot be
+// found at the first calls and then answers (`late-host`), or is the Node host
+// (`attach`: the fixture prints the attach frame the client sends, and exits).
 // Prints one JSON line per call, then the runtime state the test asserts on.
 const mode = process.argv[2];
 const isNodeHost = mode === 'attach';
@@ -36,9 +36,9 @@ const { offHostRefusal } = await import('../../../src/register/client/off-host-r
 const { bindAppRegistryRefusal, clientSdkRefusal } = await import('pyric/app/internal');
 
 const unreachable = Object.assign(new Error('no running `pyric sandbox --bridge` found'), { code: 'not-found' });
-const host = mode === 'unreachable' ? Promise.reject(unreachable) : Promise.resolve(url);
-host.catch(() => undefined);
-installNodeRuntimeOrigin({ realm: 'node', host: () => host, socketRealm: createNodeSocketRealm(), offHostError: offHostRefusal });
+let hostIsUp = mode !== 'unreachable' && mode !== 'late-host';
+const host = (): Promise<string> => (hostIsUp ? Promise.resolve(url) : Promise.reject(unreachable));
+installNodeRuntimeOrigin({ realm: 'node', host, socketRealm: createNodeSocketRealm(), offHostError: offHostRefusal });
 bindAppRegistryRefusal(() => clientSdkRefusal('remote'));
 
 const { initializeApp } = await import('pyric/app');
@@ -76,6 +76,11 @@ async function callEachService(suffix: string): Promise<void> {
 }
 
 await callEachService('');
+if (mode === 'late-host') {
+  // The host appears: the same app's next calls find it and hear its answer.
+  hostIsUp = true;
+  await callEachService('.again');
+}
 await outcome('mirror', () => mirror.getDatabase(app));
 const placeholderValue = (await mirror.get(mirror.ref(mirror.getAdminDatabase(placeholder), 'x'))).val();
 console.log(JSON.stringify({ name: 'state', useWorker: runtime.useWorker, useHosted: runtime.useHosted, placeholderValue }));

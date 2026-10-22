@@ -74,11 +74,22 @@ async function requestInitPayloadWhenAvailable(): Promise<InitPayload> {
 /**
  * A promise whose work starts at its first use. A page reads `init.json` as it
  * loads; a Node process reads it at its first call, so importing an SDK opens
- * no connection and holds nothing, as the production SDK does (#1082).
+ * no connection and holds nothing, as the production SDK does (#1082). An
+ * answer is kept; a failure is not, so a process started before its host
+ * reads `init.json` again at its next call.
  */
 function startedOnUse<T>(start: () => Promise<T>): Promise<T> {
   let started: Promise<T> | undefined;
-  const run = (): Promise<T> => (started ??= start());
+  const run = (): Promise<T> => {
+    if (started !== undefined) return started;
+    const attempt = start();
+    started = attempt;
+    attempt.catch(() => {
+      const isLatest = started === attempt;
+      if (isLatest) started = undefined;
+    });
+    return attempt;
+  };
   const lazy = {
     then: (onFulfilled?: ((value: T) => unknown) | null, onRejected?: ((reason: unknown) => unknown) | null) =>
       run().then(onFulfilled, onRejected),

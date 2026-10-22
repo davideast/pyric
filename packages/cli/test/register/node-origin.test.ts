@@ -24,7 +24,7 @@ interface Line {
 const FIXTURE = resolve(import.meta.dir, 'fixtures/node-origin-client.ts');
 const SERVICES = ['database', 'firestore', 'auth', 'storage'];
 
-function run(mode: 'off-host' | 'unreachable' | 'attach'): Map<string, Line> {
+function run(mode: 'off-host' | 'unreachable' | 'late-host' | 'attach'): Map<string, Line> {
   const result = Bun.spawnSync([process.execPath, FIXTURE, mode], { env: { ...process.env, PYRIC_SANDBOX: '' } });
   expect(result.exitCode, result.stderr.toString()).toBe(0);
   const lines = result.stdout.toString().trim().split('\n').filter(line => line.startsWith('{'));
@@ -46,6 +46,21 @@ describe('served client surfaces under a Node runtime origin', () => {
       expect(line?.ok, service).toBe(false);
       expect(line?.code, service).toBe('failed-precondition');
       expect(line?.message, service).toContain('reach only the Node host');
+    }
+    expectNoFallback(lines);
+  });
+
+  it('choose again at the next call after the host could not be found, keeping no failure', () => {
+    const lines = run('late-host');
+    for (const service of SERVICES) {
+      const first = lines.get(service);
+      expect(first?.ok, service).toBe(false);
+      expect(first?.message, service).toContain('no running `pyric sandbox --bridge` found');
+      // The host now answers: the same app reads its init.json, which names it off-host.
+      const again = lines.get(`${service}.again`);
+      expect(again?.ok, `${service}.again`).toBe(false);
+      expect(again?.code, `${service}.again`).toBe('failed-precondition');
+      expect(again?.message, `${service}.again`).toContain('reach only the Node host');
     }
     expectNoFallback(lines);
   });
