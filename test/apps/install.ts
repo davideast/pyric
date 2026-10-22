@@ -83,9 +83,19 @@ export async function installApp(options: {
     if (DRIVER_FILES.has(entry)) continue;
     cpSync(join(options.appDir, entry), join(options.projectDir, entry), { recursive: true });
   }
-  const manifestPath = join(options.projectDir, 'package.json');
+  pinPyricPackages(options.projectDir, options.tarballs);
+  return runCommand('npm', npmInstallArgs(options.npmCache), { cwd: options.projectDir });
+}
+
+/**
+ * Points the Pyric dependencies in `projectDir/package.json` at the tarballs
+ * and pins every Pyric package to its tarball through `overrides`. Also used
+ * for a project a scenario creates, such as one `create-pyric` scaffolds.
+ */
+export function pinPyricPackages(projectDir: string, tarballs: Tarballs): void {
+  const manifestPath = join(projectDir, 'package.json');
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<string, unknown>;
-  const pins = Object.fromEntries([...options.tarballs].map(([name, file]) => [name, `file:${file}`]));
+  const pins = Object.fromEntries([...tarballs].map(([name, file]) => [name, `file:${file}`]));
   for (const field of ['dependencies', 'devDependencies'] as const) {
     const dependencies = manifest[field] as Record<string, string> | undefined;
     if (!dependencies) continue;
@@ -95,7 +105,9 @@ export async function installApp(options: {
   }
   manifest.overrides = { ...(manifest.overrides as object | undefined), ...pins };
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-  return runCommand('npm', [
-    'install', '--no-audit', '--no-fund', '--loglevel=error', '--prefer-offline', '--cache', options.npmCache,
-  ], { cwd: options.projectDir });
+}
+
+/** `npm install` as the runner runs it: quiet, offline first, with the shared cache. */
+export function npmInstallArgs(npmCache: string): string[] {
+  return ['install', '--no-audit', '--no-fund', '--loglevel=error', '--prefer-offline', '--cache', npmCache];
 }

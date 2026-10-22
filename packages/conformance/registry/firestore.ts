@@ -514,6 +514,17 @@ export const firestoreRegistry = {
           exceptionReason: "playground / preview behavior — no firebase-js-sdk counterpart to observe",
         }),
         row4({
+          rowRef: "22a",
+          behavior: "`QuerySnapshot.forEach(callback)` calls `callback` once per document, in query order, and `DocumentSnapshot.get(fieldPath)` returns the stored field at a dotted string or `FieldPath` (`undefined` when absent), for `getDocs`, `getDoc` and listener snapshots, in the in-page sandbox and through the served worker client, which the client SDKs in a Node host server process use.",
+          status: "conforms",
+          evidence: "`unit:query-snapshot-for-each-once.test.ts` asserts the modular `getDocs` snapshot and the Admin-shaped query snapshot each visit every document once; before the fix the sandbox's error-translation proxy fell back to a second call when a method returned `undefined`, so `forEach` visited every document twice. `packages/cli/test/serve/worker/query-snapshot-for-each.test.ts` asserts the served `getDocs` and listener snapshots visit the same documents in the same order and read the same fields as the in-page snapshots, and that a served `getDoc` snapshot reads a nested field. App scenario `test/apps/create-pyric-node-template` scaffolds the create-pyric node template, whose `src/app.ts` calls `snap.forEach` on a `getDocs` result, and runs its `dev` script (#1203).",
+          conformanceTests: [
+            "packages/pyric/test/firestore/query-snapshot-for-each-once.test.ts",
+            "packages/cli/test/serve/worker/query-snapshot-for-each.test.ts",
+            "test/apps/create-pyric-node-template/scenario.ts",
+          ],
+        }),
+        row4({
           rowRef: "23",
           behavior: "Each `snap.docs[i].ref` is tagged for follow-up ops",
           status: "conforms",

@@ -73,6 +73,8 @@ The dev server port comes from the command line, which overrides any `server.por
 | `app.serverScript(script, args, { env })` | Runs the script under `node --import @pyric/cli/register` until it exits. Throws on a non-zero exit. |
 | `app.pyric(args, { env })` | Runs the installed `pyric` command to exit and returns its exit code and output. |
 | `app.pyricProcess(args, { env })` | Starts the installed `pyric` command and returns at once, for a command that runs until stopped, such as `pyric sandbox -- next dev`. |
+| `app.command(command, args, { cwd, env, timeoutMs })` | Runs a command a user types, such as `npm run dev` or `node node_modules/create-pyric/dist/bin.js`, from `cwd` inside the app directory until it exits. Returns the exit code and output rather than throwing. |
+| `app.installProject(path)` | Installs a project the scenario created in the app directory, such as one `create-pyric` scaffolded: its Pyric dependencies point at the packed tarballs, then `npm install` runs in it. |
 | `app.page(url)` | Opens a page in the app's browser context. |
 | `app.browser()` | The app's browser context, for routes that answer external requests. |
 | `process.waitForLog(pattern, { since })` | Waits for a log line. `process.mark()` gives the `since` offset. |

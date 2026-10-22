@@ -347,7 +347,8 @@ const FIRESTORE_INDEXES = `{
 // ─── node template (init v1 scaffold, carried over) ───────────────────
 
 const NODE_APP_TS = `// Canonical Firebase imports stay unchanged between sandbox and production.
-// \`bun run dev\` activates @pyric/cli/register; \`bun start\` loads Firebase.
+// \`bun run dev\` runs this file against the Node-hosted Pyric sandbox
+// (\`pyric sandbox --hosted\`); \`bun start\` loads Firebase.
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, getDocs } from 'firebase/firestore';
 import { seed } from './seed.ts';
@@ -371,15 +372,17 @@ snap.forEach((doc) => console.log(\`  \${doc.id}:\`, doc.data()));
 // Production: fill .env, deploy firestore.rules, then \`bun start\`.
 `;
 
-const NODE_SEED_TS = `import { collection, addDoc, type Firestore } from 'firebase/firestore';
+const NODE_SEED_TS = `import { doc, setDoc, type Firestore } from 'firebase/firestore';
 
+// Fixed ids: the hosted sandbox keeps its data between runs, so each
+// \`bun run dev\` rewrites the same two posts instead of adding two more.
 export async function seed(db: Firestore): Promise<void> {
-  await addDoc(collection(db, 'posts'), {
+  await setDoc(doc(db, 'posts', 'hello'), {
     title: 'Hello, Pyric',
     author: 'sandbox',
     createdAt: new Date(),
   });
-  await addDoc(collection(db, 'posts'), {
+  await setDoc(doc(db, 'posts', 'local-first'), {
     title: 'Local-first by default',
     author: 'sandbox',
     createdAt: new Date(),
@@ -432,7 +435,7 @@ real Firebase in production. No application-code switch is required.
 
 \`\`\`bash
 bun install
-bun run dev        # Pyric sandbox through the Node package swap
+bun run dev        # Pyric sandbox hosted in Node (pyric sandbox --hosted)
 bun start          # production: real Firebase
 \`\`\`
 
@@ -845,7 +848,7 @@ export const TEMPLATES: Record<TemplateName, ScaffoldTemplate> = {
   node: {
     scripts: {
       start: 'node --env-file-if-exists=.env --experimental-strip-types src/app.ts',
-      dev: 'pyric sandbox --no-open -- node --env-file-if-exists=.env --experimental-strip-types src/app.ts',
+      dev: 'pyric sandbox --hosted --no-open -- node --env-file-if-exists=.env --experimental-strip-types src/app.ts',
      bridge: 'pyric bridge',
     },
     dependencies: { firebase: '^12.12.0' },

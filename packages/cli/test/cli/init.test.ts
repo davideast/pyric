@@ -449,9 +449,9 @@ describe('pyric init output contract', () => {
         'firebase.json': 'e817f89d2f9776ba460ec062be7d40f827b8f910d740cff2522b72232f1cdf5a',
         'firestore.indexes.json': '6742255415c36daf631b52f233039190af819205cc41fa58d07dd7d9e180c2b9',
         'firestore.rules': '9028ecbf9580fee3a04afae28223bad887df81c814d14d2ebe983d30f3a49080',
-        'package.json': '848f65db327982161b5543c9364db8fce32849ece24e073c98d8e878147eef69',
-        'src/app.ts': '7833e1f764904c9e800cd5728ab0cc68df0347d9b5e6a2084be79f75b35958e5',
-        'src/seed.ts': '6f04998f57b899fa7189706553645247f4b354715e899bb8070269b0564c1124',
+        'package.json': '6ec130dba05627001e5ed5ef8edcf782c8029fbb5b2b38cc828bfae15c51a234',
+        'src/app.ts': '7d8860eef765c446a777909bec7979a928309662d63acd22a229468ee3ee90f8',
+        'src/seed.ts': '0bfab850c32b7e9dc92064c5d9b2f05a96b404071d2ff92b9f8f8788447c8314',
       },
       static: {
         '.env.example': 'f01f3221a1ec03cbc44664ae0f7518c259018fd3f88dac75fdbb8c233f967ed1',
