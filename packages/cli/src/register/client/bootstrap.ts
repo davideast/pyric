@@ -9,7 +9,7 @@
  *
  * - the host is resolved as `remoteSandbox()` resolves it for `pyric-admin`
  *   (`PYRIC_SANDBOX_INSTANCE`, the stale-url check, `.pyric/serve.json`), at
- *   the first call that needs it;
+ *   the first call that needs it, and again after the connection is lost;
  * - the served entries get a Node runtime origin: `init.json` and the socket
  *   on that host, the `ws` realm (`./node-realm.ts`), and the refusal every
  *   call gets when the host is not the Node host;
@@ -87,6 +87,11 @@ function hostOnce(): Promise<string> {
   return host;
 }
 
+/** A lost connection resolves the host again at the next call; a host that moved is found where it now runs. */
+function forgetHost(): void {
+  host = undefined;
+}
+
 const socketRealm = createNodeSocketRealm({ onAttached: ack => reportVersionSkew(ack.serveVersion) });
 // The in-process host ended for good (its dev server closed): let the process go.
 onProcessActivationEnd(() => socketRealm.releaseAll());
@@ -94,6 +99,7 @@ onProcessActivationEnd(() => socketRealm.releaseAll());
 installNodeRuntimeOrigin({
   realm: 'node',
   host: hostOnce,
+  forgetHost,
   socketRealm,
   offHostError: (detail) => inProcessActivation()?.offHostError(detail) ?? offHostRefusal(detail),
 });

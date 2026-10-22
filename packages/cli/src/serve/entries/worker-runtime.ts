@@ -61,7 +61,10 @@ function hostedTarget(node?: { host: string; origin: NodeRuntimeOrigin }): Param
       runtimeStatus.setHostedConnection(state);
       // A host that returns may be a new boot with its own session token.
       const lostHost = state === 'interrupted';
-      if (lostHost) forgetSessionToken();
+      if (!lostHost) return;
+      forgetSessionToken();
+      // A Node process finds the host again: it may have come back on another port.
+      node?.origin.forgetHost?.();
     },
     onError: error => runtimeStatus.reportError(error, 'worker'),
     // The worker selection stamped into the page carries no session token; init.json does.
@@ -74,6 +77,8 @@ function hostedTarget(node?: { host: string; origin: NodeRuntimeOrigin }): Param
       : payload?.instanceId,
     // After a host restart, a Node process reads the new boot's id before it reattaches.
     currentHostInstanceId: node === undefined ? undefined : currentHostInstanceId,
+    // A Node process redials the host where it runs now, which `.pyric/serve.json` names.
+    currentUrl: node === undefined ? undefined : () => node.origin.host().then(host => toPageOriginWsUrl(bridgeUrl, hostLocation(host), 'page-origin')),
   };
 }
 

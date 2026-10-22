@@ -6,7 +6,9 @@
 // path the rules deny for that user is denied, and an onDisconnect write runs
 // once the process is gone. The services with no path to the host refuse.
 // A process started before its host fails its first calls and reaches the
-// host at its next call once the host is up, with no restart.
+// host at its next call once the host is up, with no restart. A process whose
+// host stops and comes back on another port finds it there through
+// .pyric/serve.json, for the client SDKs as for firebase-admin.
 // Each process stays up only while its SDKs would hold a production process.
 import assert from 'node:assert/strict';
 import { scenario, type App } from '../driver.ts';
@@ -149,5 +151,30 @@ export default scenario(async (app) => {
     assert.equal(await lifetime(app, env, 'listener'), true, 'an open Firestore listener holds it');
     assert.equal(await lifetime(app, env, 'rtdb'), true, 'RTDB holds it until goOffline() or deleteApp()');
     assert.equal(await lifetime(app, env, 'offline'), false, 'goOffline() releases it');
+  });
+
+  const mover = await app.step('a process that discovers its host writes through it', async () => {
+    const mover = app.serverProcess('host-move.mjs', [], { env: { PYRIC_SANDBOX: 'remote' } });
+    await mover.waitForLog(/^host-move waiting$/m, { timeoutMs: 30_000 });
+    expectOk(mover.output, 'first.database', 'first');
+    expectOk(mover.output, 'first.firestore', { at: 'first' });
+    expectOk(mover.output, 'first.admin', 'first');
+    return mover;
+  });
+
+  await app.step('stop the host and start it again on another port', async () => {
+    await host.process.stop();
+    const moved = await app.devServer({ name: 'moved dev server', port: await app.freePort() });
+    assert.notEqual(moved.port, port);
+    const pointer = JSON.parse(app.readFile('.pyric/serve.json')) as { port: number };
+    assert.equal(pointer.port, moved.port, '.pyric/serve.json names the moved host');
+  });
+
+  await app.step('the same process reaches the moved host, client SDKs and firebase-admin alike', async () => {
+    app.writeFile('host-move-go', '');
+    await mover.waitForLog(/^host-move done$/m, { timeoutMs: 60_000 });
+    expectOk(mover.output, 'moved.admin', 'moved');
+    expectOk(mover.output, 'moved.database', 'moved');
+    expectOk(mover.output, 'moved.firestore', { at: 'moved' });
   });
 });
