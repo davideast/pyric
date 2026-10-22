@@ -27,6 +27,8 @@ ignored/
 firebase-debug.log*
 packages/conformance/src/capture/functions-rtdb/fixture/runtime.cjs
 packages/conformance/src/capture/functions-rtdb/fixture/capture-state.json
+packages/conformance/src/capture/functions-http/fixture/runtime.cjs
+packages/conformance/src/capture/functions-http/fixture/capture-state.json
 .idea/
 **/.idea/
 *.iml
@@ -67,6 +69,7 @@ packages/conformance/rules-language/*-report.json
 packages/pyric/docs/*/COMPAT.md
 packages/pyric/docs/conformance/SCORES.md
 packages/cli/docs/functions-rtdb/COMPAT.md
+packages/cli/docs/functions-http/COMPAT.md
 packages/conformance/docs/*/COMPAT.md
 
 # Site content-layer cache (generated conformance + API reference pages render
