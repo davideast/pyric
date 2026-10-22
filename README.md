@@ -182,7 +182,7 @@ Read the generated [conformance scores](https://pyric.dev/docs/conformance-score
 
 ## Stability
 
-Pyric is alpha software, currently `0.1.0-alpha.8`. Firebase-shaped surfaces are tracked through the compatibility matrices. Pyric-specific development APIs may change between alpha releases. All packages are ESM-only and require Node 22.15 or later.
+Pyric is alpha software, released as `0.1.0-alpha.N` versions. `npm view @pyric/cli dist-tags` shows the current release on each npm tag. Firebase-shaped surfaces are tracked through the compatibility matrices. Pyric-specific development APIs may change between alpha releases. All packages are ESM-only and require Node 22.15 or later.
 
 ## Develop Pyric
 

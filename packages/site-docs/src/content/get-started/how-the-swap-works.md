@@ -48,7 +48,7 @@ The dev server's network guard stays on for Firebase code the swap does not reac
 
 `pyric sandbox` does the same swap for a static page or a Node process. The served page carries an import map, so the browser makes the same substitution without Vite.
 
-One detail that surprises people: `initializeApp(firebaseConfig)` still works. The config is accepted and ignored — there is no project to talk to.
+One detail that surprises people: `initializeApp(firebaseConfig)` still works, and no request reaches the project it names. The sandbox reads some options the way Firebase does. `projectId` selects the `.firebaserc` deploy targets that `firebase.json` names, and `storageBucket` names the default Storage bucket. Keep the config your production build uses, and give a Node process the same options as your pages.
 
 ## In production: nothing happens
 

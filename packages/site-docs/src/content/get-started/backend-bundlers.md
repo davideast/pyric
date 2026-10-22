@@ -47,6 +47,7 @@ import { pyricExternals } from '@pyric/cli/bundler';
 
 export default defineConfig({
   input: 'src/server.ts',
+  platform: 'node',
   output: {
     dir: 'dist',
     format: 'esm',
@@ -150,13 +151,15 @@ Add your bundler watch script and server runner to `package.json`:
 }
 ```
 
-Launch your application with `pyric sandbox`:
+Launch your application with `pyric sandbox`, naming the command after `--`:
 
 ```bash
-npx pyric sandbox
+npx pyric sandbox --hosted -- npm run dev
 ```
 
-`pyric sandbox` starts the local sandbox, opens Pyric Studio, and executes your `dev` script. Because `firebase-admin` is externalised, your server's database, auth, and messaging operations route directly to the Pyric sandbox without requiring Google Cloud credentials or network access.
+`pyric sandbox` starts the local sandbox, then runs the command after `--` with interception installed. It does not read your `dev` script by itself. To start the command without typing it, set `command` in `pyric.json` ([CLI reference](../reference/cli.md#command-selection)). Because `firebase-admin` is externalised, your server's database, auth, and messaging operations route directly to the Pyric sandbox without requiring Google Cloud credentials or network access.
+
+`--hosted` runs the sandbox in the [Node host](./node-host.md), so server code reaches it with no browser open. Without `--hosted`, `firebase-admin` calls fail with `no browser tab is connected to the sandbox` until a browser tab connects to the sandbox page.
 
 ---
 
