@@ -42,6 +42,17 @@ export default scenario(async (app) => {
 
   await app.step('install the scaffolded project', () => app.installProject(PROJECT));
 
+  // The scaffold pins firebase to the certified minor line (#1188). A caret
+  // range installed a newer minor, whose exports pyric may not mirror.
+  await app.step('the scaffolded project installs firebase on the minor line its package.json names', () => {
+    const manifest = JSON.parse(app.readFile(`${PROJECT}/package.json`)) as { dependencies: Record<string, string> };
+    const named = manifest.dependencies.firebase?.match(/(\d+)\.(\d+)\.\d+/);
+    assert.ok(named, `the scaffold names no firebase version: ${manifest.dependencies.firebase}`);
+    const installed = JSON.parse(app.readFile(`${PROJECT}/node_modules/firebase/package.json`)) as { version: string };
+    assert.equal(installed.version.split('.').slice(0, 2).join('.'), `${named[1]}.${named[2]}`,
+      `firebase ${manifest.dependencies.firebase} installed ${installed.version}`);
+  });
+
   await app.step('npm run dev seeds the sandbox and prints both posts', async () => {
     const { output } = await runDev(app);
     assert.deepEqual(printedPosts(output), { count: 2, ids: ['hello', 'local-first'] }, output);
