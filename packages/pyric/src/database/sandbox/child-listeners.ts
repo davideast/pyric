@@ -131,6 +131,7 @@ export class ChildListeners {
     this.state.events.operation(auth, 'listen', path, provenance.result, provenance.evaluation, {
       at: provenance.at,
       durationMs: this.state.clock.now() - provenance.at,
+      request: spec ? { query: spec } : undefined,
       origin: provenance.origin,
       detail: { event },
     });

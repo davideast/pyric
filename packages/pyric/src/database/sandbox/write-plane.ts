@@ -339,6 +339,18 @@ export class WritePlane {
     this.cancelDeniedListeners([path]);
   }
 
+  /**
+   * Decide a read by `auth` at `path`, with its query when it carried one,
+   * without reading, emitting an event, or attaching anything. Throws the
+   * permission error the read would have thrown.
+   */
+  validateRead(auth: AuthState, path: string, spec?: QuerySpec): void {
+    const evaluation = this.readEvaluation(auth, path, spec);
+    if (evaluation.check !== 'allow') {
+      throw permissionDenied(rtdbDenialContext(evaluation, auth, 'get', path, spec ? { query: spec } : {}));
+    }
+  }
+
   validateSet(auth: AuthState, path: string, value: unknown, priority: Priority = null): void {
     const now = this.state.clock.now();
     const resolved = normalizeWrite(
