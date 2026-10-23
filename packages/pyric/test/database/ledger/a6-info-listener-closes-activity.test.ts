@@ -60,6 +60,7 @@ describe('ledger A6: connection-metadata listeners release their activity', () =
     const rtdb = openSandbox();
     const before = journalIds();
     const unsubscribe = onValue(ref(rtdb, '.info'), () => {});
+    expect(liveDatabaseActivities('/.info', before)).toBe(1);
     unsubscribe();
     expect(liveDatabaseActivities('/.info', before)).toBe(0);
   });
