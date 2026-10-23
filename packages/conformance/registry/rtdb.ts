@@ -88,6 +88,16 @@ const row6 = defineRows({
   },
 });
 
+/** What `pyric verify` checks when it replays a captured RTDB session under candidate rules. */
+const verifyReplayRow = defineRows({
+  surface: "rtdb-modular",
+  defaults: {
+    section: "Verifying a captured session",
+    status: "conforms",
+    automation: "unit-backed",
+  },
+});
+
 /** Production gives each database URL its own data and rules. Each row here
  * names one Pyric path that serves database URLs, and the test that pins it. */
 const multiInstanceRow = defineRows({
@@ -2412,6 +2422,57 @@ export const rtdbRegistry = {
             "packages/cli/test/cli/verify-rtdb-legacy-default.test.ts",
             "packages/cli/test/serve/worker/serve-init.test.ts",
             ...cddLifecycleTests,
+          ],
+        }),
+      ],
+    },
+    {
+      kind: 'table',
+      publishInCompatibilityDocs: false,
+      prefix: "### Verifying a captured session\n\n`pyric verify` replays a session the sandbox captured (`.pyric/last-session.json`) under candidate rules and reports where they decide an operation differently from the rules the session ran with. Each row here states which captured operations it checks and what it reports. Verdicts come from the sandbox's RTDB rules engine, the same evaluator that enforced the session; no production engine checks them.\n",
+      rows: [
+        verifyReplayRow({
+          rowRef: "VR1",
+          featureKeys: [],
+          queryable: false,
+          api: "pyric verify (RTDB reads and listener attaches)",
+          behavior: "Every `get` and every listener attach (`onValue`, `onChildAdded`, `onChildChanged`, `onChildRemoved`, `onChildMoved`) an application user made and the rules allowed replays under the candidate rules, with the query it carried, at its point in the session. A read the candidate rules deny is a `now-denied` divergence with method `get` or `listen`. An admin read is not checked. A child listener's attach event carries its query (`request.query`), as a value listener's does, so a query-gated child listener is checked with its query.",
+          evidence: "`packages/pyric/test/database/replay.test.ts` (\"captured reads without a query\", \"captured listener attaches\", \"captured query reads\") replays a plain `get`, an `onValue`, and an `onChildAdded` with and without a query and asserts `now-denied` under rules that drop `.read` and none under rules that keep it. `packages/cli/test/verify/verify.test.ts` (\"RTDB reads and denials\") runs `verifyFixture` on a JSON round-tripped capture. App scenario `test/apps/rtdb-verify-reads-and-denials` runs the installed `pyric verify` on the `.pyric/last-session.json` the Node host wrote while Chromium read and listened to its own profile, and asserts `now-denied: get` and `now-denied: listen` under rules without `.read`; on main (756d23efa) it reported the session clean. CDD assertion `rtdb-modular#VR1` pins the sandbox side.",
+          conformanceTests: [
+            "packages/pyric/test/database/replay.test.ts",
+            "packages/cli/test/verify/verify.test.ts",
+            "test/apps/rtdb-verify-reads-and-denials/scenario.ts",
+            "packages/pyric/test/database/cdd/lifecycle-and-identity.test.ts",
+          ],
+        }),
+        verifyReplayRow({
+          rowRef: "VR2",
+          featureKeys: [],
+          queryable: false,
+          api: "pyric verify (RTDB denied operations)",
+          behavior: "Every `set`, `remove`, `runTransaction`, `get` and listener attach an application user made and the rules denied is decided under the candidate rules against the tree as it stood at that point in the session, through the backend's non-mutating checks: nothing is written and no event is emitted. Still denied is no divergence; allowed is a `now-allowed` divergence. A `now-allowed` fails `pyric verify` (exit 1), as `now-denied` does.",
+          statusNote: "a denied transaction is checked without the node's existing priority",
+          evidence: "`packages/pyric/test/database/replay.test.ts` (\"captured denials\") asserts `now-allowed` for a denied set, remove, transaction, get, onValue and query read under open rules; none under the rules that denied them; and a create-only rule (`!data.exists()`) judged against the data at the moment of the denial, not the end state after an admin removed it. `packages/cli/test/verify/verify.test.ts` asserts `ok: false` and the `now-allowed` divergence through `verifyFixture`. App scenario `test/apps/rtdb-verify-reads-and-denials` asserts `pyric verify --rules rtdb=open.rules.json` exits 1 with `now-allowed: set /profiles/someone-else/name` for the write Chromium was denied; on main (756d23efa) it printed `all selected services replay cleanly` and exited 0. CDD assertion `rtdb-modular#VR2` pins the sandbox side.",
+          conformanceTests: [
+            "packages/pyric/test/database/replay.test.ts",
+            "packages/cli/test/verify/verify.test.ts",
+            "test/apps/rtdb-verify-reads-and-denials/scenario.ts",
+            "packages/pyric/test/database/cdd/lifecycle-and-identity.test.ts",
+          ],
+        }),
+        verifyReplayRow({
+          rowRef: "VR3",
+          featureKeys: [],
+          queryable: false,
+          api: "pyric verify (RTDB operations it cannot check)",
+          behavior: "A denied `update` is reported as an `unsupported` divergence, not checked: the capture records only the path the rules denied, not the paths written with it, and production decides an update as one request. A denied `setPriority` is `unsupported` too. An `onDisconnect` registration is not checked at all: the sandbox decides it under the rules and records no event for it, so a candidate ruleset that denies or opens a registration is not reported.",
+          status: "unsupported",
+          automation: "unit-backed",
+          exceptionReason: "The capture does not record a denied update's full patch or any onDisconnect registration; recording them is an event-shape change not yet made.",
+          evidence: "`packages/pyric/test/database/replay.test.ts` (\"reports a captured denied update as unsupported, as the capture holds only its denied path\") asserts the `unsupported` divergence for a two-path update with one denied path. CDD assertion `rtdb-modular#VR3` pins that a denied two-path update records one event, for its denied path, and that an allowed `onDisconnect().set()` registration records none.",
+          conformanceTests: [
+            "packages/pyric/test/database/replay.test.ts",
+            "packages/pyric/test/database/cdd/lifecycle-and-identity.test.ts",
           ],
         }),
       ],

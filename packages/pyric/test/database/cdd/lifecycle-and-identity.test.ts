@@ -372,6 +372,65 @@ describe('rtdb-modular CDD: multiple database instances', () => {
   });
 });
 
+// Rows VR1 to VR3 record what `pyric verify` checks when it replays a captured
+// RTDB session; the replay and verify suites and the app scenario the rows
+// name pin the CLI path. These assertions pin the sandbox side: the events the
+// backend records and the replay verdicts on them.
+describe('rtdb-modular CDD: verifying a captured session', () => {
+  const OWNER = { rules: { profiles: { $uid: { '.read': 'auth.uid === $uid', '.write': 'auth.uid === $uid' } } } };
+  const OPEN = { rules: { '.read': true, '.write': true } };
+
+  async function capture(run: (db: ReturnType<typeof getDatabase>) => Promise<unknown>) {
+    const sandbox = initializeSandbox();
+    rtdbSandbox.setRules(getDatabase(sandbox), OWNER);
+    rtdbSandbox.setData(getAdminDatabase(sandbox), { '/profiles/alice': 'a', '/profiles/bob': 'b' });
+    await run(getDatabase(sandbox.withAuth({ uid: 'alice' })));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return { history: sandbox.history(), state: rtdbSandbox.snapshotState(getAdminDatabase(sandbox)) };
+  }
+
+  row('VR1', async () => {
+    const { history, state } = await capture(async (db) => {
+      await api.get(api.ref(db, 'profiles/alice'));
+      const off = api.onValue(api.ref(db, 'profiles/alice'), () => {});
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      off();
+    });
+    expect((await replay(history, { rules: OWNER, capturedState: state })).divergences).toEqual([]);
+    const noReads = { rules: { profiles: { $uid: { '.write': 'auth.uid === $uid' } } } };
+    const denied = await replay(history, { rules: noReads, capturedState: state });
+    expect(denied.divergences.map(({ kind, method, path }) => ({ kind, method, path }))).toEqual([
+      { kind: 'now-denied', method: 'get', path: '/profiles/alice' },
+      { kind: 'now-denied', method: 'listen', path: '/profiles/alice' },
+    ]);
+  });
+
+  row('VR2', async () => {
+    const { history, state } = await capture((db) => api.set(api.ref(db, 'profiles/bob'), 'mallory').catch(() => {}));
+    expect((await replay(history, { rules: OWNER, capturedState: state })).divergences).toEqual([]);
+    const opened = await replay(history, { rules: OPEN, capturedState: state });
+    expect(opened.divergences.map(({ kind, method, path }) => ({ kind, method, path }))).toEqual([
+      { kind: 'now-allowed', method: 'set', path: '/profiles/bob' },
+    ]);
+    expect(opened.replayedState).toEqual(state);
+  });
+
+  row('VR3', async () => {
+    const { history } = await capture(async (db) => {
+      await api.update(api.ref(db), { 'profiles/alice': 'A', 'profiles/bob': 'B' }).catch(() => {});
+      await api.onDisconnect(api.ref(db, 'profiles/alice')).set('gone');
+    });
+    const operations = history.filter((event) => event.kind === 'operation');
+    expect(operations.map((event) => ({ method: event.method, path: event.path, result: event.result }))).toEqual([
+      { method: 'update', path: '/profiles/bob', result: 'deny' },
+    ]);
+    const replayed = await replay(history, { rules: OPEN });
+    expect(replayed.divergences.map(({ kind, method }) => ({ kind, method }))).toEqual([
+      { kind: 'unsupported', method: 'update' },
+    ]);
+  });
+});
+
 // Row HD1 records what the web hosted client does with a call in flight when
 // its socket drops; the CLI suites and the app scenario the row names pin that
 // path. This assertion pins the sandbox side of the boundary: the in-page
