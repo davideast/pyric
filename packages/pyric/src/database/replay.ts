@@ -80,6 +80,65 @@ export type RtdbReplayDivergence =
       reason: string;
     };
 
+/**
+ * One captured event of an instance, as replay judges it. Every engine that
+ * checks a capture walks these in order, so they agree on which events carry
+ * a claim the candidate rules must keep:
+ *
+ * - `app-commit`: a write an application user made and the rules allowed.
+ * - `admin-commit`: an admin write; context, not checked.
+ * - `allowed-read`: a `get` or listener attach the rules allowed.
+ * - `denial`: an operation by an application user the rules denied.
+ * - `allowed-registration`: an `onDisconnect` registration the rules allowed.
+ */
+export type RtdbReplayStep =
+  | { kind: 'app-commit'; event: SandboxCommitEvent }
+  | { kind: 'admin-commit'; event: SandboxCommitEvent }
+  | { kind: 'allowed-read'; event: SandboxOperationEvent }
+  | { kind: 'denial'; event: SandboxOperationEvent }
+  | { kind: 'allowed-registration'; event: SandboxOperationEvent };
+
+/** The captured events of `instance` (name or URL; absent is the default instance), in order, as replay judges them. */
+export function rtdbReplaySteps(events: readonly SandboxEvent[], instance?: string): RtdbReplayStep[] {
+  const name = resolveDatabaseInstance(instance)?.name;
+  const steps: RtdbReplayStep[] = [];
+  for (const event of events) {
+    if (instanceOf(event) !== name) continue;
+    if (isAllowedRead(event)) steps.push({ kind: 'allowed-read', event });
+    else if (isAppDenial(event)) steps.push({ kind: 'denial', event });
+    else if (isAllowedRegistration(event)) steps.push({ kind: 'allowed-registration', event });
+    else if (isRtdbCommit(event)) {
+      steps.push(event.detail?.admin === true ? { kind: 'admin-commit', event } : { kind: 'app-commit', event });
+    }
+  }
+  return steps;
+}
+
+/**
+ * The tree `instance` held when the session began: `capturedState`, the tree
+ * the session left it with, with the session's commits rewound.
+ */
+export async function rewoundRtdbTree(
+  events: readonly SandboxEvent[],
+  capturedState: unknown,
+  instance?: string,
+): Promise<unknown> {
+  const sandbox = initializeSandbox();
+  const name = resolveDatabaseInstance(instance)?.name;
+  const adminDb = getAdminDatabase(sandbox, name);
+  rtdbSandbox.setData(adminDb, { '/': capturedState ?? null });
+  const commits = events.filter((event): event is SandboxCommitEvent => instanceOf(event) === name && isRtdbCommit(event));
+  await rewindRtdbCommits(adminDb, commits);
+  return rtdbSandbox.snapshotState(adminDb);
+}
+
+/** The paths where `actual` differs from `expected`, as `state-drift` divergences. */
+export function rtdbStateDrift(expected: unknown, actual: unknown): RtdbReplayDivergence[] {
+  const out: RtdbReplayDivergence[] = [];
+  collectStateDrift(expected, actual, '/', out);
+  return out;
+}
+
 export async function replay(
   events: readonly SandboxEvent[],
   opts: RtdbReplayOptions,
@@ -91,53 +150,40 @@ export async function replay(
   const adminDb = getAdminDatabase(sandbox, target.instance);
   rtdbSandbox.setRules(db, opts.rules);
 
-  const instanceEvents = events.filter((event) => instanceOf(event) === target.instance);
-  const commits = instanceEvents.filter(isRtdbCommit);
+  const steps = rtdbReplaySteps(events, target.instance);
   const divergences: RtdbReplayDivergence[] = [];
   let checkedEvents = 0;
   const hasCapturedState = opts.capturedState !== undefined;
 
   if (hasCapturedState) {
     rtdbSandbox.setData(adminDb, { '/': opts.capturedState });
-    await rewindRtdbCommits(adminDb, commits);
+    await rewindRtdbCommits(adminDb, steps.flatMap((step) => (step.kind === 'app-commit' || step.kind === 'admin-commit' ? [step.event] : [])));
   }
 
-  for (const event of instanceEvents) {
-    if (isAllowedRead(event)) {
-      checkedEvents += 1;
-      await replayRtdbRead(target, event, divergences);
+  for (const step of steps) {
+    if (step.kind === 'admin-commit') {
+      await replayRtdbAdminCommit(target, step.event, divergences);
       continue;
     }
-    if (isAppDenial(event)) {
-      checkedEvents += 1;
-      checkRtdbDecision(target, event, 'deny', divergences);
-      continue;
-    }
-    if (isAllowedRegistration(event)) {
-      checkedEvents += 1;
-      checkRtdbDecision(target, event, 'allow', divergences);
-      continue;
-    }
-    if (!isRtdbCommit(event)) continue;
-    const commit = event;
-    const path = commit.path ?? '/';
-    const isAdmin = commit.detail?.admin === true;
-    if (isAdmin) {
-      await replayRtdbAdminCommit(target, commit, divergences);
-      continue;
-    }
-
     checkedEvents += 1;
-    try {
-      await replayRtdbAppCommit(target, commit, divergences);
-    } catch (e) {
-      const isError = e instanceof Error;
-      divergences.push({
-        kind: 'now-denied',
-        path,
-        method: commit.method,
-        reason: isError ? e.message : String(e),
-      });
+    if (step.kind === 'allowed-read') {
+      await replayRtdbRead(target, step.event, divergences);
+    } else if (step.kind === 'denial') {
+      checkRtdbDecision(target, step.event, 'deny', divergences);
+    } else if (step.kind === 'allowed-registration') {
+      checkRtdbDecision(target, step.event, 'allow', divergences);
+    } else {
+      const commit = step.event;
+      try {
+        await replayRtdbAppCommit(target, commit, divergences);
+      } catch (e) {
+        divergences.push({
+          kind: 'now-denied',
+          path: commit.path ?? '/',
+          method: commit.method,
+          reason: e instanceof Error ? e.message : String(e),
+        });
+      }
     }
   }
 

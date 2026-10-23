@@ -111,7 +111,7 @@ function snapshotChildKeys(snap: DataSnapshot): string[] {
  * which production reads as the token's `firebase.sign_in_provider`. There is
  * no top-level `auth.tenant`; production reads it as null.
  */
-function simulatedAuthOf(auth: NonNullable<SimulationInput['auth']>, nowMs: number): SimulatedAuth {
+export function simulatedAuthOf(auth: NonNullable<SimulationInput['auth']>, nowMs: number): SimulatedAuth {
   const normalized = normalizeAuthState(auth);
   const token = withIdTokenClaims(auth.uid, normalized?.token ?? {}, nowMs);
   const simulated: SimulatedAuth = { uid: auth.uid, token };

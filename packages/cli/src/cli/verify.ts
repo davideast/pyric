@@ -15,7 +15,12 @@ import {
   type VerifyRulesInput,
   type VerifyServiceResult,
 } from '../verify/index.js';
-import { readFirebaseJson, type FirebaseJson } from './firebase-json.js';
+import { readFirebaseJson, readFirebaseRcSync, type FirebaseJson } from './firebase-json.js';
+import { resolveFirebaseProject } from './firebase-project.js';
+import { readPyricConfig } from './pyric-config.js';
+import { markedProject, StagingSafetyError, stagingMarker } from '../verify/staging/engine.js';
+import { RtdbRestClient } from '../verify/staging/rest.js';
+import { assertNotAppInstance, stagingTargetFrom, stagingToken, type StagingTarget } from '../verify/staging/target.js';
 import type { FlagValue, ParsedArgs } from './parse-args.js';
 import { resolveScope } from '../credentials/node/scope.js';
 import { CAPTURE_RELATIVE_PATH } from '../serve/capture-store.js';
@@ -37,6 +42,8 @@ export interface FixtureResult {
 
 export interface VerifyCliDeps {
   resolveScope?: typeof resolveScope;
+  /** The staging instance's REST client; tests pass one backed by a local sandbox. */
+  stagingClient?: (target: StagingTarget, token: () => Promise<string>) => RtdbRestClient;
 }
 
 export function loadFixture(path: string): Fixture {
@@ -88,9 +95,16 @@ export function formatResults(results: FixtureResult[]): string {
     lines.push(`${marker} ${result.name}${desc} - ${serviceSummary}`);
     for (const service of Object.values(result.result.services)) {
       if (!service) continue;
-      for (const divergence of failingDivergences(service.divergences)) {
-        const where = divergence.instance === undefined ? service.service : `${service.service} ${divergence.instance}`;
-        lines.push(`    [${where}] ${formatDivergence(divergence)}`);
+      const engines = Object.values(service.engines ?? {}).filter((engine) => engine !== undefined);
+      // With more than one engine, each line names the engine that reported it.
+      const groups = engines.length > 1
+        ? engines.map((engine) => ({ label: ` ${engine.engine}`, divergences: engine.divergences }))
+        : [{ label: '', divergences: service.divergences }];
+      for (const group of groups) {
+        for (const divergence of failingDivergences(group.divergences)) {
+          const instance = divergence.instance === undefined ? '' : ` ${divergence.instance}`;
+          lines.push(`    [${service.service}${instance}${group.label}] ${formatDivergence(divergence)}`);
+        }
       }
     }
   }
@@ -103,6 +117,9 @@ export async function runVerify(parsed: ParsedArgs, deps: VerifyCliDeps = {}): P
 
   if (parsed.positional[0] === 'cases') {
     return runVerifyCases(parsed, cwd);
+  }
+  if (parsed.positional[0] === 'staging') {
+    return runVerifyStaging(parsed, cwd, deps);
   }
 
   const target = parsed.positional[0];
@@ -149,6 +166,18 @@ export async function runVerify(parsed: ParsedArgs, deps: VerifyCliDeps = {}): P
     return 2;
   }
 
+  // The staging target is checked before anything else reads the project: an
+  // instance the app uses is refused before a request is made.
+  let staging: VerifyFixtureOptions['staging'];
+  if (engines.includes('staging')) {
+    try {
+      staging = await openStagingInstance(cwd, stringFlag(parsed.flags.get('project')), deps);
+    } catch (e) {
+      process.stderr.write(`pyric verify: ${messageOf(e)}\n`);
+      return 2;
+    }
+  }
+
   let rulesResolution: { rules: VerifyRulesInput; paths: Record<string, string> };
   try {
     rulesResolution = await resolveCandidateRules({
@@ -184,10 +213,11 @@ export async function runVerify(parsed: ParsedArgs, deps: VerifyCliDeps = {}): P
           services,
           engines,
           ...(rulesTestApi ? { rulesTestApi } : {}),
+          ...(staging ? { staging } : {}),
         })),
     );
   } catch (e) {
-    const prefix = e instanceof VerifyInputError ? 'invalid input' : 'failed to replay';
+    const prefix = e instanceof VerifyInputError ? 'invalid input' : e instanceof StagingSafetyError ? 'staging instance' : 'failed to replay';
     process.stderr.write(`pyric verify: ${prefix}: ${messageOf(e)}\n`);
     return 2;
   }
@@ -259,6 +289,86 @@ function runVerifyCases(parsed: ParsedArgs, cwd: string): number {
   return result.ok ? 0 : 1;
 }
 
+/** The staging instance from `pyric.json`, refused when the app uses it, with credentials for its project. */
+async function openStagingInstance(
+  cwd: string,
+  appProjectOption: string | undefined,
+  deps: VerifyCliDeps,
+): Promise<{ client: RtdbRestClient; projectId: string; target: StagingTarget; source: string }> {
+  const target = stagingTargetFrom(await readPyricConfig(cwd));
+  const firebaseJson = await readFirebaseJsonOrNull(cwd);
+  const appProject = resolveFirebaseProject({ projectDir: cwd, ...(appProjectOption ? { option: appProjectOption } : {}) });
+  assertNotAppInstance(target, {
+    firebaseJson,
+    ...(appProject.projectId ? { appProjectId: appProject.projectId } : {}),
+    targetInstances: databaseTargetInstances(cwd, appProject.projectId),
+  });
+  const credentials = await stagingToken(target.projectId, deps.resolveScope ? { resolve: deps.resolveScope } : {});
+  const client = deps.stagingClient?.(target, credentials.token) ?? new RtdbRestClient(target.databaseUrl, credentials.token);
+  return { client, projectId: target.projectId, target, source: credentials.source };
+}
+
+/** Every instance a `.firebaserc` database target maps for the app's project. */
+function databaseTargetInstances(cwd: string, projectId: string | undefined): string[] {
+  if (!projectId) return [];
+  try {
+    const rc = readFirebaseRcSync(cwd) as { targets?: Record<string, { database?: Record<string, string[]> }> } | null;
+    return Object.values(rc?.targets?.[projectId]?.database ?? {}).flat();
+  } catch {
+    return [];
+  }
+}
+
+/** `pyric verify staging init`: enroll the configured instance, once. */
+async function runVerifyStaging(parsed: ParsedArgs, cwd: string, deps: VerifyCliDeps): Promise<number> {
+  if (parsed.positional[1] !== 'init') {
+    process.stderr.write('pyric verify staging: the only subcommand is `init`, which enrolls the instance pyric.json names.\n');
+    return 2;
+  }
+  let opened: Awaited<ReturnType<typeof openStagingInstance>>;
+  try {
+    opened = await openStagingInstance(cwd, stringFlag(parsed.flags.get('project')), deps);
+  } catch (e) {
+    process.stderr.write(`pyric verify staging init: ${messageOf(e)}\n`);
+    return 2;
+  }
+  const { client, target } = opened;
+  try {
+    const rules = await client.getRulesText();
+    const marked = markedProject(rules);
+    if (marked === target.projectId) {
+      process.stdout.write(`✓ ${target.databaseUrl} is already enrolled for project ${target.projectId}.\n`);
+      return 0;
+    }
+    if (marked !== undefined) {
+      process.stderr.write(`pyric verify staging init: ${target.databaseUrl} is enrolled for project ${marked}, not ${target.projectId}.\n`);
+      return 2;
+    }
+    const root = await client.get('/', { shallow: true });
+    if (root.status !== 200 || root.body !== null) {
+      process.stderr.write(
+        `pyric verify staging init: refusing to enroll ${target.databaseUrl}: it holds data (or could not be read, HTTP ${root.status}). ` +
+          'The staging engine replaces an instance\'s rules and data, so enroll an empty instance created for it.\n',
+      );
+      return 2;
+    }
+    const enrolled = `${stagingMarker(target.projectId)}\n${rules.trimStart()}`;
+    const dry = await client.putRules(enrolled, { dryRun: true });
+    if (dry.status !== 200) throw new Error(`production refused the marked rules: HTTP ${dry.status} ${dry.text.slice(0, 200)}`);
+    const put = await client.putRules(enrolled);
+    if (put.status !== 200) throw new Error(`deploying the marked rules failed: HTTP ${put.status} ${put.text.slice(0, 200)}`);
+    if (markedProject(await client.getRulesText()) !== target.projectId) throw new Error('the marker did not read back.');
+  } catch (e) {
+    process.stderr.write(`pyric verify staging init: ${messageOf(e)}\n`);
+    return 1;
+  }
+  process.stdout.write(
+    `✓ enrolled ${target.databaseUrl} (project ${target.projectId}, credentials: ${opened.source}).\n` +
+      '  Run `pyric verify --engine staging` to replay a captured session against it; add `--engine sandbox` to compare engines.\n',
+  );
+  return 0;
+}
+
 function loadFixturesFromDirectory(dir: string): Array<{ name: string; fixture: Fixture }> {
   return readdirSync(dir)
     .filter((f) => f.endsWith('.json'))
@@ -296,8 +406,10 @@ function parseEngines(flag: FlagValue | undefined): VerifyEngine[] {
       pushUnique(out, 'sandbox');
     } else if (item === 'rules-test-api' || item === 'rulesTestApi') {
       pushUnique(out, 'rulesTestApi');
+    } else if (item === 'staging') {
+      pushUnique(out, 'staging');
     } else {
-      throw new Error(`unsupported verify engine '${item}'. Supported engines: sandbox, rules-test-api, both.`);
+      throw new Error(`unsupported verify engine '${item}'. Supported engines: sandbox, rules-test-api, staging, both.`);
     }
   }
   return out;
@@ -447,7 +559,8 @@ function formatDivergence(divergence: VerifyDivergence): string {
   }
   if (divergence.kind === 'engine-drift') {
     const method = divergence.method ? `${divergence.method} ` : '';
-    return `engine-drift: ${method}${divergence.path ?? ''}: sandbox=${divergence.sandbox}, rulesTestApi=${divergence.rulesTestApi}`;
+    const other = divergence.staging !== undefined ? `staging=${divergence.staging}` : `rulesTestApi=${divergence.rulesTestApi}`;
+    return `engine-drift: ${method}${divergence.path ?? ''}: sandbox=${divergence.sandbox}, ${other}`;
   }
   return `${divergence.drift}: ${divergence.path ?? ''}`;
 }

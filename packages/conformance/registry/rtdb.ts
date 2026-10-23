@@ -2474,6 +2474,23 @@ export const rtdbRegistry = {
             "packages/pyric/test/database/cdd/lifecycle-and-identity.test.ts",
           ],
         }),
+        verifyReplayRow({
+          rowRef: "VR4",
+          featureKeys: [],
+          queryable: false,
+          api: "pyric verify --engine staging (RTDB)",
+          behavior: "`pyric verify --engine staging` replays a captured session against a Realtime Database instance the user dedicates to it (`pyric.json` `verify.staging`: `{ project, rtdb }`), so production's rules engine decides every operation. Per captured instance, it dry-runs and deploys the candidate rules (a deploy production refuses is an `unsupported` divergence with production's message), seeds the tree the session began with, and walks the same steps as the sandbox replay through the REST API: admin writes as admin; every other operation as its captured user through `auth_variable_override`, with the rules `auth` variable the sandbox builds; a denial or `onDisconnect` registration is attempted and a write that lands is put back. It reports `now-denied`, `now-allowed`, `state-drift`, and, with `--engine sandbox` as well, `engine-drift` where production and the sandbox decide an operation differently. A query REST cannot serve (no index, a keyed bound, `startAfter`/`endBefore`) is `unsupported` with the reason. An instance must be enrolled once with `pyric verify staging init`, which refuses an instance holding data; every run refuses an instance without the enrollment marker for the configured project or holding data, and an instance `firebase.json` deploys to or the app project's default instance; and it restores the prior rules and deletes the data on every exit, reads both back, and fails when it cannot prove them. Credentials: a service account or Application Default Credentials, else a fresh `firebase login` token. RTDB only; Firestore and Storage are not checked by it.",
+          statusNote: "an `onDisconnect` registration is decided as the write it registers, at registration; a write's priority is not sent",
+          evidence: "Oracle `rtdb-modular-staging-auth-override` (captured by `packages/conformance/src/capture-rtdb-staging-auth-override.ts` on a dedicated instance) writes to eight rule-gated paths through the REST override and through firebase-admin `databaseAuthVariableOverride` as matching, mismatching and signed-out identities, then as the matching identity with one claim changed at a time: every case matched its expectation, and each changed claim denied only its own field, so production reads `auth.uid`, `auth.provider`, `auth.token.firebase.sign_in_provider`, `auth.token.firebase.tenant`, `auth.token.email`, `auth.token.email_verified` and a custom claim from the override. `packages/cli/test/verify/staging/staging-live.test.ts` runs the built `pyric verify --engine sandbox --engine staging` as a process against an enrolled instance (skipped without `PYRIC_STAGING_LIVE`) and asserts a clean replay, `now-allowed` and `now-denied` from both engines with no `engine-drift`, a rule on `auth.token.firebase.sign_in_provider` deciding the password user's writes, production's missing-index answer reported as `unsupported`, and the instance left enrolled and empty. `packages/cli/test/verify/staging/staging-engine.test.ts` drives the engine and the CLI against a REST double backed by a pyric sandbox: request shapes and query parameters, `engine-drift`, a refused deploy, the refusals (not enrolled, holding data, another project, an app instance), a failed restore failing loudly, enrollment, and credentials falling back to a fresh CLI token. `packages/pyric/test/database/modular/oracle-conformance-staging-auth.test.ts` replays the observation through the sandbox's rules simulator, which decides all 78 compared cases as production did; the `provider` field of the two identities whose `provider` is not their sign-in claim's is not compared, because the engine derives `provider` from that claim and never sends such an override. CDD assertion `rtdb-modular#VR4` pins the sandbox side.",
+          oracleObservations: ["rtdb-modular-staging-auth-override"],
+          automation: "oracle-backed",
+          conformanceTests: [
+            "packages/cli/test/verify/staging/staging-engine.test.ts",
+            "packages/cli/test/verify/staging/staging-live.test.ts",
+            "packages/pyric/test/database/modular/oracle-conformance-staging-auth.test.ts",
+            "packages/pyric/test/database/cdd/lifecycle-and-identity.test.ts",
+          ],
+        }),
       ],
     },
     {

@@ -39,6 +39,8 @@ import {
   VERIFY_FIXTURE_SCHEMA,
   type PyricVerifyFixture,
 } from './fixture.js';
+import { runStagingInstance, StagingDeployRefusedError, withStagingInstance } from './staging/engine.js';
+import type { RtdbRestClient } from './staging/rest.js';
 import {
   recordedRtdbInstances,
   recordsDefaultRtdbInstance,
@@ -94,7 +96,7 @@ export {
 } from './hosted-rules-test.js';
 
 export type VerifiableService = 'firestore' | 'rtdb' | 'storage';
-export type VerifyEngine = 'sandbox' | 'rulesTestApi';
+export type VerifyEngine = 'sandbox' | 'rulesTestApi' | 'staging';
 
 type RtdbCandidateRules = { rules: Record<string, unknown> } | RtdbRulesDocument;
 
@@ -120,6 +122,12 @@ export interface VerifyFixtureOptions {
     expressionReportLevel?: ExpressionReportLevel;
   };
   caseDerivation?: Omit<DeriveRulesTestCasesOptions, 'service'>;
+  /**
+   * The staging engine's instance: a client for a dedicated RTDB instance
+   * enrolled with `pyric verify staging init`, and the project it is
+   * enrolled for. Required when `engines` includes `staging`.
+   */
+  staging?: { client: RtdbRestClient; projectId: string };
 }
 
 export interface VerifyResult {
@@ -198,7 +206,10 @@ type VerifyDivergenceKind =
       path?: string;
       method?: string;
       sandbox: string;
-      rulesTestApi: string;
+      /** Firestore: the hosted Rules Test API's decision. */
+      rulesTestApi?: string;
+      /** RTDB: what production did on the staging instance. */
+      staging?: string;
       reason?: string;
     };
 
@@ -224,10 +235,15 @@ export async function verifyFixture(
 
   const services: Partial<Record<VerifiableService, VerifyServiceResult>> = {};
   for (const service of selected) {
+    if (engines.includes('staging') && service !== 'rtdb') {
+      throw new VerifyInputError(
+        `the staging engine checks RTDB only; ${service} is not supported by it yet. Select --service rtdb, or the sandbox engine for ${service}.`,
+      );
+    }
     if (service === 'firestore') {
       services.firestore = await verifyFirestore(fixture, requireFirestoreRules(opts.rules), engines, opts);
     } else if (service === 'rtdb') {
-      services.rtdb = await verifyRtdb(fixture, opts.rules, engines);
+      services.rtdb = await verifyRtdb(fixture, opts.rules, engines, opts.staging);
     } else if (service === 'storage') {
       services.storage = await verifyStorage(fixture, opts.rules, engines);
     } else {
@@ -578,19 +594,24 @@ async function verifyRtdb(
   fixture: PyricVerifyFixture,
   rules: VerifyRulesInput,
   engines: VerifyEngine[],
+  staging: VerifyFixtureOptions['staging'],
 ): Promise<VerifyServiceResult> {
   const rtdb = fixture.services.rtdb;
   if (!rtdb) {
     throw new VerifyInputError('fixture does not contain services.rtdb.');
   }
   if (engines.includes('rulesTestApi')) {
-    throw new VerifyInputError('rulesTestApi verification is Firestore-only; select --service firestore or use the sandbox engine for RTDB.');
+    throw new VerifyInputError('rulesTestApi verification is Firestore-only; select --service firestore or use the sandbox or staging engine for RTDB.');
+  }
+  if (engines.includes('staging') && staging === undefined) {
+    throw new VerifyInputError('the staging engine needs a staging instance (opts.staging).');
   }
 
-  const replays = [];
+  // The instances to check, each with its candidate rules.
+  const checks: Array<{ instance?: string; rules: RtdbRulesJson; capturedState: unknown }> = [];
   const checksDefault = rules.rtdb !== undefined || recordsDefaultRtdbInstance(fixture);
   if (checksDefault) {
-    replays.push(await replayRtdbInstance(fixture, requireRtdbRules(rules.rtdb, 'missing candidate RTDB rules. Pass rules.rtdb.')));
+    checks.push({ rules: requireRtdbRules(rules.rtdb, 'missing candidate RTDB rules. Pass rules.rtdb.'), capturedState: rtdb.state.tree });
   }
   const skippedInstances: string[] = [];
   for (const instance of recordedRtdbInstances(fixture)) {
@@ -600,26 +621,98 @@ async function verifyRtdb(
       continue;
     }
     const parsed = requireRtdbRules(candidate, `missing candidate RTDB rules for instance "${instance}".`, instance);
-    replays.push(await replayRtdbInstance(fixture, parsed, instance));
+    checks.push({ instance, rules: parsed, capturedState: rtdb.instances?.[instance]?.state.tree });
   }
 
-  const divergences = replays.flatMap((replayed) => replayed.divergences.map(mapRtdbReplayDivergence));
-  const checkedEvents = replays.reduce((total, replayed) => total + replayed.checkedEvents, 0);
-  const sandbox: VerifyEngineResult = {
-    engine: 'sandbox',
-    ok: divergences.every(isInformational),
-    checkedEvents,
-    divergences,
-  };
+  const engineResults: Partial<Record<VerifyEngine, VerifyEngineResult>> = {};
+  if (engines.includes('sandbox')) {
+    const replays = [];
+    for (const check of checks) replays.push(await replayRtdbInstance(fixture, check.rules, check.instance));
+    const divergences = replays.flatMap((replayed) => replayed.divergences.map(mapRtdbReplayDivergence));
+    engineResults.sandbox = {
+      engine: 'sandbox',
+      ok: divergences.every(isInformational),
+      checkedEvents: replays.reduce((total, replayed) => total + replayed.checkedEvents, 0),
+      divergences,
+    };
+  }
+  if (engines.includes('staging') && staging !== undefined) {
+    engineResults.staging = await verifyRtdbOnStaging(fixture, checks, staging);
+  }
+  if (engineResults.sandbox && engineResults.staging) {
+    addRtdbEngineDrift(engineResults.sandbox, engineResults.staging);
+  }
 
+  const divergences = collectEngineDivergences(engineResults);
   return {
     service: 'rtdb',
     ok: divergences.every(isInformational),
-    checkedEvents,
+    checkedEvents: engineResults.sandbox?.checkedEvents ?? engineResults.staging?.checkedEvents ?? 0,
     divergences,
-    engines: { sandbox },
+    engines: engineResults,
     ...(skippedInstances.length > 0 ? { skippedInstances } : {}),
   };
+}
+
+/**
+ * Replay each instance on the staging instance in turn, each run guarded and
+ * the instance put back before the next. Production refusing to deploy an
+ * instance's candidate rules is reported for that instance; the others run.
+ */
+async function verifyRtdbOnStaging(
+  fixture: PyricVerifyFixture,
+  checks: Array<{ instance?: string; rules: RtdbRulesJson; capturedState: unknown }>,
+  staging: NonNullable<VerifyFixtureOptions['staging']>,
+): Promise<VerifyEngineResult> {
+  const divergences: VerifyDivergence[] = [];
+  let checkedEvents = 0;
+  for (const check of checks) {
+    const tag = check.instance === undefined ? {} : { instance: check.instance };
+    try {
+      const { result } = await withStagingInstance(staging.client, staging.projectId, () =>
+        runStagingInstance({
+          client: staging.client,
+          events: fixture.events,
+          rules: check.rules,
+          capturedState: check.capturedState,
+          ...(check.instance === undefined ? {} : { instance: check.instance }),
+        }));
+      checkedEvents += result.checkedEvents;
+      divergences.push(...result.divergences.map((divergence) => ({ service: 'rtdb', ...divergence, ...tag })));
+    } catch (error) {
+      if (!(error instanceof StagingDeployRefusedError)) throw error;
+      divergences.push({ service: 'rtdb', kind: 'unsupported', reason: error.message, ...tag });
+    }
+  }
+  return { engine: 'staging', ok: divergences.every(isInformational), checkedEvents, divergences };
+}
+
+/** Where the sandbox and production decided a captured operation differently: one reports a divergence the other does not. */
+function addRtdbEngineDrift(sandbox: VerifyEngineResult, staging: VerifyEngineResult): void {
+  const decisive = new Set(['now-denied', 'now-allowed']);
+  const keyOf = (divergence: VerifyDivergence) =>
+    `${divergence.instance ?? ''}|${(divergence as { method?: string }).method ?? ''}|${divergence.path ?? ''}`;
+  const byKey = (divergences: VerifyDivergence[]) =>
+    new Map(divergences.filter((divergence) => decisive.has(divergence.kind)).map((divergence) => [keyOf(divergence), divergence]));
+  const local = byKey(sandbox.divergences);
+  const remote = byKey(staging.divergences);
+  for (const key of new Set([...local.keys(), ...remote.keys()])) {
+    const sandboxKind = local.get(key)?.kind ?? 'unchanged';
+    const stagingKind = remote.get(key)?.kind ?? 'unchanged';
+    if (sandboxKind === stagingKind) continue;
+    const sample = (local.get(key) ?? remote.get(key))!;
+    staging.divergences.push({
+      service: 'rtdb',
+      kind: 'engine-drift',
+      path: sample.path,
+      method: (sample as { method?: string }).method,
+      sandbox: sandboxKind,
+      staging: stagingKind,
+      reason: `the sandbox reported ${sandboxKind}; production reported ${stagingKind}.`,
+      ...(sample.instance === undefined ? {} : { instance: sample.instance }),
+    });
+  }
+  staging.ok = staging.divergences.every(isInformational);
 }
 
 async function verifyStorage(
@@ -864,7 +957,7 @@ function normalizeEngines(input: VerifyEngine[] | undefined): VerifyEngine[] {
   const engines = input ?? ['sandbox'];
   const out: VerifyEngine[] = [];
   for (const engine of engines) {
-    if (engine !== 'sandbox' && engine !== 'rulesTestApi') {
+    if (engine !== 'sandbox' && engine !== 'rulesTestApi' && engine !== 'staging') {
       throw new VerifyInputError(`unsupported verify engine: ${String(engine)}`);
     }
     if (!out.includes(engine)) out.push(engine);
@@ -881,7 +974,7 @@ function collectEngineDivergences(
 function serviceCheckedEvents(
   engines: Partial<Record<VerifyEngine, VerifyEngineResult>>,
 ): number {
-  return engines.sandbox?.checkedEvents ?? engines.rulesTestApi?.checkedEvents ?? 0;
+  return engines.sandbox?.checkedEvents ?? engines.rulesTestApi?.checkedEvents ?? engines.staging?.checkedEvents ?? 0;
 }
 
 function mapUnsupportedEvent(event: VerifyUnsupportedEvent): VerifyDivergence {
