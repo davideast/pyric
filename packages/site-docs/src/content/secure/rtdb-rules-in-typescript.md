@@ -107,7 +107,7 @@ diffRtdbRules(handWritten, compiled, { ignoreEquivalent: true }); // only rules 
 canonicalRtdbExpression("$uid === auth.uid");  // "$uid == auth.uid"
 canonicalRtdbExpression("auth.uid !== null");  // "!(auth == null)"
 ```
-A changed entry keeps both expressions exactly as written. Without the option the diff compares text, as `rtdb_inspect_rules` does.
+A changed entry keeps both expressions exactly as written. Without the option the diff compares text.
 
 Two expressions are equivalent when their canonical texts are equal. The canonical form applies only rewrites that cannot change a decision, errors included (a rule that errors fails, and `||` or `!` does not rescue it):
 
