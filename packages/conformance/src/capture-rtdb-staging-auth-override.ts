@@ -71,8 +71,9 @@ const MISMATCH = {
 };
 const FIELDS = Object.keys(PROBE_RULES.rules.probe);
 // Isolation: MATCH with exactly one claim changed; only that field should be denied.
-const flip = (mutate) => { const id = structuredClone(MATCH); mutate(id); return id; };
-const FLIPS = [
+type Identity = typeof MATCH;
+const flip = (mutate: (id: Identity) => void): Identity => { const id = structuredClone(MATCH); mutate(id); return id; };
+const FLIPS: Array<[string, Identity]> = [
   ["flip_uid", flip((id) => { id.uid = "bob"; })],
   ["flip_provider", flip((id) => { id.provider = "anonymous"; })],
   ["flip_sign_in_provider", flip((id) => { id.token.firebase.sign_in_provider = "anonymous"; })],
@@ -82,22 +83,39 @@ const FLIPS = [
   ["flip_custom_claim", flip((id) => { id.token.admin = false; })],
 ];
 // Expected verdicts: MATCH allows every field but signed_out; MISMATCH allows none; null allows only signed_out.
-const expected = (identity, field) =>
+const expected = (identity: string, field: string): boolean =>
   identity.startsWith("flip_") ? field !== "signed_out" && field !== identity.slice(5) :
   identity === 'null' ? field === 'signed_out' : identity === 'match' ? field !== 'signed_out' : false;
 
-async function rest(method, path, body, query = '') {
+async function rest(method: string, path: string, body?: unknown, query = ""): Promise<{ status: number; text: string }> {
   const res = await fetch(`${URL_}/${path}${query}`, { method, headers: H, body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body) });
   return { status: res.status, text: await res.text() };
 }
 
-const results = { instance: INSTANCE, startedAt: new Date().toISOString(), cases: [], invariants: {} };
+interface CaptureCase {
+  mechanism: string;
+  identity: string;
+  field: string;
+  expected: string;
+  observed: string;
+  status?: number;
+  body?: string;
+  detail?: string;
+}
+const results: {
+  instance: string;
+  startedAt: string;
+  finishedAt?: string;
+  dryRun?: { status: number; text: string };
+  cases: CaptureCase[];
+  invariants: { dataRemoved?: boolean; rulesRestored?: boolean };
+} = { instance: INSTANCE, startedAt: new Date().toISOString(), cases: [], invariants: {} };
 const prior = await rest('GET', '.settings/rules.json');
 if (prior.status !== 200) throw new Error(`cannot read rules: ${prior.status}`);
 const priorRoot = await rest('GET', '.json', undefined, '?shallow=true');
 if (priorRoot.text !== 'null') throw new Error(`refusing: ${INSTANCE} is not empty (${priorRoot.text.slice(0, 80)})`);
 
-let failure;
+let failure: Error | undefined;
 try {
   const dry = await rest('PUT', '.settings/rules.json', PROBE_RULES, '?dryRun=true');
   results.dryRun = dry;
@@ -105,7 +123,7 @@ try {
   const deployed = await rest('PUT', '.settings/rules.json', PROBE_RULES);
   if (deployed.status !== 200) throw new Error(`deploy failed: ${deployed.text}`);
 
-  const identities = { match: MATCH, mismatch: MISMATCH, null: null, ...Object.fromEntries(FLIPS) };
+  const identities: Record<string, Identity | null> = { match: MATCH, mismatch: MISMATCH, null: null, ...Object.fromEntries(FLIPS) };
   // Control: admin with no override bypasses rules.
   const adminCtl = await rest('PUT', 'probe/admin_control.json', '"x"');
   results.cases.push({ mechanism: 'rest', identity: 'admin-no-override', field: 'admin_control', expected: 'ALLOW', observed: adminCtl.status === 200 ? 'ALLOW' : 'DENY', status: adminCtl.status });
@@ -125,21 +143,22 @@ try {
     }, `probe-${name}`);
     const db = getDatabase(app);
     for (const field of FIELDS) {
-      let observed;
-      let detail;
+      let observed: string;
+      let detail: string | undefined;
       try {
         await Promise.race([db.ref(`probe/${field}/admin_${name}`).set('v'), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 15000))]);
         observed = 'ALLOW';
-      } catch (e) {
-        observed = /permission/i.test(String(e?.code ?? e?.message)) ? 'DENY' : 'ERROR';
-        detail = String(e?.message ?? e).slice(0, 120);
+      } catch (e: unknown) {
+        const error = e as { code?: unknown; message?: unknown };
+        observed = /permission/i.test(String(error?.code ?? error?.message)) ? 'DENY' : 'ERROR';
+        detail = String(error?.message ?? e).slice(0, 120);
       }
       results.cases.push({ mechanism: 'admin-sdk', identity: name, field, expected: expected(name, field) ? 'ALLOW' : 'DENY', observed, ...(detail ? { detail } : {}) });
     }
     await deleteApp(app);
   }
-} catch (e) {
-  failure = e;
+} catch (e: unknown) {
+  failure = e instanceof Error ? e : new Error(String(e));
 } finally {
   const del = await rest('DELETE', 'probe.json');
   const restore = await rest('PUT', '.settings/rules.json', prior.text);

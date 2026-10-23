@@ -21,7 +21,8 @@
     "serve diagnostics",
     "serve denials",
     "serve repro capture",
-    "serve repro replay"
+    "serve repro replay",
+    "verify staging init"
   ],
   "derivedCommands": [
     "ai_logic clearScripts",
