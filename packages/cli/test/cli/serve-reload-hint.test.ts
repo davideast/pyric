@@ -33,7 +33,7 @@ describe('pyric sandbox rules hot-reload hint', () => {
         }, 50);
       });
       
-      expect(logged).toContain('(run `pyric verify` to test against past sessions)');
+      expect(logged).toContain('(run `pyric verify` to replay the captured session against these rules)');
       
       logged = ''; // Clear first reload logs
       
@@ -49,7 +49,7 @@ describe('pyric sandbox rules hot-reload hint', () => {
         }, 50);
       });
       
-      expect(logged).not.toContain('(run `pyric verify` to test against past sessions)');
+      expect(logged).not.toContain('(run `pyric verify` to replay the captured session against these rules)');
     } finally {
       await runtime.handle.stop();
     }

@@ -2,6 +2,7 @@ import path from 'node:path';
 import type { ViteDevServer } from 'vite';
 import { formatDatabaseRulesRemoved, formatStorageRulesRemoved } from './rules.js';
 import type { SandboxSession } from './sandbox-session.js';
+import { createVerifyHint } from './verify-hint.js';
 
 /**
  * Adapt Vite's watcher to the session's last-good rules reload operations.
@@ -17,12 +18,7 @@ export function watchViteGenerationRules(input: {
   server: ViteDevServer;
   session: SandboxSession;
 }): () => void {
-  let printedVerifyHint = false;
-  function getVerifyHint() {
-    if (printedVerifyHint) return '';
-    printedVerifyHint = true;
-    return ' (run `pyric verify` to test against past sessions)';
-  }
+  const getVerifyHint = createVerifyHint();
 
   const { server, session } = input;
   const databaseFiles = session.databaseRulesFiles();

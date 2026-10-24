@@ -71,6 +71,7 @@ import {
   type SandboxSession,
 } from '../serve/sandbox-session.js';
 import { resolveAvatarsConfig } from '../serve/avatars-config.js';
+import { createVerifyHint } from '../serve/verify-hint.js';
 
 interface HostingConfig {
   public?: string;
@@ -552,12 +553,7 @@ async function startServeRuntime(opts: {
   // a failed reload asked for, so fixing or creating one reloads. The source
   // is the path the rules load from, watched whether or not it exists at
   // startup, so a rules file created later loads.
-  let printedVerifyHint = false;
-  function getVerifyHint() {
-    if (printedVerifyHint) return '';
-    printedVerifyHint = true;
-    return ' (run `pyric verify` to test against past sessions)';
-  }
+  const getVerifyHint = createVerifyHint();
 
   const isWatchEnabled = opts.watch ?? true;
   if (isWatchEnabled) {
