@@ -27,6 +27,22 @@ export type {
 } from '../rtdb/source-locations.js';
 
 export { parseExpression } from '../rtdb/grammar/RtdbExprParser.js';
+export {
+  parseRtdbExpressionTree,
+  printRtdbExpressionTree,
+} from '../rtdb/grammar/expression-tree.js';
+export type {
+  RtdbBinaryOperator,
+  RtdbExpressionTree,
+  RtdbExpressionTreeResult,
+} from '../rtdb/grammar/expression-tree.js';
+export {
+  canonicalRtdbExpression,
+  canonicalTree as canonicalRtdbExpressionTree,
+  RtdbExpressionSyntaxError,
+} from '../rtdb/grammar/canonical.js';
+export { DIFFED_RULE_KINDS, diffRtdbRules } from '../rtdb/rules-diff.js';
+export type { DiffRtdbRulesOptions, RtdbRuleChange } from '../rtdb/rules-diff.js';
 export { validateExpression } from '../rtdb/grammar/validator.js';
 export { lintExpression } from '../rtdb/grammar/linter.js';
 export { lintRtdbRuleset } from '../rtdb/grammar/ruleset-lint.js';

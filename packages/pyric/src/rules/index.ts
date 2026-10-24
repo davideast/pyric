@@ -78,6 +78,11 @@ export type {
   RtdbCoverageKind,
 } from './rtdb/coverage.js';
 
+// ─── RTDB ruleset diff and expression equivalence ───────────────────
+export { diffRtdbRules } from './rtdb/rules-diff.js';
+export type { DiffRtdbRulesOptions, RtdbRuleChange, RtdbRuleKind } from './rtdb/rules-diff.js';
+export { canonicalRtdbExpression, RtdbExpressionSyntaxError } from './rtdb/grammar/canonical.js';
+
 // ─── Structured trace types (plain data) ─────────────────────────────
 export type {
   RuleEvaluation,

@@ -9,25 +9,14 @@
  * URL, and it is not returned in any result or message.
  */
 import type { ToolHandler } from 'pyric/sandbox/internal';
+import { diffRtdbRules, type RtdbRuleChange } from 'pyric/rules/internal/rtdb';
 import { parseRtdbRulesText } from './rules-json.js';
 import { HOSTED_CREDENTIAL_SOURCES } from '../credentials/node/scope.js';
 
-/** The rule kinds the diff compares. */
-export const DIFFED_RULE_KINDS = ['.indexOn', '.read', '.validate', '.write'] as const;
-export type RtdbRuleKind = (typeof DIFFED_RULE_KINDS)[number];
-
-/**
- * One rule expression that differs. `deployed` is absent for `added` and
- * `local` is absent for `removed`: the change is what deploying the local
- * ruleset would do to the deployed one.
- */
-export interface RtdbRuleChange {
-  path: string;
-  kind: RtdbRuleKind;
-  change: 'added' | 'removed' | 'changed';
-  deployed?: string;
-  local?: string;
-}
+// The diff itself is pure and lives in `pyric` (public from `pyric/rules`);
+// it is re-exported here so this module's exports stay as they were.
+export { DIFFED_RULE_KINDS, diffRtdbRules } from 'pyric/rules/internal/rtdb';
+export type { DiffRtdbRulesOptions, RtdbRuleChange, RtdbRuleKind } from 'pyric/rules/internal/rtdb';
 
 export interface InspectDeployedRtdbRulesOptions {
   scope: { resolveToken(): Promise<string> };
@@ -94,67 +83,6 @@ export async function inspectDeployedRtdbRules(
   }
 
   return { ok: true, deployed, diff: diffRtdbRules(deployed.rules, local.rules) };
-}
-
-/** Node-level diff of two `rules` trees, ordered by path then rule kind. */
-export function diffRtdbRules(
-  deployed: Record<string, unknown>,
-  local: Record<string, unknown>,
-): RtdbRuleChange[] {
-  const deployedRules = collectRules(deployed);
-  const localRules = collectRules(local);
-  const changes: RtdbRuleChange[] = [];
-  for (const key of new Set([...deployedRules.keys(), ...localRules.keys()])) {
-    const d = deployedRules.get(key);
-    const l = localRules.get(key);
-    if (d?.value === l?.value) continue;
-    const node = (d ?? l)!;
-    const change: RtdbRuleChange = {
-      path: node.path,
-      kind: node.kind,
-      change: d === undefined ? 'added' : l === undefined ? 'removed' : 'changed',
-    };
-    if (d !== undefined) change.deployed = d.value;
-    if (l !== undefined) change.local = l.value;
-    changes.push(change);
-  }
-  return changes.sort((a, b) => compare(a.path, b.path) || compare(a.kind, b.kind));
-}
-
-const compare = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
-
-interface CollectedRule {
-  path: string;
-  kind: RtdbRuleKind;
-  value: string;
-}
-
-function formatRuleValue(kind: RtdbRuleKind, value: unknown): string {
-  if (kind === '.indexOn') {
-    const normalized = typeof value === 'string' ? [value] : value;
-    return JSON.stringify(normalized);
-  }
-  // A boolean and its string form are one expression: `true` and "true".
-  return typeof value === 'string' ? value : JSON.stringify(value);
-}
-
-function collectRules(root: Record<string, unknown>): Map<string, CollectedRule> {
-  const out = new Map<string, CollectedRule>();
-  const walk = (node: Record<string, unknown>, path: string): void => {
-    for (const [key, child] of Object.entries(node)) {
-      if (key.startsWith('.')) {
-        if ((DIFFED_RULE_KINDS as readonly string[]).includes(key)) {
-          const kind = key as RtdbRuleKind;
-          const value = formatRuleValue(kind, child);
-          out.set(`${path}\u0000${kind}`, { path, kind, value });
-        }
-      } else if (typeof child === 'object' && child !== null && !Array.isArray(child)) {
-        walk(child as Record<string, unknown>, `${path === '/' ? '' : path}/${key}`);
-      }
-    }
-  };
-  walk(root, '/');
-  return out;
 }
 
 export interface RtdbInspectRulesToolDeps {
