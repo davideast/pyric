@@ -63,9 +63,11 @@ USAGE
   pyric init [dir] [--template=web|node]
   pyric sandbox salvage --source=DIR --out=NEW_DIR
   pyric snapshot [--out=DIR]
-  pyric verify [fixture|dir] [--engine sandbox|rules-test-api|both]
+  pyric verify [fixture|dir] [--engine sandbox|rules-test-api|staging|both]
   pyric can-i-use <feature> [--json]
   pyric verify cases [fixture] [--service firestore] [--out FILE]
+  pyric verify staging init
+  pyric verify staging restore [--force]
   pyric firestore rules validate <path>
   pyric firestore rules resolve <path> [--out <path>]
   pyric firestore indexes generate <path...> [--out <path>]
@@ -110,9 +112,12 @@ COMMANDS
                              for the Firestore/RTDB services present in the fixture.
                              No arg replays the latest \`pyric sandbox\` capture
                              (.pyric/last-session.json). --service filters services.
-                             --engine sandbox (default), rules-test-api, or both.
+                             --engine sandbox (default), rules-test-api, staging, or both.
                              Hosted Rules Test API verification is Firestore-only
                              and uses --project plus the configured Google credentials.
+                             --engine staging replays RTDB against your own dedicated
+                             instance (pyric.json verify.staging) so production decides
+                             each operation; repeat --engine to compare with sandbox.
                              --rules service=path overrides firebase.json resolution
                              (repeat for mixed captures). Each RTDB instance the session
                              used is checked against its own rules; --rules
@@ -123,6 +128,12 @@ COMMANDS
                              Exact and fuzzy queries use the same model as MCP. --json.
   verify cases [fixture]     Derive Firestore Rules Test API cases from a captured
                              fixture and print JSON, or write with --out FILE.
+  verify staging init        Enroll the empty RTDB instance pyric.json verify.staging
+                             names ({ project, rtdb }) for --engine staging. Refuses an
+                             instance that holds data or that firebase.json deploys to.
+  verify staging restore     Put the staging instance back after an interrupted run, from
+                             the rules kept in .pyric/staging-restore.json; --force
+                             deploys deny-all rules with the marker when none were kept.
   firestore rules validate   Validate Firestore rules structure against a file.
   firestore rules resolve    Resolve Firestore 2+modules imports to one ruleset.
   firestore indexes generate Generate firestore.indexes.json from application source.

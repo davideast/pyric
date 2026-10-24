@@ -1,0 +1,1451 @@
+{
+  "name": "rtdb-modular-staging-auth-override",
+  "matrixRow": "rtdb-modular#VR4",
+  "rowIds": [
+    "rtdb-modular#VR4"
+  ],
+  "description": "An admin request with an auth override, through the REST auth_variable_override parameter and through firebase-admin databaseAuthVariableOverride, writes to eight rule-gated paths of a dedicated instance as a matching, a mismatching and a signed-out identity, then as the matching identity with exactly one claim changed at a time. Production applies the override as the rules auth variable, auth.token claims included (firebase.sign_in_provider and firebase.tenant, which a custom token cannot carry), and denies only the field whose claim changed.",
+  "observedAt": "2026-10-23T17:57:17.850Z",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "rules": {
+      "rules": {
+        ".read": false,
+        ".write": false,
+        "probe": {
+          "uid": {
+            ".write": "auth != null && auth.uid == 'alice'"
+          },
+          "provider": {
+            ".write": "auth != null && auth.provider == 'password'"
+          },
+          "sign_in_provider": {
+            ".write": "auth != null && auth.token.firebase.sign_in_provider == 'password'"
+          },
+          "tenant": {
+            ".write": "auth != null && auth.token.firebase.tenant == 'tenant-a'"
+          },
+          "email": {
+            ".write": "auth != null && auth.token.email == 'alice@example.com'"
+          },
+          "email_verified": {
+            ".write": "auth != null && auth.token.email_verified == true"
+          },
+          "custom_claim": {
+            ".write": "auth != null && auth.token.admin == true"
+          },
+          "signed_out": {
+            ".write": "auth == null"
+          }
+        }
+      }
+    },
+    "identities": {
+      "match": {
+        "uid": "alice",
+        "provider": "password",
+        "token": {
+          "email": "alice@example.com",
+          "email_verified": true,
+          "admin": true,
+          "firebase": {
+            "sign_in_provider": "password",
+            "tenant": "tenant-a"
+          }
+        }
+      },
+      "mismatch": {
+        "uid": "bob",
+        "provider": "anonymous",
+        "token": {
+          "email": "bob@example.com",
+          "email_verified": false,
+          "admin": false,
+          "firebase": {
+            "sign_in_provider": "anonymous",
+            "tenant": "tenant-b"
+          }
+        }
+      },
+      "flips": {
+        "flip_uid": {
+          "uid": "bob",
+          "provider": "password",
+          "token": {
+            "email": "alice@example.com",
+            "email_verified": true,
+            "admin": true,
+            "firebase": {
+              "sign_in_provider": "password",
+              "tenant": "tenant-a"
+            }
+          }
+        },
+        "flip_provider": {
+          "uid": "alice",
+          "provider": "anonymous",
+          "token": {
+            "email": "alice@example.com",
+            "email_verified": true,
+            "admin": true,
+            "firebase": {
+              "sign_in_provider": "password",
+              "tenant": "tenant-a"
+            }
+          }
+        },
+        "flip_sign_in_provider": {
+          "uid": "alice",
+          "provider": "password",
+          "token": {
+            "email": "alice@example.com",
+            "email_verified": true,
+            "admin": true,
+            "firebase": {
+              "sign_in_provider": "anonymous",
+              "tenant": "tenant-a"
+            }
+          }
+        },
+        "flip_tenant": {
+          "uid": "alice",
+          "provider": "password",
+          "token": {
+            "email": "alice@example.com",
+            "email_verified": true,
+            "admin": true,
+            "firebase": {
+              "sign_in_provider": "password",
+              "tenant": "tenant-b"
+            }
+          }
+        },
+        "flip_email": {
+          "uid": "alice",
+          "provider": "password",
+          "token": {
+            "email": "bob@example.com",
+            "email_verified": true,
+            "admin": true,
+            "firebase": {
+              "sign_in_provider": "password",
+              "tenant": "tenant-a"
+            }
+          }
+        },
+        "flip_email_verified": {
+          "uid": "alice",
+          "provider": "password",
+          "token": {
+            "email": "alice@example.com",
+            "email_verified": false,
+            "admin": true,
+            "firebase": {
+              "sign_in_provider": "password",
+              "tenant": "tenant-a"
+            }
+          }
+        },
+        "flip_custom_claim": {
+          "uid": "alice",
+          "provider": "password",
+          "token": {
+            "email": "alice@example.com",
+            "email_verified": true,
+            "admin": false,
+            "firebase": {
+              "sign_in_provider": "password",
+              "tenant": "tenant-a"
+            }
+          }
+        }
+      }
+    },
+    "fields": [
+      "uid",
+      "provider",
+      "sign_in_provider",
+      "tenant",
+      "email",
+      "email_verified",
+      "custom_claim",
+      "signed_out"
+    ],
+    "cases": [
+      {
+        "mechanism": "rest",
+        "identity": "admin-no-override",
+        "field": "admin_control",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "match",
+        "field": "uid",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "match",
+        "field": "provider",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "match",
+        "field": "sign_in_provider",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "match",
+        "field": "tenant",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "match",
+        "field": "email",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "match",
+        "field": "email_verified",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "match",
+        "field": "custom_claim",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "match",
+        "field": "signed_out",
+        "expected": "DENY",
+        "observed": "DENY",
+        "status": 401,
+        "body": "{\n  \"error\" : \"Permission denied\"\n}\n"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "match",
+        "field": "uid",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "match",
+        "field": "provider",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "match",
+        "field": "sign_in_provider",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "match",
+        "field": "tenant",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "match",
+        "field": "email",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "match",
+        "field": "email_verified",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "match",
+        "field": "custom_claim",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "match",
+        "field": "signed_out",
+        "expected": "DENY",
+        "observed": "DENY",
+        "detail": "PERMISSION_DENIED: Permission denied"
+      },
+      {
+        "mechanism": "rest",
+        "identity": "mismatch",
+        "field": "uid",
+        "expected": "DENY",
+        "observed": "DENY",
+        "status": 401,
+        "body": "{\n  \"error\" : \"Permission denied\"\n}\n"
+      },
+      {
+        "mechanism": "rest",
+        "identity": "mismatch",
+        "field": "provider",
+        "expected": "DENY",
+        "observed": "DENY",
+        "status": 401,
+        "body": "{\n  \"error\" : \"Permission denied\"\n}\n"
+      },
+      {
+        "mechanism": "rest",
+        "identity": "mismatch",
+        "field": "sign_in_provider",
+        "expected": "DENY",
+        "observed": "DENY",
+        "status": 401,
+        "body": "{\n  \"error\" : \"Permission denied\"\n}\n"
+      },
+      {
+        "mechanism": "rest",
+        "identity": "mismatch",
+        "field": "tenant",
+        "expected": "DENY",
+        "observed": "DENY",
+        "status": 401,
+        "body": "{\n  \"error\" : \"Permission denied\"\n}\n"
+      },
+      {
+        "mechanism": "rest",
+        "identity": "mismatch",
+        "field": "email",
+        "expected": "DENY",
+        "observed": "DENY",
+        "status": 401,
+        "body": "{\n  \"error\" : \"Permission denied\"\n}\n"
+      },
+      {
+        "mechanism": "rest",
+        "identity": "mismatch",
+        "field": "email_verified",
+        "expected": "DENY",
+        "observed": "DENY",
+        "status": 401,
+        "body": "{\n  \"error\" : \"Permission denied\"\n}\n"
+      },
+      {
+        "mechanism": "rest",
+        "identity": "mismatch",
+        "field": "custom_claim",
+        "expected": "DENY",
+        "observed": "DENY",
+        "status": 401,
+        "body": "{\n  \"error\" : \"Permission denied\"\n}\n"
+      },
+      {
+        "mechanism": "rest",
+        "identity": "mismatch",
+        "field": "signed_out",
+        "expected": "DENY",
+        "observed": "DENY",
+        "status": 401,
+        "body": "{\n  \"error\" : \"Permission denied\"\n}\n"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "mismatch",
+        "field": "uid",
+        "expected": "DENY",
+        "observed": "DENY",
+        "detail": "PERMISSION_DENIED: Permission denied"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "mismatch",
+        "field": "provider",
+        "expected": "DENY",
+        "observed": "DENY",
+        "detail": "PERMISSION_DENIED: Permission denied"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "mismatch",
+        "field": "sign_in_provider",
+        "expected": "DENY",
+        "observed": "DENY",
+        "detail": "PERMISSION_DENIED: Permission denied"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "mismatch",
+        "field": "tenant",
+        "expected": "DENY",
+        "observed": "DENY",
+        "detail": "PERMISSION_DENIED: Permission denied"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "mismatch",
+        "field": "email",
+        "expected": "DENY",
+        "observed": "DENY",
+        "detail": "PERMISSION_DENIED: Permission denied"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "mismatch",
+        "field": "email_verified",
+        "expected": "DENY",
+        "observed": "DENY",
+        "detail": "PERMISSION_DENIED: Permission denied"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "mismatch",
+        "field": "custom_claim",
+        "expected": "DENY",
+        "observed": "DENY",
+        "detail": "PERMISSION_DENIED: Permission denied"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "mismatch",
+        "field": "signed_out",
+        "expected": "DENY",
+        "observed": "DENY",
+        "detail": "PERMISSION_DENIED: Permission denied"
+      },
+      {
+        "mechanism": "rest",
+        "identity": "null",
+        "field": "uid",
+        "expected": "DENY",
+        "observed": "DENY",
+        "status": 401,
+        "body": "{\n  \"error\" : \"Permission denied\"\n}\n"
+      },
+      {
+        "mechanism": "rest",
+        "identity": "null",
+        "field": "provider",
+        "expected": "DENY",
+        "observed": "DENY",
+        "status": 401,
+        "body": "{\n  \"error\" : \"Permission denied\"\n}\n"
+      },
+      {
+        "mechanism": "rest",
+        "identity": "null",
+        "field": "sign_in_provider",
+        "expected": "DENY",
+        "observed": "DENY",
+        "status": 401,
+        "body": "{\n  \"error\" : \"Permission denied\"\n}\n"
+      },
+      {
+        "mechanism": "rest",
+        "identity": "null",
+        "field": "tenant",
+        "expected": "DENY",
+        "observed": "DENY",
+        "status": 401,
+        "body": "{\n  \"error\" : \"Permission denied\"\n}\n"
+      },
+      {
+        "mechanism": "rest",
+        "identity": "null",
+        "field": "email",
+        "expected": "DENY",
+        "observed": "DENY",
+        "status": 401,
+        "body": "{\n  \"error\" : \"Permission denied\"\n}\n"
+      },
+      {
+        "mechanism": "rest",
+        "identity": "null",
+        "field": "email_verified",
+        "expected": "DENY",
+        "observed": "DENY",
+        "status": 401,
+        "body": "{\n  \"error\" : \"Permission denied\"\n}\n"
+      },
+      {
+        "mechanism": "rest",
+        "identity": "null",
+        "field": "custom_claim",
+        "expected": "DENY",
+        "observed": "DENY",
+        "status": 401,
+        "body": "{\n  \"error\" : \"Permission denied\"\n}\n"
+      },
+      {
+        "mechanism": "rest",
+        "identity": "null",
+        "field": "signed_out",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "null",
+        "field": "uid",
+        "expected": "DENY",
+        "observed": "DENY",
+        "detail": "PERMISSION_DENIED: Permission denied"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "null",
+        "field": "provider",
+        "expected": "DENY",
+        "observed": "DENY",
+        "detail": "PERMISSION_DENIED: Permission denied"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "null",
+        "field": "sign_in_provider",
+        "expected": "DENY",
+        "observed": "DENY",
+        "detail": "PERMISSION_DENIED: Permission denied"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "null",
+        "field": "tenant",
+        "expected": "DENY",
+        "observed": "DENY",
+        "detail": "PERMISSION_DENIED: Permission denied"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "null",
+        "field": "email",
+        "expected": "DENY",
+        "observed": "DENY",
+        "detail": "PERMISSION_DENIED: Permission denied"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "null",
+        "field": "email_verified",
+        "expected": "DENY",
+        "observed": "DENY",
+        "detail": "PERMISSION_DENIED: Permission denied"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "null",
+        "field": "custom_claim",
+        "expected": "DENY",
+        "observed": "DENY",
+        "detail": "PERMISSION_DENIED: Permission denied"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "null",
+        "field": "signed_out",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_uid",
+        "field": "uid",
+        "expected": "DENY",
+        "observed": "DENY",
+        "status": 401,
+        "body": "{\n  \"error\" : \"Permission denied\"\n}\n"
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_uid",
+        "field": "provider",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_uid",
+        "field": "sign_in_provider",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_uid",
+        "field": "tenant",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_uid",
+        "field": "email",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_uid",
+        "field": "email_verified",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_uid",
+        "field": "custom_claim",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_uid",
+        "field": "signed_out",
+        "expected": "DENY",
+        "observed": "DENY",
+        "status": 401,
+        "body": "{\n  \"error\" : \"Permission denied\"\n}\n"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_uid",
+        "field": "uid",
+        "expected": "DENY",
+        "observed": "DENY",
+        "detail": "PERMISSION_DENIED: Permission denied"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_uid",
+        "field": "provider",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_uid",
+        "field": "sign_in_provider",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_uid",
+        "field": "tenant",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_uid",
+        "field": "email",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_uid",
+        "field": "email_verified",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_uid",
+        "field": "custom_claim",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_uid",
+        "field": "signed_out",
+        "expected": "DENY",
+        "observed": "DENY",
+        "detail": "PERMISSION_DENIED: Permission denied"
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_provider",
+        "field": "uid",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_provider",
+        "field": "provider",
+        "expected": "DENY",
+        "observed": "DENY",
+        "status": 401,
+        "body": "{\n  \"error\" : \"Permission denied\"\n}\n"
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_provider",
+        "field": "sign_in_provider",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_provider",
+        "field": "tenant",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_provider",
+        "field": "email",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_provider",
+        "field": "email_verified",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_provider",
+        "field": "custom_claim",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_provider",
+        "field": "signed_out",
+        "expected": "DENY",
+        "observed": "DENY",
+        "status": 401,
+        "body": "{\n  \"error\" : \"Permission denied\"\n}\n"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_provider",
+        "field": "uid",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_provider",
+        "field": "provider",
+        "expected": "DENY",
+        "observed": "DENY",
+        "detail": "PERMISSION_DENIED: Permission denied"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_provider",
+        "field": "sign_in_provider",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_provider",
+        "field": "tenant",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_provider",
+        "field": "email",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_provider",
+        "field": "email_verified",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_provider",
+        "field": "custom_claim",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_provider",
+        "field": "signed_out",
+        "expected": "DENY",
+        "observed": "DENY",
+        "detail": "PERMISSION_DENIED: Permission denied"
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_sign_in_provider",
+        "field": "uid",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_sign_in_provider",
+        "field": "provider",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_sign_in_provider",
+        "field": "sign_in_provider",
+        "expected": "DENY",
+        "observed": "DENY",
+        "status": 401,
+        "body": "{\n  \"error\" : \"Permission denied\"\n}\n"
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_sign_in_provider",
+        "field": "tenant",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_sign_in_provider",
+        "field": "email",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_sign_in_provider",
+        "field": "email_verified",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_sign_in_provider",
+        "field": "custom_claim",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_sign_in_provider",
+        "field": "signed_out",
+        "expected": "DENY",
+        "observed": "DENY",
+        "status": 401,
+        "body": "{\n  \"error\" : \"Permission denied\"\n}\n"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_sign_in_provider",
+        "field": "uid",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_sign_in_provider",
+        "field": "provider",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_sign_in_provider",
+        "field": "sign_in_provider",
+        "expected": "DENY",
+        "observed": "DENY",
+        "detail": "PERMISSION_DENIED: Permission denied"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_sign_in_provider",
+        "field": "tenant",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_sign_in_provider",
+        "field": "email",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_sign_in_provider",
+        "field": "email_verified",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_sign_in_provider",
+        "field": "custom_claim",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_sign_in_provider",
+        "field": "signed_out",
+        "expected": "DENY",
+        "observed": "DENY",
+        "detail": "PERMISSION_DENIED: Permission denied"
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_tenant",
+        "field": "uid",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_tenant",
+        "field": "provider",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_tenant",
+        "field": "sign_in_provider",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_tenant",
+        "field": "tenant",
+        "expected": "DENY",
+        "observed": "DENY",
+        "status": 401,
+        "body": "{\n  \"error\" : \"Permission denied\"\n}\n"
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_tenant",
+        "field": "email",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_tenant",
+        "field": "email_verified",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_tenant",
+        "field": "custom_claim",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_tenant",
+        "field": "signed_out",
+        "expected": "DENY",
+        "observed": "DENY",
+        "status": 401,
+        "body": "{\n  \"error\" : \"Permission denied\"\n}\n"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_tenant",
+        "field": "uid",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_tenant",
+        "field": "provider",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_tenant",
+        "field": "sign_in_provider",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_tenant",
+        "field": "tenant",
+        "expected": "DENY",
+        "observed": "DENY",
+        "detail": "PERMISSION_DENIED: Permission denied"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_tenant",
+        "field": "email",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_tenant",
+        "field": "email_verified",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_tenant",
+        "field": "custom_claim",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_tenant",
+        "field": "signed_out",
+        "expected": "DENY",
+        "observed": "DENY",
+        "detail": "PERMISSION_DENIED: Permission denied"
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_email",
+        "field": "uid",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_email",
+        "field": "provider",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_email",
+        "field": "sign_in_provider",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_email",
+        "field": "tenant",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_email",
+        "field": "email",
+        "expected": "DENY",
+        "observed": "DENY",
+        "status": 401,
+        "body": "{\n  \"error\" : \"Permission denied\"\n}\n"
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_email",
+        "field": "email_verified",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_email",
+        "field": "custom_claim",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_email",
+        "field": "signed_out",
+        "expected": "DENY",
+        "observed": "DENY",
+        "status": 401,
+        "body": "{\n  \"error\" : \"Permission denied\"\n}\n"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_email",
+        "field": "uid",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_email",
+        "field": "provider",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_email",
+        "field": "sign_in_provider",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_email",
+        "field": "tenant",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_email",
+        "field": "email",
+        "expected": "DENY",
+        "observed": "DENY",
+        "detail": "PERMISSION_DENIED: Permission denied"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_email",
+        "field": "email_verified",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_email",
+        "field": "custom_claim",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_email",
+        "field": "signed_out",
+        "expected": "DENY",
+        "observed": "DENY",
+        "detail": "PERMISSION_DENIED: Permission denied"
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_email_verified",
+        "field": "uid",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_email_verified",
+        "field": "provider",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_email_verified",
+        "field": "sign_in_provider",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_email_verified",
+        "field": "tenant",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_email_verified",
+        "field": "email",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_email_verified",
+        "field": "email_verified",
+        "expected": "DENY",
+        "observed": "DENY",
+        "status": 401,
+        "body": "{\n  \"error\" : \"Permission denied\"\n}\n"
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_email_verified",
+        "field": "custom_claim",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_email_verified",
+        "field": "signed_out",
+        "expected": "DENY",
+        "observed": "DENY",
+        "status": 401,
+        "body": "{\n  \"error\" : \"Permission denied\"\n}\n"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_email_verified",
+        "field": "uid",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_email_verified",
+        "field": "provider",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_email_verified",
+        "field": "sign_in_provider",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_email_verified",
+        "field": "tenant",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_email_verified",
+        "field": "email",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_email_verified",
+        "field": "email_verified",
+        "expected": "DENY",
+        "observed": "DENY",
+        "detail": "PERMISSION_DENIED: Permission denied"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_email_verified",
+        "field": "custom_claim",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_email_verified",
+        "field": "signed_out",
+        "expected": "DENY",
+        "observed": "DENY",
+        "detail": "PERMISSION_DENIED: Permission denied"
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_custom_claim",
+        "field": "uid",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_custom_claim",
+        "field": "provider",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_custom_claim",
+        "field": "sign_in_provider",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_custom_claim",
+        "field": "tenant",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_custom_claim",
+        "field": "email",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_custom_claim",
+        "field": "email_verified",
+        "expected": "ALLOW",
+        "observed": "ALLOW",
+        "status": 200
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_custom_claim",
+        "field": "custom_claim",
+        "expected": "DENY",
+        "observed": "DENY",
+        "status": 401,
+        "body": "{\n  \"error\" : \"Permission denied\"\n}\n"
+      },
+      {
+        "mechanism": "rest",
+        "identity": "flip_custom_claim",
+        "field": "signed_out",
+        "expected": "DENY",
+        "observed": "DENY",
+        "status": 401,
+        "body": "{\n  \"error\" : \"Permission denied\"\n}\n"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_custom_claim",
+        "field": "uid",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_custom_claim",
+        "field": "provider",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_custom_claim",
+        "field": "sign_in_provider",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_custom_claim",
+        "field": "tenant",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_custom_claim",
+        "field": "email",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_custom_claim",
+        "field": "email_verified",
+        "expected": "ALLOW",
+        "observed": "ALLOW"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_custom_claim",
+        "field": "custom_claim",
+        "expected": "DENY",
+        "observed": "DENY",
+        "detail": "PERMISSION_DENIED: Permission denied"
+      },
+      {
+        "mechanism": "admin-sdk",
+        "identity": "flip_custom_claim",
+        "field": "signed_out",
+        "expected": "DENY",
+        "observed": "DENY",
+        "detail": "PERMISSION_DENIED: Permission denied"
+      }
+    ],
+    "allMatchExpectation": true,
+    "invariants": {
+      "dataRemoved": true,
+      "rulesRestored": true
+    }
+  }
+}

@@ -28,6 +28,7 @@ import { loadObservation } from '../modular/cdd-replay-helpers.js';
 import { getAdminDatabase, getDatabase, sandbox as rtdbSandbox } from '../../../src/database/index.js';
 import { heldDatabaseInstances } from '../../../src/database/internal.js';
 import { replay } from '../../../src/database/replay.js';
+import { stagingAuthOverrideMismatches } from '../modular/staging-auth-override.support.js';
 import {
   UNNAMED_DEFAULT_DATABASE_INSTANCE,
   databaseInstanceKey,
@@ -47,6 +48,7 @@ const queryValidationObservation = loadObservation('rtdb-modular-query-construct
 const priorityObservation = loadObservation('rtdb-modular-priority-contract');
 const offObservation = loadObservation('rtdb-modular-off-duplicate-registration');
 const snapshotObservation = loadObservation('rtdb-modular-get-snapshot-shape');
+const stagingAuthObservation = loadObservation('rtdb-modular-staging-auth-override');
 
 const row = (id: string, assertion: () => unknown | Promise<unknown>) => it(`rtdb-modular#${id}`, assertion);
 
@@ -372,7 +374,7 @@ describe('rtdb-modular CDD: multiple database instances', () => {
   });
 });
 
-// Rows VR1 to VR3 record what `pyric verify` checks when it replays a captured
+// Rows VR1 to VR4 record what `pyric verify` checks when it replays a captured
 // RTDB session; the replay and verify suites and the app scenario the rows
 // name pin the CLI path. These assertions pin the sandbox side: the events the
 // backend records and the replay verdicts on them.
@@ -413,6 +415,14 @@ describe('rtdb-modular CDD: verifying a captured session', () => {
       { kind: 'now-allowed', method: 'set', path: '/profiles/bob' },
     ]);
     expect(opened.replayedState).toEqual(state);
+  });
+
+  row('VR4', () => {
+    // Production decided each auth override as the sandbox's rules engine does,
+    // for every field the staging engine's override carries.
+    const { compared, mismatches } = stagingAuthOverrideMismatches(stagingAuthObservation as never);
+    expect(mismatches).toEqual([]);
+    expect(compared).toBeGreaterThan(0);
   });
 
   row('VR3', async () => {

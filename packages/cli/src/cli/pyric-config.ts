@@ -31,6 +31,11 @@ export interface PyricConfig {
   rules?: string | PyricRulesConfig;
   /** Project ID label for emulation. */
   project?: string;
+  /** `pyric verify` settings. */
+  verify?: {
+    /** The dedicated RTDB instance `pyric verify --engine staging` replays against. */
+    staging?: { project: string; rtdb: string };
+  };
 }
 
 export async function readPyricConfig(cwd: string = process.cwd()): Promise<PyricConfig> {
