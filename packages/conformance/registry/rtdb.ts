@@ -2430,10 +2430,11 @@ export const rtdbRegistry = {
           api: "pyric assurance / pyric.assurance.target.v1",
           behavior: "Assurance campaigns (local-sandbox targets) declare named RTDB instances in `rules.rtdbInstances` and `state.rtdbInstances`, alongside the default instance. Operations name an `instance` (a name, URL, or `default`). The runner sets each instance's rules and data, executing operations on their target instance so mutations and access checks are isolated. An operation naming an instance the target does not declare is an invalid-input refusal listing the declared instances.",
           status: "conforms",
-          evidence: "`packages/cli/test/assurance/rtdb-instances.test.ts` runs a campaign where a named-instance probe under its own relaxed rules succeeds while a default-instance probe under locked rules fails, and asserts that naming an undeclared instance throws an invalid-input refusal naming the missing instance. The `pyric.assurance.campaign.v1` schema and the MCP worker protocol in `packages/cli/src/bridge/surface/arguments/assurance.ts` carry the instance and `rtdbInstances` fields. No CDD assertion applies because the assurance engine is purely a CLI orchestration layer over the sandbox, unlike `pyric verify` which delegates to a sandbox `replay` primitive (MI6) or the runtime itself (MI5).",
+          evidence: "`packages/cli/test/assurance/rtdb-instances.test.ts` runs a campaign where a named-instance probe under its own relaxed rules succeeds while a default-instance probe under locked rules fails, and asserts that naming an undeclared instance throws an invalid-input refusal naming the missing instance. The `pyric.assurance.campaign.v1` schema and the MCP worker protocol in `packages/cli/src/bridge/surface/arguments/assurance.ts` carry the instance and `rtdbInstances` fields. CDD assertion `rtdb-modular#MI7` pins the sandbox isolation: rules and data set on a named instance are strictly isolated from the default instance, and operations are decided by their specific rules.",
           conformanceTests: [
             "packages/cli/test/assurance/rtdb-instances.test.ts",
-            "test/apps/rtdb-named-instance-assurance/scenario.ts"
+            "test/apps/rtdb-named-instance-assurance/scenario.ts",
+            ...cddLifecycleTests
           ],
         }),
       ],

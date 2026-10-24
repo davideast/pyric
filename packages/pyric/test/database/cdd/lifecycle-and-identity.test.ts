@@ -372,6 +372,29 @@ describe('rtdb-modular CDD: multiple database instances', () => {
     const unaffected = await replay(history, { rules: open, capturedState: defaultState });
     expect(unaffected).toMatchObject({ ok: true, checkedEvents: 1 });
   });
+
+  row('MI7', async () => {
+    // Assurance uses the sandbox foundation to map, validate, and execute
+    // isolated target environments for named instances.
+    const sandbox = initializeSandbox();
+    const open = { rules: { '.read': true, '.write': true } };
+    const locked = { rules: { '.read': false, '.write': false } };
+    const defaultDb = getDatabase(sandbox);
+    const namedDb = getDatabase(sandbox, FIRST);
+    const namedAdmin = getAdminDatabase(sandbox, FIRST);
+    
+    rtdbSandbox.setRules(defaultDb, locked);
+    rtdbSandbox.setRules(namedDb, open);
+    rtdbSandbox.setData(namedAdmin, { probe: 'named' });
+    
+    const anon = sandbox.withAuth(null);
+    await expect(api.set(api.ref(getDatabase(anon), 'probe'), 'default-attempt')).rejects.toThrow(/Permission denied/);
+    
+    const snapshot = await api.get(api.ref(getDatabase(anon, FIRST), 'probe'));
+    expect(snapshot.val()).toBe('named');
+    await api.set(api.ref(getDatabase(anon, FIRST), 'probe'), 'named-updated');
+    expect((await api.get(api.ref(getDatabase(anon, FIRST), 'probe'))).val()).toBe('named-updated');
+  });
 });
 
 // Rows VR1 to VR4 record what `pyric verify` checks when it replays a captured
