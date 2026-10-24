@@ -101,9 +101,17 @@ export function rulesLoadRefusal(
   service: AssuranceProbe["control"]["service"],
 ): string | undefined {
   if (service === "rtdb") {
-    if (!target.rules.rtdb) return undefined;
-    const rejection = rtdbRulesSourceRejection(target.rules.rtdb);
-    return rejection === null ? undefined : rejection.message;
+    if (target.rules.rtdb) {
+      const rejection = rtdbRulesSourceRejection(target.rules.rtdb);
+      if (rejection !== null) return rejection.message;
+    }
+    if (target.rules.rtdbInstances) {
+      for (const [instanceName, instanceRules] of Object.entries(target.rules.rtdbInstances)) {
+        const rejection = rtdbRulesSourceRejection(instanceRules as any);
+        if (rejection !== null) return `instance '${instanceName}': ${rejection.message}`;
+      }
+    }
+    return undefined;
   }
   const source =
     service === "firestore"

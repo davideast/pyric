@@ -60,6 +60,7 @@ import {
   initializeSandbox,
   type AuthState,
   type LocalSandbox,
+  type SandboxContext,
   type SandboxEvent,
 } from "pyric/sandbox";
 import { getInternalEnv, resolveDatabaseInstance } from "pyric/sandbox/internal";
@@ -69,6 +70,7 @@ import {
   assertInvariant,
   assertProbe,
   assertTarget,
+  assertCampaign,
 } from "./validation.js";
 import {
   ASSURANCE_CAMPAIGN_SCHEMA,
@@ -96,7 +98,7 @@ interface ActorRuntime {
   auth: AuthState | null;
 }
 
-import type { SandboxContext } from "pyric/sandbox";
+
 
 interface ServiceRuntime {
   sandbox: LocalSandbox;
@@ -116,73 +118,6 @@ interface ExecutedOperation {
 }
 
 let storageRunSequence = 0;
-
-function assertCampaign(spec: AuthorizationCampaignSpec): void {
-  if (spec.schema !== ASSURANCE_CAMPAIGN_SCHEMA) {
-    throw new AssuranceInputError(
-      `campaign schema must be '${ASSURANCE_CAMPAIGN_SCHEMA}'.`,
-    );
-  }
-  if (!spec.id.trim())
-    throw new AssuranceInputError("campaign id is required.");
-  assertTarget(spec.target);
-  if (!Array.isArray(spec.actors)) {
-    throw new AssuranceInputError("campaign actors must be an array.");
-  }
-  if (!Array.isArray(spec.invariants)) {
-    throw new AssuranceInputError("campaign invariants must be an array.");
-  }
-  if (!Array.isArray(spec.probes)) {
-    throw new AssuranceInputError("campaign probes must be an array.");
-  }
-  for (const actor of spec.actors) assertActor(actor);
-  for (const invariant of spec.invariants) assertInvariant(invariant);
-  for (const probe of spec.probes) assertProbe(probe);
-  uniqueIds(spec.actors, "actor");
-  uniqueIds(spec.invariants, "invariant");
-  uniqueIds(spec.probes, "probe");
-
-  const declaredRtdbInstances = Object.keys(spec.target.rules.rtdbInstances ?? {});
-  for (const probe of spec.probes) {
-    for (const op of [probe.control, probe.mutation.operation]) {
-      if (op.service === "rtdb" && op.instance !== undefined && op.instance !== "default") {
-        let resolvedName: string;
-        try {
-          resolvedName = resolveDatabaseInstance(op.instance)!.name;
-        } catch (e) {
-          throw new AssuranceInputError(`invalid RTDB instance '${op.instance}': ${e instanceof Error ? e.message : String(e)}`);
-        }
-        if (!declaredRtdbInstances.includes(resolvedName)) {
-          throw new AssuranceInputError(`probe '${probe.id}' names undeclared RTDB instance '${op.instance}'. Declared instances: ${declaredRtdbInstances.length > 0 ? declaredRtdbInstances.join(", ") : "none"}.`);
-        }
-      }
-    }
-  }
-
-  for (const probe of spec.probes) {
-    const actor = spec.actors.find((item) => item.id === probe.actorId);
-    const invariant = spec.invariants.find(
-      (item) => item.id === probe.invariantId,
-    );
-    if (!actor)
-      throw new AssuranceInputError(
-        `probe '${probe.id}' references unknown actor '${probe.actorId}'.`,
-      );
-    if (!invariant) {
-      throw new AssuranceInputError(
-        `probe '${probe.id}' references unknown invariant '${probe.invariantId}'.`,
-      );
-    }
-    if (
-      invariant.service !== "cross-service" &&
-      invariant.service !== probe.control.service
-    ) {
-      throw new AssuranceInputError(
-        `probe '${probe.id}' service does not match invariant '${invariant.id}'.`,
-      );
-    }
-  }
-}
 
 function uniqueIds(items: ReadonlyArray<{ id: string }>, label: string): void {
   const seen = new Set<string>();

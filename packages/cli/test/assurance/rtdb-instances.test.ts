@@ -54,3 +54,35 @@ test("Assurance respects named RTDB instances", async () => {
   expect(namedProbe?.control.decision).toBe("ALLOW"); 
   expect(namedProbe?.mutation.decision).toBe("ALLOW");
 });
+
+test("Assurance rejects operations with unknown fields", async () => {
+  const spec: any = {
+    schema: "pyric.assurance.campaign.v1",
+    id: "test-unknown-fields",
+    target: {
+      schema: "pyric.assurance.target.v1",
+      network: "forbid",
+      rules: { rtdb: { rules: { ".read": "false", ".write": "false" } } },
+      state: {},
+    },
+    actors: [{ id: "actor1", acquisition: { kind: "anonymous-request" } }],
+    invariants: [{
+      id: "inv1", statement: "Test", service: "rtdb", expected: "ALLOW", source: "authored-test", confidence: "authoritative"
+    }],
+    probes: [
+      {
+        id: "probe-unknown", actorId: "actor1", invariantId: "inv1",
+        control: { service: "rtdb", method: "get", path: "/default-path", fakeField: "bad" },
+        mutation: { dimension: "path", description: "mut", operation: { service: "rtdb", method: "get", path: "/default-path-2" } },
+      }
+    ],
+  };
+
+  try {
+    await runAuthorizationCampaign(spec);
+    expect().fail("Should have thrown AssuranceInputError");
+  } catch (e: any) {
+    expect(e.name).toBe("AssuranceInputError");
+    expect(e.message).toContain("operation names unknown field 'fakeField'");
+  }
+});
