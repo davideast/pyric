@@ -39,7 +39,7 @@ import {
   VERIFY_FIXTURE_SCHEMA,
   type PyricVerifyFixture,
 } from './fixture.js';
-import { runStagingInstance, StagingDeployRefusedError, withStagingInstance } from './staging/engine.js';
+import { runStagingInstance, StagingDeployRefusedError, withStagingInstance, type StagingRunHooks } from './staging/engine.js';
 import type { RtdbRestClient } from './staging/rest.js';
 import {
   recordedRtdbInstances,
@@ -127,7 +127,7 @@ export interface VerifyFixtureOptions {
    * enrolled with `pyric verify staging init`, and the project it is
    * enrolled for. Required when `engines` includes `staging`.
    */
-  staging?: { client: RtdbRestClient; projectId: string };
+  staging?: { client: RtdbRestClient; projectId: string } & StagingRunHooks;
 }
 
 export interface VerifyResult {
@@ -676,7 +676,8 @@ async function verifyRtdbOnStaging(
           rules: check.rules,
           capturedState: check.capturedState,
           ...(check.instance === undefined ? {} : { instance: check.instance }),
-        }));
+          ...(staging.signal ? { signal: staging.signal } : {}),
+        }), staging);
       checkedEvents += result.checkedEvents;
       divergences.push(...result.divergences.map((divergence) => ({ service: 'rtdb', ...divergence, ...tag })));
     } catch (error) {
@@ -687,11 +688,16 @@ async function verifyRtdbOnStaging(
   return { engine: 'staging', ok: divergences.every(isInformational), checkedEvents, divergences };
 }
 
-/** Where the sandbox and production decided a captured operation differently: one reports a divergence the other does not. */
+/**
+ * Where the sandbox and production decided a captured step differently: one
+ * engine reports `now-denied`, `now-allowed` or `unsupported` for a step and
+ * the other reports something else, or nothing. Steps are matched by their
+ * index in the replay both engines walk.
+ */
 function addRtdbEngineDrift(sandbox: VerifyEngineResult, staging: VerifyEngineResult): void {
-  const decisive = new Set(['now-denied', 'now-allowed']);
+  const decisive = new Set(['now-denied', 'now-allowed', 'unsupported']);
   const keyOf = (divergence: VerifyDivergence) =>
-    `${divergence.instance ?? ''}|${(divergence as { method?: string }).method ?? ''}|${divergence.path ?? ''}`;
+    `${divergence.instance ?? ''}|${(divergence as { step?: number }).step ?? `${(divergence as { method?: string }).method}|${divergence.path}`}`;
   const byKey = (divergences: VerifyDivergence[]) =>
     new Map(divergences.filter((divergence) => decisive.has(divergence.kind)).map((divergence) => [keyOf(divergence), divergence]));
   const local = byKey(sandbox.divergences);
@@ -710,6 +716,7 @@ function addRtdbEngineDrift(sandbox: VerifyEngineResult, staging: VerifyEngineRe
       staging: stagingKind,
       reason: `the sandbox reported ${sandboxKind}; production reported ${stagingKind}.`,
       ...(sample.instance === undefined ? {} : { instance: sample.instance }),
+      ...((sample as { step?: number }).step === undefined ? {} : { step: (sample as { step?: number }).step }),
     });
   }
   staging.ok = staging.divergences.every(isInformational);

@@ -54,7 +54,11 @@ export interface RtdbReplayResult {
   divergences: RtdbReplayDivergence[];
 }
 
-export type RtdbReplayDivergence =
+/**
+ * A divergence replay found. `step` is the index, in `rtdbReplaySteps`, of the
+ * captured step it came from; a `state-drift` has none.
+ */
+export type RtdbReplayDivergence = { step?: number } & (
   | {
       kind: 'now-denied';
       path?: string;
@@ -78,7 +82,7 @@ export type RtdbReplayDivergence =
       path?: string;
       method?: string;
       reason: string;
-    };
+    });
 
 /**
  * One captured event of an instance, as replay judges it. Every engine that
@@ -116,7 +120,8 @@ export function rtdbReplaySteps(events: readonly SandboxEvent[], instance?: stri
 
 /**
  * The tree `instance` held when the session began: `capturedState`, the tree
- * the session left it with, with the session's commits rewound.
+ * the session left it with, with the session's commits rewound. Values only:
+ * priorities are not carried.
  */
 export async function rewoundRtdbTree(
   events: readonly SandboxEvent[],
@@ -156,35 +161,17 @@ export async function replay(
   const hasCapturedState = opts.capturedState !== undefined;
 
   if (hasCapturedState) {
+    // Rewound in this sandbox, not through `rewoundRtdbTree`: priorities live
+    // in the backend's metadata, and no tree export carries them.
     rtdbSandbox.setData(adminDb, { '/': opts.capturedState });
     await rewindRtdbCommits(adminDb, steps.flatMap((step) => (step.kind === 'app-commit' || step.kind === 'admin-commit' ? [step.event] : [])));
   }
 
-  for (const step of steps) {
-    if (step.kind === 'admin-commit') {
-      await replayRtdbAdminCommit(target, step.event, divergences);
-      continue;
-    }
-    checkedEvents += 1;
-    if (step.kind === 'allowed-read') {
-      await replayRtdbRead(target, step.event, divergences);
-    } else if (step.kind === 'denial') {
-      checkRtdbDecision(target, step.event, 'deny', divergences);
-    } else if (step.kind === 'allowed-registration') {
-      checkRtdbDecision(target, step.event, 'allow', divergences);
-    } else {
-      const commit = step.event;
-      try {
-        await replayRtdbAppCommit(target, commit, divergences);
-      } catch (e) {
-        divergences.push({
-          kind: 'now-denied',
-          path: commit.path ?? '/',
-          method: commit.method,
-          reason: e instanceof Error ? e.message : String(e),
-        });
-      }
-    }
+  for (const [index, step] of steps.entries()) {
+    const before = divergences.length;
+    await replayStep(target, step, divergences, () => { checkedEvents += 1; });
+    // Each divergence names the replay step it came from, so engines compare step for step.
+    for (const divergence of divergences.slice(before)) divergence.step = index;
   }
 
   const replayedState = rtdbSandbox.snapshotState(adminDb);
@@ -199,6 +186,39 @@ export async function replay(
     replayedState,
     divergences,
   };
+}
+
+/** Replay one step under the candidate rules; `checked` counts a step that carries a claim. */
+async function replayStep(
+  target: ReplayTarget,
+  step: RtdbReplayStep,
+  divergences: RtdbReplayDivergence[],
+  checked: () => void,
+): Promise<void> {
+  if (step.kind === 'admin-commit') {
+    await replayRtdbAdminCommit(target, step.event, divergences);
+    return;
+  }
+  checked();
+  if (step.kind === 'allowed-read') {
+    await replayRtdbRead(target, step.event, divergences);
+  } else if (step.kind === 'denial') {
+    checkRtdbDecision(target, step.event, 'deny', divergences);
+  } else if (step.kind === 'allowed-registration') {
+    checkRtdbDecision(target, step.event, 'allow', divergences);
+  } else {
+    const commit = step.event;
+    try {
+      await replayRtdbAppCommit(target, commit, divergences);
+    } catch (e) {
+      divergences.push({
+        kind: 'now-denied',
+        path: commit.path ?? '/',
+        method: commit.method,
+        reason: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
 }
 
 /** The replay sandbox and the instance the replay runs in; `undefined` is the default instance. */

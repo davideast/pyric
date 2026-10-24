@@ -20,8 +20,13 @@
  *
  * The instance is the user's, so every run is guarded (`withStagingInstance`):
  * it must carry the enrollment marker `pyric verify staging init` wrote and
- * hold no data; its rules are restored and its data deleted on every exit,
- * then both are read back, and a run that cannot prove that fails loudly.
+ * hold no data; the run takes a lease (a conditional write of
+ * `/__pyric_verify_lease__`, so a second run is refused); on every exit,
+ * including an aborted walk, its rules are restored and its data deleted,
+ * each step on its own and retried, then both are read back, and a run that
+ * cannot prove that fails loudly, naming `pyric verify staging restore`.
+ * A process killed outright (SIGKILL, power loss) cannot clean up; the CLI
+ * keeps the prior rules in `.pyric/staging-restore.json` for that command.
  */
 import type { SandboxCommitEvent, SandboxEvent, SandboxOperationEvent } from 'pyric/sandbox';
 import {
@@ -69,21 +74,37 @@ export interface StagingInvariants {
   dataRemoved: boolean;
 }
 
+/** The data node a run holds while it runs; written with a conditional request, so only one run gets it. */
+export const STAGING_LEASE_KEY = '__pyric_verify_lease__';
+
+/** Hooks a caller can attach to a guarded run. */
+export interface StagingRunHooks {
+  /** Called with the prior rules text before anything is changed, so the caller can keep it for recovery. */
+  onBeforeChange?: (priorRules: string) => void;
+  /** Called once the instance reads back as it was found. */
+  onRestored?: () => void;
+  /** Abort the walk between steps; cleanup still runs. */
+  signal?: AbortSignal;
+}
+
 /**
  * Run `fn` against the staging instance behind `client`, guarded: refuse an
- * instance without the marker for `projectId` or with data, and on every exit
- * restore its rules, delete its data, and read both back.
+ * instance without the marker for `projectId`, with data, or with another
+ * run's lease; on every exit restore its rules and delete its data, each step
+ * attempted on its own and retried, then read both back.
  */
 export async function withStagingInstance<T>(
   client: RtdbRestClient,
   projectId: string,
   fn: () => Promise<T>,
+  hooks: StagingRunHooks = {},
 ): Promise<{ result: T; invariants: StagingInvariants }> {
   const priorRules = await client.getRulesText();
   const marked = markedProject(priorRules);
   if (marked === undefined) {
     throw new StagingSafetyError(
-      `${client.databaseUrl} is not enrolled for staging verification, or a verification is running on it now (its rules do not start with the enrollment marker). Run \`pyric verify staging init\` once to enroll a dedicated, empty instance.`,
+      `${client.databaseUrl} is not enrolled for staging verification (its rules do not start with the enrollment marker). ` +
+        'Run `pyric verify staging init` once to enroll a dedicated, empty instance. If a verification was interrupted, run `pyric verify staging restore`.',
     );
   }
   if (marked !== projectId) {
@@ -92,11 +113,25 @@ export async function withStagingInstance<T>(
   const root = await client.get('/', { shallow: true });
   if (root.status !== 200) throw new StagingSafetyError(`reading ${client.databaseUrl} failed: HTTP ${root.status} ${root.text.slice(0, 200)}`);
   if (root.body !== null) {
+    const leased = typeof root.body === 'object' && root.body !== null && STAGING_LEASE_KEY in root.body;
+    throw new StagingSafetyError(leased
+      ? `another verification holds ${client.databaseUrl} (its lease is set). Wait for it to finish; if none is running, run \`pyric verify staging restore\`.`
+      : `${client.databaseUrl} holds data, so it is not a dedicated staging instance. Refusing to replace it.`);
+  }
+  const lease = { run: `${process.pid}-${Date.now().toString(36)}`, at: new Date().toISOString() };
+  const empty = await client.get(STAGING_LEASE_KEY, { etag: true });
+  const taken = empty.etag === undefined
+    ? { status: 0, text: 'no ETag', body: null }
+    : await client.put(STAGING_LEASE_KEY, lease, { ifMatch: empty.etag });
+  if (taken.status !== 200) {
     throw new StagingSafetyError(
-      `${client.databaseUrl} holds data, so it is not a dedicated staging instance or a verification is running on it now. Refusing to replace it.`,
+      taken.status === 412
+        ? `another verification took ${client.databaseUrl} first. Run one verification at a time per staging instance.`
+        : `taking the lease on ${client.databaseUrl} failed: HTTP ${taken.status} ${String(taken.text).slice(0, 200)}`,
     );
   }
 
+  hooks.onBeforeChange?.(priorRules);
   let outcome: { ok: true; value: T } | { ok: false; error: unknown };
   try {
     outcome = { ok: true, value: await fn() };
@@ -104,21 +139,52 @@ export async function withStagingInstance<T>(
     outcome = { ok: false, error };
   }
 
-  const removed = await client.delete('/');
-  const restored = await client.putRules(priorRules);
-  const rulesBack = await client.getRulesText().catch(() => undefined);
-  const rootBack = await client.get('/', { shallow: true });
-  const invariants: StagingInvariants = {
-    rulesRestored: restored.status === 200 && rulesBack === priorRules,
-    dataRemoved: removed.status === 200 && rootBack.status === 200 && rootBack.body === null,
-  };
+  const invariants = await restoreStagingInstance(client, priorRules);
   if (!invariants.rulesRestored || !invariants.dataRemoved) {
     throw new StagingSafetyError(
-      `${client.databaseUrl} was not left as it was found (rules restored: ${invariants.rulesRestored}, data removed: ${invariants.dataRemoved}). Inspect it before running again.`,
+      `${client.databaseUrl} was not left as it was found (rules restored: ${invariants.rulesRestored}, data removed: ${invariants.dataRemoved}${invariants.errors.length > 0 ? `; ${invariants.errors.join('; ')}` : ''}). ` +
+        'Run `pyric verify staging restore` to put it back.',
     );
   }
+  hooks.onRestored?.();
   if (!outcome.ok) throw outcome.error;
-  return { result: outcome.value, invariants };
+  return { result: outcome.value, invariants: { rulesRestored: true, dataRemoved: true } };
+}
+
+/**
+ * Put a staging instance back: deploy `rulesText` first, since candidate
+ * rules may be open, then delete the data; each step on its own, retried,
+ * and read back. Never throws: the result says what holds.
+ */
+export async function restoreStagingInstance(
+  client: RtdbRestClient,
+  rulesText: string,
+): Promise<StagingInvariants & { errors: string[] }> {
+  const errors: string[] = [];
+  const attempt = async (what: string, step: () => Promise<boolean>): Promise<boolean> => {
+    let last = '';
+    for (let tries = 0; tries < 3; tries += 1) {
+      try {
+        if (await step()) return true;
+        last = 'did not read back';
+      } catch (error) {
+        last = error instanceof Error ? error.message : String(error);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250 * (tries + 1)));
+    }
+    errors.push(`${what}: ${last}`);
+    return false;
+  };
+  const rulesRestored = await attempt('restoring the rules', async () => {
+    const put = await client.putRules(rulesText);
+    return put.status === 200 && (await client.getRulesText()) === rulesText;
+  });
+  const dataRemoved = await attempt('deleting the data', async () => {
+    const removed = await client.delete('/');
+    const back = await client.get('/', { shallow: true });
+    return removed.status === 200 && back.status === 200 && back.body === null;
+  });
+  return { rulesRestored, dataRemoved, errors };
 }
 
 export interface StagingInstanceRun {
@@ -137,6 +203,8 @@ export async function runStagingInstance(input: {
   capturedState: unknown;
   /** A named instance; absent is the default instance. */
   instance?: string;
+  /** Abort between steps; the guard still cleans up. */
+  signal?: AbortSignal;
 }): Promise<StagingInstanceRun> {
   const { client, events } = input;
   const label = input.instance === undefined ? 'the default instance' : `instance "${input.instance}"`;
@@ -146,42 +214,65 @@ export async function runStagingInstance(input: {
   const deployed = await client.putRules(source);
   if (deployed.status !== 200) throw new StagingDeployRefusedError(label, productionMessage(deployed));
 
+  const lease = (await expectOk(client.get(STAGING_LEASE_KEY), 'reading the lease')).body;
   if (input.capturedState !== undefined) {
     const initial = await rewoundRtdbTree(events, input.capturedState, input.instance);
-    if (initial !== null) await expectOk(client.put('/', initial), 'seeding the session\'s starting tree');
+    if (initial !== null) await expectOk(client.put('/', withLease(initial, lease)), 'seeding the session\'s starting tree');
   }
 
   const divergences: RtdbReplayDivergence[] = [];
   let checkedEvents = 0;
-  for (const step of rtdbReplaySteps(events, input.instance)) {
+  const steps = rtdbReplaySteps(events, input.instance);
+  for (const [index, step] of steps.entries()) {
+    input.signal?.throwIfAborted();
+    const before = divergences.length;
     if (step.kind === 'admin-commit') {
-      await expectOk(writeCommit(client, step.event, undefined), `the admin ${step.event.method} at ${step.event.path}`);
-      continue;
-    }
-    checkedEvents += 1;
-    if (step.kind === 'app-commit') {
-      const res = await writeCommit(client, step.event, authOverride(step.event));
-      if (isRestDenial(res.status)) divergences.push(denied(step.event, res));
+      const res = await writeCommit(client, step.event, undefined, lease);
+      if (typeof res === 'string') divergences.push({ kind: 'unsupported', path: pathOf(step.event), method: step.event.method, reason: res });
+      else await expectOk(Promise.resolve(res), `the admin ${step.event.method} at ${step.event.path}`);
+    } else if (step.kind === 'app-commit') {
+      checkedEvents += 1;
+      const res = await writeCommit(client, step.event, authOverride(step.event), lease);
+      if (typeof res === 'string') divergences.push({ kind: 'unsupported', path: pathOf(step.event), method: step.event.method, reason: res });
+      else if (isRestDenial(res.status)) divergences.push(denied(step.event, res));
       else if (res.status !== 200) divergences.push(unsupported(step.event, res));
     } else if (step.kind === 'allowed-read') {
+      checkedEvents += 1;
       const query = restQuery(step.event);
       if (typeof query === 'string') {
         divergences.push({ kind: 'unsupported', path: pathOf(step.event), method: step.event.method, reason: query });
-        continue;
+      } else {
+        const res = await client.get(pathOf(step.event), { auth: authOverride(step.event), query });
+        if (isRestDenial(res.status)) divergences.push(denied(step.event, res));
+        else if (res.status !== 200) divergences.push(unsupported(step.event, res));
       }
-      const res = await client.get(pathOf(step.event), { auth: authOverride(step.event), query });
-      if (isRestDenial(res.status)) divergences.push(denied(step.event, res));
-      else if (res.status !== 200) divergences.push(unsupported(step.event, res));
     } else {
-      await decide(client, step.event, step.kind === 'denial' ? 'deny' : 'allow', divergences);
+      checkedEvents += 1;
+      await decide(client, step.event, step.kind === 'denial' ? 'deny' : 'allow', divergences, lease);
     }
+    // Each divergence names the replay step it came from, so engines compare step for step.
+    for (const divergence of divergences.slice(before)) (divergence as { step?: number }).step = index;
   }
 
   if (input.capturedState !== undefined) {
     const finalTree = await expectOk(client.get('/'), 'reading the replayed tree');
-    divergences.push(...rtdbStateDrift(input.capturedState, finalTree.body));
+    divergences.push(...rtdbStateDrift(input.capturedState, withoutLease(finalTree.body)));
   }
   return { checkedEvents, divergences };
+}
+
+/** A tree with the run's lease kept at the root, so a root write does not release it. */
+function withLease(tree: unknown, lease: unknown): unknown {
+  if (lease === null || lease === undefined) return tree;
+  if (tree === null || tree === undefined) return { [STAGING_LEASE_KEY]: lease };
+  if (!isObject(tree)) return tree;
+  return { ...tree, [STAGING_LEASE_KEY]: lease };
+}
+
+function withoutLease(tree: unknown): unknown {
+  if (!isObject(tree) || !(STAGING_LEASE_KEY in tree)) return tree;
+  const { [STAGING_LEASE_KEY]: _lease, ...rest } = tree;
+  return Object.keys(rest).length === 0 ? null : rest;
 }
 
 /**
@@ -193,6 +284,7 @@ async function decide(
   event: SandboxOperationEvent,
   captured: 'allow' | 'deny',
   divergences: RtdbReplayDivergence[],
+  lease: unknown,
 ): Promise<void> {
   const path = pathOf(event);
   const auth = authOverride(event);
@@ -213,7 +305,8 @@ async function decide(
     const before = await expectOk(client.get(write.restorePath, { format: 'export' }), `reading ${write.restorePath} before the attempt`);
     res = await write.send(client, auth);
     if (res.status === 200) {
-      await expectOk(client.put(write.restorePath, before.body), `putting ${write.restorePath} back after the attempt`);
+      const restored = write.restorePath === '/' ? withLease(before.body, lease) : before.body;
+      await expectOk(client.put(write.restorePath, restored), `putting ${write.restorePath} back after the attempt`);
     }
   }
   if (res.status === 200) {
@@ -245,7 +338,7 @@ function attemptedWrite(event: SandboxOperationEvent): AttemptedWrite | string {
   switch (event.method) {
     case 'set':
     case 'transaction':
-      return { restorePath: path, send: (client, auth) => client.put(path, data ?? null, { auth }) };
+      return { restorePath: path, send: (client, auth) => client.put(path, withPriority(data ?? null, detail.priority), { auth }) };
     case 'onDisconnect.set':
       return { restorePath: path, send: (client, auth) => client.put(path, withPriority(data ?? null, detail.priority), { auth }) };
     case 'remove':
@@ -266,21 +359,33 @@ function attemptedWrite(event: SandboxOperationEvent): AttemptedWrite | string {
   }
 }
 
-function writeCommit(client: RtdbRestClient, commit: SandboxCommitEvent, auth: RtdbAuthOverride | undefined): Promise<RtdbRestResponse> {
+/** Perform a captured commit; the reason it cannot be performed when its method is not one replay handles. */
+async function writeCommit(
+  client: RtdbRestClient,
+  commit: SandboxCommitEvent,
+  auth: RtdbAuthOverride | undefined,
+  lease: unknown,
+): Promise<RtdbRestResponse | string> {
   const path = commit.path ?? '/';
+  const atRoot = path === '/';
   const request = auth === undefined ? {} : { auth };
   const detail = commit.detail ?? {};
   switch (commit.method) {
     case 'update':
       return client.patch(path, commit.data, request);
     case 'remove':
-      return client.delete(path, request);
+      // Removing the root as admin keeps the lease; a user's removal is decided as a write of nothing.
+      return atRoot ? client.put(path, withLease(null, lease), request) : client.delete(path, request);
     case 'setPriority':
       return client.put(`${path}/.priority`, commit.data ?? null, request);
     case 'transaction':
-      return client.put(path, commit.data ?? null, request);
+      return client.put(path, atRoot ? withLease(commit.data ?? null, lease) : commit.data ?? null, request);
+    case 'set': {
+      const value = withPriority(commit.data ?? null, Object.hasOwn(detail, 'priority') ? detail.priority : undefined);
+      return client.put(path, atRoot ? withLease(value, lease) : value, request);
+    }
     default:
-      return client.put(path, withPriority(commit.data ?? null, Object.hasOwn(detail, 'priority') ? detail.priority : undefined), request);
+      return `the staging engine does not replay '${commit.method}' commits.`;
   }
 }
 

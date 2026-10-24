@@ -41,8 +41,10 @@ const INSTANCE = new URL(URL_).hostname.split('.')[0];
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT = resolve(HERE, '../observations/rtdb-modular/rtdb-modular-staging-auth-override.json');
 const ADMIN_VERSION = JSON.parse(readFileSync(resolve(HERE, '../../../node_modules/firebase-admin/package.json'), 'utf8')).version;
+// firebase-tools keeps its login where the `configstore` package puts it: $XDG_CONFIG_HOME, else ~/.config.
+const configHome = process.env.XDG_CONFIG_HOME || join(process.env.HOME || homedir(), '.config');
 const token = process.env.PYRIC_STAGING_TOKEN
-  ?? JSON.parse(readFileSync(join(homedir(), '.config/configstore/firebase-tools.json'), 'utf8')).tokens.access_token;
+  ?? JSON.parse(readFileSync(join(configHome, 'configstore', 'firebase-tools.json'), 'utf8')).tokens.access_token;
 const H = { Authorization: `Bearer ${token}` };
 
 const PROBE_RULES = {

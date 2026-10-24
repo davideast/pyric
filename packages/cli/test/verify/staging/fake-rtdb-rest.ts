@@ -58,9 +58,23 @@ export function fakeRtdbRest(options: { rulesText: string; data?: Record<string,
   let failDeploy = false;
   let refusal: string | undefined;
 
-  const respond = (status: number, body: unknown) => ({ status, text: async () => JSON.stringify(body) });
+  const respond = (status: number, body: unknown, headers: Record<string, string> = {}) => ({
+    status,
+    text: async () => JSON.stringify(body),
+    headers: { get: (name: string) => headers[name.toLowerCase()] ?? null },
+  });
+  // Production answers `null_etag` for an empty location, else a digest of its value.
+  const etagOf = (value: unknown) => (value === null ? 'null_etag' : `etag-${JSON.stringify(value).length}-${hash(JSON.stringify(value))}`);
 
-  const fetch: FetchLike = async (url, init) => {
+  // Production applies one request at a time per location, so a conditional
+  // write is atomic; the double serializes every request to match.
+  let queue: Promise<unknown> = Promise.resolve();
+  const fetch: FetchLike = (url, init) => {
+    const run = queue.then(() => handle(url, init));
+    queue = run.catch(() => undefined);
+    return run;
+  };
+  const handle: FetchLike = async (url, init) => {
     const parsed = new URL(url);
     const path = decodeURIComponent(parsed.pathname.replace(/\.json$/, '')) || '/';
     requests.push(`${init.method} ${path}${parsed.search}`);
@@ -83,6 +97,11 @@ export function fakeRtdbRest(options: { rulesText: string; data?: Record<string,
     const hit = forced.find((entry) => entry.match(init.method, path));
     if (hit) return respond(hit.status, { error: 'forced' });
 
+    const conditional = init.headers['if-match'];
+    if (conditional !== undefined) {
+      const current = (await get(ref(getAdminDatabase(sandbox), path))).val();
+      if (etagOf(current) !== conditional) return respond(412, { error: 'ETag mismatch' });
+    }
     const override = parsed.searchParams.get('auth_variable_override');
     const db = override === null
       ? getAdminDatabase(sandbox)
@@ -95,7 +114,7 @@ export function fakeRtdbRest(options: { rulesText: string; data?: Record<string,
         if (parsed.searchParams.get('shallow') === 'true' && value !== null && typeof value === 'object') {
           return respond(200, Object.fromEntries(Object.keys(value).map((key) => [key, true])));
         }
-        return respond(200, value);
+        return respond(200, value, init.headers['X-Firebase-ETag'] === 'true' ? { etag: etagOf(value) } : {});
       }
       const body = init.body === undefined ? undefined : JSON.parse(init.body);
       if (path.endsWith('/.priority')) {
@@ -123,6 +142,12 @@ export function fakeRtdbRest(options: { rulesText: string; data?: Record<string,
     failNextRulesDeploy: () => { failDeploy = true; },
     refuseRules: (message) => { refusal = message; },
   };
+}
+
+function hash(text: string): string {
+  let h = 0;
+  for (let i = 0; i < text.length; i += 1) h = (h * 31 + text.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36);
 }
 
 function constraintsOf(params: URLSearchParams): QueryConstraint[] {

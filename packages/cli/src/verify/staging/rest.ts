@@ -17,6 +17,8 @@ export interface RtdbRestResponse {
   /** Parsed JSON body, or the raw text when it is not JSON. */
   body: unknown;
   text: string;
+  /** The `ETag` of the location, when the request asked for it (`etag: true`). */
+  etag?: string;
 }
 
 export interface RtdbRestRequest {
@@ -27,11 +29,16 @@ export interface RtdbRestRequest {
   /** `export` returns priorities as `.priority` keys. */
   format?: 'export';
   shallow?: boolean;
+  /** Ask for the location's `ETag` (a read), for a later conditional write. */
+  etag?: boolean;
+  /** Write only if the location's `ETag` is still this one; production answers 412 otherwise. */
+  ifMatch?: string;
 }
 
 export type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body?: string }) => Promise<{
   status: number;
   text(): Promise<string>;
+  headers?: { get(name: string): string | null };
 }>;
 
 export class RtdbRestClient {
@@ -86,13 +93,16 @@ export class RtdbRestClient {
     for (const [key, value] of Object.entries(request.query ?? {})) params.set(key, value);
     const query = params.toString();
     const url = `${this.databaseUrl}${restPath(path) || '/'}.json${query ? `?${query}` : ''}`;
-    return this.fetchResponse(url, method, body);
+    const headers: Record<string, string> = {};
+    if (request.etag) headers['X-Firebase-ETag'] = 'true';
+    if (request.ifMatch !== undefined) headers['if-match'] = request.ifMatch;
+    return this.fetchResponse(url, method, body, headers);
   }
 
-  private async fetchResponse(url: string, method: string, body?: string): Promise<RtdbRestResponse> {
+  private async fetchResponse(url: string, method: string, body?: string, extra: Record<string, string> = {}): Promise<RtdbRestResponse> {
     const res = await this.fetchImpl(url, {
       method,
-      headers: { Authorization: `Bearer ${await this.token()}`, 'Content-Type': 'application/json' },
+      headers: { Authorization: `Bearer ${await this.token()}`, 'Content-Type': 'application/json', ...extra },
       ...(body === undefined ? {} : { body }),
     });
     const text = await res.text();
@@ -102,7 +112,8 @@ export class RtdbRestClient {
     } catch {
       // Not JSON: keep the text.
     }
-    return { status: res.status, body: parsed, text };
+    const etag = res.headers?.get('etag') ?? undefined;
+    return { status: res.status, body: parsed, text, ...(etag ? { etag } : {}) };
   }
 }
 

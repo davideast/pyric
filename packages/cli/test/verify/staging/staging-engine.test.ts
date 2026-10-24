@@ -14,6 +14,7 @@ import {
   query,
   ref,
   set,
+  setWithPriority,
   update,
   sandbox as rtdbSandbox,
 } from 'pyric/database';
@@ -306,5 +307,178 @@ describe('pyric verify --engine staging and pyric verify staging init', () => {
     expect(result.code).toBe(2);
     expect(result.err).toMatch(/refusing staging instance demo-verify: the app uses it/);
     expect(fake.requests).toEqual([]);
+  });
+});
+
+describe('the staging engine under review findings', () => {
+  it('refuses a second run while the first holds the instance, and leaves it clean (B1)', async () => {
+    const fake = fakeRtdbRest({ rulesText: ENROLLED });
+    const fixture = await captureSession();
+    const outcomes = await Promise.allSettled([
+      verifyFixture(fixture, { rules: { rtdb: RULES }, engines: ['staging'], staging: staging(fake) }),
+      verifyFixture(fixture, { rules: { rtdb: RULES }, engines: ['staging'], staging: staging(fake) }),
+    ]);
+    const rejected = outcomes.filter((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected');
+    expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(String(rejected[0]!.reason)).toMatch(/another verification (took|holds)/);
+    expect(fake.rulesText()).toBe(ENROLLED);
+    expect(rtdbSandbox.snapshotState(getAdminDatabase(fake.sandbox))).toEqual({});
+  });
+
+  it('restores the rules when deleting the data throws, and names the recovery command (B2)', async () => {
+    const fake = fakeRtdbRest({ rulesText: ENROLLED });
+    const client = new RtdbRestClient(URL_, async () => 'token', async (url, init) => {
+      if (init.method === 'DELETE' && new URL(url).pathname === '/.json') throw new TypeError('fetch failed');
+      return fake.fetch(url, init);
+    });
+    await expect(verifyFixture(await captureSession(), { rules: { rtdb: OPEN }, engines: ['staging'], staging: { client, projectId: 'demo-staging' } }))
+      .rejects.toThrow(/rules restored: true, data removed: false.*fetch failed.*pyric verify staging restore/);
+    expect(fake.rulesText()).toBe(ENROLLED);
+  });
+
+  it('cleans up when the walk is aborted (B2)', async () => {
+    const fake = fakeRtdbRest({ rulesText: ENROLLED });
+    const controller = new AbortController();
+    const client = new RtdbRestClient(URL_, async () => 'token', async (url, init) => {
+      if (url.includes('auth_variable_override')) controller.abort(new Error('interrupted by SIGINT'));
+      return fake.fetch(url, init);
+    });
+    await expect(verifyFixture(await captureSession(), {
+      rules: { rtdb: OPEN }, engines: ['staging'], staging: { client, projectId: 'demo-staging', signal: controller.signal },
+    })).rejects.toThrow(/interrupted by SIGINT/);
+    expect(fake.rulesText()).toBe(ENROLLED);
+    expect(rtdbSandbox.snapshotState(getAdminDatabase(fake.sandbox))).toEqual({});
+  });
+
+  it('reports engine-drift per captured step, and production\'s unsupported as its own kind (N1)', async () => {
+    const sandbox = initializeSandbox();
+    rtdbSandbox.setRules(getDatabase(sandbox), RULES);
+    const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+    await set(ref(db, 'profiles/bob/name'), 'one').catch(() => {});
+    await set(ref(db, 'profiles/bob/name'), 'two').catch(() => {});
+    await get(ref(db, 'profiles/alice')).catch(() => {});
+    const fixture = JSON.parse(JSON.stringify(buildVerifyFixture({ sandbox, rtdbRules: RULES, rtdbState: rtdbSandbox.snapshotState(getAdminDatabase(sandbox)) })));
+    const fake = fakeRtdbRest({ rulesText: ENROLLED });
+    fake.force((method, path) => method === 'PUT' && path === '/profiles/bob/name', 200);
+    const result = await verifyFixture(fixture, { rules: { rtdb: RULES }, engines: ['sandbox', 'staging'], staging: staging(fake) });
+    const drift = (result.services.rtdb?.engines?.staging?.divergences ?? []).filter((divergence) => divergence.kind === 'engine-drift');
+    expect(drift.map((divergence) => `${(divergence as { step?: number }).step ?? '?'} ${(divergence as { staging?: string }).staging} ${(divergence as { method?: string }).method}`))
+      .toEqual(['0 now-allowed set', '1 now-allowed set']);
+  });
+
+  it('sends a denied set with the priority it would have written (N2)', async () => {
+    const PRIORITY = { rules: { x: { '.write': 'newData.getPriority() == null' } } };
+    const sandbox = initializeSandbox();
+    rtdbSandbox.setRules(getDatabase(sandbox), PRIORITY);
+    await setWithPriority(ref(getDatabase(sandbox.withAuth({ uid: 'alice' })), 'x'), 'v', 5).catch(() => {});
+    const fixture = JSON.parse(JSON.stringify(buildVerifyFixture({ sandbox, rtdbRules: PRIORITY, rtdbState: null })));
+    const fake = fakeRtdbRest({ rulesText: ENROLLED });
+    const result = await verifyFixture(fixture, { rules: { rtdb: PRIORITY }, engines: ['staging'], staging: staging(fake) });
+    expect(result.services.rtdb?.divergences).toEqual([]);
+    expect(fake.requests.find((request) => request.startsWith('PUT /x?'))).toBeDefined();
+  });
+});
+
+describe('pyric verify staging restore, and the run guard', () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  async function cli(dir: string, argv: string[], fake: FakeRtdbRest, client?: RtdbRestClient) {
+    const out: string[] = [];
+    const err: string[] = [];
+    const stdout = spyOn(process.stdout, 'write').mockImplementation((chunk) => (out.push(String(chunk)), true));
+    const stderr = spyOn(process.stderr, 'write').mockImplementation((chunk) => (err.push(String(chunk)), true));
+    const previous = process.cwd();
+    process.chdir(dir);
+    try {
+      const code = await runVerify(parseArgs(['verify', ...argv]), {
+        resolveScope: (async () => ({ scope: { projectId: 'demo-staging', resolveToken: async () => 'token' }, source: 'adc' })) as never,
+        stagingClient: (target, token) => client ?? new RtdbRestClient(target.databaseUrl, token, fake.fetch),
+      });
+      return { code, out: out.join(''), err: err.join('') };
+    } finally {
+      process.chdir(previous);
+      stdout.mockRestore();
+      stderr.mockRestore();
+    }
+  }
+
+  async function project(): Promise<string> {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'pyric-verify-restore-')));
+    dirs.push(dir);
+    writeFileSync(join(dir, 'pyric.json'), JSON.stringify({ verify: { staging: { project: 'demo-staging', rtdb: 'demo-verify' } } }));
+    writeFileSync(join(dir, 'firebase.json'), JSON.stringify({ database: { rules: 'database.rules.json' } }));
+    writeFileSync(join(dir, 'database.rules.json'), JSON.stringify(RULES));
+    writeFileSync(join(dir, 'session.json'), JSON.stringify(await captureSession()));
+    return dir;
+  }
+
+  it('runs a directory of fixtures one at a time, keeping the prior rules on disk only while each runs, and prints the credential used', async () => {
+    const dir = await project();
+    require('node:fs').mkdirSync(join(dir, 'sessions'));
+    writeFileSync(join(dir, 'sessions', 'a.json'), JSON.stringify(await captureSession()));
+    writeFileSync(join(dir, 'sessions', 'b.json'), JSON.stringify(await captureSession()));
+    const fake = fakeRtdbRest({ rulesText: ENROLLED });
+    const keptDuringRun: boolean[] = [];
+    const client = new RtdbRestClient(URL_, async () => 'token', async (url, init) => {
+      if (url.includes('/.settings/rules.json') && init.method === 'PUT' && !url.includes('dryRun') && !init.body?.includes('pyric verify staging')) {
+        keptDuringRun.push(require('node:fs').existsSync(join(dir, '.pyric', 'staging-restore.json')));
+      }
+      return fake.fetch(url, init);
+    });
+    const result = await cli(dir, ['sessions', '--engine', 'staging'], fake, client);
+    expect(result.code).toBe(0);
+    expect(result.err).toContain('staging instance https://demo-verify.firebaseio.com (project demo-staging, credentials: adc)');
+    expect(keptDuringRun).toEqual([true, true]);
+    expect(require('node:fs').existsSync(join(dir, '.pyric', 'staging-restore.json'))).toBe(false);
+  });
+
+  it('puts an instance back from the kept rules after an interrupted run', async () => {
+    const dir = await project();
+    const fake = fakeRtdbRest({ rulesText: '{ "rules": { ".read": true, ".write": true } }', data: { '/profiles/alice': { name: 'me' }, [`/__pyric_verify_lease__`]: { run: 'x' } } });
+    require('node:fs').mkdirSync(join(dir, '.pyric'));
+    writeFileSync(join(dir, '.pyric', 'staging-restore.json'), JSON.stringify({ databaseUrl: URL_, projectId: 'demo-staging', rules: ENROLLED }));
+    const refused = await cli(dir, ['session.json', '--engine', 'staging'], fake);
+    expect(refused.code).toBe(2);
+    expect(refused.err).toMatch(/pyric verify staging restore/);
+    const restored = await cli(dir, ['staging', 'restore'], fake);
+    expect(restored.code).toBe(0);
+    expect(fake.rulesText()).toBe(ENROLLED);
+    expect(rtdbSandbox.snapshotState(getAdminDatabase(fake.sandbox))).toEqual({});
+    expect(require('node:fs').existsSync(join(dir, '.pyric', 'staging-restore.json'))).toBe(false);
+  });
+
+  it('needs --force to reset an instance when no rules were kept', async () => {
+    const dir = await project();
+    const fake = fakeRtdbRest({ rulesText: '{ "rules": { ".read": true, ".write": true } }', data: { '/left/over': 1 } });
+    const refused = await cli(dir, ['staging', 'restore'], fake);
+    expect(refused.code).toBe(2);
+    expect(refused.err).toMatch(/Pass --force/);
+    const forced = await cli(dir, ['staging', 'restore', '--force'], fake);
+    expect(forced.code).toBe(0);
+    expect(fake.rulesText().startsWith('/* pyric verify staging:')).toBe(true);
+    expect(rtdbSandbox.snapshotState(getAdminDatabase(fake.sandbox))).toEqual({});
+  });
+});
+
+describe('the staging credentials under review findings', () => {
+  it('refuses a CLI token with no known expiry, and does not fall back when a configured service account fails (N4, N5)', async () => {
+    const home = realpathSync(mkdtempSync(join(tmpdir(), 'pyric-staging-token-')));
+    try {
+      const dir = join(home, '.config', 'configstore');
+      require('node:fs').mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'firebase-tools.json'), JSON.stringify({ tokens: { access_token: 'cli-token' } }));
+      const failing = async () => { throw new Error('no credentials'); };
+      await expect(stagingToken('p', { resolve: failing as never, env: { HOME: home }, now: () => 0 })).rejects.toThrow(/no credentials for staging project p/);
+      const broken = async () => { throw new Error('the service account key is invalid'); };
+      writeFileSync(join(dir, 'firebase-tools.json'), JSON.stringify({ tokens: { access_token: 'cli-token', expires_at: 10_000_000_000 } }));
+      await expect(stagingToken('p', { resolve: broken as never, env: { HOME: home, GOOGLE_APPLICATION_CREDENTIALS: '/x/key.json' }, now: () => 0 }))
+        .rejects.toThrow(/the service account key is invalid/);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });

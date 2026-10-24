@@ -67,6 +67,7 @@ USAGE
   pyric can-i-use <feature> [--json]
   pyric verify cases [fixture] [--service firestore] [--out FILE]
   pyric verify staging init
+  pyric verify staging restore [--force]
   pyric firestore rules validate <path>
   pyric firestore rules resolve <path> [--out <path>]
   pyric firestore indexes generate <path...> [--out <path>]
@@ -130,6 +131,9 @@ COMMANDS
   verify staging init        Enroll the empty RTDB instance pyric.json verify.staging
                              names ({ project, rtdb }) for --engine staging. Refuses an
                              instance that holds data or that firebase.json deploys to.
+  verify staging restore     Put the staging instance back after an interrupted run, from
+                             the rules kept in .pyric/staging-restore.json; --force
+                             deploys deny-all rules with the marker when none were kept.
   firestore rules validate   Validate Firestore rules structure against a file.
   firestore rules resolve    Resolve Firestore 2+modules imports to one ruleset.
   firestore indexes generate Generate firestore.indexes.json from application source.

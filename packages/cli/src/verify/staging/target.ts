@@ -17,7 +17,7 @@ import { resolveDatabaseInstance } from 'pyric/sandbox/internal';
 
 import { firebaseToolsConfigstorePath } from '../../cli/firebase-project.js';
 import type { FirebaseJson } from '../../cli/firebase-json.js';
-import { resolveScope } from '../../credentials/node/scope.js';
+import { resolveScope, SERVICE_ACCOUNT_BASE64_ENV_KEY, SERVICE_ACCOUNT_FILE_ENV_KEY } from '../../credentials/node/scope.js';
 
 export interface StagingTarget {
   projectId: string;
@@ -95,20 +95,32 @@ export async function stagingToken(
   projectId: string,
   deps: { resolve?: typeof resolveScope; env?: NodeJS.ProcessEnv; now?: () => number } = {},
 ): Promise<{ token: () => Promise<string>; source: string }> {
+  const env = deps.env ?? process.env;
   try {
     const { scope, source } = await (deps.resolve ?? resolveScope)({ projectId, ...(deps.env ? { env: deps.env } : {}) });
     return { token: () => scope.resolveToken(), source };
   } catch (resolveError) {
-    const cli = firebaseCliToken(deps.env ?? process.env, (deps.now ?? Date.now)());
+    // A configured credential that fails is an error to fix, not a reason to
+    // run as the developer's own CLI login instead.
+    if (configuredCredential(env)) throw resolveError;
+    const cli = firebaseCliToken(env, (deps.now ?? Date.now)());
     if (cli !== undefined) return { token: async () => cli, source: 'firebase login' };
     throw new StagingConfigError(
       `no credentials for staging project ${projectId}. ${resolveError instanceof Error ? resolveError.message : String(resolveError)} ` +
-        'Or sign in with `firebase login` (a CLI token is used while it is fresh; run any firebase command to refresh it).',
+        'Or sign in with `firebase login`: its token is used while it has at least 15 minutes left (run any firebase command to refresh it).',
     );
   }
 }
 
-/** The Firebase CLI's access token, when its configstore holds one valid for at least five more minutes. */
+/** Whether the environment names a service account (`resolveScope`'s first two sources). */
+function configuredCredential(env: NodeJS.ProcessEnv): boolean {
+  return [SERVICE_ACCOUNT_BASE64_ENV_KEY, SERVICE_ACCOUNT_FILE_ENV_KEY].some((key) => (env[key] ?? '').trim() !== '');
+}
+
+/** How long a CLI token must stay valid for a run to start with it; it cannot be refreshed mid-run. */
+export const CLI_TOKEN_MARGIN_MS = 15 * 60_000;
+
+/** The Firebase CLI's access token, when its configstore holds one with a known expiry at least the margin away. */
 function firebaseCliToken(env: NodeJS.ProcessEnv, now: number): string | undefined {
   try {
     const store = JSON.parse(readFileSync(firebaseToolsConfigstorePath(env), 'utf8')) as {
@@ -117,7 +129,7 @@ function firebaseCliToken(env: NodeJS.ProcessEnv, now: number): string | undefin
     const token = store.tokens?.access_token;
     const expiresAt = store.tokens?.expires_at;
     if (typeof token !== 'string' || token === '') return undefined;
-    if (typeof expiresAt === 'number' && expiresAt - now < 5 * 60_000) return undefined;
+    if (typeof expiresAt !== 'number' || expiresAt - now < CLI_TOKEN_MARGIN_MS) return undefined;
     return token;
   } catch {
     return undefined;

@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
 import {
   deriveRulesTestCases,
   fixtureVerifiableServices,
@@ -18,7 +18,7 @@ import {
 import { readFirebaseJson, readFirebaseRcSync, type FirebaseJson } from './firebase-json.js';
 import { resolveFirebaseProject } from './firebase-project.js';
 import { readPyricConfig } from './pyric-config.js';
-import { markedProject, StagingSafetyError, stagingMarker } from '../verify/staging/engine.js';
+import { markedProject, restoreStagingInstance, StagingSafetyError, stagingMarker } from '../verify/staging/engine.js';
 import { RtdbRestClient } from '../verify/staging/rest.js';
 import { assertNotAppInstance, stagingTargetFrom, stagingToken, type StagingTarget } from '../verify/staging/target.js';
 import type { FlagValue, ParsedArgs } from './parse-args.js';
@@ -169,9 +169,14 @@ export async function runVerify(parsed: ParsedArgs, deps: VerifyCliDeps = {}): P
   // The staging target is checked before anything else reads the project: an
   // instance the app uses is refused before a request is made.
   let staging: VerifyFixtureOptions['staging'];
+  let stopStaging: (() => void) | undefined;
   if (engines.includes('staging')) {
     try {
-      staging = await openStagingInstance(cwd, stringFlag(parsed.flags.get('project')), deps);
+      const opened = await openStagingInstance(cwd, stringFlag(parsed.flags.get('project')), deps);
+      process.stderr.write(`pyric verify: staging instance ${opened.target.databaseUrl} (project ${opened.projectId}, credentials: ${opened.source})\n`);
+      const guard = stagingRunGuard(cwd, opened.target);
+      stopStaging = guard.stop;
+      staging = { client: opened.client, projectId: opened.projectId, ...guard.hooks };
     } catch (e) {
       process.stderr.write(`pyric verify: ${messageOf(e)}\n`);
       return 2;
@@ -206,20 +211,24 @@ export async function runVerify(parsed: ParsedArgs, deps: VerifyCliDeps = {}): P
   }
 
   let results: FixtureResult[];
+  const options = {
+    services,
+    engines,
+    ...(rulesTestApi ? { rulesTestApi } : {}),
+    ...(staging ? { staging } : {}),
+  };
   try {
-    results = await Promise.all(
-      loaded.map((item) =>
-        runFixture(item.name, item.fixture, rulesResolution.rules, {
-          services,
-          engines,
-          ...(rulesTestApi ? { rulesTestApi } : {}),
-          ...(staging ? { staging } : {}),
-        })),
-    );
+    // The staging engine holds one instance, so its fixtures run one at a time.
+    results = staging
+      ? await pipelineFixtures(loaded, (item) => runFixture(item.name, item.fixture, rulesResolution.rules, options))
+      : await Promise.all(loaded.map((item) => runFixture(item.name, item.fixture, rulesResolution.rules, options)));
   } catch (e) {
     const prefix = e instanceof VerifyInputError ? 'invalid input' : e instanceof StagingSafetyError ? 'staging instance' : 'failed to replay';
     process.stderr.write(`pyric verify: ${prefix}: ${messageOf(e)}\n`);
-    return 2;
+    stopStaging?.();
+    return e instanceof StagingAbortedError || (e as { name?: string }).name === 'AbortError' ? 130 : 2;
+  } finally {
+    stopStaging?.();
   }
   const allOk = results.every((result) => result.ok);
 
@@ -319,10 +328,114 @@ function databaseTargetInstances(cwd: string, projectId: string | undefined): st
   }
 }
 
+async function pipelineFixtures<T>(items: T[], run: (item: T) => Promise<FixtureResult>): Promise<FixtureResult[]> {
+  const out: FixtureResult[] = [];
+  for (const item of items) out.push(await run(item));
+  return out;
+}
+
+class StagingAbortedError extends Error {}
+
+/** Where a staging run keeps the prior rules while it runs, for `pyric verify staging restore`. */
+export const STAGING_RESTORE_RELATIVE_PATH = join('.pyric', 'staging-restore.json');
+
+/**
+ * While a staging run is active: keep the prior rules on disk, and turn
+ * SIGINT/SIGTERM into an abort between steps so the run still cleans up. A
+ * second signal exits at once, naming the recovery command.
+ */
+function stagingRunGuard(cwd: string, target: StagingTarget): { hooks: Pick<NonNullable<VerifyFixtureOptions['staging']>, 'onBeforeChange' | 'onRestored' | 'signal'>; stop: () => void } {
+  const controller = new AbortController();
+  const restorePath = join(cwd, STAGING_RESTORE_RELATIVE_PATH);
+  let signals = 0;
+  const onSignal = (signal: NodeJS.Signals) => {
+    signals += 1;
+    if (signals === 1) {
+      process.stderr.write(`\npyric verify: ${signal}: stopping after the current step and restoring ${target.databaseUrl}. Press again to quit without restoring.\n`);
+      controller.abort(new StagingAbortedError(`interrupted by ${signal}`));
+      return;
+    }
+    process.stderr.write(`pyric verify: quitting without restoring ${target.databaseUrl}. Run \`pyric verify staging restore\` to put it back.\n`);
+    process.exit(130);
+  };
+  process.on('SIGINT', onSignal);
+  process.on('SIGTERM', onSignal);
+  let stopped = false;
+  return {
+    hooks: {
+      signal: controller.signal,
+      onBeforeChange: (priorRules) => {
+        mkdirSync(dirname(restorePath), { recursive: true });
+        writeFileSync(restorePath, `${JSON.stringify({ databaseUrl: target.databaseUrl, projectId: target.projectId, rules: priorRules, startedAt: new Date().toISOString() }, null, 2)}\n`);
+      },
+      onRestored: () => rmSync(restorePath, { force: true }),
+    },
+    stop: () => {
+      if (stopped) return;
+      stopped = true;
+      process.off('SIGINT', onSignal);
+      process.off('SIGTERM', onSignal);
+    },
+  };
+}
+
+/**
+ * `pyric verify staging restore`: put the configured instance back after a run
+ * that could not, from the prior rules the run kept in
+ * `.pyric/staging-restore.json`; with `--force` and no such file, enroll it
+ * afresh with deny-all rules. Its data is deleted either way.
+ */
+async function runVerifyStagingRestore(parsed: ParsedArgs, cwd: string, deps: VerifyCliDeps): Promise<number> {
+  let opened: Awaited<ReturnType<typeof openStagingInstance>>;
+  try {
+    opened = await openStagingInstance(cwd, stringFlag(parsed.flags.get('project')), deps);
+  } catch (e) {
+    process.stderr.write(`pyric verify staging restore: ${messageOf(e)}\n`);
+    return 2;
+  }
+  const { client, target } = opened;
+  const restorePath = join(cwd, STAGING_RESTORE_RELATIVE_PATH);
+  let rules: string | undefined;
+  if (existsSync(restorePath)) {
+    const kept = JSON.parse(readFileSync(restorePath, 'utf8')) as { databaseUrl?: string; rules?: string };
+    if (kept.databaseUrl !== target.databaseUrl) {
+      process.stderr.write(`pyric verify staging restore: ${STAGING_RESTORE_RELATIVE_PATH} is for ${kept.databaseUrl}, not ${target.databaseUrl}.\n`);
+      return 2;
+    }
+    rules = kept.rules;
+  } else if (parsed.flags.get('force') === true) {
+    rules = `${stagingMarker(target.projectId)}\n{\n  "rules": {\n    ".read": false,\n    ".write": false\n  }\n}`;
+  } else {
+    const current = await client.getRulesText().catch(() => '');
+    if (markedProject(current) === target.projectId && (await client.get('/', { shallow: true })).body === null) {
+      process.stdout.write(`✓ ${target.databaseUrl} is enrolled and empty; nothing to restore.\n`);
+      return 0;
+    }
+    process.stderr.write(
+      `pyric verify staging restore: no ${STAGING_RESTORE_RELATIVE_PATH} holds the rules ${target.databaseUrl} had. ` +
+        'Pass --force to deploy deny-all rules with the enrollment marker and delete its data.\n',
+    );
+    return 2;
+  }
+  if (typeof rules !== 'string' || markedProject(rules) !== target.projectId) {
+    process.stderr.write(`pyric verify staging restore: the kept rules do not carry the enrollment marker for ${target.projectId}; refusing to deploy them.\n`);
+    return 2;
+  }
+  const result = await restoreStagingInstance(client, rules);
+  if (!result.rulesRestored || !result.dataRemoved) {
+    process.stderr.write(`pyric verify staging restore: ${target.databaseUrl} is not restored (${result.errors.join('; ')}).\n`);
+    return 1;
+  }
+  rmSync(restorePath, { force: true });
+  process.stdout.write(`✓ restored ${target.databaseUrl}: enrolled rules deployed, data deleted.\n`);
+  return 0;
+}
+
 /** `pyric verify staging init`: enroll the configured instance, once. */
 async function runVerifyStaging(parsed: ParsedArgs, cwd: string, deps: VerifyCliDeps): Promise<number> {
+  if (parsed.positional[1] === 'restore') return runVerifyStagingRestore(parsed, cwd, deps);
   if (parsed.positional[1] !== 'init') {
-    process.stderr.write('pyric verify staging: the only subcommand is `init`, which enrolls the instance pyric.json names.\n');
+    process.stderr.write('pyric verify staging: use `init` to enroll the instance pyric.json names, or `restore` to put it back after an interrupted run.\n');
     return 2;
   }
   let opened: Awaited<ReturnType<typeof openStagingInstance>>;
