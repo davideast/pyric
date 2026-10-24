@@ -9,7 +9,7 @@ import { validatePriority } from './priority-state.js';
 import { PriorityWrites } from './priority-writes.js';
 import { executeQuery, type Priority, type QueryRow, type QuerySpec } from './query.js';
 import { indexNotDefined } from './query-index.js';
-import { permissionDenied } from './rules-eval.js';
+import { permissionDenied, type RuleEvaluationDetails } from './rules-eval.js';
 import { resolveSentinels } from './sentinels.js';
 import { listenerPermissionDenied, type ValueListeners } from './value-listeners.js';
 
@@ -339,6 +339,11 @@ export class WritePlane {
     this.cancelDeniedListeners([path]);
   }
 
+  /** Decide a `setPriority` by `auth` without writing or emitting an event. */
+  validatePriority(auth: AuthState, path: string, priority: Priority): void {
+    this.priorityWrites.validate(auth, path, priority);
+  }
+
   /**
    * Decide a read by `auth` at `path`, with its query when it carried one,
    * without reading, emitting an event, or attaching anything. Throws the
@@ -352,6 +357,59 @@ export class WritePlane {
   }
 
   validateSet(auth: AuthState, path: string, value: unknown, priority: Priority = null): void {
+    const { evaluation, resolved } = this.setCheck(auth, path, value, priority);
+    if (evaluation.check !== 'allow') {
+      throw permissionDenied(rtdbDenialContext(evaluation, auth, 'onDisconnect', path, { data: resolved }));
+    }
+  }
+
+  validateUpdate(auth: AuthState, path: string, patch: Record<string, unknown>): void {
+    const denied = this.updateCheck(auth, path, patch);
+    if (denied !== null) {
+      throw permissionDenied(rtdbDenialContext(denied.evaluation, auth, 'onDisconnect', denied.path, { data: denied.value }));
+    }
+  }
+
+  /**
+   * Decide an `onDisconnect` registration by `auth` as production does, when
+   * it is registered, and record it as an `onDisconnect.set`,
+   * `onDisconnect.update` or `onDisconnect.remove` operation, allowed or
+   * denied, so a captured session carries it. Throws the permission error a
+   * denied registration rejects with. Writes nothing.
+   */
+  registerDisconnect(
+    auth: AuthState,
+    operation: { kind: 'set'; path: string; value: unknown; priority: Priority } | { kind: 'remove'; path: string }
+      | { kind: 'update'; path: string; values: Record<string, unknown> },
+  ): void {
+    const at = this.state.clock.now();
+    const method = `onDisconnect.${operation.kind}`;
+    const data = operation.kind === 'set' ? operation.value : operation.kind === 'update' ? operation.values : null;
+    const detail = operation.kind === 'set' && operation.priority !== null ? { priority: operation.priority } : undefined;
+    let evaluation: RuleEvaluationDetails;
+    let deniedAt: { path: string; data: unknown } | null = null;
+    if (operation.kind === 'update') {
+      if (Object.keys(operation.values).length === 0) return;
+      // One evaluation per path: the first the rules deny, else the last allowed.
+      const evaluations = this.updateEvaluations(auth, operation.path, operation.values);
+      const denied = evaluations.find((entry) => entry.evaluation.check !== 'allow');
+      evaluation = (denied ?? evaluations.at(-1)!).evaluation;
+      if (denied !== undefined) deniedAt = { path: denied.update.path, data: denied.update.value };
+    } else {
+      const value = operation.kind === 'set' ? operation.value : null;
+      const checked = this.setCheck(auth, operation.path, value, operation.kind === 'set' ? operation.priority : null);
+      evaluation = checked.evaluation;
+      if (evaluation.check !== 'allow') deniedAt = { path: operation.path, data: checked.resolved };
+    }
+    const fields = { at, durationMs: this.state.clock.now() - at, request: { data, resourceData: data }, detail };
+    if (deniedAt !== null) {
+      this.state.events.operation(auth, method, operation.path, denyResultFor(evaluation.check), evaluation, fields);
+      throw permissionDenied(rtdbDenialContext(evaluation, auth, 'onDisconnect', deniedAt.path, { data: deniedAt.data }));
+    }
+    this.state.events.operation(auth, method, operation.path, 'allow', evaluation, fields);
+  }
+
+  private setCheck(auth: AuthState, path: string, value: unknown, priority: Priority) {
     const now = this.state.clock.now();
     const resolved = normalizeWrite(
       resolveSentinels(value, now, this.state.tree.read(path)) as JsonValue,
@@ -360,15 +418,20 @@ export class WritePlane {
     const written = writePriority(value, priority);
     validatePriority(written.priority);
     const newData = withPriorities(resolved, [{ segments: [], priority: written.priority }, ...written.nested]);
-    const evaluation = this.writeEvaluation(auth, path, newData, now);
-    if (evaluation.check !== 'allow') {
-      throw permissionDenied(rtdbDenialContext(evaluation, auth, 'onDisconnect', path, { data: resolved }));
-    }
+    return { evaluation: this.writeEvaluation(auth, path, newData, now), resolved };
   }
 
-  validateUpdate(auth: AuthState, path: string, patch: Record<string, unknown>): void {
+  /** The first path of an update the rules deny, with its evaluation, or null when they allow every path. */
+  private updateCheck(auth: AuthState, path: string, patch: Record<string, unknown>) {
     // The SDK resolves an empty update without contacting the server.
-    if (Object.keys(patch).length === 0) return;
+    if (Object.keys(patch).length === 0) return null;
+    for (const { update, evaluation } of this.updateEvaluations(auth, path, patch)) {
+      if (evaluation.check !== 'allow') return { evaluation, path: update.path, value: update.value };
+    }
+    return null;
+  }
+
+  private updateEvaluations(auth: AuthState, path: string, patch: Record<string, unknown>) {
     const now = this.state.clock.now();
     const mockData = this.state.rulesSnapshot();
     const inline = this.patchPriorities(path, patch);
@@ -379,14 +442,10 @@ export class WritePlane {
       );
       return { path: absolute, value: withPriorities(resolved, inline.get(absolute) ?? []) };
     });
-    for (const update of updates) {
-      const evaluation = this.state.rules.evaluate('write', update.path, {
-        auth, mockData, newData: update.value, updates, now,
-      });
-      if (evaluation.check !== 'allow') {
-        throw permissionDenied(rtdbDenialContext(evaluation, auth, 'onDisconnect', update.path, { data: update.value }));
-      }
-    }
+    return updates.map((update) => ({
+      update,
+      evaluation: this.state.rules.evaluate('write', update.path, { auth, mockData, newData: update.value, updates, now }),
+    }));
   }
 
   update(auth: AuthState, path: string, patch: Record<string, JsonValue>): void {
@@ -426,7 +485,10 @@ export class WritePlane {
           : { multiPath: false, rootPath: canonicalPath(path), key: pathSegments(update.path).at(-1)! },
       };
       if (evaluation.check !== 'allow') {
-        this.state.events.operation(auth, 'update', update.path, denyResultFor(evaluation.check), evaluation, fields);
+        // The denial carries the whole patch as the caller wrote it, so the
+        // update can be decided again as the one request production decides.
+        const denied = { ...fields, detail: { ...fields.detail, patch } };
+        this.state.events.operation(auth, 'update', update.path, denyResultFor(evaluation.check), evaluation, denied);
         throw permissionDenied(rtdbDenialContext(evaluation, auth, 'update', update.path, { data: update.value }));
       }
       allowed.push(() => this.state.events.operation(auth, 'update', update.path, 'allow', evaluation, fields));

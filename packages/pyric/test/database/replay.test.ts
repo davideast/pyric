@@ -10,6 +10,7 @@ import {
   ref,
   get,
   onChildAdded,
+  onDisconnect,
   onValue,
   remove,
   runTransaction,
@@ -568,12 +569,103 @@ describe('database replay()', () => {
       expect(result.checkedEvents).toBe(1);
     });
 
-    it('reports a captured denied update as unsupported, as the capture holds only its denied path', async () => {
+    it('decides a captured denied multi-path update as one request, with every path written with it', async () => {
       const { events, state } = await captureDenials((db) =>
         update(ref(db), { 'profiles/alice/name': 'Alice', 'profiles/bob/name': 'Mallory' }));
-      const result = await replay(events, { rules: ALLOW_ALL, capturedState: state });
+      const opened = await replay(events, { rules: ALLOW_ALL, capturedState: state });
+      expect(opened.divergences).toEqual([
+        expect.objectContaining({ kind: 'now-allowed', method: 'update', path: '/profiles/bob/name' }),
+      ]);
+      expect((await replay(events, { rules: OWNER_ONLY, capturedState: state })).divergences).toEqual([]);
+      // Allowing only bob's path still denies the update: alice's path is written with it.
+      const bobOnly = { rules: { profiles: { bob: { '.write': true } } } };
+      expect((await replay(events, { rules: bobOnly, capturedState: state })).divergences).toEqual([]);
+    });
+
+    it('reports a denied update from a capture without its patch as unsupported', async () => {
+      const { events, state } = await captureDenials((db) =>
+        update(ref(db), { 'profiles/alice/name': 'Alice', 'profiles/bob/name': 'Mallory' }));
+      const legacy = events.map((event) => {
+        if (event.kind !== 'operation' || event.method !== 'update') return event;
+        const { patch: _patch, ...detail } = (event.detail ?? {}) as Record<string, unknown>;
+        return { ...event, detail };
+      });
+      const result = await replay(legacy, { rules: ALLOW_ALL, capturedState: state });
       expect(result.divergences).toEqual([
         expect.objectContaining({ kind: 'unsupported', method: 'update', path: '/profiles/bob/name' }),
+      ]);
+    });
+
+    it('reports now-allowed for a captured denied setPriority', async () => {
+      const { events, state } = await captureDenials((db) => setPriority(ref(db, 'profiles/bob'), 5));
+      const opened = await replay(events, { rules: ALLOW_ALL, capturedState: state });
+      expect(opened.divergences).toEqual([
+        expect.objectContaining({ kind: 'now-allowed', method: 'setPriority', path: '/profiles/bob' }),
+      ]);
+      expect((await replay(events, { rules: OWNER_ONLY, capturedState: state })).divergences).toEqual([]);
+    });
+  });
+
+  describe('captured onDisconnect registrations', () => {
+    const OWNER_ONLY = { rules: { presence: { $uid: { '.read': true, '.write': 'auth.uid === $uid' } } } };
+    const READ_ONLY = { rules: { presence: { '.read': true, '.write': false } } };
+
+    async function captureRegistrations(run: (db: ReturnType<typeof getDatabase>) => Promise<unknown>) {
+      const sandbox = initializeSandbox();
+      rtdbSandbox.setRules(getDatabase(sandbox), OWNER_ONLY);
+      await run(getDatabase(sandbox.withAuth({ uid: 'alice' })));
+      return { events: sandbox.history(), state: rtdbSandbox.snapshotState(getAdminDatabase(sandbox)) };
+    }
+
+    it('records each registration as an onDisconnect operation, allowed or denied', async () => {
+      const { events } = await captureRegistrations(async (db) => {
+        await onDisconnect(ref(db, 'presence/alice')).set('offline');
+        await onDisconnect(ref(db, 'presence/alice')).update({ seen: 1 });
+        await onDisconnect(ref(db, 'presence/alice')).remove();
+        await onDisconnect(ref(db, 'presence/bob')).set('offline').catch(() => {});
+      });
+      const operations = events.filter((event) => event.kind === 'operation');
+      expect(operations.map((event) => ({ method: event.method, path: event.path, result: event.result }))).toEqual([
+        { method: 'onDisconnect.set', path: '/presence/alice', result: 'allow' },
+        { method: 'onDisconnect.update', path: '/presence/alice', result: 'allow' },
+        { method: 'onDisconnect.remove', path: '/presence/alice', result: 'allow' },
+        { method: 'onDisconnect.set', path: '/presence/bob', result: 'deny' },
+      ]);
+    });
+
+    it('reports now-denied when the candidate rules deny a captured registration', async () => {
+      const { events, state } = await captureRegistrations(async (db) => {
+        await onDisconnect(ref(db, 'presence/alice')).set('offline');
+        await onDisconnect(ref(db, 'presence/alice')).update({ seen: 1 });
+      });
+      expect((await replay(events, { rules: OWNER_ONLY, capturedState: state })).divergences).toEqual([]);
+      const result = await replay(events, { rules: READ_ONLY, capturedState: state });
+      expect(result.divergences).toEqual([
+        expect.objectContaining({ kind: 'now-denied', method: 'onDisconnect.set', path: '/presence/alice' }),
+        expect.objectContaining({ kind: 'now-denied', method: 'onDisconnect.update', path: '/presence/alice' }),
+      ]);
+      expect(result.checkedEvents).toBe(2);
+    });
+
+    it('decides a captured setWithPriority registration with its priority', async () => {
+      const PRIORITY_GATED = { rules: { presence: { $uid: { '.write': "auth.uid === $uid && newData.getPriority() == 'online'" } } } };
+      const sandbox = initializeSandbox();
+      rtdbSandbox.setRules(getDatabase(sandbox), PRIORITY_GATED);
+      await onDisconnect(ref(getDatabase(sandbox.withAuth({ uid: 'alice' })), 'presence/alice')).setWithPriority('offline', 'online');
+      const events = sandbox.history();
+      expect((await replay(events, { rules: PRIORITY_GATED })).divergences).toEqual([]);
+      const otherPriority = { rules: { presence: { $uid: { '.write': "auth.uid === $uid && newData.getPriority() == 'away'" } } } };
+      expect((await replay(events, { rules: otherPriority })).divergences).toEqual([
+        expect.objectContaining({ kind: 'now-denied', method: 'onDisconnect.set', path: '/presence/alice' }),
+      ]);
+    });
+
+    it('reports now-allowed when the candidate rules allow a captured denied registration', async () => {
+      const { events, state } = await captureRegistrations((db) =>
+        onDisconnect(ref(db, 'presence/bob')).set('offline').catch(() => {}));
+      const result = await replay(events, { rules: ALLOW_ALL, capturedState: state });
+      expect(result.divergences).toEqual([
+        expect.objectContaining({ kind: 'now-allowed', method: 'onDisconnect.set', path: '/presence/bob' }),
       ]);
     });
   });

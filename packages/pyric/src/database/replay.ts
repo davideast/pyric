@@ -24,6 +24,7 @@ import type { QuerySpec } from './internal/query-projection.js';
 import { isJsonObject, jsonValuesEqual } from './sandbox/data-tree.js';
 import { resolveDatabaseInstance } from '../sandbox/internal/instances.js';
 import { getOrCreateBackend } from './sandbox/backend-for.js';
+import type { RtdbBackend } from './sandbox/backend.js';
 
 export interface RtdbReplayOptions {
   rules: { rules: Record<string, unknown> };
@@ -109,7 +110,12 @@ export async function replay(
     }
     if (isAppDenial(event)) {
       checkedEvents += 1;
-      checkRtdbDenial(target, event, divergences);
+      checkRtdbDecision(target, event, 'deny', divergences);
+      continue;
+    }
+    if (isAllowedRegistration(event)) {
+      checkedEvents += 1;
+      checkRtdbDecision(target, event, 'allow', divergences);
       continue;
     }
     if (!isRtdbCommit(event)) continue;
@@ -248,64 +254,97 @@ function isRevocation(event: SandboxOperationEvent): boolean {
 }
 
 /**
- * Decide a captured denial under the candidate rules against the replay tree
- * as it stands at that point in the session, through the backend's own
- * non-mutating checks, so nothing is written and no event is emitted. Still
- * denied is no divergence; allowed is `now-allowed`.
+ * An `onDisconnect` registration by an application user that the rules
+ * allowed. Production decides a registration when it is made, so the
+ * candidate rules must keep allowing it at that point in the session.
  */
-function checkRtdbDenial(
+function isAllowedRegistration(event: SandboxEvent): event is SandboxOperationEvent {
+  return event.kind === 'operation'
+    && event.service === 'rtdb'
+    && event.origin !== 'admin'
+    && event.result === 'allow'
+    && typeof event.method === 'string'
+    && event.method.startsWith('onDisconnect.');
+}
+
+/**
+ * The backend check that decides a captured operation again under the
+ * candidate rules, against the replay tree as it stands at that point in the
+ * session, without writing or emitting an event; or the reason it cannot be
+ * decided from what the capture holds.
+ */
+function decisionCheck(backend: RtdbBackend, event: SandboxOperationEvent): (() => void) | string {
+  const path = event.path ?? '/';
+  const data = event.request?.data;
+  const detail = (event.detail ?? {}) as { patch?: unknown; rootPath?: unknown; priority?: unknown };
+  switch (event.method) {
+    case 'get':
+    case 'listen':
+      return () => backend.validateRead(event.auth, path, event.request?.query as QuerySpec | undefined);
+    case 'set':
+    case 'transaction':
+      return () => backend.validateSet(event.auth, path, data ?? null, (detail.priority ?? null) as string | number | null);
+    case 'remove':
+      return () => backend.validateSet(event.auth, path, null);
+    case 'update':
+      if (!isJsonObject(detail.patch) || typeof detail.rootPath !== 'string') {
+        return 'the capture records only the denied path of this update, not the paths written with it, so the update cannot be rebuilt.';
+      }
+      return () => backend.validateUpdate(event.auth, detail.rootPath as string, detail.patch as Record<string, unknown>);
+    case 'setPriority':
+      return () => backend.validatePriority(event.auth, path, data as string | number | null);
+    case 'onDisconnect.set':
+      return () => backend.validateSet(event.auth, path, data ?? null, (detail.priority ?? null) as string | number | null);
+    case 'onDisconnect.remove':
+      return () => backend.validateSet(event.auth, path, null);
+    case 'onDisconnect.update':
+      if (!isJsonObject(data)) return 'the captured onDisconnect update did not contain an object patch.';
+      return () => backend.validateUpdate(event.auth, path, data);
+    default:
+      return `RTDB replay does not check '${event.method}' operations.`;
+  }
+}
+
+/**
+ * Decide a captured operation again under the candidate rules. `captured` is
+ * the verdict the session's rules gave: a denial the candidate rules allow is
+ * `now-allowed`, an allowed registration they deny is `now-denied`.
+ */
+function checkRtdbDecision(
   { sandbox, instance }: ReplayTarget,
   event: SandboxOperationEvent,
+  captured: 'allow' | 'deny',
   divergences: RtdbReplayDivergence[],
 ): void {
   syncReplayClock(sandbox, event.at);
   const path = event.path ?? '/';
-  const backend = getOrCreateBackend(sandbox, resolveDatabaseInstance(instance));
-  const query = event.request?.query as QuerySpec | undefined;
-  const data = event.request?.data;
-  let check: (() => void) | string;
-  switch (event.method) {
-    case 'get':
-    case 'listen':
-      check = () => backend.validateRead(event.auth, path, query);
-      break;
-    case 'set':
-    case 'transaction': {
-      const priority = (event.detail as { priority?: unknown } | undefined)?.priority;
-      check = () => backend.validateSet(event.auth, path, data ?? null, (priority ?? null) as string | number | null);
-      break;
-    }
-    case 'remove':
-      check = () => backend.validateSet(event.auth, path, null);
-      break;
-    case 'update':
-      check = 'the capture records only the denied path of an update, not the paths written with it, so the update cannot be rebuilt.';
-      break;
-    default:
-      check = `RTDB replay does not check denied '${event.method}' operations.`;
-  }
+  const check = decisionCheck(getOrCreateBackend(sandbox, resolveDatabaseInstance(instance)), event);
   if (typeof check === 'string') {
     divergences.push({ kind: 'unsupported', path, method: event.method, reason: check });
     return;
   }
+  let allowed = true;
+  let reason: string | undefined;
   try {
     check();
   } catch (e) {
-    if ((e as { code?: unknown }).code === 'PERMISSION_DENIED') return;
+    reason = e instanceof Error ? e.message : String(e);
+    if ((e as { code?: unknown }).code !== 'PERMISSION_DENIED') {
+      divergences.push({ kind: 'unsupported', path, method: event.method, reason });
+      return;
+    }
+    allowed = false;
+  }
+  if (captured === 'deny' && allowed) {
     divergences.push({
-      kind: 'unsupported',
+      kind: 'now-allowed',
       path,
       method: event.method,
-      reason: e instanceof Error ? e.message : String(e),
+      reason: 'the captured rules denied this operation; the candidate rules allow it.',
     });
-    return;
+  } else if (captured === 'allow' && !allowed) {
+    divergences.push({ kind: 'now-denied', path, method: event.method, reason });
   }
-  divergences.push({
-    kind: 'now-allowed',
-    path,
-    method: event.method,
-    reason: 'the captured rules denied this operation; the candidate rules allow it.',
-  });
 }
 
 async function replayRtdbAdminCommit(

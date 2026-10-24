@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, signInAnonymously } from "firebase/auth";
-import { getDatabase, ref, get, onValue, set } from "firebase/database";
+import { getDatabase, ref, get, onDisconnect, onValue, set, update } from "firebase/database";
 
 const app = initializeApp({
   apiKey: "demo",
@@ -21,6 +21,19 @@ window.repro = {
     await new Promise((resolve, reject) => {
       const off = onValue(ref(db, `profiles/${uid}`), () => { off(); resolve(); }, reject);
     });
+  },
+  // Presence: the owner registers what to write when the connection ends.
+  registerPresence: async () => {
+    await onDisconnect(ref(db, `presence/${auth.currentUser.uid}`)).set("offline");
+  },
+  // One update to the owner's profile and another user's: the rules deny it as one request.
+  updateBothProfiles: async () => {
+    try {
+      await update(ref(db), { [`profiles/${auth.currentUser.uid}/name`]: "me again", "profiles/someone-else/name": "mallory" });
+      return "allowed";
+    } catch (error) {
+      return error.code ?? error.message;
+    }
   },
   // Another user's profile: the rules deny the write.
   writeOtherProfile: async () => {

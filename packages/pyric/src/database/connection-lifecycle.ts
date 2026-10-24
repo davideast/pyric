@@ -31,18 +31,16 @@ export class RtdbConnectionLifecycle {
     try {
       const requiresRules = !this.admin;
       if (requiresRules) {
-        const isUpdate = operation.kind === 'update';
-        if (isUpdate) {
-          this.backend.validateUpdate(this.auth(), operation.path, operation.values);
+        // Decided when registered, as production decides it, and recorded as
+        // an `onDisconnect.*` operation so a captured session carries it.
+        if (operation.kind === 'update') {
+          this.backend.registerDisconnect(this.auth(), { kind: 'update', path: operation.path, values: operation.values });
+        } else if (operation.kind === 'remove') {
+          this.backend.registerDisconnect(this.auth(), { kind: 'remove', path: operation.path });
         } else {
-          const isRemove = operation.kind === 'remove';
-          const priority = operation.kind === 'set' ? (operation.priority ?? null) : null;
-          this.backend.validateSet(
-            this.auth(),
-            operation.path,
-            isRemove ? null : operation.value,
-            priority,
-          );
+          this.backend.registerDisconnect(this.auth(), {
+            kind: 'set', path: operation.path, value: operation.value, priority: operation.priority ?? null,
+          });
         }
       }
       this.operations.set(operation);

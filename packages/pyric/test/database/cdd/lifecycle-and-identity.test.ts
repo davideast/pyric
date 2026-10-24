@@ -416,17 +416,18 @@ describe('rtdb-modular CDD: verifying a captured session', () => {
   });
 
   row('VR3', async () => {
-    const { history } = await capture(async (db) => {
-      await api.update(api.ref(db), { 'profiles/alice': 'A', 'profiles/bob': 'B' }).catch(() => {});
+    const { history, state } = await capture(async (db) => {
       await api.onDisconnect(api.ref(db, 'profiles/alice')).set('gone');
     });
     const operations = history.filter((event) => event.kind === 'operation');
     expect(operations.map((event) => ({ method: event.method, path: event.path, result: event.result }))).toEqual([
-      { method: 'update', path: '/profiles/bob', result: 'deny' },
+      { method: 'onDisconnect.set', path: '/profiles/alice', result: 'allow' },
     ]);
-    const replayed = await replay(history, { rules: OPEN });
-    expect(replayed.divergences.map(({ kind, method }) => ({ kind, method }))).toEqual([
-      { kind: 'unsupported', method: 'update' },
+    expect((await replay(history, { rules: OWNER, capturedState: state })).divergences).toEqual([]);
+    const readOnly = { rules: { '.read': true, '.write': false } };
+    const denied = await replay(history, { rules: readOnly, capturedState: state });
+    expect(denied.divergences.map(({ kind, method, path }) => ({ kind, method, path }))).toEqual([
+      { kind: 'now-denied', method: 'onDisconnect.set', path: '/profiles/alice' },
     ]);
   });
 });

@@ -47,15 +47,30 @@ export class PriorityWrites {
     this.state.notifyWrite();
   }
 
-  set(auth: AuthState, path: string, priority: Priority): void {
+  /** Decide a `setPriority` by `auth` without writing or emitting an event; throws the permission error it would throw. */
+  validate(auth: AuthState, path: string, priority: Priority): void {
     validatePriority(priority);
+    const evaluation = this.evaluation(auth, path, priority);
+    if (evaluation.check !== 'allow') {
+      throw permissionDenied(rtdbDenialContext(evaluation, auth, 'setPriority', path, { data: priority }));
+    }
+  }
+
+  /** The write rules' decision on setting `path`'s priority, its value unchanged. */
+  private evaluation(auth: AuthState, path: string, priority: Priority) {
     const current = this.state.tree.read(path);
-    const at = this.state.clock.now();
-    const evaluation = this.state.rules.evaluate('write', path === '/' ? '/' : path, {
+    return this.state.rules.evaluate('write', path === '/' ? '/' : path, {
       auth,
       mockData: this.state.rulesSnapshot(),
       newData: withPriorities(current as JsonValue, [{ segments: [], priority }, ...this.state.prioritiesBelow(path)]),
     });
+  }
+
+  set(auth: AuthState, path: string, priority: Priority): void {
+    validatePriority(priority);
+    const current = this.state.tree.read(path);
+    const at = this.state.clock.now();
+    const evaluation = this.evaluation(auth, path, priority);
     const priorPriority = this.state.priorities.get(path);
     const common = {
       at, durationMs: this.state.clock.now() - at, request: { data: priority },

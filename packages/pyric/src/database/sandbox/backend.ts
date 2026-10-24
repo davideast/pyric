@@ -115,6 +115,16 @@ export class RtdbBackend {
   validateRead(auth: AuthState, path: string, spec?: QuerySpec): void {
     this.writes.validateRead(auth, path, spec);
   }
+  validatePriority(auth: AuthState, path: string, priority: Priority): void {
+    assertWritable(path);
+    this.writes.validatePriority(auth, path, priority);
+  }
+  /** Decide and record an `onDisconnect` registration; see `WritePlane.registerDisconnect`. */
+  registerDisconnect(auth: AuthState, operation: Parameters<WritePlane['registerDisconnect']>[1]): void {
+    if (operation.kind === 'update') assertWritable(operation.path, operation.values);
+    else assertWritable(operation.path);
+    this.writes.registerDisconnect(auth, operation);
+  }
   validateSet(auth: AuthState, path: string, value: unknown, priority: Priority = null): void {
     assertWritable(path);
     this.writes.validateSet(auth, path, value, priority);
