@@ -149,7 +149,7 @@ Development sessions capture Firestore and Realtime Database operations in `.pyr
 npx pyric verify
 ```
 
-The default engine runs locally. The optional Firestore Rules Test API engine sends derived rule cases to Google's hosted evaluator when production-authority verification is needed. It verifies rules and does not deploy them. See [verify against a captured session](packages/site-docs/src/content/ship/ship-to-production.md).
+The default engine runs locally. For production-authority verification, the optional Firestore Rules Test API engine sends derived rule cases to Google's hosted evaluator, and the optional `--engine staging` replays a Realtime Database session against a real instance you provide. They verify rules without deploying to a live app. See [verify against a captured session](packages/site-docs/src/content/ship/ship-to-production.md).
 
 ## Ship the same application code
 

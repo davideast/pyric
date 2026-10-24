@@ -28,6 +28,7 @@ describe('database rules generate', () => {
     const result = await run({ rules: { '.read': 'auth != null' } });
     expect(result.exit).toBe(0);
     expect(result.written).toContain('"rules"');
+    expect(result.stdout).toContain('Test before deploy: pyric verify --service rtdb --rules rtdb=out.json');
   });
 
   it('writes nothing and names the reason when production would refuse the generated rules', async () => {

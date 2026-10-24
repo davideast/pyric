@@ -179,5 +179,6 @@ export function formatDenials(groups: DenialGroup[], loggedFrom?: number): strin
     for (const reason of group.trace) lines.push(`  trace: ${reason}`);
     return lines.join('\n');
   });
-  return `${bounded}${blocks.join('\n\n')}\n`;
+  const tip = '\nTip: After updating rules, run `pyric verify` to replay these captured sessions and confirm your fixes.';
+  return `${bounded}${blocks.join('\n\n')}\n${tip}\n`;
 }

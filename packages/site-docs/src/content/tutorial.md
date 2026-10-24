@@ -662,7 +662,7 @@ pyric verify \
   --rules firestore=firestore.rules
 ```
 
-This comparison requires Firebase credentials, but it does not deploy Rules or change production data. Hosted comparison currently covers Firestore, not RTDB or Storage.
+This comparison requires Firebase credentials, but it does not deploy Rules or change production data. Hosted comparison covers Firestore; for Realtime Database, run `--engine staging` to test the session against a real instance you provide (enrolled with `pyric verify staging init`).
 
 Pyric is not a complete implementation of Firebase. That is why these trust boundaries matter. The goal is to learn as much as possible locally, show what was actually tested, and make the remaining production step deliberate.
 

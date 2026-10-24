@@ -552,6 +552,13 @@ async function startServeRuntime(opts: {
   // a failed reload asked for, so fixing or creating one reloads. The source
   // is the path the rules load from, watched whether or not it exists at
   // startup, so a rules file created later loads.
+  let printedVerifyHint = false;
+  function getVerifyHint() {
+    if (printedVerifyHint) return '';
+    printedVerifyHint = true;
+    return ' (run `pyric verify` to test against past sessions)';
+  }
+
   const isWatchEnabled = opts.watch ?? true;
   if (isWatchEnabled) {
     let debounce: ReturnType<typeof setTimeout> | null = null;
@@ -567,7 +574,7 @@ async function startServeRuntime(opts: {
             const isReloaded = result.kind === 'reloaded';
             const isRejected = result.kind === 'rejected';
             if (isReloaded) {
-              logger.note(`  ↻ rules reloaded (hash ${result.rulesHash}) → ${result.clients} page(s)`);
+              logger.note(`  ↻ rules reloaded (hash ${result.rulesHash}) → ${result.clients} page(s)${getVerifyHint()}`);
               if (result.fixtureCheck && result.fixtureCheck.ran > 0) {
                 for (const line of result.fixtureCheck.lines) logger.note(line);
               }
@@ -610,7 +617,7 @@ async function startServeRuntime(opts: {
             void session.reloadDatabaseRules(changed).then((results) => {
               for (const { instance, file: source, result } of results) {
                 if (result.kind === 'reloaded') {
-                  logger.note(`  ↻ rtdb rules reloaded for ${instance} (hash ${result.rulesHash}) → ${result.clients} page(s)`);
+                  logger.note(`  ↻ rtdb rules reloaded for ${instance} (hash ${result.rulesHash}) → ${result.clients} page(s)${getVerifyHint()}`);
                   if (result.fixtureCheck && result.fixtureCheck.ran > 0) {
                     for (const line of result.fixtureCheck.lines) logger.note(line);
                   }
@@ -650,7 +657,7 @@ async function startServeRuntime(opts: {
         debounceStorage = setTimeout(() => {
           void session.reloadStorageRules().then((result) => {
             if (result.kind === 'reloaded') {
-              logger.note(`  ↻ storage rules reloaded (hash ${result.rulesHash}) → ${result.clients} page(s)`);
+              logger.note(`  ↻ storage rules reloaded (hash ${result.rulesHash}) → ${result.clients} page(s)${getVerifyHint()}`);
             } else if (result.kind === 'rejected') {
               logger.note(`  ⚠ storage rules NOT reloaded (last-good stays live): ${result.error.message}`);
             } else if (result.kind === 'removed') {

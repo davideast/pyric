@@ -236,6 +236,6 @@ export async function runDatabaseRulesGenerate(
   await mkdirFn(dirname(resolvedOut), { recursive: true });
   await writeFileFn(resolvedOut, `${JSON.stringify(rulesJson, null, 2)}\n`, 'utf-8');
 
-  out.write(`pyric database rules generate: wrote ${resolvedOut}\n`);
+  out.write(`pyric database rules generate: wrote ${resolvedOut}\n  Test before deploy: pyric verify --service rtdb --rules rtdb=${outPath}\n`);
   return 0;
 }

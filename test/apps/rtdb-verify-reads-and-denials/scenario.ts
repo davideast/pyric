@@ -142,4 +142,31 @@ export default scenario(async (app) => {
     assert.match(output, /\[rtdb\] now-denied: listen \/profiles\//, output);
     assert.doesNotMatch(output, /now-allowed/, output);
   });
+
+  await app.step('pyric serve denials suggests verify', async () => {
+    const output = await pyric(app, ['serve', 'denials']);
+    assert.match(output, /Tip: After updating rules, run `pyric verify`/, output);
+  });
+
+  await app.step('pyric database rules generate suggests verify', async () => {
+    app.writeFile('database.rules.ts', `export default { toJSON: () => ({ rules: { '.read': true } }) };`);
+    const output = await pyric(app, ['database', 'rules', 'generate']);
+    assert.match(output, /Test before deploy: pyric verify --service rtdb/, output);
+  });
+
+  await app.step('hot-reloading rules prints the verify hint exactly once', async () => {
+    const mark = host.process.mark();
+    // Trigger a hot reload
+    app.writeFile('database.rules.json', JSON.stringify({ rules: { '.read': true, '.write': true } }));
+    await host.process.waitForLog(/rules reloaded.*\(run `pyric verify` to test against past sessions\)/, { since: mark });
+    
+    // Trigger another hot reload
+    const mark2 = host.process.mark();
+    app.writeFile('database.rules.json', JSON.stringify({ rules: { '.read': false, '.write': false } }));
+    await host.process.waitForLog(/rules reloaded/, { since: mark2 });
+    
+    // Check that the hint was printed ONLY once. The new output should not have the hint.
+    const newLogs = host.process.output.slice(mark2);
+    assert.doesNotMatch(newLogs, /\(run `pyric verify` to test against past sessions\)/);
+  });
 });
