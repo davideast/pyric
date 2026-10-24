@@ -149,8 +149,8 @@ export default scenario(async (app) => {
   });
 
   await app.step('pyric database rules generate suggests verify', async () => {
-    app.writeFile('database.rules.ts', `export default { toJSON: () => ({ rules: { '.read': true } }) };`);
-    const output = await pyric(app, ['database', 'rules', 'generate']);
+    app.writeFile('database.rules.mjs', `export default { toJSON: () => ({ rules: { '.read': true } }) };`);
+    const output = await pyric(app, ['database', 'rules', 'generate', '--config', 'database.rules.mjs']);
     assert.match(output, /Test before deploy: pyric verify --service rtdb/, output);
   });
 
