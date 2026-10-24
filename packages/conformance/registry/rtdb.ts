@@ -2424,6 +2424,17 @@ export const rtdbRegistry = {
             ...cddLifecycleTests,
           ],
         }),
+        multiInstanceRow({
+          rowRef: "MI7",
+          featureKeys: ["getDatabase"],
+          api: "pyric assurance / pyric.assurance.target.v1",
+          behavior: "Assurance campaigns (local-sandbox targets) declare named RTDB instances in `rules.rtdbInstances` and `state.rtdbInstances`, alongside the default instance. Operations name an `instance` (a name, URL, or `default`). The runner sets each instance's rules and data, executing operations on their target instance so mutations and access checks are isolated. An operation naming an instance the target does not declare is an invalid-input refusal listing the declared instances.",
+          status: "conforms",
+          evidence: "`packages/cli/test/assurance/zz-probe-instances.test.ts` runs a campaign where a named-instance probe under its own relaxed rules succeeds while a default-instance probe under locked rules fails, and asserts that naming an undeclared instance throws an invalid-input refusal naming the missing instance. The `pyric.assurance.campaign.v1` schema and the MCP worker protocol in `packages/cli/src/bridge/surface/arguments/assurance.ts` carry the instance and `rtdbInstances` fields.",
+          conformanceTests: [
+            "packages/cli/test/assurance/zz-probe-instances.test.ts"
+          ],
+        }),
       ],
     },
     {

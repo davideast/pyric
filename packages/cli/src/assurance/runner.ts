@@ -62,7 +62,7 @@ import {
   type LocalSandbox,
   type SandboxEvent,
 } from "pyric/sandbox";
-import { getInternalEnv } from "pyric/sandbox/internal";
+import { getInternalEnv, resolveDatabaseInstance } from "pyric/sandbox/internal";
 import { qualifyProbe, rulesLoadRefusal } from "./capabilities.js";
 import {
   assertActor,
@@ -96,9 +96,12 @@ interface ActorRuntime {
   auth: AuthState | null;
 }
 
+import type { SandboxContext } from "pyric/sandbox";
+
 interface ServiceRuntime {
   sandbox: LocalSandbox;
   actor: ActorRuntime;
+  context: SandboxContext;
   firestore?: Firestore;
   rtdb?: Database;
   rtdbAdmin?: Database;
@@ -138,6 +141,23 @@ function assertCampaign(spec: AuthorizationCampaignSpec): void {
   uniqueIds(spec.actors, "actor");
   uniqueIds(spec.invariants, "invariant");
   uniqueIds(spec.probes, "probe");
+
+  const declaredRtdbInstances = Object.keys(spec.target.rules.rtdbInstances ?? {});
+  for (const probe of spec.probes) {
+    for (const op of [probe.control, probe.mutation.operation]) {
+      if (op.service === "rtdb" && op.instance !== undefined && op.instance !== "default") {
+        let resolvedName: string;
+        try {
+          resolvedName = resolveDatabaseInstance(op.instance)!.name;
+        } catch (e) {
+          throw new AssuranceInputError(`invalid RTDB instance '${op.instance}': ${e instanceof Error ? e.message : String(e)}`);
+        }
+        if (!declaredRtdbInstances.includes(resolvedName)) {
+          throw new AssuranceInputError(`probe '${probe.id}' names undeclared RTDB instance '${op.instance}'. Declared instances: ${declaredRtdbInstances.length > 0 ? declaredRtdbInstances.join(", ") : "none"}.`);
+        }
+      }
+    }
+  }
 
   for (const probe of spec.probes) {
     const actor = spec.actors.find((item) => item.id === probe.actorId);
@@ -337,7 +357,7 @@ async function createRuntime(
   const sandbox = initializeSandbox();
   seedAuth(sandbox, target);
   const context = sandbox.withAuth(actorRuntime.auth);
-  const runtime: ServiceRuntime = { sandbox, actor: actorRuntime };
+  const runtime: ServiceRuntime = { sandbox, actor: actorRuntime, context };
 
   if (service === "firestore") {
     const firestore = getFirestore(context);
@@ -353,6 +373,20 @@ async function createRuntime(
     rtdbSandbox.setData(admin, { "/": target.state.rtdb ?? {} });
     runtime.rtdb = rtdb;
     runtime.rtdbAdmin = admin;
+
+    if (target.rules.rtdbInstances) {
+      for (const [instanceName, instanceValue] of Object.entries(target.rules.rtdbInstances)) {
+        const instanceRefusal = rtdbRulesSourceRejection(instanceValue);
+        if (instanceRefusal !== null) throw new Error(`The assurance target's database rules for instance '${instanceName}' would not deploy. ${instanceRefusal.message}`);
+        
+        const resolved = resolveDatabaseInstance(instanceName)!;
+        const instDb = getDatabase(context, resolved.url);
+        const instAdmin = getAdminDatabase(sandbox, resolved.url);
+        rtdbSandbox.setRules(instDb, instanceValue as { rules: Record<string, unknown> });
+        const instData = target.state.rtdbInstances?.[instanceName];
+        rtdbSandbox.setData(instAdmin, { "/": instData ?? {} });
+      }
+    }
   } else {
     if (target.state.firestore) {
       seedDocuments(
@@ -678,7 +712,12 @@ async function readState(
     return state[normalizedPath] ?? null;
   }
   if (operation.service === "rtdb") {
-    return (await getRtdb(rtdbRef(runtime.rtdbAdmin!, operation.path))).val();
+    let admin = runtime.rtdbAdmin!;
+    if (operation.instance && operation.instance !== "default") {
+      const url = resolveDatabaseInstance(operation.instance)!.url;
+      admin = getAdminDatabase(runtime.sandbox, url);
+    }
+    return (await getRtdb(rtdbRef(admin, operation.path))).val();
   }
   return readStorageState(operation, runtime.storageAdmin!);
 }
@@ -740,7 +779,7 @@ async function executeOperation(
       operation.service === "firestore"
         ? await executeFirestore(operation, runtime.firestore!, runtime)
         : operation.service === "rtdb"
-          ? await executeRtdb(operation, runtime.rtdb!)
+          ? await executeRtdb(operation, operation.instance && operation.instance !== "default" ? getDatabase(runtime.context, resolveDatabaseInstance(operation.instance)!.url) : runtime.rtdb!)
           : await executeStorage(operation, runtime.storage!);
   } catch (error) {
     const result = errorDecision(error);
