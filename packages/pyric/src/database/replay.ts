@@ -8,10 +8,8 @@ import {
   type SandboxOperationEvent,
 } from '../sandbox/index.js';
 import {
-  get,
   getAdminDatabase,
   getDatabase,
-  query,
   ref,
   remove,
   runTransaction,
@@ -21,12 +19,11 @@ import {
   update,
   sandbox as rtdbSandbox,
   type Database,
-  type QueryConstraint,
 } from './index.js';
 import type { QuerySpec } from './internal/query-projection.js';
-import { buildConstraint } from './query-shape.js';
 import { isJsonObject, jsonValuesEqual } from './sandbox/data-tree.js';
 import { resolveDatabaseInstance } from '../sandbox/internal/instances.js';
+import { getOrCreateBackend } from './sandbox/backend-for.js';
 
 export interface RtdbReplayOptions {
   rules: { rules: Record<string, unknown> };
@@ -59,6 +56,12 @@ export interface RtdbReplayResult {
 export type RtdbReplayDivergence =
   | {
       kind: 'now-denied';
+      path?: string;
+      method?: string;
+      reason?: string;
+    }
+  | {
+      kind: 'now-allowed';
       path?: string;
       method?: string;
       reason?: string;
@@ -99,9 +102,14 @@ export async function replay(
   }
 
   for (const event of instanceEvents) {
-    if (isAllowedQueryRead(event)) {
+    if (isAllowedRead(event)) {
       checkedEvents += 1;
-      await replayRtdbQueryRead(target, event, divergences);
+      await replayRtdbRead(target, event, divergences);
+      continue;
+    }
+    if (isAppDenial(event)) {
+      checkedEvents += 1;
+      checkRtdbDenial(target, event, divergences);
       continue;
     }
     if (!isRtdbCommit(event)) continue;
@@ -179,65 +187,125 @@ async function replayRtdbAppCommit(
 }
 
 /**
- * A one-shot read by an application user that carried a query and was
- * allowed. Its `query.*` rule expressions are what the candidate rules are
- * judged on. A read with no query, an admin read, and a denied read carry no
- * claim the candidate rules must keep.
+ * A read by an application user that was allowed: a one-shot `get`, or the
+ * attach of a listener, whose first read the same `.read` rules decide. The
+ * candidate rules must keep allowing it: its `.read` rules, and the `query.*`
+ * rule expressions when it carried a query. An admin read and a denied read
+ * carry no claim the candidate rules must keep.
  */
-function isAllowedQueryRead(event: SandboxEvent): event is SandboxOperationEvent {
+function isAllowedRead(event: SandboxEvent): event is SandboxOperationEvent {
   return event.kind === 'operation'
     && event.service === 'rtdb'
-    && event.method === 'get'
+    && (event.method === 'get' || (event.method === 'listen' && event.origin === 'listener'))
     && event.origin !== 'admin'
-    && event.result === 'allow'
-    && event.request?.query !== undefined;
+    && event.result === 'allow';
 }
 
-/** The constraints that rebuild a captured query, in the order the SDK applies them. */
-function constraintsOfSpec(spec: QuerySpec): QueryConstraint[] {
-  const constraints: QueryConstraint[] = [];
-  if (spec.orderBy !== null) {
-    const type = {
-      child: 'orderByChild',
-      key: 'orderByKey',
-      priority: 'orderByPriority',
-      value: 'orderByValue',
-    } as const;
-    constraints.push(buildConstraint(type[spec.orderBy.kind], { kind: 'orderBy', spec: spec.orderBy }));
-  }
-  for (const bound of spec.bounds) {
-    constraints.push(buildConstraint(bound.kind, { kind: 'bound', bound }));
-  }
-  if (spec.limit !== null) {
-    constraints.push(
-      buildConstraint(spec.limit.kind, { kind: 'limit', limitKind: spec.limit.kind, n: spec.limit.n }),
-    );
-  }
-  return constraints;
-}
-
-async function replayRtdbQueryRead(
+/**
+ * Decide an allowed read again under the candidate rules, by its `.read`
+ * rules and `query.*` expressions alone, against the replay tree at that
+ * point. The read is not run: a listener on an unindexed query only warns,
+ * where running it as a one-shot query would refuse it for the index.
+ */
+async function replayRtdbRead(
   { sandbox, instance }: ReplayTarget,
   event: SandboxOperationEvent,
   divergences: RtdbReplayDivergence[],
 ): Promise<void> {
   syncReplayClock(sandbox, event.at);
   const path = event.path ?? '/';
-  const prev = sandbox.currentUser;
-  sandbox.currentUser = event.auth;
+  const backend = getOrCreateBackend(sandbox, resolveDatabaseInstance(instance));
   try {
-    const db = getDatabase(sandbox, instance);
-    await get(query(ref(db, path), ...constraintsOfSpec(event.request?.query as QuerySpec)));
+    backend.validateRead(event.auth, path, event.request?.query as QuerySpec | undefined);
   } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
+    const denied = (e as { code?: unknown }).code === 'PERMISSION_DENIED';
+    divergences.push(denied
+      ? { kind: 'now-denied', path, method: event.method, reason }
+      : { kind: 'unsupported', path, method: event.method, reason });
+  }
+}
+
+/**
+ * An operation by an application user that the rules denied. A candidate
+ * ruleset that allows it has opened access the captured rules kept closed.
+ */
+function isAppDenial(event: SandboxEvent): event is SandboxOperationEvent {
+  return event.kind === 'operation'
+    && event.service === 'rtdb'
+    && event.origin !== 'admin'
+    && event.result === 'deny'
+    && !isRevocation(event);
+}
+
+/**
+ * A listener the rules stopped allowing after it attached, because of a write
+ * or a rules change. It is a consequence, not a request: its attach was
+ * checked as an allowed read, and the write that caused it is checked itself.
+ */
+function isRevocation(event: SandboxOperationEvent): boolean {
+  return (event.detail as { revoked?: unknown } | undefined)?.revoked === true;
+}
+
+/**
+ * Decide a captured denial under the candidate rules against the replay tree
+ * as it stands at that point in the session, through the backend's own
+ * non-mutating checks, so nothing is written and no event is emitted. Still
+ * denied is no divergence; allowed is `now-allowed`.
+ */
+function checkRtdbDenial(
+  { sandbox, instance }: ReplayTarget,
+  event: SandboxOperationEvent,
+  divergences: RtdbReplayDivergence[],
+): void {
+  syncReplayClock(sandbox, event.at);
+  const path = event.path ?? '/';
+  const backend = getOrCreateBackend(sandbox, resolveDatabaseInstance(instance));
+  const query = event.request?.query as QuerySpec | undefined;
+  const data = event.request?.data;
+  let check: (() => void) | string;
+  switch (event.method) {
+    case 'get':
+    case 'listen':
+      check = () => backend.validateRead(event.auth, path, query);
+      break;
+    case 'set':
+    case 'transaction': {
+      const priority = (event.detail as { priority?: unknown } | undefined)?.priority;
+      check = () => backend.validateSet(event.auth, path, data ?? null, (priority ?? null) as string | number | null);
+      break;
+    }
+    case 'remove':
+      check = () => backend.validateSet(event.auth, path, null);
+      break;
+    case 'update':
+      check = 'the capture records only the denied path of an update, not the paths written with it, so the update cannot be rebuilt.';
+      break;
+    default:
+      check = `RTDB replay does not check denied '${event.method}' operations.`;
+  }
+  if (typeof check === 'string') {
+    divergences.push({ kind: 'unsupported', path, method: event.method, reason: check });
+    return;
+  }
+  try {
+    check();
+  } catch (e) {
+    if ((e as { code?: unknown }).code === 'PERMISSION_DENIED') return;
     divergences.push({
-      kind: 'now-denied',
+      kind: 'unsupported',
       path,
       method: event.method,
       reason: e instanceof Error ? e.message : String(e),
     });
-  } finally {
-    sandbox.currentUser = prev;
+    return;
   }
+  divergences.push({
+    kind: 'now-allowed',
+    path,
+    method: event.method,
+    reason: 'the captured rules denied this operation; the candidate rules allow it.',
+  });
 }
 
 async function replayRtdbAdminCommit(

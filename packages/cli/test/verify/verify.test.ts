@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import {
   equalTo,
   get,
+  onValue,
   getDatabase,
   orderByChild,
   query,
@@ -220,6 +221,53 @@ describe('verifyFixture', () => {
 
     expect(result.ok).toBe(false);
     expect(result.services.rtdb?.divergences.some((d) => d.kind === 'state-drift')).toBe(true);
+  });
+
+  describe('RTDB reads and denials', () => {
+    const OWNER_ONLY = {
+      rules: { profiles: { $uid: { '.read': 'auth.uid === $uid', '.write': 'auth.uid === $uid' } } },
+    };
+
+    /** A session where alice reads her own profile once and by listener, and is denied a write to bob's; as written to disk. */
+    async function captureOwnerSession(): Promise<PyricVerifyFixture> {
+      const sandbox = initializeSandbox();
+      const adminDb = getDatabase(sandbox);
+      rtdbSandbox.setRules(adminDb, OWNER_ONLY);
+      rtdbSandbox.setData(adminDb, { '/profiles/alice': { name: 'Alice' }, '/profiles/bob': { name: 'Bob' } });
+      const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+      await get(ref(db, 'profiles/alice'));
+      const off = onValue(ref(db, 'profiles/alice'), () => {});
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      off();
+      await set(ref(db, 'profiles/bob/name'), 'Mallory').catch(() => {});
+      const fixture = buildVerifyFixture({ sandbox, rtdbRules: OWNER_ONLY, rtdbState: rtdbSandbox.snapshotState(adminDb) });
+      return JSON.parse(JSON.stringify(fixture)) as PyricVerifyFixture;
+    }
+
+    it('replays cleanly under the rules it was captured with', async () => {
+      const result = await verifyFixture(await captureOwnerSession(), { rules: { rtdb: OWNER_ONLY } });
+      expect(result.services.rtdb?.divergences).toEqual([]);
+      expect(result.services.rtdb?.checkedEvents).toBe(3);
+      expect(result.ok).toBe(true);
+    });
+
+    it('fails with now-allowed when the candidate rules open a write the session was denied', async () => {
+      const result = await verifyFixture(await captureOwnerSession(), { rules: { rtdb: ALLOW_ALL_RTDB } });
+      expect(result.ok).toBe(false);
+      expect(result.services.rtdb?.divergences).toEqual([
+        expect.objectContaining({ service: 'rtdb', kind: 'now-allowed', method: 'set', path: '/profiles/bob/name' }),
+      ]);
+    });
+
+    it('fails with now-denied when the candidate rules stop allowing the session\'s get and listener', async () => {
+      const writesOnly = { rules: { profiles: { $uid: { '.write': 'auth.uid === $uid' } } } };
+      const result = await verifyFixture(await captureOwnerSession(), { rules: { rtdb: writesOnly } });
+      expect(result.ok).toBe(false);
+      expect(result.services.rtdb?.divergences).toEqual([
+        expect.objectContaining({ kind: 'now-denied', method: 'get', path: '/profiles/alice' }),
+        expect.objectContaining({ kind: 'now-denied', method: 'listen', path: '/profiles/alice' }),
+      ]);
+    });
   });
 
   it('compiles denying constraints documents through toJSON', async () => {

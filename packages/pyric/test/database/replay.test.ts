@@ -9,6 +9,8 @@ import {
   query,
   ref,
   get,
+  onChildAdded,
+  onValue,
   remove,
   runTransaction,
   serverTimestamp,
@@ -356,11 +358,10 @@ describe('database replay()', () => {
       rtdbSandbox.setData(adminDb, { '/items/a': { owner: 'alice' } });
       const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
       await get(query(ref(db, 'items'), orderByChild('owner'), equalTo('alice'), limitToFirst(5)));
-      await get(ref(db, 'items'));
       return { events: sandbox.history(), state: rtdbSandbox.snapshotState(adminDb) };
     }
 
-    it('checks each captured query read, and not the read that carried no query', async () => {
+    it('checks each captured query read', async () => {
       const { events, state } = await captureQueryRead();
       const rules = {
         rules: {
@@ -383,6 +384,275 @@ describe('database replay()', () => {
       };
       const result = await replay(events, { rules, capturedState: state });
       expect(result.divergences).toEqual([expect.objectContaining({ kind: 'now-denied', method: 'get', path: '/items' })]);
+    });
+  });
+
+  describe('captured reads without a query', () => {
+    const CAPTURE = { rules: { '.read': true, '.write': true } };
+
+    async function capturePlainRead() {
+      const sandbox = initializeSandbox();
+      const adminDb = getDatabase(sandbox);
+      rtdbSandbox.setRules(adminDb, CAPTURE);
+      rtdbSandbox.setData(adminDb, { '/profiles/alice': { name: 'Alice' } });
+      await get(ref(getDatabase(sandbox.withAuth({ uid: 'alice' })), 'profiles/alice'));
+      return { events: sandbox.history(), state: rtdbSandbox.snapshotState(adminDb) };
+    }
+
+    it('reports now-denied when the candidate rules stop allowing a captured get', async () => {
+      const { events, state } = await capturePlainRead();
+      const rules = { rules: { '.read': false, '.write': false } };
+      const result = await replay(events, { rules, capturedState: state });
+      expect(result.divergences).toEqual([
+        expect.objectContaining({ kind: 'now-denied', method: 'get', path: '/profiles/alice' }),
+      ]);
+      expect(result.checkedEvents).toBe(1);
+    });
+
+    it('passes a captured get the candidate rules still allow', async () => {
+      const { events, state } = await capturePlainRead();
+      const rules = { rules: { profiles: { $uid: { '.read': 'auth.uid === $uid' } } } };
+      const result = await replay(events, { rules, capturedState: state });
+      expect(result.divergences).toEqual([]);
+      expect(result.checkedEvents).toBe(1);
+    });
+  });
+
+  describe('captured listener attaches', () => {
+    const CAPTURE = { rules: { '.read': true, '.write': true, items: { '.indexOn': ['owner'] } } };
+    const QUERY_GATED = {
+      rules: {
+        items: { '.indexOn': ['owner'], '.read': "query.orderByChild == 'owner' && query.equalTo == auth.uid" },
+      },
+    };
+
+    async function captureListeners(attach: (db: ReturnType<typeof getDatabase>) => () => void) {
+      const sandbox = initializeSandbox();
+      const adminDb = getDatabase(sandbox);
+      rtdbSandbox.setRules(adminDb, CAPTURE);
+      rtdbSandbox.setData(adminDb, { '/items/a': { owner: 'alice' } });
+      const off = attach(getDatabase(sandbox.withAuth({ uid: 'alice' })));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      off();
+      return { events: sandbox.history(), state: rtdbSandbox.snapshotState(adminDb) };
+    }
+
+    it('reports now-denied when the candidate rules stop allowing a captured onValue', async () => {
+      const { events, state } = await captureListeners((db) => onValue(ref(db, 'items'), () => {}));
+      const result = await replay(events, { rules: DENY_ALL, capturedState: state });
+      expect(result.divergences).toEqual([
+        expect.objectContaining({ kind: 'now-denied', method: 'listen', path: '/items' }),
+      ]);
+      expect(result.checkedEvents).toBe(1);
+    });
+
+    it('checks a value listener with its query', async () => {
+      const { events, state } = await captureListeners((db) =>
+        onValue(query(ref(db, 'items'), orderByChild('owner'), equalTo('alice')), () => {}));
+      const result = await replay(events, { rules: QUERY_GATED, capturedState: state });
+      expect(result.divergences).toEqual([]);
+      expect(result.checkedEvents).toBe(1);
+    });
+
+    it('checks a child listener with its query', async () => {
+      const { events, state } = await captureListeners((db) =>
+        onChildAdded(query(ref(db, 'items'), orderByChild('owner'), equalTo('alice')), () => {}));
+      const result = await replay(events, { rules: QUERY_GATED, capturedState: state });
+      expect(result.divergences).toEqual([]);
+      expect(result.checkedEvents).toBe(1);
+    });
+
+    it('reports now-denied when the candidate rules stop allowing a captured child listener', async () => {
+      const { events, state } = await captureListeners((db) => onChildAdded(ref(db, 'items'), () => {}));
+      const result = await replay(events, { rules: QUERY_GATED, capturedState: state });
+      expect(result.divergences).toEqual([
+        expect.objectContaining({ kind: 'now-denied', method: 'listen', path: '/items' }),
+      ]);
+    });
+  });
+
+  describe('captured denials', () => {
+    const OWNER_ONLY = {
+      rules: {
+        profiles: { $uid: { '.read': 'auth.uid === $uid', '.write': 'auth.uid === $uid' } },
+        items: { '.indexOn': ['owner'] },
+      },
+    };
+
+    async function captureDenials(run: (db: ReturnType<typeof getDatabase>) => Promise<unknown>) {
+      const sandbox = initializeSandbox();
+      const adminDb = getDatabase(sandbox);
+      rtdbSandbox.setRules(adminDb, OWNER_ONLY);
+      rtdbSandbox.setData(adminDb, { '/profiles/bob': { name: 'Bob' } });
+      await run(getDatabase(sandbox.withAuth({ uid: 'alice' }))).catch(() => {});
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      return { events: sandbox.history(), state: rtdbSandbox.snapshotState(adminDb) };
+    }
+
+    it('reports now-allowed when the candidate rules allow a captured denied set', async () => {
+      const { events, state } = await captureDenials((db) => set(ref(db, 'profiles/bob/name'), 'Mallory'));
+      const result = await replay(events, { rules: ALLOW_ALL, capturedState: state });
+      expect(result.divergences).toEqual([
+        expect.objectContaining({ kind: 'now-allowed', method: 'set', path: '/profiles/bob/name' }),
+      ]);
+      expect(result.checkedEvents).toBe(1);
+    });
+
+    it('reports now-allowed for a captured denied remove', async () => {
+      const { events, state } = await captureDenials((db) => remove(ref(db, 'profiles/bob')));
+      const result = await replay(events, { rules: ALLOW_ALL, capturedState: state });
+      expect(result.divergences).toEqual([
+        expect.objectContaining({ kind: 'now-allowed', method: 'remove', path: '/profiles/bob' }),
+      ]);
+    });
+
+    it('reports now-allowed for a captured denied transaction', async () => {
+      const { events, state } = await captureDenials((db) =>
+        runTransaction(ref(db, 'profiles/bob/name'), () => 'Mallory', { applyLocally: false }));
+      const result = await replay(events, { rules: ALLOW_ALL, capturedState: state });
+      expect(result.divergences).toEqual([
+        expect.objectContaining({ kind: 'now-allowed', method: 'transaction', path: '/profiles/bob/name' }),
+      ]);
+    });
+
+    it('reports now-allowed for a captured denied get and onValue', async () => {
+      const { events, state } = await captureDenials(async (db) => {
+        await get(ref(db, 'profiles/bob')).catch(() => {});
+        onValue(ref(db, 'profiles/bob'), () => {}, () => {});
+      });
+      const result = await replay(events, { rules: ALLOW_ALL, capturedState: state });
+      expect(result.divergences).toEqual([
+        expect.objectContaining({ kind: 'now-allowed', method: 'get', path: '/profiles/bob' }),
+        expect.objectContaining({ kind: 'now-allowed', method: 'listen', path: '/profiles/bob' }),
+      ]);
+      expect(result.checkedEvents).toBe(2);
+    });
+
+    it('checks a captured denied query read with its query', async () => {
+      const { events, state } = await captureDenials((db) =>
+        get(query(ref(db, 'items'), orderByChild('owner'), equalTo('alice'))));
+      const queryGated = {
+        rules: { items: { '.indexOn': ['owner'], '.read': "query.orderByChild == 'owner' && query.equalTo == auth.uid" } },
+      };
+      const stillDenying = {
+        rules: { items: { '.indexOn': ['owner'], '.read': "query.orderByChild == 'owner' && query.equalTo == 'bob'" } },
+      };
+      expect((await replay(events, { rules: queryGated, capturedState: state })).divergences).toEqual([
+        expect.objectContaining({ kind: 'now-allowed', method: 'get', path: '/items' }),
+      ]);
+      expect((await replay(events, { rules: stillDenying, capturedState: state })).divergences).toEqual([]);
+    });
+
+    it('reports nothing when the candidate rules still deny', async () => {
+      const { events, state } = await captureDenials(async (db) => {
+        await set(ref(db, 'profiles/bob/name'), 'Mallory').catch(() => {});
+        await get(ref(db, 'profiles/bob')).catch(() => {});
+      });
+      const result = await replay(events, { rules: OWNER_ONLY, capturedState: state });
+      expect(result.divergences).toEqual([]);
+      expect(result.checkedEvents).toBe(2);
+    });
+
+    it('judges a denial against the data at that moment, not the end state', async () => {
+      const CREATE_ONLY = { rules: { locks: { $id: { '.write': '!data.exists()' } } } };
+      const sandbox = initializeSandbox();
+      const adminDb = getDatabase(sandbox);
+      rtdbSandbox.setRules(adminDb, CREATE_ONLY);
+      rtdbSandbox.setData(adminDb, { '/locks/x': 'held' });
+      await set(ref(getDatabase(sandbox.withAuth({ uid: 'alice' })), 'locks/x'), 'mine').catch(() => {});
+      await remove(ref(getAdminDatabase(sandbox), 'locks/x'));
+      const events = sandbox.history();
+      const state = rtdbSandbox.snapshotState(adminDb);
+      const result = await replay(events, { rules: CREATE_ONLY, capturedState: state });
+      expect(result.divergences).toEqual([]);
+      expect(result.checkedEvents).toBe(1);
+    });
+
+    it('reports a captured denied update as unsupported, as the capture holds only its denied path', async () => {
+      const { events, state } = await captureDenials((db) =>
+        update(ref(db), { 'profiles/alice/name': 'Alice', 'profiles/bob/name': 'Mallory' }));
+      const result = await replay(events, { rules: ALLOW_ALL, capturedState: state });
+      expect(result.divergences).toEqual([
+        expect.objectContaining({ kind: 'unsupported', method: 'update', path: '/profiles/bob/name' }),
+      ]);
+    });
+  });
+
+  describe('replaying under the rules a session was captured with', () => {
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+    async function cleanUnder(rules: { rules: Record<string, unknown> }, run: (sandbox: ReturnType<typeof initializeSandbox>) => Promise<void>) {
+      const sandbox = initializeSandbox();
+      rtdbSandbox.setRules(getDatabase(sandbox), rules);
+      await run(sandbox);
+      await tick();
+      return replay(sandbox.history(), { rules, capturedState: rtdbSandbox.snapshotState(getAdminDatabase(sandbox)) });
+    }
+
+    it('reports nothing for a listener a later write revoked', async () => {
+      const rules = { rules: { docs: { $id: { '.read': "data.child('public').val() === true", '.write': true } } } };
+      const result = await cleanUnder(rules, async (sandbox) => {
+        rtdbSandbox.setData(getAdminDatabase(sandbox), { '/docs/a': { public: true } });
+        const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+        onValue(ref(db, 'docs/a'), () => {}, () => {});
+        await tick();
+        await set(ref(db, 'docs/a/public'), false);
+      });
+      expect(result.divergences).toEqual([]);
+    });
+
+    it('reports nothing for a listener a rules change revoked', async () => {
+      const rules = { rules: { '.read': true, '.write': true } };
+      const sandbox = initializeSandbox();
+      rtdbSandbox.setRules(getDatabase(sandbox), rules);
+      onValue(ref(getDatabase(sandbox.withAuth({ uid: 'alice' })), 'a'), () => {}, () => {});
+      await tick();
+      rtdbSandbox.setRules(getDatabase(sandbox), { rules: { '.read': false, '.write': true } });
+      await tick();
+      const result = await replay(sandbox.history(), { rules, capturedState: rtdbSandbox.snapshotState(getAdminDatabase(sandbox)) });
+      expect(result.divergences).toEqual([]);
+    });
+
+    it('reports nothing for a query listener on a path with no index', async () => {
+      const rules = { rules: { '.read': true, '.write': true } };
+      const result = await cleanUnder(rules, async (sandbox) => {
+        rtdbSandbox.setData(getAdminDatabase(sandbox), { '/items/a': { owner: 'alice' } });
+        const off = onValue(query(ref(getDatabase(sandbox.withAuth({ uid: 'alice' })), 'items'), orderByChild('owner'), equalTo('alice')), () => {});
+        await tick();
+        off();
+      });
+      expect(result.divergences).toEqual([]);
+      expect(result.checkedEvents).toBe(1);
+    });
+
+    it('reports nothing for a denied child listener with a query, and keeps its query', async () => {
+      const rules = { rules: { items: { '.read': 'query.limitToFirst <= 10' } } };
+      const result = await cleanUnder(rules, async (sandbox) => {
+        onChildAdded(query(ref(getDatabase(sandbox.withAuth({ uid: 'alice' })), 'items'), limitToFirst(50)), () => {}, () => {});
+      });
+      expect(result.divergences).toEqual([]);
+      // A candidate that opens unqueried reads but still denies limitToFirst(50) still denies it.
+      const candidate = { rules: { items: { '.read': 'query.limitToFirst == null || query.limitToFirst <= 10' } } };
+      const sandbox = initializeSandbox();
+      rtdbSandbox.setRules(getDatabase(sandbox), rules);
+      onChildAdded(query(ref(getDatabase(sandbox.withAuth({ uid: 'alice' })), 'items'), limitToFirst(50)), () => {}, () => {});
+      await tick();
+      expect((await replay(sandbox.history(), { rules: candidate })).divergences).toEqual([]);
+    });
+
+    it('reports nothing for a denied setWithPriority, and decides it with its priority', async () => {
+      const rules = { rules: { x: { '.write': 'newData.getPriority() == null' } } };
+      const result = await cleanUnder(rules, async (sandbox) => {
+        await setWithPriority(ref(getDatabase(sandbox.withAuth({ uid: 'alice' })), 'x'), 'v', 5).catch(() => {});
+      });
+      expect(result.divergences).toEqual([]);
+      const anyPriority = { rules: { x: { '.write': true } } };
+      const sandbox = initializeSandbox();
+      rtdbSandbox.setRules(getDatabase(sandbox), rules);
+      await setWithPriority(ref(getDatabase(sandbox.withAuth({ uid: 'alice' })), 'x'), 'v', 5).catch(() => {});
+      expect((await replay(sandbox.history(), { rules: anyPriority })).divergences).toEqual([
+        expect.objectContaining({ kind: 'now-allowed', method: 'set', path: '/x' }),
+      ]);
     });
   });
 

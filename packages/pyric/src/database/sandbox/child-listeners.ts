@@ -59,6 +59,7 @@ export class ChildListeners {
     if (evaluation.check !== 'allow') {
       this.state.events.operation(auth, 'listen', path, denyResultFor(evaluation.check), evaluation, {
         at, durationMs: this.state.clock.now() - at, origin: 'listener', detail: { event },
+        request: spec ? { query: spec } : undefined,
       });
       const rulesObj = rtdbRulesDetail(evaluation);
       const denial = rtdbDenialContext(evaluation, auth, 'listen', path);
@@ -131,6 +132,7 @@ export class ChildListeners {
     this.state.events.operation(auth, 'listen', path, provenance.result, provenance.evaluation, {
       at: provenance.at,
       durationMs: this.state.clock.now() - provenance.at,
+      request: spec ? { query: spec } : undefined,
       origin: provenance.origin,
       detail: { event },
     });
