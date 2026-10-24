@@ -302,14 +302,22 @@ async function createRuntime(
   } else if (service === "rtdb") {
     const rtdb = getDatabase(context);
     const admin = getAdminDatabase(sandbox);
-    const refusal = rtdbRulesSourceRejection(target.rules.rtdb);
-    if (refusal !== null) throw new Error(`The assurance target's database rules would not deploy. ${refusal.message}`);
-    rtdbSandbox.setRules(rtdb, target.rules.rtdb!);
-    rtdbSandbox.setData(admin, { "/": target.state.rtdb ?? {} });
+    if (target.rules.rtdb) {
+      const refusal = rtdbRulesSourceRejection(target.rules.rtdb as any);
+      if (refusal !== null) throw new Error(`The assurance target's database rules would not deploy. ${refusal.message}`);
+      rtdbSandbox.setRules(rtdb, target.rules.rtdb as any);
+      rtdbSandbox.setData(admin, { "/": target.state.rtdb ?? {} });
+    }
     runtime.rtdb = rtdb;
     runtime.rtdbAdmin = admin;
 
     if (target.rules.rtdbInstances) {
+      const stateByResolved = new Map<string, unknown>();
+      if (target.state.rtdbInstances) {
+         for (const [k, v] of Object.entries(target.state.rtdbInstances)) {
+            stateByResolved.set(resolveDatabaseInstance(k)!.name, v);
+         }
+      }
       for (const [instanceName, instanceValue] of Object.entries(target.rules.rtdbInstances)) {
         const instanceRefusal = rtdbRulesSourceRejection(instanceValue);
         if (instanceRefusal !== null) throw new Error(`The assurance target's database rules for instance '${instanceName}' would not deploy. ${instanceRefusal.message}`);
@@ -318,7 +326,7 @@ async function createRuntime(
         const instDb = getDatabase(context, resolved.url);
         const instAdmin = getAdminDatabase(sandbox, resolved.url);
         rtdbSandbox.setRules(instDb, instanceValue as { rules: Record<string, unknown> });
-        const instData = target.state.rtdbInstances?.[instanceName];
+        const instData = stateByResolved.get(resolved.name);
         rtdbSandbox.setData(instAdmin, { "/": instData ?? {} });
       }
     }

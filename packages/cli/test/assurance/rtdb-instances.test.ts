@@ -86,3 +86,100 @@ test("Assurance rejects operations with unknown fields", async () => {
     expect(e.message).toContain("operation names unknown field 'fakeField'");
   }
 });
+
+test("Assurance resolves instances regardless of URL/name format", async () => {
+  const spec: any = {
+    schema: "pyric.assurance.campaign.v1",
+    id: "test-rtdb-instances-resolve",
+    target: {
+      schema: "pyric.assurance.target.v1",
+      network: "forbid",
+      rules: { 
+        rtdbInstances: {
+          "https://url-declared.firebaseio.com": { rules: { ".read": "true", ".write": "true" } },
+          "name-declared": { rules: { ".read": "true", ".write": "true" } }
+        }
+      },
+      state: {
+        rtdbInstances: {
+          "url-declared": { "key1": "val1" },
+          "https://name-declared.firebaseio.com": { "key2": "val2" }
+        }
+      },
+    },
+    actors: [{ id: "actor1", acquisition: { kind: "anonymous-request" } }],
+    invariants: [{
+      id: "inv1", statement: "Test", service: "rtdb", expected: "ALLOW", source: "authored-test", confidence: "authoritative"
+    }],
+    probes: [
+      {
+        id: "probe-url-declared", actorId: "actor1", invariantId: "inv1",
+        control: { service: "rtdb", method: "get", path: "/key1", instance: "url-declared" },
+        mutation: { dimension: "path", description: "mut", operation: { service: "rtdb", method: "get", path: "/key2", instance: "url-declared" } },
+      },
+      {
+        id: "probe-name-declared", actorId: "actor1", invariantId: "inv1",
+        control: { service: "rtdb", method: "get", path: "/key2", instance: "https://name-declared.firebaseio.com" },
+        mutation: { dimension: "path", description: "mut", operation: { service: "rtdb", method: "get", path: "/key1", instance: "https://name-declared.firebaseio.com" } },
+      },
+    ],
+  };
+
+  const report = await runAuthorizationCampaign(spec);
+  expect(report.summary.invalidProbes).toBe(0);
+  const urlProbe = report.results.find((r: any) => r.probeId === "probe-url-declared");
+  const nameProbe = report.results.find((r: any) => r.probeId === "probe-name-declared");
+
+  // Since data is matched by resolved name, /key1 is available in url-declared and /key2 in name-declared.
+  expect(urlProbe?.control.output).toBe("val1");
+  expect(nameProbe?.control.output).toBe("val2");
+});
+
+test("Assurance rejects duplicate spellings of the same instance in rules", async () => {
+  const spec: any = {
+    schema: "pyric.assurance.campaign.v1",
+    id: "test-rtdb-instances-dupe-rules",
+    target: {
+      schema: "pyric.assurance.target.v1",
+      network: "forbid",
+      rules: { 
+        rtdbInstances: {
+          "shard-00": { rules: { ".read": "true" } },
+          "https://shard-00.firebaseio.com": { rules: { ".read": "true" } }
+        }
+      },
+      state: {},
+    }
+  };
+  try {
+    await runAuthorizationCampaign(spec);
+    expect().fail("Should have thrown AssuranceInputError");
+  } catch (e: any) {
+    expect(e.name).toBe("AssuranceInputError");
+    expect(e.message).toContain("declares instance 'shard-00' which is already declared");
+  }
+});
+
+test("Assurance rejects state instances with no declared rules", async () => {
+  const spec: any = {
+    schema: "pyric.assurance.campaign.v1",
+    id: "test-rtdb-instances-orphaned-state",
+    target: {
+      schema: "pyric.assurance.target.v1",
+      network: "forbid",
+      rules: {},
+      state: {
+        rtdbInstances: {
+          "shard-00": { "key": "val" }
+        }
+      },
+    }
+  };
+  try {
+    await runAuthorizationCampaign(spec);
+    expect().fail("Should have thrown AssuranceInputError");
+  } catch (e: any) {
+    expect(e.name).toBe("AssuranceInputError");
+    expect(e.message).toContain("provides state for instance 'shard-00' which has no declared rules");
+  }
+});

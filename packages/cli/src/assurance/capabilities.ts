@@ -21,6 +21,7 @@ import {
   type PathSegment,
 } from "pyric/rules/internal";
 import { rtdbRulesSourceRejection } from "pyric/rules/internal/rtdb";
+import { resolveDatabaseInstance } from "pyric/sandbox/internal";
 import { compileStorageRules } from "pyric/storage/internal";
 import {
   CONFORMANCE_VERDICTS,
@@ -397,7 +398,16 @@ function rtdbRequirements(
   target: LocalFirebaseTarget,
   probe: AssuranceProbe,
 ): CapabilityRequirement[] {
-  const rules = target.rules.rtdb;
+  let rules = target.rules.rtdb;
+  if (probe.control.service === "rtdb" && probe.control.instance && probe.control.instance !== "default") {
+    const resolvedName = resolveDatabaseInstance(probe.control.instance)?.name;
+    if (resolvedName && target.rules.rtdbInstances) {
+      const declaredEntry = Object.entries(target.rules.rtdbInstances).find(([k]) => resolveDatabaseInstance(k)?.name === resolvedName);
+      if (declaredEntry) {
+        rules = declaredEntry[1] as any;
+      }
+    }
+  }
   const operations = [probe.control, probe.mutation.operation];
   const ruleSources = rules
     ? collectRtdbRuleSources(rules.rules).filter((rule) =>

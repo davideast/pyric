@@ -232,37 +232,53 @@ export function assertTarget(
 
   }
 
+  const declaredRuleInstances = new Map<string, string>();
   if (target.rules.rtdbInstances !== undefined) {
     requiredRecord(target.rules.rtdbInstances, `${where}.rules.rtdbInstances`);
     for (const [instance, rules] of Object.entries(target.rules.rtdbInstances)) {
       const at = `${where}.rules.rtdbInstances[${JSON.stringify(instance)}]`;
       requiredRecord(rules, at);
       requiredRecord((rules as any).rules, `${at}.rules`);
-
       try {
-        resolveDatabaseInstance(instance);
+        const resolvedName = resolveDatabaseInstance(instance)!.name;
+        if (declaredRuleInstances.has(resolvedName)) {
+           throw new AssuranceInputError(`${at} declares instance '${resolvedName}' which is already declared by key '${declaredRuleInstances.get(resolvedName)}'`);
+        }
+        declaredRuleInstances.set(resolvedName, instance);
       } catch (e) {
+        if (e instanceof AssuranceInputError) throw e;
         throw new AssuranceInputError(`${at} names a malformed RTDB instance: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
   }
 
-  if (target.state.rtdbInstances !== undefined) {
-    requiredRecord(target.state.rtdbInstances, `${where}.state.rtdbInstances`);
-    for (const [instance] of Object.entries(target.state.rtdbInstances)) {
-      try {
-        resolveDatabaseInstance(instance);
-      } catch (e) {
-        throw new AssuranceInputError(`${where}.state.rtdbInstances[${JSON.stringify(instance)}] names a malformed RTDB instance: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    }
-  }
   if (target.state.firestore !== undefined) {
     requiredRecord(target.state.firestore, `${where}.state.firestore`);
     for (const [docPath, docData] of Object.entries(target.state.firestore)) {
       requiredRecord(docData, `${where}.state.firestore[${docPath}]`);
     }
   }
+  if (target.state.rtdbInstances !== undefined) {
+    requiredRecord(target.state.rtdbInstances, `${where}.state.rtdbInstances`);
+    const declaredStateInstances = new Map<string, string>();
+    for (const [instance] of Object.entries(target.state.rtdbInstances)) {
+      const at = `${where}.state.rtdbInstances[${JSON.stringify(instance)}]`;
+      try {
+        const resolvedName = resolveDatabaseInstance(instance)!.name;
+        if (!declaredRuleInstances.has(resolvedName)) {
+           throw new AssuranceInputError(`${at} provides state for instance '${resolvedName}' which has no declared rules`);
+        }
+        if (declaredStateInstances.has(resolvedName)) {
+           throw new AssuranceInputError(`${at} provides state for instance '${resolvedName}' which is already provided by key '${declaredStateInstances.get(resolvedName)}'`);
+        }
+        declaredStateInstances.set(resolvedName, instance);
+      } catch (e) {
+        if (e instanceof AssuranceInputError) throw e;
+        throw new AssuranceInputError(`${at} names a malformed RTDB instance: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
+
   if (target.state.storage !== undefined) {
     if (!Array.isArray(target.state.storage)) {
       throw new AssuranceInputError(
@@ -568,7 +584,7 @@ export function assertCampaign(spec: AuthorizationCampaignSpec): void {
   uniqueIds(spec.invariants, "invariant");
   uniqueIds(spec.probes, "probe");
 
-  const declaredRtdbInstances = Object.keys(spec.target.rules.rtdbInstances ?? {});
+  const declaredRtdbInstances = spec.target.rules.rtdbInstances ? Object.keys(spec.target.rules.rtdbInstances).map(k => resolveDatabaseInstance(k)!.name) : [];
   for (const probe of spec.probes) {
     for (const op of [probe.control, probe.mutation.operation]) {
       // test what happens to unknown fields (unrecognized keys)
