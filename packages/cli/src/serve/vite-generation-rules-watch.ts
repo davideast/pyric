@@ -17,6 +17,13 @@ export function watchViteGenerationRules(input: {
   server: ViteDevServer;
   session: SandboxSession;
 }): () => void {
+  let printedVerifyHint = false;
+  function getVerifyHint() {
+    if (printedVerifyHint) return '';
+    printedVerifyHint = true;
+    return ' (run `pyric verify` to test against past sessions)';
+  }
+
   const { server, session } = input;
   const databaseFiles = session.databaseRulesFiles();
   const databaseFileByResolved = new Map(databaseFiles.map((file) => [path.resolve(file), file]));
@@ -53,7 +60,7 @@ export function watchViteGenerationRules(input: {
           server.watcher.add([...session.firestoreRulesFiles()]);
           const isReloaded = result.kind === 'reloaded';
           if (isReloaded) {
-            server.config.logger.info(`  ↻ [pyric] rules reloaded (${result.rulesHash})`);
+            server.config.logger.info(`  ↻ [pyric] rules reloaded (${result.rulesHash})${getVerifyHint()}`);
             if (result.fixtureCheck && result.fixtureCheck.ran > 0) {
               const logFn = result.fixtureCheck.ok
                 ? (m: string) => server.config.logger.info(m)
@@ -74,7 +81,7 @@ export function watchViteGenerationRules(input: {
         void session.reloadDatabaseRules(databaseFile).then((results) => {
           for (const { instance, result } of results) {
             if (result.kind === 'reloaded') {
-              server.config.logger.info(`  ↻ [pyric] rtdb rules reloaded for ${instance} (${result.rulesHash})`);
+              server.config.logger.info(`  ↻ [pyric] rtdb rules reloaded for ${instance} (${result.rulesHash})${getVerifyHint()}`);
               if (result.fixtureCheck && result.fixtureCheck.ran > 0) {
                 const logFn = result.fixtureCheck.ok
                   ? (m: string) => server.config.logger.info(m)
@@ -94,7 +101,7 @@ export function watchViteGenerationRules(input: {
       if (isStorageMatch) {
         void session.reloadStorageRules().then((result) => {
           if (result.kind === 'reloaded') {
-            server.config.logger.info(`  ↻ [pyric] storage rules reloaded (${result.rulesHash})`);
+            server.config.logger.info(`  ↻ [pyric] storage rules reloaded (${result.rulesHash})${getVerifyHint()}`);
           } else if (result.kind === 'rejected') {
             server.config.logger.warn(
               `  ⚠ [pyric] storage rules NOT reloaded (last-good stays live): ${result.error.message}`,
