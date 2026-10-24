@@ -85,6 +85,12 @@ export default scenario(async (app) => {
 
   await app.step('the host captures the listener, the registration, and the denials', () => waitForCapture(app));
 
+  await app.step('the host records the registration exactly once', () => {
+    const capture = JSON.parse(app.readFile('.pyric/last-session.json')) as { events?: CapturedEvent[] };
+    const registrations = (capture.events ?? []).filter((event) => event.kind === 'operation' && event.method === 'onDisconnect.set');
+    assert.equal(registrations.length, 1, JSON.stringify(registrations));
+  });
+
   await app.step('pyric verify replays cleanly under the rules the session ran with', async () => {
     const output = await pyric(app, ['verify']);
     assert.match(output, /all selected services replay cleanly/, output);

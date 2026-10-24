@@ -390,9 +390,11 @@ export class WritePlane {
     let deniedAt: { path: string; data: unknown } | null = null;
     if (operation.kind === 'update') {
       if (Object.keys(operation.values).length === 0) return;
-      const denied = this.updateCheck(auth, operation.path, operation.values);
-      evaluation = denied?.evaluation ?? this.updateAllowedEvaluation(auth, operation.path, operation.values);
-      if (denied !== null) deniedAt = { path: denied.path, data: denied.value };
+      // One evaluation per path: the first the rules deny, else the last allowed.
+      const evaluations = this.updateEvaluations(auth, operation.path, operation.values);
+      const denied = evaluations.find((entry) => entry.evaluation.check !== 'allow');
+      evaluation = (denied ?? evaluations.at(-1)!).evaluation;
+      if (denied !== undefined) deniedAt = { path: denied.update.path, data: denied.update.value };
     } else {
       const value = operation.kind === 'set' ? operation.value : null;
       const checked = this.setCheck(auth, operation.path, value, operation.kind === 'set' ? operation.priority : null);
@@ -427,10 +429,6 @@ export class WritePlane {
       if (evaluation.check !== 'allow') return { evaluation, path: update.path, value: update.value };
     }
     return null;
-  }
-
-  private updateAllowedEvaluation(auth: AuthState, path: string, patch: Record<string, unknown>): RuleEvaluationDetails {
-    return this.updateEvaluations(auth, path, patch).at(-1)!.evaluation;
   }
 
   private updateEvaluations(auth: AuthState, path: string, patch: Record<string, unknown>) {

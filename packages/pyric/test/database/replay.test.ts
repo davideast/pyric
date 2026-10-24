@@ -647,6 +647,19 @@ describe('database replay()', () => {
       expect(result.checkedEvents).toBe(2);
     });
 
+    it('decides a captured setWithPriority registration with its priority', async () => {
+      const PRIORITY_GATED = { rules: { presence: { $uid: { '.write': "auth.uid === $uid && newData.getPriority() == 'online'" } } } };
+      const sandbox = initializeSandbox();
+      rtdbSandbox.setRules(getDatabase(sandbox), PRIORITY_GATED);
+      await onDisconnect(ref(getDatabase(sandbox.withAuth({ uid: 'alice' })), 'presence/alice')).setWithPriority('offline', 'online');
+      const events = sandbox.history();
+      expect((await replay(events, { rules: PRIORITY_GATED })).divergences).toEqual([]);
+      const otherPriority = { rules: { presence: { $uid: { '.write': "auth.uid === $uid && newData.getPriority() == 'away'" } } } };
+      expect((await replay(events, { rules: otherPriority })).divergences).toEqual([
+        expect.objectContaining({ kind: 'now-denied', method: 'onDisconnect.set', path: '/presence/alice' }),
+      ]);
+    });
+
     it('reports now-allowed when the candidate rules allow a captured denied registration', async () => {
       const { events, state } = await captureRegistrations((db) =>
         onDisconnect(ref(db, 'presence/bob')).set('offline').catch(() => {}));
