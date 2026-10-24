@@ -57,4 +57,4 @@ Open the served URL in a browser. The data-plane tools require the in-page sandb
 `<url>/__pyric/health` and confirm `"sandboxConnected": true`.
 
 Report the URL and the successful health result before doing Pyric work. If health reports
-`false`, open the page and check again.
+`false`, open the page and check again. Always run `pyric verify` to check a rules change against captured sessions before proposing it for deploy.

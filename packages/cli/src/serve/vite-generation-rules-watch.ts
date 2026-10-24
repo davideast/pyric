@@ -2,6 +2,7 @@ import path from 'node:path';
 import type { ViteDevServer } from 'vite';
 import { formatDatabaseRulesRemoved, formatStorageRulesRemoved } from './rules.js';
 import type { SandboxSession } from './sandbox-session.js';
+import { createVerifyHint } from './verify-hint.js';
 
 /**
  * Adapt Vite's watcher to the session's last-good rules reload operations.
@@ -17,6 +18,8 @@ export function watchViteGenerationRules(input: {
   server: ViteDevServer;
   session: SandboxSession;
 }): () => void {
+  const getVerifyHint = createVerifyHint();
+
   const { server, session } = input;
   const databaseFiles = session.databaseRulesFiles();
   const databaseFileByResolved = new Map(databaseFiles.map((file) => [path.resolve(file), file]));
@@ -53,7 +56,7 @@ export function watchViteGenerationRules(input: {
           server.watcher.add([...session.firestoreRulesFiles()]);
           const isReloaded = result.kind === 'reloaded';
           if (isReloaded) {
-            server.config.logger.info(`  ↻ [pyric] rules reloaded (${result.rulesHash})`);
+            server.config.logger.info(`  ↻ [pyric] rules reloaded (${result.rulesHash})${getVerifyHint()}`);
             if (result.fixtureCheck && result.fixtureCheck.ran > 0) {
               const logFn = result.fixtureCheck.ok
                 ? (m: string) => server.config.logger.info(m)
@@ -74,7 +77,7 @@ export function watchViteGenerationRules(input: {
         void session.reloadDatabaseRules(databaseFile).then((results) => {
           for (const { instance, result } of results) {
             if (result.kind === 'reloaded') {
-              server.config.logger.info(`  ↻ [pyric] rtdb rules reloaded for ${instance} (${result.rulesHash})`);
+              server.config.logger.info(`  ↻ [pyric] rtdb rules reloaded for ${instance} (${result.rulesHash})${getVerifyHint()}`);
               if (result.fixtureCheck && result.fixtureCheck.ran > 0) {
                 const logFn = result.fixtureCheck.ok
                   ? (m: string) => server.config.logger.info(m)
@@ -94,7 +97,7 @@ export function watchViteGenerationRules(input: {
       if (isStorageMatch) {
         void session.reloadStorageRules().then((result) => {
           if (result.kind === 'reloaded') {
-            server.config.logger.info(`  ↻ [pyric] storage rules reloaded (${result.rulesHash})`);
+            server.config.logger.info(`  ↻ [pyric] storage rules reloaded (${result.rulesHash})${getVerifyHint()}`);
           } else if (result.kind === 'rejected') {
             server.config.logger.warn(
               `  ⚠ [pyric] storage rules NOT reloaded (last-good stays live): ${result.error.message}`,

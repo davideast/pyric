@@ -195,15 +195,15 @@ written value.
 |---|---|---|---|
 | Does this rule allow or deny this request? | Rules-only simulation (`rtdbRules(...).simulate`, `assertCase`, `rtdb_simulate_access`) | Rules JSON and case data | Behavior for the modeled cases, and coverage of the rules |
 | Does the app's SDK code, identity, listeners and transactions hit the rules correctly? | Local SDK integration (sandbox with `withAuth` contexts) | `initializeSandbox`, `pyric/database`, signed-in contexts | The local implementation handling real calls |
-| Would a captured session change verdicts under new rules? | `pyric verify --service rtdb --rules rtdb=database.rules.json` | A captured session | Divergences between old and new rules on the sandbox engine only |
-| Does Firebase itself agree for this ruleset? | Live verification | A non-production Firebase project running the rules | The only evidence of production behavior |
+| Would a captured session change verdicts under new rules? | `pyric verify --service rtdb --rules rtdb=database.rules.json` | A captured session | Divergences between old and new rules on the sandbox engine |
+| Does Firebase itself agree for this ruleset? | `pyric verify --engine sandbox --engine staging` (or Live verification) | A captured session and a real RTDB instance (enrolled with `verify staging init`) | Production verdicts vs local sandbox replays for your exact traffic |
 
 Full SDK integration setup is optional extra coverage, not a prerequisite for
 testing predicates. Local simulation does not establish production parity for
 your ruleset. Live verification means deploying to a non-production project and
 exercising the same cases with the Firebase SDK. The hosted Rules Test API
 covers Firestore only, so `pyric verify --engine rules-test-api` is refused for
-`rtdb`.
+`rtdb`. For Realtime Database, run `--engine staging` to test the session against a real instance you provide.
 
 ### Sandbox layer
 

@@ -145,4 +145,6 @@ You can also set `command`, `port`, `project`, and rules paths in `pyric.json`. 
 
 The mirrored services do not connect to a production Firebase project. Local data changes stay in the sandbox. Local Security Rules changes are enforced there and are not deployed. Firebase configuration passed to `initializeApp(config)` is accepted so the application code stays unchanged, but it does not select a cloud backend during development.
 
+Before you ship, check your rules against your captured sessions: [The same code goes live](../ship/ship-to-production.md).
+
 Continue with [How the swap works](./how-the-swap-works.md), then [develop with the Firebase APIs](../build/authentication.md).
