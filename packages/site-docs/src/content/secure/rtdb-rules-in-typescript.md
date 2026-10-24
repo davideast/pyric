@@ -114,13 +114,14 @@ Two expressions are equivalent when their canonical texts are equal. The canonic
 | Treated as the same | Why |
 | --- | --- |
 | whitespace, grouping parentheses, `a && (b && c)` and `a && b && c` | parentheses only shape the tree; `&&` and `\|\|` evaluate left to right either way |
+| `"a"` and `'a'`, for a string literal written without a backslash | the same string; a literal with any escape (`'\d'`, `'\u0041'`) keeps its spelling, since production's reading of most escapes has not been observed |
 | `===` and `==`, `!==` and `!=` | RTDB compares without type conversion in both |
 | `auth.uid == null` and `auth == null` | `auth` is null exactly when signed out, and a signed-in `auth` always has a uid |
 | `child('a/b/' + $id + '/c')` and `child('a').child('b').child($id).child('c')` | a `$` variable is exactly one key, and `child()` reads `/` as a separator |
 | `a != b` and `!(a == b)` | both fail on the same inputs; otherwise `==` gives a boolean |
-| `a == b` and `b == a` | equality is symmetric; operands that could fail other than with a rule error keep their order |
+| `a == b` and `b == a` | equality is symmetric; operands that could fail other than with a rule error, or that index into an array, keep their order |
 
-Deliberately not treated as the same: a concatenated part that is not a string literal or a `$` variable, `auth.uid` included (`child('m/' + auth.uid)` is not `child('m').child(auth.uid)`, because production has not been observed reading a uid such as `/x` or `a//b` with empty segments the same way in both forms); a literal glued to a variable (`'user_' + $id`); empty segments and key-invalid characters in a path; the order of `&&` and `||` operands; `>=` and `>`; double negation; and arithmetic or constant folding. A rule that falls in one of those is reported as changed, so read those entries yourself.
+Deliberately not treated as the same: a concatenated part that is not a string literal or a `$` variable, `auth.uid` included (`child('m/' + auth.uid)` is not `child('m').child(auth.uid)`, because production has not been observed reading a uid such as `/x` or `a//b` with empty segments the same way in both forms); a literal glued to a variable (`'user_' + $id`) or written with an escape; empty segments and key-invalid characters in a path; the order of `&&` and `||` operands; `>=` and `>`; double negation; and arithmetic or constant folding. A rule that falls in one of those is reported as changed, so read those entries yourself.
 
 ## Turn enforcement, from a deployed game
 

@@ -7,7 +7,8 @@ import {
   parseRtdbExpressionTree,
   printRtdbExpressionTree,
 } from '../../../../src/rules/rtdb/grammar/expression-tree.js';
-import { findCounterexample, outcomeSpread, rng } from './equivalence-harness.js';
+import { findCounterexample, outcomeOf, outcomeSpread, rng } from './equivalence-harness.js';
+import { DataSnapshot } from '../../../../src/rules/rtdb/grammar/simulator.js';
 
 const same = (a: string, b: string) => expect(canonical(a)).toBe(canonical(b));
 const differ = (a: string, b: string) => expect(canonical(a)).not.toBe(canonical(b));
@@ -140,6 +141,28 @@ describe('canonicalRtdbExpression: what is NOT treated as equivalent', () => {
     expect(canonical("root.val().x == data.toUpperCase()")).toBe("root.val().x == data.toUpperCase()");
   });
 
+  test('operand order of == is kept when an operand indexes an array (it may hold a snapshot)', () => {
+    // `[data][0]` is the data snapshot: a string method on it stops the
+    // simulator (unsupported), while `data.val().toUpperCase()` on a number is
+    // a rule error. Which one is evaluated first decides the outcome.
+    differ("[data][0].contains('a') == data.val().toUpperCase()", "data.val().toUpperCase() == [data][0].contains('a')");
+    differ("[1, 'a'][0] == $a", "$a == [1, 'a'][0]");
+  });
+
+  test('a string literal written with an escape keeps its spelling', () => {
+    // Production's reading of these escapes is not captured.
+    differ(String.raw`'\d' == $a`, "'d' == $a");
+    differ(String.raw`'\u0041' == $a`, "'A' == $a");
+    differ(String.raw`'\x41' == $a`, "'A' == $a");
+    differ(String.raw`'\u{41}' == $a`, "'u{41}' == $a");
+    differ(String.raw`"it\'s" == $a`, `"it's" == $a`);
+    differ(String.raw`root.child('a\/b')`, "root.child('a').child('b')");
+    expect(canonical(String.raw`"\d"`)).toBe(String.raw`"\d"`);
+    // Without a backslash the quotes still normalize.
+    same('"a" == $a', "'a' == $a");
+    same(`"it's"`, `"it's"`);
+  });
+
   test('double negation is kept', () => {
     differ("!!data.val()", "data.val()");
   });
@@ -155,6 +178,21 @@ describe('canonicalRtdbExpression: deterministic and idempotent', () => {
 });
 
 // ─── Evaluation equivalence ────────────────────────────────────────
+
+/**
+ * Operands whose evaluation can stop in different ways: rule errors, the
+ * simulator's unsupported constructs, undefined, snapshots inside arrays,
+ * regular expressions with bad flags or syntax, arithmetic, and escapes.
+ */
+const OPERANDS = [
+    "[data][0].contains('a')", 'data.val().toUpperCase()', '[data][0].val()', "[1, 'a'][0]", "['a', $a][1]",
+    'unknownVar', '$unbound', 'foo.bar()', 'data.val().foo()', 'data.foo()', 'data.val().length',
+    "newData.val().matches(/a/g)", "'s'.matches(/(/)", "newData.val().matches(/^a/i)",
+    '-data.val()', 'data.val() * 2', 'data.val() % 2', 'data.val() - 1', 'data.val() / 0', '-(1 + 2)',
+    String.raw`'\d'`, "'d'", String.raw`'\u0041'`, "'A'", '"a"', String.raw`'it\'s'`,
+    '$a', 'auth.uid', 'auth', 'null', '1', 'true', 'now',
+    "[data][0].toUpperCase()", "['x', newData][1].beginsWith('a')", "[data][0].child('a').val()",
+];
 
 /** A random rule expression built from the shapes the rewrites target, with errors and nulls in reach. */
 function generateExpressions(count: number, seed: number): string[] {
@@ -172,6 +210,7 @@ function generateExpressions(count: number, seed: number): string[] {
     "newData.child('role')",
     "data",
   ]);
+  const operand = () => pick(OPERANDS);
   const atom = (): string => pick([
     () => `auth.uid ${eqOp()} null`,
     () => `null ${eqOp()} auth.uid`,
@@ -189,6 +228,9 @@ function generateExpressions(count: number, seed: number): string[] {
     () => `root.child('p/' + $a + '_q').val() ${eqOp()} ${value()}`,
     () => `root.child('m/' + auth.uid).val() ${eqOp()} true`,
     () => `${snapshot()}.val() > 0`,
+    () => `${operand()} ${eqOp()} ${operand()}`,
+    () => `${operand()} ${eqOp()} ${operand()}`,
+    () => `${pick(['newData', '[data][0]', 'data.child($a)'])}.val().${pick(['matches(/^a/i)', 'matches(/a/g)', 'matches(/(/)', 'contains(\'a\')'])}`,
   ])();
   const expr = (depth: number): string => {
     if (depth === 0 || random() < 0.3) return atom();
@@ -222,6 +264,24 @@ describe('evaluation equivalence: canonical forms decide like the original', () 
     });
   }
 
+  test('every ordered pair of operands: a == b decides like its canonical form', () => {
+    // Exhaustive over OPERANDS, so every operand-order decision rewrite 6
+    // makes between two of them is evaluated, in both written orders.
+    let swapped = 0;
+    for (const [i, a] of OPERANDS.entries()) {
+      for (const [j, b] of OPERANDS.entries()) {
+        const source = `${a} == ${b}`;
+        const rewritten = canonical(source);
+        if (!rewritten.startsWith(canonical(a))) swapped++;
+        const counterexample = findCounterexample(source, rewritten, { count: 12, seed: i * 100 + j + 1 });
+        if (counterexample) {
+          throw new Error(`not equivalent:\n  ${source}\n  ${rewritten}\n${JSON.stringify(counterexample)}`);
+        }
+      }
+    }
+    expect(swapped).toBeGreaterThan(100);
+  }, 120_000);
+
   test('the generated contexts reach true, false, and rule errors', () => {
     const spread = outcomeSpread("newData.child('role').val().toUpperCase() != 'ADMIN' && root.child('p/' + $a).val() == true", { count: 400 });
     expect(spread['true']).toBeGreaterThan(0);
@@ -229,9 +289,9 @@ describe('evaluation equivalence: canonical forms decide like the original', () 
     expect(spread['rule-error']).toBeGreaterThan(0);
   });
 
-  test('250 generated expressions decide like their canonical forms', () => {
+  test('300 generated expressions decide like their canonical forms', () => {
     let rewrittenCount = 0;
-    for (const [i, source] of generateExpressions(250, 11).entries()) {
+    for (const [i, source] of generateExpressions(300, 11).entries()) {
       const rewritten = canonical(source);
       if (rewritten !== source) rewrittenCount++;
       const counterexample = findCounterexample(source, rewritten, { count: 40, seed: i + 1 });
@@ -255,6 +315,23 @@ describe('the equivalence check catches unsound rewrites', () => {
     ['>= rewritten as >', "data.child('n').val() >= 1", "data.child('n').val() > 1"],
     ['error dropped: != rewritten to a guard that cannot fail', "newData.val().toUpperCase() != 'X'", "newData.val() != 'X'"],
   ];
+  test('F1: swapping == operands across an indexed snapshot changes the outcome', () => {
+    // Review repro: root {a:{b:1},x:5}, data at /x = 5, signed in.
+    const a = "[data][0].contains('a') == data.val().toUpperCase()";
+    const b = "data.val().toUpperCase() == [data][0].contains('a')";
+    const rootValue = { a: { b: 1 }, x: 5 };
+    const context = {
+      auth: { uid: 'u1', token: {} }, now: 0, pathVariableBindings: {},
+      root: new DataSnapshot(rootValue, '/', rootValue),
+      data: new DataSnapshot(5, '/x', rootValue),
+      newData: new DataSnapshot(5, '/x', rootValue),
+    };
+    expect(outcomeOf(a, context)).toEqual({ kind: 'unsupported' });
+    expect(outcomeOf(b, context)).toEqual({ kind: 'rule-error' });
+    expect(findCounterexample(a, b, { count: 100 })).toBeDefined();
+    expect(canonical(a)).not.toBe(canonical(b));
+  });
+
   for (const [name, original, rewritten] of unsound) {
     test(name, () => {
       expect(findCounterexample(original, rewritten, { count: 400 })).toBeDefined();

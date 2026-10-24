@@ -196,17 +196,26 @@ function precedenceOf(tree: RtdbExpressionTree): number {
 /** A string literal's characters that print unescaped inside single quotes. */
 const PLAIN_STRING_CHARS = /^[^'\\\u0000-\u001f\u007f\u2028\u2029]*$/;
 
-/** A string literal as `'value'` when that denotes the same string, else its source text. */
+/**
+ * A string literal as `'value'` when its source has no backslash and the
+ * value needs no escape, else its source text unchanged. A literal written
+ * with an escape keeps its spelling: the only escapes captured are `\'`,
+ * `\xHH` and a raw tab (r44-deploy-string-and-regex-probes, see
+ * string-literal.ts); what production makes of `\uHHHH`, `\u{...}` or an
+ * escaped ordinary character such as `\d` is not, so folding `'\d'` into
+ * `'d'` or `'\u0041'` into `'A'` would claim an equivalence nobody has
+ * observed.
+ */
 export function printRtdbStringLiteral(raw: string, value: string): string {
-  return PLAIN_STRING_CHARS.test(value) ? `'${value}'` : raw;
+  return !raw.includes('\\') && PLAIN_STRING_CHARS.test(value) ? `'${value}'` : raw;
 }
 
 /**
  * Expression text for `tree`, with single spaces around binary operators and
  * only the parentheses the tree's shape needs. The text parses back to the
- * same tree. String literals print as `'value'` when the value needs no
- * escape, so `"a"` and `'a'` print alike; every other literal prints as its
- * source text.
+ * same tree. String literals written without a backslash print as
+ * `'value'`, so `"a"` and `'a'` print alike; every other literal prints as
+ * its source text.
  */
 export function printRtdbExpressionTree(tree: RtdbExpressionTree): string {
   const wrap = (child: RtdbExpressionTree, minimum: number): string => {

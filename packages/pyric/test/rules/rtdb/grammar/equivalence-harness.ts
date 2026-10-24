@@ -135,7 +135,10 @@ export function* generateContexts(raws: readonly string[], options: GenerateOpti
 
   for (let i = 0; i < (options.count ?? 200); i++) {
     const pathVariableBindings: Record<string, string> = {};
-    for (const name of facts.variables) pathVariableBindings[name] = pick(random, bindingValues);
+    for (const name of facts.variables) {
+      // A `$unbound…` name stays unbound, so it evaluates to undefined.
+      if (!name.startsWith('$unbound')) pathVariableBindings[name] = pick(random, bindingValues);
+    }
     const auth = random() < 0.25 ? null : {
       uid: pick(random, uids),
       token: random() < 0.5 ? {} : { admin: pick(random, [true, false, 'yes']), email: 'a@b.c' },

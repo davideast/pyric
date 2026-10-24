@@ -13,8 +13,9 @@
  *
  * The rewrites, each justified where it is applied below:
  *
- *  1. Whitespace and grouping parentheses are dropped, and `&&` and `||`
- *     chains are regrouped left to right.
+ *  1. Whitespace and grouping parentheses are dropped, `&&` and `||`
+ *     chains are regrouped left to right, and a string literal written
+ *     without a backslash prints in single quotes (`"a"` is `'a'`).
  *  2. `===` is `==` and `!==` is `!=`.
  *  3. `auth.uid == null` (either operand order) is `auth == null`.
  *  4. `x.child('a/b/' + $v + '/c')` is `x.child('a').child('b').child($v).child('c')`
@@ -22,11 +23,13 @@
  *     and each `/`-separated segment is one non-empty literal or one variable.
  *  5. `a != b` is `!(a == b)`.
  *  6. The operands of `==` are ordered by their canonical text, when neither
- *     operand can raise anything but a rule runtime error.
+ *     operand can raise anything but a rule runtime error and neither
+ *     indexes into or builds an array.
  *
  * Deliberately not rewritten: a concatenated part that is not a literal or a
  * `$` variable, `auth.uid` included (see `childSegments`); a segment that is
- * empty or holds `.`, `#`, `$`, `[` or `]`; double negation (`!!x` is not `x`
+ * empty or holds `.`, `#`, `$`, `[` or `]`; any string literal written with
+ * a backslash escape (kept exactly as written); double negation (`!!x` is not `x`
  * for a non-boolean `x`); operand order of `&&`, `||` and the ordering
  * operators (short-circuiting and errors depend on it); and any arithmetic or
  * constant folding.
@@ -63,7 +66,7 @@ const BOUND_IDENTIFIERS = new Set(['auth', 'data', 'newData', 'root', 'now', 'qu
 /** Characters that may not appear in a database key. */
 const INVALID_KEY_CHARS = /[.#$[\]]/;
 
-/** A string that prints as `'value'` without escapes (the printer's own test). */
+/** A string that prints as `'value'` without escapes. */
 const PLAIN_STRING_CHARS = /^[^'\\\u0000-\u001f\u007f\u2028\u2029]*$/;
 
 const isPathVariable = (tree: RtdbExpressionTree): tree is { type: 'identifier'; name: string } =>
@@ -122,9 +125,12 @@ function raisesOnlyRuleErrors(tree: RtdbExpressionTree): boolean {
     case 'member':
       return raisesOnlyRuleErrors(tree.object);
     case 'index':
-      return raisesOnlyRuleErrors(tree.object) && raisesOnlyRuleErrors(tree.index);
     case 'array':
-      return tree.elements.every(raisesOnlyRuleErrors);
+      // Not followed: an array can hold a snapshot (`[data][0]`), and a
+      // string method called on what an index reads out of it stops the
+      // simulator rather than raising a rule error. Declining here keeps
+      // `mayBeSnapshot` from having to track values through arrays.
+      return false;
     case 'regex':
       return regexCompiles(tree.raw);
     case 'call': {
@@ -179,6 +185,9 @@ function childSegments(arg: RtdbExpressionTree): Segment[] | undefined {
   const segments: Array<{ text: string; variables: RtdbExpressionTree[] }> = [{ text: '', variables: [] }];
   for (const part of concatenatedParts(arg)) {
     if (part.type === 'string') {
+      // A literal written with an escape is declined: production's reading
+      // of most escapes is not captured (see printRtdbStringLiteral).
+      if (part.raw.includes('\\')) return undefined;
       const pieces = part.value.split('/');
       segments[segments.length - 1]!.text += pieces[0]!;
       for (const piece of pieces.slice(1)) segments.push({ text: piece, variables: [] });
@@ -289,8 +298,13 @@ function canonicalEquality(left: RtdbExpressionTree, right: RtdbExpressionTree):
   // Rewrite 3: `auth.uid == null` is `auth == null`. `auth` is null exactly
   // for a signed-out request, and then `auth.uid` reads null too; a signed-in
   // `auth` always carries a uid string (production: the ID token's required
-  // `sub`; pyric: `SimulatedAuth.uid` is a required string, conformance row
-  // "`auth` context" in registry/rtdb.ts). Neither operand can fail.
+  // `sub`; pyric: `SimulationInputSchema` requires `auth.uid` as a string
+  // (simulation/spec.ts) and `SimulatedAuth.uid` is a required string,
+  // conformance row "`auth` context" in registry/rtdb.ts). Neither operand
+  // can fail. The equivalence is a claim about requests as RTDB and pyric's
+  // simulate() and sandbox build them: a caller that hands
+  // `evaluateRtdbExpression` an `auth` object with no `uid` (`{ token: {} }`)
+  // is outside it, and there the two forms differ.
   if ((isAuthUid(left) && right.type === 'null') || (left.type === 'null' && isAuthUid(right))) {
     left = { type: 'identifier', name: 'auth' };
     right = { type: 'null' };
