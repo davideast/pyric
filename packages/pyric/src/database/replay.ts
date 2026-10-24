@@ -8,10 +8,8 @@ import {
   type SandboxOperationEvent,
 } from '../sandbox/index.js';
 import {
-  get,
   getAdminDatabase,
   getDatabase,
-  query,
   ref,
   remove,
   runTransaction,
@@ -21,10 +19,8 @@ import {
   update,
   sandbox as rtdbSandbox,
   type Database,
-  type QueryConstraint,
 } from './index.js';
 import type { QuerySpec } from './internal/query-projection.js';
-import { buildConstraint } from './query-shape.js';
 import { isJsonObject, jsonValuesEqual } from './sandbox/data-tree.js';
 import { resolveDatabaseInstance } from '../sandbox/internal/instances.js';
 import { getOrCreateBackend } from './sandbox/backend-for.js';
@@ -205,30 +201,12 @@ function isAllowedRead(event: SandboxEvent): event is SandboxOperationEvent {
     && event.result === 'allow';
 }
 
-/** The constraints that rebuild a captured query, in the order the SDK applies them. */
-function constraintsOfSpec(spec: QuerySpec | undefined): QueryConstraint[] {
-  const constraints: QueryConstraint[] = [];
-  if (spec === undefined) return constraints;
-  if (spec.orderBy !== null) {
-    const type = {
-      child: 'orderByChild',
-      key: 'orderByKey',
-      priority: 'orderByPriority',
-      value: 'orderByValue',
-    } as const;
-    constraints.push(buildConstraint(type[spec.orderBy.kind], { kind: 'orderBy', spec: spec.orderBy }));
-  }
-  for (const bound of spec.bounds) {
-    constraints.push(buildConstraint(bound.kind, { kind: 'bound', bound }));
-  }
-  if (spec.limit !== null) {
-    constraints.push(
-      buildConstraint(spec.limit.kind, { kind: 'limit', limitKind: spec.limit.kind, n: spec.limit.n }),
-    );
-  }
-  return constraints;
-}
-
+/**
+ * Decide an allowed read again under the candidate rules, by its `.read`
+ * rules and `query.*` expressions alone, against the replay tree at that
+ * point. The read is not run: a listener on an unindexed query only warns,
+ * where running it as a one-shot query would refuse it for the index.
+ */
 async function replayRtdbRead(
   { sandbox, instance }: ReplayTarget,
   event: SandboxOperationEvent,
@@ -236,20 +214,15 @@ async function replayRtdbRead(
 ): Promise<void> {
   syncReplayClock(sandbox, event.at);
   const path = event.path ?? '/';
-  const prev = sandbox.currentUser;
-  sandbox.currentUser = event.auth;
+  const backend = getOrCreateBackend(sandbox, resolveDatabaseInstance(instance));
   try {
-    const db = getDatabase(sandbox, instance);
-    await get(query(ref(db, path), ...constraintsOfSpec(event.request?.query as QuerySpec | undefined)));
+    backend.validateRead(event.auth, path, event.request?.query as QuerySpec | undefined);
   } catch (e) {
-    divergences.push({
-      kind: 'now-denied',
-      path,
-      method: event.method,
-      reason: e instanceof Error ? e.message : String(e),
-    });
-  } finally {
-    sandbox.currentUser = prev;
+    const reason = e instanceof Error ? e.message : String(e);
+    const denied = (e as { code?: unknown }).code === 'PERMISSION_DENIED';
+    divergences.push(denied
+      ? { kind: 'now-denied', path, method: event.method, reason }
+      : { kind: 'unsupported', path, method: event.method, reason });
   }
 }
 
@@ -261,7 +234,17 @@ function isAppDenial(event: SandboxEvent): event is SandboxOperationEvent {
   return event.kind === 'operation'
     && event.service === 'rtdb'
     && event.origin !== 'admin'
-    && event.result === 'deny';
+    && event.result === 'deny'
+    && !isRevocation(event);
+}
+
+/**
+ * A listener the rules stopped allowing after it attached, because of a write
+ * or a rules change. It is a consequence, not a request: its attach was
+ * checked as an allowed read, and the write that caused it is checked itself.
+ */
+function isRevocation(event: SandboxOperationEvent): boolean {
+  return (event.detail as { revoked?: unknown } | undefined)?.revoked === true;
 }
 
 /**
@@ -287,9 +270,11 @@ function checkRtdbDenial(
       check = () => backend.validateRead(event.auth, path, query);
       break;
     case 'set':
-    case 'transaction':
-      check = () => backend.validateSet(event.auth, path, data ?? null);
+    case 'transaction': {
+      const priority = (event.detail as { priority?: unknown } | undefined)?.priority;
+      check = () => backend.validateSet(event.auth, path, data ?? null, (priority ?? null) as string | number | null);
       break;
+    }
     case 'remove':
       check = () => backend.validateSet(event.auth, path, null);
       break;

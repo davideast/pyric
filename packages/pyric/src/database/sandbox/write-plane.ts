@@ -483,7 +483,9 @@ export class WritePlane {
       resourceAfter: { data: resolved, exists: resolved !== null },
     };
     if (evaluation.check !== 'allow') {
-      this.state.events.operation(auth, op, path, denyResultFor(evaluation.check), evaluation, common);
+      // The denial carries the priority the write would have set, so it can be decided again with it.
+      const denied = prioritySupplied ? { ...common, detail: { priority } } : common;
+      this.state.events.operation(auth, op, path, denyResultFor(evaluation.check), evaluation, denied);
       throw permissionDenied(rtdbDenialContext(evaluation, auth, op, path, { data: value }));
     }
     this.state.events.operation(auth, op, path, 'allow', evaluation, common);
@@ -553,8 +555,10 @@ export class WritePlane {
       });
       if (evaluation.check === 'allow') continue;
       this.state.valueListeners.delete(listener);
+      // A revocation: the rules no longer allow a listener that was attached.
+      // It follows from a write or a rules change, not from a request.
       this.state.events.operation(listener.auth, 'listen', listener.path, denyResultFor(evaluation.check), evaluation, {
-        origin: 'listener',
+        origin: 'listener', request: listener.query ? { query: listener.query } : undefined, detail: { revoked: true },
       });
       const rulesObj = rtdbRulesDetail(evaluation);
       this.state.events.listener('errored', listener, listener.auth, {
@@ -574,7 +578,7 @@ export class WritePlane {
       if (evaluation.check === 'allow') continue;
       this.state.childListeners.delete(listener);
       this.state.events.operation(listener.auth, 'listen', listener.path, denyResultFor(evaluation.check), evaluation, {
-        origin: 'listener', detail: { event: listener.event },
+        origin: 'listener', request: listener.spec ? { query: listener.spec } : undefined, detail: { event: listener.event, revoked: true },
       });
       const rulesObj = rtdbRulesDetail(evaluation);
       this.state.events.listener('errored', listener, listener.auth, {

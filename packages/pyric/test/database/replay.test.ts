@@ -578,6 +578,84 @@ describe('database replay()', () => {
     });
   });
 
+  describe('replaying under the rules a session was captured with', () => {
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+    async function cleanUnder(rules: { rules: Record<string, unknown> }, run: (sandbox: ReturnType<typeof initializeSandbox>) => Promise<void>) {
+      const sandbox = initializeSandbox();
+      rtdbSandbox.setRules(getDatabase(sandbox), rules);
+      await run(sandbox);
+      await tick();
+      return replay(sandbox.history(), { rules, capturedState: rtdbSandbox.snapshotState(getAdminDatabase(sandbox)) });
+    }
+
+    it('reports nothing for a listener a later write revoked', async () => {
+      const rules = { rules: { docs: { $id: { '.read': "data.child('public').val() === true", '.write': true } } } };
+      const result = await cleanUnder(rules, async (sandbox) => {
+        rtdbSandbox.setData(getAdminDatabase(sandbox), { '/docs/a': { public: true } });
+        const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+        onValue(ref(db, 'docs/a'), () => {}, () => {});
+        await tick();
+        await set(ref(db, 'docs/a/public'), false);
+      });
+      expect(result.divergences).toEqual([]);
+    });
+
+    it('reports nothing for a listener a rules change revoked', async () => {
+      const rules = { rules: { '.read': true, '.write': true } };
+      const sandbox = initializeSandbox();
+      rtdbSandbox.setRules(getDatabase(sandbox), rules);
+      onValue(ref(getDatabase(sandbox.withAuth({ uid: 'alice' })), 'a'), () => {}, () => {});
+      await tick();
+      rtdbSandbox.setRules(getDatabase(sandbox), { rules: { '.read': false, '.write': true } });
+      await tick();
+      const result = await replay(sandbox.history(), { rules, capturedState: rtdbSandbox.snapshotState(getAdminDatabase(sandbox)) });
+      expect(result.divergences).toEqual([]);
+    });
+
+    it('reports nothing for a query listener on a path with no index', async () => {
+      const rules = { rules: { '.read': true, '.write': true } };
+      const result = await cleanUnder(rules, async (sandbox) => {
+        rtdbSandbox.setData(getAdminDatabase(sandbox), { '/items/a': { owner: 'alice' } });
+        const off = onValue(query(ref(getDatabase(sandbox.withAuth({ uid: 'alice' })), 'items'), orderByChild('owner'), equalTo('alice')), () => {});
+        await tick();
+        off();
+      });
+      expect(result.divergences).toEqual([]);
+      expect(result.checkedEvents).toBe(1);
+    });
+
+    it('reports nothing for a denied child listener with a query, and keeps its query', async () => {
+      const rules = { rules: { items: { '.read': 'query.limitToFirst <= 10' } } };
+      const result = await cleanUnder(rules, async (sandbox) => {
+        onChildAdded(query(ref(getDatabase(sandbox.withAuth({ uid: 'alice' })), 'items'), limitToFirst(50)), () => {}, () => {});
+      });
+      expect(result.divergences).toEqual([]);
+      // A candidate that opens unqueried reads but still denies limitToFirst(50) still denies it.
+      const candidate = { rules: { items: { '.read': 'query.limitToFirst == null || query.limitToFirst <= 10' } } };
+      const sandbox = initializeSandbox();
+      rtdbSandbox.setRules(getDatabase(sandbox), rules);
+      onChildAdded(query(ref(getDatabase(sandbox.withAuth({ uid: 'alice' })), 'items'), limitToFirst(50)), () => {}, () => {});
+      await tick();
+      expect((await replay(sandbox.history(), { rules: candidate })).divergences).toEqual([]);
+    });
+
+    it('reports nothing for a denied setWithPriority, and decides it with its priority', async () => {
+      const rules = { rules: { x: { '.write': 'newData.getPriority() == null' } } };
+      const result = await cleanUnder(rules, async (sandbox) => {
+        await setWithPriority(ref(getDatabase(sandbox.withAuth({ uid: 'alice' })), 'x'), 'v', 5).catch(() => {});
+      });
+      expect(result.divergences).toEqual([]);
+      const anyPriority = { rules: { x: { '.write': true } } };
+      const sandbox = initializeSandbox();
+      rtdbSandbox.setRules(getDatabase(sandbox), rules);
+      await setWithPriority(ref(getDatabase(sandbox.withAuth({ uid: 'alice' })), 'x'), 'v', 5).catch(() => {});
+      expect((await replay(sandbox.history(), { rules: anyPriority })).divergences).toEqual([
+        expect.objectContaining({ kind: 'now-allowed', method: 'set', path: '/x' }),
+      ]);
+    });
+  });
+
   describe('per instance', () => {
     const SHARD = 'shard-00';
     const SHARD_URL = `https://${SHARD}.firebaseio.com`;
