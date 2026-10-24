@@ -77,7 +77,8 @@
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
-      "import": "./dist/vite.js"
+      "import": "./dist/vite.js",
+      "default": "./dist/vite.js"
     },
     "./vite/ssr-loader": {
       "types": "./dist/serve/vite-ssr-loader.d.ts",
@@ -209,7 +210,8 @@
     },
     "./next/internal/react-hook": {
       "import": "./dist/next/react-hook-entry.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "bin": {
     "pyric": "./dist/cli/index.js"
