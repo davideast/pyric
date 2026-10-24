@@ -145,7 +145,7 @@ export default scenario(async (app) => {
 
   await app.step('pyric serve denials suggests verify', async () => {
     const output = await pyric(app, ['serve', 'denials']);
-    assert.match(output, /Tip: After updating rules, run `pyric verify`/, output);
+    assert.match(output, /Tip: After changing rules, run `pyric verify`/, output);
   });
 
   await app.step('pyric database rules generate suggests verify', async () => {
