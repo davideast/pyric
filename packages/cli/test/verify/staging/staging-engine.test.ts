@@ -482,3 +482,21 @@ describe('the staging credentials under review findings', () => {
     }
   });
 });
+
+describe('the staging engine and priorities', () => {
+  it('seeds the priority a session\'s rewound write restores, as the sandbox replay does', async () => {
+    const PRIORITY_GATED = { rules: { doc: { '.read': true, '.write': 'data.getPriority() == 5' } } };
+    const sandbox = initializeSandbox();
+    rtdbSandbox.setRules(getDatabase(sandbox), PRIORITY_GATED);
+    // Present before the session: not in its history, so only the rewind of the write below brings the priority back.
+    rtdbSandbox.setData(getAdminDatabase(sandbox), { '/doc': { a: 1, '.priority': 5 } } as never);
+    await set(ref(getDatabase(sandbox.withAuth({ uid: 'alice' })), 'doc'), { a: 2 });
+    const fixture = JSON.parse(JSON.stringify(buildVerifyFixture({
+      sandbox, rtdbRules: PRIORITY_GATED, rtdbState: rtdbSandbox.snapshotState(getAdminDatabase(sandbox)),
+    })));
+    const fake = fakeRtdbRest({ rulesText: ENROLLED });
+    const result = await verifyFixture(fixture, { rules: { rtdb: PRIORITY_GATED }, engines: ['sandbox', 'staging'], staging: staging(fake) });
+    expect(result.services.rtdb?.engines?.sandbox?.divergences).toEqual([]);
+    expect(result.services.rtdb?.engines?.staging?.divergences).toEqual([]);
+  });
+});

@@ -135,6 +135,28 @@ describe.skipIf(!live)('pyric verify --engine staging on a real instance', () =>
     expect(output).toMatch(/\[rtdb\] unsupported: get \/items: production answered HTTP 400: .*[Ii]ndex/);
   }, 120_000);
 
+  it('seeds the priority a rewound write restores, so production and the sandbox agree on a priority rule', async () => {
+    const PRIORITY_GATED = { rules: { doc: { '.read': true, '.write': 'data.getPriority() == 5' } } };
+    const priorityDir = realpathSync(mkdtempSync(join(tmpdir(), 'pyric-staging-live-priority-')));
+    const sandbox = initializeSandbox();
+    rtdbSandbox.setRules(getDatabase(sandbox), PRIORITY_GATED);
+    rtdbSandbox.setData(getAdminDatabase(sandbox), { '/doc': { a: 1, '.priority': 5 } } as never);
+    await set(ref(getDatabase(sandbox.withAuth({ uid: 'alice' })), 'doc'), { a: 2 });
+    mkdirSync(join(priorityDir, '.pyric'));
+    writeFileSync(join(priorityDir, '.pyric', 'last-session.json'), JSON.stringify(buildVerifyFixture({
+      sandbox, rtdbRules: PRIORITY_GATED, rtdbState: rtdbSandbox.snapshotState(getAdminDatabase(sandbox)),
+    })));
+    writeFileSync(join(priorityDir, 'firebase.json'), JSON.stringify({ database: { rules: 'database.rules.json' } }));
+    writeFileSync(join(priorityDir, 'database.rules.json'), JSON.stringify(PRIORITY_GATED));
+    writeFileSync(join(priorityDir, 'pyric.json'), JSON.stringify({
+      verify: { staging: { project: process.env.PYRIC_STAGING_PROJECT, rtdb: process.env.PYRIC_STAGING_RTDB } },
+    }));
+    const { code, output } = pyric(priorityDir, both);
+    expect(output).toContain('all selected services replay cleanly');
+    expect(output).not.toContain('engine-drift');
+    expect(code).toBe(0);
+  }, 120_000);
+
   it('leaves the instance enrolled and empty', async () => {
     const target = stagingTargetFrom({ verify: { staging: { project: process.env.PYRIC_STAGING_PROJECT, rtdb: process.env.PYRIC_STAGING_RTDB } } });
     const { token } = await stagingToken(target.projectId);

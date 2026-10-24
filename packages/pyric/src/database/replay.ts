@@ -120,8 +120,12 @@ export function rtdbReplaySteps(events: readonly SandboxEvent[], instance?: stri
 
 /**
  * The tree `instance` held when the session began: `capturedState`, the tree
- * the session left it with, with the session's commits rewound. Values only:
- * priorities are not carried.
+ * the session left it with, with the session's commits rewound. Priorities the
+ * rewind restores (a session write that replaced a prioritized node records
+ * its prior priority) appear as `.priority` keys, the export format the
+ * Realtime Database REST API reads; a prioritized leaf becomes
+ * `{ ".value": v, ".priority": p }`. A priority the capture never saw is not
+ * carried.
  */
 export async function rewoundRtdbTree(
   events: readonly SandboxEvent[],
@@ -134,7 +138,36 @@ export async function rewoundRtdbTree(
   rtdbSandbox.setData(adminDb, { '/': capturedState ?? null });
   const commits = events.filter((event): event is SandboxCommitEvent => instanceOf(event) === name && isRtdbCommit(event));
   await rewindRtdbCommits(adminDb, commits);
-  return rtdbSandbox.snapshotState(adminDb);
+  const exported = getOrCreateBackend(sandbox, resolveDatabaseInstance(name)).exportPersistenceState() as {
+    data?: unknown;
+    priorities?: Record<string, string | number | null>;
+  };
+  return withExportedPriorities(exported.data ?? null, exported.priorities ?? {});
+}
+
+/** `tree` with each priority in `priorities` (by absolute path) set as a `.priority` key. */
+function withExportedPriorities(tree: unknown, priorities: Record<string, string | number | null>): unknown {
+  let out: unknown = structuredClone(tree);
+  for (const [path, priority] of Object.entries(priorities)) {
+    if (priority === null) continue;
+    const segments = path.split('/').filter(Boolean);
+    const attach = (node: unknown): unknown => {
+      if (node === null || node === undefined) return node;
+      if (isJsonObject(node)) return { ...node, '.priority': priority };
+      return { '.value': node, '.priority': priority };
+    };
+    if (segments.length === 0) {
+      out = attach(out);
+      continue;
+    }
+    let parent: unknown = out;
+    for (const segment of segments.slice(0, -1)) {
+      parent = isJsonObject(parent) ? parent[segment] : undefined;
+    }
+    const last = segments.at(-1)!;
+    if (isJsonObject(parent) && last in parent) (parent as Record<string, unknown>)[last] = attach(parent[last]);
+  }
+  return out;
 }
 
 /** The paths where `actual` differs from `expected`, as `state-drift` divergences. */
