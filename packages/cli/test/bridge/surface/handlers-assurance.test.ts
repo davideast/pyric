@@ -31,6 +31,7 @@ import { finishHandlerSuite, projectDir, run, sandbox as sharedSandbox } from '.
 import { buildVerifyFixture } from '../../../src/verify/index.js';
 import { captureRtdbInstances } from '../../../src/verify/rtdb-instance-capture.js';
 import { validateArguments } from '../../../src/bridge/surface/method-validation.js';
+import startRecord from '../../../src/bridge/surface/methods/assurance/start.js';
 import mapRecord from '../../../src/bridge/surface/methods/assurance/map.js';
 import proposeRecord from '../../../src/bridge/surface/methods/assurance/propose.js';
 
@@ -264,6 +265,46 @@ it('replays a database capture using active sandbox RTDB rules when candidateRul
     candidateRules: '// RTDB rules with comment\n{"rules":{".read":true,".write":true,}}',
   });
   expect(commented.ok).toBe(true);
+});
+
+it('preserves named instance fields in target and operations across the bridge boundary', () => {
+  const startArgs = {
+    target: {
+      schema: 'pyric.assurance.target.v1',
+      network: 'forbid',
+      rules: {
+        rtdb: { rules: { '.read': false, '.write': false } },
+        rtdbInstances: {
+          'shard-00': { rules: { '.read': true, '.write': true } }
+        }
+      },
+      state: {},
+    }
+  };
+  const startValidation = validateArguments(startRecord, startArgs);
+  expect(startValidation).toBeNull();
+
+  // Test operations through the map/propose records
+  const proposeArgs = {
+    campaignId: 'rtdb-campaign',
+    observationId: 'obs-rtdb-instance',
+    invariantId: 'inv-status',
+    mutations: [
+      {
+        dimension: 'payload',
+        description: 'Mutate status string in RTDB set',
+        operation: {
+          service: 'rtdb',
+          method: 'set',
+          path: '/rooms/r1/members/mallory/status',
+          data: 'admin',
+          instance: 'shard-00'
+        },
+      },
+    ],
+  };
+  const proposeValidation = validateArguments(proposeRecord, proposeArgs);
+  expect(proposeValidation).toBeNull();
 });
 
 it('accepts primitive RTDB set payloads in assurance.map and assurance.propose argument validation', () => {

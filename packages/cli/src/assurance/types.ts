@@ -64,11 +64,13 @@ export interface LocalFirebaseTarget {
   rules: {
     firestore?: string;
     rtdb?: { rules: Record<string, unknown> };
+    rtdbInstances?: Record<string, { rules: Record<string, unknown> }>;
     storage?: string;
   };
   state: {
     firestore?: Record<string, Record<string, unknown>>;
     rtdb?: unknown;
+    rtdbInstances?: Record<string, unknown>;
     storage?: StorageObjectFixture[];
     auth?: { users: AuthFixtureUser[] };
   };
@@ -125,6 +127,7 @@ export interface FirestoreOperation {
 
 export interface RtdbOperation {
   service: "rtdb";
+  instance?: string;
   method: "get" | "set" | "update" | "remove";
   path: string;
   data?: unknown;
