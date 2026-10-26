@@ -27,21 +27,6 @@ export function invalidInfoWrite(): Error {
   return error;
 }
 
-/**
- * The rejection of a one-shot `get()` of a location under `/.info`: the SDK
- * sends the read to the database, which refuses the `.info` token (capture
- * rtdb-modular-info-write-validation, behavior.getConnected). A listener on
- * the path is answered by the client and is not affected.
- */
-export function invalidInfoRead(): Error {
-  return new Error('Invalid token in path');
-}
-
-/** Throw {@link invalidInfoRead} when a one-shot `get()` targets `path` under `/.info`. */
-export function assertGettablePath(path: string): void {
-  if (isInfoPath(path)) throw invalidInfoRead();
-}
-
 /** A key the SDK accepts in a path: non-empty, without `.`, `#`, `$`, `/`, `[`, `]` or a control character. */
 const INVALID_KEY_CHARS = /[[\].#$/\u0000-\u001F\u007F]/;
 

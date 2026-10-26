@@ -7,7 +7,8 @@ import { finishSdkRead } from '../sandbox/internal/sdk-activity.js';
 import { beginDatabaseActivity } from './sdk-activity.js';
 import type { DataSnapshot, DatabaseReference, Query, ThenableReference } from './types.js';
 import { buildSandboxRef } from './references.js';
-import { assertGettablePath, validateUpdatePaths, validateWritablePath } from './writable-path.js';
+import { assertGettablePath } from './info-read.js';
+import { validateUpdatePaths, validateWritablePath } from './writable-path.js';
 import { buildSandboxQuerySnap, buildSandboxSnap } from './snapshots.js';
 
 // ─── Reads ───────────────────────────────────────────────────────────
