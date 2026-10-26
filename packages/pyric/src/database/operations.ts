@@ -7,7 +7,7 @@ import { finishSdkRead } from '../sandbox/internal/sdk-activity.js';
 import { beginDatabaseActivity } from './sdk-activity.js';
 import type { DataSnapshot, DatabaseReference, Query, ThenableReference } from './types.js';
 import { buildSandboxRef } from './references.js';
-import { validateUpdatePaths, validateWritablePath } from './writable-path.js';
+import { assertGettablePath, validateUpdatePaths, validateWritablePath } from './writable-path.js';
 import { buildSandboxQuerySnap, buildSandboxSnap } from './snapshots.js';
 
 // ─── Reads ───────────────────────────────────────────────────────────
@@ -30,6 +30,7 @@ export function get(r: DatabaseReference | Query): Promise<DataSnapshot> {
   // Keep the existing single Promise reaction and exact backend error object.
   return Promise.resolve().then(() => {
     try {
+      assertGettablePath(ref0._path);
       if (query) {
         const rows = target.admin
           ? target.backend.adminGetQuery(query.ref._path, query._spec)
