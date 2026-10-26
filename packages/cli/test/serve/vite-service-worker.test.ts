@@ -5,6 +5,9 @@
  */
 import { describe, expect, it } from 'bun:test';
 import { existsSync } from 'node:fs';
+import { sep } from 'node:path';
+import { pyricPackageRoot } from '../../src/serve/bundler.js';
+import { createViteModuleContext, createViteModuleSwap } from '../../src/serve/vite-module-swap.js';
 import { createServiceWorkerWiring } from '../../src/serve/vite-service-worker.js';
 
 const ROOT = '/app/web';
@@ -26,6 +29,16 @@ describe('createServiceWorkerWiring', () => {
     const path = JSON.parse(specifier ?? '""') as string;
     expect(path).toMatch(/\/storage\/sw\.(js|ts)$/);
     expect(existsSync(path)).toBe(true);
+  });
+
+  it("imports the helper from a directory the plugin adds to Vite's fs allow list", () => {
+    const wired = createServiceWorkerWiring('src/sw.ts').transform(SOURCE, '/app/web/src/sw.ts', { root: ROOT, devServer: true }) ?? '';
+    const helper = JSON.parse(/from (".*?");/.exec(wired)?.[1] ?? '""') as string;
+    const resolved = { server: { fs: { allow: [ROOT] } } };
+    createViteModuleSwap(createViteModuleContext()).configResolved(resolved as never);
+    expect(resolved.server.fs.allow).toContain(ROOT);
+    expect(resolved.server.fs.allow.some((dir) => helper.startsWith(dir + sep))).toBe(true);
+    expect(helper.startsWith(pyricPackageRoot() + sep)).toBe(true);
   });
 
   it('accepts an absolute service worker path', () => {
