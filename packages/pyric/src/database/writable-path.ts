@@ -32,11 +32,16 @@ const INVALID_KEY_CHARS = /[[\].#$/\u0000-\u001F\u007F]/;
 
 /**
  * Validate `update()` keys as the SDK does before the write is sent: each
- * segment is a valid key, and no key is an ancestor of another.
+ * segment is a valid key, and no key is an ancestor of another. `segmentsOf`
+ * splits a key into segments; the sandbox's default also refuses the
+ * segments its tree cannot store.
  */
-export function validateUpdatePaths(values: Record<string, unknown>): void {
+export function validateUpdatePaths(
+  values: Record<string, unknown>,
+  segmentsOf: (path: string) => string[] = pathSegments,
+): void {
   for (const key of Object.keys(values)) {
-    const segments = pathSegments(key);
+    const segments = segmentsOf(key);
     segments.forEach((segment, index) => {
       const isTrailingPriority = segment === '.priority' && index === segments.length - 1;
       if (!isTrailingPriority && (segment.length === 0 || INVALID_KEY_CHARS.test(segment))) {
@@ -47,7 +52,7 @@ export function validateUpdatePaths(values: Record<string, unknown>): void {
       }
     });
   }
-  const paths = Object.keys(values).map((path) => `/${pathSegments(path).join('/')}`);
+  const paths = Object.keys(values).map((path) => `/${segmentsOf(path).join('/')}`);
   for (let leftIndex = 0; leftIndex < paths.length; leftIndex++) {
     for (let rightIndex = leftIndex + 1; rightIndex < paths.length; rightIndex++) {
       const left = paths[leftIndex]!;
