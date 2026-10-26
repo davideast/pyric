@@ -56,6 +56,19 @@ function binary(operator: RtdbBinaryOperator) {
   };
 }
 
+/**
+ * A `||` or `&&` chain, which the grammar matches flat, as the left-nested
+ * binary tree its operators denote. Built in a loop, so a chain of any length
+ * costs no stack while it is read.
+ */
+function chain(operator: '||' | '&&') {
+  return function (this: unknown, first: Node, _ops: Node, rest: Node): RtdbExpressionTree {
+    let tree: RtdbExpressionTree = (first as any).tree();
+    for (const term of rest.children) tree = { type: 'binary', operator, left: tree, right: (term as any).tree() };
+    return tree;
+  };
+}
+
 function passThrough(node: Node): RtdbExpressionTree {
   return (node as any).tree();
 }
@@ -74,9 +87,9 @@ function getTreeSemantics(): Semantics {
       };
     },
     Ternary: passThrough,
-    LogicalOr_or: binary('||'),
+    LogicalOr_or: chain('||'),
     LogicalOr: passThrough,
-    LogicalAnd_and: binary('&&'),
+    LogicalAnd_and: chain('&&'),
     LogicalAnd: passThrough,
     Equality_strictEq: binary('==='),
     Equality_strictNeq: binary('!=='),

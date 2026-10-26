@@ -11,7 +11,7 @@ import { evaluateRtdbExpression } from '../../../../src/rules/rtdb/grammar/simul
 import { buildRuleExpression } from '../../../../src/rules/rtdb/compiled-rules.js';
 import { MAX_BRACKET_DEPTH } from '../../../../src/rules/grammar/bracket-scan.js';
 
-// Compiling 20,000 terms takes about 2.5 s on a CI runner and up to 7 s on a slow one.
+// Reading 6,000 terms takes a few seconds on a slow runner.
 const LONG_CHAIN_TIMEOUT_MS = 20_000;
 
 const groups = (n: number, inner = 'auth != null') => `${'('.repeat(n)}${inner}${')'.repeat(n)}`;
@@ -63,25 +63,20 @@ describe('RTDB expressions: long chains', () => {
     expect(parseExpression(`${'!'.repeat(20_000)}true`).valid).toBe(false);
   });
 
-  test('a chain of thousands of terms compiles to a parse error, not a stack overflow', () => {
-    const chain = Array.from({ length: 20_000 }, () => 'auth != null').join(' && ');
-    const rule = buildRuleExpression(chain, 'read');
-    expect(rule.parsed.valid).toBe(false);
-    expect(rule.parsed.errors[0]!.code).toBe('PARSE_ERROR');
-  }, LONG_CHAIN_TIMEOUT_MS);
-
-  test('parseExpression and validateExpression report PARSE_ERROR on 4000–6000 chained terms without throwing RangeError', () => {
-    const chain4k = Array.from({ length: 4000 }, () => 'true').join(' && ');
-    const parsed4k = parseExpression(chain4k);
-    expect(parsed4k.valid).toBe(false);
-    expect(parsed4k.errors[0]!.code).toBe('PARSE_ERROR');
-    expect(() => validateExpression(chain4k, 'read')).not.toThrow();
-
-    const chain6k = Array.from({ length: 6000 }, () => 'true').join(' && ');
-    const parsed6k = parseExpression(chain6k);
-    expect(parsed6k.valid).toBe(false);
-    expect(parsed6k.errors[0]!.code).toBe('PARSE_ERROR');
-    const validationErrors6k = validateExpression(chain6k, 'read');
-    expect(validationErrors6k[0]!.code).toBe('PARSE_ERROR');
+  // These cases asserted that a chain of thousands of terms is a parse error.
+  // Production deploys a 2,000-term `||` chain
+  // (rules-rtdb-r51-deploy-anchor-index-and-length-probes, "LD-7: a 2000-term
+  // || chain": ACCEPTED), so `||` and `&&` chains now read at any length
+  // (LD-7, #1247).
+  test('parseExpression and validateExpression read 4000 and 6000 chained terms', () => {
+    for (const terms of [4000, 6000]) {
+      for (const operator of ['&&', '||']) {
+        const chain = Array.from({ length: terms }, () => 'true').join(` ${operator} `);
+        const parsed = parseExpression(chain);
+        expect(parsed.valid).toBe(true);
+        expect(parsed.errors).toEqual([]);
+        expect(validateExpression(chain, 'read')).toEqual([]);
+      }
+    }
   }, LONG_CHAIN_TIMEOUT_MS);
 });

@@ -29,8 +29,9 @@ export type RtdbExpressionMatch =
  * around 300 nested parentheses, so an expression nesting brackets more than
  * {@link MAX_BRACKET_DEPTH} levels deep is a parse failure before it is
  * matched. Production documents no nesting limit for RTDB rules; the bound is
- * the parser's own. A stack overflow on a long run of prefix operators or a
- * chain of thousands of terms is a parse failure too.
+ * the parser's own. `||` and `&&` chains match flat and are read at any
+ * length. A stack overflow on a long run of prefix operators, or on a long
+ * chain of another binary operator, is a parse failure too.
  */
 export function matchRtdbExpression(raw: string): RtdbExpressionMatch {
   const source = raw.trim();

@@ -24,7 +24,7 @@
  * linter's findings carry one. Codes 1, 2, 3 and 6 match the meaning of
  * Firestore's SEC-1, SEC-2, SEC-3 and SEC-6.
  */
-import type { Semantics } from 'ohm-js';
+import type { Node, Semantics } from 'ohm-js';
 import type { ValidationFinding } from '../../grammar/FirestoreValidator.js';
 import { createRtdbExpressionSemantics, matchRtdbExpression } from '../expression-engine.js';
 import type { RtdbNode, RtdbRuleExpression } from '../types.js';
@@ -156,6 +156,52 @@ function evalDeleteNeq(this: any, left: any, _op: any, right: any): ConstVal {
   return l !== undefined && r !== undefined ? l !== r : undefined;
 }
 
+/**
+ * Folds a `||` or `&&` chain, which the grammar matches flat, left to right in
+ * a loop: the value the left-nested pairs `((a || b) || c)` would give, at any
+ * length. `step` sees the value so far and reads the next term only if it
+ * needs it.
+ */
+function foldChain<V>(first: Node, rest: Node, valueOf: (term: Node) => V, step: (left: V, right: () => V) => V): V {
+  let value = valueOf(first);
+  for (const term of rest.children) value = step(value, () => valueOf(term));
+  return value;
+}
+
+function constAnd(l: ConstVal, right: () => ConstVal): ConstVal {
+  if (l === false) return false;
+  // An error on the left of `&&` fails the rule (corpus r41), so `X && false`
+  // is not constant false unless X is constant boolean.
+  if (l !== true) return undefined;
+  const r = right();
+  return typeof r === 'boolean' ? r : undefined;
+}
+
+function constOr(l: ConstVal, right: () => ConstVal): ConstVal {
+  if (l === true) return true;
+  // An error on the left of `||` fails the rule, so `X || true` is not
+  // constant unless X is.
+  if (l !== false) return undefined;
+  const r = right();
+  return typeof r === 'boolean' ? r : undefined;
+}
+
+function deleteAnd(l: DeleteVal, right: () => DeleteVal): DeleteVal {
+  const r = right();
+  if (l === false || l === 'exists-false' || r === false || r === 'exists-false') return false;
+  if (l === 'delete-guard' || r === 'delete-guard') return 'delete-guard';
+  return l === true && r === true ? true : undefined;
+}
+
+function deleteOr(l: DeleteVal, right: () => DeleteVal): DeleteVal {
+  if (l === true) return true;
+  const r = right();
+  if (isDeniedOrGuarded(l) && isDeniedOrGuarded(r)) {
+    return l === 'delete-guard' || r === 'delete-guard' ? 'delete-guard' : false;
+  }
+  return isDeniedOrGuarded(l) && r === true ? true : undefined;
+}
+
 let factsSemantics: Semantics | undefined;
 
 function getFactsSemantics(): Semantics {
@@ -251,27 +297,11 @@ function getFactsSemantics(): Semantics {
     Equality_looseEq: constEquality(true),
     Equality_strictNeq: constEquality(false),
     Equality_looseNeq: constEquality(false),
-    LogicalAnd_and(left, _op, right) {
-      const l = (left as any).constVal() as ConstVal;
-      if (l === false) return false;
-      // An error on the left of `&&` fails the rule (corpus r41), so `X && false`
-      // is not constant false unless X is constant boolean.
-      if (l === true) {
-        const r = (right as any).constVal() as ConstVal;
-        return typeof r === 'boolean' ? r : undefined;
-      }
-      return undefined;
+    LogicalAnd_and(first, _ops, rest) {
+      return foldChain(first, rest, (term) => (term as any).constVal() as ConstVal, constAnd);
     },
-    LogicalOr_or(left, _op, right) {
-      const l = (left as any).constVal() as ConstVal;
-      if (l === true) return true;
-      // An error on the left of `||` fails the rule, so `X || true` is not
-      // constant unless X is.
-      if (l === false) {
-        const r = (right as any).constVal() as ConstVal;
-        return typeof r === 'boolean' ? r : undefined;
-      }
-      return undefined;
+    LogicalOr_or(first, _ops, rest) {
+      return foldChain(first, rest, (term) => (term as any).constVal() as ConstVal, constOr);
     },
     Ternary_ternary(condition, _q, whenTrue, _c, whenFalse) {
       const c = (condition as any).constVal() as ConstVal;
@@ -339,23 +369,13 @@ function getFactsSemantics(): Semantics {
     Equality_looseEq: evalDeleteEq,
     Equality_strictNeq: evalDeleteNeq,
     Equality_looseNeq: evalDeleteNeq,
-    LogicalAnd_and(left, _op, right) {
+    LogicalAnd_and(first, _ops, rest) {
       const relSegments = this.args.relSegments as string[];
-      const l = (left as any).evalOnDelete(relSegments) as DeleteVal;
-      const r = (right as any).evalOnDelete(relSegments) as DeleteVal;
-      if (l === false || l === 'exists-false' || r === false || r === 'exists-false') return false;
-      if (l === 'delete-guard' || r === 'delete-guard') return 'delete-guard';
-      return l === true && r === true ? true : undefined;
+      return foldChain(first, rest, (term) => (term as any).evalOnDelete(relSegments) as DeleteVal, deleteAnd);
     },
-    LogicalOr_or(left, _op, right) {
+    LogicalOr_or(first, _ops, rest) {
       const relSegments = this.args.relSegments as string[];
-      const l = (left as any).evalOnDelete(relSegments) as DeleteVal;
-      if (l === true) return true;
-      const r = (right as any).evalOnDelete(relSegments) as DeleteVal;
-      if (isDeniedOrGuarded(l) && isDeniedOrGuarded(r)) {
-        return l === 'delete-guard' || r === 'delete-guard' ? 'delete-guard' : false;
-      }
-      return isDeniedOrGuarded(l) && r === true ? true : undefined;
+      return foldChain(first, rest, (term) => (term as any).evalOnDelete(relSegments) as DeleteVal, deleteOr);
     },
     Ternary_ternary(condition, _q, whenTrue, _c, whenFalse) {
       const relSegments = this.args.relSegments as string[];
