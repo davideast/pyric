@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { rtdbRules } from '../../../src/rules/api/rtdb.js';
+import { compileRtdbRules } from '../../../src/rules/rtdb/compiled-rules.js';
 import { rtdbRulesSourceRejection } from '../../../src/rules/rtdb/source-rejection.js';
 
 type Rules = { rules: Record<string, unknown> };
@@ -101,10 +102,14 @@ describe('tree-structure checks carry production deploy texts', () => {
   });
 
   test('an unknown dotted key holding an object is not read as a child location', () => {
-    const results = rtdbRules({ rules: { '.valdiate': { '.read': 'true' } } }).simulate([
+    expect(compileRtdbRules({ rules: { '.valdiate': { '.read': 'true' } } }).children).toEqual([]);
+    // No client can address `/.valdiate`: the SDK refuses a path holding `.`
+    // (capture rtdb-modular-reference-shape-url, referenceValidation.invalidRefPaths),
+    // so a case naming it is not evaluated (#1247 CS-6).
+    const [result] = rtdbRules({ rules: { '.valdiate': { '.read': 'true' } } }).simulate([
       { expectation: 'DENY', operation: 'read', path: '/.valdiate', auth: null },
-    ]);
-    expect(results.passed).toBe(1);
+    ]).cases;
+    expect(result!.decision).toBe('UNSUPPORTED');
   });
 
   test('r43 and r44 production dry-run deploy probes agree with rtdbRulesSourceRejection', () => {
