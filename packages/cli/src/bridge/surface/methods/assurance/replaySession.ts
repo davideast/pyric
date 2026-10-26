@@ -53,9 +53,18 @@ function verdictDivergences(cases: readonly CaseVerdict[]): VerdictDivergence[] 
     }));
 }
 
-/** The state divergences a replay found, minus the ones it classifies as expected. */
+/**
+ * A replay divergence that is a verdict the candidate rules changed: the
+ * database replay re-decides each recorded request and reports `now-denied`
+ * or `now-allowed`, the counterpart of the Firestore case verdicts.
+ */
+function isReplayVerdict(divergence: VerifyDivergence): boolean {
+  return divergence.kind === 'now-denied' || divergence.kind === 'now-allowed';
+}
+
+/** The state divergences a replay found, minus the ones it classifies as expected and the verdicts it re-decided. */
 function stateDivergences(found: readonly VerifyDivergence[]): VerifyDivergence[] {
-  return found.filter((divergence) => divergence.kind !== 'expected-drift');
+  return found.filter((divergence) => divergence.kind !== 'expected-drift' && !isReplayVerdict(divergence));
 }
 
 export default {
@@ -131,17 +140,20 @@ export default {
       return operationFailure(error instanceof Error ? error.message : String(error));
     }
 
-    const state = stateDivergences(replayed.services[service]?.divergences ?? []);
+    const replayDivergences = replayed.services[service]?.divergences ?? [];
+    const state = stateDivergences(replayDivergences);
+    const redecided = replayDivergences.filter(isReplayVerdict);
     const decided =
       service === 'firestore' ? runDerivedCases(read.fixture, firestoreRules) : { cases: [] };
     if ('error' in decided) return operationFailure(decided.error);
     const verdicts = verdictDivergences(decided.cases);
-    const divergences = [...verdicts, ...state];
+    const verdictCount = verdicts.length + redecided.length;
+    const divergences = [...verdicts, ...redecided, ...state];
     const skippedInstances = replayed.services[service]?.skippedInstances ?? [];
     const found =
       divergences.length === 0
         ? `Replaying '${named}' under the candidate rules changed no recorded verdict.`
-        : `Replaying '${named}' under the candidate rules changed ${verdicts.length} verdict(s) and left ${state.length} state divergence(s).`;
+        : `Replaying '${named}' under the candidate rules changed ${verdictCount} verdict(s) and left ${state.length} state divergence(s).`;
     // The candidate rules are the default instance's; a named instance the
     // session used is named rather than checked against them.
     const skipped =
