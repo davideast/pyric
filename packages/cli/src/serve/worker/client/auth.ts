@@ -14,6 +14,7 @@ import type {
   ResolvedIdentity,
   OpMessage,
 } from '../protocol.js';
+import { absolutePhotoUrl, realmOrigin } from 'pyric/sandbox/internal';
 import { closeSubscription, isDisconnectedPort, nextId, nextSubId, openSnapshotSubscription, rpc, wirePort } from './core.js';
 import type { ClientDb, ClientPort, Unsubscribe } from './handles.js';
 
@@ -94,7 +95,7 @@ function makeClientUser(port: ClientPort, raw: SerializedUser): ClientUser {
     email: raw.email,
     emailVerified: raw.emailVerified,
     displayName: raw.displayName,
-    photoURL: raw.photoURL,
+    photoURL: absolutePhotoUrl(raw.photoURL, realmOrigin()),
     phoneNumber: raw.phoneNumber,
     isAnonymous: raw.isAnonymous,
     tenantId: raw.tenantId ?? null,
@@ -373,7 +374,7 @@ export async function updateProfile(
   })) as SerializedUser;
   const mutable = user as { -readonly [K in keyof ClientUser]: ClientUser[K] };
   mutable.displayName = raw.displayName;
-  mutable.photoURL = raw.photoURL;
+  mutable.photoURL = absolutePhotoUrl(raw.photoURL, realmOrigin());
   mutable.providerData = raw.providerData;
 }
 
@@ -384,7 +385,7 @@ export async function reload(user: ClientUser): Promise<void> {
   mutable.email = raw.email;
   mutable.emailVerified = raw.emailVerified;
   mutable.displayName = raw.displayName;
-  mutable.photoURL = raw.photoURL;
+  mutable.photoURL = absolutePhotoUrl(raw.photoURL, realmOrigin());
   mutable.phoneNumber = raw.phoneNumber;
   mutable.providerData = raw.providerData;
   mutable.tenantId = raw.tenantId ?? null;

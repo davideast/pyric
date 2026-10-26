@@ -30,7 +30,13 @@ first fetched:
 - **Served modes** (Vite plugin, `pyric sandbox`, the Next.js rewrite):
   `photoURL` is `/__pyric/assets/avatar/<uid>?d=<seed>&...`. A namespace route
   resolves it against the configured avatar source, caches the bytes to disk,
-  and serves them.
+  and serves them. The record stores that relative path; every read resolves
+  it to an absolute URL, as production's always is: `user.photoURL` on the
+  page's `location.origin`, and the ID token `picture` claim and admin user
+  records on the origin the client sent at sign-in. It stays relative only
+  when no origin is known. A cross-site request (including the app's own
+  sandboxed blob-URL or srcdoc iframes) is answered from the cache, the pool,
+  or the generated fallback, and never starts the source.
 - **In-page mode** (no CLI, no server): `photoURL` is a small deterministic
   SVG data URI generated in shared `pyric` code.
 

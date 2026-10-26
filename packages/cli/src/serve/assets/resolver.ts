@@ -22,6 +22,9 @@ export interface AssetRequest {
   key: string;
   seed: string;
   context: Record<string, unknown>;
+  /** `false` answers from the cache, the pool, or the fallback and never
+   *  starts the source. Absent means the source may run. */
+  sourceAllowed?: boolean;
 }
 
 export type AssetResult = { url: string } | { data: Uint8Array; contentType: string };
@@ -259,7 +262,7 @@ export function createAssetResolver(opts: AssetResolverOptions): AssetResolver {
       // Missing/unreadable file: fall through as a miss, same as no entry.
     }
 
-    if (opts.source) {
+    if (opts.source && req.sourceAllowed !== false) {
       let pending = inFlight.get(req.key);
       if (!pending) {
         // Counted per new invocation, not per request: joining an in-flight

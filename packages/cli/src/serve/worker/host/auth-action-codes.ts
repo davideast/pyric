@@ -2,7 +2,7 @@ import { applyActionCode, checkActionCode, confirmPasswordReset, sendEmailVerifi
   sendPasswordResetEmail, sendSignInLinkToEmail, sandbox, verifyBeforeUpdateEmail, verifyPasswordResetCode } from 'pyric/auth';
 import { resolveEmailLinkIdentity } from 'pyric/auth/internal';
 import type { OpMessage } from '../protocol.js';
-import { ensureAuth, portSession, setPortSession } from '../host-auth.js';
+import { ensureAuth, portOriginScope, portSession, setPortSession } from '../host-auth.js';
 import { bestEffortFlush, fail, ok, type HostCtx, type PortLike } from '../host-context.js';
 import { credReply, requireMatchingPortSession } from './auth-session-seeder.js';
 
@@ -32,7 +32,7 @@ export async function handleAuthActionCodeOp(ctx: HostCtx, port: PortLike, messa
       case 'auth.signInWithEmailLink': {
         const { user, isNewUser } = resolveEmailLinkIdentity(auth, message.email, message.link);
         const session = sandbox.mintSession(auth, { kind: 'provider', uid: user.uid,
-          providerId: 'password', tenantId: message.tenantId ?? null });
+          providerId: 'password', tenantId: message.tenantId ?? null, ...portOriginScope(port) });
         await bestEffortFlush(ctx, message.method);
         setPortSession(ctx, port, session);
         ok(port, message.id, credReply(session, null, isNewUser));

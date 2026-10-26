@@ -39,6 +39,7 @@ import {
   handleAuthSub,
   handleAuthUnsub,
   cleanupPortSession,
+  setPortOrigin,
 } from '../host-auth.js';
 import {
   eventSubsFor,
@@ -218,6 +219,7 @@ export async function handleMessage(
 
   const configuresApp = msg.t === 'appConfig';
   if (configuresApp) {
+    if (msg.origin !== undefined) setPortOrigin(targetPort, msg.origin);
     handleAppConfig(ctx, targetPort, msg, stalePort => cleanupPort(ctx, stalePort));
     return;
   }

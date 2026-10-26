@@ -471,6 +471,8 @@ export interface AppConfigMessage {
   fromPriorHost?: boolean;
   /** Set when the attaching client proved compile-time/HTML origin from this running host instance. */
   hostVerified?: boolean;
+  /** The page's `location.origin`; the host resolves relative photo URLs against it. */
+  origin?: string;
 }
 
 /**
