@@ -14,28 +14,29 @@
  * deploy, 2026-10-26) records production ACCEPTING `.read` rules that chain
  * 500, 501 and 2,000 `auth.uid == 'u<n>'` terms.
  *
- * KNOWN_NODE_DIVERGENCES pins both sides of each case (finding LD-7, #1247),
- * so the suite stays green today and fails the moment production's recorded
- * verdict or Node's result moves. The fix removes each pin, watches the case
- * go red, then makes it read as production does: no lint error and an ALLOW
- * for uid `u0`.
+ * KNOWN_NODE_DIVERGENCES pins both sides of each case (finding LD-7, #1247).
+ * The 2,000-term case is pinned exactly: no Node default stack reads it. Under
+ * Node 24 the parser already fails at 499 terms, so the 500- and 501-term cases
+ * sit near the stack boundary, and another Node version may read them; their
+ * pins are `stackDependent` and accept either outcome. The fix removes each
+ * pin, watches the 2,000-term case go red, then makes all three read as
+ * production does: no lint error and an ALLOW for uid `u0`.
  */
 import { beforeAll, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { scenario as r51 } from '../../../../conformance/rules-corpus/rtdb/r51-deploy-anchor-index-and-length-probes.ts';
+import { ALL_RULES_RTDB_DEPLOY_SCENARIOS } from '../../../../conformance/rules-corpus/rtdb/index.ts';
 
+const R51_ID = 'r51-deploy-anchor-index-and-length-probes';
 const pyricRoot = resolve(import.meta.dir, '../../..');
 const rulesDist = join(pyricRoot, 'dist/rules/index.js');
-const observationPath = resolve(
-  pyricRoot,
-  '../conformance/observations/rtdb-rules/rules-rtdb-r51-deploy-anchor-index-and-length-probes.json',
-);
+const observationPath = resolve(pyricRoot, `../conformance/observations/rtdb-rules/rules-rtdb-${R51_ID}.json`);
 
 /** The r51 deploy cases that chain `||` terms. */
-const CHAIN_CASES = r51.deployCases.filter((deployCase) => deployCase.construct === 'rtdb.operator.or');
+const CHAIN_CASES = (ALL_RULES_RTDB_DEPLOY_SCENARIOS.find((scenario) => scenario.id === R51_ID)?.deployCases ?? [])
+  .filter((deployCase) => deployCase.construct === 'rtdb.operator.or');
 
 interface NodeOutcome {
   lintErrors: string[];
@@ -46,19 +47,25 @@ interface KnownNodeDivergence {
   finding: string;
   prodVerdict: 'ACCEPTED' | 'REJECTED';
   node: NodeOutcome;
+  /** Near the default stack boundary: a Node whose stack reads the chain agrees with production. */
+  stackDependent?: true;
 }
 
 const CHAINED_TERMS_PARSE_ERROR: NodeOutcome = { lintErrors: ['PARSE_ERROR'], decision: 'UNSUPPORTED' };
 
+/** What production's ACCEPTED verdict means for Pyric's result in Node. */
+const AGREES_WITH_ACCEPTED: NodeOutcome = { lintErrors: [], decision: 'ALLOW' };
+
 /** Keyed by the r51 case description. */
 const KNOWN_NODE_DIVERGENCES: Record<string, KnownNodeDivergence> = {
-  'LD-7: a 501-term || chain': { finding: 'LD-7', prodVerdict: 'ACCEPTED', node: CHAINED_TERMS_PARSE_ERROR },
   'LD-7: a 2000-term || chain': { finding: 'LD-7', prodVerdict: 'ACCEPTED', node: CHAINED_TERMS_PARSE_ERROR },
-  'LD-7 control: a 500-term || chain': { finding: 'LD-7', prodVerdict: 'ACCEPTED', node: CHAINED_TERMS_PARSE_ERROR },
+  'LD-7: a 501-term || chain': {
+    finding: 'LD-7', prodVerdict: 'ACCEPTED', node: CHAINED_TERMS_PARSE_ERROR, stackDependent: true,
+  },
+  'LD-7 control: a 500-term || chain': {
+    finding: 'LD-7', prodVerdict: 'ACCEPTED', node: CHAINED_TERMS_PARSE_ERROR, stackDependent: true,
+  },
 };
-
-/** What production's verdict means for Pyric's result in Node. */
-const AGREES_WITH_ACCEPTED: NodeOutcome = { lintErrors: [], decision: 'ALLOW' };
 
 const NODE_PROBES_TIMEOUT_MS = 30_000;
 const NODE_SPAWN_TIMEOUT_MS = NODE_PROBES_TIMEOUT_MS - 2_000;
@@ -86,18 +93,18 @@ function runInNode(rulesets: string[]): NodeOutcome[] {
   if (res.status !== 0) {
     throw new Error(`node exited ${res.status} (signal ${res.signal}${res.error ? `, ${res.error.message}` : ''}): ${res.stderr}`);
   }
-  return JSON.parse(res.stdout) as NodeOutcome[];
-}
-
-function recordedVerdict(description: string): string | undefined {
-  const observation = JSON.parse(readFileSync(observationPath, 'utf8')) as {
-    behavior: Record<string, { verdict?: string }>;
-  };
-  return observation.behavior[description]?.verdict;
+  try {
+    return JSON.parse(res.stdout) as NodeOutcome[];
+  } catch (e) {
+    throw new Error(`node wrote ${Buffer.byteLength(res.stdout)} bytes that are not JSON (${(e as Error).message}): ${res.stdout.slice(0, 200)}`);
+  }
 }
 
 let outcomes: NodeOutcome[];
+let recorded: Record<string, { verdict?: string }>;
 beforeAll(() => {
+  if (!existsSync(rulesDist)) throw new Error(`dist/rules/index.js missing, run \`bun run build\` first (${rulesDist})`);
+  recorded = (JSON.parse(readFileSync(observationPath, 'utf8')) as { behavior: Record<string, { verdict?: string }> }).behavior;
   outcomes = runInNode(CHAIN_CASES.map((deployCase) => deployCase.rules));
 }, NODE_PROBES_TIMEOUT_MS);
 
@@ -112,14 +119,16 @@ describe('RTDB rules under Node: || chains production deploys (r51)', () => {
   for (const [index, deployCase] of CHAIN_CASES.entries()) {
     test(deployCase.description, () => {
       const outcome = outcomes[index]!;
+      const verdict = recorded[deployCase.description]?.verdict;
       const known = KNOWN_NODE_DIVERGENCES[deployCase.description];
-      if (known) {
-        expect(recordedVerdict(deployCase.description), `${known.finding} (recorded production verdict)`).toBe(known.prodVerdict);
-        expect(outcome, `${known.finding} (Node lint and simulate)`).toEqual(known.node);
+      if (!known) {
+        expect(verdict).toBe('ACCEPTED');
+        expect(outcome).toEqual(AGREES_WITH_ACCEPTED);
         return;
       }
-      expect(recordedVerdict(deployCase.description)).toBe('ACCEPTED');
-      expect(outcome).toEqual(AGREES_WITH_ACCEPTED);
+      expect(verdict, `${known.finding} (recorded production verdict)`).toBe(known.prodVerdict);
+      const allowed = known.stackDependent ? [known.node, AGREES_WITH_ACCEPTED] : [known.node];
+      expect(allowed, `${known.finding} (Node lint and simulate)`).toContainEqual(outcome);
     });
   }
 });

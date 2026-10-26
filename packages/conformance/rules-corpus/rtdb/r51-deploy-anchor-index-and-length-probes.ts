@@ -7,9 +7,10 @@
  *     character. Does it also refuse a `$` that is not the last?
  *   - CS lead: `.indexOn` naming a dotted child or an empty string. pyric's
  *     lint says nothing about either.
- *   - LD-7: a long `||` chain. pyric's lint refuses more than 500 terms as a
- *     limit of its own parser; this asks whether production deploys 501 and
- *     2,000 terms.
+ *   - LD-7: a long `||` chain. pyric's parser turns a stack overflow into
+ *     PARSE_ERROR, so under Node (which overflows near 500 terms; bun reads
+ *     2,000) lint refuses the chain; this asks whether production deploys
+ *     500, 501 and 2,000 terms.
  *
  * Captured 2026-10-26: production refuses a $ that is not last (with the
  * same error text as for ^) and an .indexOn naming a dotted child, accepts an

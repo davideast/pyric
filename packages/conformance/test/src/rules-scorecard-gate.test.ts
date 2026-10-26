@@ -37,5 +37,7 @@ describe('Unified rules scorecard gate CLI reporter', () => {
     expect(out).toContain('[diverged] rtdb.rule-kind.location-wildcard (diverged by: rtdb-rules#37)');
     expect(out).toContain('[diverged] rtdb.rule-kind.indexOn (diverged by: rtdb-rules#38)');
     expect(out).toContain('[diverged] rtdb.operator.or (diverged by: rtdb-rules#39)');
+    const rtdbBreakdown = out.slice(out.indexOf('--- RTDB Rules Breakdown ---'));
+    expect(rtdbBreakdown.match(/\[diverged\] rtdb\./g)?.length).toBe(7);
   }, GATE_TIMEOUT_MS);
 });
