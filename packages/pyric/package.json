@@ -98,6 +98,10 @@
       "types": "./dist/storage/internal.d.ts",
       "import": "./dist/storage/internal.js"
     },
+    "./storage/sw": {
+      "types": "./dist/storage/sw.d.ts",
+      "import": "./dist/storage/sw.js"
+    },
     "./messaging": {
       "types": "./dist/messaging/index.d.ts",
       "import": "./dist/messaging/index.js"

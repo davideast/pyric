@@ -131,6 +131,10 @@ export default defineConfig({
 
 A string names a pre-built avatar set directory; an object with a `source` function generates images in the dev server; `false` turns avatars off entirely. See [Assign default avatars to sandbox users](../build/default-avatars.md) for the set format, the source callback, and the `PYRIC_AVATARS` environment variable `pyric sandbox` reads instead.
 
+## Serve production Storage URLs through your service worker
+
+If your app has its own service worker, set `serviceWorker` to its source file (`pyric({ hosted: true, serviceWorker: 'src/sw.ts' })`). In dev, production Storage download URLs your pages load are then answered from the sandbox. See [Serve production download URLs from your service worker](../build/cloud-storage.md#serve-production-download-urls-from-your-service-worker).
+
 ## Enable Node host mode
 
 To run the sandbox in a durable, shared Node process backed by SQLite instead of the browser's SharedWorker, pass `hosted: true`:

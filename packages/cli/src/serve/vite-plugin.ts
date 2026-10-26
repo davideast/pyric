@@ -60,6 +60,7 @@ import { createVitePageRuntime } from './vite-page-runtime.js';
 import { stampHostedTarget } from './runtime/hosted-target.js';
 import { installViteNetGuard } from './vite-net-guard.js';
 import { attachViteSsrActivation } from './vite-ssr-activation.js';
+import { createServiceWorkerWiring, type ServiceWorkerWiringContext } from './vite-service-worker.js';
 import type { SwapEnvironment, SwapResolveContext } from './vite-module-swap.js';
 
 /** Vite 6's `configEnvironment` hook, which the Vite 5 `Plugin` type does not declare. */
@@ -199,6 +200,12 @@ export interface PyricOptions {
    *  the avatar route entirely. An object supplies a custom source that
    *  runs in the dev server, never the browser. */
   avatars?: PyricAvatarsOptions;
+  /** The app's own service worker module (path from the Vite root), such as a
+   *  `vite-plugin-pwa` `injectManifest` source. In dev, the plugin adds a fetch
+   *  listener to it that answers production Storage download URLs from the
+   *  sandbox (`sandboxStorageFetch` from `pyric/storage/sw`), so the file needs
+   *  no Pyric import. Builds are untouched. */
+  serviceWorker?: string;
 }
 
 function resolveFunctionsOptions(
@@ -255,6 +262,8 @@ export function pyric(options: PyricOptions = {}): Plugin & EnvironmentHooks {
     workerRuntime,
   };
   const pageRuntime = createVitePageRuntime(pageRuntimeInput);
+  const serviceWorkerWiring = createServiceWorkerWiring(options.serviceWorker);
+  let serviceWorkerContext: ServiceWorkerWiringContext = { root: process.cwd(), devServer: false };
   const moduleSwap = createViteModuleSwap(moduleContext, {
     getAiMode: () => pageRuntime.ai().mode,
   });
@@ -290,6 +299,7 @@ export function pyric(options: PyricOptions = {}): Plugin & EnvironmentHooks {
       // the dev server: a build or a preview runs no server-rendered app code.
       const isDevServer = env.command === 'serve' && env.isPreview !== true;
       if (isDevServer) installViteNetGuard();
+      serviceWorkerContext = { ...serviceWorkerContext, devServer: isDevServer };
       const moduleConfig = moduleSwap.config({ devServer: isDevServer });
       const pageConfig = pageRuntime.config(config, env);
       const serverWatchConfig: UserConfig = {
@@ -309,6 +319,7 @@ export function pyric(options: PyricOptions = {}): Plugin & EnvironmentHooks {
 
     async configResolved(resolved) {
       moduleSwap.configResolved(resolved);
+      serviceWorkerContext = { ...serviceWorkerContext, root: resolved.root };
       // A sandbox build stamps pages without a dev server, so configureServer
       // never reads pyric.json for it.
       const isBuild = resolved.command === 'build';
@@ -332,7 +343,10 @@ export function pyric(options: PyricOptions = {}): Plugin & EnvironmentHooks {
       },
 
       transform(code, id, transformOptions) {
-        if (hostedInstanceId === undefined || transformOptions?.ssr === true) return null;
+        if (transformOptions?.ssr === true) return null;
+        const wiredServiceWorker = serviceWorkerWiring.transform(code, id, serviceWorkerContext);
+        if (wiredServiceWorker !== null) return wiredServiceWorker;
+        if (hostedInstanceId === undefined) return null;
         const cleanId = id.split('?')[0];
         if (cleanId === entries.app || cleanId === entries['messaging-sw']) {
           return `globalThis.__PYRIC_HOST_INSTANCE_ID__=${JSON.stringify(hostedInstanceId)};\n${code}`;

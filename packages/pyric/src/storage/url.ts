@@ -20,45 +20,15 @@
  * string as an object path.
  */
 import { StorageError } from './errors.js';
+import { matchStorageUrl, type StorageLocation } from './url-forms.js';
 
-/** The bucket and object path a Storage URL names. */
-export interface StorageLocation {
-  readonly bucket: string;
-  readonly path: string;
-}
-
-const BUCKET = '([A-Za-z0-9.\\-_]+)';
+export type { StorageLocation } from './url-forms.js';
 
 /** A `ref()` string is a URL when it starts with a scheme and `://`, as production decides. */
 const SCHEME_URL = /^[A-Za-z]+:\/\//;
 
 /** `data:[<media type>][;base64],<data>` */
 const DATA_URI = /^data:[^,]*,/i;
-
-/** A URL form: its pattern captures the bucket, then the path. */
-interface UrlForm {
-  readonly pattern: RegExp;
-  /** Turns the captured path into the object path. */
-  readonly path: (captured: string) => string;
-}
-
-const asWritten = (value: string): string => value;
-
-const URL_FORMS: readonly UrlForm[] = [
-  { pattern: new RegExp(`^gs://${BUCKET}(?:/(.*))?$`, 'i'), path: asWritten },
-  {
-    pattern: new RegExp(`^https?://firebasestorage\\.googleapis\\.com/v[A-Za-z0-9_]+/b/${BUCKET}/o(?:/([^?#]*).*)?$`, 'i'),
-    path: decodeURIComponent,
-  },
-  {
-    pattern: new RegExp(`^https?://(?:storage\\.googleapis\\.com|storage\\.cloud\\.google\\.com)/${BUCKET}/([^?#]*)`, 'i'),
-    path: decodeURIComponent,
-  },
-  {
-    pattern: new RegExp(`^https?://[^/?#]+/__pyric/storage/v0/b/${BUCKET}/o/([^?#]+)`),
-    path: decodeURIComponent,
-  },
-];
 
 function invalidUrl(url: string, detail: string): StorageError {
   return new StorageError('invalid-url', `Invalid URL '${url}'. ${detail}`);
@@ -78,11 +48,8 @@ export function parseStorageUrl(url: string): StorageLocation {
       'A data: URI carries an object\'s bytes, not its location. Reference the object by its path or its gs:// URL.',
     );
   }
-  for (const form of URL_FORMS) {
-    const captured = form.pattern.exec(url);
-    if (captured === null) continue;
-    return { bucket: captured[1]!, path: form.path(captured[2] ?? '') };
-  }
+  const location = matchStorageUrl(url);
+  if (location !== undefined) return location;
   throw invalidUrl(url, 'Expected a gs:// URL or a Storage download URL.');
 }
 
