@@ -15,25 +15,29 @@ export interface BlackholedPort {
  * queue until it is full, then drops every further SYN, so a new connect
  * stays in SYN-SENT until the client gives up. That is how a closed port
  * behaves under WSL mirrored networking, reproduced on any Linux.
+ *
+ * The listener binds `requested`, or a port the kernel chooses when it is 0.
  */
-export async function blackholedPort(): Promise<BlackholedPort> {
+export async function blackholedPort(requested = 0): Promise<BlackholedPort> {
   const listener = spawn(
     'node',
     [
       '-e',
       `const server = require('node:net').createServer();
-server.listen({ port: 0, host: '127.0.0.1', backlog: 1 }, () => {
+server.listen({ port: Number(process.argv[1]), host: '127.0.0.1', backlog: 1 }, () => {
   process.stdout.write(server.address().port + '\\n');
   // Bounded, so a listener orphaned by a crashed test frees its port.
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 120000);
   process.exit(0);
 });`,
+      String(requested),
     ],
     { stdio: ['ignore', 'pipe', 'inherit'] },
   );
   const port = await new Promise<number>((resolve, reject) => {
     listener.stdout.once('data', (chunk: Buffer) => resolve(Number(String(chunk).trim())));
     listener.once('error', reject);
+    listener.once('exit', (code) => reject(new Error(`the blackhole listener exited with code ${code} before binding port ${requested}`)));
   });
   const fillers: Socket[] = [];
   const close = (): void => {

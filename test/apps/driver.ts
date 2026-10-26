@@ -310,8 +310,6 @@ export function probePort(): Promise<number> {
 /** Hands out ports nothing listens on, never the same port twice. */
 export interface PortIssuer {
   next(): Promise<number>;
-  /** Records a port handed out some other way, so `next` never returns it. */
-  reserve(port: number): void;
 }
 
 const PORT_ATTEMPTS = 32;
@@ -337,17 +335,15 @@ export function portIssuer(probe: () => Promise<number> = probePort): PortIssuer
       }
       throw new Error(`no unissued port after ${PORT_ATTEMPTS} probes; the probe only returned ${[...new Set(repeats)].join(', ')}`);
     },
-    reserve(port) {
-      issued.add(port);
-    },
   };
 }
 
-const ports = portIssuer();
+/** The one issuer every app in a run shares, so concurrent apps never get the same port. */
+const runPorts = portIssuer();
 
 /** A port nothing listens on that no earlier call in this run returned. */
-export function freePort(): Promise<number> {
-  return ports.next();
+export function freePort(issuer: PortIssuer = runPorts): Promise<number> {
+  return issuer.next();
 }
 
 /** The environment of every app process: no inherited credentials or keys, and a fresh HOME. */
@@ -399,6 +395,8 @@ export class AppRun implements App {
     private readonly launchBrowser: () => Promise<Browser>,
     /** The packed Pyric packages and npm cache the runner installed the app with. */
     private readonly packages?: { tarballs: Tarballs; npmCache: string },
+    /** Where `freePort()`, `blackholedPort()`, and `devServer()` get their ports. */
+    private readonly ports: PortIssuer = runPorts,
   ) {}
 
   async step<T>(name: string, run: () => Promise<T> | T): Promise<T> {
@@ -412,18 +410,18 @@ export class AppRun implements App {
   }
 
   freePort(): Promise<number> {
-    return freePort();
+    return freePort(this.ports);
   }
 
+  /** Listens on an issued port, so no later `freePort()` in the run returns it. */
   async blackholedPort(): Promise<number> {
-    const hole = await blackholedPort();
+    const hole = await blackholedPort(await freePort(this.ports));
     this.blackholes.push(hole);
-    ports.reserve(hole.port);
     return hole.port;
   }
 
   async devServer(options: { env?: Record<string, string>; name?: string; port?: number } = {}): Promise<DevServer> {
-    const port = options.port ?? await freePort();
+    const port = options.port ?? await freePort(this.ports);
     this.serverCount += 1;
     const name = options.name ?? (this.serverCount === 1 ? 'dev server' : `dev server ${this.serverCount}`);
     const child = new AppProcess(
