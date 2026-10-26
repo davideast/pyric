@@ -1,4 +1,5 @@
 import { joinPath, pathSegments } from './sandbox/data-tree.js';
+import { validateReferencePath } from './writable-path.js';
 import { emptySpec } from './sandbox/query.js';
 import { tag, targetOf, type SandboxLiveTarget, type SandboxTarget } from './routing.js';
 import { QUERY_SYMBOL, type Database, type DatabaseReference, type Query } from './types.js';
@@ -54,17 +55,6 @@ export function refFromURL(db: Database, url: string): DatabaseReference {
     );
   }
   return ref(db, parsed.pathname);
-}
-
-function validateReferencePath(path: string, allowEmpty: boolean): void {
-  const normalized = path.replace(/^\/*\.info(\/|$)/, '/');
-  const isInvalidLength = !allowEmpty && path.length === 0;
-  const containsForbiddenChars = /[.#$[\]]/.test(normalized);
-  if (isInvalidLength || containsForbiddenChars) {
-    throw new Error(
-      `child failed: path argument was an invalid path = "${path}". Paths must be non-empty strings and can't contain ".", "#", "$", "[", or "]"`,
-    );
-  }
 }
 
 /**
