@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { AppProcess, type SpawnChild } from './driver.ts';
+import { AppProcess, portIssuer, type SpawnChild } from './driver.ts';
 
 /** A child that never gets a pid, so the driver sends it no signal. */
 function standIn(): ChildProcess {
@@ -117,5 +117,49 @@ describe('stop', () => {
     expect(child.running).toBe(false);
     expect(child.output).toContain('[driver] exited on SIGTERM');
     expect(child.output).not.toContain('records it as gone');
+  });
+});
+
+/** A probe that returns each scripted port in turn, then repeats the last one. */
+function scriptedProbe(script: number[]): { probe: () => Promise<number>; probes: () => number } {
+  let count = 0;
+  const probe = async (): Promise<number> => {
+    const port = script[count] ?? script[script.length - 1]!;
+    count += 1;
+    return port;
+  };
+  return { probe, probes: () => count };
+}
+
+describe('port issuer', () => {
+  test('a probe that repeats a port is asked again, so the second port differs', async () => {
+    const { probe, probes } = scriptedProbe([33093, 33093, 33094]);
+    const ports = portIssuer(probe);
+    const first = await ports.next();
+    const second = await ports.next();
+    expect([first, second]).toEqual([33093, 33094]);
+    expect(probes()).toBe(3);
+  });
+
+  test('a reserved port is never handed out', async () => {
+    const { probe } = scriptedProbe([40000, 40001]);
+    const ports = portIssuer(probe);
+    ports.reserve(40000);
+    expect(await ports.next()).toBe(40001);
+  });
+
+  test('a probe that only repeats fails with the ports it returned', async () => {
+    const { probe, probes } = scriptedProbe([33093]);
+    const ports = portIssuer(probe);
+    await ports.next();
+    await expect(ports.next()).rejects.toThrow(/^no unissued port after 32 probes; the probe only returned 33093$/);
+    expect(probes()).toBe(33);
+  });
+
+  test('the default probe hands out distinct real ports', async () => {
+    const ports = portIssuer();
+    const issued: number[] = [];
+    for (let count = 0; count < 8; count += 1) issued.push(await ports.next());
+    expect(new Set(issued).size).toBe(issued.length);
   });
 });

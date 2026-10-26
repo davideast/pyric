@@ -294,7 +294,8 @@ export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export function freePort(): Promise<number> {
+/** Binds port 0 on loopback, reads the port the kernel chose, and closes it. */
+export function probePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const probe = createServer();
     probe.on('error', reject);
@@ -304,6 +305,49 @@ export function freePort(): Promise<number> {
       probe.close(() => resolve(port));
     });
   });
+}
+
+/** Hands out ports nothing listens on, never the same port twice. */
+export interface PortIssuer {
+  next(): Promise<number>;
+  /** Records a port handed out some other way, so `next` never returns it. */
+  reserve(port: number): void;
+}
+
+const PORT_ATTEMPTS = 32;
+
+/**
+ * A probe closes its socket before the caller binds the port, so the kernel
+ * can choose that port again for the next probe. The issuer remembers every
+ * port it handed out and probes again on a repeat.
+ */
+export function portIssuer(probe: () => Promise<number> = probePort): PortIssuer {
+  const issued = new Set<number>();
+  return {
+    async next() {
+      const repeats: number[] = [];
+      for (let attempt = 0; attempt < PORT_ATTEMPTS; attempt += 1) {
+        const port = await probe();
+        const isFresh = port > 0 && !issued.has(port);
+        if (isFresh) {
+          issued.add(port);
+          return port;
+        }
+        repeats.push(port);
+      }
+      throw new Error(`no unissued port after ${PORT_ATTEMPTS} probes; the probe only returned ${[...new Set(repeats)].join(', ')}`);
+    },
+    reserve(port) {
+      issued.add(port);
+    },
+  };
+}
+
+const ports = portIssuer();
+
+/** A port nothing listens on that no earlier call in this run returned. */
+export function freePort(): Promise<number> {
+  return ports.next();
 }
 
 /** The environment of every app process: no inherited credentials or keys, and a fresh HOME. */
@@ -374,6 +418,7 @@ export class AppRun implements App {
   async blackholedPort(): Promise<number> {
     const hole = await blackholedPort();
     this.blackholes.push(hole);
+    ports.reserve(hole.port);
     return hole.port;
   }
 
