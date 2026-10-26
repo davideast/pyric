@@ -111,11 +111,6 @@ const KNOWN_DIVERGENCES: Record<
   'r50-regex-unsupported-semantics :: SP-8: dot against a carriage return': {
     prodVerdict: 'ALLOW', simVerdict: 'DENY', reason: 'SP-8: production . matches \\r; JavaScript . does not',
   },
-  // CS-1 (#1247, row rtdb-rules#37): a __proto__ key never lands in the simulated
-  // post-write tree, so its $k .validate is skipped.
-  'r52-prototype-named-keys :: CS-1: a string set at /__proto__ under a number-only $k': {
-    prodVerdict: 'DENY', simVerdict: 'ALLOW', reason: 'CS-1: the post-write tree drops a __proto__ key, so its .validate never runs',
-  },
 };
 
 interface RulesObservation {

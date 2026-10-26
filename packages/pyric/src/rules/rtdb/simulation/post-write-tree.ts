@@ -5,11 +5,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+/**
+ * Set `key` on `target` as an own data property. Plain assignment would run
+ * the `__proto__` setter instead, so a key named `__proto__` would never land
+ * in the tree, where production stores it as an ordinary key (capture
+ * rules-rtdb-r52-prototype-named-keys, CS-1).
+ */
+function defineChild(target: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
+}
+
 /** The value stored at `path` in a root tree, or undefined. */
 export function valueAtPath(root: unknown, path: string): unknown {
   let cursor: unknown = root;
   for (const segment of path.split('/').filter(Boolean)) {
-    if (cursor === null || typeof cursor !== 'object') return undefined;
+    if (cursor === null || typeof cursor !== 'object' || !Object.hasOwn(cursor, segment)) return undefined;
     cursor = (cursor as Record<string, unknown>)[segment];
   }
   return cursor;
@@ -94,7 +104,7 @@ export function withValueAt(root: unknown, segments: string[], value: unknown): 
   }
 
   const nextObj: Record<string, unknown> = isPlainObject ? { ...unwrapped } : {};
-  nextObj[head] = childValue;
+  defineChild(nextObj, head, childValue);
   if (isWrapper && isPlainObject && Object.hasOwn(root, '.priority')) {
     nextObj['.priority'] = root['.priority'];
   }
