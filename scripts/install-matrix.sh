@@ -138,6 +138,8 @@ const PKGS = ['pyric', 'pyric-admin', 'create-pyric', '@pyric/cli', '@pyric/ui']
 // The browser modules `withPyric` aliases client `firebase/*` imports to. They
 // start the browser runtime on import, which keeps a Node process alive, so
 // each one is resolved to an installed file without running it.
+// A JSON subpath (./package.json) is checked the same way: import() of it
+// needs a JSON import attribute.
 const BROWSER_ENTRY_PREFIX = '@pyric/cli/next/internal/';
 let failed = false, total = 0;
 for (const pkg of PKGS) {
@@ -145,7 +147,7 @@ for (const pkg of PKGS) {
   const subpaths = Object.keys(manifest.exports ?? {});
   for (const sub of subpaths) {
     const spec = pkg + sub.slice(1); // "." -> "", "./x" -> "/x"
-    if (spec.startsWith(BROWSER_ENTRY_PREFIX)) {
+    if (spec.startsWith(BROWSER_ENTRY_PREFIX) || sub.endsWith('.json')) {
       try {
         const file = fileURLToPath(import.meta.resolve(spec));
         if (existsSync(file)) total++;
