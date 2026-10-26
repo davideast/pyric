@@ -100,6 +100,14 @@ It maps the same URLs as `localStorageUrl` from `@pyric/cli/remote`: the `fireba
 
 It answers every production Storage URL, so gating it to development is your app's job, as the `import.meta.env.DEV` check above does. The module imports nothing beyond its URL mapping, so it adds little to a service worker bundle.
 
+With the Vite plugin, you can leave your service worker without a Pyric import. Name its source file with the `serviceWorker` option, for example a `vite-plugin-pwa` `injectManifest` source:
+
+```ts
+pyric({ hosted: true, serviceWorker: 'src/sw.ts' })
+```
+
+In `vite dev`, the plugin adds a fetch listener to that module ahead of your code. The listener calls `sandboxStorageFetch` and stops other fetch listeners for the requests it answers. The plugin imports the helper from its own install, so it works when Pyric is installed outside your app's `node_modules`. `vite build` leaves the file as written.
+
 ## Check support before choosing an operation
 
 Per-feature support is tracked on the [Cloud Storage conformance page](storage-compat.md).
