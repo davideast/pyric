@@ -63,3 +63,26 @@ describe('a key named __proto__ in the simulated trees', () => {
     expect(decide({ operation: 'write', path: '/a', newData: value })).toBe('ALLOW');
   });
 });
+
+describe('a snapshot whose child is named __proto__', () => {
+  const stored = JSON.parse('{"p":{"__proto__":1}}') as Record<string, unknown>;
+  const reads = (rule: string): string => rtdbRules({ rules: { p: { '.read': rule } } })
+    .simulate([{ expectation: 'ALLOW', operation: 'read', path: '/p', data: stored }]).cases[0]!.decision;
+
+  test('a parent whose only child is __proto__ exists', () => {
+    expect(reads('data.exists()')).toBe('ALLOW');
+  });
+
+  test('hasChildren() and val() include the child', () => {
+    expect(reads('data.hasChildren()')).toBe('ALLOW');
+    expect(reads("data.hasChildren(['__proto__'])")).toBe('ALLOW');
+    expect(reads("data.child('__proto__').val() == 1")).toBe('ALLOW');
+  });
+
+  test('an update that writes only __proto__ makes its parent exist in newData', () => {
+    const rs = rtdbRules({ rules: { p: { '.write': 'newData.exists() && newData.hasChildren()' } } });
+    const patch = JSON.parse('{"__proto__":1}') as Record<string, unknown>;
+    const [result] = rs.simulate([{ expectation: 'ALLOW', operation: 'update', path: '/p', newData: patch }]).cases;
+    expect(result!.decision).toBe('ALLOW');
+  });
+});
