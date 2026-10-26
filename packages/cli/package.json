@@ -77,7 +77,8 @@
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
-      "import": "./dist/vite.js"
+      "import": "./dist/vite.js",
+      "default": "./dist/vite.js"
     },
     "./vite/ssr-loader": {
       "types": "./dist/serve/vite-ssr-loader.d.ts",
@@ -88,7 +89,8 @@
     },
     "./next": {
       "types": "./dist/next/index.d.ts",
-      "import": "./dist/next/index.js"
+      "import": "./dist/next/index.js",
+      "default": "./dist/next/index.js"
     },
     "./bundler": {
       "types": "./dist/bundler/index.d.ts",
@@ -109,7 +111,8 @@
       "types": "./dist/register/index.d.ts",
       "node": {
         "types": "./dist/register/index.d.ts",
-        "import": "./dist/register/index.js"
+        "import": "./dist/register/index.js",
+        "default": "./dist/register/index.js"
       }
     },
     "./register/app-bridge": {
@@ -209,7 +212,8 @@
     },
     "./next/internal/react-hook": {
       "import": "./dist/next/react-hook-entry.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "bin": {
     "pyric": "./dist/cli/index.js"

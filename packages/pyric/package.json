@@ -189,7 +189,8 @@
     "./remote-config": {
       "types": "./dist/remote-config/index.d.ts",
       "import": "./dist/remote-config/index.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",

@@ -3,6 +3,7 @@
   "commands": [
     "bridge",
     "sandbox",
+    "run",
     "init",
     "vendor",
     "mcp",
@@ -177,7 +178,8 @@
     "./next/internal/performance",
     "./next/internal/remote-config",
     "./next/internal/storage",
-    "./next/internal/react-hook"
+    "./next/internal/react-hook",
+    "./package.json"
   ],
   "allowedFirebaseSdkImportEdges": [
     "dist/register/app-bridge-shadow.js -> firebase/app",

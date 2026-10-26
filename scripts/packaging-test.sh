@@ -52,6 +52,8 @@ exported_subpaths() {
     for (const key of Object.keys(manifest.exports ?? {})) {
       if (key === ".") continue;
       if (unreleased.has(key)) continue;
+      // ./package.json is metadata; importing it needs a JSON import attribute.
+      if (key.endsWith(".json")) continue;
       process.stdout.write(`${manifest.name}${key.slice(1)}\n`);
     }
   ' "$ROOT/$pkg_dir/package.json"
