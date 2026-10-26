@@ -111,14 +111,6 @@ const KNOWN_DIVERGENCES: Record<
   'r50-regex-unsupported-semantics :: SP-8: dot against a carriage return': {
     prodVerdict: 'ALLOW', simVerdict: 'DENY', reason: 'SP-8: production . matches \\r; JavaScript . does not',
   },
-  // SP-4 (#1247, row rtdb-rules#36): the simulator builds no query for a write, so
-  // query is null; production reads query.orderByKey as false, as on a plain read.
-  'r49-value-edges :: SP-4: !query.orderByKey in a .write': {
-    prodVerdict: 'ALLOW', simVerdict: 'DENY', reason: 'SP-4: query is null in a simulated .write; production reads orderByKey as false',
-  },
-  'r49-value-edges :: SP-4: query.orderByKey == false in a .write': {
-    prodVerdict: 'ALLOW', simVerdict: 'DENY', reason: 'SP-4: query is null in a simulated .write; production reads orderByKey as false',
-  },
   // CS-1 (#1247, row rtdb-rules#37): a __proto__ key never lands in the simulated
   // post-write tree, so its $k .validate is skipped.
   'r52-prototype-named-keys :: CS-1: a string set at /__proto__ under a number-only $k': {
