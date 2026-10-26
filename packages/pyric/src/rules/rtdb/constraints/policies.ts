@@ -20,8 +20,12 @@ export const hasRole = (segments: Segment[], role: string): Expr =>
   rootEquals(segments, role);
 
 /** Cross-path membership check: root.child(list).child($var).child(auth.uid).exists() */
-export const isMember = (listName: string, pathVarName: string): Expr =>
-  expr(`root.child(${lit(listName)}).child($${pathVarName}).child(auth.uid).exists()`);
+export function isMember(listName: string, pathVarName: string): Expr {
+  if (typeof pathVarName !== 'string' || !/^[A-Za-z_]\w*$/.test(pathVarName)) {
+    throw new Error(`isMember: '${String(pathVarName)}' is not a path variable name; pass it without the $, such as 'roomId'.`);
+  }
+  return expr(`root.child(${lit(fieldName('isMember', listName))}).child($${pathVarName}).child(auth.uid).exists()`);
+}
 
 /**
  * All specified fields must be present in the incoming data. Single keys are

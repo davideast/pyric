@@ -8,6 +8,20 @@ import type { Expr } from '../constraints/types.js';
 import { fieldName, lit } from '../constraints/compose.js';
 import { dataVal, eq, newDataVal } from '../constraints/data.js';
 
+/** The most seats or slots a builder writes one comparison for. */
+export const MAX_BUILT_COUNT = 1000;
+
+/** RTDB data is at most 32 levels deep, so a `.parent()` chain longer than that leaves the tree. */
+export const MAX_PARENT_DEPTH = 32;
+
+/** An integer of at least `min` and at most `limit`, or a thrown error naming the builder and the argument. */
+export function boundedCount(builder: string, name: string, value: number, min: number, limit: number): number {
+  if (!Number.isInteger(value) || value < min || value > limit) {
+    throw new Error(`${builder}: ${name} must be an integer from ${min} to ${limit}, got ${String(value)}.`);
+  }
+  return value;
+}
+
 /** A finite number argument, or a thrown error naming the builder. */
 export function finite(builder: string, name: string, value: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -41,9 +55,7 @@ export function childPath(builder: string, segments: ReadonlyArray<string | { $:
 /** `snapshot` followed by `levelsUp` `.parent()` calls, or `root` when `levelsUp` is undefined. */
 export function climb(builder: string, snapshot: 'data' | 'newData', levelsUp: number | undefined): string {
   if (levelsUp === undefined) return 'root';
-  if (!Number.isInteger(levelsUp) || levelsUp < 0) {
-    throw new Error(`${builder}: levelsUp must be an integer of at least 0, got ${String(levelsUp)}.`);
-  }
+  boundedCount(builder, 'levelsUp', levelsUp, 0, MAX_PARENT_DEPTH);
   return `${snapshot}${'.parent()'.repeat(levelsUp)}`;
 }
 

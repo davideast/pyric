@@ -17,7 +17,7 @@
  */
 import type { Expr } from '../constraints/types.js';
 import { any, expr, fieldName, lit } from '../constraints/compose.js';
-import { pathVariable } from './expr.js';
+import { boundedCount, MAX_BUILT_COUNT, pathVariable } from './expr.js';
 
 /** The wildcard's key is one of `keys`. */
 export function keyIn(pathVar: string, keys: string[]): Expr {
@@ -28,8 +28,6 @@ export function keyIn(pathVar: string, keys: string[]): Expr {
 
 /** The wildcard's key is one of '0' to `max - 1`, so the collection holds at most `max` children. */
 export function slotKey(pathVar: string, max: number): Expr {
-  if (!Number.isInteger(max) || max < 1) {
-    throw new Error(`slotKey: max must be an integer of at least 1, got ${String(max)}.`);
-  }
+  boundedCount('slotKey', 'max', max, 1, MAX_BUILT_COUNT);
   return keyIn(pathVariable('slotKey', pathVar), Array.from({ length: max }, (_, i) => String(i)));
 }

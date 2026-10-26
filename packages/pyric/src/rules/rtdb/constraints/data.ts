@@ -2,11 +2,14 @@ import type { Expr, Segment } from './types.js';
 import { expr as e, fieldName, group, lit } from './compose.js';
 import { looksLikeRuleReference } from '../grammar/linter.js';
 
+// RTDB data is at most 32 levels deep, so a longer .parent() chain leaves the tree.
+const MAX_PARENT_DEPTH = 32;
+
 type CompareValue = string | number | boolean | null | Segment;
 
 const COMPARE_OPERATORS = ['||', '&&', '?', '===', '!==', '==', '!=', '>=', '<=', '>', '<'];
 
-function childPathName(builder: string, path: string): string {
+export function childPathName(builder: string, path: string): string {
   if (typeof path !== 'string' || path.length === 0) {
     throw new Error(`${builder}: child path cannot be empty.`);
   }
@@ -67,8 +70,8 @@ export const newDataIs = (type: 'String' | 'Number' | 'Boolean'): Expr =>
 // ---- Parent navigation ----
 
 function parentChain(base: string, depth: number): string {
-  if (!Number.isInteger(depth) || depth < 1) {
-    throw new Error(`${base}Parent: depth must be a positive integer (got ${depth}).`);
+  if (!Number.isInteger(depth) || depth < 1 || depth > MAX_PARENT_DEPTH) {
+    throw new Error(`${base}Parent: depth must be an integer from 1 to ${MAX_PARENT_DEPTH}, got ${String(depth)}.`);
   }
   return base + '.parent()'.repeat(depth);
 }
