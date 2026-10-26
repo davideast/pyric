@@ -134,6 +134,18 @@ describe('RTDB rule coverage from simulate', () => {
     expect(summary.coverage.missingIndexes).toEqual([]);
   });
 
+  // CS-12 (#1247): a case refused as invalid input reached no node, so it uses no index (coverage.ts contract).
+  test('a read case the simulator cannot decide uses no .indexOn and lists no missing index', () => {
+    const summary = rtdbRules({ rules: { a: { '.read': true, '.indexOn': ['x'] } } }).simulate([
+      { expectation: 'ALLOW', operation: 'read', path: '/a', query: { orderByChild: 'x', limitToFirst: 0 } },
+      { expectation: 'ALLOW', operation: 'read', path: '/a', query: { orderByChild: 'y', limitToFirst: 0 } },
+    ]);
+    expect(summary.cases.map((c) => c.decision)).toEqual(['UNSUPPORTED', 'UNSUPPORTED']);
+    expect(row(summary, '/a', 'indexOn').status).toBe('never-evaluated');
+    expect(row(summary, '/a', 'read').status).toBe('never-evaluated');
+    expect(summary.coverage.missingIndexes).toEqual([]);
+  });
+
   test('a read case whose query orders by an undeclared child is listed under missingIndexes', () => {
     const summary = rtdbRules(ruleset).simulate([
       { expectation: 'DENY', operation: 'read', path: '/posts', auth: 'alice', query: { orderByChild: 'title' } },

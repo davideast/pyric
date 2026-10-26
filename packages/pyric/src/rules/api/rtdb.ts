@@ -233,7 +233,11 @@ function fileCoverage(
   const recorder = new RtdbCoverageRecorder(doc.compile());
   for (const result of results) {
     recorder.record(result.trace);
-    if (result.case.operation === 'read') recorder.recordQuery(result.case.path, result.case.query);
+    // A case the simulator could not decide, such as one whose query it
+    // refused as invalid input, cannot be said to have run a query (CS-12).
+    if (result.case.operation === 'read' && result.decision !== 'UNSUPPORTED') {
+      recorder.recordQuery(result.case.path, result.case.query);
+    }
   }
   return recorder.summarize(options);
 }
