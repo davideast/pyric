@@ -49,17 +49,17 @@ test('Google popup sign-in mints a served avatar URL that renders and survives r
   const uid = status?.replace('signed-in:', '');
   expect(uid).toBeTruthy();
 
-  // THE ASSERTION under test: photoURL is the served avatar route, keyed to
-  // this uid, carrying the resolution seed as `d`.
+  // THE ASSERTION under test: photoURL is the served avatar route on the
+  // page's origin, keyed to this uid, carrying the resolution seed as `d`.
   const photoURL = await page.evaluate(() => (window as unknown as { __photoURL: string | null }).__photoURL);
-  expect(photoURL).toMatch(/^\/__pyric\/assets\/avatar\/[^/?]+\?/);
-  const url = new URL(photoURL!, 'http://localhost');
+  const url = new URL(photoURL!);
+  expect(url.origin).toBe(new URL(page.url()).origin);
   expect(decodeURIComponent(url.pathname)).toBe(`/__pyric/assets/avatar/${uid}`);
   expect(url.searchParams.get('d')).toBeTruthy();
 
   // The <img> bound to it in fixture/main.js actually decodes pixels.
   const avatar = page.locator('#avatar');
-  await expect(avatar).toHaveJSProperty('src', new URL(photoURL!, page.url()).href);
+  await expect(avatar).toHaveJSProperty('src', photoURL);
   await page.waitForFunction(() => {
     const img = document.getElementById('avatar') as HTMLImageElement | null;
     return !!img && img.complete && img.naturalWidth > 0;

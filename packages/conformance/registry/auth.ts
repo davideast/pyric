@@ -1074,7 +1074,7 @@ export const authRegistry = {
           rowRef: "58a",
           featureKeys: ["User"],
           api: "User` methods",
-          behavior: "`user.photoURL` / `user.phoneNumber` — present (prod passes through, no longer stripped). A user created under a federated provider id (one containing a dot, such as `google.com`) with no photo of its own is assigned a generated `photoURL` at creation, matching prod, where a federated sign-in always returns one; `password`, `phone`, email-link, and anonymous users stay `null`. An identity-supplied photo always wins, and `phoneNumber` defaults to `null`",
+          behavior: "`user.photoURL` / `user.phoneNumber` — present (prod passes through, no longer stripped). A user created under a federated provider id (one containing a dot, such as `google.com`) with no photo of its own is assigned a generated `photoURL` at creation, matching prod, where a federated sign-in always returns one; `password`, `phone`, email-link, and anonymous users stay `null`. An identity-supplied photo always wins, and `phoneNumber` defaults to `null`. A served host stores the generated photo as a relative path and reads it back absolute, as prod's always is: `user.photoURL` on the page's origin, and the ID token `picture` claim and admin user records on the origin the client signed in from",
           status: "conforms",
           evidence: "`unit:sandbox-provider-photo.test.ts` (federated mint, identity photo wins, password / anonymous / email-link stay null); `unit:auth-gap-surface.test.ts` (phoneNumber presence)",
           automation: "unit-backed",

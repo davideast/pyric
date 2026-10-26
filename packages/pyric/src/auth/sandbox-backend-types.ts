@@ -33,7 +33,7 @@ export type { SeedUser } from './seed-user.js';
  * `provider` for a provider sign-in to an existing linked identity.
  * `custom` binds an identity already resolved from a custom token.
  */
-export type MintSessionRequest = TenantScope & (
+export type MintSessionRequest = TenantScope & PageOriginScope & (
   | { kind: 'anonymous' }
   | { kind: 'password'; email: string; password: string }
   | { kind: 'createPassword'; email: string; password: string }
@@ -48,6 +48,14 @@ export type MintSessionRequest = TenantScope & (
  *  port's `ClientAuth`) states it per request. Absent means untenanted. */
 export interface TenantScope {
   tenantId?: string | null;
+}
+
+/** The page origin the session's client runs on (`location.origin`). A
+ *  host outside the page (the Node host) has no origin of its own, so the
+ *  caller states it; the backend resolves the stored relative photo URL
+ *  against it for the token `picture`, admin records, and `User.photoURL`. */
+export interface PageOriginScope {
+  origin?: string;
 }
 
 /** A minted per-connection session: the `User` plus the {@link AuthState}

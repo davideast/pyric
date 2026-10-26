@@ -209,6 +209,29 @@ describe('createAssetResolver: source, { data } result', () => {
   });
 });
 
+describe('createAssetResolver: source not allowed', () => {
+  it('serves the cached image or the fallback and never starts the source', async () => {
+    const dir = tmp();
+    let calls = 0;
+    const source: AssetSource = () => {
+      calls++;
+      return { data: new TextEncoder().encode('generated'), contentType: 'image/png' };
+    };
+    const resolver = createAssetResolver({ dir, source, fallback: () => fallbackBytes('alice') });
+
+    const refused = await resolver.resolve({ ...req('alice'), sourceAllowed: false });
+    expect(refused.origin).toBe('fallback');
+    expect(new TextDecoder().decode(refused.data)).toBe('fallback:alice');
+    expect(calls).toBe(0);
+
+    await resolver.resolve(req('alice'));
+    const cached = await resolver.resolve({ ...req('alice'), sourceAllowed: false });
+    expect(cached.origin).toBe('cache');
+    expect(new TextDecoder().decode(cached.data)).toBe('generated');
+    expect(calls).toBe(1);
+  });
+});
+
 describe('createAssetResolver: source, { url } result', () => {
   it('fetches via the injected fetchImpl and caches the result', async () => {
     const dir = tmp();
