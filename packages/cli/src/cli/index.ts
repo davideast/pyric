@@ -5,7 +5,7 @@
  * Subcommands:
  *   pyric bridge [--port N] [--project ID]
  *   pyric sandbox [flags] [--] [command...]
- *   pyric run [--sandbox URL] -- <command...>
+ *   pyric run [--sandbox URL] [--wait[=SECONDS]] -- <command...>
  *   pyric init [dir] [--template web|node] [--name N] [--force] [--json]
  *   pyric vendor [dir] [--json]
  *   pyric snapshot [--out DIR] [--port N] [--force] [--json] [--include-passwords]
@@ -61,7 +61,7 @@ clients (Claude Code, Cursor, ...).
 USAGE
   pyric bridge [flags]
   pyric sandbox [flags] [--] [command...]
-  pyric run [--sandbox URL] -- <command...>
+  pyric run [--sandbox URL] [--wait[=SECONDS]] -- <command...>
   pyric init [dir] [--template=web|node]
   pyric sandbox salvage --source=DIR --out=NEW_DIR
   pyric snapshot [--out=DIR]
@@ -100,6 +100,8 @@ COMMANDS
                              it, PYRIC_SANDBOX=remote:<url>, then .pyric/serve.json.
                              The register module is passed by absolute file URL, so
                              the command can run outside pyric's install tree.
+                             --wait[=SECONDS] polls the host's health until it
+                             answers (default 30s) before starting the command.
   init [dir]                 Scaffold a pyric project. --template=web (default; Vite app
                              on \`@pyric/cli/vite\`), static (\`pyric sandbox\`), or node.
                              --name=NAME --force (overwrite scaffold files) --json (machine

@@ -22,9 +22,14 @@ export interface RunInvocation {
   /** The host URL named by `--sandbox` or `PYRIC_SANDBOX=remote:<url>`; null to discover it. */
   readonly hostUrl: string | null;
   readonly plan: SandboxChildPlan;
+  /** How long to wait for the host to answer before giving up; 0 probes once. */
+  readonly waitMs: number;
 }
 
-export const RUN_USAGE = 'usage: pyric run [--sandbox <url>] -- <command> [args...]\n';
+export const RUN_USAGE = 'usage: pyric run [--sandbox <url>] [--wait[=<seconds>]] -- <command> [args...]\n';
+
+/** `--wait` without a value: the bound `pyric sandbox` gives its first-run race guard. */
+export const DEFAULT_WAIT_SECONDS = 30;
 
 /** Strip the optional `remote:` prefix the activator uses. Null when nothing names a URL. */
 function hostUrlOf(value: string | undefined): string | null {
@@ -54,7 +59,37 @@ export function parseRunInvocation(parsed: ParsedArgs, env: NodeJS.ProcessEnv): 
       return `pyric run: --sandbox needs a host URL, such as http://localhost:5173.\n${RUN_USAGE}`;
     }
   }
-  return { hostUrl, plan: { argv: [...argv], label: argv.join(' ') } };
+  const wait = parsed.flags.get('wait');
+  let waitMs = 0;
+  if (wait === true) {
+    waitMs = DEFAULT_WAIT_SECONDS * 1000;
+  } else if (wait !== undefined) {
+    const seconds = typeof wait === 'string' ? Number(wait) : Number.NaN;
+    const isDuration = Number.isFinite(seconds) && seconds > 0;
+    if (!isDuration) return `pyric run: --wait takes a number of seconds, such as --wait=60.\n${RUN_USAGE}`;
+    waitMs = seconds * 1000;
+  }
+  return { hostUrl, plan: { argv: [...argv], label: argv.join(' ') }, waitMs };
+}
+
+/**
+ * Call `attempt` until it returns a value or `timeoutMs` passes, `intervalMs`
+ * apart. A zero timeout makes one attempt. Injectable sleep for the unit suite.
+ */
+export async function pollUntil<T>(
+  attempt: () => Promise<T | null>,
+  opts: { timeoutMs: number; intervalMs?: number; sleep?: (ms: number) => Promise<void>; now?: () => number },
+): Promise<T | null> {
+  const intervalMs = opts.intervalMs ?? 250;
+  const sleep = opts.sleep ?? ((ms) => new Promise<void>((r) => setTimeout(r, ms)));
+  const now = opts.now ?? Date.now;
+  const deadline = now() + opts.timeoutMs;
+  for (;;) {
+    const value = await attempt();
+    if (value !== null) return value;
+    if (now() >= deadline) return null;
+    await sleep(intervalMs);
+  }
 }
 
 export async function runRun(parsed: ParsedArgs): Promise<number> {
@@ -67,15 +102,18 @@ export async function runRun(parsed: ParsedArgs): Promise<number> {
   let serveUrl: string;
   let instanceId: string | null;
   if (invocation.hostUrl !== null) {
-    const host = await probeHostUrl(invocation.hostUrl);
+    const hostUrl = invocation.hostUrl;
+    const host = await pollUntil(() => probeHostUrl(hostUrl), { timeoutMs: invocation.waitMs });
     if (host === null) {
-      process.stderr.write(`pyric run: no sandbox host answers at ${invocation.hostUrl}/__pyric/health.\n`);
+      const waited = invocation.waitMs > 0 ? ` after waiting ${invocation.waitMs / 1000}s` : '';
+      process.stderr.write(`pyric run: no sandbox host answers at ${hostUrl}/__pyric/health${waited}.\n`);
       return 2;
     }
     serveUrl = host.base;
     instanceId = host.instanceId;
   } else {
-    const host = await discoverServe(cwd, (line) => void process.stderr.write(`pyric run: ${line}\n`));
+    const log = (line: string): void => void process.stderr.write(`pyric run: ${line}\n`);
+    const host = await pollUntil(() => discoverServe(cwd, log), { timeoutMs: invocation.waitMs });
     if (host === null) {
       process.stderr.write('pyric run: no running sandbox host found; pass --sandbox <url>.\n');
       return 2;

@@ -49,4 +49,30 @@ export default scenario(async (app) => {
     assert.equal(read.code, 0, read.output);
     assert.match(read.output, /status is from the backend/);
   });
+
+  await app.step('pyric run --wait started before the host attaches once it is up', async () => {
+    await host.process.stop();
+    const port = await app.freePort();
+    const url = `http://127.0.0.1:${port}`;
+    const run = app.command(
+      '../tools/node_modules/.bin/pyric',
+      ['run', '--sandbox', url, '--wait', '--', 'node', 'write.mjs', 'after waiting'],
+      { cwd: 'backend' },
+    );
+    await app.devServer({ port });
+    const write = await run;
+    assert.equal(write.code, 0, write.output);
+    assert.match(write.output, /status set to after waiting/);
+  });
+
+  await app.step('pyric run --wait gives up with exit 2 when no host comes', async () => {
+    const url = `http://127.0.0.1:${await app.freePort()}`;
+    const run = await app.command(
+      '../tools/node_modules/.bin/pyric',
+      ['run', '--sandbox', url, '--wait=1', '--', 'node', 'write.mjs', 'never'],
+      { cwd: 'backend' },
+    );
+    assert.equal(run.code, 2, run.output);
+    assert.match(run.output, /no sandbox host answers at .* after waiting 1s/);
+  });
 });

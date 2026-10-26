@@ -38,10 +38,10 @@ The child receives `PYRIC_SANDBOX` and a `NODE_OPTIONS` import for `@pyric/cli/r
 ## Run a command on a running host
 
 ```text
-pyric run [--sandbox <url>] -- <command...>
+pyric run [--sandbox <url>] [--wait[=<seconds>]] -- <command...>
 ```
 
-`pyric run` starts one command against a host that is already running, such as a Vite dev server with the Pyric plugin or a `pyric sandbox` in another terminal. The command gets the environment `pyric sandbox` gives its child: `PYRIC_SANDBOX=remote:<url>`, `PYRIC_SANDBOX_INSTANCE` naming that host, and a `NODE_OPTIONS` import of `@pyric/cli/register`. `--sandbox` names the host. Without it, `pyric run` uses an inherited `PYRIC_SANDBOX=remote:<url>`, then the `.pyric/serve.json` that the host wrote in the project directory. It exits with the command's exit code, or `2` when no host answers.
+`pyric run` starts one command against a host that is already running, such as a Vite dev server with the Pyric plugin or a `pyric sandbox` in another terminal. The command gets the environment `pyric sandbox` gives its child: `PYRIC_SANDBOX=remote:<url>`, `PYRIC_SANDBOX_INSTANCE` naming that host, and a `NODE_OPTIONS` import of `@pyric/cli/register`. `--sandbox` names the host. Without it, `pyric run` uses an inherited `PYRIC_SANDBOX=remote:<url>`, then the `.pyric/serve.json` that the host wrote in the project directory. With `--wait`, it polls the host's `/__pyric/health` until the host answers, for 30 seconds or the number of seconds given (`--wait=60`), so a command started alongside the dev server does not race it. It exits with the command's exit code, or `2` when no host answers in time.
 
 The register module is passed by absolute `file:` URL, resolved from the `pyric` install that runs the command, as `pyric sandbox` passes it. So the command can run from a directory where `@pyric/cli` does not resolve by name, such as a backend beside a `tools/` folder that pins Pyric:
 
