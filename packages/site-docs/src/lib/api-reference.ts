@@ -134,6 +134,7 @@ export function discoverApiDescriptors(): ApiDescriptor[] {
     const unreleased = new Set(manifest.pyricUnreleasedExports ?? []);
     for (const [exportKey, target] of Object.entries(manifest.exports)) {
       if (unreleased.has(exportKey)) continue;
+      if (exportKey === './package.json') continue;
       if (isInternalExport(exportKey)) continue;
       if (NON_USER_FACING_EXPORTS.has(`${packageDir}:${exportKey}`)) continue;
       const types = typesTarget(target);
