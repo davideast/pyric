@@ -190,10 +190,6 @@ const KNOWN_DEPLOY_DIVERGENCES: Record<string, { production: DeployVerdict; loca
   'r51-deploy-anchor-index-and-length-probes :: SP-1: $ inside a group (/(a$)/)': {
     production: 'REJECTED', local: 'ACCEPTED', reason: 'SP-1: production refuses a $ that is not the last character',
   },
-  // CS-17 (#1247, row rtdb-rules#38)
-  'r51-deploy-anchor-index-and-length-probes :: CS lead: .indexOn naming a dotted child': {
-    production: 'REJECTED', local: 'ACCEPTED', reason: 'CS-17: production refuses an .indexOn entry holding a dot',
-  },
 };
 
 test('every corpus deploy scenario agrees with production (including r44 9/9), except pinned divergences', () => {

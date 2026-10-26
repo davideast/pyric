@@ -216,10 +216,10 @@ The errors in the first group are the ones `firebase deploy` refuses, and each m
 | `MULTIPLE_WILDCARDS` | One location has two `$` children. |
 | `RULE_NOT_EXPRESSION` | A `.read`, `.write`, or `.validate` value is a number or a plain object rather than a boolean or a string. |
 | `INDEX_ON_SHAPE` | `.indexOn` is a number. |
-| `INVALID_KEY` | A key contains `#`, or an unknown key that starts with `.` holds an object. |
+| `INVALID_KEY` | A key contains `#`, an unknown key that starts with `.` holds an object, or an `.indexOn` entry other than `.value` contains `.`. |
 | `EXPECTED_OBJECT` | An unknown key that starts with `.`, or a child key, holds a string. |
 
-`INDEX_ON_SHAPE` and `INVALID_KEY` are warnings, not errors, for related forms: any other `.indexOn` that is not a string or an array of strings, and a key that contains `.`, `/`, `[`, `]`, or an inner `$` but no `#`. Their text comes from the deploy's message for the related form, and no deploy of these forms has been recorded.
+`INDEX_ON_SHAPE` and `INVALID_KEY` are warnings, not errors, for related forms: any other `.indexOn` that is not a string or an array of strings, a key that contains `.`, `/`, `[`, `]`, or an inner `$` but no `#`, and an `.indexOn` entry that contains `#`, `$`, `[` or `]`. Their text comes from the deploy's message for the related form, and no deploy of these forms has been recorded.
 
 The second group is the rest of the per-rule checks:
 
