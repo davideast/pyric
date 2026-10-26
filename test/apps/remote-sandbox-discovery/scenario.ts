@@ -49,10 +49,15 @@ export default scenario(async (app) => {
     const hole = await app.blackholedPort();
     app.writeFile('.pyric/serve.json', JSON.stringify({ port: hole, url: `http://localhost:${hole}`, instanceId: 'blackholed-host' }));
     const stale = `http://127.0.0.1:${await app.freePort()}`;
-    const started = performance.now();
     const result = await app.serverScript('stale-exit.mjs', [], { env: { PYRIC_SANDBOX: `remote:${stale}` } });
-    const exitMs = performance.now() - started;
+    const exitedAt = Date.now();
     assert.match(result.output, /write refused: .*is stale/);
-    assert.ok(exitMs < 5_000, `stale-exit.mjs took ${Math.round(exitMs)} ms to exit:\n${result.output}`);
+    const refusedAt = Number(/refused at (\d+)/.exec(result.output)?.[1]);
+    assert.ok(Number.isFinite(refusedAt), `stale-exit.mjs printed no refusal time:\n${result.output}`);
+    // Timed from the refusal, so Node and register startup under load do not
+    // count. A probe connect left pending kept the process alive about 10 s
+    // past this point (undici's connect timeout); 2 s is well under that.
+    const lingerMs = exitedAt - refusedAt;
+    assert.ok(lingerMs < 2_000, `stale-exit.mjs stayed alive ${lingerMs} ms after the refusal:\n${result.output}`);
   });
 });

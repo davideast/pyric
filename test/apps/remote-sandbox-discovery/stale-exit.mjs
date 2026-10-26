@@ -10,3 +10,4 @@ try {
 } catch (error) {
   console.log(`write refused: ${error.message}`);
 }
+console.log(`refused at ${Date.now()}`);
