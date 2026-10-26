@@ -85,6 +85,7 @@ subpaths include:
 | `pyric/sandbox/database` | Owner controls for installing RTDB rules, seeding data, and reading detached snapshots. |
 | `pyric/storage` | Modular Storage mirror and storage admin-style tools. |
 | `pyric/storage/internal` | Storage engine seam. |
+| `pyric/storage/sw` | `sandboxStorageFetch` for an app's own service worker: answers production Storage URLs from the Node host's byte route. |
 | `pyric/ai` | Sandbox-only Firebase AI Logic mirror (`getAI`, `getGenerativeModel`, generateContent, streaming, chat, function calling, countTokens, `Schema`). It has no `firebase/ai` runtime dependency; production imports stay on `firebase/ai`. |
 | `pyric/ai/scripting` | Scripted answer-engine seam for the AI sandbox. |
 | `pyric/ai/internal` | Answer-engine and broker seam used by the CLI's AI proxy. |
