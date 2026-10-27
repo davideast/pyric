@@ -81,6 +81,19 @@ export function unreapedExit(pid: number, readStat: ReadStat = readProcStat, rea
 
 const hasProc = process.platform === 'linux' && existsSync('/proc/self/stat');
 
+/**
+ * What /proc says about `pid` right now, for a log line when the driver gives
+ * up on a child: its state letter (R running, S sleeping, D uninterruptible,
+ * Z zombie, T stopped), its thread count, and its parent. Empty off Linux.
+ */
+export function describeProcState(pid: number, readStat: ReadStat = readProcStat, readThreads: ReadThreads = readProcThreads): string {
+  if (!hasProc) return '';
+  const line = readStat(pid);
+  if (line === undefined) return `; /proc has no ${pid}, so something reaped it`;
+  const fields = line.slice(line.lastIndexOf(')') + 2).trim().split(/\s+/);
+  return `; /proc/${pid}: state ${fields[0] ?? '?'}, ${readThreads(pid) ?? '?'} threads, parent ${fields[1] ?? '?'}`;
+}
+
 /** How the watcher polls. Every child is a zombie for a moment before it is reaped. */
 export interface WatchTiming {
   intervalMs: number;

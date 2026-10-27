@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import type { Browser, BrowserContext, Page } from '@playwright/test';
 import { blackholedPort, type BlackholedPort } from '../../packages/cli/test/blackholed-port.ts';
 import { npmInstall, pinPyricPackages, type Tarballs } from './install.ts';
-import { describeUnreapedExit, watchUnreapedExit } from './unreaped-exit.ts';
+import { describeProcState, describeUnreapedExit, watchUnreapedExit } from './unreaped-exit.ts';
 
 export interface LogWaitOptions {
   /** Only output after this offset (from `mark()`) counts. Default: all output. */
@@ -203,7 +203,7 @@ export class AppProcess {
     if (await this.closesWithin(grace.termMs)) return;
     try { process.kill(group, 'SIGKILL'); } catch { /* already gone */ }
     if (await this.closesWithin(grace.killMs)) return;
-    this.text += `\n[driver] ${this.name} did not close within ${grace.killMs / 1000}s of SIGKILL; the driver records it as gone\n`;
+    this.text += `\n[driver] ${this.name} did not close within ${grace.killMs / 1000}s of SIGKILL; the driver records it as gone${describeProcState(this.child.pid)}\n`;
     this.finish(null);
   }
 
