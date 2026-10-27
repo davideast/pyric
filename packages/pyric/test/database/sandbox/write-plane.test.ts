@@ -98,3 +98,48 @@ it('re-evaluates only listeners whose .read rules can depend on the written path
   expect(bobCanceled).toEqual([]);
   expect(authOnlyCanceled).toEqual([]);
 });
+
+// #1253: a priority write revokes the listeners whose `.read` it denies
+// before it delivers to the rest, as a set does.
+for (const admin of [false, true]) {
+  it(`${admin ? 'adminSetPriority' : 'setPriority'} revokes a listener whose .read the new priority denies before delivering`, () => {
+    const state = new BackendState();
+    const values = new ValueListeners(state);
+    const children = new ChildListeners(state);
+    const writes = new WritePlane(state, values, children);
+    writes.setRules({
+      rules: { items: { $id: { '.read': "data.getPriority() == 1 || auth.uid == 'bob'", '.write': true } } },
+    });
+    writes.adminSetWithPriority('/items/x', { a: 1 }, 1);
+    const delivered: Record<string, unknown[]> = { alice: [], bob: [] };
+    const cancelled: string[] = [];
+    values.onValue({ uid: 'alice' }, '/items/x', (snap) => delivered.alice!.push(snap.val), undefined,
+      (err) => cancelled.push((err as Error & { code: string }).code));
+    values.onValue({ uid: 'bob' }, '/items/x', (snap) => delivered.bob!.push(snap.val));
+    delivered.alice!.length = 0;
+    delivered.bob!.length = 0;
+    const recorded: string[] = [];
+    const operation = state.events.operation.bind(state.events);
+    state.events.operation = (auth, method, path, result, evaluation, fields) => {
+      recorded.push(`${method} ${path} ${result}`);
+      operation(auth, method, path, result, evaluation, fields);
+    };
+    const listener = state.events.listener.bind(state.events);
+    state.events.listener = (phase, target, auth, fields) => {
+      if (phase === 'delivery') recorded.push(`delivery ${target.path} to ${auth?.uid}`);
+      listener(phase, target, auth, fields);
+    };
+
+    if (admin) writes.adminSetPriority('/items/x', 2);
+    else writes.setPriority({ uid: 'alice' }, '/items/x', 2);
+
+    expect({ delivered, cancelled }).toEqual({
+      delivered: { alice: [], bob: [{ a: 1 }] }, cancelled: ['PERMISSION_DENIED'],
+    });
+    expect(recorded).toEqual([
+      `setPriority /items/x ${admin ? 'not-applicable' : 'allow'}`,
+      'listen /items/x deny',
+      'delivery /items/x to bob',
+    ]);
+  });
+}

@@ -15,8 +15,10 @@ import {
   query,
   ref,
   remove,
+  runTransaction,
   sandbox as rtdbSandbox,
   set,
+  setPriority,
   setWithPriority,
   update,
 } from '../../../src/database/index.js';
@@ -387,6 +389,102 @@ describe('RTDB CDD listener lifecycle cases', () => {
     // Fresh get() after member removal is also denied.
     await expect(get(ref(clientDb, 'rooms/room1'))).rejects.toThrow(/PERMISSION_DENIED/);
   });
+
+  // DF-1 (#1247): a committed transaction is a data write like set and update,
+  // so it must revoke the listeners whose data-dependent `.read` it falsifies.
+  const transactionRevokers = [
+    { name: 'a client transaction', admin: false, applyLocally: true },
+    { name: 'a client transaction with applyLocally false', admin: false, applyLocally: false },
+    { name: 'an admin transaction', admin: true, applyLocally: true },
+    { name: 'an admin transaction with applyLocally false', admin: true, applyLocally: false },
+  ] as const;
+  for (const revoker of transactionRevokers) {
+    it(`rtdb-modular#M75a revokes active value and child listeners when ${revoker.name} falsifies a data-dependent .read rule`, async () => {
+      const sandbox = initializeSandbox();
+      const clientDb = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+      const bobDb = getDatabase(sandbox.withAuth({ uid: 'bob' }));
+      const adminDb = getAdminDatabase(sandbox);
+      const writerDb = revoker.admin ? adminDb : clientDb;
+      rtdbSandbox.setRules(clientDb, {
+        rules: {
+          rooms: { $room: { '.read': "data.child('members').child(auth.uid).val() == true", '.write': 'true' } },
+          gate: { '.read': "root.child('open').val() == true" },
+          open: { '.read': 'true', '.write': 'true' },
+        },
+      });
+      await set(ref(adminDb, 'rooms/r1'), { members: { alice: true, bob: true }, message: 'initial-msg' });
+      await set(ref(adminDb, 'open'), true);
+      await set(ref(adminDb, 'gate'), 'initial-gate');
+
+      const room: unknown[] = [];
+      const roomCancellations: Record<string, unknown>[] = [];
+      onValue(ref(clientDb, 'rooms/r1'), (snap) => room.push(snap.val()),
+        (err) => roomCancellations.push(cancellationShape(err, '/rooms/r1')));
+      const added: unknown[] = [];
+      const addedCancellations: Record<string, unknown>[] = [];
+      onChildAdded(ref(clientDb, 'rooms/r1/messages'), (snap) => added.push(snap.val()),
+        (err) => addedCancellations.push(cancellationShape(err, '/rooms/r1/messages')));
+      const gate: unknown[] = [];
+      const gateCancellations: Record<string, unknown>[] = [];
+      onValue(ref(clientDb, 'gate'), (snap) => gate.push(snap.val()),
+        (err) => gateCancellations.push(cancellationShape(err, '/gate')));
+      const bob: unknown[] = [];
+      const bobCancellations: Record<string, unknown>[] = [];
+      onValue(ref(bobDb, 'rooms/r1/message'), (snap) => bob.push(snap.val()),
+        (err) => bobCancellations.push(cancellationShape(err, '/rooms/r1/message')));
+
+      const options = { applyLocally: revoker.applyLocally };
+      await runTransaction(ref(writerDb, 'rooms/r1/members/alice'), () => false, options);
+      await runTransaction(ref(writerDb, 'open'), () => false, options);
+
+      // Later data must not reach the revoked listeners.
+      await runTransaction(ref(adminDb, 'rooms/r1/message'), () => 'post-revocation-msg');
+      await set(ref(adminDb, 'rooms/r1/messages/m1'), 'post-revocation-child');
+      await set(ref(adminDb, 'gate'), 'post-revocation-gate');
+
+      expect(room).toEqual([{ members: { alice: true, bob: true }, message: 'initial-msg' }]);
+      expect(added).toEqual([]);
+      expect(gate).toEqual(['initial-gate']);
+      expect(roomCancellations).toEqual(cancellationObservation.revoked.cancellations.value);
+      expect(addedCancellations).toEqual(cancellationObservation.revoked.cancellations.child_added);
+      expect(gateCancellations).toEqual(cancellationObservation.revoked.cancellations.value);
+      // Bob is still a member, so his listener survives and keeps receiving.
+      expect(bob).toEqual(['initial-msg', 'post-revocation-msg']);
+      expect(bobCancellations).toEqual([]);
+      await expect(get(ref(clientDb, 'rooms/r1'))).rejects.toThrow(/PERMISSION_DENIED/);
+    });
+  }
+
+  // #1253: a priority write is a data write too; a `.read` over the priority
+  // must revoke before the new priority is delivered.
+  for (const admin of [false, true]) {
+    it(`rtdb-modular#M75a revokes, without delivering, a listener whose .read ${admin ? 'an admin' : 'a client'} setPriority falsifies`, async () => {
+      const sandbox = initializeSandbox();
+      const clientDb = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+      const adminDb = getAdminDatabase(sandbox);
+      rtdbSandbox.setRules(clientDb, {
+        rules: { items: { $id: { '.read': 'data.getPriority() == 1', '.write': 'true' } } },
+      });
+      await setWithPriority(ref(adminDb, 'items/x'), { a: 1 }, 1);
+
+      const values: unknown[] = [];
+      const valueCancellations: Record<string, unknown>[] = [];
+      onValue(ref(clientDb, 'items/x'), (snap) => values.push(snap.val()),
+        (err) => valueCancellations.push(cancellationShape(err, '/items/x')));
+      const changed: unknown[] = [];
+      const changedCancellations: Record<string, unknown>[] = [];
+      onChildChanged(ref(clientDb, 'items/x'), (snap) => changed.push(snap.val()),
+        (err) => changedCancellations.push(cancellationShape(err, '/items/x')));
+
+      await setPriority(ref(admin ? adminDb : clientDb, 'items/x'), 2);
+      await set(ref(adminDb, 'items/x/a'), 2);
+
+      expect(values).toEqual([{ a: 1 }]);
+      expect(changed).toEqual([]);
+      expect(valueCancellations).toEqual(cancellationObservation.revoked.cancellations.value);
+      expect(changedCancellations).toEqual(cancellationObservation.revoked.cancellations.child_changed);
+    });
+  }
 
   it('rtdb-modular#132 returns an unsubscribe function that stops delivery', async () => {
     const { first } = setup();

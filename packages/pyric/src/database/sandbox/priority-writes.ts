@@ -7,14 +7,16 @@ import { canonicalPath, denyResultFor, rtdbDenialContext } from './operation-eve
 import { validatePriority } from './priority-state.js';
 import type { Priority } from './query.js';
 import { permissionDenied } from './rules-eval.js';
-import type { ValueListeners } from './value-listeners.js';
 
-/** Priority-only writes and their listener/history propagation. */
+/** Publishes a write applied at `paths`; see `WritePlane.changed`. */
+export type PublishWrite = (paths: string[], priors: ReturnType<ChildListeners['snapshotParents']>) => void;
+
+/** Priority-only writes; each publishes through the same step as every other data write. */
 export class PriorityWrites {
   constructor(
     private readonly state: BackendState,
-    private readonly values: ValueListeners,
     private readonly children: ChildListeners,
+    private readonly publish: PublishWrite,
   ) {}
 
   adminSet(path: string, priority: Priority): void {
@@ -32,11 +34,8 @@ export class PriorityWrites {
       detail: { admin: true, priority, priorPriority },
     });
     const priors = this.children.snapshotParents();
-    const changed = priorPriority !== priority;
     this.state.priorities.set(path, priority);
-    this.state.mutations.mark(path);
-    if (changed) this.values.fanOut([path]);
-    this.children.fanOut(priors);
+    this.publish([path], priors);
     this.state.events.commit(null, 'setPriority', path, {
       data: priority,
       priorState: priorPriority,
@@ -96,9 +95,7 @@ export class PriorityWrites {
     const priors = this.children.snapshotParents();
     const changed = priorPriority !== priority;
     this.state.priorities.set(path, priority);
-    this.state.mutations.mark(path);
-    if (changed) this.values.fanOut([path]);
-    this.children.fanOut(priors);
+    this.publish([path], priors);
     if (changed) {
       this.state.events.mutation(auth, 'setPriority', canonicalPath(path), {
         before: priorPriority, after: priority, detail: { priorityMetadata: true },
