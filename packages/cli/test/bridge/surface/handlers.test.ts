@@ -812,3 +812,17 @@ it('saves, lists and inspects a project rate capture through the service tool', 
   expect((await run('sandbox.deleteCapture', { id, confirm: false })).ok).toBe(false);
   expect((await run('sandbox.deleteCapture', { id, confirm: true })).ok).toBe(true);
 });
+
+// #1247 S3: the CLI's rules.simulate evaluates database cases through the
+// same case validation and engine as rtdbRules().simulate.
+it('simulates database writes that read query, and refuses paths the SDK refuses', async () => {
+  const rules = JSON.stringify({ rules: { notkey: { '.write': '!query.orderByKey' }, users: { $uid: { '.write': true } } } });
+  // SP-4: production reads query in a .write as a plain read (capture rules-rtdb-r49-value-edges).
+  const write = await run('rules.simulate', { service: 'database', operation: 'write', path: 'notkey', data: 1, rules });
+  expect((write.data as { decision: string }).decision).toBe('ALLOW');
+  // CS-6: the SDK refuses a path holding '.' (capture rtdb-modular-reference-shape-url).
+  const dotted = await run('rules.simulate', { service: 'database', operation: 'write', path: 'users/a.b', data: 1, rules });
+  expect(dotted.ok).toBe(false);
+  expect((dotted.data as { decision: string }).decision).toBe('UNSUPPORTED');
+  expect((dotted.data as { reason: string }).reason).toContain('child failed: path argument was an invalid path = "/users/a.b"');
+});
