@@ -55,6 +55,20 @@ describe('CS-6: a case path the SDK refuses', () => {
   });
 });
 
+describe('a case the SDK refuses before it checks a path', () => {
+  test('a write or update under /.info is UNSUPPORTED with the SDK text', () => {
+    // Capture rtdb-modular-info-write-validation.
+    expect(run({ operation: 'write', path: '/.info/x', newData: 1 }).reason).toBe("set failed = Can't modify data under /.info/");
+    expect(run({ operation: 'update', path: '/.info', newData: { x: 1 } }).reason).toBe("update failed = Can't modify data under /.info/");
+  });
+
+  test('a path that is not a string is UNSUPPORTED with a reason naming it', () => {
+    const result = run({ operation: 'read', path: 5 as unknown as string });
+    expect(result.decision).toBe('UNSUPPORTED');
+    expect(result.reason).toBe("a case needs 'path' to be a string, such as '/users/alice'.");
+  });
+});
+
 describe('CS-5: overlapping or duplicate update paths', () => {
   // Capture rtdb-modular-write-return-validation, behavior.overlapping.
   test('an ancestor and its descendant are UNSUPPORTED with the SDK text', () => {

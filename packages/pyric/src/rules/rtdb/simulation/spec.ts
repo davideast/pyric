@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { Bound, OrderBy } from '../../../database/internal/query-projection.js';
 import { validateOrderByChildPath, validateQuerySpec } from '../../../database/query-validation.js';
+import { thrownMessage } from './thrown-message.js';
 
 export const SimulationQuerySchema = z.object({
   orderByChild: z.string().nullable().optional(),
@@ -14,16 +15,6 @@ export const SimulationQuerySchema = z.object({
   endAt: z.union([z.string(), z.number(), z.boolean(), z.null()]).optional(),
 });
 export type SimulationQuery = z.infer<typeof SimulationQuerySchema>;
-
-/** The message `run` throws, or null when it returns. */
-function thrownMessage(run: () => void): string | null {
-  try {
-    run();
-    return null;
-  } catch (error) {
-    return error instanceof Error ? error.message : String(error);
-  }
-}
 
 function orderByOf(q: SimulationQuery): OrderBy | null {
   if (q.orderByChild != null) return { kind: 'child', path: q.orderByChild };

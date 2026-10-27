@@ -12,15 +12,11 @@
 import type { RtdbRulesDocumentInternal, RtdbRulesSimulationInput } from '../rtdb/constraints/document.js';
 import type { RtdbRuleEvaluation, SimulateResult } from '../rtdb/simulation/spec.js';
 import type { RtdbCase } from './case-types.js';
-import { rtdbCaseProblem } from './rtdb-case-validation.js';
+import { rtdbCaseProblem, rtdbPathSegments } from './rtdb-case-validation.js';
 
 /** A case the engine cannot evaluate as given, and why. */
 export function invalidCase(message: string): SimulateResult {
   return { success: false, error: { code: 'INVALID_INPUT', message, recoverable: true } };
-}
-
-function segmentsOf(path: string): string[] {
-  return path.split('/').filter(Boolean);
 }
 
 function absolutePath(segments: string[]): string {
@@ -46,9 +42,9 @@ function baseInput(c: RtdbCase): RtdbRulesSimulationInput {
 
 /** A multi-path `update` case, whose patch `rtdbCaseProblem` has checked. */
 function simulateUpdate(doc: RtdbRulesDocumentInternal, c: RtdbCase): SimulateResult {
-  const base = segmentsOf(c.path);
+  const base = rtdbPathSegments(c.path);
   const updates = Object.entries(c.newData as Record<string, unknown>).map(([key, value]) => ({
-    path: absolutePath([...base, ...segmentsOf(key)]),
+    path: absolutePath([...base, ...rtdbPathSegments(key)]),
     value,
   }));
 

@@ -7,30 +7,21 @@
  * here.
  */
 
-import { validateReferencePath, validateUpdatePaths } from '../../database/writable-path.js';
+import { validateReferencePath, validateUpdatePaths, validateWritablePath } from '../../database/writable-path.js';
 import { jsonEqual } from '../../sandbox/branches/state-diff.js';
 import { simulationQueryProblem } from '../rtdb/simulation/spec.js';
+import { thrownMessage } from '../rtdb/simulation/thrown-message.js';
 import type { RtdbCase } from './case-types.js';
-
-/** The message `check` throws, or null when it returns. */
-function thrownMessage(check: () => void): string | null {
-  try {
-    check();
-    return null;
-  } catch (error) {
-    return error instanceof Error ? error.message : String(error);
-  }
-}
 
 /** A path's segments. Unlike the sandbox's tree, any valid key is one,
  *  `__proto__` included, as production stores it (capture
  *  rules-rtdb-r52-prototype-named-keys). */
-function segmentsOf(path: string): string[] {
+export function rtdbPathSegments(path: string): string[] {
   return path.split('/').filter(Boolean);
 }
 
 function canonicalPath(path: string): string {
-  return `/${segmentsOf(path).join('/')}`;
+  return `/${rtdbPathSegments(path).join('/')}`;
 }
 
 function isPatch(value: unknown): value is Record<string, unknown> {
@@ -56,7 +47,15 @@ function writtenPathsProblem(paths: readonly string[]): string | null {
   if (repeated !== undefined) {
     return `update failed: values argument contains a path ${repeated} that is ancestor of another path ${repeated}`;
   }
-  return thrownMessage(() => validateUpdatePaths(Object.fromEntries(paths.map((path) => [path, null])), segmentsOf));
+  return thrownMessage(() => validateUpdatePaths(Object.fromEntries(paths.map((path) => [path, null])), rtdbPathSegments));
+}
+
+/** A write under `/.info`, which the SDK refuses before sending (capture
+ *  rtdb-modular-info-write-validation). */
+function writableProblem(c: RtdbCase): string | null {
+  if (c.operation === 'read') return null;
+  const fnName = c.operation === 'update' ? 'update' : 'set';
+  return thrownMessage(() => validateWritablePath(fnName, c.path));
 }
 
 function queryProblem(c: RtdbCase): string | null {
@@ -111,7 +110,10 @@ function patchProblem(c: RtdbCase): string | null {
  * rtdb-modular-reference-shape-url, `referenceValidation.invalidRefPaths`).
  */
 export function rtdbCaseProblem(c: RtdbCase): string | null {
-  return thrownMessage(() => validateReferencePath(c.path, false))
+  const path: unknown = c.path;
+  if (typeof path !== 'string') return "a case needs 'path' to be a string, such as '/users/alice'.";
+  return thrownMessage(() => validateReferencePath(path, false))
+    ?? writableProblem(c)
     ?? queryProblem(c)
     ?? updatesProblem(c)
     ?? patchProblem(c);

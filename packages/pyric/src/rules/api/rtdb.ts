@@ -256,6 +256,7 @@ function everyInstance(doc: RtdbRulesDocumentInternal): RtdbRuleset {
 /** Internal document adapter for already-compiled Firebase rules JSON. */
 class CompiledRtdbRulesDocument implements RtdbRulesDocumentInternal {
   private compiled: CompiledRtdbRules | undefined;
+  private compileError: unknown;
 
   constructor(private readonly json: RtdbRulesJson) {}
 
@@ -264,7 +265,14 @@ class CompiledRtdbRulesDocument implements RtdbRulesDocumentInternal {
   }
 
   compile(): CompiledRtdbRules {
-    this.compiled ??= compileRtdbRules(this.json);
+    if (this.compileError !== undefined) throw this.compileError;
+    try {
+      this.compiled ??= compileRtdbRules(this.json);
+    } catch (error) {
+      // Kept, so a ruleset that does not compile is compiled once, not once per case.
+      this.compileError = error;
+      throw error;
+    }
     return this.compiled;
   }
 
