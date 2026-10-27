@@ -19,13 +19,13 @@ import { parseToAST } from './grammar/FirestoreParser.js';
 import { validateFirestoreRules } from './grammar/FirestoreValidator.js';
 import { lintFirestoreRules } from './linter/linter.js';
 import { resolveModulesBrowser } from './modules/resolver-browser.js';
+import { closestKey } from './closest-key.js';
 import {
   STDLIB_MODULES,
   findModuleByKey,
   allModuleKeys,
   modulesForService,
   suggestKey,
-  closestKey,
   type RulesService,
 } from './stdlib-modules.js';
 import {

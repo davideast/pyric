@@ -63,3 +63,16 @@ describe('Policies', () => {
     );
   });
 });
+
+describe('policies refuse keys RTDB rejects (CS-13)', () => {
+  test("hasRole names itself when a segment is empty", () => {
+    expect(() => hasRole(['roles', ''], 'admin')).toThrow(/hasRole/);
+  });
+  test('isMember refuses an empty list name and a $-prefixed variable name', () => {
+    expect(() => isMember('', 'roomId')).toThrow(/isMember/);
+    expect(() => isMember('members', '$roomId')).toThrow(/isMember/);
+  });
+  test('isMember takes a slash list path', () => {
+    expect(isMember('org/members', 'roomId')).toBe("root.child('org/members').child($roomId).child(auth.uid).exists()");
+  });
+});
