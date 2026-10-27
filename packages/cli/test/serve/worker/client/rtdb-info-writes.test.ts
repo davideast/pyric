@@ -63,4 +63,19 @@ describe('RTDB worker client writes under /.info', () => {
     const error = await client.rtdbUpdate(info, { connected: false }).then(() => null, (caught: Error) => caught);
     expect(error?.message).toBe(behavior.updateOnInfo!.message);
   });
+
+  it('rejects a get of .info/connected with the database error and still delivers it to a listener', async () => {
+    const { db } = await connectClient();
+    const connected = client.rtdbRef(client.rtdbGetDatabase(db), '.info/connected');
+    const error = await client.rtdbGet(connected).then(() => null, (caught: Error) => caught);
+    const expected = behavior.getConnected as { timing: string; message?: string };
+    expect(expected.timing).toBe('asynchronous-reject');
+    expect(error?.message).toBe(expected.message);
+
+    const seen: unknown[] = [];
+    const stop = client.rtdbOnValue(connected, (snapshot) => { seen.push(snapshot.val()); });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    stop();
+    expect(seen.length).toBeGreaterThan(0);
+  });
 });
