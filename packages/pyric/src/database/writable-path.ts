@@ -60,7 +60,9 @@ export function validateUpdatePaths(
       const [ancestor, descendant] = left.length <= right.length
         ? [left, right]
         : [right, left];
-      if (ancestor === descendant || descendant.startsWith(`${ancestor}/`)) {
+      // The SDK's pathContains reads the root as an ancestor of every path.
+      const isRoot = ancestor === '/';
+      if (ancestor === descendant || isRoot || descendant.startsWith(`${ancestor}/`)) {
         throw new Error(
           `update failed: values argument contains a path ${ancestor} that is ancestor of another path ${descendant}`,
         );
@@ -76,7 +78,8 @@ export function validateUpdatePaths(
 export function validateReferencePath(path: string, allowEmpty: boolean): void {
   const normalized = path.replace(/^\/*\.info(\/|$)/, '/');
   const isInvalidLength = !allowEmpty && path.length === 0;
-  const containsForbiddenChars = /[.#$[\]]/.test(normalized);
+  // The SDK's path regex also refuses the control characters U+0000 to U+001F and U+007F.
+  const containsForbiddenChars = /[.#$[\]\u0000-\u001F\u007F]/.test(normalized);
   if (isInvalidLength || containsForbiddenChars) {
     throw new Error(
       `child failed: path argument was an invalid path = "${path}". Paths must be non-empty strings and can't contain ".", "#", "$", "[", or "]"`,

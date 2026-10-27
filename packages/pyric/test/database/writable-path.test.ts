@@ -26,6 +26,29 @@ describe('validateUpdatePaths', () => {
   });
 });
 
+describe('validateUpdatePaths at the root', () => {
+  // The SDK's pathContains reads the empty path as an ancestor of every path.
+  test('a root key and any other key overlap', () => {
+    expect(() => validateUpdatePaths({ '/': { x: 1 }, x: 2 })).toThrow(
+      'update failed: values argument contains a path / that is ancestor of another path /x',
+    );
+    expect(() => validateUpdatePaths({ '': 1, 'a/b': 2 }, plainSegments)).toThrow('contains a path / that is ancestor of another path /a/b');
+    expect(() => validateUpdatePaths({ '/': { x: 1 } })).not.toThrow();
+  });
+});
+
+describe('validateReferencePath control characters', () => {
+  // The SDK's path regex refuses U+0000 to U+001F and U+007F.
+  for (const ch of ['\u0000', '\u0001', '\u001f', '\u007f']) {
+    test(`refuses U+${ch.charCodeAt(0).toString(16).padStart(4, '0')}`, () => {
+      expect(() => validateReferencePath(`/a${ch}b`, false)).toThrow('child failed: path argument was an invalid path');
+    });
+  }
+  test('accepts a tab-free ordinary path and characters above U+007F', () => {
+    expect(() => validateReferencePath('/a b/é/\u0080', false)).not.toThrow();
+  });
+});
+
 describe('validateReferencePath', () => {
   test('refuses the characters the SDK refuses, outside a leading /.info', () => {
     expect(() => validateReferencePath('/a.b', false)).toThrow('child failed: path argument was an invalid path = "/a.b".');
