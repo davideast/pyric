@@ -29,6 +29,7 @@
  */
 import { chromium, type Browser } from '@playwright/test';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { AppRun, StepFailure, type Scenario } from './driver.ts';
@@ -145,8 +146,11 @@ async function runApp(name: string, context: {
   for (const child of run.processes) logs.push({ name: child.name, text: child.header + child.output });
   if (run.browserLog.length) logs.push({ name: 'browser', text: run.browserLog.join('\n') });
   const ok = failure === undefined;
+  // The tree is removed off the event loop, which every running app's steps
+  // share. An rmSync of one app's installed tree held it for over 4 s on CI,
+  // and the apps still running timed that stall as their own.
   if (context.keep) console.log(`  ${name}: installed at ${projectDir}`);
-  else rmSync(work, { recursive: true, force: true });
+  else await rm(work, { recursive: true, force: true });
   return {
     name,
     ok,
