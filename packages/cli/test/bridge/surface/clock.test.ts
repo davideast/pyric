@@ -7,7 +7,7 @@
  * claim, which is the honesty invariant a clock method has to pass.
  */
 import 'fake-indexeddb/auto';
-import { describe, expect, it, setSystemTime } from 'bun:test';
+import { afterEach, describe, expect, it, setSystemTime } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -27,6 +27,12 @@ service cloud.firestore {
 }`;
 
 const surface = renderSurface(undefined);
+
+// A test that holds the wall clock with setSystemTime gets it back here, even
+// when an await inside it never settles.
+afterEach(() => {
+  setSystemTime();
+});
 
 function freshContext(): { ctx: SurfaceContext; sandbox: ReturnType<typeof initializeSandbox> } {
   const sandbox = initializeSandbox();
@@ -207,17 +213,13 @@ describe('advanceClock', () => {
     // The wall clock is held and moved by hand: the real one can step back.
     const wall = Date.UTC(2031, 0, 1);
     const { ctx } = freshContext();
-    try {
-      setSystemTime(wall);
-      await call(ctx, 'sandbox.advanceClock', { ms: 60_000 });
-      const first = await call(ctx, 'sandbox.inspect');
-      setSystemTime(wall + 5);
-      const second = await call(ctx, 'sandbox.inspect');
-      expect((first.data as { clock: { now: number } }).clock.now).toBe(wall + 60_000);
-      expect((second.data as { clock: { now: number } }).clock.now).toBe(wall + 5 + 60_000);
-    } finally {
-      setSystemTime();
-    }
+    setSystemTime(wall);
+    await call(ctx, 'sandbox.advanceClock', { ms: 60_000 });
+    const first = await call(ctx, 'sandbox.inspect');
+    setSystemTime(wall + 5);
+    const second = await call(ctx, 'sandbox.inspect');
+    expect((first.data as { clock: { now: number } }).clock.now).toBe(wall + 60_000);
+    expect((second.data as { clock: { now: number } }).clock.now).toBe(wall + 5 + 60_000);
   });
 });
 
@@ -228,14 +230,10 @@ describe('resetClock', () => {
     await call(ctx, 'sandbox.setClock', { isoTime: '2020-01-01T00:00:00.000Z' });
     await call(ctx, 'sandbox.resetClock');
     setSystemTime(wall);
-    try {
-      const inspected = await call(ctx, 'sandbox.inspect');
-      const clock = (inspected.data as { clock: { mode: string; now: number } }).clock;
-      expect(clock.mode).toBe('wall');
-      expect(clock.now).toBe(wall);
-    } finally {
-      setSystemTime();
-    }
+    const inspected = await call(ctx, 'sandbox.inspect');
+    const clock = (inspected.data as { clock: { mode: string; now: number } }).clock;
+    expect(clock.mode).toBe('wall');
+    expect(clock.now).toBe(wall);
   });
 });
 

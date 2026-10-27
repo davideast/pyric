@@ -17,10 +17,14 @@
  *     does NOT throw.
  *   - 0.I: queued create against existing doc → already-exists error.
  */
-import { describe, test, expect } from 'bun:test';
+import { afterEach, describe, test, expect, setSystemTime } from 'bun:test';
 import { LocalEnvironment } from 'pyric/sandbox/internal';
 import { ReadAfterWriteError } from 'pyric/sandbox/internal';
 import { READ_AFTER_WRITE_MESSAGE } from 'pyric/sandbox/internal';
+
+afterEach(() => {
+  setSystemTime();
+});
 
 const RULES_OPEN = `rules_version = '2';
 service cloud.firestore {
@@ -449,24 +453,25 @@ describe('LocalEnvironment.transaction — sync path', () => {
   });
 
   test('async callback: serverTime is pinned at commit (after await), not at callback start', async () => {
-    // Subtle but locked: a non-trivial await between read and write
-    // means the eventual `serverTimestamp()` reflects when the writes
-    // commit, not when the callback started. Smoke test: tx commits,
-    // doc has a sentinel-resolved timestamp present.
+    // A non-trivial await between the callback's start and its writes means
+    // the eventual `serverTimestamp()` reflects when the writes commit, not
+    // when the callback started. The wall clock is held and moved by hand
+    // across the await, so the two instants differ by exactly a minute.
     const env = new LocalEnvironment();
     env.seed({ rules: RULES_OPEN });
-
-    await new Promise((r) => setTimeout(r, 5));
+    const startedAt = Date.UTC(2031, 0, 1);
+    const committedAt = startedAt + 60_000;
+    setSystemTime(startedAt);
 
     const result = await env.transaction(async (tx) => {
       await new Promise((r) => setTimeout(r, 5));
-      // No sentinel here — just verify the tx commits cleanly across
-      // an awaited boundary. Sentinel tests live in the resolver suite.
-      tx.create('a/1', { stored: true });
+      setSystemTime(committedAt);
+      tx.create('a/1', { at: { __type: 'serverTimestamp' } });
     }, { auth: { uid: 'a' } });
 
     expect(result.allowed).toBe(true);
-    expect(env.getDocument('a/1')).toEqual({ stored: true });
+    const stored = env.getDocument('a/1') as { at: { toMillis(): number } };
+    expect(stored.at.toMillis()).toBe(committedAt);
   });
 
   test('delete then update returns invalid-argument and aborts the transaction', () => {

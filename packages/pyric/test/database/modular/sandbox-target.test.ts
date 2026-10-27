@@ -5,7 +5,7 @@
  * (or matrix row) it's locking. The link from test → observation is
  * the conformance contract.
  */
-import { describe, it, expect, setSystemTime } from 'bun:test';
+import { afterEach, describe, it, expect, setSystemTime } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import {
   getDatabase,
@@ -24,6 +24,12 @@ import {
   sandbox as rtdbSandbox,
   TARGET_SYMBOL,
 } from '../../../src/database/index.js';
+
+// A test that holds the wall clock with setSystemTime gets it back here, even
+// when an await inside it never settles.
+afterEach(() => {
+  setSystemTime();
+});
 
 function setup() {
   const sandbox = initializeSandbox();
@@ -384,11 +390,8 @@ describe('serverTimestamp (oracle: rtdb-servertimestamp-resolves)', () => {
     const { db } = setup();
     const wall = Date.UTC(2031, 0, 1);
     setSystemTime(wall);
-    try {
-      await set(ref(db, 'meta'), { createdAt: serverTimestamp() });
-    } finally {
-      setSystemTime();
-    }
+    await set(ref(db, 'meta'), { createdAt: serverTimestamp() });
+    setSystemTime();
     const snap = await get(ref(db, 'meta'));
     expect(snap.val()).toEqual({ createdAt: wall });
   });
