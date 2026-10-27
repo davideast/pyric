@@ -98,7 +98,7 @@ import {
 } from '../app/index.js';
 import { assertAdminAppActive } from '../app/lifecycle.js';
 import { increment, serverTimestamp } from 'pyric/database';
-import { valueAtChildPath, valueChildren } from 'pyric/database/internal';
+import { assertGettablePath, valueAtChildPath, valueChildren } from 'pyric/database/internal';
 import { deferredExport } from 'pyric/app/internal';
 
 /** `firebase-admin/database`'s `enableLogging`. The sandbox does not model
@@ -640,6 +640,7 @@ function buildSandboxRef(
 
     /** Read this path. Resolves to a {@link DataSnapshot}-shaped value. */
     async get(): Promise<AdminDataSnapshot> {
+      assertGettablePath(canonical);
       const val = readPath(state.root, canonical);
       return buildSandboxSnap((p) => buildSandboxRef(state, db, p), canonical, val);
     },

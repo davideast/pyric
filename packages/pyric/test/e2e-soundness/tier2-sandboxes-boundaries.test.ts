@@ -11,6 +11,7 @@ import {
 import {
   getDatabase,
   get,
+  onValue,
   set,
   ref as dbRef,
   sandbox as rtdbSandbox,
@@ -64,13 +65,19 @@ describe('Tier 2: Boundary & Corner Cases (Sandboxes)', () => {
       await expect(get(dbRef(db, '/'))).rejects.toThrow('PERMISSION_DENIED');
     });
 
-    test('F5.B5: /.info/connected succeeds even under default deny', async () => {
+    test('F5.B5: /.info/connected is delivered to a listener even under default deny', async () => {
       const sandbox = initializeSandbox();
       const db = getDatabase(sandbox.withAuth({ uid: 'client' }));
 
-      const snap = await get(dbRef(db, '/.info/connected'));
+      const seen: unknown[] = [];
+      const stop = onValue(dbRef(db, '/.info/connected'), (snap) => { seen.push(snap.val()); });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      stop();
       // In sandbox, connected is a boolean
-      expect(typeof snap.val()).toBe('boolean');
+      expect(seen.map((value) => typeof value)).toEqual(['boolean']);
+      // A one-shot get() is refused by the database, not by the rules:
+      // rtdb-modular-info-write-validation behavior.getConnected.
+      await expect(get(dbRef(db, '/.info/connected'))).rejects.toThrow('Invalid token in path');
     });
 
     test('F5.B6: sandbox isolation: unconfigured sandbox denies while configured sandbox permits', async () => {

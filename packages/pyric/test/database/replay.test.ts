@@ -516,6 +516,41 @@ describe('database replay()', () => {
       ]);
     });
 
+    describe('a denied transaction keeps the priority of the node it runs on', () => {
+      // rtdb-modular-priority-contract.json behavior.afterTransaction = 0:
+      // production keeps a node's priority across a transaction, so the rules
+      // see newData.getPriority() equal to the node's priority.
+      const DENY_WRITES = { rules: { '.read': true, t: { '.write': false } } };
+
+      async function captureDeniedTransaction(rules: { rules: Record<string, unknown> }) {
+        const sandbox = initializeSandbox();
+        const adminDb = getAdminDatabase(sandbox);
+        rtdbSandbox.setRules(getDatabase(sandbox), rules);
+        await setWithPriority(ref(adminDb, 't'), 1, 5);
+        const alice = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+        let denied = false;
+        await runTransaction(ref(alice, 't'), () => 2).catch(() => { denied = true; });
+        expect(denied).toBe(true);
+        return { events: sandbox.history(), state: rtdbSandbox.snapshotState(adminDb) };
+      }
+
+      it('reports now-allowed when the candidate rules allow a write that keeps the priority', async () => {
+        const { events, state } = await captureDeniedTransaction(DENY_WRITES);
+        const candidate = { rules: { '.read': true, t: { '.write': 'newData.getPriority() == 5' } } };
+        const result = await replay(events, { rules: candidate, capturedState: state });
+        expect(result.divergences).toEqual([
+          expect.objectContaining({ kind: 'now-allowed', method: 'transaction', path: '/t' }),
+        ]);
+      });
+
+      it('reports nothing when the captured rules themselves are replayed', async () => {
+        const strict = { rules: { '.read': true, t: { '.write': 'newData.getPriority() == null' } } };
+        const { events, state } = await captureDeniedTransaction(strict);
+        const result = await replay(events, { rules: strict, capturedState: state });
+        expect(result.divergences).toEqual([]);
+      });
+    });
+
     it('reports now-allowed for a captured denied get and onValue', async () => {
       const { events, state } = await captureDenials(async (db) => {
         await get(ref(db, 'profiles/bob')).catch(() => {});
