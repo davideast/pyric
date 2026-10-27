@@ -581,7 +581,14 @@ export class WritePlane {
     }));
   }
 
-  private changed(paths: string[], priors: ReturnType<ChildListeners['snapshotParents']>): void {
+  /**
+   * Publish a data write already applied to the tree at `paths`: mark it for
+   * transaction conflict checks, revoke the listeners whose `.read` it now
+   * denies, then deliver it to the rest. Every data write, a transaction
+   * commit included, goes through here, so no write reaches a listener the
+   * rules no longer allow.
+   */
+  changed(paths: string[], priors: ReturnType<ChildListeners['snapshotParents']>): void {
     this.state.mutations.mark(paths);
     this.cancelDeniedListeners(paths);
     this.values.fanOut(paths);
