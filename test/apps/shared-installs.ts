@@ -6,22 +6,39 @@
  * tarballs and the registry packages the app's package.json names.
  */
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, linkSync, mkdirSync, readFileSync, readdirSync, readlinkSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFile, link, mkdir, readdir, readlink, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { CommandResult } from './install.ts';
 
 /** The package.json fields that decide what `npm install` puts in node_modules. */
 const INSTALL_FIELDS = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies', 'overrides'] as const;
 
-/** Scripts npm runs in the project directory during an install. */
-const INSTALL_SCRIPTS = ['preinstall', 'install', 'postinstall', 'prepare'];
+/** Root scripts npm runs in the project directory during `npm install`. */
+const INSTALL_SCRIPTS = ['preinstall', 'install', 'postinstall', 'preprepare', 'prepare', 'postprepare', 'dependencies'];
+
+/** Lockfiles that pin what an app installs; an app that ships one installs from it, alone. */
+const LOCKFILES = ['package-lock.json', 'npm-shrinkwrap.json'];
 
 /**
- * A dependency spec with a relative path, which points into the app's own
- * directory. The absolute `file:` paths pinPyricPackages writes for the
- * tarballs are the same from any directory, so they share.
+ * A spec that shares: a registry range, a tag, a URL, or an absolute path to
+ * a tarball, like the `file:` pins pinPyricPackages writes. Any other path
+ * (`./x`, `../x`, `~/x`, `file:x`, a `file:` or `link:` directory) points at
+ * a directory relative to the app or outside the tarballs, so it installs alone.
  */
-const LOCAL_SPEC = /^(file|link):(?!\/)/;
+const PATH_SPEC = /^(file:|link:|\.{1,2}\/|~\/|\/)/;
+const ABSOLUTE_TARBALL = /^file:\/.*\.(tgz|tar\.gz)$/;
+
+function isLocalSpec(spec: string): boolean {
+  return PATH_SPEC.test(spec) && !ABSOLUTE_TARBALL.test(spec);
+}
+
+/** Every string value in a dependency field, at any depth (overrides nest). */
+function specsIn(value: unknown): string[] {
+  if (typeof value === 'string') return [value];
+  const isObject = typeof value === 'object' && value !== null;
+  return isObject ? Object.values(value).flatMap(specsIn) : [];
+}
 
 interface Manifest {
   scripts?: Record<string, string>;
@@ -35,55 +52,76 @@ function sortedObject(value: unknown): unknown {
   return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, entry]) => [key, sortedObject(entry)]));
 }
 
-function linksOwnDirectory(manifest: Manifest): boolean {
-  const specs = INSTALL_FIELDS.flatMap((field) => Object.values((manifest[field] as Record<string, unknown> | undefined) ?? {}));
-  return specs.some((spec) => typeof spec === 'string' && LOCAL_SPEC.test(spec));
-}
-
 /** The fields of a manifest that a shared install writes, in a stable order. */
 function installManifest(manifest: Manifest): Record<string, unknown> {
   return Object.fromEntries(INSTALL_FIELDS.filter((field) => manifest[field] !== undefined).map((field) => [field, sortedObject(manifest[field])]));
 }
 
+/** The files of a prepared app that decide its install. */
+export interface InstallInputs {
+  manifest: string;
+  npmrc?: string;
+  /** Whether the app ships a package-lock.json or npm-shrinkwrap.json. */
+  lockfile?: boolean;
+}
+
 /**
  * The key two apps share when one install serves both, or undefined when the
- * app must install in its own directory: its install runs its own scripts, or
- * it links directories of its own (workspaces, `file:./...`).
+ * app must install in its own directory: it ships a lockfile, its install
+ * runs its own scripts, or it depends on a path (workspaces, `./server`).
  */
-export function dependencySetKey(manifestText: string, npmrc: string | undefined): string | undefined {
-  const manifest = JSON.parse(manifestText) as Manifest;
+export function dependencySetKey(inputs: InstallInputs): string | undefined {
+  const manifest = JSON.parse(inputs.manifest) as Manifest;
   const runsInstallScripts = INSTALL_SCRIPTS.some((script) => manifest.scripts?.[script] !== undefined);
-  const installsAlone = runsInstallScripts || manifest.workspaces !== undefined || linksOwnDirectory(manifest);
+  const dependsOnPath = INSTALL_FIELDS.flatMap((field) => specsIn(manifest[field])).some(isLocalSpec);
+  const installsAlone = inputs.lockfile === true || runsInstallScripts || manifest.workspaces !== undefined || dependsOnPath;
   if (installsAlone) return undefined;
-  const identity = JSON.stringify({ manifest: installManifest(manifest), npmrc: npmrc ?? null });
+  const identity = JSON.stringify({ manifest: installManifest(manifest), npmrc: inputs.npmrc ?? null });
   return createHash('sha256').update(identity).digest('hex').slice(0, 16);
 }
 
-/** Recreate `from` at `to`: directories are made, files hard-linked, symlinks copied as symlinks. */
-export function linkTree(from: string, to: string): void {
-  mkdirSync(to, { recursive: true });
-  for (const entry of readdirSync(from, { withFileTypes: true })) {
+/** Files npm rewrites in place in an installed tree, so each app gets its own copy. */
+const REWRITTEN_IN_PLACE = new Set(['.package-lock.json']);
+
+/**
+ * Recreate `from` at `to`: directories are made, files hard-linked, symlinks
+ * copied as symlinks. Asynchronous, so the apps already running keep their
+ * timers and sockets moving while a large tree links.
+ */
+export async function linkTree(from: string, to: string): Promise<void> {
+  await mkdir(to, { recursive: true });
+  const entries = await readdir(from, { withFileTypes: true });
+  await Promise.all(entries.map(async (entry) => {
     const source = join(from, entry.name);
     const target = join(to, entry.name);
-    if (entry.isDirectory()) linkTree(source, target);
-    else if (entry.isSymbolicLink()) symlinkSync(readlinkSync(source), target);
-    else linkFile(source, target);
-  }
+    if (entry.isDirectory()) return linkTree(source, target);
+    if (entry.isSymbolicLink()) return symlink(await readlink(source), target);
+    if (REWRITTEN_IN_PLACE.has(entry.name)) return copyFile(source, target);
+    return linkFile(source, target);
+  }));
 }
 
-function linkFile(source: string, target: string): void {
+async function linkFile(source: string, target: string): Promise<void> {
   try {
-    linkSync(source, target);
+    await link(source, target);
   } catch (error) {
     // A hard link cannot cross filesystems; copy instead.
     const isCrossDevice = (error as NodeJS.ErrnoException).code === 'EXDEV';
     if (!isCrossDevice) throw error;
-    copyFileSync(source, target);
+    await copyFile(source, target);
   }
 }
 
 function readOptional(path: string): string | undefined {
   return existsSync(path) ? readFileSync(path, 'utf8') : undefined;
+}
+
+function readInstallInputs(projectDir: string): InstallInputs {
+  return {
+    manifest: readFileSync(join(projectDir, 'package.json'), 'utf8'),
+    npmrc: readOptional(join(projectDir, '.npmrc')),
+    lockfile: LOCKFILES.some((file) => existsSync(join(projectDir, file))),
+  };
 }
 
 /** Runs `npm install` in a directory. */
@@ -100,31 +138,38 @@ export class SharedInstalls {
 
   constructor(private readonly baseDir: string, private readonly installIn: InstallIn) {}
 
-  /** Install the app prepared in `projectDir`: its set's install, linked in, or its own when it installs alone. */
+  /**
+   * Install the app prepared in `projectDir`: its set's install, linked in,
+   * or its own when it installs alone. When the set's install fails, the app
+   * installs on its own, so one failed attempt (a dropped connection, say)
+   * costs each app what it cost before sets were shared.
+   */
   async install(projectDir: string): Promise<CommandResult> {
-    const manifestText = readFileSync(join(projectDir, 'package.json'), 'utf8');
-    const npmrc = readOptional(join(projectDir, '.npmrc'));
-    const key = dependencySetKey(manifestText, npmrc);
+    const inputs = readInstallInputs(projectDir);
+    const key = dependencySetKey(inputs);
     if (key === undefined) return this.installIn(projectDir);
     const existing = this.sets.get(key);
-    const set = existing ?? this.startSet(key, manifestText, npmrc);
-    const result = await set.result;
-    const header = existing === undefined
-      ? `[runner] shared install ${key}, made for this app\n`
-      : `[runner] shared install ${key}, made for an earlier app in this run\n`;
-    if (result.code !== 0) return { code: result.code, output: `${header}${result.output}` };
-    linkTree(join(set.dir, 'node_modules'), join(projectDir, 'node_modules'));
+    const set = existing ?? this.startSet(key, inputs);
+    const shared = await set.result;
+    const made = existing === undefined ? 'made for this app' : 'made for an earlier app in this run';
+    const header = `[runner] shared install ${key}, ${made}\n`;
+    if (shared.code !== 0) {
+      const own = await this.installIn(projectDir);
+      const note = '\n[runner] the shared install failed; installing this app on its own\n';
+      return { code: own.code, output: `${header}${shared.output}${note}${own.output}` };
+    }
+    await linkTree(join(set.dir, 'node_modules'), join(projectDir, 'node_modules'));
     const lockfile = join(set.dir, 'package-lock.json');
-    if (existsSync(lockfile)) copyFileSync(lockfile, join(projectDir, 'package-lock.json'));
-    return { code: 0, output: `${header}${result.output}` };
+    if (existsSync(lockfile)) await copyFile(lockfile, join(projectDir, 'package-lock.json'));
+    return { code: 0, output: `${header}${shared.output}` };
   }
 
-  private startSet(key: string, manifestText: string, npmrc: string | undefined): SetInstall {
+  private startSet(key: string, inputs: InstallInputs): SetInstall {
     const dir = join(this.baseDir, key);
     mkdirSync(dir, { recursive: true });
-    const manifest = { private: true, ...installManifest(JSON.parse(manifestText) as Manifest) };
+    const manifest = { private: true, ...installManifest(JSON.parse(inputs.manifest) as Manifest) };
     writeFileSync(join(dir, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`);
-    if (npmrc !== undefined) writeFileSync(join(dir, '.npmrc'), npmrc);
+    if (inputs.npmrc !== undefined) writeFileSync(join(dir, '.npmrc'), inputs.npmrc);
     const set = { dir, result: this.installIn(dir) };
     this.sets.set(key, set);
     return set;

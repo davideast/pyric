@@ -61,39 +61,48 @@ describe('dependency sets', () => {
 
   test('apps that install the same packages share a set, whatever else their manifests hold', () => {
     const cli = 'file:/work/dist/packages/pyric-cli-0.1.0-alpha.28.tgz';
-    const a = dependencySetKey(manifest({ name: 'a', dependencies: { vite: '7.3.2', '@pyric/cli': cli }, overrides: { '@pyric/cli': cli }, scripts: { dev: 'vite' } }), undefined);
-    const b = dependencySetKey(manifest({ name: 'b', dependencies: { '@pyric/cli': cli, vite: '7.3.2' }, overrides: { '@pyric/cli': cli } }), undefined);
+    const a = dependencySetKey({ manifest: manifest({ name: 'a', dependencies: { vite: '7.3.2', '@pyric/cli': cli }, overrides: { '@pyric/cli': cli }, scripts: { dev: 'vite' } }) });
+    const b = dependencySetKey({ manifest: manifest({ name: 'b', dependencies: { '@pyric/cli': cli, vite: '7.3.2' }, overrides: { '@pyric/cli': cli } }) });
     expect(a).toBeDefined();
     expect(a).toBe(b);
   });
 
   test('a different version, dev dependency, override or .npmrc is a different set', () => {
     const base = { dependencies: { vite: '7.3.2' } };
-    const key = dependencySetKey(manifest(base), undefined);
-    expect(dependencySetKey(manifest({ dependencies: { vite: '7.3.1' } }), undefined)).not.toBe(key);
-    expect(dependencySetKey(manifest({ ...base, devDependencies: { typescript: '5.9.3' } }), undefined)).not.toBe(key);
-    expect(dependencySetKey(manifest({ ...base, overrides: { esbuild: '0.25.0' } }), undefined)).not.toBe(key);
-    expect(dependencySetKey(manifest(base), 'registry=https://example.test/\n')).not.toBe(key);
+    const key = dependencySetKey({ manifest: manifest(base) });
+    expect(dependencySetKey({ manifest: manifest({ dependencies: { vite: '7.3.1' } }) })).not.toBe(key);
+    expect(dependencySetKey({ manifest: manifest({ ...base, devDependencies: { typescript: '5.9.3' } }) })).not.toBe(key);
+    expect(dependencySetKey({ manifest: manifest({ ...base, overrides: { esbuild: '0.25.0' } }) })).not.toBe(key);
+    expect(dependencySetKey({ manifest: manifest(base), npmrc: 'registry=https://example.test/\n' })).not.toBe(key);
   });
 
-  test('an app whose install runs its own scripts, or links its own directories, installs alone', () => {
-    expect(dependencySetKey(manifest({ dependencies: { vite: '7.3.2' }, scripts: { postinstall: 'node setup.js' } }), undefined)).toBeUndefined();
-    expect(dependencySetKey(manifest({ workspaces: ['server'] }), undefined)).toBeUndefined();
-    expect(dependencySetKey(manifest({ dependencies: { server: 'file:./server' } }), undefined)).toBeUndefined();
-    expect(dependencySetKey(manifest({ dependencies: { shared: 'file:../shared' } }), undefined)).toBeUndefined();
-    expect(dependencySetKey(manifest({ dependencies: { lib: 'link:lib' } }), undefined)).toBeUndefined();
+  test('an app whose install runs its own scripts, depends on a path, or ships a lockfile installs alone', () => {
+    expect(dependencySetKey({ manifest: manifest({ dependencies: { vite: '7.3.2' }, scripts: { postinstall: 'node setup.js' } }) })).toBeUndefined();
+    expect(dependencySetKey({ manifest: manifest({ workspaces: ['server'] }) })).toBeUndefined();
+    expect(dependencySetKey({ manifest: manifest({ dependencies: { server: 'file:./server' } }) })).toBeUndefined();
+    expect(dependencySetKey({ manifest: manifest({ dependencies: { shared: 'file:../shared' } }) })).toBeUndefined();
+    expect(dependencySetKey({ manifest: manifest({ dependencies: { lib: 'link:lib' } }) })).toBeUndefined();
+    expect(dependencySetKey({ manifest: manifest({ dependencies: { shared: '../shared' } }) })).toBeUndefined();
+    expect(dependencySetKey({ manifest: manifest({ dependencies: { tools: 'file:/work/tools' } }) })).toBeUndefined();
+    expect(dependencySetKey({ manifest: manifest({ overrides: { vite: { esbuild: 'file:./vendor/esbuild' } } }) })).toBeUndefined();
+    for (const script of ['preinstall', 'install', 'postinstall', 'prepare', 'preprepare', 'postprepare', 'dependencies']) {
+      expect(dependencySetKey({ manifest: manifest({ dependencies: { vite: '7.3.2' }, scripts: { [script]: 'node setup.js' } }) })).toBeUndefined();
+    }
+    expect(dependencySetKey({ manifest: manifest({ dependencies: { vite: '7.3.2' } }), lockfile: true })).toBeUndefined();
   });
 });
 
 describe('linking an installed tree into an app', () => {
-  test('files are hard links to the installed files, and symlinks stay symlinks', () => {
+  test('files are hard links to the installed files, symlinks stay symlinks, and npm\'s own lockfile is a copy', async () => {
     const from = tempDir();
     const to = join(tempDir(), 'node_modules');
     mkdirSync(join(from, 'vite/bin'), { recursive: true });
     mkdirSync(join(from, '.bin'));
     writeFileSync(join(from, 'vite/bin/vite.js'), 'console.log("vite")\n');
     symlinkSync('../vite/bin/vite.js', join(from, '.bin/vite'));
-    linkTree(from, to);
+    writeFileSync(join(from, '.package-lock.json'), '{}');
+    await linkTree(from, to);
+    expect(statSync(join(to, '.package-lock.json')).ino).not.toBe(statSync(join(from, '.package-lock.json')).ino);
     expect(statSync(join(to, 'vite/bin/vite.js')).ino).toBe(statSync(join(from, 'vite/bin/vite.js')).ino);
     expect(lstatSync(join(to, '.bin/vite')).isSymbolicLink()).toBe(true);
     expect(readlinkSync(join(to, '.bin/vite'))).toBe('../vite/bin/vite.js');
@@ -130,18 +139,33 @@ describe('one install per dependency set', () => {
     expect(results[1]?.output).toContain('shared install');
   });
 
-  test('a different set installs on its own, and a failed install fails every app that shares it', async () => {
-    let installs = 0;
-    const shared = new SharedInstalls(tempDir(), async () => {
-      installs += 1;
-      return { code: 1, output: 'npm error code E404\n' };
+  test('a different set installs on its own', async () => {
+    const installs: string[] = [];
+    const shared = new SharedInstalls(tempDir(), async (cwd) => {
+      installs.push(cwd);
+      mkdirSync(join(cwd, 'node_modules'), { recursive: true });
+      return { code: 0, output: '' };
     });
-    const results = await Promise.all([
+    await Promise.all([
       shared.install(appDir('a', { vite: '7.3.2' })),
       shared.install(appDir('b', { vite: '7.3.2' })),
       shared.install(appDir('c', { vite: '7.3.1' })),
     ]);
-    expect(installs).toBe(2);
-    expect(results.map((result) => result.code)).toEqual([1, 1, 1]);
+    expect(installs).toHaveLength(2);
+  });
+
+  test('when a set\'s install fails, each app that shares it installs on its own', async () => {
+    const apps = [appDir('a', { vite: '7.3.2' }), appDir('b', { vite: '7.3.2' })];
+    const installs: string[] = [];
+    const shared = new SharedInstalls(tempDir(), async (cwd) => {
+      installs.push(cwd);
+      const isApp = apps.includes(cwd);
+      return isApp ? { code: 0, output: 'added 1 package\n' } : { code: 1, output: 'npm error code ECONNRESET\n' };
+    });
+    const results = await Promise.all(apps.map((dir) => shared.install(dir)));
+    expect(installs.filter((cwd) => !apps.includes(cwd))).toHaveLength(1);
+    expect(installs.filter((cwd) => apps.includes(cwd)).sort()).toEqual([...apps].sort());
+    expect(results.map((result) => result.code)).toEqual([0, 0]);
+    expect(results[0]?.output).toContain('installing this app on its own');
   });
 });

@@ -214,15 +214,19 @@ async function main(): Promise<void> {
   const launch = () => (browser ??= chromium.launch({ headless: true }));
 
   console.log(`▸ running ${names.length} app${names.length === 1 ? '' : 's'}, ${options.jobs} at a time`);
-  const results = await pool(names, options.jobs, async (name) => {
-    const result = await runApp(name, { tarballs, npmCache, installs, keep: options.keep, browser: launch });
-    const dir = saveLogs(result);
-    console.log(result.ok ? `✓ ${name} (${result.seconds.toFixed(1)}s)` : report(result, dir));
-    return result;
-  });
-  if (browser) await (await browser).close();
-  if (options.keep) console.log(`  shared installs: ${installsDir}`);
-  else rmSync(installsDir, { recursive: true, force: true });
+  let results: AppResult[];
+  try {
+    results = await pool(names, options.jobs, async (name) => {
+      const result = await runApp(name, { tarballs, npmCache, installs, keep: options.keep, browser: launch });
+      const dir = saveLogs(result);
+      console.log(result.ok ? `✓ ${name} (${result.seconds.toFixed(1)}s)` : report(result, dir));
+      return result;
+    });
+    if (browser) await (await browser).close();
+  } finally {
+    if (options.keep) console.log(`  shared installs: ${installsDir}`);
+    else rmSync(installsDir, { recursive: true, force: true });
+  }
 
   const failed = results.filter((result) => !result.ok);
   const total = ((performance.now() - started) / 1000).toFixed(1);
