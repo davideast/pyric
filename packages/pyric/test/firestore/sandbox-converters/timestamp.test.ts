@@ -15,7 +15,7 @@
  * `data.createdAt == request.time` must keep working when both come from
  * the resolver/handler split).
  */
-import { describe, test, expect, spyOn } from 'bun:test';
+import { describe, test, expect, setSystemTime } from 'bun:test';
 import {
   dateConverter,
   serverTimestampConverter,
@@ -83,12 +83,12 @@ describe('serverTimestampConverter', () => {
     // The wall source is held so the fallback stamp is exact: bracketing it
     // between two wall-clock reads fails when the host clock steps back.
     const wall = Date.UTC(2031, 0, 1, 0, 0, 0, 125);
-    const nowSpy = spyOn(Date, 'now').mockImplementation(() => wall);
+    setSystemTime(wall);
     let out: unknown;
     try {
       out = serverTimestampConverter.convert({ __type: 'serverTimestamp' }, baseCtx());
     } finally {
-      nowSpy.mockRestore();
+      setSystemTime();
     }
     expect(out).toBeInstanceOf(Timestamp);
     expect((out as Timestamp).toMillis()).toBe(wall);

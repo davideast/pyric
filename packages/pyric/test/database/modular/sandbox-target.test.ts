@@ -5,8 +5,8 @@
  * (or matrix row) it's locking. The link from test → observation is
  * the conformance contract.
  */
-import { describe, it, expect } from 'bun:test';
-import { getClock, initializeSandbox } from 'pyric/sandbox';
+import { describe, it, expect, setSystemTime } from 'bun:test';
+import { initializeSandbox } from 'pyric/sandbox';
 import {
   getDatabase,
   ref,
@@ -379,14 +379,18 @@ describe('serverTimestamp (oracle: rtdb-servertimestamp-resolves)', () => {
   // is `{ ".sv": "timestamp" }`; on read the field resolves to a number
   // (epoch ms), NOT the marker.
   it('resolves to a number on read-back', async () => {
-    // The sandbox clock is pinned so the resolved value is exact: bracketing
-    // it between two wall-clock reads fails when the host clock steps back.
-    const { sandbox, db } = setup();
-    const pinned = Date.UTC(2031, 0, 1);
-    getClock(sandbox).set(pinned);
-    await set(ref(db, 'meta'), { createdAt: serverTimestamp() });
+    // The wall clock is held so the resolved value is exact: bracketing it
+    // between two real wall-clock reads fails when the host clock steps back.
+    const { db } = setup();
+    const wall = Date.UTC(2031, 0, 1);
+    setSystemTime(wall);
+    try {
+      await set(ref(db, 'meta'), { createdAt: serverTimestamp() });
+    } finally {
+      setSystemTime();
+    }
     const snap = await get(ref(db, 'meta'));
-    expect(snap.val()).toEqual({ createdAt: pinned });
+    expect(snap.val()).toEqual({ createdAt: wall });
   });
 
   it('serverTimestamp() returns the documented { ".sv": "timestamp" } shape', () => {

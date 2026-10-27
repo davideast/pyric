@@ -7,8 +7,8 @@
  * The admin/firestore packages will exercise the same surface
  * end-to-end in their own integration tests.
  */
-import { describe, it, expect } from 'bun:test';
-import { getClock, initializeSandbox } from '../../src/sandbox/index.js';
+import { describe, it, expect, setSystemTime } from 'bun:test';
+import { initializeSandbox } from '../../src/sandbox/index.js';
 import { getInternalEnv } from '../../src/sandbox/internal/sandbox-impl.js';
 import type {
   RequestEvent,
@@ -581,22 +581,26 @@ describe('Sandbox.onRequest', () => {
     // The replay engine re-issues this exact value when re-resolving
     // serverTimestamp() sentinels so resolved fields are bit-identical
     // on replay.
-    // The sandbox clock is pinned so the expected stamp is exact: bracketing
-    // it between two wall-clock reads fails when the host clock steps back.
+    // The wall clock is held so the expected stamp is exact: bracketing it
+    // between two real wall-clock reads fails when the host clock steps back.
     const { sandbox, env } = makeSandbox();
-    const pinned = Date.UTC(2031, 0, 1, 12, 0, 0, 250);
-    getClock(sandbox).set(pinned);
+    const wall = Date.UTC(2031, 0, 1, 12, 0, 0, 250);
     const writes: Array<{ requestTime: { seconds: number; nanoseconds: number } }> = [];
     sandbox.onEvent((e) => { if (e.kind === 'write') writes.push(e); });
 
-    env.execute({ method: 'set', path: 'notes/x', auth: { uid: 'alice' }, data: { v: 1 } });
-    env.flushListeners();
-    env.batch([{ method: 'create', path: 'notes/y', data: { v: 2 } }], { uid: 'alice' });
-    env.transaction((tx) => { tx.set('notes/z', { v: 3 }); }, { auth: { uid: 'alice' } });
+    setSystemTime(wall);
+    try {
+      env.execute({ method: 'set', path: 'notes/x', auth: { uid: 'alice' }, data: { v: 1 } });
+      env.flushListeners();
+      env.batch([{ method: 'create', path: 'notes/y', data: { v: 2 } }], { uid: 'alice' });
+      env.transaction((tx) => { tx.set('notes/z', { v: 3 }); }, { auth: { uid: 'alice' } });
+    } finally {
+      setSystemTime();
+    }
 
     expect(writes).toHaveLength(3);
     for (const w of writes) {
-      expect(w.requestTime).toEqual({ seconds: Math.floor(pinned / 1000), nanoseconds: 250_000_000 });
+      expect(w.requestTime).toEqual({ seconds: Math.floor(wall / 1000), nanoseconds: 250_000_000 });
     }
   });
 

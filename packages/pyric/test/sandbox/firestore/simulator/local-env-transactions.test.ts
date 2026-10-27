@@ -456,7 +456,6 @@ describe('LocalEnvironment.transaction — sync path', () => {
     const env = new LocalEnvironment();
     env.seed({ rules: RULES_OPEN });
 
-    const before = Date.now();
     await new Promise((r) => setTimeout(r, 5));
 
     const result = await env.transaction(async (tx) => {
@@ -468,8 +467,6 @@ describe('LocalEnvironment.transaction — sync path', () => {
 
     expect(result.allowed).toBe(true);
     expect(env.getDocument('a/1')).toEqual({ stored: true });
-    // Mostly a sanity check that nothing broke across the await.
-    expect(Date.now()).toBeGreaterThanOrEqual(before);
   });
 
   test('delete then update returns invalid-argument and aborts the transaction', () => {
