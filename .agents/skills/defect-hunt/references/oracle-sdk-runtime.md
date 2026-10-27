@@ -121,7 +121,7 @@ PYRIC_ORACLE_RTDB_URL=https://<dedicated-instance>.firebaseio.com \
 - Inert without names or credentials: it prints the scenario list.
 - Firestore deploys nothing and deletes the run tree with the admin SDK. RTDB
   runs only against `PYRIC_ORACLE_RTDB_URL`, refuses a default instance,
-  merges the scenario's rules under `/pyric_oracle/$run`, and restores the
+  merges the scenario's rules under the run's path in the oracle namespace, and restores the
   exact rules text in a `finally` path, printing `rules restored: true`.
 - The replays live in `packages/pyric/test/firestore/oracle-captures/`,
   `packages/pyric/test/database/cdd/capture-*.test.ts` and
