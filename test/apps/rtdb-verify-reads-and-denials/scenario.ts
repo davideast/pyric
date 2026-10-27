@@ -9,7 +9,7 @@
 // registration as of when it was made, and the update as one request with
 // both of its paths.
 import assert from 'node:assert/strict';
-import { scenario, sleep, type App } from '../driver.ts';
+import { scenario, sleep, type App, type AppProcess } from '../driver.ts';
 
 interface Repro {
   signIn(): Promise<string>;
@@ -19,6 +19,41 @@ interface Repro {
   updateBothProfiles(): Promise<string>;
 }
 declare const repro: Repro;
+
+/**
+ * What the host appends to the first rules reload of a session, and to no
+ * later one. The text is `createVerifyHint` in packages/cli/src/serve/verify-hint.ts.
+ */
+const VERIFY_HINT = '(run `pyric verify` to replay the captured session against these rules)';
+
+/** A whole `rtdb rules reloaded` line, its rules hash, and the output offset just past it. */
+interface Reload { line: string; hash: string; end: number }
+
+const RELOAD_LINE = /rtdb rules reloaded for \S+ \(([0-9a-f]+)\)[^\n]*\n/;
+
+function hintCount(output: string): number {
+  return output.split(VERIFY_HINT).length - 1;
+}
+
+function reloadLines(output: string): string {
+  return output.split('\n').filter((line) => line.includes('rules reloaded')).join('\n');
+}
+
+/**
+ * Wait for the first whole reload line after `since` whose hash differs from
+ * `previous`, so a second reload of an earlier write never stands in for the
+ * reload of the write that came after it.
+ */
+async function nextReload(server: AppProcess, since: number, previous: string | undefined): Promise<Reload> {
+  let from = since;
+  for (;;) {
+    const match = await server.waitForLog(RELOAD_LINE, { since: from });
+    const end = from + (match.index ?? 0) + match[0].length;
+    const isNewRules = match[1] !== previous;
+    if (isNewRules) return { line: match[0].trimEnd(), hash: match[1] ?? '', end };
+    from = end;
+  }
+}
 
 /** Run the installed `pyric` command from the app directory and return what it printed. */
 async function pyric(app: App, args: string[]): Promise<string> {
@@ -148,25 +183,31 @@ export default scenario(async (app) => {
     assert.match(output, /Tip: After changing rules, run `pyric verify`/, output);
   });
 
-  await app.step('pyric database rules generate suggests verify', async () => {
+  let firstReload: Reload | undefined;
+  await app.step('pyric database rules generate suggests verify, and the host reloads what it wrote', async () => {
+    const mark = host.process.mark();
+    assert.equal(hintCount(host.process.output), 0, `a rules reload before this step printed the verify hint:\n${reloadLines(host.process.output)}`);
     app.writeFile('database.rules.mjs', `export default { toJSON: () => ({ rules: { '.read': true } }) };`);
     const output = await pyric(app, ['database', 'rules', 'generate', '--config', 'database.rules.mjs']);
     assert.match(output, /Test before deploy: pyric verify --service rtdb/, output);
+    // generate writes database.rules.json, the file the host watches, so this
+    // is the session's first hot reload and the one that carries the hint.
+    const reload = await nextReload(host.process, mark, undefined);
+    assert.ok(reload.line.includes(VERIFY_HINT), `the first reload has no verify hint (has verify-hint.ts changed?): ${reload.line}`);
+    firstReload = reload;
   });
 
   await app.step('hot-reloading rules prints the verify hint exactly once', async () => {
-    const mark = host.process.mark();
-    // Trigger a hot reload
-    app.writeFile('database.rules.json', JSON.stringify({ rules: { '.read': true, '.write': true } }));
-    await host.process.waitForLog(/rules reloaded.*\(run `pyric verify` to replay the captured session against these rules\)/, { since: mark });
-    
-    // Trigger another hot reload
-    const mark2 = host.process.mark();
-    app.writeFile('database.rules.json', JSON.stringify({ rules: { '.read': false, '.write': false } }));
-    await host.process.waitForLog(/rules reloaded/, { since: mark2 });
-    
-    // Check that the hint was printed ONLY once. The new output should not have the hint.
-    const newLogs = host.process.output.slice(mark2);
-    assert.doesNotMatch(newLogs, /\(run `pyric verify` to replay the captured session against these rules\)/);
+    const edits = [{ rules: { '.read': true, '.write': true } }, { rules: { '.read': false, '.write': false } }];
+    let previous = firstReload?.hash;
+    for (const rules of edits) {
+      const mark = host.process.mark();
+      app.writeFile('database.rules.json', JSON.stringify(rules));
+      const reload = await nextReload(host.process, mark, previous);
+      assert.ok(!reload.line.includes(VERIFY_HINT), `a later reload repeated the verify hint: ${reload.line}`);
+      previous = reload.hash;
+    }
+    const later = host.process.output.slice(firstReload?.end ?? 0);
+    assert.equal(hintCount(later), 0, `the verify hint was printed again:\n${reloadLines(later)}`);
   });
 });
