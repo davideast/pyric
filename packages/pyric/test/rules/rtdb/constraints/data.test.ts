@@ -256,3 +256,15 @@ describe('Data template helpers', () => {
     });
   });
 });
+
+describe('parent depth is bounded (LD-11)', () => {
+  test('dataParentVal and newDataParentVal refuse 1e21 with a plain Error naming the limit', () => {
+    for (const call of [() => dataParentVal(1e21, 'x'), () => newDataParentVal(1e21, 'x')]) {
+      expect(call).toThrow(/depth must be an integer from 1 to 32/);
+      expect(call).not.toThrow(RangeError);
+    }
+  });
+  test('32 levels, the documented maximum database depth, still builds', () => {
+    expect(() => dataParentVal(32, 'x')).not.toThrow();
+  });
+});

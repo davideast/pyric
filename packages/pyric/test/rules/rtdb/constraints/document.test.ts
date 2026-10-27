@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { defineRtdbRules } from '../../../../src/rules/rtdb/constraints/document.js';
 import { z } from 'zod';
 import { rtdbRules, serverTimestamp } from '../../../../src/rules/index.js';
 import {
@@ -367,5 +368,12 @@ describe('defineRtdbRules', () => {
         },
       });
     }
+  });
+});
+
+describe('defineRtdbRules unknown keys (CS-3)', () => {
+  test('throws where the definition is written, not when it is first compiled', () => {
+    expect(() => defineRtdbRules({ paths: { '/a': { valdiate: 'true' } as never } })).toThrow(/valdiate.*validate/);
+    expect(() => defineRtdbRules({ paths: { '/a': { children: { '/b': { raed: 'true' } } } as never } })).toThrow(/raed.*read/);
   });
 });

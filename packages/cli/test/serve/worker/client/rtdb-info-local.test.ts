@@ -82,7 +82,13 @@ function settle(promise: Promise<RtdbDataSnapshot>): Promise<unknown> {
   return promise.then(snapshot => ({ value: snapshot.val() }), (error: Error) => ({ error: error.message }));
 }
 
-test('get() on .info paths is answered by the client', async () => {
+// DF-7 (#1247). Production rejects a one-shot get() of .info/connected with
+// Error 'Invalid token in path' and no code: the SDK sends the read to the
+// database, which refuses the .info token (observation
+// rtdb-modular-info-write-validation, behavior.getConnected). Any other .info
+// path is read through the same SDK path. The client refuses before the read
+// can reach the worker, as the sandbox does; listeners are answered locally.
+test('get() on .info paths rejects as production does and is never sent', async () => {
   const host = fakeHost(true);
   const database = rtdbGetDatabase(host.db);
   const reads = await Promise.all([
@@ -91,19 +97,14 @@ test('get() on .info paths is answered by the client', async () => {
     settle(rtdbGet(rtdbRef(database, '.info'))),
     settle(rtdbGet(rtdbRef(database, '.info/custom/child'))),
   ]);
-  expect(reads).toEqual([
-    { value: true },
-    { value: 0 },
-    { value: { connected: true, serverTimeOffset: 0 } },
-    { value: null },
-  ]);
+  expect(reads).toEqual(Array.from({ length: 4 }, () => ({ error: 'Invalid token in path' })));
   expect(host.posted).toEqual([]);
 });
 
-test('get() on .info/connected reads false while the client is not attached', async () => {
+test('get() on .info/connected rejects while the client is not attached', async () => {
   const host = fakeHost(false);
   const read = await settle(rtdbGet(rtdbRef(rtdbGetDatabase(host.db), '.info/connected')));
-  expect(read).toEqual({ value: false });
+  expect(read).toEqual({ error: 'Invalid token in path' });
   expect(host.posted).toEqual([]);
 });
 

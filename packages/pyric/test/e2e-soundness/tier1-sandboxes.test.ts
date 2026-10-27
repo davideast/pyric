@@ -15,6 +15,7 @@ import {
   getDatabase,
   getAdminDatabase,
   get,
+  onValue,
   set,
   update,
   remove,
@@ -88,12 +89,17 @@ describe('Tier 1: Feature Coverage (Sandboxes)', () => {
       expect((removeError as Error).message).toContain('PERMISSION_DENIED');
     });
 
-    test('F5.5: RTDB Sandbox - unconfigured database allows reading /.info/serverTimeOffset', async () => {
+    test('F5.5: RTDB Sandbox - unconfigured database allows listening to /.info/serverTimeOffset', async () => {
       const sandbox = initializeSandbox();
       const db = getDatabase(sandbox.withAuth({ uid: 'client-user' }));
 
-      const snap = await get(dbRef(db, '/.info/serverTimeOffset'));
-      expect(snap.val()).toBe(0);
+      // A listener reads .info; a one-shot get() of it is refused (DF-7,
+      // rtdb-modular-info-write-validation behavior.getConnected).
+      const seen: unknown[] = [];
+      const stop = onValue(dbRef(db, '/.info/serverTimeOffset'), (snap) => { seen.push(snap.val()); });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      stop();
+      expect(seen).toEqual([0]);
     });
 
     test('F5.6: RTDB Sandbox - admin database handle bypasses default deny and succeeds on write/read', async () => {

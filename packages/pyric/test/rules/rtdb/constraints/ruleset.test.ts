@@ -1,4 +1,6 @@
 import { describe, test, expect } from 'bun:test';
+import { serializeRtdbRules } from '../../../../src/rules/rtdb/compiled-rules.js';
+import type { PathDef } from '../../../../src/rules/rtdb/constraints/types.js';
 import { z } from 'zod';
 import { ruleset } from '../../../../src/rules/rtdb/constraints/ruleset.js';
 import { all, any, deny, always, allow, expr } from '../../../../src/rules/rtdb/constraints/compose.js';
@@ -411,5 +413,31 @@ describe('ruleset()', () => {
       expect(commentNode.pathVariables).toContain('$postId');
       expect(commentNode.pathVariables).toContain('$commentId');
     });
+  });
+});
+
+describe('rule values and unknown keys (CS-2, CS-3)', () => {
+  const compile = (def: PathDef) => serializeRtdbRules(ruleset({ '/a': def })).rules as Record<string, Record<string, unknown>>;
+
+  test('validate: false, read: false and write: false are kept as boolean rules', () => {
+    const rules = compile({ read: false as never, write: false as never, validate: false as never });
+    expect(rules.a).toMatchObject({ '.read': false, '.write': false, '.validate': false });
+  });
+  test('an empty rule string is refused', () => {
+    expect(() => compile({ write: 'true', validate: '' })).toThrow(/validate/);
+  });
+  test('a boolean child definition, as validation.shape may carry, is that child\'s .validate', () => {
+    const rules = serializeRtdbRules(ruleset({ '/r': { children: { '/a': true as never } } })).rules as Record<string, Record<string, Record<string, unknown>>>;
+    expect(rules.r!.a).toMatchObject({ '.validate': true });
+  });
+  test('a child definition that is neither an object nor a boolean is refused', () => {
+    expect(() => compile({ children: { '/b': '' as never } })).toThrow(/\/a\/b/);
+  });
+  test('an unknown key is refused, naming the nearest valid key', () => {
+    expect(() => compile({ write: 'true', valdiate: 'newData.isString()' } as PathDef)).toThrow(/valdiate.*validate/);
+    expect(() => compile({ children: { '/b': { raed: 'true' } as PathDef } })).toThrow(/raed.*read/);
+  });
+  test('an unknown key with no near match is still named', () => {
+    expect(() => compile({ zzzzzzzz: 1 } as PathDef)).toThrow(/zzzzzzzz/);
   });
 });
