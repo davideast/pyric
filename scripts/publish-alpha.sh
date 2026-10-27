@@ -6,14 +6,16 @@
 #
 # Steps: `bun run test` → pack once (full rebuild) → the packaging gate, the
 # release smoke and the app scenarios (test/apps), all on those packed
-# tarballs → publish the same tarballs under the `alpha`
-# dist-tag. Publishing is irreversible, so every gate passes before the first
-# upload, and the bytes uploaded are the bytes the gates tested; skip the
-# gates with PYRIC_PUBLISH_SKIP_GATES=1 only when they just ran on this exact
-# tree → point `latest` at the same version → run `compat:check`
-# against the pinned Firebase version and move the `fb<major>.<minor>`
-# compatibility certificate tag if it is green → print the dist-tags for
-# eyeball verification. Package versions must already be bumped (lockstep)
+# tarballs → publish the same tarballs under the `alpha` dist-tag → point
+# `latest` at the same version → run `compat:check` against the pinned
+# Firebase version and move the `fb<major>.<minor>` compatibility
+# certificate tag if it is green → print the dist-tags for eyeball
+# verification.
+#
+# Publishing is irreversible, so every gate passes before the first upload,
+# and the bytes uploaded are the bytes the gates tested. A rerun with
+# PYRIC_PUBLISH_SKIP_GATES=1 (after an authentication failure, say) skips
+# the gates and the pack, and uploads the tarballs the earlier run proved. Package versions must already be bumped (lockstep)
 # and merged; this script only ships what the tree builds.
 #
 # Channels: PYRIC_PUBLISH_TAG picks the dist-tag (default `latest`).
@@ -74,8 +76,11 @@ if [ "${PYRIC_PUBLISH_SKIP_GATES:-0}" != "1" ]; then
 fi
 
 # The one pack. Every gate below tests these tarballs, and the publish step
-# uploads them; nothing rebuilds or repacks in between.
-bash scripts/pack-packages.sh
+# uploads them; nothing rebuilds or repacks in between. A gate-skipping rerun
+# keeps the tarballs the earlier run's gates proved instead of packing anew.
+if [ "${PYRIC_PUBLISH_SKIP_GATES:-0}" != "1" ]; then
+  bash scripts/pack-packages.sh
+fi
 
 # The packaging gate on the tarballs about to ship: manifest lint, file set,
 # consumer install, subpath resolution, the packed CLI and serve smokes.

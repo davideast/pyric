@@ -15,11 +15,12 @@
 #         bash scripts/packaging-test.sh --packages dist/packages
 #
 # With --packages, the gate tests the tarballs already in that directory, as
-# scripts/pack-packages.sh wrote them, with no build and no pack of its own.
-# publish-alpha.sh runs it that way, so the gate proves the files it uploads.
-# Without it, the gate builds the workspace and packs it with
-# scripts/pack-packages.sh into its work dir: the same pack, so a standalone
-# run tests the same bytes a release would ship.
+# scripts/pack-packages.sh wrote them (it reads their names from the
+# manifest.json beside them), with no build and no pack of its own.
+# publish-alpha.sh runs it that way, right after its one pack, so the gate
+# proves the files it uploads. Without it, the gate runs
+# scripts/pack-packages.sh, build included, into its work dir: the same pack,
+# so a standalone run tests the same bytes a release would ship.
 #
 # Exits 0 on success, non-zero on first failure. Cleans up its work dir
 # on success; leaves it intact on failure for debugging.
@@ -101,21 +102,28 @@ echo ""
 if [ -n "$PACKAGES_DIR" ]; then
   echo "━━━ Phase 1: build and pack skipped: testing the tarballs in $PACKAGES_DIR ━━━"
 else
-  echo "━━━ Phase 1: build, then pack with scripts/pack-packages.sh ━━━"
+  echo "━━━ Phase 1: build and pack with scripts/pack-packages.sh ━━━"
   cd "$ROOT"
-  bash scripts/build.sh
   PACKAGES_DIR="$WORK/packages"
-  bash scripts/pack-packages.sh --skip-build --out "$PACKAGES_DIR"
+  NPM_CONFIG_CACHE="$NPM_CACHE" bash scripts/pack-packages.sh --out "$PACKAGES_DIR"
 fi
 
-# The tarball npm pack names for a workspace package: scope dropped, `/` → `-`.
+# Each package's tarball, as the manifest.json pack-packages.sh wrote beside
+# the tarballs names it, so the gate tests the files that pack made.
+PACKAGES_MANIFEST="$PACKAGES_DIR/manifest.json"
+if [ ! -f "$PACKAGES_MANIFEST" ]; then
+  echo "  ✗ $PACKAGES_MANIFEST is missing; pack with scripts/pack-packages.sh" >&2
+  exit 1
+fi
 tarball_of() {
   local pkg_dir="$1" name version file
   name=$(jq -r '.name' "$ROOT/$pkg_dir/package.json")
   version=$(jq -r '.version' "$ROOT/$pkg_dir/package.json")
-  file="$PACKAGES_DIR/$(printf '%s' "${name#@}" | tr '/' '-')-${version}.tgz"
+  file=$(jq -r --arg name "$name" --arg version "$version" \
+    '.packages[] | select(.name == $name and .version == $version) | .tarball' "$PACKAGES_MANIFEST")
+  file="$PACKAGES_DIR/$(basename "$file")"
   if [ ! -f "$file" ]; then
-    echo "  ✗ missing packed $name@$version: $file" >&2
+    echo "  ✗ $PACKAGES_MANIFEST names no packed $name@$version in $PACKAGES_DIR" >&2
     exit 1
   fi
   printf '%s' "$file"

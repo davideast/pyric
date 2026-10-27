@@ -41,14 +41,16 @@ done
 
 # What publint and attw read for a package: its tarball under --packages, its directory otherwise.
 lint_target() {
-  local p="$1" name version
+  local p="$1" name version file
   if [ -z "$PACKAGES_DIR" ]; then
     printf '%s' "packages/$p"
     return
   fi
   name=$(jq -r '.name' "packages/$p/package.json")
   version=$(jq -r '.version' "packages/$p/package.json")
-  printf '%s' "$PACKAGES_DIR/$(printf '%s' "${name#@}" | tr '/' '-')-${version}.tgz"
+  file=$(jq -r --arg name "$name" --arg version "$version" \
+    '.packages[] | select(.name == $name and .version == $version) | .tarball' "$PACKAGES_DIR/manifest.json")
+  printf '%s' "$PACKAGES_DIR/$(basename "$file")"
 }
 ATTW="$ROOT/node_modules/.bin/attw"
 PUBLINT="$ROOT/node_modules/.bin/publint"

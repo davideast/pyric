@@ -123,14 +123,44 @@ describe('alpha publish safety contract', () => {
     expect(commands.some((command) => command.startsWith('npm publish '))).toBe(false);
   });
 
-  test('the explicit rerun escape hatch skips only the proofs', () => {
+  test('the explicit rerun escape hatch skips the proofs and the pack, and uploads the tarballs they proved', () => {
     const { result, commands } = runPublish({ skip: true });
     expect(result.status).toBe(0);
     expect(commands).not.toContain('bun run test');
     expect(commands).not.toContain(PACKAGING_GATE);
     expect(commands).not.toContain('bun test/apps/run.ts --packages dist/packages');
-    expect(commands).toContain(PACK);
+    expect(commands.some((command) => command.startsWith(PACK))).toBe(false);
     expect(commands.filter((command) => command.startsWith('npm publish '))).toHaveLength(5);
+  });
+
+  test('the packaging gate given --packages neither builds nor packs', () => {
+    const work = mkdtempSync(join(tmpdir(), 'pyric-packaging-gate-'));
+    workDirs.push(work);
+    const bin = join(work, 'bin');
+    const packages = join(work, 'packages');
+    Bun.spawnSync(['mkdir', '-p', bin, packages]);
+    const log = join(work, 'commands.log');
+    writeFileSync(log, '');
+    for (const command of ['bash', 'npm', 'bun']) {
+      const path = join(bin, command);
+      writeFileSync(path, `#!/bin/bash\necho "$(basename "$0") $*" >> "$COMMAND_LOG"\n`);
+      chmodSync(path, 0o755);
+    }
+    // A manifest naming tarballs that are not there: the gate stops at the first
+    // one it looks up, after the point where it would otherwise build and pack.
+    writeFileSync(join(packages, 'manifest.json'), JSON.stringify({ packages: [] }));
+    const result = spawnSync('/bin/bash', [join(root, 'scripts/packaging-test.sh'), '--packages', packages], {
+      cwd: root,
+      encoding: 'utf8',
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, COMMAND_LOG: log, TMPDIR: work },
+    });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain(`build and pack skipped: testing the tarballs in ${packages}`);
+    expect(result.stderr).toContain('names no packed pyric@');
+    const commands = readFileSync(log, 'utf8');
+    expect(commands).not.toContain('scripts/build.sh');
+    expect(commands).not.toContain('pack-packages.sh');
+    expect(commands).not.toContain('npm pack');
   });
 
   test('dry-run proves authentication and package shape without mutating the registry', () => {

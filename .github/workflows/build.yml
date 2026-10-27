@@ -679,11 +679,10 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Packaging gate
-        # scripts/packaging-test.sh: static manifest lint (publint + attw types
-        # resolution + exports↔dist drift), then packs every publishable package
-        # via `npm pack` (rewriting workspace:* → ^<version> via
-        # scripts/lib/rewrite-workspace-deps.mjs — the same rewrite the real
-        # `npm run pack` uses), installs the tarballs into a fresh consumer,
+        # scripts/packaging-test.sh: builds and packs every publishable package
+        # with scripts/pack-packages.sh, the same pack a release ships, then
+        # lints the tarballs (publint + attw types resolution + exports↔dist
+        # drift), installs the tarballs into a fresh consumer,
         # asserts every advertised subpath import resolves + the export shapes,
         # exercises the bin, runs a serve smoke, RUNS the libraries (runtime
         # asset paths), and pins the ESM-only + subpath-only module contract.
