@@ -101,6 +101,22 @@ describe('tree-structure checks carry production deploy texts', () => {
     ).toBeNull();
   });
 
+  // CS-11 (#1247): compiled JSON whose `rules` is not an object is refused by
+  // lint() as `{ rules: 5 }` is (public-api.test.ts), and simulate() reports
+  // each case UNSUPPORTED rather than throwing (rtdb.ts: "Never throws on a
+  // rule outcome").
+  for (const [name, rules] of [['an array', []], ['a number', 5], ['a string', 'x']] as const) {
+    test(`compiled JSON whose rules is ${name} lints as a compile error and simulates as UNSUPPORTED`, () => {
+      const ruleset = rtdbRules({ rules: rules as unknown as Record<string, unknown> });
+      expect(ruleset.lint()).toEqual([expect.objectContaining({ code: 'COMPILE_ERROR', severity: 'error', path: '/' })]);
+      const summary = ruleset.simulate([{ expectation: 'DENY', operation: 'read', path: '/' }]);
+      expect(summary.cases[0]!.decision).toBe('UNSUPPORTED');
+      expect(summary.cases[0]!.reason).toContain('"rules" must be an object');
+      expect(summary.unsupported).toBe(1);
+      expect(ruleset.explain({ expectation: 'DENY', operation: 'read', path: '/' }).decision).toBe('UNSUPPORTED');
+    });
+  }
+
   test('an unknown dotted key holding an object is not read as a child location', () => {
     expect(compileRtdbRules({ rules: { '.valdiate': { '.read': 'true' } } }).children).toEqual([]);
     // No client can address `/.valdiate`: the SDK refuses a path holding `.`

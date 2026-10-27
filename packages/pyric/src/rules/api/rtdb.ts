@@ -224,13 +224,23 @@ function lintDocument(doc: RtdbRulesDocumentInternal): RuleIssue[] {
   return [...issues, ...lintRtdbRuleset(doc.compile()).map(rtdbSecurityFindingToIssue)];
 }
 
+/** The ruleset's compiled tree, or a tree with no rules when it does not
+ *  compile: such a ruleset has no rule nodes to cover. */
+function compiledOrEmpty(doc: RtdbRulesDocumentInternal): CompiledRtdbRules {
+  try {
+    return doc.compile();
+  } catch {
+    return compileRtdbRules({ rules: {} });
+  }
+}
+
 /** Coverage of one ruleset by the results that ran on it. */
 function fileCoverage(
   doc: RtdbRulesDocumentInternal,
   results: readonly RtdbCaseResult[],
   options?: RtdbCoverageOptions,
 ): RtdbCoverageSummary {
-  const recorder = new RtdbCoverageRecorder(doc.compile());
+  const recorder = new RtdbCoverageRecorder(compiledOrEmpty(doc));
   for (const result of results) {
     recorder.record(result.trace);
     if (result.case.operation === 'read') recorder.recordQuery(result.case.path, result.case.query);
@@ -262,8 +272,16 @@ class CompiledRtdbRulesDocument implements RtdbRulesDocumentInternal {
     return checkRtdbRules(() => this.compile());
   }
 
+  /** A ruleset that does not compile evaluates no case: each is reported as
+   *  input the engine cannot evaluate, as `lint()` reports the compile error. */
   simulate(input: RtdbRulesSimulationInput): SimulateResult {
-    return simulateRtdbRules(this.compile(), normalizeSimulationInput(input));
+    let compiled: CompiledRtdbRules;
+    try {
+      compiled = this.compile();
+    } catch (error) {
+      return invalidCase(`the ruleset does not compile: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    return simulateRtdbRules(compiled, normalizeSimulationInput(input));
   }
 }
 
