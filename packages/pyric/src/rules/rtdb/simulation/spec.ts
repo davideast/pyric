@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import type { Bound, OrderBy } from '../../../database/internal/query-projection.js';
+import { validateOrderByChildPath, validateQuerySpec } from '../../../database/query-validation.js';
 
 export const SimulationQuerySchema = z.object({
   orderByChild: z.string().nullable().optional(),
@@ -13,11 +15,40 @@ export const SimulationQuerySchema = z.object({
 });
 export type SimulationQuery = z.infer<typeof SimulationQuerySchema>;
 
+/** The message `run` throws, or null when it returns. */
+function thrownMessage(run: () => void): string | null {
+  try {
+    run();
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
+function orderByOf(q: SimulationQuery): OrderBy | null {
+  if (q.orderByChild != null) return { kind: 'child', path: q.orderByChild };
+  if (q.orderByKey === true) return { kind: 'key' };
+  if (q.orderByValue === true) return { kind: 'value' };
+  if (q.orderByPriority === true) return { kind: 'priority' };
+  return null;
+}
+
+/** The query's bounds as the SDK builds them. A null bound reads as no
+ *  bound, as rules read an absent one. */
+function boundsOf(q: SimulationQuery): Bound[] {
+  const named = [['startAt', q.startAt], ['endAt', q.endAt], ['equalTo', q.equalTo]] as const;
+  return named.flatMap(([kind, value]) => (value == null ? [] : [{ kind, value }]));
+}
+
 /**
  * The reason a query cannot be a single Realtime Database query, or null when
  * it can. The SDK allows one `orderBy*` and one limit per query, and a limit is
- * a positive integer. A caller that builds a query from loose input checks it
- * here so a shape the SDK would refuse is not evaluated as if it were a read.
+ * a positive integer. It refuses a reserved or invalid `orderByChild` path, and
+ * a bound of the wrong type for the ordering, with the texts capture
+ * rtdb-modular-query-construction-validation records (orderByChild.reserved,
+ * orderByChild.invalid, orderByKeyEndpoints, byIndex.defaultPriority). A caller
+ * that builds a query from loose input checks it here so a shape the SDK would
+ * refuse is not evaluated as if it were a read.
  */
 export function simulationQueryProblem(query: unknown): string | null {
   const parsed = SimulationQuerySchema.strict().safeParse(query);
@@ -25,12 +56,14 @@ export function simulationQueryProblem(query: unknown): string | null {
     return `query is not a Realtime Database query: ${parsed.error.issues.map((i) => i.message).join('; ')}`;
   }
   const q = parsed.data;
-  if (q.orderByChild === '') return 'query.orderByChild must name a child path.';
+  const childPath = q.orderByChild;
+  const childPathProblem = childPath == null ? null : thrownMessage(() => validateOrderByChildPath(childPath));
+  if (childPathProblem !== null) return childPathProblem;
   if (q.orderByChild != null && q.orderByChild.split('/').filter(Boolean).length === 0) {
     return 'orderByChild: cannot pass in empty path. Use orderByValue() instead.';
   }
   const orderings = [
-    q.orderByChild != null && q.orderByChild !== '',
+    q.orderByChild != null,
     q.orderByKey === true,
     q.orderByValue === true,
     q.orderByPriority === true,
@@ -50,7 +83,7 @@ export function simulationQueryProblem(query: unknown): string | null {
       return `query.${name} must be a positive integer.`;
     }
   }
-  return null;
+  return thrownMessage(() => validateQuerySpec({ orderBy: orderByOf(q), bounds: boundsOf(q), limit: null }));
 }
 
 export const SimulationInputSchema = z.object({

@@ -83,6 +83,15 @@ describe('CS-5: overlapping or duplicate update paths', () => {
   });
 });
 
+describe('CS-7: a read case whose query the SDK refuses', () => {
+  test('is UNSUPPORTED with the SDK text', () => {
+    const result = run({ operation: 'read', path: '/a', query: { orderByChild: '$key' } });
+    expect(result.decision).toBe('UNSUPPORTED');
+    expect(result.reason).toBe('orderByChild: "$key" is invalid.  Use orderByKey() instead.');
+    expect(run({ operation: 'read', path: '/a', query: { startAt: true } }).decision).toBe('UNSUPPORTED');
+  });
+});
+
 describe("CS-4: a write case whose 'updates' disagree with it", () => {
   // case-types.ts: newData is the case's proposed value; updates lists every
   // path written together so the case path's rules see the shared projection.
