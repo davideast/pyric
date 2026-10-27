@@ -1,0 +1,8 @@
+{
+  "rules": {
+    ".read": true,
+    "t": {
+      ".write": "auth != null && !data.exists()"
+    }
+  }
+}
