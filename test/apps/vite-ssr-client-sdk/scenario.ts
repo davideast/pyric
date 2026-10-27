@@ -8,7 +8,9 @@
 // guard stays on underneath: nothing in this scenario reaches Google. In
 // production AI mode the guard permits Firebase AI Logic; egress-stand-in.mjs,
 // preloaded into that dev server, stands in for the network beneath the guard
-// and refuses what it permits.
+// and refuses what it permits. SSR's config holds the host: a page whose
+// config only adds measurementId is accepted, a page with another storage
+// bucket is refused, and SSR keeps working after both load.
 import assert from 'node:assert/strict';
 import { scenario, type App, type DevServer } from '../driver.ts';
 
@@ -116,6 +118,38 @@ export default scenario(async (app) => {
   await app.step('the environment runner: the same SSR session, under the rules', async () => {
     const environmentUid = assertRunsAsUser(await runSsr(host, 'environment', 'environment'), 'environment');
     assert.equal(environmentUid, uid, 'one SSR session per dev server process, as one Node server process has one auth state');
+  });
+
+  // The host serves one Firebase config, compared on the keys that pick
+  // backend data. SSR sent its config first, verified against this host. A
+  // page that only adds measurementId shares it; a page that names another
+  // storage bucket is the one refused, and the dev server log says so.
+  const writeFromPage = async (variant: string): Promise<Outcome> => {
+    const page = await app.page(`${host.url}/measurement.html?variant=${variant}`);
+    await page.waitForFunction(() => 'measured' in window);
+    const result = await page.evaluate(() => (window as unknown as { measured: { write(): Promise<Outcome> } }).measured.write());
+    await page.close();
+    return result;
+  };
+
+  await app.step('a page whose config adds measurementId is accepted alongside SSR', async () => {
+    const result = await writeFromPage('measurement');
+    assert.equal(result.ok, true, JSON.stringify(result));
+  });
+
+  await app.step('a page whose config names another storage bucket is refused, naming the difference', async () => {
+    const logSince = host.process.mark();
+    const result = await writeFromPage('bucket');
+    assert.equal(result.ok, false, JSON.stringify(result));
+    if (result.ok) return;
+    assert.equal(result.code, 'app/multiple-configs-not-supported', JSON.stringify(result));
+    assert.match(result.message, /differs on: storageBucket/);
+    await host.process.waitForLog(/\[pyric\] Refused a client's Firebase config \(differs on: storageBucket\)/, { since: logSince, timeoutMs: 10_000 });
+  });
+
+  await app.step('SSR keeps working after both pages loaded', async () => {
+    const afterUid = assertRunsAsUser(await runSsr(host, 'legacy', 'after-pages'), 'after-pages');
+    assert.equal(afterUid, uid, 'the SSR session survives both pages');
   });
 
   await app.step('the browser still writes and reads through the sandbox', async () => {

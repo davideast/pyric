@@ -1,11 +1,16 @@
 import type { Expr, Segment } from './types.js';
 import { any, expr as e, lit, not } from './compose.js';
-import { dataExists, dataVal, eq, newDataVal } from './data.js';
+import { childPathName, dataExists, dataVal, eq, newDataVal } from './data.js';
 
-function buildPath(segments: Segment[]): string {
+// Takes slash paths (child('a/b') is valid), unlike childPath in stdlib/expr.ts, which takes one key per segment; do not merge them.
+function buildPath(builder: string, segments: Segment[]): string {
+  if (!Array.isArray(segments) || segments.length === 0) throw new Error(`${builder}: pass at least one segment.`);
   return segments.map(s => {
-    if (typeof s === 'string') return `child(${lit(s)})`;
+    if (typeof s === 'string') return `child(${lit(childPathName(builder, s))})`;
     // Unquoted reference: path variable ($teamId) or runtime (auth.uid)
+    if (typeof s?.$ !== 'string' || s.$.trim().length === 0) {
+      throw new Error(`${builder}: segment expression '$' must be a non-empty string.`);
+    }
     return `child(${s.$})`;
   }).join('.');
 }
@@ -17,7 +22,12 @@ export const authenticated = (): Expr => e('auth != null');
 // --- Ownership ---
 
 /** Path-based ownership: auth.uid matches a URL path variable */
-export const ownPath = (pathVar: string): Expr => e(`auth.uid == ${pathVar}`);
+export function ownPath(pathVar: string): Expr {
+  if (typeof pathVar !== 'string' || !/^\$[A-Za-z_]\w*$/.test(pathVar)) {
+    throw new Error(`ownPath: '${String(pathVar)}' is not a path variable such as '$uid'.`);
+  }
+  return e(`auth.uid == ${pathVar}`);
+}
 
 /** Field-based ownership: auth.uid matches a value stored in a data field */
 export const ownField = (field: string): Expr => e(`auth.uid == ${dataVal(field)}`);
@@ -33,16 +43,16 @@ export const isNew = (): Expr => not(dataExists());
 export const hasChildren = (): Expr => e('newData.hasChildren()');
 
 /** Incoming data must have a specific child field */
-export const hasChild = (field: string): Expr => e(`newData.hasChild(${lit(field)})`);
+export const hasChild = (field: string): Expr => e(`newData.hasChild(${lit(childPathName('hasChild', field))})`);
 
 /** Field must be a string */
-export const fieldIsString = (field: string): Expr => e(`newData.child(${lit(field)}).isString()`);
+export const fieldIsString = (field: string): Expr => e(`newData.child(${lit(childPathName('fieldIsString', field))}).isString()`);
 
 /** Field must be a number */
-export const fieldIsNumber = (field: string): Expr => e(`newData.child(${lit(field)}).isNumber()`);
+export const fieldIsNumber = (field: string): Expr => e(`newData.child(${lit(childPathName('fieldIsNumber', field))}).isNumber()`);
 
 /** Field must be a boolean */
-export const fieldIsBoolean = (field: string): Expr => e(`newData.child(${lit(field)}).isBoolean()`);
+export const fieldIsBoolean = (field: string): Expr => e(`newData.child(${lit(childPathName('fieldIsBoolean', field))}).isBoolean()`);
 
 /** Field must be one of the allowed string values */
 export const fieldEnum = (field: string, values: string[]): Expr =>
@@ -62,8 +72,11 @@ export const immutableSelf = (): Expr =>
 
 /** Check if a path exists in the database (via root) */
 export const rootExists = (segments: Segment[]): Expr =>
-  e(`root.${buildPath(segments)}.exists()`);
+  e(`root.${buildPath('rootExists', segments)}.exists()`);
 
 /** Check if a path's value equals a specific string (via root) */
-export const rootEquals = (segments: Segment[], value: string): Expr =>
-  e(`root.${buildPath(segments)}.val() == ${lit(value)}`);
+export const rootEquals = (segments: Segment[], value: string): Expr => rootValueEquals('rootEquals', segments, value);
+
+/** {@link rootEquals} reporting argument errors under `builder`, for builders written on top of it. */
+export const rootValueEquals = (builder: string, segments: Segment[], value: string): Expr =>
+  e(`root.${buildPath(builder, segments)}.val() == ${lit(value)}`);

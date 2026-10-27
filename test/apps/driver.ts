@@ -12,6 +12,8 @@ import { createServer } from 'node:net';
 import { join } from 'node:path';
 import type { Browser, BrowserContext, Page } from '@playwright/test';
 import { blackholedPort, type BlackholedPort } from '../../packages/cli/test/blackholed-port.ts';
+import { npmInstall, pinPyricPackages, type Tarballs } from './install.ts';
+import { describeProcState, endGroup, watchChildExit, type LiveProcess } from './unreaped-exit.ts';
 
 export interface LogWaitOptions {
   /** Only output after this offset (from `mark()`) counts. Default: all output. */
@@ -42,6 +44,14 @@ export class AppProcess {
   private isPaused = false;
   private spawnAttempts = 0;
   private childWrote = false;
+  private stopWatchingExit: () => void = () => {};
+  /**
+   * Set when the child's exit was counted without its `close` (#1274): a
+   * process it started may still be in its group, holding its pipes.
+   */
+  private exitedEarly = false;
+  /** Processes this child started that outlived it, holding its pipes (#1274). */
+  readonly leftoverProcesses: LiveProcess[] = [];
 
   constructor(
     readonly name: string,
@@ -79,10 +89,18 @@ export class AppProcess {
       this.text += `\n[driver] could not start ${this.command}: ${error.message}\n`;
       this.finish(null);
     });
-    child.on('close', (code, signal) => {
+    child.on('close', (_code, signal) => {
+      if (isCurrent() && signal) this.text += `\n[driver] exited on ${signal}\n`;
+    });
+    // `close` waits for the output pipes too, and Bun can miss an exit (#1274):
+    // watchChildExit also counts an exit whose pipes stay held, and a zombie.
+    this.stopWatchingExit();
+    this.stopWatchingExit = watchChildExit(child, this.name, (exit) => {
       if (!isCurrent()) return;
-      if (signal) this.text += `\n[driver] exited on ${signal}\n`;
-      this.finish(code);
+      this.text += exit.note;
+      if (exit.source !== 'close') this.exitedEarly = true;
+      this.leftoverProcesses.push(...exit.leftovers);
+      this.finish(exit.code);
     });
     return child;
   }
@@ -106,6 +124,7 @@ export class AppProcess {
 
   private finish(code: number | null): void {
     if (!this.running) return;
+    this.stopWatchingExit();
     this.exitCode = code;
     this.settle(code);
   }
@@ -171,7 +190,11 @@ export class AppProcess {
    * `exited` settles and nothing waits on it past that.
    */
   async stop(grace: StopGrace = DEFAULT_STOP_GRACE): Promise<void> {
-    if (!this.running || this.child.pid === undefined) return;
+    if (this.child.pid === undefined) return;
+    if (!this.running) {
+      await this.stopLeftoverGroup(grace);
+      return;
+    }
     const group = -this.child.pid;
     // A stopped process holds SIGTERM until it is continued.
     if (this.isPaused) {
@@ -179,11 +202,26 @@ export class AppProcess {
       this.isPaused = false;
     }
     try { process.kill(group, 'SIGTERM'); } catch { /* the group is gone; wait for close below */ }
-    if (await this.closesWithin(grace.termMs)) return;
+    if (await this.closesWithin(grace.termMs)) {
+      // The leader went; a member that ignores SIGTERM may hold its pipes.
+      if (this.exitedEarly) try { process.kill(group, 'SIGKILL'); } catch { /* the group is gone */ }
+      return;
+    }
     try { process.kill(group, 'SIGKILL'); } catch { /* already gone */ }
     if (await this.closesWithin(grace.killMs)) return;
-    this.text += `\n[driver] ${this.name} did not close within ${grace.killMs / 1000}s of SIGKILL; the driver records it as gone\n`;
+    this.text += `\n[driver] ${this.name} did not close within ${grace.killMs / 1000}s of SIGKILL; the driver records it as gone${describeProcState(this.child.pid)}\n`;
     this.finish(null);
+  }
+
+  /**
+   * End what is left of the group of a child whose exit counted without its
+   * `close`: SIGTERM, then SIGKILL. The signals reach only members of that
+   * process group.
+   */
+  private async stopLeftoverGroup(grace: StopGrace): Promise<void> {
+    const pid = this.child.pid;
+    if (!this.exitedEarly || pid === undefined) return;
+    await endGroup(pid, grace.termMs);
   }
 
   private closesWithin(ms: number): Promise<boolean> {
@@ -233,6 +271,26 @@ export interface App {
    * exit is returned rather than thrown, so a scenario can assert a refusal.
    */
   pyric(args: string[], options?: { env?: Record<string, string>; timeoutMs?: number }): Promise<ScriptResult>;
+  /**
+   * Starts the installed `pyric` command with `args` and returns at once, as
+   * `serverProcess` does, for a command that runs until stopped, such as
+   * `pyric sandbox -- next dev`.
+   */
+  pyricProcess(args: string[], options?: { env?: Record<string, string> }): AppProcess;
+  /**
+   * Runs `command` with `args` to exit from `cwd` (relative to the app
+   * directory; the app directory when omitted), with the app's environment.
+   * A non-zero exit is returned rather than thrown. For the commands a user
+   * types, such as `node node_modules/create-pyric/dist/bin.js` or `npm run dev`.
+   */
+  command(command: string, args: string[], options?: { cwd?: string; env?: Record<string, string>; timeoutMs?: number }): Promise<ScriptResult>;
+  /**
+   * Installs a project the scenario created inside the app directory, such
+   * as one `create-pyric` scaffolded: its Pyric dependencies point at the
+   * packed tarballs, as the app's own do, and `npm install` runs in it.
+   * Throws on a failed install.
+   */
+  installProject(path: string): Promise<ScriptResult>;
   /** The browser context for this app. Requests to hosts other than 127.0.0.1 and localhost are aborted unless a route answers them. */
   browser(): Promise<BrowserContext>;
   /** Opens `url` in a new page of the app's browser context. */
@@ -254,6 +312,13 @@ export interface App {
    * a `/__pyric/` route answers to a page fails the app after its scenario.
    */
   expectHostError(pattern: RegExp): void;
+  /**
+   * Declares that a process an app process starts may outlive it, holding its
+   * output pipes, such as a daemon the scenario starts on purpose. `pattern`
+   * matches the leftover's command name. Any other leftover fails the app
+   * after its scenario (#1274).
+   */
+  expectLeftoverProcess(pattern: RegExp): void;
 }
 
 export type Scenario = (app: App) => Promise<void>;
@@ -273,7 +338,8 @@ export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export function freePort(): Promise<number> {
+/** Binds port 0 on loopback, reads the port the kernel chose, and closes it. */
+export function probePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const probe = createServer();
     probe.on('error', reject);
@@ -283,6 +349,45 @@ export function freePort(): Promise<number> {
       probe.close(() => resolve(port));
     });
   });
+}
+
+/** Hands out ports nothing listens on, never the same port twice. */
+export interface PortIssuer {
+  next(): Promise<number>;
+}
+
+const PORT_ATTEMPTS = 32;
+
+/**
+ * A probe closes its socket before the caller binds the port, so the kernel
+ * can choose that port again for the next probe. The issuer remembers every
+ * port it handed out and probes again on a repeat.
+ */
+export function portIssuer(probe: () => Promise<number> = probePort): PortIssuer {
+  const issued = new Set<number>();
+  return {
+    async next() {
+      const repeats: number[] = [];
+      for (let attempt = 0; attempt < PORT_ATTEMPTS; attempt += 1) {
+        const port = await probe();
+        const isFresh = port > 0 && !issued.has(port);
+        if (isFresh) {
+          issued.add(port);
+          return port;
+        }
+        repeats.push(port);
+      }
+      throw new Error(`no unissued port after ${PORT_ATTEMPTS} probes; the probe only returned ${[...new Set(repeats)].join(', ')}`);
+    },
+  };
+}
+
+/** The one issuer every app in a run shares, so concurrent apps never get the same port. */
+const runPorts = portIssuer();
+
+/** A port nothing listens on that no earlier call in this run returned. */
+export function freePort(issuer: PortIssuer = runPorts): Promise<number> {
+  return issuer.next();
 }
 
 /** The environment of every app process: no inherited credentials or keys, and a fresh HOME. */
@@ -321,6 +426,7 @@ export class AppRun implements App {
   currentStep = 'setup';
   /** Error responses from `/__pyric/` routes to the app's pages, with the step each happened in. */
   private readonly hostErrors: { step: string; request: string }[] = [];
+  private readonly expectedLeftovers: RegExp[] = [];
   private readonly expectedHostErrors: RegExp[] = [];
   private context: BrowserContext | undefined;
   private serverCount = 0;
@@ -332,6 +438,10 @@ export class AppRun implements App {
     readonly dir: string,
     private readonly home: string,
     private readonly launchBrowser: () => Promise<Browser>,
+    /** The packed Pyric packages and npm cache the runner installed the app with. */
+    private readonly packages?: { tarballs: Tarballs; npmCache: string },
+    /** Where `freePort()`, `blackholedPort()`, and `devServer()` get their ports. */
+    private readonly ports: PortIssuer = runPorts,
   ) {}
 
   async step<T>(name: string, run: () => Promise<T> | T): Promise<T> {
@@ -345,17 +455,18 @@ export class AppRun implements App {
   }
 
   freePort(): Promise<number> {
-    return freePort();
+    return freePort(this.ports);
   }
 
+  /** Listens on an issued port, so no later `freePort()` in the run returns it. */
   async blackholedPort(): Promise<number> {
-    const hole = await blackholedPort();
+    const hole = await blackholedPort(await freePort(this.ports));
     this.blackholes.push(hole);
     return hole.port;
   }
 
   async devServer(options: { env?: Record<string, string>; name?: string; port?: number } = {}): Promise<DevServer> {
-    const port = options.port ?? await freePort();
+    const port = options.port ?? await freePort(this.ports);
     this.serverCount += 1;
     const name = options.name ?? (this.serverCount === 1 ? 'dev server' : `dev server ${this.serverCount}`);
     const child = new AppProcess(
@@ -390,7 +501,7 @@ export class AppRun implements App {
     return child;
   }
 
-  async pyric(args: string[], options: { env?: Record<string, string>; timeoutMs?: number } = {}): Promise<ScriptResult> {
+  pyricProcess(args: string[], options: { env?: Record<string, string> } = {}): AppProcess {
     this.scriptCount += 1;
     const child = new AppProcess(
       `pyric ${this.scriptCount} (${args.join(' ')})`,
@@ -400,6 +511,11 @@ export class AppRun implements App {
       appEnvironment(this.home, options.env),
     );
     this.processes.push(child);
+    return child;
+  }
+
+  async pyric(args: string[], options: { env?: Record<string, string>; timeoutMs?: number } = {}): Promise<ScriptResult> {
+    const child = this.pyricProcess(args, options);
     const timeoutMs = options.timeoutMs ?? 60_000;
     const finished = await Promise.race([child.exited.then(() => true), sleep(timeoutMs).then(() => false)]);
     if (!finished) {
@@ -407,6 +523,38 @@ export class AppRun implements App {
       throw new Error(`pyric ${args.join(' ')} did not exit within ${timeoutMs / 1000}s:\n${child.output}`);
     }
     return { code: await child.exited, output: child.output };
+  }
+
+  async command(
+    command: string,
+    args: string[],
+    options: { cwd?: string; env?: Record<string, string>; timeoutMs?: number } = {},
+  ): Promise<ScriptResult> {
+    this.scriptCount += 1;
+    const label = [command, ...args].join(' ');
+    const child = new AppProcess(
+      `command ${this.scriptCount} (${label})`,
+      command,
+      args,
+      join(this.dir, options.cwd ?? '.'),
+      appEnvironment(this.home, options.env),
+    );
+    this.processes.push(child);
+    const timeoutMs = options.timeoutMs ?? 60_000;
+    const finished = await Promise.race([child.exited.then(() => true), sleep(timeoutMs).then(() => false)]);
+    if (!finished) {
+      await child.stop();
+      throw new Error(`${label} did not exit within ${timeoutMs / 1000}s:\n${child.output}`);
+    }
+    return { code: await child.exited, output: child.output };
+  }
+
+  async installProject(path: string): Promise<ScriptResult> {
+    if (!this.packages) throw new Error('installProject needs the packed packages; the runner passes them');
+    pinPyricPackages(join(this.dir, path), this.packages.tarballs);
+    const result = await npmInstall(this.packages.npmCache, (args) => this.command('npm', args, { cwd: path, timeoutMs: 240_000 }));
+    if (result.code !== 0) throw new Error(`npm install in ${path} exited with code ${result.code}:\n${result.output}`);
+    return result;
   }
 
   async serverScript(
@@ -478,6 +626,17 @@ export class AppRun implements App {
 
   expectHostError(pattern: RegExp): void {
     this.expectedHostErrors.push(pattern);
+  }
+
+  expectLeftoverProcess(pattern: RegExp): void {
+    this.expectedLeftovers.push(pattern);
+  }
+
+  /** Processes app processes started that outlived them, and that no `expectLeftoverProcess` pattern matches. */
+  unexpectedLeftoverProcesses(): string[] {
+    return this.processes.flatMap((child) => child.leftoverProcesses
+      .filter((leftover) => !this.expectedLeftovers.some((pattern) => pattern.test(leftover.comm)))
+      .map((leftover) => `pid ${leftover.pid} (${leftover.comm}), started by ${child.name}`));
   }
 
   /** Error responses from `/__pyric/` routes that no `expectHostError` pattern matches. */

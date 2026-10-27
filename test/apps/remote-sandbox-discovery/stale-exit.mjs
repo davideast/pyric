@@ -10,3 +10,8 @@ try {
 } catch (error) {
   console.log(`write refused: ${error.message}`);
 }
+console.log(`refused at ${Date.now()}`);
+// Emitted once the event loop has nothing left to run, so the gap from the
+// refusal is how long something held the process open, whatever the load on
+// the runner that reads it.
+process.on("exit", () => console.log(`loop drained at ${Date.now()}`));

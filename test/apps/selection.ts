@@ -15,20 +15,28 @@ export interface Options {
   names: string[];
   packages?: string;
   build: boolean;
-  jobs: number;
+  /** Apps run at once; undefined leaves it to `defaultJobs` in schedule.ts. */
+  jobs?: number;
   keep: boolean;
   slow: SlowFilter;
 }
 
+function positiveInteger(value: string | undefined): number {
+  const parsed = Number(value);
+  const isPositiveInteger = Number.isInteger(parsed) && parsed >= 1;
+  if (!isPositiveInteger) throw new Error(`--jobs takes a whole number of at least 1, received ${String(value)}`);
+  return parsed;
+}
+
 export function parseArguments(argv: string[], env: Record<string, string | undefined> = {}): Options {
-  const options: Options = { names: [], build: false, jobs: 3, keep: false, packages: env.PYRIC_PACKAGE_ARTIFACT_DIR, slow: 'include' };
+  const options: Options = { names: [], build: false, keep: false, packages: env.PYRIC_PACKAGE_ARTIFACT_DIR, slow: 'include' };
   const slowFlags: string[] = [];
   for (let index = 0; index < argv.length; index++) {
     const argument = argv[index]!;
     if (argument === '--build') options.build = true;
     else if (argument === '--keep') options.keep = true;
     else if (argument === '--packages') options.packages = argv[++index];
-    else if (argument === '--jobs') options.jobs = Math.max(1, Number(argv[++index]));
+    else if (argument === '--jobs') options.jobs = positiveInteger(argv[++index]);
     else if (argument === '--skip-slow' || argument === '--only-slow') slowFlags.push(argument);
     else if (argument.startsWith('--')) throw new Error(`unknown option ${argument}`);
     else options.names.push(argument);

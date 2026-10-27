@@ -18,6 +18,7 @@ import { all, any, expr, fieldName, lit, type Literal } from '../constraints/com
 import { eq, newDataIs, newDataVal } from '../constraints/data.js';
 import { required } from '../constraints/policies.js';
 import { finite } from './expr.js';
+import { rtdbRegexError } from '../grammar/regex.js';
 
 /** The written value is a string. Field node `.validate`. */
 export const isString = (): Expr => newDataIs('String');
@@ -55,8 +56,14 @@ export function oneOf(...values: Literal[]): Expr {
 
 /**
  * The written value is a string that matches the regular expression
- * `pattern`, written without slashes. RTDB matches the pattern anywhere in the
- * string unless it is anchored with ^ and $. Field node `.validate`.
+ * `pattern`, written without slashes. RTDB's dialect is not JavaScript's: a
+ * leading `^` and a trailing `$` anchor the pattern, and each one missing
+ * becomes `.*` with no group around the rest, so `foo` matches anywhere but
+ * `cat|dog` matches a string ending in cat or starting with dog (wrap an
+ * alternation in a group to match it anywhere). `.` also matches a line
+ * break, and an escaped letter other than `\d \w \s` (or their capitals) is
+ * the letter itself. A pattern production refuses at deploy throws. Field
+ * node `.validate`.
  */
 export function matches(pattern: string): Expr {
   if (typeof pattern !== 'string' || pattern.length === 0) throw new Error('matches: pass a non-empty pattern.');
@@ -64,7 +71,6 @@ export function matches(pattern: string): Expr {
     throw new Error('matches: pattern cannot contain a raw newline.');
   }
   let inClass = false;
-  let parenDepth = 0;
   for (let i = 0; i < pattern.length; i++) {
     const ch = pattern[i]!;
     if (ch === '\\') {
@@ -72,33 +78,20 @@ export function matches(pattern: string): Expr {
         throw new Error("matches: pattern cannot end with a trailing '\\'.");
       }
       i++;
-      continue;
-    }
-    if (inClass) {
-      if (ch === ']') {
-        inClass = false;
-      }
-      continue;
-    }
-    if (ch === '/') {
+    } else if (inClass) {
+      inClass = ch !== ']';
+    } else if (ch === '/') {
       throw new Error(`matches: escape '/' in the pattern as '\\/': ${pattern}`);
-    }
-    if (ch === '[') {
+    } else if (ch === '[') {
       inClass = true;
-    } else if (ch === '(') {
-      parenDepth++;
-    } else if (ch === ')') {
-      if (parenDepth === 0) {
-        throw new Error(`matches: unmatched ')' in pattern: ${pattern}`);
-      }
-      parenDepth--;
     }
   }
   if (inClass) {
     throw new Error(`matches: unclosed '[' in pattern: ${pattern}`);
   }
-  if (parenDepth !== 0) {
-    throw new Error(`matches: unclosed '(' in pattern: ${pattern}`);
+  const deployError = rtdbRegexError(pattern);
+  if (deployError !== null) {
+    throw new Error(`matches: production refuses this pattern at deploy (${deployError}): ${pattern}`);
   }
   return all(isString(), expr(`newData.val().matches(/${pattern}/)`));
 }

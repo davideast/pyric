@@ -134,7 +134,7 @@ matchedPath: /records/$recordId/title
 matchedRule: newData.isString() && newData.val().length <= 80
 reason:      Validation rule evaluated to false
 ```
-`matchedPath` is the rule's location in the ruleset, so it shows the `$recordId` wildcard rather than the concrete path. `UNSUPPORTED` means the case reached an expression the simulator cannot evaluate. It abstains rather than guesses.
+`matchedPath` is the rule's location in the ruleset, so it shows the `$recordId` wildcard rather than the concrete path. `UNSUPPORTED` means the simulator did not evaluate the case, and `reason` says why. Either the case reached an expression the simulator cannot evaluate, and it abstains rather than guesses, or no client could send the request. The second covers a path with `.`, `#`, `$`, `[` or `]` in it, update paths that overlap, a write under `/.info`, a query the SDK refuses to build, `updates` that leave out the case's `path` or give it a value other than `newData`, and a ruleset that does not compile. For a request the SDK refuses, `reason` is the SDK's own error text.
 
 The result also carries a `trace` with every rule the simulator ran, in order:
 ```ts
@@ -205,7 +205,7 @@ The errors in the first group are the ones `firebase deploy` refuses, and each m
 | `NOT_BOOLEAN` | The rule does not evaluate to a boolean, such as a `.read` of `auth.uid`. |
 | `INVALID_OPERAND` | An operator gets an operand type it does not take, such as `data.val() > true`, or `!` on a string. |
 | `INVALID_ARGUMENT` | A method gets the wrong number or type of arguments, such as `child(1)`, or `matches()` with anything other than a regular expression literal. |
-| `INVALID_REGEX` | A regular expression literal has a flag other than `i`. |
+| `INVALID_REGEX` | A regular expression literal production refuses: a flag other than `i`, a `^` that is not the first character or a `$` that is not the last, or an unclosed group, repeat count or character set. A repeat count above 2,147,483,647 and a pattern too large to determinize, such as `a{100000}`, fail with production's texts. A pattern past pyric's own limits (more than 200,000 matcher states, or nesting deeper than 1,000 levels) reports here too, with a message that names the limit. |
 | `NO_SUCH_MEMBER` | The value has no such method or property, such as `data.nope()`. |
 | `NOT_AN_OBJECT` | A property access on a number, boolean, null, or regular expression. |
 | `NOT_A_FUNCTION` | A call on something that is not a method, such as `auth.uid()`. |
@@ -216,10 +216,10 @@ The errors in the first group are the ones `firebase deploy` refuses, and each m
 | `MULTIPLE_WILDCARDS` | One location has two `$` children. |
 | `RULE_NOT_EXPRESSION` | A `.read`, `.write`, or `.validate` value is a number or a plain object rather than a boolean or a string. |
 | `INDEX_ON_SHAPE` | `.indexOn` is a number. |
-| `INVALID_KEY` | A key contains `#`, or an unknown key that starts with `.` holds an object. |
+| `INVALID_KEY` | A key contains `#`, an unknown key that starts with `.` holds an object, or an `.indexOn` entry other than `.value` contains `.`. |
 | `EXPECTED_OBJECT` | An unknown key that starts with `.`, or a child key, holds a string. |
 
-`INDEX_ON_SHAPE` and `INVALID_KEY` are warnings, not errors, for related forms: any other `.indexOn` that is not a string or an array of strings, and a key that contains `.`, `/`, `[`, `]`, or an inner `$` but no `#`. Their text comes from the deploy's message for the related form, and no deploy of these forms has been recorded.
+`INDEX_ON_SHAPE` and `INVALID_KEY` are warnings, not errors, for related forms: any other `.indexOn` that is not a string or an array of strings, a key that contains `.`, `/`, `[`, `]`, or an inner `$` but no `#`, and an `.indexOn` entry that contains `#`, `$`, `[` or `]`. Their text comes from the deploy's message for the related form, and no deploy of these forms has been recorded.
 
 The second group is the rest of the per-rule checks:
 
@@ -235,12 +235,12 @@ The third group reads the whole ruleset, because the common RTDB mistakes come f
 
 | Code | What it reports |
 |---|---|
-| `RTDB-SEC-1` | A `.write` of `true`, so anyone, signed in or not, can write, replace, or delete values under that path. |
-| `RTDB-SEC-2` | A `.read` of `true`, so anyone can read everything under that path. At the root, this exposes the entire database. |
+| `RTDB-SEC-1` | A `.write` of `true`, or one true for every request signed in or not (such as `auth != null \|\| true`), so anyone can write, replace, or delete values under that path. |
+| `RTDB-SEC-2` | A `.read` of `true`, or one true for every request, so anyone can read everything under that path. At the root, this exposes the entire database. |
 | `RTDB-SEC-3` | A conditional `.write` that never reads `auth`, so a signed-out client can write whenever the condition holds. |
-| `RTDB-SEC-4` | A rule that tries to restrict access that an ancestor already grants. A deeper rule cannot revoke an ancestor's grant, so the deeper rule restricts nothing. |
+| `RTDB-SEC-4` | A rule that tries to restrict access that an ancestor already grants, such as `auth.uid == $uid` under an ancestor's `auth != null`. A deeper rule cannot revoke an ancestor's grant, so the deeper rule restricts nothing. |
 | `RTDB-SEC-5` | A `.validate` that a delete skips. `.validate` runs only on a non-null new value, so a client that can write `null` at an ancestor bypasses it. |
-| `RTDB-SEC-6` | A `.write` that accepts any value: no `.validate` sits at or below it and the write rule does not check `newData`. |
+| `RTDB-SEC-6` | A `.write` that accepts any value: no `.validate` that reads its own new value sits at or below it, and the write rule does not check `newData`. |
 | `RTDB-SEC-7` | A node that names children in `.validate` but has no `$other` rule, so a write can add any other key under it. |
 
 For a ruleset that names children in `.validate`, `"$other": { ".validate": false }` rejects the keys it does not name.

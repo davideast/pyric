@@ -92,3 +92,11 @@ describe('rtdbStdlib.auth', () => {
 
   runScenario(scenario);
 });
+
+describe('levelsUp is bounded (LD-11)', () => {
+  test('roleAt refuses a levelsUp past the 32 level maximum depth, and 1e21, with a plain Error', () => {
+    expect(() => auth.roleAt(['roles'], 'admin', { levelsUp: 1e21 })).toThrow(/levelsUp must be an integer from 0 to 32/);
+    expect(() => auth.roleAt(['roles'], 'admin', { levelsUp: 33 })).toThrow(/levelsUp/);
+    expect(() => auth.roleAt(['roles'], 'admin', { levelsUp: 32 })).not.toThrow();
+  });
+});

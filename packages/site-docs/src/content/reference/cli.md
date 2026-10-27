@@ -35,6 +35,30 @@ A Functions source declared in `firebase.json` can still run when the child appl
 
 The child receives `PYRIC_SANDBOX` and a `NODE_OPTIONS` import for `@pyric/cli/register`. This routes supported `firebase-admin/*` imports to the sandbox host. With `--hosted`, `firebase/database`, `firebase/firestore`, `firebase/auth` and `firebase/storage` in the child reach the Node host as the child's own signed-in user; other client SDKs, and client SDKs against the browser-hosted sandbox, fail with `failed-precondition`. A `firebase-admin/*` subpath the sandbox does not mirror, such as `firebase-admin/remote-config` or `firebase-admin/security-rules`, still resolves and returns an `App`-bound handle from `get<Service>(app)`, so module-level initialization loads cleanly while calling a method on that handle fails with `PyricDeferredApiError`. The import never reaches the real `firebase-admin`.
 
+## Run a command on a running host
+
+```text
+pyric run [--sandbox <url>] [--wait[=<seconds>]] -- <command...>
+```
+
+`pyric run` starts one command against a host that is already running, such as a Vite dev server with the Pyric plugin or a `pyric sandbox` in another terminal. The command gets the environment `pyric sandbox` gives its child: `PYRIC_SANDBOX=remote:<url>`, `PYRIC_SANDBOX_INSTANCE` naming that host, and a `NODE_OPTIONS` import of `@pyric/cli/register`. `--sandbox` names the host. Without it, `pyric run` uses an inherited `PYRIC_SANDBOX=remote:<url>`, then the `.pyric/serve.json` that the host wrote in the project directory. With `--wait`, it polls the host's `/__pyric/health` until the host answers, for 30 seconds or the number of seconds given (`--wait=60`), so a command started alongside the dev server does not race it. It exits with the command's exit code, or `2` when no host answers in time.
+
+The register module is passed by absolute `file:` URL, resolved from the `pyric` install that runs the command, as `pyric sandbox` passes it. So the command can run from a directory where `@pyric/cli` does not resolve by name, such as a backend beside a `tools/` folder that pins Pyric:
+
+```bash
+cd backend && ../tools/node_modules/.bin/pyric run --sandbox http://localhost:5173 -- node dist/index.js
+```
+
+A Vite config in another folder loads the plugin from that install the same way:
+
+```js
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
+const { pyric } = await import(pathToFileURL(createRequire(new URL("../tools/package.json", import.meta.url)).resolve("@pyric/cli/vite")).href);
+```
+
+`@pyric/cli/vite`, `@pyric/cli/register` and `@pyric/cli/next` resolve through `require.resolve` as well as `import`.
+
 ## Flags
 
 | Flag | Meaning |

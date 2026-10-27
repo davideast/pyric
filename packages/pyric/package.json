@@ -1,6 +1,6 @@
 {
   "name": "pyric",
-  "version": "0.1.0-alpha.25",
+  "version": "0.1.0-alpha.29",
   "license": "Apache-2.0",
   "homepage": "https://pyric.dev",
   "repository": {
@@ -98,6 +98,10 @@
       "types": "./dist/storage/internal.d.ts",
       "import": "./dist/storage/internal.js"
     },
+    "./storage/sw": {
+      "types": "./dist/storage/sw.d.ts",
+      "import": "./dist/storage/sw.js"
+    },
     "./messaging": {
       "types": "./dist/messaging/index.d.ts",
       "import": "./dist/messaging/index.js"
@@ -185,7 +189,8 @@
     "./remote-config": {
       "types": "./dist/remote-config/index.d.ts",
       "import": "./dist/remote-config/index.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
@@ -199,7 +204,7 @@
     "prebuild": "(bun run inline-grammar 2>/dev/null || true) && bun run inline-stdlib",
     "build": "tsc && bun run scripts/copy-assets.ts 2>/dev/null || tsc",
     "test": "bun test",
-    "typecheck": "bun x tsc -p tsconfig.json --noEmit",
+    "typecheck": "bun x tsc -p tsconfig.json --noEmit && bun x tsc -p tsconfig.types.json",
     "bench:rules": "bun bench/rules/run.ts",
     "bench:rules:capture": "bun bench/rules/capture.ts"
   },

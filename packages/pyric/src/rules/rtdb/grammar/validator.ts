@@ -30,6 +30,7 @@ import {
   unknownVariableMessage,
   type TypedOperator,
 } from './type-rules.js';
+import { rtdbRegexError } from './regex.js';
 
 interface ValidateContext {
   errors: RuleError[];
@@ -71,18 +72,26 @@ function binary(this: Node, left: Node, op: Node, right: Node): RtdbTypedValue {
   return typed(binaryResult(operator, leftType, rightType));
 }
 
-function logical(this: Node, left: Node, op: Node, right: Node): RtdbTypedValue {
+/**
+ * Type a `||` or `&&` chain, which the grammar matches flat: `first` then each
+ * operator and term of `rest`. Folds left in a loop, so it reports what the
+ * left-nested pairs `((a || b) || c)` would, in the same order, at any length.
+ */
+function logical(this: Node, first: Node, operators: Node, rest: Node): RtdbTypedValue {
   const ctx = this.args.ctx as ValidateContext;
-  const operator = op.sourceString;
-  const leftType = use(ctx, typeOf(left, ctx));
-  const rightType = use(ctx, typeOf(right, ctx));
-  if (!BOOLEAN_OPERANDS.has(leftType)) {
-    return report(ctx, typeError('INVALID_OPERAND', `Left operand of ${operator} must be boolean.`));
-  }
-  if (!BOOLEAN_OPERANDS.has(rightType)) {
-    return report(ctx, typeError('INVALID_OPERAND', `Right operand of ${operator} must be boolean.`));
-  }
-  return typed(leftType === 'Error' || rightType === 'Error' ? 'Error' : 'Boolean');
+  let leftType = use(ctx, typeOf(first, ctx));
+  rest.children.forEach((term, index) => {
+    const operator = operators.children[index]!.sourceString;
+    const rightType = use(ctx, typeOf(term, ctx));
+    if (!BOOLEAN_OPERANDS.has(leftType)) {
+      leftType = report(ctx, typeError('INVALID_OPERAND', `Left operand of ${operator} must be boolean.`)).type;
+    } else if (!BOOLEAN_OPERANDS.has(rightType)) {
+      leftType = report(ctx, typeError('INVALID_OPERAND', `Right operand of ${operator} must be boolean.`)).type;
+    } else {
+      leftType = leftType === 'Error' || rightType === 'Error' ? 'Error' : 'Boolean';
+    }
+  });
+  return typed(leftType);
 }
 
 /** Resolve `receiver.name` as a value: a method read without a call is a `SnapshotMethod`. */
@@ -90,43 +99,6 @@ function property(ctx: ValidateContext, receiver: RtdbTypedValue, name: string):
   const member = memberOf(use(ctx, receiver), name);
   if (member.kind === 'error') return member.error ? report(ctx, member.error) : ERROR;
   return typed(member.kind === 'method' ? 'SnapshotMethod' : member.type);
-}
-
-/**
- * Check a regex literal body for unmatched parentheses outside character
- * classes, matching production's regex validator (which accepts `/+/`,
- * `/[z-a]/`, and `/a{2,1}/`, and rejects `/(/`).
- */
-function regexBodyError(body: string): string | null {
-  let depth = 0;
-  let inClass = false;
-  for (let i = 0; i < body.length; i++) {
-    const ch = body[i]!;
-    if (ch === '\\') {
-      i++;
-      continue;
-    }
-    if (inClass) {
-      if (ch === ']') inClass = false;
-      continue;
-    }
-    if (ch === '[') {
-      inClass = true;
-      continue;
-    }
-    if (ch === '(') {
-      depth++;
-    } else if (ch === ')') {
-      depth--;
-      if (depth < 0) {
-        return `Illegal regular expression, unexpected ')' at position ${i + 2}`;
-      }
-    }
-  }
-  if (depth > 0) {
-    return `Illegal regular expression, expected ')' at position ${body.length + 4}`;
-  }
-  return null;
 }
 
 let validatorSemantics: Semantics | undefined;
@@ -269,7 +241,7 @@ function getValidatorSemantics(): Semantics {
       return typed('String');
     },
     regex(_open, body, _close, flags) {
-      const bodyError = regexBodyError(body.sourceString);
+      const bodyError = rtdbRegexError(body.sourceString);
       if (bodyError !== null) {
         return report(this.args.ctx as ValidateContext, typeError('INVALID_REGEX', bodyError));
       }

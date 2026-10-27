@@ -13,13 +13,17 @@
  * `observations[0]`, `probes[2]`. A caller that validates one record on its
  * own passes nothing and gets the record's kind instead.
  */
+import { resolveDatabaseInstance } from "pyric/sandbox/internal";
+import { rtdbRulesSourceRejection } from "pyric/rules/internal/rtdb";
 import {
+  ASSURANCE_CAMPAIGN_SCHEMA,
   ASSURANCE_TARGET_SCHEMA,
   AssuranceInputError,
   type AssuranceActor,
   type AssuranceObservation,
   type AssuranceProbe,
   type FirebaseOperation,
+  type AuthorizationCampaignSpec,
   type LocalFirebaseTarget,
   type MutationDimension,
   type SecurityInvariant,
@@ -225,13 +229,56 @@ export function assertTarget(
   if (target.rules.rtdb !== undefined) {
     requiredRecord(target.rules.rtdb, `${where}.rules.rtdb`);
     requiredRecord(target.rules.rtdb.rules, `${where}.rules.rtdb.rules`);
+
   }
+
+  const declaredRuleInstances = new Map<string, string>();
+  if (target.rules.rtdbInstances !== undefined) {
+    requiredRecord(target.rules.rtdbInstances, `${where}.rules.rtdbInstances`);
+    for (const [instance, rules] of Object.entries(target.rules.rtdbInstances)) {
+      const at = `${where}.rules.rtdbInstances[${JSON.stringify(instance)}]`;
+      requiredRecord(rules, at);
+      requiredRecord((rules as any).rules, `${at}.rules`);
+      try {
+        const resolvedName = resolveDatabaseInstance(instance)!.name;
+        if (declaredRuleInstances.has(resolvedName)) {
+           throw new AssuranceInputError(`${at} declares instance '${resolvedName}' which is already declared by key '${declaredRuleInstances.get(resolvedName)}'`);
+        }
+        declaredRuleInstances.set(resolvedName, instance);
+      } catch (e) {
+        if (e instanceof AssuranceInputError) throw e;
+        throw new AssuranceInputError(`${at} names a malformed RTDB instance: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
+
   if (target.state.firestore !== undefined) {
     requiredRecord(target.state.firestore, `${where}.state.firestore`);
     for (const [docPath, docData] of Object.entries(target.state.firestore)) {
       requiredRecord(docData, `${where}.state.firestore[${docPath}]`);
     }
   }
+  if (target.state.rtdbInstances !== undefined) {
+    requiredRecord(target.state.rtdbInstances, `${where}.state.rtdbInstances`);
+    const declaredStateInstances = new Map<string, string>();
+    for (const [instance] of Object.entries(target.state.rtdbInstances)) {
+      const at = `${where}.state.rtdbInstances[${JSON.stringify(instance)}]`;
+      try {
+        const resolvedName = resolveDatabaseInstance(instance)!.name;
+        if (!declaredRuleInstances.has(resolvedName)) {
+           throw new AssuranceInputError(`${at} provides state for instance '${resolvedName}' which has no declared rules`);
+        }
+        if (declaredStateInstances.has(resolvedName)) {
+           throw new AssuranceInputError(`${at} provides state for instance '${resolvedName}' which is already provided by key '${declaredStateInstances.get(resolvedName)}'`);
+        }
+        declaredStateInstances.set(resolvedName, instance);
+      } catch (e) {
+        if (e instanceof AssuranceInputError) throw e;
+        throw new AssuranceInputError(`${at} names a malformed RTDB instance: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
+
   if (target.state.storage !== undefined) {
     if (!Array.isArray(target.state.storage)) {
       throw new AssuranceInputError(
@@ -367,6 +414,9 @@ function assertOperation(
 ): asserts operation is FirebaseOperation {
   requiredRecord(operation, where);
   enumValue(operation.service, OPERATION_SERVICES, where, "service");
+  if (operation.service === "rtdb" && (operation as any).instance !== undefined) {
+    requiredString((operation as any).instance, where, "instance");
+  }
   requiredString(operation.path, where, "path");
   enumValue(
     operation.method,
@@ -506,4 +556,91 @@ export function changedDimensions(
     changed.push("payload");
   }
   return changed;
+}
+
+
+export function assertCampaign(spec: AuthorizationCampaignSpec): void {
+  if (spec.schema !== ASSURANCE_CAMPAIGN_SCHEMA) {
+    throw new AssuranceInputError(
+      `campaign schema must be '${ASSURANCE_CAMPAIGN_SCHEMA}'.`,
+    );
+  }
+  if (!spec.id.trim())
+    throw new AssuranceInputError("campaign id is required.");
+  assertTarget(spec.target);
+  if (!Array.isArray(spec.actors)) {
+    throw new AssuranceInputError("campaign actors must be an array.");
+  }
+  if (!Array.isArray(spec.invariants)) {
+    throw new AssuranceInputError("campaign invariants must be an array.");
+  }
+  if (!Array.isArray(spec.probes)) {
+    throw new AssuranceInputError("campaign probes must be an array.");
+  }
+  for (const actor of spec.actors) assertActor(actor);
+  for (const invariant of spec.invariants) assertInvariant(invariant);
+  for (const probe of spec.probes) assertProbe(probe);
+  uniqueIds(spec.actors, "actor");
+  uniqueIds(spec.invariants, "invariant");
+  uniqueIds(spec.probes, "probe");
+
+  const declaredRtdbInstances = spec.target.rules.rtdbInstances ? Object.keys(spec.target.rules.rtdbInstances).map(k => resolveDatabaseInstance(k)!.name) : [];
+  for (const probe of spec.probes) {
+    for (const op of [probe.control, probe.mutation.operation]) {
+      // test what happens to unknown fields (unrecognized keys)
+      const allowedKeys = new Set(["service", "method", "path", "data", "query", "dataBase64", "contentType", "customMetadata", "instance"]);
+      for (const key of Object.keys(op)) {
+        if (!allowedKeys.has(key)) {
+          throw new AssuranceInputError(`operation names unknown field '${key}'`);
+        }
+      }
+      
+      if (op.service === "rtdb" && op.instance !== undefined && op.instance !== "default") {
+        let resolvedName;
+        try {
+          resolvedName = resolveDatabaseInstance(op.instance)!.name;
+        } catch (e) {
+          throw new AssuranceInputError(`invalid RTDB instance '${op.instance}': ${e instanceof Error ? e.message : String(e)}`);
+        }
+        if (!declaredRtdbInstances.includes(resolvedName)) {
+          throw new AssuranceInputError(`probe '${probe.id}' names undeclared RTDB instance '${op.instance}'. Declared instances: ${declaredRtdbInstances.length > 0 ? declaredRtdbInstances.join(", ") : "none"}.`);
+        }
+      }
+    }
+  }
+
+  for (const probe of spec.probes) {
+    const actor = spec.actors.find((item) => item.id === probe.actorId);
+    const invariant = spec.invariants.find(
+      (item) => item.id === probe.invariantId,
+    );
+    if (!actor)
+      throw new AssuranceInputError(
+        `probe '${probe.id}' references unknown actor '${probe.actorId}'.`,
+      );
+    if (!invariant) {
+      throw new AssuranceInputError(
+        `probe '${probe.id}' references unknown invariant '${probe.invariantId}'.`,
+      );
+    }
+    if (
+      invariant.service !== "cross-service" &&
+      invariant.service !== probe.control.service
+    ) {
+      throw new AssuranceInputError(
+        `probe '${probe.id}' service does not match invariant '${invariant.id}'.`,
+      );
+    }
+  }
+}
+
+function uniqueIds(items: ReadonlyArray<{ id: string }>, label: string): void {
+  const seen = new Set<string>();
+  for (const item of items) {
+    if (!item.id.trim())
+      throw new AssuranceInputError(`${label} id is required.`);
+    if (seen.has(item.id))
+      throw new AssuranceInputError(`duplicate ${label} id '${item.id}'.`);
+    seen.add(item.id);
+  }
 }

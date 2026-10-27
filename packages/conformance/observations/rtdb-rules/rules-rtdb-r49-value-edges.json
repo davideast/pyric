@@ -1,0 +1,27 @@
+{
+  "name": "rules-rtdb-r49-value-edges",
+  "matrixRow": "rtdb-rules#36",
+  "rowIds": [
+    "rtdb-rules#36",
+    "rtdb-rules#41"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r49-value-edges\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). query in a write, auth members when signed out, and child() keys that are not valid paths are evaluated by pyric with values no production observation confirms.",
+  "observedAt": "2026-10-26T21:50:10.033Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "SP-4: !query.orderByKey in a .write": "ALLOW",
+    "SP-4: query.orderByKey == false in a .write": "ALLOW",
+    "SP-4 control: query.limitToFirst == null in a .write": "ALLOW",
+    "SP-5: auth.token.admin != true signed out": "ALLOW",
+    "SP-5: auth.uid == null signed out": "ALLOW",
+    "SP-5 control: auth == null signed out": "ALLOW",
+    "SP-5 control: auth.token.admin != true for an anonymous user": "ALLOW",
+    "SP-6: child() of a key holding a dot ('a.b') under !exists()": "ALLOW",
+    "SP-6 control: child() of a plain key ('ab') under !exists()": "ALLOW",
+    "SP-6: child('') of an existing node": "ALLOW",
+    "SP-6: hasChild('.priority') on a prioritized leaf": "ALLOW",
+    "coverage: length of three emoji under length <= 3": "DENY",
+    "coverage control: length of three letters under length <= 3": "ALLOW"
+  }
+}

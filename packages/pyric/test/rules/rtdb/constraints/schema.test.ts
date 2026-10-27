@@ -261,6 +261,62 @@ describe('schemaRules', () => {
     expect(report.cases.map((c) => c.decision)).toEqual(['ALLOW', 'DENY']);
   });
 
+  test('refuses a Zod regex RTDB reads differently from JavaScript or refuses at deploy (#1247 SP-2b, SP-1, SP-2a)', () => {
+    const refused: Array<[RegExp, RegExp]> = [
+      [/^(?=.*[0-9]).+$/, /\(\?/],
+      [/^(?!admin).*$/, /\(\?/],
+      [/^(?:a|b)$/, /\(\?/],
+      [/^(a)\1$/, /backreference/],
+      [/\bcat\b/, /word boundary/],
+      [/^[a-z]+?$/, /lazy quantifier/],
+      [/^a\tb$/, /escape \\t/],
+      [/^\u0041$/, /escape \\u/],
+      [/^red$|^blue$/, /unescaped \^/],
+      [/cat|dog/, /wrap the alternation in a group/],
+      [/^(|a)$/, /empty alternative/],
+      [/^(a||b)$/, /empty alternative/],
+      // The dialect reads the ) after a trailing | as a literal, so the group never closes.
+      [/^(a|)$/, /refuses it at deploy/],
+      [/^[]a]$/, /member of the set/],
+      [/^[^]$/, /refuses it at deploy/],
+    ];
+    for (const [regex, reason] of refused) {
+      const build = () => schemaRules(z.object({ tag: z.string().regex(regex) }));
+      expect(build, regex.source).toThrow(/Unsupported Zod regex on field "tag"/);
+      expect(build, regex.source).toThrow(reason);
+    }
+    expect(schemaRules(z.object({ tag: z.string().regex(/^(cat|dog)$/) })).children.tag.validate).toBe(
+      'newData.isString() && newData.val().matches(/^(cat|dog)$/)',
+    );
+    const result = schemaRules(z.object({ tag: z.string().regex(/^[\w-]+\.\d{2,3}$/) }));
+    expect(result.children.tag.validate).toBe('newData.isString() && newData.val().matches(/^[\\w-]+\\.\\d{2,3}$/)');
+  });
+
+  test('emits \\s unchanged, so the rule refuses a no-break space the Zod schema accepts (#1247 r56, known gap)', () => {
+    const schema = z.object({ gap: z.string().regex(/^a\sb$/) });
+    expect(schemaRules(schema).children.gap.validate).toBe('newData.isString() && newData.val().matches(/^a\\sb$/)');
+    expect(schema.safeParse({ gap: 'a\u00a0b' }).success).toBe(true);
+    const engine = rtdbRules(defineRtdbRules({ paths: { '/items/$id': { write: allow(), schema } } }));
+    const report = engine.simulate([
+      { operation: 'write', path: '/items/i1', auth: null, newData: { gap: 'a\u00a0b' }, expectation: 'DENY' },
+    ]);
+    // Production's \s is ASCII only (r56 "\s on U+00A0 no-break space": DENY).
+    expect(report.cases.map((c) => c.decision)).toEqual(['DENY']);
+  });
+
+  test('emits . unchanged, so the rule accepts a newline the Zod schema refuses (#1247 SP-8, known gap)', () => {
+    const schema = z.object({ code: z.string().regex(/^a.b$/) });
+    expect(schemaRules(schema).children.code.validate).toBe('newData.isString() && newData.val().matches(/^a.b$/)');
+    expect(schema.safeParse({ code: 'a\nb' }).success).toBe(false);
+    const engine = rtdbRules(defineRtdbRules({ paths: { '/items/$id': { write: allow(), schema } } }));
+    const report = engine.simulate([
+      { operation: 'write', path: '/items/i1', auth: null, newData: { code: 'a\nb' }, expectation: 'ALLOW' },
+    ]);
+    // Production's . matches \n (r47 "dot does not match a newline": ALLOW), and
+    // the dialect has no "any character but a newline", so the gap is pinned here.
+    expect(report.cases.map((c) => c.decision)).toEqual(['ALLOW']);
+  });
+
   test('rejects unsupported Zod refinements, invalid z.literal values, and unknown fieldConstraints keys (CON-1 / FUZ-7)', () => {
     expect(() => schemaRules(z.object({ id: z.string().uuid() }))).toThrow(/Unsupported/);
     expect(() => schemaRules(z.object({ tag: z.string().regex(/a/g) }))).toThrow(/Unsupported/);

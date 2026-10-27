@@ -7,6 +7,7 @@ import { captureIndexQuery } from '../../../rules/indexes/query-analysis.js';
 import type { LocalEnvironment } from 'pyric/sandbox/internal';
 import { translateReadData } from './snapshots.js';
 import { getSnapshotField } from './field-path.js';
+import { forEachDocument } from '../for-each-document.js';
 import { activityValue } from '../../../firestore/sandbox/activity-query-value.js';
 import { activityDisplayValue } from '../../../firestore/sandbox/activity-query-display.js';
 import { activityStructuralIdentity } from '../activity-structural-identity.js';
@@ -473,7 +474,7 @@ export class QueryImpl implements Query {
       size: docs.length,
       empty: docs.length === 0,
       docs,
-      forEach(cb: (snap: QueryDocumentSnapshot) => void) { docs.forEach(cb); },
+      forEach: forEachDocument(docs),
     };
   }
 

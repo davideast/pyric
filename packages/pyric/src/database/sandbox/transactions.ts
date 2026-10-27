@@ -8,7 +8,7 @@ import { validatePriority } from './priority-state.js';
 import { withDenialContext } from './rules-eval.js';
 import { resolveSentinels } from './sentinels.js';
 import type { ValueListeners } from './value-listeners.js';
-import { captureRewindDetail } from './write-plane.js';
+import { captureRewindDetail, WritePlane } from './write-plane.js';
 
 /** Production rejects a denied transaction with a codeless plain `Error`
  *  whose message is `permission_denied`. */
@@ -17,10 +17,15 @@ function transactionPermissionDenied(context: RtdbDenialContext): Error {
 }
 
 export class Transactions {
+  /**
+   * `writes` publishes a commit as every other data write is published; the
+   * backend passes its own so the two cannot drift.
+   */
   constructor(
     private readonly state: BackendState,
-    private readonly values: ValueListeners,
+    values: ValueListeners,
     private readonly children: ChildListeners,
+    private readonly writes: WritePlane = new WritePlane(state, values, children),
   ) {}
 
   run(
@@ -94,22 +99,15 @@ export class Transactions {
           resourceBefore: { data: current, exists: current !== null },
           resourceAfter: { data: resolved, exists: resolved !== null },
           groupId, groupKind: 'transaction',
+          detail: effectivePriority !== null ? { priority: effectivePriority } : undefined,
         });
         throw transactionPermissionDenied(rtdbDenialContext(evaluation, auth, 'transaction', path, { data: proposed }));
       }
     }
     const hasNode = (p: string): boolean => this.state.tree.read(p) !== null;
     const rewindDetail = captureRewindDetail(this.state, path, current, currentPriority, true);
-    if (applyLocally) {
-      const childPriors = this.children.snapshotParents();
-      this.state.tree.write(path, resolved);
-      this.state.priorities.replace(path, effectivePriority, hasNode);
-      this.storeNestedPriorities(segments, written.nested, hasNode);
-      this.values.fanOut([path]);
-      this.children.fanOut(childPriors);
-      this.recordCommit(auth, path, proposed, current, resolved, groupId, now, at, true, evaluation, isAdmin, rewindDetail);
-      return { committed: true, val: resolved, key };
-    }
+    // A commit is recorded as a set is: its operation, then the revocations
+    // and deliveries it causes, then the commit itself.
     const opResult = isAdmin ? 'not-applicable' : 'allow';
     const opOrigin = isAdmin ? 'admin' : 'transaction';
     this.state.events.operation(auth, 'transaction', path, opResult, evaluation, {
@@ -123,10 +121,8 @@ export class Transactions {
     this.state.tree.write(path, resolved);
     this.state.priorities.replace(path, effectivePriority, hasNode);
     this.storeNestedPriorities(segments, written.nested, hasNode);
-    this.state.mutations.mark(path);
-    this.values.fanOut([path]);
-    this.children.fanOut(childPriors);
-    this.finishEvents(auth, path, proposed, current, resolved, groupId, now, false, isAdmin, rewindDetail);
+    this.writes.changed([path], childPriors);
+    this.finishEvents(auth, path, proposed, current, resolved, groupId, now, applyLocally, isAdmin, rewindDetail);
     this.state.notifyWrite();
     return { committed: true, val: resolved, key };
   }
@@ -149,27 +145,6 @@ export class Transactions {
       now: this.state.clock.now(),
     });
     return evaluation.check === 'allow';
-  }
-
-  private recordCommit(
-    auth: AuthState, path: string, proposed: JsonValue, current: JsonValue,
-    resolved: JsonValue, groupId: string, now: number, at: number, applyLocally: boolean,
-    evaluation: ReturnType<BackendState['rules']['evaluate']> | undefined,
-    isAdmin: boolean,
-    rewindDetail: Record<string, unknown>,
-  ): void {
-    const opResult = isAdmin ? 'not-applicable' : 'allow';
-    const opOrigin = isAdmin ? 'admin' : 'transaction';
-    this.state.events.operation(auth, 'transaction', path, opResult, evaluation, {
-      at, durationMs: this.state.clock.now() - at, origin: opOrigin,
-      request: { data: proposed, resourceData: proposed },
-      resourceBefore: { data: current, exists: current !== null },
-      resourceAfter: { data: resolved, exists: resolved !== null },
-      groupId, groupKind: 'transaction',
-    });
-    this.finishEvents(auth, path, proposed, current, resolved, groupId, now, applyLocally, isAdmin, rewindDetail);
-    this.state.mutations.mark(path);
-    this.state.notifyWrite();
   }
 
   private finishEvents(

@@ -6,7 +6,7 @@ import {
 import type { SimulationInput, SimulateResult } from '../simulation/spec.js';
 import { structuralFindings } from '../structure.js';
 import type { RtdbNode, RtdbRuleExpression } from '../types.js';
-import { ruleset } from './ruleset.js';
+import { assertKnownPathKeys, ruleset } from './ruleset.js';
 import type { PathDef, RulesetContext } from './types.js';
 
 export interface RtdbRulesDefinition {
@@ -95,7 +95,10 @@ function normalizeSimulationValue(value: unknown): unknown {
   if (typeof value === 'object' && value !== null) {
     const normalized: Record<string, unknown> = {};
     for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-      normalized[key] = normalizeSimulationValue(child);
+      // Defined, not assigned, so an own `__proto__` key is kept (#1247 CS-1).
+      Object.defineProperty(normalized, key, {
+        value: normalizeSimulationValue(child), enumerable: true, writable: true, configurable: true,
+      });
     }
     return normalized;
   }
@@ -226,6 +229,7 @@ class DefinedRtdbRulesDocument implements RtdbRulesDocumentInternal {
 }
 
 export function defineRtdbRules(definition: RtdbRulesDefinition): RtdbRulesDocument {
+  if (typeof definition.paths === 'object' && definition.paths !== null) assertKnownPathKeys(definition.paths);
   // The runtime object carries the full method surface; the declared return
   // type is the inert public artifact. Route the assignment through the
   // internal interface (a declared subtype) so the brand-only weak type

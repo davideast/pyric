@@ -1,0 +1,21 @@
+{
+  "name": "nextjs-template",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "create-pyric": "*",
+    "firebase": "12.12.0",
+    "firebase-admin": "13.6.0",
+    "next": "15.5.28",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@pyric/cli": "*",
+    "@types/node": "22.20.5",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "5.9.3"
+  }
+}

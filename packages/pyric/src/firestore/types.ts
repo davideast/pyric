@@ -121,6 +121,8 @@ export interface QuerySnapshot<T = DocumentData> {
   readonly empty: boolean;
   readonly docs: ReadonlyArray<QueryDocumentSnapshot<T>>;
   readonly metadata: SnapshotMetadata;
+  /** Calls `callback.call(thisArg, doc)` once per document, in query order. */
+  forEach(callback: (result: QueryDocumentSnapshot<T>) => void, thisArg?: unknown): void;
 }
 export interface WriteBatch {
   set<T = DocumentData>(ref: DocumentReference<T>, data: T, options?: SetOptions): WriteBatch;

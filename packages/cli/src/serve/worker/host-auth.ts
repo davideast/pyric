@@ -60,6 +60,7 @@ import { reauthenticateSession } from './host/auth-reauthentication.js';
 const _authSubs = new WeakMap<HostCtx, Map<PortLike, Map<string, 'authState' | 'idToken'>>>();
 const _portTenants = new WeakMap<HostCtx, Map<PortLike, string | null>>();
 const _lastAuthStateUid = new WeakMap<PortLike, string | null>();
+const _portOrigins = new WeakMap<PortLike, string>();
 
 export function authSubsFor(ctx: HostCtx): Map<PortLike, Map<string, 'authState' | 'idToken'>> {
   let m = _authSubs.get(ctx);
@@ -81,6 +82,17 @@ function portTenantsFor(ctx: HostCtx): Map<PortLike, string | null> {
 
 export function portTenant(ctx: HostCtx, port: PortLike): string | null {
   return portTenantsFor(ctx).get(port) ?? null;
+}
+
+/** Record the page origin an app port's client stated in its `appConfig`. */
+export function setPortOrigin(port: PortLike, origin: string): void {
+  _portOrigins.set(port, origin);
+}
+
+/** The port's page origin as a mint-request scope, empty when unknown. */
+export function portOriginScope(port: PortLike): { origin?: string } {
+  const origin = _portOrigins.get(port);
+  return origin === undefined ? {} : { origin };
 }
 
 /**
@@ -258,7 +270,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         const tenantId = resolveSignInTenant(ctx, port, msg.tenantId);
         const session = authSandboxOps.mintSession(auth, {
           kind: 'createPassword', email: msg.email, password: msg.password,
-          tenantId,
+          tenantId, ...portOriginScope(port),
         });
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx, msg.method); // new user record must be durable at ack
@@ -272,7 +284,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         const tenantId = resolveSignInTenant(ctx, port, msg.tenantId);
         const session = authSandboxOps.mintSession(auth, {
           kind: 'password', email: msg.email, password: msg.password,
-          tenantId,
+          tenantId, ...portOriginScope(port),
         });
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx, msg.method);
@@ -294,7 +306,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
           break;
         }
         const session = authSandboxOps.mintSession(auth, {
-          kind: 'anonymous', tenantId,
+          kind: 'anonymous', tenantId, ...portOriginScope(port),
         });
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx, msg.method);
@@ -317,7 +329,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         let session: MintedSession | null = null;
         try {
           session = authSandboxOps.mintSession(auth, {
-            kind: 'uid', uid: msg.uid, tenantId,
+            kind: 'uid', uid: msg.uid, tenantId, ...portOriginScope(port),
           });
         } catch {
           session = null;
@@ -534,6 +546,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
           uid,
           providerId: cred.providerId,
           tenantId,
+          ...portOriginScope(port),
         });
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx, msg.method);
@@ -550,7 +563,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
           ...identity, providerId, photoURL: photoURL ?? undefined,
         });
         const session = authSandboxOps.mintSession(auth, {
-          kind: 'provider', uid, providerId, tenantId,
+          kind: 'provider', uid, providerId, tenantId, ...portOriginScope(port),
         });
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx, msg.method);

@@ -31,6 +31,8 @@ import type { InitPayload } from '../serve/namespace.js';
 import { formatAiStatusLine } from '../serve/ai-status.js';
 import { aiUpstreamGuardAllowance } from '../serve/ai-proxy.js';
 import { injectServeTags } from '../serve/html-injection.js';
+import { workerInitPayload } from '../serve/runtime/hosted-target.js';
+import type { WorkerInitPayload } from '../serve/init-payload.js';
 import { resolveOwnersConfig } from '../serve/owners-config.js';
 import { resolveAiMode } from '../serve/firebase-module-swap.js';
 import { formatActivityWarning } from '../serve/activity-warning.js';
@@ -69,6 +71,7 @@ import {
   type SandboxSession,
 } from '../serve/sandbox-session.js';
 import { resolveAvatarsConfig } from '../serve/avatars-config.js';
+import { createVerifyHint } from '../serve/verify-hint.js';
 
 interface HostingConfig {
   public?: string;
@@ -114,6 +117,9 @@ export interface ServeRuntime {
    *  records; placed in every child's `PYRIC_SANDBOX_INSTANCE`. Undefined
    *  without the bridge mount. */
   instanceId: string | undefined;
+  /** The transport selection this host stamps into the HTML it serves; placed
+   *  in every child's `PYRIC_WORKER_INIT` for pages it does not serve. */
+  workerInit: WorkerInitPayload;
 }
 
 /** The `--json` stdout contract — one line, keep stable; agents parse this.
@@ -425,6 +431,7 @@ async function startServeRuntime(opts: {
       permissive: opts.permissive,
       project: opts.firebaseProject ?? resolveFirebaseProject({ projectDir: opts.cwd, option: opts.project }),
       hosted: opts.hosted,
+      hostInstanceId: () => mount?.instanceId,
       deployHostedRules: usesHostedSandbox ? mount?.deployHostedRules : undefined,
       logger,
     });
@@ -546,6 +553,8 @@ async function startServeRuntime(opts: {
   // a failed reload asked for, so fixing or creating one reloads. The source
   // is the path the rules load from, watched whether or not it exists at
   // startup, so a rules file created later loads.
+  const getVerifyHint = createVerifyHint();
+
   const isWatchEnabled = opts.watch ?? true;
   if (isWatchEnabled) {
     let debounce: ReturnType<typeof setTimeout> | null = null;
@@ -561,7 +570,7 @@ async function startServeRuntime(opts: {
             const isReloaded = result.kind === 'reloaded';
             const isRejected = result.kind === 'rejected';
             if (isReloaded) {
-              logger.note(`  ↻ rules reloaded (hash ${result.rulesHash}) → ${result.clients} page(s)`);
+              logger.note(`  ↻ rules reloaded (hash ${result.rulesHash}) → ${result.clients} page(s)${getVerifyHint()}`);
               if (result.fixtureCheck && result.fixtureCheck.ran > 0) {
                 for (const line of result.fixtureCheck.lines) logger.note(line);
               }
@@ -604,7 +613,7 @@ async function startServeRuntime(opts: {
             void session.reloadDatabaseRules(changed).then((results) => {
               for (const { instance, file: source, result } of results) {
                 if (result.kind === 'reloaded') {
-                  logger.note(`  ↻ rtdb rules reloaded for ${instance} (hash ${result.rulesHash}) → ${result.clients} page(s)`);
+                  logger.note(`  ↻ rtdb rules reloaded for ${instance} (hash ${result.rulesHash}) → ${result.clients} page(s)${getVerifyHint()}`);
                   if (result.fixtureCheck && result.fixtureCheck.ran > 0) {
                     for (const line of result.fixtureCheck.lines) logger.note(line);
                   }
@@ -644,7 +653,7 @@ async function startServeRuntime(opts: {
         debounceStorage = setTimeout(() => {
           void session.reloadStorageRules().then((result) => {
             if (result.kind === 'reloaded') {
-              logger.note(`  ↻ storage rules reloaded (hash ${result.rulesHash}) → ${result.clients} page(s)`);
+              logger.note(`  ↻ storage rules reloaded (hash ${result.rulesHash}) → ${result.clients} page(s)${getVerifyHint()}`);
             } else if (result.kind === 'rejected') {
               logger.note(`  ⚠ storage rules NOT reloaded (last-good stays live): ${result.error.message}`);
             } else if (result.kind === 'removed') {
@@ -784,7 +793,11 @@ async function startServeRuntime(opts: {
   }
   let mcpUrl: string | null = null;
   if (hasBridge) mcpUrl = mount.mcpUrl(origin);
-  return { handle, publicDir, payload, uiUrl, mcpUrl, persist: persistSummary, beaconCount, beaconToken, instanceId: mount?.instanceId };
+  const workerInit = workerInitPayload(hosted?.projectKey, owners);
+  return {
+    handle, publicDir, payload, uiUrl, mcpUrl, persist: persistSummary, beaconCount, beaconToken,
+    instanceId: mount?.instanceId, workerInit,
+  };
 }
 
 /**
@@ -1181,6 +1194,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       beaconToken: runtime.beaconToken,
       instanceId: runtime.instanceId,
       guardAllow: aiGuardAllow,
+      workerInit: runtime.workerInit,
     });
     // What we are handing the child, stated before it starts: the interlock
     // line and the unsupported-runtime check.

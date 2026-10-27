@@ -588,3 +588,140 @@ describe('LNT-6: RTDB-SEC-6 and RTDB-SEC-7 soundness against vacuous validation 
     expect(found(clean, 'RTDB-SEC-7')).toEqual([]);
   });
 });
+
+// LD-1 (#1247): simulate-and-lint.md documents RTDB-SEC-1 as "A .write of true,
+// so anyone, signed in or not, can write". `X || true` is not folded because X
+// may error (r26), but `auth` cannot: signed out it is null, and r49 ("SP-5:
+// auth.uid == null signed out", "SP-5: auth.token.admin != true signed out",
+// "SP-5 control: auth == null signed out": ALLOW) shows auth and its members
+// compare to null without error.
+describe('LD-1: a rule over auth that is true for every request', () => {
+  const tautologies = ['auth != null || true', 'auth != null ? true : true', 'auth == null || auth != null', "auth.uid == null || auth.uid != null"];
+
+  test('a .write true signed in and signed out is a public write, with or without a .validate', () => {
+    for (const rule of tautologies) {
+      expect(found({ a: { '.write': rule } }, 'RTDB-SEC-1'), rule).toEqual([{ path: '/a', rule: '.write' }]);
+      expect(found({ a: { '.write': rule, '.validate': 'newData.isString() && newData.val().length < 10' } }, 'RTDB-SEC-1'), rule)
+        .toEqual([{ path: '/a', rule: '.write' }]);
+    }
+    const [finding] = lint({ a: { '.write': 'auth != null || true' } }).filter((f) => f.code === 'RTDB-SEC-1');
+    expect(finding!.message).toContain('"auth != null || true"');
+    expect(finding!.message).toContain('signed in or not');
+  });
+
+  test('a .read true signed in and signed out is a public read', () => {
+    expect(found({ a: { '.read': 'auth == null || auth != null' } }, 'RTDB-SEC-2')).toEqual([{ path: '/a', rule: '.read' }]);
+  });
+
+  test('near miss: a rule over auth that one of the two cases decides differently is not constant', () => {
+    for (const rule of ['auth != null', 'auth == null', 'auth != null && true', "auth.uid == 'alice' || false", 'auth.token.admin == true || auth == null']) {
+      expect(found({ a: { '.write': rule } }, 'RTDB-SEC-1'), rule).toEqual([]);
+    }
+  });
+
+  test('near miss: a term that may error still blocks the fold (r26)', () => {
+    expect(found({ a: { '.write': "auth != null && newData.val().toUpperCase() == 'OK' || true" } }, 'RTDB-SEC-1')).toEqual([]);
+  });
+
+  test('near miss: a read deeper than r49 captures through a signed-out auth is not folded', () => {
+    expect(found({ a: { '.write': 'auth != null || auth.token.firebase.identities == null' } }, 'RTDB-SEC-1')).toEqual([]);
+    // The simulator raises an error on auth.uid.length signed out.
+    expect(found({ a: { '.write': 'auth != null || auth.uid.length == null' } }, 'RTDB-SEC-1')).toEqual([]);
+  });
+
+  test('a deeper rule that is always false names itself in RTDB-SEC-4', () => {
+    const [finding] = lint({ users: { '.read': 'auth != null', $uid: { '.read': '$uid == null' } } }).filter((f) => f.code === 'RTDB-SEC-4');
+    expect(finding!.message).toContain('/users/$uid .read "$uid == null" is false for every request and does not revoke /users .read');
+    const [literal] = lint({ '.write': 'auth != null', inner: { '.write': false } }).filter((f) => f.code === 'RTDB-SEC-4');
+    expect(literal!.message).toContain('/inner .write is false and does not revoke / .write');
+  });
+
+  test('RTDB-SEC-6 says the .validate does not check its own new value', () => {
+    const [finding] = lint({ a: { '.write': 'auth != null', '.validate': 'auth != null' } }).filter((f) => f.code === 'RTDB-SEC-6');
+    expect(finding!.message).toContain('no .validate rule at or below /a checks its own new value');
+  });
+
+  test('the fix names the rule it replaces', () => {
+    const [finding] = lint({ a: { '.write': 'auth != null || true' } }).filter((f) => f.code === 'RTDB-SEC-1');
+    expect(finding!.fix).toContain('Replace /a .write "auth != null || true" with');
+  });
+});
+
+// LD-3 (#1247): simulate-and-lint.md documents RTDB-SEC-4 as a rule that tries
+// to restrict access an ancestor already grants. Firebase core-syntax: "Child
+// rules can only grant additional privileges to what parent nodes have already
+// declared." A child that grants only signed-in clients, under an ancestor that
+// grants every signed-in client, adds nothing.
+describe('LD-3: a deeper rule under an ancestor that grants every signed-in client', () => {
+  test('a child narrowing a parent auth != null grant to the owner restricts nothing', () => {
+    for (const kind of ['.read', '.write'] as const) {
+      const rules = { users: { [kind]: 'auth != null', $uid: { [kind]: 'auth.uid == $uid' } } };
+      const findings = lint(rules).filter((f) => f.code === 'RTDB-SEC-4');
+      expect(findings.map(({ path, rule }) => ({ path, rule })), kind).toEqual([{ path: '/users/$uid', rule: kind }]);
+      expect(findings[0]!.message).toContain('"auth != null"');
+      expect(findings[0]!.message).toContain('every signed-in client');
+    }
+  });
+
+  test('other owner and claim checks under auth != null restrict nothing either', () => {
+    for (const child of ["auth.uid == 'alice'", 'auth.token.admin == true', 'auth != null && data.exists()']) {
+      expect(found({ p: { '.write': 'auth != null', c: { '.write': child } } }, 'RTDB-SEC-4'), child)
+        .toEqual([{ path: '/p/c', rule: '.write' }]);
+    }
+  });
+
+  test('near miss: a child that can grant a signed-out client adds a grant', () => {
+    for (const child of ['auth == null', "newData.val() == 'x'", 'auth.uid == null']) {
+      expect(found({ p: { '.write': 'auth != null', c: { '.write': child } } }, 'RTDB-SEC-4'), child).toEqual([]);
+    }
+  });
+
+  test('near miss: an ancestor that grants only some signed-in clients leaves the child something to add', () => {
+    expect(found({ users: { '.write': "auth.uid == 'admin'", $uid: { '.write': 'auth.uid == $uid' } } }, 'RTDB-SEC-4')).toEqual([]);
+    expect(found({ users: { '.write': 'auth.token.admin == true', $uid: { '.write': 'auth.uid == $uid' } } }, 'RTDB-SEC-4')).toEqual([]);
+  });
+});
+
+// LD-4 (#1247): hasEffectiveValidate is documented as "Whether a node's own
+// `.validate` constrains non-null values written to it", and LNT-6 already
+// treats `.validate: true` and `newData.exists()` as vacuous. A .validate that
+// never reads its own new value constrains none.
+describe('LD-4: a .validate that never reads its own new value', () => {
+  test('a .validate over auth, existing data or another node does not silence RTDB-SEC-6', () => {
+    expect(found({ a: { '.write': 'auth != null', '.validate': 'auth != null' } }, 'RTDB-SEC-6')).toEqual([{ path: '/a', rule: '.write' }]);
+    expect(found({ a: { '.write': 'auth != null', '.validate': 'data.val() == null' } }, 'RTDB-SEC-6')).toEqual([{ path: '/a', rule: '.write' }]);
+    expect(found({ a: { '.write': 'auth != null', '.validate': "$k == 'red' || root.child('x').exists()" } }, 'RTDB-SEC-6'))
+      .toEqual([{ path: '/a', rule: '.write' }]);
+    // Corpus r28 /posts/$postId: the .validate reads only lastPost, through newData.parent().
+    const r28 = {
+      lastPost: { $uid: { '.write': 'auth.uid == $uid', '.validate': 'newData.val() == now' } },
+      posts: { $postId: { '.write': 'auth != null', '.validate': "newData.parent().parent().child('lastPost').child(auth.uid).val() == now" } },
+    };
+    expect(found(r28, 'RTDB-SEC-6')).toEqual([{ path: '/posts/$postId', rule: '.write' }]);
+  });
+
+  test('an $other whose .validate never reads its new value does not reject unknown keys: RTDB-SEC-7', () => {
+    const rules = {
+      users: {
+        $uid: {
+          '.write': 'auth.uid == $uid',
+          name: { '.validate': 'newData.isString() && newData.val().length < 50' },
+          $other: { '.validate': 'auth != null' },
+        },
+      },
+    };
+    expect(found(rules, 'RTDB-SEC-7')).toEqual([{ path: '/users/$uid', rule: '.validate' }]);
+  });
+
+  test('near miss: a .validate that reads its own value, or a child of it, still constrains it', () => {
+    for (const validate of [
+      'newData.isString()',
+      "newData.child('title').isString()",
+      "newData.child('a').parent().isString()",
+      "newData.val() == newData.parent().child('copy').val()",
+      'newData.val() == data.val()',
+    ]) {
+      expect(found({ a: { '.write': 'auth != null', '.validate': validate } }, 'RTDB-SEC-6'), validate).toEqual([]);
+    }
+  });
+});

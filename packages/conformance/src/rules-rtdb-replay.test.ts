@@ -164,11 +164,33 @@ test('replays deploy cases through the local ruleset check', () => {
   ]);
 });
 
-test('every corpus deploy scenario agrees with production (including r44 9/9)', () => {
+type DeployVerdict = 'ACCEPTED' | 'REJECTED';
+
+/**
+ * Deploy cases where Pyric's load-time check disagrees with production's
+ * dry-run verdict, pinned on both sides so the suite stays green today and
+ * fails the moment either side moves. Each fix removes its pin, watches the
+ * case go red, then makes it agree. Keyed by `${scenarioId} :: ${caseDescription}`.
+ */
+const KNOWN_DEPLOY_DIVERGENCES: Record<string, { production: DeployVerdict; local: DeployVerdict; reason: string }> = {
+};
+
+test('every corpus deploy scenario agrees with production (including r44 9/9), except pinned divergences', () => {
+  const seenPins = new Set<string>();
   for (const scenario of ALL_RULES_RTDB_DEPLOY_SCENARIOS) {
     const results = replayRtdbDeployScenario(scenario);
     for (const result of results) {
-      expect(result.local, `${scenario.id} :: ${result.caseKey}`).toBe(result.production);
+      const key = `${scenario.id} :: ${result.caseKey}`;
+      const known = KNOWN_DEPLOY_DIVERGENCES[key];
+      if (known) {
+        seenPins.add(key);
+        expect(result.production, `${key} (recorded production verdict)`).toBe(known.production);
+        expect(result.local, `${key} (local load-time verdict)`).toBe(known.local);
+        continue;
+      }
+      expect(result.local, key).toBe(result.production);
     }
   }
+  const stalePins = Object.keys(KNOWN_DEPLOY_DIVERGENCES).filter((key) => !seenPins.has(key));
+  expect(stalePins, 'deploy divergence pins that name no corpus case').toEqual([]);
 });

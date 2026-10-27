@@ -28,6 +28,7 @@ import { loadObservation } from '../modular/cdd-replay-helpers.js';
 import { getAdminDatabase, getDatabase, sandbox as rtdbSandbox } from '../../../src/database/index.js';
 import { heldDatabaseInstances } from '../../../src/database/internal.js';
 import { replay } from '../../../src/database/replay.js';
+import { stagingAuthOverrideMismatches } from '../modular/staging-auth-override.support.js';
 import {
   UNNAMED_DEFAULT_DATABASE_INSTANCE,
   databaseInstanceKey,
@@ -47,6 +48,7 @@ const queryValidationObservation = loadObservation('rtdb-modular-query-construct
 const priorityObservation = loadObservation('rtdb-modular-priority-contract');
 const offObservation = loadObservation('rtdb-modular-off-duplicate-registration');
 const snapshotObservation = loadObservation('rtdb-modular-get-snapshot-shape');
+const stagingAuthObservation = loadObservation('rtdb-modular-staging-auth-override');
 
 const row = (id: string, assertion: () => unknown | Promise<unknown>) => it(`rtdb-modular#${id}`, assertion);
 
@@ -369,6 +371,97 @@ describe('rtdb-modular CDD: multiple database instances', () => {
     ]);
     const unaffected = await replay(history, { rules: open, capturedState: defaultState });
     expect(unaffected).toMatchObject({ ok: true, checkedEvents: 1 });
+  });
+
+  row('MI7', async () => {
+    // Assurance uses the sandbox foundation to map, validate, and execute
+    // isolated target environments for named instances.
+    const sandbox = initializeSandbox();
+    const open = { rules: { '.read': true, '.write': true } };
+    const locked = { rules: { '.read': false, '.write': false } };
+    const defaultDb = getDatabase(sandbox);
+    const namedDb = getDatabase(sandbox, FIRST);
+    const namedAdmin = getAdminDatabase(sandbox, FIRST);
+    
+    rtdbSandbox.setRules(defaultDb, locked);
+    rtdbSandbox.setRules(namedDb, open);
+    rtdbSandbox.setData(namedAdmin, { probe: 'named' });
+    
+    const anon = sandbox.withAuth(null);
+    await expect(api.set(api.ref(getDatabase(anon), 'probe'), 'default-attempt')).rejects.toThrow(/Permission denied/);
+    
+    const snapshot = await api.get(api.ref(getDatabase(anon, FIRST), 'probe'));
+    expect(snapshot.val()).toBe('named');
+    await api.set(api.ref(getDatabase(anon, FIRST), 'probe'), 'named-updated');
+    expect((await api.get(api.ref(getDatabase(anon, FIRST), 'probe'))).val()).toBe('named-updated');
+  });
+});
+
+// Rows VR1 to VR4 record what `pyric verify` checks when it replays a captured
+// RTDB session; the replay and verify suites and the app scenario the rows
+// name pin the CLI path. These assertions pin the sandbox side: the events the
+// backend records and the replay verdicts on them.
+describe('rtdb-modular CDD: verifying a captured session', () => {
+  const OWNER = { rules: { profiles: { $uid: { '.read': 'auth.uid === $uid', '.write': 'auth.uid === $uid' } } } };
+  const OPEN = { rules: { '.read': true, '.write': true } };
+
+  async function capture(run: (db: ReturnType<typeof getDatabase>) => Promise<unknown>) {
+    const sandbox = initializeSandbox();
+    rtdbSandbox.setRules(getDatabase(sandbox), OWNER);
+    rtdbSandbox.setData(getAdminDatabase(sandbox), { '/profiles/alice': 'a', '/profiles/bob': 'b' });
+    await run(getDatabase(sandbox.withAuth({ uid: 'alice' })));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return { history: sandbox.history(), state: rtdbSandbox.snapshotState(getAdminDatabase(sandbox)) };
+  }
+
+  row('VR1', async () => {
+    const { history, state } = await capture(async (db) => {
+      await api.get(api.ref(db, 'profiles/alice'));
+      const off = api.onValue(api.ref(db, 'profiles/alice'), () => {});
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      off();
+    });
+    expect((await replay(history, { rules: OWNER, capturedState: state })).divergences).toEqual([]);
+    const noReads = { rules: { profiles: { $uid: { '.write': 'auth.uid === $uid' } } } };
+    const denied = await replay(history, { rules: noReads, capturedState: state });
+    expect(denied.divergences.map(({ kind, method, path }) => ({ kind, method, path }))).toEqual([
+      { kind: 'now-denied', method: 'get', path: '/profiles/alice' },
+      { kind: 'now-denied', method: 'listen', path: '/profiles/alice' },
+    ]);
+  });
+
+  row('VR2', async () => {
+    const { history, state } = await capture((db) => api.set(api.ref(db, 'profiles/bob'), 'mallory').catch(() => {}));
+    expect((await replay(history, { rules: OWNER, capturedState: state })).divergences).toEqual([]);
+    const opened = await replay(history, { rules: OPEN, capturedState: state });
+    expect(opened.divergences.map(({ kind, method, path }) => ({ kind, method, path }))).toEqual([
+      { kind: 'now-allowed', method: 'set', path: '/profiles/bob' },
+    ]);
+    expect(opened.replayedState).toEqual(state);
+  });
+
+  row('VR4', () => {
+    // Production decided each auth override as the sandbox's rules engine does,
+    // for every field the staging engine's override carries.
+    const { compared, mismatches } = stagingAuthOverrideMismatches(stagingAuthObservation as never);
+    expect(mismatches).toEqual([]);
+    expect(compared).toBeGreaterThan(0);
+  });
+
+  row('VR3', async () => {
+    const { history, state } = await capture(async (db) => {
+      await api.onDisconnect(api.ref(db, 'profiles/alice')).set('gone');
+    });
+    const operations = history.filter((event) => event.kind === 'operation');
+    expect(operations.map((event) => ({ method: event.method, path: event.path, result: event.result }))).toEqual([
+      { method: 'onDisconnect.set', path: '/profiles/alice', result: 'allow' },
+    ]);
+    expect((await replay(history, { rules: OWNER, capturedState: state })).divergences).toEqual([]);
+    const readOnly = { rules: { '.read': true, '.write': false } };
+    const denied = await replay(history, { rules: readOnly, capturedState: state });
+    expect(denied.divergences.map(({ kind, method, path }) => ({ kind, method, path }))).toEqual([
+      { kind: 'now-denied', method: 'onDisconnect.set', path: '/profiles/alice' },
+    ]);
   });
 });
 

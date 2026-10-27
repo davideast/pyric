@@ -295,7 +295,7 @@ This layer also covers listeners, transactions, and `.indexOn` behavior, which a
 ```bash
 pyric verify --service rtdb --rules rtdb=database.rules.json
 ```
-RTDB verification runs on the sandbox engine only. The hosted Rules Test API evaluates Firestore rules, so `--engine rules-test-api` is refused for `rtdb`. See [ship to production](../ship/ship-to-production.md).
+RTDB verification runs on the sandbox engine by default. The hosted Rules Test API evaluates Firestore rules, so `--engine rules-test-api` is refused for `rtdb`. For Realtime Database, run `--engine staging` to test the session against a real instance you provide, enrolled with `pyric verify staging init`. See [ship to production](../ship/ship-to-production.md).
 
 ## Run the suite through an agent
 

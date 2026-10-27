@@ -40,10 +40,10 @@ Pass `--hosted` to `pyric sandbox`:
 
 ```bash
 # Run host-only
-pyric sandbox --hosted
+npx pyric sandbox --hosted
 
 # Run host and execute your application command with automatic interception
-pyric sandbox --hosted -- npm run dev
+npx pyric sandbox --hosted -- npm run dev
 ```
 
 When running `-- <command>`, Pyric automatically activates `@pyric/cli/register` in the child environment via `NODE_OPTIONS`. Unchanged `firebase-admin` imports in your child command connect to the Node host.
@@ -76,7 +76,7 @@ When `hosted: true` is set, Vite starts the Node host internally, mounting both 
 ## System requirements
 
 - **Node.js**: Version **22.15** or later is required for native `node:sqlite` support.
-- **Experimental Warning**: Node emits `ExperimentalWarning: SQLite is an experimental feature`. This warning is expected and normal.
+- **Experimental Warning**: Some Node versions print `ExperimentalWarning: SQLite is an experimental feature`. The warning is harmless.
 - **Unsupported runtimes**: Node host mode requires Node's built-in SQLite engine. It is not currently supported under Bun or in the standalone single-executable binary.
 
 ---
@@ -105,7 +105,7 @@ An in-process MCP server (`pyric mcp --in-process`) uses a separate lock (`in-pr
 To archive existing state and start with an empty database, pass `--fresh` (or `fresh: true` in Vite):
 
 ```bash
-pyric sandbox --hosted --fresh -- npm run dev
+npx pyric sandbox --hosted --fresh -- npm run dev
 ```
 
 Pyric moves the existing database directory to `.pyric/state/hosted.archive-<timestamp>-<uuid>` and opens a brand-new database.
@@ -115,7 +115,7 @@ Pyric moves the existing database directory to `.pyric/state/hosted.archive-<tim
 If the database is damaged by an abrupt OS shutdown or corrupted filesystem:
 
 ```bash
-pyric sandbox salvage --source .pyric/state/hosted --out .pyric/state/recovered
+npx pyric sandbox salvage --source .pyric/state/hosted --out .pyric/state/recovered
 ```
 
 `salvage` copies and inspects readable records without altering the original database, producing an offline report.
@@ -148,20 +148,20 @@ Inspect and manipulate data directly from the command line:
 
 ```bash
 # List users on the running host
-pyric auth listUsers
+npx pyric auth listUsers
 
 # Inspect documents
-pyric firestore getDoc --collection users --id alice
+npx pyric firestore getDoc --path users/alice
 
 # Create user
-pyric auth createUser --email dev@example.com --password Secret123!
+npx pyric auth createUser --email dev@example.com --password Secret123!
 ```
 
 ### Backend scripts with `firebase-admin`
 Run backend scripts against the host by starting them through Pyric:
 
 ```bash
-pyric sandbox --hosted -- node seed-data.js
+npx pyric sandbox --hosted -- node seed-data.js
 ```
 
 The script's `firebase-admin` imports are intercepted and connect to the local sandbox without credentials or network access.
@@ -204,11 +204,11 @@ When the host misbehaves, capture a repro file instead of describing the problem
 1. Reproduce the problem in your app while the host runs.
 2. In the project directory, write the repro file:
    ```bash
-   pyric serve repro capture --out repro.json
+   npx pyric serve repro capture --out repro.json
    ```
 3. Check that it reproduces on a fresh host:
    ```bash
-   pyric serve repro replay repro.json
+   npx pyric serve repro replay repro.json
    ```
 4. Attach `repro.json` to your bug report.
 
@@ -247,7 +247,7 @@ To migrate an existing Pyric project to Node host mode:
 1. **Verify Node version**: Ensure `node --version` is 22.15 or later.
 2. **Export existing data (optional)**:
    ```bash
-   pyric snapshot --out pyric-carryover.json
+   npx pyric snapshot --out pyric-carryover.json
    ```
 3. **Update configuration**:
    - In `vite.config.ts`, change `pyric()` to `pyric({ hosted: true, seed: 'pyric-carryover.json' })`.

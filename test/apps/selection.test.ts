@@ -45,6 +45,12 @@ describe('runner options', () => {
     expect(parseArguments(['--only-slow', '--packages', 'dist/packages']).slow).toBe('only');
   });
 
+  test('--jobs takes a whole number of at least one', () => {
+    expect(parseArguments(['--jobs', '4']).jobs).toBe(4);
+    for (const bad of ['two', '0', '1.5', '']) expect(() => parseArguments(['--jobs', bad])).toThrow('--jobs takes a whole number');
+    expect(() => parseArguments(['--jobs'])).toThrow('--jobs takes a whole number');
+  });
+
   test('--skip-slow and --only-slow together are refused', () => {
     expect(() => parseArguments(['--skip-slow', '--only-slow'])).toThrow('cannot be used together');
   });

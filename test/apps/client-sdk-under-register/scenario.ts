@@ -5,6 +5,8 @@
 // production: what they write is what firebase-admin and the page read, a
 // path the rules deny for that user is denied, and an onDisconnect write runs
 // once the process is gone. The services with no path to the host refuse.
+// A process started before its host fails its first calls and reaches the
+// host at its next call once the host is up, with no restart.
 // Each process stays up only while its SDKs would hold a production process.
 import assert from 'node:assert/strict';
 import { scenario, type App } from '../driver.ts';
@@ -41,8 +43,25 @@ async function lifetime(app: App, env: Record<string, string>, which: string): P
 }
 
 export default scenario(async (app) => {
-  const host = await app.step('start the Node host', () => app.devServer());
+  const port = await app.freePort();
+  const lateEnv = { PYRIC_SANDBOX: `remote:http://127.0.0.1:${port}` };
+  const early = await app.step('a process started before the host fails its first calls', async () => {
+    const early = app.serverProcess('late-host.mjs', [], { env: lateEnv });
+    await early.waitForLog(/^late-host waiting$/m, { timeoutMs: 30_000 });
+    assert.equal(outcome(early.output, 'before.database').ok, false, early.output);
+    assert.equal(outcome(early.output, 'before.firestore').ok, false, early.output);
+    return early;
+  });
+
+  const host = await app.step('start the Node host', () => app.devServer({ port }));
   const env = { PYRIC_SANDBOX: `remote:${host.url}` };
+
+  await app.step('the same process reaches the host once it is up, with no restart', async () => {
+    app.writeFile('late-host-go', '');
+    await early.waitForLog(/^late-host done$/m, { timeoutMs: 30_000 });
+    expectOk(early.output, 'after.database', 'after');
+    expectOk(early.output, 'after.firestore', { at: 'after' });
+  });
 
   await app.step('firebase-admin seeds the host', async () => {
     const { output } = await app.serverScript('admin.mjs', ['seed'], { env });

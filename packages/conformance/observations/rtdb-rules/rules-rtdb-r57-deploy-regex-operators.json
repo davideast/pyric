@@ -1,0 +1,25 @@
+{
+  "name": "rules-rtdb-r57-deploy-regex-operators",
+  "matrixRow": "rtdb-rules#46",
+  "rowIds": [
+    "rtdb-rules#46"
+  ],
+  "description": "RTDB rules deploy verdicts for corpus scenario \"r57-deploy-regex-operators\" (rtdb#71). Captured by dry-run deploys to the rules endpoint, which validate without deploying. pyric reads \" and < and an in-set ^ or $ as plain characters; production has no recorded verdict for any of them.",
+  "observedAt": "2026-10-27T02:27:18.511Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "a double quote (/^a\"b$/)": {
+      "verdict": "ACCEPTED"
+    },
+    "a less-than sign (/^a<b$/)": {
+      "verdict": "ACCEPTED"
+    },
+    "a ^ inside a set, not first (/^[a^]$/)": {
+      "verdict": "ACCEPTED"
+    },
+    "a $ alone in a set (/^[$]$/)": {
+      "verdict": "ACCEPTED"
+    }
+  }
+}

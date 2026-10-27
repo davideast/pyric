@@ -62,3 +62,4 @@ export {
 export { fetchFromByteRoute, uploadOverByteRoute, type RemoteByteRoute, type RemoteReadRequest, type RemoteUploadRequest } from './remote-bytes.js';
 
 export { observeStorageOperation, storageTaskProgress, storageTaskResult } from '../sandbox/internal/storage-activity.js';
+export { localStorageUrl, storageObjectPath, STORAGE_ROUTE_PREFIX } from './byte-route.js';

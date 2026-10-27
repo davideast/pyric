@@ -1,3 +1,4 @@
+import './bundled-worker-init.js';
 import { recordDiagnostic } from '../runtime/diagnostics-client.js';
 import { pageListenerObservation } from '../runtime/listener-observation.js';
 import type { InitPayload } from '../init-payload.js';
@@ -74,11 +75,22 @@ async function requestInitPayloadWhenAvailable(): Promise<InitPayload> {
 /**
  * A promise whose work starts at its first use. A page reads `init.json` as it
  * loads; a Node process reads it at its first call, so importing an SDK opens
- * no connection and holds nothing, as the production SDK does (#1082).
+ * no connection and holds nothing, as the production SDK does (#1082). An
+ * answer is kept; a failure is not, so a process started before its host
+ * reads `init.json` again at its next call.
  */
 function startedOnUse<T>(start: () => Promise<T>): Promise<T> {
   let started: Promise<T> | undefined;
-  const run = (): Promise<T> => (started ??= start());
+  const run = (): Promise<T> => {
+    if (started !== undefined) return started;
+    const attempt = start();
+    started = attempt;
+    attempt.catch(() => {
+      const isLatest = started === attempt;
+      if (isLatest) started = undefined;
+    });
+    return attempt;
+  };
   const lazy = {
     then: (onFulfilled?: ((value: T) => unknown) | null, onRejected?: ((reason: unknown) => unknown) | null) =>
       run().then(onFulfilled, onRejected),
@@ -132,4 +144,17 @@ export function currentSessionToken(): Promise<string | null> {
 /** The host may have restarted; the next token read fetches `init.json` again. */
 export function forgetSessionToken(): void {
   sessionTokenIsStale = true;
+}
+
+/**
+ * The boot id of the host serving `init.json` now, read afresh. A Node process
+ * presents it when it reattaches, so after a host restart it presents the new
+ * boot. The same read answers the next session-token read, so a reconnect
+ * reads `init.json` once.
+ */
+export async function currentHostInstanceId(): Promise<string | undefined> {
+  const payload = await requestInitPayload();
+  sessionTokenRequest = Promise.resolve(payload.sessionToken ?? null);
+  sessionTokenIsStale = false;
+  return payload.instanceId;
 }

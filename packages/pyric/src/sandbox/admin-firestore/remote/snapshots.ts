@@ -14,6 +14,7 @@ import { decodeDocData } from './value-codec.js';
 import { makeDocRef } from './doc-ref.js';
 import type { WireDocSnap, WireQuerySnap } from './wire-types.js';
 import { getSnapshotField } from '../../../firestore/sandbox/admin-compat/field-path.js';
+import { forEachDocument } from '../../../firestore/sandbox/for-each-document.js';
 
 export function makeDocumentSnapshot(ref: DocumentReference, wire: WireDocSnap): DocumentSnapshot {
   const data = wire.exists && wire.data ? decodeDocData(wire.data) : undefined;
@@ -46,8 +47,6 @@ export function makeQuerySnapshot(
     size: docs.length,
     empty: docs.length === 0,
     docs,
-    forEach(callback: (snap: QueryDocumentSnapshot) => void): void {
-      docs.forEach((d) => callback(d));
-    },
+    forEach: forEachDocument(docs),
   };
 }

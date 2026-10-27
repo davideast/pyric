@@ -1,0 +1,29 @@
+{
+  "name": "rules-rtdb-r47-regex-runtime",
+  "matrixRow": "rtdb-rules#34",
+  "rowIds": [
+    "rtdb-rules#34"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r47-regex-runtime\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). matches() evaluates with JavaScript RegExp semantics; production documents that ^ and $ anchor only as the first or last character, and its $ / . newline handling is unobserved.",
+  "observedAt": "2026-10-26T21:47:46.874Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "SP-2: lookahead requiring a digit, no digit": "DENY",
+    "SP-2: lookahead requiring a digit, with a digit": "DENY",
+    "SP-2: negative lookahead refusing admin, admin": "DENY",
+    "SP-2: negative lookahead refusing admin, guest": "DENY",
+    "SP-2: backreference, repeated group": "DENY",
+    "SP-2: backreference, single group": "DENY",
+    "SP-2: word boundary, word inside a sentence": "DENY",
+    "SP-2: word boundary, word inside a longer word": "DENY",
+    "SP-1 control: grouped alternation with outer anchors, listed word": "ALLOW",
+    "SP-1 control: grouped alternation with outer anchors, unlisted word": "DENY",
+    "SP-7: trailing newline under an anchored allow-list": "DENY",
+    "SP-7: embedded newline under an anchored allow-list": "DENY",
+    "SP-7 control: lowercase word under an anchored allow-list": "ALLOW",
+    "dot does not match a newline": "ALLOW",
+    "i flag matches a different case at runtime": "ALLOW",
+    "an unanchored pattern matches inside the string": "ALLOW"
+  }
+}

@@ -18,7 +18,7 @@ import type { Expr } from '../constraints/types.js';
 import { all, any, expr } from '../constraints/compose.js';
 import { AUTH_UID, dataVal, eq, newDataVal } from '../constraints/data.js';
 import { authenticated } from '../constraints/atoms.js';
-import { sameAsBefore } from './expr.js';
+import { boundedCount, MAX_BUILT_COUNT, sameAsBefore } from './expr.js';
 
 /** The writer holds the seat named by the stored `currentTurn`. */
 export function isMyTurn(): Expr {
@@ -40,9 +40,7 @@ export function turnFlipped(): Expr {
 }
 
 function seats(builder: string, seatCount: number): number[] {
-  if (!Number.isInteger(seatCount) || seatCount < 1) {
-    throw new Error(`${builder}: seatCount must be an integer of at least 1, got ${String(seatCount)}.`);
-  }
+  boundedCount(builder, 'seatCount', seatCount, 1, MAX_BUILT_COUNT);
   return Array.from({ length: seatCount }, (_, i) => i);
 }
 

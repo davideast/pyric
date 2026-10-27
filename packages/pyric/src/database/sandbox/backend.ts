@@ -40,7 +40,7 @@ export class RtdbBackend {
     this.values = new ValueListeners(this.state);
     this.children = new ChildListeners(this.state);
     this.writes = new WritePlane(this.state, this.values, this.children);
-    this.transactions = new Transactions(this.state, this.values, this.children);
+    this.transactions = new Transactions(this.state, this.values, this.children, this.writes);
     this.persistence = new PersistenceState(this.state, this.values, this.children);
   }
 
@@ -111,6 +111,19 @@ export class RtdbBackend {
   setPriority(auth: AuthState, path: string, priority: Priority): void {
     assertWritable(path);
     this.writes.setPriority(auth, path, priority);
+  }
+  validateRead(auth: AuthState, path: string, spec?: QuerySpec): void {
+    this.writes.validateRead(auth, path, spec);
+  }
+  validatePriority(auth: AuthState, path: string, priority: Priority): void {
+    assertWritable(path);
+    this.writes.validatePriority(auth, path, priority);
+  }
+  /** Decide and record an `onDisconnect` registration; see `WritePlane.registerDisconnect`. */
+  registerDisconnect(auth: AuthState, operation: Parameters<WritePlane['registerDisconnect']>[1]): void {
+    if (operation.kind === 'update') assertWritable(operation.path, operation.values);
+    else assertWritable(operation.path);
+    this.writes.registerDisconnect(auth, operation);
   }
   validateSet(auth: AuthState, path: string, value: unknown, priority: Priority = null): void {
     assertWritable(path);

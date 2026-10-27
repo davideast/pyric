@@ -10,8 +10,9 @@
 import { afterAll, expect, it } from 'bun:test';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getDatabase, ref, set, sandbox as rtdbSandbox } from 'pyric/database';
+import { get, getAdminDatabase, getDatabase, ref, set, sandbox as rtdbSandbox } from 'pyric/database';
 import { initializeSandbox } from 'pyric/sandbox';
+import { getFirestore } from 'pyric/sandbox/admin-firestore';
 
 import { runCanIUse } from '../../../src/cli/can-i-use.js';
 import {
@@ -31,6 +32,7 @@ import { finishHandlerSuite, projectDir, run, sandbox as sharedSandbox } from '.
 import { buildVerifyFixture } from '../../../src/verify/index.js';
 import { captureRtdbInstances } from '../../../src/verify/rtdb-instance-capture.js';
 import { validateArguments } from '../../../src/bridge/surface/method-validation.js';
+import startRecord from '../../../src/bridge/surface/methods/assurance/start.js';
 import mapRecord from '../../../src/bridge/surface/methods/assurance/map.js';
 import proposeRecord from '../../../src/bridge/surface/methods/assurance/propose.js';
 
@@ -264,6 +266,108 @@ it('replays a database capture using active sandbox RTDB rules when candidateRul
     candidateRules: '// RTDB rules with comment\n{"rules":{".read":true,".write":true,}}',
   });
   expect(commented.ok).toBe(true);
+});
+
+it('counts a Firestore request that changed verdict once, with an allowed read in the session', async () => {
+  // The Firestore sandbox replay also reports now-denied for a re-decided
+  // read, and the derived cases report the same request as a
+  // verdict-divergence. Only the database replay's re-decisions are extra
+  // verdicts; Firestore must not count the request twice.
+  const sandbox = initializeSandbox();
+  const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
+  db.setRules(ALICE_NOTE_RULES);
+  await db.doc('notes/welcome').set({ title: 'welcome' });
+  await db.doc('notes/welcome').get();
+  writeCapture(projectDir, '.pyric/read-session.json', buildVerifyFixture({
+    sandbox,
+    description: 'alice creates a note and reads it',
+    firestoreRules: ALICE_NOTE_RULES,
+  }));
+
+  const replayed = await run('assurance.replaySession', {
+    sessionPath: '.pyric/read-session.json',
+    candidateRules: NO_NOTE_RULES,
+  });
+  const divergences = (replayed.data as { divergences: Array<{ kind: string; method?: string; path?: string }> }).divergences;
+  const verdicts = divergences.filter((entry) => entry.kind === 'verdict-divergence');
+  const requests = verdicts.map((entry) => `${entry.method} ${entry.path}`);
+  expect(requests.length).toBeGreaterThan(1);
+  expect(new Set(requests).size).toBe(requests.length);
+  expect(replayed.summary).toContain(`changed ${verdicts.length} verdict(s)`);
+});
+
+it('counts a database replay that re-decides a verdict as a changed verdict, not a state divergence', async () => {
+  // replaySession.ts header contract: the replay engine reports where state
+  // differs; the verdicts a candidate changes are what a caller asking what
+  // breaks means. A database replay reports re-decided verdicts as
+  // now-denied and now-allowed, and they must be counted as verdicts.
+  const OPEN = { rules: { '.read': true, '.write': true } };
+  const DENY_ALL = { rules: { '.read': false, '.write': false } };
+  const recSandbox = initializeSandbox();
+  const admin = getAdminDatabase(recSandbox);
+  rtdbSandbox.setRules(getDatabase(recSandbox), OPEN);
+  await set(ref(admin, 'a'), 1);
+  const alice = getDatabase(recSandbox.withAuth({ uid: 'alice' }));
+  await get(ref(alice, 'a'));
+  await set(ref(alice, 'b'), 2);
+  writeCapture(projectDir, '.pyric/rtdb-verdicts.json', buildVerifyFixture({
+    sandbox: recSandbox,
+    rtdbRules: OPEN,
+    rtdbState: rtdbSandbox.snapshotState(admin),
+  }));
+
+  const replayed = await run('assurance.replaySession', {
+    sessionPath: '.pyric/rtdb-verdicts.json',
+    service: 'database',
+    candidateRules: JSON.stringify(DENY_ALL),
+  });
+  const divergences = (replayed.data as { divergences: Array<{ kind: string }> }).divergences;
+  const verdicts = divergences.filter((entry) => entry.kind === 'now-denied' || entry.kind === 'now-allowed');
+  expect(verdicts.length).toBeGreaterThan(0);
+  const state = divergences.length - verdicts.length;
+  expect(replayed.summary).toContain(
+    `changed ${verdicts.length} verdict(s) and left ${state} state divergence(s)`,
+  );
+});
+
+it('preserves named instance fields in target and operations across the bridge boundary', () => {
+  const startArgs = {
+    target: {
+      schema: 'pyric.assurance.target.v1',
+      network: 'forbid',
+      rules: {
+        rtdb: { rules: { '.read': false, '.write': false } },
+        rtdbInstances: {
+          'shard-00': { rules: { '.read': true, '.write': true } }
+        }
+      },
+      state: {},
+    }
+  };
+  const startValidation = validateArguments(startRecord, startArgs);
+  expect(startValidation).toBeNull();
+
+  // Test operations through the map/propose records
+  const proposeArgs = {
+    campaignId: 'rtdb-campaign',
+    observationId: 'obs-rtdb-instance',
+    invariantId: 'inv-status',
+    mutations: [
+      {
+        dimension: 'payload',
+        description: 'Mutate status string in RTDB set',
+        operation: {
+          service: 'rtdb',
+          method: 'set',
+          path: '/rooms/r1/members/mallory/status',
+          data: 'admin',
+          instance: 'shard-00'
+        },
+      },
+    ],
+  };
+  const proposeValidation = validateArguments(proposeRecord, proposeArgs);
+  expect(proposeValidation).toBeNull();
 });
 
 it('accepts primitive RTDB set payloads in assurance.map and assurance.propose argument validation', () => {

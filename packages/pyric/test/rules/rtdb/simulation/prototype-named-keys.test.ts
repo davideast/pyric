@@ -1,0 +1,111 @@
+/**
+ * CS-1 (#1247): a key named `__proto__` is an ordinary RTDB key. Production
+ * stores a write at `/path/__proto__` and runs its `$k` `.validate` (capture
+ * rules-rtdb-r52-prototype-named-keys), so the simulated trees, before and
+ * after the write, keep the key as an own property.
+ */
+import { describe, expect, test } from 'bun:test';
+import { rtdbRules, type RtdbCase } from '../../../../src/rules/index.js';
+
+const numbersOnly = rtdbRules({
+  rules: { a: { '.read': true, '.write': true, $k: { '.validate': 'newData.isNumber()' } } },
+});
+
+function decide(c: Omit<RtdbCase, 'expectation'>): string {
+  return numbersOnly.simulate([{ expectation: 'ALLOW', ...c }]).cases[0]!.decision;
+}
+
+describe('a key named __proto__ in the simulated trees', () => {
+  test('a write at /a/__proto__ runs its $k .validate', () => {
+    expect(decide({ operation: 'write', path: '/a/__proto__', newData: 'x' })).toBe('DENY');
+    expect(decide({ operation: 'write', path: '/a/__proto__', newData: 1 })).toBe('ALLOW');
+  });
+
+  test('an update key __proto__ is a written path, and its .validate runs', () => {
+    // The SDK's update() sends the patch object as given, so an own
+    // `__proto__` key reaches the database as a path.
+    const patch = JSON.parse('{"__proto__":"x"}') as Record<string, unknown>;
+    expect(decide({ operation: 'update', path: '/a', newData: patch })).toBe('DENY');
+    const nested = JSON.parse('{"__proto__/n":1, "b":"y"}') as Record<string, unknown>;
+    expect(decide({ operation: 'update', path: '/a', newData: nested })).toBe('DENY');
+  });
+
+  test('a write case listing a __proto__ update path validates it', () => {
+    expect(decide({
+      operation: 'write',
+      path: '/a/__proto__',
+      newData: 'x',
+      updates: [{ path: '/a/__proto__', value: 'x' }],
+    })).toBe('DENY');
+  });
+
+  test('an increment at /a/__proto__ starts from zero, not from the object prototype', () => {
+    const rs = rtdbRules({ rules: { a: { $k: { '.write': true, '.validate': 'newData.val() == 1' } } } });
+    const [result] = rs.simulate([
+      { expectation: 'ALLOW', operation: 'write', path: '/a/__proto__', newData: { '.sv': { increment: 1 } } },
+    ]).cases;
+    expect(result!.decision).toBe('ALLOW');
+  });
+
+  test('stored data under __proto__ reads as the stored value', () => {
+    const rs = rtdbRules({ rules: { a: { $k: { '.read': "data.val() == 'stored'" } } } });
+    const data = JSON.parse('{"a":{"__proto__":"stored"}}') as Record<string, unknown>;
+    const [result] = rs.simulate([{ expectation: 'ALLOW', operation: 'read', path: '/a/__proto__', data }]).cases;
+    expect(result!.decision).toBe('ALLOW');
+  });
+
+  test('a set value carrying an own __proto__ key is written without it, as the SDK sends it', () => {
+    // The SDK serializes a set() value through `ChildrenNode.val()`, which
+    // assigns each child (`obj[key] = childNode.val(...)`), so an own
+    // `__proto__` key is dropped before the write leaves the client. The
+    // r52 capture's object case is allowed in production.
+    const value = JSON.parse('{"__proto__":"x"}') as Record<string, unknown>;
+    expect(decide({ operation: 'write', path: '/a', newData: value })).toBe('ALLOW');
+  });
+});
+
+describe('an own __proto__ key inside a written value', () => {
+  const nested = rtdbRules({ rules: { n: { '.write': true, $k: { $j: { '.validate': 'newData.isNumber()' } } } } });
+  const decideNested = (c: Omit<RtdbCase, 'expectation'>): string =>
+    nested.simulate([{ expectation: 'ALLOW', ...c }]).cases[0]!.decision;
+  const value = (json: string): Record<string, unknown> => JSON.parse(json) as Record<string, unknown>;
+
+  test('an update value keeps it, and its .validate runs', () => {
+    // The SDK's update() sends the caller's object (repoUpdate passes
+    // childrenToMerge to the server), and JSON.stringify keeps an own __proto__.
+    expect(decideNested({ operation: 'update', path: '/n', newData: { b: value('{"__proto__":"x"}') } })).toBe('DENY');
+    expect(decideNested({ operation: 'update', path: '/n', newData: { b: value('{"__proto__":1}') } })).toBe('ALLOW');
+    expect(decideNested({
+      operation: 'write', path: '/n/b', updates: [{ path: '/n/b', value: value('{"__proto__":"x"}') }],
+    })).toBe('DENY');
+  });
+
+  test('a set value drops it, as ChildrenNode.val() does, and keeps its siblings', () => {
+    expect(decideNested({ operation: 'write', path: '/n/b', newData: value('{"__proto__":"x"}') })).toBe('ALLOW');
+    expect(decideNested({ operation: 'write', path: '/n/b', newData: value('{"__proto__":"x","c":1}') })).toBe('ALLOW');
+    expect(decideNested({ operation: 'write', path: '/n/b', newData: value('{"__proto__":"x","c":"y"}') })).toBe('DENY');
+  });
+});
+
+describe('a snapshot whose child is named __proto__', () => {
+  const stored = JSON.parse('{"p":{"__proto__":1}}') as Record<string, unknown>;
+  const reads = (rule: string): string => rtdbRules({ rules: { p: { '.read': rule } } })
+    .simulate([{ expectation: 'ALLOW', operation: 'read', path: '/p', data: stored }]).cases[0]!.decision;
+
+  test('a parent whose only child is __proto__ exists', () => {
+    expect(reads('data.exists()')).toBe('ALLOW');
+  });
+
+  test('hasChildren() and val() include the child', () => {
+    expect(reads('data.hasChildren()')).toBe('ALLOW');
+    expect(reads("data.hasChildren(['__proto__'])")).toBe('ALLOW');
+    expect(reads("data.child('__proto__').val() == 1")).toBe('ALLOW');
+  });
+
+  test('an update that writes only __proto__ makes its parent exist in newData', () => {
+    const rs = rtdbRules({ rules: { p: { '.write': 'newData.exists() && newData.hasChildren()' } } });
+    const patch = JSON.parse('{"__proto__":1}') as Record<string, unknown>;
+    const [result] = rs.simulate([{ expectation: 'ALLOW', operation: 'update', path: '/p', newData: patch }]).cases;
+    expect(result!.decision).toBe('ALLOW');
+  });
+});

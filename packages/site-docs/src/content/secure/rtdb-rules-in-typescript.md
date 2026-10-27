@@ -90,6 +90,39 @@ The CLI checks the JSON file itself, so CI can gate on it without TypeScript in 
 - `pyric database rules validate database.rules.json` prints the error findings only. It exits `2` when there is one or when the file is not rules JSON, `1` when the file can't be read, and `0` otherwise.
 - `pyric rules simulate --service database --rules-file database.rules.json --operation read --path /notes/n1` evaluates one request against the file.
 
+## Compare compiled rules with the rules you wrote by hand
+
+When you move hand-written rules to TypeScript, the compiled JSON spells the same rules differently: `auth != null` where you wrote `auth.uid !== null`, `child('a').child($id)` where you wrote `child('a/' + $id)`. `diffRtdbRules` with `ignoreEquivalent` reports only the rules that can decide differently:
+```ts
+import { readFileSync } from 'node:fs';
+import { diffRtdbRules, canonicalRtdbExpression } from 'pyric/rules';
+
+const handWritten = JSON.parse(readFileSync('legacy/database.rules.json', 'utf8')).rules;
+const compiled = rules.toJSON().rules;
+
+diffRtdbRules(handWritten, compiled);                             // every rule whose text differs
+diffRtdbRules(handWritten, compiled, { ignoreEquivalent: true }); // only rules that can decide differently
+// → [{ path, kind: '.read' | '.write' | '.validate' | '.indexOn', change: 'added' | 'removed' | 'changed', deployed?, local? }]
+
+canonicalRtdbExpression("$uid === auth.uid");  // "$uid == auth.uid"
+canonicalRtdbExpression("auth.uid !== null");  // "!(auth == null)"
+```
+A changed entry keeps both expressions exactly as written. Without the option the diff compares text.
+
+Two expressions are equivalent when their canonical texts are equal. The canonical form applies only rewrites that cannot change a decision, errors included (a rule that errors fails, and `||` or `!` does not rescue it):
+
+| Treated as the same | Why |
+| --- | --- |
+| whitespace, grouping parentheses, `a && (b && c)` and `a && b && c` | parentheses only shape the tree; `&&` and `\|\|` evaluate left to right either way |
+| `"a"` and `'a'`, for a string literal written without a backslash | the same string; a literal with any escape (`'\d'`, `'\u0041'`) keeps its spelling, since production's reading of most escapes has not been observed |
+| `===` and `==`, `!==` and `!=` | RTDB compares without type conversion in both |
+| `auth.uid == null` and `auth == null` | `auth` is null exactly when signed out, and a signed-in `auth` always has a uid |
+| `child('a/b/' + $id + '/c')` and `child('a').child('b').child($id).child('c')` | a `$` variable is exactly one key, and `child()` reads `/` as a separator |
+| `a != b` and `!(a == b)` | both fail on the same inputs; otherwise `==` gives a boolean |
+| `a == b` and `b == a` | equality is symmetric; operands that could fail other than with a rule error, or that index into an array, keep their order |
+
+Deliberately not treated as the same: a concatenated part that is not a string literal or a `$` variable, `auth.uid` included (`child('m/' + auth.uid)` is not `child('m').child(auth.uid)`, because production has not been observed reading a uid such as `/x` or `a//b` with empty segments the same way in both forms); a literal glued to a variable (`'user_' + $id`) or written with an escape; empty segments and key-invalid characters in a path; the order of `&&` and `||` operands; `>=` and `>`; double negation; and arithmetic or constant folding. A rule that falls in one of those is reported as changed, so read those entries yourself.
+
 ## Turn enforcement, from a deployed game
 
 This turn-enforcement example is built from the same parts:

@@ -47,6 +47,7 @@ import { pyricExternals } from '@pyric/cli/bundler';
 
 export default defineConfig({
   input: 'src/server.ts',
+  platform: 'node',
   output: {
     dir: 'dist',
     format: 'esm',
@@ -144,25 +145,29 @@ Add your bundler watch script and server runner to `package.json`:
 ```json
 {
   "scripts": {
-    "dev": "rolldown -c -w & node --watch dist/server.js",
+    "dev": "rolldown -c && (rolldown -c -w & node --watch dist/server.js)",
     "build": "rolldown -c"
   }
 }
 ```
 
-Launch your application with `pyric sandbox`:
+The first `rolldown -c` writes `dist/server.js` before `node --watch` starts, so a clean checkout with no `dist` starts too.
+
+Launch your application with `pyric sandbox`, naming the command after `--`:
 
 ```bash
-npx pyric sandbox
+npx pyric sandbox --hosted -- npm run dev
 ```
 
-`pyric sandbox` starts the local sandbox, opens Pyric Studio, and executes your `dev` script. Because `firebase-admin` is externalised, your server's database, auth, and messaging operations route directly to the Pyric sandbox without requiring Google Cloud credentials or network access.
+`pyric sandbox` starts the local sandbox, then runs the command after `--` with interception installed. It does not read your `dev` script by itself. To start the command without typing it, set `command` in `pyric.json` ([CLI reference](../reference/cli.md#command-selection)). Because `firebase-admin` is externalised, your server's database, auth, and messaging operations route directly to the Pyric sandbox without requiring Google Cloud credentials or network access.
+
+`--hosted` runs the sandbox in the [Node host](./node-host.md), so server code reaches it with no browser open. Without `--hosted`, `firebase-admin` calls fail with `no browser tab is connected to the sandbox` until a browser tab connects to the sandbox page.
 
 ---
 
 ## 4. Unbundled workflows (no bundler needed)
 
-If your development workflow does not bundle dependencies into an intermediate file—for example, if you run TypeScript files directly with `tsx` or native Node:
+If your development workflow does not bundle dependencies into an intermediate file, for example when you run TypeScript files directly with `tsx` or native Node:
 
 ```json
 {

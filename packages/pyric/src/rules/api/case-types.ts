@@ -164,7 +164,8 @@ export interface RtdbCase {
    * tree the whole update produces.
    */
   operation: 'read' | 'write' | 'validate' | 'update';
-  /** Absolute, root-relative tree path, e.g. `"/users/alice"`. */
+  /** Absolute, root-relative tree path, e.g. `"/users/alice"`. A path the
+   *  SDK refuses, one holding `.`, `#`, `$`, `[` or `]`, is UNSUPPORTED. */
   path: string;
   /** Auth context; a bare uid string, a full identity, or `null`. */
   auth?: string | { uid: string; tenant?: string; token?: Record<string, unknown> } | null;
@@ -186,13 +187,18 @@ export interface RtdbCase {
    * Proposed write value (`newData`), for write/validate cases. Any JSON
    * value: a scalar such as `5` or `true` is a scalar write. For an `update`
    * case it is the patch, an object keyed by paths relative to `path`, such
-   * as `{ "rooms/r1/title": "x", "rooms/r2/title": "y" }`.
+   * as `{ "rooms/r1/title": "x", "rooms/r2/title": "y" }`. Its keys are
+   * checked as the SDK checks `update()` keys: an invalid key, or a key that
+   * is an ancestor or duplicate of another, makes the case UNSUPPORTED.
    */
   newData?: unknown;
   /**
    * For a `'write'` or `'validate'` case, the full set of paths written
    * together in one atomic multi-path `update()`, so `path`'s rules evaluate
-   * against the shared post-write tree projection.
+   * against the shared post-write tree projection. It lists `path`, with
+   * `newData` as its value when the case gives `newData`, and no path in it
+   * is an ancestor or duplicate of another; a case that breaks either is
+   * UNSUPPORTED.
    */
   updates?: Array<{ path: string; value: unknown }>;
   /**
