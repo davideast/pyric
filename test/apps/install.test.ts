@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, test } from 'bun:test';
+import { EventEmitter } from 'node:events';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { npmInstall, npmInstallArgs, shouldRetryOnline, type CommandResult } from './install.ts';
-import { copyTree, dependencySetKey, SharedInstalls } from './shared-installs.ts';
+import { copyTree, dependencySetKey, SharedInstalls, type CopyWorker } from './shared-installs.ts';
 
 const dirs: string[] = [];
 function tempDir(): string {
@@ -111,6 +112,34 @@ describe('copying an installed tree into an app', () => {
     expect(readlinkSync(join(to, '.bin/vite'))).toBe('../vite/bin/vite.js');
     writeFileSync(join(to, 'vite/bin/vite.js'), 'changed\n');
     expect(readFileSync(join(from, 'vite/bin/vite.js'), 'utf8')).toBe('console.log("vite")\n');
+  });
+});
+
+describe('settling a copy from its worker', () => {
+  /** A copy worker that emits `events` in order, on a later turn, the way a real one reports. */
+  function scriptedWorker(events: ReadonlyArray<[string, unknown]>): () => CopyWorker {
+    return () => {
+      const worker = Object.assign(new EventEmitter(), { terminate: () => undefined });
+      setTimeout(() => {
+        for (const [event, value] of events) worker.emit(event, value);
+      }, 0);
+      return worker;
+    };
+  }
+
+  test('a worker whose clean exit is handled before its result settles as success (#1280)', async () => {
+    const copy = copyTree('/from', join(tempDir(), 'to'), scriptedWorker([['exit', 0], ['message', { ok: true }]]));
+    await expect(copy).resolves.toBeUndefined();
+  });
+
+  test('a worker that exits without a result fails the copy, whatever its code', async () => {
+    await expect(copyTree('/from', join(tempDir(), 'to'), scriptedWorker([['exit', 1]]))).rejects.toThrow('the copy worker exited with code 1 before it finished');
+    await expect(copyTree('/from', join(tempDir(), 'to'), scriptedWorker([['exit', 0]]))).rejects.toThrow('the copy worker exited with code 0 before it finished');
+  });
+
+  test('a failed result fails the copy, and a later exit does not change it', async () => {
+    const copy = copyTree('/from', join(tempDir(), 'to'), scriptedWorker([['message', { ok: false, message: 'ENOSPC' }], ['exit', 0]]));
+    await expect(copy).rejects.toThrow('failed: ENOSPC');
   });
 });
 
