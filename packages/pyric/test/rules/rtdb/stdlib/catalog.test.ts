@@ -80,3 +80,11 @@ describe('rules_stdlib_list and rules_stdlib_get for database', () => {
     expect(typo.data.suggestion).toBe('counters');
   });
 });
+
+describe('RTDB stdlib catalog signatures (CS-16)', () => {
+  test('hasClaim does not advertise null, which the builder refuses', () => {
+    const entry = RTDB_STDLIB_MODULES.flatMap((m) => m.entries).find((e) => e.name === 'hasClaim')!;
+    expect(entry.signature).not.toMatch(/null/);
+    expect(() => rtdbStdlib.auth.hasClaim('x', null as never)).toThrow(/null/);
+  });
+});

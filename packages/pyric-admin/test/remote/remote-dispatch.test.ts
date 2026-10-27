@@ -254,6 +254,15 @@ describe('pyric-admin remote dispatch — RTDB', () => {
     expect(gone.val()).toBeNull();
   });
 
+  it('rejects a get of .info/connected as production does (DF-7, getConnected)', async () => {
+    // rtdb-modular-info-write-validation behavior.getConnected: the database
+    // refuses the .info token. The relayed read reaches the worker's sandbox.
+    const { app } = makeStack();
+    const db = getDatabase(app);
+    const error = await db.ref('.info/connected').get().then(() => null, (caught: Error) => caught);
+    expect(error?.message).toBe('Invalid token in path');
+  });
+
   it('set(null) deletes (relayed rtdb.set with null)', async () => {
     const { ctx, app } = makeStack();
     const db = getDatabase(app);

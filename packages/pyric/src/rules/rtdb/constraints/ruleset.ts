@@ -1,5 +1,6 @@
 import { buildRuleExpression } from '../compiled-rules.js';
 import type { CompiledRtdbRules } from '../compiled-rules.js';
+import { closestKey } from '../../closest-key.js';
 import { all, expr } from './compose.js';
 import { schemaRules, type SchemaFieldRule } from './schema.js';
 import type { Expr, PathDef, RulesetContext } from './types.js';
@@ -93,6 +94,43 @@ function applySchemaChildren(
   }
 }
 
+/** Every key of {@link PathDef}; the `satisfies` makes the compiler fail when the interface gains one this list lacks. */
+const PATH_DEF_KEY_SET = { read: 0, write: 0, validate: 0, schema: 0, fieldConstraints: 0, indexOn: 0, children: 0 } satisfies Record<keyof PathDef, 0>;
+const PATH_DEF_KEYS: readonly string[] = Object.keys(PATH_DEF_KEY_SET);
+
+/** Refuse a key a path definition does not have, naming the nearest key that it does. */
+function assertKnownKeys(pathStr: string, def: PathDef): void {
+  if (typeof def !== 'object' || def === null || Array.isArray(def)) {
+    throw new Error(`The rules for "${pathStr}" must be a path definition object, got ${JSON.stringify(def)}.`);
+  }
+  for (const key of Object.keys(def)) {
+    if (PATH_DEF_KEYS.includes(key)) continue;
+    const nearest = closestKey(key, PATH_DEF_KEYS);
+    const hint = nearest === null
+      ? `; the keys are ${PATH_DEF_KEYS.map((k) => `'${k}'`).join(', ')}.`
+      : `; did you mean '${nearest}'?`;
+    throw new Error(`Unknown key '${key}' in the rules for "${pathStr}"${hint}`);
+  }
+}
+
+/**
+ * Refuse unknown keys in an object-form definition, nested children included.
+ * `defineRtdbRules` calls it so the error is thrown where the definition is
+ * written. The callback form is checked when the ruleset compiles, because its
+ * paths exist only once the callback has run.
+ */
+export function assertKnownPathKeys(paths: Record<string, PathDef>): void {
+  flattenChildren(Object.entries(paths));
+}
+
+/** A rule's expression: text, or a boolean as database.rules.json spells it. Anything else, including an empty string, is refused rather than dropped. */
+function ruleText(pathStr: string, key: 'read' | 'write' | 'validate', value: unknown): Expr | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === 'boolean') return expr(String(value));
+  if (typeof value === 'string' && value.trim().length > 0) return value;
+  throw new Error(`The ${key} rule for "${pathStr}" must be a non-empty expression or a boolean, got ${JSON.stringify(value)}.`);
+}
+
 function applyRules(root: RtdbNode, node: RtdbNode, def: PathDef, pathStr: string): void {
   const segments = pathStr.split('/').filter(Boolean);
   const pathVars = segments.filter(s => s.startsWith('$'));
@@ -102,9 +140,12 @@ function applyRules(root: RtdbNode, node: RtdbNode, def: PathDef, pathStr: strin
   }
 
   // Read/write/validate expressions
-  if (def.read) node.read = buildExpr(def.read, 'read', pathVars);
-  if (def.write) node.write = buildExpr(def.write, 'write', pathVars);
-  if (def.validate) mergeValidate(node, def.validate, pathVars);
+  const read = ruleText(pathStr, 'read', def.read);
+  const write = ruleText(pathStr, 'write', def.write);
+  const validate = ruleText(pathStr, 'validate', def.validate);
+  if (read !== undefined) node.read = buildExpr(read, 'read', pathVars);
+  if (write !== undefined) node.write = buildExpr(write, 'write', pathVars);
+  if (validate !== undefined) mergeValidate(node, validate, pathVars);
 
   // Schema generates parent validate + child validate rules
   if (def.schema) {
@@ -164,9 +205,12 @@ function assertUniquePaths(defs: Array<[string, PathDef]>): void {
 /** Flatten nested children into absolute path entries. */
 function flattenChildren(defs: Array<[string, PathDef]>): Array<[string, PathDef]> {
   const result: Array<[string, PathDef]> = [];
-  for (const [pathStr, def] of defs) {
+  for (const [pathStr, rawDef] of defs) {
     const normalizedPath = normalizeRulePath(pathStr);
+    // A boolean is a bare rule, as a field in validation.shape may carry: it is that field's .validate.
+    const def: PathDef = typeof rawDef === 'boolean' ? { validate: expr(String(rawDef)) } : rawDef;
     // Add this path without the children property
+    assertKnownKeys(normalizedPath, def);
     const { children, ...rest } = def;
     result.push([normalizedPath, rest as PathDef]);
 
