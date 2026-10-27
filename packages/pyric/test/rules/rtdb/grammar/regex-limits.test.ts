@@ -1,12 +1,16 @@
 /**
  * Resource limits on RTDB regex literals (#1247 S1 review). A literal's
- * repeat counts and nesting are bounded before any matcher is built, so a
- * short pattern cannot exhaust the CLI host, Studio or the sandbox, and a
- * match costs time linear in the subject.
+ * repeat counts, size and nesting are bounded before any matcher is built,
+ * so a short pattern cannot exhaust the CLI host, Studio or the sandbox, and
+ * a match costs time linear in the subject. The count and size refusals use
+ * production's texts (r58, r59, r60); the state and nesting limits are
+ * pyric's own.
  */
 import { describe, expect, test } from 'bun:test';
 import {
+  DETERMINIZE_MESSAGE,
   MAX_REGEX_NESTING,
+  MAX_REGEX_POSITIONS,
   MAX_REGEX_STATES,
   compileRtdbRegex,
   rtdbRegexError,
@@ -29,25 +33,34 @@ function withinBudget<T>(ms: number, work: () => T): T {
 }
 
 describe('repeat counts', () => {
-  test('a count past 2^31-1 is refused, as Java parseInt refuses it', () => {
-    expect(withinBudget(100, () => rtdbRegexError('a{2147483648}'))).toContain('2147483648');
-    expect(withinBudget(100, () => rtdbRegexError('a{99999999999999999999}'))).not.toBeNull();
-    // 2^31-1 itself reads as a count, then fails the state limit instead.
-    expect(rtdbRegexError('^a{2147483647}$')).toContain(`more than ${MAX_REGEX_STATES} matcher states`);
+  test('a count past 2^31-1 fails with Java parseInt text, as production reports it (r58)', () => {
+    expect(withinBudget(100, () => rtdbRegexError('^a{2147483648}$'))).toBe('For input string: "2147483648"');
+    expect(withinBudget(100, () => rtdbRegexError('a{99999999999999999999}'))).toBe('For input string: "99999999999999999999"');
+    // 2^31-1 itself reads as a count, then is too large to determinize.
+    expect(rtdbRegexError('^a{2147483647}$')).toBe(DETERMINIZE_MESSAGE);
   });
 
-  test('a pattern expanding past the state limit is refused without building a matcher', () => {
-    const tooMany = `more than ${MAX_REGEX_STATES} matcher states`;
-    expect(withinBudget(100, () => rtdbRegexError('a{10000000}'))).toContain(tooMany);
-    expect(withinBudget(100, () => rtdbRegexError('((a{1000}){1000}){1000}'))).toContain(tooMany);
-    expect(withinBudget(100, () => rtdbRegexError('^a{100000}$'))).toBeNull();
+  test('a pattern too large to determinize fails with production text, without building a matcher (r59, r60)', () => {
+    expect(withinBudget(100, () => rtdbRegexError('^a{100000}$'))).toBe(DETERMINIZE_MESSAGE);
+    expect(withinBudget(100, () => rtdbRegexError('^(a{1000}){1000}$'))).toBe(DETERMINIZE_MESSAGE);
+    expect(withinBudget(100, () => rtdbRegexError('a{10000000}'))).toBe(DETERMINIZE_MESSAGE);
+    expect(withinBudget(100, () => rtdbRegexError('((a{1000}){1000}){1000}'))).toBe(DETERMINIZE_MESSAGE);
+  });
+
+  test(`the position limit sits at ${MAX_REGEX_POSITIONS}, a threshold production has not shown`, () => {
+    expect(rtdbRegexError(`^a{${MAX_REGEX_POSITIONS}}$`)).toBeNull();
+    expect(rtdbRegexError(`^a{${MAX_REGEX_POSITIONS + 1}}$`)).toBe(DETERMINIZE_MESSAGE);
+  });
+
+  test('a repeat of an empty group has no positions but stops at the state limit', () => {
+    expect(withinBudget(100, () => rtdbRegexError('^(){0,2147483647}$'))).toContain(`more than ${MAX_REGEX_STATES} matcher states`);
   });
 
   test('a large count that fits compiles and matches within budget', () => {
-    const regex = compileRtdbRegex('^a{100000}$', '');
+    const regex = compileRtdbRegex(`^a{${MAX_REGEX_POSITIONS}}$`, '');
     withinBudget(2000, () => {
-      expect(regex.test('a'.repeat(100000))).toBe(true);
-      expect(regex.test('a'.repeat(99999))).toBe(false);
+      expect(regex.test('a'.repeat(MAX_REGEX_POSITIONS))).toBe(true);
+      expect(regex.test('a'.repeat(MAX_REGEX_POSITIONS - 1))).toBe(false);
     });
   });
 
@@ -78,8 +91,9 @@ describe('nesting', () => {
   });
 
   test('long alternations and quantifier chains do not overflow the stack', () => {
-    expect(rtdbRegexError(`^${Array.from({ length: 50000 }, () => 'a').join('|')}$`)).toBeNull();
-    expect(compileRtdbRegex(`^${Array.from({ length: 20000 }, (_, i) => `w${i}`).join('|')}$`, '').test('w19999')).toBe(true);
+    expect(rtdbRegexError(`^${Array.from({ length: 9000 }, () => 'a').join('|')}$`)).toBeNull();
+    expect(rtdbRegexError(`^${Array.from({ length: 50000 }, () => 'a').join('|')}$`)).toBe(DETERMINIZE_MESSAGE);
+    expect(compileRtdbRegex(`^${Array.from({ length: 2000 }, (_, i) => `w${i}`).join('|')}$`, '').test('w1999')).toBe(true);
     expect(rtdbRegexError(`a${'*'.repeat(50000)}`)).toContain(`nest more than ${MAX_REGEX_NESTING} levels deep`);
   });
 });

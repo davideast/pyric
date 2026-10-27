@@ -33,7 +33,13 @@ import { DialectParser, ILLEGAL, RtdbRegexSyntaxError } from './regex-parser.js'
 import { stateCount } from './regex-limits.js';
 
 export { RtdbRegexSyntaxError } from './regex-parser.js';
-export { MAX_REGEX_NESTING, MAX_REGEX_STATES, MAX_REPEAT_COUNT } from './regex-limits.js';
+export {
+  DETERMINIZE_MESSAGE,
+  MAX_REGEX_NESTING,
+  MAX_REGEX_POSITIONS,
+  MAX_REGEX_STATES,
+  MAX_REPEAT_COUNT,
+} from './regex-limits.js';
 
 /** Production's deploy error for a `^` that is not first or a `$` that is not last (r46, r51). */
 export const MISPLACED_ANCHOR_MESSAGE = `${ILLEGAL}unescaped ^, ^ can only appear at the end of regular expressions`;

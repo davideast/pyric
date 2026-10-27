@@ -3,18 +3,16 @@
  * anchor-rewritten. It follows the dk.brics.automaton grammar (union,
  * concatenation, repeat, character set, simple expression) and builds the
  * `RegexNode` tree the shared matcher in `rules/simulator/regex-nfa.ts` runs.
- * Errors use production's deploy texts, except the pyric limits in
+ * Errors use production's deploy texts, except the pyric limits named in
  * `regex-limits.ts`.
  */
 import type { RegexNode } from '../../simulator/regex-nfa.js';
 import {
   MAX_REGEX_NESTING,
-  MAX_REGEX_STATES,
   MAX_REPEAT_COUNT,
   NESTING_MESSAGE,
-  STATES_MESSAGE,
   repeatCountMessage,
-  stateCount,
+  sizeProblem,
 } from './regex-limits.js';
 
 export const ILLEGAL = 'Illegal regular expression, ';
@@ -71,7 +69,8 @@ export class DialectParser {
     const node = this.union();
     // Production reports no position for this one (r53: `/)/`, `/a)b/`).
     if (this.more()) this.fail('end-of-string expected');
-    if (stateCount(node) > MAX_REGEX_STATES) this.refuse(STATES_MESSAGE);
+    const tooLarge = sizeProblem(node);
+    if (tooLarge !== null) this.refuse(tooLarge);
     return node;
   }
 
