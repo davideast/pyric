@@ -13,15 +13,20 @@
 # verification.
 #
 # Publishing is irreversible, so every gate passes before the first upload,
-# and the bytes uploaded are the bytes the gates tested. Once they pass, the
-# script stamps dist/packages/proven.json with the commit, a clean-tree flag,
-# the version and each tarball's sha256 (scripts/lib/proven-stamp.mjs).
+# and the bytes uploaded are the bytes the gates tested. pack-packages.sh
+# records each tarball's sha256 and the tree it packed in manifest.json. Once
+# every gate passes, the script stamps dist/packages/proven.json, and only if
+# the tarballs are still the pack's bytes on the pack's tree
+# (scripts/lib/proven-stamp.mjs). The upload copies the five tarballs into a
+# directory of its own, verifies the copies against the stamp, and publishes
+# the copies.
 #
 # A rerun with PYRIC_PUBLISH_SKIP_GATES=1 (after an authentication failure,
-# say) skips the gates and the pack, and uploads the tarballs only when that
-# stamp matches HEAD, a clean tree and the files on disk. It refuses
-# tarballs from an earlier commit, a pack whose own checks failed, and a
-# failed build's leftovers.
+# say) skips the gates and the pack. It uploads only when the stamp matches
+# HEAD, a clean tree and exactly the five files on disk, and refuses
+# tarballs from an earlier commit, a pack whose own checks failed, a failed
+# build's leftovers, and the leftovers of a run whose gates failed: every
+# other run removes the stamp before it starts.
 #
 # Package versions must already be bumped (lockstep) and merged; this
 # script only ships what the tree builds.
@@ -70,6 +75,18 @@ node "$ROOT/scripts/lib/check-publish-version.mjs" "$V" "$ROOT"
 
 cd "$ROOT"
 
+# The five tarballs the publish uploads, by npm's flattened name.
+TARBALLS=(pyric pyric-admin create-pyric pyric-cli pyric-ui)
+
+# A run that proves anything starts unproven: if it fails before the stamp,
+# no earlier stamp is left for a gate-skipping rerun to trust.
+if [ "${PYRIC_PUBLISH_SKIP_GATES:-0}" != "1" ]; then
+  rm -f "$ROOT/dist/packages/proven.json"
+else
+  echo "━━━ gates skipped: checking the tarballs are the ones an earlier run proved ━━━"
+  node "$ROOT/scripts/lib/proven-stamp.mjs" verify "$ROOT/dist/packages" "$V" "$ROOT" "${TARBALLS[@]}"
+fi
+
 # ─── pre-publish gates ─────────────────────────────────────────────────
 # Publishing is irreversible, so the tree must prove itself before the
 # first npm publish. compat:check runs again later only to gate the fb
@@ -109,14 +126,18 @@ if [ "${PYRIC_PUBLISH_SKIP_GATES:-0}" != "1" ]; then
   bun test/apps/run.ts --packages dist/packages
 fi
 
-# Every gate passed on these tarballs: stamp them, or, on a gate-skipping
-# rerun, refuse unless an earlier run stamped exactly these files on this tree.
+# Every gate passed on these tarballs: stamp them, if they are still the
+# bytes the pack wrote on the tree it packed.
 if [ "${PYRIC_PUBLISH_SKIP_GATES:-0}" != "1" ]; then
-  node "$ROOT/scripts/lib/proven-stamp.mjs" write "$ROOT/dist/packages" "$V" "$ROOT"
-else
-  echo "━━━ gates skipped: checking the tarballs are the ones an earlier run proved ━━━"
-  node "$ROOT/scripts/lib/proven-stamp.mjs" verify "$ROOT/dist/packages" "$V" "$ROOT"
+  node "$ROOT/scripts/lib/proven-stamp.mjs" write "$ROOT/dist/packages" "$V" "$ROOT" "${TARBALLS[@]}"
 fi
+
+# Upload copies, verified against the stamp, so nothing that writes to
+# dist/packages between the check and the last upload can change what ships.
+UPLOAD_DIR="$(mktemp -d "${TMPDIR:-/tmp}/pyric-publish-XXXXXX")"
+for t in "${TARBALLS[@]}"; do cp "$ROOT/dist/packages/${t}-${V}.tgz" "$UPLOAD_DIR/"; done
+cp "$ROOT/dist/packages/proven.json" "$UPLOAD_DIR/"
+node "$ROOT/scripts/lib/proven-stamp.mjs" verify "$UPLOAD_DIR" "$V" "$ROOT" "${TARBALLS[@]}"
 
 PUBLISH_TAG="${PYRIC_PUBLISH_TAG:-latest}"
 PUBLISH_ARGS=(--tag "$PUBLISH_TAG" --access public)
@@ -130,8 +151,8 @@ if [ "$DRY_RUN" -eq 1 ]; then
   PUBLISH_ARGS+=(--dry-run)
 fi
 
-for t in pyric pyric-admin create-pyric pyric-cli pyric-ui; do
-  npm publish "dist/packages/${t}-${V}.tgz" "${PUBLISH_ARGS[@]}"
+for t in "${TARBALLS[@]}"; do
+  npm publish "$UPLOAD_DIR/${t}-${V}.tgz" "${PUBLISH_ARGS[@]}"
 done
 
 if [ "$DRY_RUN" -eq 1 ]; then

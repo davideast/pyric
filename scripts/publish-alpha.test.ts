@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { chmodSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { dirname, join, resolve } from 'node:path';
+import { spawn, spawnSync } from 'node:child_process';
 
 const root = resolve(import.meta.dir, '..');
 const workDirs: string[] = [];
@@ -28,7 +28,7 @@ if [ "$name $*" = "bun run packages/conformance/src/print-fb-tag.ts" ]; then ech
 if [ -n "\${FAIL_BUN_COMMAND:-}" ] && [ "$name $*" = "bun $FAIL_BUN_COMMAND" ]; then exit 17; fi
 if [ -n "\${FAIL_COMMAND:-}" ] && [ "$name $*" = "$FAIL_COMMAND" ]; then exit 17; fi
 `;
-  for (const command of ['node', 'bun', 'npm', 'bash']) {
+  for (const command of ['node', 'bun', 'npm', 'bash', 'cp']) {
     const path = join(bin, command);
     writeFileSync(path, fake);
     chmodSync(path, 0o755);
@@ -87,11 +87,17 @@ describe('alpha publish safety contract', () => {
     expect(rebuildsOrRepacks).toEqual([]);
   });
 
-  test('every publish uploads a tarball the pack wrote, the ones the gates tested', () => {
+  test('every publish uploads a copy of a tarball the pack wrote, from the directory the last check verified', () => {
     const { result, commands } = runPublish();
     expect(result.status).toBe(0);
-    const uploads = commands.filter((command) => command.startsWith('npm publish ')).map((command) => command.split(' ')[2]);
-    expect(uploads).toEqual(['pyric', 'pyric-admin', 'create-pyric', 'pyric-cli', 'pyric-ui'].map((name) => `dist/packages/${name}-0.1.0-alpha.9.tgz`));
+    const uploads = commands.filter((command) => command.startsWith('npm publish ')).map((command) => command.split(' ')[2] ?? '');
+    const names = ['pyric', 'pyric-admin', 'create-pyric', 'pyric-cli', 'pyric-ui'].map((name) => `${name}-0.1.0-alpha.9.tgz`);
+    expect(uploads.map((upload) => upload.split('/').pop())).toEqual(names);
+    const uploadDir = uploads[0]?.slice(0, uploads[0].lastIndexOf('/')) ?? '';
+    expect(uploadDir).not.toBe(join(root, 'dist/packages'));
+    expect(uploads.every((upload) => upload.startsWith(`${uploadDir}/`))).toBe(true);
+    const lastVerify = commands.filter((command) => command.includes('proven-stamp.mjs verify')).pop();
+    expect(lastVerify).toContain(`verify ${uploadDir} 0.1.0-alpha.9`);
   });
 
   test('a failed packaging gate prevents every publish', () => {
@@ -235,8 +241,9 @@ describe('alpha publish safety contract', () => {
   });
 });
 
-const STAMP_WRITE = `node ${join(root, 'scripts/lib/proven-stamp.mjs')} write ${join(root, 'dist/packages')} 0.1.0-alpha.9 ${root}`;
-const STAMP_VERIFY = `node ${join(root, 'scripts/lib/proven-stamp.mjs')} verify ${join(root, 'dist/packages')} 0.1.0-alpha.9 ${root}`;
+const UPLOADED = 'pyric pyric-admin create-pyric pyric-cli pyric-ui';
+const STAMP_WRITE = `node ${join(root, 'scripts/lib/proven-stamp.mjs')} write ${join(root, 'dist/packages')} 0.1.0-alpha.9 ${root} ${UPLOADED}`;
+const STAMP_VERIFY = `node ${join(root, 'scripts/lib/proven-stamp.mjs')} verify ${join(root, 'dist/packages')} 0.1.0-alpha.9 ${root} ${UPLOADED}`;
 
 describe('the proven-tarball stamp', () => {
   test('every gate passes, then the tarballs are stamped, then the first upload', () => {
@@ -251,13 +258,13 @@ describe('the proven-tarball stamp', () => {
     expect(commands).not.toContain(STAMP_VERIFY);
   });
 
-  test('a gate-skipping rerun checks the stamp before the first upload, and does not stamp', () => {
+  test('a gate-skipping rerun checks the stamp first, before the release smoke, and does not stamp', () => {
     const { result, commands } = runPublish({ skip: true });
     expect(result.status).toBe(0);
     const verify = commands.indexOf(STAMP_VERIFY);
-    const publish = commands.findIndex((command) => command.startsWith('npm publish '));
+    const smoke = commands.findIndex((command) => command.startsWith('bash scripts/release-smoke.sh'));
     expect(verify).toBeGreaterThanOrEqual(0);
-    expect(verify).toBeLessThan(publish);
+    expect(verify).toBeLessThan(smoke);
     expect(commands).not.toContain(STAMP_WRITE);
   });
 
@@ -324,4 +331,126 @@ describe('a pack that fails leaves no tarball behind', () => {
     expect(run.stderr).toContain('broken source map');
     expect(readdirSync(out).sort()).toEqual(['notes.txt']);
   });
+});
+
+/**
+ * publish-alpha.sh with the real node (check-publish-version and
+ * proven-stamp), in a scratch git repo holding copies of the scripts, with
+ * npm, bun and bash stubbed. The bash stub packs the way pack-packages.sh
+ * does: five tarballs, a manifest, and a real `proven-stamp.mjs record`.
+ */
+function realStampRepo(): string {
+  const repo = mkdtempSync(join(tmpdir(), 'pyric-publish-real-stamp-'));
+  workDirs.push(repo);
+  const git = (...args: string[]) => {
+    const run = spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], { cwd: repo, encoding: 'utf8' });
+    if (run.status !== 0) throw new Error(run.stderr);
+    return run.stdout.trim();
+  };
+  git('init', '-q');
+  for (const path of ['scripts/publish-alpha.sh', 'scripts/lib/check-publish-version.mjs', 'scripts/lib/proven-stamp.mjs']) {
+    mkdirSync(dirname(join(repo, path)), { recursive: true });
+    writeFileSync(join(repo, path), readFileSync(join(root, path)));
+  }
+  for (const [dir, name] of [['pyric', 'pyric'], ['pyric-admin', 'pyric-admin'], ['create-pyric', 'create-pyric'], ['cli', '@pyric/cli'], ['ui', '@pyric/ui']]) {
+    mkdirSync(join(repo, 'packages', dir ?? ''), { recursive: true });
+    writeFileSync(join(repo, 'packages', dir ?? '', 'package.json'), JSON.stringify({ name, version: '0.1.0-alpha.9' }));
+  }
+  writeFileSync(join(repo, '.gitignore'), 'dist/\nbin/\ncommands.log\n');
+  git('add', '-A');
+  git('commit', '-q', '-m', 'release');
+  return repo;
+}
+
+function publishForReal(repo: string, env: Record<string, string> = {}) {
+  const bin = join(repo, 'bin');
+  mkdirSync(bin, { recursive: true });
+  const log = join(repo, 'commands.log');
+  const packages = join(repo, 'dist/packages');
+  const realNode = spawnSync('which', ['node'], { encoding: 'utf8' }).stdout.trim();
+  const stubs: Record<string, string> = {
+    npm: `echo "npm $*" >> "${log}"
+if [ "$1" = publish ]; then
+  echo "uploaded $(basename "$2") $(cat "$2")" >> "${log}"
+  if [ "\${RACE:-}" = 1 ]; then echo "swapped after the check" > "${packages}/pyric-cli-0.1.0-alpha.9.tgz"; fi
+fi`,
+    bun: `echo "bun $*" >> "${log}"
+if [ "\${MIDGATE:-}" = 1 ] && [ "$1" = test/apps/run.ts ]; then echo "a concurrent repack" > "${packages}/pyric-cli-0.1.0-alpha.9.tgz"; fi
+if [ "\${TESTS_FAIL:-}" = 1 ] && [ "$*" = "run test" ]; then exit 1; fi`,
+    bash: `echo "bash $*" >> "${log}"
+if [ "$1" = scripts/pack-packages.sh ]; then
+  mkdir -p "${packages}"; rm -f "${packages}"/*.tgz "${packages}"/*.json
+  for n in pyric pyric-admin create-pyric pyric-cli pyric-ui; do echo "packed $n" > "${packages}/$n-0.1.0-alpha.9.tgz"; done
+  echo '{"packages":[]}' > "${packages}/manifest.json"
+  ${realNode} "${repo}/scripts/lib/proven-stamp.mjs" record "${packages}" "${repo}" "$(git -C "${repo}" rev-parse HEAD)" true
+fi`,
+  };
+  for (const [name, script] of Object.entries(stubs)) {
+    writeFileSync(join(bin, name), `#!/bin/bash\n${script}\nexit 0\n`);
+    chmodSync(join(bin, name), 0o755);
+  }
+  writeFileSync(log, '');
+  const result = spawnSync('/bin/bash', [join(repo, 'scripts/publish-alpha.sh'), '--dry-run', '0.1.0-alpha.9'], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: { ...process.env, ...env, PATH: `${bin}:${process.env.PATH}`, PYRIC_PUBLISH_TAG: 'exp' },
+  });
+  const uploads = readFileSync(log, 'utf8').split('\n').filter((line) => line.startsWith('uploaded '));
+  return { result, uploads };
+}
+
+const PACKED_UPLOADS = ['pyric', 'pyric-admin', 'create-pyric', 'pyric-cli', 'pyric-ui'].map((name) => `uploaded ${name}-0.1.0-alpha.9.tgz packed ${name}`);
+
+describe('the stamp, with the real node, inside publish-alpha.sh', () => {
+  test('a run whose gates pass uploads the five packed tarballs', () => {
+    const { result, uploads } = publishForReal(realStampRepo());
+    expect(result.status).toBe(0);
+    expect(uploads).toEqual(PACKED_UPLOADS);
+  });
+
+  test('a tarball something swapped during the gates is not stamped, and nothing uploads', () => {
+    const { result, uploads } = publishForReal(realStampRepo(), { MIDGATE: '1' });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('pyric-cli-0.1.0-alpha.9.tgz is not the file the pack names');
+    expect(uploads).toEqual([]);
+  });
+
+  test('a tarball swapped in dist/packages after the last check does not change what uploads', () => {
+    const { result, uploads } = publishForReal(realStampRepo(), { RACE: '1' });
+    expect(result.status).toBe(0);
+    expect(uploads).toEqual(PACKED_UPLOADS);
+  });
+
+  test('after a run whose tests fail, a gate-skipping rerun finds no stamp and uploads nothing', () => {
+    const repo = realStampRepo();
+    expect(publishForReal(repo).result.status).toBe(0);
+    expect(publishForReal(repo, { TESTS_FAIL: '1' }).result.status).toBe(1);
+    const rerun = publishForReal(repo, { PYRIC_PUBLISH_SKIP_GATES: '1' });
+    expect(rerun.result.status).toBe(1);
+    expect(rerun.result.stderr).toContain('no gate run proved these tarballs');
+    expect(rerun.uploads).toEqual([]);
+  });
+});
+
+describe('an interrupted pack leaves no tarball behind', () => {
+  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
+    test(`${signal} during the build clears the older pack and its stamp`, async () => {
+      const out = staleOutDir();
+      const work = mkdtempSync(join(tmpdir(), 'pyric-pack-signal-'));
+      workDirs.push(work);
+      const bin = join(work, 'bin');
+      mkdirSync(bin);
+      writeFileSync(join(bin, 'bash'), '#!/bin/bash\nexec sleep 30\n');
+      chmodSync(join(bin, 'bash'), 0o755);
+      // Its own process group, as a shell gives a command; the signal goes to the group.
+      const pack = spawn('/bin/bash', [join(root, 'scripts/pack-packages.sh'), '--out', out], {
+        cwd: root, detached: true, stdio: 'ignore', env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      process.kill(-(pack.pid ?? 0), signal);
+      const code = await new Promise<number | null>((resolve) => pack.once('close', (exitCode) => resolve(exitCode)));
+      expect(code).not.toBe(0);
+      expect(readdirSync(out).sort()).toEqual(['notes.txt']);
+    }, 15_000);
+  }
 });

@@ -100,14 +100,17 @@ The preflight:
 
 1. runs the complete test suite;
 2. builds and packs the release tarballs into `dist/packages/`, the one pack
-   of the run;
+   of the run, recording each tarball's sha256 and the commit and clean state
+   it packed in `manifest.json`;
 3. runs the packaging gate on those tarballs, which lints them and installs
    them in a fresh consumer;
 4. runs the installed-tarball behaviour smoke and the app scenarios on the
-   same tarballs, then stamps them in `dist/packages/proven.json` (the commit,
-   whether the tree was clean, the version, and each tarball's sha256);
-5. verifies npm authentication with a read-only `npm whoami` request;
-6. runs `npm publish --dry-run` for each of the five tarballs; and
+   same tarballs, then stamps them in `dist/packages/proven.json`, but only if
+   they're still the bytes the pack wrote, on the tree it packed;
+5. copies the five tarballs into a directory of its own and verifies the
+   copies against the stamp;
+6. verifies npm authentication with a read-only `npm whoami` request, and runs
+   `npm publish --dry-run` for each of the five copies; and
 7. runs the full compatibility check and calculates the `fb<major>.<minor>`
    compatibility tag.
 
@@ -137,12 +140,21 @@ packed tarballs before uploading anything, and it uploads the tarballs those
 gates tested.
 
 `PYRIC_PUBLISH_SKIP_GATES=1` is for a rerun after a failure before the first
-upload, such as npm authentication. It skips the gates and the pack, and uploads
-the tarballs already in `dist/packages` only when their `proven.json` stamp
-names the current commit and version, the tree was clean then and is clean now,
-and every tarball's sha256 matches. Otherwise it stops before uploading
-anything. That covers tarballs from an earlier commit, a pack whose own checks
-failed, which `pack-packages.sh` removes anyway, and a failed build's leftovers.
+upload, such as npm authentication. It skips the gates and the pack, and checks
+the stamp first. It goes on only when `proven.json` names the current commit
+and version, the tree was clean then and is clean now (untracked files count),
+and exactly the five uploaded tarballs match their sha256. Otherwise it stops
+in seconds, before uploading anything.
+
+That covers several cases:
+
+- tarballs from an earlier commit;
+- a pack whose own checks failed, which `pack-packages.sh` removes anyway, as it
+  does on an interrupt;
+- a failed build's leftovers;
+- the tarballs of a run whose tests failed, because every run without the
+  variable removes the stamp before it starts.
+
 Run the publish again without the variable to prove a fresh pack.
 
 After those gates pass, `publish-alpha.sh`:

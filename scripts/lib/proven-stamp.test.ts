@@ -1,24 +1,32 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const stampScript = resolve(import.meta.dir, 'proven-stamp.mjs');
 const VERSION = '0.1.0-alpha.9';
-const TARBALLS = ['pyric', 'pyric-admin', 'create-pyric', 'pyric-cli', 'pyric-ui'];
+const NAMES = ['pyric', 'pyric-admin', 'create-pyric', 'pyric-cli', 'pyric-ui'];
 const repos: string[] = [];
 afterEach(() => {
   for (const repo of repos.splice(0)) rmSync(repo, { recursive: true, force: true });
 });
 
-function git(repo: string, ...args: string[]): void {
+function git(repo: string, ...args: string[]): string {
   const run = spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], { cwd: repo, encoding: 'utf8' });
   if (run.status !== 0) throw new Error(`git ${args.join(' ')}: ${run.stderr}`);
+  return run.stdout.trim();
 }
 
-/** A checkout with one commit and the five tarballs packed into dist/packages, which git ignores. */
-function packedCheckout(): string {
+function node(repo: string, ...args: string[]) {
+  return spawnSync('node', [stampScript, ...args], { cwd: repo, encoding: 'utf8' });
+}
+
+const packages = (repo: string) => join(repo, 'dist/packages');
+const tarball = (repo: string, name: string) => join(packages(repo), `${name}-${VERSION}.tgz`);
+
+/** A checkout with one commit, and dist/packages (ignored) as pack-packages.sh leaves it. */
+function checkout(): string {
   const repo = mkdtempSync(join(tmpdir(), 'pyric-proven-stamp-'));
   repos.push(repo);
   git(repo, 'init', '-q');
@@ -26,66 +34,108 @@ function packedCheckout(): string {
   writeFileSync(join(repo, 'README.md'), 'first\n');
   git(repo, 'add', '-A');
   git(repo, 'commit', '-q', '-m', 'first');
-  mkdirSync(join(repo, 'dist/packages'), { recursive: true });
-  for (const name of TARBALLS) writeFileSync(join(repo, `dist/packages/${name}-${VERSION}.tgz`), `${name} bytes`);
+  mkdirSync(packages(repo), { recursive: true });
   return repo;
 }
 
-function stamp(repo: string, action: 'write' | 'verify', version = VERSION) {
-  return spawnSync('node', [stampScript, action, join(repo, 'dist/packages'), version, repo], { cwd: repo, encoding: 'utf8' });
+/** What pack-packages.sh does: write the tarballs and a manifest, then record the pack. */
+function pack(repo: string, options: { clean?: boolean; names?: string[] } = {}): void {
+  for (const name of options.names ?? NAMES) writeFileSync(tarball(repo, name), `${name} as packed`);
+  writeFileSync(join(packages(repo), 'manifest.json'), JSON.stringify({ packages: [] }));
+  const recorded = node(repo, 'record', packages(repo), repo, git(repo, 'rev-parse', 'HEAD'), String(options.clean ?? true));
+  if (recorded.status !== 0) throw new Error(recorded.stderr);
 }
 
-describe('the stamp that lets a gate-skipping rerun upload the proven tarballs', () => {
-  test('tarballs stamped on a clean tree verify on that tree', () => {
-    const repo = packedCheckout();
-    expect(stamp(repo, 'write').status).toBe(0);
-    const verified = stamp(repo, 'verify');
+const stamp = (repo: string, names = NAMES) => node(repo, 'write', packages(repo), VERSION, repo, ...names);
+const verify = (repo: string, dir = packages(repo), version = VERSION, names = NAMES) => node(repo, 'verify', dir, version, repo, ...names);
+
+describe('stamping a pack that passed the gates', () => {
+  test('a pack still as written, on its own tree, is stamped and verifies', () => {
+    const repo = checkout();
+    pack(repo);
+    expect(stamp(repo).status).toBe(0);
+    const verified = verify(repo);
     expect(verified.status).toBe(0);
-    expect(verified.stdout).toContain('proven');
+    expect(verified.stdout).toContain('are the ones proven on');
   });
+
+  test('a tarball something swapped during the gates is not stamped', () => {
+    const repo = checkout();
+    pack(repo);
+    writeFileSync(tarball(repo, 'pyric-cli'), 'a concurrent repack');
+    const stamped = stamp(repo);
+    expect(stamped.status).toBe(1);
+    expect(stamped.stderr).toContain(`pyric-cli-${VERSION}.tgz is not the file the pack names`);
+  });
+
+  test('a pack from an earlier commit, or from a dirty tree, is not stamped', () => {
+    const moved = checkout();
+    pack(moved);
+    writeFileSync(join(moved, 'README.md'), 'second\n');
+    git(moved, 'commit', '-q', '-am', 'second');
+    expect(stamp(moved).stderr).toContain('were packed from commit');
+
+    const dirty = checkout();
+    pack(dirty, { clean: false });
+    expect(stamp(dirty).stderr).toContain('when the tarballs were packed');
+  });
+
+  test('a pack that wrote fewer tarballs than the publish uploads is not stamped', () => {
+    const repo = checkout();
+    pack(repo, { names: NAMES.slice(0, 4) });
+    expect(stamp(repo).status).toBe(1);
+  });
+
+  test('a directory no pack recorded is not stamped', () => {
+    const repo = checkout();
+    for (const name of NAMES) writeFileSync(tarball(repo, name), name);
+    expect(stamp(repo).stderr).toContain('no manifest.json');
+  });
+});
+
+describe('verifying the stamp before an upload', () => {
+  function stamped(): string {
+    const repo = checkout();
+    pack(repo);
+    expect(stamp(repo).status).toBe(0);
+    return repo;
+  }
 
   test('tarballs from an earlier commit at the same version are refused', () => {
-    const repo = packedCheckout();
-    expect(stamp(repo, 'write').status).toBe(0);
+    const repo = stamped();
     writeFileSync(join(repo, 'README.md'), 'second\n');
     git(repo, 'commit', '-q', '-am', 'second');
-    const verified = stamp(repo, 'verify');
-    expect(verified.status).toBe(1);
-    expect(verified.stderr).toContain('were proven on commit');
+    expect(verify(repo).stderr).toContain('were packed from commit');
   });
 
-  test('a tarball whose bytes changed after the gates passed is refused', () => {
-    const repo = packedCheckout();
-    expect(stamp(repo, 'write').status).toBe(0);
-    writeFileSync(join(repo, `dist/packages/pyric-cli-${VERSION}.tgz`), 'a later, unchecked pack');
-    const verified = stamp(repo, 'verify');
-    expect(verified.status).toBe(1);
-    expect(verified.stderr).toContain(`pyric-cli-${VERSION}.tgz`);
+  test('a tarball whose bytes changed after the stamp is refused', () => {
+    const repo = stamped();
+    writeFileSync(tarball(repo, 'pyric'), 'evil');
+    expect(verify(repo).stderr).toContain(`pyric-${VERSION}.tgz is not the file the stamp names`);
   });
 
-  test('tarballs no gate run stamped, such as a failed build\'s leftovers, are refused', () => {
-    const verified = stamp(packedCheckout(), 'verify');
-    expect(verified.status).toBe(1);
-    expect(verified.stderr).toContain('no proven.json');
+  test('anything but exactly the five uploaded tarballs is refused', () => {
+    const repo = stamped();
+    unlinkSync(tarball(repo, 'pyric-ui'));
+    expect(verify(repo).stderr).toContain(`pyric-ui-${VERSION}.tgz is missing`);
+    expect(verify(stamped(), undefined, VERSION, [...NAMES, 'pyric-extra']).status).toBe(1);
+    expect(verify(stamped(), undefined, VERSION, NAMES.slice(0, 4)).status).toBe(1);
   });
 
-  test('a dirty tree, at stamping or at upload, is refused', () => {
-    const dirtyAtStamp = packedCheckout();
-    writeFileSync(join(dirtyAtStamp, 'README.md'), 'uncommitted\n');
-    expect(stamp(dirtyAtStamp, 'write').status).toBe(0);
-    expect(stamp(dirtyAtStamp, 'verify').stderr).toContain('uncommitted changes');
-
-    const dirtyAtUpload = packedCheckout();
-    expect(stamp(dirtyAtUpload, 'write').status).toBe(0);
-    writeFileSync(join(dirtyAtUpload, 'README.md'), 'uncommitted\n');
-    const verified = stamp(dirtyAtUpload, 'verify');
-    expect(verified.status).toBe(1);
-    expect(verified.stderr).toContain('uncommitted changes');
+  test('no stamp, a malformed stamp, or another version is refused', () => {
+    const none = checkout();
+    pack(none);
+    expect(verify(none).stderr).toContain('no gate run proved these tarballs');
+    const malformed = stamped();
+    writeFileSync(join(packages(malformed), 'proven.json'), '{');
+    expect(verify(malformed).stderr).toContain('not valid JSON');
+    expect(verify(stamped(), undefined, '0.1.0-alpha.10').status).toBe(1);
   });
 
-  test('a different version is refused', () => {
-    const repo = packedCheckout();
-    expect(stamp(repo, 'write').status).toBe(0);
-    expect(stamp(repo, 'verify', '0.1.0-alpha.10').status).toBe(1);
+  test('an untracked file counts as a dirty tree, whatever status.showUntrackedFiles says', () => {
+    const repo = stamped();
+    writeFileSync(join(repo, 'injected.ts'), 'x');
+    git(repo, 'config', 'status.showUntrackedFiles', 'no');
+    expect(verify(repo).stderr).toContain('uncommitted or untracked changes now');
   });
 });

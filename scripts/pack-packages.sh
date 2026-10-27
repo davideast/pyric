@@ -50,13 +50,26 @@ case "$OUT_DIR" in
   *) OUT_DIR="$PWD/$OUT_DIR" ;;
 esac
 
-# Any failure (the build, npm pack, a check on a tarball, the manifest) leaves
-# no tarball behind, so nothing a check refused, or an older pack, can be
-# mistaken for this pack's output.
+# Unless the pack finishes, it leaves no tarball behind: a failure (the build,
+# npm pack, a check on a tarball, the manifest) or an interrupt (SIGINT,
+# SIGTERM, SIGHUP) clears the outputs, so nothing a check refused, and no
+# older pack, can be mistaken for this pack's output.
 clear_outputs() {
   rm -f "$OUT_DIR"/*.tgz "$OUT_DIR/manifest.json" "$OUT_DIR/proven.json"
 }
-trap 'status=$?; if [ "$status" -ne 0 ]; then clear_outputs; echo "pack-packages: failed; removed the tarballs in $OUT_DIR" >&2; fi' EXIT
+PACKED=0
+trap 'if [ "$PACKED" -ne 1 ]; then clear_outputs; echo "pack-packages: did not finish; removed the tarballs in $OUT_DIR" >&2; fi' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+# The tree this pack builds from, before the build: proven-stamp.mjs records
+# it with the tarballs' hashes, and a later stamp must still match it.
+PACK_HEAD="$(git -C "$ROOT" rev-parse HEAD)"
+PACK_CLEAN=true
+if [ -n "$(git -C "$ROOT" status --porcelain --untracked-files=all --ignore-submodules=none)" ]; then
+  PACK_CLEAN=false
+fi
 
 # Packages to ship. Listed in dependency order (dependencies first) for
 # readability; the actual pack order does not matter since each tarball
@@ -168,6 +181,8 @@ echo "━━━ Phase 3: manifest ━━━"
 
 node "$ROOT/scripts/lib/package-artifact-manifest.mjs" \
   "$ROOT" "$OUT_DIR" "${PACKAGES[@]}"
+# Each tarball's sha256 as written here, and the tree it came from.
+node "$ROOT/scripts/lib/proven-stamp.mjs" record "$OUT_DIR" "$ROOT" "$PACK_HEAD" "$PACK_CLEAN"
 
 # ─── Phase 4: report ───────────────────────────────────────────────────
 echo ""
@@ -179,3 +194,5 @@ echo ""
 echo "✓ All 5 publishable packages packed into $OUT_DIR/"
 echo ""
 echo "See $OUT_DIR/manifest.json for exact tarball filenames."
+
+PACKED=1
