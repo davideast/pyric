@@ -22,7 +22,7 @@
  *
  * Without --packages, the runner packs the current workspace build into
  * dist/packages. Apps that install the same packages share one `npm install`
- * per run, hard-linked into each app (shared-installs.ts). Logs land in
+ * per run, copied into each app (shared-installs.ts). Logs land in
  * test-results/apps/<name>/.
  */
 import { chromium, type Browser } from '@playwright/test';

@@ -1,15 +1,15 @@
 /**
  * One `npm install` per dependency set per run. Most apps install the same
  * packages (24 of 31 share two sets), so the runner installs each set once,
- * in a directory of its own, and hard-links the installed `node_modules` into
+ * in a directory of its own, and copies the installed `node_modules` into
  * every app that uses it. Each set is still a real `npm install` of the packed
  * tarballs and the registry packages the app's package.json names.
  */
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { copyFile, link, mkdir, readdir, readlink, symlink } from 'node:fs/promises';
-import { join } from 'node:path';
-import type { CommandResult } from './install.ts';
+import { copyFile, mkdir } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { runCommand, type CommandResult } from './install.ts';
 
 /** The package.json fields that decide what `npm install` puts in node_modules. */
 const INSTALL_FIELDS = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies', 'overrides'] as const;
@@ -80,36 +80,20 @@ export function dependencySetKey(inputs: InstallInputs): string | undefined {
   return createHash('sha256').update(identity).digest('hex').slice(0, 16);
 }
 
-/** Files npm rewrites in place in an installed tree, so each app gets its own copy. */
-const REWRITTEN_IN_PLACE = new Set(['.package-lock.json']);
-
 /**
- * Recreate `from` at `to`: directories are made, files hard-linked, symlinks
- * copied as symlinks. Asynchronous, so the apps already running keep their
- * timers and sockets moving while a large tree links.
+ * Copy an installed `node_modules` into an app, symlinks as symlinks, with
+ * `cp -a` in a child process so the apps already running keep their timers
+ * and sockets moving while it copies (a 374 MB tree takes about a second).
+ *
+ * A copy, not hard links: with hard links, a full run failed in each of four
+ * tries, a server process stalling on the remote sandbox or never closing,
+ * and with copies it passed (see the PR). Each app also gets files it can
+ * change without changing every other app's.
  */
-export async function linkTree(from: string, to: string): Promise<void> {
-  await mkdir(to, { recursive: true });
-  const entries = await readdir(from, { withFileTypes: true });
-  await Promise.all(entries.map(async (entry) => {
-    const source = join(from, entry.name);
-    const target = join(to, entry.name);
-    if (entry.isDirectory()) return linkTree(source, target);
-    if (entry.isSymbolicLink()) return symlink(await readlink(source), target);
-    if (REWRITTEN_IN_PLACE.has(entry.name)) return copyFile(source, target);
-    return linkFile(source, target);
-  }));
-}
-
-async function linkFile(source: string, target: string): Promise<void> {
-  try {
-    await link(source, target);
-  } catch (error) {
-    // A hard link cannot cross filesystems; copy instead.
-    const isCrossDevice = (error as NodeJS.ErrnoException).code === 'EXDEV';
-    if (!isCrossDevice) throw error;
-    await copyFile(source, target);
-  }
+export async function copyTree(from: string, to: string): Promise<void> {
+  await mkdir(dirname(to), { recursive: true });
+  const copied = await runCommand('cp', ['-a', from, to], { cwd: dirname(to) });
+  if (copied.code !== 0) throw new Error(`cp -a ${from} ${to} exited with code ${copied.code}:\n${copied.output}`);
 }
 
 function readOptional(path: string): string | undefined {
@@ -158,7 +142,7 @@ export class SharedInstalls {
       const note = '\n[runner] the shared install failed; installing this app on its own\n';
       return { code: own.code, output: `${header}${shared.output}${note}${own.output}` };
     }
-    await linkTree(join(set.dir, 'node_modules'), join(projectDir, 'node_modules'));
+    await copyTree(join(set.dir, 'node_modules'), join(projectDir, 'node_modules'));
     const lockfile = join(set.dir, 'package-lock.json');
     if (existsSync(lockfile)) await copyFile(lockfile, join(projectDir, 'package-lock.json'));
     return { code: 0, output: `${header}${shared.output}` };

@@ -3,7 +3,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { npmInstall, npmInstallArgs, shouldRetryOnline, type CommandResult } from './install.ts';
-import { dependencySetKey, linkTree, SharedInstalls } from './shared-installs.ts';
+import { copyTree, dependencySetKey, SharedInstalls } from './shared-installs.ts';
 
 const dirs: string[] = [];
 function tempDir(): string {
@@ -92,21 +92,20 @@ describe('dependency sets', () => {
   });
 });
 
-describe('linking an installed tree into an app', () => {
-  test('files are hard links to the installed files, symlinks stay symlinks, and npm\'s own lockfile is a copy', async () => {
+describe('copying an installed tree into an app', () => {
+  test('files are copies the app can change alone, and symlinks stay symlinks', async () => {
     const from = tempDir();
     const to = join(tempDir(), 'node_modules');
     mkdirSync(join(from, 'vite/bin'), { recursive: true });
     mkdirSync(join(from, '.bin'));
     writeFileSync(join(from, 'vite/bin/vite.js'), 'console.log("vite")\n');
     symlinkSync('../vite/bin/vite.js', join(from, '.bin/vite'));
-    writeFileSync(join(from, '.package-lock.json'), '{}');
-    await linkTree(from, to);
-    expect(statSync(join(to, '.package-lock.json')).ino).not.toBe(statSync(join(from, '.package-lock.json')).ino);
-    expect(statSync(join(to, 'vite/bin/vite.js')).ino).toBe(statSync(join(from, 'vite/bin/vite.js')).ino);
+    await copyTree(from, to);
+    expect(statSync(join(to, 'vite/bin/vite.js')).ino).not.toBe(statSync(join(from, 'vite/bin/vite.js')).ino);
     expect(lstatSync(join(to, '.bin/vite')).isSymbolicLink()).toBe(true);
     expect(readlinkSync(join(to, '.bin/vite'))).toBe('../vite/bin/vite.js');
-    expect(readFileSync(join(to, '.bin/vite'), 'utf8')).toBe('console.log("vite")\n');
+    writeFileSync(join(to, 'vite/bin/vite.js'), 'changed\n');
+    expect(readFileSync(join(from, 'vite/bin/vite.js'), 'utf8')).toBe('console.log("vite")\n');
   });
 });
 
