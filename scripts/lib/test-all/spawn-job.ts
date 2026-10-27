@@ -3,10 +3,16 @@
 // run, where one job runs at a time and its output can stream as it comes).
 // When it ends, only what the run reports is kept: its counts, its failing
 // tests and the end of its output.
+//
+// Jobs stay in test-all's process group, so a signal to the whole group (a
+// terminal's Ctrl-C, or a tool that kills a command it timed out) reaches
+// every job and everything they started, even when test-all itself is killed
+// and can do nothing.
 
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
 import { addCounts, readCounts } from './counts.ts';
+import { failuresWithFiles } from './failures.ts';
 import type { TestJob } from './plan.ts';
 import type { JobOutcome } from './run-jobs.ts';
 
@@ -14,18 +20,14 @@ import type { JobOutcome } from './run-jobs.ts';
 const TAIL_LINES = 40;
 
 /** Children still running, so an interrupted run can stop them and what they started. */
-export const runningChildren = new Set<ChildProcess>();
-
-/** Lines bun test (`(fail) …`) and node --test (`✖ …`) print for a failing test. */
-function isFailedTestLine(line: string): boolean {
-  return line.startsWith('(fail)') || line.startsWith('✖');
-}
+const runningChildren = new Set<ChildProcess>();
 
 function summarize(exitCode: number, stdout: string, stderr: string, note: string): JobOutcome {
   // Each stream is read on its own: a summary line never straddles the two.
   const counts = addCounts(readCounts(stdout), readCounts(stderr));
-  const lines = `${stdout}\n${stderr}${note}`.trimEnd().split('\n');
-  return { exitCode, counts, failedTests: lines.filter(isFailedTestLine), tail: lines.slice(-TAIL_LINES) };
+  const failedTests = [...failuresWithFiles(stderr), ...failuresWithFiles(stdout)];
+  const tail = `${stdout}\n${stderr}${note}`.trimEnd().split('\n').slice(-TAIL_LINES);
+  return { exitCode, counts, failedTests, tail };
 }
 
 export function spawnJob(job: TestJob, options: { logPath: string; echo: boolean }): Promise<JobOutcome> {
@@ -33,8 +35,7 @@ export function spawnJob(job: TestJob, options: { logPath: string; echo: boolean
     const file = createWriteStream(options.logPath);
     let logError = '';
     file.on('error', (error) => { logError = `\n[test-all] could not write ${options.logPath}: ${error.message}\n`; });
-    // Its own process group, so stopping the job stops what it started too.
-    const child = spawn(job.command, job.args, { cwd: job.cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+    const child = spawn(job.command, job.args, { cwd: job.cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
     runningChildren.add(child);
     const text = { stdout: '', stderr: '' };
     const record = (name: 'stdout' | 'stderr', stream: NodeJS.WriteStream) => (chunk: Buffer) => {
@@ -61,14 +62,40 @@ export function spawnJob(job: TestJob, options: { logPath: string; echo: boolean
   });
 }
 
-/** Stop every running job's process group. */
+/** Every process below `roots`, from one `ps` listing of parent ids. */
+function descendantsOf(roots: readonly number[]): number[] {
+  const listing = execFileSync('ps', ['-A', '-o', 'pid=,ppid='], { encoding: 'utf8' });
+  const childrenOf = new Map<number, number[]>();
+  for (const line of listing.trim().split('\n')) {
+    const [pid, ppid] = line.trim().split(/\s+/).map(Number);
+    if (pid === undefined || ppid === undefined) continue;
+    childrenOf.set(ppid, [...(childrenOf.get(ppid) ?? []), pid]);
+  }
+  const found: number[] = [];
+  const queue = [...roots];
+  for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
+    for (const child of childrenOf.get(next) ?? []) {
+      found.push(child);
+      queue.push(child);
+    }
+  }
+  return found;
+}
+
+/** Stop every running job and everything it started, when test-all alone gets a signal. */
 export function stopRunningJobs(signal: NodeJS.Signals): void {
-  for (const child of runningChildren) {
-    if (child.pid === undefined) continue;
+  const jobs = [...runningChildren].flatMap((child) => (child.pid === undefined ? [] : [child.pid]));
+  let tree = jobs;
+  try {
+    tree = [...jobs, ...descendantsOf(jobs)];
+  } catch {
+    // No `ps`: stop the jobs themselves.
+  }
+  for (const pid of tree) {
     try {
-      process.kill(-child.pid, signal);
+      process.kill(pid, signal);
     } catch {
-      // The group already exited.
+      // Already exited.
     }
   }
 }

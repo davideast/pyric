@@ -13,6 +13,10 @@ export interface TestJob {
   command: string;
   args: string[];
   cwd: string;
+  /** Whether the job is `bun test`, whose summary must report every file it ran. */
+  runsBunTest: boolean;
+  /** How many test files the job runs, when the plan knows: a shard, or a sharded package's whole suite. */
+  expectedFiles?: number;
 }
 
 export interface PlanOptions {
@@ -23,13 +27,16 @@ export interface PlanOptions {
 }
 
 /** Characters that mean a command needs a shell, which the runner does not use. */
-const SHELL_SYNTAX = /[|;&<>"'`$()*?=\\]/;
+const SHELL_SYNTAX = /[|;&<>"'`$()*?\\]/;
+
+/** A leading `NAME=value` word, an environment assignment only a shell understands. */
+const ENV_ASSIGNMENT = /^\w+=/;
 
 /** Split the chain into argument vectors, refusing anything that needs a shell to run. */
 export function splitChain(chain: string): string[][] {
   const commands = chain.split(' && ').map((command) => command.trim());
   return commands.map((command) => {
-    const isPlainCommand = command.length > 0 && !SHELL_SYNTAX.test(command);
+    const isPlainCommand = command.length > 0 && !SHELL_SYNTAX.test(command) && !ENV_ASSIGNMENT.test(command);
     if (!isPlainCommand) throw new Error(`test-all runs each command of the chain without a shell, so it cannot run "${command}"`);
     return command.split(/\s+/);
   });
@@ -62,12 +69,19 @@ function shardedPackageOf(argv: readonly string[]): keyof typeof shardedPackages
 function shardJobs(name: keyof typeof shardedPackages, total: number): TestJob[] {
   const packageRoot = shardedPackages[name];
   const files = listTests(packageRoot);
-  return Array.from({ length: total }, (_, offset) => ({
-    name: `${name} ${offset + 1}/${total}`,
-    command: 'bun',
-    args: ['test', ...partition(files, offset + 1, total)],
-    cwd: packageRoot,
-  }));
+  return Array.from({ length: total }, (_, offset) => {
+    const shard = partition(files, offset + 1, total);
+    return { name: `${name} ${offset + 1}/${total}`, command: 'bun', args: ['test', ...shard], cwd: packageRoot, runsBunTest: true, expectedFiles: shard.length };
+  });
+}
+
+function chainJob(argv: readonly string[], root: string): TestJob {
+  const [command = 'bun', ...args] = argv;
+  const runsBunTest = command === 'bun' && args[0] === 'test';
+  const job: TestJob = { name: jobName(argv), command, args, cwd: root, runsBunTest };
+  const sharded = shardedPackageOf(argv);
+  if (sharded !== undefined) job.expectedFiles = listTests(shardedPackages[sharded]).length;
+  return job;
 }
 
 /**
@@ -84,8 +98,7 @@ export function planJobs(chain: string, options: PlanOptions): TestJob[] {
       shards.push(...shardJobs(sharded, options.shards));
       continue;
     }
-    const [command = 'bun', ...args] = argv;
-    rest.push({ name: jobName(argv), command, args, cwd: options.root });
+    rest.push(chainJob(argv, options.root));
   }
   return [...shards, ...rest];
 }

@@ -1,15 +1,16 @@
-// How many test jobs to run at once, from how busy the machine's CPUs are when
-// the run starts. The suites mostly wait on child processes and timeouts, so a
-// busy machine turns them into timeouts: at 0.7 busy threads per thread or
-// more (the machine-load skill's "busy") the run goes one job at a time.
+// How many test jobs to run at once, from how busy the machine is when the run
+// starts. The suites mostly wait on child processes and timeouts, so a busy
+// machine turns them into timeouts. The count is half the threads the CPUs
+// leave free, so it shrinks smoothly as the machine fills up, down to one job
+// at a time, and no more jobs than free memory holds.
 //
-// Busy threads are sampled from the CPU counters over a short window rather
-// than read from the load average. `bun run test` builds the packages first,
-// and the one-minute load average still counts that build for a minute after
-// it ends, which would send every run on an idle machine one job at a time.
+// Busy threads are sampled from the CPU counters over a two-second window
+// rather than read from the load average. `bun run test` builds the packages
+// first, and the one-minute load average still counts that build for a minute
+// after it ends, which would make every run on an idle machine look busy.
 
 import { existsSync, readFileSync } from 'node:fs';
-import { availableParallelism, cpus, type CpuInfo } from 'node:os';
+import { availableParallelism, cpus, freemem, type CpuInfo } from 'node:os';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 export interface MachineLoad {
@@ -17,16 +18,18 @@ export interface MachineLoad {
   threads: number;
   /** Threads busy over the sampled window, from 0 to `threads`. */
   load: number;
+  /** Memory available to new processes, in bytes. */
+  freeMemoryBytes: number;
 }
 
-/** Load per thread at or above which the machine counts as busy. */
-const BUSY_LOAD_PER_THREAD = 0.7;
+/** Memory one job can take: a CLI shard starts dev servers and child processes. */
+const MEMORY_PER_JOB = 1024 ** 3;
+const SAMPLE_MS = 2000;
 
 export function chooseConcurrency(machine: MachineLoad): number {
-  const isBusy = machine.load / machine.threads >= BUSY_LOAD_PER_THREAD;
-  if (isBusy) return 1;
-  const freeThreads = machine.threads - machine.load;
-  return Math.max(1, Math.floor(freeThreads / 2));
+  const byCpu = Math.floor((machine.threads - machine.load) / 2);
+  const byMemory = Math.floor(machine.freeMemoryBytes / MEMORY_PER_JOB);
+  return Math.max(1, Math.min(byCpu, byMemory));
 }
 
 type CpuTimes = CpuInfo['times'];
@@ -62,12 +65,12 @@ export function parseProcStat(text: string): Array<{ times: CpuTimes }> {
  * same times on every call within a process, so it cannot show a change.
  */
 function readCpuTimes(): Array<{ times: CpuTimes }> {
-  const hasProcStat = existsSync('/proc/stat');
-  return hasProcStat ? parseProcStat(readFileSync('/proc/stat', 'utf8')) : cpus();
+  if (existsSync('/proc/stat')) return parseProcStat(readFileSync('/proc/stat', 'utf8'));
+  return cpus();
 }
 
-export async function sampleMachineLoad(windowMs = 1000): Promise<MachineLoad> {
+export async function sampleMachineLoad(windowMs = SAMPLE_MS): Promise<MachineLoad> {
   const before = readCpuTimes();
   await sleep(windowMs);
-  return { threads: availableParallelism(), load: busyThreads(before, readCpuTimes()) };
+  return { threads: availableParallelism(), load: busyThreads(before, readCpuTimes()), freeMemoryBytes: freemem() };
 }

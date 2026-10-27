@@ -1,137 +1,92 @@
-import { describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { listTests, shardedPackages } from './ci/test-shard.ts';
-import { busyThreads, chooseConcurrency, parseProcStat } from './lib/test-all/concurrency.ts';
-import { readCounts } from './lib/test-all/counts.ts';
-import { planJobs, splitChain, type TestJob } from './lib/test-all/plan.ts';
-import { runJobs } from './lib/test-all/run-jobs.ts';
+// test-all through its real entry point, against a scratch checkout whose
+// package.json holds a chain of its own (`--root`).
+import { afterEach, describe, expect, test } from 'bun:test';
+import { spawn, spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const root = resolve(import.meta.dir, '..');
-const serialChain = (JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { scripts: Record<string, string> }).scripts['test:serial'] ?? '';
-
-describe('the test-all plan', () => {
-  test('the serial plan runs every command of the serial chain, in order, from the repository root', () => {
-    const jobs = planJobs(serialChain, { root, shards: 1 });
-    expect(jobs.map((job) => [job.command, ...job.args].join(' '))).toEqual(serialChain.split(' && '));
-    expect(jobs.every((job) => job.cwd === root)).toBe(true);
-  });
-
-  test('the parallel plan runs each sharded suite as shards whose files are exactly the suite', () => {
-    const jobs = planJobs(serialChain, { root, shards: 6 });
-    for (const [name, packageRoot] of Object.entries(shardedPackages)) {
-      const shards = jobs.filter((job) => job.cwd === packageRoot);
-      expect(shards.map((job) => job.name)).toEqual([1, 2, 3, 4, 5, 6].map((index) => `${name} ${index}/6`));
-      const files = shards.flatMap((job) => job.args.slice(1));
-      expect(files.sort()).toEqual(listTests(packageRoot));
-      expect(shards.every((job) => job.command === 'bun' && job.args[0] === 'test')).toBe(true);
-    }
-  });
-
-  test('the parallel plan keeps every other command of the serial chain unchanged, after the shards', () => {
-    const jobs = planJobs(serialChain, { root, shards: 6 });
-    const unsharded = jobs.filter((job) => job.cwd === root);
-    const shardedCommands = Object.keys(shardedPackages).map((name) => `bun test --cwd packages/${name}`);
-    const expected = serialChain.split(' && ').filter((command) => !shardedCommands.includes(command));
-    expect(unsharded.map((job) => [job.command, ...job.args].join(' '))).toEqual(expected);
-    expect(jobs.slice(0, 12).every((job) => job.cwd !== root)).toBe(true);
-  });
-
-  test('a job is named for the package or script it runs', () => {
-    const jobs = planJobs('bun test --cwd packages/pyric-admin && bun run test:chat-template && bun run --cwd packages/ui test && bun test scripts/a.test.ts', { root, shards: 1 });
-    expect(jobs.map((job) => job.name)).toEqual(['pyric-admin', 'test:chat-template', 'ui', 'scripts']);
-  });
-
-  test('a chain the runner cannot run without a shell is refused', () => {
-    for (const chain of ['bun test | tee log', 'bun test; bun test', 'FOO=1 bun test', 'bun test "a b"', '', 'bun test &&  && bun test']) {
-      expect(() => splitChain(chain)).toThrow();
-    }
-  });
+const testAll = fileURLToPath(new URL('./test-all.ts', import.meta.url));
+const roots: string[] = [];
+afterEach(() => {
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-describe('how many jobs test-all runs at once', () => {
-  test('an idle machine runs about half its free threads at once', () => {
-    expect(chooseConcurrency({ threads: 32, load: 8 })).toBe(12);
-    expect(chooseConcurrency({ threads: 8, load: 0.5 })).toBe(3);
-  });
+function checkout(chain: string, files: Record<string, string>): string {
+  const root = mkdtempSync(join(tmpdir(), 'pyric-test-all-'));
+  roots.push(root);
+  writeFileSync(join(root, 'package.json'), JSON.stringify({ scripts: { 'test:serial': chain } }));
+  for (const [path, text] of Object.entries(files)) writeFileSync(join(root, path), text);
+  return root;
+}
 
-  test('a busy machine, 0.7 or more load per thread, runs one job at a time', () => {
-    expect(chooseConcurrency({ threads: 32, load: 22.4 })).toBe(1);
-    expect(chooseConcurrency({ threads: 4, load: 9 })).toBe(1);
-  });
+/** A job that records its pid and a grandchild's, then waits to be stopped. */
+const SLEEPER = `
+import { spawn } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
+const grandchild = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 120000)'], { stdio: 'ignore' });
+writeFileSync(\`pids/\${process.pid}\`, '');
+writeFileSync(\`pids/\${grandchild.pid}\`, '');
+setTimeout(() => {}, 120000);
+`;
 
-  test('busy threads are the share of each CPU\'s time spent working between two readings', () => {
-    const times = (busy: number, idle: number) => ({ times: { user: busy, nice: 0, sys: 0, idle, irq: 0 } });
-    // CPU 0 worked 300 of 400 ms, CPU 1 worked none of 400 ms, CPU 2 worked all of 400 ms.
-    const before = [times(1000, 1000), times(1000, 1000), times(1000, 1000)];
-    const after = [times(1300, 1100), times(1000, 1400), times(1400, 1000)];
-    expect(busyThreads(before, after)).toBeCloseTo(1.75);
-  });
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
-  test('/proc/stat counts iowait as idle, and irq, softirq and steal as work', () => {
-    const stat = 'cpu  10 0 5 100 2 1 1 0 0 0\ncpu0 10 0 5 100 2 1 1 0 0 0\nintr 123\n';
-    expect(parseProcStat(stat)).toEqual([{ times: { user: 10, nice: 0, sys: 5, idle: 102, irq: 2 } }]);
-  });
+async function until(condition: () => boolean, ms: number): Promise<boolean> {
+  const deadline = performance.now() + ms;
+  while (performance.now() < deadline) {
+    if (condition()) return true;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return condition();
+}
 
-  test('a machine with one or two free threads still runs one job', () => {
-    expect(chooseConcurrency({ threads: 2, load: 0.5 })).toBe(1);
-    expect(chooseConcurrency({ threads: 1, load: 0 })).toBe(1);
-  });
+function recordedPids(root: string): number[] {
+  return readdirSync(join(root, 'pids')).map(Number);
+}
+
+describe('stopping test-all stops every job and what the jobs started', () => {
+  const cases: Array<{ signal: NodeJS.Signals; target: 'test-all' | 'its process group' }> = [
+    { signal: 'SIGTERM', target: 'test-all' },
+    { signal: 'SIGHUP', target: 'test-all' },
+    { signal: 'SIGINT', target: 'test-all' },
+    { signal: 'SIGKILL', target: 'its process group' },
+  ];
+  for (const { signal, target } of cases) {
+    test(`${signal} to ${target} leaves no job running`, async () => {
+      const root = checkout('bun sleeper.ts && bun sleeper.ts', { 'sleeper.ts': SLEEPER });
+      mkdirSync(join(root, 'pids'));
+      // Its own process group, as a shell gives a command it runs.
+      const runner = spawn('bun', [testAll, `--root=${root}`, '--jobs=2'], { cwd: root, stdio: 'ignore', detached: true });
+      const pid = runner.pid ?? 0;
+      expect(await until(() => recordedPids(root).length === 4, 20_000)).toBe(true);
+      const pids = recordedPids(root);
+      const isGroupKill = target === 'its process group';
+      process.kill(isGroupKill ? -pid : pid, signal);
+      expect(await until(() => pids.every((each) => !isAlive(each)), 10_000)).toBe(true);
+    }, 40_000);
+  }
 });
 
-describe('the counts test-all reads from a job log', () => {
-  test('bun test summaries are summed across every run in one log', () => {
-    const log = [
-      '(pass) a > b [1.00ms]',
-      '',
-      ' 735 pass',
-      ' 6 skip',
-      ' 0 fail',
-      ' 4802 expect() calls',
-      'Ran 741 tests across 92 files. [58.98s]',
-      '$ bun test test/dom',
-      ' 10 pass',
-      ' 1 todo',
-      ' 2 fail',
-      'Ran 13 tests across 1 file. [1.00s]',
-    ].join('\n');
-    expect(readCounts(log)).toEqual({ tests: 754, files: 93, pass: 745, fail: 2, skip: 6, todo: 1 });
-  });
-
-  test('node --test summaries count too, in spec and in TAP form', () => {
-    const spec = ['ℹ tests 8', 'ℹ suites 0', 'ℹ pass 7', 'ℹ fail 0', 'ℹ cancelled 0', 'ℹ skipped 1', 'ℹ todo 0'].join('\n');
-    const tap = ['# tests 3', '# pass 2', '# fail 1', '# skipped 0', '# todo 0'].join('\n');
-    expect(readCounts(`${spec}\n${tap}`)).toEqual({ tests: 11, files: 0, pass: 9, fail: 1, skip: 1, todo: 0 });
-  });
-
-  test('a log with no summary counts nothing', () => {
-    expect(readCounts('$ tsc --noEmit\n')).toEqual({ tests: 0, files: 0, pass: 0, fail: 0, skip: 0, todo: 0 });
-  });
-});
-
-describe('running the jobs', () => {
-  const job = (name: string): TestJob => ({ name, command: 'bun', args: ['test'], cwd: root });
-  const outcome = (exitCode: number) => ({ exitCode, counts: readCounts(''), failedTests: [], tail: [] });
-
-  test('no more than the concurrency limit run at once, and every job runs', async () => {
-    let running = 0;
-    let peak = 0;
-    const started: string[] = [];
-    const results = await runJobs([job('a'), job('b'), job('c'), job('d'), job('e')], 2, async (next) => {
-      started.push(next.name);
-      running += 1;
-      peak = Math.max(peak, running);
-      await new Promise((resolve) => setTimeout(resolve, 5));
-      running -= 1;
-      return outcome(0);
+describe('a bun test job that ends before its summary', () => {
+  test('fails the run, though the process exited 0', () => {
+    const root = checkout('bun test', {
+      'a.test.ts': "import { test } from 'bun:test';\ntest('exits the process', () => { process.exit(0); });\n",
+      'b.test.ts': "import { test } from 'bun:test';\ntest('never runs', () => {});\n",
     });
-    expect(peak).toBe(2);
-    expect(started).toEqual(['a', 'b', 'c', 'd', 'e']);
-    expect(results.map((result) => result.job.name)).toEqual(['a', 'b', 'c', 'd', 'e']);
-  });
-
-  test('a failing job does not stop the others', async () => {
-    const results = await runJobs([job('a'), job('b'), job('c')], 1, async (next) => outcome(next.name === 'a' ? 1 : 0));
-    expect(results.map((result) => [result.job.name, result.exitCode])).toEqual([['a', 1], ['b', 0], ['c', 0]]);
+    const run = spawnSync('bun', [testAll, `--root=${root}`, '--jobs=1'], { cwd: root, encoding: 'utf8' });
+    expect(run.status).toBe(1);
+    expect(run.stdout).toContain('printed no "Ran N tests across M files" summary');
+    const log = join(root, 'test-results/test-all/bun-test.log');
+    expect(existsSync(log)).toBe(true);
+    expect(readFileSync(log, 'utf8')).not.toContain('Ran ');
   });
 });
