@@ -43,6 +43,23 @@ await set(ref(getDatabase(app), `users/${user.uid}/lastSeen`), Date.now());
 // Lands in the dev server's sandbox; Studio and firebase-admin see it.
 ```
 
+Server code runs under your Realtime Database rules, and with no rules every read and write is denied, as in production. Without a rules file, this `set` fails with `PERMISSION_DENIED`. Add `database.rules.json` next to `vite.config.ts`, or at the path your `firebase.json` `database.rules` names, and allow each user their own path:
+
+```json
+{
+  "rules": {
+    "users": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    }
+  }
+}
+```
+
+The sandbox reloads the rules when you save the file, but Vite keeps a server module whose evaluation failed. Restart the dev server, or save the server module, so Vite evaluates it again.
+
 The plugin also runs a network guard in the dev server process that refuses connections to live Google and Firebase endpoints. It catches Firebase code the swap does not reach: other `firebase/*` subpaths, an installed package that imports `firebase` itself, and your Vite config's own imports. The dev server log names each refused host.
 
 `PYRIC_GUARD=warn` reports those connections and lets them through, `PYRIC_GUARD=off` turns the guard off, and `PYRIC_GUARD_ALLOW` permits the hosts it names. The AI upstream in the plugin's `ai` options stays permitted. In production AI mode (`ai: { mode: 'production' }`, `PYRIC_AI_MODE=production`, or `PYRIC_AI_PASSTHROUGH=1`), the guard also permits `firebasevertexai.googleapis.com`, so server-rendered `firebase/ai` calls reach Firebase AI Logic as you chose; in the default sandbox AI mode they fail with `failed-precondition`. The guard does not run during `vite build` or `vite preview`, and it does not affect browser code. See [Environment variables](../reference/cli.md#environment-variables).
@@ -113,6 +130,10 @@ export default defineConfig({
 ```
 
 A string names a pre-built avatar set directory; an object with a `source` function generates images in the dev server; `false` turns avatars off entirely. See [Assign default avatars to sandbox users](../build/default-avatars.md) for the set format, the source callback, and the `PYRIC_AVATARS` environment variable `pyric sandbox` reads instead.
+
+## Serve production Storage URLs through your service worker
+
+If your app has its own service worker, set `serviceWorker` to its source file (`pyric({ hosted: true, serviceWorker: 'src/sw.ts' })`). In dev, production Storage download URLs your pages load are then answered from the sandbox. See [Serve production download URLs from your service worker](../build/cloud-storage.md#serve-production-download-urls-from-your-service-worker).
 
 ## Enable Node host mode
 

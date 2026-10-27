@@ -12,9 +12,9 @@ This is not a priority and has no test yet. It is the lens for reading the prior
 
 **Test:** Does this get App Check working in pyric, end to end, and shipped in a release before November 2, 2026?
 
-On November 2, 2026, Firebase AI Logic requires App Check. An app that uses AI Logic through pyric must work the way it will in production after that date.
+On November 2, 2026, Firebase AI Logic requires App Check. An app that uses AI Logic through pyric must work the way it will in production after that date. Today `pyric/app-check` throws on first use, so an AI Logic app that calls it fails its first run.
 
-**Counts:** App Check tokens in the in-page sandbox, the worker bridge, and the Node host; AI Logic calls that behave as production does with and without a token; the release that ships it.
+**Counts:** `initializeAppCheck` and `getToken` working in sandbox mode; production AI mode passing the real `firebase/app-check` through so AI Logic requests carry a token; App Check tokens in the in-page sandbox, the worker bridge, and the Node host; a new `app-check` surface built under CDD (`docs/conformance/cdd.md`); the release that ships it.
 **Doesn't count:** App Check for other services beyond what AI Logic needs.
 
 **Now:**
@@ -107,7 +107,8 @@ Cloud Functions are widely used, and capped billing on function quotas now makes
 **Doesn't count:** deploying functions; emulating Google Cloud services outside Firebase.
 
 **Now:**
-- Decide the first slice. `onRequest` is the likely start
+- HTTP `onRequest` served by `pyric sandbox`. Today an app that exports `onRequest` has it skipped on its first run. Built under CDD as a new `functions-http` surface, reusing the Functions child runtime (`packages/cli/src/functions/`, #1185)
+- Callable, Firestore, Storage, and more RTDB triggers follow
 
 ## Work that enables demos
 

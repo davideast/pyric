@@ -1,155 +1,44 @@
 ---
 name: rules-engine-defect-hunt
-description: Hunt for defects in pyric's own rules engines (RTDB, Firestore, Storage) — the simulator, constraints DSL, deploy-time validator, security lint, sandbox enforcement, replay and coverage — by checking each against production, pyric's documented contract, or its sibling surfaces. Use when asked to find bugs in pyric's rules tooling, stress-test or audit a rules engine for parity with Firebase, verify or re-verify a batch of engine findings, capture production verdicts for disputed behavior, or plan and land a fix campaign for engine divergences. Not for auditing an app's rules (use firestore-rules-audit or rtdb-security-rules).
+description: Rules engine defect hunt, bugs and parity with Firebase in pyric's own RTDB, Firestore and Storage rules engines (simulator, constraints DSL, deploy-time validator, security lint, sandbox enforcement, replay, coverage). Use with defect-hunt when asked to find bugs in pyric's rules tooling, audit a rules engine for parity, verify engine findings, or fix engine divergences. Not for auditing an app's rules (use firestore-rules-audit or rtdb-security-rules).
 ---
 
 # Rules engine defect hunt
 
-Pyric promises a developer that a local rules verdict is the verdict Firebase
-will give. A rules engine that says ALLOW where production says DENY is the
-worst failure pyric can have: the hole ships. A green suite does not rule this
-out. The suite tests what the code does, and the defects live where the code
-quietly departs from what it promises.
+The method (referees, verdicts, rounds, the fix campaign) is
+[defect-hunt](../defect-hunt/SKILL.md). Load it first. This skill adds what is
+specific to the rules engines: which surface to hunt with which angle against
+which referee, and the gates in [references/pyric-gates.md](references/pyric-gates.md).
 
-This skill runs a campaign that finds those departures, proves each one, and
-lands the fixes without bending a test to fit. One campaign on the RTDB engine
-turned a 2,225/2,225 green suite into 53 findings, 49 real, and took the RTDB
-rules score from an honest 69/91 to 91/91.
+A rules engine that says allow where production says deny is the worst failure
+pyric can have: the hole ships. Severity 1 is reserved for that.
 
-## Where the defects are
+## Surface map
 
-Look at **boundaries**, not at the expression evaluator everyone already tests:
+| Surface | Referee | Angles that paid off | Pins |
+|---|---|---|---|
+| RTDB simulator (`simulate()`) | Production: [oracle-rtdb.md](../defect-hunt/references/oracle-rtdb.md) | Differential (grammar-guided expressions over `auth`, `data`, `newData`, `root`, `now`, mixed-type `==`, `null` operands, runtime errors inside `\|\|` and `&&`); structural cases (cascades, `.validate` on delete, wildcard vs literal siblings, multi-path updates) | `KNOWN_DIVERGENCES` |
+| RTDB deploy-time validator and load check | Production deploy dry run | Differential: random rule documents through the dry run; regex dialect (`matches()` lookaheads, backreferences, `\b`, anchors, `\p{…}`) | `KNOWN_CORPUS_VALIDATOR_GAPS` |
+| RTDB constraints DSL and builders | Contract (JSDoc, docs), then the deploy check | Contract sweep (falsy values, unknown keys, `undefined`); property fuzzing (compile never crashes or hangs, output passes the deploy check, no dependence on declaration order, parentheses kept for every operand shape) | conformance tests |
+| RTDB security lint | The lint's documented intent; production for evaluation | A corpus of known-vulnerable patterns that must each fire; false positives on pyric's stdlib; constant folding (`true \|\| X` folds, `X \|\| true` does not absorb an error on the left) | lint tests |
+| Firestore and Storage rules evaluation | Production: [oracle-rules-test-api.md](../defect-hunt/references/oracle-rules-test-api.md) | Differential over the corpus; the boundaries listed in that file | replay gates |
+| Sandbox enforcement (transactions, listeners across auth and data changes, onDisconnect, priority, admin bypass) | Production SDK: [oracle-sdk-runtime.md](../defect-hunt/references/oracle-sdk-runtime.md); planes: [differential-planes.md](../defect-hunt/references/differential-planes.md) | Fault injection (revoke a read under an open listener, commit a transaction that changes readability); differential across planes | `rtdb-differential/known-divergences.ts`, oracle replay tests |
+| Replay, coverage, trace | Contract, then the sandbox's own verdict | Metamorphic (replay re-decides the same verdict); coverage and mutation survivors | assurance tests |
 
-- **Accepted, then ignored.** A documented field, option or argument that is
-  parsed and silently dropped, merged or coerced (`lit(undefined)` becoming
-  `false`; a documented `updates` field `simulate()` never read).
-- **Two surfaces that should agree, and don't.** The simulator vs the sandbox
-  vs replay; `rtdbRules(doc)` vs `rtdbRules(doc.toJSON())`; the CLI deploy check
-  vs the library and MCP surfaces.
-- **Undeployable input evaluated anyway.** Rules production rejects at deploy
-  must not be simulated as if they were valid.
-- **Runtime semantics borrowed from JavaScript.** Coercion, `null` indexing,
-  division by zero, `.length` on non-strings: production errors where JS
-  shrugs.
-- **Composition.** A builder that loses parentheses when an operand contains a
-  character it does not expect.
+The Firestore engine has no constraints DSL, so the DSL row does not apply
+there; the contract sweep moves to the rules API, sandbox and index tooling.
 
-## The verdict rule
+## What a round found
 
-Every finding gets exactly one verdict, from something that was actually run:
+The 2026-10-26 round on RTDB (#1247) confirmed 29 defects behind a 91/91
+score: `matches()` running JavaScript RegExp where production uses its own
+dialect, listeners not revoked after a transaction, a simulated `query` that is
+`null` inside `.write`, DSL builders dropping falsy values, lint missing
+tautologies and over-grants, and replay losing a transaction's priority. Look
+there first for the shapes; check the umbrella issue's comments for what
+turned up outside its streams.
 
-| Verdict | Means |
-|---|---|
-| `REAL` / `OPEN` | A repro shows the defect, and the expected behavior is cited |
-| `FALSE` | The claim does not hold, or the cited evidence contradicts it |
-| `ALREADY_FIXED` | The repro shows correct behavior; name the commit if you can |
-| `NEEDS_RUNTIME_MRE` | Correctness depends on production behavior no observation captures |
+## Gates
 
-**Every expected value cites its source.** One of: (a) an observation file, the
-exact `behavior` field, and the probe line that produced it; (b) an official
-Firebase docs URL with a quoted sentence; (c) pyric's own documented contract
-(JSDoc, docs page) for pyric-only surfaces. Without a citation the verdict is
-`NEEDS_RUNTIME_MRE`, never `REAL`. Check existing observations first: an
-observation can refute a confident hunter (an onDisconnect "bug" turned out to be
-exactly what production does).
-
-**A uniform batch is a red flag.** 9/9 REAL or 17/18 OPEN means re-check a
-sample yourself before accepting it. Both times this happened, the re-check
-changed verdicts.
-
-**A repro that cannot flip is not evidence.** It asserts the correct behavior and
-prints OPEN or FIXED. A script that can only print "bug" proves nothing.
-
-## The campaign
-
-Run it as advisor and coordinator. Workers hunt, verify and fix; you route work,
-keep verdicts calibrated, spot-check, and run every production capture yourself.
-Phases 2, 3 and 5 parallelize well (one agent per workstream or stream, a shared
-board, briefs from [templates/](templates/)).
-
-### 0. Baseline
-
-Record the target commit and run the gates (see
-[references/pyric-gates.md](references/pyric-gates.md)): build, the engine's
-suite, `bun run compat:check`, `bun run compat:rules-score`. Then measure where
-evidence is thin before trusting anything:
-
-- grammar features × production observations (how many constructs have zero
-  observations?);
-- mutation testing over the engine's source (surviving mutants are leads);
-- which documented options have no test that mentions them.
-
-### 1. Frame
-
-Map each surface to its referee: production, documented contract, or a sibling
-surface. Choose workstreams from
-[references/workstreams.md](references/workstreams.md) by expected yield. Write
-the plan down; the ledger starts here ([templates/ledger.md](templates/ledger.md)).
-
-### 2. Hunt
-
-One hunter per workstream ([templates/hunter-brief.md](templates/hunter-brief.md)).
-Hunters write a repro per finding under a scratch directory, never in the repo,
-and post findings with severity:
-
-1. fail-open — rules looser than intended, or data exposed;
-2. wrong verdict in a testing tool — false confidence;
-3. deploy-time failure;
-4. cosmetic.
-
-Record clean results next to findings. "10,000 fuzzed expressions, 0 crashes" is
-a result.
-
-### 3. Verify
-
-Separate agents re-run every repro on a clean checkout
-([templates/verifier-brief.md](templates/verifier-brief.md)) and apply the
-verdict rule, splitting multi-part findings into sub-claims. You spot-check a
-sample, always including the highest-severity findings and any whose expected
-value rests on production behavior.
-
-### 4. Ask production
-
-For every `NEEDS_RUNTIME_MRE` that matters, author a corpus scenario and capture
-production's verdicts. Follow the runbook for the engine:
-
-- RTDB: deploy, observe, restore on a dedicated instance —
-  [references/oracle-rtdb.md](references/oracle-rtdb.md).
-- Firestore and Storage: the Rules Test API, no deploy —
-  [references/oracle-rules-test-api.md](references/oracle-rules-test-api.md).
-
-Production may refute a finding. Record that as `FALSE`, prominently.
-
-### 5. Pin, then fix
-
-Land the evidence **before** any fix: new scenarios, observations, registry
-rows, and a pin for every disagreement (`KNOWN_DIVERGENCES` and its siblings).
-The published score drops honestly. Each fix then removes its pin, watches the
-case go red, and makes it green. Plan the fix as parallel streams with disjoint
-file ownership — [references/fix-campaign.md](references/fix-campaign.md). Any
-PR that moves a published number gets the
-[coverage-adversary](../coverage-adversary/SKILL.md) audit.
-
-### 6. Ship
-
-Split PRs by reviewer concern, verify each branch tip, and merge in dependency
-order — [references/shipping.md](references/shipping.md). It lists the traps
-(stacked bases, packing, stale generated files) that each cost time once.
-
-### 7. Follow up
-
-Re-verify what the campaign deferred against current `main` with the same
-verdict rule, then file issues for what is still open, restart-safe and
-de-duplicated ([references/shipping.md](references/shipping.md#filing-issues)).
-
-## Hard rules
-
-- Never edit a test, observation or expectation to make a result come out. An
-  unexpected green usually means already fixed: report it. Frozen observations
-  change only by re-capture.
-- Never deploy to anything but the dedicated oracle instance, and never run two
-  captures at once. Never print key material or tokens.
-- Report what failed. The final ledger lists `FALSE`, `NEEDS_RUNTIME_MRE` and
-  unverified items next to the confirmed ones.
-- Issues and PR text describe the engine, generically. They do not name the app
-  or project that prompted the hunt.
+Run [references/pyric-gates.md](references/pyric-gates.md) at baseline, on
+every stream branch, and on every PR branch tip.

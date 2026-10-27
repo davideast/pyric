@@ -77,3 +77,16 @@ describe('rtdbStdlib.turns', () => {
 
   runScenario(scenario);
 });
+
+describe('turns seat counts are bounded (LD-11)', () => {
+  test('isSeatTurn and turnAdvanced refuse 1e21 with a plain Error naming the limit', () => {
+    for (const call of [() => turns.isSeatTurn(1e21), () => turns.turnAdvanced(1e21)]) {
+      expect(call).toThrow(/seatCount must be an integer from 1 to 1000/);
+      expect(call).not.toThrow(RangeError);
+    }
+  });
+  test('1000 seats is the largest count that builds', () => {
+    expect(() => turns.isSeatTurn(1000)).not.toThrow();
+    expect(() => turns.isSeatTurn(1001)).toThrow();
+  });
+});

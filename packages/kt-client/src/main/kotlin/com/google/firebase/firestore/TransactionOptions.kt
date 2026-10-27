@@ -15,6 +15,7 @@ class TransactionOptions private constructor(
     }
 
     companion object {
+        @JvmStatic
         fun defaultOptions(): TransactionOptions = Builder().build()
     }
 }

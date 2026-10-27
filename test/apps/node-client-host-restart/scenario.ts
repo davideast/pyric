@@ -16,7 +16,9 @@
 // which queues a write issued while it is offline and sends an in-flight write
 // again after it reconnects, so a brief outage costs a delay and no errors.
 // The scenario asserts that: every write resolves, every tick is stored, and
-// the process logs no unhandled rejection.
+// the process logs no unhandled rejection. A client SDK process that lives
+// across the restart keeps its Firebase config: a page with another config
+// that loads after the restart is the one refused.
 //
 // Before asserting, it prints what the writer saw: how many writes failed,
 // with which codes, and when, relative to the config edit and to Vite's
@@ -113,6 +115,12 @@ export default scenario(async (app) => {
     return writer;
   });
 
+  const holder = await app.step('start a client SDK process; its first write resolves', async () => {
+    const holder = app.serverProcess('holder.mjs', [], { env: { PYRIC_SANDBOX: `remote:${host.url}` } });
+    await holder.waitForLog(/^holder 0 \{"ok":true\}$/m, { timeoutMs: 30_000 });
+    return holder;
+  });
+
   const editedAt = Date.now();
   const restartedAt = await app.step('edit vite.config.js; Vite restarts the server', () => restartByConfigEdit(app, host));
 
@@ -152,5 +160,32 @@ export default scenario(async (app) => {
 
   await app.step('every tick is stored', () => {
     assert.deepEqual(stored, Array.from({ length: ticks.length }, (_, n) => n));
+  });
+
+  // After the restart the client SDK process reattaches with the new host's
+  // boot id, read from its init.json, so the host holds its config as
+  // verified. A page whose config names another storage bucket is refused,
+  // and the process is not evicted.
+  await app.step('the client SDK process writes after the restart', async () => {
+    app.writeFile('holder-go-1', '');
+    await holder.waitForLog(/^holder 1 .*$/m, { timeoutMs: 30_000 });
+    assert.match(holder.output, /^holder 1 \{"ok":true\}$/m, holder.output);
+  });
+
+  await app.step('a page whose config names another storage bucket is refused', async () => {
+    const page = await app.page(`${host.url}/conflict.html`);
+    await page.waitForFunction(() => 'conflict' in window);
+    const result = await page.evaluate(() =>
+      (window as unknown as { conflict: { write(): Promise<{ ok: boolean; code?: string; message?: string }> } }).conflict.write());
+    assert.equal(result.ok, false, JSON.stringify(result));
+    assert.equal(result.code, 'app/multiple-configs-not-supported', JSON.stringify(result));
+    assert.match(result.message ?? '', /differs on: storageBucket/);
+    await page.close();
+  });
+
+  await app.step('the client SDK process keeps writing after that page loaded', async () => {
+    app.writeFile('holder-go-2', '');
+    await holder.waitForLog(/^holder done$/m, { timeoutMs: 30_000 });
+    assert.match(holder.output, /^holder 2 \{"ok":true\}$/m, holder.output);
   });
 });

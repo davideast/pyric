@@ -25,6 +25,7 @@ import type {
 } from './types.js';
 import { getFirestore } from './instances.js';
 import { clientStateFor } from './client-state.js';
+import { forEachDocument } from './sandbox/for-each-document.js';
 
 // ─── Tier: offline / persistence / network family (issue #144) ────────
 //
@@ -393,6 +394,7 @@ export function getDocsFromCache<T = DocumentData>(
       size: 0,
       empty: true,
       docs: [],
+      forEach: forEachDocument([]),
       metadata: Object.freeze({ fromCache: true, hasPendingWrites: false }),
     }, target)));
   }

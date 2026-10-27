@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { AppProcess, type SpawnChild } from './driver.ts';
+import { AppProcess, AppRun, freePort, portIssuer, probePort, type PortIssuer, type SpawnChild } from './driver.ts';
 
 /** A child that never gets a pid, so the driver sends it no signal. */
 function standIn(): ChildProcess {
@@ -117,5 +117,68 @@ describe('stop', () => {
     expect(child.running).toBe(false);
     expect(child.output).toContain('[driver] exited on SIGTERM');
     expect(child.output).not.toContain('records it as gone');
+  });
+});
+
+/** A probe that returns each scripted port in turn, then repeats the last one. */
+function scriptedProbe(script: number[]): { probe: () => Promise<number>; probes: () => number } {
+  let count = 0;
+  const probe = async (): Promise<number> => {
+    const port = script[count] ?? script[script.length - 1]!;
+    count += 1;
+    return port;
+  };
+  return { probe, probes: () => count };
+}
+
+describe('port issuer', () => {
+  test('a probe that repeats a port is asked again, so the second port differs', async () => {
+    const { probe, probes } = scriptedProbe([33093, 33093, 33094]);
+    const ports = portIssuer(probe);
+    const first = await ports.next();
+    const second = await ports.next();
+    expect([first, second]).toEqual([33093, 33094]);
+    expect(probes()).toBe(3);
+  });
+
+  test('a probe that only repeats fails with the ports it returned', async () => {
+    const { probe, probes } = scriptedProbe([33093]);
+    const ports = portIssuer(probe);
+    await ports.next();
+    await expect(ports.next()).rejects.toThrow(/^no unissued port after 32 probes; the probe only returned 33093$/);
+    expect(probes()).toBe(33);
+  });
+
+});
+
+/** An app run that is never installed or browsed, with its ports from `ports`. */
+function bareRun(ports: PortIssuer): AppRun {
+  const noBrowser = () => Promise.reject(new Error('no browser in this test'));
+  return new AppRun('stand-in', '.', '.', noBrowser, undefined, ports);
+}
+
+describe('app ports', () => {
+  test('freePort() asks the issuer, so a repeated probe gives a different port', async () => {
+    const { probe } = scriptedProbe([33093, 33093, 33094]);
+    const ports = portIssuer(probe);
+    expect([await freePort(ports), await freePort(ports)]).toEqual([33093, 33094]);
+  });
+
+  test('app.freePort() asks the run issuer, so a repeated probe gives a different port', async () => {
+    const { probe } = scriptedProbe([33093, 33093, 33094]);
+    const app = bareRun(portIssuer(probe));
+    expect([await app.freePort(), await app.freePort()]).toEqual([33093, 33094]);
+  });
+
+  test('a blackholed port is issued, so a later app.freePort() never returns it', async () => {
+    const real = await probePort();
+    const { probe } = scriptedProbe([real, real, 33094]);
+    const app = bareRun(portIssuer(probe));
+    try {
+      expect(await app.blackholedPort()).toBe(real);
+      expect(await app.freePort()).toBe(33094);
+    } finally {
+      await app.close();
+    }
   });
 });

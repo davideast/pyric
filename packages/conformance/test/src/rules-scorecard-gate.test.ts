@@ -28,8 +28,14 @@ describe('Unified rules scorecard gate CLI reporter', () => {
     expect(out).toContain('[diverged] storage.function.firestore.get');
     expect(out).toContain('--- RTDB Rules Breakdown ---');
     expect(out).not.toContain('[diverged] rtdb.operator.add');
-    expect(out).not.toContain('[diverged] rtdb.binding.query.orderByKey');
     expect(out).not.toContain('[diverged] rtdb.binding.query.orderByPriority');
-    expect(out).toContain('All constructs conform cleanly.');
+    expect(out).not.toContain('[diverged] rtdb.binding.query ');
+    expect(out).not.toContain('[diverged] rtdb.binding.query.orderByKey');
+    expect(out).not.toContain('[diverged] rtdb.rule-kind.location-wildcard');
+    // The 2026-10-26 hunt's findings (#1247) are all fixed, so no RTDB construct diverges.
+    expect(out).not.toContain('[diverged] rtdb.method.string.matches');
+    expect(out).not.toContain('[diverged] rtdb.semantic.regex-literal');
+    const rtdbBreakdown = out.slice(out.indexOf('--- RTDB Rules Breakdown ---'));
+    expect(rtdbBreakdown.match(/\[diverged\] rtdb\./g)).toBeNull();
   }, GATE_TIMEOUT_MS);
 });

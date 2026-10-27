@@ -175,7 +175,14 @@
         "r4-validate-structure",
         "r40-auth-token-dynamic-index",
         "r42-custom-token-standard-claims",
+        "r47-regex-runtime",
+        "r48-object-equality",
+        "r49-value-edges",
         "r5-cascade-root-grant",
+        "r50-regex-unsupported-semantics",
+        "r52-prototype-named-keys",
+        "r54-regex-alternation-runtime",
+        "r56-regex-classes-runtime",
         "r7-pathvar-binding",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -200,10 +207,13 @@
         "r32-method-argument-types",
         "r34-stdlib-auth-membership-quota",
         "r42-custom-token-standard-claims",
+        "r49-value-edges",
         "r7-pathvar-binding",
         "r8-combined-check"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#41"
+      ],
       "divergedByRows": []
     },
     "rtdb.binding.auth.token": {
@@ -218,12 +228,14 @@
         "r31-token-claims",
         "r34-stdlib-auth-membership-quota",
         "r40-auth-token-dynamic-index",
-        "r42-custom-token-standard-claims"
+        "r42-custom-token-standard-claims",
+        "r49-value-edges"
       ],
       "verifiedByRows": [
         "rtdb-rules#25",
         "rtdb-rules#31",
-        "rtdb-rules#32"
+        "rtdb-rules#32",
+        "rtdb-rules#41"
       ],
       "divergedByRows": []
     },
@@ -248,6 +260,8 @@
         "r39-root-parent-runtime",
         "r40-auth-token-dynamic-index",
         "r41-error-and-false-short-circuit",
+        "r48-object-equality",
+        "r49-value-edges",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -283,6 +297,13 @@
         "r38-div-mod-by-zero",
         "r4-validate-structure",
         "r41-error-and-false-short-circuit",
+        "r47-regex-runtime",
+        "r48-object-equality",
+        "r49-value-edges",
+        "r50-regex-unsupported-semantics",
+        "r52-prototype-named-keys",
+        "r54-regex-alternation-runtime",
+        "r56-regex-classes-runtime",
         "r8-combined-check",
         "r9-quota-arithmetic"
       ],
@@ -362,6 +383,12 @@
         "r38-div-mod-by-zero",
         "r40-auth-token-dynamic-index",
         "r41-error-and-false-short-circuit",
+        "r47-regex-runtime",
+        "r48-object-equality",
+        "r49-value-edges",
+        "r50-regex-unsupported-semantics",
+        "r54-regex-alternation-runtime",
+        "r56-regex-classes-runtime",
         "r8-combined-check",
         "r9-quota-arithmetic"
       ],
@@ -390,10 +417,12 @@
         "r38-div-mod-by-zero",
         "r40-auth-token-dynamic-index",
         "r41-error-and-false-short-circuit",
+        "r49-value-edges",
         "r8-combined-check"
       ],
       "verifiedByRows": [
-        "rtdb-rules#18"
+        "rtdb-rules#18",
+        "rtdb-rules#41"
       ],
       "divergedByRows": []
     },
@@ -425,9 +454,12 @@
       "classification": "conformant",
       "verifiedBy": [
         "r10-snapshot-type-guards",
-        "r32-method-argument-types"
+        "r32-method-argument-types",
+        "r49-value-edges"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#41"
+      ],
       "divergedByRows": []
     },
     "rtdb.method.snapshot.hasChildren": {
@@ -463,7 +495,8 @@
         "r3-data-exists",
         "r32-method-argument-types",
         "r34-stdlib-auth-membership-quota",
-        "r39-root-parent-runtime"
+        "r39-root-parent-runtime",
+        "r49-value-edges"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -499,6 +532,7 @@
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
         "r34-stdlib-auth-membership-quota",
+        "r52-prototype-named-keys",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -517,7 +551,12 @@
         "r21-validate-on-delete",
         "r23-validate-sibling-scope",
         "r27-stdlib-core-patterns",
-        "r34-stdlib-auth-membership-quota"
+        "r34-stdlib-auth-membership-quota",
+        "r47-regex-runtime",
+        "r49-value-edges",
+        "r50-regex-unsupported-semantics",
+        "r54-regex-alternation-runtime",
+        "r56-regex-classes-runtime"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -582,9 +621,17 @@
       "classification": "conformant",
       "verifiedBy": [
         "r11-string-validation",
-        "r27-stdlib-core-patterns"
+        "r27-stdlib-core-patterns",
+        "r47-regex-runtime",
+        "r50-regex-unsupported-semantics",
+        "r54-regex-alternation-runtime",
+        "r56-regex-classes-runtime"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#34",
+        "rtdb-rules#43",
+        "rtdb-rules#45"
+      ],
       "divergedByRows": []
     },
     "rtdb.method.string.replace": {
@@ -638,10 +685,12 @@
         "r17-validate-runtime-error",
         "r27-stdlib-core-patterns",
         "r37-runtime-comparison-and-length-types",
-        "r39-root-parent-runtime"
+        "r39-root-parent-runtime",
+        "r49-value-edges"
       ],
       "verifiedByRows": [
-        "rtdb-rules#28"
+        "rtdb-rules#28",
+        "rtdb-rules#41"
       ],
       "divergedByRows": []
     },
@@ -658,11 +707,14 @@
         "r14-root-lookup",
         "r2-own-uid",
         "r22-strict-equality-types",
+        "r48-object-equality",
         "r7-pathvar-binding",
         "r8-combined-check",
         "r9-quota-arithmetic"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#40"
+      ],
       "divergedByRows": []
     },
     "rtdb.operator.strictNeq": {
@@ -708,11 +760,14 @@
         "r41-error-and-false-short-circuit",
         "r42-custom-token-standard-claims",
         "r45-not-operator-runtime",
+        "r48-object-equality",
+        "r49-value-edges",
         "r9-quota-arithmetic",
         "r44-deploy-string-and-regex-probes"
       ],
       "verifiedByRows": [
-        "rtdb-rules#33"
+        "rtdb-rules#33",
+        "rtdb-rules#40"
       ],
       "divergedByRows": []
     },
@@ -749,12 +804,21 @@
         "r39-root-parent-runtime",
         "r4-validate-structure",
         "r42-custom-token-standard-claims",
+        "r47-regex-runtime",
+        "r48-object-equality",
+        "r49-value-edges",
         "r5-cascade-root-grant",
+        "r50-regex-unsupported-semantics",
+        "r52-prototype-named-keys",
+        "r54-regex-alternation-runtime",
+        "r56-regex-classes-runtime",
         "r7-pathvar-binding",
         "r8-combined-check",
         "r9-quota-arithmetic"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#40"
+      ],
       "divergedByRows": []
     },
     "rtdb.operator.lt": {
@@ -813,6 +877,7 @@
         "r30-query-rules",
         "r33-null-operands",
         "r34-stdlib-auth-membership-quota",
+        "r49-value-edges",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [
@@ -960,6 +1025,11 @@
         "r34-stdlib-auth-membership-quota",
         "r35-operator-precedence",
         "r41-error-and-false-short-circuit",
+        "r47-regex-runtime",
+        "r49-value-edges",
+        "r50-regex-unsupported-semantics",
+        "r54-regex-alternation-runtime",
+        "r56-regex-classes-runtime",
         "r7-pathvar-binding",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -986,9 +1056,13 @@
         "r39-root-parent-runtime",
         "r40-auth-token-dynamic-index",
         "r41-error-and-false-short-circuit",
-        "r9-quota-arithmetic"
+        "r48-object-equality",
+        "r9-quota-arithmetic",
+        "r51-deploy-anchor-index-and-length-probes"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#39"
+      ],
       "divergedByRows": []
     },
     "rtdb.operator.not": {
@@ -1008,7 +1082,10 @@
         "r37-runtime-comparison-and-length-types",
         "r38-div-mod-by-zero",
         "r41-error-and-false-short-circuit",
-        "r45-not-operator-runtime"
+        "r45-not-operator-runtime",
+        "r48-object-equality",
+        "r49-value-edges",
+        "r50-regex-unsupported-semantics"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -1070,6 +1147,7 @@
         "r40-auth-token-dynamic-index",
         "r42-custom-token-standard-claims",
         "r45-not-operator-runtime",
+        "r49-value-edges",
         "r7-pathvar-binding",
         "r8-combined-check"
       ],
@@ -1128,6 +1206,8 @@
         "r41-error-and-false-short-circuit",
         "r42-custom-token-standard-claims",
         "r45-not-operator-runtime",
+        "r48-object-equality",
+        "r49-value-edges",
         "r5-cascade-root-grant",
         "r6-deny-everything",
         "r7-pathvar-binding",
@@ -1176,7 +1256,14 @@
         "r38-div-mod-by-zero",
         "r4-validate-structure",
         "r41-error-and-false-short-circuit",
+        "r47-regex-runtime",
+        "r48-object-equality",
+        "r49-value-edges",
         "r5-cascade-root-grant",
+        "r50-regex-unsupported-semantics",
+        "r52-prototype-named-keys",
+        "r54-regex-alternation-runtime",
+        "r56-regex-classes-runtime",
         "r6-deny-everything",
         "r7-pathvar-binding",
         "r8-combined-check",
@@ -1214,6 +1301,13 @@
         "r33-null-operands",
         "r34-stdlib-auth-membership-quota",
         "r4-validate-structure",
+        "r47-regex-runtime",
+        "r48-object-equality",
+        "r49-value-edges",
+        "r50-regex-unsupported-semantics",
+        "r52-prototype-named-keys",
+        "r54-regex-alternation-runtime",
+        "r56-regex-classes-runtime",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [
@@ -1230,9 +1324,12 @@
       "classification": "conformant",
       "verifiedBy": [
         "r13-priority-and-index-directive",
-        "r30-query-rules"
+        "r30-query-rules",
+        "r51-deploy-anchor-index-and-length-probes"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#38"
+      ],
       "divergedByRows": []
     },
     "rtdb.rule-kind.location-wildcard": {
@@ -1253,10 +1350,12 @@
         "r27-stdlib-core-patterns",
         "r28-stdlib-presence-timing",
         "r34-stdlib-auth-membership-quota",
+        "r52-prototype-named-keys",
         "r7-pathvar-binding"
       ],
       "verifiedByRows": [
-        "rtdb-rules#19"
+        "rtdb-rules#19",
+        "rtdb-rules#37"
       ],
       "divergedByRows": []
     },
@@ -1323,10 +1422,32 @@
       "verifiedBy": [
         "r11-string-validation",
         "r27-stdlib-core-patterns",
-        "r44-deploy-string-and-regex-probes"
+        "r47-regex-runtime",
+        "r50-regex-unsupported-semantics",
+        "r54-regex-alternation-runtime",
+        "r56-regex-classes-runtime",
+        "r44-deploy-string-and-regex-probes",
+        "r46-deploy-regex-constructs",
+        "r51-deploy-anchor-index-and-length-probes",
+        "r53-deploy-regex-paren",
+        "r55-deploy-regex-empty",
+        "r57-deploy-regex-operators",
+        "r58-deploy-regex-count-past-int",
+        "r59-deploy-regex-count-100000",
+        "r60-deploy-regex-repeat-of-repeat"
       ],
       "verifiedByRows": [
-        "rtdb-rules#33"
+        "rtdb-rules#33",
+        "rtdb-rules#34",
+        "rtdb-rules#35",
+        "rtdb-rules#42",
+        "rtdb-rules#43",
+        "rtdb-rules#44",
+        "rtdb-rules#45",
+        "rtdb-rules#46",
+        "rtdb-rules#47",
+        "rtdb-rules#48",
+        "rtdb-rules#49"
       ],
       "divergedByRows": []
     },
@@ -1338,10 +1459,12 @@
       "classification": "conformant",
       "verifiedBy": [
         "r30-query-rules",
-        "r45-not-operator-runtime"
+        "r45-not-operator-runtime",
+        "r49-value-edges"
       ],
       "verifiedByRows": [
-        "rtdb-rules#24"
+        "rtdb-rules#24",
+        "rtdb-rules#36"
       ],
       "divergedByRows": []
     },
@@ -1367,10 +1490,12 @@
       "classification": "conformant",
       "verifiedBy": [
         "r30-query-rules",
-        "r45-not-operator-runtime"
+        "r45-not-operator-runtime",
+        "r49-value-edges"
       ],
       "verifiedByRows": [
-        "rtdb-rules#26"
+        "rtdb-rules#26",
+        "rtdb-rules#36"
       ],
       "divergedByRows": []
     },
@@ -1451,7 +1576,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "r30-query-rules"
+        "r30-query-rules",
+        "r49-value-edges"
       ],
       "verifiedByRows": [
         "rtdb-rules#24"
@@ -1494,7 +1620,8 @@
       "classification": "conformant",
       "verifiedBy": [
         "r31-token-claims",
-        "r34-stdlib-auth-membership-quota"
+        "r34-stdlib-auth-membership-quota",
+        "r49-value-edges"
       ],
       "verifiedByRows": [
         "rtdb-rules#25",

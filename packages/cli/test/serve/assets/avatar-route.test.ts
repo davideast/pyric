@@ -190,7 +190,7 @@ describe('avatar route: uid validation', () => {
 });
 
 describe('avatar route: cross-site requests', () => {
-  it('refuses a request the browser marks cross-site, so another page cannot drive the source', async () => {
+  it('answers a request the browser marks cross-site without letting it start the source', async () => {
     const resolver = spyResolver();
     const h = await serve(resolver);
 
@@ -198,8 +198,8 @@ describe('avatar route: cross-site requests', () => {
       headers: { 'sec-fetch-site': 'cross-site', 'sec-fetch-dest': 'image' },
     });
 
-    expect(response.status).toBe(403);
-    expect(resolver.requests).toHaveLength(0); // the source is never reached
+    expect(response.status).toBe(200);
+    expect(resolver.requests.map((request) => request.sourceAllowed)).toEqual([false]);
   });
 
   it('serves the application own requests and clients that send no fetch metadata', async () => {

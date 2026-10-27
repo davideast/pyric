@@ -1,0 +1,16 @@
+{
+  "rules": {
+    "gate": {
+      ".read": "root.child('open').val() == true",
+      ".write": true
+    },
+    "open": { ".read": true, ".write": true },
+    "rooms": {
+      "$room": {
+        ".read": "data.child('open').val() == true",
+        ".write": true
+      }
+    },
+    "marker": { ".read": true, ".write": true }
+  }
+}

@@ -183,8 +183,13 @@ written value.
   by the `.write` rules on its own path and by the `.validate` rules against the
   tree the whole update produces, so one refused path denies the update. Test a
   multi-path update as an `update` case, not as one `write` case per path.
-- `UNSUPPORTED` means the simulator abstained on an expression it cannot
-  evaluate. It is not a pass. Report it and run `rules.lint()` for the cause.
+- `UNSUPPORTED` means the simulator did not evaluate the case. It is not a
+  pass. Either the case reached an expression the simulator cannot evaluate
+  (run `rules.lint()` for the cause), or no client could send the request: a
+  path with `.`, `#`, `$`, `[` or `]`, update paths that overlap, a write under
+  `/.info`, a query the SDK refuses to build, `updates` that leave out `path`
+  or disagree with `newData`, or a ruleset that does not compile. `reason`
+  says which, with the SDK's own text for a refused request. Fix the case.
 - `simulate` does not run the deploy check. A rule `firebase deploy` refuses can
   still evaluate in a case: a `.read` of `auth.uid` grants any signed-in reader.
   A passing case on a ruleset with lint errors proves nothing about production.
@@ -195,15 +200,15 @@ written value.
 |---|---|---|---|
 | Does this rule allow or deny this request? | Rules-only simulation (`rtdbRules(...).simulate`, `assertCase`, `rtdb_simulate_access`) | Rules JSON and case data | Behavior for the modeled cases, and coverage of the rules |
 | Does the app's SDK code, identity, listeners and transactions hit the rules correctly? | Local SDK integration (sandbox with `withAuth` contexts) | `initializeSandbox`, `pyric/database`, signed-in contexts | The local implementation handling real calls |
-| Would a captured session change verdicts under new rules? | `pyric verify --service rtdb --rules rtdb=database.rules.json` | A captured session | Divergences between old and new rules on the sandbox engine only |
-| Does Firebase itself agree for this ruleset? | Live verification | A non-production Firebase project running the rules | The only evidence of production behavior |
+| Would a captured session change verdicts under new rules? | `pyric verify --service rtdb --rules rtdb=database.rules.json` | A captured session | Divergences between old and new rules on the sandbox engine |
+| Does Firebase itself agree for this ruleset? | `pyric verify --engine sandbox --engine staging` (or Live verification) | A captured session and a real RTDB instance (enrolled with `verify staging init`) | Production verdicts vs local sandbox replays for your exact traffic |
 
 Full SDK integration setup is optional extra coverage, not a prerequisite for
 testing predicates. Local simulation does not establish production parity for
 your ruleset. Live verification means deploying to a non-production project and
 exercising the same cases with the Firebase SDK. The hosted Rules Test API
 covers Firestore only, so `pyric verify --engine rules-test-api` is refused for
-`rtdb`.
+`rtdb`. For Realtime Database, run `--engine staging` to test the session against a real instance you provide.
 
 ### Sandbox layer
 

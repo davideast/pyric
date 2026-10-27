@@ -269,10 +269,13 @@ export function wrapWithErrorTranslation<T extends object>(
         let result: unknown;
         try {
           const invoke = () => (value as (...a: unknown[]) => unknown).apply(t, args);
-          result = ctx.sandbox.runWithProvenance?.(
-            provenanceForOperationContext(ctx.operationContext),
-            invoke,
-          ) ?? invoke();
+          // Branch on the window, not on the result: a method that returns
+          // undefined (`QuerySnapshot.forEach`) must run once, not again
+          // through a `?? invoke()` fallback (#1203).
+          const hasProvenanceWindow = typeof ctx.sandbox.runWithProvenance === 'function';
+          result = hasProvenanceWindow
+            ? ctx.sandbox.runWithProvenance!(provenanceForOperationContext(ctx.operationContext), invoke)
+            : invoke();
         } catch (e) {
           throw toSandboxError(e, ctx);
         }

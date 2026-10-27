@@ -60,15 +60,17 @@ import {
   initializeSandbox,
   type AuthState,
   type LocalSandbox,
+  type SandboxContext,
   type SandboxEvent,
 } from "pyric/sandbox";
-import { getInternalEnv } from "pyric/sandbox/internal";
+import { getInternalEnv, resolveDatabaseInstance } from "pyric/sandbox/internal";
 import { qualifyProbe, rulesLoadRefusal } from "./capabilities.js";
 import {
   assertActor,
   assertInvariant,
   assertProbe,
   assertTarget,
+  assertCampaign,
 } from "./validation.js";
 import {
   ASSURANCE_CAMPAIGN_SCHEMA,
@@ -96,9 +98,12 @@ interface ActorRuntime {
   auth: AuthState | null;
 }
 
+
+
 interface ServiceRuntime {
   sandbox: LocalSandbox;
   actor: ActorRuntime;
+  context: SandboxContext;
   firestore?: Firestore;
   rtdb?: Database;
   rtdbAdmin?: Database;
@@ -113,56 +118,6 @@ interface ExecutedOperation {
 }
 
 let storageRunSequence = 0;
-
-function assertCampaign(spec: AuthorizationCampaignSpec): void {
-  if (spec.schema !== ASSURANCE_CAMPAIGN_SCHEMA) {
-    throw new AssuranceInputError(
-      `campaign schema must be '${ASSURANCE_CAMPAIGN_SCHEMA}'.`,
-    );
-  }
-  if (!spec.id.trim())
-    throw new AssuranceInputError("campaign id is required.");
-  assertTarget(spec.target);
-  if (!Array.isArray(spec.actors)) {
-    throw new AssuranceInputError("campaign actors must be an array.");
-  }
-  if (!Array.isArray(spec.invariants)) {
-    throw new AssuranceInputError("campaign invariants must be an array.");
-  }
-  if (!Array.isArray(spec.probes)) {
-    throw new AssuranceInputError("campaign probes must be an array.");
-  }
-  for (const actor of spec.actors) assertActor(actor);
-  for (const invariant of spec.invariants) assertInvariant(invariant);
-  for (const probe of spec.probes) assertProbe(probe);
-  uniqueIds(spec.actors, "actor");
-  uniqueIds(spec.invariants, "invariant");
-  uniqueIds(spec.probes, "probe");
-
-  for (const probe of spec.probes) {
-    const actor = spec.actors.find((item) => item.id === probe.actorId);
-    const invariant = spec.invariants.find(
-      (item) => item.id === probe.invariantId,
-    );
-    if (!actor)
-      throw new AssuranceInputError(
-        `probe '${probe.id}' references unknown actor '${probe.actorId}'.`,
-      );
-    if (!invariant) {
-      throw new AssuranceInputError(
-        `probe '${probe.id}' references unknown invariant '${probe.invariantId}'.`,
-      );
-    }
-    if (
-      invariant.service !== "cross-service" &&
-      invariant.service !== probe.control.service
-    ) {
-      throw new AssuranceInputError(
-        `probe '${probe.id}' service does not match invariant '${invariant.id}'.`,
-      );
-    }
-  }
-}
 
 function uniqueIds(items: ReadonlyArray<{ id: string }>, label: string): void {
   const seen = new Set<string>();
@@ -337,7 +292,7 @@ async function createRuntime(
   const sandbox = initializeSandbox();
   seedAuth(sandbox, target);
   const context = sandbox.withAuth(actorRuntime.auth);
-  const runtime: ServiceRuntime = { sandbox, actor: actorRuntime };
+  const runtime: ServiceRuntime = { sandbox, actor: actorRuntime, context };
 
   if (service === "firestore") {
     const firestore = getFirestore(context);
@@ -347,12 +302,34 @@ async function createRuntime(
   } else if (service === "rtdb") {
     const rtdb = getDatabase(context);
     const admin = getAdminDatabase(sandbox);
-    const refusal = rtdbRulesSourceRejection(target.rules.rtdb);
-    if (refusal !== null) throw new Error(`The assurance target's database rules would not deploy. ${refusal.message}`);
-    rtdbSandbox.setRules(rtdb, target.rules.rtdb!);
-    rtdbSandbox.setData(admin, { "/": target.state.rtdb ?? {} });
+    if (target.rules.rtdb) {
+      const refusal = rtdbRulesSourceRejection(target.rules.rtdb as any);
+      if (refusal !== null) throw new Error(`The assurance target's database rules would not deploy. ${refusal.message}`);
+      rtdbSandbox.setRules(rtdb, target.rules.rtdb as any);
+      rtdbSandbox.setData(admin, { "/": target.state.rtdb ?? {} });
+    }
     runtime.rtdb = rtdb;
     runtime.rtdbAdmin = admin;
+
+    if (target.rules.rtdbInstances) {
+      const stateByResolved = new Map<string, unknown>();
+      if (target.state.rtdbInstances) {
+         for (const [k, v] of Object.entries(target.state.rtdbInstances)) {
+            stateByResolved.set(resolveDatabaseInstance(k)!.name, v);
+         }
+      }
+      for (const [instanceName, instanceValue] of Object.entries(target.rules.rtdbInstances)) {
+        const instanceRefusal = rtdbRulesSourceRejection(instanceValue);
+        if (instanceRefusal !== null) throw new Error(`The assurance target's database rules for instance '${instanceName}' would not deploy. ${instanceRefusal.message}`);
+        
+        const resolved = resolveDatabaseInstance(instanceName)!;
+        const instDb = getDatabase(context, resolved.url);
+        const instAdmin = getAdminDatabase(sandbox, resolved.url);
+        rtdbSandbox.setRules(instDb, instanceValue as { rules: Record<string, unknown> });
+        const instData = stateByResolved.get(resolved.name);
+        rtdbSandbox.setData(instAdmin, { "/": instData ?? {} });
+      }
+    }
   } else {
     if (target.state.firestore) {
       seedDocuments(
@@ -678,7 +655,12 @@ async function readState(
     return state[normalizedPath] ?? null;
   }
   if (operation.service === "rtdb") {
-    return (await getRtdb(rtdbRef(runtime.rtdbAdmin!, operation.path))).val();
+    let admin = runtime.rtdbAdmin!;
+    if (operation.instance && operation.instance !== "default") {
+      const url = resolveDatabaseInstance(operation.instance)!.url;
+      admin = getAdminDatabase(runtime.sandbox, url);
+    }
+    return (await getRtdb(rtdbRef(admin, operation.path))).val();
   }
   return readStorageState(operation, runtime.storageAdmin!);
 }
@@ -740,7 +722,7 @@ async function executeOperation(
       operation.service === "firestore"
         ? await executeFirestore(operation, runtime.firestore!, runtime)
         : operation.service === "rtdb"
-          ? await executeRtdb(operation, runtime.rtdb!)
+          ? await executeRtdb(operation, operation.instance && operation.instance !== "default" ? getDatabase(runtime.context, resolveDatabaseInstance(operation.instance)!.url) : runtime.rtdb!)
           : await executeStorage(operation, runtime.storage!);
   } catch (error) {
     const result = errorDecision(error);

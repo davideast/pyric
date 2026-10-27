@@ -5,12 +5,14 @@
  * unstable internal subpath exposes the pure rules parser, simulator,
  * replay engine, and constraints DSL used by pyric's tooling packages.
  */
-export { replay } from '../../database/replay.js';
+export { replay, rewoundRtdbTree, rtdbReplaySteps, rtdbStateDrift } from '../../database/replay.js';
 export type {
   RtdbReplayDivergence,
   RtdbReplayOptions,
   RtdbReplayResult,
+  RtdbReplayStep,
 } from '../../database/replay.js';
+export { simulatedAuthOf as rtdbAuthVariable } from '../rtdb/simulation/handler.js';
 export {
   buildRuleExpression,
   compileRtdbRules,
@@ -27,6 +29,22 @@ export type {
 } from '../rtdb/source-locations.js';
 
 export { parseExpression } from '../rtdb/grammar/RtdbExprParser.js';
+export {
+  parseRtdbExpressionTree,
+  printRtdbExpressionTree,
+} from '../rtdb/grammar/expression-tree.js';
+export type {
+  RtdbBinaryOperator,
+  RtdbExpressionTree,
+  RtdbExpressionTreeResult,
+} from '../rtdb/grammar/expression-tree.js';
+export {
+  canonicalRtdbExpression,
+  canonicalTree as canonicalRtdbExpressionTree,
+  RtdbExpressionSyntaxError,
+} from '../rtdb/grammar/canonical.js';
+export { DIFFED_RULE_KINDS, diffRtdbRules } from '../rtdb/rules-diff.js';
+export type { DiffRtdbRulesOptions, RtdbRuleChange } from '../rtdb/rules-diff.js';
 export { validateExpression } from '../rtdb/grammar/validator.js';
 export { lintExpression } from '../rtdb/grammar/linter.js';
 export { lintRtdbRuleset } from '../rtdb/grammar/ruleset-lint.js';

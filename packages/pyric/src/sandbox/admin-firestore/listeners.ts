@@ -364,10 +364,10 @@ export function onSnapshot(
     bypassRules,
     authScope,
   );
-  return ctx.sandbox.runWithProvenance?.(
-    provenanceForOperationContext(ctx.operationContext),
-    register,
-  ) ?? register();
+  const hasProvenanceWindow = typeof ctx.sandbox.runWithProvenance === 'function';
+  return hasProvenanceWindow
+    ? ctx.sandbox.runWithProvenance!(provenanceForOperationContext(ctx.operationContext), register)
+    : register();
 }
 
 /**

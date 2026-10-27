@@ -3,6 +3,7 @@
   "commands": [
     "bridge",
     "sandbox",
+    "run",
     "init",
     "vendor",
     "mcp",
@@ -21,7 +22,9 @@
     "serve diagnostics",
     "serve denials",
     "serve repro capture",
-    "serve repro replay"
+    "serve repro replay",
+    "verify staging init",
+    "verify staging restore"
   ],
   "derivedCommands": [
     "ai_logic clearScripts",
@@ -175,7 +178,8 @@
     "./next/internal/performance",
     "./next/internal/remote-config",
     "./next/internal/storage",
-    "./next/internal/react-hook"
+    "./next/internal/react-hook",
+    "./package.json"
   ],
   "allowedFirebaseSdkImportEdges": [
     "dist/register/app-bridge-shadow.js -> firebase/app",

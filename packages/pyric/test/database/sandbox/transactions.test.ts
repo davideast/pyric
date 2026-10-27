@@ -3,6 +3,7 @@ import { BackendState } from '../../../src/database/sandbox/backend-state.js';
 import { ChildListeners } from '../../../src/database/sandbox/child-listeners.js';
 import { Transactions } from '../../../src/database/sandbox/transactions.js';
 import { ValueListeners } from '../../../src/database/sandbox/value-listeners.js';
+import { WritePlane } from '../../../src/database/sandbox/write-plane.js';
 
 it('retries an overlapping re-entrant write and releases mutation history', () => {
   const state = new BackendState();
@@ -176,3 +177,62 @@ it('bypasses read and write rules when admin option is true and preserves priori
   expect(prioOut).toEqual({ committed: true, val: 2, key: 'prioritized' });
   expect(state.priorities.get('/prioritized')).toBe(7);
 });
+
+// DF-1 (#1247): a transaction commit is a data write, so it revokes listeners
+// through the same path a set or update takes, before anything is delivered.
+for (const applyLocally of [true, false]) {
+  it(`revokes the listeners a commit denies before delivering to them (applyLocally ${applyLocally})`, () => {
+    const state = new BackendState();
+    const values = new ValueListeners(state);
+    const children = new ChildListeners(state);
+    const writes = new WritePlane(state, values, children);
+    const transactions = new Transactions(state, values, children, writes);
+    writes.setRules({
+      rules: { rooms: { $room: { '.read': "data.child('members').child(auth.uid).val() == true", '.write': true } } },
+    });
+    writes.adminSet('/rooms/r1', { members: { alice: true, bob: true }, msg: 'hi' });
+    const delivered: Record<string, unknown[]> = { alice: [], bob: [] };
+    const cancelled: string[] = [];
+    const childCancelled: string[] = [];
+    values.onValue({ uid: 'alice' }, '/rooms/r1', (snap) => delivered.alice!.push(snap.val), undefined,
+      (err) => cancelled.push((err as Error & { code: string }).code));
+    children.onChild({ uid: 'alice' }, 'child_added', '/rooms/r1/messages', () => {}, undefined,
+      (err) => childCancelled.push((err as Error & { code: string }).code));
+    values.onValue({ uid: 'bob' }, '/rooms/r1', (snap) => delivered.bob!.push(snap.val));
+    delivered.alice!.length = 0;
+    delivered.bob!.length = 0;
+    const recorded: string[] = [];
+    const operation = state.events.operation.bind(state.events);
+    state.events.operation = (auth, method, path, result, evaluation, fields) => {
+      recorded.push(`${method} ${path} ${result}`);
+      operation(auth, method, path, result, evaluation, fields);
+    };
+    const listener = state.events.listener.bind(state.events);
+    state.events.listener = (phase, target, auth, fields) => {
+      if (phase === 'delivery') recorded.push(`delivery ${target.path} to ${auth?.uid}`);
+      listener(phase, target, auth, fields);
+    };
+    const commit = state.events.commit.bind(state.events);
+    state.events.commit = (auth, method, path, fields) => {
+      recorded.push(`commit ${method} ${path}`);
+      commit(auth, method, path, fields);
+    };
+
+    transactions.run({ uid: 'alice' }, '/rooms/r1/members/alice', () => false, { applyLocally });
+
+    expect({ delivered, cancelled, childCancelled }).toEqual({
+      delivered: { alice: [], bob: [{ members: { alice: false, bob: true }, msg: 'hi' }] },
+      cancelled: ['PERMISSION_DENIED'],
+      childCancelled: ['PERMISSION_DENIED'],
+    });
+    // Recorded as a set is: the operation, the revocations it causes, the
+    // deliveries to the listeners that may still read, then the commit.
+    expect(recorded).toEqual([
+      'transaction /rooms/r1/members/alice allow',
+      'listen /rooms/r1 deny',
+      'listen /rooms/r1/messages deny',
+      'delivery /rooms/r1 to bob',
+      'commit transaction /rooms/r1/members/alice',
+    ]);
+  });
+}

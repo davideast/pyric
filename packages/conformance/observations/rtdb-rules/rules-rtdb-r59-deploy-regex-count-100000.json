@@ -1,0 +1,17 @@
+{
+  "name": "rules-rtdb-r59-deploy-regex-count-100000",
+  "matrixRow": "rtdb-rules#48",
+  "rowIds": [
+    "rtdb-rules#48"
+  ],
+  "description": "RTDB rules deploy verdicts for corpus scenario \"r59-deploy-regex-count-100000\" (rtdb#71). Captured by dry-run deploys to the rules endpoint, which validate without deploying. pyric loads a repeat count of 100,000; production has no recorded verdict for it.",
+  "observedAt": "2026-10-27T02:30:24.092Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "a repeat count of 100000": {
+      "verdict": "REJECTED",
+      "error": "Illegal regular expression, could not determinize efficiently"
+    }
+  }
+}

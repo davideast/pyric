@@ -27,8 +27,9 @@
  * divergences" test so it can never hide.
  *
  * CURRENT STATE: the in-process simulator agrees with every captured
- * production verdict except the r30 query-variable cases pinned in
- * KNOWN_DIVERGENCES. The r15 ancestor-validate false ALLOW is resolved: the
+ * production verdict. The 2026-10-26 hunt (#1247) pins are all resolved,
+ * so KNOWN_DIVERGENCES is empty. The r15 ancestor-validate false ALLOW is
+ * resolved too: the
  * simulator now evaluates the full root-to-write validation path against the
  * merged post-write tree.
  *
@@ -69,7 +70,8 @@ const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', '..', 'packages', 
 const KNOWN_DIVERGENCES: Record<
   string,
   { prodVerdict: 'ALLOW' | 'DENY'; simVerdict: 'ALLOW' | 'DENY' | 'UNSUPPORTED'; reason: string }
-> = {};
+> = {
+};
 
 interface RulesObservation {
   name: string;

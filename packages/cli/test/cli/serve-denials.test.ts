@@ -95,6 +95,7 @@ describe('pyric serve denials', () => {
     expect(stdout).toContain('rtdb /rooms/$roomId: 1 denial');
     expect(stdout).toContain(`rule: ${rule}`);
     expect(stdout).toContain('identities: anonymous-cf1eb84b');
+    expect(stdout).toContain('Tip: After changing rules, run `pyric verify` to replay the captured session against them and confirm your fixes.');
   });
 
   it('prints the groups as JSON, keeping only denials inside --since', async () => {

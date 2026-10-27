@@ -88,7 +88,7 @@ export interface QuerySnapshot {
   readonly size: number;
   readonly empty: boolean;
   readonly docs: QueryDocumentSnapshot[];
-  forEach(callback: (snap: QueryDocumentSnapshot) => void): void;
+  forEach(callback: (snap: QueryDocumentSnapshot) => void, thisArg?: unknown): void;
 }
 
 export interface DocumentReference {

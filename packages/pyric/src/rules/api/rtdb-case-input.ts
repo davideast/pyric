@@ -10,46 +10,17 @@
  */
 
 import type { RtdbRulesDocumentInternal, RtdbRulesSimulationInput } from '../rtdb/constraints/document.js';
-import {
-  simulationQueryProblem,
-  type RtdbRuleEvaluation,
-  type SimulateResult,
-} from '../rtdb/simulation/spec.js';
+import type { RtdbRuleEvaluation, SimulateResult } from '../rtdb/simulation/spec.js';
 import type { RtdbCase } from './case-types.js';
+import { rtdbCaseProblem, rtdbPathSegments } from './rtdb-case-validation.js';
 
 /** A case the engine cannot evaluate as given, and why. */
 export function invalidCase(message: string): SimulateResult {
   return { success: false, error: { code: 'INVALID_INPUT', message, recoverable: true } };
 }
 
-function segmentsOf(path: string): string[] {
-  return path.split('/').filter(Boolean);
-}
-
 function absolutePath(segments: string[]): string {
   return `/${segments.join('/')}`;
-}
-
-function isPatch(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function hasAbsoluteUpdatePath(entry: unknown): boolean {
-  if (typeof entry !== 'object' || entry === null) return false;
-  const path = (entry as { path?: unknown }).path;
-  return typeof path === 'string' && path.length > 0 && path.startsWith('/');
-}
-
-function updatesProblem(updates: unknown): string | null {
-  if (!Array.isArray(updates)) {
-    return "'updates' must be an array of { path, value } entries.";
-  }
-  for (const entry of updates) {
-    if (!hasAbsoluteUpdatePath(entry)) {
-      return "each 'updates' entry needs an absolute 'path' starting with '/'.";
-    }
-  }
-  return null;
 }
 
 /** What the engine evaluates for every case kind except `update`. */
@@ -69,16 +40,13 @@ function baseInput(c: RtdbCase): RtdbRulesSimulationInput {
   return input;
 }
 
+/** A multi-path `update` case, whose patch `rtdbCaseProblem` has checked. */
 function simulateUpdate(doc: RtdbRulesDocumentInternal, c: RtdbCase): SimulateResult {
-  if (!isPatch(c.newData)) {
-    return invalidCase("an 'update' case needs newData to be an object keyed by the paths it writes.");
-  }
-  const base = segmentsOf(c.path);
-  const updates = Object.entries(c.newData).map(([key, value]) => ({
-    path: absolutePath([...base, ...segmentsOf(key)]),
+  const base = rtdbPathSegments(c.path);
+  const updates = Object.entries(c.newData as Record<string, unknown>).map(([key, value]) => ({
+    path: absolutePath([...base, ...rtdbPathSegments(key)]),
     value,
   }));
-  if (updates.length === 0) return invalidCase("an 'update' case needs newData to name at least one path.");
 
   let allowed: Extract<SimulateResult, { success: true }> | undefined;
   let validateFailure: { result: Extract<SimulateResult, { success: true }>; validates: RtdbRuleEvaluation[] } | undefined;
@@ -119,20 +87,8 @@ function simulateUpdate(doc: RtdbRulesDocumentInternal, c: RtdbCase): SimulateRe
 
 /** Evaluate one case against a ruleset document. */
 export function simulateRtdbCase(doc: RtdbRulesDocumentInternal, c: RtdbCase): SimulateResult {
-  if (c.query !== undefined) {
-    if (c.operation !== 'read') {
-      return invalidCase(`a query applies to a 'read' case, and this case is '${c.operation}'.`);
-    }
-    const problem = simulationQueryProblem(c.query);
-    if (problem !== null) return invalidCase(problem);
-  }
-  if (c.updates !== undefined) {
-    if (c.operation !== 'write' && c.operation !== 'validate') {
-      return invalidCase(`'updates' applies to a 'write' or 'validate' case, and this case is '${c.operation}'.`);
-    }
-    const problem = updatesProblem(c.updates);
-    if (problem !== null) return invalidCase(problem);
-  }
+  const problem = rtdbCaseProblem(c);
+  if (problem !== null) return invalidCase(problem);
   if (c.operation === 'update') return simulateUpdate(doc, c);
   const input = baseInput(c);
   if (c.query !== undefined) input.query = { ...c.query };

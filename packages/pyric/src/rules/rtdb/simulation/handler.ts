@@ -111,7 +111,7 @@ function snapshotChildKeys(snap: DataSnapshot): string[] {
  * which production reads as the token's `firebase.sign_in_provider`. There is
  * no top-level `auth.tenant`; production reads it as null.
  */
-function simulatedAuthOf(auth: NonNullable<SimulationInput['auth']>, nowMs: number): SimulatedAuth {
+export function simulatedAuthOf(auth: NonNullable<SimulationInput['auth']>, nowMs: number): SimulatedAuth {
   const normalized = normalizeAuthState(auth);
   const token = withIdTokenClaims(auth.uid, normalized?.token ?? {}, nowMs);
   const simulated: SimulatedAuth = { uid: auth.uid, token };
@@ -301,8 +301,14 @@ function toValidateFailureResult(failure: ValidateFailure, trace: RtdbRuleEvalua
   };
 }
 
-function buildSimulatedQueryContext(operation: string, query: SimulationInput['query']): EvalContext['query'] {
-  if (operation !== 'read') return null;
+/**
+ * The rules `query` variable. A read reads the query it carries. A write
+ * carries none, and production reads `query` in a `.write` or `.validate` as
+ * it reads a plain read: `orderByKey` is `false` and every bound and limit is
+ * null (capture rules-rtdb-r49-value-edges, SP-4).
+ */
+function buildSimulatedQueryContext(operation: string, readQuery: SimulationInput['query']): EvalContext['query'] {
+  const query = operation === 'read' ? readQuery : undefined;
   const equalTo = query?.equalTo ?? null;
   return {
     orderByChild: query?.orderByChild ?? null,

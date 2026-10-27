@@ -111,7 +111,8 @@ export function loadFirebaseJsonRules(
   };
   // .firebaserc is read only when it is needed: for the project id when no
   // option names one, and for the instances a deploy target maps to.
-  let projectId = options.projectId;
+  // An empty project id is unset, as it is in .firebaserc, not the instance '-default-rtdb'.
+  let projectId = options.projectId === '' ? undefined : options.projectId;
   if (projectId === undefined) {
     const rcProject = readRc()?.projects?.default;
     if (typeof rcProject === 'string' && rcProject !== '') projectId = rcProject;

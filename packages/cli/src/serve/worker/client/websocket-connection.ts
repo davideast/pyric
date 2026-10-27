@@ -58,6 +58,13 @@ export function getHostedFirestore(target: {
   realm?: HostedSocketRealm;
   /** Host boot identity baked into the served HTML / module at compile time. */
   initialHostInstanceId?: string;
+  /**
+   * Reads the boot id of the host now serving the url, before a reattach. A
+   * Node process passes it: it reads init.json again, so after a host restart
+   * it presents the new boot and the host holds its config as verified. A page
+   * passes nothing and presents the boot it was served by (#1153).
+   */
+  currentHostInstanceId?: () => Promise<string | undefined>;
 }, existingPort?: ClientPort): ClientDb {
   const connectionId = `socket-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   const report = (phase: DiagnosticEvent['phase'], code?: number) => {
@@ -308,6 +315,18 @@ export function getHostedFirestore(target: {
     notifyConnectionChange();
   }
 
+  /** The boot to present on attach: the current one when it can be read on a reattach, else the last one attached. */
+  async function presentHostIdentity(): Promise<string | undefined> {
+    const readCurrent = target.currentHostInstanceId;
+    const readsCurrentBoot = hasEverAttached && readCurrent !== undefined;
+    if (!readsCurrentBoot) return hostInstanceId;
+    try {
+      return (await readCurrent()) ?? hostInstanceId;
+    } catch {
+      return hostInstanceId;
+    }
+  }
+
   function connect(): void {
     const isClosed = state === 'closed';
     if (isClosed) return;
@@ -335,11 +354,20 @@ export function getHostedFirestore(target: {
       const isActiveConnection = isCurrent(connection);
       if (isActiveConnection) report('socket-error');
     });
+    let presentedHostInstanceId = hostInstanceId;
     connection.addEventListener('open', () => {
       const isStaleConnection = !isCurrent(connection);
       if (isStaleConnection) return;
       report('transport-open');
-      send(connection, { type: 'attach', protocol: 1, transport: 'worker-port', resumeToken, hostInstanceId, clientInfo: { platform: realm?.platform ?? 'browser' } });
+      void presentHostIdentity().then(presented => {
+        const isStale = !isCurrent(connection);
+        if (isStale) return;
+        presentedHostInstanceId = presented;
+        // A grant from another boot cannot resume on this one; attach for a fresh session.
+        const presentsOtherBoot = presented !== hostInstanceId;
+        if (presentsOtherBoot) resumeToken = undefined;
+        send(connection, { type: 'attach', protocol: 1, transport: 'worker-port', resumeToken, hostInstanceId: presented, clientInfo: { platform: realm?.platform ?? 'browser' } });
+      });
     });
     connection.addEventListener('message', (event: MessageEvent<string>) => {
       const isStaleConnection = !isCurrent(connection);
@@ -401,7 +429,8 @@ export function getHostedFirestore(target: {
           const isResume = hasEverAttached;
           const hasHostIdentity = typeof message.hostInstanceId === 'string' && message.hostInstanceId.length > 0;
           const changedHost = isResume && hostInstanceId !== undefined && hasHostIdentity && message.hostInstanceId !== hostInstanceId;
-          if (changedHost) fromPriorHost = true;
+          const presentedThisHost = hasHostIdentity && message.hostInstanceId === presentedHostInstanceId;
+          if (changedHost && !presentedThisHost) fromPriorHost = true;
           const attemptsResume = isResume && !requestsFreshSession;
           const receivedDifferentGrant = message.resumeToken !== resumeToken;
           const changedSessionUnexpectedly = attemptsResume && receivedDifferentGrant && !changedHost;

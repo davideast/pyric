@@ -22,6 +22,7 @@ import {
   stringArgumentMessage,
   type TypedOperator,
 } from './type-rules.js';
+import { RtdbRegex, compileRtdbRegex } from './regex.js';
 
 export interface SimulatedAuth {
   uid: string;
@@ -100,7 +101,9 @@ function exportedValue(raw: unknown): unknown {
   for (const [key, child] of Object.entries(raw)) {
     if (key === '.priority') continue;
     const value = exportedValue(child);
-    if (value !== null) out[key] = value;
+    // Defined, not assigned: assigning a key named `__proto__` runs the
+    // prototype setter and drops it, where production keeps it (CS-1).
+    if (value !== null) Object.defineProperty(out, key, { value, enumerable: true, writable: true, configurable: true });
   }
   return Object.keys(out).length === 0 ? null : out;
 }
@@ -195,7 +198,7 @@ export class DataSnapshot {
 class RtdbString {
   constructor(private value: string) {}
 
-  matches(pattern: RegExp): boolean {
+  matches(pattern: RtdbRegex): boolean {
     return pattern.test(this.value);
   }
 
@@ -283,10 +286,10 @@ function childNamesArgument(args: readonly unknown[]): readonly string[] | undef
 }
 
 /** `matches`'s one argument, a regular expression literal. */
-function regexArgument(args: readonly unknown[]): RegExp {
+function regexArgument(args: readonly unknown[]): RtdbRegex {
   if (args.length !== 1) throw new RtdbRuleRuntimeError(argumentCountMessage('matches', 1));
   const [pattern] = args;
-  if (!(pattern instanceof RegExp)) throw new RtdbRuleRuntimeError(MATCHES_REGEX_LITERAL);
+  if (!(pattern instanceof RtdbRegex)) throw new RtdbRuleRuntimeError(MATCHES_REGEX_LITERAL);
   return pattern;
 }
 
@@ -353,23 +356,32 @@ function getEvalSemantics(): Semantics {
     },
     Ternary(node) { return (node as any).eval(this.args.ctx); },
 
-    LogicalOr_or(left, _op, right) {
-      const l = (left as any).eval(this.args.ctx);
+    // A chain matches flat (`first`, then each term of `rest`) and is folded
+    // in a loop: left to right, stopping at the first deciding term, exactly
+    // as the left-nested pairs `((a || b) || c)` evaluate.
+    LogicalOr_or(first, _ops, rest) {
+      const l = (first as any).eval(this.args.ctx);
       if (typeof l !== 'boolean') throw new RtdbRuleRuntimeError('Left operand of || must be boolean.');
       if (l) return true;
-      const r = (right as any).eval(this.args.ctx);
-      if (typeof r !== 'boolean') throw new RtdbRuleRuntimeError('Right operand of || must be boolean.');
-      return r;
+      for (const term of rest.children) {
+        const r = (term as any).eval(this.args.ctx);
+        if (typeof r !== 'boolean') throw new RtdbRuleRuntimeError('Right operand of || must be boolean.');
+        if (r) return true;
+      }
+      return false;
     },
     LogicalOr(node) { return (node as any).eval(this.args.ctx); },
 
-    LogicalAnd_and(left, _op, right) {
-      const l = (left as any).eval(this.args.ctx);
+    LogicalAnd_and(first, _ops, rest) {
+      const l = (first as any).eval(this.args.ctx);
       if (typeof l !== 'boolean') throw new RtdbRuleRuntimeError('Left operand of && must be boolean.');
       if (!l) return false;
-      const r = (right as any).eval(this.args.ctx);
-      if (typeof r !== 'boolean') throw new RtdbRuleRuntimeError('Right operand of && must be boolean.');
-      return r;
+      for (const term of rest.children) {
+        const r = (term as any).eval(this.args.ctx);
+        if (typeof r !== 'boolean') throw new RtdbRuleRuntimeError('Right operand of && must be boolean.');
+        if (!r) return false;
+      }
+      return true;
     },
     LogicalAnd(node) { return (node as any).eval(this.args.ctx); },
 
@@ -518,7 +530,7 @@ function getEvalSemantics(): Semantics {
 
     regex(_slash1, body, _slash2, flags) {
       if (!isSupportedRegexFlags(flags.sourceString)) throw new RtdbRuleRuntimeError(REGEX_FLAGS);
-      return new RegExp(body.sourceString, flags.sourceString);
+      return compileRtdbRegex(body.sourceString, flags.sourceString);
     },
 
     bool_true(_lit) { return true; },

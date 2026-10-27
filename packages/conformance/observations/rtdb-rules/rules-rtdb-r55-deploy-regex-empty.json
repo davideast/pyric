@@ -1,0 +1,25 @@
+{
+  "name": "rules-rtdb-r55-deploy-regex-empty",
+  "matrixRow": "rtdb-rules#44",
+  "rowIds": [
+    "rtdb-rules#44"
+  ],
+  "description": "RTDB rules deploy verdicts for corpus scenario \"r55-deploy-regex-empty\" (rtdb#71). Captured by dry-run deploys to the rules endpoint, which validate without deploying. a pattern the anchor rewrite leaves empty (/^$/) may load or fail like the empty alternative r53 recorded; pyric loads it as the empty string.",
+  "observedAt": "2026-10-27T00:21:13.073Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "empty pattern between anchors (/^$/)": {
+      "verdict": "ACCEPTED"
+    },
+    "a lone ^ (/^/)": {
+      "verdict": "ACCEPTED"
+    },
+    "a lone $ (/$/)": {
+      "verdict": "ACCEPTED"
+    },
+    "empty group between anchors (/^()$/)": {
+      "verdict": "ACCEPTED"
+    }
+  }
+}

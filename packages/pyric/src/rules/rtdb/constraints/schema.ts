@@ -3,6 +3,7 @@ import type { Expr } from './types.js';
 import { all, any, expr, fieldName as assertFieldName, lit } from './compose.js';
 import { hasChild, hasChildren } from './atoms.js';
 import { isSupportedRegexFlags } from '../grammar/type-rules.js';
+import { rtdbRegexError } from '../grammar/regex.js';
 
 export interface SchemaFieldRule {
   validate: Expr;
@@ -15,6 +16,81 @@ export interface SchemaRulesResult {
 }
 
 const EMAIL_PATTERN = '/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/';
+
+/** Escaped letters that mean the same class in JavaScript and in RTDB's dialect. */
+const SHARED_CLASS_ESCAPES = new Set(['d', 'D', 'w', 'W', 's', 'S']);
+const QUANTIFIER_ENDS = new Set(['*', '+', '?', '}']);
+
+/**
+ * Why a JavaScript regex source cannot become an RTDB `matches()` literal
+ * with the same meaning, or null when it can. RTDB reads `\b` as `b`, `\1` as
+ * `1`, `(?` as a literal `?`, and `+?` as an optional `+` (#1247 SP-2b; r47,
+ * r50), and refuses a mid-pattern anchor or `\p{..}` at deploy (SP-1, SP-2a).
+ * Its anchor rewrite puts `.*` around the pattern with no group (r53), so a
+ * top-level `|` splits differently, and a `]` that opens a set is a member.
+ *
+ * Two gaps stay open, because the dialect cannot spell JavaScript's sets:
+ *   - JavaScript's `.` refuses the line terminators `\n`, `\r`, U+2028 and
+ *     U+2029, and RTDB's matches them (SP-8), so the generated rule accepts a
+ *     line terminator the Zod schema refuses;
+ *   - JavaScript's `\s` also covers Unicode spaces such as U+00A0, and RTDB's
+ *     is ASCII only (r56), so `\s` matches fewer characters and `\S` more.
+ * The generated rule emits `.`, `\s` and `\S` unchanged.
+ */
+function rtdbRegexProblem(source: string): string | null {
+  const deployError = rtdbRegexError(source);
+  if (deployError !== null) return `RTDB refuses it at deploy (${deployError})`;
+  let inClass = false;
+  let depth = 0;
+  for (let i = 0; i < source.length; i++) {
+    const ch = source[i]!;
+    const nextCh = source[i + 1];
+    if (ch === '\\' && nextCh !== undefined) {
+      const escapeProblem = escapedLetterProblem(nextCh);
+      if (escapeProblem !== null) return escapeProblem;
+      i++;
+    } else if (inClass) {
+      inClass = ch !== ']';
+    } else if (ch === '[') {
+      if (startsWithClosingBracket(source, i + 1)) return 'RTDB reads a ] right after [ or [^ as a member of the set';
+      inClass = true;
+    } else if (ch === '(' && nextCh === '?') {
+      return 'RTDB reads (? as a literal ?, so lookarounds and (?: groups never match as in JavaScript';
+    } else if (QUANTIFIER_ENDS.has(ch) && nextCh === '?') {
+      return 'RTDB has no lazy quantifier and reads +? as an optional +';
+    } else if (ch === '(') {
+      depth++;
+    } else if (ch === ')') {
+      depth--;
+    } else if (ch === '|' && isEmptyAlternative(source, i)) {
+      return 'RTDB reads the | of an empty alternative, as in (|a) or a||b, as a literal |';
+    } else if (ch === '|' && depth === 0) {
+      return 'RTDB applies ^, $ and the implied .* to the first and last alternatives only; wrap the alternation in a group';
+    }
+  }
+  return null;
+}
+
+/** Whether the `|` at `at` has nothing on one side within its group. */
+function isEmptyAlternative(source: string, at: number): boolean {
+  const before = source[at - 1];
+  const after = source[at + 1];
+  const opensGroup = before === '(' && source[at - 2] !== '\\';
+  return opensGroup || after === '|' || after === ')';
+}
+
+function startsWithClosingBracket(source: string, start: number): boolean {
+  const memberStart = source[start] === '^' ? start + 1 : start;
+  return source[memberStart] === ']';
+}
+
+function escapedLetterProblem(letter: string): string | null {
+  const isLetterOrDigit = /^[A-Za-z0-9]$/.test(letter);
+  if (!isLetterOrDigit || SHARED_CLASS_ESCAPES.has(letter)) return null;
+  if (letter === 'b' || letter === 'B') return `RTDB reads \\${letter} as the letter ${letter}, not a word boundary`;
+  if (/^[1-9]$/.test(letter)) return `RTDB reads \\${letter} as the digit ${letter}, not a backreference`;
+  return `RTDB reads the escape \\${letter} as the letter ${letter}`;
+}
 
 /**
  * Generate RTDB validate rules from a Zod object schema.
@@ -109,6 +185,10 @@ function zodStringToExpr(zodType: z.ZodString, fieldName: string): Expr {
       }
       if (/[\r\n]/.test(re.source)) {
         throw new Error(`Unsupported Zod regex with newline on field "${fieldName}"`);
+      }
+      const problem = rtdbRegexProblem(re.source);
+      if (problem !== null) {
+        throw new Error(`Unsupported Zod regex on field "${fieldName}": ${problem}`);
       }
       parts.push(expr(`newData.val().matches(/${re.source}/${re.flags})`));
     } else if (check.kind === 'email') {

@@ -62,6 +62,8 @@ export interface SandboxSessionOptions {
   studio?: false | { siteUiDir?: string };
   bridgeUrl?: () => string | null;
   hosted?: boolean;
+  /** The Node host's boot identity, served in `init.json` for Node processes to present. */
+  hostInstanceId?: () => string | undefined;
   /** Deploys file rules to the Node sandbox. A null database or Storage source
    *  clears the rules, so the sandbox's default policy applies. */
   deployHostedRules?: (service: 'firestore' | 'database' | 'storage', source: string | null, instance?: DatabaseRulesDestination) => Promise<void>;
@@ -370,6 +372,7 @@ export async function createSandboxSession(
         projectKey: options.projectDir,
         bridgeUrl: options.bridgeUrl?.() ?? null,
         hosted: options.hosted,
+        instanceId: options.hosted === true ? options.hostInstanceId?.() : undefined,
         persistenceUnhealthy: hostedPersistence?.status().state === 'unhealthy',
         seed: hasPersistedState ? null : seed,
         seedState,
