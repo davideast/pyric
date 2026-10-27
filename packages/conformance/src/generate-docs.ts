@@ -11,8 +11,6 @@ import type { SurfaceCensus } from './surface-census.ts';
 import { compatibilityHref, compatibilitySlug } from './docs-routes.ts';
 import { findTestLineNumber } from './test-line-anchors.ts';
 
-export { findTestLineNumber };
-
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = join(HERE, '..', '..', '..');
 export const GENERATED_HEADER = '<!-- Generated from the conformance model (registry rows + surface contracts). Do not edit by hand; run bun run compat:generate. -->';

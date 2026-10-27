@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'bun:test';
+import { join } from 'node:path';
 import type { CompatibilityRow } from '../../registry/types.ts';
 import { allCompatibilityRows } from '../../registry/index.ts';
+import { deriveConformanceModel } from '../../src/conformance-model.ts';
+import { formatRowEvidence } from '../../src/generate-docs.ts';
 import { citedTestAnchors } from '../../src/test-line-anchors.ts';
+
+const PACKAGE_ROOT = join(import.meta.dir, '..', '..');
+const LINKED_TEST = /blob\/main\/([^)#\s]+)#L(\d+)\)/g;
 
 const CITED = 'packages/lib/test/cited.test.ts';
 
@@ -48,6 +54,24 @@ describe('the test lines the conformance projection links to', () => {
 
   it('marks a cited file that is missing', () => {
     expect(anchorsFor({})).toEqual([`lib#M1\t${CITED}\tmissing`]);
+  });
+
+  it('lists exactly the test lines the generated evidence links to, row by row', async () => {
+    const model = await deriveConformanceModel();
+    const cited = new Set(model.documentation.rows.flatMap((row) => row.conformanceTests));
+    const linked = model.documentation.rows.flatMap((row) => {
+      const evidence = formatRowEvidence(row, model.documentation.observationPaths);
+      return [...evidence.matchAll(LINKED_TEST)]
+        .filter(([, path]) => cited.has(path ?? ''))
+        .map(([, path, line]) => `${row.id}\t${path}\t${line}`);
+    });
+    expect([...new Set(linked)].sort()).toEqual(citedTestAnchors(model.documentation.rows));
+  }, 60_000);
+
+  it('prints the same list when run, which is what the dist cache key hashes', () => {
+    const run = Bun.spawnSync(['bun', 'src/test-line-anchors.ts'], { cwd: PACKAGE_ROOT });
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout.toString().trimEnd().split('\n')).toEqual(citedTestAnchors(allCompatibilityRows));
   });
 
   it('covers the real registry: every cited test file of every row', () => {

@@ -14,9 +14,11 @@
 # projection links each registry row's cited test files at a line number. So
 # both keys also hash the list of those (row, file, line) anchors, which
 # packages/conformance/src/test-line-anchors.ts prints. A test-only change
-# that moves a cited line misses; one that moves none still hits (#1265). Exact-match only: the workflow must not add
-# restore-keys, because a near-miss restore would run tests against stale
-# artifacts (fail-closed, same posture as scripts/ci/required.ts).
+# that moves a cited line misses; one that moves none still hits (#1265).
+#
+# Exact-match only: the workflow must not add restore-keys, because a
+# near-miss restore would run tests against stale artifacts (fail-closed,
+# same posture as scripts/ci/required.ts).
 set -euo pipefail
 
 hash_tracked() {
@@ -42,8 +44,14 @@ site_key=$(hash_tracked \
   'bun.lock')
 
 # The cited test lines the conformance projection links to. Fails closed: a
-# key computed without them could restore a projection with stale links.
-anchors=$(bun packages/conformance/src/test-line-anchors.ts | sha256sum | cut -d' ' -f1)
+# key computed without them, or with an empty list, could restore a
+# projection with stale links.
+anchor_list=$(bun packages/conformance/src/test-line-anchors.ts)
+if [ -z "$anchor_list" ]; then
+  echo "build-input-key: packages/conformance/src/test-line-anchors.ts listed no cited test lines" >&2
+  exit 1
+fi
+anchors=$(printf '%s\n' "$anchor_list" | sha256sum | cut -d' ' -f1)
 with_anchors() {
   printf '%s %s' "$1" "$anchors" | sha256sum | cut -d' ' -f1
 }

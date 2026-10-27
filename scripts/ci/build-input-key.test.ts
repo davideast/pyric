@@ -80,13 +80,15 @@ describe('build input key', () => {
     expect(keys()).toEqual(before);
   });
 
-  test('the keys are not computed when the cited test lines cannot be listed', () => {
+  test('the keys are not computed when the cited test lines cannot be listed, or the list is empty', () => {
     const finder = join(repo, 'packages/conformance/src/test-line-anchors.ts');
     const source = readFileSync(finder, 'utf8');
-    writeFileSync(finder, 'process.exit(3);\n');
     try {
-      const run = Bun.spawnSync(['bash', script], { cwd: repo });
-      expect(run.exitCode).not.toBe(0);
+      for (const broken of ['process.exit(3);\n', '// prints nothing\n']) {
+        writeFileSync(finder, broken);
+        const run = Bun.spawnSync(['bash', script], { cwd: repo });
+        expect(run.exitCode).not.toBe(0);
+      }
     } finally {
       writeFileSync(finder, source);
     }
