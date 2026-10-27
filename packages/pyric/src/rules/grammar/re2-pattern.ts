@@ -99,3 +99,48 @@ export function normalizeRe2ForJsRegExp(source: string): string {
   }
   return out;
 }
+
+/** RE2's `\s`: `[\t\n\f\r ]`. No vertical tab, NBSP or other Unicode space. */
+const RE2_SPACE_MEMBERS = '\\t\\n\\f\\r ';
+
+/** Everything outside `\s`, as class members, for a `u` or a code-unit RegExp. */
+function re2NonSpaceMembers(unicode: boolean): string {
+  const top = unicode ? '\\u{10FFFF}' : '\\uFFFF';
+  return `\\x00-\\x08\\x0B\\x0E-\\x1F!-${top}`;
+}
+
+/**
+ * Spell RE2's `\s` and `\S` out as ASCII classes in a JS RegExp source, so a
+ * JS engine does not read them as Unicode white space. Production compiles
+ * rules patterns as RE2, where `\s` is `[\t\n\f\r ]`: the 2026-10-27 capture
+ * `re2-pattern-semantics` shows NBSP, U+2003 and vertical tab are not `\s`.
+ *
+ * `source` is already normalized by `normalizeRe2ForJsRegExp`, so a class
+ * opens at an unescaped `[` and closes at the next unescaped `]`. `unicode`
+ * says whether the RegExp is compiled with the `u` flag.
+ */
+export function spellRe2SpaceClasses(source: string, unicode: boolean): string {
+  let out = '';
+  let inClass = false;
+  let i = 0;
+  while (i < source.length) {
+    const ch = source[i]!;
+    if (ch === '\\' && i + 1 < source.length) {
+      out += re2SpaceEscape(source[i + 1]!, inClass, unicode) ?? source.slice(i, i + 2);
+      i += 2;
+      continue;
+    }
+    if (ch === '[') inClass = true;
+    else if (ch === ']') inClass = false;
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
+function re2SpaceEscape(escape: string, inClass: boolean, unicode: boolean): string | undefined {
+  if (escape === 's') return inClass ? RE2_SPACE_MEMBERS : `[${RE2_SPACE_MEMBERS}]`;
+  if (escape !== 'S') return undefined;
+  if (inClass) return re2NonSpaceMembers(unicode);
+  return `[^${RE2_SPACE_MEMBERS}]`;
+}

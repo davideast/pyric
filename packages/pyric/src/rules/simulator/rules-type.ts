@@ -1,4 +1,4 @@
-import { normalizeRe2ForJsRegExp } from '../grammar/re2-pattern.js';
+import { normalizeRe2ForJsRegExp, spellRe2SpaceClasses } from '../grammar/re2-pattern.js';
 import { FirestoreSet } from './firestore-set.js';
 import { MapDiff } from './mapdiff.js';
 import { matchesRegexNode, type RegexNode } from './regex-nfa.js';
@@ -76,11 +76,11 @@ function compileCharMatcher(rawPattern: string, ignoreCase: boolean): (ch: strin
   let flags = 'u';
   if (ignoreCase) flags = 'iu';
   try {
-    const re = new RegExp(`^${rawPattern}$`, flags);
+    const re = new RegExp(`^${spellRe2SpaceClasses(rawPattern, true)}$`, flags);
     return (c) => re.test(c);
   } catch {
     const fallbackFlags = ignoreCase ? 'i' : '';
-    const re = new RegExp(`^${rawPattern}$`, fallbackFlags);
+    const re = new RegExp(`^${spellRe2SpaceClasses(rawPattern, false)}$`, fallbackFlags);
     return (c) => re.test(c);
   }
 }

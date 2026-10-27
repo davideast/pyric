@@ -1,5 +1,6 @@
 import { normalizeRe2ForJsRegExp } from '../../rules/grammar/re2-pattern.js';
 import { re2FullMatch } from '../../rules/simulator/rules-type.js';
+import { trimRulesString } from '../../rules/simulator/string-trim.js';
 import { Bytes } from '../../rules/simulator/wrappers/bytes.js';
 import type { EvalCtx } from './rules-evaluator.js';
 import { RuleEvalError } from './rules-evaluation-error.js';
@@ -176,7 +177,7 @@ function evalCaseAndTrim(receiver: unknown, expr: MethodCall): unknown {
   expectNoArguments(expr);
   if (expr.method === 'lower') return subject.toLowerCase();
   if (expr.method === 'upper') return subject.toUpperCase();
-  return subject.trim();
+  return trimRulesString(subject);
 }
 
 /** `string.toUtf8()`: the string's UTF-8 encoding as Bytes. */

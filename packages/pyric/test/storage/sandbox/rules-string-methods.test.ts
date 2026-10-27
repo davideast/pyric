@@ -88,6 +88,28 @@ describe('evaluateStorageRules — string methods', () => {
     expect(evalString("resource.metadata.name.lower() == 'report.pdf'").allowed).toBe(true);
   });
 
+  // FS2-SIM-8. Storage capture rules-storage-xref-shared-language-semantics
+  // (2026-10-27): `' a'.trim() == ' a'` and `' a '.trim() == 'a'`
+  // both ALLOW. The C0, U+3000 and BOM cases replay the Firestore capture
+  // split-and-trim-edges, which the Storage cross-check agreed with 12/12.
+  it('trims code units at or below U+0020 and keeps NBSP, U+3000 and BOM', () => {
+    expect(evalString("'\\u00a0a'.trim() == '\\u00a0a'").allowed).toBe(true);
+    expect(evalString("' a '.trim() == 'a'").allowed).toBe(true);
+    expect(evalString("'\\u3000a'.trim() == '\\u3000a'").allowed).toBe(true);
+    expect(evalString("'\\ufeffa'.trim() == '\\ufeffa'").allowed).toBe(true);
+    expect(evalString("'\\u0001a\\u001f'.trim() == 'a'").allowed).toBe(true);
+  });
+
+  // FS2-SIM-5a. Storage compiles matches() as RE2 like Firestore, where `\s`
+  // is `[\t\n\f\r ]`; verdicts from the Firestore capture re2-pattern-semantics.
+  it('reads \\s in matches() as ASCII whitespace only', () => {
+    expect(evalString("!'\\u00a0'.matches('\\\\s')").allowed).toBe(true);
+    expect(evalString("!'\\u2003'.matches('\\\\s')").allowed).toBe(true);
+    expect(evalString("!'\\u000b'.matches('\\\\s')").allowed).toBe(true);
+    expect(evalString("'a b\\u00a0c'.matches('[^\\\\s]+ [^\\\\s]+')").allowed).toBe(true);
+    expect(evalString("'a b'.matches('a\\\\sb')").allowed).toBe(true);
+  });
+
   it('replaces every match of a regular expression', () => {
     expect(evalString("'aXa'.replace('a', 'b') == 'bXb'").allowed).toBe(true);
     expect(evalString("'a.b'.replace('.', '-') == '---'").allowed).toBe(true);
