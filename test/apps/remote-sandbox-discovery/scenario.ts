@@ -50,14 +50,17 @@ export default scenario(async (app) => {
     app.writeFile('.pyric/serve.json', JSON.stringify({ port: hole, url: `http://localhost:${hole}`, instanceId: 'blackholed-host' }));
     const stale = `http://127.0.0.1:${await app.freePort()}`;
     const result = await app.serverScript('stale-exit.mjs', [], { env: { PYRIC_SANDBOX: `remote:${stale}` } });
-    const exitedAt = Date.now();
     assert.match(result.output, /write refused: .*is stale/);
     const refusedAt = Number(/refused at (\d+)/.exec(result.output)?.[1]);
-    assert.ok(Number.isFinite(refusedAt), `stale-exit.mjs printed no refusal time:\n${result.output}`);
-    // Timed from the refusal, so Node and register startup under load do not
-    // count. A probe connect left pending kept the process alive about 10 s
-    // past this point (undici's connect timeout); 2 s is well under that.
-    const lingerMs = exitedAt - refusedAt;
+    const drainedAt = Number(/loop drained at (\d+)/.exec(result.output)?.[1]);
+    const printedBothTimes = Number.isFinite(refusedAt) && Number.isFinite(drainedAt);
+    assert.ok(printedBothTimes, `stale-exit.mjs printed no refusal or drain time:\n${result.output}`);
+    // Both times come from the script: from its refusal to its event loop
+    // draining. Node and register startup do not count, and neither does the
+    // runner noticing the exit late while another app's work holds its own
+    // loop. A probe connect left pending kept the loop alive about 10 s past
+    // the refusal (undici's connect timeout); 2 s is well under that.
+    const lingerMs = drainedAt - refusedAt;
     assert.ok(lingerMs < 2_000, `stale-exit.mjs stayed alive ${lingerMs} ms after the refusal:\n${result.output}`);
   });
 });
