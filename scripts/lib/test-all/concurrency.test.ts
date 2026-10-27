@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { busyThreads, chooseConcurrency, parseProcStat } from './concurrency.ts';
+import { busyThreads, chooseConcurrency, parseMemAvailable, parseProcStat } from './concurrency.ts';
 
 const GIB = 1024 ** 3;
 
@@ -25,6 +25,12 @@ describe('how many jobs test-all runs at once', () => {
     const before = [times(1000, 1000), times(1000, 1000), times(1000, 1000)];
     const after = [times(1300, 1100), times(1000, 1400), times(1400, 1000)];
     expect(busyThreads(before, after)).toBeCloseTo(1.75);
+  });
+
+  test('free memory is MemAvailable, which counts reclaimable cache, not MemFree', () => {
+    const meminfo = 'MemTotal:       32000000 kB\nMemFree:         9120128 kB\nMemAvailable:   25331352 kB\n';
+    expect(parseMemAvailable(meminfo)).toBe(25331352 * 1024);
+    expect(parseMemAvailable('MemTotal: 1 kB\n')).toBeUndefined();
   });
 
   test('/proc/stat counts iowait as idle, and irq, softirq and steal as work', () => {

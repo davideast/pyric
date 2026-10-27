@@ -69,8 +69,24 @@ function readCpuTimes(): Array<{ times: CpuTimes }> {
   return cpus();
 }
 
+/** `MemAvailable` from /proc/meminfo, in bytes. */
+export function parseMemAvailable(text: string): number | undefined {
+  const match = /^MemAvailable:\s+(\d+) kB$/m.exec(text);
+  return match ? Number(match[1]) * 1024 : undefined;
+}
+
+/**
+ * Memory new processes can use. On Linux that is MemAvailable, which counts
+ * reclaimable page cache; Bun's `os.freemem()` reports MemFree, a third of it
+ * on a machine whose cache is warm.
+ */
+function readFreeMemory(): number {
+  if (!existsSync('/proc/meminfo')) return freemem();
+  return parseMemAvailable(readFileSync('/proc/meminfo', 'utf8')) ?? freemem();
+}
+
 export async function sampleMachineLoad(windowMs = SAMPLE_MS): Promise<MachineLoad> {
   const before = readCpuTimes();
   await sleep(windowMs);
-  return { threads: availableParallelism(), load: busyThreads(before, readCpuTimes()), freeMemoryBytes: freemem() };
+  return { threads: availableParallelism(), load: busyThreads(before, readCpuTimes()), freeMemoryBytes: readFreeMemory() };
 }
