@@ -99,10 +99,12 @@ bun run release:preflight "$RELEASE_VERSION"
 The preflight:
 
 1. runs the complete test suite;
-2. runs the packaging gate, which packs and installs the packages in a fresh
-   consumer;
-3. rebuilds and packs the exact release tarballs;
-4. runs the installed-tarball behaviour smoke;
+2. builds and packs the release tarballs into `dist/packages/`, the one pack
+   of the run;
+3. runs the packaging gate on those tarballs, which lints them and installs
+   them in a fresh consumer;
+4. runs the installed-tarball behaviour smoke and the app scenarios on the
+   same tarballs;
 5. verifies npm authentication with a read-only `npm whoami` request;
 6. runs `npm publish --dry-run` for each of the five tarballs; and
 7. runs the full compatibility check and calculates the `fb<major>.<minor>`
@@ -129,8 +131,9 @@ bash scripts/publish-alpha.sh "$RELEASE_VERSION"
 ```
 
 Do not set `PYRIC_PUBLISH_SKIP_GATES=1` for a normal release. The real publish
-deliberately repeats the tests, packaging gate, rebuild, pack, and installed
-tarball smoke before uploading anything.
+deliberately repeats the tests, the build and pack, and every gate on the
+packed tarballs before uploading anything, and it uploads the tarballs those
+gates tested.
 
 After those gates pass, `publish-alpha.sh`:
 

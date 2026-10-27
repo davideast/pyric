@@ -21,7 +21,12 @@
 #
 # Run as: bash scripts/pack-packages.sh
 #         bash scripts/pack-packages.sh --skip-build
+#         bash scripts/pack-packages.sh --skip-build --out <dir>
 #         npm run pack
+#
+# This is the one place tarballs are made. The packaging gate
+# (scripts/packaging-test.sh), the release smoke, the app scenarios and
+# publish-alpha.sh all use the tarballs it writes.
 
 set -euo pipefail
 
@@ -33,9 +38,17 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT_DIR="$ROOT/dist/packages"
 
 SKIP_BUILD=0
-if [ "${1:-}" = "--skip-build" ]; then
-  SKIP_BUILD=1
-fi
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --skip-build) SKIP_BUILD=1; shift ;;
+    --out) OUT_DIR="${2:?--out needs a directory}"; shift 2 ;;
+    *) echo "pack-packages: unknown argument $1 (takes --skip-build and --out <dir>)" >&2; exit 2 ;;
+  esac
+done
+case "$OUT_DIR" in
+  /*) ;;
+  *) OUT_DIR="$PWD/$OUT_DIR" ;;
+esac
 
 # Packages to ship. Listed in dependency order (dependencies first) for
 # readability; the actual pack order does not matter since each tarball
@@ -96,7 +109,7 @@ pack_one() {
   local full="$OUT_DIR/$tarball"
 
   # Post-process the extracted package once when it needs the root README or
-  # concrete workspace dependency versions.
+  # concrete workspace dependency versions, and check its source maps either way.
   # Do not use `grep -q` here. GNU tar reports SIGPIPE when grep exits after
   # the first match; with `pipefail` that makes the condition falsely report
   # that the manifest contains no workspace dependency.
@@ -104,10 +117,10 @@ pack_one() {
   if tar -xzOf "$full" package/package.json | grep 'workspace:' >/dev/null; then
     has_workspace_deps=1
   fi
+  local tmp
+  tmp=$(mktemp -d)
+  tar -xzf "$full" -C "$tmp"
   if uses_root_readme "$name" || [ "$has_workspace_deps" -eq 1 ]; then
-    local tmp
-    tmp=$(mktemp -d)
-    tar -xzf "$full" -C "$tmp"
     if uses_root_readme "$name"; then
       cp "$ROOT/README.md" "$tmp/package/README.md"
       echo "    (README: root README added to npm tarball)"
@@ -117,8 +130,10 @@ pack_one() {
         "$tmp/package/package.json" "$ROOT"
     fi
     (cd "$tmp" && tar -czf "$full" package)
-    rm -rf "$tmp"
   fi
+  # Every source map the tarball ships must resolve to sources it also ships.
+  node "$ROOT/scripts/lib/verify-published-sourcemaps.mjs" "$tmp/package"
+  rm -rf "$tmp"
 
   # Verification: no `workspace:` may survive into the shipped tarball.
   if tar -xzOf "$full" package/package.json | grep -nE '"workspace:'; then
@@ -129,7 +144,7 @@ pack_one() {
 
   local size
   size=$(du -h "$full" | awk '{print $1}')
-  echo "    → dist/packages/$tarball ($size)"
+  echo "    → $full ($size)"
 }
 
 for pkg_dir in "${PACKAGES[@]}"; do
@@ -150,6 +165,6 @@ echo ""
 ls -lh "$OUT_DIR" | tail -n +2 | awk '{print "  " $9 "  " $5}'
 
 echo ""
-echo "✓ All 5 publishable packages packed into dist/packages/"
+echo "✓ All 5 publishable packages packed into $OUT_DIR/"
 echo ""
 echo "See $OUT_DIR/manifest.json for exact tarball filenames."

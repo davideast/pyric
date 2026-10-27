@@ -11,7 +11,7 @@ afterEach(() => {
 });
 
 function runPublish(
-  options: { skip?: boolean; dryRun?: boolean; failBunCommand?: string; publishTag?: string; npmRegistry?: string } = {},
+  options: { skip?: boolean; dryRun?: boolean; failBunCommand?: string; failCommand?: string; publishTag?: string; npmRegistry?: string } = {},
 ) {
   const work = mkdtempSync(join(tmpdir(), 'pyric-publish-contract-'));
   workDirs.push(work);
@@ -26,6 +26,7 @@ echo "$name $*" >> "$COMMAND_LOG"
 if [ "$name" = "npm" ]; then echo "\${NPM_CONFIG_REGISTRY:-}" >> "$REGISTRY_LOG"; fi
 if [ "$name $*" = "bun run packages/conformance/src/print-fb-tag.ts" ]; then echo fb12.13; fi
 if [ -n "\${FAIL_BUN_COMMAND:-}" ] && [ "$name $*" = "bun $FAIL_BUN_COMMAND" ]; then exit 17; fi
+if [ -n "\${FAIL_COMMAND:-}" ] && [ "$name $*" = "$FAIL_COMMAND" ]; then exit 17; fi
 `;
   for (const command of ['node', 'bun', 'npm', 'bash']) {
     const path = join(bin, command);
@@ -41,6 +42,7 @@ if [ -n "\${FAIL_BUN_COMMAND:-}" ] && [ "$name $*" = "bun $FAIL_BUN_COMMAND" ]; 
     COMMAND_LOG: log,
     REGISTRY_LOG: registryLog,
     FAIL_BUN_COMMAND: options.failBunCommand ?? '',
+    FAIL_COMMAND: options.failCommand ?? '',
     PYRIC_PUBLISH_SKIP_GATES: options.skip ? '1' : '0',
     PYRIC_PUBLISH_TAG: options.publishTag ?? '',
     NPM_CONFIG_REGISTRY: 'http://workstation-proxy.internal:999/',
@@ -56,18 +58,46 @@ if [ -n "\${FAIL_BUN_COMMAND:-}" ] && [ "$name $*" = "bun $FAIL_BUN_COMMAND" ]; 
   return { result, commands: readFileSync(log, 'utf8').trim().split('\n'), registries };
 }
 
+const PACK = 'bash scripts/pack-packages.sh';
+const PACKAGING_GATE = 'bash scripts/packaging-test.sh --packages dist/packages';
+
 describe('alpha publish safety contract', () => {
   test('proves the tree before the first irreversible publish', () => {
     const { result, commands } = runPublish();
     expect(result.status).toBe(0);
     const tests = commands.indexOf('bun run test');
-    const packaging = commands.indexOf('bun run test:packaging');
-    const pack = commands.indexOf('bash scripts/pack-packages.sh');
+    const pack = commands.indexOf(PACK);
+    const packaging = commands.indexOf(PACKAGING_GATE);
     const publish = commands.findIndex((command) => command.startsWith('npm publish '));
     expect(tests).toBeGreaterThanOrEqual(0);
-    expect(tests).toBeLessThan(packaging);
-    expect(packaging).toBeLessThan(pack);
-    expect(pack).toBeLessThan(publish);
+    expect(tests).toBeLessThan(pack);
+    expect(pack).toBeLessThan(packaging);
+    expect(packaging).toBeLessThan(publish);
+  });
+
+  test('packs once, and the packaging gate tests those tarballs instead of building and packing its own', () => {
+    const { result, commands } = runPublish();
+    expect(result.status).toBe(0);
+    expect(commands.filter((command) => command.startsWith(PACK))).toEqual([PACK]);
+    expect(commands).not.toContain('bun run test:packaging');
+    expect(commands.filter((command) => command.startsWith('bash scripts/packaging-test.sh'))).toEqual([PACKAGING_GATE]);
+    const pack = commands.indexOf(PACK);
+    const rebuildsOrRepacks = commands.slice(pack + 1).filter((command) =>
+      command.startsWith('bash scripts/build.sh') || command.startsWith('npm pack') || command === 'bun run build');
+    expect(rebuildsOrRepacks).toEqual([]);
+  });
+
+  test('every publish uploads a tarball the pack wrote, the ones the gates tested', () => {
+    const { result, commands } = runPublish();
+    expect(result.status).toBe(0);
+    const uploads = commands.filter((command) => command.startsWith('npm publish ')).map((command) => command.split(' ')[2]);
+    expect(uploads).toEqual(['pyric', 'pyric-admin', 'create-pyric', 'pyric-cli', 'pyric-ui'].map((name) => `dist/packages/${name}-0.1.0-alpha.9.tgz`));
+  });
+
+  test('a failed packaging gate prevents every publish', () => {
+    const { result, commands } = runPublish({ failCommand: PACKAGING_GATE });
+    expect(result.status).toBe(17);
+    expect(commands.some((command) => command.startsWith('npm publish '))).toBe(false);
   });
 
   test('runs the app scenarios on the packed tarballs before the first publish', () => {
@@ -88,7 +118,7 @@ describe('alpha publish safety contract', () => {
   });
 
   test('a failed proof prevents every publish', () => {
-    const { result, commands } = runPublish({ failBunCommand: 'run test:packaging' });
+    const { result, commands } = runPublish({ failBunCommand: 'run test' });
     expect(result.status).toBe(17);
     expect(commands.some((command) => command.startsWith('npm publish '))).toBe(false);
   });
@@ -97,9 +127,9 @@ describe('alpha publish safety contract', () => {
     const { result, commands } = runPublish({ skip: true });
     expect(result.status).toBe(0);
     expect(commands).not.toContain('bun run test');
-    expect(commands).not.toContain('bun run test:packaging');
+    expect(commands).not.toContain(PACKAGING_GATE);
     expect(commands).not.toContain('bun test/apps/run.ts --packages dist/packages');
-    expect(commands).toContain('bash scripts/pack-packages.sh');
+    expect(commands).toContain(PACK);
     expect(commands.filter((command) => command.startsWith('npm publish '))).toHaveLength(5);
   });
 

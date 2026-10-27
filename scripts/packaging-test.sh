@@ -12,6 +12,14 @@
 #    script hits every advertised subpath once.
 #
 # Run as: bash scripts/packaging-test.sh    (or `bun run test:packaging`)
+#         bash scripts/packaging-test.sh --packages dist/packages
+#
+# With --packages, the gate tests the tarballs already in that directory, as
+# scripts/pack-packages.sh wrote them, with no build and no pack of its own.
+# publish-alpha.sh runs it that way, so the gate proves the files it uploads.
+# Without it, the gate builds the workspace and packs it with
+# scripts/pack-packages.sh into its work dir: the same pack, so a standalone
+# run tests the same bytes a release would ship.
 #
 # Exits 0 on success, non-zero on first failure. Cleans up its work dir
 # on success; leaves it intact on failure for debugging.
@@ -22,6 +30,14 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORK="${TMPDIR:-/tmp}/pyric-packaging-test"
 NPM_CACHE="${TMPDIR:-/tmp}/npm-cache-pyric-packaging-test"
 RELEASE_CONTRACT="$ROOT/scripts/fixtures/cli-release-contract.json"
+
+PACKAGES_DIR=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --packages) PACKAGES_DIR="$(cd "${2:?--packages needs a directory}" && pwd)"; shift 2 ;;
+    *) echo "packaging-test: unknown argument $1 (takes --packages <dir>)" >&2; exit 2 ;;
+  esac
+done
 
 # Publishable packages, in dependency order (dependencies first).
 # - pyric is foundational (everyone else workspace:* it)
@@ -80,72 +96,43 @@ echo "━━━ Phase 0: clean ━━━"
 rm -rf "$WORK"
 mkdir -p "$WORK"
 
-# ─── Phase 1: build all packages (needed for tarball contents) ─────────
+# ─── Phase 1: build and pack, unless the tarballs were given ────────────
 echo ""
-echo "━━━ Phase 1: build ━━━"
-cd "$ROOT"
-bash scripts/build.sh
+if [ -n "$PACKAGES_DIR" ]; then
+  echo "━━━ Phase 1: build and pack skipped: testing the tarballs in $PACKAGES_DIR ━━━"
+else
+  echo "━━━ Phase 1: build, then pack with scripts/pack-packages.sh ━━━"
+  cd "$ROOT"
+  bash scripts/build.sh
+  PACKAGES_DIR="$WORK/packages"
+  bash scripts/pack-packages.sh --skip-build --out "$PACKAGES_DIR"
+fi
 
-# ─── Phase 1.5: static manifest gate (fail fast before the slow pack+install) ──
-# publint + attw (types resolution) + exports↔dist drift. These catch what the
-# runtime-import phases below structurally cannot (the `types` condition, a missing
-# export). Cheap + flake-free, so run them first.
-echo ""
-echo "━━━ Phase 1.5: manifest lint (publint + attw + exports drift) ━━━"
-bash "$ROOT/scripts/manifest-lint.sh"
-
-# ─── Phase 2: pack each publishable package ────────────────────────────
-# (Plain variables instead of associative arrays — macOS ships bash 3.2.)
-echo ""
-echo "━━━ Phase 2: pack ━━━"
-# Pack a workspace package AND rewrite any leftover `workspace:*` deps
-# to `^<version-of-target-workspace>`. npm pack does not rewrite
-# workspace: deps (pnpm does), so the produced tarball would ship with
-# literal `workspace:*` to consumers — they hit EUNSUPPORTEDPROTOCOL on
-# install. We hit this externally with @inbrowser/relay@0.2.0; this
-# rewrite ensures we never ship the same bug.
-#
-# After rewrite we VERIFY no `workspace:` strings remain in the manifest
-# — this is the load-bearing check that prevents a future regression
-# (e.g. someone adds a fourth dep field name we forgot to handle).
-pack_one() {
-  local pkg_dir="$1"
-  local name
+# The tarball npm pack names for a workspace package: scope dropped, `/` → `-`.
+tarball_of() {
+  local pkg_dir="$1" name version file
   name=$(jq -r '.name' "$ROOT/$pkg_dir/package.json")
-  echo "▸ packing $name" >&2
-  local tarball
-  tarball=$(cd "$ROOT/$pkg_dir" && npm pack --silent --pack-destination "$WORK" --cache "$NPM_CACHE")
-  local full="$WORK/$tarball"
-
-  # Extract, rewrite workspace:* → ^<version>, repack, then verify.
-  local tmp
-  tmp=$(mktemp -d)
-  tar -xzf "$full" -C "$tmp"
-  if grep -q 'workspace:' "$tmp/package/package.json"; then
-    node "$ROOT/scripts/lib/rewrite-workspace-deps.mjs" \
-      "$tmp/package/package.json" "$ROOT"
-    (cd "$tmp" && tar -czf "$full" package)
-  fi
-  node "$ROOT/scripts/lib/verify-published-sourcemaps.mjs" "$tmp/package"
-  rm -rf "$tmp"
-
-  # Verification: the published tarball MUST NOT contain workspace: deps.
-  # If this fires, the rewrite helper has a bug or a new dep-field name
-  # appeared. Fail loudly with the offending lines.
-  if tar -xzOf "$full" package/package.json | grep -nE '"workspace:'; then
-    echo "  ✗ $name tarball still contains workspace: deps after rewrite" >&2
-    echo "    (see lines above; fix scripts/lib/rewrite-workspace-deps.mjs)" >&2
+  version=$(jq -r '.version' "$ROOT/$pkg_dir/package.json")
+  file="$PACKAGES_DIR/$(printf '%s' "${name#@}" | tr '/' '-')-${version}.tgz"
+  if [ ! -f "$file" ]; then
+    echo "  ✗ missing packed $name@$version: $file" >&2
     exit 1
   fi
-
-  echo "    → $full" >&2
-  printf '%s' "$full"
+  printf '%s' "$file"
 }
-TARBALL_PYRIC=$(pack_one packages/pyric)
-TARBALL_PYRIC_ADMIN=$(pack_one packages/pyric-admin)
-TARBALL_CREATE_PYRIC=$(pack_one packages/create-pyric)
-TARBALL_PYRIC_CLI=$(pack_one packages/cli)
-TARBALL_UI=$(pack_one packages/ui)
+TARBALL_PYRIC=$(tarball_of packages/pyric)
+TARBALL_PYRIC_ADMIN=$(tarball_of packages/pyric-admin)
+TARBALL_CREATE_PYRIC=$(tarball_of packages/create-pyric)
+TARBALL_PYRIC_CLI=$(tarball_of packages/cli)
+TARBALL_UI=$(tarball_of packages/ui)
+
+# ─── Phase 2: static manifest gate on the tarballs ─────────────────────
+# publint + attw (types resolution) on each tarball, and exports↔dist drift.
+# These catch what the runtime-import phases below structurally cannot (the
+# `types` condition, a missing export). Cheap + flake-free, so run them first.
+echo ""
+echo "━━━ Phase 2: manifest lint on the tarballs (publint + attw + exports drift) ━━━"
+bash "$ROOT/scripts/manifest-lint.sh" --packages "$PACKAGES_DIR"
 
 assert_no_sdk_runtime_deps() {
   local tarball="$1" name="$2"
@@ -178,11 +165,11 @@ assert_declaration_deps_declared "$TARBALL_PYRIC_CLI"
 assert_declaration_deps_declared "$TARBALL_UI"
 
 # ─── Phase 2.5: publish file-set + runtime-asset presence ──────────────
-# Hermetic (NO registry): `npm pack --dry-run --json` computes the exact file set
-# npm would publish and validates the manifest — assert it's non-trivial and ships
-# dist/. (A full `npm publish --dry-run` additionally checks version/tag legality
-# against the registry; that's non-hermetic + depends on what's already published,
-# so it's a release-prep step, not a CI gate — see plans/packaging-hardening.md.)
+# Hermetic (NO registry): the tarball is the exact file set npm publishes, so
+# read it directly and assert it's non-trivial and ships dist/. (A full
+# `npm publish --dry-run` additionally checks version/tag legality against the
+# registry; that's non-hermetic + depends on what's already published, so it's
+# a release-prep step, not a CI gate — see plans/packaging-hardening.md.)
 # Then assert the load-bearing RUNTIME ASSETS are actually inside the published
 # tarball: `files: ["dist","README.md"]` is a whitelist, so a build that forgets to
 # copy an asset (the .ohm grammars / stdlib .rules) ships a tarball that imports
@@ -191,14 +178,14 @@ assert_declaration_deps_declared "$TARBALL_UI"
 echo ""
 echo "━━━ Phase 2.5: publish file-set + asset presence ━━━"
 packset_check() {
-  local pkg_dir="$1" name="$2" n
-  n=$( (cd "$ROOT/$pkg_dir" && npm pack --dry-run --json 2>/dev/null) | node -e '
-    const d = JSON.parse(require("fs").readFileSync(0));
-    const f = d[0];
-    if (!f || !f.entryCount || !f.files.some((x) => x.path.startsWith("dist/"))) process.exit(1);
-    process.stdout.write(String(f.entryCount));
-  ' ) || { echo "  ✗ $name — npm pack --dry-run produced no valid file set (dist/ missing?)" >&2; exit 1; }
-  echo "  ✓ $name — publish file set computes ($n files, dist/ present)"
+  local tarball="$1" name="$2" listing n
+  listing=$(tar -tzf "$tarball")
+  n=$(grep -c . <<<"$listing")
+  if ! grep -qE '^package/dist/' <<<"$listing"; then
+    echo "  ✗ $name — the tarball ships no dist/ ($n files)" >&2
+    exit 1
+  fi
+  echo "  ✓ $name — tarball holds $n files, dist/ present"
 }
 assert_tar_has() {
   local tb="$1" pattern="$2" desc="$3" listing
@@ -225,11 +212,11 @@ assert_tar_lacks() {
   fi
   echo "  ✓ $desc"
 }
-packset_check packages/pyric pyric
-packset_check packages/pyric-admin pyric-admin
-packset_check packages/create-pyric create-pyric
-packset_check packages/cli @pyric/cli
-packset_check packages/ui @pyric/ui
+packset_check "$TARBALL_PYRIC" pyric
+packset_check "$TARBALL_PYRIC_ADMIN" pyric-admin
+packset_check "$TARBALL_CREATE_PYRIC" create-pyric
+packset_check "$TARBALL_PYRIC_CLI" @pyric/cli
+packset_check "$TARBALL_UI" @pyric/ui
 # Load-bearing runtime assets — pass import() but break at first use if dropped.
 assert_tar_has "$TARBALL_PYRIC" 'package/dist/rules/grammar/FirestoreRules\.ohm$' "pyric ships the Firestore rules grammar (.ohm)"
 assert_tar_has "$TARBALL_PYRIC" 'package/dist/rules/rtdb/grammar/RtdbExpr\.ohm$' "pyric ships the RTDB rules grammar (.ohm)"

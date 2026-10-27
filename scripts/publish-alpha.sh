@@ -4,12 +4,13 @@
 #   bash scripts/publish-alpha.sh 0.1.0-alpha.9
 #   bash scripts/publish-alpha.sh --dry-run 0.1.0-alpha.9
 #
-# Steps: gates (`bun run test` + `bun run test:packaging` — publishing is
-# irreversible, so the tree proves itself first; skip with
-# PYRIC_PUBLISH_SKIP_GATES=1 only when they just ran on this exact tree)
-# → pack (full rebuild) → release smoke and the app scenarios
-# (test/apps) on the packed tarballs → publish each tarball under the `alpha`
-# dist-tag → point `latest` at the same version → run `compat:check`
+# Steps: `bun run test` → pack once (full rebuild) → the packaging gate, the
+# release smoke and the app scenarios (test/apps), all on those packed
+# tarballs → publish the same tarballs under the `alpha`
+# dist-tag. Publishing is irreversible, so every gate passes before the first
+# upload, and the bytes uploaded are the bytes the gates tested; skip the
+# gates with PYRIC_PUBLISH_SKIP_GATES=1 only when they just ran on this exact
+# tree → point `latest` at the same version → run `compat:check`
 # against the pinned Firebase version and move the `fb<major>.<minor>`
 # compatibility certificate tag if it is green → print the dist-tags for
 # eyeball verification. Package versions must already be bumped (lockstep)
@@ -62,18 +63,26 @@ cd "$ROOT"
 # ─── pre-publish gates ─────────────────────────────────────────────────
 # Publishing is irreversible, so the tree must prove itself before the
 # first npm publish. compat:check runs again later only to gate the fb
-# certificate tag; these two decide whether anything ships at all.
+# certificate tag; the unit tests here and the packaging gate and app
+# scenarios after the pack decide whether anything ships at all.
 # PYRIC_PUBLISH_SKIP_GATES=1 skips them when they demonstrably just ran
 # on this exact tree (e.g. recovering deliberately after an authentication
 # failure before the first upload).
 if [ "${PYRIC_PUBLISH_SKIP_GATES:-0}" != "1" ]; then
   echo "━━━ pre-publish gates: bun run test ━━━"
   bun run test
-  echo "━━━ pre-publish gates: bun run test:packaging ━━━"
-  bun run test:packaging
 fi
 
+# The one pack. Every gate below tests these tarballs, and the publish step
+# uploads them; nothing rebuilds or repacks in between.
 bash scripts/pack-packages.sh
+
+# The packaging gate on the tarballs about to ship: manifest lint, file set,
+# consumer install, subpath resolution, the packed CLI and serve smokes.
+if [ "${PYRIC_PUBLISH_SKIP_GATES:-0}" != "1" ]; then
+  echo "━━━ pre-publish gates: packaging gate on the packed tarballs ━━━"
+  bash scripts/packaging-test.sh --packages dist/packages
+fi
 
 # Behavioral smoke against the exact tarballs about to ship: installed-CLI
 # can-i-use exit codes and both conformance subpaths (scripts/release-smoke.sh).

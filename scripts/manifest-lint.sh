@@ -17,6 +17,11 @@
 # server). Requires the packages to be BUILT first (`bun run build`).
 #
 # Run: bash scripts/manifest-lint.sh   (or: npm run lint:manifest)
+#      bash scripts/manifest-lint.sh --packages dist/packages
+#
+# With --packages, publint and attw read each package's tarball in that
+# directory, the files npm uploads, instead of packing the package directory
+# again. The packaging gate runs it that way.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -25,6 +30,26 @@ cd "$ROOT"
 # The five publishable packages. @pyric/studio is embedded into @pyric/cli for
 # `pyric sandbox --ui`, not published as part of this pack gate.
 PACKAGES=(pyric pyric-admin cli ui create-pyric)
+
+PACKAGES_DIR=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --packages) PACKAGES_DIR="$(cd "${2:?--packages needs a directory}" && pwd)"; shift 2 ;;
+    *) echo "manifest-lint: unknown argument $1 (takes --packages <dir>)" >&2; exit 2 ;;
+  esac
+done
+
+# What publint and attw read for a package: its tarball under --packages, its directory otherwise.
+lint_target() {
+  local p="$1" name version
+  if [ -z "$PACKAGES_DIR" ]; then
+    printf '%s' "packages/$p"
+    return
+  fi
+  name=$(jq -r '.name' "packages/$p/package.json")
+  version=$(jq -r '.version' "packages/$p/package.json")
+  printf '%s' "$PACKAGES_DIR/$(printf '%s' "${name#@}" | tr '/' '-')-${version}.tgz"
+}
 ATTW="$ROOT/node_modules/.bin/attw"
 PUBLINT="$ROOT/node_modules/.bin/publint"
 
@@ -42,7 +67,7 @@ trap 'rm -rf "$LOG"' EXIT
 # Quiet on success, full detail on failure — a green gate shouldn't bury the log.
 echo "━━━ publint (publishing correctness) ━━━"
 for p in "${PACKAGES[@]}"; do
-  if "$PUBLINT" "packages/$p" > "$LOG/publint-$p.txt" 2>&1; then
+  if "$PUBLINT" run "$(lint_target "$p")" > "$LOG/publint-$p.txt" 2>&1; then
     echo "  ✓ $p"
   else
     echo "  ✗ $p"; cat "$LOG/publint-$p.txt"; fail=1
@@ -52,7 +77,9 @@ done
 echo ""
 echo "━━━ attw (types resolve for ESM consumers; esm-only profile) ━━━"
 for p in "${PACKAGES[@]}"; do
-  if "$ATTW" --pack "packages/$p" --profile esm-only > "$LOG/attw-$p.txt" 2>&1; then
+  attw_args=(--pack "packages/$p")
+  if [ -n "$PACKAGES_DIR" ]; then attw_args=("$(lint_target "$p")"); fi
+  if "$ATTW" "${attw_args[@]}" --profile esm-only > "$LOG/attw-$p.txt" 2>&1; then
     echo "  ✓ $p"
   else
     echo "  ✗ $p — types resolution problems:"; cat "$LOG/attw-$p.txt"; fail=1
