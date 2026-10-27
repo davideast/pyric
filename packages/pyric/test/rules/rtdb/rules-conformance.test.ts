@@ -27,7 +27,7 @@
  * divergences" test so it can never hide.
  *
  * CURRENT STATE: the in-process simulator agrees with every captured
- * production verdict except the r47, r49, r50 and r52 cases from the
+ * production verdict except the r47 and r50 regex cases from the
  * 2026-10-26 hunt (#1247) pinned in KNOWN_DIVERGENCES, each naming its
  * finding. The r15 ancestor-validate false ALLOW is resolved: the
  * simulator now evaluates the full root-to-write validation path against the
