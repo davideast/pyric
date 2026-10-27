@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import type { Browser, BrowserContext, Page } from '@playwright/test';
 import { blackholedPort, type BlackholedPort } from '../../packages/cli/test/blackholed-port.ts';
 import { npmInstall, pinPyricPackages, type Tarballs } from './install.ts';
+import { describeUnreapedExit, watchUnreapedExit } from './unreaped-exit.ts';
 
 export interface LogWaitOptions {
   /** Only output after this offset (from `mark()`) counts. Default: all output. */
@@ -43,6 +44,7 @@ export class AppProcess {
   private isPaused = false;
   private spawnAttempts = 0;
   private childWrote = false;
+  private stopWatchingExit: () => void = () => {};
 
   constructor(
     readonly name: string,
@@ -85,6 +87,15 @@ export class AppProcess {
       if (signal) this.text += `\n[driver] exited on ${signal}\n`;
       this.finish(code);
     });
+    // Bun can miss a child's exit and never reap it (#1274); /proc still has it.
+    this.stopWatchingExit();
+    if (child.pid !== undefined) {
+      this.stopWatchingExit = watchUnreapedExit(child.pid, (exit) => {
+        if (!isCurrent()) return;
+        this.text += describeUnreapedExit(this.name, exit);
+        this.finish(exit.code);
+      });
+    }
     return child;
   }
 
@@ -107,6 +118,7 @@ export class AppProcess {
 
   private finish(code: number | null): void {
     if (!this.running) return;
+    this.stopWatchingExit();
     this.exitCode = code;
     this.settle(code);
   }

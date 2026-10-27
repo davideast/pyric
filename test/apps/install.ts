@@ -3,9 +3,10 @@
  * install`, real registry packages for everything that is not Pyric. The
  * Pyric packages come from packed tarballs, never from workspace sources.
  */
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { cpSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { describeUnreapedExit, watchUnreapedExit } from './unreaped-exit.ts';
 
 /** The published packages, in the order scripts/pack-packages.sh packs them. */
 const PUBLISHED_PACKAGE_DIRS = [
@@ -45,18 +46,33 @@ export interface CommandResult {
   output: string;
 }
 
+/**
+ * Runs a command to exit. A child whose exit the runner never sees (#1274)
+ * resolves from the exit code /proc keeps for it.
+ */
 export function runCommand(
   command: string,
   args: string[],
-  options: { cwd: string; env?: NodeJS.ProcessEnv },
+  options: { cwd: string; env?: NodeJS.ProcessEnv; spawnChild?: (command: string, args: string[], options: SpawnOptions) => ChildProcess },
 ): Promise<CommandResult> {
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(command, args, { cwd: options.cwd, env: options.env ?? process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const spawnChild = options.spawnChild ?? spawn;
+    const child = spawnChild(command, args, { cwd: options.cwd, env: options.env ?? process.env, stdio: ['ignore', 'pipe', 'pipe'] });
     let output = '';
-    child.stdout.on('data', (chunk) => { output += chunk; });
-    child.stderr.on('data', (chunk) => { output += chunk; });
-    child.on('error', reject);
-    child.on('close', (code) => resolvePromise({ code, output }));
+    child.stdout?.on('data', (chunk) => { output += chunk; });
+    child.stderr?.on('data', (chunk) => { output += chunk; });
+    const stopWatching = child.pid === undefined ? () => {} : watchUnreapedExit(child.pid, (exit) => {
+      output += describeUnreapedExit(command, exit);
+      resolvePromise({ code: exit.code, output });
+    });
+    child.on('error', (error) => {
+      stopWatching();
+      reject(error);
+    });
+    child.on('close', (code) => {
+      stopWatching();
+      resolvePromise({ code, output });
+    });
   });
 }
 
