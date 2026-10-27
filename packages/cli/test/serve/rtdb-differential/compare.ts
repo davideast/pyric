@@ -54,11 +54,15 @@ export function normalize(trace: Trace): NormalTrace {
     for (const [uid, name] of anonymousNames) out = out.split(uid).join(name);
     return out;
   };
-  const keys = new Set<string>(trace.pushed);
-  collectPushKeys(rewrite([trace.steps, trace.events, trace.data], withoutUids), keys);
-  // Each plane's push keys increase with the time they were minted at, so
-  // their sorted order is the order the sequence pushed them in.
-  const pushNames = new Map([...keys].sort().map((key, index) => [key, `<push${index}>`]));
+  // Keys are named in the order the sequence minted them, from trace.pushed,
+  // not in sorted order: a key carries its mint time, and a host clock that
+  // steps back (WSL2's does, by about 1.5 s) mints a key that sorts before
+  // earlier ones. Keys the trace holds but did not mint follow, sorted.
+  const found = new Set<string>();
+  collectPushKeys(rewrite([trace.steps, trace.events, trace.data], withoutUids), found);
+  const minted = new Set(trace.pushed);
+  const others = [...found].filter((key) => !minted.has(key)).sort();
+  const pushNames = new Map([...minted, ...others].map((key, index) => [key, `<push${index}>`]));
   const text = (input: string): string =>
     withoutUids(input).replace(PUSH_KEY, (match) => pushNames.get(match) ?? match);
   return {

@@ -6,7 +6,7 @@
  * verdicts moved with it. A method whose name promises virtual time is only
  * shippable while this file passes.
  */
-import { describe, it, expect } from 'bun:test';
+import { afterEach, describe, it, expect, setSystemTime } from 'bun:test';
 
 import { initializeSandbox } from 'pyric/sandbox';
 import { getClock, getInternalEnv } from 'pyric/sandbox/internal';
@@ -227,18 +227,28 @@ describe('the sandbox clock drives auth token minting', () => {
 });
 
 describe('reset returns the sandbox to the wall clock', () => {
+  // The held wall clock comes back here, even when an await never settles.
+  afterEach(() => {
+    setSystemTime();
+  });
+
   it('stamps a wall-clock serverTimestamp after reset', async () => {
     const sandbox = initializeSandbox();
     getInternalEnv(sandbox).seed({ rules: OPEN_FIRESTORE_RULES, documents: {} });
     getClock(sandbox).set(FUTURE);
     getClock(sandbox).reset();
 
+    // The wall clock is held so the stamp is exact: comparing it with a later
+    // real wall-clock read fails when the host clock steps back.
+    const wall = Date.UTC(2031, 0, 1);
     const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
+    setSystemTime(wall);
     await setDoc(doc(db, 'things/a'), { at: serverTimestamp() });
+    setSystemTime();
 
     const stored = getInternalEnv(sandbox).snapshot()['things/a'];
     const at = stored?.['at'] as { toMillis(): number };
-    expect(Math.abs(at.toMillis() - Date.now())).toBeLessThan(1000);
+    expect(at.toMillis()).toBe(wall);
   });
 });
 

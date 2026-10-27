@@ -34,7 +34,7 @@ bun run build            # scripts/build.sh; or build:pyric for the engine alone
 | Corpus scenarios | `packages/conformance/rules-corpus/{rtdb,firestore,storage}/` |
 | Production observations | `packages/conformance/observations/{rtdb-rules,firestore-rules,storage}/`, plus SDK-level ones under `rtdb-modular/`, `firestore/`, `rtdb/` |
 | Registry rows | `packages/conformance/registry/rules.ts` and siblings |
-| Node counts | `packages/conformance/assurance-node-counts/<service>.json` — a registry row added or removed edits this file in the same change (AGENTS.md boundary 6) |
+| Node counts | `packages/conformance/assurance-node-counts/<service>.json`; a registry row added or removed edits this file in the same change (AGENTS.md boundary 6) |
 | Scorecards / baselines | `packages/conformance/baselines/*-scorecard.json`, `coverage-baseline.json` |
 | Score pins in tests | `packages/conformance/test/src/{conformance-model,generate-docs-scoreboard,rules-language-coverage,rules-scorecard-gate}.test.ts` |
 | RTDB runtime pins | `KNOWN_DIVERGENCES` in `packages/pyric/test/rules/rtdb/rules-conformance.test.ts` |
@@ -44,9 +44,11 @@ bun run build            # scripts/build.sh; or build:pyric for the engine alone
 | Served-plane RTDB pins | `packages/cli/test/serve/rtdb-differential/known-divergences.ts` |
 
 Shared generated files (scorecards, baselines, node counts, score pins) are where
-parallel branches collide. Never hand-merge them: regenerate with
-`compat:conformance` / `compat:rules-score` after each merge and commit the
-result.
+parallel branches collide. Each stream keeps its changes to them in one commit,
+and whichever PR merges second regenerates them with `compat:conformance` and
+`compat:rules-score` on top of `main`
+([fix-campaign.md](../../defect-hunt/references/fix-campaign.md#3-shared-score-pins)).
+Never hand-merge them.
 
 ## Conventions a reviewer will hold you to
 
