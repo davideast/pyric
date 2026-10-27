@@ -40,6 +40,7 @@ import {
   type RtdbExpressionTree,
 } from './expression-tree.js';
 import { isSupportedRegexFlags } from './type-rules.js';
+import { rtdbRegexError } from './regex.js';
 import { CHAINED_TERMS_MESSAGE } from '../expression-engine.js';
 
 /** Why {@link canonicalRtdbExpression} could not read its input. */
@@ -98,19 +99,14 @@ function regexCompiles(raw: string): boolean {
   const end = raw.lastIndexOf('/');
   const flags = raw.slice(end + 1);
   if (!isSupportedRegexFlags(flags)) return true; // a rule runtime error, not a crash
-  try {
-    new RegExp(raw.slice(1, end), flags);
-    return true;
-  } catch {
-    return false;
-  }
+  return rtdbRegexError(raw.slice(1, end)) === null;
 }
 
 /**
  * Whether every failure `tree` can raise while it evaluates is a rule runtime
  * error, the error that fails the rule. Evaluation can also stop on a
  * construct the simulator does not evaluate (an unknown method, a method
- * called on an unbound name, a regular expression JavaScript cannot compile);
+ * called on an unbound name, a regular expression production refuses);
  * production refuses to deploy each of those. Reordering operands changes
  * which operand raises first, so it is applied only where every raise is the
  * same kind of failure.

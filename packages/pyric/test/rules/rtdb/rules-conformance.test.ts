@@ -27,9 +27,9 @@
  * divergences" test so it can never hide.
  *
  * CURRENT STATE: the in-process simulator agrees with every captured
- * production verdict except the r47 and r50 regex cases from the
- * 2026-10-26 hunt (#1247) pinned in KNOWN_DIVERGENCES, each naming its
- * finding. The r15 ancestor-validate false ALLOW is resolved: the
+ * production verdict. The 2026-10-26 hunt (#1247) pins are all resolved,
+ * so KNOWN_DIVERGENCES is empty. The r15 ancestor-validate false ALLOW is
+ * resolved too: the
  * simulator now evaluates the full root-to-write validation path against the
  * merged post-write tree.
  *
@@ -71,46 +71,6 @@ const KNOWN_DIVERGENCES: Record<
   string,
   { prodVerdict: 'ALLOW' | 'DENY'; simVerdict: 'ALLOW' | 'DENY' | 'UNSUPPORTED'; reason: string }
 > = {
-  // SP-2b (#1247, row rtdb-rules#34): matches() runs JavaScript RegExp. Production
-  // deploys lookahead, backreference and \b but never matches them as JavaScript does.
-  'r47-regex-runtime :: SP-2: lookahead requiring a digit, with a digit': {
-    prodVerdict: 'DENY', simVerdict: 'ALLOW', reason: 'SP-2b: production never matches a lookahead (?=...); JavaScript does',
-  },
-  'r47-regex-runtime :: SP-2: negative lookahead refusing admin, guest': {
-    prodVerdict: 'DENY', simVerdict: 'ALLOW', reason: 'SP-2b: production never matches a negative lookahead (?!...); JavaScript does',
-  },
-  'r47-regex-runtime :: SP-2: backreference, repeated group': {
-    prodVerdict: 'DENY', simVerdict: 'ALLOW', reason: 'SP-2b: production reads \\1 as the digit 1, not a backreference',
-  },
-  'r47-regex-runtime :: SP-2: word boundary, word inside a sentence': {
-    prodVerdict: 'DENY', simVerdict: 'ALLOW', reason: 'SP-2b: production reads \\b as the letter b, not a word boundary',
-  },
-  'r50-regex-unsupported-semantics :: SP-2b: !matches(negative lookahead) on guest': {
-    prodVerdict: 'ALLOW', simVerdict: 'DENY', reason: 'SP-2b: production matches() is false over a negative lookahead, so !matches() grants',
-  },
-  'r50-regex-unsupported-semantics :: SP-2b: !matches(lookahead) on a string with a digit': {
-    prodVerdict: 'ALLOW', simVerdict: 'DENY', reason: 'SP-2b: production matches() is false over a lookahead, so !matches() grants',
-  },
-  'r50-regex-unsupported-semantics :: SP-2b: !matches(backreference) on aa': {
-    prodVerdict: 'ALLOW', simVerdict: 'DENY', reason: 'SP-2b: production reads \\1 as the digit 1, so aa does not match and !matches() grants',
-  },
-  'r50-regex-unsupported-semantics :: SP-2b: !matches(word boundary) on a cat sat': {
-    prodVerdict: 'ALLOW', simVerdict: 'DENY', reason: 'SP-2b: production reads \\b as the letter b, so a cat sat does not match and !matches() grants',
-  },
-  'r50-regex-unsupported-semantics :: SP-2b: word boundary read as a literal b, on bcatb': {
-    prodVerdict: 'ALLOW', simVerdict: 'DENY', reason: 'SP-2b: production reads \\bcat\\b as bcatb',
-  },
-  'r50-regex-unsupported-semantics :: SP-2b: backreference read as a literal 1, on a1': {
-    prodVerdict: 'ALLOW', simVerdict: 'DENY', reason: 'SP-2b: production reads ^(a)\\1$ as a1',
-  },
-  // SP-8 (#1247, row rtdb-rules#34): production's . matches line terminators. The
-  // r47 case description predates the capture; production's ALLOW shows . matches \n.
-  'r47-regex-runtime :: dot does not match a newline': {
-    prodVerdict: 'ALLOW', simVerdict: 'DENY', reason: 'SP-8: production . matches \\n; JavaScript . does not',
-  },
-  'r50-regex-unsupported-semantics :: SP-8: dot against a carriage return': {
-    prodVerdict: 'ALLOW', simVerdict: 'DENY', reason: 'SP-8: production . matches \\r; JavaScript . does not',
-  },
 };
 
 interface RulesObservation {

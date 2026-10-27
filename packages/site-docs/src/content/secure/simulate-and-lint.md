@@ -205,7 +205,7 @@ The errors in the first group are the ones `firebase deploy` refuses, and each m
 | `NOT_BOOLEAN` | The rule does not evaluate to a boolean, such as a `.read` of `auth.uid`. |
 | `INVALID_OPERAND` | An operator gets an operand type it does not take, such as `data.val() > true`, or `!` on a string. |
 | `INVALID_ARGUMENT` | A method gets the wrong number or type of arguments, such as `child(1)`, or `matches()` with anything other than a regular expression literal. |
-| `INVALID_REGEX` | A regular expression literal has a flag other than `i`. |
+| `INVALID_REGEX` | A regular expression literal production refuses: a flag other than `i`, a `^` that is not the first character or a `$` that is not the last, or an unclosed group, repeat count or character set. A repeat count above 2,147,483,647 and a pattern too large to determinize, such as `a{100000}`, fail with production's texts. A pattern past pyric's own limits (more than 200,000 matcher states, or nesting deeper than 1,000 levels) reports here too, with a message that names the limit. |
 | `NO_SUCH_MEMBER` | The value has no such method or property, such as `data.nope()`. |
 | `NOT_AN_OBJECT` | A property access on a number, boolean, null, or regular expression. |
 | `NOT_A_FUNCTION` | A call on something that is not a method, such as `auth.uid()`. |
