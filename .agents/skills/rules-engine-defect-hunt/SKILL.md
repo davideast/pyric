@@ -1,6 +1,6 @@
 ---
 name: rules-engine-defect-hunt
-description: Surface map and gates for a defect hunt on pyric's own rules engines (RTDB, Firestore, Storage): the simulator, constraints DSL, deploy-time validator, security lint, sandbox enforcement, replay and coverage. Use with defect-hunt when the hunt targets rules tooling or a rules engine's parity with Firebase. Not for auditing an app's rules (use firestore-rules-audit or rtdb-security-rules).
+description: Rules engine defect hunt, bugs and parity with Firebase in pyric's own RTDB, Firestore and Storage rules engines (simulator, constraints DSL, deploy-time validator, security lint, sandbox enforcement, replay, coverage). Use with defect-hunt when asked to find bugs in pyric's rules tooling, audit a rules engine for parity, verify engine findings, or fix engine divergences. Not for auditing an app's rules (use firestore-rules-audit or rtdb-security-rules).
 ---
 
 # Rules engine defect hunt

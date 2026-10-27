@@ -25,14 +25,23 @@ capture.
 ## Before the first capture
 
 1. **A dedicated instance.** A database instance used for nothing else, with
-   deny-all base rules. Never point the runner at a database an app uses.
+   deny-all base rules. Never point the runner at a database an app uses. The
+   oracle project `digame-mas` has two: `pyric-oracle-rtdb` and
+   `pyric-oracle-rtdb-2`, both dedicated, both with locked resting rules. The
+   `databaseURL` in `PYRIC_ORACLE_FIREBASE_CONFIG` picks the instance.
 2. **Credentials, by env.** `PYRIC_ORACLE_FIREBASE_CONFIG` (Web SDK config JSON
    with `databaseURL` and `apiKey`) gates capture. `PYRIC_ORACLE_SA_PATH` points
    at a service account file outside the checkout that can mint a
    database-scoped token and seed data. If that account lacks database admin
-   roles, stop and resolve access rather than widening an app's credentials.
+   roles, stop and resolve access with a dedicated oracle service account, or
+   an admin token from the Firebase CLI login wired through the runner's token
+   path. Never widen an app's credentials.
 3. **Anonymous sign-in** enabled, for cases that sign in anonymously.
-4. **Preview.** Run with no credentials and confirm the scenario list and
+4. **Readiness.** `PYRIC_ORACLE_FIREBASE_CONFIG=... bun run
+   packages/conformance/src/check-rtdb-preflight.ts` checks the web config has
+   a `databaseURL`, anonymous sign-in is enabled, and the oracle namespace is
+   writable by a signed-in user. It exits 1 with a remediation per failure.
+5. **Preview.** Run with no credentials and confirm the scenario list and
    observation paths.
 
 ## A capture
@@ -49,12 +58,15 @@ PYRIC_ORACLE_FIREBASE_CONFIG="$(cat <web-config.json>)" \
 - Always pass `--scenario`. Without it the runner captures every scenario and
   deploy scenario in the corpus and rewrites every observation file.
 - A clean run ends with `capture complete: rules restored, run data and run
-  users removed, all read-back verified.` If that line is missing (a crash, a
-  kill, an error), read the instance's rules back yourself and confirm the
-  database root holds no run namespace before the next capture.
+  users removed, all read-back verified.` After every capture, with or without
+  that line, read the instance's rules back yourself and confirm the database
+  root holds no run namespace before the next one. It is cheap. A missing line
+  (a crash, a kill, an error) makes it urgent.
 - Huge inputs in a deploy dry run (a 2,000-term chain, a long or nested regex
   pattern) can rate-limit the oracle with HTTP 429. Put one limit probe in a
   scenario, not a ladder of them, and space limit scenarios minutes apart.
+  When one instance is rate-limited, capture on the other, and later confirm
+  the first is back at rest (rules read back locked, no run namespace).
 - A deploy rejection is itself a finding. When a probe cannot be deployed (for
   example `!` applied to a non-boolean), record the deploy verdict instead of
   forcing a runtime case.

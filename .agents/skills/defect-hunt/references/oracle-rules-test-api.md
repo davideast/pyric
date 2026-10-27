@@ -24,8 +24,11 @@ Both runners and the parity packs resolve a credential in this order
 2. a firebase-tools login (`~/.config/configstore/firebase-tools.json`);
 3. the gcloud ADC file from `gcloud auth application-default login`.
 
-The project under test is `PARITY_PROJECT_ID`, then `GOOGLE_CLOUD_PROJECT` or
-`GCLOUD_PROJECT`. A credential that holds only `firebaserules.rulesets.test`
+The project under test depends on the source. With
+`GOOGLE_APPLICATION_CREDENTIALS` or the gcloud ADC file it is
+`PARITY_PROJECT_ID`, then `GOOGLE_CLOUD_PROJECT`, then `GCLOUD_PROJECT`. With a
+firebase-tools login it is `PARITY_PROJECT_ID` only. Either way the default is
+`digame-mas`. A credential that holds only `firebaserules.rulesets.test`
 cannot read or write data or deploy, so a capture cannot damage anything.
 
 ```sh
@@ -40,7 +43,7 @@ Always pass `--scenario <id>`. With no `--scenario`, the runner captures every
 scenario in the corpus and rewrites every observation file. The no-credential
 preview is inert only when no source above resolves: on a machine with a
 firebase-tools login, `bun run packages/conformance/src/run-rules.ts` with
-nothing else is a full capture. If one happens, discard the rewritten files
+nothing else is a full capture against `digame-mas`. If one happens, discard the rewritten files
 with `git restore` and capture again by scenario.
 
 ## What the Rules Test API does not cover

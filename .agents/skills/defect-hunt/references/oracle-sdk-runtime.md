@@ -28,6 +28,12 @@ header, before the first capture.
 
 ## `run.ts`: the main SDK probe list
 
+Before an RTDB capture, run the readiness check
+(`PYRIC_ORACLE_FIREBASE_CONFIG=... bun run packages/conformance/src/check-rtdb-preflight.ts`):
+it confirms the web config has a `databaseURL`, anonymous sign-in is enabled,
+and the oracle namespace is writable, and exits 1 with a remediation per
+failure.
+
 ```sh
 # one probe (or every probe whose name contains the substring)
 PYRIC_ORACLE_SA_PATH=<service-account.json> \
@@ -40,10 +46,12 @@ PYRIC_ORACLE_SA_PATH=<service-account.json> \
   `ignored/service-account.json` in the checkout and throws if that is absent.
   Keep the service account outside the checkout and pass its path by env.
 - Use `PYRIC_ORACLE_SA_PATH`, not `PYRIC_ORACLE_FIREBASE_CONFIG`, for RTDB
-  work. The climb and disconnect probes are only added to the list when a
-  service account mints the database admin token; with the Web config alone
-  they silently drop out, and the weekly re-capture
-  (`.github/workflows/oracle-recapture.yml`) runs that way.
+  work, and leave the config unset. The climb and disconnect probes are only
+  added to the list when a service account mints the database admin token.
+  When the config is set, it wins even if the service account is set too
+  (`loadConfig` in `run.ts` returns early), and those probes silently drop
+  out. The weekly re-capture (`.github/workflows/oracle-recapture.yml`) runs
+  that way.
 - With a service account, the run merges the oracle namespace into the
   project's Firestore and Storage rules and restores them; a clean run prints
   `the project's Firestore and Storage rules are restored and verified`. It
@@ -75,7 +83,8 @@ PYRIC_ORACLE_SA_PATH=<service-account.json> \
 - It prints no restore line. After every run, read the Firestore release back
   and confirm it points at the ruleset it pointed at before, and that the run's
   documents are gone.
-- It takes a lock at `/tmp/pyric-firestore-real.lock`, so a second run waits.
+- It takes a lock at `/tmp/pyric-firestore-real.lock`. A second run does not
+  wait: it fails fast with "another ... probe is already running (pid N)".
 
 `run-firestore-write-request-resource.ts` follows the same pattern: inert
 without `PYRIC_ORACLE_SA_PATH`, a temporary probe ruleset, the prior release

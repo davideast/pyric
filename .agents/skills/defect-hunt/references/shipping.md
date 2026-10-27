@@ -34,7 +34,8 @@ Every PR opens as a draft and stays one until it is approved.
   reports it clean: `main` moved under it.
 - Do not delete a branch another PR is based on. Deleting the base closes the
   stacked PR instead of retargeting it. Retarget the stacked PR to `main` first,
-  then delete. If it already closed: push the old base back at the same commit,
+  then delete. `gh pr edit` is broken on this repo; retarget with
+  `gh api -X PATCH repos/davideast/pyric/pulls/<n> -f base=main`. If it already closed: push the old base back at the same commit,
   reopen, retarget, then delete.
 - Merge with `--match-head-commit` so nothing lands that CI did not see.
 - After the last merge, watch `main`'s own CI runs to completion.

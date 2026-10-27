@@ -71,17 +71,21 @@ sample yourself before accepting it.
 ## A round
 
 You are the coordinator. Workers hunt, verify and fix; you route work, keep
-verdicts calibrated, spot-check, and run every capture yourself. Start a ledger
-from [templates/ledger.md](templates/ledger.md) before step 1.
+verdicts calibrated, spot-check, and run every capture yourself. Steps 4, 5
+and 7 parallelize well: one agent per angle, verifier batch or fix stream, a
+shared board, briefs from [templates/](templates/). Start a ledger from
+[templates/ledger.md](templates/ledger.md) before step 1.
 
 1. **Pick the referee.** Map each surface in scope to a row of the referee
    table. Done when every surface has a referee in the ledger, and any surface
    whose only referee is a sibling says so.
-2. **Verify live access.** Run the runbook's preview, then one credentialed
-   control capture, then read the oracle's rules and data back and confirm
-   they are at rest. Done when the control agrees with its committed
-   observation. If access fails, resolve it before hunting, or record that this
-   round runs on committed observations only.
+2. **Verify live access.** Run the runbook's readiness check and preview,
+   then one credentialed control capture, then read the oracle's rules and data
+   back and confirm they are at rest. The control rewrites its observation
+   file: check `git diff`, and if the control only confirms, discard the
+   rewrite with `git restore`. Done when the control agrees with its committed
+   observation. If access fails, resolve it before hunting, or record that
+   this round runs on committed observations only.
 3. **Baseline.** Record the target commit and run the domain's gates. Measure
    where evidence is thin: constructs with no observation, surviving mutants,
    documented options no test mentions. Done when the ledger has the counts.
@@ -118,8 +122,9 @@ from [templates/ledger.md](templates/ledger.md) before step 1.
 - Captures are coordinator-only, one at a time, against the dedicated oracle
   only. Every capture names its scenario or probe: most runners capture
   everything and rewrite every observation file when given none.
-- After any capture that does not print its restore line, read the oracle's
-  rules and data back yourself and confirm they are at rest before the next.
+- After every capture, read the oracle's rules and data back yourself and
+  confirm they are at rest before the next. A capture that does not print its
+  restore line makes this urgent, not optional.
 - Credentials are passed by env for the one command that needs them. Never
   print them, never write them to `.env` or anywhere in the repo, and point
   `PYRIC_ORACLE_SA_PATH` at a file outside the checkout.

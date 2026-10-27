@@ -19,7 +19,8 @@ with and without it. Feed the values a plain JavaScript caller can pass:
 **Referee.** pyric's documented contract (JSDoc, docs pages, exported types,
 ADRs; see [contract-adr.md](contract-adr.md)).
 
-**Finds.** Fields parsed and dropped; builders that coerce bad arguments into
+**Finds.** An admin handle that does not bypass rules on every operation;
+fields parsed and dropped; builders that coerce bad arguments into
 something valid-looking; options honored on one surface and ignored on a
 sibling; checks the CLI runs that the library or MCP surface skips; typos
 silently ignored because no runtime rejects unknown fields.
@@ -58,7 +59,8 @@ the differential angle.
 
 **Finds.** Normalization done one way on one path and another way on the next;
 output that depends on declaration order; a builder that loses parentheses for
-one operand shape.
+one operand shape (a regex character class containing `/` broke one RTDB
+builder's precedence detection and let a signed-out write through).
 
 ## 4. Fault injection
 
