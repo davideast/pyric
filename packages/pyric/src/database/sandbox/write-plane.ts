@@ -110,7 +110,7 @@ export class WritePlane {
     private readonly values: ValueListeners,
     private readonly children: ChildListeners,
   ) {
-    this.priorityWrites = new PriorityWrites(state, values, children);
+    this.priorityWrites = new PriorityWrites(state, children, (paths, priors) => this.changed(paths, priors));
   }
 
   setData(seed: Record<string, JsonValue>): void {
@@ -276,7 +276,6 @@ export class WritePlane {
 
   adminSetPriority(path: string, priority: Priority): void {
     this.priorityWrites.adminSet(path, priority);
-    this.cancelDeniedListeners([path]);
   }
 
   get(auth: AuthState, path: string): JsonValue {
@@ -336,7 +335,6 @@ export class WritePlane {
 
   setPriority(auth: AuthState, path: string, priority: Priority): void {
     this.priorityWrites.set(auth, path, priority);
-    this.cancelDeniedListeners([path]);
   }
 
   /** Decide a `setPriority` by `auth` without writing or emitting an event. */
@@ -585,8 +583,8 @@ export class WritePlane {
    * Publish a data write already applied to the tree at `paths`: mark it for
    * transaction conflict checks, revoke the listeners whose `.read` it now
    * denies, then deliver it to the rest, so the write never reaches a
-   * listener the rules no longer allow. Sets, updates, their admin forms and
-   * transaction commits all publish through here.
+   * listener the rules no longer allow. Sets, updates, priority writes, their
+   * admin forms and transaction commits all publish through here.
    */
   changed(paths: string[], priors: ReturnType<ChildListeners['snapshotParents']>): void {
     this.state.mutations.mark(paths);
