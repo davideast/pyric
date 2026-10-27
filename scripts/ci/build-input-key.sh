@@ -8,7 +8,13 @@
 # manifests, the conformance model that feeds @pyric/cli's generated
 # projections, and the build scripts themselves. Test suites and the private
 # playground are excluded, so a test-only change reuses the cached dist while
-# any source change misses. Exact-match only: the workflow must not add
+# any source change misses.
+#
+# One thing in the test suites is a build input: the generated conformance
+# projection links each registry row's cited test files at a line number. So
+# both keys also hash the list of those (row, file, line) anchors, which
+# packages/conformance/src/test-line-anchors.ts prints. A test-only change
+# that moves a cited line misses; one that moves none still hits (#1265). Exact-match only: the workflow must not add
 # restore-keys, because a near-miss restore would run tests against stale
 # artifacts (fail-closed, same posture as scripts/ci/required.ts).
 set -euo pipefail
@@ -35,5 +41,12 @@ site_key=$(hash_tracked \
   'scripts/site/' \
   'bun.lock')
 
-echo "packages-key=${packages_key}"
-echo "site-key=${site_key}"
+# The cited test lines the conformance projection links to. Fails closed: a
+# key computed without them could restore a projection with stale links.
+anchors=$(bun packages/conformance/src/test-line-anchors.ts | sha256sum | cut -d' ' -f1)
+with_anchors() {
+  printf '%s %s' "$1" "$anchors" | sha256sum | cut -d' ' -f1
+}
+
+echo "packages-key=$(with_anchors "$packages_key")"
+echo "site-key=$(with_anchors "$site_key")"

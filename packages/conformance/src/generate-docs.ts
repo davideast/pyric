@@ -9,6 +9,9 @@ import {
 } from './conformance-model.ts';
 import type { SurfaceCensus } from './surface-census.ts';
 import { compatibilityHref, compatibilitySlug } from './docs-routes.ts';
+import { findTestLineNumber } from './test-line-anchors.ts';
+
+export { findTestLineNumber };
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = join(HERE, '..', '..', '..');
@@ -270,100 +273,6 @@ function apiParts(row: CompatibilityRow): { name: string; category: string } {
   const at = raw.indexOf(' — ');
   if (at === -1) return { name: raw, category: '' };
   return { name: raw.slice(0, at).trim(), category: raw.slice(at + 3).trim() };
-}
-
-const testContentCache = new Map<string, string[]>();
-
-/**
- * Retrieve and cache test file lines from disk to avoid redundant file I/O
- * during link validation and line discovery.
- */
-function getTestLines(testPath: string): string[] | undefined {
-  const cachedLines = testContentCache.get(testPath);
-  if (cachedLines) return cachedLines;
-
-  const absolutePath = join(REPO_ROOT, testPath);
-  const fileExists = existsSync(absolutePath);
-  if (!fileExists) return undefined;
-
-  try {
-    const rawContent = readFileSync(absolutePath, 'utf8');
-    const fileLines = rawContent.split('\n');
-    testContentCache.set(testPath, fileLines);
-    return fileLines;
-  } catch {
-    return undefined;
-  }
-}
-
-const IGNORED_API_WORDS = new Set(['and', 'with', 'the', 'for', 'from', 'returns', 'fails', 'when', 'true', 'false', 'that']);
-
-/**
- * Extract meaningful code symbol names from authored markdown API descriptions.
- * Avoids complex or brittle regular expressions by splitting on non-alphanumeric boundaries
- * and excluding common grammatical English words and short punctuation tokens.
- */
-function extractSymbolTokens(text: string): string[] {
-  const identifierCandidates = text.split(/[^a-zA-Z0-9_-]+/);
-  return identifierCandidates.filter((candidate) => {
-    const isSufficientLength = candidate.trim().length > 3;
-    const isDomainWord = !IGNORED_API_WORDS.has(candidate.toLowerCase());
-    return isSufficientLength && isDomainWord;
-  });
-}
-
-/**
- * Discover the precise line number in a test suite corresponding to a compatibility row.
- * Prioritizes exact metadata citations (observation IDs, row references) before falling back
- * to code symbol usage in test descriptions and assertions.
- */
-export function findTestLineNumber(row: CompatibilityRow, testPath: string): number | null {
-  const fileLines = getTestLines(testPath);
-  if (!fileLines) return null;
-
-  // Phase 1: Search for exact metadata matches (observation IDs, row identifiers, constructs)
-  for (let lineIndex = 0; lineIndex < fileLines.length; lineIndex++) {
-    const lineContent = fileLines[lineIndex]!;
-    const matchesObservation = row.oracleObservations.some((observationId) => lineContent.includes(observationId));
-    const matchesRowId = lineContent.includes(row.id);
-    const matchesRowAlias = row.aliases.some((rowAlias) => lineContent.includes(rowAlias));
-    const matchesConstruct = Boolean(row.constructs?.some((constructId) => lineContent.includes(constructId)));
-
-    const isExactMetadataMatch = matchesObservation || matchesRowId || matchesRowAlias || matchesConstruct;
-    if (isExactMetadataMatch) {
-      const oneIndexedLineNumber = lineIndex + 1;
-      return oneIndexedLineNumber;
-    }
-  }
-
-  // Phase 2: Search for explicit feature key symbol usages in code or test descriptions
-  const featureKeys = row.featureKeys.filter((featureKey) => featureKey.trim().length > 2);
-  if (featureKeys.length > 0) {
-    for (let lineIndex = 0; lineIndex < fileLines.length; lineIndex++) {
-      const lineContent = fileLines[lineIndex]!;
-      const matchesFeatureKey = featureKeys.some((featureKey) => lineContent.includes(featureKey));
-      if (matchesFeatureKey) {
-        const oneIndexedLineNumber = lineIndex + 1;
-        return oneIndexedLineNumber;
-      }
-    }
-  }
-
-  // Phase 3: Search for primary API domain identifiers across the test file
-  const symbolTokens = extractSymbolTokens(row.api);
-  if (symbolTokens.length > 0) {
-    for (let lineIndex = 0; lineIndex < fileLines.length; lineIndex++) {
-      const lineContent = fileLines[lineIndex]!;
-      const matchesSymbol = symbolTokens.some((symbolToken) => lineContent.includes(symbolToken));
-      if (matchesSymbol) {
-        const oneIndexedLineNumber = lineIndex + 1;
-        return oneIndexedLineNumber;
-      }
-    }
-  }
-
-  const defaultTopLineNumber = 1;
-  return defaultTopLineNumber;
 }
 
 export function formatRowEvidence(
