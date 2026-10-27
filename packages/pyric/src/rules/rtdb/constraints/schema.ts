@@ -26,6 +26,8 @@ const QUANTIFIER_ENDS = new Set(['*', '+', '?', '}']);
  * with the same meaning, or null when it can. RTDB reads `\b` as `b`, `\1` as
  * `1`, `(?` as a literal `?`, and `+?` as an optional `+` (#1247 SP-2b; r47,
  * r50), and refuses a mid-pattern anchor or `\p{..}` at deploy (SP-1, SP-2a).
+ * Its anchor rewrite puts `.*` around the pattern with no group (r53), so a
+ * top-level `|` splits differently, and a `]` that opens a set is a member.
  *
  * One gap stays open: JavaScript's `.` refuses `\n` and `\r` and RTDB's
  * matches them (SP-8), and the dialect has no way to say "any character but a
@@ -33,7 +35,10 @@ const QUANTIFIER_ENDS = new Set(['*', '+', '?', '}']);
  * the Zod schema refuses.
  */
 function rtdbRegexProblem(source: string): string | null {
+  const deployError = rtdbRegexError(source);
+  if (deployError !== null) return `RTDB refuses it at deploy (${deployError})`;
   let inClass = false;
+  let depth = 0;
   for (let i = 0; i < source.length; i++) {
     const ch = source[i]!;
     const nextCh = source[i + 1];
@@ -44,16 +49,26 @@ function rtdbRegexProblem(source: string): string | null {
     } else if (inClass) {
       inClass = ch !== ']';
     } else if (ch === '[') {
+      if (startsWithClosingBracket(source, i + 1)) return 'RTDB reads a ] right after [ or [^ as a member of the set';
       inClass = true;
     } else if (ch === '(' && nextCh === '?') {
       return 'RTDB reads (? as a literal ?, so lookarounds and (?: groups never match as in JavaScript';
     } else if (QUANTIFIER_ENDS.has(ch) && nextCh === '?') {
       return 'RTDB has no lazy quantifier and reads +? as an optional +';
+    } else if (ch === '(') {
+      depth++;
+    } else if (ch === ')') {
+      depth--;
+    } else if (ch === '|' && depth === 0) {
+      return 'RTDB applies ^, $ and the implied .* to the first and last alternatives only; wrap the alternation in a group';
     }
   }
-  const deployError = rtdbRegexError(source);
-  if (deployError !== null) return `RTDB refuses it at deploy (${deployError})`;
   return null;
+}
+
+function startsWithClosingBracket(source: string, start: number): boolean {
+  const memberStart = source[start] === '^' ? start + 1 : start;
+  return source[memberStart] === ']';
 }
 
 function escapedLetterProblem(letter: string): string | null {

@@ -11,8 +11,9 @@
  *
  *   - a leading `^` and a trailing `$` are stripped; a missing one becomes
  *     `.*`, so `/(/` is parsed as `.*(.*` and fails "expected ')' at
- *     position 5" (r44), and `/^\p{L}+$/` is parsed as `\p{L}+` and fails
- *     "integer expected at position 3" (r46);
+ *     position 5" (r44), `/^\p{L}+$/` is parsed as `\p{L}+` and fails
+ *     "integer expected at position 3" (r46), `/^(a$/` is parsed as `(a` and
+ *     fails at position 2, and `/^)/` reads `)` as a literal (r53);
  *   - any other unescaped `^` or `$` is refused at deploy (r46, r51, SP-1);
  *   - `\b` reads as `b` and `\1` as `1`; `(?=x)` and `(?!x)` read `?` as a
  *     literal, so they never match where JavaScript would (r47, r50, SP-2b);
@@ -26,7 +27,7 @@
  * the dialect allows: what `\s` covers (JavaScript's whitespace set here),
  * how `i` folds case, and that `& ~ # @ " < >` are plain characters.
  */
-import { matchesRegexNode, type RegexNode } from '../../simulator/regex-nfa.js';
+import { compileRegexNode, type RegexMatcher, type RegexNode } from '../../simulator/regex-nfa.js';
 
 const ILLEGAL = 'Illegal regular expression, ';
 
@@ -38,15 +39,19 @@ export class RtdbRegexSyntaxError extends SyntaxError {}
 
 /** A compiled `matches()` argument. */
 export class RtdbRegex {
+  private readonly matcher: RegexMatcher;
+
   constructor(
     readonly source: string,
     readonly flags: string,
-    private readonly node: RegexNode,
-  ) {}
+    node: RegexNode,
+  ) {
+    this.matcher = compileRegexNode(node);
+  }
 
   /** Whether `subject` matches, as production's `matches()` decides. */
   test(subject: string): boolean {
-    return matchesRegexNode(this.node, subject.split(''));
+    return this.matcher(subject.split(''));
   }
 }
 
@@ -80,37 +85,7 @@ export function compileRtdbRegex(body: string, flags: string): RtdbRegex {
 }
 
 function parseRtdbRegex(body: string, ignoreCase: boolean): RegexNode {
-  const parenError = unbalancedParenError(body);
-  if (parenError !== null) throw new RtdbRegexSyntaxError(parenError);
   return new DialectParser(anchoredSource(body), ignoreCase).parse();
-}
-
-/**
- * Unmatched parentheses outside character classes. Kept ahead of the dialect
- * parse so the texts stay those pyric reported before: r44 observed only
- * "expected ')' at position 5" for `/(/`, and the positions for anchored or
- * stray parentheses await a capture.
- */
-function unbalancedParenError(body: string): string | null {
-  let depth = 0;
-  let inClass = false;
-  for (let i = 0; i < body.length; i++) {
-    const ch = body[i]!;
-    if (ch === '\\') {
-      i++;
-    } else if (inClass) {
-      inClass = ch !== ']';
-    } else if (ch === '[') {
-      inClass = true;
-    } else if (ch === '(') {
-      depth++;
-    } else if (ch === ')') {
-      depth--;
-      if (depth < 0) return `${ILLEGAL}unexpected ')' at position ${i + 2}`;
-    }
-  }
-  if (depth > 0) return `${ILLEGAL}expected ')' at position ${body.length + 4}`;
-  return null;
 }
 
 /**
@@ -203,8 +178,11 @@ class DialectParser {
   ) {}
 
   parse(): RegexNode {
+    // An empty pattern, such as `/^$/` once its anchors are stripped, is the empty string.
+    if (!this.more()) return { kind: 'empty' };
     const node = this.union();
-    if (this.more()) this.fail(`end-of-string expected at position ${this.pos}`);
+    // Production reports no position for this one (r53: `/)/`, `/a)b/`).
+    if (this.more()) this.fail('end-of-string expected');
     return node;
   }
 

@@ -272,12 +272,18 @@ describe('schemaRules', () => {
       [/^a\tb$/, /escape \\t/],
       [/^\u0041$/, /escape \\u/],
       [/^red$|^blue$/, /unescaped \^/],
+      [/cat|dog/, /wrap the alternation in a group/],
+      [/^[]a]$/, /member of the set/],
+      [/^[^]$/, /refuses it at deploy/],
     ];
     for (const [regex, reason] of refused) {
       const build = () => schemaRules(z.object({ tag: z.string().regex(regex) }));
       expect(build, regex.source).toThrow(/Unsupported Zod regex on field "tag"/);
       expect(build, regex.source).toThrow(reason);
     }
+    expect(schemaRules(z.object({ tag: z.string().regex(/^(cat|dog)$/) })).children.tag.validate).toBe(
+      'newData.isString() && newData.val().matches(/^(cat|dog)$/)',
+    );
     const result = schemaRules(z.object({ tag: z.string().regex(/^[\w-]+\.\d{2,3}$/) }));
     expect(result.children.tag.validate).toBe('newData.isString() && newData.val().matches(/^[\\w-]+\\.\\d{2,3}$/)');
   });

@@ -26,6 +26,17 @@ type NfaState =
  * (code points for RE2, UTF-16 code units for RTDB).
  */
 export function matchesRegexNode(ast: RegexNode, chars: readonly string[]): boolean {
+  return compileRegexNode(ast)(chars);
+}
+
+/** A compiled pattern: whether `chars` as a whole matches it. */
+export type RegexMatcher = (chars: readonly string[]) => boolean;
+
+/**
+ * Build the NFA for `ast` once, for a caller that matches one pattern many
+ * times. Each match then costs O(states * chars).
+ */
+export function compileRegexNode(ast: RegexNode): RegexMatcher {
   const states: NfaState[] = [{ kind: 'accept' }];
   const addState = (st: NfaState): number => {
     const id = states.length;
@@ -74,19 +85,21 @@ export function matchesRegexNode(ast: RegexNode, chars: readonly string[]): bool
   };
 
   const startState = emit(ast, 0);
-  let current = epsilonClosure([startState], states, chars, 0);
-  for (let pos = 0; pos < chars.length && current.length > 0; pos++) {
-    const ch = chars[pos]!;
-    const nextSeeds: number[] = [];
-    for (const id of current) {
-      const st = states[id]!;
-      if (st.kind === 'char' && st.test(ch)) {
-        nextSeeds.push(st.out);
+  return (chars) => {
+    let current = epsilonClosure([startState], states, chars, 0);
+    for (let pos = 0; pos < chars.length && current.length > 0; pos++) {
+      const ch = chars[pos]!;
+      const nextSeeds: number[] = [];
+      for (const id of current) {
+        const st = states[id]!;
+        if (st.kind === 'char' && st.test(ch)) {
+          nextSeeds.push(st.out);
+        }
       }
+      current = epsilonClosure(nextSeeds, states, chars, pos + 1);
     }
-    current = epsilonClosure(nextSeeds, states, chars, pos + 1);
-  }
-  return current.includes(0);
+    return current.includes(0);
+  };
 }
 
 function epsilonClosure(

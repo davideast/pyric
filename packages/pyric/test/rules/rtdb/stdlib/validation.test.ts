@@ -82,8 +82,9 @@ describe('rtdbStdlib.validation', () => {
     expect(() => validation.matches('abc\\\\\\')).toThrow(/trailing/);
     expect(() => validation.matches('a\nb')).toThrow(/newline/);
     expect(() => validation.matches('a\rb')).toThrow(/newline/);
-    expect(() => validation.matches('(')).toThrow(/unclosed '\('/);
-    expect(() => validation.matches(')')).toThrow(/unmatched '\)'/);
+    // Parentheses fail with production's deploy text (r44 /(/, r53 /)/).
+    expect(() => validation.matches('(')).toThrow("Illegal regular expression, expected ')' at position 5");
+    expect(() => validation.matches(')')).toThrow('Illegal regular expression, end-of-string expected');
     expect(() => validation.matches('[abc')).toThrow(/unclosed '\['/);
     expect(() => validation.stringLength(3, 1)).toThrow();
   });
@@ -92,6 +93,8 @@ describe('rtdbStdlib.validation', () => {
     expect(() => validation.matches('^red$|^blue$')).toThrow('unescaped ^, ^ can only appear at the end');
     expect(() => validation.matches('(a$)')).toThrow('unescaped ^, ^ can only appear at the end');
     expect(() => validation.matches('^\\p{L}+$')).toThrow('integer expected at position 3');
+    // r53: production deploys /^)/, reading ) as a literal.
+    expect(validation.matches('^)')).toBe('newData.isString() && newData.val().matches(/^)/)');
   });
 
   test('matches accepts escaped slashes and patterns production allows', () => {

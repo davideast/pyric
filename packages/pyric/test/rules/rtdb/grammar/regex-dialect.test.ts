@@ -33,8 +33,12 @@ describe('load-time check', () => {
     expect(rtdbRegexError('^\\p{L}+$')).toBe('Illegal regular expression, integer expected at position 3');
   });
 
-  test('keeps the unclosed group text r44 observed', () => {
+  test('reports parenthesis errors at production positions (r44, r53)', () => {
     expect(rtdbRegexError('(')).toBe("Illegal regular expression, expected ')' at position 5");
+    expect(rtdbRegexError('^(a$')).toBe("Illegal regular expression, expected ')' at position 2");
+    expect(rtdbRegexError(')')).toBe('Illegal regular expression, end-of-string expected');
+    expect(rtdbRegexError('^)')).toBeNull();
+    expect(matches('^)$', ')')).toBe(true);
   });
 
   test('accepts the constructs production deploys (r44, r46)', () => {
@@ -57,7 +61,7 @@ test('every regex literal production refused at deploy fails with its exact text
       checked++;
     });
   }
-  expect(checked).toBeGreaterThanOrEqual(6);
+  expect(checked).toBeGreaterThanOrEqual(14);
 });
 
 describe('matching', () => {
@@ -96,6 +100,20 @@ describe('matching', () => {
     expect(matches('^\\w+$', 'a_1')).toBe(true);
     expect(matches('^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$', 'a@b.co')).toBe(true);
     expect(matches('^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$', 'a b@c.co')).toBe(false);
+  });
+
+  test('an empty pattern is the empty string (r55)', () => {
+    expect(rtdbRegexError('^$')).toBeNull();
+    expect(matches('^$', '')).toBe(true);
+    expect(matches('^$', 'x')).toBe(false);
+  });
+
+  test('the anchor rewrite puts no group around a top-level alternation (r54)', () => {
+    expect(matches('cat|dog', 'a cat here')).toBe(false);
+    expect(matches('cat|dog', 'bobcat')).toBe(true);
+    expect(matches('cat|dog', 'dogs')).toBe(true);
+    expect(matches('^a|b$', 'ax')).toBe(false);
+    expect(matches('(cat|dog)', 'a cat here')).toBe(true);
   });
 
   test('an empty range never matches (r44)', () => {

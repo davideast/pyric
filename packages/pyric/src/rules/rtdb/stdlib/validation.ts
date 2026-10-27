@@ -68,7 +68,6 @@ export function matches(pattern: string): Expr {
     throw new Error('matches: pattern cannot contain a raw newline.');
   }
   let inClass = false;
-  let parenDepth = 0;
   for (let i = 0; i < pattern.length; i++) {
     const ch = pattern[i]!;
     if (ch === '\\') {
@@ -76,33 +75,16 @@ export function matches(pattern: string): Expr {
         throw new Error("matches: pattern cannot end with a trailing '\\'.");
       }
       i++;
-      continue;
-    }
-    if (inClass) {
-      if (ch === ']') {
-        inClass = false;
-      }
-      continue;
-    }
-    if (ch === '/') {
+    } else if (inClass) {
+      inClass = ch !== ']';
+    } else if (ch === '/') {
       throw new Error(`matches: escape '/' in the pattern as '\\/': ${pattern}`);
-    }
-    if (ch === '[') {
+    } else if (ch === '[') {
       inClass = true;
-    } else if (ch === '(') {
-      parenDepth++;
-    } else if (ch === ')') {
-      if (parenDepth === 0) {
-        throw new Error(`matches: unmatched ')' in pattern: ${pattern}`);
-      }
-      parenDepth--;
     }
   }
   if (inClass) {
     throw new Error(`matches: unclosed '[' in pattern: ${pattern}`);
-  }
-  if (parenDepth !== 0) {
-    throw new Error(`matches: unclosed '(' in pattern: ${pattern}`);
   }
   const deployError = rtdbRegexError(pattern);
   if (deployError !== null) {
