@@ -3,9 +3,13 @@
  * install`, real registry packages for everything that is not Pyric. The
  * Pyric packages come from packed tarballs, never from workspace sources.
  */
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { cpSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { endGroup, watchChildExit } from './unreaped-exit.ts';
+
+/** How long a process a command left behind gets after SIGTERM, before SIGKILL. */
+const LEFTOVER_TERM_MS = 1000;
 
 /** The published packages, in the order scripts/pack-packages.sh packs them. */
 const PUBLISHED_PACKAGE_DIRS = [
@@ -45,18 +49,32 @@ export interface CommandResult {
   output: string;
 }
 
+/**
+ * Runs a command to exit. An exit the runner only half sees (#1274), a child
+ * whose pipes a process it started holds open, or one never reaped, resolves
+ * too (watchChildExit).
+ */
 export function runCommand(
   command: string,
   args: string[],
-  options: { cwd: string; env?: NodeJS.ProcessEnv },
+  options: { cwd: string; env?: NodeJS.ProcessEnv; spawnChild?: (command: string, args: string[], options: SpawnOptions) => ChildProcess },
 ): Promise<CommandResult> {
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(command, args, { cwd: options.cwd, env: options.env ?? process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const spawnChild = options.spawnChild ?? spawn;
+    // Its own process group, so what it starts and leaves running can be found and ended.
+    const child = spawnChild(command, args, { cwd: options.cwd, env: options.env ?? process.env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
     let output = '';
-    child.stdout.on('data', (chunk) => { output += chunk; });
-    child.stderr.on('data', (chunk) => { output += chunk; });
-    child.on('error', reject);
-    child.on('close', (code) => resolvePromise({ code, output }));
+    child.stdout?.on('data', (chunk) => { output += chunk; });
+    child.stderr?.on('data', (chunk) => { output += chunk; });
+    const stopWatching = watchChildExit(child, command, (exit) => {
+      const hasLeftovers = exit.leftovers.length > 0 && child.pid !== undefined;
+      if (hasLeftovers) void endGroup(child.pid ?? 0, LEFTOVER_TERM_MS);
+      resolvePromise({ code: exit.code, output: `${output}${exit.note}` });
+    });
+    child.on('error', (error) => {
+      stopWatching();
+      reject(error);
+    });
   });
 }
 
