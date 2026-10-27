@@ -135,6 +135,7 @@ fi
 # Upload copies, verified against the stamp, so nothing that writes to
 # dist/packages between the check and the last upload can change what ships.
 UPLOAD_DIR="$(mktemp -d "${TMPDIR:-/tmp}/pyric-publish-XXXXXX")"
+trap 'rm -rf "$UPLOAD_DIR"' EXIT
 for t in "${TARBALLS[@]}"; do cp "$ROOT/dist/packages/${t}-${V}.tgz" "$UPLOAD_DIR/"; done
 cp "$ROOT/dist/packages/proven.json" "$UPLOAD_DIR/"
 node "$ROOT/scripts/lib/proven-stamp.mjs" verify "$UPLOAD_DIR" "$V" "$ROOT" "${TARBALLS[@]}"
