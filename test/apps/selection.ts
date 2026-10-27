@@ -15,13 +15,14 @@ export interface Options {
   names: string[];
   packages?: string;
   build: boolean;
-  jobs: number;
+  /** Apps run at once; undefined leaves it to `defaultJobs` in schedule.ts. */
+  jobs?: number;
   keep: boolean;
   slow: SlowFilter;
 }
 
 export function parseArguments(argv: string[], env: Record<string, string | undefined> = {}): Options {
-  const options: Options = { names: [], build: false, jobs: 3, keep: false, packages: env.PYRIC_PACKAGE_ARTIFACT_DIR, slow: 'include' };
+  const options: Options = { names: [], build: false, keep: false, packages: env.PYRIC_PACKAGE_ARTIFACT_DIR, slow: 'include' };
   const slowFlags: string[] = [];
   for (let index = 0; index < argv.length; index++) {
     const argument = argv[index]!;

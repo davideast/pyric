@@ -11,7 +11,8 @@
  * Options:
  *   --packages <dir>  install these tarballs (also PYRIC_PACKAGE_ARTIFACT_DIR)
  *   --build           build the workspace before packing it
- *   --jobs <n>        apps run at once (default 3)
+ *   --jobs <n>        apps run at once (default: one per four free threads,
+ *                     at most 6; one per thread on CI)
  *   --keep            keep each app's installed directory
  *   --skip-slow       leave out the apps whose scenario.ts exports `slow = true`
  *   --only-slow       run only those apps
@@ -23,7 +24,8 @@
  * Without --packages, the runner packs the current workspace build into
  * dist/packages. Apps that install the same packages share one `npm install`
  * per run, copied into each app (shared-installs.ts). Logs land in
- * test-results/apps/<name>/.
+ * test-results/apps/<name>/. Apps start longest first, by the times the last
+ * run recorded in test-results/app-durations.json (schedule.ts).
  */
 import { chromium, type Browser } from '@playwright/test';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -32,11 +34,13 @@ import { join, resolve } from 'node:path';
 import { AppRun, StepFailure, type Scenario } from './driver.ts';
 import { npmInstall, packWorkspace, prepareApp, runCommand, tarballsIn, type Tarballs } from './install.ts';
 import { SharedInstalls } from './shared-installs.ts';
+import { defaultJobs, longestFirst, measureMachineLoad, readDurations, recordDurations } from './schedule.ts';
 import { parseArguments, selectApps, skippedSlowClause } from './selection.ts';
 
 const appsDir = import.meta.dir;
 const root = resolve(appsDir, '../..');
 const resultsDir = join(root, 'test-results/apps');
+const durationsFile = join(root, 'test-results/app-durations.json');
 const APP_TIMEOUT_MS = Number(process.env.PYRIC_APP_TIMEOUT_MS ?? 300_000);
 const LOG_TAIL_LINES = 200;
 
@@ -190,7 +194,9 @@ async function main(): Promise<void> {
   }
   const filtersSlow = options.slow !== 'include' && options.names.length === 0;
   const slow = filtersSlow ? await slowApps(available) : new Set<string>();
-  const { run: names, skippedSlow } = selectApps({ available, names: options.names, slow, filter: options.slow });
+  const selection = selectApps({ available, names: options.names, slow, filter: options.slow });
+  const { skippedSlow } = selection;
+  const names = longestFirst(selection.run, readDurations(durationsFile));
   if (names.length === 0) {
     // A run that drives no app passes without proving anything, so a marker
     // removed by mistake fails the slow workflow instead of turning it green.
@@ -215,10 +221,13 @@ async function main(): Promise<void> {
   let browser: Promise<Browser> | undefined;
   const launch = () => (browser ??= chromium.launch({ headless: true }));
 
-  console.log(`▸ running ${names.length} app${names.length === 1 ? '' : 's'}, ${options.jobs} at a time`);
+  const machine = measureMachineLoad();
+  const jobs = options.jobs ?? defaultJobs(machine, process.env);
+  const load = `load ${(machine.load / machine.threads).toFixed(2)} per thread`;
+  console.log(`▸ running ${names.length} app${names.length === 1 ? '' : 's'}, ${jobs} at a time (${load}), longest first`);
   let results: AppResult[];
   try {
-    results = await pool(names, options.jobs, async (name) => {
+    results = await pool(names, jobs, async (name) => {
       const result = await runApp(name, { tarballs, npmCache, installs, keep: options.keep, browser: launch });
       const dir = saveLogs(result);
       console.log(result.ok ? `✓ ${name} (${result.seconds.toFixed(1)}s)` : report(result, dir));
@@ -229,6 +238,7 @@ async function main(): Promise<void> {
     if (options.keep) console.log(`  shared installs: ${installsDir}`);
     else rmSync(installsDir, { recursive: true, force: true });
   }
+  recordDurations(durationsFile, results);
 
   const failed = results.filter((result) => !result.ok);
   const total = ((performance.now() - started) / 1000).toFixed(1);
