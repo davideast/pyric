@@ -20,6 +20,9 @@ interface Repro {
 }
 declare const repro: Repro;
 
+/** What the host appends to the first rules reload of a session, and to no later one. */
+const VERIFY_HINT = '(run `pyric verify` to replay the captured session against these rules)';
+
 /** Run the installed `pyric` command from the app directory and return what it printed. */
 async function pyric(app: App, args: string[]): Promise<string> {
   const { output } = await app.serverScript('pyric.mjs', args);
@@ -148,25 +151,25 @@ export default scenario(async (app) => {
     assert.match(output, /Tip: After changing rules, run `pyric verify`/, output);
   });
 
-  await app.step('pyric database rules generate suggests verify', async () => {
+  await app.step('pyric database rules generate suggests verify, and the host reloads what it wrote', async () => {
+    const mark = host.process.mark();
     app.writeFile('database.rules.mjs', `export default { toJSON: () => ({ rules: { '.read': true } }) };`);
     const output = await pyric(app, ['database', 'rules', 'generate', '--config', 'database.rules.mjs']);
     assert.match(output, /Test before deploy: pyric verify --service rtdb/, output);
+    // generate writes database.rules.json, the file the host watches, so this
+    // is the session's first hot reload and the one that carries the hint.
+    const [reload] = await host.process.waitForLog(/rtdb rules reloaded[^\n]*/, { since: mark });
+    assert.ok(reload.includes(VERIFY_HINT), reload);
   });
 
   await app.step('hot-reloading rules prints the verify hint exactly once', async () => {
-    const mark = host.process.mark();
-    // Trigger a hot reload
-    app.writeFile('database.rules.json', JSON.stringify({ rules: { '.read': true, '.write': true } }));
-    await host.process.waitForLog(/rules reloaded.*\(run `pyric verify` to replay the captured session against these rules\)/, { since: mark });
-    
-    // Trigger another hot reload
-    const mark2 = host.process.mark();
-    app.writeFile('database.rules.json', JSON.stringify({ rules: { '.read': false, '.write': false } }));
-    await host.process.waitForLog(/rules reloaded/, { since: mark2 });
-    
-    // Check that the hint was printed ONLY once. The new output should not have the hint.
-    const newLogs = host.process.output.slice(mark2);
-    assert.doesNotMatch(newLogs, /\(run `pyric verify` to replay the captured session against these rules\)/);
+    const edits = [{ rules: { '.read': true, '.write': true } }, { rules: { '.read': false, '.write': false } }];
+    for (const rules of edits) {
+      const mark = host.process.mark();
+      app.writeFile('database.rules.json', JSON.stringify(rules));
+      await host.process.waitForLog(/rtdb rules reloaded/, { since: mark });
+    }
+    const hints = host.process.output.split(VERIFY_HINT).length - 1;
+    assert.equal(hints, 1, host.process.output);
   });
 });
