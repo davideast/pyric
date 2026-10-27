@@ -37,8 +37,14 @@ function runBuildScript(root: string, args: string[], env: NodeJS.ProcessEnv): P
     stampLines(child.stderr, started, lines);
     const deadline = setTimeout(() => {
       lines.push(`${buildDeadlineMs} ms  deadline passed, killing build.sh and its children`);
-      process.kill(-(child.pid ?? 0), 'SIGKILL');
+      // A negative pid signals the child's own process group; without a pid there is no group to kill.
+      const { pid } = child;
+      const hasProcessGroup = pid !== undefined;
+      if (hasProcessGroup) process.kill(-pid, 'SIGKILL');
     }, buildDeadlineMs);
+    child.on('error', (error) => {
+      lines.push(`${Math.round(performance.now() - started)} ms  build.sh did not start: ${error.message}`);
+    });
     child.on('close', (status) => {
       clearTimeout(deadline);
       done({ status, timeline: lines.join('\n') });
