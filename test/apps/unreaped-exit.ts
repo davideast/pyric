@@ -53,29 +53,67 @@ const readProcStat: ReadStat = (pid) => {
   }
 };
 
-/** The exit of `pid` if it is a zombie, an exited child nobody reaped; undefined while it runs. */
-export function unreapedExit(pid: number, readStat: ReadStat = readProcStat): ChildExit | undefined {
+/** How many threads /proc/<pid>/status lists; a leader thread can be a zombie while others run. */
+export type ReadThreads = (pid: number) => number | undefined;
+
+const readProcThreads: ReadThreads = (pid) => {
+  try {
+    const match = /^Threads:\s+(\d+)$/m.exec(readFileSync(`/proc/${pid}/status`, 'utf8'));
+    return match ? Number(match[1]) : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * The exit of `pid` if the whole process has exited and nobody reaped it;
+ * undefined while it runs. A zombie leader thread whose other threads still
+ * run has not exited.
+ */
+export function unreapedExit(pid: number, readStat: ReadStat = readProcStat, readThreads: ReadThreads = readProcThreads): ChildExit | undefined {
   const line = readStat(pid);
   const stat = line === undefined ? undefined : parseProcStat(line);
   const isZombie = stat?.state === 'Z';
-  return isZombie ? decodeExitStatus(stat.exitStatus) : undefined;
+  if (!isZombie) return undefined;
+  const hasLiveThreads = (readThreads(pid) ?? 1) > 1;
+  return hasLiveThreads ? undefined : decodeExitStatus(stat.exitStatus);
 }
 
 const hasProc = process.platform === 'linux' && existsSync('/proc/self/stat');
 
+/** How the watcher polls. Every child is a zombie for a moment before it is reaped. */
+export interface WatchTiming {
+  intervalMs: number;
+  /**
+   * How long a child must stay an unreaped zombie before it counts as missed.
+   * A normal exit is reaped, and its output drained, within milliseconds, so
+   * this only ever fires for an exit the runner really lost.
+   */
+  graceMs: number;
+}
+
+const DEFAULT_TIMING: WatchTiming = { intervalMs: 500, graceMs: 3000 };
+
 /**
- * Check `pid` every `intervalMs` and call `onExit` once if it turns out to
- * have exited unreaped. Returns the function that stops watching. A no-op
- * where there is no /proc.
+ * Check `pid` every `intervalMs` and call `onExit` once if it has stayed an
+ * unreaped zombie for `graceMs`. Returns the function that stops watching. A
+ * no-op where there is no /proc.
  */
-export function watchUnreapedExit(pid: number, onExit: (exit: ChildExit) => void, intervalMs = 500, readStat: ReadStat = readProcStat): () => void {
+export function watchUnreapedExit(pid: number, onExit: (exit: ChildExit) => void, timing: WatchTiming = DEFAULT_TIMING, readStat: ReadStat = readProcStat): () => void {
   if (!hasProc) return () => {};
+  let zombieSince: number | undefined;
   const timer = setInterval(() => {
     const exit = unreapedExit(pid, readStat);
-    if (exit === undefined) return;
+    if (exit === undefined) {
+      zombieSince = undefined;
+      return;
+    }
+    zombieSince ??= performance.now();
+    const hasOutlastedGrace = performance.now() - zombieSince >= timing.graceMs;
+    if (!hasOutlastedGrace) return;
     clearInterval(timer);
     onExit(exit);
-  }, intervalMs);
+  }, timing.intervalMs);
   timer.unref();
   return () => clearInterval(timer);
 }

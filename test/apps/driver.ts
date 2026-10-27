@@ -45,6 +45,8 @@ export class AppProcess {
   private spawnAttempts = 0;
   private childWrote = false;
   private stopWatchingExit: () => void = () => {};
+  /** Set when the child's exit came from /proc (#1274): its process group may still hold children. */
+  private exitedUnreaped = false;
 
   constructor(
     readonly name: string,
@@ -93,6 +95,7 @@ export class AppProcess {
       this.stopWatchingExit = watchUnreapedExit(child.pid, (exit) => {
         if (!isCurrent()) return;
         this.text += describeUnreapedExit(this.name, exit);
+        this.exitedUnreaped = true;
         this.finish(exit.code);
       });
     }
@@ -184,6 +187,11 @@ export class AppProcess {
    * `exited` settles and nothing waits on it past that.
    */
   async stop(grace: StopGrace = DEFAULT_STOP_GRACE): Promise<void> {
+    // A child whose exit was read from /proc left its group behind; stop that.
+    if (this.exitedUnreaped && this.child.pid !== undefined) {
+      try { process.kill(-this.child.pid, 'SIGKILL'); } catch { /* the group is gone */ }
+      return;
+    }
     if (!this.running || this.child.pid === undefined) return;
     const group = -this.child.pid;
     // A stopped process holds SIGTERM until it is continued.
