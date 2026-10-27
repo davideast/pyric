@@ -64,6 +64,29 @@ describe('a key named __proto__ in the simulated trees', () => {
   });
 });
 
+describe('an own __proto__ key inside a written value', () => {
+  const nested = rtdbRules({ rules: { n: { '.write': true, $k: { $j: { '.validate': 'newData.isNumber()' } } } } });
+  const decideNested = (c: Omit<RtdbCase, 'expectation'>): string =>
+    nested.simulate([{ expectation: 'ALLOW', ...c }]).cases[0]!.decision;
+  const value = (json: string): Record<string, unknown> => JSON.parse(json) as Record<string, unknown>;
+
+  test('an update value keeps it, and its .validate runs', () => {
+    // The SDK's update() sends the caller's object (repoUpdate passes
+    // childrenToMerge to the server), and JSON.stringify keeps an own __proto__.
+    expect(decideNested({ operation: 'update', path: '/n', newData: { b: value('{"__proto__":"x"}') } })).toBe('DENY');
+    expect(decideNested({ operation: 'update', path: '/n', newData: { b: value('{"__proto__":1}') } })).toBe('ALLOW');
+    expect(decideNested({
+      operation: 'write', path: '/n/b', updates: [{ path: '/n/b', value: value('{"__proto__":"x"}') }],
+    })).toBe('DENY');
+  });
+
+  test('a set value drops it, as ChildrenNode.val() does, and keeps its siblings', () => {
+    expect(decideNested({ operation: 'write', path: '/n/b', newData: value('{"__proto__":"x"}') })).toBe('ALLOW');
+    expect(decideNested({ operation: 'write', path: '/n/b', newData: value('{"__proto__":"x","c":1}') })).toBe('ALLOW');
+    expect(decideNested({ operation: 'write', path: '/n/b', newData: value('{"__proto__":"x","c":"y"}') })).toBe('DENY');
+  });
+});
+
 describe('a snapshot whose child is named __proto__', () => {
   const stored = JSON.parse('{"p":{"__proto__":1}}') as Record<string, unknown>;
   const reads = (rule: string): string => rtdbRules({ rules: { p: { '.read': rule } } })

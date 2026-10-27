@@ -95,7 +95,10 @@ function normalizeSimulationValue(value: unknown): unknown {
   if (typeof value === 'object' && value !== null) {
     const normalized: Record<string, unknown> = {};
     for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-      normalized[key] = normalizeSimulationValue(child);
+      // Defined, not assigned, so an own `__proto__` key is kept (#1247 CS-1).
+      Object.defineProperty(normalized, key, {
+        value: normalizeSimulationValue(child), enumerable: true, writable: true, configurable: true,
+      });
     }
     return normalized;
   }
