@@ -338,3 +338,30 @@ describe('the equivalence check catches unsound rewrites', () => {
     });
   }
 });
+
+// `||` and `&&` chains of any length parse since LD-7 (#1247; production
+// deploys a 2,000-term `||` chain, r51), so canonical form must read them
+// without recursing once per term or re-flattening each prefix.
+describe('canonical form of long logical chains', () => {
+  const chain = (n: number, operator: string) => Array.from({ length: n }, (_, i) => `auth.uid == 'u${i}'`).join(` ${operator} `);
+
+  test('a 5,000-term chain canonicalizes, round-trips and is idempotent', () => {
+    for (const operator of ['||', '&&']) {
+      const text = canonical(chain(5000, operator));
+      const first = canonical("auth.uid == 'u0'");
+      const terms = Array.from({ length: 5000 }, (_, i) => first.replace("'u0'", `'u${i}'`));
+      expect(text).toBe(terms.join(` ${operator} `));
+      expect(canonical(text)).toBe(text);
+    }
+  });
+
+  test('a right-nested chain canonicalizes to the left-nested one', () => {
+    same('a || (b || (c || d))', 'a || b || c || d');
+    same('(a && b) && (c && d)', 'a && b && c && d');
+  });
+
+  test('a long chain of another operator is a syntax error, not a RangeError', () => {
+    const sum = `${Array.from({ length: 20_000 }, () => '1').join(' + ')} > 0`;
+    expect(() => canonical(sum)).toThrow(RtdbExpressionSyntaxError);
+  });
+});

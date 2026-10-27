@@ -622,6 +622,15 @@ describe('LD-1: a rule over auth that is true for every request', () => {
   test('near miss: a term that may error still blocks the fold (r26)', () => {
     expect(found({ a: { '.write': "auth != null && newData.val().toUpperCase() == 'OK' || true" } }, 'RTDB-SEC-1')).toEqual([]);
   });
+
+  test('near miss: a read deeper than r49 captures through a signed-out auth is not folded', () => {
+    expect(found({ a: { '.write': 'auth != null || auth.token.firebase.identities == null' } }, 'RTDB-SEC-1')).toEqual([]);
+  });
+
+  test('the fix names the rule it replaces', () => {
+    const [finding] = lint({ a: { '.write': 'auth != null || true' } }).filter((f) => f.code === 'RTDB-SEC-1');
+    expect(finding!.fix).toContain('Replace /a .write "auth != null || true" with');
+  });
 });
 
 // LD-3 (#1247): simulate-and-lint.md documents RTDB-SEC-4 as a rule that tries

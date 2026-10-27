@@ -233,9 +233,11 @@ function fileCoverage(
   const recorder = new RtdbCoverageRecorder(doc.compile());
   for (const result of results) {
     recorder.record(result.trace);
-    // A case the simulator could not decide, such as one whose query it
-    // refused as invalid input, cannot be said to have run a query (CS-12).
-    if (result.case.operation === 'read' && result.decision !== 'UNSUPPORTED') {
+    // A case refused as invalid input, such as one with a query the SDK
+    // refuses, reached no node and ran no query (CS-12). One that reached a
+    // rule it could not evaluate still names the index its query needs.
+    const refusedAsInput = result.unsupported && result.trace.length === 0;
+    if (result.case.operation === 'read' && !refusedAsInput) {
       recorder.recordQuery(result.case.path, result.case.query);
     }
   }

@@ -18,8 +18,8 @@
  *   - An error while evaluating a rule fails that rule; `||` does not absorb
  *     an error on its left (corpus r26-rule-runtime-error). Constant folding
  *     here therefore folds `true || X` to true but never `X || true`.
- *   - `auth`, and every member read from it, is null for a signed-out
- *     client without error (corpus r49). Folding each rule once for a
+ *   - `auth`, `auth.uid` and `auth.token.<claim>` are null for a
+ *     signed-out client without error (corpus r49). Folding each rule once for a
  *     signed-out and once for a signed-in request finds a rule over `auth`
  *     that is true for every request (`auth != null || true`), and a deeper
  *     rule that grants no signed-out client under an ancestor that grants
@@ -90,7 +90,7 @@ type ConstVal = boolean | number | string | null | typeof NON_NULL | undefined;
 /**
  * Which requests a fold assumes: any request, a signed-out one (`auth` is
  * null), or a signed-in one (`auth` and `auth.uid` are non-null). Signed out,
- * `auth` and every member read from it are null without error (r49: "SP-5:
+ * `auth` and the members r49 reads from it are null without error (r49: "SP-5:
  * auth.uid == null signed out", "SP-5: auth.token.admin != true signed out"
  * and "SP-5 control: auth == null signed out" all ALLOW), so a rule over
  * `auth` alone has a value in each case even where `X || true` would not
@@ -98,8 +98,12 @@ type ConstVal = boolean | number | string | null | typeof NON_NULL | undefined;
  */
 type AuthCase = 'any' | 'signed-out' | 'signed-in';
 
-/** `auth` followed only by member reads, such as `auth.token.admin`. */
-const AUTH_MEMBER_CHAIN = /^auth(\s*\.\s*[A-Za-z_$][\w$]*)*$/;
+/**
+ * A receiver whose member reads null for a signed-out client: `auth`, or one
+ * member of it (so `auth.uid` and `auth.token.admin`, the depths r49
+ * captures). A deeper read through a null is not captured and is not folded.
+ */
+const AUTH_MEMBER_RECEIVER = /^auth(\s*\.\s*[A-Za-z_$][\w$]*)?$/;
 
 /** The `any` case folds as it always has: literals only. */
 function identValue(name: string, world: AuthCase): ConstVal {
@@ -110,7 +114,7 @@ function identValue(name: string, world: AuthCase): ConstVal {
 }
 
 function authMemberValue(receiver: Node, member: string, world: AuthCase): ConstVal {
-  if (!AUTH_MEMBER_CHAIN.test(receiver.sourceString)) return undefined;
+  if (!AUTH_MEMBER_RECEIVER.test(receiver.sourceString)) return undefined;
   if (world === 'signed-out') return null;
   return world === 'signed-in' && member === 'uid' && receiver.sourceString === 'auth' ? NON_NULL : undefined;
 }
@@ -517,6 +521,11 @@ function ruleText(rule: RtdbRuleExpression): string {
   return raw.length <= 80 ? raw : `${raw.slice(0, 77)}...`;
 }
 
+/** `true`, or a rule that only evaluates to true, as a finding names it. */
+function ruleNamed(rule: RtdbRuleExpression): string {
+  return rule.raw.trim() === 'true' ? 'true' : `"${ruleText(rule)}"`;
+}
+
 /** "is true", or for a rule that only evaluates to true, the rule and "is true for every request". */
 function isTrueFor(rule: RtdbRuleExpression): string {
   return rule.raw.trim() === 'true' ? 'is true' : `"${ruleText(rule)}" is true for every request`;
@@ -552,7 +561,7 @@ function walk(n: LintNode, state: WalkState, findings: RtdbSecurityFinding[]): v
       path,
       rule: '.write',
       message: `${path} .write ${isTrueFor(n.node.write!)}: anyone, signed in or not, can write, replace or delete any value under ${under(path)}.`,
-      fix: `Replace ${path} .write true with a condition on auth, such as "auth != null && auth.uid == $uid" on the node each user owns.`,
+      fix: `Replace ${path} .write ${ruleNamed(n.node.write!)} with a condition on auth that a signed-out client fails, such as "auth != null && auth.uid == $uid" on the node each user owns.`,
     });
   }
 

@@ -9,9 +9,9 @@
  * `.read`, `.write` and `.validate` nodes are evaluated by a request.
  * An `.indexOn` node is used by a read case whose query orders by a child path
  * or by value and whose declared index list names that ordering; a query no
- * node declares an index for is reported under `missingIndexes`. A case the
- * simulator could not decide (`UNSUPPORTED`), such as one whose query it
- * refused as invalid input, uses no index and lists none as missing.
+ * node declares an index for is reported under `missingIndexes`. A case
+ * refused as invalid input, such as one whose query the SDK refuses, reached
+ * no node: it uses no index and lists none as missing.
  */
 import type { RtdbNode } from './types.js';
 import { nodesDeclaringIndex } from './index-lookup.js';
