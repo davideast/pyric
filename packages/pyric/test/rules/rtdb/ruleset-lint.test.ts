@@ -625,6 +625,20 @@ describe('LD-1: a rule over auth that is true for every request', () => {
 
   test('near miss: a read deeper than r49 captures through a signed-out auth is not folded', () => {
     expect(found({ a: { '.write': 'auth != null || auth.token.firebase.identities == null' } }, 'RTDB-SEC-1')).toEqual([]);
+    // The simulator raises an error on auth.uid.length signed out.
+    expect(found({ a: { '.write': 'auth != null || auth.uid.length == null' } }, 'RTDB-SEC-1')).toEqual([]);
+  });
+
+  test('a deeper rule that is always false names itself in RTDB-SEC-4', () => {
+    const [finding] = lint({ users: { '.read': 'auth != null', $uid: { '.read': '$uid == null' } } }).filter((f) => f.code === 'RTDB-SEC-4');
+    expect(finding!.message).toContain('/users/$uid .read "$uid == null" is false for every request and does not revoke /users .read');
+    const [literal] = lint({ '.write': 'auth != null', inner: { '.write': false } }).filter((f) => f.code === 'RTDB-SEC-4');
+    expect(literal!.message).toContain('/inner .write is false and does not revoke / .write');
+  });
+
+  test('RTDB-SEC-6 says the .validate does not check its own new value', () => {
+    const [finding] = lint({ a: { '.write': 'auth != null', '.validate': 'auth != null' } }).filter((f) => f.code === 'RTDB-SEC-6');
+    expect(finding!.message).toContain('no .validate rule at or below /a checks its own new value');
   });
 
   test('the fix names the rule it replaces', () => {

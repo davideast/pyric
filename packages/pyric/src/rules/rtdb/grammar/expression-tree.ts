@@ -63,8 +63,8 @@ function binary(operator: RtdbBinaryOperator) {
  */
 function chain(operator: '||' | '&&') {
   return function (this: unknown, first: Node, _ops: Node, rest: Node): RtdbExpressionTree {
-    let tree: RtdbExpressionTree = (first as any).tree();
-    for (const term of rest.children) tree = { type: 'binary', operator, left: tree, right: (term as any).tree() };
+    let tree: RtdbExpressionTree = first.tree();
+    for (const term of rest.children) tree = { type: 'binary', operator, left: tree, right: term.tree() };
     return tree;
   };
 }

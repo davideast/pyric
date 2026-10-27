@@ -91,4 +91,19 @@ describe('RTDB rules under Node: || chains production deploys (r51)', () => {
       expect(outcomes[index], 'Node lint and simulate').toEqual(AGREES_WITH_ACCEPTED);
     });
   }
+
+  // rules-diff canonicalizes both sides of a changed rule. A chain that lints
+  // and simulates must canonicalize too, or two equivalent rules read as a change.
+  test('canonical form reads an 18,000-term chain compared with ==', () => {
+    const canonicalDist = join(pyricRoot, 'dist/rules/rtdb/grammar/canonical.js');
+    const script = `
+      const { canonicalRtdbExpression } = await import(${JSON.stringify(pathToFileURL(canonicalDist).href)});
+      const operand = '(' + Array.from({ length: 18000 }, () => 'f').join(' || ') + ')';
+      const a = canonicalRtdbExpression(operand + ' == true');
+      process.stdout.write(String(a === canonicalRtdbExpression('true == ' + operand)));
+    `;
+    const res = spawnSync('node', ['--input-type=module', '--eval', script], { encoding: 'utf8', timeout: NODE_SPAWN_TIMEOUT_MS });
+    expect(res.stderr).toBe('');
+    expect(res.stdout).toBe('true');
+  }, NODE_PROBES_TIMEOUT_MS);
 });

@@ -116,15 +116,19 @@ function regexCompiles(raw: string): boolean {
  * same kind of failure.
  */
 function raisesOnlyRuleErrors(tree: RtdbExpressionTree): boolean {
+  // An explicit work list, so a long chain costs no call depth.
+  const pending: RtdbExpressionTree[] = [tree];
+  while (pending.length > 0) {
+    const next = pending.pop()!;
+    if (!raisesOnlyRuleErrorsHere(next)) return false;
+    pending.push(...subexpressions(next));
+  }
+  return true;
+}
+
+/** The part of {@link raisesOnlyRuleErrors} that `tree`'s own node decides. */
+function raisesOnlyRuleErrorsHere(tree: RtdbExpressionTree): boolean {
   switch (tree.type) {
-    case 'ternary':
-      return raisesOnlyRuleErrors(tree.test) && raisesOnlyRuleErrors(tree.consequent) && raisesOnlyRuleErrors(tree.alternate);
-    case 'binary':
-      return raisesOnlyRuleErrors(tree.left) && raisesOnlyRuleErrors(tree.right);
-    case 'unary':
-      return raisesOnlyRuleErrors(tree.argument);
-    case 'member':
-      return raisesOnlyRuleErrors(tree.object);
     case 'index':
     case 'array':
       // Not followed: an array can hold a snapshot (`[data][0]`), and a
@@ -134,14 +138,24 @@ function raisesOnlyRuleErrors(tree: RtdbExpressionTree): boolean {
       return false;
     case 'regex':
       return regexCompiles(tree.raw);
-    case 'call': {
-      if (!raisesOnlyRuleErrors(tree.receiver) || !tree.args.every(raisesOnlyRuleErrors)) return false;
+    case 'call':
       if (mayBeUndefined(tree.receiver)) return false;
       if (SNAPSHOT_METHODS.has(tree.method)) return true;
       return STRING_METHODS.has(tree.method) && !mayBeSnapshot(tree.receiver);
-    }
     default:
       return true;
+  }
+}
+
+/** The operands {@link raisesOnlyRuleErrors} goes on to check. */
+function subexpressions(tree: RtdbExpressionTree): RtdbExpressionTree[] {
+  switch (tree.type) {
+    case 'ternary': return [tree.test, tree.consequent, tree.alternate];
+    case 'binary': return [tree.left, tree.right];
+    case 'unary': return [tree.argument];
+    case 'member': return [tree.object];
+    case 'call': return [tree.receiver, ...tree.args];
+    default: return [];
   }
 }
 

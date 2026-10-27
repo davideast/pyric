@@ -128,10 +128,56 @@ describe('RTDB || and && chains fold as the left-nested pairs evaluate', () => {
     expect(checked).toBe(16 * 2 + 64 * 4 + 256 * 8);
   });
 
-  test('the static check reports the same operand errors for a chain and its parenthesized form', () => {
+  test('the static check reports, for every chain, the operand errors and result type of its left-nested reference', () => {
+    let checked = 0;
     for (const { terms, ops } of chains(4)) {
-      const tree = treeOf(terms, ops);
-      expect(validateExpression(flat(terms, ops), 'read'), flat(terms, ops)).toEqual(validateExpression(parenthesized(tree), 'read'));
+      const errors: string[] = [];
+      const type = staticReference(treeOf(terms, ops), errors);
+      const source = flatStatic(terms, ops);
+      expect(messages(source), source).toEqual(errors);
+      // `- 1` reports a Boolean left operand and stays silent on an Error one,
+      // so it shows whether the chain's own type propagated an error.
+      const wrapped = `(${source}) - 1`;
+      expect(messages(wrapped), wrapped).toEqual(type === 'Boolean' ? [...errors, MINUS_ON_BOOLEAN] : errors);
+      checked++;
     }
+    expect(checked).toBe(16 * 2 + 64 * 4 + 256 * 8);
   });
 });
+
+/** Static terms: `E` reports its own error and types as Error; `N` types as Number. */
+const STATIC_SOURCE: Record<Term, string> = { T: 'true', F: 'false', E: '!1', N: '1' };
+const NOT_ON_NUMBER = '! only operates on booleans.';
+const MINUS_ON_BOOLEAN = 'Invalid - expression: left operand is not a number.';
+
+function flatStatic(terms: Term[], ops: Op[]): string {
+  return terms.map((term, i) => (i === 0 ? STATIC_SOURCE[term] : `${ops[i - 1]} ${STATIC_SOURCE[term]}`)).join(' ');
+}
+
+function messages(source: string): string[] {
+  return validateExpression(source, 'read').map((error) => error.message);
+}
+
+type StaticType = 'Boolean' | 'Number' | 'Error';
+
+/** The left-nested type check the validator's binary `logical` action performed before chains matched flat. */
+function staticReference(tree: Tree, errors: string[]): StaticType {
+  if (typeof tree === 'string') {
+    if (tree === 'E') {
+      errors.push(NOT_ON_NUMBER);
+      return 'Error';
+    }
+    return tree === 'N' ? 'Number' : 'Boolean';
+  }
+  const left = staticReference(tree.left, errors);
+  const right = staticReference(tree.right, errors);
+  if (left === 'Number') {
+    errors.push(`Left operand of ${tree.op} must be boolean.`);
+    return 'Error';
+  }
+  if (right === 'Number') {
+    errors.push(`Right operand of ${tree.op} must be boolean.`);
+    return 'Error';
+  }
+  return left === 'Error' || right === 'Error' ? 'Error' : 'Boolean';
+}

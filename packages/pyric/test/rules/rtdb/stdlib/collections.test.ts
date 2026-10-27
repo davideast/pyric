@@ -9,9 +9,9 @@ const scenario: StdlibScenario = {
     '/tables/$tableId': {
       write: authenticated(),
       children: {
-      // slotKey and keyIn check the key, not the value. A .validate that never
-      // reads its own new value constrains none (ruleset-lint.ts
-      // hasEffectiveValidate; LD-4, #1247), so each ANDs in a value check.
+        // slotKey and keyIn check the key, not the value. A .validate that never
+        // reads its own new value constrains none (ruleset-lint.ts
+        // hasEffectiveValidate; LD-4, #1247), so each ANDs in a value check.
         '/seats/$slot': { validate: all(collections.slotKey('$slot', 4), 'newData.isString()') },
         '/flags/$flag': { validate: all(collections.keyIn('$flag', ['red', 'blue']), 'newData.isBoolean()') },
       },
