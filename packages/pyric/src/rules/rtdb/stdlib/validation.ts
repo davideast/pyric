@@ -56,11 +56,14 @@ export function oneOf(...values: Literal[]): Expr {
 
 /**
  * The written value is a string that matches the regular expression
- * `pattern`, written without slashes. RTDB matches the pattern anywhere in the
- * string unless it is anchored with ^ and $. RTDB's dialect is not
- * JavaScript's: `.` also matches a newline, and an escaped letter other than
- * `\d \w \s` (or their capitals) is the letter itself. A pattern production
- * refuses at deploy throws. Field node `.validate`.
+ * `pattern`, written without slashes. RTDB's dialect is not JavaScript's: a
+ * leading `^` and a trailing `$` anchor the pattern, and each one missing
+ * becomes `.*` with no group around the rest, so `foo` matches anywhere but
+ * `cat|dog` matches a string ending in cat or starting with dog (wrap an
+ * alternation in a group to match it anywhere). `.` also matches a line
+ * break, and an escaped letter other than `\d \w \s` (or their capitals) is
+ * the letter itself. A pattern production refuses at deploy throws. Field
+ * node `.validate`.
  */
 export function matches(pattern: string): Expr {
   if (typeof pattern !== 'string' || pattern.length === 0) throw new Error('matches: pass a non-empty pattern.');

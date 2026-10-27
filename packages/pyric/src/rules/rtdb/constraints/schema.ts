@@ -29,10 +29,10 @@ const QUANTIFIER_ENDS = new Set(['*', '+', '?', '}']);
  * Its anchor rewrite puts `.*` around the pattern with no group (r53), so a
  * top-level `|` splits differently, and a `]` that opens a set is a member.
  *
- * One gap stays open: JavaScript's `.` refuses `\n` and `\r` and RTDB's
- * matches them (SP-8), and the dialect has no way to say "any character but a
- * newline". The generated rule emits `.` unchanged, so it accepts a line break
- * the Zod schema refuses.
+ * One gap stays open: JavaScript's `.` refuses the line terminators `\n`,
+ * `\r`, U+2028 and U+2029, and RTDB's matches them (SP-8), and the dialect has
+ * no way to say "any character but a line terminator". The generated rule
+ * emits `.` unchanged, so it accepts a line terminator the Zod schema refuses.
  */
 function rtdbRegexProblem(source: string): string | null {
   const deployError = rtdbRegexError(source);
@@ -59,11 +59,21 @@ function rtdbRegexProblem(source: string): string | null {
       depth++;
     } else if (ch === ')') {
       depth--;
+    } else if (ch === '|' && isEmptyAlternative(source, i)) {
+      return 'RTDB reads the | of an empty alternative, as in (|a) or a||b, as a literal |';
     } else if (ch === '|' && depth === 0) {
       return 'RTDB applies ^, $ and the implied .* to the first and last alternatives only; wrap the alternation in a group';
     }
   }
   return null;
+}
+
+/** Whether the `|` at `at` has nothing on one side within its group. */
+function isEmptyAlternative(source: string, at: number): boolean {
+  const before = source[at - 1];
+  const after = source[at + 1];
+  const opensGroup = before === '(' && source[at - 2] !== '\\';
+  return opensGroup || after === '|' || after === ')';
 }
 
 function startsWithClosingBracket(source: string, start: number): boolean {

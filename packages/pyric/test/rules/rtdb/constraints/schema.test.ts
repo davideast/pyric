@@ -273,6 +273,10 @@ describe('schemaRules', () => {
       [/^\u0041$/, /escape \\u/],
       [/^red$|^blue$/, /unescaped \^/],
       [/cat|dog/, /wrap the alternation in a group/],
+      [/^(|a)$/, /empty alternative/],
+      [/^(a||b)$/, /empty alternative/],
+      // The dialect reads the ) after a trailing | as a literal, so the group never closes.
+      [/^(a|)$/, /refuses it at deploy/],
       [/^[]a]$/, /member of the set/],
       [/^[^]$/, /refuses it at deploy/],
     ];
