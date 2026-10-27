@@ -584,9 +584,9 @@ export class WritePlane {
   /**
    * Publish a data write already applied to the tree at `paths`: mark it for
    * transaction conflict checks, revoke the listeners whose `.read` it now
-   * denies, then deliver it to the rest. Every data write, a transaction
-   * commit included, goes through here, so no write reaches a listener the
-   * rules no longer allow.
+   * denies, then deliver it to the rest, so the write never reaches a
+   * listener the rules no longer allow. Sets, updates, their admin forms and
+   * transaction commits all publish through here.
    */
   changed(paths: string[], priors: ReturnType<ChildListeners['snapshotParents']>): void {
     this.state.mutations.mark(paths);
