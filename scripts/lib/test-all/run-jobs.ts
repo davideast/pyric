@@ -2,11 +2,17 @@
 // order, every job runs even when an earlier one fails, and the results come
 // back in plan order.
 
+import type { TestCounts } from './counts.ts';
 import type { TestJob } from './plan.ts';
 
+/** What the run keeps of a finished job. */
 export interface JobOutcome {
   exitCode: number;
-  log: string;
+  counts: TestCounts;
+  /** The lines naming each failing test. */
+  failedTests: string[];
+  /** The last lines of the job's output. */
+  tail: string[];
 }
 
 export interface JobResult extends JobOutcome {

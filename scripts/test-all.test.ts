@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { listTests, shardedPackages } from './ci/test-shard.ts';
-import { chooseConcurrency } from './lib/test-all/concurrency.ts';
+import { busyThreads, chooseConcurrency, parseProcStat } from './lib/test-all/concurrency.ts';
 import { readCounts } from './lib/test-all/counts.ts';
 import { planJobs, splitChain, type TestJob } from './lib/test-all/plan.ts';
 import { runJobs } from './lib/test-all/run-jobs.ts';
@@ -60,6 +60,19 @@ describe('how many jobs test-all runs at once', () => {
     expect(chooseConcurrency({ threads: 4, load: 9 })).toBe(1);
   });
 
+  test('busy threads are the share of each CPU\'s time spent working between two readings', () => {
+    const times = (busy: number, idle: number) => ({ times: { user: busy, nice: 0, sys: 0, idle, irq: 0 } });
+    // CPU 0 worked 300 of 400 ms, CPU 1 worked none of 400 ms, CPU 2 worked all of 400 ms.
+    const before = [times(1000, 1000), times(1000, 1000), times(1000, 1000)];
+    const after = [times(1300, 1100), times(1000, 1400), times(1400, 1000)];
+    expect(busyThreads(before, after)).toBeCloseTo(1.75);
+  });
+
+  test('/proc/stat counts iowait as idle, and irq, softirq and steal as work', () => {
+    const stat = 'cpu  10 0 5 100 2 1 1 0 0 0\ncpu0 10 0 5 100 2 1 1 0 0 0\nintr 123\n';
+    expect(parseProcStat(stat)).toEqual([{ times: { user: 10, nice: 0, sys: 5, idle: 102, irq: 2 } }]);
+  });
+
   test('a machine with one or two free threads still runs one job', () => {
     expect(chooseConcurrency({ threads: 2, load: 0.5 })).toBe(1);
     expect(chooseConcurrency({ threads: 1, load: 0 })).toBe(1);
@@ -98,6 +111,7 @@ describe('the counts test-all reads from a job log', () => {
 
 describe('running the jobs', () => {
   const job = (name: string): TestJob => ({ name, command: 'bun', args: ['test'], cwd: root });
+  const outcome = (exitCode: number) => ({ exitCode, counts: readCounts(''), failedTests: [], tail: [] });
 
   test('no more than the concurrency limit run at once, and every job runs', async () => {
     let running = 0;
@@ -109,7 +123,7 @@ describe('running the jobs', () => {
       peak = Math.max(peak, running);
       await new Promise((resolve) => setTimeout(resolve, 5));
       running -= 1;
-      return { exitCode: 0, log: '' };
+      return outcome(0);
     });
     expect(peak).toBe(2);
     expect(started).toEqual(['a', 'b', 'c', 'd', 'e']);
@@ -117,7 +131,7 @@ describe('running the jobs', () => {
   });
 
   test('a failing job does not stop the others', async () => {
-    const results = await runJobs([job('a'), job('b'), job('c')], 1, async (next) => ({ exitCode: next.name === 'a' ? 1 : 0, log: '' }));
+    const results = await runJobs([job('a'), job('b'), job('c')], 1, async (next) => outcome(next.name === 'a' ? 1 : 0));
     expect(results.map((result) => [result.job.name, result.exitCode])).toEqual([['a', 1], ['b', 0], ['c', 0]]);
   });
 });
