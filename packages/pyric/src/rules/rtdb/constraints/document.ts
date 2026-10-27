@@ -226,7 +226,7 @@ class DefinedRtdbRulesDocument implements RtdbRulesDocumentInternal {
 }
 
 export function defineRtdbRules(definition: RtdbRulesDefinition): RtdbRulesDocument {
-  if (typeof definition.paths !== 'function') assertKnownPathKeys(definition.paths);
+  if (typeof definition.paths === 'object' && definition.paths !== null) assertKnownPathKeys(definition.paths);
   // The runtime object carries the full method surface; the declared return
   // type is the inert public artifact. Route the assignment through the
   // internal interface (a declared subtype) so the brand-only weak type

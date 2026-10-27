@@ -1491,5 +1491,3 @@ export function suggestKey(
 ): string | null {
   return closestKey(input, (service ? modulesForService(service) : STDLIB_MODULES).map((m) => m.key));
 }
-
-export { closestKey };

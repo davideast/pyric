@@ -94,7 +94,9 @@ function applySchemaChildren(
   }
 }
 
-const PATH_DEF_KEYS: readonly string[] = ['read', 'write', 'validate', 'schema', 'fieldConstraints', 'indexOn', 'children'];
+/** Every key of {@link PathDef}; the `satisfies` makes the compiler fail when the interface gains one this list lacks. */
+const PATH_DEF_KEY_SET = { read: 0, write: 0, validate: 0, schema: 0, fieldConstraints: 0, indexOn: 0, children: 0 } satisfies Record<keyof PathDef, 0>;
+const PATH_DEF_KEYS: readonly string[] = Object.keys(PATH_DEF_KEY_SET);
 
 /** Refuse a key a path definition does not have, naming the nearest key that it does. */
 function assertKnownKeys(pathStr: string, def: PathDef): void {

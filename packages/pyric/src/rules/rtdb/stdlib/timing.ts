@@ -73,6 +73,10 @@ export const throttled = (ms: number): Expr => all(isServerTimestamp(), cooldown
  * `{ $: 'auth.uid' }` or `{ $: '$postId' }` is a value the rule reads. For
  * posts at `/posts/$postId` and stamps at `/lastPost/$uid`, the post's
  * `.validate` is `stampedInSameWrite(2, ['lastPost', { $: 'auth.uid' }])`.
+ *
+ * It checks the sibling stamp and never the written value, so lint reports
+ * RTDB-SEC-6 for a rule that uses it alone. AND a value check, such as
+ * `all(timing.stampedInSameWrite(2, ['lastPost', { $: 'auth.uid' }]), 'newData.isString()')`.
  */
 export function stampedInSameWrite(levelsUp: number, segments: Segment[]): Expr {
   const base = climb('stampedInSameWrite', 'newData', requireLevels('stampedInSameWrite', levelsUp));
