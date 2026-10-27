@@ -26,7 +26,7 @@ type NfaState =
  * (code points for RE2, UTF-16 code units for RTDB).
  */
 export function matchesRegexNode(ast: RegexNode, chars: readonly string[]): boolean {
-  return compileRegexNode(ast)(chars);
+  return simulateNfa(buildNfa(ast), chars);
 }
 
 /** A compiled pattern: whether `chars` as a whole matches it. */
@@ -34,9 +34,24 @@ export type RegexMatcher = (chars: readonly string[]) => boolean;
 
 /**
  * Build the NFA for `ast` once, for a caller that matches one pattern many
- * times. Each match then costs O(states * chars).
+ * times. A pattern without assertions also caches the state sets it reaches
+ * (a lazily built DFA), so a match costs one lookup per character once its
+ * transitions are known, and never more than O(states) per character.
  */
 export function compileRegexNode(ast: RegexNode): RegexMatcher {
+  const nfa = buildNfa(ast);
+  if (nfa.hasAsserts) return (chars) => simulateNfa(nfa, chars);
+  const dfa = new LazyDfa(nfa);
+  return (chars) => dfa.matches(chars);
+}
+
+interface Nfa {
+  states: NfaState[];
+  start: number;
+  hasAsserts: boolean;
+}
+
+function buildNfa(ast: RegexNode): Nfa {
   const states: NfaState[] = [{ kind: 'accept' }];
   const addState = (st: NfaState): number => {
     const id = states.length;
@@ -83,46 +98,140 @@ export function compileRegexNode(ast: RegexNode): RegexMatcher {
       }
     }
   };
-
-  const startState = emit(ast, 0);
-  return (chars) => {
-    let current = epsilonClosure([startState], states, chars, 0);
-    for (let pos = 0; pos < chars.length && current.length > 0; pos++) {
-      const ch = chars[pos]!;
-      const nextSeeds: number[] = [];
-      for (const id of current) {
-        const st = states[id]!;
-        if (st.kind === 'char' && st.test(ch)) {
-          nextSeeds.push(st.out);
-        }
-      }
-      current = epsilonClosure(nextSeeds, states, chars, pos + 1);
-    }
-    return current.includes(0);
-  };
+  const start = emit(ast, 0);
+  const hasAsserts = states.some((st) => st.kind === 'assert');
+  return { states, start, hasAsserts };
 }
 
-function epsilonClosure(
-  seeds: readonly number[],
-  states: readonly NfaState[],
-  chars: readonly string[],
-  pos: number,
-): number[] {
-  const visited = new Uint8Array(states.length);
-  const stack = [...seeds];
-  const active: number[] = [];
-  while (stack.length > 0) {
-    const id = stack.pop()!;
-    if (visited[id]) continue;
-    visited[id] = 1;
-    const st = states[id]!;
-    if (st.kind === 'split') {
-      stack.push(st.out1, st.out2);
-    } else if (st.kind === 'assert') {
-      if (st.check(chars, pos)) stack.push(st.out);
-    } else {
-      active.push(id);
-    }
+function simulateNfa(nfa: Nfa, chars: readonly string[]): boolean {
+  const closure = new Closure(nfa.states);
+  let current = closure.of([nfa.start], chars, 0);
+  for (let pos = 0; pos < chars.length && current.length > 0; pos++) {
+    current = closure.of(stepSeeds(nfa.states, current, chars[pos]!), chars, pos + 1);
   }
-  return active;
+  return current.includes(0);
+}
+
+/** The states each char state in `current` moves to on `ch`. */
+function stepSeeds(states: readonly NfaState[], current: readonly number[], ch: string): number[] {
+  const seeds: number[] = [];
+  for (const id of current) {
+    const st = states[id]!;
+    if (st.kind === 'char' && st.test(ch)) seeds.push(st.out);
+  }
+  return seeds;
+}
+
+/**
+ * Epsilon closure with one visited-mark array per matcher: a closure costs
+ * the states it reaches, not a fresh array the size of the NFA.
+ */
+class Closure {
+  private readonly marks: Uint32Array;
+  private mark = 0;
+
+  constructor(private readonly states: readonly NfaState[]) {
+    this.marks = new Uint32Array(states.length);
+  }
+
+  /** The char and accept states reachable from `seeds` without reading a character. */
+  of(seeds: readonly number[], chars: readonly string[], pos: number): number[] {
+    this.nextMark();
+    const stack = [...seeds];
+    const active: number[] = [];
+    while (stack.length > 0) {
+      const id = stack.pop()!;
+      if (this.marks[id] === this.mark) continue;
+      this.marks[id] = this.mark;
+      const st = this.states[id]!;
+      if (st.kind === 'split') {
+        stack.push(st.out1, st.out2);
+      } else if (st.kind === 'assert') {
+        if (st.check(chars, pos)) stack.push(st.out);
+      } else {
+        active.push(id);
+      }
+    }
+    return active;
+  }
+
+  private nextMark(): void {
+    this.mark++;
+    if (this.mark !== 0xffffffff) return;
+    this.marks.fill(0);
+    this.mark = 1;
+  }
+}
+
+/** Upper bound on state ids plus transitions a `LazyDfa` keeps before it starts over. */
+const DFA_CACHE_ENTRIES = 1 << 22;
+const NO_CHARS: readonly string[] = [];
+
+/**
+ * A DFA built on demand from an assertion-free NFA: each set of NFA states
+ * reached is interned once, and each (set, character) transition is cached.
+ * The cache is dropped and rebuilt when it holds more than
+ * `DFA_CACHE_ENTRIES` state ids and transitions, so memory stays bounded and a match never
+ * costs more than the plain NFA simulation per character.
+ */
+class LazyDfa {
+  private readonly closure: Closure;
+  private sets: number[][] = [];
+  private accepting: boolean[] = [];
+  private transitions: Map<string, number>[] = [];
+  private index = new Map<string, number>();
+  private stored = 0;
+  private start = 0;
+
+  constructor(private readonly nfa: Nfa) {
+    this.closure = new Closure(nfa.states);
+    this.reset();
+  }
+
+  matches(chars: readonly string[]): boolean {
+    let current = this.start;
+    for (const ch of chars) {
+      current = this.step(current, ch);
+      const dead = this.sets[current]!.length === 0;
+      if (dead) return false;
+    }
+    return this.accepting[current]!;
+  }
+
+  private step(from: number, ch: string): number {
+    const known = this.transitions[from]!.get(ch);
+    if (known !== undefined) return known;
+    const next = this.closure.of(stepSeeds(this.nfa.states, this.sets[from]!, ch), NO_CHARS, 0);
+    if (this.stored + next.length + 1 > DFA_CACHE_ENTRIES) {
+      this.reset();
+      return this.intern(next);
+    }
+    const target = this.intern(next);
+    this.transitions[from]!.set(ch, target);
+    this.stored++;
+    return target;
+  }
+
+  private intern(set: number[]): number {
+    set.sort((a, b) => a - b);
+    const key = set.join(',');
+    const existing = this.index.get(key);
+    if (existing !== undefined) return existing;
+    const id = this.sets.length;
+    this.sets.push(set);
+    this.accepting.push(set.includes(0));
+    this.transitions.push(new Map());
+    this.index.set(key, id);
+    this.stored += set.length;
+    return id;
+  }
+
+  private reset(): void {
+    this.sets = [];
+    this.accepting = [];
+    this.transitions = [];
+    this.index = new Map();
+    this.stored = 0;
+    this.start = this.intern(this.closure.of([this.nfa.start], NO_CHARS, 0));
+  }
 }

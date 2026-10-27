@@ -36,4 +36,13 @@ describe('RTDB matches() in the in-page sandbox', () => {
     await expect(set(ref(db, 'dot'), 'a\rb')).resolves.toBeUndefined();
     await expect(set(ref(db, 'dot'), 'ab')).rejects.toThrow(/permission/i);
   });
+
+  test('a pattern past the regex limits is denied quickly, not built (#1247 S1 review)', async () => {
+    const box = initializeSandbox();
+    const rules = { rules: { a: { '.write': 'newData.val().matches(/((a{1000}){1000}){1000}/)' } } };
+    sandbox.setRules(getDatabase(box.withAuth({ uid: 'admin' })), rules);
+    const started = performance.now();
+    await expect(set(ref(getDatabase(box.withAuth({ uid: 'u' })), 'a'), 'a')).rejects.toThrow(/permission/i);
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
 });

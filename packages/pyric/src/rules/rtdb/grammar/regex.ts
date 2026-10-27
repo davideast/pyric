@@ -28,37 +28,39 @@
  * how `i` folds case, and that `& ~ # @ " < >` are plain characters.
  */
 import { compileRegexNode, type RegexMatcher, type RegexNode } from '../../simulator/regex-nfa.js';
+import { DialectParser, ILLEGAL, RtdbRegexSyntaxError } from './regex-parser.js';
+import { stateCount } from './regex-limits.js';
 
-const ILLEGAL = 'Illegal regular expression, ';
+export { RtdbRegexSyntaxError } from './regex-parser.js';
+export { MAX_REGEX_NESTING, MAX_REGEX_STATES, MAX_REPEAT_COUNT } from './regex-limits.js';
 
 /** Production's deploy error for a `^` that is not first or a `$` that is not last (r46, r51). */
 export const MISPLACED_ANCHOR_MESSAGE = `${ILLEGAL}unescaped ^, ^ can only appear at the end of regular expressions`;
 
-/** A pattern production refuses at deploy; the message is the deploy error text. */
-export class RtdbRegexSyntaxError extends SyntaxError {}
-
-/** A compiled `matches()` argument. */
+/** A compiled `matches()` argument. Its matcher is built on the first `test`. */
 export class RtdbRegex {
-  private readonly matcher: RegexMatcher;
+  private matcher: RegexMatcher | undefined;
 
   constructor(
     readonly source: string,
     readonly flags: string,
-    node: RegexNode,
-  ) {
-    this.matcher = compileRegexNode(node);
-  }
+    private readonly node: RegexNode,
+  ) {}
 
   /** Whether `subject` matches, as production's `matches()` decides. */
   test(subject: string): boolean {
+    this.matcher ??= compileRegexNode(this.node);
     return this.matcher(subject.split(''));
   }
 }
 
-/** The deploy error production raises for regex literal `body`, or null when it loads. */
+/**
+ * The error that refuses regex literal `body` at load, or null when it loads.
+ * Parses only; no matcher is built.
+ */
 export function rtdbRegexError(body: string): string | null {
   try {
-    compileRtdbRegex(body, '');
+    parseRtdbRegex(body, false);
     return null;
   } catch (error) {
     if (error instanceof RtdbRegexSyntaxError) return error.message;
@@ -66,8 +68,10 @@ export function rtdbRegexError(body: string): string | null {
   }
 }
 
-const CACHE_LIMIT = 256;
+/** The most matcher states the compiled-regex cache holds before it starts over. */
+const CACHE_STATE_LIMIT = 1000000;
 const compiled = new Map<string, RtdbRegex>();
+let cachedStates = 0;
 
 /**
  * Compile regex literal `body` with `flags` (already checked by
@@ -78,9 +82,15 @@ export function compileRtdbRegex(body: string, flags: string): RtdbRegex {
   const key = `${flags}/${body}`;
   const cached = compiled.get(key);
   if (cached) return cached;
-  const regex = new RtdbRegex(body, flags, parseRtdbRegex(body, flags.includes('i')));
-  if (compiled.size >= CACHE_LIMIT) compiled.clear();
+  const node = parseRtdbRegex(body, flags.includes('i'));
+  const regex = new RtdbRegex(body, flags, node);
+  const states = stateCount(node);
+  if (cachedStates + states > CACHE_STATE_LIMIT) {
+    compiled.clear();
+    cachedStates = 0;
+  }
   compiled.set(key, regex);
+  cachedStates += states;
   return regex;
 }
 
@@ -137,193 +147,3 @@ function afterCharacterSet(source: string, open: number): number {
   return i;
 }
 
-type CharTest = (ch: string) => boolean;
-
-/** A single character, or a class like `\d`. */
-type Member = { kind: 'char'; ch: string } | { kind: 'class'; test: CharTest };
-
-/** One member of a character set: a `Member`, or a range like `a-z`. */
-type SetMember = Member | { kind: 'range'; from: string; to: string };
-
-const NEVER: RegexNode = { kind: 'char', test: () => false };
-const ANY: RegexNode = { kind: 'char', test: () => true };
-const QUANTIFIERS = '?*+{';
-const DIGITS = '0123456789';
-
-const isDigit: CharTest = (ch) => ch >= '0' && ch <= '9';
-const isWord: CharTest = (ch) => /^[A-Za-z0-9_]$/.test(ch);
-const isSpace: CharTest = (ch) => /^\s$/.test(ch);
-
-const NAMED_CLASSES: Readonly<Record<string, CharTest>> = {
-  d: isDigit,
-  D: (ch) => !isDigit(ch),
-  w: isWord,
-  W: (ch) => !isWord(ch),
-  s: isSpace,
-  S: (ch) => !isSpace(ch),
-};
-
-/**
- * A recursive-descent parse of the anchor-rewritten pattern, following the
- * dk.brics.automaton grammar: union, concatenation, repeat, character set,
- * simple expression. A character that starts no other construct, `?` right
- * after `(` among them, is a literal.
- */
-class DialectParser {
-  private pos = 0;
-
-  constructor(
-    private readonly text: string,
-    private readonly ignoreCase: boolean,
-  ) {}
-
-  parse(): RegexNode {
-    // An empty pattern, such as `/^$/` once its anchors are stripped, is the empty string.
-    if (!this.more()) return { kind: 'empty' };
-    const node = this.union();
-    // Production reports no position for this one (r53: `/)/`, `/a)b/`).
-    if (this.more()) this.fail('end-of-string expected');
-    return node;
-  }
-
-  private union(): RegexNode {
-    const left = this.concat();
-    if (!this.match('|')) return left;
-    return { kind: 'alt', left, right: this.union() };
-  }
-
-  private concat(): RegexNode {
-    const items = [this.repeat()];
-    while (this.more() && !this.peek(')|')) items.push(this.repeat());
-    if (items.length === 1) return items[0]!;
-    return { kind: 'seq', items };
-  }
-
-  private repeat(): RegexNode {
-    let node = this.characterSet();
-    while (this.peek(QUANTIFIERS)) {
-      if (this.match('?')) node = { kind: 'rep', body: node, min: 0, max: 1 };
-      else if (this.match('*')) node = { kind: 'rep', body: node, min: 0, max: Infinity };
-      else if (this.match('+')) node = { kind: 'rep', body: node, min: 1, max: Infinity };
-      else node = this.counted(node);
-    }
-    return node;
-  }
-
-  /** `{n}`, `{n,}` or `{n,m}` after `node`; the `{` is next. */
-  private counted(node: RegexNode): RegexNode {
-    this.pos++;
-    const min = this.integer();
-    let max = min;
-    if (this.match(',')) max = this.peek(DIGITS) ? this.integer() : Infinity;
-    if (!this.match('}')) this.fail(`expected '}' at position ${this.pos}`);
-    const emptyRange = min > max;
-    if (emptyRange) return NEVER;
-    return { kind: 'rep', body: node, min, max };
-  }
-
-  private integer(): number {
-    const start = this.pos;
-    while (this.peek(DIGITS)) this.pos++;
-    if (start === this.pos) this.fail(`integer expected at position ${this.pos}`);
-    return Number(this.text.slice(start, this.pos));
-  }
-
-  private characterSet(): RegexNode {
-    if (!this.match('[')) return this.simple();
-    const negated = this.match('^');
-    const members = [this.setMember()];
-    while (this.more() && !this.peek(']')) members.push(this.setMember());
-    if (!this.match(']')) this.fail(`expected ']' at position ${this.pos}`);
-    const tests = members.map((member) => this.memberTest(member));
-    const inSet: CharTest = (ch) => tests.some((test) => test(ch));
-    if (negated) return { kind: 'char', test: (ch) => !inSet(ch) };
-    return { kind: 'char', test: inSet };
-  }
-
-  /**
-   * A character set member. A `-` next to a class, or before the closing `]`,
-   * is the character `-`.
-   */
-  private setMember(): SetMember {
-    const first = this.charExp();
-    if (first.kind === 'class' || !this.match('-')) return first;
-    const hyphen: Member = { kind: 'char', ch: '-' };
-    if (this.peek(']')) return { kind: 'class', test: this.unionTest([first, hyphen]) };
-    const last = this.charExp();
-    if (last.kind === 'class') return { kind: 'class', test: this.unionTest([first, hyphen, last]) };
-    return { kind: 'range', from: first.ch, to: last.ch };
-  }
-
-  private memberTest(member: SetMember): CharTest {
-    if (member.kind === 'range') return this.foldCase(inRange(member.from, member.to));
-    return this.unionTest([member]);
-  }
-
-  private unionTest(members: readonly Member[]): CharTest {
-    const tests = members.map((member) => (member.kind === 'class' ? member.test : this.literal(member.ch)));
-    return (ch) => tests.some((test) => test(ch));
-  }
-
-  private simple(): RegexNode {
-    if (this.match('.')) return ANY;
-    if (this.match('(')) return this.group();
-    const member = this.charExp();
-    const test = member.kind === 'class' ? member.test : this.literal(member.ch);
-    return { kind: 'char', test };
-  }
-
-  /** The rest of a group; the `(` is consumed. `()` is the empty string. */
-  private group(): RegexNode {
-    if (this.match(')')) return { kind: 'empty' };
-    const inner = this.union();
-    if (!this.match(')')) this.fail(`expected ')' at position ${this.pos}`);
-    return inner;
-  }
-
-  /** A character, escaped or not. `\d \D \w \W \s \S` are classes; any other escape is the character itself. */
-  private charExp(): Member {
-    const escaped = this.match('\\');
-    const ch = this.next();
-    const named = escaped ? NAMED_CLASSES[ch] : undefined;
-    if (named) return { kind: 'class', test: named };
-    return { kind: 'char', ch };
-  }
-
-  private literal(target: string): CharTest {
-    return this.foldCase((ch) => ch === target);
-  }
-
-  private foldCase(test: CharTest): CharTest {
-    if (!this.ignoreCase) return test;
-    return (ch) => test(ch) || test(ch.toLowerCase()) || test(ch.toUpperCase());
-  }
-
-  private next(): string {
-    if (!this.more()) this.fail('unexpected end-of-string');
-    return this.text[this.pos++]!;
-  }
-
-  private more(): boolean {
-    return this.pos < this.text.length;
-  }
-
-  private peek(chars: string): boolean {
-    return this.more() && chars.includes(this.text[this.pos]!);
-  }
-
-  private match(ch: string): boolean {
-    if (this.text[this.pos] !== ch) return false;
-    this.pos++;
-    return true;
-  }
-
-  private fail(message: string): never {
-    throw new RtdbRegexSyntaxError(`${ILLEGAL}${message}`);
-  }
-}
-
-/** A range by UTF-16 code unit; `[z-a]` is empty, as production loads and never matches it (r44). */
-function inRange(from: string, to: string): CharTest {
-  return (ch) => ch.length === 1 && ch >= from && ch <= to;
-}
