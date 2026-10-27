@@ -27,6 +27,8 @@ const MESSAGES = {
   signature: 'The provided App Check token has invalid signature.',
   expired: 'The provided App Check token has expired. Get a fresh App Check token from your client app and try again.',
   issuer: 'The provided App Check token has incorrect "iss" (issuer) claim.',
+  createNoProject:
+    'Failed to determine project ID. Initialize the SDK with service account credentials or set project ID as an app option. Alternatively, set the GOOGLE_CLOUD_PROJECT environment variable.',
   noProject:
     'Must initialize app with a cert credential or set your Firebase project ID as the GOOGLE_CLOUD_PROJECT environment variable to verify an App Check token.',
   audience: (scoped: string, aud: unknown) =>
@@ -35,7 +37,7 @@ const MESSAGES = {
 
 const APP_CHECK_ISSUER = 'https://firebaseappcheck.googleapis.com/';
 
-type AppCheckErrorCode = 'invalid-argument' | 'invalid-credential' | 'app-check-token-expired';
+type AppCheckErrorCode = 'invalid-argument' | 'invalid-credential' | 'app-check-token-expired' | 'unknown-error';
 
 class FirebaseAppCheckError extends Error {
   readonly code: string;
@@ -106,7 +108,8 @@ export class AppCheck {
     assertAdminAppActive(this.#app);
     if (typeof appId !== 'string' || appId.length === 0) throw new FirebaseAppCheckError('invalid-argument', MESSAGES.appId);
     const ttlMillis = ttlFrom(options);
-    const projectId = this.#app.options.projectId ?? '';
+    const projectId = this.#configuredProjectId();
+    if (!projectId) throw new FirebaseAppCheckError('unknown-error', MESSAGES.createNoProject);
     const minted = await mintAppCheckToken({ appId, projectId }, Math.floor(ttlMillis / 1000));
     return { token: minted.token, ttlMillis };
   }
@@ -130,9 +133,14 @@ export class AppCheck {
     return result;
   }
 
+  /** The app's project, found where firebase-admin's findProjectId looks: the app options, then the environment. */
+  #configuredProjectId(): string | undefined {
+    return this.#app.options.projectId || process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT || undefined;
+  }
+
   /** The project a token must be scoped to, resolved as firebase-admin resolves it. */
   #projectId(): string {
-    const projectId = this.#app.options.projectId ?? process.env.GOOGLE_CLOUD_PROJECT ?? process.env.GCLOUD_PROJECT;
+    const projectId = this.#configuredProjectId();
     if (!projectId) throw new FirebaseAppCheckError('invalid-credential', MESSAGES.noProject);
     return projectId;
   }

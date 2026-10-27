@@ -108,13 +108,16 @@ export type AppCheckTokenCheck =
 export async function checkAppCheckToken(token: string): Promise<AppCheckTokenCheck> {
   const segments = token.split('.');
   if (segments.length !== 3) return { ok: false, reason: 'malformed' };
-  let claims: AppCheckTokenClaims;
+  let decoded: unknown;
   try {
     JSON.parse(fromBase64url(segments[0]!));
-    claims = JSON.parse(fromBase64url(segments[1]!)) as AppCheckTokenClaims;
+    decoded = JSON.parse(fromBase64url(segments[1]!));
   } catch {
     return { ok: false, reason: 'malformed' };
   }
+  const payloadIsObject = typeof decoded === 'object' && decoded !== null && !Array.isArray(decoded);
+  if (!payloadIsObject) return { ok: false, reason: 'malformed' };
+  const claims = decoded as AppCheckTokenClaims;
   const expected = await sandboxSignature(`${segments[0]}.${segments[1]}`);
   if (segments[2] !== expected) return { ok: false, reason: 'signature', claims };
   return { ok: true, claims };
