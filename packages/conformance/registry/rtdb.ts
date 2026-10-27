@@ -1,5 +1,6 @@
 import { defineRows } from './define-rows.ts';
 import type { CompatibilitySurfaceRegistry } from './types.ts';
+import { rtdbSdkCaptureBlock } from './rtdb-sdk-captures.ts';
 
 const listenerPermissionDenied = {
   name: "Error",
@@ -1291,16 +1292,16 @@ export const rtdbRegistry = {
           rowRef: "M37b",
           surface: "rtdb-modular",
           featureKeys: ["ref","runTransaction"],
-          behavior: "Cold production clients may invoke the update fn first with speculative `null` and then with the current seeded value; the always-warm in-process sandbox invokes it once with the current value",
+          behavior: "Cold production clients may invoke the update fn first with speculative `null` and then with the current seeded value; the always-warm in-process sandbox invokes it once with the current value. So an update function that aborts when the value is missing (returns `undefined` for `null`) aborts on a cold production client and commits in pyric, on every plane (RT-16)",
           status: "diverged-documented",
-          evidence: "Oracle `rtdb-modular-runtransaction-current-value-arg` captures two seeded-path production invocations (`null`, then current); `unit:modular/oracle-conformance-transactions.test.ts` pins the sandbox's single current-value invocation. The separate warm-client observation matches the sandbox but does not erase the cold-client contract.",
+          evidence: "Oracle `rtdb-modular-runtransaction-current-value-arg` captures two seeded-path production invocations (`null`, then current); `unit:modular/oracle-conformance-transactions.test.ts` pins the sandbox's single current-value invocation. The separate warm-client observation matches the sandbox but does not erase the cold-client contract. `oracle:rtdb-modular-transaction-then-set` key `abortIfMissing` records the consequence: a cold client's abort-if-missing function was called with `[null]` and aborted (committed false, the stored 1 kept), where pyric commits 2; `unit:database/cdd/capture-transaction-then-set.test.ts` pins both sides. Decided 2026-10-27: fix where production is clear; until then this row says they differ.",
           risk: ["specific-field","atomicity"],
           riskScore: 3,
           riskReasons: ["asserts a specific field/property value","asserts transaction/batch atomicity"],
           automation: "oracle-backed",
-          oracleObservations: ["rtdb-modular-runtransaction-current-value-arg"],
-          conformanceTests: ["packages/pyric/test/database/modular/transaction.test.ts","packages/pyric/test/database/modular/oracle-conformance-transactions.test.ts"],
-          conformanceDisposition: "by-design",
+          oracleObservations: ["rtdb-modular-runtransaction-current-value-arg","rtdb-modular-transaction-then-set"],
+          conformanceTests: ["packages/pyric/test/database/modular/transaction.test.ts","packages/pyric/test/database/modular/oracle-conformance-transactions.test.ts","packages/pyric/test/database/cdd/capture-transaction-then-set.test.ts"],
+          conformanceDisposition: "pending-fix",
           rowNumber: 37,
         }),
         row5({
@@ -3579,6 +3580,7 @@ export const rtdbRegistry = {
         }),
       ],
     },
+    rtdbSdkCaptureBlock,
   ],
 } satisfies CompatibilitySurfaceRegistry;
 

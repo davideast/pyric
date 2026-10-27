@@ -1,0 +1,52 @@
+{
+  "name": "firestore-delete-then-update-same-commit",
+  "matrixRow": "firestore#delete-then-update-same-commit",
+  "rowIds": [
+    "firestore#delete-then-update-same-commit"
+  ],
+  "description": "Delete then update of one doc in a write batch and in a transaction, with set then update and update then delete in a batch as controls. Records the error and the doc afterwards.",
+  "observedAt": "2026-10-27T19:41:39.655Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "batch: delete then update": {
+      "threw": true,
+      "error": {
+        "code": "invalid-argument",
+        "name": "FirebaseError",
+        "message": "3 INVALID_ARGUMENT: Cannot delete then update an entity in the same request."
+      },
+      "exists": true,
+      "data": {
+        "n": 0
+      }
+    },
+    "transaction: delete then update (no read)": {
+      "threw": true,
+      "error": {
+        "code": "invalid-argument",
+        "name": "FirebaseError",
+        "message": "3 INVALID_ARGUMENT: Cannot delete then update an entity in the same request."
+      },
+      "exists": true,
+      "data": {
+        "n": 0
+      }
+    },
+    "control batch: set then update": {
+      "threw": false,
+      "error": null,
+      "exists": true,
+      "data": {
+        "n": 5,
+        "m": 1
+      }
+    },
+    "control batch: update then delete": {
+      "threw": false,
+      "error": null,
+      "exists": false,
+      "data": null
+    }
+  }
+}

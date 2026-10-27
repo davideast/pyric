@@ -5,6 +5,7 @@
  * losing executable coverage during future splits or additions.
  */
 import { describe, it, expect } from 'bun:test';
+import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { createObservationGate } from '../../../../../packages/conformance/src/observation-gate.ts';
 import {
@@ -31,13 +32,17 @@ const obsGate = createObservationGate({
     join(import.meta.dir, 'query-validation.test.ts'),
     join(import.meta.dir, 'transaction-contention-cdd.test.ts'),
     join(import.meta.dir, '..', '..', 'sandbox', 'internal', 'instances.test.ts'),
+    // SDK behavior scenario replays, one CDD file per capture.
+    ...readdirSync(join(import.meta.dir, '..', 'cdd'))
+      .filter((file) => file.startsWith('capture-') && file.endsWith('.test.ts'))
+      .map((file) => join(import.meta.dir, '..', 'cdd', file)),
   ],
 });
 
 describe('oracle conformance (rtdb-modular): completeness', () => {
   it('every rtdb-modular observation is covered (no silent gaps)', () => {
     const report = obsGate.report();
-    expect(report.committed.length).toBe(60);
+    expect(report.committed.length).toBe(65);
     expect(report.loadedButUnused).toEqual([]);
     expect(report.uncovered).toEqual([]);
   });

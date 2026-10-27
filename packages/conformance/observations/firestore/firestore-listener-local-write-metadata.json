@@ -1,0 +1,81 @@
+{
+  "name": "firestore-listener-local-write-metadata",
+  "matrixRow": "firestore#listener-local-write-pending, firestore#docchanges-metadata-ack",
+  "rowIds": [
+    "firestore#listener-local-write-pending",
+    "firestore#docchanges-metadata-ack"
+  ],
+  "description": "One setDoc observed by a doc listener and a query listener, each with and without includeMetadataChanges. Records hasPendingWrites and fromCache per snapshot, and per-doc hasPendingWrites in docChanges (with includeMetadataChanges on the metadata listener).",
+  "observedAt": "2026-10-27T19:30:54.532Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "docDefault": [
+      {
+        "exists": false,
+        "pw": false,
+        "fc": false
+      },
+      {
+        "exists": true,
+        "pw": true,
+        "fc": false
+      }
+    ],
+    "docMeta": [
+      {
+        "exists": false,
+        "pw": false,
+        "fc": false
+      },
+      {
+        "exists": true,
+        "pw": true,
+        "fc": false
+      },
+      {
+        "exists": true,
+        "pw": false,
+        "fc": false
+      }
+    ],
+    "qDefault": [
+      {
+        "size": 0,
+        "pw": false,
+        "changes": []
+      },
+      {
+        "size": 1,
+        "pw": true,
+        "changes": [
+          "added:a:true"
+        ]
+      }
+    ],
+    "qMeta": [
+      {
+        "size": 0,
+        "pw": false,
+        "fc": false,
+        "changes": []
+      },
+      {
+        "size": 1,
+        "pw": true,
+        "fc": false,
+        "changes": [
+          "added:a:true"
+        ]
+      },
+      {
+        "size": 1,
+        "pw": false,
+        "fc": false,
+        "changes": [
+          "modified:a:false"
+        ]
+      }
+    ]
+  }
+}

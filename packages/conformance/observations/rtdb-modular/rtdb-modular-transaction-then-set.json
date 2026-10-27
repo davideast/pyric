@@ -1,0 +1,47 @@
+{
+  "name": "rtdb-modular-transaction-then-set",
+  "matrixRow": "rtdb-modular#transaction-then-set-cold, rtdb-modular#served-transaction-then-set, rtdb-modular#M37b",
+  "rowIds": [
+    "rtdb-modular#transaction-then-set-cold",
+    "rtdb-modular#served-transaction-then-set",
+    "rtdb-modular#M37b"
+  ],
+  "description": "Fresh clients call runTransaction on a seeded path and then set(100) at once. The \"warm\" scenario attaches its listener with onlyOnce first, which leaves the client cold too. A third fresh client runs an update function that aborts when the current value is null. Records the update function arguments, the outcome and the final value. Captured on the dedicated RTDB oracle instance.",
+  "observedAt": "2026-10-27T19:51:49.075Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "cold": {
+      "args": [
+        null
+      ],
+      "tx": {
+        "error": "set",
+        "code": null
+      },
+      "set": "ok",
+      "final": 100
+    },
+    "warm": {
+      "args": [
+        null
+      ],
+      "tx": {
+        "error": "set",
+        "code": null
+      },
+      "set": "ok",
+      "final": 100
+    },
+    "abortIfMissing": {
+      "args": [
+        null
+      ],
+      "abort": {
+        "committed": false,
+        "val": null
+      },
+      "final": 1
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "name": "firestore-non-finite-number-roundtrip",
+  "matrixRow": "firestore#served-non-finite-numbers, firestore#negative-zero-equality",
+  "rowIds": [
+    "firestore#served-non-finite-numbers",
+    "firestore#negative-zero-equality"
+  ],
+  "description": "Docs holding NaN, Infinity, -Infinity, -0 and null, read back with getDocFromServer, and queried with == NaN, == null and == 0.",
+  "observedAt": "2026-10-27T20:16:16.444Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "read": {
+      "nan": "NaN",
+      "inf": "Infinity",
+      "ninf": "-Infinity",
+      "neg0": "-0",
+      "nul": null
+    },
+    "eqNaN": [
+      "nan"
+    ],
+    "eqNull": [
+      "nul"
+    ],
+    "eq0": [
+      "neg0"
+    ]
+  }
+}

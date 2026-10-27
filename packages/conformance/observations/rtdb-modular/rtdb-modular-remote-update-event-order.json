@@ -1,0 +1,42 @@
+{
+  "name": "rtdb-modular-remote-update-event-order",
+  "matrixRow": "rtdb-modular#remote-update-event-order, rtdb-modular#priority-change-child-changed, rtdb-modular#priority-change-child-moved, rtdb-modular#val-key-order, rtdb-modular#served-event-order",
+  "rowIds": [
+    "rtdb-modular#remote-update-event-order",
+    "rtdb-modular#priority-change-child-changed",
+    "rtdb-modular#priority-change-child-moved",
+    "rtdb-modular#val-key-order",
+    "rtdb-modular#served-event-order"
+  ],
+  "description": "A reader holds value, child and query listeners on /r while a second client runs one multi-path update and then setPriority on r/a. Records every event in arrival order, and the key order of val() for a ref and an orderByValue query. Captured on the dedicated RTDB oracle instance.",
+  "observedAt": "2026-10-27T19:52:06.053Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "log": [
+      "-- update",
+      "A changed x",
+      "A value",
+      "R removed c",
+      "R added d",
+      "R changed a",
+      "R changed b",
+      "R value",
+      "Q moved b",
+      "Q moved a",
+      "Q changed b",
+      "Q changed a",
+      "-- setPriority a 9",
+      "A value",
+      "R changed a",
+      "R value",
+      "Q moved a",
+      "Q changed a",
+      "L moved a"
+    ],
+    "valKeys": {
+      "ref": "a,b,c",
+      "query": "a,b,c"
+    }
+  }
+}
