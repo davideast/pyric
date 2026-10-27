@@ -349,10 +349,10 @@ const adminRows: CompatibilityRow[] = [
     plane: 'app-check-admin',
     rowRef: 'verify-token-content-checks',
     section: SEC_ADMIN,
-    api: 'getAppCheck().verifyToken(token) on another project, or with a foreign issuer',
+    api: 'getAppCheck().verifyToken(token) on another project, or with a foreign issuer, algorithm, subject, key, or expiry',
     featureKeys: ['verifyToken'],
-    behavior: 'Before the signature, the token content is checked: an `aud` without `projects/<projectId>` of the verifying app rejects with `app-check/invalid-argument` and `The provided App Check token has incorrect "aud" (audience) claim. Expected "projects/<projectId>" but got "<aud>". Make sure the App Check token comes from the same Firebase project as the service account used to authenticate this SDK.`; an `iss` not starting with `https://firebaseappcheck.googleapis.com/` rejects with `The provided App Check token has incorrect "iss" (issuer) claim.`; with no project id configured, `app-check/invalid-credential`.',
-    evidence: 'Upstream-documented only: firebase-admin 13 `lib/app-check/token-verifier.js` (`verifyContent`, `ensureProjectId`). No capture; verification runs locally in the Admin SDK, so a capture would need no production change.',
+    behavior: 'A token that is not a string rejects with `app-check/invalid-argument` and `App check token must be a non-null string.` Before the signature, the token content is checked in this order: a header `alg` other than RS256 rejects with `The provided App Check token has incorrect algorithm. Expected "RS256" but got "<alg>".`; an `aud` without `projects/<projectId>` of the verifying app rejects with `app-check/invalid-argument` and `The provided App Check token has incorrect "aud" (audience) claim. Expected "projects/<projectId>" but got "<aud>". Make sure the App Check token comes from the same Firebase project as the service account used to authenticate this SDK.`; an `iss` not starting with `https://firebaseappcheck.googleapis.com/` rejects with `The provided App Check token has incorrect "iss" (issuer) claim.`; a `sub` that is not a string rejects with `The provided App Check token has no "sub" (subject) claim.`, and an empty one with `The provided App Check token has an empty string "sub" (subject) claim.`; with no project id configured, `app-check/invalid-credential`. Then a `kid` that names no known key rejects with the `"kid" claim which does not correspond to a known public key` message, and a token with no `kid` is checked against every key. After the signature, a non-numeric `exp` rejects as an invalid signature, and an absent `exp` never expires.',
+    evidence: 'Upstream-documented only: firebase-admin 13.10.0 `lib/app-check/token-verifier.js` (`verifyToken`, `verifyContent`, `ensureProjectId`, `mapJwtErrorToAppCheckError`), `lib/utils/jwt.js` (`getKeyCallback`, `PublicKeySignatureVerifier.verify`), and jsonwebtoken 9 `verify.js` (`exp`). No capture; verification runs locally in the Admin SDK, so a capture would need no production change.',
     errorText: true,
   }),
   row({
@@ -365,6 +365,7 @@ const adminRows: CompatibilityRow[] = [
     behavior: 'The first consume resolves with `alreadyConsumed: false`, a second consume with `alreadyConsumed: true`, and a plain verify afterwards has no `alreadyConsumed` key.',
     evidence: 'capture `app-check-admin-verify-consume`.',
     observations: ['app-check-admin-verify-consume'],
+    notes: 'Covered: consumes through one sandbox handle in one process, including the require and import copies of `pyric-admin/app-check` (the consumed set sits behind `Symbol.for`). Not covered: production consumes once per project, server side, while the sandbox keeps the consumed set in process memory, so it is lost on restart and each process on one dev server keeps its own (#1297).',
   }),
 ];
 

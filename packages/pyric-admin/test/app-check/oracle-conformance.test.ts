@@ -17,7 +17,7 @@ import { appCheckRows } from '../../../conformance/registry/app-check.ts';
 import { createObservationGate } from '../../../conformance/src/observation-gate.ts';
 import { jwtShape, tamperSignature, type Secrets } from '../../../conformance/src/capture/app-check/redact.ts';
 import { initializeSandbox } from 'pyric/sandbox';
-import { mintAppCheckToken } from 'pyric/sandbox/internal';
+import { mintAppCheckToken, signAppCheckToken } from 'pyric/sandbox/internal';
 import { deleteApp, getApps, initializeApp } from '../../src/app/index.js';
 import { getAppCheck } from '../../src/app-check/index.js';
 
@@ -134,6 +134,30 @@ const assertions: Record<string, () => Promise<void>> = {
     });
     const noProject = await rejection(() => appCheck(null).verifyToken(token));
     expect(noProject).toMatchObject({ threw: true, code: 'app-check/invalid-credential' });
+    const invalid = (message: string) => ({ threw: true, code: 'app-check/invalid-argument', message });
+    expect(await rejection(() => appCheck().verifyToken(42 as unknown as string))).toEqual(invalid('App check token must be a non-null string.'));
+    const [headerPart, payloadPart] = token.split('.');
+    const header = JSON.parse(Buffer.from(headerPart!, 'base64url').toString('utf8')) as Record<string, unknown>;
+    const claims = JSON.parse(Buffer.from(payloadPart!, 'base64url').toString('utf8')) as Record<string, unknown>;
+    const signed = (h: Record<string, unknown>, c: Record<string, unknown>) => signAppCheckToken(h, c);
+    expect(await rejection(async () => appCheck().verifyToken(await signed({ ...header, alg: 'HS256' }, claims)))).toEqual(
+      invalid('The provided App Check token has incorrect algorithm. Expected "RS256" but got "HS256".'),
+    );
+    const { sub: _sub, ...withoutSub } = claims;
+    expect(await rejection(async () => appCheck().verifyToken(await signed(header, withoutSub)))).toEqual(
+      invalid('The provided App Check token has no "sub" (subject) claim.'),
+    );
+    expect(await rejection(async () => appCheck().verifyToken(await signed(header, { ...claims, sub: '' })))).toEqual(
+      invalid('The provided App Check token has an empty string "sub" (subject) claim.'),
+    );
+    expect(await rejection(async () => appCheck().verifyToken(await signed({ ...header, kid: 'not-a-key' }, claims)))).toEqual(
+      invalid(
+        'The provided App Check token has "kid" claim which does not correspond to a known public key. Most likely the provided App Check token is expired, so get a fresh token from your client app and try again.',
+      ),
+    );
+    expect(await rejection(async () => appCheck().verifyToken(await signed(header, { ...claims, exp: 'soon' })))).toEqual(
+      invalid('The provided App Check token has invalid signature.'),
+    );
   },
   'app-check-admin#verify-token-consume': async () => {
     const o = obs('app-check-admin-verify-consume');

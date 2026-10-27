@@ -231,8 +231,10 @@ export {
   appCheckProjectNumber,
   checkAppCheckToken,
   mintAppCheckToken,
+  signAppCheckToken,
   type AppCheckIdentity,
   type AppCheckTokenCheck,
   type AppCheckTokenClaims,
+  type AppCheckTokenParts,
   type MintedAppCheckToken,
 } from './app-check-token.js';

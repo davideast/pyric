@@ -12,6 +12,7 @@
  * `app-check-admin#create-token-unknown-app`, diverged by design).
  */
 import { checkAppCheckToken, mintAppCheckToken, type AppCheckTokenClaims } from 'pyric/sandbox/internal';
+import { PrefixedFirebaseError } from '../app/firebase-error.js';
 import { getApp, type PyricAdminApp } from '../app/index.js';
 import { assertAdminAppActive } from '../app/lifecycle.js';
 
@@ -21,6 +22,12 @@ const MAX_TTL_MILLIS = 7 * 24 * 60 * MINUTE_MILLIS;
 const DEFAULT_TTL_MILLIS = 60 * MINUTE_MILLIS;
 
 const MESSAGES = {
+  notString: 'App check token must be a non-null string.',
+  algorithm: (alg: unknown) => `The provided App Check token has incorrect algorithm. Expected "RS256" but got "${String(alg)}".`,
+  noSub: 'The provided App Check token has no "sub" (subject) claim.',
+  emptySub: 'The provided App Check token has an empty string "sub" (subject) claim.',
+  noMatchingKid:
+    'The provided App Check token has "kid" claim which does not correspond to a known public key. Most likely the provided App Check token is expired, so get a fresh token from your client app and try again.',
   ttl: 'ttlMillis must be a duration in milliseconds between 30 minutes and 7 days (inclusive).',
   appId: '`appId` must be a non-empty string.',
   decode: 'Decoding App Check token failed. Make sure you passed the entire string JWT which represents the Firebase App Check token.',
@@ -39,13 +46,10 @@ const APP_CHECK_ISSUER = 'https://firebaseappcheck.googleapis.com/';
 
 type AppCheckErrorCode = 'invalid-argument' | 'invalid-credential' | 'app-check-token-expired' | 'unknown-error';
 
-class FirebaseAppCheckError extends Error {
-  readonly code: string;
-
+/** firebase-admin's FirebaseAppCheckError: a PrefixedFirebaseError with prefix `app-check`. */
+class FirebaseAppCheckError extends PrefixedFirebaseError {
   constructor(code: AppCheckErrorCode, message: string) {
-    super(message);
-    this.name = 'FirebaseAppCheckError';
-    this.code = `app-check/${code}`;
+    super('app-check', code, message);
   }
 }
 
@@ -72,15 +76,25 @@ export interface VerifyAppCheckTokenResponse {
   alreadyConsumed?: boolean;
 }
 
-/** Consumed token ids, per sandbox: replay protection lives with the backend the app talks to. */
-const consumedBySandbox = new WeakMap<object, Set<string>>();
+/**
+ * Consumed token ids, per sandbox handle, for this process. The map sits
+ * behind Symbol.for, as the app registry in ../app/index.ts does, so the
+ * require and import copies of this module that the register hook can load
+ * share it. It is in memory: it does not survive a restart, and two processes
+ * on one dev server each keep their own. Production consumes once per
+ * project; moving this into the sandbox is #1297.
+ */
+const CONSUMED_BY_SANDBOX = Symbol.for('pyric.admin.appCheck.consumedBySandbox');
+type GlobalConsumed = { [CONSUMED_BY_SANDBOX]?: WeakMap<object, Set<string>> };
 
 function consumedFor(app: PyricAdminApp): Set<string> {
+  const global = globalThis as GlobalConsumed;
+  const bySandbox = (global[CONSUMED_BY_SANDBOX] ??= new WeakMap());
   const key = app.sandbox as object;
-  let consumed = consumedBySandbox.get(key);
+  let consumed = bySandbox.get(key);
   if (!consumed) {
     consumed = new Set();
-    consumedBySandbox.set(key, consumed);
+    bySandbox.set(key, consumed);
   }
   return consumed;
 }
@@ -114,21 +128,28 @@ export class AppCheck {
     return { token: minted.token, ttlMillis };
   }
 
+  /**
+   * Checks in firebase-admin's order (token-verifier.js, utils/jwt.js): the
+   * token is a string, then the project, decoding, content, key, signature,
+   * and last `exp` as jsonwebtoken reads it.
+   */
   async verifyToken(appCheckToken: string, options?: VerifyAppCheckTokenOptions): Promise<VerifyAppCheckTokenResponse> {
     assertAdminAppActive(this.#app);
+    if (typeof appCheckToken !== 'string') throw new FirebaseAppCheckError('invalid-argument', MESSAGES.notString);
     const projectId = this.#projectId();
-    const check = typeof appCheckToken === 'string' ? await checkAppCheckToken(appCheckToken) : ({ ok: false, reason: 'malformed' } as const);
+    const check = await checkAppCheckToken(appCheckToken);
     if (!check.ok && check.reason === 'malformed') throw new FirebaseAppCheckError('invalid-argument', MESSAGES.decode);
-    // Upstream checks the content before the signature (token-verifier.js decodeAndVerify).
-    verifyContent(check.claims, projectId);
+    verifyContent(check.header, check.claims, projectId);
+    if (!check.ok && check.reason === 'kid') throw new FirebaseAppCheckError('invalid-argument', MESSAGES.noMatchingKid);
     if (!check.ok) throw new FirebaseAppCheckError('invalid-argument', MESSAGES.signature);
-    const { claims } = check;
-    if (claims.exp * 1000 <= Date.now()) throw new FirebaseAppCheckError('app-check-token-expired', MESSAGES.expired);
+    verifyExpiry(check.claims.exp);
+    const claims = check.claims as AppCheckTokenClaims;
     const result: VerifyAppCheckTokenResponse = { appId: claims.sub, token: { ...claims, app_id: claims.sub } };
     if (options?.consume === true) {
       const consumed = consumedFor(this.#app);
-      result.alreadyConsumed = consumed.has(claims.jti);
-      consumed.add(claims.jti);
+      const tokenId = typeof claims.jti === 'string' ? claims.jti : appCheckToken;
+      result.alreadyConsumed = consumed.has(tokenId);
+      consumed.add(tokenId);
     }
     return result;
   }
@@ -146,12 +167,28 @@ export class AppCheck {
   }
 }
 
-function verifyContent(claims: AppCheckTokenClaims, projectId: string): void {
+/** token-verifier.js verifyContent: algorithm, audience, issuer, then subject, first failure wins. */
+function verifyContent(header: Readonly<Record<string, unknown>>, claims: Readonly<Record<string, unknown>>, projectId: string): void {
+  if (header.alg !== 'RS256') throw new FirebaseAppCheckError('invalid-argument', MESSAGES.algorithm(header.alg));
   const scoped = `projects/${projectId}`;
   const audienceMatches = Array.isArray(claims.aud) && claims.aud.length > 0 && claims.aud.includes(scoped);
   if (!audienceMatches) throw new FirebaseAppCheckError('invalid-argument', MESSAGES.audience(scoped, claims.aud));
   const issuerMatches = typeof claims.iss === 'string' && claims.iss.startsWith(APP_CHECK_ISSUER);
   if (!issuerMatches) throw new FirebaseAppCheckError('invalid-argument', MESSAGES.issuer);
+  if (typeof claims.sub !== 'string') throw new FirebaseAppCheckError('invalid-argument', MESSAGES.noSub);
+  if (claims.sub === '') throw new FirebaseAppCheckError('invalid-argument', MESSAGES.emptySub);
+}
+
+/**
+ * jsonwebtoken's exp rule: an absent `exp` never expires, a non-number is an
+ * error that firebase-admin reports as an invalid signature, and the token is
+ * expired once the current second reaches `exp`.
+ */
+function verifyExpiry(exp: unknown): void {
+  if (exp === undefined) return;
+  if (typeof exp !== 'number') throw new FirebaseAppCheckError('invalid-argument', MESSAGES.signature);
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  if (nowSeconds >= exp) throw new FirebaseAppCheckError('app-check-token-expired', MESSAGES.expired);
 }
 
 const instances = new WeakMap<PyricAdminApp, AppCheck>();

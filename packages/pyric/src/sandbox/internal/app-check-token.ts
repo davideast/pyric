@@ -46,9 +46,17 @@ function base64url(bytes: Uint8Array): string {
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
+/** Decodes a base64url segment as UTF-8, the inverse of {@link encodeJson}. Uses `atob` and `TextDecoder` only, so it runs the same in a browser or worker. */
 function fromBase64url(text: string): string {
   const padded = text.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(text.length / 4) * 4, '=');
-  return atob(padded);
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+  return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+}
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function encodeJson(value: unknown): string {
@@ -85,7 +93,6 @@ export async function mintAppCheckToken(
   const iat = Math.floor(nowMillis / 1000);
   const exp = iat + ttlSeconds;
   const projectNumber = appCheckProjectNumber(identity.appId);
-  const header = encodeJson({ alg: 'RS256', kid: SANDBOX_KID, typ: 'JWT' });
   const claims: AppCheckTokenClaims = {
     sub: identity.appId,
     aud: [`projects/${projectNumber}`, `projects/${identity.projectId}`],
@@ -95,30 +102,51 @@ export async function mintAppCheckToken(
     iat,
     jti: randomId(),
   };
-  const signingInput = `${header}.${encodeJson(claims)}`;
-  return { token: `${signingInput}.${await sandboxSignature(signingInput)}`, expireTimeMillis: exp * 1000 };
+  const token = await signAppCheckToken({ alg: 'RS256', kid: SANDBOX_KID, typ: 'JWT' }, claims);
+  return { token, expireTimeMillis: exp * 1000 };
+}
+
+/** Signs any header and claims with the sandbox key. Minting uses it; tests use it to build tokens production could not issue. */
+export async function signAppCheckToken(header: Record<string, unknown>, claims: Record<string, unknown>): Promise<string> {
+  const signingInput = `${encodeJson(header)}.${encodeJson(claims)}`;
+  return `${signingInput}.${await sandboxSignature(signingInput)}`;
+}
+
+/** A decoded token's header and claims, unchecked: any field may be missing or of any type. */
+export interface AppCheckTokenParts {
+  header: Readonly<Record<string, unknown>>;
+  claims: Readonly<Record<string, unknown>>;
 }
 
 export type AppCheckTokenCheck =
-  | { ok: true; claims: AppCheckTokenClaims }
-  | { ok: false; reason: 'signature'; claims: AppCheckTokenClaims }
+  | ({ ok: true } & AppCheckTokenParts)
+  | ({ ok: false; reason: 'kid' | 'signature' } & AppCheckTokenParts)
   | { ok: false; reason: 'malformed' };
 
-/** Decodes a sandbox token and checks its signature; the decoded claims come back either way. Expiry and audience are the caller's rules. */
+/**
+ * Decodes a sandbox token and checks its key and signature, in
+ * firebase-admin's order: a `kid` must name the sandbox key, and a token with
+ * no `kid` is checked against it, as firebase-admin tries every key. The
+ * decoded header and claims come back whenever the token decodes; `alg`,
+ * audience, subject and expiry are the caller's rules.
+ */
 export async function checkAppCheckToken(token: string): Promise<AppCheckTokenCheck> {
   const segments = token.split('.');
   if (segments.length !== 3) return { ok: false, reason: 'malformed' };
-  let decoded: unknown;
+  let header: unknown;
+  let claims: unknown;
   try {
-    JSON.parse(fromBase64url(segments[0]!));
-    decoded = JSON.parse(fromBase64url(segments[1]!));
+    header = JSON.parse(fromBase64url(segments[0]!));
+    claims = JSON.parse(fromBase64url(segments[1]!));
   } catch {
     return { ok: false, reason: 'malformed' };
   }
-  const payloadIsObject = typeof decoded === 'object' && decoded !== null && !Array.isArray(decoded);
-  if (!payloadIsObject) return { ok: false, reason: 'malformed' };
-  const claims = decoded as AppCheckTokenClaims;
+  if (!isJsonObject(header) || !isJsonObject(claims)) return { ok: false, reason: 'malformed' };
+  const decoded = { header, claims };
+  // jwt.js getKeyCallback: a falsy kid means "no kid", and every key is tried.
+  const kidNamesNoKey = Boolean(header.kid) && header.kid !== SANDBOX_KID;
+  if (kidNamesNoKey) return { ok: false, reason: 'kid', ...decoded };
   const expected = await sandboxSignature(`${segments[0]}.${segments[1]}`);
-  if (segments[2] !== expected) return { ok: false, reason: 'signature', claims };
-  return { ok: true, claims };
+  if (segments[2] !== expected) return { ok: false, reason: 'signature', ...decoded };
+  return { ok: true, ...decoded };
 }
