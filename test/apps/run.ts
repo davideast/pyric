@@ -110,7 +110,9 @@ async function runApp(name: string, context: {
   try {
     run.currentStep = 'npm install';
     prepareApp({ appDir: join(appsDir, name), projectDir, tarballs: context.tarballs });
-    const install = await context.installs.install(projectDir);
+    // Under the app's timeout too: a shared install or copy that never settles
+    // fails this app instead of holding the run.
+    const install = await withTimeout(context.installs.install(projectDir), APP_TIMEOUT_MS, run);
     logs.push({ name: 'npm install', text: install.output });
     if (install.code !== 0) throw new StepFailure('npm install', new Error(`npm install exited with code ${install.code}`));
     run.currentStep = 'load scenario';
