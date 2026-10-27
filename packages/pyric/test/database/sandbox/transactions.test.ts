@@ -186,24 +186,31 @@ for (const applyLocally of [true, false]) {
     const values = new ValueListeners(state);
     const children = new ChildListeners(state);
     const writes = new WritePlane(state, values, children);
-    const transactions = new Transactions(state, values, children);
+    const transactions = new Transactions(state, values, children, writes);
     writes.setRules({
       rules: { rooms: { $room: { '.read': "data.child('members').child(auth.uid).val() == true", '.write': true } } },
     });
-    writes.adminSet('/rooms/r1', { members: { alice: true }, msg: 'hi' });
-    const delivered: unknown[] = [];
+    writes.adminSet('/rooms/r1', { members: { alice: true, bob: true }, msg: 'hi' });
+    const delivered: Record<string, unknown[]> = { alice: [], bob: [] };
     const cancelled: string[] = [];
     const childCancelled: string[] = [];
-    values.onValue({ uid: 'alice' }, '/rooms/r1', (snap) => delivered.push(snap.val()), undefined,
+    values.onValue({ uid: 'alice' }, '/rooms/r1', (snap) => delivered.alice!.push(snap.val), undefined,
       (err) => cancelled.push((err as Error & { code: string }).code));
     children.onChild({ uid: 'alice' }, 'child_added', '/rooms/r1/messages', () => {}, undefined,
       (err) => childCancelled.push((err as Error & { code: string }).code));
-    delivered.length = 0;
+    values.onValue({ uid: 'bob' }, '/rooms/r1', (snap) => delivered.bob!.push(snap.val));
+    delivered.alice!.length = 0;
+    delivered.bob!.length = 0;
     const recorded: string[] = [];
     const operation = state.events.operation.bind(state.events);
     state.events.operation = (auth, method, path, result, evaluation, fields) => {
       recorded.push(`${method} ${path} ${result}`);
       operation(auth, method, path, result, evaluation, fields);
+    };
+    const listener = state.events.listener.bind(state.events);
+    state.events.listener = (phase, target, auth, fields) => {
+      if (phase === 'delivery') recorded.push(`delivery ${target.path} to ${auth?.uid}`);
+      listener(phase, target, auth, fields);
     };
     const commit = state.events.commit.bind(state.events);
     state.events.commit = (auth, method, path, fields) => {
@@ -214,13 +221,17 @@ for (const applyLocally of [true, false]) {
     transactions.run({ uid: 'alice' }, '/rooms/r1/members/alice', () => false, { applyLocally });
 
     expect({ delivered, cancelled, childCancelled }).toEqual({
-      delivered: [], cancelled: ['PERMISSION_DENIED'], childCancelled: ['PERMISSION_DENIED'],
+      delivered: { alice: [], bob: [{ members: { alice: false, bob: true }, msg: 'hi' }] },
+      cancelled: ['PERMISSION_DENIED'],
+      childCancelled: ['PERMISSION_DENIED'],
     });
-    // Recorded as a set is: the operation, the revocations it causes, then the commit.
+    // Recorded as a set is: the operation, the revocations it causes, the
+    // deliveries to the listeners that may still read, then the commit.
     expect(recorded).toEqual([
       'transaction /rooms/r1/members/alice allow',
       'listen /rooms/r1 deny',
       'listen /rooms/r1/messages deny',
+      'delivery /rooms/r1 to bob',
       'commit transaction /rooms/r1/members/alice',
     ]);
   });

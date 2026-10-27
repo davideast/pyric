@@ -17,16 +17,16 @@ function transactionPermissionDenied(context: RtdbDenialContext): Error {
 }
 
 export class Transactions {
-  /** Publishes a commit as every other data write is published. */
-  private readonly writes: WritePlane;
-
+  /**
+   * `writes` publishes a commit as every other data write is published; the
+   * backend passes its own so the two cannot drift.
+   */
   constructor(
     private readonly state: BackendState,
     values: ValueListeners,
     private readonly children: ChildListeners,
-  ) {
-    this.writes = new WritePlane(state, values, children);
-  }
+    private readonly writes: WritePlane = new WritePlane(state, values, children),
+  ) {}
 
   run(
     auth: AuthState,
