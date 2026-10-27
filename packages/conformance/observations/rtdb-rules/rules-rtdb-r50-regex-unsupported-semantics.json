@@ -1,0 +1,25 @@
+{
+  "name": "rules-rtdb-r50-regex-unsupported-semantics",
+  "matrixRow": "rtdb-rules#34",
+  "rowIds": [
+    "rtdb-rules#34"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r50-regex-unsupported-semantics\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). production never grants on lookahead, backreference or \\b; whether matches() is false, errors, or reads the escapes literally decides whether !matches() over them is a hole pyric hides.",
+  "observedAt": "2026-10-26T21:51:34.931Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "SP-2b: !matches(negative lookahead) on guest": "ALLOW",
+    "SP-2b: !matches(negative lookahead) on admin": "ALLOW",
+    "SP-2b: !matches(lookahead) on a string with a digit": "ALLOW",
+    "SP-2b: !matches(backreference) on aa": "ALLOW",
+    "SP-2b: !matches(word boundary) on a cat sat": "ALLOW",
+    "SP-2b: word boundary read as a literal b, on bcatb": "ALLOW",
+    "SP-2b: backreference read as a literal 1, on a1": "ALLOW",
+    "SP-2b: lazy quantifier on aaa": "ALLOW",
+    "SP-8: dot against a carriage return": "ALLOW",
+    "SP-8 control: dot against a letter": "ALLOW",
+    "control: !matches(plain anchored word) on guest": "ALLOW",
+    "control: !matches(plain anchored word) on admin": "DENY"
+  }
+}

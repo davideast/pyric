@@ -20,7 +20,9 @@ describe('rules-language production coverage', () => {
     const rtdb = report.engines.find((engine) => engine.engine === 'rtdb');
 
     expect(rtdb?.constructs.find((construct) => construct.id === 'rtdb.semantic.validate-non-cascade')?.verdict).toBe('verified');
-    expect(rtdb?.verifiedConstructs).toBe(90);
+    // Seven constructs are diverged by the 2026-10-26 hunt's pinned findings (#1247,
+    // rows rtdb-rules#34 to #39); each fix stream restores its constructs.
+    expect(rtdb?.verifiedConstructs).toBe(83);
   }, FULL_GRAPH_TIMEOUT_MS);
 
   it('verifies Storage corpus constructs with input-digest-bound observations and zero unresolved AST nodes', async () => {
