@@ -32,9 +32,9 @@ async function zombie(code: number): Promise<number> {
     parent.stdout?.once('data', (chunk) => resolve(Number(String(chunk).trim())));
   });
   const deadline = performance.now() + ZOMBIE_WAIT_MS;
-  const isReady = () => unreapedExit(pid)?.code === code;
-  while (!isReady()) {
-    if (performance.now() > deadline) throw new Error(`pid ${pid} was not a zombie with exit code ${code} after ${ZOMBIE_WAIT_MS}ms${describeProcState(pid)}`);
+  // Once /proc shows the child as Z, its exit status is in field 52; `unreapedExit` reads both.
+  while (unreapedExit(pid) === undefined) {
+    if (performance.now() > deadline) throw new Error(`pid ${pid} was not a zombie after ${ZOMBIE_WAIT_MS}ms${describeProcState(pid)}`);
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
   return pid;

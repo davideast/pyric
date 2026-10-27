@@ -116,29 +116,28 @@ describe('copying an installed tree into an app', () => {
 });
 
 describe('settling a copy from its worker', () => {
-  /** A copy worker that emits `events` in order, on a later turn, the way a real one reports. */
-  function scriptedWorker(events: ReadonlyArray<[string, unknown]>): () => CopyWorker {
+  /** A copy worker that emits each event on its own later turn, `delayMs` apart, the way a real one reports. */
+  function scriptedWorker(events: ReadonlyArray<[string, unknown]>, delayMs = 0): () => CopyWorker {
     return () => {
       const worker = Object.assign(new EventEmitter(), { terminate: () => undefined });
-      setTimeout(() => {
-        for (const [event, value] of events) worker.emit(event, value);
-      }, 0);
+      events.forEach(([event, value], index) => setTimeout(() => worker.emit(event, value), (index + 1) * delayMs));
       return worker;
     };
   }
+  const to = () => join(tempDir(), 'to');
 
   test('a worker whose clean exit is handled before its result settles as success (#1280)', async () => {
-    const copy = copyTree('/from', join(tempDir(), 'to'), scriptedWorker([['exit', 0], ['message', { ok: true }]]));
-    await expect(copy).resolves.toBeUndefined();
+    const worker = scriptedWorker([['exit', 0], ['message', { ok: true }]], 50);
+    await expect(copyTree('/from', to(), worker, 500)).resolves.toBeUndefined();
   });
 
   test('a worker that exits without a result fails the copy, whatever its code', async () => {
-    await expect(copyTree('/from', join(tempDir(), 'to'), scriptedWorker([['exit', 1]]))).rejects.toThrow('the copy worker exited with code 1 before it finished');
-    await expect(copyTree('/from', join(tempDir(), 'to'), scriptedWorker([['exit', 0]]))).rejects.toThrow('the copy worker exited with code 0 before it finished');
+    await expect(copyTree('/from', to(), scriptedWorker([['exit', 1]]))).rejects.toThrow('the copy worker exited with code 1 before it finished');
+    await expect(copyTree('/from', to(), scriptedWorker([['exit', 0]]), 20)).rejects.toThrow('the copy worker exited with code 0 before it finished');
   });
 
   test('a failed result fails the copy, and a later exit does not change it', async () => {
-    const copy = copyTree('/from', join(tempDir(), 'to'), scriptedWorker([['message', { ok: false, message: 'ENOSPC' }], ['exit', 0]]));
+    const copy = copyTree('/from', to(), scriptedWorker([['message', { ok: false, message: 'ENOSPC' }], ['exit', 0]]));
     await expect(copy).rejects.toThrow('failed: ENOSPC');
   });
 });

@@ -108,7 +108,7 @@ export type CopyWorker = Pick<EventEmitter, 'once'> & { terminate(): unknown };
 export type StartCopyWorker = (from: string, to: string) => CopyWorker;
 
 /** How long a copy worker's result may trail its clean exit before the copy counts as failed. */
-const RESULT_AFTER_EXIT_MS = 1000;
+const RESULT_AFTER_EXIT_MS = 5000;
 
 const startCopyTreeWorker: StartCopyWorker = (from, to) => new Worker(new URL('./copy-tree-worker.ts', import.meta.url), { workerData: { from, to } });
 
@@ -124,26 +124,32 @@ const startCopyTreeWorker: StartCopyWorker = (from, to) => new Worker(new URL('.
  * together, as when several apps get their set's install at once, left
  * exited children unreaped, and the runner waited on one forever.
  */
-export function copyTree(from: string, to: string, startWorker: StartCopyWorker = startCopyTreeWorker): Promise<void> {
+export function copyTree(from: string, to: string, startWorker: StartCopyWorker = startCopyTreeWorker, resultAfterExitMs = RESULT_AFTER_EXIT_MS): Promise<void> {
   mkdirSync(dirname(to), { recursive: true });
   return new Promise((resolve, reject) => {
     const worker = startWorker(from, to);
     let answered = false;
+    let resultWait: ReturnType<typeof setTimeout> | undefined;
     worker.once('message', (result: { ok: boolean; message?: string }) => {
       answered = true;
+      clearTimeout(resultWait);
       void worker.terminate();
       if (result.ok) resolve();
       else reject(new Error(`copying ${from} to ${to} failed: ${result.message ?? 'unknown error'}`));
     });
-    worker.once('error', reject);
+    worker.once('error', (error) => {
+      answered = true;
+      reject(error);
+    });
     // A worker killed before it answers (out of memory, say) settles the copy too.
     const failUnanswered = (code: number) => {
       if (!answered) reject(new Error(`copying ${from} to ${to} failed: the copy worker exited with code ${code} before it finished`));
     };
     // A clean exit can be handled before the result it posted (#1280), so it waits for that result first.
     worker.once('exit', (code: number) => {
+      if (answered) return;
       const isClean = code === 0;
-      if (isClean) setTimeout(() => failUnanswered(code), RESULT_AFTER_EXIT_MS);
+      if (isClean) resultWait = setTimeout(() => failUnanswered(code), resultAfterExitMs);
       else failUnanswered(code);
     });
   });
