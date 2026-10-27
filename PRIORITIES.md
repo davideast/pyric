@@ -57,14 +57,13 @@ A change that moves pyric closer to production is a pyric bug fix, not a breakin
 
 **Test:** Does this let a project with more than one database, instance, or bucket run on pyric with each resource isolated as production isolates it, in data, rules, and SDK selection, on every plane?
 
-RTDB instances are closest to the full shape: `firebase.json` declares them, each gets its own data and rules, client and admin handles select by URL, and every plane agrees. The service tools and `pyric verify` still assume the default instance. Firestore named databases are not supported yet, and Storage applies one bucket's rules to every bucket.
+RTDB instances are closest to the full shape: `firebase.json` declares them, each gets its own data and rules, client and admin handles select by URL, every plane agrees, and `pyric database`, the MCP `database` tool, and `pyric verify` each take an instance. Firestore named databases are not supported yet, and Storage applies one bucket's rules to every bucket.
 
 **Counts:** Firestore named databases end to end (`getFirestore(app, databaseId)` on the client and in `pyric-admin`, the rules `database` variable, the worker protocol, the host store); Storage rules per bucket from `firebase.json` targets; naming the resource in denials, Studio, and the runtime chip; differential tests across planes for each resource; flipping the `Named databases` rows in `packages/conformance/registry/firestore.ts`.
 **Doesn't count:** more than one Firebase project or configuration in one runtime (rejected by design); provisioning resources.
 
 **Now:**
 - Storage: per-bucket rules from `storage` targets. Today the first bucket's rules govern all of them (ST-H2-2, shared with the rules campaign)
-- RTDB instances in `pyric database <method>`, the MCP `database` tool, and `pyric verify` (#967)
 - Firestore named databases: carry a database id in the worker protocol as one versioned change (ADR-0011)
 - Firestore named databases: per-database data and rules from the `firestore` array in `firebase.json`, on all three planes and in `pyric-admin`
 
