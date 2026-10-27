@@ -100,10 +100,10 @@
     ]
   },
   "score": {
-    "numerator": 86,
+    "numerator": 88,
     "denominator": 91,
-    "ratio": 0.945054945054945,
-    "percent": 94.5
+    "ratio": 0.967032967032967,
+    "percent": 96.7
   },
   "axes": {
     "productionAcceptance": {
@@ -125,14 +125,14 @@
       "unprobeable": 0
     },
     "productionEvidence": {
-      "verified": 85,
-      "diverged": 5,
+      "verified": 87,
+      "diverged": 3,
       "unverified": 1
     }
   },
   "counts": {
-    "conformant": 86,
-    "diverged": 5,
+    "conformant": 88,
+    "diverged": 3,
     "unknown": 0,
     "acceptance-mismatch": 0,
     "local-unsupported": 0,
@@ -182,6 +182,7 @@
         "r50-regex-unsupported-semantics",
         "r52-prototype-named-keys",
         "r54-regex-alternation-runtime",
+        "r56-regex-classes-runtime",
         "r7-pathvar-binding",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -302,6 +303,7 @@
         "r50-regex-unsupported-semantics",
         "r52-prototype-named-keys",
         "r54-regex-alternation-runtime",
+        "r56-regex-classes-runtime",
         "r8-combined-check",
         "r9-quota-arithmetic"
       ],
@@ -386,6 +388,7 @@
         "r49-value-edges",
         "r50-regex-unsupported-semantics",
         "r54-regex-alternation-runtime",
+        "r56-regex-classes-runtime",
         "r8-combined-check",
         "r9-quota-arithmetic"
       ],
@@ -552,7 +555,8 @@
         "r47-regex-runtime",
         "r49-value-edges",
         "r50-regex-unsupported-semantics",
-        "r54-regex-alternation-runtime"
+        "r54-regex-alternation-runtime",
+        "r56-regex-classes-runtime"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -620,11 +624,13 @@
         "r27-stdlib-core-patterns",
         "r47-regex-runtime",
         "r50-regex-unsupported-semantics",
-        "r54-regex-alternation-runtime"
+        "r54-regex-alternation-runtime",
+        "r56-regex-classes-runtime"
       ],
       "verifiedByRows": [
         "rtdb-rules#34",
-        "rtdb-rules#43"
+        "rtdb-rules#43",
+        "rtdb-rules#45"
       ],
       "divergedByRows": []
     },
@@ -805,6 +811,7 @@
         "r50-regex-unsupported-semantics",
         "r52-prototype-named-keys",
         "r54-regex-alternation-runtime",
+        "r56-regex-classes-runtime",
         "r7-pathvar-binding",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -1022,6 +1029,7 @@
         "r49-value-edges",
         "r50-regex-unsupported-semantics",
         "r54-regex-alternation-runtime",
+        "r56-regex-classes-runtime",
         "r7-pathvar-binding",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -1255,6 +1263,7 @@
         "r50-regex-unsupported-semantics",
         "r52-prototype-named-keys",
         "r54-regex-alternation-runtime",
+        "r56-regex-classes-runtime",
         "r6-deny-everything",
         "r7-pathvar-binding",
         "r8-combined-check",
@@ -1298,6 +1307,7 @@
         "r50-regex-unsupported-semantics",
         "r52-prototype-named-keys",
         "r54-regex-alternation-runtime",
+        "r56-regex-classes-runtime",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [
@@ -1416,6 +1426,7 @@
         "r47-regex-runtime",
         "r50-regex-unsupported-semantics",
         "r54-regex-alternation-runtime",
+        "r56-regex-classes-runtime",
         "r44-deploy-string-and-regex-probes",
         "r46-deploy-regex-constructs",
         "r51-deploy-anchor-index-and-length-probes",
@@ -1428,7 +1439,8 @@
         "rtdb-rules#35",
         "rtdb-rules#42",
         "rtdb-rules#43",
-        "rtdb-rules#44"
+        "rtdb-rules#44",
+        "rtdb-rules#45"
       ],
       "divergedByRows": []
     },
