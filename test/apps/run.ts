@@ -133,6 +133,10 @@ async function runApp(name: string, context: {
     if (hostErrors.length > 0) {
       throw new StepFailure('every Pyric host route the page requested answered without an error', new Error(hostErrors.join('\n')));
     }
+    const leftovers = run.unexpectedLeftoverProcesses();
+    if (leftovers.length > 0) {
+      throw new StepFailure('no process an app process started outlives it holding its output', new Error(leftovers.join('\n')));
+    }
   } catch (error) {
     failure = error;
   } finally {

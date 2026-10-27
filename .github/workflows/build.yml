@@ -437,7 +437,7 @@ jobs:
       - name: Pack the published packages
         run: bash scripts/pack-packages.sh --skip-build
       - name: Test the app selection and the driver
-        run: bun test test/apps/selection.test.ts test/apps/driver.test.ts test/apps/install.test.ts test/apps/schedule.test.ts
+        run: bun test test/apps/selection.test.ts test/apps/driver.test.ts test/apps/install.test.ts test/apps/unreaped-exit.test.ts test/apps/schedule.test.ts
       - name: Restore the app scenario times
         # test/apps/run.ts starts the apps that took longest in the last run
         # first, from test-results/app-durations.json. The order only affects
@@ -589,7 +589,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.3.11'
-      - run: bun test scripts/publish-alpha.test.ts
+      - run: bun test scripts/publish-alpha.test.ts scripts/lib/proven-stamp.test.ts
 
   conformance-gates:
     name: Conformance gates
@@ -688,17 +688,20 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Packaging gate
-        # scripts/packaging-test.sh: static manifest lint (publint + attw types
-        # resolution + exports↔dist drift), then packs every publishable package
-        # via `npm pack` (rewriting workspace:* → ^<version> via
-        # scripts/lib/rewrite-workspace-deps.mjs — the same rewrite the real
-        # `npm run pack` uses), installs the tarballs into a fresh consumer,
+        # The release path: scripts/pack-packages.sh builds and packs every
+        # publishable package, then scripts/packaging-test.sh --packages tests
+        # those tarballs with no build or pack of its own. It lints them
+        # (publint + attw types resolution on the tarballs; the exports↔dist
+        # drift check reads the workspace dist the tarballs came from),
+        # installs the tarballs into a fresh consumer,
         # asserts every advertised subpath import resolves + the export shapes,
         # exercises the bin, runs a serve smoke, RUNS the libraries (runtime
         # asset paths), and pins the ESM-only + subpath-only module contract.
         env:
           PYRIC_PACKAGING_ARTIFACT_DIR: ${{ runner.temp }}/proven-packages
-        run: npm run test:packaging
+        run: |
+          bash scripts/pack-packages.sh
+          bash scripts/packaging-test.sh --packages dist/packages
 
       - name: Upload the exact proven tarballs
         uses: actions/upload-artifact@v4

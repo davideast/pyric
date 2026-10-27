@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import type { Browser, BrowserContext, Page } from '@playwright/test';
 import { blackholedPort, type BlackholedPort } from '../../packages/cli/test/blackholed-port.ts';
 import { npmInstall, pinPyricPackages, type Tarballs } from './install.ts';
+import { describeProcState, endGroup, watchChildExit, type LiveProcess } from './unreaped-exit.ts';
 
 export interface LogWaitOptions {
   /** Only output after this offset (from `mark()`) counts. Default: all output. */
@@ -43,6 +44,14 @@ export class AppProcess {
   private isPaused = false;
   private spawnAttempts = 0;
   private childWrote = false;
+  private stopWatchingExit: () => void = () => {};
+  /**
+   * Set when the child's exit was counted without its `close` (#1274): a
+   * process it started may still be in its group, holding its pipes.
+   */
+  private exitedEarly = false;
+  /** Processes this child started that outlived it, holding its pipes (#1274). */
+  readonly leftoverProcesses: LiveProcess[] = [];
 
   constructor(
     readonly name: string,
@@ -80,10 +89,18 @@ export class AppProcess {
       this.text += `\n[driver] could not start ${this.command}: ${error.message}\n`;
       this.finish(null);
     });
-    child.on('close', (code, signal) => {
+    child.on('close', (_code, signal) => {
+      if (isCurrent() && signal) this.text += `\n[driver] exited on ${signal}\n`;
+    });
+    // `close` waits for the output pipes too, and Bun can miss an exit (#1274):
+    // watchChildExit also counts an exit whose pipes stay held, and a zombie.
+    this.stopWatchingExit();
+    this.stopWatchingExit = watchChildExit(child, this.name, (exit) => {
       if (!isCurrent()) return;
-      if (signal) this.text += `\n[driver] exited on ${signal}\n`;
-      this.finish(code);
+      this.text += exit.note;
+      if (exit.source !== 'close') this.exitedEarly = true;
+      this.leftoverProcesses.push(...exit.leftovers);
+      this.finish(exit.code);
     });
     return child;
   }
@@ -107,6 +124,7 @@ export class AppProcess {
 
   private finish(code: number | null): void {
     if (!this.running) return;
+    this.stopWatchingExit();
     this.exitCode = code;
     this.settle(code);
   }
@@ -172,7 +190,11 @@ export class AppProcess {
    * `exited` settles and nothing waits on it past that.
    */
   async stop(grace: StopGrace = DEFAULT_STOP_GRACE): Promise<void> {
-    if (!this.running || this.child.pid === undefined) return;
+    if (this.child.pid === undefined) return;
+    if (!this.running) {
+      await this.stopLeftoverGroup(grace);
+      return;
+    }
     const group = -this.child.pid;
     // A stopped process holds SIGTERM until it is continued.
     if (this.isPaused) {
@@ -180,11 +202,26 @@ export class AppProcess {
       this.isPaused = false;
     }
     try { process.kill(group, 'SIGTERM'); } catch { /* the group is gone; wait for close below */ }
-    if (await this.closesWithin(grace.termMs)) return;
+    if (await this.closesWithin(grace.termMs)) {
+      // The leader went; a member that ignores SIGTERM may hold its pipes.
+      if (this.exitedEarly) try { process.kill(group, 'SIGKILL'); } catch { /* the group is gone */ }
+      return;
+    }
     try { process.kill(group, 'SIGKILL'); } catch { /* already gone */ }
     if (await this.closesWithin(grace.killMs)) return;
-    this.text += `\n[driver] ${this.name} did not close within ${grace.killMs / 1000}s of SIGKILL; the driver records it as gone\n`;
+    this.text += `\n[driver] ${this.name} did not close within ${grace.killMs / 1000}s of SIGKILL; the driver records it as gone${describeProcState(this.child.pid)}\n`;
     this.finish(null);
+  }
+
+  /**
+   * End what is left of the group of a child whose exit counted without its
+   * `close`: SIGTERM, then SIGKILL. The signals reach only members of that
+   * process group.
+   */
+  private async stopLeftoverGroup(grace: StopGrace): Promise<void> {
+    const pid = this.child.pid;
+    if (!this.exitedEarly || pid === undefined) return;
+    await endGroup(pid, grace.termMs);
   }
 
   private closesWithin(ms: number): Promise<boolean> {
@@ -275,6 +312,13 @@ export interface App {
    * a `/__pyric/` route answers to a page fails the app after its scenario.
    */
   expectHostError(pattern: RegExp): void;
+  /**
+   * Declares that a process an app process starts may outlive it, holding its
+   * output pipes, such as a daemon the scenario starts on purpose. `pattern`
+   * matches the leftover's command name. Any other leftover fails the app
+   * after its scenario (#1274).
+   */
+  expectLeftoverProcess(pattern: RegExp): void;
 }
 
 export type Scenario = (app: App) => Promise<void>;
@@ -382,6 +426,7 @@ export class AppRun implements App {
   currentStep = 'setup';
   /** Error responses from `/__pyric/` routes to the app's pages, with the step each happened in. */
   private readonly hostErrors: { step: string; request: string }[] = [];
+  private readonly expectedLeftovers: RegExp[] = [];
   private readonly expectedHostErrors: RegExp[] = [];
   private context: BrowserContext | undefined;
   private serverCount = 0;
@@ -581,6 +626,17 @@ export class AppRun implements App {
 
   expectHostError(pattern: RegExp): void {
     this.expectedHostErrors.push(pattern);
+  }
+
+  expectLeftoverProcess(pattern: RegExp): void {
+    this.expectedLeftovers.push(pattern);
+  }
+
+  /** Processes app processes started that outlived them, and that no `expectLeftoverProcess` pattern matches. */
+  unexpectedLeftoverProcesses(): string[] {
+    return this.processes.flatMap((child) => child.leftoverProcesses
+      .filter((leftover) => !this.expectedLeftovers.some((pattern) => pattern.test(leftover.comm)))
+      .map((leftover) => `pid ${leftover.pid} (${leftover.comm}), started by ${child.name}`));
   }
 
   /** Error responses from `/__pyric/` routes that no `expectHostError` pattern matches. */
