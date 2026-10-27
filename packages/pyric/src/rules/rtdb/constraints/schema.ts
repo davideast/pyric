@@ -3,6 +3,7 @@ import type { Expr } from './types.js';
 import { all, any, expr, fieldName as assertFieldName, lit } from './compose.js';
 import { hasChild, hasChildren } from './atoms.js';
 import { isSupportedRegexFlags } from '../grammar/type-rules.js';
+import { rtdbRegexError } from '../grammar/regex.js';
 
 export interface SchemaFieldRule {
   validate: Expr;
@@ -15,6 +16,53 @@ export interface SchemaRulesResult {
 }
 
 const EMAIL_PATTERN = '/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/';
+
+/** Escaped letters that mean the same class in JavaScript and in RTDB's dialect. */
+const SHARED_CLASS_ESCAPES = new Set(['d', 'D', 'w', 'W', 's', 'S']);
+const QUANTIFIER_ENDS = new Set(['*', '+', '?', '}']);
+
+/**
+ * Why a JavaScript regex source cannot become an RTDB `matches()` literal
+ * with the same meaning, or null when it can. RTDB reads `\b` as `b`, `\1` as
+ * `1`, `(?` as a literal `?`, and `+?` as an optional `+` (#1247 SP-2b; r47,
+ * r50), and refuses a mid-pattern anchor or `\p{..}` at deploy (SP-1, SP-2a).
+ *
+ * One gap stays open: JavaScript's `.` refuses `\n` and `\r` and RTDB's
+ * matches them (SP-8), and the dialect has no way to say "any character but a
+ * newline". The generated rule emits `.` unchanged, so it accepts a line break
+ * the Zod schema refuses.
+ */
+function rtdbRegexProblem(source: string): string | null {
+  let inClass = false;
+  for (let i = 0; i < source.length; i++) {
+    const ch = source[i]!;
+    const nextCh = source[i + 1];
+    if (ch === '\\' && nextCh !== undefined) {
+      const escapeProblem = escapedLetterProblem(nextCh);
+      if (escapeProblem !== null) return escapeProblem;
+      i++;
+    } else if (inClass) {
+      inClass = ch !== ']';
+    } else if (ch === '[') {
+      inClass = true;
+    } else if (ch === '(' && nextCh === '?') {
+      return 'RTDB reads (? as a literal ?, so lookarounds and (?: groups never match as in JavaScript';
+    } else if (QUANTIFIER_ENDS.has(ch) && nextCh === '?') {
+      return 'RTDB has no lazy quantifier and reads +? as an optional +';
+    }
+  }
+  const deployError = rtdbRegexError(source);
+  if (deployError !== null) return `RTDB refuses it at deploy (${deployError})`;
+  return null;
+}
+
+function escapedLetterProblem(letter: string): string | null {
+  const isLetterOrDigit = /^[A-Za-z0-9]$/.test(letter);
+  if (!isLetterOrDigit || SHARED_CLASS_ESCAPES.has(letter)) return null;
+  if (letter === 'b' || letter === 'B') return `RTDB reads \\${letter} as the letter ${letter}, not a word boundary`;
+  if (/^[1-9]$/.test(letter)) return `RTDB reads \\${letter} as the digit ${letter}, not a backreference`;
+  return `RTDB reads the escape \\${letter} as the letter ${letter}`;
+}
 
 /**
  * Generate RTDB validate rules from a Zod object schema.
@@ -109,6 +157,10 @@ function zodStringToExpr(zodType: z.ZodString, fieldName: string): Expr {
       }
       if (/[\r\n]/.test(re.source)) {
         throw new Error(`Unsupported Zod regex with newline on field "${fieldName}"`);
+      }
+      const problem = rtdbRegexProblem(re.source);
+      if (problem !== null) {
+        throw new Error(`Unsupported Zod regex on field "${fieldName}": ${problem}`);
       }
       parts.push(expr(`newData.val().matches(/${re.source}/${re.flags})`));
     } else if (check.kind === 'email') {

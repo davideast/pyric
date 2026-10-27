@@ -88,6 +88,12 @@ describe('rtdbStdlib.validation', () => {
     expect(() => validation.stringLength(3, 1)).toThrow();
   });
 
+  test('matches refuses what production refuses at deploy (#1247 SP-1, SP-2a; r46, r51)', () => {
+    expect(() => validation.matches('^red$|^blue$')).toThrow('unescaped ^, ^ can only appear at the end');
+    expect(() => validation.matches('(a$)')).toThrow('unescaped ^, ^ can only appear at the end');
+    expect(() => validation.matches('^\\p{L}+$')).toThrow('integer expected at position 3');
+  });
+
   test('matches accepts escaped slashes and patterns production allows', () => {
     expect(validation.matches('a\\/b')).toBe('newData.isString() && newData.val().matches(/a\\/b/)');
     expect(validation.matches('a\\\\\\/b')).toBe('newData.isString() && newData.val().matches(/a\\\\\\/b/)');

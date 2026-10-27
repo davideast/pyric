@@ -1,9 +1,9 @@
 /**
  * Linear-time regular expression matching: a Thompson NFA state-set
  * simulation over a parsed pattern. A rules dialect parses its own syntax
- * into a `RegexNode` tree (the Firestore and Storage RE2 dialect does so in
- * `rules-type.ts`) and matches it here, so nested quantifiers like `(a+)+`
- * never backtrack.
+ * into a `RegexNode` tree (the Firestore and Storage RE2 dialect in
+ * `rules-type.ts`, the RTDB dialect in `rules/rtdb/grammar/regex.ts`) and
+ * matches it here, so nested quantifiers like `(a+)+` never backtrack.
  */
 
 export type RegexNode =

@@ -261,6 +261,40 @@ describe('schemaRules', () => {
     expect(report.cases.map((c) => c.decision)).toEqual(['ALLOW', 'DENY']);
   });
 
+  test('refuses a Zod regex RTDB reads differently from JavaScript or refuses at deploy (#1247 SP-2b, SP-1, SP-2a)', () => {
+    const refused: Array<[RegExp, RegExp]> = [
+      [/^(?=.*[0-9]).+$/, /\(\?/],
+      [/^(?!admin).*$/, /\(\?/],
+      [/^(?:a|b)$/, /\(\?/],
+      [/^(a)\1$/, /backreference/],
+      [/\bcat\b/, /word boundary/],
+      [/^[a-z]+?$/, /lazy quantifier/],
+      [/^a\tb$/, /escape \\t/],
+      [/^\u0041$/, /escape \\u/],
+      [/^red$|^blue$/, /unescaped \^/],
+    ];
+    for (const [regex, reason] of refused) {
+      const build = () => schemaRules(z.object({ tag: z.string().regex(regex) }));
+      expect(build, regex.source).toThrow(/Unsupported Zod regex on field "tag"/);
+      expect(build, regex.source).toThrow(reason);
+    }
+    const result = schemaRules(z.object({ tag: z.string().regex(/^[\w-]+\.\d{2,3}$/) }));
+    expect(result.children.tag.validate).toBe('newData.isString() && newData.val().matches(/^[\\w-]+\\.\\d{2,3}$/)');
+  });
+
+  test('emits . unchanged, so the rule accepts a newline the Zod schema refuses (#1247 SP-8, known gap)', () => {
+    const schema = z.object({ code: z.string().regex(/^a.b$/) });
+    expect(schemaRules(schema).children.code.validate).toBe('newData.isString() && newData.val().matches(/^a.b$/)');
+    expect(schema.safeParse({ code: 'a\nb' }).success).toBe(false);
+    const engine = rtdbRules(defineRtdbRules({ paths: { '/items/$id': { write: allow(), schema } } }));
+    const report = engine.simulate([
+      { operation: 'write', path: '/items/i1', auth: null, newData: { code: 'a\nb' }, expectation: 'ALLOW' },
+    ]);
+    // Production's . matches \n (r47 "dot does not match a newline": ALLOW), and
+    // the dialect has no "any character but a newline", so the gap is pinned here.
+    expect(report.cases.map((c) => c.decision)).toEqual(['ALLOW']);
+  });
+
   test('rejects unsupported Zod refinements, invalid z.literal values, and unknown fieldConstraints keys (CON-1 / FUZ-7)', () => {
     expect(() => schemaRules(z.object({ id: z.string().uuid() }))).toThrow(/Unsupported/);
     expect(() => schemaRules(z.object({ tag: z.string().regex(/a/g) }))).toThrow(/Unsupported/);

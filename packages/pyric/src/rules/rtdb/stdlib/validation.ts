@@ -18,6 +18,7 @@ import { all, any, expr, fieldName, lit, type Literal } from '../constraints/com
 import { eq, newDataIs, newDataVal } from '../constraints/data.js';
 import { required } from '../constraints/policies.js';
 import { finite } from './expr.js';
+import { rtdbRegexError } from '../grammar/regex.js';
 
 /** The written value is a string. Field node `.validate`. */
 export const isString = (): Expr => newDataIs('String');
@@ -56,7 +57,10 @@ export function oneOf(...values: Literal[]): Expr {
 /**
  * The written value is a string that matches the regular expression
  * `pattern`, written without slashes. RTDB matches the pattern anywhere in the
- * string unless it is anchored with ^ and $. Field node `.validate`.
+ * string unless it is anchored with ^ and $. RTDB's dialect is not
+ * JavaScript's: `.` also matches a newline, and an escaped letter other than
+ * `\d \w \s` (or their capitals) is the letter itself. A pattern production
+ * refuses at deploy throws. Field node `.validate`.
  */
 export function matches(pattern: string): Expr {
   if (typeof pattern !== 'string' || pattern.length === 0) throw new Error('matches: pass a non-empty pattern.');
@@ -99,6 +103,10 @@ export function matches(pattern: string): Expr {
   }
   if (parenDepth !== 0) {
     throw new Error(`matches: unclosed '(' in pattern: ${pattern}`);
+  }
+  const deployError = rtdbRegexError(pattern);
+  if (deployError !== null) {
+    throw new Error(`matches: production refuses this pattern at deploy (${deployError}): ${pattern}`);
   }
   return all(isString(), expr(`newData.val().matches(/${pattern}/)`));
 }

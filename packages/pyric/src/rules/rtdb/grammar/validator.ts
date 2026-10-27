@@ -30,6 +30,7 @@ import {
   unknownVariableMessage,
   type TypedOperator,
 } from './type-rules.js';
+import { rtdbRegexError } from './regex.js';
 
 interface ValidateContext {
   errors: RuleError[];
@@ -90,43 +91,6 @@ function property(ctx: ValidateContext, receiver: RtdbTypedValue, name: string):
   const member = memberOf(use(ctx, receiver), name);
   if (member.kind === 'error') return member.error ? report(ctx, member.error) : ERROR;
   return typed(member.kind === 'method' ? 'SnapshotMethod' : member.type);
-}
-
-/**
- * Check a regex literal body for unmatched parentheses outside character
- * classes, matching production's regex validator (which accepts `/+/`,
- * `/[z-a]/`, and `/a{2,1}/`, and rejects `/(/`).
- */
-function regexBodyError(body: string): string | null {
-  let depth = 0;
-  let inClass = false;
-  for (let i = 0; i < body.length; i++) {
-    const ch = body[i]!;
-    if (ch === '\\') {
-      i++;
-      continue;
-    }
-    if (inClass) {
-      if (ch === ']') inClass = false;
-      continue;
-    }
-    if (ch === '[') {
-      inClass = true;
-      continue;
-    }
-    if (ch === '(') {
-      depth++;
-    } else if (ch === ')') {
-      depth--;
-      if (depth < 0) {
-        return `Illegal regular expression, unexpected ')' at position ${i + 2}`;
-      }
-    }
-  }
-  if (depth > 0) {
-    return `Illegal regular expression, expected ')' at position ${body.length + 4}`;
-  }
-  return null;
 }
 
 let validatorSemantics: Semantics | undefined;
@@ -269,7 +233,7 @@ function getValidatorSemantics(): Semantics {
       return typed('String');
     },
     regex(_open, body, _close, flags) {
-      const bodyError = regexBodyError(body.sourceString);
+      const bodyError = rtdbRegexError(body.sourceString);
       if (bodyError !== null) {
         return report(this.args.ctx as ValidateContext, typeError('INVALID_REGEX', bodyError));
       }

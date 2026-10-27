@@ -173,23 +173,6 @@ type DeployVerdict = 'ACCEPTED' | 'REJECTED';
  * case go red, then makes it agree. Keyed by `${scenarioId} :: ${caseDescription}`.
  */
 const KNOWN_DEPLOY_DIVERGENCES: Record<string, { production: DeployVerdict; local: DeployVerdict; reason: string }> = {
-  // SP-2a (#1247, row rtdb-rules#35)
-  'r46-deploy-regex-constructs :: SP-2: Unicode property class \\p{L}': {
-    production: 'REJECTED', local: 'ACCEPTED', reason: 'SP-2a: production refuses \\p{..}; the load-time check accepts it',
-  },
-  // SP-1 (#1247, row rtdb-rules#35)
-  'r46-deploy-regex-constructs :: SP-1: ^ and $ inside an alternation (/^red$|^blue$/)': {
-    production: 'REJECTED', local: 'ACCEPTED', reason: 'SP-1: production refuses a ^ that is not the first character',
-  },
-  'r46-deploy-regex-constructs :: SP-1: ^ inside a group (/(^a)/)': {
-    production: 'REJECTED', local: 'ACCEPTED', reason: 'SP-1: production refuses a ^ that is not the first character',
-  },
-  'r51-deploy-anchor-index-and-length-probes :: SP-1: $ before an alternation (/a$|b/)': {
-    production: 'REJECTED', local: 'ACCEPTED', reason: 'SP-1: production refuses a $ that is not the last character',
-  },
-  'r51-deploy-anchor-index-and-length-probes :: SP-1: $ inside a group (/(a$)/)': {
-    production: 'REJECTED', local: 'ACCEPTED', reason: 'SP-1: production refuses a $ that is not the last character',
-  },
   // CS-17 (#1247, row rtdb-rules#38)
   'r51-deploy-anchor-index-and-length-probes :: CS lead: .indexOn naming a dotted child': {
     production: 'REJECTED', local: 'ACCEPTED', reason: 'CS-17: production refuses an .indexOn entry holding a dot',
