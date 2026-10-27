@@ -1,81 +1,123 @@
 # Priorities
 
-As of 2026-10-14. Multi-tenancy and Impersonation is done: tenant claims reach every rules engine, and the runtime chip switches between the app session, Admin bypass, and impersonated users with tenants and claims. Simplification is done. What remains is shipping what is built. The Node host is the backend every client shares, and it is still behind the `next` tag. Real Firebase projects have more than one database, instance, or bucket, and only RTDB instances are modeled end to end. Those two come first, in that order. Trust runs alongside both. When a proposal serves none of the tests below, it waits.
+As of 2026-10-27. Five priorities, in order. App Check comes first, because on November 2, 2026, AI Logic starts requiring an App Check token, and an app that can't produce one can't use AI Logic under pyric. Rules fidelity comes next, because pyric rests on rules: if its rules are reliable, easy to write and provably correct, the whole library is better. Everything else waits unless it passes one of the tests below.
 
-## Ship the Node host
+## 1. App Check for AI Logic
 
-**Test:** Does this move `pyric sandbox --hosted` closer to shipping under the npm `latest` tag, or keep it shippable once it is there?
+**Test:** Does this let an app that uses AI Logic with App Check run under pyric, in sandbox and production AI mode, before November 2, 2026?
 
-The Node host is the one authoritative sandbox that browsers, Studio, `firebase-admin` child processes, the service CLI, `pyric mcp`, and native clients share. It ships when the bar in `docs/hosted-release-plan.md` is met: acceptance evidence that runs in CI, no open blocker in `docs/hosted-review-ledger.md`, a quiet period on `next`, then `latest`.
+From November 2, AI Logic refuses requests without an App Check token. Today `pyric/app-check` throws on first use, so an AI Logic app that calls `initializeAppCheck` fails its first run. Built under CDD (`docs/conformance/cdd.md`) as a new `app-check` surface.
 
-**Counts:** issues in the Node host milestone; open ledger items; the phase 4 acceptance run and its committed artifact; hosted suites as required CI jobs; first-run polish on the hosted path; bugs that app scenarios (`test/apps/`) find on the host.
-**Doesn't count:** new hosted features before promotion (undo history and live mode stay parked, as ruled in D1 and D3); SharedWorker-only work; performance work without a failing acceptance ceiling behind it.
+**Counts:**
+- `initializeAppCheck` and `getToken` working in sandbox mode;
+- the real `firebase/app-check` passed through in production AI mode, so AI Logic requests carry a token;
+- the admin `appCheck()` surface;
+- the conformance rows and captures behind each;
+- a working AI Logic plus App Check example.
 
-**Now:**
-- Reconcile the ledger: record which 3b and 3c items later work already closed, and list what is actually left
-- Run the phase 4 acceptance (multi-client, zero refusals under stable load) and commit the artifact (ledger I6, F1 to F4)
-- Host robustness found by real apps: close peers that go quiet so their `onDisconnect` runs (#965); hold operations issued during a reconnect (#968, amends ADR-0019)
-- Decide ledger H2: suppress or explain the `node:sqlite` experimental warning on first run
-- Revisit D2: the Node host page is back in Get started, so acceptance passes or the page comes out until it does
-- The Firestore named-database protocol change below lands before promotion, so the versioned worker protocol (ADR-0011) changes once
-- Quiet period on `next`, then promote to `latest`
-
-## Ship multi-resource support across services
-
-**Test:** Does this let a project with more than one database, instance, or bucket run on pyric with each resource isolated as production isolates it, in data, rules, and SDK selection, on every plane?
-
-RTDB instances are closest to the full shape: `firebase.json` declares them, each gets its own data and rules, client and admin handles select by URL, denials name the instance, and the in-page sandbox, the SharedWorker host, and the Node host agree. The service tools and `pyric verify` still assume the default instance. Each remaining resource reaches that shape, or names its gap in the conformance registry.
-
-**Counts:** Firestore named databases end to end (`getFirestore(app, databaseId)` on the client and in `pyric-admin`, the rules `database` variable, the worker protocol, the host store); Storage rules per bucket from `firebase.json` targets; naming the resource in denials, Studio, and the runtime chip; differential tests across planes for each resource; flipping the `Named databases` rows in `packages/conformance/registry/firestore.ts`.
-**Doesn't count:** more than one Firebase project or configuration in one runtime (rejected by design); provisioning resources; resource kinds no reported app uses.
+**Doesn't count:** App Check enforcement for other products before AI Logic works; App Check providers no reported app uses.
 
 **Now:**
-- RTDB instances in `pyric database <method>`, the MCP `database` tool, and `pyric verify` (#967)
-- Firestore named databases: carry a database id in the worker protocol, as a versioned change, before the Node host reaches `latest`
-- Firestore named databases: per-database data and rules from the `firestore` array in `firebase.json`, on all three planes and in `pyric-admin`
-- Storage: per-bucket rules from `storage` targets, replacing the one implicit bucket in `packages/cli/src/serve/rules.ts`
-- Extend the RTDB differential runner to named databases and buckets
+- Bring #1205 (App Check under CDD, reviewed, last updated Oct 22) up to date with main, recheck it, and merge it.
+- Decide #1205's two open questions:
+  - should sandbox AI mode refuse requests without a token?
+  - support pass-through on the plain import-map plane, or document it as Vite and register only?
+- Unblock #1199: the ai-logic capture rig needs an App Check token on the oracle project.
+- Release on `exp` as soon as it merges, then confirm against a real AI Logic project with App Check enforced.
 
-## Trust
+## 2. Rules: faithful, and easy to get right
 
-**Test:** Does this help a user judge whether they can rely on pyric: its contract, its gaps, or its path to production?
+**Test:** Does this make pyric's rules verdicts match production, or make it easier to write, validate or prove a ruleset correct?
 
-Two halves. Conformance states the contract and the gaps openly, proven and open-sourced for scrutiny. Assurance is how a user goes from pyric to production with confidence (`pyric verify` and the assurance system). Trust is ongoing: each host behavior and each new resource lands with the evidence that states it.
+Pyric's value rests on rules. Nothing pyric allows may be denied by production, and nothing may fail open. Beyond fidelity, the goal is going from an idea to a secure ruleset: an app vibe-coded with pyric should ship with rules that are actually secure. A feature that looks like scope creep is judged by this lens. Does it make rules easier to write, validate or prove correct, or easier to understand how to use pyric with rules? If so, it counts. Convenience alone doesn't.
 
-**Counts:** conformance chain, gap documentation, open evidence; assurance and verify features and their discoverability; anything that lets a user see what pyric guarantees and where it stops.
-**Doesn't count:** new mirror features (they expand the contract, they do not help a user judge it); chasing exotic-feature fidelity no reported app has hit (documenting the gap beats closing it silently).
+**Counts:**
+- defect hunts against production and the fix campaigns that follow;
+- fail-open fixes first;
+- deploy-time parity (pyric refuses what production refuses, and accepts what it accepts);
+- lint that catches real security mistakes;
+- `simulate`, `pyric verify` and replay that tell the truth;
+- the rules DSL and generators;
+- rules docs and recipes that lint clean;
+- tools that take an app from idea to a secure, proven ruleset.
 
-**Now:**
-- Make `pyric verify` discoverable (#133)
-- Registry rows for every Node host and multi-resource behavior that ships under the two priorities above
-
-## Top of Funnel
-
-**Test:** Does this reduce what a new user must learn or do before their first success with pyric?
-
-The on-ramp: the CLI working reliably across platforms, the agent plugins, the Vite-plugin path, and the README and docs that carry someone from "curious" to "it works" without a stumble. Measured in time to first win, not feature count.
-
-**Counts:** CLI reliability and cross-platform fixes; the getting-started path; agent and plugin onboarding; README and getting-started messaging; removing install friction.
-**Doesn't count:** anything that adds a step or a decision to the first run.
+**Doesn't count:** convenience features that don't make rules more correct or easier to prove; rules features no production engine has.
 
 **Now:**
-- Vite-plugin hero path, documented as a first-class entry (#124)
-- `pyric sandbox` opens Studio by default; context-aware landing (#125)
-- CLI cross-platform reliability, Windows cold start first (#126)
-- npx cold-start diet (#127)
-- Agent-first path (plugin to bridge) covered end to end (#128)
-- No-SharedWorker and older-Safari fallback and signpost (#129)
-- App Check before AI Logic requires it in November: `initializeAppCheck` and `getToken` work in sandbox mode, and production AI mode passes the real `firebase/app-check` through so AI Logic requests carry a token. Built under CDD (`docs/conformance/cdd.md`) as a new `app-check` surface. Today `pyric/app-check` throws on first use, so an AI Logic app that calls it fails its first run.
-- Cloud Functions HTTP `onRequest`, served by `pyric sandbox` once the Node host is promoted to `latest`: an app that exports `onRequest` has it skipped on its first run today. Built under CDD (`docs/conformance/cdd.md`) as a new `functions-http` surface, reusing the Functions child runtime (`packages/cli/src/functions/`, #1185). Callable, Firestore, Storage and more RTDB triggers follow as later items.
+- Firestore and Storage fix campaign: 71 findings confirmed on Oct 27, 10 of them fail-open. It starts with an evidence stream that pins the captures. Fail-open fixes come first:
+  - Firestore root-path literals are never checked against the request (FS2-ENF-1);
+  - wrong-service rulesets get loaded as Firestore rules (FS2-ENF-2, ENF-3a);
+  - Storage's CLI loads the wrong rules file (ST-H2-1a);
+  - with several buckets, the first bucket's rules govern all of them (ST-H2-2).
+- Then the RE2 dialect, string methods, integers and time, compile-time checks, and `pyric verify`.
+- Move Storage onto the shared rules implementations.
+- Rules follow-ups:
+  - #1251: the sandbox refuses `__proto__` keys that production stores;
+  - #1262: `simulate` accepts written data the SDK refuses;
+  - #1264: nested repeats in `matches()` exhaust memory;
+  - #1259: the verify hint is used up by reloads the user didn't make.
+- Rules recipes in the docs that lint clean, and a path from an app idea to a ruleset that `pyric verify` proves.
 
-## Build Velocity and Tech Debt
+## 3. Reliability and trust
 
-**Test:** Does this measurably shorten the time from a change to trustworthy feedback, or remove demonstrated maintenance friction, without weakening validation or growing the user-facing surface?
+**Test:** Does this make pyric behave like production on every plane, or let a user see exactly where it doesn't?
 
-Sustaining work. Optimize measured bottlenecks in the loops developers run most, and pay down debt that repeatedly slows or destabilizes the priorities above. Record the symptom and the verification plan before starting.
+Conformance states the contract and its gaps openly, and hunts against production find where it breaks. Trust is ongoing: each fix lands with the evidence that proves it.
 
-**Counts:** reducing build, test, and CI latency with timing evidence; cache effectiveness; refactors tied to observed friction; consolidating duplicated sources of truth; removing dead code; characterization tests that make a risky cleanup safe.
-**Doesn't count:** weakening or skipping required validation; speculative optimization or abstraction; aesthetic rewrites; dependency churn without a concrete benefit; broad redesigns without a bounded migration plan.
+**Counts:**
+- SDK behavior hunts (listeners, transactions, queries, writes, errors) against the live oracle;
+- cross-plane parity (in-page, SharedWorker, Node host);
+- conformance rows and captures;
+- flaky tests and harness bugs that hide real failures;
+- making `pyric verify` discoverable (#133).
+
+**Doesn't count:** new mirror features (they grow the contract, they don't help a user judge it); exotic fidelity no app has hit (document the gap instead).
 
 **Now:**
-- Assess `packages/pyric` test latency. Its suite (11,709 tests, 650 files) took 243 s of the library job's 289 s on CI (main c630edd0, 2026-10-18) and 492 s locally on WSL2. Sharding it across two runners (#1096) is the stopgap. Next, profile per-file time, name the files and fixtures that dominate, and propose cuts with timing evidence, without dropping coverage.
+- SDK behavior hunt, Firestore first, then RTDB. Plan: `scratchpad/sdk-hunt/plan.md`.
+- A cross-plane differential runner for Firestore and Storage (only RTDB has one).
+- Oracle tooling:
+  - #1270: `run.ts` never restores the RTDB rules it merges;
+  - #1271: runner gaps.
+- Flakes: #1268, #1272, #1277, #1279 and #1286.
+
+## 4. Cloud Functions
+
+**Test:** Does this let an app's Cloud Functions run under pyric as they do in production?
+
+Cloud Functions are among the most used Firebase products, and capped billing on function quotas now makes them accessible to far more developers. That fits pyric's focus on the accessible tools. HTTP `onRequest` first, then callable, then more triggers. Built under CDD as a `functions-http` surface, reusing the Functions child runtime (`packages/cli/src/functions/`).
+
+**Counts:** `onRequest` served by `pyric sandbox` and the Vite plugin; hosting rewrites to functions; callable functions with auth and App Check context; more Firestore, Storage and RTDB triggers; the conformance rows behind each.
+
+**Doesn't count:** deploying functions; runtimes other than Node.
+
+**Now:**
+- The `onRequest` stack (#1185, #1190, #1191, #1202, #1204), reviewed and parked behind the Node host promotion. Decide whether it waits for that promotion, or ships on `exp` now.
+- The production capture (PR 3 of the stack). It was blocked on IAM roles in genkit-idx; check whether the digame-mas service account can run it instead.
+- Callable functions next.
+
+## 5. Demos
+
+**Test:** Does this show a developer, in minutes, something real that pyric does and nothing else does?
+
+The one outward-facing priority right now: showcasing pyric. A demo is a small, real app, built on the public packages and kept working by an app scenario.
+
+**Counts:** demo apps and their scripts; the things pyric uniquely does (an app idea to a ruleset that's proven secure; AI Logic with App Check; the sandbox across page, server and agent); a demo that breaks is a bug.
+
+**Doesn't count:** marketing copy without a working app behind it; demos of features that aren't released.
+
+**Now:**
+- Choose the first two demos. Suggested:
+  - from an app idea to a secure, verified ruleset;
+  - an AI Logic app running with App Check under pyric.
+- Give each an app scenario under `test/apps/` so it can't silently break.
+
+## Parked
+
+These still matter, but they wait unless the work passes a test above.
+
+- **Top of Funnel** (the on-ramp: #124 to #129). First-run breaks are still fixed when a demo or a real app hits them.
+- **Ship the Node host to `latest`**: the bar in `docs/hosted-release-plan.md`. It also gates the `onRequest` stack unless priority 4 decides otherwise.
+- **Multi-resource support** (Firestore named databases, per-bucket Storage rules). The per-bucket rules gap is also a rules-fidelity finding (ST-H2-2), so that part is under priority 2.
+- **Build velocity**, Phase 2 (one build per commit, project references, the release record). It's taken only when CI time or flakes block the priorities above.
+- **Native clients**, parked in #1048.
