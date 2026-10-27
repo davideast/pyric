@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AppProcess, AppRun } from './driver.ts';
 import { runCommand } from './install.ts';
-import { decodeExitStatus, describeProcState, describeUnreapedExit, liveGroupMembers, parseProcStat, unreapedExit, watchUnreapedExit } from './unreaped-exit.ts';
+import { decodeExitStatus, describeProcState, describeUnreapedExit, liveGroupMembers, parseProcStat, unreapedExit, watchUnreapedExit, type ProcStat } from './unreaped-exit.ts';
 
 const onLinux = process.platform === 'linux';
 const parents: ChildProcess[] = [];
@@ -14,19 +14,32 @@ afterEach(() => {
   for (const parent of parents.splice(0)) parent.kill('SIGKILL');
 });
 
-/** How long `zombie` waits for /proc to show its child as a zombie; a loaded machine can be slow to run it. */
-const ZOMBIE_WAIT_MS = 4000;
+/** How long a test waits for /proc to show a process it started in the state it needs; a loaded machine can be slow to run it. */
+const PROC_WAIT_MS = 4000;
+
+/** What /proc/<pid>/stat says about `pid`, or undefined once it is gone. */
+function procStat(pid: number): ProcStat | undefined {
+  try {
+    return parseProcStat(readFileSync(`/proc/${pid}/stat`, 'utf8'));
+  } catch {
+    return undefined;
+  }
+}
+
+/** Polls `find` every 50ms until it returns a value, and throws `failure()` after PROC_WAIT_MS. */
+async function waitForProc<T>(find: () => T | undefined, failure: () => string): Promise<T> {
+  const deadline = performance.now() + PROC_WAIT_MS;
+  for (let found = find(); ; found = find()) {
+    if (found !== undefined) return found;
+    if (performance.now() > deadline) throw new Error(`${failure()} after ${PROC_WAIT_MS}ms`);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
 
 /** The pids whose /proc/<pid>/stat names `parent` as their parent. */
 function childrenOf(parent: number): number[] {
   const pids = readdirSync('/proc').filter((entry) => /^\d+$/.test(entry)).map(Number);
-  return pids.filter((pid) => {
-    try {
-      return parseProcStat(readFileSync(`/proc/${pid}/stat`, 'utf8'))?.parent === parent;
-    } catch {
-      return false;
-    }
-  });
+  return pids.filter((pid) => procStat(pid)?.parent === parent);
 }
 
 /**
@@ -36,21 +49,17 @@ function childrenOf(parent: number): number[] {
  * #1274. No builtin runs between the two: dash reaps an exited background
  * child after each builtin, so an `echo $!` there lost the zombie whenever the
  * child exited first (#1281). Resolves to the zombie's pid once
- * /proc/<pid>/stat shows state Z with its exit status (field 52), and throws
- * if that takes longer than ZOMBIE_WAIT_MS.
+ * /proc/<pid>/stat shows state Z, which the kernel sets after the exit
+ * status (field 52), and throws if that takes longer than PROC_WAIT_MS. It
+ * reads /proc itself, not through `unreapedExit`, so a fault there fails the
+ * test's assertion, not this setup.
  */
 async function zombie(code: number): Promise<number> {
   const parent = spawn('sh', ['-c', `(exit ${code}) & exec sleep 60`], { stdio: 'ignore' });
   parents.push(parent);
   const parentPid = parent.pid ?? 0;
-  const deadline = performance.now() + ZOMBIE_WAIT_MS;
-  // Once /proc shows the child as Z, its exit status is in field 52; `unreapedExit` reads both.
-  const findZombie = () => childrenOf(parentPid).find((pid) => unreapedExit(pid) !== undefined);
-  for (let pid = findZombie(); ; pid = findZombie()) {
-    if (pid !== undefined) return pid;
-    if (performance.now() > deadline) throw new Error(`no zombie child of pid ${parentPid} after ${ZOMBIE_WAIT_MS}ms${describeProcState(parentPid)}`);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
+  const findZombie = () => childrenOf(parentPid).find((pid) => procStat(pid)?.state === 'Z');
+  return waitForProc(findZombie, () => `no zombie child of pid ${parentPid}${describeProcState(parentPid)}`);
 }
 
 /** A child handle for an existing pid that never emits exit or close, as Bun's did. */
@@ -223,7 +232,10 @@ describe('a child whose exit came without its close', () => {
     const holder = leavesPipesOpen(0);
     const parent = spawn('sh', ['-c', holder.script], { detached: true, stdio: 'ignore' });
     await new Promise((resolve) => parent.once('exit', resolve));
+    // The holder is a fork of sh until it execs sleep, and /proc names it sh until then.
+    const holderPid = holder.holder();
+    await waitForProc(() => (procStat(holderPid)?.comm === 'sleep' ? true : undefined), () => `pid ${holderPid} did not become sleep${describeProcState(holderPid)}`);
     const members = liveGroupMembers(parent.pid ?? 0);
-    expect(members).toEqual([{ pid: holder.holder(), comm: 'sleep' }]);
+    expect(members).toEqual([{ pid: holderPid, comm: 'sleep' }]);
   });
 });

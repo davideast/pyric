@@ -139,6 +139,7 @@ export function copyTree(from: string, to: string, startWorker: StartCopyWorker 
     });
     worker.once('error', (error) => {
       answered = true;
+      clearTimeout(resultWait);
       reject(error);
     });
     // A worker killed before it answers (out of memory, say) settles the copy too.
