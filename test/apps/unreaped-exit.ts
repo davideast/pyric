@@ -11,6 +11,7 @@
  * `exit_code`, in waitpid's format), so the driver can read it and treat the
  * child as exited. Elsewhere there is no /proc, and watching is a no-op.
  */
+import type { ChildProcess } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 
 /** How a child ended: its exit code, or the signal that ended it. */
@@ -19,15 +20,16 @@ export interface ChildExit {
   signal: number | null;
 }
 
-/** A child's state letter and waitpid-style exit status, from one /proc/<pid>/stat line. */
-export function parseProcStat(line: string): { state: string; exitStatus: number } | undefined {
+/** A child's state letter, parent pid and waitpid-style exit status, from one /proc/<pid>/stat line. */
+export function parseProcStat(line: string): { state: string; parent: number; exitStatus: number } | undefined {
   // `pid (comm) state …`: comm can hold spaces and parentheses, so split after the last `)`.
   const afterComm = line.slice(line.lastIndexOf(')') + 2).trim().split(/\s+/);
   const state = afterComm[0];
+  const parent = Number(afterComm[1]);
   // Field 3 is the state, so field 52, exit_code, is 49 places after it.
   const exitStatus = Number(afterComm[49]);
-  const isComplete = state !== undefined && Number.isInteger(exitStatus);
-  return isComplete ? { state, exitStatus } : undefined;
+  const isComplete = state !== undefined && Number.isInteger(parent) && Number.isInteger(exitStatus);
+  return isComplete ? { state, parent, exitStatus } : undefined;
 }
 
 /** Decode a waitpid status: an exit code when the child exited, a signal when one ended it. */
@@ -42,7 +44,7 @@ export function decodeExitStatus(status: number): ChildExit {
  * close. A process the child started can inherit them and hold them open
  * long after the child is gone, and then `close` never comes.
  */
-export const OUTPUT_CLOSE_GRACE_MS = 2000;
+export const OUTPUT_CLOSE_GRACE_MS = 5000;
 
 /** The line a log gets when a child exited but its output pipes never closed. */
 export function describeHeldPipes(name: string, code: number | null, signal: NodeJS.Signals | null): string {
@@ -103,8 +105,8 @@ export function describeProcState(pid: number, readStat: ReadStat = readProcStat
   if (!hasProc) return '';
   const line = readStat(pid);
   if (line === undefined) return `; /proc has no ${pid}, so something reaped it`;
-  const fields = line.slice(line.lastIndexOf(')') + 2).trim().split(/\s+/);
-  return `; /proc/${pid}: state ${fields[0] ?? '?'}, ${readThreads(pid) ?? '?'} threads, parent ${fields[1] ?? '?'}`;
+  const stat = parseProcStat(line);
+  return `; /proc/${pid}: state ${stat?.state ?? '?'}, ${readThreads(pid) ?? '?'} threads, parent ${stat?.parent ?? '?'}`;
 }
 
 /** How the watcher polls. Every child is a zombie for a moment before it is reaped. */
@@ -142,4 +144,45 @@ export function watchUnreapedExit(pid: number, onExit: (exit: ChildExit) => void
   }, timing.intervalMs);
   timer.unref();
   return () => clearInterval(timer);
+}
+
+/** How a watched child's exit was learned. */
+export type ExitSource = 'close' | 'held-pipes' | 'unreaped';
+
+/**
+ * Settle once on whichever comes first: `close`; `exit` followed by
+ * `OUTPUT_CLOSE_GRACE_MS` with no `close` (a process the child started holds
+ * its pipes); or the child staying an unreaped zombie for the grace period.
+ * `onExit` gets the code and the line the log should carry ('' for `close`).
+ * Returns the function that stops watching.
+ */
+export function watchChildExit(
+  child: ChildProcess,
+  name: string,
+  onExit: (code: number | null, source: ExitSource, note: string) => void,
+): () => void {
+  let settled = false;
+  let pipeTimer: ReturnType<typeof setTimeout> | undefined;
+  let stopZombieWatch: () => void = () => {};
+  const stop = () => {
+    settled = true;
+    if (pipeTimer !== undefined) clearTimeout(pipeTimer);
+    stopZombieWatch();
+  };
+  const settle = (code: number | null, source: ExitSource, note: string) => {
+    if (settled) return;
+    stop();
+    onExit(code, source, note);
+  };
+  child.on('close', (code) => settle(code, 'close', ''));
+  child.on('exit', (code, signal) => {
+    // Reaped: the pid is free from here on, so /proc no longer describes this child.
+    stopZombieWatch();
+    pipeTimer = setTimeout(() => settle(code, 'held-pipes', describeHeldPipes(name, code, signal)), OUTPUT_CLOSE_GRACE_MS);
+    pipeTimer.unref();
+  });
+  if (child.pid !== undefined) {
+    stopZombieWatch = watchUnreapedExit(child.pid, (exit) => settle(exit.code, 'unreaped', describeUnreapedExit(name, exit)));
+  }
+  return stop;
 }

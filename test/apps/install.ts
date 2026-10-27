@@ -6,7 +6,7 @@
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { cpSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { describeHeldPipes, describeUnreapedExit, OUTPUT_CLOSE_GRACE_MS, watchUnreapedExit } from './unreaped-exit.ts';
+import { watchChildExit } from './unreaped-exit.ts';
 
 /** The published packages, in the order scripts/pack-packages.sh packs them. */
 const PUBLISHED_PACKAGE_DIRS = [
@@ -47,8 +47,9 @@ export interface CommandResult {
 }
 
 /**
- * Runs a command to exit. A child whose exit the runner never sees (#1274)
- * resolves from the exit code /proc keeps for it.
+ * Runs a command to exit. An exit the runner only half sees (#1274), a child
+ * whose pipes a process it started holds open, or one never reaped, resolves
+ * too (watchChildExit).
  */
 export function runCommand(
   command: string,
@@ -61,24 +62,10 @@ export function runCommand(
     let output = '';
     child.stdout?.on('data', (chunk) => { output += chunk; });
     child.stderr?.on('data', (chunk) => { output += chunk; });
-    const stopWatching = child.pid === undefined ? () => {} : watchUnreapedExit(child.pid, (exit) => {
-      output += describeUnreapedExit(command, exit);
-      resolvePromise({ code: exit.code, output });
-    });
+    const stopWatching = watchChildExit(child, command, (code, _source, note) => resolvePromise({ code, output: `${output}${note}` }));
     child.on('error', (error) => {
       stopWatching();
       reject(error);
-    });
-    child.on('close', (code) => {
-      stopWatching();
-      resolvePromise({ code, output });
-    });
-    // A process the command started can hold its output pipes open (#1274).
-    child.on('exit', (code, signal) => {
-      setTimeout(() => {
-        stopWatching();
-        resolvePromise({ code, output: `${output}${describeHeldPipes(command, code, signal)}` });
-      }, OUTPUT_CLOSE_GRACE_MS).unref();
     });
   });
 }

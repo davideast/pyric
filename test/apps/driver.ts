@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import type { Browser, BrowserContext, Page } from '@playwright/test';
 import { blackholedPort, type BlackholedPort } from '../../packages/cli/test/blackholed-port.ts';
 import { npmInstall, pinPyricPackages, type Tarballs } from './install.ts';
-import { describeHeldPipes, describeProcState, describeUnreapedExit, OUTPUT_CLOSE_GRACE_MS, watchUnreapedExit } from './unreaped-exit.ts';
+import { describeProcState, watchChildExit } from './unreaped-exit.ts';
 
 export interface LogWaitOptions {
   /** Only output after this offset (from `mark()`) counts. Default: all output. */
@@ -45,8 +45,11 @@ export class AppProcess {
   private spawnAttempts = 0;
   private childWrote = false;
   private stopWatchingExit: () => void = () => {};
-  /** Set when the child's exit came from /proc (#1274): its process group may still hold children. */
-  private exitedUnreaped = false;
+  /**
+   * Set when the child's exit was counted without its `close` (#1274): a
+   * process it started may still be in its group, holding its pipes.
+   */
+  private exitedEarly = false;
 
   constructor(
     readonly name: string,
@@ -84,33 +87,18 @@ export class AppProcess {
       this.text += `\n[driver] could not start ${this.command}: ${error.message}\n`;
       this.finish(null);
     });
-    child.on('close', (code, signal) => {
+    child.on('close', (_code, signal) => {
+      if (isCurrent() && signal) this.text += `\n[driver] exited on ${signal}\n`;
+    });
+    // `close` waits for the output pipes too, and Bun can miss an exit (#1274):
+    // watchChildExit also counts an exit whose pipes stay held, and a zombie.
+    this.stopWatchingExit();
+    this.stopWatchingExit = watchChildExit(child, this.name, (code, source, note) => {
       if (!isCurrent()) return;
-      if (signal) this.text += `\n[driver] exited on ${signal}\n`;
+      this.text += note;
+      if (source !== 'close') this.exitedEarly = true;
       this.finish(code);
     });
-    // `close` waits for the output pipes too, and a process the child started
-    // can hold them open after the child is gone (#1274): the exit counts once
-    // the pipes have had time to drain.
-    child.on('exit', (code, signal) => {
-      if (!isCurrent()) return;
-      const timer = setTimeout(() => {
-        if (!isCurrent() || !this.running) return;
-        this.text += describeHeldPipes(this.name, code, signal);
-        this.finish(code);
-      }, OUTPUT_CLOSE_GRACE_MS);
-      timer.unref();
-    });
-    // Bun can miss a child's exit and never reap it (#1274); /proc still has it.
-    this.stopWatchingExit();
-    if (child.pid !== undefined) {
-      this.stopWatchingExit = watchUnreapedExit(child.pid, (exit) => {
-        if (!isCurrent()) return;
-        this.text += describeUnreapedExit(this.name, exit);
-        this.exitedUnreaped = true;
-        this.finish(exit.code);
-      });
-    }
     return child;
   }
 
@@ -199,12 +187,11 @@ export class AppProcess {
    * `exited` settles and nothing waits on it past that.
    */
   async stop(grace: StopGrace = DEFAULT_STOP_GRACE): Promise<void> {
-    // A child whose exit was read from /proc left its group behind; stop that.
-    if (this.exitedUnreaped && this.child.pid !== undefined) {
-      try { process.kill(-this.child.pid, 'SIGKILL'); } catch { /* the group is gone */ }
+    if (this.child.pid === undefined) return;
+    if (!this.running) {
+      this.stopLeftoverGroup();
       return;
     }
-    if (!this.running || this.child.pid === undefined) return;
     const group = -this.child.pid;
     // A stopped process holds SIGTERM until it is continued.
     if (this.isPaused) {
@@ -212,11 +199,26 @@ export class AppProcess {
       this.isPaused = false;
     }
     try { process.kill(group, 'SIGTERM'); } catch { /* the group is gone; wait for close below */ }
-    if (await this.closesWithin(grace.termMs)) return;
+    if (await this.closesWithin(grace.termMs)) {
+      // The leader went; a member that ignores SIGTERM may hold its pipes.
+      this.stopLeftoverGroup();
+      return;
+    }
     try { process.kill(group, 'SIGKILL'); } catch { /* already gone */ }
     if (await this.closesWithin(grace.killMs)) return;
     this.text += `\n[driver] ${this.name} did not close within ${grace.killMs / 1000}s of SIGKILL; the driver records it as gone${describeProcState(this.child.pid)}\n`;
     this.finish(null);
+  }
+
+  /**
+   * Kill what is left of the group of a child whose exit counted without its
+   * `close`. A group id stays reserved while any member lives, and an
+   * unreaped zombie leader keeps its own, so this reaches only that group.
+   */
+  private stopLeftoverGroup(): void {
+    const pid = this.child.pid;
+    if (!this.exitedEarly || pid === undefined) return;
+    try { process.kill(-pid, 'SIGKILL'); } catch { /* the group is gone */ }
   }
 
   private closesWithin(ms: number): Promise<boolean> {
