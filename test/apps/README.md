@@ -14,11 +14,12 @@ These live at the repository root, not under a package, because each app exercis
 ## Run them
 
 ```sh
-bun test/apps/run.ts                       # every app, 3 at a time
+bun test/apps/run.ts                       # every app, longest first, as many at once as the load allows
 bun test/apps/run.ts hosted-dev-server-restart
 bun test/apps/run.ts --build               # rebuild the workspace before packing it
 bun test/apps/run.ts --packages dist/packages   # install these tarballs instead of packing
 bun test/apps/run.ts --keep                # keep each installed app directory
+bun test/apps/run.ts --jobs 2              # run 2 apps at a time
 bun test/apps/run.ts --skip-slow           # leave out the slow apps
 bun test/apps/run.ts --only-slow           # run only the slow apps
 ```
@@ -31,7 +32,7 @@ export const slow = true;
 
 Build & Test runs the app scenarios with `--skip-slow`, on pull requests and on main. The Slow app scenarios workflow (`.github/workflows/slow-scenarios.yml`) runs them with `--only-slow` on pushes to main, nightly, on demand, and on a pull request when the `ci-slow-scenarios` label is added. An app named on the command line runs whether or not it is slow. The runner imports each `scenario.ts` to read the marker before installing anything, so a scenario imports only the driver, Playwright, and node built-ins at its top level.
 
-npm downloads are cached in `~/.cache/pyric-app-scenarios-npm` (set `PYRIC_APPS_NPM_CACHE` to move it), so a second run installs in seconds. Without `--packages`, the runner packs the current workspace build. Run `bun run build` first, or pass `--build`. Install Chromium once with `bunx playwright install chromium`.
+npm downloads are cached in `~/.cache/pyric-app-scenarios-npm` (set `PYRIC_APPS_NPM_CACHE` to move it), so a second run installs in seconds. Apps start longest first, by the times the last run recorded in `test-results/app-durations.json`; an app with no recorded time starts before the rest. Without `--jobs`, a local run takes one app per four free CPU threads, at most 6, and CI takes one per runner thread. Apps whose package.json names the same packages share one `npm install` per run, copied into each app's `node_modules`. An app whose install runs its own scripts or links its own directories installs alone. When the cached package listings are older than a version a dependency asks for, npm fails with `ETARGET` or `ENOVERSIONS`, and the runner retries that install once with `--prefer-online`. Without `--packages`, the runner packs the current workspace build. Run `bun run build` first, or pass `--build`. Install Chromium once with `bunx playwright install chromium`.
 
 A failure names the app and the step, and prints the dev server log, each server script's output, and the browser console. Full logs are saved to `test-results/apps/<name>/`.
 

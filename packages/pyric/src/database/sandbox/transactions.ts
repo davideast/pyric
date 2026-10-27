@@ -99,6 +99,7 @@ export class Transactions {
           resourceBefore: { data: current, exists: current !== null },
           resourceAfter: { data: resolved, exists: resolved !== null },
           groupId, groupKind: 'transaction',
+          detail: effectivePriority !== null ? { priority: effectivePriority } : undefined,
         });
         throw transactionPermissionDenied(rtdbDenialContext(evaluation, auth, 'transaction', path, { data: proposed }));
       }

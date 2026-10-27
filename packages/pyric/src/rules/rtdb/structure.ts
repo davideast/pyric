@@ -17,6 +17,24 @@ const INVALID_RULE_EXPRESSION =
 const INVALID_INDEX_ON = 'Invalid indexOn expression. Must be either a string or an array of strings';
 const INVALID_KEY_TEXT = `String can't contain ".", "#", "$", "/", "[", or "]"`;
 const EXPECTED_OBJECT = "Expected '{'.";
+const invalidIndexKey = (entry: string): string =>
+  `Invalid key: ${entry}. Index must be either .value or declared on a valid path`;
+
+/**
+ * The findings for each `.indexOn` entry that is neither `.value` nor a
+ * child path. r51 captures production refusing `x.y` and accepting `x/y`
+ * and `''`, so an entry with a `.` in a segment is an error; one with `#`,
+ * `$`, `[` or `]` is a warning, inferred from the refusal's text.
+ */
+function indexEntryFindings(value: unknown, add: (message: string, severity: 'error' | 'warning') => void): void {
+  const entries = Array.isArray(value) ? value : [value];
+  for (const entry of entries) {
+    if (typeof entry !== 'string' || entry === '.value') continue;
+    const segments = entry.split('/');
+    if (segments.some((segment) => segment.includes('.'))) add(invalidIndexKey(entry), 'error');
+    else if (segments.some((segment) => FORBIDDEN_KEY_CHARACTER.test(segment))) add(invalidIndexKey(entry), 'warning');
+  }
+}
 
 /**
  * The shape problems one rules object carries, in key order. A form whose
@@ -52,6 +70,7 @@ export function structuralFindings(
       const isName = (item: unknown): boolean => typeof item === 'string';
       const valid = isName(value) || (Array.isArray(value) && value.every(isName));
       if (!valid) add('INDEX_ON_SHAPE', INVALID_INDEX_ON, typeof value === 'number' ? 'error' : 'warning');
+      else indexEntryFindings(value, (message, severity) => add('INVALID_KEY', message, severity));
       continue;
     }
     const isPlainObject = typeof value === 'object' && value !== null && !Array.isArray(value);

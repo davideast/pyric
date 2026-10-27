@@ -153,3 +153,14 @@ describe('compose', () => {
     expect(buildRuleExpression(validResult, 'write', ['$x', '$y']).parsed.valid).toBe(true);
   });
 });
+
+describe('whitespace-only operands (CS-14)', () => {
+  test('all and any drop them', () => {
+    expect(all(expr('  '), expr('auth != null'))).toBe('auth != null');
+    expect(any(expr(' '), expr('auth != null'))).toBe('auth != null');
+  });
+  test('only whitespace operands leave nothing, so all and any throw', () => {
+    expect(() => all(expr(' '))).toThrow();
+    expect(() => any(expr('\t'))).toThrow();
+  });
+});

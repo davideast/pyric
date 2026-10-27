@@ -17,19 +17,29 @@
  */
 import type { Expr } from '../constraints/types.js';
 import { any, expr, fieldName, lit } from '../constraints/compose.js';
-import { pathVariable } from './expr.js';
+import { boundedCount, MAX_BUILT_COUNT, pathVariable } from './expr.js';
 
-/** The wildcard's key is one of `keys`. */
+/**
+ * The wildcard's key is one of `keys`.
+ *
+ * It checks the key and never the written value, so lint reports RTDB-SEC-6
+ * for a rule that uses it alone. AND a value check, such as
+ * `all(collections.keyIn('$slot', ['a', 'b']), 'newData.isString()')`.
+ */
 export function keyIn(pathVar: string, keys: string[]): Expr {
   const v = pathVariable('keyIn', pathVar);
   if (keys.length === 0) throw new Error('keyIn: pass at least one key.');
   return any(...keys.map((key) => expr(`${v} == ${lit(fieldName('keyIn', key))}`)));
 }
 
-/** The wildcard's key is one of '0' to `max - 1`, so the collection holds at most `max` children. */
+/**
+ * The wildcard's key is one of '0' to `max - 1`, so the collection holds at most `max` children.
+ *
+ * It checks the key and never the written value, so lint reports RTDB-SEC-6
+ * for a rule that uses it alone. AND a value check, such as
+ * `all(collections.slotKey('$slot', 4), 'newData.isString()')`.
+ */
 export function slotKey(pathVar: string, max: number): Expr {
-  if (!Number.isInteger(max) || max < 1) {
-    throw new Error(`slotKey: max must be an integer of at least 1, got ${String(max)}.`);
-  }
+  boundedCount('slotKey', 'max', max, 1, MAX_BUILT_COUNT);
   return keyIn(pathVariable('slotKey', pathVar), Array.from({ length: max }, (_, i) => String(i)));
 }

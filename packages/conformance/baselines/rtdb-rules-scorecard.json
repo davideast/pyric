@@ -100,10 +100,10 @@
     ]
   },
   "score": {
-    "numerator": 84,
+    "numerator": 86,
     "denominator": 91,
-    "ratio": 0.9230769230769231,
-    "percent": 92.3
+    "ratio": 0.945054945054945,
+    "percent": 94.5
   },
   "axes": {
     "productionAcceptance": {
@@ -125,14 +125,14 @@
       "unprobeable": 0
     },
     "productionEvidence": {
-      "verified": 83,
-      "diverged": 7,
+      "verified": 85,
+      "diverged": 5,
       "unverified": 1
     }
   },
   "counts": {
-    "conformant": 84,
-    "diverged": 7,
+    "conformant": 86,
+    "diverged": 5,
     "unknown": 0,
     "acceptance-mismatch": 0,
     "local-unsupported": 0,
@@ -1025,8 +1025,8 @@
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "r26-rule-runtime-error",
         "r27-stdlib-core-patterns",
@@ -1044,10 +1044,10 @@
         "r9-quota-arithmetic",
         "r51-deploy-anchor-index-and-length-probes"
       ],
-      "verifiedByRows": [],
-      "divergedByRows": [
+      "verifiedByRows": [
         "rtdb-rules#39"
-      ]
+      ],
+      "divergedByRows": []
     },
     "rtdb.operator.not": {
       "productionAcceptance": "accepted",
@@ -1300,17 +1300,17 @@
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "r13-priority-and-index-directive",
         "r30-query-rules",
         "r51-deploy-anchor-index-and-length-probes"
       ],
-      "verifiedByRows": [],
-      "divergedByRows": [
+      "verifiedByRows": [
         "rtdb-rules#38"
-      ]
+      ],
+      "divergedByRows": []
     },
     "rtdb.rule-kind.location-wildcard": {
       "productionAcceptance": "accepted",

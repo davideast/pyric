@@ -48,6 +48,15 @@ describe('pyric-admin/database — sandbox backend (Phase 4b)', () => {
     expect(typeof db.ref).toBe('function');
   });
 
+  it('rejects a get of .info/connected as production does (DF-7, getConnected)', async () => {
+    // rtdb-modular-info-write-validation behavior.getConnected: Error with
+    // message 'Invalid token in path' and no code.
+    const db = getDatabase(sandboxApp(initializeSandbox()));
+    const error = await db.ref('.info/connected').get().then(() => null, (caught: Error & { code?: string }) => caught);
+    expect(error?.message).toBe('Invalid token in path');
+    expect(error?.code).toBeUndefined();
+  });
+
   it('set + get roundtrips the written value', async () => {
     const sandbox = initializeSandbox();
     const db = getDatabase(sandboxApp(sandbox));

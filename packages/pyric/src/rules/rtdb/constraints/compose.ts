@@ -83,14 +83,17 @@ function topLevel(text: string, operators: string[]): boolean {
 export const group = (text: string, operators: string[]): string =>
   (topLevel(text, operators) ? `(${text})` : text);
 
+/** An operand that holds more than whitespace; the others are dropped. */
+const isPresent = (operand: Expr): boolean => operand.trim().length > 0;
+
 /**
  * All conditions must be true (AND). An operand is parenthesized only when
  * it holds a top-level `||` or ternary, which binds looser than `&&`.
- * Empty operands are dropped; with none left it throws, since an empty
+ * Empty and whitespace-only operands are dropped; with none left it throws, since an empty
  * conjunction would allow everything. Use {@link always} for that.
  */
 export function all(...exprs: Expr[]): Expr {
-  const parts = exprs.filter((e) => e.length > 0);
+  const parts = exprs.filter(isPresent);
   if (parts.length === 0) throw new Error('all: pass at least one condition; an empty all() would allow everything.');
   if (parts.length === 1) return parts[0]!;
   return expr(parts.map((e) => group(e, ['||', '?'])).join(' && '));
@@ -99,11 +102,11 @@ export function all(...exprs: Expr[]): Expr {
 /**
  * At least one condition must be true (OR). An operand with a top-level `&&`
  * is parenthesized for the reader, and one with a ternary for the parser.
- * Empty operands are dropped; with none left it throws, since an empty
+ * Empty and whitespace-only operands are dropped; with none left it throws, since an empty
  * disjunction would deny everything. Use {@link deny} for that.
  */
 export function any(...exprs: Expr[]): Expr {
-  const parts = exprs.filter((e) => e.length > 0);
+  const parts = exprs.filter(isPresent);
   if (parts.length === 0) throw new Error('any: pass at least one condition; an empty any() would deny everything.');
   if (parts.length === 1) return parts[0]!;
   return expr(parts.map((e) => group(e, ['&&', '?'])).join(' || '));

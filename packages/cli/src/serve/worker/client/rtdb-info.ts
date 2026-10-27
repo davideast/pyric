@@ -1,8 +1,9 @@
 /**
  * The `.info` tree the web hosted client serves itself (ADR-0019, 2026-10-16
- * amendment). Value, single-event and child listeners and one-time reads on a
- * path under `/.info` are answered here; they never reach the host and are not
- * replayed on re-attach.
+ * amendment). Value, single-event and child listeners on a path under `/.info`
+ * are answered here; they never reach the host and are not replayed on
+ * re-attach. A one-time `get()` there is refused as production refuses it
+ * (`assertGettablePath` in `pyric/database/internal`).
  *
  * | Path                     | Value                              |
  * | ------------------------ | ---------------------------------- |
@@ -65,19 +66,5 @@ export function observeInfo(target: RtdbTarget, next: (snapshot: RtdbDataSnapsho
     delivered = true;
     previous = content;
     next(snapshot);
-  });
-}
-
-/** A one-time read of `target`'s `.info` path, answered from the client's own state. */
-export function readInfo(target: RtdbTarget): Promise<RtdbDataSnapshot> {
-  return new Promise((resolve) => {
-    let answered = false;
-    const stop = observeInfo(target, (snapshot) => {
-      if (answered) return;
-      answered = true;
-      resolve(snapshot);
-      // A transport may report its state before `observeInfo` returns.
-      queueMicrotask(() => stop());
-    });
   });
 }

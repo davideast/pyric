@@ -8,9 +8,10 @@ export type Segment = string | { $: string };
 
 /** Definition of rules for a single database path. */
 export interface PathDef {
-  read?: Expr;
-  write?: Expr;
-  validate?: Expr;
+  /** An expression, or a boolean as database.rules.json spells it: false denies, true allows. */
+  read?: Expr | boolean;
+  write?: Expr | boolean;
+  validate?: Expr | boolean;
   schema?: z.ZodObject<any>;
   fieldConstraints?: Record<string, Expr[]>;
   /**
