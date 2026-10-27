@@ -31,7 +31,7 @@ export const slow = true;
 
 Build & Test runs the app scenarios with `--skip-slow`, on pull requests and on main. The Slow app scenarios workflow (`.github/workflows/slow-scenarios.yml`) runs them with `--only-slow` on pushes to main, nightly, on demand, and on a pull request when the `ci-slow-scenarios` label is added. An app named on the command line runs whether or not it is slow. The runner imports each `scenario.ts` to read the marker before installing anything, so a scenario imports only the driver, Playwright, and node built-ins at its top level.
 
-npm downloads are cached in `~/.cache/pyric-app-scenarios-npm` (set `PYRIC_APPS_NPM_CACHE` to move it), so a second run installs in seconds. Without `--packages`, the runner packs the current workspace build. Run `bun run build` first, or pass `--build`. Install Chromium once with `bunx playwright install chromium`.
+npm downloads are cached in `~/.cache/pyric-app-scenarios-npm` (set `PYRIC_APPS_NPM_CACHE` to move it), so a second run installs in seconds. Apps whose package.json names the same packages share one `npm install` per run, hard-linked into each app's `node_modules`. An app whose install runs its own scripts or links its own directories installs alone. When the cached package listings are older than a version a dependency asks for, npm fails with `ETARGET` or `ENOVERSIONS`, and the runner retries that install once with `--prefer-online`. Without `--packages`, the runner packs the current workspace build. Run `bun run build` first, or pass `--build`. Install Chromium once with `bunx playwright install chromium`.
 
 A failure names the app and the step, and prints the dev server log, each server script's output, and the browser console. Full logs are saved to `test-results/apps/<name>/`.
 

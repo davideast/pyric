@@ -69,22 +69,17 @@ export async function packWorkspace(root: string, build: boolean): Promise<Tarba
 }
 
 /**
- * Copies the app into `projectDir`, points its Pyric dependencies at the
- * tarballs, and runs `npm install`. The overrides pin every Pyric package to
- * its tarball, so the packages' dependencies on each other resolve locally too.
+ * Copies the app into `projectDir` and points its Pyric dependencies at the
+ * tarballs. The overrides pin every Pyric package to its tarball, so the
+ * packages' dependencies on each other resolve locally too. `npm install`
+ * runs next, through `SharedInstalls`.
  */
-export async function installApp(options: {
-  appDir: string;
-  projectDir: string;
-  tarballs: Tarballs;
-  npmCache: string;
-}): Promise<CommandResult> {
+export function prepareApp(options: { appDir: string; projectDir: string; tarballs: Tarballs }): void {
   for (const entry of readdirSync(options.appDir)) {
     if (DRIVER_FILES.has(entry)) continue;
     cpSync(join(options.appDir, entry), join(options.projectDir, entry), { recursive: true });
   }
   pinPyricPackages(options.projectDir, options.tarballs);
-  return runCommand('npm', npmInstallArgs(options.npmCache), { cwd: options.projectDir });
 }
 
 /**
@@ -107,7 +102,33 @@ export function pinPyricPackages(projectDir: string, tarballs: Tarballs): void {
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 }
 
-/** `npm install` as the runner runs it: quiet, offline first, with the shared cache. */
-export function npmInstallArgs(npmCache: string): string[] {
-  return ['install', '--no-audit', '--no-fund', '--loglevel=error', '--prefer-offline', '--cache', npmCache];
+/**
+ * `npm install` as the runner runs it: quiet, with the shared cache. Offline
+ * first by default; `online` revalidates the cached package listings.
+ */
+export function npmInstallArgs(npmCache: string, metadata: 'offline' | 'online' = 'offline'): string[] {
+  return ['install', '--no-audit', '--no-fund', '--loglevel=error', `--prefer-${metadata}`, '--cache', npmCache];
+}
+
+/** npm's codes for a version range the cached package listing has no match for. */
+const STALE_METADATA = /\bcode (ETARGET|ENOVERSIONS)\b/;
+
+/**
+ * Whether a failed install is explained by stale cached metadata. With
+ * `--prefer-offline`, npm trusts a cached package listing, so a dependency
+ * that asks for a version published after the listing was cached fails with
+ * ETARGET (#1246). The version exists; the listing is old.
+ */
+export function shouldRetryOnline(result: CommandResult): boolean {
+  const isFailure = result.code !== 0;
+  return isFailure && STALE_METADATA.test(result.output);
+}
+
+/** Run `npm install` offline first, and once more with `--prefer-online` when stale metadata failed it. */
+export async function npmInstall(npmCache: string, run: (args: string[]) => Promise<CommandResult>): Promise<CommandResult> {
+  const first = await run(npmInstallArgs(npmCache));
+  if (!shouldRetryOnline(first)) return first;
+  const note = '\n[runner] npm install failed on stale cached metadata; retrying once with --prefer-online\n';
+  const second = await run(npmInstallArgs(npmCache, 'online'));
+  return { code: second.code, output: `${first.output}${note}${second.output}` };
 }
