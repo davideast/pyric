@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { GIB } from '../../scripts/lib/machine-load.ts';
 import { defaultJobs, longestFirst, readDurations, recordDurations } from './schedule.ts';
 
 const dirs: string[] = [];
@@ -38,6 +39,14 @@ describe('the recorded times', () => {
     expect(readDurations(file)).toEqual({ a: 30, b: 50 });
   });
 
+  test('a temporary file a killed run left behind is removed on the next write', () => {
+    const file = durationsFile();
+    writeFileSync(`${file}.12345.tmp`, '{"half": ');
+    recordDurations(file, [{ name: 'a', ok: true, scenarioSeconds: 30 }], ['a']);
+    expect(existsSync(`${file}.12345.tmp`)).toBe(false);
+    expect(readDurations(file)).toEqual({ a: 30 });
+  });
+
   test('an app that no longer exists drops out of the recorded times', () => {
     const file = durationsFile();
     recordDurations(file, [{ name: 'old-name', ok: true, scenarioSeconds: 30 }], ['old-name']);
@@ -57,18 +66,24 @@ describe('the recorded times', () => {
 
 describe('how many apps run at once by default', () => {
   test('locally, one app per four free threads, at most six', () => {
-    expect(defaultJobs({ threads: 32, load: 8 }, {})).toBe(6);
-    expect(defaultJobs({ threads: 16, load: 4 }, {})).toBe(3);
+    expect(defaultJobs({ threads: 32, load: 8, freeMemoryBytes: 64 * GIB }, {})).toBe(6);
+    expect(defaultJobs({ threads: 16, load: 4, freeMemoryBytes: 64 * GIB }, {})).toBe(3);
   });
 
   test('a loaded machine runs fewer, and never fewer than one', () => {
-    expect(defaultJobs({ threads: 32, load: 22 }, {})).toBe(2);
-    expect(defaultJobs({ threads: 4, load: 9 }, {})).toBe(1);
+    expect(defaultJobs({ threads: 32, load: 22, freeMemoryBytes: 64 * GIB }, {})).toBe(2);
+    expect(defaultJobs({ threads: 4, load: 9, freeMemoryBytes: 64 * GIB }, {})).toBe(1);
+  });
+
+  test('no more apps than free memory holds at 1 GiB each, on CI too', () => {
+    expect(defaultJobs({ threads: 32, load: 0, freeMemoryBytes: 3.5 * GIB }, {})).toBe(3);
+    expect(defaultJobs({ threads: 4, load: 0, freeMemoryBytes: 2.2 * GIB }, { CI: 'true' })).toBe(2);
+    expect(defaultJobs({ threads: 4, load: 0, freeMemoryBytes: 0.5 * GIB }, { CI: 'true' })).toBe(1);
   });
 
   test('on CI, one app per runner thread', () => {
-    expect(defaultJobs({ threads: 4, load: 0.5 }, { CI: 'true' })).toBe(4);
-    expect(defaultJobs({ threads: 4, load: 0.5 }, { CI: '1' })).toBe(4);
-    expect(defaultJobs({ threads: 4, load: 0.5 }, { CI: 'false' })).toBe(1);
+    expect(defaultJobs({ threads: 4, load: 0.5, freeMemoryBytes: 64 * GIB }, { CI: 'true' })).toBe(4);
+    expect(defaultJobs({ threads: 4, load: 0.5, freeMemoryBytes: 64 * GIB }, { CI: '1' })).toBe(4);
+    expect(defaultJobs({ threads: 4, load: 0.5, freeMemoryBytes: 64 * GIB }, { CI: 'false' })).toBe(1);
   });
 });

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { busyThreads, chooseConcurrency, parseMemAvailable, parseProcStat } from './concurrency.ts';
+import { busyThreads, parseMemAvailable, parseProcStat } from '../machine-load.ts';
+import { chooseConcurrency } from './concurrency.ts';
 
 const GIB = 1024 ** 3;
 

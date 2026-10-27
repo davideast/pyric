@@ -7,9 +7,9 @@
  * time (a new app, or a fresh checkout) starts before the timed ones, since
  * nothing says it is short.
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { availableParallelism, loadavg } from 'node:os';
-import { dirname } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { GIB, type MachineLoad } from '../../scripts/lib/machine-load.ts';
+import { basename, dirname, join } from 'node:path';
 
 /** Seconds each app took in the runs recorded so far, by app name. */
 export type Durations = Record<string, number>;
@@ -44,9 +44,12 @@ export interface TimedResult {
 }
 
 /**
- * Add a run's passing apps to the recorded times, and drop apps that no longer
- * exist. A failed app's time says little, so it keeps its old one. The file is
- * replaced in one rename, so a run killed mid-write leaves the old times.
+ * Add finished apps to the recorded times, and drop apps that no longer
+ * exist. A failed app's time says little, so it keeps its old one. The file
+ * is replaced in one rename, so a run killed mid-write leaves the old times,
+ * and a temporary file such a run left behind is removed on the next write.
+ * Two runs in one checkout at once can each overwrite the other's newest
+ * times; the order they give is a speed-up, not a result, so that is accepted.
  */
 export function recordDurations(file: string, results: readonly TimedResult[], available: readonly string[]): void {
   const exists = new Set(available);
@@ -54,34 +57,41 @@ export function recordDurations(file: string, results: readonly TimedResult[], a
   for (const result of results) {
     if (result.ok) durations[result.name] = Math.round(result.scenarioSeconds * 10) / 10;
   }
-  mkdirSync(dirname(file), { recursive: true });
+  const dir = dirname(file);
+  mkdirSync(dir, { recursive: true });
+  removeLeftoverPartials(dir, basename(file));
   const partial = `${file}.${process.pid}.tmp`;
   writeFileSync(partial, `${JSON.stringify(durations, null, 2)}\n`);
   renameSync(partial, file);
 }
 
-export interface MachineLoad {
-  threads: number;
-  /** The one-minute load average. */
-  load: number;
-}
-
-export function measureMachineLoad(): MachineLoad {
-  return { threads: availableParallelism(), load: loadavg()[0] ?? 0 };
+function removeLeftoverPartials(dir: string, name: string): void {
+  const partial = new RegExp(`^${name.replace(/\./g, '\\.')}\\.\\d+\\.tmp$`);
+  for (const entry of readdirSync(dir)) {
+    if (partial.test(entry)) rmSync(join(dir, entry), { force: true });
+  }
 }
 
 /** Free threads each app takes locally: its dev server, its node scripts and its Chromium pages. */
 const THREADS_PER_APP = 4;
 const MOST_LOCAL_JOBS = 6;
+/** Memory one app can take: about 0.8 GB was measured, rounded up. */
+const MEMORY_PER_APP = GIB;
+
+function isCiEnvironment(env: Record<string, string | undefined>): boolean {
+  return env.CI !== undefined && env.CI !== '' && env.CI !== 'false';
+}
 
 /**
- * Apps to run at once when `--jobs` is not given. A CI runner is a machine of
- * its own, so it runs one app per thread. Locally the machine is shared, so
- * the count comes from the threads the load leaves free.
+ * Apps to run at once when `--jobs` is not given, and never more than free
+ * memory holds at 1 GiB an app. A CI runner is a machine of its own, so it
+ * runs one app per thread (4 on ubuntu-latest). Locally the machine is
+ * shared, so the count comes from the threads the load leaves free, at most 6.
  */
 export function defaultJobs(machine: MachineLoad, env: Record<string, string | undefined>): number {
-  const isCi = env.CI !== undefined && env.CI !== '' && env.CI !== 'false';
-  if (isCi) return Math.max(1, machine.threads);
-  const freeThreads = machine.threads - machine.load;
-  return Math.min(MOST_LOCAL_JOBS, Math.max(1, Math.floor(freeThreads / THREADS_PER_APP)));
+  const byCpu = isCiEnvironment(env)
+    ? machine.threads
+    : Math.min(MOST_LOCAL_JOBS, Math.floor((machine.threads - machine.load) / THREADS_PER_APP));
+  const byMemory = Math.floor(machine.freeMemoryBytes / MEMORY_PER_APP);
+  return Math.max(1, Math.min(byCpu, byMemory));
 }

@@ -34,7 +34,8 @@ import { join, resolve } from 'node:path';
 import { AppRun, StepFailure, type Scenario } from './driver.ts';
 import { npmInstall, packWorkspace, prepareApp, runCommand, tarballsIn, type Tarballs } from './install.ts';
 import { SharedInstalls } from './shared-installs.ts';
-import { defaultJobs, longestFirst, measureMachineLoad, readDurations, recordDurations } from './schedule.ts';
+import { sampleMachineLoad } from '../../scripts/lib/machine-load.ts';
+import { defaultJobs, longestFirst, readDurations, recordDurations } from './schedule.ts';
 import { parseArguments, selectApps, skippedSlowClause } from './selection.ts';
 
 const appsDir = import.meta.dir;
@@ -206,7 +207,7 @@ async function main(): Promise<void> {
   const isWholeRun = options.names.length === 0;
   const names = isWholeRun ? longestFirst(selection.run, readDurations(durationsFile)) : selection.run;
   // Measured before packing, so the runner's own build and pack do not count as load.
-  const machine = measureMachineLoad();
+  const machine = await sampleMachineLoad();
   if (names.length === 0) {
     // A run that drives no app passes without proving anything, so a marker
     // removed by mistake fails the slow workflow instead of turning it green.
@@ -232,13 +233,15 @@ async function main(): Promise<void> {
   const launch = () => (browser ??= chromium.launch({ headless: true }));
 
   const jobs = options.jobs ?? defaultJobs(machine, process.env);
-  const load = `load ${(machine.load / machine.threads).toFixed(2)} per thread`;
+  const load = `${(machine.load / machine.threads).toFixed(2)} busy per thread`;
   console.log(`▸ running ${names.length} app${names.length === 1 ? '' : 's'}, ${jobs} at a time (${load}), longest first`);
   let results: AppResult[];
   try {
     results = await pool(names, jobs, async (name) => {
       const result = await runApp(name, { tarballs, npmCache, installs, keep: options.keep, browser: launch });
       const dir = saveLogs(result);
+      // Recorded as each app finishes, so a run that stops early keeps the times it has.
+      recordDurations(durationsFile, [{ name: result.name, ok: result.ok, scenarioSeconds: result.seconds - result.installSeconds }], available);
       console.log(result.ok ? `✓ ${name} (${result.seconds.toFixed(1)}s)` : report(result, dir));
       return result;
     });
@@ -247,7 +250,6 @@ async function main(): Promise<void> {
     if (options.keep) console.log(`  shared installs: ${installsDir}`);
     else rmSync(installsDir, { recursive: true, force: true });
   }
-  recordDurations(durationsFile, results.map((result) => ({ name: result.name, ok: result.ok, scenarioSeconds: result.seconds - result.installSeconds })), available);
 
   const failed = results.filter((result) => !result.ok);
   const total = ((performance.now() - started) / 1000).toFixed(1);
