@@ -1,0 +1,19 @@
+{
+  "schema": "pyric.conformance.surface.v2",
+  "kind": "registry-only",
+  "developerSurface": "app-check-admin",
+  "evidenceImports": [
+    "pyric-admin/app-check"
+  ],
+  "observationPrefixes": [
+    "app-check-admin-"
+  ],
+  "coverage": false,
+  "scopeNote": "The firebase-admin App Check plane (createToken, verifyToken). Its rows share the app-check registry and are tracked without a Firebase client runtime census.",
+  "conformanceSuite": "packages/pyric-admin/test/app-check/oracle-conformance.test.ts",
+  "captureRigs": [
+    "app-check"
+  ],
+  "climb": true,
+  "registry": "app-check"
+}

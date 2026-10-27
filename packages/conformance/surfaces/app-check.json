@@ -1,0 +1,23 @@
+{
+  "schema": "pyric.conformance.surface.v2",
+  "kind": "mirror",
+  "developerSurface": "app-check",
+  "censusSurface": "app-check",
+  "upstream": "firebase/app-check",
+  "mirrors": [
+    "pyric/app-check"
+  ],
+  "privateRuntimeExports": [],
+  "observationPrefixes": [
+    "app-check-"
+  ],
+  "coverage": false,
+  "scopeNote": "pyric/app-check is a deferred stub that resolves every upstream name and throws on use, so the census sees the names as exported, not as working; coverage stays off until rows flip. The firebase-admin plane is the app-check-admin surface; App Check rows on the AI path live in the ai registry.",
+  "conformanceSuite": "packages/pyric/test/app-check/oracle-conformance.test.ts",
+  "captureRigs": [
+    "app-check"
+  ],
+  "climb": true,
+  "registry": "app-check",
+  "dispositions": []
+}

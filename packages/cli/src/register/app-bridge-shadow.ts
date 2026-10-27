@@ -44,6 +44,18 @@ function decorateApp(
   return app;
 }
 
+/**
+ * The shadow Firebase app for a Pyric app, by name. A Firebase app passed in
+ * directly, or a Pyric app with no shadow yet, is returned unchanged.
+ */
+export function shadowAppOf(app: { name: string }): object {
+  try {
+    return realApp.getApp(app.name);
+  } catch {
+    return app;
+  }
+}
+
 export function shadowedAppRegistry(pyricApp: PyricAppRegistry): PyricAppRegistry {
   return {
     initializeApp(options, rawSettings) {

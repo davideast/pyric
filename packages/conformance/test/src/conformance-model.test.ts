@@ -231,7 +231,9 @@ describe('multi-axis conformance model', () => {
   });
 
   it('joins Messaging runtime and behavior claims under one developer surface', () => {
-    const result = one('getToken');
+    // firebase/app-check also exports getToken, so the bare name is ambiguous.
+    expect(canIUse(model, 'getToken').match).toBe('ambiguous');
+    const result = one('messaging/getToken');
     expect(result.surface).toBe('messaging');
     expect(result.claims.map(({ id }) => id)).toEqual([
       'messaging:runtime:getToken',

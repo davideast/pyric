@@ -1058,6 +1058,74 @@ const serverProcessRows: CompatibilityRow[] = [
   }),
 ];
 
+/**
+ * App Check on the AI path (CDD, climbing with the app-check surface). These
+ * rows cite the `app-check-` captures (packages/conformance/docs/app-check/
+ * capture-plan.md). Born unverified; flipped to conforms when the assertion
+ * sets in APP_CHECK_AI_SUITE passed against the served App Check bridge
+ * (`register/app-bridge-app-check`), with the app scenario as integration
+ * evidence.
+ */
+export const APP_CHECK_AI_SUITE = 'packages/cli/test/serve/ai-app-check-passthrough.test.ts';
+const APP_CHECK_AI_SCENARIO = 'test/apps/ai-production-app-check/scenario.ts';
+const appCheckAiRow = defineRows({
+  surface: 'ai',
+  defaults: {
+    section: 'App Check on the AI path',
+    status: 'conforms' as const,
+    automation: 'oracle-backed' as const,
+    conformanceTests: [APP_CHECK_AI_SUITE, APP_CHECK_AI_SCENARIO],
+  },
+});
+
+export const appCheckAiRows: CompatibilityRow[] = [
+  appCheckAiRow({
+    rowRef: 'app-check-passthrough-header',
+    featureKeys: ['getAI', 'initializeAppCheck'],
+    api: 'initializeAppCheck(app) then getAI(app) in production AI mode',
+    behavior: 'In production AI mode the app\'s `firebase/app-check` is the Firebase SDK attached to the same app `firebase/ai` uses, so `generateContent` carries `X-Firebase-AppCheck` equal to the token `getToken` returns, and AI Logic answers 200.',
+    evidence: 'capture `app-check-client-ai-header` (`appCheckInitialized`), replayed by the AI pass-through suite through the served App Check bridge. On main before the bridge, `firebase/app-check` was swapped to the deferred `pyric/app-check` stub in production AI mode, and the real SDK on the Pyric app failed `appCheck/use-before-activation` because activation and lookup used different app objects.',
+    oracleObservations: ['app-check-client-ai-header'],
+    notes: 'The returned handle\'s `.app` is the shadow Firebase app (same name and options as the app passed in, a different object); the SDK reads it to find the activation.',
+  }),
+  appCheckAiRow({
+    rowRef: 'app-check-passthrough-limited-use',
+    featureKeys: ['getAI'],
+    api: 'getAI(app, { useLimitedUseAppCheckTokens: true }) in production AI mode',
+    behavior: 'With `useLimitedUseAppCheckTokens`, each request carries a fresh limited-use token rather than the cached one, and AI Logic answers 200.',
+    evidence: 'capture `app-check-client-ai-header` (`limitedUseModel`).',
+    oracleObservations: ['app-check-client-ai-header'],
+  }),
+  appCheckAiRow({
+    rowRef: 'app-check-required',
+    featureKeys: ['generateContent'],
+    api: 'generateContent without App Check in production AI mode',
+    behavior: 'On an app that never initialized App Check, `firebase/ai` sends no `X-Firebase-AppCheck` header, and AI Logic rejects the request: HTTP 403, `PERMISSION_DENIED`, message `Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check.` with a docs link. A malformed header, the SDK placeholder token, and a tampered token get the same envelope; a valid token answers 200. Seen with App Check enforcement for AI Logic reading UNENFORCED.',
+    evidence: 'captures `app-check-ai-gate-wire` (all five cases on the wire) and `app-check-client-ai-header` (`noAppCheck`).',
+    oracleObservations: ['app-check-ai-gate-wire', 'app-check-client-ai-header'],
+    risk: ['error-code', 'specific-value'],
+    riskScore: 2,
+    riskReasons: ['asserts production error status and message text that can drift on re-capture'],
+    notes: 'The sandbox answer engine does not check App Check, so sandbox AI mode answers tokenless requests; whether it should refuse them is an open decision.',
+  }),
+  appCheckAiRow({
+    rowRef: 'app-check-initialize-after-getai',
+    featureKeys: ['getAI', 'initializeAppCheck'],
+    api: 'initializeAppCheck(app) after getAI(app)',
+    behavior: 'Calling `initializeAppCheck` after `getAI(app)` built a model does not throw and `getToken` works, but that model sends no `X-Firebase-AppCheck` header and AI Logic answers 403. App Check must be initialized before `getAI`.',
+    evidence: 'capture `app-check-client-get-token-before-initialize` (`initializeAfterAi`, `getTokenAfterLateInitialize`, `aiRequestAfterLateInitialize`, `aiGenerationAfterLateInitialize`).',
+    oracleObservations: ['app-check-client-get-token-before-initialize'],
+  }),
+  appCheckAiRow({
+    rowRef: 'app-check-attestation-failure',
+    featureKeys: ['generateContent'],
+    api: 'generateContent when App Check attestation fails',
+    behavior: 'When the token exchange is refused, `firebase/ai` sends the SDK placeholder token (base64 of `{"error":"UNKNOWN_ERROR"}`) and AI Logic answers 403; with `useLimitedUseAppCheckTokens` it throws `AI/error` naming `appCheck/fetch-status-error` before sending any request.',
+    evidence: 'capture `app-check-client-invalid-debug-token` (`aiRequest`, `aiGeneration`, `aiLimitedUseRequest`, `aiLimitedUseGeneration`).',
+    oracleObservations: ['app-check-client-invalid-debug-token'],
+  }),
+];
+
 export const aiRegistry: CompatibilitySurfaceRegistry = {
   surface: 'ai',
   label: 'AI Logic',
@@ -1076,5 +1144,6 @@ export const aiRegistry: CompatibilitySurfaceRegistry = {
     table(SEC_SCRIPTED, scriptedRows),
     table(SEC_OPENAI, openaiRows),
     { kind: 'table', prefix: `## Client SDKs in a registered server process\n`, rows: serverProcessRows },
+    { kind: 'table', prefix: `## App Check on the AI path\n`, rows: appCheckAiRows },
   ],
 };

@@ -30,7 +30,6 @@ describe('client aliases', () => {
     const aliases = getClientAliases();
     const cases: ReadonlyArray<readonly [specifier: string, entry: string, exportName: string]> = [
       ['firebase/analytics', 'analytics', 'getAnalytics'],
-      ['firebase/app-check', 'app-check', 'initializeAppCheck'],
       ['firebase/firestore/lite', 'firestore-lite', 'getFirestore'],
       ['firebase/functions', 'functions', 'getFunctions'],
       ['firebase/performance', 'performance', 'getPerformance'],
@@ -43,6 +42,16 @@ describe('client aliases', () => {
         `pyric: '${specifier}' is not yet mirrored by the local sandbox.`,
       );
     }
+  });
+
+  it('sends firebase/app-check to the App Check mirror', async () => {
+    const aliases = getClientAliases();
+    expect(aliases['firebase/app-check']).toBe('@pyric/cli/next/internal/app-check');
+    const mod = (await import(aliases['firebase/app-check']!)) as Record<string, unknown>;
+    expect(Object.keys(mod).sort()).toEqual([
+      'CustomProvider', 'ReCaptchaEnterpriseProvider', 'ReCaptchaV3Provider', 'getLimitedUseToken',
+      'getToken', 'initializeAppCheck', 'onTokenChanged', 'setTokenAutoRefreshEnabled',
+    ]);
   });
 
   it('aliases no @firebase/* package', () => {
