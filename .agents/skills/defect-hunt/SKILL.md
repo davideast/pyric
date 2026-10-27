@@ -81,10 +81,10 @@ shared board, briefs from [templates/](templates/). Start a ledger from
    whose only referee is a sibling says so.
 2. **Verify live access.** Run the runbook's readiness check and preview,
    then one credentialed control capture, then read the oracle's rules and data
-   back and confirm they are at rest. The control rewrites its observation
-   file: check `git diff`, and if the control only confirms, discard the
-   rewrite with `git restore`. Done when the control agrees with its committed
-   observation. If access fails, resolve it before hunting, or record that
+   back and confirm they are at rest. Run it in a
+   [scratch worktree](#captures-run-in-a-scratch-worktree) and copy nothing
+   back if the control only confirms. Done when the control agrees with its
+   committed observation. If access fails, resolve it before hunting, or record that
    this round runs on committed observations only.
 3. **Baseline.** Record the target commit and run the domain's gates. Measure
    where evidence is thin: constructs with no observation, surviving mutants,
@@ -113,6 +113,23 @@ shared board, briefs from [templates/](templates/). Start a ledger from
    (`REAL`), false, and new (confirmed and not in an earlier round, an open
    issue or the pins). Run another round on an angle while it still yields new
    findings; an angle whose round yields none is done for that surface.
+
+## Captures run in a scratch worktree
+
+Every capture runs in a throwaway worktree outside the main checkout, so a
+runner that rewrites more than you asked for never touches your tree:
+
+```sh
+git worktree add --detach <scratch> origin/main
+cd <scratch> && bun install --frozen-lockfile
+# run the capture here, credentials by env
+```
+
+Then copy back into your working branch only the observation files you
+deliberately captured, and remove the scratch tree with
+`git worktree remove --force <scratch>`. Your working tree never needs
+anything discarded. Agents on this machine cannot discard working-tree changes
+anyway: a safety hook blocks those git commands.
 
 ## Hard rules
 

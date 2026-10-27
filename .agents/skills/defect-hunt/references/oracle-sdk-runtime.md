@@ -93,8 +93,10 @@ restored in a `finally` path.
 ## After the capture
 
 - The observation lands under `observations/<surface>/` and changes only by
-  re-capture. Commit only the files your probe owns: `git status` shows any
-  other observation a broad run rewrote; `git restore` it.
+  re-capture. Capture in a scratch worktree
+  ([SKILL.md](../SKILL.md#captures-run-in-a-scratch-worktree)) and copy back
+  only the files your probe owns; whatever else a broad run rewrote is removed
+  with the scratch tree.
 - The replay tests hold pyric to it: `packages/pyric/test/firestore/oracle-conformance.test.ts`
   and `packages/pyric/test/database/oracle-conformance.test.ts`. A
   disagreement is pinned there, with both sides, before any fix.

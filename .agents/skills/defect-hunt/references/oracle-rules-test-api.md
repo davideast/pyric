@@ -43,8 +43,10 @@ Always pass `--scenario <id>`. With no `--scenario`, the runner captures every
 scenario in the corpus and rewrites every observation file. The no-credential
 preview is inert only when no source above resolves: on a machine with a
 firebase-tools login, `bun run packages/conformance/src/run-rules.ts` with
-nothing else is a full capture against `digame-mas`. If one happens, discard the rewritten files
-with `git restore` and capture again by scenario.
+nothing else is a full capture against `digame-mas`. Run captures in a
+scratch worktree ([SKILL.md](../SKILL.md#captures-run-in-a-scratch-worktree)):
+if a full capture happens there, remove the scratch tree and capture again by
+scenario.
 
 ## What the Rules Test API does not cover
 
