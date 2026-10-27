@@ -1,0 +1,89 @@
+{
+  "name": "rules-storage-h1-lookup-interpolated-slash",
+  "matrixRow": "",
+  "rowIds": [
+    "storage-rules#212"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"h1-lookup-interpolated-slash\" (STORAGE-H1-LOOKUP-SLASH). An interpolated value containing a slash may select a different document than the rule author wrote.",
+  "observedAt": "2026-10-27T02:46:25.688Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "b974063e13646c1579dff92332150b8b150482047ddf9719ce6b132db4fc4929"
+  },
+  "behavior": {
+    "get: interpolated value with slashes reads the deeper document (pyric ALLOW)": "DENY",
+    "exists: interpolated value with slashes finds the deeper document (pyric ALLOW)": "DENY",
+    "control: literal deeper path reads the mock (pyric ALLOW)": "ALLOW"
+  },
+  "diagnostics": {
+    "get: interpolated value with slashes reads the deeper document (pyric ALLOW)": {
+      "notes": [
+        "Error: storage.rules line [5], column [34]. Service call error. Function: [firestore.get], Argument: [path_value {\n  segments {\n    simple: \"databases\"\n  }\n  segments {\n    simple: \"(default)\"\n  }\n  segments {\n    simple: \"documents\"\n  }\n  segments {\n    simple: \"users\"\n  }\n  segments {\n    simple: \"alice/private/x\"\n  }\n}\n]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 5,
+          "column": 34,
+          "currentOffset": 129,
+          "endOffset": 131
+        },
+        "functionCalls": [
+          {
+            "function": "firestore.get",
+            "args": [
+              "/databases/%28default%29/documents/users/alice%2Fprivate%2Fx"
+            ]
+          }
+        ]
+      }
+    },
+    "exists: interpolated value with slashes finds the deeper document (pyric ALLOW)": {
+      "notes": [
+        "Error: storage.rules line [8], column [34]. Service call error. Function: [firestore.exists], Argument: [path_value {\n  segments {\n    simple: \"databases\"\n  }\n  segments {\n    simple: \"(default)\"\n  }\n  segments {\n    simple: \"documents\"\n  }\n  segments {\n    simple: \"users\"\n  }\n  segments {\n    simple: \"alice/private/x\"\n  }\n}\n]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 8,
+          "column": 34,
+          "currentOffset": 290,
+          "endOffset": 295
+        },
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/users/alice%2Fprivate%2Fx"
+            ]
+          }
+        ]
+      }
+    },
+    "control: literal deeper path reads the mock (pyric ALLOW)": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.get",
+            "args": [
+              "/databases/%28default%29/documents/users/alice/private/x"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 11,
+              "column": 24,
+              "currentOffset": 426,
+              "endOffset": 434
+            },
+            "value": true
+          }
+        ]
+      }
+    }
+  }
+}

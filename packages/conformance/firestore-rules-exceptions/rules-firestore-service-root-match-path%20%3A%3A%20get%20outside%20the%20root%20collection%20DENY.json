@@ -1,0 +1,1 @@
+{"rowId":"firestore-rules#201","conformanceDisposition":"pending-fix","productionVerdict":"DENY","simulatorVerdict":"ALLOW","reason":"pyric never compares the root match path literals with the request path, so a wrong root grants","issue":"FS2-ENF-1"}

@@ -1,0 +1,1 @@
+{"kind":"verdict","rowId":"storage-rules#210","productionVerdict":"ALLOW","evaluatorVerdict":"DENY","reason":"production gives request.auth a token map when the case names only a uid; pyric gives none","issue":"ST-H1-7"}

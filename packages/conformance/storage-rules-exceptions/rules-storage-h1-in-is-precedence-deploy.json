@@ -1,0 +1,1 @@
+{"kind":"parse","rowId":"storage-rules#208","localError":"expected ';' after the allow statement","issue":"ST-H1-5","reason":"production compiles chained in and is (x is int == true, a in l in [true]); pyric refuses to parse them"}

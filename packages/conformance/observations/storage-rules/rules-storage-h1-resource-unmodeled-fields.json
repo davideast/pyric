@@ -1,0 +1,161 @@
+{
+  "name": "rules-storage-h1-resource-unmodeled-fields",
+  "matrixRow": "",
+  "rowIds": [
+    "storage-rules#205"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"h1-resource-unmodeled-fields\" (STORAGE-H1-RESOURCE-FIELDS). The seven resource fields marked unprobeable are readable through a Rules Test API resource map; pyric drops them.",
+  "observedAt": "2026-10-27T02:46:23.097Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "5db802279d06845644137c78806deebabf05b581f25253d05129c4322a08f7f4"
+  },
+  "behavior": {
+    "present: resource.md5Hash reads the stored value (pyric DENY)": "ALLOW",
+    "present: resource.crc32c reads the stored value (pyric DENY)": "ALLOW",
+    "present: resource.etag reads the stored value (pyric DENY)": "ALLOW",
+    "present: resource.contentDisposition reads the stored value (pyric DENY)": "ALLOW",
+    "present: resource.contentEncoding reads the stored value (pyric DENY)": "ALLOW",
+    "present: resource.contentLanguage reads the stored value (pyric DENY)": "ALLOW",
+    "present: resource.cacheControl reads the stored value (pyric DENY)": "ALLOW",
+    "absent: resource.md5Hash on a resource without it denies (pyric DENY)": "DENY",
+    "absent: resource.cacheControl on a resource without it denies (pyric DENY)": "DENY"
+  },
+  "diagnostics": {
+    "present: resource.md5Hash reads the stored value (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 4,
+              "column": 44,
+              "currentOffset": 115,
+              "endOffset": 122
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "present: resource.crc32c reads the stored value (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 43,
+              "currentOffset": 192,
+              "endOffset": 199
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "present: resource.etag reads the stored value (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 6,
+              "column": 41,
+              "currentOffset": 265,
+              "endOffset": 272
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "present: resource.contentDisposition reads the stored value (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 7,
+              "column": 55,
+              "currentOffset": 349,
+              "endOffset": 356
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "present: resource.contentEncoding reads the stored value (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 8,
+              "column": 52,
+              "currentOffset": 443,
+              "endOffset": 450
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "present: resource.contentLanguage reads the stored value (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 9,
+              "column": 52,
+              "currentOffset": 532,
+              "endOffset": 539
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "present: resource.cacheControl reads the stored value (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 10,
+              "column": 49,
+              "currentOffset": 616,
+              "endOffset": 623
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "absent: resource.md5Hash on a resource without it denies (pyric DENY)": {
+      "notes": [
+        "Error: storage.rules line [4], column [44]. Property md5Hash is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 4,
+          "column": 44,
+          "currentOffset": 115,
+          "endOffset": 122
+        }
+      }
+    },
+    "absent: resource.cacheControl on a resource without it denies (pyric DENY)": {
+      "notes": [
+        "Error: storage.rules line [10], column [49]. Property cacheControl is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 10,
+          "column": 49,
+          "currentOffset": 616,
+          "endOffset": 623
+        }
+      }
+    }
+  }
+}

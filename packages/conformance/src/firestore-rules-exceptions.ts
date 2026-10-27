@@ -7,8 +7,11 @@ export interface FirestoreRulesException {
   conformanceDisposition: string;
   productionVerdict: 'ALLOW' | 'DENY';
   simulatorVerdict: 'ALLOW' | 'DENY';
-  diagnosticFunction: string;
+  /** A probe limitation names the function production reported as not found;
+   *  a pending fix has no diagnostic to check. */
+  diagnosticFunction?: string;
   reason: string;
+  /** The tracking issue or hunt finding ID, e.g. `#135` or `FS2-SIM-5a`. */
   issue: string;
 }
 

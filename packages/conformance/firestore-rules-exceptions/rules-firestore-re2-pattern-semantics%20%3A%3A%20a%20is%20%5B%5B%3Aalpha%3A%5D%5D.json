@@ -1,0 +1,1 @@
+{"rowId":"firestore-rules#199","conformanceDisposition":"pending-fix","productionVerdict":"ALLOW","simulatorVerdict":"DENY","reason":"RE2 reads [[:alpha:]] as a POSIX class; pyric misreads it","issue":"FS2-SIM-5c"}

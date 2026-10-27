@@ -1,0 +1,1 @@
+{"kind":"verdict","rowId":"storage-rules#212","productionVerdict":"DENY","evaluatorVerdict":"ALLOW","reason":"production keeps a / inside $(v) in one segment; pyric splits it and reads a deeper document","issue":"ST-H1-10"}

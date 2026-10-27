@@ -1,0 +1,60 @@
+{
+  "name": "rules-storage-storage-two-top-level-bucket-matches",
+  "matrixRow": "",
+  "rowIds": [
+    "storage-rules#217"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"storage-two-top-level-bucket-matches\" (STORAGE-H2-TWO-TOP-LEVEL-MATCHES). Whether production compiles one Storage ruleset with a top-level match block per bucket.",
+  "observedAt": "2026-10-27T02:38:04.059Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "9ff500c321a7b4c97ffafb484e42af10c93ce98b8c4e55135a64e86224ee3499"
+  },
+  "behavior": {
+    "named bucket block grants get": "ALLOW",
+    "other bucket falls to the wildcard block": "DENY"
+  },
+  "diagnostics": {
+    "named bucket block grants get": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 4,
+              "column": 36,
+              "currentOffset": 121,
+              "endOffset": 124
+            },
+            "value": true
+          },
+          {
+            "sourcePosition": {
+              "line": 7,
+              "column": 36,
+              "currentOffset": 192,
+              "endOffset": 196
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "other bucket falls to the wildcard block": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 7,
+              "column": 36,
+              "currentOffset": 192,
+              "endOffset": 196
+            },
+            "value": false
+          }
+        ]
+      }
+    }
+  }
+}

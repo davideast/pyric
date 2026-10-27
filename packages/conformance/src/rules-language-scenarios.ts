@@ -7,6 +7,7 @@ import { ALL_RULES_STORAGE_SCENARIOS, type StorageScenario } from '../rules-corp
 import { ALL_RULES_RTDB_DEPLOY_SCENARIOS, ALL_RULES_RTDB_SCENARIOS } from '../rules-corpus/rtdb/index.ts';
 import { firestoreObservationMatchesScenario } from './firestore-rules-input-digest.ts';
 import { storageRulesTestInputDigest } from './storage-rules-input-digest.ts';
+import { loadStorageRulesExceptions } from './storage-rules-exceptions.ts';
 
 export interface StorageObservationIdentity {
   inputDigest?: { algorithm?: unknown; value?: unknown };
@@ -88,7 +89,14 @@ export function loadRulesLanguageScenarios(
       twinIds: candidateTwinIds,
     };
   }
-  const scenarios = ALL_RULES_STORAGE_SCENARIOS.map(({ id, rules }) => ({ id, rules }));
+  // A scenario pyric refuses to parse cannot be analyzed and earns no syntactic
+  // credit; its pinned row names the constructs it diverges on.
+  const parsePinned = new Set([...loadStorageRulesExceptions()]
+    .filter(([, pin]) => pin.kind === 'parse')
+    .map(([name]) => name));
+  const scenarios = ALL_RULES_STORAGE_SCENARIOS.map(({ id, rules }): RulesLanguageScenario => (
+    parsePinned.has(`${prefix}${id}`) ? { id, rules, constructs: [] } : { id, rules }
+  ));
   const scenariosById = new Map(ALL_RULES_STORAGE_SCENARIOS.map((scenario) => [scenario.id, scenario]));
   const twinIds = new Set<string>();
   for (const id of candidateTwinIds) {

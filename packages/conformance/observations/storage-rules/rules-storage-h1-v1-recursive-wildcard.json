@@ -1,0 +1,68 @@
+{
+  "name": "rules-storage-h1-v1-recursive-wildcard",
+  "matrixRow": "",
+  "rowIds": [
+    "storage-rules#206"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"h1-v1-recursive-wildcard\" (STORAGE-H1-V1-GLOB). Version 1 recursive wildcards need at least one segment; a zero-segment match is an ALLOW production never grants.",
+  "observedAt": "2026-10-27T02:46:26.385Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "3d896018d72cf7d327c0f22c309eb8effb6daeaeb1689638c292e7629a41639a"
+  },
+  "behavior": {
+    "v1 glob: two segments under the prefix wildcard allow (pyric ALLOW)": "ALLOW",
+    "v1 glob: zero segments for the glob deny (pyric ALLOW)": "DENY",
+    "v1 glob: one segment under a bare glob allows (pyric ALLOW)": "ALLOW",
+    "v1 glob: the glob type is path or string (pyric ALLOW)": "ALLOW"
+  },
+  "diagnostics": {
+    "v1 glob: two segments under the prefix wildcard allow (pyric ALLOW)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 4,
+              "column": 22,
+              "currentOffset": 136,
+              "endOffset": 139
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "v1 glob: one segment under a bare glob allows (pyric ALLOW)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 7,
+              "column": 22,
+              "currentOffset": 196,
+              "endOffset": 198
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "v1 glob: the glob type is path or string (pyric ALLOW)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 7,
+              "column": 22,
+              "currentOffset": 196,
+              "endOffset": 198
+            },
+            "value": true
+          }
+        ]
+      }
+    }
+  }
+}
