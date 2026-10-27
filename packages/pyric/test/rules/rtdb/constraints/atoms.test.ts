@@ -81,3 +81,24 @@ describe('Constraint Atoms', () => {
     expect(rootExists(['config', 'features'])).toBe("root.child('config').child('features').exists()");
   });
 });
+
+describe('atoms refuse keys RTDB rejects (CS-13)', () => {
+  const refused: Array<[string, () => unknown]> = [
+    ["hasChild('')", () => hasChild('')],
+    ["fieldIsString('a#')", () => fieldIsString('a#')],
+    ["fieldIsNumber('a.b')", () => fieldIsNumber('a.b')],
+    ["fieldIsBoolean('a[')", () => fieldIsBoolean('a[')],
+    ['rootExists([])', () => rootExists([])],
+    ["rootExists([''])", () => rootExists([''])],
+    ["rootExists(['a$'])", () => rootExists(['a$'])],
+    ["rootEquals([''], 'x')", () => rootEquals([''], 'x')],
+    ["ownPath('')", () => ownPath('')],
+  ];
+  for (const [name, call] of refused) test(`${name} throws`, () => expect(call).toThrow());
+
+  test('a slash path is a valid child path, as hasChild and fieldIs* already take it', () => {
+    expect(hasChild('a/b')).toBe("newData.hasChild('a/b')");
+    expect(rootExists(['a/b'])).toBe("root.child('a/b').exists()");
+    expect(rootExists(['rooms', { $: '$roomId' }])).toBe("root.child('rooms').child($roomId).exists()");
+  });
+});

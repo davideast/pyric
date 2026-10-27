@@ -14,7 +14,10 @@ const scenario: StdlibScenario = {
   paths: {
     '/posts/$postId': {
       write: all(authenticated(), lifecycle.createOnly()),
-      validate: timing.countedInSameWrite(2, ['quota', { $: 'auth.uid' }]),
+      // The quota check reads quota through newData.parent(), not the post.
+      // A .validate that never reads its own new value constrains none
+      // (ruleset-lint.ts hasEffectiveValidate; LD-4, #1247), so it ANDs in a value check.
+      validate: all(timing.countedInSameWrite(2, ['quota', { $: 'auth.uid' }]), 'newData.isString() && newData.val().length < 1000'),
     },
     // At most 2 posts per minute per user. A deleted quota would reset it.
     '/quota/$uid': {
@@ -37,6 +40,7 @@ scenario.cases.push(
   { description: 'a count that skips a step', expectation: 'DENY', operation: 'update', path: '/', auth: 'alice', data: quota(FUTURE, 0), newData: { 'posts/p7': 'x', 'quota/alice/count': 2 } },
   { description: 'a post that leaves the quota unchanged', expectation: 'DENY', operation: 'write', path: '/posts/p8', auth: 'alice', data: quota(FUTURE, 1), newData: 'x' },
   { description: 'a post counted on another user quota', expectation: 'DENY', operation: 'update', path: '/', auth: 'alice', newData: { 'posts/p9': 'x', 'quota/bob': { windowStart: SV, count: 1 } } },
+  { description: 'a counted post that is not a string', expectation: 'DENY', operation: 'update', path: '/', auth: 'alice', newData: { 'posts/p10': 42, 'quota/alice': { windowStart: SV, count: 1 } } },
   { description: 'a user deletes their quota', expectation: 'DENY', operation: 'write', path: '/quota/alice', auth: 'alice', data: quota(FUTURE, 2), newData: null },
 );
 

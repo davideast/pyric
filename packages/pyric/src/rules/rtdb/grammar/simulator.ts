@@ -353,23 +353,32 @@ function getEvalSemantics(): Semantics {
     },
     Ternary(node) { return (node as any).eval(this.args.ctx); },
 
-    LogicalOr_or(left, _op, right) {
-      const l = (left as any).eval(this.args.ctx);
+    // A chain matches flat (`first`, then each term of `rest`) and is folded
+    // in a loop: left to right, stopping at the first deciding term, exactly
+    // as the left-nested pairs `((a || b) || c)` evaluate.
+    LogicalOr_or(first, _ops, rest) {
+      const l = (first as any).eval(this.args.ctx);
       if (typeof l !== 'boolean') throw new RtdbRuleRuntimeError('Left operand of || must be boolean.');
       if (l) return true;
-      const r = (right as any).eval(this.args.ctx);
-      if (typeof r !== 'boolean') throw new RtdbRuleRuntimeError('Right operand of || must be boolean.');
-      return r;
+      for (const term of rest.children) {
+        const r = (term as any).eval(this.args.ctx);
+        if (typeof r !== 'boolean') throw new RtdbRuleRuntimeError('Right operand of || must be boolean.');
+        if (r) return true;
+      }
+      return false;
     },
     LogicalOr(node) { return (node as any).eval(this.args.ctx); },
 
-    LogicalAnd_and(left, _op, right) {
-      const l = (left as any).eval(this.args.ctx);
+    LogicalAnd_and(first, _ops, rest) {
+      const l = (first as any).eval(this.args.ctx);
       if (typeof l !== 'boolean') throw new RtdbRuleRuntimeError('Left operand of && must be boolean.');
       if (!l) return false;
-      const r = (right as any).eval(this.args.ctx);
-      if (typeof r !== 'boolean') throw new RtdbRuleRuntimeError('Right operand of && must be boolean.');
-      return r;
+      for (const term of rest.children) {
+        const r = (term as any).eval(this.args.ctx);
+        if (typeof r !== 'boolean') throw new RtdbRuleRuntimeError('Right operand of && must be boolean.');
+        if (!r) return false;
+      }
+      return true;
     },
     LogicalAnd(node) { return (node as any).eval(this.args.ctx); },
 
