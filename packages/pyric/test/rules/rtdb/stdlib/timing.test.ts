@@ -14,7 +14,10 @@ const scenario: StdlibScenario = {
     '/posts/$postId': {
       read: authenticated(),
       write: authenticated(),
-      validate: timing.stampedInSameWrite(2, ['lastPost', { $: 'auth.uid' }]),
+      // The stamp check reads lastPost through newData.parent(), not the post.
+      // A .validate that never reads its own new value constrains none
+      // (ruleset-lint.ts hasEffectiveValidate; LD-4, #1247), so it ANDs in a value check.
+      validate: all(timing.stampedInSameWrite(2, ['lastPost', { $: 'auth.uid' }]), 'newData.isString() && newData.val().length < 1000'),
     },
     '/lastPost/$uid': {
       // A deleted stamp would reset the cooldown, so the owner may not delete it.
@@ -41,6 +44,7 @@ scenario.cases.push(
   { description: 'a post inside the cooldown', expectation: 'DENY', operation: 'update', path: '/', auth: 'alice', data: { lastPost: { alice: FUTURE } }, newData: { 'posts/p2': 'hello', 'lastPost/alice': 0 }, serverTime: ['lastPost/alice'] },
   { description: 'two posts in one write with one stamp', expectation: 'ALLOW', operation: 'update', path: '/', auth: 'alice', newData: { 'posts/p7': 'one', 'posts/p8': 'two', 'lastPost/alice': 0 }, serverTime: ['lastPost/alice'] },
   { description: 'a post without a stamp', expectation: 'DENY', operation: 'write', path: '/posts/p3', auth: 'alice', newData: 'hello' },
+  { description: 'a stamped post that is not a string', expectation: 'DENY', operation: 'update', path: '/', auth: 'alice', newData: { 'posts/p6': { any: 'shape' }, 'lastPost/alice': 0 }, serverTime: ['lastPost/alice'] },
   { description: 'a post stamped with a client clock time', expectation: 'DENY', operation: 'update', path: '/', auth: 'alice', newData: { 'posts/p4': 'hello', 'lastPost/alice': 5 } },
   { description: 'a post stamped under another user', expectation: 'DENY', operation: 'update', path: '/', auth: 'alice', newData: { 'posts/p5': 'hello', 'lastPost/bob': 0 }, serverTime: ['lastPost/bob'] },
   { description: 'a user deletes their stamp to reset the cooldown', expectation: 'DENY', operation: 'write', path: '/lastPost/alice', auth: 'alice', data: { lastPost: { alice: FUTURE } }, newData: null },

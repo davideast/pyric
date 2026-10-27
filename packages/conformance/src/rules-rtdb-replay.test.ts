@@ -173,10 +173,6 @@ type DeployVerdict = 'ACCEPTED' | 'REJECTED';
  * case go red, then makes it agree. Keyed by `${scenarioId} :: ${caseDescription}`.
  */
 const KNOWN_DEPLOY_DIVERGENCES: Record<string, { production: DeployVerdict; local: DeployVerdict; reason: string }> = {
-  // CS-17 (#1247, row rtdb-rules#38)
-  'r51-deploy-anchor-index-and-length-probes :: CS lead: .indexOn naming a dotted child': {
-    production: 'REJECTED', local: 'ACCEPTED', reason: 'CS-17: production refuses an .indexOn entry holding a dot',
-  },
 };
 
 test('every corpus deploy scenario agrees with production (including r44 9/9), except pinned divergences', () => {

@@ -1033,8 +1033,8 @@
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "r26-rule-runtime-error",
         "r27-stdlib-core-patterns",
@@ -1052,10 +1052,10 @@
         "r9-quota-arithmetic",
         "r51-deploy-anchor-index-and-length-probes"
       ],
-      "verifiedByRows": [],
-      "divergedByRows": [
+      "verifiedByRows": [
         "rtdb-rules#39"
-      ]
+      ],
+      "divergedByRows": []
     },
     "rtdb.operator.not": {
       "productionAcceptance": "accepted",
@@ -1310,17 +1310,17 @@
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "r13-priority-and-index-directive",
         "r30-query-rules",
         "r51-deploy-anchor-index-and-length-probes"
       ],
-      "verifiedByRows": [],
-      "divergedByRows": [
+      "verifiedByRows": [
         "rtdb-rules#38"
-      ]
+      ],
+      "divergedByRows": []
     },
     "rtdb.rule-kind.location-wildcard": {
       "productionAcceptance": "accepted",

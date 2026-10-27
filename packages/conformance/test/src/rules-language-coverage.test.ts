@@ -21,7 +21,7 @@ describe('rules-language production coverage', () => {
 
     expect(rtdb?.constructs.find((construct) => construct.id === 'rtdb.semantic.validate-non-cascade')?.verdict).toBe('verified');
     // Five constructs are diverged by the 2026-10-26 hunt's pinned findings (#1247,
-    // rows rtdb-rules#36 to #39); each fix stream restores its constructs.
+    // rows rtdb-rules#36 and #37); each fix stream restores its constructs.
     expect(rtdb?.verifiedConstructs).toBe(85);
   }, FULL_GRAPH_TIMEOUT_MS);
 

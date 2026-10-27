@@ -72,18 +72,26 @@ function binary(this: Node, left: Node, op: Node, right: Node): RtdbTypedValue {
   return typed(binaryResult(operator, leftType, rightType));
 }
 
-function logical(this: Node, left: Node, op: Node, right: Node): RtdbTypedValue {
+/**
+ * Type a `||` or `&&` chain, which the grammar matches flat: `first` then each
+ * operator and term of `rest`. Folds left in a loop, so it reports what the
+ * left-nested pairs `((a || b) || c)` would, in the same order, at any length.
+ */
+function logical(this: Node, first: Node, operators: Node, rest: Node): RtdbTypedValue {
   const ctx = this.args.ctx as ValidateContext;
-  const operator = op.sourceString;
-  const leftType = use(ctx, typeOf(left, ctx));
-  const rightType = use(ctx, typeOf(right, ctx));
-  if (!BOOLEAN_OPERANDS.has(leftType)) {
-    return report(ctx, typeError('INVALID_OPERAND', `Left operand of ${operator} must be boolean.`));
-  }
-  if (!BOOLEAN_OPERANDS.has(rightType)) {
-    return report(ctx, typeError('INVALID_OPERAND', `Right operand of ${operator} must be boolean.`));
-  }
-  return typed(leftType === 'Error' || rightType === 'Error' ? 'Error' : 'Boolean');
+  let leftType = use(ctx, typeOf(first, ctx));
+  rest.children.forEach((term, index) => {
+    const operator = operators.children[index]!.sourceString;
+    const rightType = use(ctx, typeOf(term, ctx));
+    if (!BOOLEAN_OPERANDS.has(leftType)) {
+      leftType = report(ctx, typeError('INVALID_OPERAND', `Left operand of ${operator} must be boolean.`)).type;
+    } else if (!BOOLEAN_OPERANDS.has(rightType)) {
+      leftType = report(ctx, typeError('INVALID_OPERAND', `Right operand of ${operator} must be boolean.`)).type;
+    } else {
+      leftType = leftType === 'Error' || rightType === 'Error' ? 'Error' : 'Boolean';
+    }
+  });
+  return typed(leftType);
 }
 
 /** Resolve `receiver.name` as a value: a method read without a call is a `SnapshotMethod`. */

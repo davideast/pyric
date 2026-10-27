@@ -41,6 +41,7 @@ import {
 } from './expression-tree.js';
 import { isSupportedRegexFlags } from './type-rules.js';
 import { rtdbRegexError } from './regex.js';
+import { CHAINED_TERMS_MESSAGE } from '../expression-engine.js';
 
 /** Why {@link canonicalRtdbExpression} could not read its input. */
 export class RtdbExpressionSyntaxError extends Error {
@@ -111,15 +112,19 @@ function regexCompiles(raw: string): boolean {
  * same kind of failure.
  */
 function raisesOnlyRuleErrors(tree: RtdbExpressionTree): boolean {
+  // An explicit work list, so a long chain costs no call depth.
+  const pending: RtdbExpressionTree[] = [tree];
+  while (pending.length > 0) {
+    const next = pending.pop()!;
+    if (!raisesOnlyRuleErrorsHere(next)) return false;
+    pending.push(...subexpressions(next));
+  }
+  return true;
+}
+
+/** The part of {@link raisesOnlyRuleErrors} that `tree`'s own node decides. */
+function raisesOnlyRuleErrorsHere(tree: RtdbExpressionTree): boolean {
   switch (tree.type) {
-    case 'ternary':
-      return raisesOnlyRuleErrors(tree.test) && raisesOnlyRuleErrors(tree.consequent) && raisesOnlyRuleErrors(tree.alternate);
-    case 'binary':
-      return raisesOnlyRuleErrors(tree.left) && raisesOnlyRuleErrors(tree.right);
-    case 'unary':
-      return raisesOnlyRuleErrors(tree.argument);
-    case 'member':
-      return raisesOnlyRuleErrors(tree.object);
     case 'index':
     case 'array':
       // Not followed: an array can hold a snapshot (`[data][0]`), and a
@@ -129,23 +134,40 @@ function raisesOnlyRuleErrors(tree: RtdbExpressionTree): boolean {
       return false;
     case 'regex':
       return regexCompiles(tree.raw);
-    case 'call': {
-      if (!raisesOnlyRuleErrors(tree.receiver) || !tree.args.every(raisesOnlyRuleErrors)) return false;
+    case 'call':
       if (mayBeUndefined(tree.receiver)) return false;
       if (SNAPSHOT_METHODS.has(tree.method)) return true;
       return STRING_METHODS.has(tree.method) && !mayBeSnapshot(tree.receiver);
-    }
     default:
       return true;
   }
 }
 
-/** The operands of a chain of one logical operator, left to right. */
-function logicalOperands(tree: RtdbExpressionTree, operator: '&&' | '||'): RtdbExpressionTree[] {
-  if (tree.type === 'binary' && tree.operator === operator) {
-    return [...logicalOperands(tree.left, operator), ...logicalOperands(tree.right, operator)];
+/** The operands {@link raisesOnlyRuleErrors} goes on to check. */
+function subexpressions(tree: RtdbExpressionTree): RtdbExpressionTree[] {
+  switch (tree.type) {
+    case 'ternary': return [tree.test, tree.consequent, tree.alternate];
+    case 'binary': return [tree.left, tree.right];
+    case 'unary': return [tree.argument];
+    case 'member': return [tree.object];
+    case 'call': return [tree.receiver, ...tree.args];
+    default: return [];
   }
-  return [tree];
+}
+
+/**
+ * The operands of a chain of one logical operator, left to right. Walks with
+ * an explicit stack, so a chain of any length costs no call depth.
+ */
+function logicalOperands(tree: RtdbExpressionTree, operator: '&&' | '||'): RtdbExpressionTree[] {
+  const operands: RtdbExpressionTree[] = [];
+  const pending: RtdbExpressionTree[] = [tree];
+  while (pending.length > 0) {
+    const next = pending.pop()!;
+    if (next.type === 'binary' && next.operator === operator) pending.push(next.right, next.left);
+    else operands.push(next);
+  }
+  return operands;
 }
 
 /** The parts of a `+` chain, left to right. */
@@ -213,18 +235,21 @@ function childSegments(arg: RtdbExpressionTree): Segment[] | undefined {
 function canonicalNode(tree: RtdbExpressionTree): RtdbExpressionTree {
   switch (tree.type) {
     case 'binary': {
+      if (tree.operator === '&&' || tree.operator === '||') {
+        // Rewrite 1: `a && (b && c)` is `(a && b) && c`. Both evaluate the
+        // operands left to right, stop at the first false (true for `||`),
+        // and fail at the first operand that is not a boolean, so they
+        // agree on every value and every error. The chain is flattened once
+        // and each operand canonicalized on its own, so the cost is linear
+        // in the chain's length and its depth is not spent on it.
+        const operator = tree.operator;
+        const operands = logicalOperands(tree, operator)
+          .flatMap((operand) => logicalOperands(canonicalTree(operand), operator));
+        return operands.reduce((acc, operand) => ({ type: 'binary', operator, left: acc, right: operand }));
+      }
       const left = canonicalTree(tree.left);
       const right = canonicalTree(tree.right);
       switch (tree.operator) {
-        case '&&':
-        case '||': {
-          // Rewrite 1: `a && (b && c)` is `(a && b) && c`. Both evaluate the
-          // operands left to right, stop at the first false (true for `||`),
-          // and fail at the first operand that is not a boolean, so they
-          // agree on every value and every error.
-          const operands = [...logicalOperands(left, tree.operator), ...logicalOperands(right, tree.operator)];
-          return operands.reduce((acc, operand) => ({ type: 'binary', operator: tree.operator, left: acc, right: operand }));
-        }
         // Rewrite 2: RTDB's `===` and `!==` are its `==` and `!=`: neither
         // converts types, and the simulator evaluates the pairs with the same
         // operand checks and comparison.
@@ -331,5 +356,12 @@ export function canonicalTree(tree: RtdbExpressionTree): RtdbExpressionTree {
 export function canonicalRtdbExpression(raw: string): string {
   const parsed = parseRtdbExpressionTree(raw);
   if (!parsed.ok) throw new RtdbExpressionSyntaxError(raw, parsed.message);
-  return printRtdbExpressionTree(canonicalTree(parsed.tree));
+  try {
+    return printRtdbExpressionTree(canonicalTree(parsed.tree));
+  } catch (error) {
+    // A long chain of an operator other than `&&` and `||` still descends
+    // once per term, as the parser does.
+    if (error instanceof RangeError) throw new RtdbExpressionSyntaxError(raw, CHAINED_TERMS_MESSAGE);
+    throw error;
+  }
 }

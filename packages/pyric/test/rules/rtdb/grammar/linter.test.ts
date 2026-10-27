@@ -121,9 +121,15 @@ describe('lintExpression', () => {
       expect(checkResult.warnings).toEqual([]);
     }
 
+    // A 6,000-term chain used to overflow the stack and lint as PARSE_ERROR.
+    // Production deploys a 2,000-term || chain (r51, "LD-7: a 2000-term ||
+    // chain": ACCEPTED), and && and || chains now read at any length (LD-7, #1247).
     const deeplyChained = Array.from({ length: 6000 }, () => 'auth != null').join(' && ');
-    expect(() => lintExpression(deeplyChained, 'read')).not.toThrow();
-    expect(lintExpression(deeplyChained, 'read')).toEqual([
+    expect(lintExpression(deeplyChained, 'read')).toEqual([]);
+    // A long chain of another binary operator still overflows, and is still a parse error.
+    const deeplyAdded = `${Array.from({ length: 20_000 }, () => '1').join(' + ')} > 0`;
+    expect(() => lintExpression(deeplyAdded, 'read')).not.toThrow();
+    expect(lintExpression(deeplyAdded, 'read')).toEqual([
       {
         code: 'PARSE_ERROR',
         message: 'The expression chains more terms than the rules parser reads.',
