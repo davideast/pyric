@@ -12,7 +12,7 @@ import { createServer } from 'node:net';
 import { join } from 'node:path';
 import type { Browser, BrowserContext, Page } from '@playwright/test';
 import { blackholedPort, type BlackholedPort } from '../../packages/cli/test/blackholed-port.ts';
-import { npmInstallArgs, pinPyricPackages, type Tarballs } from './install.ts';
+import { npmInstall, pinPyricPackages, type Tarballs } from './install.ts';
 
 export interface LogWaitOptions {
   /** Only output after this offset (from `mark()`) counts. Default: all output. */
@@ -507,7 +507,7 @@ export class AppRun implements App {
   async installProject(path: string): Promise<ScriptResult> {
     if (!this.packages) throw new Error('installProject needs the packed packages; the runner passes them');
     pinPyricPackages(join(this.dir, path), this.packages.tarballs);
-    const result = await this.command('npm', npmInstallArgs(this.packages.npmCache), { cwd: path, timeoutMs: 240_000 });
+    const result = await npmInstall(this.packages.npmCache, (args) => this.command('npm', args, { cwd: path, timeoutMs: 240_000 }));
     if (result.code !== 0) throw new Error(`npm install in ${path} exited with code ${result.code}:\n${result.output}`);
     return result;
   }

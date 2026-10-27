@@ -21,14 +21,17 @@
  * way.
  *
  * Without --packages, the runner packs the current workspace build into
- * dist/packages. Logs land in test-results/apps/<name>/.
+ * dist/packages. Apps that install the same packages share one `npm install`
+ * per run, copied into each app (shared-installs.ts). Logs land in
+ * test-results/apps/<name>/.
  */
 import { chromium, type Browser } from '@playwright/test';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { AppRun, StepFailure, type Scenario } from './driver.ts';
-import { installApp, packWorkspace, tarballsIn, type Tarballs } from './install.ts';
+import { npmInstall, packWorkspace, prepareApp, runCommand, tarballsIn, type Tarballs } from './install.ts';
+import { SharedInstalls } from './shared-installs.ts';
 import { parseArguments, selectApps, skippedSlowClause } from './selection.ts';
 
 const appsDir = import.meta.dir;
@@ -91,6 +94,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, run: AppRun): Promise<T
 async function runApp(name: string, context: {
   tarballs: Tarballs;
   npmCache: string;
+  installs: SharedInstalls;
   keep: boolean;
   browser: () => Promise<Browser>;
 }): Promise<AppResult> {
@@ -105,7 +109,10 @@ async function runApp(name: string, context: {
   let failure: unknown;
   try {
     run.currentStep = 'npm install';
-    const install = await installApp({ appDir: join(appsDir, name), projectDir, tarballs: context.tarballs, npmCache: context.npmCache });
+    prepareApp({ appDir: join(appsDir, name), projectDir, tarballs: context.tarballs });
+    // Under the app's timeout too: a shared install or copy that never settles
+    // fails this app instead of holding the run.
+    const install = await withTimeout(context.installs.install(projectDir), APP_TIMEOUT_MS, run);
     logs.push({ name: 'npm install', text: install.output });
     if (install.code !== 0) throw new StepFailure('npm install', new Error(`npm install exited with code ${install.code}`));
     run.currentStep = 'load scenario';
@@ -202,18 +209,26 @@ async function main(): Promise<void> {
   }
   const npmCache = process.env.PYRIC_APPS_NPM_CACHE ?? join(homedir(), '.cache', 'pyric-app-scenarios-npm');
   rmSync(resultsDir, { recursive: true, force: true });
+  const installsDir = mkdtempSync(join(tmpdir(), 'pyric-app-installs-'));
+  const installs = new SharedInstalls(installsDir, (cwd) => npmInstall(npmCache, (args) => runCommand('npm', args, { cwd })));
 
   let browser: Promise<Browser> | undefined;
   const launch = () => (browser ??= chromium.launch({ headless: true }));
 
   console.log(`▸ running ${names.length} app${names.length === 1 ? '' : 's'}, ${options.jobs} at a time`);
-  const results = await pool(names, options.jobs, async (name) => {
-    const result = await runApp(name, { tarballs, npmCache, keep: options.keep, browser: launch });
-    const dir = saveLogs(result);
-    console.log(result.ok ? `✓ ${name} (${result.seconds.toFixed(1)}s)` : report(result, dir));
-    return result;
-  });
-  if (browser) await (await browser).close();
+  let results: AppResult[];
+  try {
+    results = await pool(names, options.jobs, async (name) => {
+      const result = await runApp(name, { tarballs, npmCache, installs, keep: options.keep, browser: launch });
+      const dir = saveLogs(result);
+      console.log(result.ok ? `✓ ${name} (${result.seconds.toFixed(1)}s)` : report(result, dir));
+      return result;
+    });
+    if (browser) await (await browser).close();
+  } finally {
+    if (options.keep) console.log(`  shared installs: ${installsDir}`);
+    else rmSync(installsDir, { recursive: true, force: true });
+  }
 
   const failed = results.filter((result) => !result.ok);
   const total = ((performance.now() - started) / 1000).toFixed(1);
