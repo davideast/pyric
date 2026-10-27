@@ -7,8 +7,12 @@
  *    Check issuer, `sub` is a non-empty string;
  * 3. the `kid` names a known key (a missing `kid` is tried against every key);
  * 4. the signature;
- * 5. `exp`, read by jsonwebtoken: absent is never expired, a non-number fails
- *    as an invalid signature, and `now >= exp` is expired.
+ * 5. `nbf` then `exp`, read by jsonwebtoken: absent never applies, a
+ *    non-number fails as an invalid signature, a future `nbf` fails as an
+ *    invalid signature, and `now >= exp` is expired.
+ *
+ * The string and options checks throw synchronously, before a promise exists,
+ * as upstream's `AppCheck.verifyToken` does.
  *
  * Errors carry firebase-admin's PrefixedFirebaseError shape.
  */
@@ -66,11 +70,42 @@ afterEach(async () => {
   await Promise.all(getApps().map((app) => deleteApp(app)));
 });
 
+/** Calls without awaiting: a synchronous throw is caught here, a rejection is not. */
+function syncThrow(operation: () => unknown): { code: string; message: string } | null {
+  try {
+    const pending = operation() as Promise<unknown> | undefined;
+    pending?.catch?.(() => {});
+  } catch (error) {
+    const e = error as { code?: string; message?: string };
+    return { code: String(e.code), message: String(e.message) };
+  }
+  return null;
+}
+
 describe('verifyToken input', () => {
-  it('rejects a token that is not a string with firebase-admin message', async () => {
+  it('throws synchronously for a token that is not a string, with firebase-admin message', () => {
     const service = appCheck();
     for (const value of [undefined, null, 42, {}]) {
-      expect(await rejection(() => service.verifyToken(value as unknown as string))).toEqual(invalid(MESSAGES.notString));
+      expect(syncThrow(() => service.verifyToken(value as unknown as string))).toEqual(invalid(MESSAGES.notString));
+    }
+  });
+
+  it('throws synchronously for options that are not a non-null object', () => {
+    const service = appCheck();
+    for (const options of [null, 'consume', 1, [true]]) {
+      expect(syncThrow(() => service.verifyToken('a.b.c', options as never))).toEqual(
+        invalid('VerifyAppCheckTokenOptions must be a non-null object.'),
+      );
+    }
+  });
+
+  it('rejects a segment with characters outside base64url as a decode failure', async () => {
+    const token = await signAppCheckToken(HEADER, CLAIMS());
+    const [h, p, sig] = token.split('.');
+    const decode =
+      'Decoding App Check token failed. Make sure you passed the entire string JWT which represents the Firebase App Check token.';
+    for (const bad of [`${h}=.${p}.${sig}`, `${h}.${p}+.${sig}`, `${h}.${p}.${sig}/`, ` ${token}`, `${h}..${sig}`]) {
+      expect(await rejection(() => appCheck().verifyToken(bad))).toEqual(invalid(decode));
     }
   });
 });
@@ -120,6 +155,28 @@ describe('verifyToken key and signature', () => {
   it('accepts a sandbox-signed token with no kid, as firebase-admin tries every key', async () => {
     const { kid: _kid, ...header } = HEADER;
     const token = await signAppCheckToken(header, CLAIMS());
+    expect((await appCheck().verifyToken(token)).appId).toBe(APP_ID);
+  });
+});
+
+describe('verifyToken not-before', () => {
+  it('fails a future nbf as an invalid signature', async () => {
+    const token = await signAppCheckToken(HEADER, { ...CLAIMS(), nbf: nowSeconds() + 3600 });
+    expect(await rejection(() => appCheck().verifyToken(token))).toEqual(invalid(MESSAGES.signature));
+  });
+
+  it('fails a non-numeric nbf as an invalid signature', async () => {
+    const token = await signAppCheckToken(HEADER, { ...CLAIMS(), nbf: 'later' });
+    expect(await rejection(() => appCheck().verifyToken(token))).toEqual(invalid(MESSAGES.signature));
+  });
+
+  it('checks nbf before exp', async () => {
+    const token = await signAppCheckToken(HEADER, { ...CLAIMS(), nbf: nowSeconds() + 3600, exp: nowSeconds() - 1 });
+    expect(await rejection(() => appCheck().verifyToken(token))).toEqual(invalid(MESSAGES.signature));
+  });
+
+  it('accepts an nbf of now', async () => {
+    const token = await signAppCheckToken(HEADER, { ...CLAIMS(), nbf: nowSeconds() });
     expect((await appCheck().verifyToken(token)).appId).toBe(APP_ID);
   });
 });

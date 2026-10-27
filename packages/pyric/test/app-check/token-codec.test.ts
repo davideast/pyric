@@ -1,8 +1,10 @@
 /**
  * The shared sandbox App Check token codec (`pyric/sandbox/internal`).
  *
- * Decoding matches encoding: the payload is UTF-8, as firebase-admin's jws
- * decode reads it (`Buffer.from(payload, 'base64').toString('utf8')`). The
+ * Decoding follows firebase-admin's jws decode: the payload is UTF-8
+ * (`Buffer.from(payload, 'base64').toString('utf8')`, so invalid bytes become
+ * U+FFFD), the header is Latin-1 (`toString('binary')`), and every segment
+ * uses only base64url characters (jws `JWS_REGEX`). The
  * codec uses `atob`/`btoa` and `TextEncoder`/`TextDecoder` only, so it runs the
  * same in a browser or worker; the parity case deletes Node's `Buffer` to prove
  * nothing falls back to it (AGENTS.md item 5).
@@ -58,6 +60,38 @@ describe('sandbox App Check token codec', () => {
     expect(typeof (globalThis as { Buffer?: unknown }).Buffer).toBe('undefined');
     const withoutBuffer = await decodeEach();
     expect(withoutBuffer).toEqual(withBuffer);
+  });
+
+  it('replaces invalid UTF-8 in the payload with U+FFFD, as Buffer does', async () => {
+    const header = btoa(JSON.stringify(HEADER)).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+    const payloadBytes = '{"sub":"\xff"}';
+    const payload = btoa(payloadBytes).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+    const check = await checkAppCheckToken(`${header}.${payload}.sig`);
+    expect(check.ok).toBe(false);
+    if (!check.ok && check.reason !== 'malformed') expect(check.claims.sub).toBe('\uFFFD');
+    else throw new Error('expected the token to decode');
+  });
+
+  it('decodes the header as Latin-1, as jws does', async () => {
+    const latin1 = btoa('{"alg":"RS256\u00c3\u00a9","typ":"JWT"}').replace(/=+$/, '');
+    const check = await checkAppCheckToken(`${latin1}.e30.sig`);
+    if (check.ok || check.reason === 'malformed') throw new Error('expected the token to decode');
+    expect(check.header.alg).toBe('RS256Ã©');
+  });
+
+  it('refuses a segment with characters outside base64url', async () => {
+    const token = await signAppCheckToken(HEADER, CLAIM_CASES.ascii!);
+    const [h, p, sig] = token.split('.');
+    for (const bad of [`${h}=.${p}.${sig}`, `${h}.${p}+.${sig}`, `${h}.${p}.${sig}/`, `${h}. ${p}.${sig}`, `.${p}.${sig}`, `${h}..${sig}`]) {
+      expect(await checkAppCheckToken(bad)).toEqual({ ok: false, reason: 'malformed' });
+    }
+  });
+
+  it('accepts an empty signature segment as jws does, then fails the signature', async () => {
+    const [h, p] = (await signAppCheckToken(HEADER, CLAIM_CASES.ascii!)).split('.');
+    const check = await checkAppCheckToken(`${h}.${p}.`);
+    expect(check.ok).toBe(false);
+    if (!check.ok) expect(check.reason).toBe('signature');
   });
 
   it('returns the decoded header with the claims', async () => {

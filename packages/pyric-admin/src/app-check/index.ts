@@ -23,6 +23,7 @@ const DEFAULT_TTL_MILLIS = 60 * MINUTE_MILLIS;
 
 const MESSAGES = {
   notString: 'App check token must be a non-null string.',
+  options: 'VerifyAppCheckTokenOptions must be a non-null object.',
   algorithm: (alg: unknown) => `The provided App Check token has incorrect algorithm. Expected "RS256" but got "${String(alg)}".`,
   noSub: 'The provided App Check token has no "sub" (subject) claim.',
   emptySub: 'The provided App Check token has an empty string "sub" (subject) claim.',
@@ -129,23 +130,31 @@ export class AppCheck {
   }
 
   /**
-   * Checks in firebase-admin's order (token-verifier.js, utils/jwt.js): the
-   * token is a string, then the project, decoding, content, key, signature,
-   * and last `exp` as jsonwebtoken reads it.
+   * Checks in firebase-admin's order (app-check.js, token-verifier.js,
+   * utils/jwt.js): the options and the token's type, synchronously as
+   * upstream throws them; then the project, decoding, content, key,
+   * signature, and last `nbf` and `exp` as jsonwebtoken reads them.
    */
-  async verifyToken(appCheckToken: string, options?: VerifyAppCheckTokenOptions): Promise<VerifyAppCheckTokenResponse> {
+  verifyToken(appCheckToken: string, options?: VerifyAppCheckTokenOptions): Promise<VerifyAppCheckTokenResponse> {
     assertAdminAppActive(this.#app);
+    const optionsAreObject = typeof options === 'object' && options !== null && !Array.isArray(options);
+    if (options !== undefined && !optionsAreObject) throw new FirebaseAppCheckError('invalid-argument', MESSAGES.options);
     if (typeof appCheckToken !== 'string') throw new FirebaseAppCheckError('invalid-argument', MESSAGES.notString);
+    return this.#verify(appCheckToken, options);
+  }
+
+  async #verify(appCheckToken: string, options: VerifyAppCheckTokenOptions | undefined): Promise<VerifyAppCheckTokenResponse> {
     const projectId = this.#projectId();
     const check = await checkAppCheckToken(appCheckToken);
     if (!check.ok && check.reason === 'malformed') throw new FirebaseAppCheckError('invalid-argument', MESSAGES.decode);
     verifyContent(check.header, check.claims, projectId);
     if (!check.ok && check.reason === 'kid') throw new FirebaseAppCheckError('invalid-argument', MESSAGES.noMatchingKid);
     if (!check.ok) throw new FirebaseAppCheckError('invalid-argument', MESSAGES.signature);
+    verifyNotBefore(check.claims.nbf);
     verifyExpiry(check.claims.exp);
     const claims = check.claims as AppCheckTokenClaims;
     const result: VerifyAppCheckTokenResponse = { appId: claims.sub, token: { ...claims, app_id: claims.sub } };
-    if (options?.consume === true) {
+    if (options?.consume) {
       const consumed = consumedFor(this.#app);
       const tokenId = typeof claims.jti === 'string' ? claims.jti : appCheckToken;
       result.alreadyConsumed = consumed.has(tokenId);
@@ -177,6 +186,14 @@ function verifyContent(header: Readonly<Record<string, unknown>>, claims: Readon
   if (!issuerMatches) throw new FirebaseAppCheckError('invalid-argument', MESSAGES.issuer);
   if (typeof claims.sub !== 'string') throw new FirebaseAppCheckError('invalid-argument', MESSAGES.noSub);
   if (claims.sub === '') throw new FirebaseAppCheckError('invalid-argument', MESSAGES.emptySub);
+}
+
+/** jsonwebtoken's nbf rule, which runs before exp: firebase-admin reports both failures as an invalid signature. */
+function verifyNotBefore(nbf: unknown): void {
+  if (nbf === undefined) return;
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const active = typeof nbf === 'number' && nbf <= nowSeconds;
+  if (!active) throw new FirebaseAppCheckError('invalid-argument', MESSAGES.signature);
 }
 
 /**

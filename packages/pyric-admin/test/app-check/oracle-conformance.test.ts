@@ -158,6 +158,15 @@ const assertions: Record<string, () => Promise<void>> = {
     expect(await rejection(async () => appCheck().verifyToken(await signed(header, { ...claims, exp: 'soon' })))).toEqual(
       invalid('The provided App Check token has invalid signature.'),
     );
+    expect(await rejection(async () => appCheck().verifyToken(await signed(header, { ...claims, nbf: Number.MAX_SAFE_INTEGER })))).toEqual(
+      invalid('The provided App Check token has invalid signature.'),
+    );
+    expect(await rejection(() => appCheck().verifyToken(token, null as never))).toEqual(invalid('VerifyAppCheckTokenOptions must be a non-null object.'));
+    expect(await rejection(() => appCheck().verifyToken(`${token}=`))).toEqual({
+      threw: true,
+      code: 'app-check/invalid-argument',
+      message: 'Decoding App Check token failed. Make sure you passed the entire string JWT which represents the Firebase App Check token.',
+    });
   },
   'app-check-admin#verify-token-consume': async () => {
     const o = obs('app-check-admin-verify-consume');

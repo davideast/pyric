@@ -46,13 +46,26 @@ function base64url(bytes: Uint8Array): string {
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-/** Decodes a base64url segment as UTF-8, the inverse of {@link encodeJson}. Uses `atob` and `TextDecoder` only, so it runs the same in a browser or worker. */
-function fromBase64url(text: string): string {
+/** jws `JWS_REGEX`: base64url characters only, header and payload non-empty, signature optional. */
+const JWS_SHAPE = /^[a-zA-Z0-9\-_]+?\.[a-zA-Z0-9\-_]+?\.([a-zA-Z0-9\-_]+)?$/;
+
+/** A base64url segment as Latin-1 text, one character per byte, as jws reads a header (`toString('binary')`). */
+function latin1FromBase64url(text: string): string {
   const padded = text.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(text.length / 4) * 4, '=');
-  const binary = atob(padded);
+  return atob(padded);
+}
+
+/**
+ * A base64url segment as UTF-8, as jws reads a payload (`toString('utf8')`):
+ * the inverse of {@link encodeJson}, with invalid bytes replaced by U+FFFD as
+ * Buffer does. Uses `atob` and `TextDecoder` only, so it runs the same in a
+ * browser or worker.
+ */
+function utf8FromBase64url(text: string): string {
+  const binary = latin1FromBase64url(text);
   const bytes = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
-  return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  return new TextDecoder('utf-8').decode(bytes);
 }
 
 function isJsonObject(value: unknown): value is Record<string, unknown> {
@@ -131,13 +144,13 @@ export type AppCheckTokenCheck =
  * audience, subject and expiry are the caller's rules.
  */
 export async function checkAppCheckToken(token: string): Promise<AppCheckTokenCheck> {
+  if (!JWS_SHAPE.test(token)) return { ok: false, reason: 'malformed' };
   const segments = token.split('.');
-  if (segments.length !== 3) return { ok: false, reason: 'malformed' };
   let header: unknown;
   let claims: unknown;
   try {
-    header = JSON.parse(fromBase64url(segments[0]!));
-    claims = JSON.parse(fromBase64url(segments[1]!));
+    header = JSON.parse(latin1FromBase64url(segments[0]!));
+    claims = JSON.parse(utf8FromBase64url(segments[1]!));
   } catch {
     return { ok: false, reason: 'malformed' };
   }
