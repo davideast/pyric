@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AppProcess, AppRun } from './driver.ts';
@@ -17,27 +17,40 @@ afterEach(() => {
 /** How long `zombie` waits for /proc to show its child as a zombie; a loaded machine can be slow to run it. */
 const ZOMBIE_WAIT_MS = 4000;
 
+/** The pids whose /proc/<pid>/stat names `parent` as their parent. */
+function childrenOf(parent: number): number[] {
+  const pids = readdirSync('/proc').filter((entry) => /^\d+$/.test(entry)).map(Number);
+  return pids.filter((pid) => {
+    try {
+      return parseProcStat(readFileSync(`/proc/${pid}/stat`, 'utf8'))?.parent === parent;
+    } catch {
+      return false;
+    }
+  });
+}
+
 /**
  * A real zombie: a child that has exited with `code` and that nobody reaps.
  * Its parent, `sh`, starts it in the background and then becomes `sleep`,
  * which never calls waitpid, the way the runner never reaped its children in
- * #1274. Resolves to the zombie's pid once /proc/<pid>/stat shows state Z with
- * its exit status (field 52), and throws, with what /proc showed, if that
- * takes longer than ZOMBIE_WAIT_MS (#1281).
+ * #1274. No builtin runs between the two: dash reaps an exited background
+ * child after each builtin, so an `echo $!` there lost the zombie whenever the
+ * child exited first (#1281). Resolves to the zombie's pid once
+ * /proc/<pid>/stat shows state Z with its exit status (field 52), and throws
+ * if that takes longer than ZOMBIE_WAIT_MS.
  */
 async function zombie(code: number): Promise<number> {
-  const parent = spawn('sh', ['-c', `(exit ${code}) & echo $!; exec sleep 60`], { stdio: ['ignore', 'pipe', 'ignore'] });
+  const parent = spawn('sh', ['-c', `(exit ${code}) & exec sleep 60`], { stdio: 'ignore' });
   parents.push(parent);
-  const pid = await new Promise<number>((resolve) => {
-    parent.stdout?.once('data', (chunk) => resolve(Number(String(chunk).trim())));
-  });
+  const parentPid = parent.pid ?? 0;
   const deadline = performance.now() + ZOMBIE_WAIT_MS;
   // Once /proc shows the child as Z, its exit status is in field 52; `unreapedExit` reads both.
-  while (unreapedExit(pid) === undefined) {
-    if (performance.now() > deadline) throw new Error(`pid ${pid} was not a zombie after ${ZOMBIE_WAIT_MS}ms${describeProcState(pid)}`);
+  const findZombie = () => childrenOf(parentPid).find((pid) => unreapedExit(pid) !== undefined);
+  for (let pid = findZombie(); ; pid = findZombie()) {
+    if (pid !== undefined) return pid;
+    if (performance.now() > deadline) throw new Error(`no zombie child of pid ${parentPid} after ${ZOMBIE_WAIT_MS}ms${describeProcState(parentPid)}`);
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
-  return pid;
 }
 
 /** A child handle for an existing pid that never emits exit or close, as Bun's did. */
