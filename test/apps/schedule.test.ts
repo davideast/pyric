@@ -33,9 +33,16 @@ describe('the order apps start in', () => {
 describe('the recorded times', () => {
   test('a run adds its passing apps to the times already recorded, and a failing app keeps its old time', () => {
     const file = durationsFile();
-    recordDurations(file, [{ name: 'a', ok: true, seconds: 30 }, { name: 'b', ok: true, seconds: 40 }]);
-    recordDurations(file, [{ name: 'b', ok: true, seconds: 50 }, { name: 'a', ok: false, seconds: 300 }]);
+    recordDurations(file, [{ name: 'a', ok: true, scenarioSeconds: 30 }, { name: 'b', ok: true, scenarioSeconds: 40 }], ['a', 'b']);
+    recordDurations(file, [{ name: 'b', ok: true, scenarioSeconds: 50 }, { name: 'a', ok: false, scenarioSeconds: 300 }], ['a', 'b']);
     expect(readDurations(file)).toEqual({ a: 30, b: 50 });
+  });
+
+  test('an app that no longer exists drops out of the recorded times', () => {
+    const file = durationsFile();
+    recordDurations(file, [{ name: 'old-name', ok: true, scenarioSeconds: 30 }], ['old-name']);
+    recordDurations(file, [{ name: 'new-name', ok: true, scenarioSeconds: 31 }], ['new-name']);
+    expect(readDurations(file)).toEqual({ 'new-name': 31 });
   });
 
   test('a missing or unreadable file reads as no times', () => {
@@ -61,5 +68,7 @@ describe('how many apps run at once by default', () => {
 
   test('on CI, one app per runner thread', () => {
     expect(defaultJobs({ threads: 4, load: 0.5 }, { CI: 'true' })).toBe(4);
+    expect(defaultJobs({ threads: 4, load: 0.5 }, { CI: '1' })).toBe(4);
+    expect(defaultJobs({ threads: 4, load: 0.5 }, { CI: 'false' })).toBe(1);
   });
 });

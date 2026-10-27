@@ -7,17 +7,20 @@
  * time (a new app, or a fresh checkout) starts before the timed ones, since
  * nothing says it is short.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { availableParallelism, loadavg } from 'node:os';
 import { dirname } from 'node:path';
 
 /** Seconds each app took in the runs recorded so far, by app name. */
 export type Durations = Record<string, number>;
 
+/** An app with no recorded time sorts as the longest, so it starts first. */
+function sortKey(durations: Durations, name: string): number {
+  return durations[name] ?? Number.POSITIVE_INFINITY;
+}
+
 export function longestFirst(names: readonly string[], durations: Durations): string[] {
-  const untimed = names.filter((name) => durations[name] === undefined).sort();
-  const timed = names.filter((name) => durations[name] !== undefined).sort((a, b) => (durations[b] ?? 0) - (durations[a] ?? 0));
-  return [...untimed, ...timed];
+  return [...names].sort((a, b) => sortKey(durations, b) - sortKey(durations, a) || a.localeCompare(b));
 }
 
 export function readDurations(file: string): Durations {
@@ -33,14 +36,28 @@ export function readDurations(file: string): Durations {
   return Object.fromEntries(Object.entries(parsed as Record<string, unknown>).filter((entry): entry is [string, number] => typeof entry[1] === 'number'));
 }
 
-/** Add a run's passing apps to the recorded times. A failed app's time says little, so it keeps its old one. */
-export function recordDurations(file: string, results: ReadonlyArray<{ name: string; ok: boolean; seconds: number }>): void {
-  const durations = readDurations(file);
+/** One app's result as the recorded times see it: how long its scenario ran, install excluded. */
+export interface TimedResult {
+  name: string;
+  ok: boolean;
+  scenarioSeconds: number;
+}
+
+/**
+ * Add a run's passing apps to the recorded times, and drop apps that no longer
+ * exist. A failed app's time says little, so it keeps its old one. The file is
+ * replaced in one rename, so a run killed mid-write leaves the old times.
+ */
+export function recordDurations(file: string, results: readonly TimedResult[], available: readonly string[]): void {
+  const exists = new Set(available);
+  const durations = Object.fromEntries(Object.entries(readDurations(file)).filter(([name]) => exists.has(name)));
   for (const result of results) {
-    if (result.ok) durations[result.name] = Math.round(result.seconds * 10) / 10;
+    if (result.ok) durations[result.name] = Math.round(result.scenarioSeconds * 10) / 10;
   }
   mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, `${JSON.stringify(durations, null, 2)}\n`);
+  const partial = `${file}.${process.pid}.tmp`;
+  writeFileSync(partial, `${JSON.stringify(durations, null, 2)}\n`);
+  renameSync(partial, file);
 }
 
 export interface MachineLoad {
@@ -63,7 +80,7 @@ const MOST_LOCAL_JOBS = 6;
  * the count comes from the threads the load leaves free.
  */
 export function defaultJobs(machine: MachineLoad, env: Record<string, string | undefined>): number {
-  const isCi = env.CI === 'true';
+  const isCi = env.CI !== undefined && env.CI !== '' && env.CI !== 'false';
   if (isCi) return Math.max(1, machine.threads);
   const freeThreads = machine.threads - machine.load;
   return Math.min(MOST_LOCAL_JOBS, Math.max(1, Math.floor(freeThreads / THREADS_PER_APP)));

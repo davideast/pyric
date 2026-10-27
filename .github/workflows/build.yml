@@ -438,6 +438,15 @@ jobs:
         run: bash scripts/pack-packages.sh --skip-build
       - name: Test the app selection and the driver
         run: bun test test/apps/selection.test.ts test/apps/driver.test.ts test/apps/install.test.ts test/apps/schedule.test.ts
+      - name: Restore the app scenario times
+        # test/apps/run.ts starts the apps that took longest in the last run
+        # first, from test-results/app-durations.json. The order only affects
+        # how long the step takes, so a near match is fine.
+        uses: actions/cache@v4
+        with:
+          path: test-results/app-durations.json
+          key: app-durations-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: app-durations-
       - name: App scenarios
         # Each app in test/apps installs from the tarballs above plus registry
         # firebase, firebase-admin and vite, runs its own Vite dev server and

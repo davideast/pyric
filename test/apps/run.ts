@@ -71,6 +71,8 @@ interface AppResult {
   name: string;
   ok: boolean;
   seconds: number;
+  /** The part of `seconds` spent on `npm install`, including waiting for a shared install. */
+  installSeconds: number;
   step?: string;
   error?: string;
   logs: Array<{ name: string; text: string }>;
@@ -111,12 +113,15 @@ async function runApp(name: string, context: {
   const run = new AppRun(name, projectDir, home, context.browser, { tarballs: context.tarballs, npmCache: context.npmCache });
   const logs: AppResult['logs'] = [];
   let failure: unknown;
+  let installSeconds = 0;
   try {
     run.currentStep = 'npm install';
     prepareApp({ appDir: join(appsDir, name), projectDir, tarballs: context.tarballs });
+    const installStarted = performance.now();
     // Under the app's timeout too: a shared install or copy that never settles
     // fails this app instead of holding the run.
     const install = await withTimeout(context.installs.install(projectDir), APP_TIMEOUT_MS, run);
+    installSeconds = (performance.now() - installStarted) / 1000;
     logs.push({ name: 'npm install', text: install.output });
     if (install.code !== 0) throw new StepFailure('npm install', new Error(`npm install exited with code ${install.code}`));
     run.currentStep = 'load scenario';
@@ -141,6 +146,7 @@ async function runApp(name: string, context: {
     name,
     ok,
     seconds: (performance.now() - started) / 1000,
+    installSeconds,
     step: ok ? undefined : failure instanceof StepFailure ? failure.step : run.currentStep,
     error: ok ? undefined : describeError(failure),
     logs,
@@ -196,7 +202,11 @@ async function main(): Promise<void> {
   const slow = filtersSlow ? await slowApps(available) : new Set<string>();
   const selection = selectApps({ available, names: options.names, slow, filter: options.slow });
   const { skippedSlow } = selection;
-  const names = longestFirst(selection.run, readDurations(durationsFile));
+  // Apps named on the command line run in the order given; a whole run starts the longest first.
+  const isWholeRun = options.names.length === 0;
+  const names = isWholeRun ? longestFirst(selection.run, readDurations(durationsFile)) : selection.run;
+  // Measured before packing, so the runner's own build and pack do not count as load.
+  const machine = measureMachineLoad();
   if (names.length === 0) {
     // A run that drives no app passes without proving anything, so a marker
     // removed by mistake fails the slow workflow instead of turning it green.
@@ -221,7 +231,6 @@ async function main(): Promise<void> {
   let browser: Promise<Browser> | undefined;
   const launch = () => (browser ??= chromium.launch({ headless: true }));
 
-  const machine = measureMachineLoad();
   const jobs = options.jobs ?? defaultJobs(machine, process.env);
   const load = `load ${(machine.load / machine.threads).toFixed(2)} per thread`;
   console.log(`▸ running ${names.length} app${names.length === 1 ? '' : 's'}, ${jobs} at a time (${load}), longest first`);
@@ -238,7 +247,7 @@ async function main(): Promise<void> {
     if (options.keep) console.log(`  shared installs: ${installsDir}`);
     else rmSync(installsDir, { recursive: true, force: true });
   }
-  recordDurations(durationsFile, results);
+  recordDurations(durationsFile, results.map((result) => ({ name: result.name, ok: result.ok, scenarioSeconds: result.seconds - result.installSeconds })), available);
 
   const failed = results.filter((result) => !result.ok);
   const total = ((performance.now() - started) / 1000).toFixed(1);
