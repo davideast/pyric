@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AppProcess, AppRun } from './driver.ts';
 import { runCommand } from './install.ts';
-import { decodeExitStatus, describeUnreapedExit, liveGroupMembers, parseProcStat, unreapedExit, watchUnreapedExit } from './unreaped-exit.ts';
+import { decodeExitStatus, describeProcState, describeUnreapedExit, liveGroupMembers, parseProcStat, unreapedExit, watchUnreapedExit, type ProcStat } from './unreaped-exit.ts';
 
 const onLinux = process.platform === 'linux';
 const parents: ChildProcess[] = [];
@@ -14,20 +14,52 @@ afterEach(() => {
   for (const parent of parents.splice(0)) parent.kill('SIGKILL');
 });
 
+/** How long a test waits for /proc to show a process it started in the state it needs; a loaded machine can be slow to run it. */
+const PROC_WAIT_MS = 4000;
+
+/** What /proc/<pid>/stat says about `pid`, or undefined once it is gone. */
+function procStat(pid: number): ProcStat | undefined {
+  try {
+    return parseProcStat(readFileSync(`/proc/${pid}/stat`, 'utf8'));
+  } catch {
+    return undefined;
+  }
+}
+
+/** Polls `find` every 50ms until it returns a value, and throws `failure()` after PROC_WAIT_MS. */
+async function waitForProc<T>(find: () => T | undefined, failure: () => string): Promise<T> {
+  const deadline = performance.now() + PROC_WAIT_MS;
+  for (let found = find(); ; found = find()) {
+    if (found !== undefined) return found;
+    if (performance.now() > deadline) throw new Error(`${failure()} after ${PROC_WAIT_MS}ms`);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
+/** The pids whose /proc/<pid>/stat names `parent` as their parent. */
+function childrenOf(parent: number): number[] {
+  const pids = readdirSync('/proc').filter((entry) => /^\d+$/.test(entry)).map(Number);
+  return pids.filter((pid) => procStat(pid)?.parent === parent);
+}
+
 /**
  * A real zombie: a child that has exited with `code` and that nobody reaps.
  * Its parent, `sh`, starts it in the background and then becomes `sleep`,
  * which never calls waitpid, the way the runner never reaped its children in
- * #1274. Resolves to the zombie's pid once it has exited.
+ * #1274. No builtin runs between the two: dash reaps an exited background
+ * child after each builtin, so an `echo $!` there lost the zombie whenever the
+ * child exited first (#1281). Resolves to the zombie's pid once
+ * /proc/<pid>/stat shows state Z, which the kernel sets after the exit
+ * status (field 52), and throws if that takes longer than PROC_WAIT_MS. It
+ * reads /proc itself, not through `unreapedExit`, so a fault there fails the
+ * test's assertion, not this setup.
  */
 async function zombie(code: number): Promise<number> {
-  const parent = spawn('sh', ['-c', `(exit ${code}) & echo $!; exec sleep 60`], { stdio: ['ignore', 'pipe', 'ignore'] });
+  const parent = spawn('sh', ['-c', `(exit ${code}) & exec sleep 60`], { stdio: 'ignore' });
   parents.push(parent);
-  const pid = await new Promise<number>((resolve) => {
-    parent.stdout?.once('data', (chunk) => resolve(Number(String(chunk).trim())));
-  });
-  for (let tries = 0; tries < 50 && unreapedExit(pid) === undefined; tries++) await new Promise((resolve) => setTimeout(resolve, 20));
-  return pid;
+  const parentPid = parent.pid ?? 0;
+  const findZombie = () => childrenOf(parentPid).find((pid) => procStat(pid)?.state === 'Z');
+  return waitForProc(findZombie, () => `no zombie child of pid ${parentPid}${describeProcState(parentPid)}`);
 }
 
 /** A child handle for an existing pid that never emits exit or close, as Bun's did. */
@@ -55,7 +87,7 @@ describe('reading an unreaped exit from /proc', () => {
   test.if(onLinux)('a running process has no exit, and a zombie has its own', async () => {
     expect(unreapedExit(process.pid)).toBeUndefined();
     expect(unreapedExit(await zombie(3))).toEqual({ code: 3, signal: null });
-  });
+  }, 10_000);
 
   /** A zombie's stat line: wchan 1 when the reader may see its exit status, 0 when ptrace access hides it. */
   const zombieLine = (exitStatus: number, visible: boolean) => {
@@ -89,7 +121,7 @@ describe('reading an unreaped exit from /proc', () => {
     stop();
     expect(seen[0]).toBe(5);
     expect(seen[1]).toBeGreaterThanOrEqual(600);
-  });
+  }, 10_000);
 });
 
 describe('the driver sees a child that exited unreaped', () => {
@@ -107,7 +139,7 @@ describe('the driver sees a child that exited unreaped', () => {
     expect(code).toBe(3);
     expect(child.running).toBe(false);
     expect(child.output).toContain('exited with code 3, and the runner never reaped it');
-  }, 10_000);
+  }, 15_000);
 
   test.if(onLinux)('a command the runner never sees exit resolves with its exit code', async () => {
     const pid = await zombie(0);
@@ -116,7 +148,7 @@ describe('the driver sees a child that exited unreaped', () => {
       new Promise((resolve) => setTimeout(() => resolve('still waiting'), 6000)),
     ]);
     expect(result).toEqual({ code: 0, output: expect.stringContaining('the runner never reaped it') });
-  }, 10_000);
+  }, 15_000);
 });
 
 describe('a child whose exit came without its close', () => {
@@ -200,7 +232,10 @@ describe('a child whose exit came without its close', () => {
     const holder = leavesPipesOpen(0);
     const parent = spawn('sh', ['-c', holder.script], { detached: true, stdio: 'ignore' });
     await new Promise((resolve) => parent.once('exit', resolve));
+    // The holder is a fork of sh until it execs sleep, and /proc names it sh until then.
+    const holderPid = holder.holder();
+    await waitForProc(() => (procStat(holderPid)?.comm === 'sleep' ? true : undefined), () => `pid ${holderPid} did not become sleep${describeProcState(holderPid)}`);
     const members = liveGroupMembers(parent.pid ?? 0);
-    expect(members).toEqual([{ pid: holder.holder(), comm: 'sleep' }]);
+    expect(members).toEqual([{ pid: holderPid, comm: 'sleep' }]);
   });
 });
