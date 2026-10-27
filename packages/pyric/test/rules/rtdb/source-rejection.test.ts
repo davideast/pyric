@@ -41,6 +41,7 @@ describe('tree-structure checks carry production deploy texts', () => {
   const INDEX = 'Invalid indexOn expression. Must be either a string or an array of strings';
   const OBJECT = "Expected '{'.";
   const MULTIPLE = "Cannot have multiple default rules ('$x' and '$y').";
+  const indexKey = (entry: string) => `Invalid key: ${entry}. Index must be either .value or declared on a valid path`;
 
   // Captured: a production deploy refused the form. Inferred: the form shares
   // the text of a captured refusal and reports as a warning until captured.
@@ -50,6 +51,9 @@ describe('tree-structure checks carry production deploy texts', () => {
     ['an object rule value', { rules: { '.validate': { a: 1 } } }, 'RULE_NOT_EXPRESSION', RULE],
     ['an array rule value', { rules: { '.read': [true] } }, 'RULE_NOT_EXPRESSION', RULE],
     ['a numeric .indexOn', { rules: { '.indexOn': 5 } }, 'INDEX_ON_SHAPE', INDEX],
+    // r51 "CS lead: .indexOn naming a dotted child" (CS-17, #1247).
+    ['a .indexOn entry with a dot', { rules: { '.indexOn': ['x.y'] } }, 'INVALID_KEY', indexKey('x.y')],
+    ['a .indexOn string with a dot in a nested segment', { rules: { '.indexOn': 'a/x.y' } }, 'INVALID_KEY', indexKey('a/x.y')],
     ['a key with a hash', { rules: { 'a#b': {} } }, 'INVALID_KEY', KEY],
     ['an unknown dotted key holding an object', { rules: { '.valdiate': {} } }, 'INVALID_KEY', KEY],
     ['an unknown dotted key holding a string', { rules: { '.valdiate': 'true' } }, 'EXPECTED_OBJECT', OBJECT],
@@ -62,6 +66,8 @@ describe('tree-structure checks carry production deploy texts', () => {
   ];
   const inferred: Array<[string, Rules, string, string]> = [
     ['a .indexOn array with a non-string member', { rules: { '.indexOn': [1] } }, 'INDEX_ON_SHAPE', INDEX],
+    ['a .indexOn entry with a hash', { rules: { '.indexOn': ['a#b'] } }, 'INVALID_KEY', indexKey('a#b')],
+    ['a .indexOn entry with brackets', { rules: { '.indexOn': ['a[0]'] } }, 'INVALID_KEY', indexKey('a[0]')],
     ['a key with a dot', { rules: { 'a.b': {} } }, 'INVALID_KEY', KEY],
     ['a key with a slash', { rules: { 'a/b': {} } }, 'INVALID_KEY', KEY],
     ['a key with brackets', { rules: { 'a[0]': {} } }, 'INVALID_KEY', KEY],
@@ -99,6 +105,10 @@ describe('tree-structure checks carry production deploy texts', () => {
         rules: { '.read': true, '.indexOn': 'score', a: { $x: { '.write': false, b: {} } } },
       }),
     ).toBeNull();
+    // r51 accepts a nested child path and an empty entry; .value is the value index.
+    const rules = { rules: { a: { '.indexOn': ['x/y', '', '.value'] } } };
+    expect(rtdbRulesSourceRejection(rules)).toBeNull();
+    expect(rtdbRules(rules).lint().filter((i) => i.code === 'INVALID_KEY')).toEqual([]);
   });
 
   // CS-11 (#1247): compiled JSON whose `rules` is not an object is refused by

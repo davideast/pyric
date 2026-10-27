@@ -1,0 +1,89 @@
+import { afterEach, describe, expect, test } from 'bun:test';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { GIB } from '../../scripts/lib/machine-load.ts';
+import { defaultJobs, longestFirst, readDurations, recordDurations } from './schedule.ts';
+
+const dirs: string[] = [];
+afterEach(() => {
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+function durationsFile(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'pyric-app-durations-'));
+  dirs.push(dir);
+  return join(dir, 'app-durations.json');
+}
+
+describe('the order apps start in', () => {
+  test('the apps that took longest last run start first', () => {
+    const durations = { 'admin-writes': 20, 'hosted-restart': 142, 'vite-ssr': 45 };
+    expect(longestFirst(['admin-writes', 'hosted-restart', 'vite-ssr'], durations)).toEqual(['hosted-restart', 'vite-ssr', 'admin-writes']);
+  });
+
+  test('an app with no recorded time starts before every timed app, in name order', () => {
+    const durations = { 'admin-writes': 20, 'hosted-restart': 142 };
+    expect(longestFirst(['new-b', 'admin-writes', 'new-a', 'hosted-restart'], durations)).toEqual(['new-a', 'new-b', 'hosted-restart', 'admin-writes']);
+  });
+
+  test('with no recorded times the apps keep name order', () => {
+    expect(longestFirst(['b', 'a', 'c'], {})).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('the recorded times', () => {
+  test('a run adds its passing apps to the times already recorded, and a failing app keeps its old time', () => {
+    const file = durationsFile();
+    recordDurations(file, [{ name: 'a', ok: true, scenarioSeconds: 30 }, { name: 'b', ok: true, scenarioSeconds: 40 }], ['a', 'b']);
+    recordDurations(file, [{ name: 'b', ok: true, scenarioSeconds: 50 }, { name: 'a', ok: false, scenarioSeconds: 300 }], ['a', 'b']);
+    expect(readDurations(file)).toEqual({ a: 30, b: 50 });
+  });
+
+  test('a temporary file a killed run left behind is removed on the next write', () => {
+    const file = durationsFile();
+    writeFileSync(`${file}.12345.tmp`, '{"half": ');
+    recordDurations(file, [{ name: 'a', ok: true, scenarioSeconds: 30 }], ['a']);
+    expect(existsSync(`${file}.12345.tmp`)).toBe(false);
+    expect(readDurations(file)).toEqual({ a: 30 });
+  });
+
+  test('an app that no longer exists drops out of the recorded times', () => {
+    const file = durationsFile();
+    recordDurations(file, [{ name: 'old-name', ok: true, scenarioSeconds: 30 }], ['old-name']);
+    recordDurations(file, [{ name: 'new-name', ok: true, scenarioSeconds: 31 }], ['new-name']);
+    expect(readDurations(file)).toEqual({ 'new-name': 31 });
+  });
+
+  test('a missing or unreadable file reads as no times', () => {
+    const file = durationsFile();
+    expect(readDurations(file)).toEqual({});
+    writeFileSync(file, 'not json');
+    expect(readDurations(file)).toEqual({});
+    writeFileSync(file, JSON.stringify({ a: 'slow', b: 12 }));
+    expect(readDurations(file)).toEqual({ b: 12 });
+  });
+});
+
+describe('how many apps run at once by default', () => {
+  test('locally, one app per four free threads, at most six', () => {
+    expect(defaultJobs({ threads: 32, load: 8, freeMemoryBytes: 64 * GIB }, {})).toBe(6);
+    expect(defaultJobs({ threads: 16, load: 4, freeMemoryBytes: 64 * GIB }, {})).toBe(3);
+  });
+
+  test('a loaded machine runs fewer, and never fewer than one', () => {
+    expect(defaultJobs({ threads: 32, load: 22, freeMemoryBytes: 64 * GIB }, {})).toBe(2);
+    expect(defaultJobs({ threads: 4, load: 9, freeMemoryBytes: 64 * GIB }, {})).toBe(1);
+  });
+
+  test('no more apps than free memory holds at 1 GiB each, on CI too', () => {
+    expect(defaultJobs({ threads: 32, load: 0, freeMemoryBytes: 3.5 * GIB }, {})).toBe(3);
+    expect(defaultJobs({ threads: 4, load: 0, freeMemoryBytes: 2.2 * GIB }, { CI: 'true' })).toBe(2);
+    expect(defaultJobs({ threads: 4, load: 0, freeMemoryBytes: 0.5 * GIB }, { CI: 'true' })).toBe(1);
+  });
+
+  test('on CI, one app per runner thread', () => {
+    expect(defaultJobs({ threads: 4, load: 0.5, freeMemoryBytes: 64 * GIB }, { CI: 'true' })).toBe(4);
+    expect(defaultJobs({ threads: 4, load: 0.5, freeMemoryBytes: 64 * GIB }, { CI: '1' })).toBe(4);
+    expect(defaultJobs({ threads: 4, load: 0.5, freeMemoryBytes: 64 * GIB }, { CI: 'false' })).toBe(1);
+  });
+});

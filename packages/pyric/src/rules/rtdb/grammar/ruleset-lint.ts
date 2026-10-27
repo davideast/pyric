@@ -18,17 +18,21 @@
  *   - An error while evaluating a rule fails that rule; `||` does not absorb
  *     an error on its left (corpus r26-rule-runtime-error). Constant folding
  *     here therefore folds `true || X` to true but never `X || true`.
+ *   - `auth`, `auth.uid` and `auth.token.<claim>` are null for a
+ *     signed-out client without error (corpus r49). Folding each rule once for a
+ *     signed-out and once for a signed-in request finds a rule over `auth`
+ *     that is true for every request (`auth != null || true`), and a deeper
+ *     rule that grants no signed-out client under an ancestor that grants
+ *     every signed-in one.
  *
  * Findings reuse the Firestore validator's finding shape (code, severity,
  * path, message) and add the rule they sit on and a fix, as the Firestore
  * linter's findings carry one. Codes 1, 2, 3 and 6 match the meaning of
  * Firestore's SEC-1, SEC-2, SEC-3 and SEC-6.
  */
-import type { Semantics } from 'ohm-js';
 import type { ValidationFinding } from '../../grammar/FirestoreValidator.js';
-import { createRtdbExpressionSemantics, matchRtdbExpression } from '../expression-engine.js';
 import type { RtdbNode, RtdbRuleExpression } from '../types.js';
-import { isUnterminatedRtdbStringLiteral, unescapeRtdbStringLiteral } from './string-literal.js';
+import { factsOf, type ExpressionFacts } from './rule-facts.js';
 
 export type RtdbSecurityCode = 'RTDB-SEC-1' | 'RTDB-SEC-2' | 'RTDB-SEC-3' | 'RTDB-SEC-4' | 'RTDB-SEC-5' | 'RTDB-SEC-6' | 'RTDB-SEC-7';
 
@@ -40,350 +44,10 @@ export interface RtdbSecurityFinding extends ValidationFinding {
   fix: string;
 }
 
-/** What one parsed rule expression reads, as the checks need it. */
-interface ExpressionFacts {
-  /** The whole expression's value when it is the same for every request. */
-  constant: boolean | undefined;
-  readsAuth: boolean;
-  readsData: boolean;
-  readsRoot: boolean;
-  /** Occurrences of `newData` as a root identifier. */
-  newDataReads: number;
-  /** Occurrences of `newData.exists()` or `newData.val() != null`. */
-  newDataExistsCalls: number;
-  /** `newData.child(...)`, `newData.hasChild(...)`, or `newData.hasChildren([...])`: a check on named children. */
-  checksNamedChildren: boolean;
-  /** Whether this rule can evaluate to `true` when the descendant at `relSegments` is deleted (`null`). */
-  canGrantOnDelete: (relSegments: string[]) => boolean;
-}
-
-interface FactsAccumulator {
-  readsAuth: boolean;
-  readsData: boolean;
-  readsRoot: boolean;
-  newDataReads: number;
-  newDataExistsCalls: number;
-  checksNamedChildren: boolean;
-}
-
-type ConstVal = boolean | number | string | null | undefined;
-type DeleteVal = ConstVal | 'exists-false' | 'delete-guard';
-
-const NULL_FALSE_METHODS = new Set(['exists', 'isString', 'isNumber', 'isBoolean', 'hasChild', 'hasChildren']);
-
-function isDeniedOrGuarded(v: DeleteVal): boolean {
-  return v === false || v === 'exists-false' || v === 'delete-guard';
-}
-
-function isNullWhenDeleted(snapPath: string[], relSegments: string[]): boolean {
-  return snapPath.length >= relSegments.length && relSegments.every((seg, i) => snapPath[i] === seg);
-}
-
 function relativeSegments(ancestorPath: string, descendantPath: string): string[] {
   const aSegs = ancestorPath.split('/').filter(Boolean);
   const dSegs = descendantPath.split('/').filter(Boolean);
   return dSegs.slice(aSegs.length);
-}
-
-function isRootNewData(node: any): boolean {
-  const rel = node.newDataRelPath() as string[] | undefined;
-  return rel !== undefined && rel.length === 0;
-}
-
-function collectNeq(this: any, left: any, _op: any, right: any): void {
-  const acc = this.args.acc as FactsAccumulator;
-  if (
-    (left.newDataRelPath()?.join('/') === '.val()' && right.constVal() === null) ||
-    (right.newDataRelPath()?.join('/') === '.val()' && left.constVal() === null)
-  ) {
-    acc.newDataExistsCalls++;
-  }
-  left.collect(acc);
-  right.collect(acc);
-}
-
-function constNumOp(calc: (l: number, r: number) => number | undefined) {
-  return function (left: any, _op: any, right: any): ConstVal {
-    const l = left.constVal() as ConstVal;
-    const r = right.constVal() as ConstVal;
-    if (typeof l !== 'number' || typeof r !== 'number') return undefined;
-    const res = calc(l, r);
-    return res !== undefined && Number.isFinite(res) ? res : undefined;
-  };
-}
-
-function constComparison(op: '>' | '>=' | '<' | '<=') {
-  return function (left: any, _op: any, right: any): ConstVal {
-    const l = left.constVal() as ConstVal;
-    const r = right.constVal() as ConstVal;
-    if (!((typeof l === 'number' && typeof r === 'number') || (typeof l === 'string' && typeof r === 'string'))) return undefined;
-    if (op === '>') return (l as any) > (r as any);
-    if (op === '>=') return (l as any) >= (r as any);
-    if (op === '<') return (l as any) < (r as any);
-    return (l as any) <= (r as any);
-  };
-}
-
-function constEquality(equal: boolean) {
-  return function (left: any, _op: any, right: any): ConstVal {
-    const l = left.constVal() as ConstVal;
-    const r = right.constVal() as ConstVal;
-    if (l === undefined || r === undefined) return undefined;
-    return equal ? l === r : l !== r;
-  };
-}
-
-function evalDeleteComparison(this: any, left: any, _op: any, right: any): ConstVal {
-  const relSegments = this.args.relSegments as string[];
-  if (left.evalOnDelete(relSegments) === null || right.evalOnDelete(relSegments) === null) return false;
-  return this.constVal();
-}
-
-function evalDeleteEq(this: any, left: any, _op: any, right: any): DeleteVal {
-  const relSegments = this.args.relSegments as string[];
-  const l = left.evalOnDelete(relSegments) as DeleteVal;
-  const r = right.evalOnDelete(relSegments) as DeleteVal;
-  if (l === null && r === null && (left.constVal() === null) !== (right.constVal() === null)) return 'delete-guard';
-  if (l !== undefined && r !== undefined) return l === r;
-  if ((l === null && left.constVal() !== null) || (r === null && right.constVal() !== null)) return false;
-  return undefined;
-}
-
-function evalDeleteNeq(this: any, left: any, _op: any, right: any): ConstVal {
-  const relSegments = this.args.relSegments as string[];
-  const l = left.evalOnDelete(relSegments) as ConstVal;
-  const r = right.evalOnDelete(relSegments) as ConstVal;
-  return l !== undefined && r !== undefined ? l !== r : undefined;
-}
-
-let factsSemantics: Semantics | undefined;
-
-function getFactsSemantics(): Semantics {
-  if (factsSemantics) return factsSemantics;
-  const semantics = createRtdbExpressionSemantics();
-  semantics.addOperation('newDataRelPath', {
-    _nonterminal(...children) { return children.length === 1 ? (children[0] as any).newDataRelPath() : undefined; },
-    _iter() { return undefined; },
-    _terminal() { return undefined; },
-    Primary_paren(_open, inner, _close) { return (inner as any).newDataRelPath(); },
-    ident(_dollar, _start, _rest) { return this.sourceString === 'newData' ? [] : undefined; },
-    CallExpr_methodCall(receiver, _dot, methodName, _open, args, _close) {
-      const base = (receiver as any).newDataRelPath() as string[] | undefined;
-      if (base === undefined || base[0] === '.val()') return undefined;
-      const method = methodName.sourceString;
-      if (method === 'val' && base.length === 0 && args.asIteration().children.length === 0) return ['.val()'];
-      if (method === 'child') {
-        const argList = args.asIteration().children;
-        const argVal = argList.length === 1 ? ((argList[0] as any).constVal() as ConstVal) : undefined;
-        return typeof argVal === 'string' ? [...base, ...argVal.split('/').filter(Boolean)] : undefined;
-      }
-      return method === 'parent' && base.length > 0 ? base.slice(0, -1) : undefined;
-    },
-  });
-  semantics.addOperation('collect(acc)', {
-    _nonterminal(...children) { children.forEach((c) => (c as any).collect(this.args.acc)); },
-    _iter(...children) { children.forEach((c) => (c as any).collect(this.args.acc)); },
-    _terminal() {},
-    CallExpr_methodCall(receiver, _dot, methodName, _open, args, _close) {
-      const acc = this.args.acc as FactsAccumulator;
-      if (isRootNewData(receiver)) {
-        const method = methodName.sourceString;
-        if (method === 'exists') acc.newDataExistsCalls++;
-        if (method === 'hasChild' || method === 'child') acc.checksNamedChildren = true;
-        if (method === 'hasChildren' && args.asIteration().children.length > 0) acc.checksNamedChildren = true;
-      }
-      (receiver as any).collect(acc);
-      args.asIteration().children.forEach((a: any) => a.collect(acc));
-    },
-    Equality_strictNeq: collectNeq,
-    Equality_looseNeq: collectNeq,
-    CallExpr_memberAccess(receiver, _dot, _member) { (receiver as any).collect(this.args.acc); },
-    ident(_dollar, _start, _rest) {
-      const acc = this.args.acc as FactsAccumulator;
-      const name = this.sourceString;
-      if (name === 'auth') acc.readsAuth = true;
-      else if (name === 'data') acc.readsData = true;
-      else if (name === 'root') acc.readsRoot = true;
-      else if (name === 'newData') acc.newDataReads++;
-    },
-  });
-  semantics.addOperation('constVal', {
-    _nonterminal(...children) { return children.length === 1 ? (children[0] as any).constVal() : undefined; },
-    _iter() { return undefined; },
-    _terminal() { return undefined; },
-    Primary_paren(_open, inner, _close) { return (inner as any).constVal(); },
-    bool_true(_true) { return true; },
-    bool_false(_false) { return false; },
-    null(_null) { return null; },
-    number(_n) {
-      const n = Number(this.sourceString);
-      return Number.isFinite(n) ? n : undefined;
-    },
-    string_single(_open, _chars, _close) {
-      return isUnterminatedRtdbStringLiteral(this.sourceString) ? undefined : unescapeRtdbStringLiteral(this.sourceString);
-    },
-    string_double(_open, _chars, _close) {
-      return isUnterminatedRtdbStringLiteral(this.sourceString) ? undefined : unescapeRtdbStringLiteral(this.sourceString);
-    },
-    UnaryExpr_not(_bang, operand) {
-      const value = (operand as any).constVal() as ConstVal;
-      return typeof value === 'boolean' ? !value : undefined;
-    },
-    UnaryExpr_neg(_minus, operand) {
-      const value = (operand as any).constVal() as ConstVal;
-      return typeof value === 'number' && Number.isFinite(-value) ? -value : undefined;
-    },
-    Multiplicative_mul: constNumOp((l, r) => l * r),
-    Multiplicative_div: constNumOp((l, r) => (r === 0 ? undefined : l / r)),
-    Multiplicative_mod: constNumOp((l, r) => (r === 0 ? undefined : l % r)),
-    Additive_sub: constNumOp((l, r) => l - r),
-    Additive_add(left, _op, right) {
-      const l = (left as any).constVal() as ConstVal;
-      const r = (right as any).constVal() as ConstVal;
-      if (typeof l === 'number' && typeof r === 'number') return Number.isFinite(l + r) ? l + r : undefined;
-      return typeof l === 'string' && typeof r === 'string' ? l + r : undefined;
-    },
-    Comparison_gt: constComparison('>'),
-    Comparison_gte: constComparison('>='),
-    Comparison_lt: constComparison('<'),
-    Comparison_lte: constComparison('<='),
-    Equality_strictEq: constEquality(true),
-    Equality_looseEq: constEquality(true),
-    Equality_strictNeq: constEquality(false),
-    Equality_looseNeq: constEquality(false),
-    LogicalAnd_and(left, _op, right) {
-      const l = (left as any).constVal() as ConstVal;
-      if (l === false) return false;
-      // An error on the left of `&&` fails the rule (corpus r41), so `X && false`
-      // is not constant false unless X is constant boolean.
-      if (l === true) {
-        const r = (right as any).constVal() as ConstVal;
-        return typeof r === 'boolean' ? r : undefined;
-      }
-      return undefined;
-    },
-    LogicalOr_or(left, _op, right) {
-      const l = (left as any).constVal() as ConstVal;
-      if (l === true) return true;
-      // An error on the left of `||` fails the rule, so `X || true` is not
-      // constant unless X is.
-      if (l === false) {
-        const r = (right as any).constVal() as ConstVal;
-        return typeof r === 'boolean' ? r : undefined;
-      }
-      return undefined;
-    },
-    Ternary_ternary(condition, _q, whenTrue, _c, whenFalse) {
-      const c = (condition as any).constVal() as ConstVal;
-      if (c === true) return (whenTrue as any).constVal();
-      if (c === false) return (whenFalse as any).constVal();
-      return undefined;
-    },
-  });
-  semantics.addOperation('constant', {
-    _nonterminal() {
-      const v = (this as any).constVal() as ConstVal;
-      return typeof v === 'boolean' ? v : undefined;
-    },
-    _iter() { return undefined; },
-    _terminal() { return undefined; },
-  });
-  semantics.addOperation('evalOnDelete(relSegments)', {
-    _nonterminal(...children) {
-      const c = (this as any).constVal() as ConstVal;
-      if (c !== undefined) return c;
-      return children.length === 1 ? (children[0] as any).evalOnDelete(this.args.relSegments) : undefined;
-    },
-    _iter() { return undefined; },
-    _terminal() { return (this as any).constVal(); },
-    Primary_paren(_open, inner, _close) { return (inner as any).evalOnDelete(this.args.relSegments); },
-    CallExpr_methodCall(receiver, _dot, methodName, _open, args, _close) {
-      const relSegments = this.args.relSegments as string[];
-      const snapPath = (receiver as any).newDataRelPath() as string[] | undefined;
-      const method = methodName.sourceString;
-      if (snapPath !== undefined && snapPath[0] !== '.val()') {
-        if (isNullWhenDeleted(snapPath, relSegments)) {
-          if (method === 'exists') return 'exists-false';
-          if (NULL_FALSE_METHODS.has(method)) return false;
-          if (method === 'val' || method === 'getPriority') return null;
-        }
-        const argList = args.asIteration().children;
-        let childArgs: any[] = [];
-        if (method === 'hasChild' && argList.length === 1) childArgs = [argList[0]!];
-        else if (method === 'hasChildren' && argList.length === 1 && argList[0]!.ctorName === 'Array') {
-          childArgs = argList[0]!.children[1]!.asIteration().children;
-        }
-        for (const el of childArgs) {
-          const elVal = (el as any).constVal() as ConstVal;
-          if (typeof elVal === 'string' && isNullWhenDeleted([...snapPath, ...elVal.split('/').filter(Boolean)], relSegments)) {
-            return false;
-          }
-        }
-      }
-      return (receiver as any).evalOnDelete(relSegments) === null ? false : undefined;
-    },
-    CallExpr_memberAccess(receiver, _dot, _member) {
-      return (receiver as any).evalOnDelete(this.args.relSegments) === null ? false : undefined;
-    },
-    UnaryExpr_not(_bang, operand) {
-      const v = (operand as any).evalOnDelete(this.args.relSegments) as DeleteVal;
-      if (v === 'exists-false') return 'delete-guard';
-      if (v === 'delete-guard') return false;
-      return typeof v === 'boolean' ? !v : undefined;
-    },
-    Comparison_gt: evalDeleteComparison,
-    Comparison_gte: evalDeleteComparison,
-    Comparison_lt: evalDeleteComparison,
-    Comparison_lte: evalDeleteComparison,
-    Equality_strictEq: evalDeleteEq,
-    Equality_looseEq: evalDeleteEq,
-    Equality_strictNeq: evalDeleteNeq,
-    Equality_looseNeq: evalDeleteNeq,
-    LogicalAnd_and(left, _op, right) {
-      const relSegments = this.args.relSegments as string[];
-      const l = (left as any).evalOnDelete(relSegments) as DeleteVal;
-      const r = (right as any).evalOnDelete(relSegments) as DeleteVal;
-      if (l === false || l === 'exists-false' || r === false || r === 'exists-false') return false;
-      if (l === 'delete-guard' || r === 'delete-guard') return 'delete-guard';
-      return l === true && r === true ? true : undefined;
-    },
-    LogicalOr_or(left, _op, right) {
-      const relSegments = this.args.relSegments as string[];
-      const l = (left as any).evalOnDelete(relSegments) as DeleteVal;
-      if (l === true) return true;
-      const r = (right as any).evalOnDelete(relSegments) as DeleteVal;
-      if (isDeniedOrGuarded(l) && isDeniedOrGuarded(r)) {
-        return l === 'delete-guard' || r === 'delete-guard' ? 'delete-guard' : false;
-      }
-      return isDeniedOrGuarded(l) && r === true ? true : undefined;
-    },
-    Ternary_ternary(condition, _q, whenTrue, _c, whenFalse) {
-      const relSegments = this.args.relSegments as string[];
-      const c = (condition as any).evalOnDelete(relSegments) as DeleteVal;
-      if (c === true) return (whenTrue as any).evalOnDelete(relSegments);
-      if (c === false || c === 'exists-false') return (whenFalse as any).evalOnDelete(relSegments);
-      if (isDeniedOrGuarded((whenTrue as any).evalOnDelete(relSegments)) && isDeniedOrGuarded((whenFalse as any).evalOnDelete(relSegments))) return false;
-      return undefined;
-    },
-  });
-  factsSemantics = semantics;
-  return semantics;
-}
-
-/**
- * The facts of a rule expression, or undefined when it does not parse or
- * production refuses it at deploy: a refused rule never runs, so it grants
- * nothing to lint.
- */
-function factsOf(rule: RtdbRuleExpression | undefined): ExpressionFacts | undefined {
-  if (rule === undefined || !rule.parsed.valid || rule.parsed.errors.length > 0) return undefined;
-  const matched = matchRtdbExpression(rule.raw);
-  if (!matched.ok) return undefined;
-  const node = getFactsSemantics()(matched.match) as any;
-  const acc: FactsAccumulator = { readsAuth: false, readsData: false, readsRoot: false, newDataReads: 0, newDataExistsCalls: 0, checksNamedChildren: false };
-  node.collect(acc);
-  const constant = node.constant() as boolean | undefined;
-  return { constant, ...acc, canGrantOnDelete: (relSegments: string[]) => constant !== false && !isDeniedOrGuarded(node.evalOnDelete(relSegments) as DeleteVal) };
 }
 
 /** A node with the facts of its three rules. */
@@ -404,11 +68,17 @@ function grants(facts: ExpressionFacts | undefined): facts is ExpressionFacts {
   return facts !== undefined && facts.constant !== false;
 }
 
-/** Whether a node's own `.validate` constrains non-null values written to it. */
+/**
+ * Whether a node's own `.validate` constrains non-null values written to it.
+ * One that never reads its own new value (`auth != null`, `data.val() ==
+ * null`, or a read of another node through `newData.parent()`) constrains
+ * none, and neither does one that only checks the value exists.
+ */
 function hasEffectiveValidate(n: LintNode): boolean {
   const v = n.validate;
   if (v === undefined || v.constant !== undefined) return false;
-  return !(v.newDataReads > 0 && v.newDataReads === v.newDataExistsCalls && !v.readsData && !v.readsRoot);
+  const ownReads = v.newDataReads - v.newDataEscapes;
+  return ownReads > v.newDataExistsCalls;
 }
 
 function hasValidateAtOrBelow(n: LintNode): boolean {
@@ -430,6 +100,21 @@ function isWildcard(n: LintNode): boolean {
 function ruleText(rule: RtdbRuleExpression): string {
   const raw = rule.raw.trim();
   return raw.length <= 80 ? raw : `${raw.slice(0, 77)}...`;
+}
+
+/** `true`, or a rule that only evaluates to true, as a finding names it. */
+function ruleNamed(rule: RtdbRuleExpression): string {
+  return rule.raw.trim() === 'true' ? 'true' : `"${ruleText(rule)}"`;
+}
+
+/** "is false", or for a rule that only evaluates to false, the rule and "is false for every request". */
+function isFalseFor(rule: RtdbRuleExpression): string {
+  return rule.raw.trim() === 'false' ? 'is false' : `"${ruleText(rule)}" is false for every request`;
+}
+
+/** "is true", or for a rule that only evaluates to true, the rule and "is true for every request". */
+function isTrueFor(rule: RtdbRuleExpression): string {
+  return rule.raw.trim() === 'true' ? 'is true' : `"${ruleText(rule)}" is true for every request`;
 }
 
 function under(path: string): string {
@@ -461,8 +146,8 @@ function walk(n: LintNode, state: WalkState, findings: RtdbSecurityFinding[]): v
       severity: 'critical',
       path,
       rule: '.write',
-      message: `${path} .write is true: anyone, signed in or not, can write, replace or delete any value under ${under(path)}.`,
-      fix: `Replace ${path} .write true with a condition on auth, such as "auth != null && auth.uid == $uid" on the node each user owns.`,
+      message: `${path} .write ${isTrueFor(n.node.write!)}: anyone, signed in or not, can write, replace or delete any value under ${under(path)}.`,
+      fix: `Replace ${path} .write ${ruleNamed(n.node.write!)} with a condition on auth that a signed-out client fails, such as "auth != null && auth.uid == $uid" on the node each user owns.`,
     });
   }
 
@@ -475,8 +160,8 @@ function walk(n: LintNode, state: WalkState, findings: RtdbSecurityFinding[]): v
       path,
       rule: '.read',
       message: isRoot
-        ? '/ .read is true: anyone, signed in or not, can read the entire database.'
-        : `${path} .read is true: anyone, signed in or not, can read everything under ${path}.`,
+        ? `/ .read ${isTrueFor(n.node.read!)}: anyone, signed in or not, can read the entire database.`
+        : `${path} .read ${isTrueFor(n.node.read!)}: anyone, signed in or not, can read everything under ${path}.`,
       fix: isRoot
         ? 'Remove .read from the root and grant .read on the subtrees clients need, with a condition on auth.'
         : `Require auth in ${path} .read ("auth != null"), or keep ${path} only if every value under it is meant to be public.`,
@@ -506,19 +191,29 @@ function walk(n: LintNode, state: WalkState, findings: RtdbSecurityFinding[]): v
       // Under an ancestor that always grants, any deeper rule other than
       // another `true` is never consulted. Under an ancestor that grants
       // conditionally, a deeper `false` is an attempt to revoke that grant.
-      return theirs.constant === true ? own.constant !== true : own.constant === false;
+      // Under an ancestor that grants every signed-in client, a deeper rule
+      // that grants no signed-out client adds nothing (LD-3).
+      if (theirs.constant === true) return own.constant !== true;
+      return own.constant === false || (theirs.signedIn === true && own.signedOut === false);
     });
     if (ancestor === undefined) continue;
     const ancestorPath = ancestor.node.path;
     const ancestorRule = ancestor.node[kind]!;
+    const ownRule = n.node[kind]!;
+    let message: string;
+    if (ancestor[kind]!.constant === true) {
+      message = `${path} ${ruleName} never restricts access: ${ancestorPath} ${ruleName} is true and grants ${kind} on every path under it, and a deeper rule cannot revoke an ancestor's grant.`;
+    } else if (own.constant === false) {
+      message = `${path} ${ruleName} ${isFalseFor(n.node[kind]!)} and does not revoke ${ancestorPath} ${ruleName}: whenever "${ruleText(ancestorRule)}" holds, ${ancestorPath} grants ${kind} on every path under it, including ${path}.`;
+    } else {
+      message = `${path} ${ruleName} "${ruleText(ownRule)}" restricts nothing: ${ancestorPath} ${ruleName} "${ruleText(ancestorRule)}" already grants every signed-in client ${kind} on every path under it, including ${path}, and a deeper rule cannot revoke an ancestor's grant.`;
+    }
     findings.push({
       code: 'RTDB-SEC-4',
       severity: 'high',
       path,
       rule: ruleName,
-      message: ancestor[kind]!.constant === true
-        ? `${path} ${ruleName} never restricts access: ${ancestorPath} ${ruleName} is true and grants ${kind} on every path under it, and a deeper rule cannot revoke an ancestor's grant.`
-        : `${path} ${ruleName} false does not revoke ${ancestorPath} ${ruleName}: whenever "${ruleText(ancestorRule)}" holds, ${ancestorPath} grants ${kind} on every path under it, including ${path}.`,
+      message,
       fix: `Move the grant from ${ancestorPath} ${ruleName} down to the children that need it, so that no ancestor of ${path} grants ${kind}.`,
     });
   }
@@ -551,7 +246,7 @@ function walk(n: LintNode, state: WalkState, findings: RtdbSecurityFinding[]): v
       severity: 'high',
       path,
       rule: '.write',
-      message: `${path} .write accepts any value: no .validate rule sits at or below ${path} and the .write rule does not check newData, so a client it admits can store data of any shape and size under ${under(path)}.`,
+      message: `${path} .write accepts any value: no .validate rule at or below ${path} checks its own new value, and the .write rule does not check newData, so a client it admits can store data of any shape and size under ${under(path)}.`,
       fix: `Add .validate rules under ${path} that fix the shape and bound sizes, such as "newData.isString() && newData.val().length <= 100", and "$other": { ".validate": false } for keys you do not name.`,
     });
   }

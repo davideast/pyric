@@ -56,6 +56,19 @@ function binary(operator: RtdbBinaryOperator) {
   };
 }
 
+/**
+ * A `||` or `&&` chain, which the grammar matches flat, as the left-nested
+ * binary tree its operators denote. Built in a loop, so a chain of any length
+ * costs no stack while it is read.
+ */
+function chain(operator: '||' | '&&') {
+  return function (this: unknown, first: Node, _ops: Node, rest: Node): RtdbExpressionTree {
+    let tree: RtdbExpressionTree = first.tree();
+    for (const term of rest.children) tree = { type: 'binary', operator, left: tree, right: term.tree() };
+    return tree;
+  };
+}
+
 function passThrough(node: Node): RtdbExpressionTree {
   return (node as any).tree();
 }
@@ -74,9 +87,9 @@ function getTreeSemantics(): Semantics {
       };
     },
     Ternary: passThrough,
-    LogicalOr_or: binary('||'),
+    LogicalOr_or: chain('||'),
     LogicalOr: passThrough,
-    LogicalAnd_and: binary('&&'),
+    LogicalAnd_and: chain('&&'),
     LogicalAnd: passThrough,
     Equality_strictEq: binary('==='),
     Equality_strictNeq: binary('!=='),
@@ -228,8 +241,18 @@ export function printRtdbExpressionTree(tree: RtdbExpressionTree): string {
       return `${wrap(tree.test, PRECEDENCE['||'])} ? ${printRtdbExpressionTree(tree.consequent)} : ${printRtdbExpressionTree(tree.alternate)}`;
     case 'binary': {
       const p = binaryPrecedence(tree.operator);
-      // Left-associative: the left operand may sit at the same level, the right may not.
-      return `${wrap(tree.left, p)} ${tree.operator} ${wrap(tree.right, p + 1)}`;
+      // Left-associative: the left operand may sit at the same level, the
+      // right may not. A left-nested run of one operator prints in a loop, so
+      // a chain of any length costs no call depth.
+      const rights: RtdbExpressionTree[] = [];
+      let left: RtdbExpressionTree = tree;
+      while (left.type === 'binary' && left.operator === tree.operator) {
+        rights.push(left.right);
+        left = left.left;
+      }
+      let text = wrap(left, p);
+      for (let i = rights.length - 1; i >= 0; i--) text += ` ${tree.operator} ${wrap(rights[i]!, p + 1)}`;
+      return text;
     }
     case 'unary':
       return `${tree.operator}${wrap(tree.argument, PRECEDENCE.unary)}`;

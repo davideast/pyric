@@ -3,9 +3,13 @@
  * install`, real registry packages for everything that is not Pyric. The
  * Pyric packages come from packed tarballs, never from workspace sources.
  */
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { cpSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { endGroup, watchChildExit } from './unreaped-exit.ts';
+
+/** How long a process a command left behind gets after SIGTERM, before SIGKILL. */
+const LEFTOVER_TERM_MS = 1000;
 
 /** The published packages, in the order scripts/pack-packages.sh packs them. */
 const PUBLISHED_PACKAGE_DIRS = [
@@ -45,18 +49,32 @@ export interface CommandResult {
   output: string;
 }
 
+/**
+ * Runs a command to exit. An exit the runner only half sees (#1274), a child
+ * whose pipes a process it started holds open, or one never reaped, resolves
+ * too (watchChildExit).
+ */
 export function runCommand(
   command: string,
   args: string[],
-  options: { cwd: string; env?: NodeJS.ProcessEnv },
+  options: { cwd: string; env?: NodeJS.ProcessEnv; spawnChild?: (command: string, args: string[], options: SpawnOptions) => ChildProcess },
 ): Promise<CommandResult> {
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(command, args, { cwd: options.cwd, env: options.env ?? process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const spawnChild = options.spawnChild ?? spawn;
+    // Its own process group, so what it starts and leaves running can be found and ended.
+    const child = spawnChild(command, args, { cwd: options.cwd, env: options.env ?? process.env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
     let output = '';
-    child.stdout.on('data', (chunk) => { output += chunk; });
-    child.stderr.on('data', (chunk) => { output += chunk; });
-    child.on('error', reject);
-    child.on('close', (code) => resolvePromise({ code, output }));
+    child.stdout?.on('data', (chunk) => { output += chunk; });
+    child.stderr?.on('data', (chunk) => { output += chunk; });
+    const stopWatching = watchChildExit(child, command, (exit) => {
+      const hasLeftovers = exit.leftovers.length > 0 && child.pid !== undefined;
+      if (hasLeftovers) void endGroup(child.pid ?? 0, LEFTOVER_TERM_MS);
+      resolvePromise({ code: exit.code, output: `${output}${exit.note}` });
+    });
+    child.on('error', (error) => {
+      stopWatching();
+      reject(error);
+    });
   });
 }
 
@@ -69,22 +87,17 @@ export async function packWorkspace(root: string, build: boolean): Promise<Tarba
 }
 
 /**
- * Copies the app into `projectDir`, points its Pyric dependencies at the
- * tarballs, and runs `npm install`. The overrides pin every Pyric package to
- * its tarball, so the packages' dependencies on each other resolve locally too.
+ * Copies the app into `projectDir` and points its Pyric dependencies at the
+ * tarballs. The overrides pin every Pyric package to its tarball, so the
+ * packages' dependencies on each other resolve locally too. `npm install`
+ * runs next, through `SharedInstalls`.
  */
-export async function installApp(options: {
-  appDir: string;
-  projectDir: string;
-  tarballs: Tarballs;
-  npmCache: string;
-}): Promise<CommandResult> {
+export function prepareApp(options: { appDir: string; projectDir: string; tarballs: Tarballs }): void {
   for (const entry of readdirSync(options.appDir)) {
     if (DRIVER_FILES.has(entry)) continue;
     cpSync(join(options.appDir, entry), join(options.projectDir, entry), { recursive: true });
   }
   pinPyricPackages(options.projectDir, options.tarballs);
-  return runCommand('npm', npmInstallArgs(options.npmCache), { cwd: options.projectDir });
 }
 
 /**
@@ -107,7 +120,33 @@ export function pinPyricPackages(projectDir: string, tarballs: Tarballs): void {
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 }
 
-/** `npm install` as the runner runs it: quiet, offline first, with the shared cache. */
-export function npmInstallArgs(npmCache: string): string[] {
-  return ['install', '--no-audit', '--no-fund', '--loglevel=error', '--prefer-offline', '--cache', npmCache];
+/**
+ * `npm install` as the runner runs it: quiet, with the shared cache. Offline
+ * first by default; `online` revalidates the cached package listings.
+ */
+export function npmInstallArgs(npmCache: string, metadata: 'offline' | 'online' = 'offline'): string[] {
+  return ['install', '--no-audit', '--no-fund', '--loglevel=error', `--prefer-${metadata}`, '--cache', npmCache];
+}
+
+/** npm's codes for a version range the cached package listing has no match for. */
+const STALE_METADATA = /\bcode (ETARGET|ENOVERSIONS)\b/;
+
+/**
+ * Whether a failed install is explained by stale cached metadata. With
+ * `--prefer-offline`, npm trusts a cached package listing, so a dependency
+ * that asks for a version published after the listing was cached fails with
+ * ETARGET (#1246). The version exists; the listing is old.
+ */
+export function shouldRetryOnline(result: CommandResult): boolean {
+  const isFailure = result.code !== 0;
+  return isFailure && STALE_METADATA.test(result.output);
+}
+
+/** Run `npm install` offline first, and once more with `--prefer-online` when stale metadata failed it. */
+export async function npmInstall(npmCache: string, run: (args: string[]) => Promise<CommandResult>): Promise<CommandResult> {
+  const first = await run(npmInstallArgs(npmCache));
+  if (!shouldRetryOnline(first)) return first;
+  const note = '\n[runner] npm install failed on stale cached metadata; retrying once with --prefer-online\n';
+  const second = await run(npmInstallArgs(npmCache, 'online'));
+  return { code: second.code, output: `${first.output}${note}${second.output}` };
 }

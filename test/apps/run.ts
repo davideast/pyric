@@ -11,7 +11,8 @@
  * Options:
  *   --packages <dir>  install these tarballs (also PYRIC_PACKAGE_ARTIFACT_DIR)
  *   --build           build the workspace before packing it
- *   --jobs <n>        apps run at once (default 3)
+ *   --jobs <n>        apps run at once (default: one per four free threads,
+ *                     at most 6; one per thread on CI)
  *   --keep            keep each app's installed directory
  *   --skip-slow       leave out the apps whose scenario.ts exports `slow = true`
  *   --only-slow       run only those apps
@@ -21,19 +22,26 @@
  * way.
  *
  * Without --packages, the runner packs the current workspace build into
- * dist/packages. Logs land in test-results/apps/<name>/.
+ * dist/packages. Apps that install the same packages share one `npm install`
+ * per run, copied into each app (shared-installs.ts). Logs land in
+ * test-results/apps/<name>/. Apps start longest first, by the times the last
+ * run recorded in test-results/app-durations.json (schedule.ts).
  */
 import { chromium, type Browser } from '@playwright/test';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { AppRun, StepFailure, type Scenario } from './driver.ts';
-import { installApp, packWorkspace, tarballsIn, type Tarballs } from './install.ts';
+import { npmInstall, packWorkspace, prepareApp, runCommand, tarballsIn, type Tarballs } from './install.ts';
+import { SharedInstalls } from './shared-installs.ts';
+import { sampleMachineLoad } from '../../scripts/lib/machine-load.ts';
+import { defaultJobs, longestFirst, readDurations, recordDurations } from './schedule.ts';
 import { parseArguments, selectApps, skippedSlowClause } from './selection.ts';
 
 const appsDir = import.meta.dir;
 const root = resolve(appsDir, '../..');
 const resultsDir = join(root, 'test-results/apps');
+const durationsFile = join(root, 'test-results/app-durations.json');
 const APP_TIMEOUT_MS = Number(process.env.PYRIC_APP_TIMEOUT_MS ?? 300_000);
 const LOG_TAIL_LINES = 200;
 
@@ -64,6 +72,8 @@ interface AppResult {
   name: string;
   ok: boolean;
   seconds: number;
+  /** The part of `seconds` spent on `npm install`, including waiting for a shared install. */
+  installSeconds: number;
   step?: string;
   error?: string;
   logs: Array<{ name: string; text: string }>;
@@ -91,6 +101,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, run: AppRun): Promise<T
 async function runApp(name: string, context: {
   tarballs: Tarballs;
   npmCache: string;
+  installs: SharedInstalls;
   keep: boolean;
   browser: () => Promise<Browser>;
 }): Promise<AppResult> {
@@ -103,9 +114,15 @@ async function runApp(name: string, context: {
   const run = new AppRun(name, projectDir, home, context.browser, { tarballs: context.tarballs, npmCache: context.npmCache });
   const logs: AppResult['logs'] = [];
   let failure: unknown;
+  let installSeconds = 0;
   try {
     run.currentStep = 'npm install';
-    const install = await installApp({ appDir: join(appsDir, name), projectDir, tarballs: context.tarballs, npmCache: context.npmCache });
+    prepareApp({ appDir: join(appsDir, name), projectDir, tarballs: context.tarballs });
+    const installStarted = performance.now();
+    // Under the app's timeout too: a shared install or copy that never settles
+    // fails this app instead of holding the run.
+    const install = await withTimeout(context.installs.install(projectDir), APP_TIMEOUT_MS, run);
+    installSeconds = (performance.now() - installStarted) / 1000;
     logs.push({ name: 'npm install', text: install.output });
     if (install.code !== 0) throw new StepFailure('npm install', new Error(`npm install exited with code ${install.code}`));
     run.currentStep = 'load scenario';
@@ -115,6 +132,10 @@ async function runApp(name: string, context: {
     const hostErrors = run.unexpectedHostErrors();
     if (hostErrors.length > 0) {
       throw new StepFailure('every Pyric host route the page requested answered without an error', new Error(hostErrors.join('\n')));
+    }
+    const leftovers = run.unexpectedLeftoverProcesses();
+    if (leftovers.length > 0) {
+      throw new StepFailure('no process an app process started outlives it holding its output', new Error(leftovers.join('\n')));
     }
   } catch (error) {
     failure = error;
@@ -130,6 +151,7 @@ async function runApp(name: string, context: {
     name,
     ok,
     seconds: (performance.now() - started) / 1000,
+    installSeconds,
     step: ok ? undefined : failure instanceof StepFailure ? failure.step : run.currentStep,
     error: ok ? undefined : describeError(failure),
     logs,
@@ -183,7 +205,13 @@ async function main(): Promise<void> {
   }
   const filtersSlow = options.slow !== 'include' && options.names.length === 0;
   const slow = filtersSlow ? await slowApps(available) : new Set<string>();
-  const { run: names, skippedSlow } = selectApps({ available, names: options.names, slow, filter: options.slow });
+  const selection = selectApps({ available, names: options.names, slow, filter: options.slow });
+  const { skippedSlow } = selection;
+  // Apps named on the command line run in the order given; a whole run starts the longest first.
+  const isWholeRun = options.names.length === 0;
+  const names = isWholeRun ? longestFirst(selection.run, readDurations(durationsFile)) : selection.run;
+  // Measured before packing, so the runner's own build and pack do not count as load.
+  const machine = await sampleMachineLoad();
   if (names.length === 0) {
     // A run that drives no app passes without proving anything, so a marker
     // removed by mistake fails the slow workflow instead of turning it green.
@@ -202,18 +230,30 @@ async function main(): Promise<void> {
   }
   const npmCache = process.env.PYRIC_APPS_NPM_CACHE ?? join(homedir(), '.cache', 'pyric-app-scenarios-npm');
   rmSync(resultsDir, { recursive: true, force: true });
+  const installsDir = mkdtempSync(join(tmpdir(), 'pyric-app-installs-'));
+  const installs = new SharedInstalls(installsDir, (cwd) => npmInstall(npmCache, (args) => runCommand('npm', args, { cwd })));
 
   let browser: Promise<Browser> | undefined;
   const launch = () => (browser ??= chromium.launch({ headless: true }));
 
-  console.log(`▸ running ${names.length} app${names.length === 1 ? '' : 's'}, ${options.jobs} at a time`);
-  const results = await pool(names, options.jobs, async (name) => {
-    const result = await runApp(name, { tarballs, npmCache, keep: options.keep, browser: launch });
-    const dir = saveLogs(result);
-    console.log(result.ok ? `✓ ${name} (${result.seconds.toFixed(1)}s)` : report(result, dir));
-    return result;
-  });
-  if (browser) await (await browser).close();
+  const jobs = options.jobs ?? defaultJobs(machine, process.env);
+  const load = `${(machine.load / machine.threads).toFixed(2)} busy per thread`;
+  console.log(`▸ running ${names.length} app${names.length === 1 ? '' : 's'}, ${jobs} at a time (${load}), longest first`);
+  let results: AppResult[];
+  try {
+    results = await pool(names, jobs, async (name) => {
+      const result = await runApp(name, { tarballs, npmCache, installs, keep: options.keep, browser: launch });
+      const dir = saveLogs(result);
+      // Recorded as each app finishes, so a run that stops early keeps the times it has.
+      recordDurations(durationsFile, [{ name: result.name, ok: result.ok, scenarioSeconds: result.seconds - result.installSeconds }], available);
+      console.log(result.ok ? `✓ ${name} (${result.seconds.toFixed(1)}s)` : report(result, dir));
+      return result;
+    });
+    if (browser) await (await browser).close();
+  } finally {
+    if (options.keep) console.log(`  shared installs: ${installsDir}`);
+    else rmSync(installsDir, { recursive: true, force: true });
+  }
 
   const failed = results.filter((result) => !result.ok);
   const total = ((performance.now() - started) / 1000).toFixed(1);
