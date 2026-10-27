@@ -5,6 +5,7 @@ import {
   getDatabase,
   getAdminDatabase,
   get,
+  onValue,
   set,
   ref as dbRef,
   sandbox as rtdbSandbox,
@@ -48,9 +49,14 @@ describe('RTDB sandbox default security policy', () => {
     const adminSnap = await get(dbRef(adminDb, '/users/alice'));
     expect(adminSnap.val()).toEqual({ name: 'Alice Admin' });
 
-    // .info paths remain readable even under deny policy
-    const infoSnap = await get(dbRef(db, '/.info/serverTimeOffset'));
-    expect(infoSnap.val()).toBe(0);
+    // .info paths remain readable by a listener even under deny policy; a
+    // one-shot get() of one is refused (DF-7, rtdb-modular-info-write-validation
+    // behavior.getConnected).
+    const infoValues: unknown[] = [];
+    const stopInfo = onValue(dbRef(db, '/.info/serverTimeOffset'), (snap) => { infoValues.push(snap.val()); });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    stopInfo();
+    expect(infoValues).toEqual([0]);
   });
 
   it('allows client operations when explicitly switched to permissive or open rules', async () => {

@@ -7,7 +7,7 @@
  * The admin/firestore packages will exercise the same surface
  * end-to-end in their own integration tests.
  */
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect, setSystemTime } from 'bun:test';
 import { initializeSandbox } from '../../src/sandbox/index.js';
 import { getInternalEnv } from '../../src/sandbox/internal/sandbox-impl.js';
 import type {
@@ -581,25 +581,26 @@ describe('Sandbox.onRequest', () => {
     // The replay engine re-issues this exact value when re-resolving
     // serverTimestamp() sentinels so resolved fields are bit-identical
     // on replay.
+    // The wall clock is held so the expected stamp is exact: bracketing it
+    // between two real wall-clock reads fails when the host clock steps back.
     const { sandbox, env } = makeSandbox();
+    const wall = Date.UTC(2031, 0, 1, 12, 0, 0, 250);
     const writes: Array<{ requestTime: { seconds: number; nanoseconds: number } }> = [];
     sandbox.onEvent((e) => { if (e.kind === 'write') writes.push(e); });
 
-    const before = Date.now();
-    env.execute({ method: 'set', path: 'notes/x', auth: { uid: 'alice' }, data: { v: 1 } });
-    env.flushListeners();
-    env.batch([{ method: 'create', path: 'notes/y', data: { v: 2 } }], { uid: 'alice' });
-    env.transaction((tx) => { tx.set('notes/z', { v: 3 }); }, { auth: { uid: 'alice' } });
-    const after = Date.now();
+    setSystemTime(wall);
+    try {
+      env.execute({ method: 'set', path: 'notes/x', auth: { uid: 'alice' }, data: { v: 1 } });
+      env.flushListeners();
+      env.batch([{ method: 'create', path: 'notes/y', data: { v: 2 } }], { uid: 'alice' });
+      env.transaction((tx) => { tx.set('notes/z', { v: 3 }); }, { auth: { uid: 'alice' } });
+    } finally {
+      setSystemTime();
+    }
 
     expect(writes).toHaveLength(3);
     for (const w of writes) {
-      expect(w.requestTime).toBeDefined();
-      expect(typeof w.requestTime.seconds).toBe('number');
-      expect(typeof w.requestTime.nanoseconds).toBe('number');
-      const ms = w.requestTime.seconds * 1000 + Math.floor(w.requestTime.nanoseconds / 1_000_000);
-      expect(ms).toBeGreaterThanOrEqual(before);
-      expect(ms).toBeLessThanOrEqual(after);
+      expect(w.requestTime).toEqual({ seconds: Math.floor(wall / 1000), nanoseconds: 250_000_000 });
     }
   });
 

@@ -5,7 +5,7 @@
  * (or matrix row) it's locking. The link from test → observation is
  * the conformance contract.
  */
-import { describe, it, expect } from 'bun:test';
+import { afterEach, describe, it, expect, setSystemTime } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import {
   getDatabase,
@@ -24,6 +24,12 @@ import {
   sandbox as rtdbSandbox,
   TARGET_SYMBOL,
 } from '../../../src/database/index.js';
+
+// A test that holds the wall clock with setSystemTime gets it back here, even
+// when an await inside it never settles.
+afterEach(() => {
+  setSystemTime();
+});
 
 function setup() {
   const sandbox = initializeSandbox();
@@ -379,15 +385,15 @@ describe('serverTimestamp (oracle: rtdb-servertimestamp-resolves)', () => {
   // is `{ ".sv": "timestamp" }`; on read the field resolves to a number
   // (epoch ms), NOT the marker.
   it('resolves to a number on read-back', async () => {
+    // The wall clock is held so the resolved value is exact: bracketing it
+    // between two real wall-clock reads fails when the host clock steps back.
     const { db } = setup();
-    const before = Date.now();
+    const wall = Date.UTC(2031, 0, 1);
+    setSystemTime(wall);
     await set(ref(db, 'meta'), { createdAt: serverTimestamp() });
-    const after = Date.now();
+    setSystemTime();
     const snap = await get(ref(db, 'meta'));
-    const v = snap.val() as { createdAt: number };
-    expect(typeof v.createdAt).toBe('number');
-    expect(v.createdAt).toBeGreaterThanOrEqual(before);
-    expect(v.createdAt).toBeLessThanOrEqual(after);
+    expect(snap.val()).toEqual({ createdAt: wall });
   });
 
   it('serverTimestamp() returns the documented { ".sv": "timestamp" } shape', () => {
