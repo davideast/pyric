@@ -1,0 +1,23 @@
+{
+  "name": "rules-rtdb-r54-regex-alternation-runtime",
+  "matrixRow": "rtdb-rules#43",
+  "rowIds": [
+    "rtdb-rules#43"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r54-regex-alternation-runtime\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). the anchor rewrite production applies has no group around the pattern, so an unanchored or half-anchored top-level alternation may not mean \"contains either side\" as it does in JavaScript; no runtime case has observed it.",
+  "observedAt": "2026-10-27T00:20:23.865Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "unanchored alternation, first word mid-string": "DENY",
+    "unanchored alternation, first word at the end": "ALLOW",
+    "unanchored alternation, second word at the start": "ALLOW",
+    "unanchored alternation, second word at the end": "DENY",
+    "unanchored alternation, first word alone": "ALLOW",
+    "half-anchored alternation, first side as a prefix": "DENY",
+    "half-anchored alternation, second side as a suffix": "DENY",
+    "half-anchored alternation, first side alone": "ALLOW",
+    "control: grouped alternation, first word mid-string": "ALLOW",
+    "control: grouped alternation, no word": "DENY"
+  }
+}

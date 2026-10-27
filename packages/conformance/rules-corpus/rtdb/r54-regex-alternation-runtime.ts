@@ -10,9 +10,11 @@
  * `/^a|b$/` is `a|b`, which matches only `a` or `b`. JavaScript reads both
  * as "contains either side". These cases ask which reading production uses.
  *
- * Drafted 2026-10-27 for #1247 (S1). Expectations are pyric's verdicts under
- * the ungrouped reading, placeholders until the capture replaces them in
- * observations/rtdb-rules/rules-rtdb-r54-regex-alternation-runtime.json.
+ * Captured 2026-10-27 in
+ * observations/rtdb-rules/rules-rtdb-r54-regex-alternation-runtime.json:
+ * production uses the ungrouped reading. `/cat|dog/` denies `a cat here` and
+ * `hotdog` and allows `bobcat`, `dogs` and `cat`; `/^a|b$/` allows only `a`
+ * of `ax`, `xb` and `a`.
  */
 import type { RtdbScenarioRecord } from './types.ts';
 
@@ -26,7 +28,7 @@ export const scenario: RtdbScenarioRecord = {
   rationale:
     'the anchor rewrite production applies has no group around the pattern, so an unanchored or half-anchored top-level alternation may not mean "contains either side" as it does in JavaScript; no runtime case has observed it.',
   provenance:
-    'Drafted from the 2026-10-26 RTDB hunt fix campaign (#1247, S1: SP-2b follow-up). Awaiting a deploy-observe-restore capture against pyric-oracle-rtdb into observations/rtdb-rules/rules-rtdb-r54-regex-alternation-runtime.json.',
+    'Drafted from the 2026-10-26 RTDB hunt fix campaign (#1247, S1: SP-2b follow-up). Captured by deploy-observe-restore against pyric-oracle-rtdb on 2026-10-27 in observations/rtdb-rules/rules-rtdb-r54-regex-alternation-runtime.json.',
   rules: JSON.stringify({
     either: validated('/cat|dog/'),
     halves: validated('/^a|b$/'),

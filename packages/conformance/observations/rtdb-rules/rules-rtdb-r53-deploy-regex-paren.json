@@ -1,7 +1,9 @@
 {
   "name": "rules-rtdb-r53-deploy-regex-paren",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "rtdb-rules#42",
+  "rowIds": [
+    "rtdb-rules#42"
+  ],
   "description": "RTDB rules deploy verdicts for corpus scenario \"r53-deploy-regex-paren\" (rtdb#71). Captured by dry-run deploys to the rules endpoint, which validate without deploying. pyric reports unmatched parentheses in regex literals with positions only one production observation supports; anchored and stray-parenthesis positions, unclosed repeat counts, empty alternatives and empty character sets have no production text.",
   "observedAt": "2026-10-27T00:05:56.379Z",
   "fbSdkVersion": "12.13.0",
