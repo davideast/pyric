@@ -18,6 +18,7 @@ import {
   runTransaction,
   sandbox as rtdbSandbox,
   set,
+  setPriority,
   setWithPriority,
   update,
 } from '../../../src/database/index.js';
@@ -451,6 +452,37 @@ describe('RTDB CDD listener lifecycle cases', () => {
       expect(bob).toEqual(['initial-msg', 'post-revocation-msg']);
       expect(bobCancellations).toEqual([]);
       await expect(get(ref(clientDb, 'rooms/r1'))).rejects.toThrow(/PERMISSION_DENIED/);
+    });
+  }
+
+  // #1253: a priority write is a data write too; a `.read` over the priority
+  // must revoke before the new priority is delivered.
+  for (const admin of [false, true]) {
+    it(`rtdb-modular#M75a revokes, without delivering, a listener whose .read ${admin ? 'an admin' : 'a client'} setPriority falsifies`, async () => {
+      const sandbox = initializeSandbox();
+      const clientDb = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+      const adminDb = getAdminDatabase(sandbox);
+      rtdbSandbox.setRules(clientDb, {
+        rules: { items: { $id: { '.read': 'data.getPriority() == 1', '.write': 'true' } } },
+      });
+      await setWithPriority(ref(adminDb, 'items/x'), { a: 1 }, 1);
+
+      const values: unknown[] = [];
+      const valueCancellations: Record<string, unknown>[] = [];
+      onValue(ref(clientDb, 'items/x'), (snap) => values.push(snap.val()),
+        (err) => valueCancellations.push(cancellationShape(err, '/items/x')));
+      const changed: unknown[] = [];
+      const changedCancellations: Record<string, unknown>[] = [];
+      onChildChanged(ref(clientDb, 'items/x'), (snap) => changed.push(snap.val()),
+        (err) => changedCancellations.push(cancellationShape(err, '/items/x')));
+
+      await setPriority(ref(admin ? adminDb : clientDb, 'items/x'), 2);
+      await set(ref(adminDb, 'items/x/a'), 2);
+
+      expect(values).toEqual([{ a: 1 }]);
+      expect(changed).toEqual([]);
+      expect(valueCancellations).toEqual(cancellationObservation.revoked.cancellations.value);
+      expect(changedCancellations).toEqual(cancellationObservation.revoked.cancellations.child_changed);
     });
   }
 
