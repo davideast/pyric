@@ -104,7 +104,8 @@ The preflight:
 3. runs the packaging gate on those tarballs, which lints them and installs
    them in a fresh consumer;
 4. runs the installed-tarball behaviour smoke and the app scenarios on the
-   same tarballs;
+   same tarballs, then stamps them in `dist/packages/proven.json` (the commit,
+   whether the tree was clean, the version, and each tarball's sha256);
 5. verifies npm authentication with a read-only `npm whoami` request;
 6. runs `npm publish --dry-run` for each of the five tarballs; and
 7. runs the full compatibility check and calculates the `fb<major>.<minor>`
@@ -134,6 +135,15 @@ Do not set `PYRIC_PUBLISH_SKIP_GATES=1` for a normal release. The real publish
 deliberately repeats the tests, the build and pack, and every gate on the
 packed tarballs before uploading anything, and it uploads the tarballs those
 gates tested.
+
+`PYRIC_PUBLISH_SKIP_GATES=1` is for a rerun after a failure before the first
+upload, such as npm authentication. It skips the gates and the pack, and uploads
+the tarballs already in `dist/packages` only when their `proven.json` stamp
+names the current commit and version, the tree was clean then and is clean now,
+and every tarball's sha256 matches. Otherwise it stops before uploading
+anything. That covers tarballs from an earlier commit, a pack whose own checks
+failed, which `pack-packages.sh` removes anyway, and a failed build's leftovers.
+Run the publish again without the variable to prove a fresh pack.
 
 After those gates pass, `publish-alpha.sh`:
 

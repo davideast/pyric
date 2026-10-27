@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -232,5 +232,96 @@ describe('alpha publish safety contract', () => {
     const custom = runPublish({ skip: true, publishTag: 'exp', npmRegistry: 'http://127.0.0.1:4873/' });
     expect(custom.result.status).toBe(0);
     expect(custom.registries.every((r) => r === 'http://127.0.0.1:4873/')).toBe(true);
+  });
+});
+
+const STAMP_WRITE = `node ${join(root, 'scripts/lib/proven-stamp.mjs')} write ${join(root, 'dist/packages')} 0.1.0-alpha.9 ${root}`;
+const STAMP_VERIFY = `node ${join(root, 'scripts/lib/proven-stamp.mjs')} verify ${join(root, 'dist/packages')} 0.1.0-alpha.9 ${root}`;
+
+describe('the proven-tarball stamp', () => {
+  test('every gate passes, then the tarballs are stamped, then the first upload', () => {
+    const { result, commands } = runPublish();
+    expect(result.status).toBe(0);
+    const apps = commands.indexOf('bun test/apps/run.ts --packages dist/packages');
+    const stamp = commands.indexOf(STAMP_WRITE);
+    const publish = commands.findIndex((command) => command.startsWith('npm publish '));
+    expect(apps).toBeGreaterThanOrEqual(0);
+    expect(apps).toBeLessThan(stamp);
+    expect(stamp).toBeLessThan(publish);
+    expect(commands).not.toContain(STAMP_VERIFY);
+  });
+
+  test('a gate-skipping rerun checks the stamp before the first upload, and does not stamp', () => {
+    const { result, commands } = runPublish({ skip: true });
+    expect(result.status).toBe(0);
+    const verify = commands.indexOf(STAMP_VERIFY);
+    const publish = commands.findIndex((command) => command.startsWith('npm publish '));
+    expect(verify).toBeGreaterThanOrEqual(0);
+    expect(verify).toBeLessThan(publish);
+    expect(commands).not.toContain(STAMP_WRITE);
+  });
+
+  test('a gate-skipping rerun whose tarballs the stamp does not match uploads nothing', () => {
+    const { result, commands } = runPublish({ skip: true, failCommand: STAMP_VERIFY });
+    expect(result.status).toBe(17);
+    expect(commands.some((command) => command.startsWith('npm publish '))).toBe(false);
+  });
+});
+
+/** The real tools, found before a test puts its stubs first on PATH. */
+const REAL_NODE = spawnSync('which', ['node'], { encoding: 'utf8' }).stdout.trim();
+
+/** Run the real pack-packages.sh with stubbed tools, into `out`. */
+function runPack(out: string, stubs: Record<string, string>) {
+  const work = mkdtempSync(join(tmpdir(), 'pyric-pack-'));
+  workDirs.push(work);
+  const bin = join(work, 'bin');
+  Bun.spawnSync(['mkdir', '-p', bin]);
+  for (const [name, script] of Object.entries(stubs)) {
+    writeFileSync(join(bin, name), `#!/bin/bash\n${script}\n`);
+    chmodSync(join(bin, name), 0o755);
+  }
+  return spawnSync('/bin/bash', [join(root, 'scripts/pack-packages.sh'), '--out', out, ...(stubs.bash ? [] : ['--skip-build'])], {
+    cwd: root,
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+  });
+}
+
+function staleOutDir(): string {
+  const out = mkdtempSync(join(tmpdir(), 'pyric-pack-out-'));
+  workDirs.push(out);
+  writeFileSync(join(out, 'pyric-0.1.0-alpha.8.tgz'), 'an older pack');
+  writeFileSync(join(out, 'proven.json'), '{}');
+  writeFileSync(join(out, 'notes.txt'), 'not the pack\'s');
+  return out;
+}
+
+/** npm pack as a stub: a tarball holding the package's manifest, named the way npm names it. */
+const NPM_PACK = `if [ "$1" = pack ]; then
+  dest="$4"; name=$(jq -r .name package.json); version=$(jq -r .version package.json)
+  file="$(printf '%s' "\${name#@}" | tr / -)-\${version}.tgz"
+  tmp=$(mktemp -d); mkdir -p "$tmp/package"; cp package.json "$tmp/package/"
+  tar -czf "$dest/$file" -C "$tmp" package; echo "$file"; exit 0
+fi
+echo "npm stub: unexpected npm $*" >&2; exit 64`;
+
+describe('a pack that fails leaves no tarball behind', () => {
+  test('a failed build removes the older pack and its stamp, and keeps other files', () => {
+    const out = staleOutDir();
+    const run = runPack(out, { bash: 'exit 17' });
+    expect(run.status).not.toBe(0);
+    expect(readdirSync(out).sort()).toEqual(['notes.txt']);
+  });
+
+  test('a tarball that fails its own check is removed, with every tarball already packed', () => {
+    const out = staleOutDir();
+    const run = runPack(out, {
+      npm: NPM_PACK,
+      node: `if [[ "$1" == *verify-published-sourcemaps.mjs ]] && grep -q '"name": "pyric-admin"' "$2/package.json"; then echo "broken source map" >&2; exit 3; fi\nexec ${REAL_NODE} "$@"`,
+    });
+    expect(run.status).not.toBe(0);
+    expect(run.stderr).toContain('broken source map');
+    expect(readdirSync(out).sort()).toEqual(['notes.txt']);
   });
 });

@@ -28,7 +28,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-WORK="${TMPDIR:-/tmp}/pyric-packaging-test"
+# A work dir of its own per run, so gates in two worktrees never share one.
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/pyric-packaging-test-XXXXXX")"
 NPM_CACHE="${TMPDIR:-/tmp}/npm-cache-pyric-packaging-test"
 RELEASE_CONTRACT="$ROOT/scripts/fixtures/cli-release-contract.json"
 
@@ -93,9 +94,7 @@ cleanup_on_error() {
 trap cleanup_on_error ERR
 
 # ─── Phase 0: clean ────────────────────────────────────────────────────
-echo "━━━ Phase 0: clean ━━━"
-rm -rf "$WORK"
-mkdir -p "$WORK"
+echo "━━━ Phase 0: work dir $WORK ━━━"
 
 # ─── Phase 1: build and pack, unless the tarballs were given ────────────
 echo ""

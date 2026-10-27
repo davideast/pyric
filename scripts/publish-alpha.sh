@@ -13,10 +13,18 @@
 # verification.
 #
 # Publishing is irreversible, so every gate passes before the first upload,
-# and the bytes uploaded are the bytes the gates tested. A rerun with
-# PYRIC_PUBLISH_SKIP_GATES=1 (after an authentication failure, say) skips
-# the gates and the pack, and uploads the tarballs the earlier run proved. Package versions must already be bumped (lockstep)
-# and merged; this script only ships what the tree builds.
+# and the bytes uploaded are the bytes the gates tested. Once they pass, the
+# script stamps dist/packages/proven.json with the commit, a clean-tree flag,
+# the version and each tarball's sha256 (scripts/lib/proven-stamp.mjs).
+#
+# A rerun with PYRIC_PUBLISH_SKIP_GATES=1 (after an authentication failure,
+# say) skips the gates and the pack, and uploads the tarballs only when that
+# stamp matches HEAD, a clean tree and the files on disk. It refuses
+# tarballs from an earlier commit, a pack whose own checks failed, and a
+# failed build's leftovers.
+#
+# Package versions must already be bumped (lockstep) and merged; this
+# script only ships what the tree builds.
 #
 # Channels: PYRIC_PUBLISH_TAG picks the dist-tag (default `latest`).
 #  - latest: moves latest and alpha, and the fb certificate when compat:check is green.
@@ -67,9 +75,9 @@ cd "$ROOT"
 # first npm publish. compat:check runs again later only to gate the fb
 # certificate tag; the unit tests here and the packaging gate and app
 # scenarios after the pack decide whether anything ships at all.
-# PYRIC_PUBLISH_SKIP_GATES=1 skips them when they demonstrably just ran
-# on this exact tree (e.g. recovering deliberately after an authentication
-# failure before the first upload).
+# PYRIC_PUBLISH_SKIP_GATES=1 skips them, and the pack, when an earlier run
+# proved this exact tree (e.g. recovering deliberately after an authentication
+# failure before the first upload): the proven.json stamp is checked instead.
 if [ "${PYRIC_PUBLISH_SKIP_GATES:-0}" != "1" ]; then
   echo "━━━ pre-publish gates: bun run test ━━━"
   bun run test
@@ -99,6 +107,15 @@ bash scripts/release-smoke.sh "$V"
 if [ "${PYRIC_PUBLISH_SKIP_GATES:-0}" != "1" ]; then
   echo "━━━ pre-publish gates: app scenarios on the packed tarballs ━━━"
   bun test/apps/run.ts --packages dist/packages
+fi
+
+# Every gate passed on these tarballs: stamp them, or, on a gate-skipping
+# rerun, refuse unless an earlier run stamped exactly these files on this tree.
+if [ "${PYRIC_PUBLISH_SKIP_GATES:-0}" != "1" ]; then
+  node "$ROOT/scripts/lib/proven-stamp.mjs" write "$ROOT/dist/packages" "$V" "$ROOT"
+else
+  echo "━━━ gates skipped: checking the tarballs are the ones an earlier run proved ━━━"
+  node "$ROOT/scripts/lib/proven-stamp.mjs" verify "$ROOT/dist/packages" "$V" "$ROOT"
 fi
 
 PUBLISH_TAG="${PYRIC_PUBLISH_TAG:-latest}"

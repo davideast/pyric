@@ -679,16 +679,20 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Packaging gate
-        # scripts/packaging-test.sh: builds and packs every publishable package
-        # with scripts/pack-packages.sh, the same pack a release ships, then
-        # lints the tarballs (publint + attw types resolution + exports↔dist
-        # drift), installs the tarballs into a fresh consumer,
+        # The release path: scripts/pack-packages.sh builds and packs every
+        # publishable package, then scripts/packaging-test.sh --packages tests
+        # those tarballs with no build or pack of its own. It lints them
+        # (publint + attw types resolution on the tarballs; the exports↔dist
+        # drift check reads the workspace dist the tarballs came from),
+        # installs the tarballs into a fresh consumer,
         # asserts every advertised subpath import resolves + the export shapes,
         # exercises the bin, runs a serve smoke, RUNS the libraries (runtime
         # asset paths), and pins the ESM-only + subpath-only module contract.
         env:
           PYRIC_PACKAGING_ARTIFACT_DIR: ${{ runner.temp }}/proven-packages
-        run: npm run test:packaging
+        run: |
+          bash scripts/pack-packages.sh
+          bash scripts/packaging-test.sh --packages dist/packages
 
       - name: Upload the exact proven tarballs
         uses: actions/upload-artifact@v4

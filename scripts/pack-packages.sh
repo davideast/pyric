@@ -50,6 +50,14 @@ case "$OUT_DIR" in
   *) OUT_DIR="$PWD/$OUT_DIR" ;;
 esac
 
+# Any failure (the build, npm pack, a check on a tarball, the manifest) leaves
+# no tarball behind, so nothing a check refused, or an older pack, can be
+# mistaken for this pack's output.
+clear_outputs() {
+  rm -f "$OUT_DIR"/*.tgz "$OUT_DIR/manifest.json" "$OUT_DIR/proven.json"
+}
+trap 'status=$?; if [ "$status" -ne 0 ]; then clear_outputs; echo "pack-packages: failed; removed the tarballs in $OUT_DIR" >&2; fi' EXIT
+
 # Packages to ship. Listed in dependency order (dependencies first) for
 # readability; the actual pack order does not matter since each tarball
 # is self-contained after the workspace:* rewrite.
@@ -73,10 +81,11 @@ fi
 # ─── Phase 1: prep output dir ──────────────────────────────────────────
 echo ""
 echo "━━━ Phase 1: prep $OUT_DIR ━━━"
-# Clear only what this script writes, so `--out` can never delete a
-# directory's other contents.
+# Clear every tarball, the manifest and the proven.json stamp, never the
+# directory or its other files. A new pack is unproven until publish-alpha.sh
+# stamps it again.
 mkdir -p "$OUT_DIR"
-rm -f "$OUT_DIR"/*.tgz "$OUT_DIR/manifest.json"
+clear_outputs
 
 # ─── Phase 2: pack each package ────────────────────────────────────────
 echo ""
