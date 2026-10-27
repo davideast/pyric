@@ -537,7 +537,7 @@ export const rulesRegistry = {
           behavior: "`matches()`, `split()` and `replace()` use RE2: `\\s` is `[\\t\\n\\f\\r ]`, `.` matches `\\r`, `\\pL`, `[[:alpha:]]` and `\\Q..\\E` are a class, a POSIX class and literal quoting, `split()` does not return capture-group text, and `(?i)` applies in `split()` and `replace()` (FS2-SIM-4, FS2-SIM-5a, FS2-SIM-5a2, FS2-SIM-5b, FS2-SIM-5c, FS2-SIM-5d, FS2-SIM-6)",
           status: "diverged-documented",
           conformanceDisposition: "pending-fix",
-          evidence: "`oracle:rules-firestore-re2-pattern-semantics` (captured 2026-10-27, 28 cases, including escape and real-NBSP controls) records production ALLOWING `NBSP is not \\s`, `em space is not \\s`, `vertical tab is not \\s`, `real nbsp from data is not \\s`, `dot matches carriage return`, `a is \\pL`, `a is [[:alpha:]]`, `quoted a.b matches a.b`, `split on a capturing group returns two pieces`, `split with (?i) splits both cases` and `replace \\s leaves NBSP`. The simulator disagrees on 12 cases: 3 under FS2-SIM-4, 1 under FS2-SIM-5a2, 2 under FS2-SIM-5b, 2 under FS2-SIM-5c, 1 under FS2-SIM-5d and 3 under FS2-SIM-6. `unit:rules/oracle-conformance.test.ts` pins both sides of each in `packages/conformance/firestore-rules-exceptions/`. The other 16 cases agree, including the 5 FS2-SIM-5a cases: the matcher spells `\\s` and `\\S` out as `[\\t\\n\\f\\r ]` and its complement before compiling (#1295), and `unit:rules/simulator/re2-space-and-trim.test.ts` replays them from this observation. Pending fix in the 2026-10-27 Firestore hunt's stream S3.",
+          evidence: "`oracle:rules-firestore-re2-pattern-semantics` (captured 2026-10-27, 28 cases, including escape and real-NBSP controls) records production ALLOWING `NBSP is not \\s`, `em space is not \\s`, `vertical tab is not \\s`, `real nbsp from data is not \\s`, `dot matches carriage return`, `a is \\pL`, `a is [[:alpha:]]`, `quoted a.b matches a.b`, `split on a capturing group returns two pieces`, `split with (?i) splits both cases` and `replace \\s leaves NBSP`. The simulator disagrees on 6 cases: 3 under FS2-SIM-4, 2 under FS2-SIM-5c and 1 under FS2-SIM-5d. `unit:rules/oracle-conformance.test.ts` pins both sides of each in `packages/conformance/firestore-rules-exceptions/`. The other 22 cases agree. Fixed in #1295: the 5 FS2-SIM-5a cases (the matcher spells `\\s` and `\\S` out as `[\\t\\n\\f\\r ]` and its complement), FS2-SIM-5a2 (`.` matches every character but `\\n`), the 2 FS2-SIM-5b cases (`\\pL` reads as `\\p{L}`), and the 3 FS2-SIM-6 cases (`split()` and `replace()` take the pattern's inline flags and RE2's `\\s`, through the `scanRe2Pattern` Storage already used). `unit:rules/simulator/re2-space-and-trim.test.ts` and `unit:rules/simulator/re2-dot-property-and-flags.test.ts` replay those cases from this observation. `replace()` is no longer in this row's diverged scope. Pending fix in the 2026-10-27 Firestore hunt's stream S3.",
           risk: ["rules-denial"],
           riskScore: 4,
           riskReasons: ["a whitespace or class guard built on matches() allows or denies differently from production"],
@@ -545,11 +545,11 @@ export const rulesRegistry = {
           conformanceTests: [
             "packages/pyric/test/rules/oracle-conformance.test.ts",
             "packages/pyric/test/rules/simulator/re2-space-and-trim.test.ts",
+            "packages/pyric/test/rules/simulator/re2-dot-property-and-flags.test.ts",
           ],
           constructs: [
             "firestore.method.string.matches",
             "firestore.method.string.split",
-            "firestore.method.string.replace",
           ],
         }),
         row1({
@@ -1256,7 +1256,7 @@ export const rulesRegistry = {
           status: "diverged-documented",
           conformanceDisposition: "pending-fix",
           automation: "oracle-backed",
-          evidence: "`oracle:rules-storage-h1-regex-re2-classes` (captured 2026-10-27, 16 cases) records production verdicts for POSIX classes, `\\pL`, `\\s` and `\\S` over NBSP, U+2003 and vertical tab, `.` against `\\r`, `\\Q..\\E` and `(?i)` over the Kelvin sign. The Storage evaluator calls the shared `re2FullMatch`, so it disagrees on 9 cases: 3 under FS2-SIM-5c, 2 under FS2-SIM-5b, 1 under FS2-SIM-5a2, 2 under FS2-SIM-5d and 1 Storage-found Kelvin case, all filed as ST-H1-3. `unit:storage/rules-oracle-conformance.test.ts` pins both sides of each in `packages/conformance/storage-rules-exceptions/`. The other 7 cases agree, including the 4 `\\s` and `\\S` cases under FS2-SIM-5a, fixed in the shared matcher (#1295) and replayed by `unit:storage/sandbox/rules-string-methods.test.ts`. Pending fix with the Firestore RE2 stream, since the matcher is shared.",
+          evidence: "`oracle:rules-storage-h1-regex-re2-classes` (captured 2026-10-27, 16 cases) records production verdicts for POSIX classes, `\\pL`, `\\s` and `\\S` over NBSP, U+2003 and vertical tab, `.` against `\\r`, `\\Q..\\E` and `(?i)` over the Kelvin sign. The Storage evaluator calls the shared `re2FullMatch`, so it disagrees on 6 cases: 3 under FS2-SIM-5c, 2 under FS2-SIM-5d and 1 Storage-found Kelvin case, all filed as ST-H1-3. `unit:storage/rules-oracle-conformance.test.ts` pins both sides of each in `packages/conformance/storage-rules-exceptions/`. The other 10 cases agree, including 7 fixed in the shared matcher in #1295: the 4 `\\s` and `\\S` cases under FS2-SIM-5a, `.` against `\\r` under FS2-SIM-5a2, and the 2 `\\pL` cases under FS2-SIM-5b, replayed by `unit:storage/sandbox/rules-string-methods.test.ts`. Pending fix with the Firestore RE2 stream, since the matcher is shared.",
           risk: ["rules-denial"],
           riskScore: 4,
           riskReasons: ["a whitespace or class guard built on matches() allows or denies differently from production"],
