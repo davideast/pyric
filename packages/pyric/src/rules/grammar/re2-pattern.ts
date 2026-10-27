@@ -144,3 +144,96 @@ function re2SpaceEscape(escape: string, inClass: boolean, unicode: boolean): str
   if (inClass) return re2NonSpaceMembers(unicode);
   return `[^${RE2_SPACE_MEMBERS}]`;
 }
+
+/**
+ * Scan an RE2 pattern for the constructs JavaScript accepts and RE2 rejects
+ * (a backreference, a lookaround), and collect its inline flags (`(?i)`,
+ * `(?m)`, `(?s)`, and their scoped forms) as JavaScript RegExp flags.
+ * `normalizeRe2ForJsRegExp` drops an inline flag group, so a caller that
+ * compiles the pattern as one RegExp passes these flags to keep `(?i)`. A
+ * flag applies to the whole RegExp, which matches RE2 for a leading flag
+ * group, the form rules use.
+ */
+export function scanRe2Pattern(pattern: string): {
+  unsupported: 'backreference' | 'lookaround' | null;
+  inlineFlags: string;
+} {
+  let inClass = false;
+  let classStart = false;
+  let flagI = false;
+  let flagM = false;
+  let flagS = false;
+  let i = 0;
+  while (i < pattern.length) {
+    const ch = pattern[i]!;
+    if (ch === '\\') {
+      const next = pattern[i + 1];
+      if (!inClass && next !== undefined && next >= '1' && next <= '9') {
+        return { unsupported: 'backreference', inlineFlags: '' };
+      }
+      i += 2;
+      classStart = false;
+      continue;
+    }
+    if (inClass) {
+      if (ch === ']' && !classStart) {
+        inClass = false;
+      }
+      classStart = false;
+      i++;
+      continue;
+    }
+    if (ch === '[') {
+      inClass = true;
+      i++;
+      if (pattern[i] === '^') i++;
+      classStart = true;
+      continue;
+    }
+    if (ch === '(' && pattern[i + 1] === '?') {
+      const rest = pattern.slice(i + 2);
+      if (rest.startsWith('=') || rest.startsWith('!') || rest.startsWith('<=') || rest.startsWith('<!')) {
+        return { unsupported: 'lookaround', inlineFlags: '' };
+      }
+      const flagMatch = /^([imsU-]+)[):]/.exec(rest);
+      if (flagMatch) {
+        let clearing = false;
+        for (const f of flagMatch[1]!) {
+          if (f === '-') clearing = true;
+          else if (f === 'i') flagI = !clearing;
+          else if (f === 'm') flagM = !clearing;
+          else if (f === 's') flagS = !clearing;
+        }
+      }
+    }
+    i++;
+  }
+  const inlineFlags = `${flagI ? 'i' : ''}${flagM ? 'm' : ''}${flagS ? 's' : ''}`;
+  return { unsupported: null, inlineFlags };
+}
+
+/**
+ * Spell RE2's one-letter Unicode classes (`\pL`, `\PN`) in the braced form a
+ * JavaScript `u` RegExp reads (`\p{L}`, `\P{N}`). Without the braces a JS
+ * engine reads `\pL` as the letters `pL` or rejects it under the `u` flag.
+ * The 2026-10-27 capture `re2-pattern-semantics` shows production reads
+ * `'a'.matches('\\pL')` as a letter and `'pL'.matches('\\pL')` as no match.
+ */
+export function spellRe2PropertyShorthand(source: string): string {
+  let out = '';
+  let i = 0;
+  while (i < source.length) {
+    const ch = source[i]!;
+    if (ch !== '\\' || i + 1 >= source.length) {
+      out += ch;
+      i++;
+      continue;
+    }
+    const escape = source[i + 1]!;
+    const name = source[i + 2];
+    const isShorthand = (escape === 'p' || escape === 'P') && name !== undefined && /[A-Za-z]/.test(name);
+    out += isShorthand ? `\\${escape}{${name}}` : source.slice(i, i + 2);
+    i += isShorthand ? 3 : 2;
+  }
+  return out;
+}

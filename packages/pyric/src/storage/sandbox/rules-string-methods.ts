@@ -1,4 +1,4 @@
-import { normalizeRe2ForJsRegExp } from '../../rules/grammar/re2-pattern.js';
+import { normalizeRe2ForJsRegExp, scanRe2Pattern, spellRe2SpaceClasses } from '../../rules/grammar/re2-pattern.js';
 import { re2FullMatch } from '../../rules/simulator/rules-type.js';
 import { trimRulesString } from '../../rules/simulator/string-trim.js';
 import { Bytes } from '../../rules/simulator/wrappers/bytes.js';
@@ -187,64 +187,6 @@ function evalToUtf8(receiver: unknown, expr: MethodCall): unknown {
   return Bytes.fromUtf8(subject);
 }
 
-function scanRe2Pattern(pattern: string): {
-  unsupported: 'backreference' | 'lookaround' | null;
-  inlineFlags: string;
-} {
-  let inClass = false;
-  let classStart = false;
-  let flagI = false;
-  let flagM = false;
-  let flagS = false;
-  let i = 0;
-  while (i < pattern.length) {
-    const ch = pattern[i]!;
-    if (ch === '\\') {
-      const next = pattern[i + 1];
-      if (!inClass && next !== undefined && next >= '1' && next <= '9') {
-        return { unsupported: 'backreference', inlineFlags: '' };
-      }
-      i += 2;
-      classStart = false;
-      continue;
-    }
-    if (inClass) {
-      if (ch === ']' && !classStart) {
-        inClass = false;
-      }
-      classStart = false;
-      i++;
-      continue;
-    }
-    if (ch === '[') {
-      inClass = true;
-      i++;
-      if (pattern[i] === '^') i++;
-      classStart = true;
-      continue;
-    }
-    if (ch === '(' && pattern[i + 1] === '?') {
-      const rest = pattern.slice(i + 2);
-      if (rest.startsWith('=') || rest.startsWith('!') || rest.startsWith('<=') || rest.startsWith('<!')) {
-        return { unsupported: 'lookaround', inlineFlags: '' };
-      }
-      const flagMatch = /^([imsU-]+)[):]/.exec(rest);
-      if (flagMatch) {
-        let clearing = false;
-        for (const f of flagMatch[1]!) {
-          if (f === '-') clearing = true;
-          else if (f === 'i') flagI = !clearing;
-          else if (f === 'm') flagM = !clearing;
-          else if (f === 's') flagS = !clearing;
-        }
-      }
-    }
-    i++;
-  }
-  const inlineFlags = `${flagI ? 'i' : ''}${flagM ? 'm' : ''}${flagS ? 's' : ''}`;
-  return { unsupported: null, inlineFlags };
-}
-
 /**
  * Compile a rules regular expression with JavaScript's `RegExp`. `pattern`
  * is the caller's RE2 pattern, checked for the constructs JS accepts and RE2
@@ -260,7 +202,7 @@ function compileRe2Pattern(method: string, pattern: string, source: string, flag
   }
   const mergedFlags = Array.from(new Set((flags + inlineFlags).split(''))).join('');
   try {
-    return new RegExp(normalizeRe2ForJsRegExp(source), mergedFlags);
+    return new RegExp(spellRe2SpaceClasses(normalizeRe2ForJsRegExp(source), false), mergedFlags);
   } catch (err) {
     throw new RuleEvalError(`${method}() invalid regex pattern: ${(err as Error).message}`);
   }

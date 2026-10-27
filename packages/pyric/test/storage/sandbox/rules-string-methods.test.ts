@@ -120,6 +120,26 @@ describe('evaluateStorageRules — string methods', () => {
     expect(evalString("'a\\u00a0b'.matches('\\\\S+')").allowed).toBe(true);
   });
 
+  // FS2-SIM-5a2 and FS2-SIM-5b. Storage's own capture
+  // rules-storage-h1-regex-re2-classes (row storage-rules#204):
+  // `dot-carriage-return` and `unicode-class-one-letter` ALLOW,
+  // `control-dot-newline` and `unicode-class-one-letter-literal` DENY.
+  it('reads . as every character but \\n and \\pL as the letter class', () => {
+    expect(evalString("'a\\rb'.matches('a.b')").allowed).toBe(true);
+    expect(evalString("'a\\nb'.matches('a.b')").allowed).toBe(false);
+    expect(evalString("'x'.matches('\\\\pL')").allowed).toBe(true);
+    expect(evalString("'pL'.matches('\\\\pL')").allowed).toBe(false);
+  });
+
+  // FS2-SIM-6. Storage's replace() compiles its own RegExp, so it needs RE2's
+  // `\s` too. Verdict from the Firestore capture
+  // rules-firestore-re2-pattern-semantics (`replace \s leaves NBSP`, ALLOW);
+  // the Storage cross-check agreed with every shared case it captured.
+  it('reads \\s in replace() as ASCII whitespace only', () => {
+    expect(evalString("'a\\u00a0b'.replace('\\\\s', '_') == 'a\\u00a0b'").allowed).toBe(true);
+    expect(evalString("'a\\tb'.replace('\\\\s', '_') == 'a_b'").allowed).toBe(true);
+  });
+
   it('replaces every match of a regular expression', () => {
     expect(evalString("'aXa'.replace('a', 'b') == 'bXb'").allowed).toBe(true);
     expect(evalString("'a.b'.replace('.', '-') == '---'").allowed).toBe(true);
