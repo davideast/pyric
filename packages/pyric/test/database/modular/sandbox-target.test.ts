@@ -6,7 +6,7 @@
  * the conformance contract.
  */
 import { describe, it, expect } from 'bun:test';
-import { initializeSandbox } from 'pyric/sandbox';
+import { getClock, initializeSandbox } from 'pyric/sandbox';
 import {
   getDatabase,
   ref,
@@ -379,15 +379,14 @@ describe('serverTimestamp (oracle: rtdb-servertimestamp-resolves)', () => {
   // is `{ ".sv": "timestamp" }`; on read the field resolves to a number
   // (epoch ms), NOT the marker.
   it('resolves to a number on read-back', async () => {
-    const { db } = setup();
-    const before = Date.now();
+    // The sandbox clock is pinned so the resolved value is exact: bracketing
+    // it between two wall-clock reads fails when the host clock steps back.
+    const { sandbox, db } = setup();
+    const pinned = Date.UTC(2031, 0, 1);
+    getClock(sandbox).set(pinned);
     await set(ref(db, 'meta'), { createdAt: serverTimestamp() });
-    const after = Date.now();
     const snap = await get(ref(db, 'meta'));
-    const v = snap.val() as { createdAt: number };
-    expect(typeof v.createdAt).toBe('number');
-    expect(v.createdAt).toBeGreaterThanOrEqual(before);
-    expect(v.createdAt).toBeLessThanOrEqual(after);
+    expect(snap.val()).toEqual({ createdAt: pinned });
   });
 
   it('serverTimestamp() returns the documented { ".sv": "timestamp" } shape', () => {

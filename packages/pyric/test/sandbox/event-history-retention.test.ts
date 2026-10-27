@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test';
+import { expect, spyOn, test } from 'bun:test';
 import { EventHistory } from '../../src/sandbox/internal/event-history.js';
 import type { RequestEvent, SandboxListenerEvent } from '../../src/sandbox/types/events.js';
 
@@ -89,12 +89,18 @@ test('the unified stream stamps wall-clock observation time without changing sim
   const { emitSandboxEvent, getClock } = await import('../../src/sandbox/internal/index.js');
   const sandbox = initializeSandbox();
   getClock(sandbox).set(0);
-  const before = Date.now();
-  emitSandboxEvent(sandbox, request(0));
+  // The wall source is held so the observation stamp is exact: bracketing it
+  // between two wall-clock reads fails when the host clock steps back.
+  const wall = Date.UTC(2031, 0, 1);
+  const nowSpy = spyOn(Date, 'now').mockImplementation(() => wall);
+  try {
+    emitSandboxEvent(sandbox, request(0));
+  } finally {
+    nowSpy.mockRestore();
+  }
   const event = sandbox.history().find(event => event.id === '0');
   expect(event?.at).toBe(0);
-  expect(event?.observedAt).toBeGreaterThanOrEqual(before);
-  expect(event?.observedAt).toBeLessThanOrEqual(Date.now());
+  expect(event?.observedAt).toBe(wall);
 });
 
 

@@ -6,18 +6,36 @@
  *   fixed  - `set(epochMs)` pins an instant and freezes it there.
  *   offset - `advance(ms)` from wall shifts the clock and lets it keep flowing.
  */
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect, spyOn } from 'bun:test';
 
 import { getClock, initializeSandbox } from 'pyric/sandbox';
 import { SandboxClock } from '../../src/sandbox/clock.js';
 
 const HOUR_MS = 60 * 60 * 1000;
+const WALL_MS = Date.UTC(2031, 0, 1);
+
+/**
+ * Hold the host wall clock that `SandboxClock` reads. The real one can step
+ * backward (WSL2 does, by about 1.5 s), so a test that brackets a reading
+ * between two `Date.now()` calls fails at random. `moveWall` moves it by hand.
+ */
+function withHeldWallClock(run: (moveWall: (ms: number) => void) => void): void {
+  let wall = WALL_MS;
+  const nowSpy = spyOn(Date, 'now').mockImplementation(() => wall);
+  try {
+    run((ms) => { wall += ms; });
+  } finally {
+    nowSpy.mockRestore();
+  }
+}
 
 describe('SandboxClock', () => {
   it('starts on the wall clock', () => {
-    const clock = new SandboxClock();
-    expect(clock.mode).toBe('wall');
-    expect(Math.abs(clock.now() - Date.now())).toBeLessThan(50);
+    withHeldWallClock(() => {
+      const clock = new SandboxClock();
+      expect(clock.mode).toBe('wall');
+      expect(clock.now()).toBe(WALL_MS);
+    });
   });
 
   it('freezes at the instant `set` names', async () => {
@@ -37,29 +55,34 @@ describe('SandboxClock', () => {
     expect(clock.now()).toBe(Date.UTC(2031, 0, 1) + HOUR_MS);
   });
 
-  it('advances a wall clock into an offset that keeps flowing', async () => {
-    const clock = new SandboxClock();
-    clock.advance(HOUR_MS);
-    expect(clock.mode).toBe('offset');
-    const first = clock.now();
-    expect(first - Date.now()).toBeGreaterThan(HOUR_MS - 50);
-    await Bun.sleep(15);
-    expect(clock.now()).toBeGreaterThan(first);
+  it('advances a wall clock into an offset that keeps flowing', () => {
+    withHeldWallClock((moveWall) => {
+      const clock = new SandboxClock();
+      clock.advance(HOUR_MS);
+      expect(clock.mode).toBe('offset');
+      expect(clock.now()).toBe(WALL_MS + HOUR_MS);
+      moveWall(15);
+      expect(clock.now()).toBe(WALL_MS + 15 + HOUR_MS);
+    });
   });
 
   it('accumulates successive advances', () => {
-    const clock = new SandboxClock();
-    clock.advance(HOUR_MS);
-    clock.advance(HOUR_MS);
-    expect(clock.now() - Date.now()).toBeGreaterThan(2 * HOUR_MS - 50);
+    withHeldWallClock(() => {
+      const clock = new SandboxClock();
+      clock.advance(HOUR_MS);
+      clock.advance(HOUR_MS);
+      expect(clock.now()).toBe(WALL_MS + 2 * HOUR_MS);
+    });
   });
 
   it('returns to the wall clock on reset', () => {
-    const clock = new SandboxClock();
-    clock.set(Date.UTC(2031, 0, 1));
-    clock.reset();
-    expect(clock.mode).toBe('wall');
-    expect(Math.abs(clock.now() - Date.now())).toBeLessThan(50);
+    withHeldWallClock(() => {
+      const clock = new SandboxClock();
+      clock.set(Date.UTC(2040, 0, 1));
+      clock.reset();
+      expect(clock.mode).toBe('wall');
+      expect(clock.now()).toBe(WALL_MS);
+    });
   });
 
   it('rejects an instant that is not a finite epoch millisecond', () => {
@@ -80,11 +103,13 @@ describe('SandboxClock', () => {
   });
 
   it('restores a wall-clock state as the wall clock', () => {
-    const clock = new SandboxClock();
-    clock.advance(HOUR_MS);
-    clock.restore(new SandboxClock().capture());
-    expect(clock.mode).toBe('wall');
-    expect(Math.abs(clock.now() - Date.now())).toBeLessThan(50);
+    withHeldWallClock(() => {
+      const clock = new SandboxClock();
+      clock.advance(HOUR_MS);
+      clock.restore(new SandboxClock().capture());
+      expect(clock.mode).toBe('wall');
+      expect(clock.now()).toBe(WALL_MS);
+    });
   });
 });
 
