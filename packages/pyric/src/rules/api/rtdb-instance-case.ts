@@ -137,6 +137,11 @@ export function resolveInstanceCase(
       if (!isPlainObject(tree)) {
         return located({ problem: `data.instances["${key}"] must be an object: the tree of database instance "${selected.name}".` });
       }
+      if (trees.has(selected.name)) {
+        return located({
+          problem: `data.instances names database instance "${selected.name}" more than once (key "${key}" repeats an earlier key); name each instance once, so the verdict does not depend on key order.`,
+        });
+      }
       trees.set(selected.name, tree);
     }
     if (placement.kind === 'per-instance') {
