@@ -18,6 +18,12 @@
  *   - An error while evaluating a rule fails that rule; `||` does not absorb
  *     an error on its left (corpus r26-rule-runtime-error). Constant folding
  *     here therefore folds `true || X` to true but never `X || true`.
+ *   - `auth`, and every member read from it, is null for a signed-out
+ *     client without error (corpus r49). Folding each rule once for a
+ *     signed-out and once for a signed-in request finds a rule over `auth`
+ *     that is true for every request (`auth != null || true`), and a deeper
+ *     rule that grants no signed-out client under an ancestor that grants
+ *     every signed-in one.
  *
  * Findings reuse the Firestore validator's finding shape (code, severity,
  * path, message) and add the rule they sit on and a fix, as the Firestore
@@ -44,11 +50,17 @@ export interface RtdbSecurityFinding extends ValidationFinding {
 interface ExpressionFacts {
   /** The whole expression's value when it is the same for every request. */
   constant: boolean | undefined;
+  /** Its value for every signed-out request, when that is fixed. */
+  signedOut: boolean | undefined;
+  /** Its value for every signed-in request, when that is fixed. */
+  signedIn: boolean | undefined;
   readsAuth: boolean;
   readsData: boolean;
   readsRoot: boolean;
   /** Occurrences of `newData` as a root identifier. */
   newDataReads: number;
+  /** Reads of `newData` that leave the node through `parent()`, reading another node's new value. */
+  newDataEscapes: number;
   /** Occurrences of `newData.exists()` or `newData.val() != null`. */
   newDataExistsCalls: number;
   /** `newData.child(...)`, `newData.hasChild(...)`, or `newData.hasChildren([...])`: a check on named children. */
@@ -62,11 +74,46 @@ interface FactsAccumulator {
   readsData: boolean;
   readsRoot: boolean;
   newDataReads: number;
+  newDataEscapes: number;
   newDataExistsCalls: number;
   checksNamedChildren: boolean;
 }
 
-type ConstVal = boolean | number | string | null | undefined;
+/**
+ * A value known to be non-null and nothing more: a path variable, or `auth`
+ * and `auth.uid` for a signed-in client.
+ */
+const NON_NULL: unique symbol = Symbol('non-null');
+
+type ConstVal = boolean | number | string | null | typeof NON_NULL | undefined;
+
+/**
+ * Which requests a fold assumes: any request, a signed-out one (`auth` is
+ * null), or a signed-in one (`auth` and `auth.uid` are non-null). Signed out,
+ * `auth` and every member read from it are null without error (r49: "SP-5:
+ * auth.uid == null signed out", "SP-5: auth.token.admin != true signed out"
+ * and "SP-5 control: auth == null signed out" all ALLOW), so a rule over
+ * `auth` alone has a value in each case even where `X || true` would not
+ * fold for an X that may error (r26).
+ */
+type AuthCase = 'any' | 'signed-out' | 'signed-in';
+
+/** `auth` followed only by member reads, such as `auth.token.admin`. */
+const AUTH_MEMBER_CHAIN = /^auth(\s*\.\s*[A-Za-z_$][\w$]*)*$/;
+
+/** The `any` case folds as it always has: literals only. */
+function identValue(name: string, world: AuthCase): ConstVal {
+  if (world === 'any') return undefined;
+  if (name.startsWith('$')) return NON_NULL;
+  if (name !== 'auth') return undefined;
+  return world === 'signed-out' ? null : NON_NULL;
+}
+
+function authMemberValue(receiver: Node, member: string, world: AuthCase): ConstVal {
+  if (!AUTH_MEMBER_CHAIN.test(receiver.sourceString)) return undefined;
+  if (world === 'signed-out') return null;
+  return world === 'signed-in' && member === 'uid' && receiver.sourceString === 'auth' ? NON_NULL : undefined;
+}
 type DeleteVal = ConstVal | 'exists-false' | 'delete-guard';
 
 const NULL_FALSE_METHODS = new Set(['exists', 'isString', 'isNumber', 'isBoolean', 'hasChild', 'hasChildren']);
@@ -93,8 +140,8 @@ function isRootNewData(node: any): boolean {
 function collectNeq(this: any, left: any, _op: any, right: any): void {
   const acc = this.args.acc as FactsAccumulator;
   if (
-    (left.newDataRelPath()?.join('/') === '.val()' && right.constVal() === null) ||
-    (right.newDataRelPath()?.join('/') === '.val()' && left.constVal() === null)
+    (left.newDataRelPath()?.join('/') === '.val()' && right.constIn('any') === null) ||
+    (right.newDataRelPath()?.join('/') === '.val()' && left.constIn('any') === null)
   ) {
     acc.newDataExistsCalls++;
   }
@@ -103,9 +150,9 @@ function collectNeq(this: any, left: any, _op: any, right: any): void {
 }
 
 function constNumOp(calc: (l: number, r: number) => number | undefined) {
-  return function (left: any, _op: any, right: any): ConstVal {
-    const l = left.constVal() as ConstVal;
-    const r = right.constVal() as ConstVal;
+  return function (this: any, left: any, _op: any, right: any): ConstVal {
+    const l = left.constIn(this.args.world) as ConstVal;
+    const r = right.constIn(this.args.world) as ConstVal;
     if (typeof l !== 'number' || typeof r !== 'number') return undefined;
     const res = calc(l, r);
     return res !== undefined && Number.isFinite(res) ? res : undefined;
@@ -113,9 +160,9 @@ function constNumOp(calc: (l: number, r: number) => number | undefined) {
 }
 
 function constComparison(op: '>' | '>=' | '<' | '<=') {
-  return function (left: any, _op: any, right: any): ConstVal {
-    const l = left.constVal() as ConstVal;
-    const r = right.constVal() as ConstVal;
+  return function (this: any, left: any, _op: any, right: any): ConstVal {
+    const l = left.constIn(this.args.world) as ConstVal;
+    const r = right.constIn(this.args.world) as ConstVal;
     if (!((typeof l === 'number' && typeof r === 'number') || (typeof l === 'string' && typeof r === 'string'))) return undefined;
     if (op === '>') return (l as any) > (r as any);
     if (op === '>=') return (l as any) >= (r as any);
@@ -125,10 +172,15 @@ function constComparison(op: '>' | '>=' | '<' | '<=') {
 }
 
 function constEquality(equal: boolean) {
-  return function (left: any, _op: any, right: any): ConstVal {
-    const l = left.constVal() as ConstVal;
-    const r = right.constVal() as ConstVal;
+  return function (this: any, left: any, _op: any, right: any): ConstVal {
+    const l = left.constIn(this.args.world) as ConstVal;
+    const r = right.constIn(this.args.world) as ConstVal;
     if (l === undefined || r === undefined) return undefined;
+    if (l === NON_NULL || r === NON_NULL) {
+      // A value known only to be non-null equals null never, and anything else unknowably.
+      if (l !== null && r !== null) return undefined;
+      return !equal;
+    }
     return equal ? l === r : l !== r;
   };
 }
@@ -136,16 +188,16 @@ function constEquality(equal: boolean) {
 function evalDeleteComparison(this: any, left: any, _op: any, right: any): ConstVal {
   const relSegments = this.args.relSegments as string[];
   if (left.evalOnDelete(relSegments) === null || right.evalOnDelete(relSegments) === null) return false;
-  return this.constVal();
+  return this.constIn('any');
 }
 
 function evalDeleteEq(this: any, left: any, _op: any, right: any): DeleteVal {
   const relSegments = this.args.relSegments as string[];
   const l = left.evalOnDelete(relSegments) as DeleteVal;
   const r = right.evalOnDelete(relSegments) as DeleteVal;
-  if (l === null && r === null && (left.constVal() === null) !== (right.constVal() === null)) return 'delete-guard';
+  if (l === null && r === null && (left.constIn('any') === null) !== (right.constIn('any') === null)) return 'delete-guard';
   if (l !== undefined && r !== undefined) return l === r;
-  if ((l === null && left.constVal() !== null) || (r === null && right.constVal() !== null)) return false;
+  if ((l === null && left.constIn('any') !== null) || (r === null && right.constIn('any') !== null)) return false;
   return undefined;
 }
 
@@ -220,7 +272,7 @@ function getFactsSemantics(): Semantics {
       if (method === 'val' && base.length === 0 && args.asIteration().children.length === 0) return ['.val()'];
       if (method === 'child') {
         const argList = args.asIteration().children;
-        const argVal = argList.length === 1 ? ((argList[0] as any).constVal() as ConstVal) : undefined;
+        const argVal = argList.length === 1 ? ((argList[0] as any).constIn('any') as ConstVal) : undefined;
         return typeof argVal === 'string' ? [...base, ...argVal.split('/').filter(Boolean)] : undefined;
       }
       return method === 'parent' && base.length > 0 ? base.slice(0, -1) : undefined;
@@ -235,6 +287,7 @@ function getFactsSemantics(): Semantics {
       if (isRootNewData(receiver)) {
         const method = methodName.sourceString;
         if (method === 'exists') acc.newDataExistsCalls++;
+        if (method === 'parent') acc.newDataEscapes++;
         if (method === 'hasChild' || method === 'child') acc.checksNamedChildren = true;
         if (method === 'hasChildren' && args.asIteration().children.length > 0) acc.checksNamedChildren = true;
       }
@@ -253,11 +306,15 @@ function getFactsSemantics(): Semantics {
       else if (name === 'newData') acc.newDataReads++;
     },
   });
-  semantics.addOperation('constVal', {
-    _nonterminal(...children) { return children.length === 1 ? (children[0] as any).constVal() : undefined; },
+  semantics.addOperation('constIn(world)', {
+    _nonterminal(...children) { return children.length === 1 ? (children[0] as any).constIn(this.args.world) : undefined; },
     _iter() { return undefined; },
     _terminal() { return undefined; },
-    Primary_paren(_open, inner, _close) { return (inner as any).constVal(); },
+    Primary_paren(_open, inner, _close) { return (inner as any).constIn(this.args.world); },
+    ident(_dollar, _start, _rest) { return identValue(this.sourceString, this.args.world as AuthCase); },
+    CallExpr_memberAccess(receiver, _dot, member) {
+      return authMemberValue(receiver, member.sourceString, this.args.world as AuthCase);
+    },
     bool_true(_true) { return true; },
     bool_false(_false) { return false; },
     null(_null) { return null; },
@@ -272,11 +329,11 @@ function getFactsSemantics(): Semantics {
       return isUnterminatedRtdbStringLiteral(this.sourceString) ? undefined : unescapeRtdbStringLiteral(this.sourceString);
     },
     UnaryExpr_not(_bang, operand) {
-      const value = (operand as any).constVal() as ConstVal;
+      const value = (operand as any).constIn(this.args.world) as ConstVal;
       return typeof value === 'boolean' ? !value : undefined;
     },
     UnaryExpr_neg(_minus, operand) {
-      const value = (operand as any).constVal() as ConstVal;
+      const value = (operand as any).constIn(this.args.world) as ConstVal;
       return typeof value === 'number' && Number.isFinite(-value) ? -value : undefined;
     },
     Multiplicative_mul: constNumOp((l, r) => l * r),
@@ -284,8 +341,8 @@ function getFactsSemantics(): Semantics {
     Multiplicative_mod: constNumOp((l, r) => (r === 0 ? undefined : l % r)),
     Additive_sub: constNumOp((l, r) => l - r),
     Additive_add(left, _op, right) {
-      const l = (left as any).constVal() as ConstVal;
-      const r = (right as any).constVal() as ConstVal;
+      const l = (left as any).constIn(this.args.world) as ConstVal;
+      const r = (right as any).constIn(this.args.world) as ConstVal;
       if (typeof l === 'number' && typeof r === 'number') return Number.isFinite(l + r) ? l + r : undefined;
       return typeof l === 'string' && typeof r === 'string' ? l + r : undefined;
     },
@@ -298,21 +355,21 @@ function getFactsSemantics(): Semantics {
     Equality_strictNeq: constEquality(false),
     Equality_looseNeq: constEquality(false),
     LogicalAnd_and(first, _ops, rest) {
-      return foldChain(first, rest, (term) => (term as any).constVal() as ConstVal, constAnd);
+      return foldChain(first, rest, (term) => (term as any).constIn(this.args.world) as ConstVal, constAnd);
     },
     LogicalOr_or(first, _ops, rest) {
-      return foldChain(first, rest, (term) => (term as any).constVal() as ConstVal, constOr);
+      return foldChain(first, rest, (term) => (term as any).constIn(this.args.world) as ConstVal, constOr);
     },
     Ternary_ternary(condition, _q, whenTrue, _c, whenFalse) {
-      const c = (condition as any).constVal() as ConstVal;
-      if (c === true) return (whenTrue as any).constVal();
-      if (c === false) return (whenFalse as any).constVal();
+      const c = (condition as any).constIn(this.args.world) as ConstVal;
+      if (c === true) return (whenTrue as any).constIn(this.args.world);
+      if (c === false) return (whenFalse as any).constIn(this.args.world);
       return undefined;
     },
   });
-  semantics.addOperation('constant', {
+  semantics.addOperation('constant(world)', {
     _nonterminal() {
-      const v = (this as any).constVal() as ConstVal;
+      const v = (this as any).constIn(this.args.world) as ConstVal;
       return typeof v === 'boolean' ? v : undefined;
     },
     _iter() { return undefined; },
@@ -320,12 +377,12 @@ function getFactsSemantics(): Semantics {
   });
   semantics.addOperation('evalOnDelete(relSegments)', {
     _nonterminal(...children) {
-      const c = (this as any).constVal() as ConstVal;
+      const c = (this as any).constIn('any') as ConstVal;
       if (c !== undefined) return c;
       return children.length === 1 ? (children[0] as any).evalOnDelete(this.args.relSegments) : undefined;
     },
     _iter() { return undefined; },
-    _terminal() { return (this as any).constVal(); },
+    _terminal() { return (this as any).constIn('any'); },
     Primary_paren(_open, inner, _close) { return (inner as any).evalOnDelete(this.args.relSegments); },
     CallExpr_methodCall(receiver, _dot, methodName, _open, args, _close) {
       const relSegments = this.args.relSegments as string[];
@@ -344,7 +401,7 @@ function getFactsSemantics(): Semantics {
           childArgs = argList[0]!.children[1]!.asIteration().children;
         }
         for (const el of childArgs) {
-          const elVal = (el as any).constVal() as ConstVal;
+          const elVal = (el as any).constIn('any') as ConstVal;
           if (typeof elVal === 'string' && isNullWhenDeleted([...snapPath, ...elVal.split('/').filter(Boolean)], relSegments)) {
             return false;
           }
@@ -400,10 +457,12 @@ function factsOf(rule: RtdbRuleExpression | undefined): ExpressionFacts | undefi
   const matched = matchRtdbExpression(rule.raw);
   if (!matched.ok) return undefined;
   const node = getFactsSemantics()(matched.match) as any;
-  const acc: FactsAccumulator = { readsAuth: false, readsData: false, readsRoot: false, newDataReads: 0, newDataExistsCalls: 0, checksNamedChildren: false };
+  const acc: FactsAccumulator = { readsAuth: false, readsData: false, readsRoot: false, newDataReads: 0, newDataEscapes: 0, newDataExistsCalls: 0, checksNamedChildren: false };
   node.collect(acc);
-  const constant = node.constant() as boolean | undefined;
-  return { constant, ...acc, canGrantOnDelete: (relSegments: string[]) => constant !== false && !isDeniedOrGuarded(node.evalOnDelete(relSegments) as DeleteVal) };
+  const signedOut = node.constant('signed-out') as boolean | undefined;
+  const signedIn = node.constant('signed-in') as boolean | undefined;
+  const constant = signedOut !== undefined && signedOut === signedIn ? signedOut : undefined;
+  return { constant, signedOut, signedIn, ...acc, canGrantOnDelete: (relSegments: string[]) => constant !== false && !isDeniedOrGuarded(node.evalOnDelete(relSegments) as DeleteVal) };
 }
 
 /** A node with the facts of its three rules. */
@@ -424,11 +483,17 @@ function grants(facts: ExpressionFacts | undefined): facts is ExpressionFacts {
   return facts !== undefined && facts.constant !== false;
 }
 
-/** Whether a node's own `.validate` constrains non-null values written to it. */
+/**
+ * Whether a node's own `.validate` constrains non-null values written to it.
+ * One that never reads its own new value (`auth != null`, `data.val() ==
+ * null`, or a read of another node through `newData.parent()`) constrains
+ * none, and neither does one that only checks the value exists.
+ */
 function hasEffectiveValidate(n: LintNode): boolean {
   const v = n.validate;
   if (v === undefined || v.constant !== undefined) return false;
-  return !(v.newDataReads > 0 && v.newDataReads === v.newDataExistsCalls && !v.readsData && !v.readsRoot);
+  const ownReads = v.newDataReads - v.newDataEscapes;
+  return ownReads > v.newDataExistsCalls;
 }
 
 function hasValidateAtOrBelow(n: LintNode): boolean {
@@ -450,6 +515,11 @@ function isWildcard(n: LintNode): boolean {
 function ruleText(rule: RtdbRuleExpression): string {
   const raw = rule.raw.trim();
   return raw.length <= 80 ? raw : `${raw.slice(0, 77)}...`;
+}
+
+/** "is true", or for a rule that only evaluates to true, the rule and "is true for every request". */
+function isTrueFor(rule: RtdbRuleExpression): string {
+  return rule.raw.trim() === 'true' ? 'is true' : `"${ruleText(rule)}" is true for every request`;
 }
 
 function under(path: string): string {
@@ -481,7 +551,7 @@ function walk(n: LintNode, state: WalkState, findings: RtdbSecurityFinding[]): v
       severity: 'critical',
       path,
       rule: '.write',
-      message: `${path} .write is true: anyone, signed in or not, can write, replace or delete any value under ${under(path)}.`,
+      message: `${path} .write ${isTrueFor(n.node.write!)}: anyone, signed in or not, can write, replace or delete any value under ${under(path)}.`,
       fix: `Replace ${path} .write true with a condition on auth, such as "auth != null && auth.uid == $uid" on the node each user owns.`,
     });
   }
@@ -495,8 +565,8 @@ function walk(n: LintNode, state: WalkState, findings: RtdbSecurityFinding[]): v
       path,
       rule: '.read',
       message: isRoot
-        ? '/ .read is true: anyone, signed in or not, can read the entire database.'
-        : `${path} .read is true: anyone, signed in or not, can read everything under ${path}.`,
+        ? `/ .read ${isTrueFor(n.node.read!)}: anyone, signed in or not, can read the entire database.`
+        : `${path} .read ${isTrueFor(n.node.read!)}: anyone, signed in or not, can read everything under ${path}.`,
       fix: isRoot
         ? 'Remove .read from the root and grant .read on the subtrees clients need, with a condition on auth.'
         : `Require auth in ${path} .read ("auth != null"), or keep ${path} only if every value under it is meant to be public.`,
@@ -526,19 +596,29 @@ function walk(n: LintNode, state: WalkState, findings: RtdbSecurityFinding[]): v
       // Under an ancestor that always grants, any deeper rule other than
       // another `true` is never consulted. Under an ancestor that grants
       // conditionally, a deeper `false` is an attempt to revoke that grant.
-      return theirs.constant === true ? own.constant !== true : own.constant === false;
+      // Under an ancestor that grants every signed-in client, a deeper rule
+      // that grants no signed-out client adds nothing (LD-3).
+      if (theirs.constant === true) return own.constant !== true;
+      return own.constant === false || (theirs.signedIn === true && own.signedOut === false);
     });
     if (ancestor === undefined) continue;
     const ancestorPath = ancestor.node.path;
     const ancestorRule = ancestor.node[kind]!;
+    const ownRule = n.node[kind]!;
+    let message: string;
+    if (ancestor[kind]!.constant === true) {
+      message = `${path} ${ruleName} never restricts access: ${ancestorPath} ${ruleName} is true and grants ${kind} on every path under it, and a deeper rule cannot revoke an ancestor's grant.`;
+    } else if (own.constant === false) {
+      message = `${path} ${ruleName} false does not revoke ${ancestorPath} ${ruleName}: whenever "${ruleText(ancestorRule)}" holds, ${ancestorPath} grants ${kind} on every path under it, including ${path}.`;
+    } else {
+      message = `${path} ${ruleName} "${ruleText(ownRule)}" restricts nothing: ${ancestorPath} ${ruleName} "${ruleText(ancestorRule)}" already grants every signed-in client ${kind} on every path under it, including ${path}, and a deeper rule cannot revoke an ancestor's grant.`;
+    }
     findings.push({
       code: 'RTDB-SEC-4',
       severity: 'high',
       path,
       rule: ruleName,
-      message: ancestor[kind]!.constant === true
-        ? `${path} ${ruleName} never restricts access: ${ancestorPath} ${ruleName} is true and grants ${kind} on every path under it, and a deeper rule cannot revoke an ancestor's grant.`
-        : `${path} ${ruleName} false does not revoke ${ancestorPath} ${ruleName}: whenever "${ruleText(ancestorRule)}" holds, ${ancestorPath} grants ${kind} on every path under it, including ${path}.`,
+      message,
       fix: `Move the grant from ${ancestorPath} ${ruleName} down to the children that need it, so that no ancestor of ${path} grants ${kind}.`,
     });
   }

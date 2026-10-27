@@ -235,12 +235,12 @@ The third group reads the whole ruleset, because the common RTDB mistakes come f
 
 | Code | What it reports |
 |---|---|
-| `RTDB-SEC-1` | A `.write` of `true`, so anyone, signed in or not, can write, replace, or delete values under that path. |
-| `RTDB-SEC-2` | A `.read` of `true`, so anyone can read everything under that path. At the root, this exposes the entire database. |
+| `RTDB-SEC-1` | A `.write` of `true`, or one true for every request signed in or not (such as `auth != null \|\| true`), so anyone can write, replace, or delete values under that path. |
+| `RTDB-SEC-2` | A `.read` of `true`, or one true for every request, so anyone can read everything under that path. At the root, this exposes the entire database. |
 | `RTDB-SEC-3` | A conditional `.write` that never reads `auth`, so a signed-out client can write whenever the condition holds. |
-| `RTDB-SEC-4` | A rule that tries to restrict access that an ancestor already grants. A deeper rule cannot revoke an ancestor's grant, so the deeper rule restricts nothing. |
+| `RTDB-SEC-4` | A rule that tries to restrict access that an ancestor already grants, such as `auth.uid == $uid` under an ancestor's `auth != null`. A deeper rule cannot revoke an ancestor's grant, so the deeper rule restricts nothing. |
 | `RTDB-SEC-5` | A `.validate` that a delete skips. `.validate` runs only on a non-null new value, so a client that can write `null` at an ancestor bypasses it. |
-| `RTDB-SEC-6` | A `.write` that accepts any value: no `.validate` sits at or below it and the write rule does not check `newData`. |
+| `RTDB-SEC-6` | A `.write` that accepts any value: no `.validate` that reads its own new value sits at or below it, and the write rule does not check `newData`. |
 | `RTDB-SEC-7` | A node that names children in `.validate` but has no `$other` rule, so a write can add any other key under it. |
 
 For a ruleset that names children in `.validate`, `"$other": { ".validate": false }` rejects the keys it does not name.
