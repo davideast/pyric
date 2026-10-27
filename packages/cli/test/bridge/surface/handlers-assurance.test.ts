@@ -12,6 +12,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { get, getAdminDatabase, getDatabase, ref, set, sandbox as rtdbSandbox } from 'pyric/database';
 import { initializeSandbox } from 'pyric/sandbox';
+import { getFirestore } from 'pyric/sandbox/admin-firestore';
 
 import { runCanIUse } from '../../../src/cli/can-i-use.js';
 import {
@@ -265,6 +266,34 @@ it('replays a database capture using active sandbox RTDB rules when candidateRul
     candidateRules: '// RTDB rules with comment\n{"rules":{".read":true,".write":true,}}',
   });
   expect(commented.ok).toBe(true);
+});
+
+it('counts a Firestore request that changed verdict once, with an allowed read in the session', async () => {
+  // The Firestore sandbox replay also reports now-denied for a re-decided
+  // read, and the derived cases report the same request as a
+  // verdict-divergence. Only the database replay's re-decisions are extra
+  // verdicts; Firestore must not count the request twice.
+  const sandbox = initializeSandbox();
+  const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
+  db.setRules(ALICE_NOTE_RULES);
+  await db.doc('notes/welcome').set({ title: 'welcome' });
+  await db.doc('notes/welcome').get();
+  writeCapture(projectDir, '.pyric/read-session.json', buildVerifyFixture({
+    sandbox,
+    description: 'alice creates a note and reads it',
+    firestoreRules: ALICE_NOTE_RULES,
+  }));
+
+  const replayed = await run('assurance.replaySession', {
+    sessionPath: '.pyric/read-session.json',
+    candidateRules: NO_NOTE_RULES,
+  });
+  const divergences = (replayed.data as { divergences: Array<{ kind: string; method?: string; path?: string }> }).divergences;
+  const verdicts = divergences.filter((entry) => entry.kind === 'verdict-divergence');
+  const requests = verdicts.map((entry) => `${entry.method} ${entry.path}`);
+  expect(requests.length).toBeGreaterThan(1);
+  expect(new Set(requests).size).toBe(requests.length);
+  expect(replayed.summary).toContain(`changed ${verdicts.length} verdict(s)`);
 });
 
 it('counts a database replay that re-decides a verdict as a changed verdict, not a state divergence', async () => {

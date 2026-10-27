@@ -56,15 +56,16 @@ function verdictDivergences(cases: readonly CaseVerdict[]): VerdictDivergence[] 
 /**
  * A replay divergence that is a verdict the candidate rules changed: the
  * database replay re-decides each recorded request and reports `now-denied`
- * or `now-allowed`, the counterpart of the Firestore case verdicts.
+ * or `now-allowed`. Firestore's derived cases report those same requests as
+ * verdict divergences, so only the database replay's are counted here.
  */
-function isReplayVerdict(divergence: VerifyDivergence): boolean {
-  return divergence.kind === 'now-denied' || divergence.kind === 'now-allowed';
+function isReplayVerdict(service: string, divergence: VerifyDivergence): boolean {
+  return service === 'rtdb' && (divergence.kind === 'now-denied' || divergence.kind === 'now-allowed');
 }
 
 /** The state divergences a replay found, minus the ones it classifies as expected and the verdicts it re-decided. */
-function stateDivergences(found: readonly VerifyDivergence[]): VerifyDivergence[] {
-  return found.filter((divergence) => divergence.kind !== 'expected-drift' && !isReplayVerdict(divergence));
+function stateDivergences(service: string, found: readonly VerifyDivergence[]): VerifyDivergence[] {
+  return found.filter((divergence) => divergence.kind !== 'expected-drift' && !isReplayVerdict(service, divergence));
 }
 
 export default {
@@ -141,8 +142,8 @@ export default {
     }
 
     const replayDivergences = replayed.services[service]?.divergences ?? [];
-    const state = stateDivergences(replayDivergences);
-    const redecided = replayDivergences.filter(isReplayVerdict);
+    const state = stateDivergences(service, replayDivergences);
+    const redecided = replayDivergences.filter((divergence) => isReplayVerdict(service, divergence));
     const decided =
       service === 'firestore' ? runDerivedCases(read.fixture, firestoreRules) : { cases: [] };
     if ('error' in decided) return operationFailure(decided.error);
