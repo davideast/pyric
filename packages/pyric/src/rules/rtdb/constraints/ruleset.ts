@@ -1,5 +1,6 @@
 import { buildRuleExpression } from '../compiled-rules.js';
 import type { CompiledRtdbRules } from '../compiled-rules.js';
+import { closestKey } from '../../closest-key.js';
 import { all, expr } from './compose.js';
 import { schemaRules, type SchemaFieldRule } from './schema.js';
 import type { Expr, PathDef, RulesetContext } from './types.js';
@@ -93,20 +94,7 @@ function applySchemaChildren(
   }
 }
 
-const PATH_DEF_KEYS = ['read', 'write', 'validate', 'schema', 'fieldConstraints', 'indexOn', 'children'];
-
-/** Levenshtein distance, for naming the nearest valid key. */
-function editDistance(a: string, b: string): number {
-  let previous = Array.from({ length: b.length + 1 }, (_, j) => j);
-  for (let i = 1; i <= a.length; i++) {
-    const row = [i];
-    for (let j = 1; j <= b.length; j++) {
-      row[j] = Math.min(previous[j]! + 1, row[j - 1]! + 1, previous[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1));
-    }
-    previous = row;
-  }
-  return previous[b.length]!;
-}
+const PATH_DEF_KEYS: readonly string[] = ['read', 'write', 'validate', 'schema', 'fieldConstraints', 'indexOn', 'children'];
 
 /** Refuse a key a path definition does not have, naming the nearest key that it does. */
 function assertKnownKeys(pathStr: string, def: PathDef): void {
@@ -115,14 +103,22 @@ function assertKnownKeys(pathStr: string, def: PathDef): void {
   }
   for (const key of Object.keys(def)) {
     if (PATH_DEF_KEYS.includes(key)) continue;
-    const [nearest] = PATH_DEF_KEYS
-      .map((valid) => ({ valid, distance: editDistance(key.toLowerCase(), valid.toLowerCase()) }))
-      .sort((a, b) => a.distance - b.distance);
-    const hint = nearest !== undefined && nearest.distance <= 3
-      ? `; did you mean '${nearest.valid}'?`
-      : `; the keys are ${PATH_DEF_KEYS.map((k) => `'${k}'`).join(', ')}.`;
+    const nearest = closestKey(key, PATH_DEF_KEYS);
+    const hint = nearest === null
+      ? `; the keys are ${PATH_DEF_KEYS.map((k) => `'${k}'`).join(', ')}.`
+      : `; did you mean '${nearest}'?`;
     throw new Error(`Unknown key '${key}' in the rules for "${pathStr}"${hint}`);
   }
+}
+
+/**
+ * Refuse unknown keys in an object-form definition, nested children included.
+ * `defineRtdbRules` calls it so the error is thrown where the definition is
+ * written. The callback form is checked when the ruleset compiles, because its
+ * paths exist only once the callback has run.
+ */
+export function assertKnownPathKeys(paths: Record<string, PathDef>): void {
+  flattenChildren(Object.entries(paths));
 }
 
 /** A rule's expression: text, or a boolean as database.rules.json spells it. Anything else, including an empty string, is refused rather than dropped. */

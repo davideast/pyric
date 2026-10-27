@@ -6,7 +6,7 @@ import {
 import type { SimulationInput, SimulateResult } from '../simulation/spec.js';
 import { structuralFindings } from '../structure.js';
 import type { RtdbNode, RtdbRuleExpression } from '../types.js';
-import { ruleset } from './ruleset.js';
+import { assertKnownPathKeys, ruleset } from './ruleset.js';
 import type { PathDef, RulesetContext } from './types.js';
 
 export interface RtdbRulesDefinition {
@@ -226,6 +226,7 @@ class DefinedRtdbRulesDocument implements RtdbRulesDocumentInternal {
 }
 
 export function defineRtdbRules(definition: RtdbRulesDefinition): RtdbRulesDocument {
+  if (typeof definition.paths !== 'function') assertKnownPathKeys(definition.paths);
   // The runtime object carries the full method surface; the declared return
   // type is the inert public artifact. Route the assignment through the
   // internal interface (a declared subtype) so the brand-only weak type

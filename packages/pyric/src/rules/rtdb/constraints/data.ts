@@ -2,8 +2,8 @@ import type { Expr, Segment } from './types.js';
 import { expr as e, fieldName, group, lit } from './compose.js';
 import { looksLikeRuleReference } from '../grammar/linter.js';
 
-// RTDB data is at most 32 levels deep, so a longer .parent() chain leaves the tree.
-const MAX_PARENT_DEPTH = 32;
+/** Firebase documents a maximum database depth of 32 levels, so a longer `.parent()` chain leaves the tree. */
+export const MAX_PARENT_DEPTH = 32;
 
 type CompareValue = string | number | boolean | null | Segment;
 

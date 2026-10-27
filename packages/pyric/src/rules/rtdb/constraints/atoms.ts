@@ -1,11 +1,11 @@
 import type { Expr, Segment } from './types.js';
-import { any, expr as e, fieldName, lit, not } from './compose.js';
+import { any, expr as e, lit, not } from './compose.js';
 import { childPathName, dataExists, dataVal, eq, newDataVal } from './data.js';
 
 function buildPath(builder: string, segments: Segment[]): string {
   if (!Array.isArray(segments) || segments.length === 0) throw new Error(`${builder}: pass at least one segment.`);
   return segments.map(s => {
-    if (typeof s === 'string') return `child(${lit(fieldName(builder, s))})`;
+    if (typeof s === 'string') return `child(${lit(childPathName(builder, s))})`;
     // Unquoted reference: path variable ($teamId) or runtime (auth.uid)
     if (typeof s?.$ !== 'string' || s.$.trim().length === 0) {
       throw new Error(`${builder}: segment expression '$' must be a non-empty string.`);
@@ -74,5 +74,8 @@ export const rootExists = (segments: Segment[]): Expr =>
   e(`root.${buildPath('rootExists', segments)}.exists()`);
 
 /** Check if a path's value equals a specific string (via root) */
-export const rootEquals = (segments: Segment[], value: string): Expr =>
-  e(`root.${buildPath('rootEquals', segments)}.val() == ${lit(value)}`);
+export const rootEquals = (segments: Segment[], value: string): Expr => rootValueEquals('rootEquals', segments, value);
+
+/** {@link rootEquals} reporting argument errors under `builder`, for builders written on top of it. */
+export const rootValueEquals = (builder: string, segments: Segment[], value: string): Expr =>
+  e(`root.${buildPath(builder, segments)}.val() == ${lit(value)}`);

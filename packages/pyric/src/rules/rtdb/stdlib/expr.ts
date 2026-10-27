@@ -6,13 +6,13 @@
  */
 import type { Expr } from '../constraints/types.js';
 import { fieldName, lit } from '../constraints/compose.js';
-import { dataVal, eq, newDataVal } from '../constraints/data.js';
+import { dataVal, eq, MAX_PARENT_DEPTH, newDataVal } from '../constraints/data.js';
 
-/** The most seats or slots a builder writes one comparison for. */
+/**
+ * The most seats or slots a builder writes one comparison for. This is pyric's own
+ * bound, not production's: production deploys much longer chains of terms.
+ */
 export const MAX_BUILT_COUNT = 1000;
-
-/** RTDB data is at most 32 levels deep, so a `.parent()` chain longer than that leaves the tree. */
-export const MAX_PARENT_DEPTH = 32;
 
 /** An integer of at least `min` and at most `limit`, or a thrown error naming the builder and the argument. */
 export function boundedCount(builder: string, name: string, value: number, min: number, limit: number): number {

@@ -44,3 +44,10 @@ describe('rtdbStdlib.collections', () => {
 
   runScenario(scenario);
 });
+
+describe('slotKey max is bounded (LD-11)', () => {
+  test('refuses 1e21 with a plain Error naming the limit', () => {
+    expect(() => collections.slotKey('$s', 1e21)).toThrow(/max must be an integer from 1 to 1000/);
+    expect(() => collections.slotKey('$s', 1e21)).not.toThrow(RangeError);
+  });
+});

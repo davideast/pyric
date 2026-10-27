@@ -1,7 +1,7 @@
 import type { Expr, Segment } from './types.js';
 import { all, any, expr, fieldName, lit } from './compose.js';
-import { dataVal, eq, newDataVal } from './data.js';
-import { authenticated, ownPath, ownField, isNew, rootExists, rootEquals } from './atoms.js';
+import { childPathName, dataVal, eq, newDataVal } from './data.js';
+import { authenticated, ownPath, ownField, isNew, rootValueEquals } from './atoms.js';
 
 /** Only the path owner (auth.uid == $pathVar) can access */
 export const pathOwnerOnly = (pathVar: string): Expr =>
@@ -17,14 +17,14 @@ export const ownerOrNew = (field: string): Expr =>
 
 /** Cross-path role check via root lookup */
 export const hasRole = (segments: Segment[], role: string): Expr =>
-  rootEquals(segments, role);
+  rootValueEquals('hasRole', segments, role);
 
 /** Cross-path membership check: root.child(list).child($var).child(auth.uid).exists() */
 export function isMember(listName: string, pathVarName: string): Expr {
   if (typeof pathVarName !== 'string' || !/^[A-Za-z_]\w*$/.test(pathVarName)) {
     throw new Error(`isMember: '${String(pathVarName)}' is not a path variable name; pass it without the $, such as 'roomId'.`);
   }
-  return expr(`root.child(${lit(fieldName('isMember', listName))}).child($${pathVarName}).child(auth.uid).exists()`);
+  return expr(`root.child(${lit(childPathName('isMember', listName))}).child($${pathVarName}).child(auth.uid).exists()`);
 }
 
 /**
