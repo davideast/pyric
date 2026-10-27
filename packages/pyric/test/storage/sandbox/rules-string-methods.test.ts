@@ -89,9 +89,11 @@ describe('evaluateStorageRules — string methods', () => {
   });
 
   // FS2-SIM-8. Storage capture rules-storage-xref-shared-language-semantics
-  // (2026-10-27): `' a'.trim() == ' a'` and `' a '.trim() == 'a'`
-  // both ALLOW. The C0, U+3000 and BOM cases replay the Firestore capture
-  // split-and-trim-edges, which the Storage cross-check agreed with 12/12.
+  // (2026-10-27, packages/conformance/observations/storage-rules/, row
+  // storage-rules#219): `trim-keeps-nbsp` and `trim-strips-ascii-space` both
+  // ALLOW. The C0, U+3000 and BOM cases replay the Firestore capture
+  // rules-firestore-split-and-trim-edges (row firestore-rules#202), which the
+  // Storage cross-check agreed with 12/12.
   it('trims code units at or below U+0020 and keeps NBSP, U+3000 and BOM', () => {
     expect(evalString("'\\u00a0a'.trim() == '\\u00a0a'").allowed).toBe(true);
     expect(evalString("' a '.trim() == 'a'").allowed).toBe(true);
@@ -101,13 +103,21 @@ describe('evaluateStorageRules — string methods', () => {
   });
 
   // FS2-SIM-5a. Storage compiles matches() as RE2 like Firestore, where `\s`
-  // is `[\t\n\f\r ]`; verdicts from the Firestore capture re2-pattern-semantics.
+  // is `[\t\n\f\r ]`. The first five verdicts replay the Firestore capture
+  // rules-firestore-re2-pattern-semantics (row firestore-rules#199); the last
+  // four replay Storage's own capture rules-storage-h1-regex-re2-classes (row
+  // storage-rules#204): `space-class-nbsp`, `space-class-em-space` and
+  // `space-class-vertical-tab` DENY, and `nonspace-class-nbsp` ALLOWS.
   it('reads \\s in matches() as ASCII whitespace only', () => {
     expect(evalString("!'\\u00a0'.matches('\\\\s')").allowed).toBe(true);
     expect(evalString("!'\\u2003'.matches('\\\\s')").allowed).toBe(true);
     expect(evalString("!'\\u000b'.matches('\\\\s')").allowed).toBe(true);
     expect(evalString("'a b\\u00a0c'.matches('[^\\\\s]+ [^\\\\s]+')").allowed).toBe(true);
     expect(evalString("'a b'.matches('a\\\\sb')").allowed).toBe(true);
+    expect(evalString("'\\u00a0'.matches('\\\\s')").allowed).toBe(false);
+    expect(evalString("'\\u2003'.matches('\\\\s')").allowed).toBe(false);
+    expect(evalString("'\\013'.matches('\\\\s')").allowed).toBe(false);
+    expect(evalString("'a\\u00a0b'.matches('\\\\S+')").allowed).toBe(true);
   });
 
   it('replaces every match of a regular expression', () => {

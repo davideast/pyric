@@ -1,12 +1,15 @@
 import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { SimulateFirestoreRulesHandler } from '../../../src/rules/simulator/handler.js';
 import type { TestCase } from '../../../src/rules/test/spec.js';
 
 /**
- * Replays of two Firestore Rules Test API captures from 2026-10-27
- * (scenarios `re2-pattern-semantics` and `split-and-trim-edges`, project
- * digame-mas). Each guard is a rules expression, and each expected verdict is
- * production's answer for it.
+ * Replays of two Firestore Rules Test API captures from 2026-10-27, committed
+ * as `packages/conformance/observations/firestore-rules/rules-firestore-re2-pattern-semantics.json`
+ * and `rules-firestore-split-and-trim-edges.json` (rows firestore-rules#199
+ * and #202). Each guard is the rules expression from the corpus scenario, and
+ * each expected verdict is read from the observation by its case name.
  *
  * - `matches()` compiles RE2, where `\s` is `[\t\n\f\r ]`: no NBSP, em
  *   space or vertical tab, whether the character comes from a literal or
@@ -22,6 +25,23 @@ type Capture = {
   readonly production: 'ALLOW' | 'DENY';
   readonly data?: Record<string, unknown>;
 };
+
+const OBSERVATIONS = join(import.meta.dir, '..', '..', '..', '..', 'conformance', 'observations', 'firestore-rules');
+
+/** Production's verdict for one case of a committed observation. */
+function captured(scenario: string) {
+  const observation = JSON.parse(
+    readFileSync(join(OBSERVATIONS, `rules-firestore-${scenario}.json`), 'utf8'),
+  ) as { behavior: Record<string, 'ALLOW' | 'DENY'> };
+  return (description: string): 'ALLOW' | 'DENY' => {
+    const verdict = observation.behavior[description];
+    if (verdict === undefined) throw new Error(`rules-firestore-${scenario} has no case "${description}"`);
+    return verdict;
+  };
+}
+
+const re2Capture = captured('re2-pattern-semantics');
+const trimCapture = captured('split-and-trim-edges');
 
 function verdictOf(capture: Capture): string {
   const rules = `rules_version = '2';
@@ -40,29 +60,29 @@ service cloud.firestore {
 }
 
 const re2Space: readonly Capture[] = [
-  { description: 'NBSP is not \\s', guard: "!'\\u00a0'.matches('\\\\s')", production: 'ALLOW' },
-  { description: 'em space is not \\s', guard: "!'\\u2003'.matches('\\\\s')", production: 'ALLOW' },
-  { description: 'vertical tab is not \\s', guard: "!'\\u000b'.matches('\\\\s')", production: 'ALLOW' },
+  { description: 'NBSP is not \\s', guard: "!'\\u00a0'.matches('\\\\s')", production: re2Capture('NBSP is not \\s') },
+  { description: 'em space is not \\s', guard: "!'\\u2003'.matches('\\\\s')", production: re2Capture('em space is not \\s') },
+  { description: 'vertical tab is not \\s', guard: "!'\\u000b'.matches('\\\\s')", production: re2Capture('vertical tab is not \\s') },
   {
     description: 'NBSP counts as a non-space char',
     guard: "'a b\\u00a0c'.matches('[^\\\\s]+ [^\\\\s]+')",
-    production: 'ALLOW',
+    production: re2Capture('NBSP counts as a non-space char'),
   },
-  { description: 'space is \\s (control)', guard: "'a b'.matches('a\\\\sb')", production: 'ALLOW' },
+  { description: 'space is \\s (control)', guard: "'a b'.matches('a\\\\sb')", production: re2Capture('space is \\s (control)') },
   {
     description: 'real nbsp from data is not \\s',
     guard: "!request.resource.data.nbsp.matches('\\\\s')",
-    production: 'ALLOW',
+    production: re2Capture('real nbsp from data is not \\s'),
     data: { nbsp: ' ' },
   },
 ];
 
 const trim: readonly Capture[] = [
-  { description: 'trim keeps NBSP', guard: "'\\u00a0'.trim().size() == 1", production: 'ALLOW' },
-  { description: 'trim keeps ideographic space', guard: "'\\u3000a'.trim() == '\\u3000a'", production: 'ALLOW' },
-  { description: 'trim strips C0 controls', guard: "'\\u0001a\\u001f'.trim() == 'a'", production: 'ALLOW' },
-  { description: 'trim keeps BOM', guard: "'\\ufeffa'.trim() == '\\ufeffa'", production: 'ALLOW' },
-  { description: 'trim strips space tab newline (control)', guard: "' \\ta\\n '.trim() == 'a'", production: 'ALLOW' },
+  { description: 'trim keeps NBSP', guard: "'\\u00a0'.trim().size() == 1", production: trimCapture('trim keeps NBSP') },
+  { description: 'trim keeps ideographic space', guard: "'\\u3000a'.trim() == '\\u3000a'", production: trimCapture('trim keeps ideographic space') },
+  { description: 'trim strips C0 controls', guard: "'\\u0001a\\u001f'.trim() == 'a'", production: trimCapture('trim strips C0 controls') },
+  { description: 'trim keeps BOM', guard: "'\\ufeffa'.trim() == '\\ufeffa'", production: trimCapture('trim keeps BOM') },
+  { description: 'trim strips space tab newline (control)', guard: "' \\ta\\n '.trim() == 'a'", production: trimCapture('trim strips space tab newline (control)') },
 ];
 
 describe('FS2-SIM-5a: matches() reads \\s as RE2 ASCII whitespace', () => {
