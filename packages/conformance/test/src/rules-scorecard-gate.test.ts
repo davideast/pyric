@@ -30,14 +30,12 @@ describe('Unified rules scorecard gate CLI reporter', () => {
     expect(out).not.toContain('[diverged] rtdb.operator.add');
     expect(out).not.toContain('[diverged] rtdb.binding.query.orderByPriority');
     // The 2026-10-26 hunt's pinned findings (#1247): each fix stream removes its lines.
-    expect(out).toContain('[diverged] rtdb.method.string.matches (diverged by: rtdb-rules#34)');
-    expect(out).toContain('[diverged] rtdb.semantic.regex-literal (diverged by: rtdb-rules#34, rtdb-rules#35)');
     expect(out).toContain('[diverged] rtdb.binding.query (diverged by: rtdb-rules#36)');
     expect(out).toContain('[diverged] rtdb.binding.query.orderByKey (diverged by: rtdb-rules#36)');
     expect(out).toContain('[diverged] rtdb.rule-kind.location-wildcard (diverged by: rtdb-rules#37)');
     expect(out).toContain('[diverged] rtdb.rule-kind.indexOn (diverged by: rtdb-rules#38)');
     expect(out).toContain('[diverged] rtdb.operator.or (diverged by: rtdb-rules#39)');
     const rtdbBreakdown = out.slice(out.indexOf('--- RTDB Rules Breakdown ---'));
-    expect(rtdbBreakdown.match(/\[diverged\] rtdb\./g)?.length).toBe(7);
+    expect(rtdbBreakdown.match(/\[diverged\] rtdb\./g)?.length).toBe(5);
   }, GATE_TIMEOUT_MS);
 });
