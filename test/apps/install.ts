@@ -6,7 +6,7 @@
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { cpSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { describeUnreapedExit, watchUnreapedExit } from './unreaped-exit.ts';
+import { describeHeldPipes, describeUnreapedExit, OUTPUT_CLOSE_GRACE_MS, watchUnreapedExit } from './unreaped-exit.ts';
 
 /** The published packages, in the order scripts/pack-packages.sh packs them. */
 const PUBLISHED_PACKAGE_DIRS = [
@@ -72,6 +72,13 @@ export function runCommand(
     child.on('close', (code) => {
       stopWatching();
       resolvePromise({ code, output });
+    });
+    // A process the command started can hold its output pipes open (#1274).
+    child.on('exit', (code, signal) => {
+      setTimeout(() => {
+        stopWatching();
+        resolvePromise({ code, output: `${output}${describeHeldPipes(command, code, signal)}` });
+      }, OUTPUT_CLOSE_GRACE_MS).unref();
     });
   });
 }

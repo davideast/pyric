@@ -37,6 +37,19 @@ export function decodeExitStatus(status: number): ChildExit {
   return hasExited ? { code: (status >> 8) & 0xff, signal: null } : { code: null, signal };
 }
 
+/**
+ * How long the driver waits, after a child's `exit`, for its output pipes to
+ * close. A process the child started can inherit them and hold them open
+ * long after the child is gone, and then `close` never comes.
+ */
+export const OUTPUT_CLOSE_GRACE_MS = 2000;
+
+/** The line a log gets when a child exited but its output pipes never closed. */
+export function describeHeldPipes(name: string, code: number | null, signal: NodeJS.Signals | null): string {
+  const ending = code === null ? `was ended by ${signal ?? 'a signal'}` : `exited with code ${code}`;
+  return `\n[driver] ${name} ${ending}, but its output pipes stayed open ${OUTPUT_CLOSE_GRACE_MS / 1000}s later (a process it started holds them); the driver records the exit (#1274)\n`;
+}
+
 /** The line a log gets when a child's exit came from /proc, not from the runner. */
 export function describeUnreapedExit(name: string, exit: ChildExit): string {
   const ending = exit.code === null ? `was ended by signal ${exit.signal}` : `exited with code ${exit.code}`;

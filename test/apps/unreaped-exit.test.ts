@@ -102,3 +102,37 @@ describe('the driver sees a child that exited unreaped', () => {
     expect(result).toEqual({ code: 0, output: expect.stringContaining('the runner never reaped it') });
   }, 10_000);
 });
+
+describe('the driver sees a child whose output pipes a process it started holds open', () => {
+  const held: number[] = [];
+  afterEach(() => {
+    for (const pid of held.splice(0)) {
+      try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ }
+    }
+  });
+
+  /** A shell that leaves `sleep 30` holding its stdout and stderr, prints that sleep's pid, then exits with `code`. */
+  const leavesPipesOpen = (code: number) => `sleep 30 & echo "holder $!"; exit ${code}`;
+  const holderOf = (output: string) => Number(/holder (\d+)/.exec(output)?.[1] ?? 0);
+
+  test('an app process settles with its exit code once its pipes have had time to close', async () => {
+    const child = new AppProcess('pipe holder', 'sh', ['-c', leavesPipesOpen(4)], '.', { PATH: process.env.PATH });
+    const code = await Promise.race([child.exited, new Promise((resolve) => setTimeout(() => resolve('still waiting'), 8000))]);
+    held.push(holderOf(child.output));
+    expect(code).toBe(4);
+    expect(child.output).toContain('exited with code 4, but its output pipes stayed open');
+  }, 15_000);
+
+  test('a command resolves with its exit code once its pipes have had time to close', async () => {
+    const result = await Promise.race([
+      runCommand('sh', ['-c', leavesPipesOpen(0)], { cwd: '.' }),
+      new Promise((resolve) => setTimeout(() => resolve('still waiting'), 8000)),
+    ]) as { code: number; output: string } | string;
+    expect(typeof result).toBe('object');
+    if (typeof result === 'string') return;
+    held.push(holderOf(result.output));
+    expect(result.code).toBe(0);
+    expect(result.output).toContain('but its output pipes stayed open');
+  }, 15_000);
+});
+

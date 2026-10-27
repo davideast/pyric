@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import type { Browser, BrowserContext, Page } from '@playwright/test';
 import { blackholedPort, type BlackholedPort } from '../../packages/cli/test/blackholed-port.ts';
 import { npmInstall, pinPyricPackages, type Tarballs } from './install.ts';
-import { describeProcState, describeUnreapedExit, watchUnreapedExit } from './unreaped-exit.ts';
+import { describeHeldPipes, describeProcState, describeUnreapedExit, OUTPUT_CLOSE_GRACE_MS, watchUnreapedExit } from './unreaped-exit.ts';
 
 export interface LogWaitOptions {
   /** Only output after this offset (from `mark()`) counts. Default: all output. */
@@ -88,6 +88,18 @@ export class AppProcess {
       if (!isCurrent()) return;
       if (signal) this.text += `\n[driver] exited on ${signal}\n`;
       this.finish(code);
+    });
+    // `close` waits for the output pipes too, and a process the child started
+    // can hold them open after the child is gone (#1274): the exit counts once
+    // the pipes have had time to drain.
+    child.on('exit', (code, signal) => {
+      if (!isCurrent()) return;
+      const timer = setTimeout(() => {
+        if (!isCurrent() || !this.running) return;
+        this.text += describeHeldPipes(this.name, code, signal);
+        this.finish(code);
+      }, OUTPUT_CLOSE_GRACE_MS);
+      timer.unref();
     });
     // Bun can miss a child's exit and never reap it (#1274); /proc still has it.
     this.stopWatchingExit();
