@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AppProcess, AppRun } from './driver.ts';
 import { runCommand } from './install.ts';
-import { decodeExitStatus, describeUnreapedExit, liveGroupMembers, parseProcStat, unreapedExit, watchUnreapedExit } from './unreaped-exit.ts';
+import { decodeExitStatus, describeProcState, describeUnreapedExit, liveGroupMembers, parseProcStat, unreapedExit, watchUnreapedExit } from './unreaped-exit.ts';
 
 const onLinux = process.platform === 'linux';
 const parents: ChildProcess[] = [];
@@ -14,11 +14,16 @@ afterEach(() => {
   for (const parent of parents.splice(0)) parent.kill('SIGKILL');
 });
 
+/** How long `zombie` waits for /proc to show its child as a zombie; a loaded machine can be slow to run it. */
+const ZOMBIE_WAIT_MS = 4000;
+
 /**
  * A real zombie: a child that has exited with `code` and that nobody reaps.
  * Its parent, `sh`, starts it in the background and then becomes `sleep`,
  * which never calls waitpid, the way the runner never reaped its children in
- * #1274. Resolves to the zombie's pid once it has exited.
+ * #1274. Resolves to the zombie's pid once /proc/<pid>/stat shows state Z with
+ * its exit status (field 52), and throws, with what /proc showed, if that
+ * takes longer than ZOMBIE_WAIT_MS (#1281).
  */
 async function zombie(code: number): Promise<number> {
   const parent = spawn('sh', ['-c', `(exit ${code}) & echo $!; exec sleep 60`], { stdio: ['ignore', 'pipe', 'ignore'] });
@@ -26,7 +31,12 @@ async function zombie(code: number): Promise<number> {
   const pid = await new Promise<number>((resolve) => {
     parent.stdout?.once('data', (chunk) => resolve(Number(String(chunk).trim())));
   });
-  for (let tries = 0; tries < 50 && unreapedExit(pid) === undefined; tries++) await new Promise((resolve) => setTimeout(resolve, 20));
+  const deadline = performance.now() + ZOMBIE_WAIT_MS;
+  const isReady = () => unreapedExit(pid)?.code === code;
+  while (!isReady()) {
+    if (performance.now() > deadline) throw new Error(`pid ${pid} was not a zombie with exit code ${code} after ${ZOMBIE_WAIT_MS}ms${describeProcState(pid)}`);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
   return pid;
 }
 
@@ -55,7 +65,7 @@ describe('reading an unreaped exit from /proc', () => {
   test.if(onLinux)('a running process has no exit, and a zombie has its own', async () => {
     expect(unreapedExit(process.pid)).toBeUndefined();
     expect(unreapedExit(await zombie(3))).toEqual({ code: 3, signal: null });
-  });
+  }, 10_000);
 
   /** A zombie's stat line: wchan 1 when the reader may see its exit status, 0 when ptrace access hides it. */
   const zombieLine = (exitStatus: number, visible: boolean) => {
@@ -89,7 +99,7 @@ describe('reading an unreaped exit from /proc', () => {
     stop();
     expect(seen[0]).toBe(5);
     expect(seen[1]).toBeGreaterThanOrEqual(600);
-  });
+  }, 10_000);
 });
 
 describe('the driver sees a child that exited unreaped', () => {
@@ -107,7 +117,7 @@ describe('the driver sees a child that exited unreaped', () => {
     expect(code).toBe(3);
     expect(child.running).toBe(false);
     expect(child.output).toContain('exited with code 3, and the runner never reaped it');
-  }, 10_000);
+  }, 15_000);
 
   test.if(onLinux)('a command the runner never sees exit resolves with its exit code', async () => {
     const pid = await zombie(0);
@@ -116,7 +126,7 @@ describe('the driver sees a child that exited unreaped', () => {
       new Promise((resolve) => setTimeout(() => resolve('still waiting'), 6000)),
     ]);
     expect(result).toEqual({ code: 0, output: expect.stringContaining('the runner never reaped it') });
-  }, 10_000);
+  }, 15_000);
 });
 
 describe('a child whose exit came without its close', () => {
