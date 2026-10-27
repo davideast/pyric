@@ -12,7 +12,7 @@ describe('rules-language production coverage', () => {
     expect(firestore?.constructs.find((construct) => construct.id === 'firestore.binding.resource.id')?.verdict).toBe('verified');
     expect(firestore?.constructs.find((construct) => construct.id === 'firestore.binding.resource.__name__')?.verdict).toBe('verified');
     expect(firestore?.constructs.find((construct) => construct.id === 'firestore.semantic.type-dispatch')?.verdict).toBe('verified');
-    expect(firestore?.verifiedConstructs).toBe(135);
+    expect(firestore?.verifiedConstructs).toBe(124);
   }, FULL_GRAPH_TIMEOUT_MS);
 
   it('restores RTDB validate scope only after the ancestor case conforms', async () => {
@@ -25,12 +25,23 @@ describe('rules-language production coverage', () => {
     expect(rtdb?.verifiedConstructs).toBe(90);
   }, FULL_GRAPH_TIMEOUT_MS);
 
-  it('verifies Storage corpus constructs with input-digest-bound observations and zero unresolved AST nodes', async () => {
+  it('verifies Storage corpus constructs with input-digest-bound observations and no unresolved AST nodes but its unknown-method probes', async () => {
     const report = await computeCoverageReport();
     const storage = report.engines.find((engine) => engine.engine === 'storage');
 
-    expect(storage?.unresolved).toEqual([]);
-    expect(storage?.verifiedScenarioCount).toBe(28);
-    expect(storage?.verifiedConstructs).toBe(126);
+    // h1-unknown-method-absorption calls methods that do not exist, so that
+    // production can show their errors are absorbed (row storage-rules#211).
+    // They name no construct; every other AST node must resolve.
+    const unknownMethod = (what: string) => ({
+      scenario: 'h1-unknown-method-absorption', what, reason: 'storage: unrecognized method receiver',
+    });
+    expect(storage?.unresolved).toEqual([
+      unknownMethod('method:foo'),
+      unknownMethod('method:indexOf'),
+      unknownMethod('method:abs'),
+      unknownMethod('method:foo'),
+    ]);
+    expect(storage?.verifiedScenarioCount).toBe(45);
+    expect(storage?.verifiedConstructs).toBe(109);
   }, FULL_GRAPH_TIMEOUT_MS);
 });
