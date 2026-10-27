@@ -114,7 +114,7 @@ export function compileRtdbRules(rulesJson: unknown): CompiledRtdbRules {
   if (!('rules' in document)) {
     throw new Error('Invalid rules JSON: missing top-level "rules" key');
   }
-  if (typeof document.rules !== 'object' || document.rules === null) {
+  if (typeof document.rules !== 'object' || document.rules === null || Array.isArray(document.rules)) {
     throw new Error('Invalid rules JSON: "rules" must be an object');
   }
   return compileNode(document.rules as Record<string, unknown>, '/', []);

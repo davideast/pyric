@@ -5,11 +5,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+/**
+ * Set `key` on `target` as an own data property. Plain assignment would run
+ * the `__proto__` setter instead, so a key named `__proto__` would never land
+ * in the tree, where production stores it as an ordinary key (capture
+ * rules-rtdb-r52-prototype-named-keys, CS-1).
+ */
+function defineChild(target: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
+}
+
 /** The value stored at `path` in a root tree, or undefined. */
 export function valueAtPath(root: unknown, path: string): unknown {
   let cursor: unknown = root;
   for (const segment of path.split('/').filter(Boolean)) {
-    if (cursor === null || typeof cursor !== 'object') return undefined;
+    if (cursor === null || typeof cursor !== 'object' || !Object.hasOwn(cursor, segment)) return undefined;
     cursor = (cursor as Record<string, unknown>)[segment];
   }
   return cursor;
@@ -24,6 +34,36 @@ function resolveWriteValue(base: unknown, path: string, rawValue: unknown, now: 
   if (rawValue === undefined) return null;
   const resolved = resolveSentinels(rawValue, now, valueAtPath(base, path));
   return normalizeRuleWrite(resolved);
+}
+
+/**
+ * Stands in for an own `__proto__` key while an update value passes through
+ * the sandbox's sentinel and normalization steps, which build objects by
+ * assignment and would drop it. It holds U+0000, which no RTDB key can.
+ */
+const PROTO_STAND_IN = '\u0000__proto__';
+
+/** `value` with every own key named `from` renamed to `to`, at any depth. */
+function withKeyRenamed(value: unknown, from: string, to: string): unknown {
+  if (Array.isArray(value)) return value.map((item) => withKeyRenamed(item, from, to));
+  if (!isRecord(value)) return value;
+  const renamed: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value)) {
+    defineChild(renamed, key === from ? to : key, withKeyRenamed(child, from, to));
+  }
+  return renamed;
+}
+
+/**
+ * An update value as the database receives it. The SDK's `update()` sends
+ * the caller's object as given (`repoUpdate` passes `childrenToMerge` to the
+ * server), so an own `__proto__` key inside it is written and validated. A
+ * `set()` value goes through `ChildrenNode.val()`, which assigns each child
+ * and drops that key, so a single-path write does not keep it.
+ */
+function resolveUpdateValue(base: unknown, path: string, rawValue: unknown, now: number): unknown {
+  const shielded = withKeyRenamed(rawValue, '__proto__', PROTO_STAND_IN);
+  return withKeyRenamed(resolveWriteValue(base, path, shielded, now), PROTO_STAND_IN, '__proto__');
 }
 
 /**
@@ -49,7 +89,7 @@ export function projectPostWriteTree(
   let root = base;
   for (const update of updates) {
     const segments = update.path.split('/').filter(Boolean);
-    root = withValueAt(root, segments, resolveWriteValue(base, update.path, update.value, evaluationNow));
+    root = withValueAt(root, segments, resolveUpdateValue(base, update.path, update.value, evaluationNow));
   }
   return root;
 }
@@ -94,7 +134,7 @@ export function withValueAt(root: unknown, segments: string[], value: unknown): 
   }
 
   const nextObj: Record<string, unknown> = isPlainObject ? { ...unwrapped } : {};
-  nextObj[head] = childValue;
+  defineChild(nextObj, head, childValue);
   if (isWrapper && isPlainObject && Object.hasOwn(root, '.priority')) {
     nextObj['.priority'] = root['.priority'];
   }

@@ -183,8 +183,13 @@ written value.
   by the `.write` rules on its own path and by the `.validate` rules against the
   tree the whole update produces, so one refused path denies the update. Test a
   multi-path update as an `update` case, not as one `write` case per path.
-- `UNSUPPORTED` means the simulator abstained on an expression it cannot
-  evaluate. It is not a pass. Report it and run `rules.lint()` for the cause.
+- `UNSUPPORTED` means the simulator did not evaluate the case. It is not a
+  pass. Either the case reached an expression the simulator cannot evaluate
+  (run `rules.lint()` for the cause), or no client could send the request: a
+  path with `.`, `#`, `$`, `[` or `]`, update paths that overlap, a write under
+  `/.info`, a query the SDK refuses to build, `updates` that leave out `path`
+  or disagree with `newData`, or a ruleset that does not compile. `reason`
+  says which, with the SDK's own text for a refused request. Fix the case.
 - `simulate` does not run the deploy check. A rule `firebase deploy` refuses can
   still evaluate in a case: a `.read` of `auth.uid` grants any signed-in reader.
   A passing case on a ruleset with lint errors proves nothing about production.

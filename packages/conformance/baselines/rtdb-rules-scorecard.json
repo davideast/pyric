@@ -100,10 +100,10 @@
     ]
   },
   "score": {
-    "numerator": 86,
+    "numerator": 89,
     "denominator": 91,
-    "ratio": 0.945054945054945,
-    "percent": 94.5
+    "ratio": 0.978021978021978,
+    "percent": 97.8
   },
   "axes": {
     "productionAcceptance": {
@@ -125,14 +125,14 @@
       "unprobeable": 0
     },
     "productionEvidence": {
-      "verified": 85,
-      "diverged": 5,
+      "verified": 88,
+      "diverged": 2,
       "unverified": 1
     }
   },
   "counts": {
-    "conformant": 86,
-    "diverged": 5,
+    "conformant": 89,
+    "diverged": 2,
     "unknown": 0,
     "acceptance-mismatch": 0,
     "local-unsupported": 0,
@@ -1316,8 +1316,8 @@
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "r13-priority-and-index-directive",
         "r15-validate-ancestor-scope",
@@ -1334,11 +1334,10 @@
         "r7-pathvar-binding"
       ],
       "verifiedByRows": [
-        "rtdb-rules#19"
-      ],
-      "divergedByRows": [
+        "rtdb-rules#19",
         "rtdb-rules#37"
-      ]
+      ],
+      "divergedByRows": []
     },
     "rtdb.semantic.read-cascade": {
       "productionAcceptance": "accepted",
@@ -1421,19 +1420,18 @@
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "r30-query-rules",
         "r45-not-operator-runtime",
         "r49-value-edges"
       ],
       "verifiedByRows": [
-        "rtdb-rules#24"
-      ],
-      "divergedByRows": [
+        "rtdb-rules#24",
         "rtdb-rules#36"
-      ]
+      ],
+      "divergedByRows": []
     },
     "rtdb.binding.query.orderByChild": {
       "productionAcceptance": "accepted",
@@ -1453,19 +1451,18 @@
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "r30-query-rules",
         "r45-not-operator-runtime",
         "r49-value-edges"
       ],
       "verifiedByRows": [
-        "rtdb-rules#26"
-      ],
-      "divergedByRows": [
+        "rtdb-rules#26",
         "rtdb-rules#36"
-      ]
+      ],
+      "divergedByRows": []
     },
     "rtdb.binding.query.orderByValue": {
       "productionAcceptance": "accepted",

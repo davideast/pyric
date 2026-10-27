@@ -100,7 +100,9 @@ function exportedValue(raw: unknown): unknown {
   for (const [key, child] of Object.entries(raw)) {
     if (key === '.priority') continue;
     const value = exportedValue(child);
-    if (value !== null) out[key] = value;
+    // Defined, not assigned: assigning a key named `__proto__` runs the
+    // prototype setter and drops it, where production keeps it (CS-1).
+    if (value !== null) Object.defineProperty(out, key, { value, enumerable: true, writable: true, configurable: true });
   }
   return Object.keys(out).length === 0 ? null : out;
 }
