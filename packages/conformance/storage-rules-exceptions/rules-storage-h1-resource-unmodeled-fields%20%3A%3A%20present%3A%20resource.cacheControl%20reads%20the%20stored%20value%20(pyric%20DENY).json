@@ -1,0 +1,1 @@
+{"kind":"verdict","rowId":"storage-rules#205","productionVerdict":"ALLOW","evaluatorVerdict":"DENY","reason":"production binds this resource field; pyric does not model it","issue":"ST-H1-1"}

@@ -1,0 +1,83 @@
+{
+  "name": "rules-storage-h1-auth-token-default",
+  "matrixRow": "",
+  "rowIds": [
+    "storage-rules#210"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"h1-auth-token-default\" (STORAGE-H1-AUTH-TOKEN). An authenticated request always carries a token map on the wire; the Storage evaluator drops it when the case omits it.",
+  "observedAt": "2026-10-27T02:46:23.675Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "48fd5cf13f72d1dcf29dfd9294e67ce17e7c09fb295b148b91863c1f08c29f4a"
+  },
+  "behavior": {
+    "token is a map when the case gives none (pyric DENY)": "ALLOW",
+    "token is empty when the case gives none (pyric DENY)": "ALLOW",
+    "token.get default when the case gives none (pyric DENY)": "ALLOW",
+    "control: explicit token map (pyric ALLOW)": "ALLOW"
+  },
+  "diagnostics": {
+    "token is a map when the case gives none (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 4,
+              "column": 46,
+              "currentOffset": 117,
+              "endOffset": 123
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "token is empty when the case gives none (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 45,
+              "currentOffset": 190,
+              "endOffset": 196
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "token.get default when the case gives none (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 6,
+              "column": 51,
+              "currentOffset": 274,
+              "endOffset": 280
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "control: explicit token map (pyric ALLOW)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 4,
+              "column": 46,
+              "currentOffset": 117,
+              "endOffset": 123
+            },
+            "value": true
+          }
+        ]
+      }
+    }
+  }
+}

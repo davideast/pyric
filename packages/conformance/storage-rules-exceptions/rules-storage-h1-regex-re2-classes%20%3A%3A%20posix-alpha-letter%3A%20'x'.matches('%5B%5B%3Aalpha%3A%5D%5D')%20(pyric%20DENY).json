@@ -1,0 +1,1 @@
+{"kind":"verdict","rowId":"storage-rules#204","productionVerdict":"ALLOW","evaluatorVerdict":"DENY","reason":"RE2 reads [[:alpha:]] as a POSIX class; pyric misreads it","issue":"ST-H1-3 / FS2-SIM-5c"}

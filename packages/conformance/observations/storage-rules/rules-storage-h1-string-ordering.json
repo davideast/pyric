@@ -1,0 +1,99 @@
+{
+  "name": "rules-storage-h1-string-ordering",
+  "matrixRow": "",
+  "rowIds": [
+    "storage-rules#213"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"h1-string-ordering\" (STORAGE-H1-STRING-ORDER). String ordering above the BMP separates code point order from UTF-16 code unit order.",
+  "observedAt": "2026-10-27T02:46:25.026Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "c34a9640aac798201753533903d40c4bd76de94e1696bd52cf3e355845cc449d"
+  },
+  "behavior": {
+    "fullwidth-z-before-emoji: '\\uff5a' < '\\ud83d\\ude00' (pyric DENY)": "DENY",
+    "private-use-before-emoji: '\\ue000' < '\\ud83d\\ude00' (pyric DENY)": "DENY",
+    "emoji-after-uffff: '\\ud83d\\ude00' > '\\uffff' (pyric DENY)": "DENY",
+    "control-ascii: 'a' < 'b' && 'B' < 'a' (pyric ALLOW)": "ALLOW",
+    "control-keys-code-point: {'\\ud83d\\ude00': 1, '\\uff5a': 2}.keys() == ['\\uff5a', '\\ud83d\\ude00'] (pyric ALLOW)": "ALLOW"
+  },
+  "diagnostics": {
+    "fullwidth-z-before-emoji: '\\uff5a' < '\\ud83d\\ude00' (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 4,
+              "column": 64,
+              "currentOffset": 135,
+              "endOffset": 142
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "private-use-before-emoji: '\\ue000' < '\\ud83d\\ude00' (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 64,
+              "currentOffset": 227,
+              "endOffset": 234
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "emoji-after-uffff: '\\ud83d\\ude00' > '\\uffff' (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 6,
+              "column": 57,
+              "currentOffset": 312,
+              "endOffset": 325
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "control-ascii: 'a' < 'b' && 'B' < 'a' (pyric ALLOW)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 7,
+              "column": 53,
+              "currentOffset": 393,
+              "endOffset": 395
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "control-keys-code-point: {'\\ud83d\\ude00': 1, '\\uff5a': 2}.keys() == ['\\uff5a', '\\ud83d\\ude00'] (pyric ALLOW)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 8,
+              "column": 63,
+              "currentOffset": 481,
+              "endOffset": 481
+            },
+            "value": true
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,1 @@
+{"rowId":"firestore-rules#199","conformanceDisposition":"pending-fix","productionVerdict":"ALLOW","simulatorVerdict":"DENY","reason":"RE2 reads \\s as [\\t\\n\\f\\r ]; pyric reads it as Unicode white space","issue":"FS2-SIM-5a"}

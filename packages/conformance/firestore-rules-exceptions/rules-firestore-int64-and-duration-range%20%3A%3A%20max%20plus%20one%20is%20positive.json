@@ -1,0 +1,1 @@
+{"rowId":"firestore-rules#198","conformanceDisposition":"pending-fix","productionVerdict":"DENY","simulatorVerdict":"ALLOW","reason":"int64 overflow is an error in production (MIN / -1 is MIN); pyric computes a double","issue":"FS2-SIM-3"}

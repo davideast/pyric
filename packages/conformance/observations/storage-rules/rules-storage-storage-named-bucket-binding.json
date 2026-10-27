@@ -1,0 +1,83 @@
+{
+  "name": "rules-storage-storage-named-bucket-binding",
+  "matrixRow": "",
+  "rowIds": [
+    "storage-rules#216"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"storage-named-bucket-binding\" (STORAGE-H2-BUCKET-BINDING). Pin that the bucket wildcard, request.resource.bucket and resource.bucket carry the real bucket name, so a ruleset that names its bucket is honored.",
+  "observedAt": "2026-10-27T02:38:03.549Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "d21d63db990b4d1a630ee7ef17b23dce26d33d4a920b92d56cff5977892b2dc6"
+  },
+  "behavior": {
+    "wildcard binds the real bucket name": "ALLOW",
+    "wildcard in another bucket does not equal the name": "DENY",
+    "request.resource.bucket is the real bucket name": "ALLOW",
+    "resource.bucket is the real bucket name": "ALLOW"
+  },
+  "diagnostics": {
+    "wildcard binds the real bucket name": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 4,
+              "column": 45,
+              "currentOffset": 116,
+              "endOffset": 121
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "wildcard in another bucket does not equal the name": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 4,
+              "column": 45,
+              "currentOffset": 116,
+              "endOffset": 121
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "request.resource.bucket is the real bucket name": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 43,
+              "currentOffset": 196,
+              "endOffset": 202
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "resource.bucket is the real bucket name": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 6,
+              "column": 40,
+              "currentOffset": 290,
+              "endOffset": 297
+            },
+            "value": true
+          }
+        ]
+      }
+    }
+  }
+}

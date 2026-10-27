@@ -1,0 +1,1 @@
+{"rowId":"firestore-rules#202","conformanceDisposition":"pending-fix","productionVerdict":"ALLOW","simulatorVerdict":"DENY","reason":"trim() strips code units at or below U+0020 in production; pyric uses String.prototype.trim()","issue":"FS2-SIM-8"}

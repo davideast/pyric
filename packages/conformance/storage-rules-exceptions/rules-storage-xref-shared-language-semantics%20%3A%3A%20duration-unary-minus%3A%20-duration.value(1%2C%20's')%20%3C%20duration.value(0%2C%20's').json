@@ -1,0 +1,1 @@
+{"kind":"verdict","rowId":"storage-rules#219","productionVerdict":"ALLOW","evaluatorVerdict":"DENY","reason":"unary minus on a duration is an error in pyric; production negates it","issue":"ST-H1-13 / FS2-SIM-1"}

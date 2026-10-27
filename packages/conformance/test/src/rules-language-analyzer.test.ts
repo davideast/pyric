@@ -8,6 +8,7 @@ import {
 } from '../../src/rules-language-analyzer.ts';
 import { ALL_RULES_FIRESTORE_SCENARIOS } from '../../rules-corpus/firestore/index.ts';
 import { ALL_RULES_STORAGE_SCENARIOS } from '../../rules-corpus/storage/index.ts';
+import { loadStorageRulesExceptions } from '../../src/storage-rules-exceptions.ts';
 import { ALL_RULES_RTDB_SCENARIOS } from '../../rules-corpus/rtdb/index.ts';
 
 describe('rules-language analyzer', () => {
@@ -85,11 +86,21 @@ service firebase.storage {
     }
   });
 
-  it('analyzes every storage corpus scenario without error', () => {
+  it('analyzes every storage corpus scenario without error but those pinned as parse divergences', () => {
     const known = new Set(loadSnapshot('storage').constructs.map((c) => c.id));
+    const parsePinned = new Map([...loadStorageRulesExceptions()]
+      .flatMap(([name, pin]) => (pin.kind === 'parse' ? [[name, pin.localError] as const] : [])));
+    // These probes call methods that do not exist (row storage-rules#211).
+    const unknownMethodProbes = new Set(['h1-unknown-method-absorption']);
     for (const pack of ALL_RULES_STORAGE_SCENARIOS) {
+      const pinnedError = parsePinned.get(`rules-storage-${pack.id}`);
+      if (pinnedError !== undefined) {
+        expect(() => analyze('storage', pack.rules)).toThrow(pinnedError);
+        continue;
+      }
       const res = analyze('storage', pack.rules);
       for (const id of res.ids) expect(known.has(id)).toBe(true);
+      if (unknownMethodProbes.has(pack.id)) continue;
       expect(res.unresolved).toEqual([]);
     }
   });

@@ -18,6 +18,7 @@ import {
 } from '../../pyric/src/storage/sandbox/rules.ts';
 import { evaluateStorageRules } from '../../pyric/src/storage/sandbox/rules-evaluator.ts';
 import { storageRulesTestInputDigest } from './storage-rules-input-digest.ts';
+import { loadStorageRulesExceptions } from './storage-rules-exceptions.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OBS_DIR = join(HERE, '..', 'observations', 'storage-rules');
@@ -31,18 +32,7 @@ export interface StorageRulesObservation {
 
 type Verdict = 'ALLOW' | 'DENY';
 
-const KNOWN_DIVERGENCES: Record<
-  string,
-  { prodVerdict: Verdict; evalVerdict: Verdict; reason: string; issue: string }
-> = {
-  'rules-storage-firestore-lookup-budget :: budget: three distinct documents deny': {
-    prodVerdict: 'ALLOW',
-    evalVerdict: 'DENY',
-    reason:
-      'projects.test function mocks do not enforce the real-resource two-document Storage lookup budget; the evaluator follows the separately captured real-resource contract.',
-    issue: 'storage-rules#131',
-  },
-};
+const KNOWN_EXCEPTIONS = loadStorageRulesExceptions();
 
 function lookupFromCase(tc: StorageTestCase): FirestoreLookup | undefined {
   if (!tc.functionMocks || tc.functionMocks.length === 0) return undefined;
@@ -101,25 +91,37 @@ export function evaluateStorageScenarioVerdicts(scenario: StorageScenario): Reco
   return table;
 }
 
-export function storageOracleReplayProblems(
-  scenario: StorageScenario,
-  observation: StorageRulesObservation,
-  evaluatorVerdicts: Readonly<Record<string, Verdict>>,
-  matchedDivergences?: Set<string>,
-): string[] {
+/** The observation and the corpus scenario must describe the same cases and inputs. */
+function observationShapeProblems(scenario: StorageScenario, observation: StorageRulesObservation): string[] {
   const problems: string[] = [];
   const expectedKeys = scenario.cases.map(({ description }) => description).sort();
   const observedKeys = Object.keys(observation.behavior).sort();
   if (JSON.stringify(observedKeys) !== JSON.stringify(expectedKeys)) {
     problems.push(`${observation.name}: observation case set is stale`);
   }
-  const evalKeys = Object.keys(evaluatorVerdicts).sort();
-  if (JSON.stringify(evalKeys) !== JSON.stringify(expectedKeys)) {
-    problems.push(`${observation.name}: evaluator case set is not exact`);
-  }
   const expectedDigest = storageRulesTestInputDigest(scenario.rules, scenario.cases);
   if (JSON.stringify(observation.inputDigest) !== JSON.stringify(expectedDigest)) {
     problems.push(`${observation.name}: observation input digest is stale`);
+  }
+  return problems;
+}
+
+function pinRowProblems(key: string, observation: StorageRulesObservation, rowId: string): string[] {
+  const linkedToRow = observation.rowIds?.includes(rowId) ?? false;
+  return linkedToRow ? [] : [`${key}: divergence belongs to ${rowId}, which ${observation.name} does not cite`];
+}
+
+export function storageOracleReplayProblems(
+  scenario: StorageScenario,
+  observation: StorageRulesObservation,
+  evaluatorVerdicts: Readonly<Record<string, Verdict>>,
+  matchedDivergences?: Set<string>,
+): string[] {
+  const problems = observationShapeProblems(scenario, observation);
+  const expectedKeys = scenario.cases.map(({ description }) => description).sort();
+  const evalKeys = Object.keys(evaluatorVerdicts).sort();
+  if (JSON.stringify(evalKeys) !== JSON.stringify(expectedKeys)) {
+    problems.push(`${observation.name}: evaluator case set is not exact`);
   }
 
   const knownGap = new Set(
@@ -130,13 +132,14 @@ export function storageOracleReplayProblems(
     if (knownGap.has(caseKey)) continue;
     const evalVerdict = evaluatorVerdicts[caseKey];
     const key = `${observation.name} :: ${caseKey}`;
-    const known = KNOWN_DIVERGENCES[key];
-    if (known) {
+    const known = KNOWN_EXCEPTIONS.get(key);
+    if (known?.kind === 'verdict') {
       matchedDivergences?.add(key);
-      if (prodVerdict !== known.prodVerdict) {
+      problems.push(...pinRowProblems(key, observation, known.rowId));
+      if (prodVerdict !== known.productionVerdict) {
         problems.push(`${key}: pinned production verdict changed`);
       }
-      if (evalVerdict !== known.evalVerdict) {
+      if (evalVerdict !== known.evaluatorVerdict) {
         problems.push(`${key}: pinned evaluator verdict changed (${known.issue}: ${known.reason})`);
       }
       continue;
@@ -146,6 +149,39 @@ export function storageOracleReplayProblems(
     }
   }
   return problems;
+}
+
+/**
+ * A scenario pyric refuses to parse is pinned by its observation name. The pin
+ * holds only while pyric still refuses it with the pinned error, and the
+ * observation must still match the scenario's cases and inputs.
+ */
+export function storageParsePinProblems(
+  scenario: StorageScenario,
+  observation: StorageRulesObservation,
+  error: Error,
+  matchedDivergences?: Set<string>,
+): string[] {
+  const known = KNOWN_EXCEPTIONS.get(observation.name);
+  if (known?.kind !== 'parse') return [`${observation.name}: evaluator failed: ${error.message}`];
+  matchedDivergences?.add(observation.name);
+  const problems = [
+    ...observationShapeProblems(scenario, observation),
+    ...pinRowProblems(observation.name, observation, known.rowId),
+  ];
+  if (!error.message.includes(known.localError)) {
+    problems.push(`${observation.name}: pinned parse error changed (${known.issue}): ${error.message}`);
+  }
+  return problems;
+}
+
+/** Each scenario pinned as a parse divergence, with the error text pyric must still report. */
+export function storageParsePins(): ReadonlyMap<string, string> {
+  const pins = new Map<string, string>();
+  for (const [key, known] of KNOWN_EXCEPTIONS) {
+    if (known.kind === 'parse') pins.set(key, known.localError);
+  }
+  return pins;
 }
 
 export interface StorageOracleReplayResult {
@@ -186,7 +222,7 @@ export function replayStorageRulesObservations(): StorageOracleReplayResult[] {
     } catch (error) {
       replays.push({
         name: observation.name,
-        problems: [`${observation.name}: evaluator failed: ${(error as Error).message}`],
+        problems: storageParsePinProblems(scenario, observation, error as Error, matchedDivergences),
       });
       continue;
     }
@@ -196,7 +232,7 @@ export function replayStorageRulesObservations(): StorageOracleReplayResult[] {
     });
   }
 
-  for (const key of Object.keys(KNOWN_DIVERGENCES)) {
+  for (const key of KNOWN_EXCEPTIONS.keys()) {
     if (!matchedDivergences.has(key)) {
       replays.push({
         name: key,

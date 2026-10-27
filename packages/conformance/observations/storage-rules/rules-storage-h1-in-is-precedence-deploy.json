@@ -1,0 +1,90 @@
+{
+  "name": "rules-storage-h1-in-is-precedence-deploy",
+  "matrixRow": "",
+  "rowIds": [
+    "storage-rules#208"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"h1-in-is-precedence-deploy\" (STORAGE-H1-IN-IS-PRECEDENCE-DEPLOY). Chained or compared in/is expressions are valid under the documented precedence and rejected by pyric at parse.",
+  "observedAt": "2026-10-27T02:46:40.853Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "06e9722c295e48d26edf4f1c0cc41c708f35c2cbf40483e48db20b6ff8ad632f"
+  },
+  "behavior": {
+    "is then ==: size is int == true (pyric parse error)": "ALLOW",
+    "in then is: (a in list) is bool (pyric parse error)": "DENY",
+    "in then in: (a in list) in [true] (pyric parse error)": "ALLOW",
+    "is then is: (1 is int) is bool (pyric parse error)": "ALLOW"
+  },
+  "diagnostics": {
+    "is then ==: size is int == true (pyric parse error)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 4,
+              "column": 46,
+              "currentOffset": 117,
+              "endOffset": 123
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "in then is: (a in list) is bool (pyric parse error)": {
+      "notes": [
+        "Error: storage.rules line [5], column [46]. Function not found error: Name: [in]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 5,
+          "column": 46,
+          "currentOffset": 202,
+          "endOffset": 204
+        },
+        "functionCalls": [
+          {
+            "function": "in",
+            "args": [
+              "a"
+            ]
+          }
+        ]
+      }
+    },
+    "in then in: (a in list) in [true] (pyric parse error)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 6,
+              "column": 46,
+              "currentOffset": 271,
+              "endOffset": 273
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "is then is: (1 is int) is bool (pyric parse error)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 7,
+              "column": 46,
+              "currentOffset": 342,
+              "endOffset": 342
+            },
+            "value": true
+          }
+        ]
+      }
+    }
+  }
+}

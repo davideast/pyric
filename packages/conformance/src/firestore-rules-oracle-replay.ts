@@ -86,7 +86,9 @@ export function firestoreOracleReplayProblems(
     const known = KNOWN_EXCEPTIONS.get(key);
     if (known) {
       matchedExceptions?.add(key);
-      problems.push(...diagnosticProblems(observation, caseKey, known.diagnosticFunction));
+      if (known.diagnosticFunction) {
+        problems.push(...diagnosticProblems(observation, caseKey, known.diagnosticFunction));
+      }
       if (row.id !== known.rowId) problems.push(`${key}: divergence belongs to ${known.rowId}, not ${row.id}`);
       if (row.status !== 'diverged-documented') {
         problems.push(`${key}: ${known.rowId} must remain diverged-documented while verdicts differ`);

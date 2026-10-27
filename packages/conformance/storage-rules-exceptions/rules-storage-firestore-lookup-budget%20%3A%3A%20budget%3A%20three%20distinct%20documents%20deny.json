@@ -1,0 +1,1 @@
+{"kind":"verdict","rowId":"storage-rules#129","productionVerdict":"ALLOW","evaluatorVerdict":"DENY","reason":"projects.test function mocks do not enforce the real-resource two-document Storage lookup budget; the evaluator follows the separately captured real-resource contract.","issue":"storage-rules#131"}

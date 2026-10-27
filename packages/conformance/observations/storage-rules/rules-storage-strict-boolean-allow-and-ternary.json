@@ -1,0 +1,98 @@
+{
+  "name": "rules-storage-strict-boolean-allow-and-ternary",
+  "matrixRow": "",
+  "rowIds": [
+    "storage-rules#storage.semantic.strict-boolean-allow-boundary",
+    "storage-rules#storage.semantic.strict-boolean-ternary-condition"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"strict-boolean-allow-and-ternary\" (STORAGE-P4-STRICT-BOOLEAN). Storage types the allow boundary and the ternary condition as bool like Firestore: a non-boolean allow condition denies, and a non-boolean ternary condition errors, which || true and !(… && false) both consume as ALLOW.",
+  "observedAt": "2026-10-27T02:03:50.107Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "9ddf2258a46d8c78b367a0f5fe452c50a93d538647e78f093363c6df679f530a"
+  },
+  "behavior": {
+    "string allow condition is a type error → DENY": "DENY",
+    "int ternary condition errors, absorbed by || true → ALLOW": "ALLOW",
+    "int ternary condition errors, absorbed by && false and negated → ALLOW": "ALLOW",
+    "bool ternary condition selects the true branch → ALLOW": "ALLOW",
+    "anonymous read does not reach the true branch → DENY": "DENY"
+  },
+  "diagnostics": {
+    "string allow condition is a type error → DENY": {
+      "notes": [
+        "Error: storage.rules line [7], column [22]. Type error. Received: [string] Expected: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 7,
+          "column": 22,
+          "currentOffset": 230,
+          "endOffset": 236
+        }
+      }
+    },
+    "int ternary condition errors, absorbed by || true → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 11,
+              "column": 22,
+              "currentOffset": 385,
+              "endOffset": 385
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "int ternary condition errors, absorbed by && false and negated → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 15,
+              "column": 22,
+              "currentOffset": 557,
+              "endOffset": 557
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "bool ternary condition selects the true branch → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 19,
+              "column": 22,
+              "currentOffset": 721,
+              "endOffset": 727
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "anonymous read does not reach the true branch → DENY": {
+      "notes": [
+        "Error: storage.rules line [19], column [22]. Property auth is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 19,
+          "column": 22,
+          "currentOffset": 721,
+          "endOffset": 727
+        }
+      }
+    }
+  }
+}

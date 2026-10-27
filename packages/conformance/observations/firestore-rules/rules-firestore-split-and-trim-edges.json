@@ -1,0 +1,28 @@
+{
+  "name": "rules-firestore-split-and-trim-edges",
+  "matrixRow": "",
+  "rowIds": [
+    "firestore-rules#202"
+  ],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"split-and-trim-edges\" (Coverage: split and trim edges). split() drops trailing empty pieces, and trim() strips only characters at or below U+0020, keeping NBSP, U+3000 and BOM.",
+  "observedAt": "2026-10-27T02:31:54.219Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "f755b7445d8063467faaa690173433764882a5cd5aa3998d26f1b3e7219a70a5"
+  },
+  "behavior": {
+    "trailing comma drops the empty piece": "ALLOW",
+    "trailing comma keeps the empty piece": "DENY",
+    "two trailing commas give size two": "ALLOW",
+    "split on dot of a.b.c is empty": "DENY",
+    "empty string splits to one empty piece": "ALLOW",
+    "leading comma keeps the empty piece (control)": "ALLOW",
+    "trim keeps NBSP": "ALLOW",
+    "trim keeps ideographic space": "ALLOW",
+    "trim strips C0 controls": "ALLOW",
+    "trim keeps BOM": "ALLOW",
+    "trim strips space tab newline (control)": "ALLOW"
+  }
+}
