@@ -29,10 +29,13 @@ const QUANTIFIER_ENDS = new Set(['*', '+', '?', '}']);
  * Its anchor rewrite puts `.*` around the pattern with no group (r53), so a
  * top-level `|` splits differently, and a `]` that opens a set is a member.
  *
- * One gap stays open: JavaScript's `.` refuses the line terminators `\n`,
- * `\r`, U+2028 and U+2029, and RTDB's matches them (SP-8), and the dialect has
- * no way to say "any character but a line terminator". The generated rule
- * emits `.` unchanged, so it accepts a line terminator the Zod schema refuses.
+ * Two gaps stay open, because the dialect cannot spell JavaScript's sets:
+ *   - JavaScript's `.` refuses the line terminators `\n`, `\r`, U+2028 and
+ *     U+2029, and RTDB's matches them (SP-8), so the generated rule accepts a
+ *     line terminator the Zod schema refuses;
+ *   - JavaScript's `\s` also covers Unicode spaces such as U+00A0, and RTDB's
+ *     is ASCII only (r56), so `\s` matches fewer characters and `\S` more.
+ * The generated rule emits `.`, `\s` and `\S` unchanged.
  */
 function rtdbRegexProblem(source: string): string | null {
   const deployError = rtdbRegexError(source);

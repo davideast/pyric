@@ -37,7 +37,8 @@ const DIGITS = '0123456789';
 
 const isDigit: CharTest = (ch) => ch >= '0' && ch <= '9';
 const isWord: CharTest = (ch) => /^[A-Za-z0-9_]$/.test(ch);
-const isSpace: CharTest = (ch) => /^\s$/.test(ch);
+/** ASCII whitespace only: space and `\t \n \v \f \r` (r56 denies U+00A0, U+2003, U+3000, U+FEFF, U+2028). */
+const isSpace: CharTest = (ch) => ch.length === 1 && ' \t\n\v\f\r'.includes(ch);
 
 const NAMED_CLASSES: Readonly<Record<string, CharTest>> = {
   d: isDigit,
@@ -154,7 +155,7 @@ export class DialectParser {
   }
 
   private memberTest(member: SetMember): CharTest {
-    if (member.kind === 'range') return this.foldCase(inRange(member.from, member.to));
+    if (member.kind === 'range') return this.rangeTest(member.from, member.to);
     return this.unionTest([member]);
   }
 
@@ -191,13 +192,32 @@ export class DialectParser {
     return { kind: 'char', ch };
   }
 
+  /**
+   * `target`, or under `i` its own upper or lower case. Folding works on the
+   * pattern's character, not the subject's (r56): k does not match the Kelvin
+   * sign, whose lower case is k, and dotless ı matches I, its upper case.
+   */
   private literal(target: string): CharTest {
-    return this.foldCase((ch) => ch === target);
+    if (!this.ignoreCase) return (ch) => ch === target;
+    const variants = caseVariants(target);
+    return (ch) => variants.includes(ch);
   }
 
-  private foldCase(test: CharTest): CharTest {
-    if (!this.ignoreCase) return test;
-    return (ch) => test(ch) || test(ch.toLowerCase()) || test(ch.toUpperCase());
+  /** A range, under `i` with every member's case variants added. */
+  private rangeTest(from: string, to: string): CharTest {
+    const plain = inRange(from, to);
+    if (!this.ignoreCase) return plain;
+    const width = to.charCodeAt(0) - from.charCodeAt(0);
+    if (width < 0) return plain;
+    if (width > FOLDED_RANGE_LIMIT) {
+      const foldsInto = (ch: string) => (v: string) => plain(v) && caseVariants(v).includes(ch);
+      return (ch) => plain(ch) || caseVariants(ch).some(foldsInto(ch));
+    }
+    const members = new Set<string>();
+    for (let code = from.charCodeAt(0); code <= to.charCodeAt(0); code++) {
+      for (const variant of caseVariants(String.fromCharCode(code))) members.add(variant);
+    }
+    return (ch) => members.has(ch);
   }
 
   private next(): string {
@@ -227,6 +247,19 @@ export class DialectParser {
   private refuse(message: string): never {
     throw new RtdbRegexSyntaxError(message);
   }
+}
+
+/** Ranges up to this many code units fold every member exactly; wider ones fold the subject. */
+const FOLDED_RANGE_LIMIT = 4096;
+
+/** `ch` and its single-character upper and lower case. */
+function caseVariants(ch: string): string[] {
+  const variants = [ch];
+  for (const variant of [ch.toUpperCase(), ch.toLowerCase()]) {
+    const isSingle = variant.length === 1;
+    if (isSingle && !variants.includes(variant)) variants.push(variant);
+  }
+  return variants;
 }
 
 /** A range by UTF-16 code unit; `[z-a]` is empty, as production loads and never matches it (r44). */

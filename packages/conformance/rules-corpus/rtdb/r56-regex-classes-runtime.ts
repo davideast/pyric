@@ -4,7 +4,7 @@
  *
  *   - what `\s` covers: space, `\t \n \v \f \r`, U+00A0, U+2003, U+3000,
  *     U+FEFF, U+2028, U+0085, U+001C, and `\S` on U+00A0;
- *   - whether `\w` and `\d` reach past ASCII (é, ٣);
+ *   - whether `\w` and `\d` reach past ASCII (é, \u0663);
  *   - how the `i` flag folds case: k/K, the Kelvin sign U+212A, é/É, a range,
  *     a negated set, and the dotless ı against I;
  *   - whether `& ~ # @ >` are plain characters or dk.brics operators
@@ -13,14 +13,15 @@
  *   - the email pattern the Zod generator emits;
  *   - `\n` as the letter n, and `(|a)` as the literal `|a`.
  *
- * pyric reads `\s` as JavaScript's whitespace set, folds case with
- * toLowerCase and toUpperCase, keeps `\w` and `\d` ASCII, and reads the five
- * characters as literals. `"` and `<` could make the whole ruleset fail to
- * deploy under the operator reading, so r57 probes them as dry runs first.
+ * `"` and `<` could make the whole ruleset fail to deploy under the operator
+ * reading, so r57 probes them as dry runs first.
  *
- * Drafted 2026-10-27 for #1247 (S1, review of #1261). Expectations are
- * pyric's verdicts, placeholders until the capture replaces them in
- * observations/rtdb-rules/rules-rtdb-r56-regex-classes-runtime.json.
+ * Captured 2026-10-27 in
+ * observations/rtdb-rules/rules-rtdb-r56-regex-classes-runtime.json:
+ * `\s` is ASCII only (space and `\t \n \v \f \r`), `\w` and `\d` are ASCII,
+ * `i` folds each pattern character to its own upper and lower case (k does
+ * not match the Kelvin sign, dotless ı matches I), `& ~ # @ >` are literals,
+ * `\n` is the letter n, and `(|a)` matches only `|a`.
  */
 import type { RtdbScenarioRecord, RtdbTestCase } from './types.ts';
 
@@ -45,11 +46,11 @@ const SPACES: Array<[string, string, 'ALLOW' | 'DENY']> = [
   ['a vertical tab', '\v', 'ALLOW'],
   ['a form feed', '\f', 'ALLOW'],
   ['a carriage return', '\r', 'ALLOW'],
-  ['U+00A0 no-break space', ' ', 'ALLOW'],
-  ['U+2003 em space', ' ', 'ALLOW'],
-  ['U+3000 ideographic space', '　', 'ALLOW'],
-  ['U+FEFF byte order mark', '﻿', 'ALLOW'],
-  ['U+2028 line separator', ' ', 'ALLOW'],
+  ['U+00A0 no-break space', '\u00a0', 'DENY'],
+  ['U+2003 em space', '\u2003', 'DENY'],
+  ['U+3000 ideographic space', '\u3000', 'DENY'],
+  ['U+FEFF byte order mark', '\ufeff', 'DENY'],
+  ['U+2028 line separator', '\u2028', 'DENY'],
   ['U+0085 next line', '\u0085', 'DENY'],
   ['U+001C file separator', '\u001c', 'DENY'],
 ];
@@ -59,7 +60,7 @@ export const scenario: RtdbScenarioRecord = {
   rationale:
     'pyric reads \\s as JavaScript whitespace, folds case with toLowerCase and toUpperCase, keeps \\w and \\d ASCII, and reads & ~ # @ > as plain characters; no capture has observed how production reads any of them.',
   provenance:
-    'Drafted from the review of #1261 (#1247, S1). Awaiting a deploy-observe-restore capture against pyric-oracle-rtdb into observations/rtdb-rules/rules-rtdb-r56-regex-classes-runtime.json.',
+    'Drafted from the review of #1261 (#1247, S1). Captured by deploy-observe-restore against pyric-oracle-rtdb on 2026-10-27 in observations/rtdb-rules/rules-rtdb-r56-regex-classes-runtime.json.',
   rules: JSON.stringify({
     space: validated('/^\\s$/'),
     nonspace: validated('/^\\S$/'),
@@ -81,15 +82,15 @@ export const scenario: RtdbScenarioRecord = {
   }),
   cases: [
     ...SPACES.map(([name, value, verdict]) => write(`\\s on ${name}`, '/space', value, verdict)),
-    write('\\S on U+00A0 no-break space', '/nonspace', ' ', 'DENY'),
+    write('\\S on U+00A0 no-break space', '/nonspace', '\u00a0', 'ALLOW'),
     write('\\w on é', '/word', 'é', 'DENY'),
-    write('\\d on Arabic-Indic digit three', '/digit', '٣', 'DENY'),
+    write('\\d on Arabic-Indic digit three', '/digit', '\u0663', 'DENY'),
     write('i flag: k against K', '/k', 'K', 'ALLOW'),
-    write('i flag: k against the Kelvin sign U+212A', '/k', 'K', 'ALLOW'),
+    write('i flag: k against the Kelvin sign U+212A', '/k', '\u212a', 'DENY'),
     write('i flag: é against É', '/eacute', 'É', 'ALLOW'),
     write('i flag: [a-z] against Q', '/range', 'Q', 'ALLOW'),
     write('i flag: [^a] against A', '/nota', 'A', 'DENY'),
-    write('i flag: dotless ı against I', '/dotless', 'I', 'DENY'),
+    write('i flag: dotless ı against I', '/dotless', 'I', 'ALLOW'),
     write('& literal: a&b', '/amp', 'a&b', 'ALLOW'),
     write('& near miss: ab', '/amp', 'ab', 'DENY'),
     write('~ literal: a~b', '/tilde', 'a~b', 'ALLOW'),

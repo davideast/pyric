@@ -102,6 +102,18 @@ describe('matching', () => {
     expect(matches('^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$', 'a b@c.co')).toBe(false);
   });
 
+  test('\\s, \\w and \\d are ASCII, and i folds the pattern character (r56)', () => {
+    expect(matches('^\\s$', '\t')).toBe(true);
+    expect(matches('^\\s$', '\u00a0')).toBe(false);
+    expect(matches('^\\S$', '\u00a0')).toBe(true);
+    expect(matches('^\\w$', 'é')).toBe(false);
+    expect(matches('^k$', '\u212a', 'i')).toBe(false);
+    expect(matches('^ı$', 'I', 'i')).toBe(true);
+    expect(matches('^[a-z]$', 'Q', 'i')).toBe(true);
+    expect(matches('^[a-z]$', '\u212a', 'i')).toBe(false);
+    expect(matches('^[^a]$', 'A', 'i')).toBe(false);
+  });
+
   test('an empty pattern is the empty string (r55)', () => {
     expect(rtdbRegexError('^$')).toBeNull();
     expect(matches('^$', '')).toBe(true);

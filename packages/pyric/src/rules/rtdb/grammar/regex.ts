@@ -18,14 +18,15 @@
  *   - `\b` reads as `b` and `\1` as `1`; `(?=x)` and `(?!x)` read `?` as a
  *     literal, so they never match where JavaScript would (r47, r50, SP-2b);
  *   - `.` matches every character, `\n` and `\r` included (r47, r50, SP-8);
- *   - `\p{..}` is a `p` followed by a repeat count, refused (r46, SP-2a).
+ *   - `\p{..}` is a `p` followed by a repeat count, refused (r46, SP-2a);
+ *   - `\s \w \d` are ASCII, `i` adds each pattern character's own upper and
+ *     lower case, and `& ~ # @ >` are plain characters (r56).
  *
  * The parse builds a `RegexNode` tree for the shared linear-time matcher in
  * `rules/simulator/regex-nfa.ts`, so `^(a+)+$` never backtracks (LD-6).
  *
- * Not yet observed, and kept as close to the previous JavaScript reading as
- * the dialect allows: what `\s` covers (JavaScript's whitespace set here),
- * how `i` folds case, and that `& ~ # @ " < >` are plain characters.
+ * Not yet observed, and read as plain characters like the five r56 covers:
+ * `"` and `<`, which r57 asks about.
  */
 import { compileRegexNode, type RegexMatcher, type RegexNode } from '../../simulator/regex-nfa.js';
 import { DialectParser, ILLEGAL, RtdbRegexSyntaxError } from './regex-parser.js';

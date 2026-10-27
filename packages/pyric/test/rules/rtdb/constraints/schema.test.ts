@@ -292,6 +292,18 @@ describe('schemaRules', () => {
     expect(result.children.tag.validate).toBe('newData.isString() && newData.val().matches(/^[\\w-]+\\.\\d{2,3}$/)');
   });
 
+  test('emits \\s unchanged, so the rule refuses a no-break space the Zod schema accepts (#1247 r56, known gap)', () => {
+    const schema = z.object({ gap: z.string().regex(/^a\sb$/) });
+    expect(schemaRules(schema).children.gap.validate).toBe('newData.isString() && newData.val().matches(/^a\\sb$/)');
+    expect(schema.safeParse({ gap: 'a\u00a0b' }).success).toBe(true);
+    const engine = rtdbRules(defineRtdbRules({ paths: { '/items/$id': { write: allow(), schema } } }));
+    const report = engine.simulate([
+      { operation: 'write', path: '/items/i1', auth: null, newData: { gap: 'a\u00a0b' }, expectation: 'DENY' },
+    ]);
+    // Production's \s is ASCII only (r56 "\s on U+00A0 no-break space": DENY).
+    expect(report.cases.map((c) => c.decision)).toEqual(['DENY']);
+  });
+
   test('emits . unchanged, so the rule accepts a newline the Zod schema refuses (#1247 SP-8, known gap)', () => {
     const schema = z.object({ code: z.string().regex(/^a.b$/) });
     expect(schemaRules(schema).children.code.validate).toBe('newData.isString() && newData.val().matches(/^a.b$/)');
