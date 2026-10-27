@@ -100,10 +100,10 @@
     ]
   },
   "score": {
-    "numerator": 88,
+    "numerator": 89,
     "denominator": 91,
-    "ratio": 0.967032967032967,
-    "percent": 96.7
+    "ratio": 0.978021978021978,
+    "percent": 97.8
   },
   "axes": {
     "productionAcceptance": {
@@ -125,14 +125,14 @@
       "unprobeable": 0
     },
     "productionEvidence": {
-      "verified": 87,
-      "diverged": 3,
+      "verified": 88,
+      "diverged": 2,
       "unverified": 1
     }
   },
   "counts": {
-    "conformant": 88,
-    "diverged": 3,
+    "conformant": 89,
+    "diverged": 2,
     "unknown": 0,
     "acceptance-mismatch": 0,
     "local-unsupported": 0,
@@ -181,8 +181,6 @@
         "r5-cascade-root-grant",
         "r50-regex-unsupported-semantics",
         "r52-prototype-named-keys",
-        "r54-regex-alternation-runtime",
-        "r56-regex-classes-runtime",
         "r7-pathvar-binding",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -302,8 +300,6 @@
         "r49-value-edges",
         "r50-regex-unsupported-semantics",
         "r52-prototype-named-keys",
-        "r54-regex-alternation-runtime",
-        "r56-regex-classes-runtime",
         "r8-combined-check",
         "r9-quota-arithmetic"
       ],
@@ -387,8 +383,6 @@
         "r48-object-equality",
         "r49-value-edges",
         "r50-regex-unsupported-semantics",
-        "r54-regex-alternation-runtime",
-        "r56-regex-classes-runtime",
         "r8-combined-check",
         "r9-quota-arithmetic"
       ],
@@ -554,9 +548,7 @@
         "r34-stdlib-auth-membership-quota",
         "r47-regex-runtime",
         "r49-value-edges",
-        "r50-regex-unsupported-semantics",
-        "r54-regex-alternation-runtime",
-        "r56-regex-classes-runtime"
+        "r50-regex-unsupported-semantics"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -617,22 +609,18 @@
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "r11-string-validation",
         "r27-stdlib-core-patterns",
         "r47-regex-runtime",
-        "r50-regex-unsupported-semantics",
-        "r54-regex-alternation-runtime",
-        "r56-regex-classes-runtime"
+        "r50-regex-unsupported-semantics"
       ],
-      "verifiedByRows": [
-        "rtdb-rules#34",
-        "rtdb-rules#43",
-        "rtdb-rules#45"
-      ],
-      "divergedByRows": []
+      "verifiedByRows": [],
+      "divergedByRows": [
+        "rtdb-rules#34"
+      ]
     },
     "rtdb.method.string.replace": {
       "productionAcceptance": "accepted",
@@ -810,8 +798,6 @@
         "r5-cascade-root-grant",
         "r50-regex-unsupported-semantics",
         "r52-prototype-named-keys",
-        "r54-regex-alternation-runtime",
-        "r56-regex-classes-runtime",
         "r7-pathvar-binding",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -1028,8 +1014,6 @@
         "r47-regex-runtime",
         "r49-value-edges",
         "r50-regex-unsupported-semantics",
-        "r54-regex-alternation-runtime",
-        "r56-regex-classes-runtime",
         "r7-pathvar-binding",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -1262,8 +1246,6 @@
         "r5-cascade-root-grant",
         "r50-regex-unsupported-semantics",
         "r52-prototype-named-keys",
-        "r54-regex-alternation-runtime",
-        "r56-regex-classes-runtime",
         "r6-deny-everything",
         "r7-pathvar-binding",
         "r8-combined-check",
@@ -1306,8 +1288,6 @@
         "r49-value-edges",
         "r50-regex-unsupported-semantics",
         "r52-prototype-named-keys",
-        "r54-regex-alternation-runtime",
-        "r56-regex-classes-runtime",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [
@@ -1336,8 +1316,8 @@
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "r13-priority-and-index-directive",
         "r15-validate-ancestor-scope",
@@ -1354,11 +1334,10 @@
         "r7-pathvar-binding"
       ],
       "verifiedByRows": [
-        "rtdb-rules#19"
-      ],
-      "divergedByRows": [
+        "rtdb-rules#19",
         "rtdb-rules#37"
-      ]
+      ],
+      "divergedByRows": []
     },
     "rtdb.semantic.read-cascade": {
       "productionAcceptance": "accepted",
@@ -1418,57 +1397,41 @@
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "r11-string-validation",
         "r27-stdlib-core-patterns",
         "r47-regex-runtime",
         "r50-regex-unsupported-semantics",
-        "r54-regex-alternation-runtime",
-        "r56-regex-classes-runtime",
         "r44-deploy-string-and-regex-probes",
         "r46-deploy-regex-constructs",
-        "r51-deploy-anchor-index-and-length-probes",
-        "r53-deploy-regex-paren",
-        "r55-deploy-regex-empty",
-        "r57-deploy-regex-operators",
-        "r58-deploy-regex-count-past-int",
-        "r59-deploy-regex-count-100000",
-        "r60-deploy-regex-repeat-of-repeat"
+        "r51-deploy-anchor-index-and-length-probes"
       ],
       "verifiedByRows": [
-        "rtdb-rules#33",
-        "rtdb-rules#34",
-        "rtdb-rules#35",
-        "rtdb-rules#42",
-        "rtdb-rules#43",
-        "rtdb-rules#44",
-        "rtdb-rules#45",
-        "rtdb-rules#46",
-        "rtdb-rules#47",
-        "rtdb-rules#48",
-        "rtdb-rules#49"
+        "rtdb-rules#33"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "rtdb-rules#34",
+        "rtdb-rules#35"
+      ]
     },
     "rtdb.binding.query": {
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "r30-query-rules",
         "r45-not-operator-runtime",
         "r49-value-edges"
       ],
       "verifiedByRows": [
-        "rtdb-rules#24"
-      ],
-      "divergedByRows": [
+        "rtdb-rules#24",
         "rtdb-rules#36"
-      ]
+      ],
+      "divergedByRows": []
     },
     "rtdb.binding.query.orderByChild": {
       "productionAcceptance": "accepted",
@@ -1488,19 +1451,18 @@
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "r30-query-rules",
         "r45-not-operator-runtime",
         "r49-value-edges"
       ],
       "verifiedByRows": [
-        "rtdb-rules#26"
-      ],
-      "divergedByRows": [
+        "rtdb-rules#26",
         "rtdb-rules#36"
-      ]
+      ],
+      "divergedByRows": []
     },
     "rtdb.binding.query.orderByValue": {
       "productionAcceptance": "accepted",

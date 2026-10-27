@@ -27,9 +27,9 @@
  * divergences" test so it can never hide.
  *
  * CURRENT STATE: the in-process simulator agrees with every captured
- * production verdict except the r49 and r52 cases from the
- * 2026-10-26 hunt (#1247) pinned in KNOWN_DIVERGENCES, each naming its
- * finding. The r15 ancestor-validate false ALLOW is resolved: the
+ * production verdict. The 2026-10-26 hunt (#1247) pins are all resolved,
+ * so KNOWN_DIVERGENCES is empty. The r15 ancestor-validate false ALLOW is
+ * resolved too: the
  * simulator now evaluates the full root-to-write validation path against the
  * merged post-write tree.
  *
@@ -71,19 +71,6 @@ const KNOWN_DIVERGENCES: Record<
   string,
   { prodVerdict: 'ALLOW' | 'DENY'; simVerdict: 'ALLOW' | 'DENY' | 'UNSUPPORTED'; reason: string }
 > = {
-  // SP-4 (#1247, row rtdb-rules#36): the simulator builds no query for a write, so
-  // query is null; production reads query.orderByKey as false, as on a plain read.
-  'r49-value-edges :: SP-4: !query.orderByKey in a .write': {
-    prodVerdict: 'ALLOW', simVerdict: 'DENY', reason: 'SP-4: query is null in a simulated .write; production reads orderByKey as false',
-  },
-  'r49-value-edges :: SP-4: query.orderByKey == false in a .write': {
-    prodVerdict: 'ALLOW', simVerdict: 'DENY', reason: 'SP-4: query is null in a simulated .write; production reads orderByKey as false',
-  },
-  // CS-1 (#1247, row rtdb-rules#37): a __proto__ key never lands in the simulated
-  // post-write tree, so its $k .validate is skipped.
-  'r52-prototype-named-keys :: CS-1: a string set at /__proto__ under a number-only $k': {
-    prodVerdict: 'DENY', simVerdict: 'ALLOW', reason: 'CS-1: the post-write tree drops a __proto__ key, so its .validate never runs',
-  },
 };
 
 interface RulesObservation {

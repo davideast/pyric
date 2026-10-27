@@ -1543,6 +1543,31 @@ describe('SimulateHandler evaluation errors in rules', () => {
     expect(prioRes.success && prioRes.data.allowed).toBe(true);
   });
 
+  // SP-4 (#1247): production reads `query` in a write rule as on a plain read
+  // (capture rules-rtdb-r49-value-edges: both orderByKey writes ALLOW).
+  test('SP-4: a write and its .validate read query as a plain read does, never null', () => {
+    const compiled = compileRtdbRules({
+      rules: {
+        t: {
+          '.write': '!query.orderByKey && query.orderByKey == false && query.limitToFirst == null',
+          '.validate': '!query.orderByValue && query.startAt == null',
+        },
+      },
+    });
+    for (const operation of ['write', 'validate'] as const) {
+      const res = handler.execute(compiled, { operation, path: '/t', auth: alice, mockData: {}, newData: 1 });
+      expect(res.success && res.data.allowed, operation).toBe(true);
+    }
+  });
+
+  test('SP-4: a write ignores a query passed with it, as a write carries none', () => {
+    const compiled = compileRtdbRules({ rules: { t: { '.write': 'query.orderByKey == false' } } });
+    const res = handler.execute(compiled, {
+      operation: 'write', path: '/t', auth: alice, mockData: {}, newData: 1, query: { orderByKey: true },
+    });
+    expect(res.success && res.data.allowed).toBe(true);
+  });
+
   test('COV-3 & MET-1 full lifecycle: sandbox signInWithCustomToken -> RTDB rules context -> plain read and orderByPriority() query', async () => {
     const sandbox = initializeSandbox({ projectId: 'cov3-met1-lifecycle' });
     const auth = getAuth(sandbox);

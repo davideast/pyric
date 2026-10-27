@@ -134,7 +134,7 @@ matchedPath: /records/$recordId/title
 matchedRule: newData.isString() && newData.val().length <= 80
 reason:      Validation rule evaluated to false
 ```
-`matchedPath` is the rule's location in the ruleset, so it shows the `$recordId` wildcard rather than the concrete path. `UNSUPPORTED` means the case reached an expression the simulator cannot evaluate. It abstains rather than guesses.
+`matchedPath` is the rule's location in the ruleset, so it shows the `$recordId` wildcard rather than the concrete path. `UNSUPPORTED` means the simulator did not evaluate the case, and `reason` says why. Either the case reached an expression the simulator cannot evaluate, and it abstains rather than guesses, or no client could send the request. The second covers a path with `.`, `#`, `$`, `[` or `]` in it, update paths that overlap, a write under `/.info`, a query the SDK refuses to build, `updates` that leave out the case's `path` or give it a value other than `newData`, and a ruleset that does not compile. For a request the SDK refuses, `reason` is the SDK's own error text.
 
 The result also carries a `trace` with every rule the simulator ran, in order:
 ```ts

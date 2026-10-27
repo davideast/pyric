@@ -301,8 +301,14 @@ function toValidateFailureResult(failure: ValidateFailure, trace: RtdbRuleEvalua
   };
 }
 
-function buildSimulatedQueryContext(operation: string, query: SimulationInput['query']): EvalContext['query'] {
-  if (operation !== 'read') return null;
+/**
+ * The rules `query` variable. A read reads the query it carries. A write
+ * carries none, and production reads `query` in a `.write` or `.validate` as
+ * it reads a plain read: `orderByKey` is `false` and every bound and limit is
+ * null (capture rules-rtdb-r49-value-edges, SP-4).
+ */
+function buildSimulatedQueryContext(operation: string, readQuery: SimulationInput['query']): EvalContext['query'] {
+  const query = operation === 'read' ? readQuery : undefined;
   const equalTo = query?.equalTo ?? null;
   return {
     orderByChild: query?.orderByChild ?? null,
