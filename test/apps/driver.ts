@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import type { Browser, BrowserContext, Page } from '@playwright/test';
 import { blackholedPort, type BlackholedPort } from '../../packages/cli/test/blackholed-port.ts';
 import { npmInstall, pinPyricPackages, type Tarballs } from './install.ts';
-import { describeProcState, watchChildExit } from './unreaped-exit.ts';
+import { describeProcState, endGroup, watchChildExit, type LiveProcess } from './unreaped-exit.ts';
 
 export interface LogWaitOptions {
   /** Only output after this offset (from `mark()`) counts. Default: all output. */
@@ -50,6 +50,8 @@ export class AppProcess {
    * process it started may still be in its group, holding its pipes.
    */
   private exitedEarly = false;
+  /** Processes this child started that outlived it, holding its pipes (#1274). */
+  readonly leftoverProcesses: LiveProcess[] = [];
 
   constructor(
     readonly name: string,
@@ -93,11 +95,12 @@ export class AppProcess {
     // `close` waits for the output pipes too, and Bun can miss an exit (#1274):
     // watchChildExit also counts an exit whose pipes stay held, and a zombie.
     this.stopWatchingExit();
-    this.stopWatchingExit = watchChildExit(child, this.name, (code, source, note) => {
+    this.stopWatchingExit = watchChildExit(child, this.name, (exit) => {
       if (!isCurrent()) return;
-      this.text += note;
-      if (source !== 'close') this.exitedEarly = true;
-      this.finish(code);
+      this.text += exit.note;
+      if (exit.source !== 'close') this.exitedEarly = true;
+      this.leftoverProcesses.push(...exit.leftovers);
+      this.finish(exit.code);
     });
     return child;
   }
@@ -189,7 +192,7 @@ export class AppProcess {
   async stop(grace: StopGrace = DEFAULT_STOP_GRACE): Promise<void> {
     if (this.child.pid === undefined) return;
     if (!this.running) {
-      this.stopLeftoverGroup();
+      await this.stopLeftoverGroup(grace);
       return;
     }
     const group = -this.child.pid;
@@ -201,7 +204,7 @@ export class AppProcess {
     try { process.kill(group, 'SIGTERM'); } catch { /* the group is gone; wait for close below */ }
     if (await this.closesWithin(grace.termMs)) {
       // The leader went; a member that ignores SIGTERM may hold its pipes.
-      this.stopLeftoverGroup();
+      if (this.exitedEarly) try { process.kill(group, 'SIGKILL'); } catch { /* the group is gone */ }
       return;
     }
     try { process.kill(group, 'SIGKILL'); } catch { /* already gone */ }
@@ -211,14 +214,14 @@ export class AppProcess {
   }
 
   /**
-   * Kill what is left of the group of a child whose exit counted without its
-   * `close`. A group id stays reserved while any member lives, and an
-   * unreaped zombie leader keeps its own, so this reaches only that group.
+   * End what is left of the group of a child whose exit counted without its
+   * `close`: SIGTERM, then SIGKILL. The signals reach only members of that
+   * process group.
    */
-  private stopLeftoverGroup(): void {
+  private async stopLeftoverGroup(grace: StopGrace): Promise<void> {
     const pid = this.child.pid;
     if (!this.exitedEarly || pid === undefined) return;
-    try { process.kill(-pid, 'SIGKILL'); } catch { /* the group is gone */ }
+    await endGroup(pid, grace.termMs);
   }
 
   private closesWithin(ms: number): Promise<boolean> {
@@ -309,6 +312,13 @@ export interface App {
    * a `/__pyric/` route answers to a page fails the app after its scenario.
    */
   expectHostError(pattern: RegExp): void;
+  /**
+   * Declares that a process an app process starts may outlive it, holding its
+   * output pipes, such as a daemon the scenario starts on purpose. `pattern`
+   * matches the leftover's command name. Any other leftover fails the app
+   * after its scenario (#1274).
+   */
+  expectLeftoverProcess(pattern: RegExp): void;
 }
 
 export type Scenario = (app: App) => Promise<void>;
@@ -416,6 +426,7 @@ export class AppRun implements App {
   currentStep = 'setup';
   /** Error responses from `/__pyric/` routes to the app's pages, with the step each happened in. */
   private readonly hostErrors: { step: string; request: string }[] = [];
+  private readonly expectedLeftovers: RegExp[] = [];
   private readonly expectedHostErrors: RegExp[] = [];
   private context: BrowserContext | undefined;
   private serverCount = 0;
@@ -615,6 +626,17 @@ export class AppRun implements App {
 
   expectHostError(pattern: RegExp): void {
     this.expectedHostErrors.push(pattern);
+  }
+
+  expectLeftoverProcess(pattern: RegExp): void {
+    this.expectedLeftovers.push(pattern);
+  }
+
+  /** Processes app processes started that outlived them, and that no `expectLeftoverProcess` pattern matches. */
+  unexpectedLeftoverProcesses(): string[] {
+    return this.processes.flatMap((child) => child.leftoverProcesses
+      .filter((leftover) => !this.expectedLeftovers.some((pattern) => pattern.test(leftover.comm)))
+      .map((leftover) => `pid ${leftover.pid} (${leftover.comm}), started by ${child.name}`));
   }
 
   /** Error responses from `/__pyric/` routes that no `expectHostError` pattern matches. */

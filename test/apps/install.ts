@@ -6,7 +6,10 @@
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { cpSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { watchChildExit } from './unreaped-exit.ts';
+import { endGroup, watchChildExit } from './unreaped-exit.ts';
+
+/** How long a process a command left behind gets after SIGTERM, before SIGKILL. */
+const LEFTOVER_TERM_MS = 1000;
 
 /** The published packages, in the order scripts/pack-packages.sh packs them. */
 const PUBLISHED_PACKAGE_DIRS = [
@@ -58,11 +61,16 @@ export function runCommand(
 ): Promise<CommandResult> {
   return new Promise((resolvePromise, reject) => {
     const spawnChild = options.spawnChild ?? spawn;
-    const child = spawnChild(command, args, { cwd: options.cwd, env: options.env ?? process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+    // Its own process group, so what it starts and leaves running can be found and ended.
+    const child = spawnChild(command, args, { cwd: options.cwd, env: options.env ?? process.env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
     let output = '';
     child.stdout?.on('data', (chunk) => { output += chunk; });
     child.stderr?.on('data', (chunk) => { output += chunk; });
-    const stopWatching = watchChildExit(child, command, (code, _source, note) => resolvePromise({ code, output: `${output}${note}` }));
+    const stopWatching = watchChildExit(child, command, (exit) => {
+      const hasLeftovers = exit.leftovers.length > 0 && child.pid !== undefined;
+      if (hasLeftovers) void endGroup(child.pid ?? 0, LEFTOVER_TERM_MS);
+      resolvePromise({ code: exit.code, output: `${output}${exit.note}` });
+    });
     child.on('error', (error) => {
       stopWatching();
       reject(error);

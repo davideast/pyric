@@ -12,24 +12,42 @@
  * child as exited. Elsewhere there is no /proc, and watching is a no-op.
  */
 import type { ChildProcess } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 
-/** How a child ended: its exit code, or the signal that ended it. */
+/**
+ * How a child ended: its exit code, or the signal that ended it. `unknown`
+ * when /proc would not show the status (no ptrace access to the child), which
+ * the kernel prints as 0 and must not be read as success.
+ */
 export interface ChildExit {
   code: number | null;
   signal: number | null;
+  unknown?: true;
 }
 
-/** A child's state letter, parent pid and waitpid-style exit status, from one /proc/<pid>/stat line. */
-export function parseProcStat(line: string): { state: string; parent: number; exitStatus: number } | undefined {
+/** The fields of one /proc/<pid>/stat line the driver reads. */
+export interface ProcStat {
+  comm: string;
+  state: string;
+  parent: number;
+  group: number;
+  /** Field 35. A process that is not running shows 1 only to a reader with ptrace access. */
+  wchan: number;
+  exitStatus: number;
+}
+
+export function parseProcStat(line: string): ProcStat | undefined {
   // `pid (comm) state …`: comm can hold spaces and parentheses, so split after the last `)`.
+  const comm = line.slice(line.indexOf('(') + 1, line.lastIndexOf(')'));
   const afterComm = line.slice(line.lastIndexOf(')') + 2).trim().split(/\s+/);
+  // afterComm[0] is field 3, so field N is afterComm[N - 3].
   const state = afterComm[0];
   const parent = Number(afterComm[1]);
-  // Field 3 is the state, so field 52, exit_code, is 49 places after it.
+  const group = Number(afterComm[2]);
+  const wchan = Number(afterComm[32]);
   const exitStatus = Number(afterComm[49]);
-  const isComplete = state !== undefined && Number.isInteger(parent) && Number.isInteger(exitStatus);
-  return isComplete ? { state, parent, exitStatus } : undefined;
+  const isComplete = state !== undefined && [parent, group, wchan, exitStatus].every(Number.isInteger);
+  return isComplete ? { comm, state, parent, group, wchan, exitStatus } : undefined;
 }
 
 /** Decode a waitpid status: an exit code when the child exited, a signal when one ended it. */
@@ -46,16 +64,35 @@ export function decodeExitStatus(status: number): ChildExit {
  */
 export const OUTPUT_CLOSE_GRACE_MS = 5000;
 
-/** The line a log gets when a child exited but its output pipes never closed. */
-export function describeHeldPipes(name: string, code: number | null, signal: NodeJS.Signals | null): string {
-  const ending = code === null ? `was ended by ${signal ?? 'a signal'}` : `exited with code ${code}`;
-  return `\n[driver] ${name} ${ending}, but its output pipes stayed open ${OUTPUT_CLOSE_GRACE_MS / 1000}s later (a process it started holds them); the driver records the exit (#1274)\n`;
+function ending(code: number | null, signal: NodeJS.Signals | number | null): string {
+  return code === null ? `was ended by ${signal === null ? 'a signal' : `signal ${signal}`}` : `exited with code ${code}`;
+}
+
+/** A process found in /proc: its pid and command name. */
+export interface LiveProcess {
+  pid: number;
+  comm: string;
+}
+
+/**
+ * The line a log gets when a child exited and `close` never came. With
+ * processes still running in its group, they are named: one of them holds
+ * the pipes, and the app fails unless its scenario expects them. With none,
+ * the runner lost `close`, and the exit counts.
+ */
+export function describeHeldPipes(name: string, code: number | null, signal: NodeJS.Signals | null, leftovers: readonly LiveProcess[]): string {
+  const wait = `${OUTPUT_CLOSE_GRACE_MS / 1000}s`;
+  if (leftovers.length === 0) {
+    return `\n[driver] ${name} ${ending(code, signal)}; its output pipes did not report closing ${wait} later, and no process is left in its group, so the runner lost \`close\`; the driver records the exit (#1274)\n`;
+  }
+  const named = leftovers.map((leftover) => `pid ${leftover.pid} (${leftover.comm})`).join(', ');
+  return `\n[driver] ${name} ${ending(code, signal)}, and ${wait} later processes it started still run in its group, holding its output pipes: ${named}; the app fails unless its scenario expects them (#1274)\n`;
 }
 
 /** The line a log gets when a child's exit came from /proc, not from the runner. */
 export function describeUnreapedExit(name: string, exit: ChildExit): string {
-  const ending = exit.code === null ? `was ended by signal ${exit.signal}` : `exited with code ${exit.code}`;
-  return `\n[driver] ${name} ${ending}, and the runner never reaped it; read from /proc (#1274)\n`;
+  if (exit.unknown) return `\n[driver] ${name} exited, and the runner never reaped it; /proc would not show its exit status (no ptrace access), so it counts as failed (#1274)\n`;
+  return `\n[driver] ${name} ${ending(exit.code, exit.signal)}, and the runner never reaped it; read from /proc (#1274)\n`;
 }
 
 export type ReadStat = (pid: number) => string | undefined;
@@ -67,6 +104,8 @@ const readProcStat: ReadStat = (pid) => {
     return undefined;
   }
 };
+
+const hasProc = process.platform === 'linux' && existsSync('/proc/self/stat');
 
 /** How many threads /proc/<pid>/status lists; a leader thread can be a zombie while others run. */
 export type ReadThreads = (pid: number) => number | undefined;
@@ -91,10 +130,33 @@ export function unreapedExit(pid: number, readStat: ReadStat = readProcStat, rea
   const isZombie = stat?.state === 'Z';
   if (!isZombie) return undefined;
   const hasLiveThreads = (readThreads(pid) ?? 1) > 1;
-  return hasLiveThreads ? undefined : decodeExitStatus(stat.exitStatus);
+  if (hasLiveThreads) return undefined;
+  // Without ptrace access the kernel prints 0 for both wchan and exit_code.
+  const isStatusVisible = stat.wchan === 1;
+  return isStatusVisible ? decodeExitStatus(stat.exitStatus) : { code: null, signal: null, unknown: true };
 }
 
-const hasProc = process.platform === 'linux' && existsSync('/proc/self/stat');
+/**
+ * The processes still running in process group `group`, other than zombies.
+ * An app process is its own group's leader, so after it exits these are the
+ * processes it started that outlived it.
+ */
+export function liveGroupMembers(group: number, readStat: ReadStat = readProcStat, listPids: () => number[] = listProcPids): LiveProcess[] {
+  if (!hasProc) return [];
+  const members: LiveProcess[] = [];
+  for (const pid of listPids()) {
+    const line = readStat(pid);
+    const stat = line === undefined ? undefined : parseProcStat(line);
+    const isLiveMember = stat !== undefined && stat.group === group && stat.state !== 'Z' && stat.state !== 'X';
+    if (isLiveMember) members.push({ pid, comm: stat.comm });
+  }
+  return members;
+}
+
+function listProcPids(): number[] {
+  return readdirSync('/proc').filter((entry) => /^\d+$/.test(entry)).map(Number);
+}
+
 
 /**
  * What /proc says about `pid` right now, for a log line when the driver gives
@@ -147,20 +209,28 @@ export function watchUnreapedExit(pid: number, onExit: (exit: ChildExit) => void
 }
 
 /** How a watched child's exit was learned. */
-export type ExitSource = 'close' | 'held-pipes' | 'unreaped';
+export type ExitSource = 'close' | 'held-pipes' | 'lost-close' | 'unreaped';
+
+/** What the watcher learned about a child's exit. */
+export interface WatchedExit {
+  code: number | null;
+  source: ExitSource;
+  /** The line the log should carry; empty for a plain `close`. */
+  note: string;
+  /** Processes the child started that outlived it in its group (`held-pipes` only). */
+  leftovers: LiveProcess[];
+}
 
 /**
  * Settle once on whichever comes first: `close`; `exit` followed by
- * `OUTPUT_CLOSE_GRACE_MS` with no `close` (a process the child started holds
- * its pipes); or the child staying an unreaped zombie for the grace period.
- * `onExit` gets the code and the line the log should carry ('' for `close`).
- * Returns the function that stops watching.
+ * `OUTPUT_CLOSE_GRACE_MS` with no `close`; or the child staying an unreaped
+ * zombie for its grace period. On the second, /proc says which it was: live
+ * processes in the child's group (`held-pipes`, a process it started holds
+ * the pipes) or none (`lost-close`, the runner lost the event). An unknown
+ * zombie status settles with code null. Returns the function that stops
+ * watching. `child` must lead its own process group (spawned detached).
  */
-export function watchChildExit(
-  child: ChildProcess,
-  name: string,
-  onExit: (code: number | null, source: ExitSource, note: string) => void,
-): () => void {
+export function watchChildExit(child: ChildProcess, name: string, onExit: (exit: WatchedExit) => void): () => void {
   let settled = false;
   let pipeTimer: ReturnType<typeof setTimeout> | undefined;
   let stopZombieWatch: () => void = () => {};
@@ -169,20 +239,35 @@ export function watchChildExit(
     if (pipeTimer !== undefined) clearTimeout(pipeTimer);
     stopZombieWatch();
   };
-  const settle = (code: number | null, source: ExitSource, note: string) => {
+  const settle = (exit: WatchedExit) => {
     if (settled) return;
     stop();
-    onExit(code, source, note);
+    onExit(exit);
   };
-  child.on('close', (code) => settle(code, 'close', ''));
+  child.on('close', (code) => settle({ code, source: 'close', note: '', leftovers: [] }));
   child.on('exit', (code, signal) => {
     // Reaped: the pid is free from here on, so /proc no longer describes this child.
     stopZombieWatch();
-    pipeTimer = setTimeout(() => settle(code, 'held-pipes', describeHeldPipes(name, code, signal)), OUTPUT_CLOSE_GRACE_MS);
+    pipeTimer = setTimeout(() => {
+      const leftovers = child.pid === undefined ? [] : liveGroupMembers(child.pid);
+      const source = leftovers.length > 0 ? 'held-pipes' : 'lost-close';
+      settle({ code, source, note: describeHeldPipes(name, code, signal, leftovers), leftovers });
+    }, OUTPUT_CLOSE_GRACE_MS);
     pipeTimer.unref();
   });
   if (child.pid !== undefined) {
-    stopZombieWatch = watchUnreapedExit(child.pid, (exit) => settle(exit.code, 'unreaped', describeUnreapedExit(name, exit)));
+    stopZombieWatch = watchUnreapedExit(child.pid, (exit) => settle({ code: exit.code, source: 'unreaped', note: describeUnreapedExit(name, exit), leftovers: [] }));
   }
   return stop;
+}
+
+/**
+ * End what is left of process group `group`: SIGTERM, then SIGKILL after
+ * `termMs`. Signals reach only that group's members. A group id stays
+ * reserved while any member lives, so this cannot reach another group.
+ */
+export async function endGroup(group: number, termMs: number): Promise<void> {
+  try { process.kill(-group, 'SIGTERM'); } catch { return; /* the group is gone */ }
+  await new Promise((resolve) => setTimeout(resolve, termMs));
+  try { process.kill(-group, 'SIGKILL'); } catch { /* the group is gone */ }
 }

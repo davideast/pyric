@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { AppProcess } from './driver.ts';
+import { mkdtempSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { AppProcess, AppRun } from './driver.ts';
 import { runCommand } from './install.ts';
-import { decodeExitStatus, parseProcStat, unreapedExit, watchUnreapedExit } from './unreaped-exit.ts';
+import { decodeExitStatus, describeUnreapedExit, liveGroupMembers, parseProcStat, unreapedExit, watchUnreapedExit } from './unreaped-exit.ts';
 
 const onLinux = process.platform === 'linux';
 const parents: ChildProcess[] = [];
@@ -35,11 +38,11 @@ function silentHandle(pid: number): ChildProcess {
 }
 
 describe('reading an unreaped exit from /proc', () => {
-  test('the state and exit status come from fields 3 and 52, whatever the command name holds', () => {
+  test('the fields come from their places after the command name, whatever the name holds', () => {
     const fields = Array.from({ length: 50 }, (_, index) => String(index));
     fields[0] = 'Z';
     fields[49] = String(3 << 8);
-    expect(parseProcStat(`1234 (node (a) b) ${fields.join(' ')}`)).toEqual({ state: 'Z', parent: 1, exitStatus: 768 });
+    expect(parseProcStat(`1234 (node (a) b) ${fields.join(' ')}`)).toEqual({ comm: 'node (a) b', state: 'Z', parent: 1, group: 2, wchan: 32, exitStatus: 768 });
     expect(parseProcStat('1234 (short) S 1 2')).toBeUndefined();
   });
 
@@ -54,12 +57,25 @@ describe('reading an unreaped exit from /proc', () => {
     expect(unreapedExit(await zombie(3))).toEqual({ code: 3, signal: null });
   });
 
-  test('a zombie leader thread whose other threads still run has not exited', () => {
+  /** A zombie's stat line: wchan 1 when the reader may see its exit status, 0 when ptrace access hides it. */
+  const zombieLine = (exitStatus: number, visible: boolean) => {
     const fields = Array.from({ length: 50 }, () => '0');
     fields[0] = 'Z';
-    const line = `42 (node) ${fields.join(' ')}`;
+    fields[32] = visible ? '1' : '0';
+    fields[49] = String(exitStatus);
+    return `42 (node) ${fields.join(' ')}`;
+  };
+
+  test('a zombie leader thread whose other threads still run has not exited', () => {
+    const line = zombieLine(0, true);
     expect(unreapedExit(42, () => line, () => 4)).toBeUndefined();
     expect(unreapedExit(42, () => line, () => 1)).toEqual({ code: 0, signal: null });
+  });
+
+  test('an exit status /proc hides (no ptrace access, shown as 0) is unknown, not success', () => {
+    const exit = unreapedExit(42, () => zombieLine(0, false), () => 1);
+    expect(exit).toEqual({ code: null, signal: null, unknown: true });
+    expect(describeUnreapedExit('npm', exit ?? { code: null, signal: null })).toContain('would not show its exit status (no ptrace access), so it counts as failed');
   });
 
   test.if(onLinux)('a zombie counts as missed only once it outlasts the grace period', async () => {
@@ -103,47 +119,88 @@ describe('the driver sees a child that exited unreaped', () => {
   }, 10_000);
 });
 
-describe('the driver sees a child whose output pipes a process it started holds open', () => {
-  const held: number[] = [];
+describe('a child whose exit came without its close', () => {
+  const holderFiles: string[] = [];
   afterEach(() => {
-    for (const pid of held.splice(0)) {
-      // 0 would mean this test's own process group.
+    for (const file of holderFiles.splice(0)) {
+      let pid = 0;
+      try { pid = Number(readFileSync(file, 'utf8').trim()); } catch { continue; }
+      // 0 or 1 would mean this test's own group, or init.
       const isHolder = Number.isInteger(pid) && pid > 1;
       if (!isHolder) continue;
       try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ }
     }
   });
 
-  /** A shell that leaves `sleep 30` holding its stdout and stderr, prints that sleep's pid, then exits with `code`. */
-  const leavesPipesOpen = (code: number) => `sleep 30 & echo "holder $!"; exit ${code}`;
-  const holderOf = (output: string) => Number(/holder (\d+)/.exec(output)?.[1] ?? 0);
+  /** A shell that leaves `sleep 30` in its process group holding its pipes, records that sleep's pid in a file, then exits with `code`. */
+  function leavesPipesOpen(code: number): { script: string; holder: () => number } {
+    const file = join(mkdtempSync(join(tmpdir(), 'pyric-holder-')), 'pid');
+    holderFiles.push(file);
+    return { script: `sleep 30 & echo $! > ${file}; exit ${code}`, holder: () => Number(readFileSync(file, 'utf8').trim()) };
+  }
 
-  test('an app process settles with its exit code once its pipes have had time to close', async () => {
-    const child = new AppProcess('pipe holder', 'sh', ['-c', leavesPipesOpen(4)], '.', { PATH: process.env.PATH });
+  const isAlive = (pid: number) => {
+    try { process.kill(pid, 0); return true; } catch { return false; }
+  };
+
+  test.if(onLinux)('a process it started that still holds its pipes is named, and fails the app unless expected', async () => {
+    const holder = leavesPipesOpen(4);
+    const child = new AppProcess('pipe holder', 'sh', ['-c', holder.script], '.', { PATH: process.env.PATH });
     const code = await Promise.race([child.exited, new Promise((resolve) => setTimeout(() => resolve('still waiting'), 11000))]);
-    held.push(holderOf(child.output));
     expect(code).toBe(4);
-    expect(child.output).toContain('exited with code 4, but its output pipes stayed open');
-    // Stopping it stops what it left behind in its group, as stopping a live child would.
+    expect(child.output).toContain(`processes it started still run in its group, holding its output pipes: pid ${holder.holder()} (sleep)`);
+    expect(child.leftoverProcesses).toEqual([{ pid: holder.holder(), comm: 'sleep' }]);
+    // Stopping it ends what it left in its group: SIGTERM, then SIGKILL.
     await child.stop();
     await new Promise((resolve) => setTimeout(resolve, 200));
-    const holder = holderOf(child.output);
-    let isHolderAlive = true;
-    try { process.kill(holder, 0); } catch { isHolderAlive = false; }
-    expect(holder).toBeGreaterThan(1);
-    expect(isHolderAlive).toBe(false);
-  }, 20_000);
+    expect(isAlive(holder.holder())).toBe(false);
+  }, 25_000);
 
-  test('a command resolves with its exit code once its pipes have had time to close', async () => {
+  test.if(onLinux)('the app fails on a leftover its scenario did not expect, and passes when it did', async () => {
+    const run = new AppRun('leftovers', '.', tmpdir(), async () => { throw new Error('no browser'); });
+    const holder = leavesPipesOpen(0);
+    const result = await run.command('sh', ['-c', holder.script], { timeoutMs: 15_000 });
+    expect(result.code).toBe(0);
+    const [left] = run.unexpectedLeftoverProcesses();
+    expect(left).toMatch(new RegExp(`^pid ${holder.holder()} \\(sleep\\), started by command 1`));
+    run.expectLeftoverProcess(/^sleep$/);
+    expect(run.unexpectedLeftoverProcesses()).toEqual([]);
+    await run.close();
+  }, 25_000);
+
+  test.if(onLinux)('with nothing left in its group, the runner lost close, and the exit counts', async () => {
+    // A child handle that reports `exit` and never `close`, for a process that is gone.
+    const gone = spawn('true');
+    await new Promise((resolve) => gone.once('exit', resolve));
+    const handle = silentHandle(gone.pid ?? 0);
+    const child = new AppProcess('lost close', 'node', ['server.mjs'], '.', {}, () => {
+      setTimeout(() => handle.emit('exit', 0, null), 10);
+      return handle;
+    });
+    expect(await Promise.race([child.exited, new Promise((resolve) => setTimeout(() => resolve('still waiting'), 11000))])).toBe(0);
+    expect(child.output).toContain('no process is left in its group, so the runner lost `close`');
+    expect(child.leftoverProcesses).toEqual([]);
+  }, 25_000);
+
+  test.if(onLinux)('a command resolves with its exit code, and the process it left holding its pipes is ended', async () => {
+    const holder = leavesPipesOpen(0);
     const result = await Promise.race([
-      runCommand('sh', ['-c', leavesPipesOpen(0)], { cwd: '.' }),
+      runCommand('sh', ['-c', holder.script], { cwd: '.' }),
       new Promise((resolve) => setTimeout(() => resolve('still waiting'), 11000)),
     ]) as { code: number; output: string } | string;
     expect(typeof result).toBe('object');
     if (typeof result === 'string') return;
-    held.push(holderOf(result.output));
     expect(result.code).toBe(0);
-    expect(result.output).toContain('but its output pipes stayed open');
-  }, 20_000);
-});
+    expect(result.output).toContain(`pid ${holder.holder()} (sleep)`);
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    expect(isAlive(holder.holder())).toBe(false);
+  }, 25_000);
 
+  test.if(onLinux)('the group members are the live processes in it, zombies left out', async () => {
+    const holder = leavesPipesOpen(0);
+    const parent = spawn('sh', ['-c', holder.script], { detached: true, stdio: 'ignore' });
+    await new Promise((resolve) => parent.once('exit', resolve));
+    const members = liveGroupMembers(parent.pid ?? 0);
+    expect(members).toEqual([{ pid: holder.holder(), comm: 'sleep' }]);
+  });
+});
