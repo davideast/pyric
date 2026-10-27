@@ -7,9 +7,10 @@
  */
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { copyFile, mkdir } from 'node:fs/promises';
+import { copyFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { runCommand, type CommandResult } from './install.ts';
+import { Worker } from 'node:worker_threads';
+import type { CommandResult } from './install.ts';
 
 /** The package.json fields that decide what `npm install` puts in node_modules. */
 const INSTALL_FIELDS = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies', 'overrides'] as const;
@@ -81,19 +82,28 @@ export function dependencySetKey(inputs: InstallInputs): string | undefined {
 }
 
 /**
- * Copy an installed `node_modules` into an app, symlinks as symlinks, with
- * `cp -a` in a child process so the apps already running keep their timers
- * and sockets moving while it copies (a 374 MB tree takes about a second).
+ * Copy an installed `node_modules` into an app, symlinks as symlinks, in a
+ * worker thread (copy-tree-worker.ts) so the apps already running keep their
+ * timers and sockets moving while it copies.
  *
- * A copy, not hard links: with hard links, a full run failed in each of four
- * tries, a server process stalling on the remote sandbox or never closing,
- * and with copies it passed (see the PR). Each app also gets files it can
- * change without changing every other app's.
+ * A copy, not hard links: with hard links, every full run here had an app
+ * whose server process stalled or never closed, and with copies runs passed.
+ * Each app also gets files it can change without changing every other app's.
+ * Not a `cp` child process either: under Bun, a burst of children exiting
+ * together, as when several apps get their set's install at once, left
+ * exited children unreaped, and the runner waited on one forever.
  */
-export async function copyTree(from: string, to: string): Promise<void> {
-  await mkdir(dirname(to), { recursive: true });
-  const copied = await runCommand('cp', ['-a', from, to], { cwd: dirname(to) });
-  if (copied.code !== 0) throw new Error(`cp -a ${from} ${to} exited with code ${copied.code}:\n${copied.output}`);
+export function copyTree(from: string, to: string): Promise<void> {
+  mkdirSync(dirname(to), { recursive: true });
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL('./copy-tree-worker.ts', import.meta.url), { workerData: { from, to } });
+    worker.once('message', (result: { ok: boolean; message?: string }) => {
+      void worker.terminate();
+      if (result.ok) resolve();
+      else reject(new Error(`copying ${from} to ${to} failed: ${result.message ?? 'unknown error'}`));
+    });
+    worker.once('error', reject);
+  });
 }
 
 function readOptional(path: string): string | undefined {
