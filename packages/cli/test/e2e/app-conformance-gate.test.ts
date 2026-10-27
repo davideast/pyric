@@ -42,7 +42,7 @@ describe('served app conformance merge gate', () => {
     const libraryShards = libraryJob.match(/bun scripts\/ci\/test-shard\.ts[^\n]*/g) ?? [];
     expect(libraryShards.length).toBeGreaterThan(0);
     expect(libraryShards.every((call) => call.includes('--package=pyric'))).toBe(true);
-    const complete = rootPackage.scripts?.test?.split(' && ') ?? [];
+    const complete = rootPackage.scripts?.['test:serial']?.split(' && ') ?? [];
     const split = [
       ...(rootPackage.scripts?.['test:ci:cli']?.split(' && ') ?? []),
       ...(rootPackage.scripts?.['test:ci:libraries']?.split(' && ') ?? []),
