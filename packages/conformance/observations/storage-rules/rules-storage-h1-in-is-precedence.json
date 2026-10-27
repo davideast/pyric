@@ -1,0 +1,136 @@
+{
+  "name": "rules-storage-h1-in-is-precedence",
+  "matrixRow": "",
+  "rowIds": [
+    "storage-rules#209"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"h1-in-is-precedence\" (STORAGE-H1-IN-IS-PRECEDENCE). Documented precedence binds in/is tighter than ==; pyric binds them looser.",
+  "observedAt": "2026-10-27T02:46:27.085Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "fa97cc26b21fdfa60168763788de307342d38a5f0220a2e176572c1128735839"
+  },
+  "behavior": {
+    "in-then-eq-true: 'a' in ['a','b'] == true (pyric DENY)": "DENY",
+    "in-then-eq-false: 'c' in ['a','b'] == false (pyric DENY)": "DENY",
+    "eq-then-in: false == 'c' in ['a','b'] (pyric DENY)": "DENY",
+    "map-in-then-neq: 'a' in {'a': 1} != false (pyric DENY)": "DENY",
+    "control-parenthesized: ('a' in ['a','b']) == true (pyric ALLOW)": "ALLOW",
+    "ternary-nesting: true ? true : false ? false : false (pyric ALLOW)": "ALLOW"
+  },
+  "diagnostics": {
+    "in-then-eq-true: 'a' in ['a','b'] == true (pyric DENY)": {
+      "notes": [
+        "Error: storage.rules line [4], column [56]. Function not found error: Name: [in]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 4,
+          "column": 56,
+          "currentOffset": 127,
+          "endOffset": 129
+        },
+        "functionCalls": [
+          {
+            "function": "in",
+            "args": [
+              "a"
+            ]
+          }
+        ]
+      }
+    },
+    "in-then-eq-false: 'c' in ['a','b'] == false (pyric DENY)": {
+      "notes": [
+        "Error: storage.rules line [5], column [57]. Function not found error: Name: [in]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 5,
+          "column": 57,
+          "currentOffset": 211,
+          "endOffset": 213
+        },
+        "functionCalls": [
+          {
+            "function": "in",
+            "args": [
+              "c"
+            ]
+          }
+        ]
+      }
+    },
+    "eq-then-in: false == 'c' in ['a','b'] (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 6,
+              "column": 51,
+              "currentOffset": 290,
+              "endOffset": 294
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "map-in-then-neq: 'a' in {'a': 1} != false (pyric DENY)": {
+      "notes": [
+        "Error: storage.rules line [7], column [56]. Function not found error: Name: [in]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 7,
+          "column": 56,
+          "currentOffset": 374,
+          "endOffset": 376
+        },
+        "functionCalls": [
+          {
+            "function": "in",
+            "args": [
+              "a"
+            ]
+          }
+        ]
+      }
+    },
+    "control-parenthesized: ('a' in ['a','b']) == true (pyric ALLOW)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 8,
+              "column": 62,
+              "currentOffset": 463,
+              "endOffset": 463
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "ternary-nesting: true ? true : false ? false : false (pyric ALLOW)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 9,
+              "column": 56,
+              "currentOffset": 548,
+              "endOffset": 551
+            },
+            "value": true
+          }
+        ]
+      }
+    }
+  }
+}

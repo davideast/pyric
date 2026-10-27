@@ -1,0 +1,1 @@
+{"kind":"parse","rowId":"storage-rules#217","localError":"expected \"}\" or \"function\"","issue":"ST-H2-8","reason":"production compiles two top-level match blocks in one service; pyric refuses to parse them"}

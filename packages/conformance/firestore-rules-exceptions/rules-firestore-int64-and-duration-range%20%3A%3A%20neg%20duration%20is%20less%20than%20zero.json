@@ -1,0 +1,1 @@
+{"rowId":"firestore-rules#198","conformanceDisposition":"pending-fix","productionVerdict":"ALLOW","simulatorVerdict":"DENY","reason":"unary minus on a duration is an error in pyric; production negates it","issue":"FS2-SIM-1"}

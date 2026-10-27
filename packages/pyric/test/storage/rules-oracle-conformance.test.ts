@@ -1,234 +1,55 @@
 /**
- * Oracle conformance — Storage rules.
+ * Oracle conformance: Storage rules.
  *
- * The Storage counterpart of test/rules/oracle-conformance.test.ts. It wires
- * `packages/conformance/observations/storage-rules/rules-storage-*.json` into the test suite so
- * captured production Rules-Test-API verdicts are MACHINE-CHECKED against the
- * in-process storage evaluator (`evaluateStorageRules`), not merely cited.
+ * The Storage counterpart of test/rules/oracle-conformance.test.ts. It replays
+ * every `packages/conformance/observations/storage-rules/rules-storage-*.json`
+ * capture against the in-process Storage evaluator through the same replay the
+ * scorecard uses (`replayStorageRulesObservations`), so the test command and the
+ * published score cannot disagree about replay semantics.
  *
- * Data-driven by design: each observation's name is `rules-storage-<id>`,
- * where `<id>` is a corpus scenario id. For every captured observation the suite
- * loads the matching scenario, runs the LOCAL evaluator over the same ruleset +
- * cases, and asserts the evaluator's per-case decision equals the captured
- * production verdict. Coverage is structural: an observation whose id has no
- * corresponding scenario FAILS loudly (a capture can't silently go un-checked) —
- * this completeness check is live even before any data exists.
- *
- * KNOWN-GAP CASES: the storage evaluator has no `UNSUPPORTED` verdict channel
- * (it returns allow/deny), so any explicitly retained `knownGap` case is
- * recorded but not asserted. Current captured Storage observations replay
- * without known-gap skips; documented divergences remain registry rows rather
- * than hidden expectations in this harness.
+ * A case where the evaluator disagrees with production is pinned as one file in
+ * `packages/conformance/storage-rules-exceptions/`, naming both verdicts and the
+ * finding. A scenario production accepts but pyric refuses to parse is pinned by
+ * its observation name with the parse error pyric reports. Each pin fails the
+ * moment either side moves, and an unused pin fails as stale.
  */
 import { describe, expect, it } from 'bun:test';
-import { readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { ALL_RULES_STORAGE_SCENARIOS, storageObservationName } from '../../../../packages/conformance/rules-corpus/storage/index.ts';
 import {
-  ALL_RULES_STORAGE_SCENARIOS,
-  RULES_STORAGE_OBSERVATION_PREFIX,
-  storageObservationName,
-  type StorageScenario,
-} from '../../../../packages/conformance/rules-corpus/storage/index.ts';
-import {
-  normalizeStoragePath,
-  type StorageTestCase,
-} from '../../src/rules/test/spec.ts';
-import {
-  parseStorageRules,
-  type EvaluationInput,
-  type FirestoreLookup,
-} from '../../src/storage/sandbox/rules.ts';
-import { evaluateStorageRules } from '../../src/storage/sandbox/rules-evaluator.ts';
+  replayStorageRulesObservations,
+  storageParsePins,
+} from '../../../../packages/conformance/src/storage-rules-oracle-replay.ts';
+import { parseStorageRules } from '../../src/storage/sandbox/rules.ts';
 
-// rules-storage-* observations live under the native 'storage-rules'
-// conformance surface (issue #184) — distinct from the SDK-surface 'storage'
-// dir. The capture runner (run-rules-storage.ts) writes here; read the same place.
-const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations', 'storage-rules');
+const replays = replayStorageRulesObservations();
+const parsePins = storageParsePins();
 
-/** name (no extension) → scenario, for O(1) observation→scenario resolution. */
-const SCENARIO_BY_OBSERVATION = new Map<string, StorageScenario>(
-  ALL_RULES_STORAGE_SCENARIOS.map((scenario) => [storageObservationName(scenario), scenario]),
-);
-
-interface RulesObservation {
-  name: string;
-  behavior: Record<string, unknown>;
-}
-
-/**
- * Known evaluator/production divergences, pinned per the Firestore exemplar's
- * KNOWN DIVERGENCE convention (test/rules/oracle-conformance.test.ts
- * KNOWN_DIVERGENCES): genuine, tracked gaps — not silently skipped cases.
- * Each entry pins BOTH sides so the suite stays green today but fails loudly
- * the moment either side's actual behavior changes, forcing a revisit.
- *
- * Keyed by `${observationName} :: ${caseKey}`.
- */
-const KNOWN_DIVERGENCES: Record<
-  string,
-  { prodVerdict: 'ALLOW' | 'DENY'; evalVerdict: 'ALLOW' | 'DENY'; reason: string; issue: string }
-> = {
-  'rules-storage-firestore-lookup-budget :: budget: three distinct documents deny': {
-    prodVerdict: 'ALLOW',
-    evalVerdict: 'DENY',
-    reason:
-      'projects.test function mocks do not enforce the real-resource two-document Storage lookup budget; the evaluator follows the separately captured real-resource contract.',
-    issue: 'storage-rules#131',
-  },
-};
-
-function loadObservation(file: string): RulesObservation {
-  const raw = JSON.parse(readFileSync(join(OBS_DIR, file), 'utf8')) as {
-    name?: string;
-    behavior?: Record<string, unknown>;
-  };
-  return {
-    name: raw.name ?? file.replace(/\.json$/, ''),
-    behavior: raw.behavior ?? {},
-  };
-}
-
-/** Every captured `rules-storage-*.json` in the observations directory. */
-function capturedObservationFiles(): string[] {
-  return readdirSync(OBS_DIR)
-    .filter((f) => f.startsWith(RULES_STORAGE_OBSERVATION_PREFIX) && f.endsWith('.json'))
-    .sort();
-}
-
-/** Build a FirestoreLookup from a case's function mocks. The evaluator keys
- *  lookups by the doc path in `collection/doc` form — exactly the corpus mock
- *  `path`. Mocks with no matching entry read as absent (get → null → the rule
- *  denies, exists → false). */
-function lookupFromCase(tc: StorageTestCase): FirestoreLookup | undefined {
-  if (!tc.functionMocks || tc.functionMocks.length === 0) return undefined;
-  const gets = new Map<string, Record<string, unknown>>();
-  const exists = new Set<string>();
-  for (const m of tc.functionMocks) {
-    if (m.function === 'get' && typeof m.result === 'object' && m.result !== null) {
-      gets.set(m.path, m.result as Record<string, unknown>);
-    } else if (m.function === 'exists' && m.result === true) {
-      exists.add(m.path);
-    }
+function parseError(rules: string): string | undefined {
+  try {
+    parseStorageRules(rules);
+    return undefined;
+  } catch (error) {
+    return (error as Error).message;
   }
-  return {
-    get: (path) => gets.get(path) ?? null,
-    exists: (path) => exists.has(path),
-  };
-}
-
-/** Map a corpus case to the evaluator's EvaluationInput. */
-function toEvaluationInput(tc: StorageTestCase): EvaluationInput {
-  const path = normalizeStoragePath(tc.path, tc.bucket);
-  const request: EvaluationInput['request'] = {
-    auth: tc.auth ?? null,
-    method: tc.method,
-    path,
-  };
-  if (tc.resource) {
-    // Every field the capture sent to production, so `request.resource.name`
-    // and the other identity fields read the same values on both sides.
-    request.resource = {
-      ...tc.resource,
-      size: tc.resource.size ?? 0,
-    };
-  }
-  // The existing-object binding carries the object-identity/time fields too.
-  // They are forwarded VERBATIM from the same corpus field the capture sent to
-  // production, so both sides read byte-identical `resource.*` values — the
-  // only way the replay's verdict comparison means anything.
-  const existing = tc.existingResource
-    ? {
-        size: tc.existingResource.size ?? 0,
-        contentType: tc.existingResource.contentType,
-        metadata: tc.existingResource.metadata,
-        name: tc.existingResource.name,
-        bucket: tc.existingResource.bucket,
-        timeCreated: tc.existingResource.timeCreated,
-        updated: tc.existingResource.updated,
-        generation: tc.existingResource.generation,
-        metageneration: tc.existingResource.metageneration,
-      }
-    : null;
-  return { request, resource: existing };
-}
-
-/** Evaluator decision per case, keyed by case description (the same key the
- *  capture uses) so the two tables line up 1:1. */
-function evaluatorVerdicts(scenario: StorageScenario): Record<string, 'ALLOW' | 'DENY'> {
-  const rules = parseStorageRules(scenario.rules);
-  const table: Record<string, 'ALLOW' | 'DENY'> = {};
-  for (const tc of scenario.cases) {
-    const now = tc.requestTime ? new Date(tc.requestTime) : undefined;
-    const res = evaluateStorageRules(rules, toEvaluationInput(tc), now, lookupFromCase(tc));
-    table[tc.description] = res.allowed ? 'ALLOW' : 'DENY';
-  }
-  return table;
 }
 
 describe('oracle conformance (rules-storage)', () => {
-  const files = capturedObservationFiles();
-
-  // Corpus sanity: every scenario must parse. This runs even with no observations,
-  // so a malformed ruleset is caught at staging time, not only at capture.
-  it('every storage corpus scenario parses', () => {
+  // Corpus sanity: every scenario parses unless its capture pins pyric's refusal.
+  it('every storage corpus scenario parses or carries a parse pin', () => {
     for (const scenario of ALL_RULES_STORAGE_SCENARIOS) {
-      expect(() => parseStorageRules(scenario.rules), `scenario "${scenario.id}" must parse`).not.toThrow();
+      const pinnedError = parsePins.get(storageObservationName(scenario));
+      const error = parseError(scenario.rules);
+      if (pinnedError === undefined) {
+        expect(error, `scenario "${scenario.id}" must parse`).toBeUndefined();
+        continue;
+      }
+      expect(error, `scenario "${scenario.id}" is pinned as a parse divergence`).toContain(pinnedError);
     }
   });
 
-  // ── empty-set guard: pass + skip the replay while nothing is captured ──────
-  if (files.length === 0) {
-    it('no rules-storage observations captured yet (staging) — skipping replay', () => {
-      // Intentionally passes: the machinery is staged, the corpus is in place,
-      // but no captures have been run. Run `packages/conformance/src/run-rules-storage.ts`
-      // with a Rules Test API credential to produce observations, after which these
-      // assertions go live automatically.
-      expect(files.length).toBe(0);
+  for (const replay of replays) {
+    it(`${replay.name}: evaluator matches captured production verdicts`, () => {
+      expect(replay.problems).toEqual([]);
     });
   }
-
-  // ── verdict-for-verdict replay (live the moment observations exist) ────────
-  for (const file of files) {
-    const obs = loadObservation(file);
-    const scenario = SCENARIO_BY_OBSERVATION.get(obs.name);
-
-    it(`${obs.name}: evaluator matches captured production verdicts`, () => {
-      // Completeness is structural: an observation with no corpus scenario is a
-      // silent-gap failure — either the scenario was removed or the file is stale.
-      expect(
-        scenario,
-        `observation "${obs.name}" has no matching corpus scenario — coverage gap`,
-      ).toBeDefined();
-      if (!scenario) return;
-
-      // Cases marked knownGap are exercised but not asserted (the evaluator has
-      // no UNSUPPORTED channel; it denies a field it does not model).
-      const knownGap = new Set(
-        scenario.cases.filter((c) => c.knownGap).map((c) => c.description),
-      );
-
-      const evalTable = evaluatorVerdicts(scenario);
-      for (const [caseKey, prodVerdict] of Object.entries(obs.behavior)) {
-        if (knownGap.has(caseKey)) continue;
-        const divergenceKey = `${obs.name} :: ${caseKey}`;
-        const known = KNOWN_DIVERGENCES[divergenceKey];
-        if (known) {
-          // Pinned, tracked gap: assert BOTH sides so the entry fails loudly
-          // the moment production or the evaluator's actual behavior moves.
-          expect(prodVerdict, `${divergenceKey} (captured production verdict)`).toBe(known.prodVerdict);
-          expect(evalTable[caseKey], `${divergenceKey} (evaluator verdict)`).toBe(known.evalVerdict);
-          continue;
-        }
-        expect(evalTable[caseKey], divergenceKey).toBe(prodVerdict);
-      }
-    });
-  }
-
-  // ── coverage: no captured observation is left un-replayed ──────────────────
-  it('every captured rules-storage observation maps to a corpus scenario', () => {
-    const uncovered = capturedObservationFiles()
-      .map((f) => f.replace(/\.json$/, ''))
-      .filter((name) => !SCENARIO_BY_OBSERVATION.has(name));
-    expect(uncovered).toEqual([]);
-  });
 });

@@ -1,0 +1,1 @@
+{"kind":"verdict","rowId":"storage-rules#204","productionVerdict":"ALLOW","evaluatorVerdict":"DENY","reason":"RE2 (?i)k matches the Kelvin sign U+212A; pyric does not","issue":"ST-H1-3"}

@@ -1,0 +1,1 @@
+{"kind":"parse","rowId":"storage-rules#214","localError":"Expected 'service firebase.storage', got 'service cloud.storage'","issue":"ST-H1-14","reason":"production accepts service cloud.storage, the documented v2 spelling; pyric refuses it"}

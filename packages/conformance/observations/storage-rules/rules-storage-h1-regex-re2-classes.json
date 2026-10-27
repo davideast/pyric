@@ -1,0 +1,275 @@
+{
+  "name": "rules-storage-h1-regex-re2-classes",
+  "matrixRow": "",
+  "rowIds": [
+    "storage-rules#204"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"h1-regex-re2-classes\" (STORAGE-H1-REGEX-RE2). matches() is documented as Google RE2 syntax; these constructs separate RE2 from the JavaScript RegExp semantics the shared matcher borrows for classes and escapes.",
+  "observedAt": "2026-10-27T02:46:22.421Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "7f9dc27e36955d8fe671f8b8b097dc460bc957171869e6c79c2eb3289072c87b"
+  },
+  "behavior": {
+    "posix-alpha-letter: 'x'.matches('[[:alpha:]]') (pyric DENY)": "ALLOW",
+    "posix-alpha-two-chars: 'a]'.matches('[[:alpha:]]') (pyric ALLOW)": "DENY",
+    "posix-alpha-colon: ':]'.matches('[[:alpha:]]') (pyric ALLOW)": "DENY",
+    "unicode-class-one-letter: 'x'.matches('\\\\pL') (pyric DENY)": "ALLOW",
+    "unicode-class-one-letter-literal: 'pL'.matches('\\\\pL') (pyric ALLOW)": "DENY",
+    "space-class-nbsp: '\\u00a0'.matches('\\\\s') (pyric ALLOW)": "DENY",
+    "space-class-em-space: '\\u2003'.matches('\\\\s') (pyric ALLOW)": "DENY",
+    "space-class-vertical-tab: '\\013'.matches('\\\\s') (pyric ALLOW)": "DENY",
+    "nonspace-class-nbsp: 'a\\u00a0b'.matches('\\\\S+') (pyric DENY)": "ALLOW",
+    "dot-carriage-return: 'a\\rb'.matches('a.b') (pyric DENY)": "ALLOW",
+    "quote-literal-match: 'a.b'.matches('\\\\Qa.b\\\\E') (pyric DENY)": "ALLOW",
+    "quote-literal-no-wildcard: 'QaxbE'.matches('\\\\Qa.b\\\\E') (pyric ALLOW)": "DENY",
+    "ignore-case-kelvin: '\\u212a'.matches('(?i)k') (pyric DENY)": "ALLOW",
+    "control-word-ascii: '\\u00e9'.matches('\\\\w') (pyric DENY)": "DENY",
+    "control-dot-newline: 'a\\nb'.matches('a.b') (pyric DENY)": "DENY",
+    "control-space: ' '.matches('\\\\s') (pyric ALLOW)": "ALLOW"
+  },
+  "diagnostics": {
+    "posix-alpha-letter: 'x'.matches('[[:alpha:]]') (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 4,
+              "column": 57,
+              "currentOffset": 128,
+              "endOffset": 130
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "posix-alpha-two-chars: 'a]'.matches('[[:alpha:]]') (pyric ALLOW)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 60,
+              "currentOffset": 217,
+              "endOffset": 220
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "posix-alpha-colon: ':]'.matches('[[:alpha:]]') (pyric ALLOW)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 6,
+              "column": 56,
+              "currentOffset": 303,
+              "endOffset": 306
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "unicode-class-one-letter: 'x'.matches('\\\\pL') (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 7,
+              "column": 63,
+              "currentOffset": 396,
+              "endOffset": 398
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "unicode-class-one-letter-literal: 'pL'.matches('\\\\pL') (pyric ALLOW)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 8,
+              "column": 71,
+              "currentOffset": 489,
+              "endOffset": 492
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "space-class-nbsp: '\\u00a0'.matches('\\\\s') (pyric ALLOW)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 9,
+              "column": 55,
+              "currentOffset": 567,
+              "endOffset": 574
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "space-class-em-space: '\\u2003'.matches('\\\\s') (pyric ALLOW)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 10,
+              "column": 59,
+              "currentOffset": 652,
+              "endOffset": 659
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "space-class-vertical-tab: '\\013'.matches('\\\\s') (pyric ALLOW)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 11,
+              "column": 63,
+              "currentOffset": 741,
+              "endOffset": 746
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "nonspace-class-nbsp: 'a\\u00a0b'.matches('\\\\S+') (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 12,
+              "column": 58,
+              "currentOffset": 823,
+              "endOffset": 832
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "dot-carriage-return: 'a\\rb'.matches('a.b') (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 13,
+              "column": 58,
+              "currentOffset": 910,
+              "endOffset": 915
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "quote-literal-match: 'a.b'.matches('\\\\Qa.b\\\\E') (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 14,
+              "column": 58,
+              "currentOffset": 992,
+              "endOffset": 996
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "quote-literal-no-wildcard: 'QaxbE'.matches('\\\\Qa.b\\\\E') (pyric ALLOW)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 15,
+              "column": 64,
+              "currentOffset": 1085,
+              "endOffset": 1091
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "ignore-case-kelvin: '\\u212a'.matches('(?i)k') (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 16,
+              "column": 57,
+              "currentOffset": 1173,
+              "endOffset": 1180
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "control-word-ascii: '\\u00e9'.matches('\\\\w') (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 17,
+              "column": 57,
+              "currentOffset": 1258,
+              "endOffset": 1265
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "control-dot-newline: 'a\\nb'.matches('a.b') (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 18,
+              "column": 58,
+              "currentOffset": 1342,
+              "endOffset": 1347
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "control-space: ' '.matches('\\\\s') (pyric ALLOW)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 19,
+              "column": 52,
+              "currentOffset": 1418,
+              "endOffset": 1420
+            },
+            "value": true
+          }
+        ]
+      }
+    }
+  }
+}

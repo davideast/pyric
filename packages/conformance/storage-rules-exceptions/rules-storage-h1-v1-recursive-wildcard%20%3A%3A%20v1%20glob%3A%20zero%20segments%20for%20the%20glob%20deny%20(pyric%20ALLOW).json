@@ -1,0 +1,1 @@
+{"kind":"verdict","rowId":"storage-rules#206","productionVerdict":"DENY","evaluatorVerdict":"ALLOW","reason":"under rules_version 1 a recursive wildcard does not match zero segments; pyric matches it","issue":"ST-H1-2"}

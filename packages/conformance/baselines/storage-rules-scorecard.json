@@ -149,10 +149,10 @@
     ]
   },
   "score": {
-    "numerator": 127,
+    "numerator": 110,
     "denominator": 140,
-    "ratio": 0.9071428571428571,
-    "percent": 90.7
+    "ratio": 0.7857142857142857,
+    "percent": 78.6
   },
   "axes": {
     "productionAcceptance": {
@@ -174,19 +174,19 @@
       "unprobeable": 11
     },
     "productionEvidence": {
-      "verified": 127,
-      "diverged": 2,
-      "unverified": 11
+      "verified": 110,
+      "diverged": 26,
+      "unverified": 4
     }
   },
   "counts": {
-    "conformant": 127,
-    "diverged": 2,
+    "conformant": 110,
+    "diverged": 26,
     "unknown": 0,
     "acceptance-mismatch": 0,
     "local-unsupported": 0,
     "local-error": 0,
-    "unprobeable": 11
+    "unprobeable": 4
   },
   "constructs": {
     "storage.binding.request": {
@@ -211,6 +211,9 @@
         "float-modulo-unary-minus",
         "function-scopes-and-shadowing",
         "functions-let-scope",
+        "h1-auth-token-default",
+        "h1-int64-precision",
+        "h1-lookup-interpolated-slash",
         "in-membership-and-proto-keys",
         "list-map-literals-and-slice",
         "matches-regex",
@@ -223,6 +226,8 @@
         "stdlib-storage-modules",
         "stdlib-string-bytes-hashing",
         "stdlib-timestamp-duration",
+        "storage-named-bucket-binding",
+        "strict-boolean-allow-and-ternary",
         "ternary-and-error-absorption",
         "type-checks-is",
         "upload-primitives-boundaries"
@@ -248,10 +253,12 @@
         "firestore-lookup-budget",
         "function-scopes-and-shadowing",
         "functions-let-scope",
+        "h1-auth-token-default",
         "metadata-access",
         "metadata-verbs-and-arithmetic",
         "stdlib-storage-modules",
         "stdlib-string-bytes-hashing",
+        "strict-boolean-allow-and-ternary",
         "ternary-and-error-absorption"
       ],
       "verifiedByRows": [
@@ -280,7 +287,8 @@
         "metadata-access",
         "metadata-verbs-and-arithmetic",
         "stdlib-storage-modules",
-        "stdlib-string-bytes-hashing"
+        "stdlib-string-bytes-hashing",
+        "strict-boolean-allow-and-ternary"
       ],
       "verifiedByRows": [
         "storage-rules#125"
@@ -296,16 +304,19 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "common-auth-membership",
+        "h1-auth-token-default",
         "metadata-verbs-and-arithmetic"
       ],
       "verifiedByRows": [
         "storage-rules#125"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "storage-rules#210"
+      ]
     },
     "storage.binding.request.resource": {
       "productionAcceptance": "accepted",
@@ -325,6 +336,8 @@
         "float-modulo-unary-minus",
         "function-scopes-and-shadowing",
         "functions-let-scope",
+        "h1-int64-precision",
+        "h1-lookup-interpolated-slash",
         "in-membership-and-proto-keys",
         "matches-regex",
         "metadata-access",
@@ -332,6 +345,7 @@
         "resource-object-identity",
         "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
+        "storage-named-bucket-binding",
         "ternary-and-error-absorption",
         "type-checks-is",
         "upload-primitives-boundaries"
@@ -412,6 +426,8 @@
         "bool-function",
         "conversion-functions",
         "error-absorption-and-direction",
+        "h1-int64-precision",
+        "h1-lookup-interpolated-slash",
         "in-membership-and-proto-keys",
         "metadata-access",
         "metadata-verbs-and-arithmetic",
@@ -525,6 +541,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "arithmetic-operand-types",
+        "h1-resource-unmodeled-fields",
         "metadata-access",
         "metadata-verbs-and-arithmetic",
         "ordering-operand-types",
@@ -533,6 +550,7 @@
         "stdlib-storage-modules",
         "stdlib-string-bytes-hashing",
         "stdlib-timestamp-duration",
+        "storage-named-bucket-binding",
         "upload-primitives-boundaries",
         "verbs-umbrella-granular"
       ],
@@ -630,6 +648,15 @@
         "float-modulo-unary-minus",
         "function-scopes-and-shadowing",
         "functions-let-scope",
+        "h1-auth-token-default",
+        "h1-in-is-precedence",
+        "h1-int64-precision",
+        "h1-lookup-interpolated-slash",
+        "h1-regex-re2-classes",
+        "h1-resource-unmodeled-fields",
+        "h1-string-ordering",
+        "h1-unknown-method-absorption",
+        "h1-v1-recursive-wildcard",
         "in-membership-and-proto-keys",
         "list-map-literals-and-slice",
         "matches-regex",
@@ -643,10 +670,15 @@
         "stdlib-storage-modules",
         "stdlib-string-bytes-hashing",
         "stdlib-timestamp-duration",
+        "storage-lookup-path-interpolation",
+        "storage-named-bucket-binding",
+        "strict-boolean-allow-and-ternary",
         "ternary-and-error-absorption",
         "type-checks-is",
         "upload-primitives-boundaries",
-        "verbs-umbrella-granular"
+        "verbs-umbrella-granular",
+        "xref-root-literal-bucket",
+        "xref-shared-language-semantics"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -733,6 +765,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "resource-object-identity",
+        "storage-named-bucket-binding",
         "upload-primitives-boundaries"
       ],
       "verifiedByRows": [
@@ -784,77 +817,105 @@
       "localAcceptance": "unprobeable",
       "localCapability": "unprobeable",
       "acceptanceProbeBound": false,
-      "productionEvidence": "unverified",
-      "classification": "unprobeable",
-      "verifiedBy": [],
+      "productionEvidence": "diverged",
+      "classification": "diverged",
+      "verifiedBy": [
+        "h1-resource-unmodeled-fields"
+      ],
       "verifiedByRows": [],
-      "divergedByRows": []
+      "divergedByRows": [
+        "storage-rules#205"
+      ]
     },
     "storage.binding.resource.crc32c": {
       "productionAcceptance": "unprobeable",
       "localAcceptance": "unprobeable",
       "localCapability": "unprobeable",
       "acceptanceProbeBound": false,
-      "productionEvidence": "unverified",
-      "classification": "unprobeable",
-      "verifiedBy": [],
+      "productionEvidence": "diverged",
+      "classification": "diverged",
+      "verifiedBy": [
+        "h1-resource-unmodeled-fields"
+      ],
       "verifiedByRows": [],
-      "divergedByRows": []
+      "divergedByRows": [
+        "storage-rules#205"
+      ]
     },
     "storage.binding.resource.etag": {
       "productionAcceptance": "unprobeable",
       "localAcceptance": "unprobeable",
       "localCapability": "unprobeable",
       "acceptanceProbeBound": false,
-      "productionEvidence": "unverified",
-      "classification": "unprobeable",
-      "verifiedBy": [],
+      "productionEvidence": "diverged",
+      "classification": "diverged",
+      "verifiedBy": [
+        "h1-resource-unmodeled-fields"
+      ],
       "verifiedByRows": [],
-      "divergedByRows": []
+      "divergedByRows": [
+        "storage-rules#205"
+      ]
     },
     "storage.binding.resource.contentDisposition": {
       "productionAcceptance": "unprobeable",
       "localAcceptance": "unprobeable",
       "localCapability": "unprobeable",
       "acceptanceProbeBound": false,
-      "productionEvidence": "unverified",
-      "classification": "unprobeable",
-      "verifiedBy": [],
+      "productionEvidence": "diverged",
+      "classification": "diverged",
+      "verifiedBy": [
+        "h1-resource-unmodeled-fields"
+      ],
       "verifiedByRows": [],
-      "divergedByRows": []
+      "divergedByRows": [
+        "storage-rules#205"
+      ]
     },
     "storage.binding.resource.contentEncoding": {
       "productionAcceptance": "unprobeable",
       "localAcceptance": "unprobeable",
       "localCapability": "unprobeable",
       "acceptanceProbeBound": false,
-      "productionEvidence": "unverified",
-      "classification": "unprobeable",
-      "verifiedBy": [],
+      "productionEvidence": "diverged",
+      "classification": "diverged",
+      "verifiedBy": [
+        "h1-resource-unmodeled-fields"
+      ],
       "verifiedByRows": [],
-      "divergedByRows": []
+      "divergedByRows": [
+        "storage-rules#205"
+      ]
     },
     "storage.binding.resource.contentLanguage": {
       "productionAcceptance": "unprobeable",
       "localAcceptance": "unprobeable",
       "localCapability": "unprobeable",
       "acceptanceProbeBound": false,
-      "productionEvidence": "unverified",
-      "classification": "unprobeable",
-      "verifiedBy": [],
+      "productionEvidence": "diverged",
+      "classification": "diverged",
+      "verifiedBy": [
+        "h1-resource-unmodeled-fields"
+      ],
       "verifiedByRows": [],
-      "divergedByRows": []
+      "divergedByRows": [
+        "storage-rules#205"
+      ]
     },
     "storage.binding.resource.cacheControl": {
       "productionAcceptance": "unprobeable",
       "localAcceptance": "unprobeable",
       "localCapability": "unprobeable",
       "acceptanceProbeBound": false,
-      "productionEvidence": "unverified",
-      "classification": "unprobeable",
-      "verifiedBy": [],
+      "productionEvidence": "diverged",
+      "classification": "diverged",
+      "verifiedBy": [
+        "h1-resource-unmodeled-fields"
+      ],
       "verifiedByRows": [],
-      "divergedByRows": []
+      "divergedByRows": [
+        "storage-rules#205"
+      ]
     },
     "storage.function.timestamp.date": {
       "productionAcceptance": "accepted",
@@ -869,7 +930,8 @@
       "classification": "conformant",
       "verifiedBy": [
         "request-time-timestamp",
-        "stdlib-timestamp-duration"
+        "stdlib-timestamp-duration",
+        "xref-shared-language-semantics"
       ],
       "verifiedByRows": [
         "storage-rules#storage.stdlib.timestamp-duration"
@@ -914,7 +976,8 @@
         "resource-object-identity",
         "stdlib-storage-modules",
         "stdlib-timestamp-duration",
-        "upload-primitives-boundaries"
+        "upload-primitives-boundaries",
+        "xref-shared-language-semantics"
       ],
       "verifiedByRows": [
         "storage-rules#116",
@@ -971,14 +1034,16 @@
       "classification": "diverged",
       "verifiedBy": [
         "firestore-lookup",
-        "firestore-lookup-budget"
+        "firestore-lookup-budget",
+        "h1-lookup-interpolated-slash"
       ],
       "verifiedByRows": [
         "storage-rules#131",
         "storage-rules#134"
       ],
       "divergedByRows": [
-        "storage-rules#129"
+        "storage-rules#129",
+        "storage-rules#212"
       ]
     },
     "storage.function.firestore.exists": {
@@ -994,14 +1059,18 @@
       "classification": "diverged",
       "verifiedBy": [
         "firestore-lookup",
-        "firestore-lookup-budget"
+        "firestore-lookup-budget",
+        "h1-lookup-interpolated-slash",
+        "storage-lookup-path-interpolation"
       ],
       "verifiedByRows": [
         "storage-rules#131",
         "storage-rules#134"
       ],
       "divergedByRows": [
-        "storage-rules#129"
+        "storage-rules#129",
+        "storage-rules#212",
+        "storage-rules#215"
       ]
     },
     "storage.function.math.abs": {
@@ -1165,13 +1234,17 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
-        "conversion-functions"
+        "conversion-functions",
+        "h1-int64-precision",
+        "storage-lookup-path-interpolation"
       ],
       "verifiedByRows": [],
-      "divergedByRows": []
+      "divergedByRows": [
+        "storage-rules#207"
+      ]
     },
     "storage.function.cast.int": {
       "productionAcceptance": "accepted",
@@ -1182,13 +1255,16 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
-        "conversion-functions"
+        "conversion-functions",
+        "h1-int64-precision"
       ],
       "verifiedByRows": [],
-      "divergedByRows": []
+      "divergedByRows": [
+        "storage-rules#207"
+      ]
     },
     "storage.function.cast.float": {
       "productionAcceptance": "accepted",
@@ -1342,9 +1418,10 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
+        "h1-regex-re2-classes",
         "matches-regex",
         "metadata-verbs-and-arithmetic",
         "resource-object-identity",
@@ -1356,7 +1433,9 @@
         "storage-rules#132",
         "storage-rules#storage.stdlib.string-methods"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "storage-rules#204"
+      ]
     },
     "storage.method.size": {
       "productionAcceptance": "accepted",
@@ -1371,11 +1450,13 @@
       "classification": "conformant",
       "verifiedBy": [
         "bytes-literal",
+        "h1-auth-token-default",
         "list-map-literals-and-slice",
         "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
         "stdlib-string-bytes-hashing",
-        "upload-primitives-boundaries"
+        "upload-primitives-boundaries",
+        "xref-shared-language-semantics"
       ],
       "verifiedByRows": [
         "storage-rules#122",
@@ -1395,19 +1476,22 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "arithmetic-operand-types",
         "list-map-literals-and-slice",
         "ordering-operand-types",
         "resource-object-identity",
-        "type-checks-is"
+        "type-checks-is",
+        "xref-shared-language-semantics"
       ],
       "verifiedByRows": [
         "storage-rules#122"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "storage-rules#219"
+      ]
     },
     "storage.method.map.keys": {
       "productionAcceptance": "accepted",
@@ -1421,6 +1505,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "h1-string-ordering",
         "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
         "upload-primitives-boundaries"
@@ -1444,6 +1529,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "error-absorption-and-direction",
+        "h1-auth-token-default",
         "in-membership-and-proto-keys",
         "stdlib-sets-and-mapdiff",
         "upload-primitives-boundaries"
@@ -1636,13 +1722,16 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
-        "stdlib-string-bytes-hashing"
+        "stdlib-string-bytes-hashing",
+        "xref-shared-language-semantics"
       ],
       "verifiedByRows": [],
-      "divergedByRows": []
+      "divergedByRows": [
+        "storage-rules#219"
+      ]
     },
     "storage.method.string.replace": {
       "productionAcceptance": "accepted",
@@ -1656,7 +1745,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "stdlib-string-bytes-hashing"
+        "stdlib-string-bytes-hashing",
+        "xref-shared-language-semantics"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -2230,6 +2320,13 @@
         "float-modulo-unary-minus",
         "function-scopes-and-shadowing",
         "functions-let-scope",
+        "h1-auth-token-default",
+        "h1-in-is-precedence",
+        "h1-int64-precision",
+        "h1-lookup-interpolated-slash",
+        "h1-resource-unmodeled-fields",
+        "h1-string-ordering",
+        "h1-unknown-method-absorption",
         "in-membership-and-proto-keys",
         "list-map-literals-and-slice",
         "math-namespace",
@@ -2241,9 +2338,11 @@
         "stdlib-storage-modules",
         "stdlib-string-bytes-hashing",
         "stdlib-timestamp-duration",
+        "storage-named-bucket-binding",
         "ternary-and-error-absorption",
         "upload-primitives-boundaries",
-        "verbs-umbrella-granular"
+        "verbs-umbrella-granular",
+        "xref-shared-language-semantics"
       ],
       "verifiedByRows": [
         "storage-rules#122",
@@ -2269,6 +2368,7 @@
         "conversion-functions",
         "firestore-lookup-budget",
         "function-scopes-and-shadowing",
+        "h1-in-is-precedence",
         "list-map-literals-and-slice",
         "metadata-access",
         "metadata-verbs-and-arithmetic",
@@ -2277,9 +2377,11 @@
         "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
         "stdlib-string-bytes-hashing",
+        "strict-boolean-allow-and-ternary",
         "ternary-and-error-absorption",
         "upload-primitives-boundaries",
-        "verbs-umbrella-granular"
+        "verbs-umbrella-granular",
+        "xref-shared-language-semantics"
       ],
       "verifiedByRows": [
         "storage-rules#123"
@@ -2302,6 +2404,8 @@
         "conversion-functions",
         "float-modulo-unary-minus",
         "functions-let-scope",
+        "h1-int64-precision",
+        "h1-string-ordering",
         "math-namespace",
         "metadata-verbs-and-arithmetic",
         "ordering-operand-types",
@@ -2309,7 +2413,8 @@
         "resource-object-identity",
         "stdlib-storage-modules",
         "stdlib-timestamp-duration",
-        "upload-primitives-boundaries"
+        "upload-primitives-boundaries",
+        "xref-shared-language-semantics"
       ],
       "verifiedByRows": [
         "storage-rules#123"
@@ -2331,6 +2436,8 @@
         "bytes-literal",
         "conversion-functions",
         "functions-let-scope",
+        "h1-int64-precision",
+        "h1-string-ordering",
         "in-membership-and-proto-keys",
         "math-namespace",
         "ordering-operand-types",
@@ -2395,22 +2502,27 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "arithmetic-operand-types",
         "bytes-literal",
         "conversion-functions",
+        "h1-int64-precision",
         "metadata-verbs-and-arithmetic",
         "resource-object-identity",
         "stdlib-storage-modules",
         "stdlib-timestamp-duration",
-        "upload-primitives-boundaries"
+        "upload-primitives-boundaries",
+        "xref-shared-language-semantics"
       ],
       "verifiedByRows": [
         "storage-rules#123"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "storage-rules#207",
+        "storage-rules#219"
+      ]
     },
     "storage.operator.sub": {
       "productionAcceptance": "accepted",
@@ -2421,18 +2533,22 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "arithmetic-operand-types",
+        "h1-int64-precision",
         "math-namespace",
         "metadata-verbs-and-arithmetic",
-        "stdlib-timestamp-duration"
+        "stdlib-timestamp-duration",
+        "xref-shared-language-semantics"
       ],
       "verifiedByRows": [
         "storage-rules#123"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "storage-rules#207"
+      ]
     },
     "storage.operator.mul": {
       "productionAcceptance": "accepted",
@@ -2465,8 +2581,8 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "arithmetic-operand-types",
         "conversion-functions",
@@ -2474,13 +2590,16 @@
         "float-modulo-unary-minus",
         "functions-let-scope",
         "metadata-verbs-and-arithmetic",
-        "ternary-and-error-absorption"
+        "ternary-and-error-absorption",
+        "xref-shared-language-semantics"
       ],
       "verifiedByRows": [
         "storage-rules#119",
         "storage-rules#123"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "storage-rules#219"
+      ]
     },
     "storage.operator.and": {
       "productionAcceptance": "accepted",
@@ -2491,8 +2610,8 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "arithmetic-operand-types",
         "bool-function",
@@ -2504,6 +2623,8 @@
         "float-modulo-unary-minus",
         "function-scopes-and-shadowing",
         "functions-let-scope",
+        "h1-string-ordering",
+        "h1-unknown-method-absorption",
         "in-membership-and-proto-keys",
         "math-namespace",
         "metadata-verbs-and-arithmetic",
@@ -2513,6 +2634,7 @@
         "stdlib-storage-modules",
         "stdlib-string-bytes-hashing",
         "stdlib-timestamp-duration",
+        "strict-boolean-allow-and-ternary",
         "type-checks-is",
         "upload-primitives-boundaries"
       ],
@@ -2520,7 +2642,9 @@
         "storage-rules#131",
         "storage-rules#133"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "storage-rules#211"
+      ]
     },
     "storage.operator.or": {
       "productionAcceptance": "accepted",
@@ -2531,8 +2655,8 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "arithmetic-operand-types",
         "bool-function",
@@ -2541,6 +2665,9 @@
         "error-absorption-and-direction",
         "firestore-lookup-budget",
         "functions-let-scope",
+        "h1-int64-precision",
+        "h1-unknown-method-absorption",
+        "h1-v1-recursive-wildcard",
         "list-map-literals-and-slice",
         "math-namespace",
         "metadata-access",
@@ -2548,6 +2675,7 @@
         "ordering-operand-types",
         "stdlib-sets-and-mapdiff",
         "stdlib-timestamp-duration",
+        "strict-boolean-allow-and-ternary",
         "ternary-and-error-absorption",
         "upload-primitives-boundaries"
       ],
@@ -2556,7 +2684,9 @@
         "storage-rules#131",
         "storage-rules#133"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "storage-rules#211"
+      ]
     },
     "storage.operator.not": {
       "productionAcceptance": "accepted",
@@ -2576,6 +2706,8 @@
         "conversion-functions",
         "error-absorption-and-direction",
         "functions-let-scope",
+        "h1-int64-precision",
+        "h1-unknown-method-absorption",
         "in-membership-and-proto-keys",
         "list-map-literals-and-slice",
         "math-namespace",
@@ -2584,8 +2716,10 @@
         "resource-object-identity",
         "stdlib-sets-and-mapdiff",
         "stdlib-timestamp-duration",
+        "strict-boolean-allow-and-ternary",
         "type-checks-is",
-        "upload-primitives-boundaries"
+        "upload-primitives-boundaries",
+        "xref-shared-language-semantics"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -2612,6 +2746,10 @@
         "float-modulo-unary-minus",
         "function-scopes-and-shadowing",
         "functions-let-scope",
+        "h1-auth-token-default",
+        "h1-int64-precision",
+        "h1-lookup-interpolated-slash",
+        "h1-resource-unmodeled-fields",
         "in-membership-and-proto-keys",
         "list-map-literals-and-slice",
         "matches-regex",
@@ -2624,6 +2762,8 @@
         "stdlib-storage-modules",
         "stdlib-string-bytes-hashing",
         "stdlib-timestamp-duration",
+        "storage-named-bucket-binding",
+        "strict-boolean-allow-and-ternary",
         "ternary-and-error-absorption",
         "type-checks-is",
         "upload-primitives-boundaries"
@@ -2682,13 +2822,15 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "arithmetic-operand-types",
         "bool-function",
         "bytes-literal",
         "conversion-functions",
+        "h1-auth-token-default",
+        "h1-v1-recursive-wildcard",
         "math-namespace",
         "stdlib-storage-modules",
         "stdlib-timestamp-duration",
@@ -2701,7 +2843,9 @@
         "storage-rules#132",
         "storage-rules#storage.stdlib.timestamp-duration"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "storage-rules#208"
+      ]
     },
     "storage.operator.in": {
       "productionAcceptance": "accepted",
@@ -2712,12 +2856,13 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "bytes-literal",
         "common-auth-membership",
         "error-absorption-and-direction",
+        "h1-in-is-precedence",
         "in-membership-and-proto-keys",
         "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
@@ -2729,7 +2874,9 @@
         "storage-rules#132",
         "storage-rules#storage.stdlib.sets"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "storage-rules#208"
+      ]
     },
     "storage.operator.ternary": {
       "productionAcceptance": "accepted",
@@ -2744,6 +2891,8 @@
       "classification": "conformant",
       "verifiedBy": [
         "firestore-lookup-budget",
+        "h1-in-is-precedence",
+        "strict-boolean-allow-and-ternary",
         "ternary-and-error-absorption"
       ],
       "verifiedByRows": [
@@ -2762,8 +2911,8 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "conversion-functions",
         "float-modulo-unary-minus",
@@ -2771,12 +2920,15 @@
         "math-namespace",
         "stdlib-sets-and-mapdiff",
         "stdlib-timestamp-duration",
-        "upload-primitives-boundaries"
+        "upload-primitives-boundaries",
+        "xref-shared-language-semantics"
       ],
       "verifiedByRows": [
         "storage-rules#123"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "storage-rules#219"
+      ]
     },
     "storage.operator.mod": {
       "productionAcceptance": "accepted",
@@ -2816,12 +2968,16 @@
         "float-modulo-unary-minus",
         "function-scopes-and-shadowing",
         "functions-let-scope",
+        "h1-v1-recursive-wildcard",
         "list-map-literals-and-slice",
         "math-namespace",
         "metadata-verbs-and-arithmetic",
         "ordering-operand-types",
+        "storage-named-bucket-binding",
+        "strict-boolean-allow-and-ternary",
         "ternary-and-error-absorption",
-        "verbs-umbrella-granular"
+        "verbs-umbrella-granular",
+        "xref-root-literal-bucket"
       ],
       "verifiedByRows": [
         "storage-rules#96"
@@ -2840,7 +2996,9 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "verbs-umbrella-granular"
+        "storage-named-bucket-binding",
+        "verbs-umbrella-granular",
+        "xref-root-literal-bucket"
       ],
       "verifiedByRows": [
         "storage-rules#96"
@@ -2860,6 +3018,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "firestore-lookup",
+        "h1-resource-unmodeled-fields",
         "metadata-access",
         "resource-object-identity",
         "stdlib-sets-and-mapdiff",
@@ -2915,6 +3074,13 @@
         "float-modulo-unary-minus",
         "function-scopes-and-shadowing",
         "functions-let-scope",
+        "h1-auth-token-default",
+        "h1-in-is-precedence",
+        "h1-int64-precision",
+        "h1-lookup-interpolated-slash",
+        "h1-regex-re2-classes",
+        "h1-string-ordering",
+        "h1-unknown-method-absorption",
         "in-membership-and-proto-keys",
         "list-map-literals-and-slice",
         "matches-regex",
@@ -2923,9 +3089,11 @@
         "request-time-timestamp",
         "resource-object-identity",
         "stdlib-storage-modules",
+        "storage-lookup-path-interpolation",
         "type-checks-is",
         "upload-primitives-boundaries",
-        "verbs-umbrella-granular"
+        "verbs-umbrella-granular",
+        "xref-shared-language-semantics"
       ],
       "verifiedByRows": [
         "storage-rules#96"
@@ -2995,8 +3163,8 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "arithmetic-operand-types",
         "bool-function",
@@ -3009,6 +3177,15 @@
         "float-modulo-unary-minus",
         "function-scopes-and-shadowing",
         "functions-let-scope",
+        "h1-auth-token-default",
+        "h1-in-is-precedence",
+        "h1-int64-precision",
+        "h1-lookup-interpolated-slash",
+        "h1-regex-re2-classes",
+        "h1-resource-unmodeled-fields",
+        "h1-string-ordering",
+        "h1-unknown-method-absorption",
+        "h1-v1-recursive-wildcard",
         "in-membership-and-proto-keys",
         "list-map-literals-and-slice",
         "matches-regex",
@@ -3022,13 +3199,21 @@
         "stdlib-storage-modules",
         "stdlib-string-bytes-hashing",
         "stdlib-timestamp-duration",
+        "storage-lookup-path-interpolation",
+        "storage-named-bucket-binding",
+        "strict-boolean-allow-and-ternary",
         "ternary-and-error-absorption",
         "type-checks-is",
         "upload-primitives-boundaries",
-        "verbs-umbrella-granular"
+        "verbs-umbrella-granular",
+        "xref-root-literal-bucket",
+        "xref-shared-language-semantics"
       ],
       "verifiedByRows": [],
-      "divergedByRows": []
+      "divergedByRows": [
+        "storage-rules#214",
+        "storage-rules#217"
+      ]
     },
     "storage.rule-kind.function": {
       "productionAcceptance": "accepted",
@@ -3084,8 +3269,8 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "arithmetic-operand-types",
         "bool-function",
@@ -3098,6 +3283,14 @@
         "float-modulo-unary-minus",
         "function-scopes-and-shadowing",
         "functions-let-scope",
+        "h1-auth-token-default",
+        "h1-in-is-precedence",
+        "h1-int64-precision",
+        "h1-lookup-interpolated-slash",
+        "h1-regex-re2-classes",
+        "h1-resource-unmodeled-fields",
+        "h1-string-ordering",
+        "h1-unknown-method-absorption",
         "in-membership-and-proto-keys",
         "list-map-literals-and-slice",
         "matches-regex",
@@ -3111,13 +3304,20 @@
         "stdlib-storage-modules",
         "stdlib-string-bytes-hashing",
         "stdlib-timestamp-duration",
+        "storage-lookup-path-interpolation",
+        "storage-named-bucket-binding",
+        "strict-boolean-allow-and-ternary",
         "ternary-and-error-absorption",
         "type-checks-is",
         "upload-primitives-boundaries",
-        "verbs-umbrella-granular"
+        "verbs-umbrella-granular",
+        "xref-root-literal-bucket",
+        "xref-shared-language-semantics"
       ],
       "verifiedByRows": [],
-      "divergedByRows": []
+      "divergedByRows": [
+        "storage-rules#206"
+      ]
     },
     "storage.semantic.read-umbrella": {
       "productionAcceptance": "accepted",
@@ -3136,12 +3336,16 @@
         "float-modulo-unary-minus",
         "function-scopes-and-shadowing",
         "functions-let-scope",
+        "h1-v1-recursive-wildcard",
         "list-map-literals-and-slice",
         "math-namespace",
         "metadata-verbs-and-arithmetic",
         "ordering-operand-types",
+        "storage-named-bucket-binding",
+        "strict-boolean-allow-and-ternary",
         "ternary-and-error-absorption",
-        "verbs-umbrella-granular"
+        "verbs-umbrella-granular",
+        "xref-root-literal-bucket"
       ],
       "verifiedByRows": [
         "storage-rules#96"
@@ -3160,7 +3364,9 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "verbs-umbrella-granular"
+        "storage-named-bucket-binding",
+        "verbs-umbrella-granular",
+        "xref-root-literal-bucket"
       ],
       "verifiedByRows": [
         "storage-rules#96"
@@ -3176,13 +3382,18 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
-        "metadata-verbs-and-arithmetic"
+        "h1-v1-recursive-wildcard",
+        "metadata-verbs-and-arithmetic",
+        "storage-lookup-path-interpolation",
+        "xref-root-literal-bucket"
       ],
       "verifiedByRows": [],
-      "divergedByRows": []
+      "divergedByRows": [
+        "storage-rules#206"
+      ]
     },
     "storage.semantic.deny-by-default": {
       "productionAcceptance": "accepted",

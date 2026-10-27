@@ -1,0 +1,1 @@
+{"kind":"verdict","rowId":"storage-rules#219","productionVerdict":"ALLOW","evaluatorVerdict":"DENY","reason":"trim() strips code units at or below U+0020 in production; pyric strips NBSP","issue":"ST-H1-13 / FS2-SIM-8"}

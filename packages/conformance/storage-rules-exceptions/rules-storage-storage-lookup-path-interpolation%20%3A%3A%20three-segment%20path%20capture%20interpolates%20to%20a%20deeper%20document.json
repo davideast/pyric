@@ -1,0 +1,1 @@
+{"kind":"verdict","rowId":"storage-rules#215","productionVerdict":"ALLOW","evaluatorVerdict":"DENY","reason":"production interpolates $(rest) from {rest=**} into a firestore path; pyric errors","issue":"ST-H2-9"}
