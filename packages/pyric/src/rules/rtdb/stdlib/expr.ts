@@ -37,6 +37,7 @@ export const sameAsBefore = (field: string): Expr => eq(newDataVal(field), { $: 
  * `.child(...)` calls for `segments`: a string is a key, `{ $: 'auth.uid' }`
  * or `{ $: '$roomId' }` a value the rule reads.
  */
+// One key per segment (no slash), unlike buildPath in constraints/atoms.ts, which takes slash paths; do not merge them.
 export function childPath(builder: string, segments: ReadonlyArray<string | { $: string }>): string {
   if (segments.length === 0) throw new Error(`${builder}: pass at least one segment.`);
   return segments

@@ -2,6 +2,7 @@ import type { Expr, Segment } from './types.js';
 import { any, expr as e, lit, not } from './compose.js';
 import { childPathName, dataExists, dataVal, eq, newDataVal } from './data.js';
 
+// Takes slash paths (child('a/b') is valid), unlike childPath in stdlib/expr.ts, which takes one key per segment; do not merge them.
 function buildPath(builder: string, segments: Segment[]): string {
   if (!Array.isArray(segments) || segments.length === 0) throw new Error(`${builder}: pass at least one segment.`);
   return segments.map(s => {
