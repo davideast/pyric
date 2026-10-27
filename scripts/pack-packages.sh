@@ -72,7 +72,7 @@ fi
 
 # ─── Phase 1: prep output dir ──────────────────────────────────────────
 echo ""
-echo "━━━ Phase 1: prep dist/packages/ ━━━"
+echo "━━━ Phase 1: prep $OUT_DIR ━━━"
 # Clear only what this script writes, so `--out` can never delete a
 # directory's other contents.
 mkdir -p "$OUT_DIR"
