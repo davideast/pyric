@@ -121,7 +121,8 @@ const { timing, lifecycle } = rtdbStdlib;
 paths: {
   '/posts/$postId': {
     write: authenticated(),
-    validate: timing.stampedInSameWrite(2, ['lastPost', { $: 'auth.uid' }]),
+    // The stamp check reads lastPost, not the post, so the post's own value needs a check too.
+    validate: all(timing.stampedInSameWrite(2, ['lastPost', { $: 'auth.uid' }]), 'newData.isString() && newData.val().length < 1000'),
   },
   // A deleted stamp would reset the cooldown, so the owner may not delete it.
   '/lastPost/$uid': { write: all(ownPath('$uid'), lifecycle.noDelete()), validate: timing.throttled(60_000) },
@@ -130,7 +131,7 @@ paths: {
 // Client: the post and the stamp in one multi-path update.
 await update(ref(db), { 'posts/p1': post, [`lastPost/${uid}`]: serverTimestamp() });
 ```
-`now` is the server clock in milliseconds, and the server replaces a written `serverTimestamp()` with `now` before it evaluates the rules. The stamp's `.validate` requires the server timestamp and refuses it until 60 seconds after the stored one; the post's `.validate` requires the stamp in the same write. A post without a stamp, a stamp with a client clock time, a stamp under another uid, and a delete of the stamp are all refused. The limit is on writes, not posts: one multi-path update can carry several posts and one stamp. For a cooldown on one record, combine `timing.cooldownElapsed(ms, 'lastMoveAt')` with `timing.isServerTimestamp('lastMoveAt')` in its `.write`.
+`now` is the server clock in milliseconds, and the server replaces a written `serverTimestamp()` with `now` before it evaluates the rules. The stamp's `.validate` requires the server timestamp and refuses it until 60 seconds after the stored one; the post's `.validate` requires the stamp in the same write. Neither reads the post itself, so the post's `.validate` adds its own value check; without one, lint reports `RTDB-SEC-6`. A post without a stamp, a stamp with a client clock time, a stamp under another uid, and a delete of the stamp are all refused. The limit is on writes, not posts: one multi-path update can carry several posts and one stamp. For a cooldown on one record, combine `timing.cooldownElapsed(ms, 'lastMoveAt')` with `timing.isServerTimestamp('lastMoveAt')` in its `.write`.
 
 ## Check who the writer is
 
@@ -167,7 +168,8 @@ A member is a key whose value is `true`. `memberOf` reads the stored data, so a 
 paths: {
   '/posts/$postId': {
     write: all(authenticated(), lifecycle.createOnly()),
-    validate: timing.countedInSameWrite(2, ['quota', { $: 'auth.uid' }]),
+    // The quota check reads quota, not the post, so the post's own value needs a check too.
+    validate: all(timing.countedInSameWrite(2, ['quota', { $: 'auth.uid' }]), 'newData.isString() && newData.val().length < 1000'),
   },
   // At most 10 posts per minute per user.
   '/quota/$uid': {
@@ -184,7 +186,20 @@ The quota node holds `{ windowStart, count }`. A write either opens a new window
 
 ## Bound a collection
 
-RTDB rules cannot count a node's children. Bound the keys instead: `collections.slotKey('$slot', 4)` on `'/seats/$slot'` allows the keys `'0'` to `'3'`, which is how a client stores an array, so a fifth seat is refused. `collections.keyIn('$flag', ['red', 'blue'])` allows a fixed list. The library has no builder for a collection with free keys, such as push IDs.
+```ts
+const { collections } = rtdbStdlib;
+
+paths: {
+  '/tables/$tableId': {
+    write: authenticated(),
+    children: {
+      '/seats/$slot': { validate: all(collections.slotKey('$slot', 4), 'newData.isString()') },
+      '/flags/$flag': { validate: all(collections.keyIn('$flag', ['red', 'blue']), 'newData.isBoolean()') },
+    },
+  },
+}
+```
+RTDB rules cannot count a node's children. Bound the keys instead: `collections.slotKey('$slot', 4)` on `'/seats/$slot'` allows the keys `'0'` to `'3'`, which is how a client stores an array, so a fifth seat is refused. `collections.keyIn('$flag', ['red', 'blue'])` allows a fixed list. Both check the key, not the value, so each recipe adds a value check; without one, lint reports `RTDB-SEC-6`. The library has no builder for a collection with free keys, such as push IDs.
 
 ## Ask an agent
 

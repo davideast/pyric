@@ -9,12 +9,15 @@ export const RTDB_EXPR_OHM_SOURCE = `RtdbExpr {
     = LogicalOr "?" Ternary ":" Ternary  -- ternary
     | LogicalOr
 
+  // \`||\` and \`&&\` match as flat chains, not left recursion, so a semantics
+  // folds a chain of any length in a loop instead of descending once per
+  // term. Production deploys a 2,000-term \`||\` chain (r51).
   LogicalOr
-    = LogicalOr "||" LogicalAnd  -- or
+    = LogicalAnd ("||" LogicalAnd)+  -- or
     | LogicalAnd
 
   LogicalAnd
-    = LogicalAnd "&&" Equality  -- and
+    = Equality ("&&" Equality)+  -- and
     | Equality
 
   Equality
