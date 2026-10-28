@@ -81,6 +81,12 @@ describe('rtdb-modular CDD: foundation rows', () => {
   });
   row('M15', assertMultipath);
   row('M16', assertOverlappingUpdate);
+  row('M16b', async () => {
+    const { db } = setup(); const target = api.ref(db, 't');
+    await api.set(target, { x: 1 });
+    await Promise.all([api.update(target, { x: 2 }), api.set(api.ref(db, 't/x'), 3)]);
+    expect((await api.get(target)).val()).toEqual({ x: 3 });
+  });
   row('M17', () => assertPush(false));
   row('M18', () => assertPush(true));
   row('M19', () => {
