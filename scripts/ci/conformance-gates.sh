@@ -31,6 +31,7 @@ compute_base_report() {
     PYRIC_SURFACE_CENSUS_PATH='' bun run packages/conformance/src/coverage.ts --json > "$base_report.partial"
   )
   mv "$base_report.partial" "$base_report"
+  echo "Base coverage report computed in ${SECONDS}s."
 }
 
 base_pid=''
@@ -54,6 +55,7 @@ bun run compat:census-gate
 bun run compat:entry-path
 # Runtime conformance verdict projection
 bun run compat:conformance:check
+gates_done="$SECONDS"
 
 if [ -n "$base_pid" ]; then
   if ! wait "$base_pid"; then
@@ -61,7 +63,8 @@ if [ -n "$base_pid" ]; then
     echo "Could not compute the coverage report for the base commit $base_sha (log above)." >&2
     exit 1
   fi
-  echo "Computed the coverage report for $base_sha."
+  tail -n 1 "$base_log"
+  echo "Computed the coverage report for $base_sha; the other gates finished at ${gates_done}s."
 fi
 
 # Compat coverage gate (surface + behavior %, regression-only, vs. the base commit)
