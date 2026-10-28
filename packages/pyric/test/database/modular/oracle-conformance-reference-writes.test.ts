@@ -17,7 +17,8 @@ import {
   startAt,
   endAt,
 } from '../../../src/database/index.js';
-import { sandbox as rtdbSandbox, getAdminDatabase, type DataSnapshot } from '../../../src/database/index.js';
+import { sandbox as rtdbSandbox, getAdminDatabase, getDatabase, type DataSnapshot } from '../../../src/database/index.js';
+import { initializeSandbox } from 'pyric/sandbox';
 import {
   load,
   setup,
@@ -155,19 +156,26 @@ describe('oracle conformance (rtdb-modular): reference and write contracts', () 
       expect((await get(target)).val()).toEqual(obs.afterRejected);
     });
 
-    it('rtdb-modular#174 pins URL validation and the host divergence', async () => {
+    it('rtdb-modular#174 pins URL validation and the host check', async () => {
       const obs = load('rtdb-modular-reference-shape-url.json');
       const validation = obs.referenceValidation as Record<string, unknown>;
       const { db } = setup();
       await set(ref(db, 'from-url/value'), { ok: true });
-      expect((obs.mismatchedHost as Record<string, unknown>).timing).toBe('synchronous-throw');
-      const sandboxRef = refFromURL(db, 'https://different.invalid/from-url/value');
+      // A sandbox database opened without a URL has no host to check against. The SDK takes the
+      // namespace from a three-label host and refuses a two-label one, so these URLs use three labels.
+      const sandboxRef = refFromURL(db, 'https://different.example.com/from-url/value');
       expect((await get(sandboxRef)).val()).toEqual({ ok: true });
+      // RT-12: a database on the oracle's host refuses another instance's host with the captured error.
+      const hosted = getDatabase(initializeSandbox(), 'https://digame-mas-default-rtdb.firebaseio.com');
       expect(synchronousInvocationShape(() =>
-        refFromURL(db, 'https://different.invalid/path#bad'),
+        refFromURL(hosted, 'https://other-digame-mas-default-rtdb.firebaseio.com/from-url/value'),
+      )).toEqual(obs.mismatchedHost);
+      expect(synchronousInvocationShape(() => refFromURL(db, 'not-an-absolute-url'))).toEqual(obs.malformedUrl);
+      expect(synchronousInvocationShape(() =>
+        refFromURL(db, 'https://different.example.com/path#bad'),
       )).toEqual(validation.fragmentUrl);
-      expect(refFromURL(db, 'ftp://different.invalid/from-url/value')._path).toBe('/from-url/value');
-      expect(refFromURL(db, 'https://different.invalid/from-url/value?ignored=true')._path)
+      expect(refFromURL(db, 'ftp://different.example.com/from-url/value')._path).toBe('/from-url/value');
+      expect(refFromURL(db, 'https://different.example.com/from-url/value?ignored=true')._path)
         .toBe('/from-url/value');
     });
   });

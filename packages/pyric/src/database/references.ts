@@ -1,3 +1,4 @@
+import { isCustomDatabaseHost, parseDatabaseLocationUrl } from '../sandbox/internal/instances.js';
 import { joinPath, pathSegments } from './sandbox/data-tree.js';
 import { validateReferencePath } from './writable-path.js';
 import { emptySpec } from './sandbox/query.js';
@@ -34,27 +35,30 @@ export function child(parent: DatabaseReference, path: string): DatabaseReferenc
 }
 
 /**
- * `refFromURL(db, url)` — build a {@link DatabaseReference} from an
- * absolute database URL (`https://<namespace>.firebaseio.com/path`).
+ * `refFromURL(db, url)`: build a {@link DatabaseReference} from an absolute
+ * database URL (`https://<namespace>.firebaseio.com/path`).
  *
- * The sandbox is single-database, so only the URL path is honored; unlike the
- * production SDK, the host is not checked against the database namespace.
+ * The URL is parsed with the SDK's rules, and as in the SDK a URL whose host
+ * is not the database's host throws, unless the database's host is custom
+ * (any domain but `firebaseio.com` and `firebaseio-demo.com`). A sandbox
+ * database opened without a URL has no host, so its URLs are not checked.
  */
 export function refFromURL(db: Database, url: string): DatabaseReference {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
+  const location = parseDatabaseLocationUrl(url);
+  const instanceUrl = targetOf(db).instanceUrl;
+  if (instanceUrl !== undefined) {
+    assertSameHost(location.host, parseDatabaseLocationUrl(instanceUrl).host);
+  }
+  return ref(db, location.path);
+}
+
+function assertSameHost(found: string, expected: string): void {
+  const hostsDiffer = found !== expected;
+  if (hostsDiffer && !isCustomDatabaseHost(expected)) {
     throw new Error(
-      `pyric/database: refFromURL received a value that is not an absolute URL: ${url}`,
+      `FIREBASE FATAL ERROR: refFromURL: Host name does not match the current database: (found ${found} but expected ${expected}) `,
     );
   }
-  if (parsed.hash !== '') {
-    throw new Error(
-      'refFromURL failed: url argument must be a valid firebase URL and the path can\'t contain ".", "#", "$", "[", or "]".',
-    );
-  }
-  return ref(db, parsed.pathname);
 }
 
 /**
