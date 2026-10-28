@@ -1,0 +1,143 @@
+{
+  "name": "app-check-admin-options-create-token",
+  "matrixRow": "",
+  "rowIds": [
+    "app-check-admin#create-token-fractional-ttl",
+    "app-check-admin#create-token-limited-use-jti",
+    "app-check-admin#create-token-limited-use-ttl",
+    "app-check-admin#create-token-option-type-checks",
+    "app-check-admin#create-token-options-object",
+    "app-check-admin#create-token-sync-throw",
+    "app-check-admin#create-token-ttl-type-message"
+  ],
+  "description": "firebase-admin createToken options. validation: for each malformed input, whether createToken throws synchronously or returns a rejected promise, with the error code and message. limitedUse: the ttl a limitedUse token gets with no jti and with a chosen jti, and whether the chosen jti is the token jti claim. fractionalTtl: the ttlMillis returned and exp minus iat for fractional ttlMillis values. Token values are never stored.",
+  "observedAt": "2026-10-28T02:26:25.518Z",
+  "fbSdkVersion": "12.13.0",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "validation": {
+      "optionsNull": {
+        "mode": "sync-throw",
+        "code": "app-check/invalid-argument",
+        "message": "AppCheckTokenOptions must be a non-null object."
+      },
+      "optionsString": {
+        "mode": "sync-throw",
+        "code": "app-check/invalid-argument",
+        "message": "AppCheckTokenOptions must be a non-null object."
+      },
+      "optionsArray": {
+        "mode": "sync-throw",
+        "code": "app-check/invalid-argument",
+        "message": "AppCheckTokenOptions must be a non-null object."
+      },
+      "ttlNull": {
+        "mode": "sync-throw",
+        "code": "app-check/invalid-argument",
+        "message": "ttlMillis must be a duration in milliseconds."
+      },
+      "ttlNaN": {
+        "mode": "sync-throw",
+        "code": "app-check/invalid-argument",
+        "message": "ttlMillis must be a duration in milliseconds."
+      },
+      "ttlString": {
+        "mode": "sync-throw",
+        "code": "app-check/invalid-argument",
+        "message": "ttlMillis must be a duration in milliseconds."
+      },
+      "ttlTooShort": {
+        "mode": "sync-throw",
+        "code": "app-check/invalid-argument",
+        "message": "ttlMillis must be a duration in milliseconds between 30 minutes and 7 days (inclusive)."
+      },
+      "appIdEmpty": {
+        "mode": "sync-throw",
+        "code": "app-check/invalid-argument",
+        "message": "`appId` must be a non-empty string."
+      },
+      "jtiWithoutLimitedUse": {
+        "mode": "rejected",
+        "code": "app-check/invalid-argument",
+        "message": "`jti` cannot be specified without setting `limitedUse` to `true`."
+      },
+      "limitedUseString": {
+        "mode": "rejected",
+        "code": "app-check/invalid-argument",
+        "message": "`limitedUse` must be a boolean value."
+      },
+      "jtiNumber": {
+        "mode": "rejected",
+        "code": "app-check/invalid-argument",
+        "message": "`jti` must be a string value."
+      }
+    },
+    "limitedUse": {
+      "noJti": {
+        "mode": "resolved",
+        "ttlMillis": 300000,
+        "expMinusIat": 300,
+        "claimNames": [
+          "aud",
+          "exp",
+          "iat",
+          "iss",
+          "jti",
+          "provider",
+          "sub"
+        ],
+        "jtiEqualsRequested": false
+      },
+      "withJti": {
+        "mode": "resolved",
+        "ttlMillis": 300000,
+        "expMinusIat": 300,
+        "claimNames": [
+          "aud",
+          "exp",
+          "iat",
+          "iss",
+          "jti",
+          "provider",
+          "sub"
+        ],
+        "jtiEqualsRequested": true
+      }
+    },
+    "fractionalTtl": {
+      "ttl1800999": {
+        "requestedTtlMillis": 1800999,
+        "mode": "resolved",
+        "ttlMillis": 1800999,
+        "expMinusIat": 1801,
+        "claimNames": [
+          "aud",
+          "exp",
+          "iat",
+          "iss",
+          "jti",
+          "provider",
+          "sub"
+        ],
+        "jtiEqualsRequested": false
+      },
+      "ttl1800000point5": {
+        "requestedTtlMillis": 1800000.5,
+        "mode": "resolved",
+        "ttlMillis": 1800000,
+        "expMinusIat": 1800,
+        "claimNames": [
+          "aud",
+          "exp",
+          "iat",
+          "iss",
+          "jti",
+          "provider",
+          "sub"
+        ],
+        "jtiEqualsRequested": false
+      }
+    }
+  }
+}

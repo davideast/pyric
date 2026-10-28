@@ -1,4 +1,5 @@
 import { defineRows } from './define-rows.ts';
+import { aiHuntBlock } from './ai-hunt-captures.ts';
 import type {
   CompatibilityDocBlock,
   CompatibilityRow,
@@ -1139,6 +1140,7 @@ export const aiRegistry: CompatibilitySurfaceRegistry = {
     table(SEC_FNCALL, fncallRows),
     table(SEC_COUNT, countRows),
     table(SEC_ERRORS, errorRows),
+    aiHuntBlock,
     table(SEC_HELPERS, helperRows),
     table(SEC_SCHEMA, schemaRows),
     table(SEC_SCRIPTED, scriptedRows),
