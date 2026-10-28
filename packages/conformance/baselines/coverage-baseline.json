@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-28T01:59:42.361Z",
+  "generatedAt": "2026-10-28T02:46:52.364Z",
   "services": {
     "ai": {
       "publicSurface": {
@@ -483,7 +483,7 @@
     "firestore#73": "conforms",
     "firestore#74": "conforms",
     "firestore#75": "conforms",
-    "firestore#76": "bug",
+    "firestore#76": "conforms",
     "firestore#77": "conforms",
     "firestore#78": "conforms",
     "firestore#79": "diverged-documented",
@@ -1096,7 +1096,7 @@
     "firestore-rules#198": "diverged-documented",
     "firestore-rules#199": "diverged-documented",
     "firestore-rules#200": "diverged-documented",
-    "firestore-rules#201": "diverged-documented",
+    "firestore-rules#201": "conforms",
     "firestore-rules#202": "diverged-documented",
     "firestore-rules#203": "conforms",
     "storage-rules#94": "conforms",
