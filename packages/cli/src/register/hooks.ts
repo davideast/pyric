@@ -10,6 +10,7 @@
  */
 import { canonicalFirebaseSpecifier, mapFirebaseSpecifier } from './mapping.js';
 import { resolvesIntoPackage } from './package-identity.js';
+import { createStopReporter, stopFor } from './swap-or-stop.js';
 
 interface ResolveContext {
   parentURL?: string;
@@ -43,7 +44,31 @@ async function resolveRenamed(
   return nextResolve(mappedSpecifier, context);
 }
 
-export function resolve(
+const reportStop = createStopReporter((line) => void process.stderr.write(line));
+
+/**
+ * Swap or stop (ADR 0022). A throw here rejects the import on the main
+ * thread, so this hook stops ESM imports of the real SDK without reaching the
+ * network guard. CommonJS `require` never reaches this hook.
+ */
+export async function resolve(
+  specifier: string,
+  context: ResolveContext,
+  nextResolve: NextResolve,
+): Promise<ResolveResult> {
+  const result = await resolveFirebase(specifier, context, nextResolve);
+  const stop = stopFor({
+    specifier,
+    canonical: canonicalFirebaseSpecifier(specifier),
+    importer: context.parentURL,
+    url: result.url,
+  });
+  if (stop === null) return result;
+  reportStop(stop);
+  throw stop;
+}
+
+function resolveFirebase(
   specifier: string,
   context: ResolveContext,
   nextResolve: NextResolve,

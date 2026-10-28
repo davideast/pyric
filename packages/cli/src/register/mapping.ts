@@ -84,6 +84,45 @@ export function canonicalFirebaseSpecifier(specifier: string): string | null {
 }
 
 /**
+ * The packages the real SDK loads in production AI mode: `firebase/ai`, the
+ * `firebase/app` and `firebase/app-check` the passthrough wraps, and the
+ * `@firebase/*` packages those import. A server runner can import any of them
+ * by file URL (Vite's module runner does), so they are allowed by package.
+ */
+const PRODUCTION_AI_PACKAGES: ReadonlySet<string> = new Set([
+  'firebase',
+  '@firebase/ai',
+  '@firebase/app',
+  '@firebase/app-check',
+  '@firebase/app-check-interop-types',
+  '@firebase/component',
+  '@firebase/logger',
+  '@firebase/util',
+]);
+
+export interface RealFirebaseLoad {
+  /** The specifier as written, or its canonical name when Turbopack renamed it. */
+  specifier: string;
+  importer: string | undefined;
+  /** The package the resolved file belongs to, `firebase` or `@firebase/*`. */
+  packageName: string;
+  aiMode: AiMode;
+}
+
+/**
+ * Whether the swap table hands this client SDK load to the real SDK (ADR
+ * 0022): one of pyric's shadow modules reaching the `firebase/app` or
+ * `firebase/app-check` it wraps, or the real AI SDK in production AI mode.
+ * The stop in `swap-or-stop.ts` allows exactly these, so the swap and the
+ * stop cannot disagree.
+ */
+export function choosesRealFirebase(load: RealFirebaseLoad): boolean {
+  if (isBypassedBridgeImport(load.specifier, load.importer)) return true;
+  const isProductionMode = load.aiMode === 'production';
+  return isProductionMode && PRODUCTION_AI_PACKAGES.has(load.packageName);
+}
+
+/**
  * Map a Firebase specifier to its pyric mirror, or return `null` when the
  * specifier is not a Firebase package (leave it for the default resolver).
  */

@@ -202,12 +202,16 @@ export async function GET() {
   const { createRequire } = process.getBuiltinModule('node:module');
   const { join } = process.getBuiltinModule('node:path');
   const load = createRequire(join(process.cwd(), 'package.json'));
-  load(join(process.cwd(), 'node_modules', 'firebase-admin', 'lib', 'app', 'index.js'));
+  try {
+    load(join(process.cwd(), 'node_modules', 'firebase-admin', 'lib', 'app', 'index.js'));
+  } catch (error) {
+    return Response.json({ load: error?.code ?? String(error) });
+  }
   try {
     await fetch(process.env.SCENARIO_FIRESTORE_URL);
-    return Response.json({ code: 'sent' });
+    return Response.json({ load: 'loaded', fetch: 'sent' });
   } catch (error) {
-    return Response.json({ code: error?.cause?.code ?? error?.code ?? String(error) });
+    return Response.json({ load: 'loaded', fetch: error?.cause?.code ?? error?.code ?? String(error) });
   }
 }
 `;
@@ -375,13 +379,20 @@ async function runCase(app: App, safety: Safety, testCase: FirebaseImportsCase):
     assert.deepEqual({ realFirebase, connections }, { realFirebase: [], connections: [] });
   });
 
-  // #1443 part 2: a load the register can't map still fails closed.
-  await app.step(`${testCase.name}: the real firebase-admin trips the guard, and Firestore is refused`, async () => {
+  // ADR 0022: a load the register can't map stops before the real firebase-admin runs.
+  await app.step(`${testCase.name}: the real firebase-admin stops at load, and nothing runs or leaves`, async () => {
     const response = await fetch(`${nextUrl}/api/real-admin`, { signal: AbortSignal.timeout(120_000) });
     const body = await jsonFrom(response);
-    const connections = escapedConnections(readSafetyLog(safetyLog));
-    assert.deepEqual({ body, connections }, { body: { code: 'PYRIC_GUARD_BLOCKED' }, connections: [] });
-    assert.match(sandbox.output, /the real firebase-admin loaded from file:\/\/\S+\/firebase-admin\/lib\/app\/index\.js/);
+    const records = readSafetyLog(safetyLog);
+    const realFirebase = records.filter((record) => record.kind === 'real-firebase').map((record) => record.detail);
+    const connections = escapedConnections(records);
+    assert.deepEqual(
+      { body, realFirebase, connections },
+      { body: { load: 'PYRIC_REAL_SDK_STOPPED' }, realFirebase: [], connections: [] },
+    );
+    assert.match(sandbox.output, /stopped loading the real firebase-admin/);
+    assert.match(sandbox.output, /found {2}file:\/\/\S+\/firebase-admin\/lib\/app\/index\.js/);
+    assert.match(sandbox.output, /code: PYRIC_REAL_SDK_STOPPED/);
     await page.close();
     await sandbox.stop();
   });
