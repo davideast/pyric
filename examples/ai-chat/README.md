@@ -4,8 +4,9 @@ The graduation demo for pyric's AI surface, and the witness artifact for it:
 one chat app, written entirely against the upstream `firebase/ai` API, that
 runs unchanged under `pyric sandbox` on two answer engines.
 
-The app imports only `firebase/app` and `firebase/ai`. It uses
-`getGenerativeModel`, streaming via `generateContentStream`, multi-turn
+The app imports only `firebase/app`, `firebase/app-check`, and `firebase/ai`.
+It initializes App Check before `getAI`, as AI Logic requires from
+November 2, 2026. It uses `getGenerativeModel`, streaming via `generateContentStream`, multi-turn
 history via `ChatSession`, and a function-calling round trip with a
 `get_weather` tool. Under `pyric sandbox` the import map serves the pyric mirror
 for those imports; no app code changes.
