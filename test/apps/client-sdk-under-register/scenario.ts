@@ -11,7 +11,7 @@
 import assert from 'node:assert/strict';
 import { scenario, type App } from '../driver.ts';
 
-declare function readBack(): Promise<{ database: unknown; firestore: unknown }>;
+declare function readBack(): Promise<{ database: unknown; firestore: unknown; aggregate: unknown }>;
 
 type Outcome = { ok: true; value: unknown } | { ok: false; code: string | null; message: string };
 
@@ -92,6 +92,10 @@ export default scenario(async (app) => {
     expectOk(client, 'firestore.getDoc', { from: 'admin' });
   });
 
+  await app.step('getAggregateFromServer aggregates over the host', () => {
+    expectOk(client, 'firestore.aggregate', { n: 3 });
+  });
+
   await app.step("the host's rules apply as the process's signed-in user", () => {
     assert.equal(outcome(client, 'auth.createUser').ok, true, client);
     expectOk(client, 'database.ownPath', null);
@@ -131,10 +135,12 @@ export default scenario(async (app) => {
     expectOk(output, 'admin.cjs', 'from require');
   });
 
-  await app.step('the page on the host reads what the server process wrote', async () => {
+  await app.step('the page on the host reads what the server process wrote, and aggregates over it', async () => {
     const page = await app.page(host.url);
     await page.waitForFunction(() => 'readBack' in window);
-    assert.deepEqual(await page.evaluate(() => readBack()), { database: 'from client sdk', firestore: { from: 'client sdk' } });
+    assert.deepEqual(await page.evaluate(() => readBack()), {
+      database: 'from client sdk', firestore: { from: 'client sdk' }, aggregate: { n: 4 },
+    });
   });
 
   await app.step('an app with other options gets its calls rejected, and nothing throws past them', async () => {
