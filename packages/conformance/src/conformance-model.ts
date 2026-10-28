@@ -37,7 +37,6 @@ import {
 import { loadAndValidateRtdbAcceptanceEvidence } from './rtdb-rules-acceptance-evidence.ts';
 import type { SurfaceDescriptor } from '../surfaces/types.ts';
 import type { CompatibilitySurfaceRegistry } from '../registry/types.ts';
-import coverageBaselineJson from '../baselines/coverage-baseline.json' with { type: 'json' };
 import censusBaselineJson from '../baselines/census-baseline.json' with { type: 'json' };
 import { loadObservations, type Observation } from '../observations/load.ts';
 import { observationExceptions } from '../exceptions/load.ts';
@@ -110,7 +109,6 @@ export interface ConformanceModel {
     registries: readonly CompatibilitySurfaceRegistry[];
     descriptors: readonly SurfaceDescriptor[];
     census: readonly SurfaceCensus[];
-    coverageBaseline: CoverageBaseline;
     rows: readonly CompatibilityRow[];
     observationPaths: Readonly<Record<string, string>>;
   };
@@ -118,24 +116,6 @@ export interface ConformanceModel {
     observations: readonly Observation[];
     observationExceptions: Readonly<Record<string, string>>;
   };
-}
-
-export interface CoverageBaseline {
-  services: Record<string, {
-    publicSurface?: {
-      runtime: { mapped: number; denominator: number; pct: number };
-      types: { mapped: number; denominator: number; pct: number };
-    };
-    native?: boolean;
-    integration?: boolean;
-  }>;
-  overall: {
-    publicSurface: {
-      runtime: { mapped: number; denominator: number; pct: number };
-      types: { mapped: number; denominator: number; pct: number };
-    };
-  };
-  rowStatuses: Record<string, string>;
 }
 
 interface MutableFeature {
@@ -572,7 +552,6 @@ async function buildConformanceModel(enforceCensusPolicy: boolean): Promise<Conf
       registries: surfaceRegistries,
       descriptors: surfaceDescriptors,
       census,
-      coverageBaseline: coverageBaselineJson as CoverageBaseline,
       rows: rows(),
       observationPaths,
     },
